@@ -1,0 +1,6 @@
+# File: requirements.txt
+# Location: variantcentrifuge/requirements.txt
+
+pandas
+pytest
+scipy
