@@ -4,19 +4,12 @@
 """
 Command-line interface (CLI) module.
 
-This script filters and processes VCF files using bcftools, snpEff, SnpSift, and optional steps.
-Changes:
-- --output-dir now defaults to "output".
-- Intermediate files are placed in a "intermediate" subdirectory of --output-dir.
-- Final outputs (final.tsv, final.xlsx, gene_burden.tsv if requested) remain in --output-dir.
-- If --keep-intermediates is false, intermediate files are removed, but final outputs remain.
-
-Other logic remains the same:
-- --output-file optional, can be 'stdout', '-', or a filename. If not provided, compute base name.
-- If gene burden is performed, produce a separate gene_burden file in output-dir.
-- Convert to Excel if requested.
-
-Requires other modules as previously discussed.
+Changes focusing on genotype replacement logic:
+- Removed --samples-file argument.
+- If genotype replacement is needed, parse samples from VCF header using bcftools.
+- Store parsed sample names in cfg["sample_list"].
+- If --no-replacement given, skip replacement.
+- The rest of logic (intermediate files, final output, phenotype filtering, gene burden, etc.) remains the same.
 """
 
 import argparse
@@ -27,10 +20,10 @@ from . import __version__
 from .config import load_config
 from .gene_bed import get_gene_bed
 from .converter import convert_to_excel
-from .replacer import replace_genotypes
 from .phenotype_filter import filter_phenotypes
 from .analyze_variants import analyze_variants
 from .utils import log_message, check_external_tools, set_log_level, run_command
+from .replacer import replace_genotypes
 
 def compute_base_name(vcf_path, gene_name):
     vcf_basename = os.path.splitext(os.path.basename(vcf_path))[0]
@@ -45,6 +38,29 @@ def compute_base_name(vcf_path, gene_name):
             return vcf_basename
         else:
             return f"{vcf_basename}.{genes}"
+
+def parse_samples_from_vcf(vcf_file):
+    """
+    Parse sample names from VCF header using bcftools view -h and extracting #CHROM line.
+    Returns a list of sample names.
+    """
+    output = run_command(["bcftools", "view", "-h", vcf_file], output_file=None)
+    # Find #CHROM line
+    chrom_line = None
+    for line in output.splitlines():
+        if line.startswith("#CHROM"):
+            chrom_line = line
+            break
+    if not chrom_line:
+        # No #CHROM line found?
+        return []
+
+    fields = chrom_line.strip().split("\t")
+    # If no samples, fields end at index 8 (FORMAT). Samples start at index 9.
+    if len(fields) <= 9:
+        return []  # No samples present
+    samples = fields[9:]
+    return samples
 
 def main():
     parser = argparse.ArgumentParser(
@@ -63,7 +79,6 @@ def main():
     parser.add_argument("-r", "--reference", help="Reference database for snpEff", default=None)
     parser.add_argument("-f", "--filters", help="Filters to apply in SnpSift filter")
     parser.add_argument("-e", "--fields", help="Fields to extract with SnpSift extractFields")
-    parser.add_argument("-s", "--samples-file", help="Samples file for genotype replacement")
     parser.add_argument("-o", "--output-file", nargs='?', const='stdout',
                         help="Final output file name or 'stdout'/'-' for stdout (if provided without argument, defaults to stdout)")
     parser.add_argument("--xlsx", action="store_true", help="Convert final result to Excel")
@@ -87,7 +102,6 @@ def main():
     fields = args.fields or cfg.get("fields_to_extract")
 
     if args.output_file is not None:
-        # --output-file provided
         if args.output_file in ["stdout", "-"]:
             final_to_stdout = True
             base_name = compute_base_name(args.vcf_file, args.gene_name)
@@ -97,7 +111,6 @@ def main():
             base_name = os.path.splitext(os.path.basename(args.output_file))[0]
             final_output = os.path.join(args.output_dir, os.path.basename(args.output_file))
     else:
-        # No --output-file given
         final_to_stdout = False
         base_name = compute_base_name(args.vcf_file, args.gene_name)
         final_output = os.path.join(args.output_dir, f"{base_name}.final.tsv")
@@ -119,13 +132,13 @@ def main():
     )
     log_message("DEBUG", f"Gene BED created at: {bed_file}")
 
-    # Intermediate files in intermediate_dir
+    # Intermediate files
     variants_file = os.path.join(intermediate_dir, f"{base_name}.variants.vcf")
     filtered_file = os.path.join(intermediate_dir, f"{base_name}.filtered.vcf")
     extracted_tsv = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv")
     genotype_replaced_tsv = os.path.join(intermediate_dir, f"{base_name}.genotype_replaced.tsv")
     phenotype_filtered_tsv = os.path.join(intermediate_dir, f"{base_name}.phenotype_filtered.tsv")
-    gene_burden_tsv = os.path.join(args.output_dir, f"{base_name}.gene_burden.tsv")  # gene burden in output-dir (final result)
+    gene_burden_tsv = os.path.join(args.output_dir, f"{base_name}.gene_burden.tsv")
 
     # Extract variants
     run_command(["bcftools", "view", args.vcf_file, "-R", bed_file], output_file=variants_file)
@@ -150,9 +163,12 @@ def main():
 
     # Genotype replacement
     if not args.no_replacement:
-        log_message("DEBUG", "Replacing genotypes if sample info is available...")
+        # Parse samples from VCF header
+        samples = parse_samples_from_vcf(args.vcf_file)
+        cfg["sample_list"] = ",".join(samples) if samples else ""
+        log_message("DEBUG", f"Extracted {len(samples)} samples from VCF header for genotype replacement.")
         with open(extracted_tsv, "r", encoding="utf-8") as inp, open(genotype_replaced_tsv, "w", encoding="utf-8") as out:
-            for line in replace_genotypes(inp, args.samples_file, cfg):
+            for line in replace_genotypes(inp, cfg):
                 out.write(line + "\n")
         replaced_tsv = genotype_replaced_tsv
         log_message("DEBUG", f"Genotype replacement done, results in {genotype_replaced_tsv}")
@@ -187,6 +203,9 @@ def main():
         log_message("DEBUG", "No gene burden analysis requested.")
         final_file = replaced_tsv
 
+    if args.output_file is not None and args.output_file in ["stdout", "-"]:
+        final_to_stdout = True
+
     # Write final output
     if final_to_stdout:
         log_message("DEBUG", "Writing final output to stdout.")
@@ -214,15 +233,13 @@ def main():
             intermediates.append(genotype_replaced_tsv)
         if cfg.get("use_phenotype_filtering", False):
             intermediates.append(phenotype_filtered_tsv)
-        # gene_burden_tsv is considered a final result (like stats), do not delete
-        # final_file and final_output are final results, do not delete them
-        # If final_file is in intermediates, remove it
+        # gene_burden_tsv is considered final result
+        # final_file and final_output are final results
         if final_file in intermediates:
             intermediates.remove(final_file)
         for f in intermediates:
             if os.path.exists(f):
                 os.remove(f)
-        # If intermediate_dir is empty, we might remove it or leave it. Let's leave it.
         log_message("DEBUG", "Intermediate files removed.")
 
     log_message("INFO", f"Processing completed. Output saved to {'stdout' if final_to_stdout else final_output}")
