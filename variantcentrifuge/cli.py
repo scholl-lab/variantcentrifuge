@@ -4,12 +4,13 @@
 """
 Command-line interface (CLI) module.
 
-Changes focusing on genotype replacement logic:
-- Removed --samples-file argument.
-- If genotype replacement is needed, parse samples from VCF header using bcftools.
-- Store parsed sample names in cfg["sample_list"].
-- If --no-replacement given, skip replacement.
-- The rest of logic (intermediate files, final output, phenotype filtering, gene burden, etc.) remains the same.
+Now adding phenotype integration logic:
+- Arguments: --phenotype-file, --phenotype-sample-column, --phenotype-value-column
+- If phenotype file is provided, load phenotypes into cfg.
+- After genotype replacement and final line construction, parse GT column, find samples, 
+  aggregate phenotypes, and add PHENOTYPES column.
+
+Other logic remains the same.
 """
 
 import argparse
@@ -24,6 +25,7 @@ from .phenotype_filter import filter_phenotypes
 from .analyze_variants import analyze_variants
 from .utils import log_message, check_external_tools, set_log_level, run_command
 from .replacer import replace_genotypes
+from .phenotype import load_phenotypes, aggregate_phenotypes_for_samples
 
 def compute_base_name(vcf_path, gene_name):
     vcf_basename = os.path.splitext(os.path.basename(vcf_path))[0]
@@ -40,25 +42,17 @@ def compute_base_name(vcf_path, gene_name):
             return f"{vcf_basename}.{genes}"
 
 def parse_samples_from_vcf(vcf_file):
-    """
-    Parse sample names from VCF header using bcftools view -h and extracting #CHROM line.
-    Returns a list of sample names.
-    """
     output = run_command(["bcftools", "view", "-h", vcf_file], output_file=None)
-    # Find #CHROM line
     chrom_line = None
     for line in output.splitlines():
         if line.startswith("#CHROM"):
             chrom_line = line
             break
     if not chrom_line:
-        # No #CHROM line found?
         return []
-
     fields = chrom_line.strip().split("\t")
-    # If no samples, fields end at index 8 (FORMAT). Samples start at index 9.
     if len(fields) <= 9:
-        return []  # No samples present
+        return []
     samples = fields[9:]
     return samples
 
@@ -89,6 +83,11 @@ def main():
     parser.add_argument("--keep-intermediates", action="store_true", default=True,
                         help="Keep intermediate files (default: true). If false, intermediate files are deleted at the end.")
 
+    # New phenotype arguments
+    parser.add_argument("--phenotype-file", help="Path to phenotype file (.csv or .tsv) with sample-to-phenotype mapping")
+    parser.add_argument("--phenotype-sample-column", help="Name of the column containing sample IDs in phenotype file")
+    parser.add_argument("--phenotype-value-column", help="Name of the column containing phenotype values in phenotype file")
+
     args = parser.parse_args()
     set_log_level(args.log_level)
     log_message("DEBUG", f"CLI arguments: {args}")
@@ -118,6 +117,15 @@ def main():
     cfg["perform_gene_burden"] = args.perform_gene_burden
     cfg["stats_output_file"] = args.stats_output_file
 
+    # Phenotype logic:
+    phenotypes = {}
+    use_phenotypes = False
+    if args.phenotype_file and args.phenotype_sample_column and args.phenotype_value_column:
+        # Load phenotypes
+        phenotypes = load_phenotypes(args.phenotype_file, args.phenotype_sample_column, args.phenotype_value_column)
+        use_phenotypes = True
+    # If not all phenotype arguments are given, we skip phenotype integration.
+
     os.makedirs(args.output_dir, exist_ok=True)
     intermediate_dir = os.path.join(args.output_dir, "intermediate")
     os.makedirs(intermediate_dir, exist_ok=True)
@@ -137,7 +145,7 @@ def main():
     filtered_file = os.path.join(intermediate_dir, f"{base_name}.filtered.vcf")
     extracted_tsv = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv")
     genotype_replaced_tsv = os.path.join(intermediate_dir, f"{base_name}.genotype_replaced.tsv")
-    phenotype_filtered_tsv = os.path.join(intermediate_dir, f"{base_name}.phenotype_filtered.tsv")
+    phenotype_added_tsv = os.path.join(intermediate_dir, f"{base_name}.phenotypes_added.tsv")  # New intermediate for phenotypes
     gene_burden_tsv = os.path.join(args.output_dir, f"{base_name}.gene_burden.tsv")
 
     # Extract variants
@@ -176,32 +184,78 @@ def main():
         replaced_tsv = extracted_tsv
         log_message("DEBUG", "Genotype replacement skipped.")
 
-    # Phenotype filtering
-    if cfg.get("use_phenotype_filtering", False):
-        log_message("DEBUG", "Applying phenotype filtering...")
-        with open(replaced_tsv, "r", encoding="utf-8") as inp, open(phenotype_filtered_tsv, "w", encoding="utf-8") as out:
-            for line in filter_phenotypes(inp, cfg):
-                out.write(line + "\n")
-        replaced_tsv = phenotype_filtered_tsv
-        log_message("DEBUG", "Phenotype filtering complete.")
+    # Add phenotypes if available
+    if use_phenotypes:
+        log_message("DEBUG", "Adding phenotypes to the final table...")
+        # We need to parse the GT column for each line, identify samples, aggregate phenotypes
+        # Insert a new column PHENOTYPES at the end
+        with open(replaced_tsv, "r", encoding="utf-8") as inp, open(phenotype_added_tsv, "w", encoding="utf-8") as out:
+            header = next(inp).rstrip("\n")
+            header_fields = header.split("\t")
+            # Add PHENOTYPES column at the end
+            header_fields.append("PHENOTYPES")
+            out.write("\t".join(header_fields) + "\n")
 
-    # Gene burden
+            for line in inp:
+                line = line.rstrip("\n")
+                if not line.strip():
+                    out.write(line + "\n")
+                    continue
+                fields = line.split("\t")
+                # Find GT column
+                if "GT" not in header_fields:
+                    # no GT column?
+                    fields.append("")  # empty phenotypes
+                    out.write("\t".join(fields) + "\n")
+                    continue
+                gt_idx = header_fields.index("GT")
+                gt_value = fields[gt_idx]
+                # gt_value might contain something like: sample1(0/1);sample2(1/1)
+                # split by ';' to get sample entries
+                # each sample entry is sample or sample(genotype)
+                # sample(genotype) pattern: (\S+)\((\S+)\)
+                samples_in_line = []
+                if gt_value.strip():
+                    sample_entries = gt_value.split(";")
+                    import re
+                    pattern = re.compile(r"^([^()]+)(?:\(([^)]+)\))?$")
+                    for entry in sample_entries:
+                        entry = entry.strip()
+                        if not entry:
+                            continue
+                        m = pattern.match(entry)
+                        if m:
+                            s = m.group(1).strip()
+                            # genotype = m.group(2), unused here
+                            if s:
+                                samples_in_line.append(s)
+                # Now we have all samples for this line
+                pheno_str = ""
+                if samples_in_line:
+                    pheno_str = aggregate_phenotypes_for_samples(samples_in_line, phenotypes)
+                fields.append(pheno_str)
+                out.write("\t".join(fields) + "\n")
+        final_tsv = phenotype_added_tsv
+    else:
+        final_tsv = replaced_tsv
+
+    # Perform gene burden analysis if requested
     if cfg.get("perform_gene_burden", False):
         log_message("DEBUG", "Analyzing variants (gene burden) requested...")
         line_count = 0
-        with open(replaced_tsv, "r", encoding="utf-8") as inp, open(gene_burden_tsv, "w", encoding="utf-8") as out:
+        with open(final_tsv, "r", encoding="utf-8") as inp, open(gene_burden_tsv, "w", encoding="utf-8") as out:
             for line in analyze_variants(inp, cfg):
                 out.write(line + "\n")
                 line_count += 1
         if line_count == 0:
-            log_message("WARN", "No lines produced by analyze_variants. Falling back to replaced_tsv.")
-            final_file = replaced_tsv
+            log_message("WARN", "No lines produced by analyze_variants. Falling back to final_tsv.")
+            final_file = final_tsv
         else:
-            final_file = replaced_tsv
+            final_file = final_tsv
         log_message("DEBUG", f"Variant analysis complete, gene burden results in {gene_burden_tsv}")
     else:
         log_message("DEBUG", "No gene burden analysis requested.")
-        final_file = replaced_tsv
+        final_file = final_tsv
 
     if args.output_file is not None and args.output_file in ["stdout", "-"]:
         final_to_stdout = True
@@ -231,8 +285,9 @@ def main():
         intermediates = [variants_file, filtered_file, extracted_tsv]
         if not args.no_replacement:
             intermediates.append(genotype_replaced_tsv)
-        if cfg.get("use_phenotype_filtering", False):
-            intermediates.append(phenotype_filtered_tsv)
+        # phenotype_added_tsv if phenotypes used
+        if use_phenotypes:
+            intermediates.append(phenotype_added_tsv)
         # gene_burden_tsv is considered final result
         # final_file and final_output are final results
         if final_file in intermediates:
