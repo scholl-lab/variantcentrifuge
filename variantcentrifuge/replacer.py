@@ -20,7 +20,7 @@ If no sample_list, returns lines unchanged.
 """
 
 def replace_genotypes(lines, cfg):
-    append_genotype = cfg.get("append_genotype", False)
+    append_genotype = cfg.get("append_genotype", True)
     sample_list_str = cfg.get("sample_list", "")
     proband_list_str = cfg.get("proband_list", "")
     control_list_str = cfg.get("control_list", "")
