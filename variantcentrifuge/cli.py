@@ -19,7 +19,7 @@ from .replacer import replace_genotypes
 from .phenotype_filter import filter_phenotypes
 from .converter import convert_to_excel
 from .analyze_variants import analyze_variants
-from .utils import log_message
+from .utils import log_message, check_external_tools
 
 def main():
     parser = argparse.ArgumentParser(
@@ -73,6 +73,9 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Check external tool availability before proceeding
+    check_external_tools()
 
     # Load configuration and override defaults if provided
     cfg = load_config(args.config)

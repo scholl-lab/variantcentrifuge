@@ -5,12 +5,12 @@
 Utility functions module.
 
 This module provides helper functions for logging and running external
-commands.
+commands and checking for external tool availability.
 """
 
 import subprocess
 import sys
-
+import shutil
 
 def log_message(level, message):
     """
@@ -71,3 +71,24 @@ def run_command_stream(cmd, input_stream=None):
         )
     else:
         proc.stderr.close()
+
+
+def check_external_tools():
+    """
+    Check if required external tools are installed and in the PATH.
+
+    The tools checked are:
+    - bcftools
+    - snpEff
+    - SnpSift
+    - bedtools
+
+    If any are missing, log an error and exit.
+    """
+    required_tools = ["bcftools", "snpEff", "SnpSift", "bedtools"]
+    missing = [tool for tool in required_tools if shutil.which(tool) is None]
+
+    if missing:
+        log_message("ERROR", f"Missing required external tools: {', '.join(missing)}. "
+                             f"Please ensure they are installed and in PATH.")
+        sys.exit(1)
