@@ -5,11 +5,13 @@
 Command-line interface (CLI) module.
 
 This module defines the main entry point for the variantcentrifuge CLI,
-handling argument parsing and orchestrating the pipeline steps.
+handling argument parsing, orchestrating steps with temporary files, and
+following logic similar to the original bash script.
 """
 
 import argparse
 import sys
+import tempfile
 from . import __version__
 from .config import load_config
 from .gene_bed import get_gene_bed
@@ -19,17 +21,24 @@ from .replacer import replace_genotypes
 from .phenotype_filter import filter_phenotypes
 from .converter import convert_to_excel
 from .analyze_variants import analyze_variants
-from .utils import log_message, check_external_tools
+from .utils import log_message, check_external_tools, set_log_level
+
 
 def main():
     parser = argparse.ArgumentParser(
         description="variantcentrifuge: Filter and process VCF files."
     )
     parser.add_argument(
-        "--version", 
-        action="version", 
+        "--version",
+        action="version",
         version=f"variantcentrifuge {__version__}",
         help="Show the current version and exit"
+    )
+    parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARN", "ERROR"],
+        default="INFO",
+        help="Set the logging level (DEBUG, INFO, WARN, ERROR)"
     )
     parser.add_argument(
         "-c", "--config", help="Path to configuration file", default=None
@@ -73,61 +82,92 @@ def main():
     )
 
     args = parser.parse_args()
+    set_log_level(args.log_level)
+    log_message("DEBUG", f"CLI arguments: {args}")
 
-    # Check external tool availability before proceeding
+    # Check external tools
     check_external_tools()
 
-    # Load configuration and override defaults if provided
+    # Load config
     cfg = load_config(args.config)
+    log_message("DEBUG", f"Configuration loaded: {cfg}")
     reference = args.reference or cfg.get("reference")
     filters = args.filters or cfg.get("filters")
     fields = args.fields or cfg.get("fields_to_extract")
     output_file = args.output_file or cfg.get("output_file", "variants.tsv")
 
-    # Update cfg with runtime arguments
     cfg["perform_gene_burden"] = args.perform_gene_burden
     cfg["stats_output_file"] = args.stats_output_file
 
-    # Process gene BED
+    # Generate BED file from gene
+    log_message("DEBUG", "Starting gene BED extraction.")
     bed_file = get_gene_bed(
         reference,
         args.gene_name,
         interval_expand=cfg.get("interval_expand", 0),
         add_chr=cfg.get("add_chr", True)
     )
+    log_message("DEBUG", f"Gene BED created at: {bed_file}")
 
-    # Extract variants
-    variant_stream = extract_variants(args.vcf_file, bed_file, cfg)
+    # Extract variants with bcftools
+    log_message("DEBUG", "Extracting variants with bcftools...")
+    variant_file = extract_variants(args.vcf_file, bed_file, cfg)
+    log_message("DEBUG", f"Variants extracted to {variant_file}. Applying filters...")
 
-    # Apply SnpSift filters
-    filtered_stream = apply_snpsift_filter(variant_stream, filters, cfg)
+    # Apply SnpSift filter
+    filtered_file = apply_snpsift_filter(variant_file, filters, cfg)
+    log_message("DEBUG", f"Filter applied. Extracting fields to TSV...")
 
     # Extract fields
-    extracted_data = extract_fields(filtered_stream, fields, cfg)
+    extracted_file = extract_fields(filtered_file, fields, cfg)
+    log_message("DEBUG", f"Fields extracted to {extracted_file}")
 
-    # Replace genotypes if not skipped
+    # Genotype replacement if not skipped
     if not args.no_replacement:
-        replaced_data = replace_genotypes(extracted_data, args.samples_file, cfg)
+        log_message("DEBUG", "Replacing genotypes if sample info is available...")
+        replaced_data_file = tempfile.mktemp(suffix=".tsv")
+        # replace_genotypes returns an iterator of lines, so let's just read/write directly
+        # Adjust replace_genotypes to produce a file instead of lines:
+        with open(extracted_file, "r", encoding="utf-8") as inp, open(replaced_data_file, "w", encoding="utf-8") as out:
+            for line in replace_genotypes(inp, args.samples_file, cfg):
+                out.write(line + "\n")
+        log_message("DEBUG", f"Genotype replacement done, results in {replaced_data_file}")
     else:
-        replaced_data = extracted_data
+        replaced_data_file = extracted_file
+        log_message("DEBUG", "Genotype replacement skipped.")
 
-    # Apply phenotype filtering if configured
+    # Phenotype filtering if enabled
     if cfg.get("use_phenotype_filtering", False):
-        replaced_data = filter_phenotypes(replaced_data, cfg)
+        log_message("DEBUG", "Applying phenotype filtering...")
+        phenotype_file = tempfile.mktemp(suffix=".tsv")
+        with open(replaced_data_file, "r", encoding="utf-8") as inp, open(phenotype_file, "w", encoding="utf-8") as out:
+            for line in filter_phenotypes(inp, cfg):
+                out.write(line + "\n")
+        replaced_data_file = phenotype_file
+        log_message("DEBUG", "Phenotype filtering complete.")
 
     # Analyze variants if requested
-    analyzed_data = analyze_variants(replaced_data, cfg)
+    log_message("DEBUG", "Analyzing variants if requested...")
+    analyzed_data_file = tempfile.mktemp(suffix=".tsv")
+    # analyze_variants returns an iterator of lines as well
+    with open(replaced_data_file, "r", encoding="utf-8") as inp, open(analyzed_data_file, "w", encoding="utf-8") as out:
+        for line in analyze_variants(inp, cfg):
+            out.write(line + "\n")
+    log_message("DEBUG", f"Variant analysis complete, results in {analyzed_data_file}")
 
-    # Write output
-    with open(output_file, "w", encoding="utf-8") as out_f:
-        for line in analyzed_data:
-            out_f.write(line + "\n")
+    # Write final output
+    final_output = output_file if output_file else "/dev/stdout"
+    log_message("DEBUG", f"Writing final output to {final_output}")
+    with open(analyzed_data_file, "r", encoding="utf-8") as inp, open(final_output, "w", encoding="utf-8") as out:
+        for line in inp:
+            out.write(line + "\n")
 
-    # Convert to Excel if requested
     if args.xlsx:
-        convert_to_excel(output_file, cfg)
+        log_message("DEBUG", "Converting final output to Excel...")
+        convert_to_excel(final_output, cfg)
+        log_message("DEBUG", "Excel conversion complete.")
 
-    log_message("INFO", f"Processing completed. Output saved to {output_file}")
+    log_message("INFO", f"Processing completed. Output saved to {final_output}")
 
 if __name__ == "__main__":
     main()

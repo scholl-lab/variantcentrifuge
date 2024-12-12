@@ -4,86 +4,94 @@
 """
 Utility functions module.
 
-This module provides helper functions for logging and running external
-commands and checking for external tool availability.
+Provides helper functions for logging, running commands, and checking tool availability.
 """
 
 import subprocess
 import sys
 import shutil
+import tempfile
 
-def log_message(level, message):
+current_log_level = "INFO"
+
+def set_log_level(level):
     """
-    Log messages to stderr with a given level.
-
+    Set the global logging level.
+    
     Parameters
     ----------
     level : str
-        Log level (e.g. "INFO", "ERROR").
+        Logging level, one of ["DEBUG", "INFO", "WARN", "ERROR"].
+    """
+    global current_log_level
+    current_log_level = level
+
+def log_message(level, message):
+    """
+    Log messages to stderr with a given level, respecting the global log level.
+    
+    Parameters
+    ----------
+    level : str
+        The message's log level ("DEBUG", "INFO", "WARN", "ERROR").
     message : str
-        Message to log.
+        The message to log.
     """
-    print(f"[{level}] {message}", file=sys.stderr)
+    levels = {"ERROR": 1, "WARN": 2, "INFO": 3, "DEBUG": 4}
+    global current_log_level
+    if level not in levels:
+        level = "INFO"
+    if current_log_level not in levels:
+        current_log_level = "INFO"
 
+    if levels[level] <= levels[current_log_level]:
+        print(f"[{level}] {message}", file=sys.stderr)
 
-def run_command_stream(cmd, input_stream=None):
+def run_command(cmd, output_file=None):
     """
-    Run a command and yield its stdout lines.
+    Run a shell command and write its stdout to output_file if provided, else return stdout.
 
     Parameters
     ----------
     cmd : list
-        Command and arguments as a list.
-    input_stream : iterator, optional
-        If provided, lines from this iterator will be passed to the
-        subprocess stdin.
+        Command and arguments.
+    output_file : str, optional
+        Path to a file where stdout should be written. If None, return stdout as string.
 
-    Yields
-    ------
+    Returns
+    -------
     str
-        Lines from the command's stdout.
+        If output_file is None, returns the command stdout as a string.
+        If output_file is given, returns output_file after completion.
     """
-    proc = subprocess.Popen(
-        cmd,
-        stdin=subprocess.PIPE if input_stream else None,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1
-    )
-
-    if input_stream:
-        for line in input_stream:
-            proc.stdin.write(line + "\n")
-        proc.stdin.close()
-
-    for out_line in proc.stdout:
-        yield out_line.rstrip("\n")
-
-    proc.stdout.close()
-    proc.wait()
-
-    if proc.returncode != 0:
-        err = proc.stderr.read()
-        proc.stderr.close()
-        raise subprocess.CalledProcessError(
-            proc.returncode, cmd, err
-        )
+    log_message("DEBUG", f"Running command: {' '.join(cmd)}")
+    if output_file:
+        with open(output_file, "w", encoding="utf-8") as out_f:
+            result = subprocess.run(cmd, stdout=out_f, stderr=subprocess.PIPE, text=True)
     else:
-        proc.stderr.close()
-
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    
+    if result.returncode != 0:
+        log_message("ERROR", f"Command failed: {' '.join(cmd)}\nError: {result.stderr}")
+        raise subprocess.CalledProcessError(result.returncode, cmd, result.stderr)
+    else:
+        log_message("DEBUG", "Command completed successfully.")
+        if output_file:
+            return output_file
+        else:
+            return result.stdout
 
 def check_external_tools():
     """
     Check if required external tools are installed and in the PATH.
-
-    The tools checked are:
+    
+    Tools checked:
     - bcftools
     - snpEff
     - SnpSift
     - bedtools
-
-    If any are missing, log an error and exit.
+    
+    If any are missing, an error is logged and the program exits.
     """
     required_tools = ["bcftools", "snpEff", "SnpSift", "bedtools"]
     missing = [tool for tool in required_tools if shutil.which(tool) is None]
@@ -92,3 +100,5 @@ def check_external_tools():
         log_message("ERROR", f"Missing required external tools: {', '.join(missing)}. "
                              f"Please ensure they are installed and in PATH.")
         sys.exit(1)
+    else:
+        log_message("DEBUG", "All external tools are available.")
