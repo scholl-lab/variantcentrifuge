@@ -161,3 +161,7 @@ cython_debug/
 
 # testing folder
 testing/
+
+# potential output files like TSV or XLSX
+*.tsv
+*.xlsx
