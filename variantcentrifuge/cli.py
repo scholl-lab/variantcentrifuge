@@ -126,8 +126,6 @@ def main():
     if not args.no_replacement:
         log_message("DEBUG", "Replacing genotypes if sample info is available...")
         replaced_data_file = tempfile.mktemp(suffix=".tsv")
-        # replace_genotypes returns an iterator of lines, so let's just read/write directly
-        # Adjust replace_genotypes to produce a file instead of lines:
         with open(extracted_file, "r", encoding="utf-8") as inp, open(replaced_data_file, "w", encoding="utf-8") as out:
             for line in replace_genotypes(inp, args.samples_file, cfg):
                 out.write(line + "\n")
@@ -146,19 +144,32 @@ def main():
         replaced_data_file = phenotype_file
         log_message("DEBUG", "Phenotype filtering complete.")
 
-    # Analyze variants if requested
-    log_message("DEBUG", "Analyzing variants if requested...")
-    analyzed_data_file = tempfile.mktemp(suffix=".tsv")
-    # analyze_variants returns an iterator of lines as well
-    with open(replaced_data_file, "r", encoding="utf-8") as inp, open(analyzed_data_file, "w", encoding="utf-8") as out:
-        for line in analyze_variants(inp, cfg):
-            out.write(line + "\n")
-    log_message("DEBUG", f"Variant analysis complete, results in {analyzed_data_file}")
+    # Decide if we run variant analysis
+    if cfg.get("perform_gene_burden", False):
+        log_message("DEBUG", "Analyzing variants (gene burden) requested...")
+        analyzed_data_file = tempfile.mktemp(suffix=".tsv")
+        line_count = 0
+        with open(replaced_data_file, "r", encoding="utf-8") as inp, open(analyzed_data_file, "w", encoding="utf-8") as out:
+            for line in analyze_variants(inp, cfg):
+                out.write(line + "\n")
+                line_count += 1
+
+        if line_count == 0:
+            # analyze_variants produced no lines, fallback
+            log_message("WARN", "No lines produced by analyze_variants. "
+                                "Falling back to replaced_data_file.")
+            final_file = replaced_data_file
+        else:
+            final_file = analyzed_data_file
+        log_message("DEBUG", f"Variant analysis complete, results in {final_file}")
+    else:
+        log_message("DEBUG", "No gene burden analysis requested, skipping analyze_variants.")
+        final_file = replaced_data_file
 
     # Write final output
     final_output = output_file if output_file else "/dev/stdout"
     log_message("DEBUG", f"Writing final output to {final_output}")
-    with open(analyzed_data_file, "r", encoding="utf-8") as inp, open(final_output, "w", encoding="utf-8") as out:
+    with open(final_file, "r", encoding="utf-8") as inp, open(final_output, "w", encoding="utf-8") as out:
         for line in inp:
             out.write(line + "\n")
 
