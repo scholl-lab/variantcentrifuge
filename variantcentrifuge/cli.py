@@ -8,7 +8,7 @@ Now adding phenotype integration logic:
 - Arguments: --phenotype-file, --phenotype-sample-column, --phenotype-value-column
 - If phenotype file is provided, load phenotypes into cfg.
 - After genotype replacement and final line construction, parse GT column, find samples, 
-  aggregate phenotypes, and add PHENOTYPES column.
+  aggregate phenotypes, and add phenotypes column.
 
 Other logic remains the same.
 """
@@ -188,12 +188,12 @@ def main():
     if use_phenotypes:
         log_message("DEBUG", "Adding phenotypes to the final table...")
         # We need to parse the GT column for each line, identify samples, aggregate phenotypes
-        # Insert a new column PHENOTYPES at the end
+        # Insert a new column phenotypes at the end
         with open(replaced_tsv, "r", encoding="utf-8") as inp, open(phenotype_added_tsv, "w", encoding="utf-8") as out:
             header = next(inp).rstrip("\n")
             header_fields = header.split("\t")
-            # Add PHENOTYPES column at the end
-            header_fields.append("PHENOTYPES")
+            # Add phenotypes column at the end
+            header_fields.append("phenotypes")
             out.write("\t".join(header_fields) + "\n")
 
             for line in inp:
