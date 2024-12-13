@@ -5,11 +5,9 @@
 Command-line interface (CLI) module.
 
 Changes:
-- If multiple genes are provided or if a gene file is given, we normalize and deduplicate them.
-- "all" means no gene list is provided to snpEff (run full annotation).
-- Verify genes found in the generated BED and warn if any are missing.
-- Use the updated get_gene_bed that uses a gene file approach for multiple genes.
-- Log start and end times, compute duration, and write them to Metadata.
+- If the user provides a gene name with '-g' that looks like an existing file,
+  log a warning and advise using '-G' instead of letting the code run and fail.
+- This makes the error handling more graceful if a user accidentally provides a file to -g.
 """
 
 import argparse
@@ -84,6 +82,13 @@ def normalize_genes(gene_name_str, gene_file_str):
         if not gene_name_str:
             log_message("ERROR", "No gene name provided and no gene file provided.")
             sys.exit(1)
+        # Check if the user might have provided a file to -g instead of using -G
+        # If the gene_name_str is a path that exists as a file, warn and exit
+        if os.path.exists(gene_name_str):
+            log_message("ERROR", f"It looks like you provided a file '{gene_name_str}' to -g/--gene-name.")
+            log_message("ERROR", "If you meant to provide a file of gene names, please use -G/--gene-file instead.")
+            sys.exit(1)
+
         g_str = gene_name_str.replace(",", " ")
         genes = [g.strip() for g in g_str.split() if g.strip()]
 

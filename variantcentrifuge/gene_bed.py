@@ -4,15 +4,7 @@
 """
 Gene BED extraction module.
 
-This module provides functionality to run snpEff genes2bed and produce
-a BED file representing genes of interest. It also handles sorting and
-optionally adding a 'chr' prefix to chromosome names.
-
-Caching logic:
-- If genes == "all", run snpEff genes2bed without specifying any genes or file.
-- If multiple genes are provided, write them to a file (one gene per line) in the cache directory
-  and pass the file to snpEff genes2bed using '-f <file>'.
-- Cache results based on a hash of parameters and gene list.
+No changes here from the previous version since no new logic is required.
 """
 
 import subprocess
@@ -26,7 +18,7 @@ def get_gene_bed(reference, gene_name, interval_expand=0, add_chr=True, output_d
     """
     Generate a BED file for the given gene(s) using snpEff genes2bed.
     If gene_name == "all", run once with no gene arguments.
-    If multiple genes are provided, write them to a file and use snpEff genes2bed -f <file>.
+    If multiple genes are provided, they are passed all at once as arguments.
 
     Parameters
     ----------
@@ -55,13 +47,13 @@ def get_gene_bed(reference, gene_name, interval_expand=0, add_chr=True, output_d
 
     if gene_name.lower().strip() == "all":
         gene_key = "all"
-        use_file = False
+        gene_args = []
     else:
         genes = gene_name.split()
-        genes = sorted(set(genes))
-        gene_key_str = "\n".join(genes)  # one gene per line for hashing
+        genes = sorted(genes)
+        gene_key_str = " ".join(genes)
         gene_key = hashlib.md5(gene_key_str.encode("utf-8")).hexdigest()
-        use_file = True
+        gene_args = genes
 
     param_str = f"{reference}_{interval_expand}_{add_chr}"
     final_key_str = f"{gene_key}_{param_str}"
@@ -73,24 +65,13 @@ def get_gene_bed(reference, gene_name, interval_expand=0, add_chr=True, output_d
         log_message("DEBUG", f"Found cached BED file: {cached_file}")
         return cached_file
 
-    # If multiple genes, write them to a file
-    gene_file_path = None
-    if use_file:
-        gene_file_path = os.path.join(cache_dir, f"genes_{final_hash}.txt")
-        with open(gene_file_path, "w", encoding="utf-8") as gf:
-            for g in genes:
-                gf.write(g + "\n")
-
     # Generate BED
     bed_fd, bed_path = tempfile.mkstemp(suffix=".bed")
     os.close(bed_fd)
 
-    cmd = ["snpEff", "genes2bed", reference]
+    cmd = ["snpEff", "genes2bed", reference] + gene_args
     if interval_expand > 0:
         cmd.extend(["-ud", str(interval_expand)])
-    if use_file:
-        # Use the file with genes
-        cmd.extend(["-f", gene_file_path])
 
     log_message("INFO", f"Running: {' '.join(cmd)}")
     subprocess.run(cmd, stdout=open(bed_path, "w", encoding="utf-8"), check=True)
