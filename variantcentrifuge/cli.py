@@ -4,23 +4,22 @@
 """
 Command-line interface (CLI) module.
 
-Now adding phenotype integration logic:
-- Arguments: --phenotype-file, --phenotype-sample-column, --phenotype-value-column
-- If phenotype file is provided, load phenotypes into cfg.
-- After genotype replacement and final line construction, parse GT column, find samples, 
-  aggregate phenotypes, and add phenotypes column.
-
-Other logic remains the same.
+Changes:
+- For SnpSift version retrieval, we now use subprocess directly with check=False
+  to avoid errors if SnpSift returns a non-zero exit code.
+- We then parse stdout from SnpSift's output and extract the version line if present.
 """
 
 import argparse
 import sys
 import os
 import hashlib
+import datetime
+import subprocess
 from . import __version__
 from .config import load_config
 from .gene_bed import get_gene_bed
-from .converter import convert_to_excel
+from .converter import convert_to_excel, append_tsv_as_sheet
 from .phenotype_filter import filter_phenotypes
 from .analyze_variants import analyze_variants
 from .utils import log_message, check_external_tools, set_log_level, run_command
@@ -35,7 +34,6 @@ def compute_base_name(vcf_path, gene_name):
         gene_hash = hashlib.md5(genes.encode('utf-8')).hexdigest()[:8]
         return f"{vcf_basename}.{gene_hash}"
     else:
-        # single gene
         if genes.lower() in vcf_basename.lower():
             return vcf_basename
         else:
@@ -55,6 +53,49 @@ def parse_samples_from_vcf(vcf_file):
         return []
     samples = fields[9:]
     return samples
+
+def sanitize_metadata_field(value):
+    # Replace tabs and newlines with spaces
+    return value.replace("\t", " ").replace("\n", " ").strip()
+
+def safe_run_snpeff():
+    try:
+        o = run_command(["snpEff", "-version"], output_file=None)
+        return o.strip().splitlines()[0] if o else "N/A"
+    except:
+        return "N/A"
+
+def safe_run_bcftools():
+    try:
+        o = run_command(["bcftools", "--version"], output_file=None)
+        return o.strip().splitlines()[0] if o else "N/A"
+    except:
+        return "N/A"
+
+def safe_run_snpsift():
+    # We'll directly run 'SnpSift annotate' using subprocess, ignoring errors
+    # and parse stdout if available.
+    try:
+        result = subprocess.run(["SnpSift", "annotate"],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                text=True,
+                                check=False)
+        ver = "N/A"
+        # Check stdout for a line starting with "SnpSift version"
+        for line in result.stdout.splitlines():
+            if line.startswith("SnpSift version"):
+                ver = line
+                break
+        # If not found in stdout, maybe in stderr?
+        if ver == "N/A":
+            for line in result.stderr.splitlines():
+                if line.startswith("SnpSift version"):
+                    ver = line
+                    break
+        return ver
+    except:
+        return "N/A"
 
 def main():
     parser = argparse.ArgumentParser(
@@ -83,8 +124,8 @@ def main():
     parser.add_argument("--keep-intermediates", action="store_true", default=True,
                         help="Keep intermediate files (default: true). If false, intermediate files are deleted at the end.")
 
-    # New phenotype arguments
-    parser.add_argument("--phenotype-file", help="Path to phenotype file (.csv or .tsv) with sample-to-phenotype mapping")
+    # Phenotype arguments
+    parser.add_argument("--phenotype-file", help="Path to phenotype file (.csv or .tsv)")
     parser.add_argument("--phenotype-sample-column", help="Name of the column containing sample IDs in phenotype file")
     parser.add_argument("--phenotype-value-column", help="Name of the column containing phenotype values in phenotype file")
 
@@ -117,14 +158,12 @@ def main():
     cfg["perform_gene_burden"] = args.perform_gene_burden
     cfg["stats_output_file"] = args.stats_output_file
 
-    # Phenotype logic:
+    # Phenotype logic
     phenotypes = {}
     use_phenotypes = False
     if args.phenotype_file and args.phenotype_sample_column and args.phenotype_value_column:
-        # Load phenotypes
         phenotypes = load_phenotypes(args.phenotype_file, args.phenotype_sample_column, args.phenotype_value_column)
         use_phenotypes = True
-    # If not all phenotype arguments are given, we skip phenotype integration.
 
     os.makedirs(args.output_dir, exist_ok=True)
     intermediate_dir = os.path.join(args.output_dir, "intermediate")
@@ -145,7 +184,7 @@ def main():
     filtered_file = os.path.join(intermediate_dir, f"{base_name}.filtered.vcf")
     extracted_tsv = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv")
     genotype_replaced_tsv = os.path.join(intermediate_dir, f"{base_name}.genotype_replaced.tsv")
-    phenotype_added_tsv = os.path.join(intermediate_dir, f"{base_name}.phenotypes_added.tsv")  # New intermediate for phenotypes
+    phenotype_added_tsv = os.path.join(intermediate_dir, f"{base_name}.phenotypes_added.tsv")
     gene_burden_tsv = os.path.join(args.output_dir, f"{base_name}.gene_burden.tsv")
 
     # Extract variants
@@ -171,7 +210,6 @@ def main():
 
     # Genotype replacement
     if not args.no_replacement:
-        # Parse samples from VCF header
         samples = parse_samples_from_vcf(args.vcf_file)
         cfg["sample_list"] = ",".join(samples) if samples else ""
         log_message("DEBUG", f"Extracted {len(samples)} samples from VCF header for genotype replacement.")
@@ -187,53 +225,44 @@ def main():
     # Add phenotypes if available
     if use_phenotypes:
         log_message("DEBUG", "Adding phenotypes to the final table...")
-        # We need to parse the GT column for each line, identify samples, aggregate phenotypes
-        # Insert a new column phenotypes at the end
+        import re
+        pattern = re.compile(r"^([^()]+)(?:\([^)]+\))?$")
+
         with open(replaced_tsv, "r", encoding="utf-8") as inp, open(phenotype_added_tsv, "w", encoding="utf-8") as out:
             header = next(inp).rstrip("\n")
             header_fields = header.split("\t")
-            # Add phenotypes column at the end
             header_fields.append("phenotypes")
             out.write("\t".join(header_fields) + "\n")
+
+            gt_idx = header_fields.index("GT") if "GT" in header_fields else None
 
             for line in inp:
                 line = line.rstrip("\n")
                 if not line.strip():
-                    out.write(line + "\n")
+                    out.write(line+"\n")
                     continue
                 fields = line.split("\t")
-                # Find GT column
-                if "GT" not in header_fields:
-                    # no GT column?
-                    fields.append("")  # empty phenotypes
-                    out.write("\t".join(fields) + "\n")
-                    continue
-                gt_idx = header_fields.index("GT")
-                gt_value = fields[gt_idx]
-                # gt_value might contain something like: sample1(0/1);sample2(1/1)
-                # split by ';' to get sample entries
-                # each sample entry is sample or sample(genotype)
-                # sample(genotype) pattern: (\S+)\((\S+)\)
-                samples_in_line = []
-                if gt_value.strip():
-                    sample_entries = gt_value.split(";")
-                    import re
-                    pattern = re.compile(r"^([^()]+)(?:\(([^)]+)\))?$")
-                    for entry in sample_entries:
-                        entry = entry.strip()
-                        if not entry:
-                            continue
-                        m = pattern.match(entry)
-                        if m:
-                            s = m.group(1).strip()
-                            # genotype = m.group(2), unused here
-                            if s:
-                                samples_in_line.append(s)
-                # Now we have all samples for this line
-                pheno_str = ""
-                if samples_in_line:
-                    pheno_str = aggregate_phenotypes_for_samples(samples_in_line, phenotypes)
-                fields.append(pheno_str)
+
+                if gt_idx is not None and gt_idx < len(fields):
+                    gt_value = fields[gt_idx]
+                    samples_in_line = []
+                    if gt_value.strip():
+                        sample_entries = gt_value.split(";")
+                        for entry in sample_entries:
+                            entry = entry.strip()
+                            if not entry:
+                                continue
+                            m = pattern.match(entry)
+                            if m:
+                                s = m.group(1).strip()
+                                if s:
+                                    samples_in_line.append(s)
+                    pheno_str = ""
+                    if samples_in_line:
+                        pheno_str = aggregate_phenotypes_for_samples(samples_in_line, phenotypes)
+                    fields.append(pheno_str)
+                else:
+                    fields.append("")
                 out.write("\t".join(fields) + "\n")
         final_tsv = phenotype_added_tsv
     else:
@@ -273,11 +302,40 @@ def main():
                 out.write(line)
         final_out_path = final_output
 
-    # Convert to Excel if requested and not stdout
-    if args.xlsx and not final_to_stdout:
+    # Create a metadata file as a TSV with two columns: Parameter and Value
+    metadata_file = os.path.join(args.output_dir, f"{base_name}.metadata.tsv")
+    with open(metadata_file, "w", encoding="utf-8") as mf:
+        mf.write("Parameter\tValue\n")
+        def meta_write(param, val):
+            p = sanitize_metadata_field(param)
+            v = sanitize_metadata_field(val)
+            mf.write(f"{p}\t{v}\n")
+
+        meta_write("Tool", "variantcentrifuge")
+        meta_write("Version", __version__)
+        meta_write("Date", datetime.datetime.now().isoformat())
+        meta_write("Command_line", " ".join([sanitize_metadata_field(x) for x in sys.argv]))
+
+        for k, v in cfg.items():
+            meta_write(f"config.{k}", str(v))
+
+        snpeff_ver = safe_run_snpeff()
+        bcftools_ver = safe_run_bcftools()
+        snpsift_ver = safe_run_snpsift()
+
+        meta_write("tool.snpeff_version", snpeff_ver)
+        meta_write("tool.bcftools_version", bcftools_ver)
+        meta_write("tool.snpsift_version", snpsift_ver)
+
+    # Convert to Excel if requested and not stdout and final_out_path is set
+    if args.xlsx and not final_to_stdout and final_out_path:
         log_message("DEBUG", "Converting final output to Excel...")
-        convert_to_excel(final_out_path, cfg)
+        xlsx_file = convert_to_excel(final_out_path, cfg)
         log_message("DEBUG", "Excel conversion complete.")
+
+        # Append Metadata sheet
+        log_message("DEBUG", "Appending metadata as a sheet to Excel...")
+        append_tsv_as_sheet(xlsx_file, metadata_file, sheet_name="Metadata")
 
     # Remove intermediates if keep_intermediates is false
     if not args.keep_intermediates:
@@ -285,10 +343,9 @@ def main():
         intermediates = [variants_file, filtered_file, extracted_tsv]
         if not args.no_replacement:
             intermediates.append(genotype_replaced_tsv)
-        # phenotype_added_tsv if phenotypes used
         if use_phenotypes:
             intermediates.append(phenotype_added_tsv)
-        # gene_burden_tsv is considered final result
+        # gene_burden_tsv and metadata_file are final results, do not remove
         # final_file and final_output are final results
         if final_file in intermediates:
             intermediates.remove(final_file)
