@@ -5,9 +5,9 @@
 Command-line interface (CLI) module.
 
 Changes:
-- If the user provides a gene name with '-g' that looks like an existing file,
-  log a warning and advise using '-G' instead of letting the code run and fail.
-- This makes the error handling more graceful if a user accidentally provides a file to -g.
+- If multiple genes are provided, prefix the hash with "multiple-genes-".
+- Remove ".vcf.gz" or ".gz" and ".vcf" extensions from the base name derived from the VCF filename.
+- Handle the case where the user provides a file to -g instead of -G more gracefully.
 """
 
 import argparse
@@ -65,7 +65,6 @@ def safe_run_snpsift():
         return "N/A"
 
 def normalize_genes(gene_name_str, gene_file_str):
-    # If gene_file is given, read genes from the file
     if gene_file_str and gene_file_str.strip():
         if not os.path.exists(gene_file_str):
             log_message("ERROR", f"Gene file {gene_file_str} not found.")
@@ -78,12 +77,10 @@ def normalize_genes(gene_name_str, gene_file_str):
                     genes_from_file.append(line)
         genes = genes_from_file
     else:
-        # parse from gene_name_str
         if not gene_name_str:
             log_message("ERROR", "No gene name provided and no gene file provided.")
             sys.exit(1)
-        # Check if the user might have provided a file to -g instead of using -G
-        # If the gene_name_str is a path that exists as a file, warn and exit
+        # Check if user gave a file to -g
         if os.path.exists(gene_name_str):
             log_message("ERROR", f"It looks like you provided a file '{gene_name_str}' to -g/--gene-name.")
             log_message("ERROR", "If you meant to provide a file of gene names, please use -G/--gene-file instead.")
@@ -100,21 +97,39 @@ def normalize_genes(gene_name_str, gene_file_str):
         return "all"
     return " ".join(genes)
 
+def remove_vcf_extensions(filename):
+    # Remove .vcf.gz or .vcf if present.
+    # We can do this by checking ends:
+    # 1) If endswith .vcf.gz remove both
+    # 2) else if endswith .vcf remove it
+    base = filename
+    if base.endswith(".vcf.gz"):
+        base = base[:-7]  # remove .vcf.gz (7 chars)
+    elif base.endswith(".vcf"):
+        base = base[:-4]  # remove .vcf (4 chars)
+    elif base.endswith(".gz"):
+        base = base[:-3]  # remove .gz if needed
+    return base
+
 def compute_base_name(vcf_path, gene_name):
     genes = gene_name.strip()
+    vcf_base = os.path.basename(vcf_path)
+    # Remove .vcf.gz or .vcf extensions from vcf_base
+    vcf_base = remove_vcf_extensions(vcf_base)
+
     if genes.lower() == "all":
-        return f"{os.path.splitext(os.path.basename(vcf_path))[0]}.all"
+        return f"{vcf_base}.all"
     else:
         split_genes = genes.split()
         if len(split_genes) > 1:
             gene_hash = hashlib.md5(genes.encode('utf-8')).hexdigest()[:8]
-            return f"{os.path.splitext(os.path.basename(vcf_path))[0]}.{gene_hash}"
+            return f"{vcf_base}.multiple-genes-{gene_hash}"
         else:
             # single gene
-            if split_genes[0].lower() in os.path.splitext(os.path.basename(vcf_path))[0].lower():
-                return os.path.splitext(os.path.basename(vcf_path))[0]
+            if split_genes[0].lower() in vcf_base.lower():
+                return vcf_base
             else:
-                return f"{os.path.splitext(os.path.basename(vcf_path))[0]}.{split_genes[0]}"
+                return f"{vcf_base}.{split_genes[0]}"
 
 def parse_samples_from_vcf(vcf_file):
     output = run_command(["bcftools", "view", "-h", vcf_file], output_file=None)
