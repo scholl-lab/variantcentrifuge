@@ -5,10 +5,9 @@
 Command-line interface (CLI) module.
 
 Changes:
-- Update the bcftools view command to output a gzipped VCF file using -Oz.
-- Immediately index the gzipped VCF using bcftools index.
-- Add logging messages for these steps.
-- The rest of the logic (SnpSift version check, phenotypes, etc.) remains unchanged.
+- Log start time and stop time at the beginning and end of the process.
+- Compute the duration of the analysis and log it.
+- Add run start time, run end time, and duration to the Metadata output.
 """
 
 import argparse
@@ -99,6 +98,9 @@ def safe_run_snpsift():
         return "N/A"
 
 def main():
+    start_time = datetime.datetime.now()
+    log_message("INFO", f"Run started at {start_time.isoformat()}")
+
     parser = argparse.ArgumentParser(
         description="variantcentrifuge: Filter and process VCF files."
     )
@@ -306,6 +308,11 @@ def main():
                 out.write(line)
         final_out_path = final_output
 
+    # Compute end time and duration
+    end_time = datetime.datetime.now()
+    duration = (end_time - start_time).total_seconds()
+    log_message("INFO", f"Run ended at {end_time.isoformat()}, duration: {duration} seconds")
+
     # Create a metadata file as a TSV with two columns: Parameter and Value
     metadata_file = os.path.join(args.output_dir, f"{base_name}.metadata.tsv")
     with open(metadata_file, "w", encoding="utf-8") as mf:
@@ -317,6 +324,9 @@ def main():
 
         meta_write("Tool", "variantcentrifuge")
         meta_write("Version", __version__)
+        meta_write("Run_start_time", start_time.isoformat())
+        meta_write("Run_end_time", end_time.isoformat())
+        meta_write("Run_duration_seconds", str(duration))
         meta_write("Date", datetime.datetime.now().isoformat())
         meta_write("Command_line", " ".join([sanitize_metadata_field(x) for x in sys.argv]))
 
