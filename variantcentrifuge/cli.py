@@ -5,9 +5,10 @@
 Command-line interface (CLI) module.
 
 Changes:
-- For SnpSift version retrieval, we now use subprocess directly with check=False
-  to avoid errors if SnpSift returns a non-zero exit code.
-- We then parse stdout from SnpSift's output and extract the version line if present.
+- Update the bcftools view command to output a gzipped VCF file using -Oz.
+- Immediately index the gzipped VCF using bcftools index.
+- Add logging messages for these steps.
+- The rest of the logic (SnpSift version check, phenotypes, etc.) remains unchanged.
 """
 
 import argparse
@@ -180,16 +181,19 @@ def main():
     log_message("DEBUG", f"Gene BED created at: {bed_file}")
 
     # Intermediate files
-    variants_file = os.path.join(intermediate_dir, f"{base_name}.variants.vcf")
+    variants_file = os.path.join(intermediate_dir, f"{base_name}.variants.vcf.gz")   # gzipped now
     filtered_file = os.path.join(intermediate_dir, f"{base_name}.filtered.vcf")
     extracted_tsv = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv")
     genotype_replaced_tsv = os.path.join(intermediate_dir, f"{base_name}.genotype_replaced.tsv")
     phenotype_added_tsv = os.path.join(intermediate_dir, f"{base_name}.phenotypes_added.tsv")
     gene_burden_tsv = os.path.join(args.output_dir, f"{base_name}.gene_burden.tsv")
 
-    # Extract variants
-    run_command(["bcftools", "view", args.vcf_file, "-R", bed_file], output_file=variants_file)
-    log_message("DEBUG", f"Variants extracted to {variants_file}. Applying filters...")
+    # Extract variants as gzipped VCF and index
+    log_message("DEBUG", "Extracting variants and compressing as gzipped VCF with bcftools view...")
+    run_command(["bcftools", "view", args.vcf_file, "-R", bed_file, "-Oz", "-o", variants_file])
+    log_message("DEBUG", f"Gzipped VCF saved to {variants_file}, indexing now...")
+    run_command(["bcftools", "index", variants_file])
+    log_message("DEBUG", f"Index created for {variants_file}")
 
     # Apply SnpSift filter
     run_command(["SnpSift", "filter", filters, variants_file], output_file=filtered_file)
@@ -210,7 +214,7 @@ def main():
 
     # Genotype replacement
     if not args.no_replacement:
-        samples = parse_samples_from_vcf(args.vcf_file)
+        samples = parse_samples_from_vcf(variants_file)
         cfg["sample_list"] = ",".join(samples) if samples else ""
         log_message("DEBUG", f"Extracted {len(samples)} samples from VCF header for genotype replacement.")
         with open(extracted_tsv, "r", encoding="utf-8") as inp, open(genotype_replaced_tsv, "w", encoding="utf-8") as out:
