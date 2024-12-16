@@ -19,6 +19,10 @@ Requires cfg["sample_list"] for sample names.
 If no sample_list, returns lines unchanged.
 """
 
+import logging
+
+logger = logging.getLogger("variantcentrifuge")
+
 def replace_genotypes(lines, cfg):
     append_genotype = cfg.get("append_genotype", True)
     sample_list_str = cfg.get("sample_list", "")
@@ -131,7 +135,7 @@ def replace_genotypes(lines, cfg):
             # Replace any digits 2-9 with '1'
             if re.search(r"[2-9]", g):
                 g = re.sub(r"[2-9]", "1", g)
-                print(f"Warning: Non-1 GT field detected and replaced with 1 in sample {sample} for genotype {g}", file=sys.stderr)
+                logger.warning(f"Non-1 GT field detected and replaced with 1 in sample {sample} for genotype {g}")
 
             # Only output non-0/0 variant genotypes
             if g not in ["0/0", "./."]:

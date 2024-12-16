@@ -11,6 +11,9 @@ import subprocess
 import sys
 import shutil
 import tempfile
+import logging
+
+logger = logging.getLogger("variantcentrifuge")
 
 current_log_level = "INFO"
 
@@ -25,27 +28,6 @@ def set_log_level(level):
     """
     global current_log_level
     current_log_level = level
-
-def log_message(level, message):
-    """
-    Log messages to stderr with a given level, respecting the global log level.
-    
-    Parameters
-    ----------
-    level : str
-        The message's log level ("DEBUG", "INFO", "WARN", "ERROR").
-    message : str
-        The message to log.
-    """
-    levels = {"ERROR": 1, "WARN": 2, "INFO": 3, "DEBUG": 4}
-    global current_log_level
-    if level not in levels:
-        level = "INFO"
-    if current_log_level not in levels:
-        current_log_level = "INFO"
-
-    if levels[level] <= levels[current_log_level]:
-        print(f"[{level}] {message}", file=sys.stderr)
 
 def run_command(cmd, output_file=None):
     """
@@ -64,7 +46,7 @@ def run_command(cmd, output_file=None):
         If output_file is None, returns the command stdout as a string.
         If output_file is given, returns output_file after completion.
     """
-    log_message("DEBUG", f"Running command: {' '.join(cmd)}")
+    logger.debug(f"Running command: {' '.join(cmd)}")
     if output_file:
         with open(output_file, "w", encoding="utf-8") as out_f:
             result = subprocess.run(cmd, stdout=out_f, stderr=subprocess.PIPE, text=True)
@@ -72,10 +54,10 @@ def run_command(cmd, output_file=None):
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     
     if result.returncode != 0:
-        log_message("ERROR", f"Command failed: {' '.join(cmd)}\nError: {result.stderr}")
+        logger.error(f"Command failed: {' '.join(cmd)}\nError: {result.stderr}")
         raise subprocess.CalledProcessError(result.returncode, cmd, result.stderr)
     else:
-        log_message("DEBUG", "Command completed successfully.")
+        logger.debug("Command completed successfully.")
         if output_file:
             return output_file
         else:
@@ -97,8 +79,8 @@ def check_external_tools():
     missing = [tool for tool in required_tools if shutil.which(tool) is None]
 
     if missing:
-        log_message("ERROR", f"Missing required external tools: {', '.join(missing)}. "
-                             f"Please ensure they are installed and in PATH.")
+        logger.error(f"Missing required external tools: {', '.join(missing)}. "
+                     f"Please ensure they are installed and in PATH.")
         sys.exit(1)
     else:
-        log_message("DEBUG", "All external tools are available.")
+        logger.debug("All external tools are available.")

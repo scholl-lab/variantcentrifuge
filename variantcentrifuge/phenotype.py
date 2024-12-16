@@ -16,6 +16,9 @@ to aggregate phenotypes for a given list of samples.
 """
 
 import os
+import logging
+
+logger = logging.getLogger("variantcentrifuge")
 
 def load_phenotypes(phenotype_file, sample_column, phenotype_column):
     # Determine delimiter

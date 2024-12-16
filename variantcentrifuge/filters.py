@@ -9,7 +9,10 @@ and apply filters via SnpSift. Each function returns a filename containing the o
 """
 
 import tempfile
-from .utils import run_command, log_message
+import logging
+from .utils import run_command
+
+logger = logging.getLogger("variantcentrifuge")
 
 def extract_variants(vcf_file, bed_file, cfg):
     """
@@ -30,7 +33,7 @@ def extract_variants(vcf_file, bed_file, cfg):
     """
     output_file = tempfile.mktemp(suffix=".vcf")
     cmd = ["bcftools", "view", vcf_file, "-R", bed_file]
-    log_message("DEBUG", f"Extracting variants to {output_file}")
+    logger.debug(f"Extracting variants to {output_file}")
     run_command(cmd, output_file=output_file)
     return output_file
 
@@ -53,6 +56,6 @@ def apply_snpsift_filter(variant_file, filter_string, cfg):
     """
     output_file = tempfile.mktemp(suffix=".vcf")
     cmd = ["SnpSift", "filter", filter_string, variant_file]
-    log_message("DEBUG", f"Applying SnpSift filter to produce {output_file}")
+    logger.debug(f"Applying SnpSift filter to produce {output_file}")
     run_command(cmd, output_file=output_file)
     return output_file

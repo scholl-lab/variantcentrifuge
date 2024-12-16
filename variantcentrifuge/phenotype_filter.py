@@ -10,6 +10,10 @@ filtering CSV/TSV lines so that only lines with sample IDs in the chosen column
 are retained.
 """
 
+import logging
+
+logger = logging.getLogger("variantcentrifuge")
+
 def filter_phenotypes(lines, cfg):
     """
     Filter variants based on phenotype information (sample IDs).
@@ -64,24 +68,20 @@ def filter_phenotypes(lines, cfg):
 
     samples_set = set(samples)
 
-    # Convert lines to a list for column detection (or we can peek first line)
     lines_iter = iter(lines)
     header = next(lines_iter, None)
     if header is None:
         # No data
         return
 
-    # Parse header and find column_number
     header_fields = header.rstrip("\n").split(input_delim)
     if column_name not in header_fields:
         raise ValueError(f"Column '{column_name}' not found in header.")
 
     column_number = header_fields.index(column_name)
 
-    # Yield the header line, converting to output_delim
     yield output_delim.join(header_fields)
 
-    # For each subsequent line, check if sample ID matches
     for line in lines_iter:
         line = line.rstrip("\n")
         if not line:

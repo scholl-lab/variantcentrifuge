@@ -12,7 +12,9 @@ import tempfile
 import os
 import hashlib
 import shutil
-from .utils import log_message
+import logging
+
+logger = logging.getLogger("variantcentrifuge")
 
 def get_gene_bed(reference, gene_name, interval_expand=0, add_chr=True, output_dir="output"):
     """
@@ -38,9 +40,9 @@ def get_gene_bed(reference, gene_name, interval_expand=0, add_chr=True, output_d
     str
         Path to the final BED file.
     """
-    log_message("DEBUG", f"Entering get_gene_bed with reference={reference}, "
-                         f"gene_name={gene_name}, interval_expand={interval_expand}, "
-                         f"add_chr={add_chr}")
+    logger.debug(f"Entering get_gene_bed with reference={reference}, "
+                 f"gene_name={gene_name}, interval_expand={interval_expand}, "
+                 f"add_chr={add_chr}")
 
     cache_dir = os.path.join(output_dir, "bed_cache")
     os.makedirs(cache_dir, exist_ok=True)
@@ -62,7 +64,7 @@ def get_gene_bed(reference, gene_name, interval_expand=0, add_chr=True, output_d
     cached_file = os.path.join(cache_dir, f"genes_{final_hash}.bed")
 
     if os.path.exists(cached_file):
-        log_message("DEBUG", f"Found cached BED file: {cached_file}")
+        logger.debug(f"Found cached BED file: {cached_file}")
         return cached_file
 
     # Generate BED
@@ -73,21 +75,21 @@ def get_gene_bed(reference, gene_name, interval_expand=0, add_chr=True, output_d
     if interval_expand > 0:
         cmd.extend(["-ud", str(interval_expand)])
 
-    log_message("INFO", f"Running: {' '.join(cmd)}")
+    logger.info(f"Running: {' '.join(cmd)}")
     subprocess.run(cmd, stdout=open(bed_path, "w", encoding="utf-8"), check=True)
-    log_message("DEBUG", f"snpEff genes2bed completed, BED file at {bed_path}")
+    logger.debug(f"snpEff genes2bed completed, BED file at {bed_path}")
 
     # Sort the BED file
     sorted_bed = bed_path + ".sorted"
     sort_cmd = ["sortBed", "-i", bed_path]
-    log_message("DEBUG", f"Sorting BED file with: {' '.join(sort_cmd)}")
+    logger.debug(f"Sorting BED file with: {' '.join(sort_cmd)}")
     subprocess.run(sort_cmd, stdout=open(sorted_bed, "w", encoding="utf-8"), check=True)
-    log_message("DEBUG", f"BED sorting completed, sorted file at {sorted_bed}")
+    logger.debug(f"BED sorting completed, sorted file at {sorted_bed}")
 
     final_bed = sorted_bed
     if add_chr:
         chr_bed = sorted_bed + ".chr"
-        log_message("DEBUG", f"Adding 'chr' prefix to BED file {sorted_bed}")
+        logger.debug(f"Adding 'chr' prefix to BED file {sorted_bed}")
         with open(chr_bed, "w", encoding="utf-8") as out_f, \
              open(sorted_bed, "r", encoding="utf-8") as in_f:
             for line in in_f:
@@ -97,9 +99,9 @@ def get_gene_bed(reference, gene_name, interval_expand=0, add_chr=True, output_d
                     out_f.write(line)
         os.remove(sorted_bed)
         final_bed = chr_bed
-        log_message("DEBUG", f"Final BED file with 'chr': {final_bed}")
+        logger.debug(f"Final BED file with 'chr': {final_bed}")
 
     shutil.move(final_bed, cached_file)
-    log_message("DEBUG", f"Cached BED file created: {cached_file}")
+    logger.debug(f"Cached BED file created: {cached_file}")
 
     return cached_file

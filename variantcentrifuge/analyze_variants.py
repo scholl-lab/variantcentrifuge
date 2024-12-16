@@ -20,13 +20,15 @@ Changes:
 import io
 import pandas as pd
 from collections import Counter
-from .utils import log_message
+import logging
 from math import isnan
 
 try:
     from scipy.stats import fisher_exact
 except ImportError:
     fisher_exact = None
+
+logger = logging.getLogger("variantcentrifuge")
 
 def analyze_variants(lines, cfg):
     """
@@ -52,19 +54,19 @@ def analyze_variants(lines, cfg):
     stats_output_file = cfg.get("stats_output_file")
     no_stats = cfg.get("no_stats", False)
 
-    log_message("DEBUG", f"analyze_variants: perform_gene_burden={perform_gene_burden}, "
-                         f"stats_output_file={stats_output_file}, no_stats={no_stats}")
+    logger.debug(f"analyze_variants: perform_gene_burden={perform_gene_burden}, "
+                 f"stats_output_file={stats_output_file}, no_stats={no_stats}")
 
     # Read all input lines into a DataFrame
     text_data = "".join(line for line in lines)
     if not text_data.strip():
         # No data provided
-        log_message("DEBUG", "analyze_variants: No input data provided.")
+        logger.debug("analyze_variants: No input data provided.")
         return
 
     # Parse the input TSV into a DataFrame
     df = pd.read_csv(io.StringIO(text_data), sep="\t", dtype=str)
-    log_message("DEBUG", f"analyze_variants: Loaded {len(df)} variants.")
+    logger.debug(f"analyze_variants: Loaded {len(df)} variants.")
 
     # Convert known numeric columns if they exist
     numeric_cols = ["proband_count", "proband_allele_count", "control_count", "control_allele_count"]
@@ -76,7 +78,7 @@ def analyze_variants(lines, cfg):
     required_columns = ["CHROM", "POS", "REF", "ALT", "GENE", "GT"]
     missing_columns = [c for c in required_columns if c not in df.columns]
     if missing_columns:
-        log_message("ERROR", f"Missing required columns: {', '.join(missing_columns)}. No stats will be computed.")
+        logger.error(f"Missing required columns: {', '.join(missing_columns)}. No stats will be computed.")
         # Return original lines unchanged since we can't compute stats
         for line in text_data.strip().split("\n"):
             yield line
@@ -92,7 +94,6 @@ def analyze_variants(lines, cfg):
             for s in val.split(";"):
                 s = s.strip()
                 if s:
-                    # Remove genotype info in parentheses if present
                     idx = s.find("(")
                     if idx != -1:
                         s = s[:idx]
@@ -128,21 +129,21 @@ def analyze_variants(lines, cfg):
         impact_types.columns = ["IMPACT", "count"]
 
     # Log some basic info
-    log_message("INFO", f"Number of variants: {num_variants}")
-    log_message("INFO", f"Number of samples: {num_samples}")
-    log_message("INFO", f"Number of genes: {num_genes}")
-    log_message("INFO", f"Het counts: {het_counts}")
-    log_message("INFO", f"Hom counts: {hom_counts}")
+    logger.info(f"Number of variants: {num_variants}")
+    logger.info(f"Number of samples: {num_samples}")
+    logger.info(f"Number of genes: {num_genes}")
+    logger.info(f"Het counts: {het_counts}")
+    logger.info(f"Hom counts: {hom_counts}")
 
     if variant_types is not None:
-        log_message("INFO", f"Variant types:\n{variant_types}")
+        logger.info(f"Variant types:\n{variant_types}")
     else:
-        log_message("INFO", "No EFFECT column present, skipping variant types.")
+        logger.info("No EFFECT column present, skipping variant types.")
 
     if impact_types is not None:
-        log_message("INFO", f"Impact types:\n{impact_types}")
+        logger.info(f"Impact types:\n{impact_types}")
     else:
-        log_message("INFO", "No IMPACT column present, skipping impact types.")
+        logger.info("No IMPACT column present, skipping impact types.")
 
     # Prepare basic stats in metric-value format
     basic_stats = []
@@ -166,12 +167,12 @@ def analyze_variants(lines, cfg):
 
     # Write basic stats if stats_output_file is provided
     if stats_output_file:
-        log_message("DEBUG", "Writing basic stats to stats_output_file in metric-value format.")
+        logger.debug("Writing basic stats to stats_output_file in metric-value format.")
         basic_stats_df.to_csv(stats_output_file, sep="\t", index=False, header=True, mode="w")
 
     # Compute comprehensive stats if not disabled
     if not no_stats:
-        log_message("DEBUG", "Computing comprehensive stats...")
+        logger.debug("Computing comprehensive stats...")
         comprehensive_df = compute_gene_stats(df)
         impact_summary = compute_impact_summary(df)
         variant_type_summary = compute_variant_type_summary(df)
@@ -191,18 +192,16 @@ def analyze_variants(lines, cfg):
 
         if comp_stats_list and stats_output_file:
             comp_stats_df = pd.DataFrame(comp_stats_list, columns=["metric", "value"])
-            log_message("DEBUG", "Appending comprehensive stats to stats_output_file in metric-value format.")
-            # Append without a header to keep a consistent format
+            logger.debug("Appending comprehensive stats to stats_output_file in metric-value format.")
             comp_stats_df.to_csv(stats_output_file, sep="\t", index=False, header=False, mode="a")
     else:
-        log_message("DEBUG", "no_stats is True, skipping comprehensive stats.")
+        logger.debug("no_stats is True, skipping comprehensive stats.")
 
     # Perform gene burden analysis if requested
     if perform_gene_burden:
-        log_message("DEBUG", "Performing gene burden analysis.")
+        logger.debug("Performing gene burden analysis.")
         if fisher_exact is None:
-            log_message("ERROR", "scipy not available for Fisher test, cannot perform gene burden.")
-            # Just return original lines if no Fisher test can be done
+            logger.error("scipy not available for Fisher test, cannot perform gene burden.")
             for line in text_data.strip().split("\n"):
                 yield line
             return
@@ -212,7 +211,7 @@ def analyze_variants(lines, cfg):
         for line in burden_text.strip().split("\n"):
             yield line
     else:
-        log_message("DEBUG", "No gene burden analysis requested, returning original data.")
+        logger.debug("No gene burden analysis requested, returning original data.")
         for line in text_data.strip().split("\n"):
             yield line
 
@@ -246,7 +245,6 @@ def gene_burden_fisher(subdf):
         GENE, proband_alleles, control_alleles, max_proband_count, max_control_count,
         proband_ref_alleles, control_ref_alleles, fisher_p_value
     """
-    # If these columns don't exist, assume zero
     if "proband_allele_count" not in subdf.columns:
         subdf["proband_allele_count"] = 0
     if "control_allele_count" not in subdf.columns:
@@ -261,11 +259,9 @@ def gene_burden_fisher(subdf):
     max_proband_count = subdf["proband_count"].max()
     max_control_count = subdf["control_count"].max()
 
-    # Compute reference alleles
     proband_ref_alleles = (max_proband_count * 2 * len(subdf)) - proband_alleles
     control_ref_alleles = (max_control_count * 2 * len(subdf)) - control_alleles
 
-    # Perform Fisher's exact test if available
     table = [[proband_alleles, control_alleles],
              [proband_ref_alleles, control_ref_alleles]]
 

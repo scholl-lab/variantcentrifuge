@@ -8,6 +8,9 @@ Changes:
 - If multiple genes are provided, prefix the hash with "multiple-genes-".
 - Remove ".vcf.gz" or ".gz" and ".vcf" extensions from the base name derived from the VCF filename.
 - Handle the case where the user provides a file to -g instead of -G more gracefully.
+
+This file is modified to adopt the Python logging module for consistent and configurable logging.
+Only changes related to replacing custom logging and print-based logging calls are made.
 """
 
 import argparse
@@ -16,15 +19,19 @@ import os
 import hashlib
 import datetime
 import subprocess
+import logging
+
 from . import __version__
 from .config import load_config
 from .gene_bed import get_gene_bed
 from .converter import convert_to_excel, append_tsv_as_sheet
 from .phenotype_filter import filter_phenotypes
 from .analyze_variants import analyze_variants
-from .utils import log_message, check_external_tools, set_log_level, run_command
+from .utils import check_external_tools, run_command
 from .replacer import replace_genotypes
 from .phenotype import load_phenotypes, aggregate_phenotypes_for_samples
+
+logger = logging.getLogger("variantcentrifuge")
 
 def sanitize_metadata_field(value):
     return value.replace("\t", " ").replace("\n", " ").strip()
@@ -67,7 +74,7 @@ def safe_run_snpsift():
 def normalize_genes(gene_name_str, gene_file_str):
     if gene_file_str and gene_file_str.strip():
         if not os.path.exists(gene_file_str):
-            log_message("ERROR", f"Gene file {gene_file_str} not found.")
+            logger.error(f"Gene file {gene_file_str} not found.")
             sys.exit(1)
         genes_from_file = []
         with open(gene_file_str, "r", encoding="utf-8") as gf:
@@ -78,12 +85,12 @@ def normalize_genes(gene_name_str, gene_file_str):
         genes = genes_from_file
     else:
         if not gene_name_str:
-            log_message("ERROR", "No gene name provided and no gene file provided.")
+            logger.error("No gene name provided and no gene file provided.")
             sys.exit(1)
         # Check if user gave a file to -g
         if os.path.exists(gene_name_str):
-            log_message("ERROR", f"It looks like you provided a file '{gene_name_str}' to -g/--gene-name.")
-            log_message("ERROR", "If you meant to provide a file of gene names, please use -G/--gene-file instead.")
+            logger.error(f"It looks like you provided a file '{gene_name_str}' to -g/--gene-name.")
+            logger.error("If you meant to provide a file of gene names, please use -G/--gene-file instead.")
             sys.exit(1)
 
         g_str = gene_name_str.replace(",", " ")
@@ -141,8 +148,11 @@ def parse_samples_from_vcf(vcf_file):
     return samples
 
 def main():
+    # Setup basic logging. Later, level will be set based on CLI argument.
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s", stream=sys.stderr)
+
     start_time = datetime.datetime.now()
-    log_message("INFO", f"Run started at {start_time.isoformat()}")
+    logger.info(f"Run started at {start_time.isoformat()}")
 
     parser = argparse.ArgumentParser(
         description="variantcentrifuge: Filter and process VCF files."
@@ -177,26 +187,35 @@ def main():
                         help="Skip the statistics computation step.")
 
     args = parser.parse_args()
-    set_log_level(args.log_level)
-    log_message("DEBUG", f"CLI arguments: {args}")
+
+    # Map CLI log-level to logging module
+    log_level_map = {
+        "DEBUG": logging.DEBUG,
+        "INFO": logging.INFO,
+        "WARN": logging.WARNING,
+        "ERROR": logging.ERROR
+    }
+    logging.getLogger("variantcentrifuge").setLevel(log_level_map[args.log_level])
+
+    logger.debug(f"CLI arguments: {args}")
 
     if args.gene_name and args.gene_file:
-        log_message("ERROR", "You can provide either -g/--gene-name or -G/--gene-file, but not both.")
+        logger.error("You can provide either -g/--gene-name or -G/--gene-file, but not both.")
         sys.exit(1)
     if not args.gene_name and not args.gene_file:
-        log_message("ERROR", "You must provide either a gene name using -g or a gene file using -G.")
+        logger.error("You must provide either a gene name using -g or a gene file using -G.")
         sys.exit(1)
 
     check_external_tools()
 
     cfg = load_config(args.config)
-    log_message("DEBUG", f"Configuration loaded: {cfg}")
+    logger.debug(f"Configuration loaded: {cfg}")
     reference = args.reference or cfg.get("reference")
     filters = args.filters or cfg.get("filters")
     fields = args.fields or cfg.get("fields_to_extract")
 
     gene_name = normalize_genes(args.gene_name if args.gene_name else "", args.gene_file)
-    log_message("DEBUG", f"Normalized gene list: {gene_name}")
+    logger.debug(f"Normalized gene list: {gene_name}")
 
     if args.output_file is not None:
         if args.output_file in ["stdout", "-"]:
@@ -219,7 +238,6 @@ def main():
     intermediate_dir = os.path.join(args.output_dir, "intermediate")
     os.makedirs(intermediate_dir, exist_ok=True)
 
-    # If no_stats is False and no stats_output_file is given, create a default one in intermediate_dir
     if not cfg["no_stats"] and not args.stats_output_file:
         cfg["stats_output_file"] = os.path.join(intermediate_dir, f"{base_name}.statistics.tsv")
     else:
@@ -231,7 +249,7 @@ def main():
         phenotypes = load_phenotypes(args.phenotype_file, args.phenotype_sample_column, args.phenotype_value_column)
         use_phenotypes = True
 
-    log_message("DEBUG", "Starting gene BED extraction.")
+    logger.debug("Starting gene BED extraction.")
     bed_file = get_gene_bed(
         reference,
         gene_name,
@@ -239,7 +257,7 @@ def main():
         add_chr=cfg.get("add_chr", True),
         output_dir=args.output_dir
     )
-    log_message("DEBUG", f"Gene BED created at: {bed_file}")
+    logger.debug(f"Gene BED created at: {bed_file}")
 
     if gene_name.lower() != "all":
         requested_genes = gene_name.split()
@@ -252,7 +270,7 @@ def main():
                     found_genes.add(g_name)
         missing = [g for g in requested_genes if g not in found_genes]
         if missing:
-            log_message("WARN", f"The following gene(s) were not found in the reference: {', '.join(missing)}")
+            logger.warning(f"The following gene(s) were not found in the reference: {', '.join(missing)}")
             if cfg.get("debug_level","INFO") == "ERROR":
                 sys.exit(1)
 
@@ -263,14 +281,14 @@ def main():
     phenotype_added_tsv = os.path.join(intermediate_dir, f"{base_name}.phenotypes_added.tsv")
     gene_burden_tsv = os.path.join(args.output_dir, f"{base_name}.gene_burden.tsv")
 
-    log_message("DEBUG", "Extracting variants and compressing as gzipped VCF with bcftools view...")
+    logger.debug("Extracting variants and compressing as gzipped VCF with bcftools view...")
     run_command(["bcftools", "view", args.vcf_file, "-R", bed_file, "-Oz", "-o", variants_file])
-    log_message("DEBUG", f"Gzipped VCF saved to {variants_file}, indexing now...")
+    logger.debug(f"Gzipped VCF saved to {variants_file}, indexing now...")
     run_command(["bcftools", "index", variants_file])
-    log_message("DEBUG", f"Index created for {variants_file}")
+    logger.debug(f"Index created for {variants_file}")
 
     run_command(["SnpSift", "filter", filters, variants_file], output_file=filtered_file)
-    log_message("DEBUG", f"Filter applied. Extracting fields...")
+    logger.debug("Filter applied. Extracting fields...")
 
     field_list = fields.strip().split()
     run_command(["SnpSift", "extractFields", "-s", ",", "-e", "NA", filtered_file] + field_list, output_file=extracted_tsv)
@@ -281,23 +299,23 @@ def main():
         lines[0] = header
     with open(extracted_tsv, "w", encoding="utf-8") as f:
         f.writelines(lines)
-    log_message("DEBUG", f"Fields extracted to {extracted_tsv}")
+    logger.debug(f"Fields extracted to {extracted_tsv}")
 
     if not args.no_replacement:
         samples = parse_samples_from_vcf(variants_file)
         cfg["sample_list"] = ",".join(samples) if samples else ""
-        log_message("DEBUG", f"Extracted {len(samples)} samples from VCF header for genotype replacement.")
+        logger.debug(f"Extracted {len(samples)} samples from VCF header for genotype replacement.")
         with open(extracted_tsv, "r", encoding="utf-8") as inp, open(genotype_replaced_tsv, "w", encoding="utf-8") as out:
             for line in replace_genotypes(inp, cfg):
                 out.write(line + "\n")
         replaced_tsv = genotype_replaced_tsv
-        log_message("DEBUG", f"Genotype replacement done, results in {genotype_replaced_tsv}")
+        logger.debug(f"Genotype replacement done, results in {genotype_replaced_tsv}")
     else:
         replaced_tsv = extracted_tsv
-        log_message("DEBUG", "Genotype replacement skipped.")
+        logger.debug("Genotype replacement skipped.")
 
     if use_phenotypes:
-        log_message("DEBUG", "Adding phenotypes to the final table...")
+        logger.debug("Adding phenotypes to the final table...")
         import re
         pattern = re.compile(r"^([^()]+)(?:\([^)]+\))?$")
 
@@ -342,20 +360,20 @@ def main():
         final_tsv = replaced_tsv
 
     if cfg.get("perform_gene_burden", False):
-        log_message("DEBUG", "Analyzing variants (gene burden) requested...")
+        logger.debug("Analyzing variants (gene burden) requested...")
         line_count = 0
         with open(final_tsv, "r", encoding="utf-8") as inp, open(gene_burden_tsv, "w", encoding="utf-8") as out:
             for line in analyze_variants(inp, cfg):
                 out.write(line + "\n")
                 line_count += 1
         if line_count == 0:
-            log_message("WARN", "No lines produced by analyze_variants. Falling back to final_tsv.")
+            logger.warning("No lines produced by analyze_variants. Falling back to final_tsv.")
             final_file = final_tsv
         else:
             final_file = final_tsv
-        log_message("DEBUG", f"Variant analysis complete, gene burden results in {gene_burden_tsv}")
+        logger.debug(f"Variant analysis complete, gene burden results in {gene_burden_tsv}")
     else:
-        log_message("DEBUG", "No gene burden analysis requested.")
+        logger.debug("No gene burden analysis requested.")
         buffer = []
         with open(final_tsv, "r", encoding="utf-8") as inp:
             for line in analyze_variants(inp, cfg):
@@ -372,7 +390,7 @@ def main():
         final_to_stdout = True
 
     if final_to_stdout:
-        log_message("DEBUG", "Writing final output to stdout.")
+        logger.debug("Writing final output to stdout.")
         if final_file:
             with open(final_file, "r", encoding="utf-8") as inp:
                 sys.stdout.write(inp.read())
@@ -382,7 +400,7 @@ def main():
 
     end_time = datetime.datetime.now()
     duration = (end_time - start_time).total_seconds()
-    log_message("INFO", f"Run ended at {end_time.isoformat()}, duration: {duration} seconds")
+    logger.info(f"Run ended at {end_time.isoformat()}, duration: {duration} seconds")
 
     metadata_file = os.path.join(args.output_dir, f"{base_name}.metadata.tsv")
     with open(metadata_file, "w", encoding="utf-8") as mf:
@@ -411,28 +429,26 @@ def main():
         meta_write("tool.bcftools_version", bcftools_ver)
         meta_write("tool.snpsift_version", snpsift_ver)
 
-    # If XLSX requested and we have stats file and no_stats is False, append stats
     if args.xlsx and final_out_path and not final_to_stdout:
         if not os.path.exists(final_out_path) or os.path.getsize(final_out_path) == 0:
-            log_message("WARN", "Final output file is empty. Cannot convert to Excel.")
+            logger.warning("Final output file is empty. Cannot convert to Excel.")
         else:
-            log_message("DEBUG", "Converting final output to Excel...")
+            logger.debug("Converting final output to Excel...")
             xlsx_file = convert_to_excel(final_out_path, cfg)
-            log_message("DEBUG", "Excel conversion complete.")
+            logger.debug("Excel conversion complete.")
 
-            log_message("DEBUG", "Appending metadata as a sheet to Excel...")
+            logger.debug("Appending metadata as a sheet to Excel...")
             append_tsv_as_sheet(xlsx_file, metadata_file, sheet_name="Metadata")
 
             if not cfg["no_stats"] and cfg.get("stats_output_file") and os.path.exists(cfg["stats_output_file"]):
                 if os.path.getsize(cfg["stats_output_file"]) == 0:
-                    log_message("WARN", "Stats file is empty, skipping Statistics sheet.")
+                    logger.warning("Stats file is empty, skipping Statistics sheet.")
                 else:
-                    log_message("DEBUG", "Appending statistics as a sheet to Excel...")
+                    logger.debug("Appending statistics as a sheet to Excel...")
                     append_tsv_as_sheet(xlsx_file, cfg["stats_output_file"], sheet_name="Statistics")
 
-
     if not args.keep_intermediates:
-        log_message("DEBUG", "Removing intermediate files...")
+        logger.debug("Removing intermediate files...")
         intermediates = [variants_file, filtered_file, extracted_tsv]
         if not args.no_replacement:
             intermediates.append(genotype_replaced_tsv)
@@ -443,9 +459,9 @@ def main():
         for f in intermediates:
             if os.path.exists(f):
                 os.remove(f)
-        log_message("DEBUG", "Intermediate files removed.")
+        logger.debug("Intermediate files removed.")
 
-    log_message("INFO", f"Processing completed. Output saved to {'stdout' if final_to_stdout else final_output}")
+    logger.info(f"Processing completed. Output saved to {'stdout' if final_to_stdout else final_output}")
 
 if __name__ == "__main__":
     main()

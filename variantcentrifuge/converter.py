@@ -11,6 +11,9 @@ and append additional sheets.
 import pandas as pd
 import os
 from openpyxl import load_workbook
+import logging
+
+logger = logging.getLogger("variantcentrifuge")
 
 def convert_to_excel(tsv_file, cfg):
     """
