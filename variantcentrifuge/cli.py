@@ -1,18 +1,6 @@
 # File: variantcentrifuge/cli.py
 # Location: variantcentrifuge/variantcentrifuge/cli.py
 
-"""
-Command-line interface (CLI) module.
-
-Changes:
-- If multiple genes are provided, prefix the hash with "multiple-genes-".
-- Remove ".vcf.gz" or ".gz" and ".vcf" extensions from the base name derived from the VCF filename.
-- Handle the case where the user provides a file to -g instead of -G more gracefully.
-
-This file is modified to adopt the Python logging module for consistent and configurable logging.
-Only changes related to replacing custom logging and print-based logging calls are made.
-"""
-
 import argparse
 import sys
 import os
@@ -147,6 +135,17 @@ def parse_samples_from_vcf(vcf_file):
     samples = fields[9:]
     return samples
 
+def load_terms_from_file(file_path):
+    """Load HPO terms or sample IDs from a file, one per line."""
+    terms = []
+    if file_path and os.path.exists(file_path):
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                t = line.strip()
+                if t:
+                    terms.append(t)
+    return terms
+
 def main():
     # Setup basic logging. Later, level will be set based on CLI argument.
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s", stream=sys.stderr)
@@ -185,6 +184,18 @@ def main():
     parser.add_argument("--phenotype-value-column", help="Name of the column containing phenotype values in phenotype file")
     parser.add_argument("--no-stats", action="store_true", default=False,
                         help="Skip the statistics computation step.")
+
+    # New CLI options for phenotype-driven grouping
+    parser.add_argument("--case-phenotypes", help="Comma-separated HPO terms defining case group")
+    parser.add_argument("--control-phenotypes", help="Comma-separated HPO terms defining control group")
+    parser.add_argument("--case-phenotypes-file", help="File with HPO terms for case group")
+    parser.add_argument("--control-phenotypes-file", help="File with HPO terms for control group")
+
+    # New CLI options for explicit case/control sample specification
+    parser.add_argument("--case-samples", help="Comma-separated sample IDs defining the case group")
+    parser.add_argument("--control-samples", help="Comma-separated sample IDs defining the control group")
+    parser.add_argument("--case-samples-file", help="File with sample IDs for case group")
+    parser.add_argument("--control-samples-file", help="File with sample IDs for control group")
 
     args = parser.parse_args()
 
@@ -248,6 +259,34 @@ def main():
     if args.phenotype_file and args.phenotype_sample_column and args.phenotype_value_column:
         phenotypes = load_phenotypes(args.phenotype_file, args.phenotype_sample_column, args.phenotype_value_column)
         use_phenotypes = True
+
+    # Load phenotype terms for case and control
+    case_hpo_terms = []
+    control_hpo_terms = []
+    if args.case_phenotypes:
+        case_hpo_terms = [t.strip() for t in args.case_phenotypes.split(",") if t.strip()]
+    case_hpo_terms += load_terms_from_file(args.case_phenotypes_file)
+
+    if args.control_phenotypes:
+        control_hpo_terms = [t.strip() for t in args.control_phenotypes.split(",") if t.strip()]
+    control_hpo_terms += load_terms_from_file(args.control_phenotypes_file)
+
+    cfg["case_phenotypes"] = case_hpo_terms
+    cfg["control_phenotypes"] = control_hpo_terms
+
+    # Load explicit case/control sample sets if provided
+    case_samples = []
+    control_samples = []
+    if args.case_samples:
+        case_samples = [s.strip() for s in args.case_samples.split(",") if s.strip()]
+    case_samples += load_terms_from_file(args.case_samples_file)
+
+    if args.control_samples:
+        control_samples = [s.strip() for s in args.control_samples.split(",") if s.strip()]
+    control_samples += load_terms_from_file(args.control_samples_file)
+
+    cfg["case_samples"] = case_samples
+    cfg["control_samples"] = control_samples
 
     logger.debug("Starting gene BED extraction.")
     bed_file = get_gene_bed(
@@ -359,6 +398,7 @@ def main():
     else:
         final_tsv = replaced_tsv
 
+    # Pass configuration down - analyze_variants will handle case/control assignment
     if cfg.get("perform_gene_burden", False):
         logger.debug("Analyzing variants (gene burden) requested...")
         line_count = 0
@@ -391,7 +431,7 @@ def main():
 
     if final_to_stdout:
         logger.debug("Writing final output to stdout.")
-        if final_file:
+        if final_file and os.path.exists(final_file):
             with open(final_file, "r", encoding="utf-8") as inp:
                 sys.stdout.write(inp.read())
         final_out_path = None
