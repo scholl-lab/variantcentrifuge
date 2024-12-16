@@ -168,3 +168,4 @@ testing/
 *.xlsx
 *.vcf
 output/
+temp_bed_files/

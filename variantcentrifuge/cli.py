@@ -87,7 +87,7 @@ def normalize_genes(gene_name_str, gene_file_str):
             sys.exit(1)
 
         g_str = gene_name_str.replace(",", " ")
-        genes = [g.strip() for g in g_str.split() if g.strip()]
+        genes = [g.strip() for g_str_part in g_str.split() for g in [g_str_part.strip()] if g]
 
     if len(genes) == 1 and genes[0].lower() == "all":
         return "all"
@@ -98,23 +98,18 @@ def normalize_genes(gene_name_str, gene_file_str):
     return " ".join(genes)
 
 def remove_vcf_extensions(filename):
-    # Remove .vcf.gz or .vcf if present.
-    # We can do this by checking ends:
-    # 1) If endswith .vcf.gz remove both
-    # 2) else if endswith .vcf remove it
     base = filename
     if base.endswith(".vcf.gz"):
-        base = base[:-7]  # remove .vcf.gz (7 chars)
+        base = base[:-7]
     elif base.endswith(".vcf"):
-        base = base[:-4]  # remove .vcf (4 chars)
+        base = base[:-4]
     elif base.endswith(".gz"):
-        base = base[:-3]  # remove .gz if needed
+        base = base[:-3]
     return base
 
 def compute_base_name(vcf_path, gene_name):
     genes = gene_name.strip()
     vcf_base = os.path.basename(vcf_path)
-    # Remove .vcf.gz or .vcf extensions from vcf_base
     vcf_base = remove_vcf_extensions(vcf_base)
 
     if genes.lower() == "all":
@@ -125,7 +120,6 @@ def compute_base_name(vcf_path, gene_name):
             gene_hash = hashlib.md5(genes.encode('utf-8')).hexdigest()[:8]
             return f"{vcf_base}.multiple-genes-{gene_hash}"
         else:
-            # single gene
             if split_genes[0].lower() in vcf_base.lower():
                 return vcf_base
             else:
@@ -179,6 +173,8 @@ def main():
     parser.add_argument("--phenotype-file", help="Path to phenotype file (.csv or .tsv)")
     parser.add_argument("--phenotype-sample-column", help="Name of the column containing sample IDs in phenotype file")
     parser.add_argument("--phenotype-value-column", help="Name of the column containing phenotype values in phenotype file")
+    parser.add_argument("--no-stats", action="store_true", default=False,
+                        help="Skip the statistics computation step.")
 
     args = parser.parse_args()
     set_log_level(args.log_level)
@@ -199,7 +195,6 @@ def main():
     filters = args.filters or cfg.get("filters")
     fields = args.fields or cfg.get("fields_to_extract")
 
-    # Normalize genes
     gene_name = normalize_genes(args.gene_name if args.gene_name else "", args.gene_file)
     log_message("DEBUG", f"Normalized gene list: {gene_name}")
 
@@ -218,17 +213,23 @@ def main():
         final_output = os.path.join(args.output_dir, f"{base_name}.final.tsv")
 
     cfg["perform_gene_burden"] = args.perform_gene_burden
-    cfg["stats_output_file"] = args.stats_output_file
+    cfg["no_stats"] = args.no_stats
+
+    os.makedirs(args.output_dir, exist_ok=True)
+    intermediate_dir = os.path.join(args.output_dir, "intermediate")
+    os.makedirs(intermediate_dir, exist_ok=True)
+
+    # If no_stats is False and no stats_output_file is given, create a default one in intermediate_dir
+    if not cfg["no_stats"] and not args.stats_output_file:
+        cfg["stats_output_file"] = os.path.join(intermediate_dir, f"{base_name}.statistics.tsv")
+    else:
+        cfg["stats_output_file"] = args.stats_output_file
 
     phenotypes = {}
     use_phenotypes = False
     if args.phenotype_file and args.phenotype_sample_column and args.phenotype_value_column:
         phenotypes = load_phenotypes(args.phenotype_file, args.phenotype_sample_column, args.phenotype_value_column)
         use_phenotypes = True
-
-    os.makedirs(args.output_dir, exist_ok=True)
-    intermediate_dir = os.path.join(args.output_dir, "intermediate")
-    os.makedirs(intermediate_dir, exist_ok=True)
 
     log_message("DEBUG", "Starting gene BED extraction.")
     bed_file = get_gene_bed(
@@ -240,7 +241,6 @@ def main():
     )
     log_message("DEBUG", f"Gene BED created at: {bed_file}")
 
-    # Verify genes found if not "all"
     if gene_name.lower() != "all":
         requested_genes = gene_name.split()
         found_genes = set()
@@ -356,22 +356,29 @@ def main():
         log_message("DEBUG", f"Variant analysis complete, gene burden results in {gene_burden_tsv}")
     else:
         log_message("DEBUG", "No gene burden analysis requested.")
-        final_file = final_tsv
+        buffer = []
+        with open(final_tsv, "r", encoding="utf-8") as inp:
+            for line in analyze_variants(inp, cfg):
+                buffer.append(line)
+        if final_to_stdout:
+            final_file = None
+        else:
+            final_file = final_output
+            with open(final_file, "w", encoding="utf-8") as out:
+                for line in buffer:
+                    out.write(line + "\n")
 
     if args.output_file is not None and args.output_file in ["stdout", "-"]:
         final_to_stdout = True
 
     if final_to_stdout:
         log_message("DEBUG", "Writing final output to stdout.")
-        with open(final_file, "r", encoding="utf-8") as inp:
-            sys.stdout.write(inp.read())
+        if final_file:
+            with open(final_file, "r", encoding="utf-8") as inp:
+                sys.stdout.write(inp.read())
         final_out_path = None
     else:
-        log_message("DEBUG", f"Writing final output to {final_output}")
-        with open(final_file, "r", encoding="utf-8") as inp, open(final_output, "w", encoding="utf-8") as out:
-            for line in inp:
-                out.write(line)
-        final_out_path = final_output
+        final_out_path = final_file
 
     end_time = datetime.datetime.now()
     duration = (end_time - start_time).total_seconds()
@@ -404,13 +411,25 @@ def main():
         meta_write("tool.bcftools_version", bcftools_ver)
         meta_write("tool.snpsift_version", snpsift_ver)
 
+    # If XLSX requested and we have stats file and no_stats is False, append stats
     if args.xlsx and final_out_path and not final_to_stdout:
-        log_message("DEBUG", "Converting final output to Excel...")
-        xlsx_file = convert_to_excel(final_out_path, cfg)
-        log_message("DEBUG", "Excel conversion complete.")
+        if not os.path.exists(final_out_path) or os.path.getsize(final_out_path) == 0:
+            log_message("WARN", "Final output file is empty. Cannot convert to Excel.")
+        else:
+            log_message("DEBUG", "Converting final output to Excel...")
+            xlsx_file = convert_to_excel(final_out_path, cfg)
+            log_message("DEBUG", "Excel conversion complete.")
 
-        log_message("DEBUG", "Appending metadata as a sheet to Excel...")
-        append_tsv_as_sheet(xlsx_file, metadata_file, sheet_name="Metadata")
+            log_message("DEBUG", "Appending metadata as a sheet to Excel...")
+            append_tsv_as_sheet(xlsx_file, metadata_file, sheet_name="Metadata")
+
+            if not cfg["no_stats"] and cfg.get("stats_output_file") and os.path.exists(cfg["stats_output_file"]):
+                if os.path.getsize(cfg["stats_output_file"]) == 0:
+                    log_message("WARN", "Stats file is empty, skipping Statistics sheet.")
+                else:
+                    log_message("DEBUG", "Appending statistics as a sheet to Excel...")
+                    append_tsv_as_sheet(xlsx_file, cfg["stats_output_file"], sheet_name="Statistics")
+
 
     if not args.keep_intermediates:
         log_message("DEBUG", "Removing intermediate files...")
