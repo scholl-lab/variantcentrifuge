@@ -1,0 +1,188 @@
+"""
+Statistics module for variantcentrifuge.
+
+Provides functions to compute:
+- Basic variant-level statistics.
+- Comprehensive gene-level statistics.
+- Impact and variant type summaries.
+- Merging and formatting of these stats.
+
+All functions return DataFrames suitable for further processing.
+"""
+
+import logging
+import pandas as pd
+
+from .helpers import extract_sample_and_genotype
+
+logger = logging.getLogger("variantcentrifuge")
+
+
+def compute_basic_stats(df, all_samples):
+    """
+    Compute basic statistics about the dataset:
+    - Number of variants
+    - Number of samples
+    - Number of genes
+    - Het/Hom counts from GT fields
+    - Variant type and impact counts if available
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input variants DataFrame.
+    all_samples : set
+        Set of all samples.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame with 'metric' and 'value' columns listing basic stats.
+    """
+    logger.debug("Computing basic stats...")
+    num_variants = len(df)
+    num_samples = len(all_samples)
+    num_genes = df["GENE"].nunique()
+
+    het_counts = 0
+    hom_counts = 0
+    for val in df["GT"]:
+        if isinstance(val, str) and val.strip():
+            for g in val.split(";"):
+                g = g.strip()
+                _, genotype = extract_sample_and_genotype(g)
+                if genotype in ["0/1", "1/0"]:
+                    het_counts += 1
+                elif genotype == "1/1":
+                    hom_counts += 1
+
+    metric_rows = [
+        ["Number of variants", str(num_variants)],
+        ["Number of samples", str(num_samples)],
+        ["Number of genes", str(num_genes)],
+        ["Het counts", str(het_counts)],
+        ["Hom counts", str(hom_counts)]
+    ]
+
+    # Count variant and impact types if columns present
+    if "EFFECT" in df.columns:
+        variant_types = df["EFFECT"].value_counts()
+        for vt, count in variant_types.items():
+            metric_rows.append([f"Variant_type_{vt}", str(count)])
+
+    if "IMPACT" in df.columns:
+        impact_types = df["IMPACT"].value_counts()
+        for it, count in impact_types.items():
+            metric_rows.append([f"Impact_type_{it}", str(count)])
+
+    basic_stats_df = pd.DataFrame(metric_rows, columns=["metric", "value"])
+    logger.debug("Basic stats computed.")
+    return basic_stats_df
+
+
+def compute_gene_stats(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute gene-level aggregated stats (sum of proband/control counts and alleles).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input variants DataFrame with assigned case/control counts.
+
+    Returns
+    -------
+    pd.DataFrame
+        Gene-level summary DataFrame.
+    """
+    logger.debug("Computing gene-level stats...")
+    for col in ["proband_count", "control_count", "proband_allele_count", "control_allele_count"]:
+        if col not in df.columns:
+            df[col] = 0
+    grouped = df.groupby("GENE").agg({
+        "proband_count": "sum",
+        "control_count": "sum",
+        "proband_allele_count": "sum",
+        "control_allele_count": "sum"
+    }).reset_index()
+    logger.debug("Gene-level stats computed.")
+    return grouped
+
+
+def compute_impact_summary(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute per-gene impact summary if IMPACT column exists.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input DataFrame
+
+    Returns
+    -------
+    pd.DataFrame
+        A pivoted table of gene vs impact counts.
+    """
+    logger.debug("Computing impact summary...")
+    if "GENE" not in df.columns or "IMPACT" not in df.columns:
+        logger.debug("No IMPACT or GENE column, returning empty impact summary.")
+        return pd.DataFrame()
+    impact_counts = df.groupby(["GENE", "IMPACT"]).size().reset_index(name="count")
+    pivot_impact = impact_counts.pivot(index="GENE", columns="IMPACT", values="count").fillna(0).reset_index()
+    logger.debug("Impact summary computed.")
+    return pivot_impact
+
+
+def compute_variant_type_summary(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute per-gene variant type summary if EFFECT column exists.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input DataFrame
+
+    Returns
+    -------
+    pd.DataFrame
+        A pivoted table of gene vs variant types.
+    """
+    logger.debug("Computing variant type summary...")
+    if "GENE" not in df.columns or "EFFECT" not in df.columns:
+        logger.debug("No EFFECT or GENE column, returning empty variant type summary.")
+        return pd.DataFrame()
+    type_counts = df.groupby(["GENE", "EFFECT"]).size().reset_index(name="count")
+    pivot_types = type_counts.pivot(index="GENE", columns="EFFECT", values="count").fillna(0).reset_index()
+    logger.debug("Variant type summary computed.")
+    return pivot_types
+
+
+def merge_and_format_stats(gene_stats: pd.DataFrame,
+                           impact_summary: pd.DataFrame,
+                           variant_type_summary: pd.DataFrame) -> pd.DataFrame:
+    """
+    Merge gene_stats with impact_summary and variant_type_summary into a single DataFrame.
+
+    Parameters
+    ----------
+    gene_stats : pd.DataFrame
+        DataFrame of gene-level aggregated stats
+    impact_summary : pd.DataFrame
+        DataFrame of gene vs impact counts
+    variant_type_summary : pd.DataFrame
+        DataFrame of gene vs variant type counts
+
+    Returns
+    -------
+    pd.DataFrame
+        Merged DataFrame with all gene-level stats.
+    """
+    logger.debug("Merging gene stats with impact and variant type summaries...")
+    merged = gene_stats.copy()
+    if not impact_summary.empty:
+        merged = pd.merge(merged, impact_summary, on="GENE", how="left")
+    if not variant_type_summary.empty:
+        merged = pd.merge(merged, variant_type_summary, on="GENE", how="left")
+    # Fill NaN with 0 for counts
+    merged = merged.fillna(0)
+    logger.debug("All gene-level stats merged.")
+    return merged
