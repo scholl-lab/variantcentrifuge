@@ -1,4 +1,4 @@
-# variantcentrifuge/cli.py
+# variantcentrifuge/cli.py 
 
 # This script serves as the command-line interface for variantcentrifuge.
 # It parses user arguments, loads configuration, validates inputs, and
@@ -45,6 +45,12 @@ def main() -> None:
         4. Validate input files (VCF, phenotype).
         5. Update configuration with CLI parameters.
         6. Run the pipeline.
+
+    Changes for presets:
+        - Added a --preset argument which allows specifying one or more predefined filters.
+        - If multiple presets are chosen, they are combined with AND (&).
+        - If user-specified filters are also provided, they are combined with presets using AND.
+        - Presets must be defined in config.json under "presets".
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -102,6 +108,17 @@ def main() -> None:
         "-f",
         "--filters",
         help="Filters to apply in SnpSift filter"
+    )
+    # New argument for presets:
+    parser.add_argument(
+        "--preset",
+        action="append",
+        help=(
+            "Apply predefined filtering presets defined in the config file. "
+            "Specify multiple times for multiple presets. "
+            "They are combined with AND. If custom filters are also given, "
+            "they are combined with these presets using AND."
+        )
     )
     parser.add_argument(
         "-e",
@@ -246,6 +263,24 @@ def main() -> None:
     filters: Optional[str] = args.filters or cfg.get("filters")
     fields: Optional[str] = args.fields or cfg.get("fields_to_extract")
 
+    # Handle presets if provided
+    preset_dict = cfg.get("presets", {})
+    if args.preset:
+        chosen_presets = []
+        for p in args.preset:
+            p_str = p.strip()
+            if p_str in preset_dict:
+                chosen_presets.append(f"({preset_dict[p_str]})")
+            else:
+                logger.error(f"Preset '{p_str}' not found in config.")
+                sys.exit(1)
+        if chosen_presets:
+            combined_preset_filter = " & ".join(chosen_presets)
+            if filters:
+                filters = f"({combined_preset_filter}) & ({filters})"
+            else:
+                filters = combined_preset_filter
+
     # Validate mandatory parameters
     validate_mandatory_parameters(reference, filters, fields)
     validate_vcf_file(args.vcf_file, logger)
@@ -280,6 +315,10 @@ def main() -> None:
     if args.igv and (not args.bam_mapping_file or not args.igv_reference):
         logger.error("For IGV integration, --bam-mapping-file and --igv-reference must be provided.")
         sys.exit(1)
+
+    # Update filters and fields in cfg after handling presets
+    cfg["filters"] = filters
+    cfg["fields_to_extract"] = fields
 
     run_pipeline(args, cfg, start_time)
 

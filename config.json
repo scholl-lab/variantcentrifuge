@@ -1,13 +1,23 @@
 {
-    "reference": "GRCh38.mane.1.0.refseq",
-    "add_chr": true,
-    "filters": "(( dbNSFP_gnomAD_exomes_AC[0] <= 2 ) | ( na dbNSFP_gnomAD_exomes_AC[0] )) & ((ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE'))",
-    "fields_to_extract": "CHROM POS REF ALT ID QUAL AC ANN[0].GENE ANN[0].FEATUREID ANN[0].EFFECT ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P dbNSFP_SIFT_pred dbNSFP_Polyphen2_HDIV_pred dbNSFP_MutationTaster_pred dbNSFP_CADD_phred dbNSFP_gnomAD_exomes_AC dbNSFP_gnomAD_genomes_AC dbNSFP_ALFA_Total_AC GEN[*].GT",
-    "sample_file": "samples.txt",
-    "replace_script_options": "--append-genotype",
-    "output_file": "variants.tsv",
-    "interval_expand": 1000,
-    "use_phenotype_filtering": false,
-    "perform_gene_burden": false
+  "reference": "GRCh38.mane.1.0.refseq",
+  "add_chr": true,
+  "filters": "",
+  "fields_to_extract": "CHROM POS REF ALT ID QUAL AC ANN[0].GENE ANN[0].FEATUREID ANN[0].EFFECT ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P dbNSFP_SIFT_pred dbNSFP_Polyphen2_HDIV_pred dbNSFP_MutationTaster_pred dbNSFP_CADD_phred dbNSFP_gnomAD_exomes_AC dbNSFP_gnomAD_genomes_AC dbNSFP_ALFA_Total_AC dbNSFP_clinvar_clnsig GEN[*].GT",
+  "sample_file": "samples.txt",
+  "replace_script_options": "--append-genotype",
+  "output_file": "variants.tsv",
+  "interval_expand": 1000,
+  "use_phenotype_filtering": false,
+  "perform_gene_burden": false,
+
+  "presets": {
+    "5percent": "((dbNSFP_gnomAD_exomes_AF[0] < 0.05) | (na dbNSFP_gnomAD_exomes_AC[0]) | (dbNSFP_gnomAD_genomes_AF[0] < 0.05) | (na dbNSFP_gnomAD_genomes_AC[0]))",
+    "1percent": "((dbNSFP_gnomAD_exomes_AF[0] < 0.001) | (na dbNSFP_gnomAD_exomes_AC[0]) | (dbNSFP_gnomAD_genomes_AF[0] < 0.001) | (na dbNSFP_gnomAD_genomes_AC[0]))",
+    "rare": "((dbNSFP_gnomAD_exomes_AF[0] < 0.0001) | (na dbNSFP_gnomAD_exomes_AC[0]) | (dbNSFP_gnomAD_genomes_AF[0] < 0.0001) | (na dbNSFP_gnomAD_genomes_AC[0]))",
+    "super_rare": "((dbNSFP_gnomAD_exomes_AC[0] <= 2 ) | (na dbNSFP_gnomAD_exomes_AC[0]) | ( dbNSFP_gnomAD_genomes_AC[0] <= 2 ) | (na dbNSFP_gnomAD_genomes_AC[0]))",
+    "pathogenic": "((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & (dbNSFP_clinvar_clnsig !~ '[Cc]onflicting'))",
+    "coding": "((ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE'))",
+    "high": "((ANN[ANY].IMPACT has 'HIGH'))",
+    "high_or_pathogenic": "((ANN[ANY].IMPACT has 'HIGH') | ((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & (dbNSFP_clinvar_clnsig !~ '[Cc]onflicting')))"
   }
-  
+}
