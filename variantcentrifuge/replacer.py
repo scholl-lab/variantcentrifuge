@@ -4,66 +4,82 @@
 """
 Genotype replacement module.
 
-Now we dynamically find the GT field by searching for a column named "GT" in the header line.
-No need for a hardcoded gt_field_number.
+This module dynamically searches for a "GT" column in the header line of the input TSV
+and applies configurable genotype replacement logic.
 
 Logic:
-- If append_genotype is set, output sample(genotype) for variant genotypes.
-- If not, just sample.
-- Only non-0/0 genotypes (0/1, 1/0, 1/1) and variant output. Skip 0/0 and ./..
-- If include_nocalls is true and ./., count in totals but don't output.
-- If no variant genotypes found, GT field is empty.
-- If we can't find a "GT" column in the header, return lines unchanged.
-
-Requires cfg["sample_list"] for sample names.
-If no sample_list, returns lines unchanged.
+- If `append_genotype` is True, output sample(genotype) for variant genotypes; else just sample.
+- Only non-"0/0" genotypes ("0/1", "1/0", "1/1") are output as variants. "0/0" and "./." are skipped.
+- If `include_nocalls` is True, "./." contributes to totals but is not output.
+- If no variant genotypes are found, the GT field is left empty.
+- If no "GT" column is found, the lines are returned unchanged.
+- Requires `cfg["sample_list"]` for sample names; if not provided, returns lines unchanged.
 
 Enhancement #14:
-- Make genotype replacement logic configurable:
-  * Introduce a 'genotype_replacement_map' parameter in cfg, mapping regex patterns to their replacements.
-  * Default: {r"[2-9]": "1"}
-  * Document the default logic and provide options for users to adjust or turn off replacements by providing an empty map.
-  * Increase transparency and flexibility in how genotypes are handled.
+- Genotype replacement logic can be configured via `cfg["genotype_replacement_map"]`.
+- Default: {r"[2-9]": "1"} replaces any allele >1 with '1'.
+- Users can adjust this map or provide an empty map to skip replacements.
+
+Relevant `cfg` parameters:
+- "append_genotype": bool  
+- "sample_list": str (comma-separated)  
+- "proband_list": str (comma-separated)  
+- "control_list": str (comma-separated)  
+- "include_nocalls": bool  
+- "count_genotypes": bool  
+- "list_samples": bool  
+- "separator": str  
+- "genotype_replacement_map": dict (e.g., {r"[2-9]": "1"})  
+
+If `list_samples` is True, instead of modifying lines, the module will collect and output unique variant samples at the end.
 """
 
 import logging
 import re
+from typing import Iterator, Dict, Any
 
 logger = logging.getLogger("variantcentrifuge")
 
 
-def replace_genotypes(lines, cfg):
+def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]:
     """
     Replace genotypes based on user-defined logic and return updated lines.
 
-    The replacement logic is controlled by cfg["genotype_replacement_map"],
+    The replacement logic is controlled by `cfg["genotype_replacement_map"]`,
     which should be a dictionary mapping regex patterns to replacement strings.
 
     Default logic (if not provided): {r"[2-9]": "1"}
 
     Parameters
     ----------
-    lines : iterable
+    lines : Iterator[str]
         An iterable of lines (strings) representing the extracted TSV data.
     cfg : dict
         Configuration dictionary. Relevant entries:
-        - "append_genotype": bool, whether to append genotype (e.g., sample(0/1)) 
-          or just sample ID.
-        - "sample_list": str, comma-separated list of samples in the order of genotypes.
-        - "proband_list": str, comma-separated list of proband samples.
-        - "control_list": str, comma-separated list of control samples.
-        - "include_nocalls": bool, whether to include no-calls (./.) in count totals.
-        - "count_genotypes": bool, whether to append count columns to the output.
-        - "list_samples": bool, whether to list unique samples at the end.
-        - "separator": str, separator to join replaced genotypes.
-        - "genotype_replacement_map": dict, keys are regex patterns, values are 
-          replacement strings. Used to transform alleles in genotypes before processing.
-          Example: {r"[2-9]": "1"} (default if not provided).
+        - "append_genotype": bool
+            Whether to append genotype (e.g., sample(0/1)) or just sample ID.
+        - "sample_list": str
+            Comma-separated list of samples in the order of genotypes.
+        - "proband_list": str
+            Comma-separated list of samples considered probands.
+        - "control_list": str
+            Comma-separated list of samples considered controls.
+        - "include_nocalls": bool
+            Whether to include no-calls (./.) in count totals.
+        - "count_genotypes": bool
+            Whether to append genotype count columns to the output.
+        - "list_samples": bool
+            Whether to list unique variant samples at the end instead of outputting variants.
+        - "separator": str
+            Separator to join replaced genotypes.
+        - "genotype_replacement_map": dict
+            Keys are regex patterns, values are replacement strings. Used to transform alleles.
 
     Yields
     ------
     str
-        Modified lines with genotype replacements applied.
+        Modified lines with genotype replacements applied. If `list_samples` is True,
+        yields a final line listing unique variant samples.
     """
     append_genotype = cfg.get("append_genotype", True)
     sample_list_str = cfg.get("sample_list", "")
@@ -75,7 +91,7 @@ def replace_genotypes(lines, cfg):
     separator = cfg.get("separator", ";")
     genotype_replacement_map = cfg.get("genotype_replacement_map", {r"[2-9]": "1"})
 
-    def parse_list_from_str(input_str):
+    def parse_list_from_str(input_str: str):
         if not input_str:
             return []
         return [x.strip() for x in input_str.split(",") if x.strip()]
@@ -88,11 +104,10 @@ def replace_genotypes(lines, cfg):
         return
 
     probands = parse_list_from_str(proband_list_str) if proband_list_str else samples[:]
-    controls = []
     if control_list_str:
         controls = parse_list_from_str(control_list_str)
     else:
-        # Controls = samples - probands
+        # Controls = samples not in probands
         proband_set = set(probands)
         controls = [s for s in samples if s not in proband_set]
 
@@ -112,7 +127,7 @@ def replace_genotypes(lines, cfg):
             header_fields = line.split("\t")
             # Find "GT" column
             if "GT" not in header_fields:
-                # No GT column found, return lines unchanged from now on
+                # No GT column found, return lines unchanged
                 yield line
                 for l in lines:
                     yield l
@@ -121,12 +136,13 @@ def replace_genotypes(lines, cfg):
             gt_idx = header_fields.index("GT")
 
             if list_samples:
-                # If listing samples, we do not modify the header
+                # If listing samples, we don't modify the header,
+                # counts might not be appended since we only output samples at the end.
                 if count_genotypes:
-                    # no changes to header, just yield if needed later after processing
+                    # Still just yield the header as-is here.
                     pass
             else:
-                # If not listing samples, print header and add columns if count_genotypes is True
+                # If not listing samples, output header (and append columns if count_genotypes is True)
                 if count_genotypes:
                     if len(controls) > 0:
                         new_header = header_fields + [
@@ -173,17 +189,17 @@ def replace_genotypes(lines, cfg):
 
             g = g.replace("|", "/")
 
-            # Apply replacement logic based on genotype_replacement_map
+            # Apply replacement logic
             for pat, repl in compiled_patterns:
                 if pat.search(g):
                     g = pat.sub(repl, g)
 
             # Only output non-0/0 variant genotypes
             if g not in ["0/0", "./."]:
-                # This is a variant genotype
+                # Variant genotype
                 unique_samples.add(sample)
 
-                # Count stats
+                # Count stats for probands/controls
                 if sample in proband_map:
                     if g in ["0/1", "1/0"]:
                         het_count += 1
@@ -205,16 +221,15 @@ def replace_genotypes(lines, cfg):
                     new_gts.append(sample)
             else:
                 # g is "0/0" or "./."
-                # If ./., and include_nocalls is true, increment totals
                 if include_nocalls and g == "./.":
+                    # No-call counts towards total but not output
                     if sample in proband_map:
                         total_count += 1
                     if sample in control_map:
                         control_total_count += 1
-                # Do not append anything for these genotypes
 
         if list_samples:
-            # If listing samples, no line output now
+            # If listing samples, don't output line now
             pass
         else:
             # Replace GT field with only variant samples
@@ -242,5 +257,5 @@ def replace_genotypes(lines, cfg):
             yield "\t".join(fields)
 
     if list_samples:
-        # Print the collected unique samples
+        # If listing samples, output them at the end
         yield ",".join(sorted(unique_samples))

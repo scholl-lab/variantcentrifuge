@@ -1,4 +1,5 @@
-# variantcentrifuge/validators.py
+# File: variantcentrifuge/validators.py
+# Location: variantcentrifuge/variantcentrifuge/validators.py
 
 """
 Validation module for variantcentrifuge.
@@ -14,14 +15,19 @@ are provided correctly before proceeding with the analysis.
 
 import sys
 import os
+import logging
+from typing import Optional
 
-def validate_vcf_file(vcf_path, logger):
+logger = logging.getLogger("variantcentrifuge")
+
+
+def validate_vcf_file(vcf_path: Optional[str], logger: logging.Logger) -> None:
     """
     Validate that the input VCF file exists, is non-empty, and is readable.
 
     Parameters
     ----------
-    vcf_path : str
+    vcf_path : str or None
         Path to the VCF file to validate.
     logger : logging.Logger
         Logger instance for logging errors and debug information.
@@ -32,20 +38,23 @@ def validate_vcf_file(vcf_path, logger):
         If the VCF file is missing or empty.
     """
     if not vcf_path or not os.path.exists(vcf_path):
-        logger.error(f"VCF file not found: {vcf_path}")
+        logger.error("VCF file not found: %s", vcf_path)
         sys.exit(1)
     if os.path.getsize(vcf_path) == 0:
-        logger.error(f"VCF file {vcf_path} is empty.")
+        logger.error("VCF file %s is empty.", vcf_path)
         sys.exit(1)
 
 
-def validate_phenotype_file(phenotype_file, sample_col, value_col, logger):
+def validate_phenotype_file(phenotype_file: Optional[str],
+                            sample_col: str,
+                            value_col: str,
+                            logger: logging.Logger) -> None:
     """
     Validate phenotype file presence, non-empty status, and required columns.
 
     Parameters
     ----------
-    phenotype_file : str
+    phenotype_file : str or None
         Path to the phenotype file.
     sample_col : str
         The expected column name for samples in the phenotype file.
@@ -64,47 +73,53 @@ def validate_phenotype_file(phenotype_file, sample_col, value_col, logger):
         return
 
     if not os.path.exists(phenotype_file):
-        logger.error(f"Phenotype file not found: {phenotype_file}")
+        logger.error("Phenotype file not found: %s", phenotype_file)
         sys.exit(1)
     if os.path.getsize(phenotype_file) == 0:
-        logger.error(f"Phenotype file {phenotype_file} is empty.")
+        logger.error("Phenotype file %s is empty.", phenotype_file)
         sys.exit(1)
 
     with open(phenotype_file, "r", encoding="utf-8") as pf:
         header = pf.readline().strip()
         if not header:
-            logger.error(f"Phenotype file {phenotype_file} has no header.")
+            logger.error("Phenotype file %s has no header.", phenotype_file)
             sys.exit(1)
-        columns = header.split("\t") if "\t" in header else header.split(",")
+
+        # Determine delimiter by checking for tabs or commas
+        if "\t" in header:
+            columns = header.split("\t")
+        else:
+            columns = header.split(",")
+
         if sample_col not in columns:
-            logger.error(
-                f"Phenotype sample column '{sample_col}' not found in {phenotype_file}."
-            )
+            logger.error("Phenotype sample column '%s' not found in %s.", sample_col, phenotype_file)
             sys.exit(1)
         if value_col not in columns:
-            logger.error(
-                f"Phenotype value column '{value_col}' not found in {phenotype_file}."
-            )
+            logger.error("Phenotype value column '%s' not found in %s.", value_col, phenotype_file)
             sys.exit(1)
+
         data_line = pf.readline()
         if not data_line.strip():
             logger.error(
-                f"Phenotype file {phenotype_file} contains only a header and no data."
+                "Phenotype file %s contains only a header and no data.",
+                phenotype_file
             )
             sys.exit(1)
 
 
-def validate_mandatory_parameters(reference, filters, fields):
+def validate_mandatory_parameters(reference: Optional[str],
+                                  filters: Optional[str],
+                                  fields: Optional[str]) -> None:
     """
     Validate that mandatory parameters (reference, filters, fields) are provided.
 
     Parameters
     ----------
-    reference : str
+    reference : str or None
         Reference database parameter.
-    filters : str
+    filters : str or None
         Filters for variant extraction.
-    fields : str
+    fields : str or None
         Fields to extract from the VCF.
 
     Raises

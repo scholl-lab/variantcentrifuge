@@ -1,3 +1,6 @@
+# File: variantcentrifuge/analyze_variants.py
+# Location: variantcentrifuge/variantcentrifuge/analyze_variants.py
+
 """
 Variant analysis module for gene burden and other statistics.
 
@@ -19,43 +22,49 @@ Maintains previous functionality, CLI interface, and output format.
 import io
 import pandas as pd
 import logging
+from typing import Iterator, Dict, Any
 
 from . import stats
 from . import gene_burden
-from .helpers import (determine_case_control_sets, assign_case_control_counts,
-                      build_sample_phenotype_map, genotype_to_allele_count,
-                      extract_sample_and_genotype)
+from .helpers import (
+    determine_case_control_sets,
+    assign_case_control_counts,
+    build_sample_phenotype_map,
+    genotype_to_allele_count,
+    extract_sample_and_genotype,
+)
 
 logger = logging.getLogger("variantcentrifuge")
 
 
-def analyze_variants(lines, cfg):
+def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]:
     """
     Analyze variants and optionally perform gene burden analysis.
 
-    Steps:
-    - Parse input TSV into a DataFrame.
-    - Retrieve full sample list from cfg["sample_list"].
-    - Determine case/control sets based on cfg (samples or phenotypes).
-    - Compute per-variant case/control allele counts.
-    - Compute basic and optionally comprehensive gene-level stats.
-    - If requested, perform gene burden (Fisher's exact test + correction).
+    Steps
+    -----
+    1. Parse input TSV into a DataFrame.
+    2. Retrieve the full sample list from `cfg["sample_list"]`.
+    3. Determine case/control sets based on `cfg` (samples or phenotypes).
+    4. Compute per-variant case/control allele counts.
+    5. Compute basic and optionally comprehensive gene-level stats.
+    6. If requested, perform gene burden (Fisher's exact test + correction).
 
     Parameters
     ----------
-    lines : iterator of str
+    lines : Iterator[str]
         Input lines representing a TSV with variant data.
-    cfg : dict
+    cfg : Dict[str, Any]
         Configuration dictionary. Keys include:
         - sample_list (str): comma-separated full sample list from VCF
-        - case_samples, control_samples (list of str)
-        - case_phenotypes, control_phenotypes (list of str)
+        - case_samples, control_samples (List[str]): optional lists of samples
+        - case_phenotypes, control_phenotypes (List[str]): optional lists of phenotypes
         - perform_gene_burden (bool): Whether to perform gene burden analysis
         - gene_burden_mode (str): "samples" or "alleles"
         - correction_method (str): "fdr" or "bonferroni"
         - no_stats (bool): Skip stats if True
         - stats_output_file (str): Path to stats output
-        - gene_burden_output_file (str, optional)
+        - gene_burden_output_file (str, optional): Path to gene burden output
         - xlsx (bool): If True, might append to Excel after analysis
 
     Yields
@@ -67,8 +76,12 @@ def analyze_variants(lines, cfg):
     stats_output_file = cfg.get("stats_output_file")
     no_stats = cfg.get("no_stats", False)
 
-    logger.debug(f"analyze_variants: perform_gene_burden={perform_gene_burden_flag}, "
-                 f"stats_output_file={stats_output_file}, no_stats={no_stats}")
+    logger.debug(
+        "analyze_variants: perform_gene_burden=%s, stats_output_file=%s, no_stats=%s",
+        perform_gene_burden_flag,
+        stats_output_file,
+        no_stats,
+    )
 
     # Read all input lines into a text block
     text_data = "".join(line for line in lines)
@@ -84,24 +97,33 @@ def analyze_variants(lines, cfg):
     required_columns = ["CHROM", "POS", "REF", "ALT", "GENE", "GT"]
     missing_columns = [c for c in required_columns if c not in df.columns]
     if missing_columns:
-        logger.error(f"Missing required columns: {', '.join(missing_columns)}. Returning unchanged lines.")
+        logger.error(
+            "Missing required columns: %s. Returning unchanged lines.",
+            ", ".join(missing_columns),
+        )
         for line in text_data.strip().split("\n"):
             yield line
         return
 
     if "sample_list" not in cfg or not cfg["sample_list"].strip():
-        logger.error("No sample_list found in cfg. Unable to determine the full sample set.")
+        logger.error(
+            "No sample_list found in cfg. Unable to determine the full sample set."
+        )
         for line in text_data.strip().split("\n"):
             yield line
         return
 
     # all_samples: full set of samples
     all_samples = set(cfg["sample_list"].split(","))
-    logger.debug(f"Total samples from VCF header: {len(all_samples)}")
+    logger.debug("Total samples from VCF header: %d", len(all_samples))
 
     # Determine case/control sets
     case_samples, control_samples = determine_case_control_sets(all_samples, cfg, df)
-    logger.debug(f"Number of case samples: {len(case_samples)}; Number of control samples: {len(control_samples)}")
+    logger.debug(
+        "Number of case samples: %d; Number of control samples: %d",
+        len(case_samples),
+        len(control_samples),
+    )
 
     # Assign case/control counts per variant
     df = assign_case_control_counts(df, case_samples, control_samples, all_samples)
@@ -113,7 +135,7 @@ def analyze_variants(lines, cfg):
 
     # Write basic stats if requested
     if stats_output_file:
-        logger.debug(f"Writing basic stats to {stats_output_file}")
+        logger.debug("Writing basic stats to %s", stats_output_file)
         basic_stats_df.to_csv(stats_output_file, sep="\t", index=False, header=True, mode="w")
 
     # Compute comprehensive stats if not skipped
@@ -122,7 +144,9 @@ def analyze_variants(lines, cfg):
         comprehensive_df = stats.compute_gene_stats(df)
         impact_summary = stats.compute_impact_summary(df)
         variant_type_summary = stats.compute_variant_type_summary(df)
-        combined_stats = stats.merge_and_format_stats(comprehensive_df, impact_summary, variant_type_summary)
+        combined_stats = stats.merge_and_format_stats(
+            comprehensive_df, impact_summary, variant_type_summary
+        )
         logger.debug("Comprehensive statistics computed.")
 
         comp_stats_list = []
@@ -152,9 +176,8 @@ def analyze_variants(lines, cfg):
                 yield line
             return
 
-        # Write burden results to file if provided
         burden_output_file = cfg.get("gene_burden_output_file", "gene_burden_results.tsv")
-        logger.info(f"Writing gene burden results to {burden_output_file}")
+        logger.info("Writing gene burden results to %s", burden_output_file)
         gene_burden_results.to_csv(burden_output_file, sep="\t", index=False)
 
         # Yield burden results as output

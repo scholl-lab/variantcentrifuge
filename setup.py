@@ -1,5 +1,5 @@
-# File: setup.py
-# Location: variantcentrifuge/setup.py
+# File: variantcentrifuge/setup.py
+# Location: variantcentrifuge/variantcentrifuge/setup.py
 
 """
 Setup script for variantcentrifuge.

@@ -10,25 +10,33 @@ All default values should now reside in config.json.
 
 import os
 import json
+from typing import Dict, Any, Optional
 
 
-def load_config(config_file=None):
+def load_config(config_file: Optional[str] = None) -> Dict[str, Any]:
     """
     Load configuration from a JSON file.
 
-    If no config_file is provided, it attempts to load 'config.json'
-    from the current directory. If it fails to find or parse the file,
-    it raises an error.
+    If no config_file is provided, the function attempts to load 'config.json'
+    from the current directory. If it fails to find or parse the file, it raises
+    an error.
 
     Parameters
     ----------
     config_file : str, optional
-        Path to a configuration file in JSON format.
+        Path to a configuration file in JSON format. If None, defaults to 'config.json'.
 
     Returns
     -------
     dict
-        Configuration dictionary loaded from JSON.
+        Configuration dictionary loaded from the JSON file.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the specified configuration file does not exist.
+    ValueError
+        If there is an error parsing the JSON configuration file.
     """
     if not config_file:
         config_file = "config.json"
@@ -42,5 +50,4 @@ def load_config(config_file=None):
         except json.JSONDecodeError as e:
             raise ValueError(f"Error parsing JSON configuration: {e}")
 
-    # config should now contain all keys loaded from the JSON file
     return config

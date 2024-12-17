@@ -11,37 +11,52 @@ are retained.
 """
 
 import logging
+from typing import Iterator, Dict, Any
 
 logger = logging.getLogger("variantcentrifuge")
 
-def filter_phenotypes(lines, cfg):
+
+def filter_phenotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]:
     """
     Filter variants based on phenotype information (sample IDs).
 
+    This function reads lines from an input iterator (representing a CSV/TSV file),
+    identifies the column specified by `column_name` in the configuration, and then
+    filters out all lines whose sample ID (in that column) is not in the provided
+    sample list.
+
     Parameters
     ----------
-    lines : iterator
-        Iterator of variant lines (strings).
+    lines : Iterator[str]
+        Iterator of lines (strings) representing CSV/TSV data.
     cfg : dict
-        Configuration dictionary containing:
-        - column_name: str, required
-        - sample_file: str, optional
-        - sample_list: str, optional (comma-separated)
-        - output_file: str, optional (not directly needed here)
-        - Delimiter info (optional):
-          - input_delimiter: str (e.g., "," or "\t")
-          - output_delimiter: str (e.g., "," or "\t")
+        Configuration dictionary. Must contain:
+        - "column_name": str
+            The name of the column containing sample IDs.
+        - "sample_list": str, optional
+            Comma-separated list of sample IDs.
+        - "sample_file": str, optional
+            Path to a file containing sample IDs, one per line.
+        - "input_delimiter": str, optional
+            Delimiter used in the input file (default "\t").
+        - "output_delimiter": str, optional
+            Delimiter used in the output file (defaults to input_delimiter).
 
-    Returns
-    -------
-    iterator
-        Iterator of filtered lines.
+    Yields
+    ------
+    str
+        Filtered lines matching the given sample criteria.
+
+    Raises
+    ------
+    ValueError
+        If "column_name" is not provided, or if neither "sample_list" nor "sample_file"
+        is provided, or if "column_name" is not found in the header.
     """
     column_name = cfg.get("column_name")
     if not column_name:
         raise ValueError("Phenotype filtering requires 'column_name' in cfg.")
 
-    # Determine input and output delimiters
     input_delim = cfg.get("input_delimiter", "\t")
     output_delim = cfg.get("output_delimiter", input_delim)
 
@@ -51,13 +66,12 @@ def filter_phenotypes(lines, cfg):
     samples = []
 
     if sample_list_str and sample_file:
-        # Warning: both sample_list and sample_file given, use sample_list_str
-        pass
+        # Both provided; sample_list_str takes precedence as per instructions
+        logger.debug("Both sample_list and sample_file provided. Using sample_list.")
 
     if sample_list_str:
         samples = [x.strip() for x in sample_list_str.split(",") if x.strip()]
     elif sample_file:
-        # Read samples from file
         with open(sample_file, "r", encoding="utf-8") as sf:
             for line in sf:
                 s = line.strip()

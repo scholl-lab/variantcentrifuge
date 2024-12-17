@@ -1,9 +1,5 @@
-# variantcentrifuge/pipeline.py
-
-# This module orchestrates the entire variantcentrifuge pipeline by normalizing genes, 
-# loading phenotypes, extracting and filtering variants, performing genotype replacement, 
-# integrating phenotypes, running analyses, producing metadata, and optionally converting 
-# results to Excel.
+# File: variantcentrifuge/pipeline.py
+# Location: variantcentrifuge/variantcentrifuge/pipeline.py
 
 """
 Pipeline orchestration module for variantcentrifuge.
@@ -29,6 +25,8 @@ import datetime
 import logging
 import subprocess
 import re
+from typing import Optional, List, Dict, Any
+import argparse
 
 from .utils import check_external_tools, run_command, get_tool_version, sanitize_metadata_field
 from .gene_bed import get_gene_bed, normalize_genes
@@ -41,7 +39,7 @@ from .phenotype_filter import filter_phenotypes
 logger = logging.getLogger("variantcentrifuge")
 
 
-def remove_vcf_extensions(filename):
+def remove_vcf_extensions(filename: str) -> str:
     """
     Remove common VCF-related extensions from a filename.
 
@@ -64,7 +62,7 @@ def remove_vcf_extensions(filename):
     return filename
 
 
-def compute_base_name(vcf_path, gene_name):
+def compute_base_name(vcf_path: str, gene_name: str) -> str:
     """
     Compute a base name for output files based on the VCF filename and genes.
 
@@ -101,7 +99,7 @@ def compute_base_name(vcf_path, gene_name):
             return f"{vcf_base}.{split_genes[0]}"
 
 
-def load_terms_from_file(file_path, logger):
+def load_terms_from_file(file_path: Optional[str], logger: logging.Logger) -> List[str]:
     """
     Load terms (HPO terms, sample IDs, etc.) from a file, one per line.
 
@@ -114,15 +112,15 @@ def load_terms_from_file(file_path, logger):
 
     Returns
     -------
-    list
+    list of str
         A list of terms loaded from the file.
 
     Raises
     ------
     SystemExit
-        If the file is missing or empty.
+        If the file is missing or empty and a file_path was specified.
     """
-    terms = []
+    terms: List[str] = []
     if file_path:
         if not os.path.exists(file_path):
             logger.error(f"Required file not found: {file_path}")
@@ -140,9 +138,9 @@ def load_terms_from_file(file_path, logger):
     return terms
 
 
-def parse_samples_from_vcf(vcf_file):
+def parse_samples_from_vcf(vcf_file: str) -> List[str]:
     """
-    Parse samples from a VCF file by reading its header line.
+    Parse sample names from a VCF file by reading its header line.
 
     Parameters
     ----------
@@ -151,7 +149,7 @@ def parse_samples_from_vcf(vcf_file):
 
     Returns
     -------
-    list
+    list of str
         A list of sample names extracted from the VCF header.
     """
     output = run_command(["bcftools", "view", "-h", vcf_file], output_file=None)
@@ -169,7 +167,7 @@ def parse_samples_from_vcf(vcf_file):
     return samples
 
 
-def run_pipeline(args, cfg, start_time):
+def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: datetime.datetime) -> None:
     """
     High-level orchestration of the pipeline steps.
 
@@ -207,8 +205,7 @@ def run_pipeline(args, cfg, start_time):
         else:
             final_to_stdout = False
             base_name = compute_base_name(args.vcf_file, gene_name)
-            final_output = os.path.join(args.output_dir,
-                                        os.path.basename(args.output_file))
+            final_output = os.path.join(args.output_dir, os.path.basename(args.output_file))
     else:
         final_to_stdout = False
         base_name = compute_base_name(args.vcf_file, gene_name)
@@ -219,22 +216,17 @@ def run_pipeline(args, cfg, start_time):
     os.makedirs(intermediate_dir, exist_ok=True)
 
     if not cfg["no_stats"] and not args.stats_output_file:
-        cfg["stats_output_file"] = os.path.join(
-            intermediate_dir, f"{base_name}.statistics.tsv"
-        )
+        cfg["stats_output_file"] = os.path.join(intermediate_dir, f"{base_name}.statistics.tsv")
     else:
         cfg["stats_output_file"] = args.stats_output_file
 
     # Load phenotypes if provided
     phenotypes = {}
     use_phenotypes = False
-    if (args.phenotype_file and args.phenotype_sample_column and
-            args.phenotype_value_column):
-        phenotypes = load_phenotypes(
-            args.phenotype_file,
-            args.phenotype_sample_column,
-            args.phenotype_value_column
-        )
+    if (args.phenotype_file and args.phenotype_sample_column and args.phenotype_value_column):
+        phenotypes = load_phenotypes(args.phenotype_file,
+                                     args.phenotype_sample_column,
+                                     args.phenotype_value_column)
         if not phenotypes:
             logger.error(
                 f"No phenotype data loaded from {args.phenotype_file}. "
@@ -247,15 +239,12 @@ def run_pipeline(args, cfg, start_time):
     case_hpo_terms = []
     control_hpo_terms = []
     if args.case_phenotypes:
-        case_hpo_terms = [t.strip() for t in args.case_phenotypes.split(",")
-                          if t.strip()]
+        case_hpo_terms = [t.strip() for t in args.case_phenotypes.split(",") if t.strip()]
     case_hpo_terms += load_terms_from_file(args.case_phenotypes_file, logger)
 
     if args.control_phenotypes:
-        control_hpo_terms = [t.strip() for t in args.control_phenotypes.split(",")
-                             if t.strip()]
-    control_hpo_terms += load_terms_from_file(args.control_phenotypes_file,
-                                              logger)
+        control_hpo_terms = [t.strip() for t in args.control_phenotypes.split(",") if t.strip()]
+    control_hpo_terms += load_terms_from_file(args.control_phenotypes_file, logger)
 
     cfg["case_phenotypes"] = case_hpo_terms
     cfg["control_phenotypes"] = control_hpo_terms
@@ -312,24 +301,18 @@ def run_pipeline(args, cfg, start_time):
     variants_file = os.path.join(intermediate_dir, f"{base_name}.variants.vcf.gz")
     filtered_file = os.path.join(intermediate_dir, f"{base_name}.filtered.vcf")
     extracted_tsv = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv")
-    genotype_replaced_tsv = os.path.join(
-        intermediate_dir, f"{base_name}.genotype_replaced.tsv"
-    )
-    phenotype_added_tsv = os.path.join(
-        intermediate_dir, f"{base_name}.phenotypes_added.tsv"
-    )
+    genotype_replaced_tsv = os.path.join(intermediate_dir, f"{base_name}.genotype_replaced.tsv")
+    phenotype_added_tsv = os.path.join(intermediate_dir, f"{base_name}.phenotypes_added.tsv")
     gene_burden_tsv = os.path.join(args.output_dir, f"{base_name}.gene_burden.tsv")
 
     # Extract and filter variants
-    run_command(["bcftools", "view", args.vcf_file, "-R", bed_file,
-                 "-Oz", "-o", variants_file])
+    run_command(["bcftools", "view", args.vcf_file, "-R", bed_file, "-Oz", "-o", variants_file])
     run_command(["bcftools", "index", variants_file])
-    run_command(["SnpSift", "filter", cfg["filters"], variants_file],
-                output_file=filtered_file)
+    run_command(["SnpSift", "filter", cfg["filters"], variants_file], output_file=filtered_file)
 
     field_list = (cfg["fields_to_extract"] or args.fields).strip().split()
-    run_command(["SnpSift", "extractFields", "-s", ",", "-e", "NA",
-                 filtered_file] + field_list, output_file=extracted_tsv)
+    run_command(["SnpSift", "extractFields", "-s", ",", "-e", "NA", filtered_file] + field_list,
+                output_file=extracted_tsv)
     # Post-process header
     with open(extracted_tsv, "r", encoding="utf-8") as f:
         lines = f.readlines()
@@ -391,9 +374,7 @@ def run_pipeline(args, cfg, start_time):
                                         samples_in_line.append(s)
                     pheno_str = ""
                     if samples_in_line:
-                        pheno_str = aggregate_phenotypes_for_samples(
-                            samples_in_line, phenotypes
-                        )
+                        pheno_str = aggregate_phenotypes_for_samples(samples_in_line, phenotypes)
                     fields_line.append(pheno_str)
                 else:
                     fields_line.append("")
@@ -479,9 +460,7 @@ def run_pipeline(args, cfg, start_time):
         meta_write("Run_end_time", end_time.isoformat())
         meta_write("Run_duration_seconds", str(duration))
         meta_write("Date", datetime.datetime.now().isoformat())
-        meta_write("Command_line", " ".join([
-            sanitize_metadata_field(x) for x in sys.argv
-        ]))
+        meta_write("Command_line", " ".join([sanitize_metadata_field(x) for x in sys.argv]))
 
         for k, v in cfg.items():
             meta_write(f"config.{k}", str(v))
@@ -509,15 +488,13 @@ def run_pipeline(args, cfg, start_time):
             if (not cfg["no_stats"] and cfg.get("stats_output_file") and
                     os.path.exists(cfg["stats_output_file"])):
                 if os.path.getsize(cfg["stats_output_file"]) > 0:
-                    append_tsv_as_sheet(xlsx_file, cfg["stats_output_file"],
-                                        sheet_name="Statistics")
+                    append_tsv_as_sheet(xlsx_file, cfg["stats_output_file"], sheet_name="Statistics")
                 else:
                     logger.warning("Stats file is empty, skipping Statistics sheet.")
             if (cfg.get("perform_gene_burden", False) and
                     os.path.exists(gene_burden_tsv) and
                     os.path.getsize(gene_burden_tsv) > 0):
-                append_tsv_as_sheet(xlsx_file, gene_burden_tsv,
-                                    sheet_name="Gene Burden")
+                append_tsv_as_sheet(xlsx_file, gene_burden_tsv, sheet_name="Gene Burden")
 
     # Remove intermediates if requested
     if not args.keep_intermediates:
