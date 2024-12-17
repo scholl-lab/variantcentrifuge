@@ -107,7 +107,7 @@ variantcentrifuge/
 
 1. **Clone the repository:**
    ```sh
-   git clone https://github.com/scholl-lab/variantcentrifuge/.git
+   git clone https://github.com/scholl-lab/variantcentrifuge/
    cd variantcentrifuge
    ```
 
