@@ -6,7 +6,7 @@
     "sample_file": "samples.txt",
     "replace_script_options": "--append-genotype",
     "output_file": "variants.tsv",
-    "interval_expand": 0,
+    "interval_expand": 1000,
     "use_phenotype_filtering": false,
     "perform_gene_burden": false
   }
