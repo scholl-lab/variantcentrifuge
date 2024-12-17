@@ -214,6 +214,13 @@ def main() -> None:
         help="Multiple testing correction method for gene burden test"
     )
 
+    # Added html-report flag
+    parser.add_argument(
+        "--html-report",
+        action="store_true",
+        help="Generate an interactive HTML report with sortable variant tables and summary plots."
+    )
+
     args: argparse.Namespace = parser.parse_args()
 
     log_level_map = {

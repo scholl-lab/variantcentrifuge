@@ -1,0 +1,76 @@
+<!-- File: variantcentrifuge/templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>VariantCentrifuge Report</title>
+    <!-- DataTables CSS/JS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.10.20/css/jquery.dataTables.min.css"/>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.10.20/js/jquery.dataTables.min.js"></script>
+
+    <!-- Plotly JS -->
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
+    <style>
+    body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+    }
+    .chart-container {
+        width: 600px;
+        height: 400px;
+        margin-bottom: 50px;
+    }
+    </style>
+</head>
+<body>
+<h1>VariantCentrifuge Interactive Report</h1>
+
+<h2>Summary</h2>
+<p>Sample Name: {{ summary.sample_name }}</p>
+<p>Number of Variants: {{ summary.num_variants }}</p>
+<p>Number of Genes: {{ summary.num_genes }}</p>
+<p>Mean VNTR Coverage: {{ summary.mean_vntr_coverage }}</p>
+
+<h2>Impact Distribution</h2>
+<div id="impact_chart" class="chart-container"></div>
+<script>
+var impactData = [{
+    x: Object.keys({{ summary.impact_distribution|tojson }}),
+    y: Object.values({{ summary.impact_distribution|tojson }}),
+    type: 'bar'
+}];
+Plotly.newPlot('impact_chart', impactData);
+</script>
+
+<h2>Variants Table</h2>
+<table id="variants_table" class="display">
+    <thead>
+        <tr>
+            {% for col in columns %}
+                <th>{{ col }}</th>
+            {% endfor %}
+        </tr>
+    </thead>
+    <tbody>
+        {% for v in variants %}
+        <tr>
+            {% for col in columns %}
+                <td>{{ v[col] }}</td>
+            {% endfor %}
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<script>
+$(document).ready(function() {
+    $('#variants_table').DataTable({
+        "pageLength": 25
+    });
+});
+</script>
+
+</body>
+</html>

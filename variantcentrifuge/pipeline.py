@@ -496,6 +496,22 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
                     os.path.getsize(gene_burden_tsv) > 0):
                 append_tsv_as_sheet(xlsx_file, gene_burden_tsv, sheet_name="Gene Burden")
 
+    # Produce HTML report if requested
+    if args.html_report and final_out_path and os.path.exists(final_out_path):
+        from .converter import produce_report_json
+        produce_report_json(final_out_path, args.output_dir)
+
+        from .generate_html_report import generate_html_report
+        report_dir = os.path.join(args.output_dir, "report")
+        variants_json = os.path.join(report_dir, "variants.json")
+        summary_json = os.path.join(report_dir, "summary.json")
+        generate_html_report(
+            variants_json=variants_json,
+            summary_json=summary_json,
+            output_dir=report_dir
+        )
+        logger.info("HTML report generated successfully.")
+
     # Remove intermediates if requested
     if not args.keep_intermediates:
         intermediates = [variants_file, filtered_file, extracted_tsv]

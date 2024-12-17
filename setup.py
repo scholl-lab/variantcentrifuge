@@ -29,13 +29,14 @@ setup(
     python_requires=">=3.7",
     install_requires=[
         "pandas",
+        "jinja2",  # Ensure jinja2 is installed since we use it for templates
     ],
     entry_points={
         "console_scripts": [
             "variantcentrifuge=variantcentrifuge.cli:main"
         ]
     },
-    include_package_data=True,  # Ensure package data specified in MANIFEST.in is included
+    include_package_data=True,  # Ensure that package data (from MANIFEST.in) is included
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
