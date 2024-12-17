@@ -45,9 +45,6 @@ def main() -> None:
         4. Validate input files (VCF, phenotype).
         5. Update configuration with CLI parameters.
         6. Run the pipeline.
-
-    Returns:
-        None
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -166,7 +163,6 @@ def main() -> None:
         default=False,
         help="Skip the statistics computation step."
     )
-
     parser.add_argument(
         "--case-phenotypes",
         help="Comma-separated HPO terms defining case group"
@@ -183,7 +179,6 @@ def main() -> None:
         "--control-phenotypes-file",
         help="File with HPO terms for control group"
     )
-
     parser.add_argument(
         "--case-samples",
         help="Comma-separated sample IDs defining the case group"
@@ -200,7 +195,6 @@ def main() -> None:
         "--control-samples-file",
         help="File with sample IDs for control group"
     )
-
     parser.add_argument(
         "--gene-burden-mode",
         choices=["samples", "alleles"],
@@ -213,12 +207,23 @@ def main() -> None:
         default="fdr",
         help="Multiple testing correction method for gene burden test"
     )
-
-    # Added html-report flag
     parser.add_argument(
         "--html-report",
         action="store_true",
         help="Generate an interactive HTML report with sortable variant tables and summary plots."
+    )
+    parser.add_argument(
+        "--igv",
+        action="store_true",
+        help="Enable IGV.js integration for genomic visualization."
+    )
+    parser.add_argument(
+        "--bam-mapping-file",
+        help="Path to a TSV or CSV file mapping sample IDs to BAM files (sample_id,bam_path)."
+    )
+    parser.add_argument(
+        "--igv-reference",
+        help="Genome reference identifier for IGV (e.g., 'hg19' or 'hg38'). Required if --igv is enabled."
     )
 
     args: argparse.Namespace = parser.parse_args()
@@ -237,18 +242,14 @@ def main() -> None:
     cfg: Dict[str, Any] = load_config(args.config)
     logger.debug(f"Configuration loaded: {cfg}")
 
-    # Merge CLI params with config if needed
     reference: Optional[str] = args.reference or cfg.get("reference")
     filters: Optional[str] = args.filters or cfg.get("filters")
     fields: Optional[str] = args.fields or cfg.get("fields_to_extract")
 
     # Validate mandatory parameters
     validate_mandatory_parameters(reference, filters, fields)
-
-    # Validate VCF file
     validate_vcf_file(args.vcf_file, logger)
 
-    # Validate phenotype file if provided
     if args.phenotype_file and (
         args.phenotype_sample_column is None or args.phenotype_value_column is None
     ):
@@ -265,13 +266,21 @@ def main() -> None:
             logger
         )
 
-    # Update cfg with CLI parameters
     cfg["perform_gene_burden"] = args.perform_gene_burden
     cfg["no_stats"] = args.no_stats
     cfg["gene_burden_mode"] = args.gene_burden_mode
     cfg["correction_method"] = args.correction_method
 
-    # Hand off execution to pipeline
+    # IGV parameters
+    cfg["igv_enabled"] = args.igv
+    cfg["bam_mapping_file"] = args.bam_mapping_file
+    cfg["igv_reference"] = args.igv_reference
+
+    # If IGV is enabled, check that bam_mapping_file and igv_reference are provided
+    if args.igv and (not args.bam_mapping_file or not args.igv_reference):
+        logger.error("For IGV integration, --bam-mapping-file and --igv-reference must be provided.")
+        sys.exit(1)
+
     run_pipeline(args, cfg, start_time)
 
 

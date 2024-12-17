@@ -313,6 +313,7 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     field_list = (cfg["fields_to_extract"] or args.fields).strip().split()
     run_command(["SnpSift", "extractFields", "-s", ",", "-e", "NA", filtered_file] + field_list,
                 output_file=extracted_tsv)
+
     # Post-process header
     with open(extracted_tsv, "r", encoding="utf-8") as f:
         lines = f.readlines()
@@ -350,8 +351,8 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
             header_fields.append("phenotypes")
             out.write("\t".join(header_fields) + "\n")
 
-            gt_idx = header_fields.index("GT") if "GT" in header_fields else None
             wrote_data = False
+            gt_idx = header_fields.index("GT") if "GT" in header_fields else None
             for line in inp:
                 line = line.rstrip("\n")
                 if not line.strip():
@@ -511,6 +512,39 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
             output_dir=report_dir
         )
         logger.info("HTML report generated successfully.")
+
+    # IGV integration
+    igv_enabled = cfg.get("igv_enabled", False)
+    if igv_enabled:
+        bam_map = cfg.get("bam_mapping_file")
+        igv_ref = cfg.get("igv_reference")
+        if not bam_map or not igv_ref:
+            logger.error("For IGV integration, --bam-mapping-file and --igv-reference are required.")
+            sys.exit(1)
+
+        from .generate_igv_report import generate_igv_report
+        if args.html_report and final_out_path and os.path.exists(final_out_path):
+            generate_igv_report(
+                variants_tsv=final_out_path,
+                output_dir=report_dir,
+                bam_mapping_file=bam_map,
+                igv_reference=igv_ref,
+                integrate_into_main=True
+            )
+        else:
+            igv_report_dir = os.path.join(args.output_dir, "igv_report")
+            os.makedirs(igv_report_dir, exist_ok=True)
+            if final_out_path and os.path.exists(final_out_path):
+                generate_igv_report(
+                    variants_tsv=final_out_path,
+                    output_dir=igv_report_dir,
+                    bam_mapping_file=bam_map,
+                    igv_reference=igv_ref,
+                    integrate_into_main=False
+                )
+                logger.info("Standalone IGV report generated successfully.")
+            else:
+                logger.warning("Final variants TSV not found, cannot generate IGV report.")
 
     # Remove intermediates if requested
     if not args.keep_intermediates:
