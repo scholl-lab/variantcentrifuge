@@ -1,10 +1,15 @@
-# File: variantcentrifuge/gene_bed.py
-# Location: variantcentrifuge/variantcentrifuge/gene_bed.py
+# variantcentrifuge/gene_bed.py
+
+# This script normalizes gene inputs (single gene, multiple genes, or from a file)
+# and uses snpEff genes2bed to generate a BED file representing the specified genes.
+# It also supports caching to avoid regenerating BED files unnecessarily.
 
 """
-Gene BED extraction module.
+Gene BED extraction and gene normalization module.
 
-No changes here from the previous version since no new logic is required.
+This module provides:
+- normalize_genes: For normalizing gene inputs (single gene, multiple genes, or file).
+- get_gene_bed: For generating a BED file corresponding to specified genes via snpEff genes2bed.
 """
 
 import subprocess
@@ -13,8 +18,75 @@ import os
 import hashlib
 import shutil
 import logging
+import sys
 
 logger = logging.getLogger("variantcentrifuge")
+
+
+def normalize_genes(gene_name_str, gene_file_str, logger):
+    """
+    Normalize genes from either a single gene name, a list of genes,
+    or a file containing gene names.
+
+    If 'all' is provided or no genes after filtering, returns "all".
+
+    Parameters
+    ----------
+    gene_name_str : str or None
+        The gene name(s) provided via CLI.
+    gene_file_str : str or None
+        Path to a file containing gene names.
+    logger : logging.Logger
+        Logger for logging messages.
+
+    Returns
+    -------
+    str
+        A normalized, space-separated string of gene names or "all".
+    """
+    if gene_file_str and gene_file_str.strip():
+        if not os.path.exists(gene_file_str):
+            logger.error(f"Gene file {gene_file_str} not found.")
+            sys.exit(1)
+        genes_from_file = []
+        with open(gene_file_str, "r", encoding="utf-8") as gf:
+            for line in gf:
+                line = line.strip()
+                if line:
+                    genes_from_file.append(line)
+        genes = genes_from_file
+    else:
+        if not gene_name_str:
+            logger.error("No gene name provided and no gene file provided.")
+            sys.exit(1)
+        # Prevent confusion if a file was incorrectly given to -g
+        if os.path.exists(gene_name_str):
+            logger.error(
+                f"It looks like you provided a file '{gene_name_str}' to "
+                f"-g/--gene-name."
+            )
+            logger.error(
+                "If you meant to provide a file of gene names, please use "
+                "-G/--gene-file instead."
+            )
+            sys.exit(1)
+
+        g_str = gene_name_str.replace(",", " ")
+        genes = [
+            g.strip()
+            for g_str_part in g_str.split()
+            for g in [g_str_part.strip()] if g
+        ]
+
+    if len(genes) == 1 and genes[0].lower() == "all":
+        return "all"
+
+    # Sort and deduplicate
+    genes = sorted(set(genes))
+    if not genes:
+        return "all"
+    return " ".join(genes)
+
 
 def get_gene_bed(reference, gene_name, interval_expand=0, add_chr=True, output_dir="output"):
     """
@@ -76,14 +148,16 @@ def get_gene_bed(reference, gene_name, interval_expand=0, add_chr=True, output_d
         cmd.extend(["-ud", str(interval_expand)])
 
     logger.info(f"Running: {' '.join(cmd)}")
-    subprocess.run(cmd, stdout=open(bed_path, "w", encoding="utf-8"), check=True)
+    with open(bed_path, "w", encoding="utf-8") as out_f:
+        subprocess.run(cmd, stdout=out_f, check=True, text=True)
     logger.debug(f"snpEff genes2bed completed, BED file at {bed_path}")
 
     # Sort the BED file
     sorted_bed = bed_path + ".sorted"
     sort_cmd = ["sortBed", "-i", bed_path]
     logger.debug(f"Sorting BED file with: {' '.join(sort_cmd)}")
-    subprocess.run(sort_cmd, stdout=open(sorted_bed, "w", encoding="utf-8"), check=True)
+    with open(sorted_bed, "w", encoding="utf-8") as out_f:
+        subprocess.run(sort_cmd, stdout=out_f, check=True, text=True)
     logger.debug(f"BED sorting completed, sorted file at {sorted_bed}")
 
     final_bed = sorted_bed

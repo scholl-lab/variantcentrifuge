@@ -186,3 +186,21 @@ def get_tool_version(tool_name):
     except Exception as e:
         logger.warning(f"Failed to retrieve version for {tool_name}: {e}")
         return "N/A"
+
+
+def sanitize_metadata_field(value):
+    """
+    Sanitize a metadata field by removing tabs and newlines,
+    replacing them with spaces to ensure TSV compatibility.
+
+    Parameters
+    ----------
+    value : str
+        The value to sanitize.
+
+    Returns
+    -------
+    str
+        Sanitized string value with no tabs or newlines.
+    """
+    return value.replace("\t", " ").replace("\n", " ").strip()
