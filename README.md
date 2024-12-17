@@ -107,8 +107,8 @@ variantcentrifuge/
 
 1. **Clone the repository:**
    ```sh
-   git clone https://github.com/yourusername/VariantCentrifuge.git
-   cd VariantCentrifuge
+   git clone https://github.com/scholl-lab/variantcentrifuge/.git
+   cd variantcentrifuge
    ```
 
 2. **Set up a virtual environment (optional but recommended):**
