@@ -17,13 +17,54 @@ Logic:
 
 Requires cfg["sample_list"] for sample names.
 If no sample_list, returns lines unchanged.
+
+Enhancement #14:
+- Make genotype replacement logic configurable:
+  * Introduce a 'genotype_replacement_map' parameter in cfg, mapping regex patterns to their replacements.
+  * Default: {r"[2-9]": "1"}
+  * Document the default logic and provide options for users to adjust or turn off replacements by providing an empty map.
+  * Increase transparency and flexibility in how genotypes are handled.
 """
 
 import logging
+import re
 
 logger = logging.getLogger("variantcentrifuge")
 
+
 def replace_genotypes(lines, cfg):
+    """
+    Replace genotypes based on user-defined logic and return updated lines.
+
+    The replacement logic is controlled by cfg["genotype_replacement_map"],
+    which should be a dictionary mapping regex patterns to replacement strings.
+
+    Default logic (if not provided): {r"[2-9]": "1"}
+
+    Parameters
+    ----------
+    lines : iterable
+        An iterable of lines (strings) representing the extracted TSV data.
+    cfg : dict
+        Configuration dictionary. Relevant entries:
+        - "append_genotype": bool, whether to append genotype (e.g., sample(0/1)) 
+          or just sample ID.
+        - "sample_list": str, comma-separated list of samples in the order of genotypes.
+        - "proband_list": str, comma-separated list of proband samples.
+        - "control_list": str, comma-separated list of control samples.
+        - "include_nocalls": bool, whether to include no-calls (./.) in count totals.
+        - "count_genotypes": bool, whether to append count columns to the output.
+        - "list_samples": bool, whether to list unique samples at the end.
+        - "separator": str, separator to join replaced genotypes.
+        - "genotype_replacement_map": dict, keys are regex patterns, values are 
+          replacement strings. Used to transform alleles in genotypes before processing.
+          Example: {r"[2-9]": "1"} (default if not provided).
+
+    Yields
+    ------
+    str
+        Modified lines with genotype replacements applied.
+    """
     append_genotype = cfg.get("append_genotype", True)
     sample_list_str = cfg.get("sample_list", "")
     proband_list_str = cfg.get("proband_list", "")
@@ -32,6 +73,7 @@ def replace_genotypes(lines, cfg):
     count_genotypes = cfg.get("count_genotypes", True)
     list_samples = cfg.get("list_samples", False)
     separator = cfg.get("separator", ";")
+    genotype_replacement_map = cfg.get("genotype_replacement_map", {r"[2-9]": "1"})
 
     def parse_list_from_str(input_str):
         if not input_str:
@@ -61,15 +103,14 @@ def replace_genotypes(lines, cfg):
     gt_idx = None
     first_line = True
 
-    import re
+    # Compile regex patterns for performance
+    compiled_patterns = [(re.compile(pat), repl) for pat, repl in genotype_replacement_map.items()]
 
     for line in lines:
         line = line.rstrip("\n")
         if first_line:
             header_fields = line.split("\t")
             # Find "GT" column
-            # After extractFields and header fixes, we assume there's a column named "GT".
-            # If not found, return lines unchanged.
             if "GT" not in header_fields:
                 # No GT column found, return lines unchanged from now on
                 yield line
@@ -80,10 +121,9 @@ def replace_genotypes(lines, cfg):
             gt_idx = header_fields.index("GT")
 
             if list_samples:
-                # If listing samples, we just capture samples at the end
-                # No direct line output now.
+                # If listing samples, we do not modify the header
                 if count_genotypes:
-                    # no changes to header
+                    # no changes to header, just yield if needed later after processing
                     pass
             else:
                 # If not listing samples, print header and add columns if count_genotypes is True
@@ -132,10 +172,11 @@ def replace_genotypes(lines, cfg):
             sample = samples[i]
 
             g = g.replace("|", "/")
-            # Replace any digits 2-9 with '1'
-            if re.search(r"[2-9]", g):
-                g = re.sub(r"[2-9]", "1", g)
-                logger.warning(f"Non-1 GT field detected and replaced with 1 in sample {sample} for genotype {g}")
+
+            # Apply replacement logic based on genotype_replacement_map
+            for pat, repl in compiled_patterns:
+                if pat.search(g):
+                    g = pat.sub(repl, g)
 
             # Only output non-0/0 variant genotypes
             if g not in ["0/0", "./."]:
