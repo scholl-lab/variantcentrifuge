@@ -23,7 +23,7 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     author="Bernt Popp",
-    author_email="bernt.popp@gmail.com",
+    author_email="bernt.popp.md@gmail.com",
     url="https://github.com/scholl-lab/variantcentrifuge",
     packages=find_packages(),
     python_requires=">=3.7",

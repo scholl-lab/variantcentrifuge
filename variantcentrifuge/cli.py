@@ -523,14 +523,16 @@ def main():
     columns = header_line.split("\t")
     if "GT" not in columns:
         logger.warning(
-            "GT column not found in extracted fields. Genotype replacement "
-            "will not have any effect."
+            "GT column not found in extracted fields. No genotype data could be replaced. "
+            "This may occur if your input VCF does not contain genotype data or if the 'GT' "
+            "field was not included in the extracted fields. Please ensure that the input VCF "
+            "contains genotypes and the 'GT' field is included in the extraction configuration."
         )
         if not args.no_replacement:
             logger.warning(
-                "Genotype replacement requested but GT column missing. "
-                "No replacement will occur."
-            )
+                "Genotype replacement was requested but cannot be performed due to missing 'GT' column. "
+                "Your output will remain unchanged. Consider updating your input VCF or extraction parameters."
+        )
 
     # Optional genotype replacement
     if not args.no_replacement and "GT" in columns:
