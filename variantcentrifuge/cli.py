@@ -1,9 +1,5 @@
-# variantcentrifuge/cli.py 
-
-# This script serves as the command-line interface for variantcentrifuge.
-# It parses user arguments, loads configuration, validates inputs, and
-# delegates execution to the main pipeline, producing filtered and analyzed
-# variant results.
+# File: variantcentrifuge/cli.py
+# Location: variantcentrifuge/variantcentrifuge/cli.py
 
 """
 CLI module for variantcentrifuge.
@@ -49,9 +45,11 @@ def main() -> None:
     Changes for presets:
         - Added a --preset argument which allows specifying one or more predefined filters.
         - If multiple presets are chosen, they are combined with AND (&).
-        - If user-specified filters are also provided, they are combined with presets using AND.
+        - If user-specified filters are also provided, they are combined with these presets using AND.
         - Presets must be defined in config.json under "presets".
     """
+    # Initial basic logging setup to stderr before arguments are parsed,
+    # so that we can log early messages like start time.
     logging.basicConfig(
         level=logging.INFO,
         format="%(levelname)s: %(message)s",
@@ -75,6 +73,10 @@ def main() -> None:
         choices=["DEBUG", "INFO", "WARN", "ERROR"],
         default="INFO",
         help="Set the logging level",
+    )
+    parser.add_argument(
+        "--log-file",
+        help="Path to a file to write logs to (in addition to stderr)."
     )
     parser.add_argument(
         "-c",
@@ -252,6 +254,14 @@ def main() -> None:
         "ERROR": logging.ERROR,
     }
     logging.getLogger("variantcentrifuge").setLevel(log_level_map[args.log_level])
+
+    # If a log file is specified, add a file handler in addition to stderr
+    if args.log_file:
+        fh = logging.FileHandler(args.log_file)
+        fh.setLevel(log_level_map[args.log_level])
+        fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+        logger.addHandler(fh)
+        logger.debug(f"Logging to file enabled: {args.log_file}")
 
     logger.debug(f"CLI arguments: {args}")
 
