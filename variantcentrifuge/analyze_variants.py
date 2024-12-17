@@ -8,18 +8,19 @@ This module:
 - Reads a TSV of variants and their annotations (including a GT column listing sample genotypes).
 - Classifies samples into case/control sets based on user input (sample lists or phenotype terms).
 - If no case/control criteria are provided, defaults to making all samples controls.
-- Computes variant statistics and optionally performs a gene burden analysis via Fisher's exact test.
+- Computes variant-level statistics and, if requested, performs a gene burden analysis (per-gene) via Fisher's exact test.
 
 Fallback Behavior:
 - If case or control groups are not provided by any method (phenotypes, sample lists), 
   all samples are considered controls by default.
 
-Added Debug Logging:
-- Logs at each major logical step and data processing point.
-- Logs the size of sample sets and the outcome of classification.
+Logging:
+- Logs at each major step and data processing point.
+- Logs sizes of sample sets, classification outcomes, and stats computations.
 
-Added Comments:
-- Each function now has a docstring and inline comments for clarity.
+Comments:
+- Each function has a docstring explaining logic and parameters.
+- Inline comments clarify specific code logic.
 """
 
 import io
@@ -33,22 +34,22 @@ try:
 except ImportError:
     fisher_exact = None
 
+import statsmodels.stats.multitest as smm
+
 logger = logging.getLogger("variantcentrifuge")
+
 
 def analyze_variants(lines, cfg):
     """
-    Analyze variants, perform gene burden analysis if requested, and add debug logging.
+    Analyze variants and optionally perform gene burden analysis.
 
     Steps:
-    - Parse TSV input into a DataFrame.
-    - Retrieve the full sample list from cfg["sample_list"] (extracted from the VCF header).
-    - Determine case/control sets based on cfg:
-      * If case_samples/control_samples given, use them directly.
-      * Else if case_phenotypes/control_phenotypes given, classify samples accordingly.
-      * Else, all samples become controls.
-    - Assign allele counts per variant (row) into proband_*/control_* columns.
-    - Compute and write basic stats, optionally comprehensive stats.
-    - If requested, perform Fisher's exact test for gene burden.
+    - Parse input TSV into a DataFrame.
+    - Retrieve full sample list from cfg["sample_list"].
+    - Determine case/control sets based on cfg (samples or phenotypes).
+    - Compute per-variant case/control allele counts.
+    - Compute basic and optionally comprehensive gene-level stats.
+    - If requested, perform gene burden (Fisher's exact test + correction).
 
     Parameters
     ----------
@@ -56,17 +57,21 @@ def analyze_variants(lines, cfg):
         Input lines representing a TSV with variant data.
     cfg : dict
         Configuration dictionary with keys:
-        - sample_list: comma-separated full sample list from VCF
-        - case_samples, control_samples (list of strings)
-        - case_phenotypes, control_phenotypes (list of strings)
-        - perform_gene_burden (bool)
-        - no_stats (bool)
-        - stats_output_file (str)
+        - sample_list (str): Comma-separated full sample list from VCF
+        - case_samples, control_samples (list of str)
+        - case_phenotypes, control_phenotypes (list of str)
+        - perform_gene_burden (bool): Whether to perform gene burden analysis
+        - gene_burden_mode (str): "samples" or "alleles"
+        - correction_method (str): "fdr" or "bonferroni"
+        - no_stats (bool): Skip stats if True
+        - stats_output_file (str): Path to stats output
+        - gene_burden_output_file (str, optional)
+        - xlsx (bool): If True, might append to Excel after analysis
 
     Yields
     ------
     str
-        Processed lines of output TSV or gene burden results.
+        Processed lines of output TSV or gene-level burden results.
     """
     perform_gene_burden = cfg.get("perform_gene_burden", False)
     stats_output_file = cfg.get("stats_output_file")
@@ -75,7 +80,7 @@ def analyze_variants(lines, cfg):
     logger.debug(f"analyze_variants: perform_gene_burden={perform_gene_burden}, "
                  f"stats_output_file={stats_output_file}, no_stats={no_stats}")
 
-    # Read all input lines
+    # Read all input lines into a single text block
     text_data = "".join(line for line in lines)
     if not text_data.strip():
         logger.debug("No input data provided to analyze_variants.")
@@ -94,14 +99,14 @@ def analyze_variants(lines, cfg):
             yield line
         return
 
-    # Ensure we have the full sample list from the VCF
+    # Ensure we have the full sample list from cfg
     if "sample_list" not in cfg or not cfg["sample_list"].strip():
         logger.error("No sample_list found in cfg. Unable to determine the full sample set.")
         for line in text_data.strip().split("\n"):
             yield line
         return
 
-    # all_samples is the full set of samples from the VCF header
+    # all_samples: full set of samples
     all_samples = set(cfg["sample_list"].split(","))
     logger.debug(f"Total samples from VCF header: {len(all_samples)}")
 
@@ -109,7 +114,7 @@ def analyze_variants(lines, cfg):
     case_samples, control_samples = determine_case_control_sets(all_samples, cfg, df)
     logger.debug(f"Number of case samples: {len(case_samples)}; Number of control samples: {len(control_samples)}")
 
-    # Assign case/control counts to the variants
+    # Assign case/control counts per variant
     df = assign_case_control_counts(df, case_samples, control_samples, all_samples)
 
     # Compute basic stats
@@ -146,17 +151,25 @@ def analyze_variants(lines, cfg):
     else:
         logger.debug("No comprehensive stats requested (no_stats=True).")
 
-    # Perform gene burden if requested
+    # Perform gene burden analysis if requested
     if perform_gene_burden:
-        logger.debug("Performing gene burden analysis (Fisher's exact test)...")
-        if fisher_exact is None:
-            logger.error("scipy not available for Fisher test, cannot perform gene burden.")
-            for line in text_data.strip().split("\n"):
+        logger.debug("Performing configurable gene burden analysis...")
+        gene_burden_results = perform_gene_burden_analysis(df, cfg)
+
+        if gene_burden_results.empty:
+            logger.warning("Gene burden results are empty. Returning variant-level data.")
+            out_str = df.to_csv(sep="\t", index=False)
+            for line in out_str.strip().split("\n"):
                 yield line
             return
-        grouped = df.groupby("GENE").apply(gene_burden_fisher)
-        burden_text = grouped.to_csv(sep="\t", index=False)
-        logger.debug("Gene burden analysis complete.")
+
+        # Write burden results to file if provided
+        burden_output_file = cfg.get("gene_burden_output_file", "gene_burden_results.tsv")
+        logger.info(f"Writing gene burden results to {burden_output_file}")
+        gene_burden_results.to_csv(burden_output_file, sep="\t", index=False)
+
+        # Yield burden results as output
+        burden_text = gene_burden_results.to_csv(sep="\t", index=False)
         for line in burden_text.strip().split("\n"):
             yield line
     else:
@@ -165,44 +178,154 @@ def analyze_variants(lines, cfg):
         for line in out_str.strip().split("\n"):
             yield line
 
+
+def perform_gene_burden_analysis(df, cfg):
+    """
+    Perform gene burden analysis for each gene.
+
+    Steps:
+    1. Aggregate variant counts per gene based on chosen mode (samples or alleles).
+    2. Perform Fisher's exact test for each gene.
+    3. Apply multiple testing correction (FDR or Bonferroni).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with per-variant case/control counts.
+    cfg : dict
+        Configuration dictionary with keys:
+        - gene_burden_mode: 'samples' or 'alleles'
+        - correction_method: 'fdr' or 'bonferroni'
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame with gene-level burden results including p-values and odds ratios.
+    """
+    logger.debug("Starting gene burden aggregation...")
+
+    mode = cfg.get("gene_burden_mode", "alleles")
+    correction_method = cfg.get("correction_method", "fdr")
+
+    # Aggregate per-gene counts
+    grouped = df.groupby("GENE").agg({
+        "proband_count": "max",
+        "control_count": "max",
+        "proband_variant_count": "sum",
+        "control_variant_count": "sum",
+        "proband_allele_count": "sum",
+        "control_allele_count": "sum"
+    }).reset_index()
+
+    results = []
+    for _, row in grouped.iterrows():
+        gene = row["GENE"]
+        p_count = int(row["proband_count"])
+        c_count = int(row["control_count"])
+
+        # Skip if no samples in either group
+        if p_count == 0 and c_count == 0:
+            continue
+
+        if mode == "samples":
+            # Per-sample variant counts
+            p_var = int(row["proband_variant_count"])
+            c_var = int(row["control_variant_count"])
+            p_ref = p_count - p_var
+            c_ref = c_count - c_var
+            table = [[p_var, c_var],
+                     [p_ref, c_ref]]
+            var_metric = ("proband_variant_count", "control_variant_count")
+        else:
+            # Per-allele counts
+            p_all = int(row["proband_allele_count"])
+            c_all = int(row["control_allele_count"])
+            p_ref = p_count * 2 - p_all
+            c_ref = c_count * 2 - c_all
+            table = [[p_all, c_all],
+                     [p_ref, c_ref]]
+            var_metric = ("proband_allele_count", "control_allele_count")
+
+        # Fisher's exact test if available
+        if fisher_exact is not None:
+            odds_ratio, pval = fisher_exact(table)
+        else:
+            odds_ratio = None
+            pval = 1.0
+
+        results.append({
+            "GENE": gene,
+            "proband_count": p_count,
+            "control_count": c_count,
+            var_metric[0]: table[0][0],
+            var_metric[1]: table[0][1],
+            "raw_p_value": pval,
+            "odds_ratio": odds_ratio
+        })
+
+    if not results:
+        logger.warning("No genes found with variant data for gene burden analysis.")
+        return pd.DataFrame()
+
+    results_df = pd.DataFrame(results)
+
+    # Multiple testing correction
+    pvals = results_df["raw_p_value"].values
+    if correction_method == "bonferroni":
+        corrected_pvals = smm.multipletests(pvals, method="bonferroni")[1]
+    else:
+        # Default to FDR (Benjamini–Hochberg)
+        corrected_pvals = smm.multipletests(pvals, method="fdr_bh")[1]
+
+    results_df["corrected_p_value"] = corrected_pvals
+
+    if mode == "samples":
+        final_cols = [
+            "GENE",
+            "proband_count", "control_count",
+            "proband_variant_count", "control_variant_count",
+            "raw_p_value", "corrected_p_value", "odds_ratio"
+        ]
+    else:
+        final_cols = [
+            "GENE",
+            "proband_count", "control_count",
+            "proband_allele_count", "control_allele_count",
+            "raw_p_value", "corrected_p_value", "odds_ratio"
+        ]
+
+    results_df = results_df[final_cols]
+    logger.debug("Gene burden analysis complete.")
+    return results_df
+
+
 def determine_case_control_sets(all_samples, cfg, df):
     """
-    Determine which samples are cases and which are controls.
+    Determine case/control sample sets based on configuration.
 
-    Priority:
-    1. If case_samples or control_samples explicitly provided, use them directly.
-       - If only case_samples are provided: non-case are controls.
-       - If only control_samples are provided: non-control are cases.
-       - If both provided: exclude samples not in either set.
-    2. Else, use phenotype-based logic if phenotype terms are provided.
-       - If only case terms: samples matching any case term -> case; others -> control
-       - If only control terms: samples matching any control term -> control; others -> case
-       - If both sets of terms: 
-         * match case terms -> case, 
-         * match control terms -> control, 
-         * match neither -> excluded
-    3. If no phenotype or sample sets are provided, all samples become controls by default.
+    Logic:
+    - If explicit case/control samples provided, use them directly.
+    - Else if phenotype terms given, classify based on those.
+    - Else, all samples become controls.
 
     Returns
     -------
     (set_of_case_samples, set_of_control_samples)
     """
-
     logger.debug("Determining case/control sets...")
 
     case_samples = set(cfg.get("case_samples", []))
     control_samples = set(cfg.get("control_samples", []))
 
-    # Step 1: Explicit sample sets
+    # Step 1: Explicit sets
     if case_samples or control_samples:
-        logger.debug(f"Explicit sample sets provided: {len(case_samples)} cases, {len(control_samples)} controls")
+        logger.debug(f"Explicit sample sets: {len(case_samples)} cases, {len(control_samples)} controls")
         if case_samples and not control_samples:
-            logger.debug("Only case samples given, assigning all others as controls.")
+            # Only case samples given
             control_samples = all_samples - case_samples
         elif control_samples and not case_samples:
-            logger.debug("Only control samples given, assigning all others as cases.")
+            # Only control samples given
             case_samples = all_samples - control_samples
-        # If both sets provided, just use them as is (excluded are those not in either)
         return case_samples, control_samples
 
     # Step 2: Phenotype-based logic
@@ -210,13 +333,12 @@ def determine_case_control_sets(all_samples, cfg, df):
     control_terms = cfg.get("control_phenotypes", [])
 
     if not case_terms and not control_terms:
-        # Step 3: No sets or phenotypes given, all samples become controls
-        logger.debug("No phenotype or explicit sets given. All samples are controls.")
+        # Step 3: No criteria, all controls
+        logger.debug("No phenotype or sets given. All samples = controls.")
         return set(), all_samples
 
-    # Build phenotype map
     sample_phenotype_map = build_sample_phenotype_map(df)
-    logger.debug(f"Phenotype map built with {len(sample_phenotype_map)} samples having phenotypes.")
+    logger.debug(f"Phenotype map with {len(sample_phenotype_map)} samples.")
 
     classified_cases = set()
     classified_controls = set()
@@ -239,36 +361,34 @@ def determine_case_control_sets(all_samples, cfg, df):
             else:
                 classified_cases.add(s)
         else:
-            # Both case and control terms
+            # Both sets of terms
             if match_case and not match_control:
                 classified_cases.add(s)
             elif match_control and not match_case:
                 classified_controls.add(s)
-            # Neither matches -> excluded
+            # Else excluded
 
     if case_terms and len(classified_cases) == 0:
         logger.warning("No samples match the case phenotype terms.")
     if control_terms and len(classified_controls) == 0:
         logger.warning("No samples match the control phenotype terms.")
 
-    logger.debug(f"Classified {len(classified_cases)} cases and {len(classified_controls)} controls from phenotypes.")
+    logger.debug(f"Classified {len(classified_cases)} cases, {len(classified_controls)} controls.")
     return classified_cases, classified_controls
+
 
 def build_sample_phenotype_map(df):
     """
-    Build a sample->set_of_phenotypes map from the 'phenotypes' column if present.
-    If 'phenotypes' is missing or empty, return {}.
+    Build a map of sample -> set_of_phenotypes from the 'phenotypes' column if present.
 
-    Logic:
-    - For each variant line:
-      * 'phenotypes' column may contain phenotype strings.
-      * The phenotypes might be aligned with samples in the GT column if separated by ';'.
-      * If multiple samples appear in GT, and phenotypes are also separated by ';',
-        we align each phenotype subset with the corresponding sample.
-    - We aggregate these phenotypes per sample across all variants.
-    - This is a heuristic approach since phenotype data might not be fully variant-dependent.
+    If multiple phenotype groups and multiple samples in GT, align them if counts match.
+    Otherwise, assign all phenotypes to all samples in that variant line.
+
+    Returns
+    -------
+    dict
+        {sample_name: set_of_phenotypes}
     """
-
     if "phenotypes" not in df.columns:
         return {}
 
@@ -279,7 +399,6 @@ def build_sample_phenotype_map(df):
         if not isinstance(pheno_str, str) or not pheno_str.strip():
             continue
 
-        # Extract the GT field and corresponding samples
         gt_val = row["GT"]
         sample_entries = gt_val.split(";") if gt_val and isinstance(gt_val, str) else []
         sample_names = []
@@ -294,29 +413,29 @@ def build_sample_phenotype_map(df):
             if sname:
                 sample_names.append(sname)
 
-        # Split phenotypes by ';' to see if we have multiple sets
         pheno_groups = pheno_str.split(";")
         pheno_groups = [pg.strip() for pg in pheno_groups if pg.strip()]
 
         if len(pheno_groups) > 1:
-            # We have multiple phenotype groups, ideally one per sample
+            # Multiple phenotype groups
             if len(pheno_groups) == len(sample_names):
-                # Perfect alignment: each phenotype group corresponds to one sample
+                # Perfect alignment
                 for sname, pgroup in zip(sample_names, pheno_groups):
                     phenos = {p.strip() for p in pgroup.split(",") if p.strip()}
                     sample_phenos[sname].update(phenos)
             else:
-                # Mismatch in counts: log warning and fallback to assigning all phenotypes to all samples
-                logger.warning(f"Number of phenotype groups ({len(pheno_groups)}) does not match sample count ({len(sample_names)}) at row {idx}. Assigning all phenotypes to all samples in this row.")
-                # Combine all phenotypes from all groups
+                # Mismatch in counts, assign all to all samples
+                logger.warning(
+                    f"Phenotype groups ({len(pheno_groups)}) != sample count ({len(sample_names)}) at row {idx}. "
+                    "Assigning all phenotypes to all samples in this row."
+                )
                 combined_phenos = set()
                 for pgroup in pheno_groups:
                     combined_phenos.update({p.strip() for p in pgroup.split(",") if p.strip()})
                 for sname in sample_names:
                     sample_phenos[sname].update(combined_phenos)
         else:
-            # Only one phenotype group (or none)
-            # Assign all phenotypes to all samples in this row
+            # Only one phenotype group or none
             phenos = {p.strip() for p in pheno_str.split(",") if p.strip()}
             for sname in sample_names:
                 sample_phenos[sname].update(phenos)
@@ -326,25 +445,31 @@ def build_sample_phenotype_map(df):
 
 def assign_case_control_counts(df, case_samples, control_samples, all_samples):
     """
-    Create columns:
-      - proband_count: total number of proband (case) samples (constant for all variants)
-      - control_count: total number of control samples (constant for all variants)
-      - proband_variant_count: how many proband samples carry the variant at this variant
-      - control_variant_count: how many control samples carry the variant at this variant
-      - proband_allele_count: total variant alleles among proband samples for this variant
-      - control_allele_count: total variant alleles among control samples for this variant
+    Assign case/control counts and allele counts per variant.
 
-    Logic:
-    - proband_count/control_count are determined once from the sets case_samples/control_samples.
-    - For each variant:
-      * Parse GT column to find samples with variant alleles.
-      * If a sample isn't listed, assume 0/0.
-      * Count how many probands/controls have the variant and sum their allele counts.
+    Creates columns:
+    - proband_count/control_count: total number of case/control samples
+    - proband_variant_count/control_variant_count: how many case/control samples have the variant
+    - proband_allele_count/control_allele_count: sum of variant alleles in case/control samples
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame of variants with a GT column listing variants per sample.
+    case_samples : set
+        Set of samples classified as cases.
+    control_samples : set
+        Set of samples classified as controls.
+    all_samples : set
+        All samples present in the VCF.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with assigned case/control counts and alleles.
     """
-
     logger.debug("Assigning case/control counts to variants...")
 
-    # Determine total number of cases and controls once
     total_proband = len(case_samples)
     total_control = len(control_samples)
     logger.debug(f"Total proband samples: {total_proband}, Total control samples: {total_control}")
@@ -354,13 +479,11 @@ def assign_case_control_counts(df, case_samples, control_samples, all_samples):
     proband_allele_count_list = []
     control_allele_count_list = []
 
-    # We'll store these totals as constant columns after the loop
-    # proband_count and control_count remain constant per variant
     for idx, val in enumerate(df["GT"]):
+        # Log progress every 1000 variants
         if idx % 1000 == 0:
             logger.debug(f"Processing variant row {idx} for allele counts...")
 
-        # Map of samples in GT: sample_name -> genotype string
         samples_with_variant = {}
         if isinstance(val, str) and val.strip():
             for s in val.split(";"):
@@ -376,30 +499,25 @@ def assign_case_control_counts(df, case_samples, control_samples, all_samples):
         p_allele_count = 0
         c_allele_count = 0
 
-        # Iterate over all samples; those not in samples_with_variant are assumed 0/0
+        # For each sample, if not in samples_with_variant, assume genotype=0/0
         for sample_name in all_samples:
             genotype = samples_with_variant.get(sample_name, "0/0")
             allele_count = genotype_to_allele_count(genotype)
 
             if sample_name in case_samples:
-                # case sample
                 if allele_count > 0:
                     p_variant_count += 1
                     p_allele_count += allele_count
             elif sample_name in control_samples:
-                # control sample
                 if allele_count > 0:
                     c_variant_count += 1
                     c_allele_count += allele_count
-            # else excluded sample, ignore completely
 
         proband_variant_count_list.append(p_variant_count)
         control_variant_count_list.append(c_variant_count)
         proband_allele_count_list.append(p_allele_count)
         control_allele_count_list.append(c_allele_count)
 
-    # Assign the columns
-    # proband_count and control_count are constant for all variants:
     df["proband_count"] = total_proband
     df["control_count"] = total_control
     df["proband_variant_count"] = proband_variant_count_list
@@ -409,7 +527,10 @@ def assign_case_control_counts(df, case_samples, control_samples, all_samples):
 
     logger.debug("Case/control counts assigned. Example for first row:")
     if len(df) > 0:
-        logger.debug(df.iloc[0][["proband_count","proband_variant_count","proband_allele_count","control_count","control_variant_count","control_allele_count"]].to_dict())
+        logger.debug(df.iloc[0][[
+            "proband_count", "proband_variant_count", "proband_allele_count",
+            "control_count", "control_variant_count", "control_allele_count"
+        ]].to_dict())
 
     return df
 
@@ -417,7 +538,18 @@ def assign_case_control_counts(df, case_samples, control_samples, all_samples):
 def extract_sample_and_genotype(sample_field):
     """
     Extract sample name and genotype from a field like 'sample(0/1)'.
-    If parentheses are missing, assume no genotype is specified, treat as no variant.
+
+    If parentheses are missing, assume no genotype is specified -> no variant (0/0).
+
+    Parameters
+    ----------
+    sample_field : str
+        A string like 'sample(0/1)' or 'sample'.
+
+    Returns
+    -------
+    (str, str)
+        (sample_name, genotype)
     """
     start_idx = sample_field.find("(")
     end_idx = sample_field.find(")")
@@ -426,15 +558,15 @@ def extract_sample_and_genotype(sample_field):
         genotype = sample_field[start_idx+1:end_idx].strip()
         return sample_name, genotype
     else:
-        # No genotype info provided, treat as empty genotype
         return sample_field.strip(), ""
+
 
 def genotype_to_allele_count(genotype):
     """
     Convert genotype string to allele count:
-    - '1/1' -> 2 alleles
-    - '0/1' or '1/0' -> 1 allele
-    - '0/0' or '' -> 0 alleles
+    - '1/1' -> 2
+    - '0/1' or '1/0' -> 1
+    - '0/0' or '' -> 0
     """
     if genotype == "1/1":
         return 2
@@ -442,16 +574,27 @@ def genotype_to_allele_count(genotype):
         return 1
     return 0
 
+
 def compute_basic_stats(df, all_samples):
     """
     Compute basic statistics about the dataset:
     - Number of variants
-    - Number of samples (from all_samples)
+    - Number of samples
     - Number of genes
     - Het/Hom counts from GT fields
-    - Variant type and impact counts if columns are present
+    - Variant type and impact counts if available
 
-    Debug logging included.
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input variants DataFrame.
+    all_samples : set
+        Set of all samples.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame with 'metric' and 'value' columns listing basic stats.
     """
     logger.debug("Computing basic stats...")
     num_variants = len(df)
@@ -470,13 +613,15 @@ def compute_basic_stats(df, all_samples):
                 elif genotype == "1/1":
                     hom_counts += 1
 
-    metric_rows = []
-    metric_rows.append(["Number of variants", str(num_variants)])
-    metric_rows.append(["Number of samples", str(num_samples)])
-    metric_rows.append(["Number of genes", str(num_genes)])
-    metric_rows.append(["Het counts", str(het_counts)])
-    metric_rows.append(["Hom counts", str(hom_counts)])
+    metric_rows = [
+        ["Number of variants", str(num_variants)],
+        ["Number of samples", str(num_samples)],
+        ["Number of genes", str(num_genes)],
+        ["Het counts", str(het_counts)],
+        ["Hom counts", str(hom_counts)]
+    ]
 
+    # Count variant and impact types if columns present
     if "EFFECT" in df.columns:
         variant_types = df["EFFECT"].value_counts()
         for vt, count in variant_types.items():
@@ -491,9 +636,20 @@ def compute_basic_stats(df, all_samples):
     logger.debug("Basic stats computed.")
     return basic_stats_df
 
+
 def compute_gene_stats(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Compute gene-level statistics by summing proband and control counts/alleles across variants.
+    Compute gene-level aggregated stats (sum of proband/control counts and alleles).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input variants DataFrame with assigned case/control counts.
+
+    Returns
+    -------
+    pd.DataFrame
+        Gene-level summary DataFrame.
     """
     logger.debug("Computing gene-level stats...")
     for col in ["proband_count", "control_count", "proband_allele_count", "control_allele_count"]:
@@ -508,9 +664,20 @@ def compute_gene_stats(df: pd.DataFrame) -> pd.DataFrame:
     logger.debug("Gene-level stats computed.")
     return grouped
 
+
 def compute_impact_summary(df: pd.DataFrame) -> pd.DataFrame:
     """
-    If IMPACT column exists, compute per-gene impact summary.
+    Compute per-gene impact summary if IMPACT column exists.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input DataFrame
+
+    Returns
+    -------
+    pd.DataFrame
+        A pivoted table of gene vs impact counts.
     """
     logger.debug("Computing impact summary...")
     if "GENE" not in df.columns or "IMPACT" not in df.columns:
@@ -521,9 +688,20 @@ def compute_impact_summary(df: pd.DataFrame) -> pd.DataFrame:
     logger.debug("Impact summary computed.")
     return pivot_impact
 
+
 def compute_variant_type_summary(df: pd.DataFrame) -> pd.DataFrame:
     """
-    If EFFECT column exists, compute per-gene variant type summary.
+    Compute per-gene variant type summary if EFFECT column exists.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input DataFrame
+
+    Returns
+    -------
+    pd.DataFrame
+        A pivoted table of gene vs variant types.
     """
     logger.debug("Computing variant type summary...")
     if "GENE" not in df.columns or "EFFECT" not in df.columns:
@@ -534,11 +712,26 @@ def compute_variant_type_summary(df: pd.DataFrame) -> pd.DataFrame:
     logger.debug("Variant type summary computed.")
     return pivot_types
 
+
 def merge_and_format_stats(gene_stats: pd.DataFrame,
                            impact_summary: pd.DataFrame,
                            variant_type_summary: pd.DataFrame) -> pd.DataFrame:
     """
-    Merge gene_stats with impact_summary and variant_type_summary.
+    Merge gene_stats with impact_summary and variant_type_summary into a single DataFrame.
+
+    Parameters
+    ----------
+    gene_stats : pd.DataFrame
+        DataFrame of gene-level aggregated stats
+    impact_summary : pd.DataFrame
+        DataFrame of gene vs impact counts
+    variant_type_summary : pd.DataFrame
+        DataFrame of gene vs variant type counts
+
+    Returns
+    -------
+    pd.DataFrame
+        Merged DataFrame with all gene-level stats.
     """
     logger.debug("Merging gene stats with impact and variant type summaries...")
     merged = gene_stats.copy()
@@ -546,69 +739,7 @@ def merge_and_format_stats(gene_stats: pd.DataFrame,
         merged = pd.merge(merged, impact_summary, on="GENE", how="left")
     if not variant_type_summary.empty:
         merged = pd.merge(merged, variant_type_summary, on="GENE", how="left")
+    # Fill NaN with 0 for counts
     merged = merged.fillna(0)
     logger.debug("All gene-level stats merged.")
     return merged
-
-def gene_burden_fisher(subdf):
-    """
-    Perform Fisher's exact test for gene burden analysis on a subset of variants from a single gene.
-
-    Columns used:
-    - proband_allele_count
-    - control_allele_count
-    - proband_count
-    - control_count
-
-    Returns a DataFrame with fisher_p_value and related counts.
-    """
-    if "proband_allele_count" not in subdf.columns:
-        subdf["proband_allele_count"] = 0
-    if "control_allele_count" not in subdf.columns:
-        subdf["control_allele_count"] = 0
-    if "proband_count" not in subdf.columns:
-        subdf["proband_count"] = 0
-    if "control_count" not in subdf.columns:
-        subdf["control_count"] = 0
-
-    proband_alleles = subdf["proband_allele_count"].sum()
-    control_alleles = subdf["control_allele_count"].sum()
-    max_proband_count = subdf["proband_count"].max()
-    max_control_count = subdf["control_count"].max()
-
-    total_case_samples = max_proband_count if max_proband_count > 0 else 0
-    total_control_samples = max_control_count if max_control_count > 0 else 0
-
-    if total_case_samples == 0 and total_control_samples == 0:
-        return pd.DataFrame([{
-            "GENE": subdf["GENE"].iloc[0],
-            "proband_alleles": 0,
-            "control_alleles": 0,
-            "max_proband_count": 0,
-            "max_control_count": 0,
-            "proband_ref_alleles": 0,
-            "control_ref_alleles": 0,
-            "fisher_p_value": 1.0
-        }])
-
-    proband_ref_alleles = (total_case_samples * 2) - proband_alleles if total_case_samples else 0
-    control_ref_alleles = (total_control_samples * 2) - control_alleles if total_control_samples else 0
-
-    table = [[proband_alleles, control_alleles],
-             [proband_ref_alleles, control_ref_alleles]]
-
-    # Log the 2x2 table for debugging
-    logger.debug(f"Fisher test table for gene {subdf['GENE'].iloc[0]}: {table}")
-
-    oddsratio, p_value = fisher_exact(table) if fisher_exact else (None, 1.0)
-
-    return pd.DataFrame([{
-        "GENE": subdf["GENE"].iloc[0],
-        "proband_alleles": proband_alleles,
-        "control_alleles": control_alleles,
-        "max_proband_count": max_proband_count,
-        "max_control_count": max_control_count,
-        "proband_ref_alleles": proband_ref_alleles,
-        "control_ref_alleles": control_ref_alleles,
-        "fisher_p_value": p_value
-    }])
