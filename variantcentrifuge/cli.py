@@ -7,21 +7,42 @@ CLI module for variantcentrifuge.
 This module:
 - Parses command line arguments.
 - Sets up logging and configuration.
+- Validates mandatory fields (reference, filters, and fields to extract) before
+  proceeding with analysis, ensuring a clear error message is shown and the
+  process exits early if these are missing.
+- Validates input files (VCF, phenotype, and gene files) before processing.
+  If required files or columns are missing, logs a clear error and exits
+  gracefully, preventing partial execution.
 - Invokes external tools like SnpSift, bcftools, and snpEff based on user inputs.
 - Runs the analysis pipeline:
   1) Filters variants using SnpSift and bcftools.
   2) Extracts fields.
   3) Optionally replaces genotypes.
   4) Integrates phenotype data if provided.
-  5) Runs variant-level analysis using analyze_variants (no gene burden) to produce a final TSV.
-  6) If gene burden requested, runs analyze_variants again (with gene burden) to produce a separate TSV.
-  7) Generates metadata, optionally converts to Excel, and appends additional sheets.
+  5) Runs variant-level analysis using analyze_variants (no gene burden) to
+     produce a final TSV.
+  6) If gene burden requested, runs analyze_variants again (with gene burden)
+     to produce a separate TSV.
+  7) Generates metadata, optionally converts to Excel, and appends additional
+     sheets.
 
 It ensures:
-- The main output TSV (and XLSX if requested) always contain the variant-level results
-  as the primary "Results" sheet.
-- If gene burden is performed, its results appear in a separate "Gene Burden" sheet,
-  leaving the main results intact.
+- The main output TSV (and XLSX if requested) always contains the variant-level
+  results as the primary "Results" sheet.
+- If gene burden is performed, its results appear in a separate "Gene Burden"
+  sheet, leaving the main results intact.
+
+Enhancement #13:
+- Validate that mandatory fields (reference, filters, and fields) are provided
+  either via CLI arguments or config file.
+- If missing, log a clear error message and exit early.
+- Prevent ambiguous behavior or silent failures when critical parameters are
+  not set.
+
+Enhancement #9:
+- Validate input files (e.g., VCF, phenotype, gene files) before processing.
+- Log clear errors and exit gracefully if required columns or data are missing.
+- Avoid partial execution when prerequisites are not met.
 """
 
 import argparse
@@ -49,6 +70,16 @@ def sanitize_metadata_field(value):
     """
     Sanitize a metadata field by removing tabs and newlines,
     replacing them with spaces to ensure TSV compatibility.
+
+    Parameters
+    ----------
+    value : str
+        The value to sanitize.
+
+    Returns
+    -------
+    str
+        Sanitized string value with no tabs or newlines.
     """
     return value.replace("\t", " ").replace("\n", " ").strip()
 
@@ -101,8 +132,9 @@ def normalize_genes(gene_name_str, gene_file_str):
 
         g_str = gene_name_str.replace(",", " ")
         genes = [
-            g.strip() for g_str_part in g_str.split() for g in [g_str_part.strip()]
-            if g
+            g.strip()
+            for g_str_part in g_str.split()
+            for g in [g_str_part.strip()] if g
         ]
 
     if len(genes) == 1 and genes[0].lower() == "all":
@@ -127,7 +159,7 @@ def remove_vcf_extensions(filename):
     Returns
     -------
     str
-        The filename base without vcf-related extensions.
+        The filename base without VCF-related extensions.
     """
     base = filename
     if base.endswith(".vcf.gz"):
@@ -189,7 +221,6 @@ def parse_samples_from_vcf(vcf_file):
     -------
     list
         A list of sample names extracted from the VCF header.
-        If no samples or no #CHROM line found, returns [].
     """
     output = run_command(["bcftools", "view", "-h", vcf_file], output_file=None)
     chrom_line = None
@@ -221,13 +252,101 @@ def load_terms_from_file(file_path):
         A list of terms loaded from the file.
     """
     terms = []
-    if file_path and os.path.exists(file_path):
+    if file_path:
+        if not os.path.exists(file_path):
+            logger.error(f"Required file not found: {file_path}")
+            sys.exit(1)
         with open(file_path, "r", encoding="utf-8") as f:
+            found_any = False
             for line in f:
                 t = line.strip()
                 if t:
+                    found_any = True
                     terms.append(t)
+            if not found_any:
+                logger.error(f"File {file_path} is empty or invalid.")
+                sys.exit(1)
     return terms
+
+
+def validate_vcf_file(vcf_path):
+    """
+    Validate that the input VCF file exists and is readable.
+
+    Parameters
+    ----------
+    vcf_path : str
+        Path to the VCF file.
+
+    Raises
+    ------
+    SystemExit
+        If the VCF file is missing, not readable, or invalid.
+    """
+    if not vcf_path or not os.path.exists(vcf_path):
+        logger.error(f"VCF file not found: {vcf_path}")
+        sys.exit(1)
+    if os.path.getsize(vcf_path) == 0:
+        logger.error(f"VCF file {vcf_path} is empty.")
+        sys.exit(1)
+
+
+def validate_phenotype_file(phenotype_file, sample_col, value_col):
+    """
+    Validate phenotype file presence, non-empty, and required columns.
+
+    Parameters
+    ----------
+    phenotype_file : str
+        Path to phenotype file.
+    sample_col : str
+        Name of the sample column.
+    value_col : str
+        Name of the phenotype value column.
+
+    Raises
+    ------
+    SystemExit
+        If the phenotype file is missing, empty, or required columns are missing.
+    """
+    if not phenotype_file:
+        # No phenotype file provided, no validation needed here.
+        return
+
+    if not os.path.exists(phenotype_file):
+        logger.error(f"Phenotype file not found: {phenotype_file}")
+        sys.exit(1)
+    if os.path.getsize(phenotype_file) == 0:
+        logger.error(f"Phenotype file {phenotype_file} is empty.")
+        sys.exit(1)
+
+    # Check columns by loading phenotypes
+    # We'll load once here to validate, and if valid, load_phenotypes will be called again
+    # or we can store the result if needed, but to keep code minimal, just validate now.
+    with open(phenotype_file, "r", encoding="utf-8") as pf:
+        header = pf.readline().strip()
+        if not header:
+            logger.error(f"Phenotype file {phenotype_file} has no header.")
+            sys.exit(1)
+        columns = header.split("\t") if "\t" in header else header.split(",")
+        # Ensure required columns are present
+        if sample_col not in columns:
+            logger.error(
+                f"Phenotype sample column '{sample_col}' not found in {phenotype_file}."
+            )
+            sys.exit(1)
+        if value_col not in columns:
+            logger.error(
+                f"Phenotype value column '{value_col}' not found in {phenotype_file}."
+            )
+            sys.exit(1)
+        # Check if at least one data line exists
+        data_line = pf.readline()
+        if not data_line.strip():
+            logger.error(
+                f"Phenotype file {phenotype_file} contains only a header and no data."
+            )
+            sys.exit(1)
 
 
 def main():
@@ -237,16 +356,24 @@ def main():
     Steps:
     - Parse arguments.
     - Configure logging and load config.
+    - Validate that mandatory parameters (reference, filters, fields) are
+      provided. If not, log error and exit.
+    - Validate input files (VCF, phenotype, gene files, etc.) are present and
+      have the necessary data and columns before proceeding.
+      If validation fails, log error and exit.
     - Setup paths and run external tools (bcftools, SnpSift).
     - Filter and extract fields from VCF.
     - Optional genotype replacement and phenotype integration.
-    - Run analyze_variants (no gene burden) to produce main variant-level results.
-    - If gene burden requested, run analyze_variants again (with gene burden) to produce gene_burden_tsv.
+    - Run analyze_variants (no gene burden) to produce main variant-level
+      results.
+    - If gene burden requested, run analyze_variants again (with gene burden)
+      to produce gene_burden_tsv.
     - Produce metadata, optionally convert to Excel and append sheets.
     - Cleanup intermediates if requested.
     """
     logging.basicConfig(level=logging.INFO,
-                        format="%(levelname)s: %(message)s", stream=sys.stderr)
+                        format="%(levelname)s: %(message)s",
+                        stream=sys.stderr)
 
     start_time = datetime.datetime.now()
     logger.info(f"Run started at {start_time.isoformat()}")
@@ -261,8 +388,8 @@ def main():
     parser.add_argument("--log-level",
                         choices=["DEBUG", "INFO", "WARN", "ERROR"],
                         default="INFO", help="Set the logging level")
-    parser.add_argument("-c", "--config", help="Path to configuration file",
-                        default=None)
+    parser.add_argument("-c", "--config",
+                        help="Path to configuration file", default=None)
     parser.add_argument("-g", "--gene-name",
                         help="Gene or list of genes of interest")
     parser.add_argument("-G", "--gene-file",
@@ -287,8 +414,8 @@ def main():
                         help="Perform gene burden analysis")
     parser.add_argument("--output-dir", help="Directory to store intermediate "
                         "and final output files", default="output")
-    parser.add_argument("--keep-intermediates", action="store_true", default=True,
-                        help="Keep intermediate files.")
+    parser.add_argument("--keep-intermediates", action="store_true",
+                        default=True, help="Keep intermediate files.")
     parser.add_argument("--phenotype-file",
                         help="Path to phenotype file (.csv or .tsv)")
     parser.add_argument("--phenotype-sample-column",
@@ -314,7 +441,8 @@ def main():
     parser.add_argument("--case-samples",
                         help="Comma-separated sample IDs defining the case group")
     parser.add_argument("--control-samples",
-                        help="Comma-separated sample IDs defining the control group")
+                        help="Comma-separated sample IDs defining the control "
+                             "group")
     parser.add_argument("--case-samples-file",
                         help="File with sample IDs for case group")
     parser.add_argument("--control-samples-file",
@@ -339,7 +467,9 @@ def main():
         "WARN": logging.WARNING,
         "ERROR": logging.ERROR
     }
-    logging.getLogger("variantcentrifuge").setLevel(log_level_map[args.log_level])
+    logging.getLogger("variantcentrifuge").setLevel(
+        log_level_map[args.log_level]
+    )
 
     logger.debug(f"CLI arguments: {args}")
 
@@ -357,6 +487,9 @@ def main():
         )
         sys.exit(1)
 
+    # Validate VCF file existence
+    validate_vcf_file(args.vcf_file)
+
     check_external_tools()
 
     # Load configuration and reference
@@ -366,9 +499,49 @@ def main():
     filters = args.filters or cfg.get("filters")
     fields = args.fields or cfg.get("fields_to_extract")
 
+    # Validate mandatory fields, filters, and reference
+    if not reference:
+        logger.error(
+            "A reference database must be specified either via --reference or "
+            "in the configuration file. Please provide a valid reference."
+        )
+        sys.exit(1)
+
+    if not filters:
+        logger.error(
+            "No filters provided. Filters must be specified either via "
+            "--filters or in the configuration file."
+        )
+        sys.exit(1)
+
+    if not fields:
+        logger.error(
+            "No fields to extract were provided. Fields must be specified "
+            "either via --fields or in the configuration file."
+        )
+        sys.exit(1)
+
+    # Validate phenotype file if provided
+    if args.phenotype_file and (args.phenotype_sample_column is None or
+                                args.phenotype_value_column is None):
+        logger.error(
+            "If a phenotype file is provided, both --phenotype-sample-column "
+            "and --phenotype-value-column must be specified."
+        )
+        sys.exit(1)
+
+    if args.phenotype_file:
+        validate_phenotype_file(
+            args.phenotype_file,
+            args.phenotype_sample_column,
+            args.phenotype_value_column
+        )
+
     # Normalize genes
-    gene_name = normalize_genes(args.gene_name if args.gene_name else "",
-                                args.gene_file)
+    gene_name = normalize_genes(
+        args.gene_name if args.gene_name else "",
+        args.gene_file
+    )
     logger.debug(f"Normalized gene list: {gene_name}")
 
     # Determine final output file paths
@@ -380,12 +553,15 @@ def main():
         else:
             final_to_stdout = False
             base_name = compute_base_name(args.vcf_file, gene_name)
-            final_output = os.path.join(args.output_dir,
-                                        os.path.basename(args.output_file))
+            final_output = os.path.join(
+                args.output_dir, os.path.basename(args.output_file)
+            )
     else:
         final_to_stdout = False
         base_name = compute_base_name(args.vcf_file, gene_name)
-        final_output = os.path.join(args.output_dir, f"{base_name}.final.tsv")
+        final_output = os.path.join(
+            args.output_dir, f"{base_name}.final.tsv"
+        )
 
     # Set run configuration in cfg
     cfg["perform_gene_burden"] = args.perform_gene_burden
@@ -410,12 +586,20 @@ def main():
     use_phenotypes = False
     if (args.phenotype_file and args.phenotype_sample_column and
             args.phenotype_value_column):
-        phenotypes = load_phenotypes(args.phenotype_file,
-                                     args.phenotype_sample_column,
-                                     args.phenotype_value_column)
+        phenotypes = load_phenotypes(
+            args.phenotype_file,
+            args.phenotype_sample_column,
+            args.phenotype_value_column
+        )
+        if not phenotypes:
+            logger.error(
+                f"No phenotype data loaded from {args.phenotype_file}. "
+                "Check file formatting and column names."
+            )
+            sys.exit(1)
         use_phenotypes = True
 
-    # Load phenotype terms
+    # Load phenotype terms and validate their files
     case_hpo_terms = []
     control_hpo_terms = []
     if args.case_phenotypes:
@@ -462,6 +646,14 @@ def main():
     )
     logger.debug(f"Gene BED created at: {bed_file}")
 
+    # Validate gene BED file
+    if not os.path.exists(bed_file) or os.path.getsize(bed_file) == 0:
+        logger.error(
+            "Gene BED file could not be created or is empty. This may happen "
+            "if no genes match your criteria or your reference is invalid."
+        )
+        sys.exit(1)
+
     # Check for missing genes
     if gene_name.lower() != "all":
         requested_genes = gene_name.split()
@@ -475,23 +667,31 @@ def main():
         missing = [g for g in requested_genes if g not in found_genes]
         if missing:
             logger.warning(
-                f"The following gene(s) were not found in the reference: "
+                "The following gene(s) were not found in the reference: "
                 f"{', '.join(missing)}"
             )
             if cfg.get("debug_level", "INFO") == "ERROR":
                 sys.exit(1)
 
     # Define intermediate and final paths
-    variants_file = os.path.join(intermediate_dir, f"{base_name}.variants.vcf.gz")
-    filtered_file = os.path.join(intermediate_dir, f"{base_name}.filtered.vcf")
-    extracted_tsv = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv")
+    variants_file = os.path.join(
+        intermediate_dir, f"{base_name}.variants.vcf.gz"
+    )
+    filtered_file = os.path.join(
+        intermediate_dir, f"{base_name}.filtered.vcf"
+    )
+    extracted_tsv = os.path.join(
+        intermediate_dir, f"{base_name}.extracted.tsv"
+    )
     genotype_replaced_tsv = os.path.join(
         intermediate_dir, f"{base_name}.genotype_replaced.tsv"
     )
     phenotype_added_tsv = os.path.join(
         intermediate_dir, f"{base_name}.phenotypes_added.tsv"
     )
-    gene_burden_tsv = os.path.join(args.output_dir, f"{base_name}.gene_burden.tsv")
+    gene_burden_tsv = os.path.join(
+        args.output_dir, f"{base_name}.gene_burden.tsv"
+    )
 
     # Extract and filter variants
     logger.debug("Extracting variants and compressing as gzipped VCF...")
@@ -508,6 +708,12 @@ def main():
     field_list = fields.strip().split()
     run_command(["SnpSift", "extractFields", "-s", ",", "-e", "NA",
                  filtered_file] + field_list, output_file=extracted_tsv)
+    if not os.path.exists(extracted_tsv) or os.path.getsize(extracted_tsv) == 0:
+        logger.error(
+            "Extraction of fields failed or produced empty results. Check "
+            "your filters and fields configuration."
+        )
+        sys.exit(1)
     with open(extracted_tsv, "r", encoding="utf-8") as f:
         lines = f.readlines()
     if lines:
@@ -523,16 +729,19 @@ def main():
     columns = header_line.split("\t")
     if "GT" not in columns:
         logger.warning(
-            "GT column not found in extracted fields. No genotype data could be replaced. "
-            "This may occur if your input VCF does not contain genotype data or if the 'GT' "
-            "field was not included in the extracted fields. Please ensure that the input VCF "
-            "contains genotypes and the 'GT' field is included in the extraction configuration."
+            "GT column not found in extracted fields. No genotype data could "
+            "be replaced. This may occur if your input VCF does not contain "
+            "genotype data or if the 'GT' field was not included in the "
+            "extraction fields. Ensure the input VCF contains genotypes and "
+            "the 'GT' field is included in the extraction configuration."
         )
         if not args.no_replacement:
             logger.warning(
-                "Genotype replacement was requested but cannot be performed due to missing 'GT' column. "
-                "Your output will remain unchanged. Consider updating your input VCF or extraction parameters."
-        )
+                "Genotype replacement was requested but cannot be performed "
+                "due to missing 'GT' column. Your output will remain "
+                "unchanged. Consider updating your input VCF or extraction "
+                "parameters."
+            )
 
     # Optional genotype replacement
     if not args.no_replacement and "GT" in columns:
@@ -569,6 +778,7 @@ def main():
 
             gt_idx = header_fields.index("GT") if "GT" in header_fields else None
 
+            wrote_data = False
             for line in inp:
                 line = line.rstrip("\n")
                 if not line.strip():
@@ -598,6 +808,14 @@ def main():
                 else:
                     fields_line.append("")
                 out.write("\t".join(fields_line) + "\n")
+                wrote_data = True
+
+            if not wrote_data:
+                logger.error(
+                    "Phenotype integration did not produce any output. Check "
+                    "your phenotype data and parameters."
+                )
+                sys.exit(1)
         final_tsv = phenotype_added_tsv
     else:
         final_tsv = replaced_tsv
@@ -612,8 +830,16 @@ def main():
     temp_cfg["perform_gene_burden"] = False
     buffer = []
     with open(final_tsv, "r", encoding="utf-8") as inp:
+        line_count = 0
         for line in analyze_variants(inp, temp_cfg):
             buffer.append(line)
+            line_count += 1
+        if line_count == 0:
+            logger.error(
+                "No variant-level results produced. Check your filters, "
+                "fields, and input data."
+            )
+            sys.exit(1)
 
     if final_to_stdout:
         final_file = None
@@ -669,8 +895,10 @@ def main():
         meta_write("Run_end_time", end_time.isoformat())
         meta_write("Run_duration_seconds", str(duration))
         meta_write("Date", datetime.datetime.now().isoformat())
-        meta_write("Command_line",
-                   " ".join([sanitize_metadata_field(x) for x in sys.argv]))
+        meta_write(
+            "Command_line",
+            " ".join([sanitize_metadata_field(x) for x in sys.argv])
+        )
 
         for k, v in cfg.items():
             meta_write(f"config.{k}", str(v))
@@ -688,27 +916,36 @@ def main():
 
     # Convert to Excel if requested
     if args.xlsx and final_out_path and not final_to_stdout:
-        if not os.path.exists(final_out_path) or os.path.getsize(final_out_path) == 0:
-            logger.warning("Final output file is empty. Cannot convert to Excel.")
+        if not os.path.exists(final_out_path) or \
+                os.path.getsize(final_out_path) == 0:
+            logger.warning(
+                "Final output file is empty. Cannot convert to Excel."
+            )
         else:
-            logger.debug("Converting final output (variant-level results) to Excel...")
+            logger.debug(
+                "Converting final output (variant-level results) to Excel..."
+            )
             xlsx_file = convert_to_excel(final_out_path, cfg)
             logger.debug("Excel conversion complete. Appending Metadata sheet...")
             append_tsv_as_sheet(xlsx_file, metadata_file, sheet_name="Metadata")
 
-            if not cfg["no_stats"] and cfg.get("stats_output_file") and \
-                    os.path.exists(cfg["stats_output_file"]):
+            if (not cfg["no_stats"] and cfg.get("stats_output_file") and
+                    os.path.exists(cfg["stats_output_file"])):
                 if os.path.getsize(cfg["stats_output_file"]) == 0:
-                    logger.warning("Stats file is empty, skipping Statistics sheet.")
+                    logger.warning(
+                        "Stats file is empty, skipping Statistics sheet."
+                    )
                 else:
                     logger.debug("Appending Statistics sheet to Excel...")
-                    append_tsv_as_sheet(xlsx_file, cfg["stats_output_file"],
-                                        sheet_name="Statistics")
+                    append_tsv_as_sheet(
+                        xlsx_file, cfg["stats_output_file"],
+                        sheet_name="Statistics"
+                    )
 
             # If gene burden performed, append as separate sheet
-            if cfg.get("perform_gene_burden", False) and \
-                    os.path.exists(gene_burden_tsv) and \
-                    os.path.getsize(gene_burden_tsv) > 0:
+            if (cfg.get("perform_gene_burden", False) and
+                    os.path.exists(gene_burden_tsv) and
+                    os.path.getsize(gene_burden_tsv) > 0):
                 logger.debug(
                     "Appending Gene Burden results as a separate sheet..."
                 )
