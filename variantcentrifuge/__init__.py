@@ -9,4 +9,4 @@ focusing on extracting rare variants, applying custom filters,
 and integrating external tools.
 """
 
-__version__ = "0.1.0"
+from .version import __version__

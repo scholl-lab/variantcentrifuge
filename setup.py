@@ -11,6 +11,11 @@ dependencies are required.
 import os
 from setuptools import setup, find_packages
 
+# Load version from version.py without importing the module
+version = {}
+with open(os.path.join('variantcentrifuge', 'version.py')) as f:
+    exec(f.read(), version)
+
 # Read the README for the long description
 this_dir = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(this_dir, "README.md"), encoding="utf-8") as f:
@@ -18,7 +23,7 @@ with open(os.path.join(this_dir, "README.md"), encoding="utf-8") as f:
 
 setup(
     name="variantcentrifuge",
-    version="0.1.0",
+    version=version['__version__'],
     description="A tool to filter, extract, and analyze variants from VCF files.",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -29,14 +34,14 @@ setup(
     python_requires=">=3.7",
     install_requires=[
         "pandas",
-        "jinja2",  # Ensure jinja2 is installed since we use it for templates
+        "jinja2",
     ],
     entry_points={
         "console_scripts": [
             "variantcentrifuge=variantcentrifuge.cli:main"
         ]
     },
-    include_package_data=True,  # Ensure that package data (from MANIFEST.in) is included
+    include_package_data=True,
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

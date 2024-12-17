@@ -26,7 +26,7 @@ import datetime
 import os
 from typing import Optional, Dict, Any
 
-from . import __version__
+from .version import __version__
 from .config import load_config
 from .validators import validate_mandatory_parameters, validate_vcf_file, validate_phenotype_file
 from .pipeline import run_pipeline
