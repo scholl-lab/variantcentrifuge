@@ -36,6 +36,9 @@ def main() -> None:
     Changes for sample substring removal:
         - Added a --remove-sample-substring argument which, if provided, removes the specified substring
           from all sample names extracted from the VCF before any comparisons or mappings.
+
+    Changes for links:
+        - Added a --no-links argument to disable adding link columns. By default, links are added.
     """
     # Initial basic logging setup to stderr before arguments are parsed,
     # so that we can log early messages like start time.
@@ -240,6 +243,14 @@ def main() -> None:
         help="If provided, this substring will be removed from all sample names found in the VCF."
     )
 
+    # Added argument to control adding links
+    parser.add_argument(
+        "--no-links",
+        action="store_true",
+        default=False,
+        help="Disable adding link columns to the final output (links are added by default)."
+    )
+
     args: argparse.Namespace = parser.parse_args()
 
     log_level_map = {
@@ -330,5 +341,8 @@ def main() -> None:
         cfg["remove_sample_substring"] = args.remove_sample_substring
     else:
         cfg["remove_sample_substring"] = None
+
+    # Store no_links parameter
+    cfg["no_links"] = args.no_links
 
     run_pipeline(args, cfg, start_time)

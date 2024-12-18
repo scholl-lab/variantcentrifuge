@@ -16,7 +16,7 @@ Configuration Additions
 -----------------------
 - "confidence_interval_method": str
     Method for confidence interval calculation. Currently supports:
-    - "normal_approx": Normal approximation on the log odds ratio scale (default).
+    - "normal_approx": Uses statsmodels' Table2x2 normal approximation for OR CI.
     Future methods (e.g., "wilson") can be added.
 - "confidence_interval_alpha": float
     Significance level for confidence interval calculation. Default: 0.05 for a 95% CI.
@@ -29,7 +29,7 @@ In addition to existing columns (p-values, odds ratio), the result now includes:
 """
 
 import logging
-from math import isnan, log, exp, sqrt
+from math import isnan
 from typing import Dict, Any
 import pandas as pd
 
@@ -39,6 +39,8 @@ except ImportError:
     fisher_exact = None
 
 import statsmodels.stats.multitest as smm
+from statsmodels.stats.contingency_tables import Table2x2
+import numpy as np
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -56,7 +58,7 @@ def _compute_or_confidence_interval(table: list, odds_ratio: float, method: str,
     method : str
         Method for confidence interval calculation.
         Currently supported:
-        - "normal_approx": Uses a normal approximation on the log(OR) scale.
+        - "normal_approx": Uses statsmodels Table2x2 normal approximation.
     alpha : float
         Significance level for the confidence interval. 0.05 for 95% CI.
 
@@ -67,48 +69,39 @@ def _compute_or_confidence_interval(table: list, odds_ratio: float, method: str,
 
     Notes
     -----
-    normal_approx method:
-    CI is computed as:
-    log(OR) ± z * sqrt(1/a + 1/b + 1/c + 1/d)
-    where z is the critical value (e.g., 1.96 for 95% CI).
+    If odds_ratio is NaN, zero, or infinite, the confidence interval cannot be computed
+    and NaN is returned for both bounds.
 
-    If any cell in the table is zero, the normal approximation cannot be safely
-    computed, and NaN is returned for both CI bounds.
+    normal_approx method (via statsmodels):
+    Uses statsmodels.stats.contingency_tables.Table2x2.oddsratio_confint to compute
+    the confidence interval. If any cell in the table is zero, or if the OR is invalid,
+    NaNs are returned.
     """
-    from math import isnan, log, exp, sqrt
-
-    if isnan(odds_ratio) or odds_ratio <= 0:
-        # Cannot compute a CI if odds_ratio <= 0 or is NaN
+    if isnan(odds_ratio) or odds_ratio <= 0 or np.isinf(odds_ratio):
+        # Cannot compute a CI if odds_ratio <= 0, NaN, or infinite
         return float('nan'), float('nan')
 
-    # Extract counts
     a = table[0][0]
     b = table[0][1]
     c = table[1][0]
     d = table[1][1]
 
-    # If any cell is zero, normal approximation is not valid
+    # If any cell is zero, the normal approximation may not be valid
     if a == 0 or b == 0 or c == 0 or d == 0:
         return float('nan'), float('nan')
 
-    z = 1.96  # For a 95% CI; can be extended if alpha != 0.05
-    if alpha != 0.05:
-        # In a real scenario, we would use a more flexible approach,
-        # e.g., scipy.stats.norm.ppf(1 - alpha/2)
-        from scipy.stats import norm
-        z = norm.ppf(1 - alpha / 2)
-
+    # Use statsmodels Table2x2 for CI computation
     if method == "normal_approx":
-        # log(OR)
-        log_or = log(odds_ratio)
-        se = sqrt((1 / a) + (1 / b) + (1 / c) + (1 / d))
-        ci_lower = exp(log_or - z * se)
-        ci_upper = exp(log_or + z * se)
+        try:
+            table_np = np.array(table)
+            cont_table = Table2x2(table_np)
+            ci_lower, ci_upper = cont_table.oddsratio_confint(alpha=alpha, method="normal")
+        except Exception:
+            # If any unexpected error occurs, fallback to NaN
+            ci_lower, ci_upper = float('nan'), float('nan')
     else:
-        # If other methods are needed, implement here
-        # For now, fallback to NaN for unsupported methods
-        ci_lower = float('nan')
-        ci_upper = float('nan')
+        # Unsupported methods return NaN by default
+        ci_lower, ci_upper = float('nan'), float('nan')
 
     return ci_lower, ci_upper
 
@@ -161,8 +154,10 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.Da
     Notes
     -----
     If no fisher_exact test is available (scipy not installed), p-values default to 1.0.
-    Confidence intervals are approximate and depend on the method chosen.
+    Confidence intervals are computed using statsmodels Table2x2 normal approximation
+    if "normal_approx" is chosen.
     """
+
     logger.debug("Starting gene burden aggregation...")
 
     mode = cfg.get("gene_burden_mode", "alleles")
