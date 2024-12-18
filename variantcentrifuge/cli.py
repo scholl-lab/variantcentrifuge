@@ -1,19 +1,4 @@
-# File: variantcentrifuge/cli.py
-# Location: variantcentrifuge/variantcentrifuge/cli.py
-
-"""
-CLI module for variantcentrifuge.
-
-This module:
-- Parses command line arguments.
-- Sets up logging and configuration.
-- Validates mandatory fields (reference, filters, and fields) before
-  proceeding with analysis.
-- Validates input files (VCF, phenotype, gene files).
-- Invokes the main pipeline to perform variant filtering, extraction,
-  optional genotype replacement, phenotype integration, analyses, and
-  result production.
-"""
+# Changes in variantcentrifuge/cli.py
 
 import argparse
 import sys
@@ -47,6 +32,10 @@ def main() -> None:
         - If multiple presets are chosen, they are combined with AND (&).
         - If user-specified filters are also provided, they are combined with these presets using AND.
         - Presets must be defined in config.json under "presets".
+
+    Changes for sample substring removal:
+        - Added a --remove-sample-substring argument which, if provided, removes the specified substring
+          from all sample names extracted from the VCF before any comparisons or mappings.
     """
     # Initial basic logging setup to stderr before arguments are parsed,
     # so that we can log early messages like start time.
@@ -245,6 +234,12 @@ def main() -> None:
         help="Genome reference identifier for IGV (e.g., 'hg19' or 'hg38'). Required if --igv is enabled."
     )
 
+    # New argument for sample name substring removal
+    parser.add_argument(
+        "--remove-sample-substring",
+        help="If provided, this substring will be removed from all sample names found in the VCF."
+    )
+
     args: argparse.Namespace = parser.parse_args()
 
     log_level_map = {
@@ -330,8 +325,10 @@ def main() -> None:
     cfg["filters"] = filters
     cfg["fields_to_extract"] = fields
 
+    # Store remove_sample_substring parameter if given
+    if args.remove_sample_substring:
+        cfg["remove_sample_substring"] = args.remove_sample_substring
+    else:
+        cfg["remove_sample_substring"] = None
+
     run_pipeline(args, cfg, start_time)
-
-
-if __name__ == "__main__":
-    main()

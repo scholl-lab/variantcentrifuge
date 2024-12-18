@@ -305,6 +305,21 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     phenotype_added_tsv = os.path.join(intermediate_dir, f"{base_name}.phenotypes_added.tsv")
     gene_burden_tsv = os.path.join(args.output_dir, f"{base_name}.gene_burden.tsv")
 
+    # Before extracting and filtering variants, we will eventually need the samples from the VCF
+    # in order to handle the substring removal if configured.
+    # However, we need a processed VCF. The substring removal must happen before any comparisons
+    # or replacements, so we parse the samples from the original VCF.
+    # Note: The user requested that if remove_sample_substring is given, we remove that substring
+    # from all sample names before proceeding.
+    original_samples = parse_samples_from_vcf(args.vcf_file)
+    # If remove_sample_substring is provided, remove that substring from sample names
+    if cfg.get("remove_sample_substring"):
+        substring_to_remove = cfg["remove_sample_substring"]
+        if substring_to_remove and substring_to_remove.strip():
+            # Update original_samples by removing the substring
+            original_samples = [s.replace(substring_to_remove, "") for s in original_samples]
+
+    # Now we proceed with the extraction and filtering steps
     # Extract and filter variants
     run_command(["bcftools", "view", args.vcf_file, "-R", bed_file, "-Oz", "-o", variants_file])
     run_command(["bcftools", "index", variants_file])
@@ -329,9 +344,10 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     gt_present = "GT" in columns
 
     # Optional genotype replacement
+    # Here we now use the already processed sample list (with substring removal applied)
+    # for the genotype replacement step if needed.
+    cfg["sample_list"] = ",".join(original_samples) if original_samples else ""
     if not args.no_replacement and gt_present:
-        samples = parse_samples_from_vcf(variants_file)
-        cfg["sample_list"] = ",".join(samples) if samples else ""
         with open(extracted_tsv, "r", encoding="utf-8") as inp, \
                 open(genotype_replaced_tsv, "w", encoding="utf-8") as out:
             for line in replace_genotypes(inp, cfg):
