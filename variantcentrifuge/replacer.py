@@ -26,12 +26,15 @@ Relevant `cfg` parameters:
 - "proband_list": str (comma-separated)  
 - "control_list": str (comma-separated)  
 - "include_nocalls": bool  
-- "count_genotypes": bool  
 - "list_samples": bool  
 - "separator": str  
 - "genotype_replacement_map": dict (e.g., {r"[2-9]": "1"})  
 
 If `list_samples` is True, instead of modifying lines, the module will collect and output unique variant samples at the end.
+
+Note:
+This module no longer performs any counting of genotypes. All counting logic has been removed.
+Counting of variants, allele counts, and homozygous counts should be handled elsewhere (e.g., in `helpers.py`).
 """
 
 import logging
@@ -61,13 +64,11 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
         - "sample_list": str
             Comma-separated list of samples in the order of genotypes.
         - "proband_list": str
-            Comma-separated list of samples considered probands.
+            Comma-separated list of samples considered probands (used for variant listing if needed).
         - "control_list": str
-            Comma-separated list of samples considered controls.
+            Comma-separated list of samples considered controls (used for variant listing if needed).
         - "include_nocalls": bool
-            Whether to include no-calls (./.) in count totals.
-        - "count_genotypes": bool
-            Whether to append genotype count columns to the output.
+            Whether to include no-calls (./.) in processing totals (no longer affects counts here, but may be relevant).
         - "list_samples": bool
             Whether to list unique variant samples at the end instead of outputting variants.
         - "separator": str
@@ -86,7 +87,6 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
     proband_list_str = cfg.get("proband_list", "")
     control_list_str = cfg.get("control_list", "")
     include_nocalls = cfg.get("include_nocalls", False)
-    count_genotypes = cfg.get("count_genotypes", True)
     list_samples = cfg.get("list_samples", False)
     separator = cfg.get("separator", ";")
     genotype_replacement_map = cfg.get("genotype_replacement_map", {r"[2-9]": "1"})
@@ -111,9 +111,6 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
         proband_set = set(probands)
         controls = [s for s in samples if s not in proband_set]
 
-    proband_map = {p: True for p in probands}
-    control_map = {c: True for c in controls}
-
     unique_samples = set()
     gt_idx = None
     first_line = True
@@ -136,26 +133,11 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
             gt_idx = header_fields.index("GT")
 
             if list_samples:
-                # If listing samples, we don't modify the header,
-                # counts might not be appended since we only output samples at the end.
-                if count_genotypes:
-                    # Still just yield the header as-is here.
-                    pass
+                # If listing samples, we do not modify the header further
+                yield line
             else:
-                # If not listing samples, output header (and append columns if count_genotypes is True)
-                if count_genotypes:
-                    if len(controls) > 0:
-                        new_header = header_fields + [
-                            "proband_count", "proband_variant_count", "proband_allele_count",
-                            "control_count", "control_variant_count", "control_allele_count"
-                        ]
-                    else:
-                        new_header = header_fields + [
-                            "proband_count", "proband_variant_count", "proband_allele_count"
-                        ]
-                    yield "\t".join(new_header)
-                else:
-                    yield line
+                # Just yield the original header line
+                yield line
             first_line = False
             continue
 
@@ -168,16 +150,6 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
 
         gt_field = fields[gt_idx]
         genotypes = gt_field.split(",")
-
-        het_count = 0
-        hom_count = 0
-        variant_count = 0
-        total_count = len(probands)
-
-        control_het_count = 0
-        control_hom_count = 0
-        control_variant_count = 0
-        control_total_count = len(controls)
 
         new_gts = []
 
@@ -199,21 +171,6 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
                 # Variant genotype
                 unique_samples.add(sample)
 
-                # Count stats for probands/controls
-                if sample in proband_map:
-                    if g in ["0/1", "1/0"]:
-                        het_count += 1
-                    elif g == "1/1":
-                        hom_count += 1
-                    variant_count += 1
-
-                if sample in control_map:
-                    if g in ["0/1", "1/0"]:
-                        control_het_count += 1
-                    elif g == "1/1":
-                        control_hom_count += 1
-                    control_variant_count += 1
-
                 # Append sample or sample(genotype)
                 if append_genotype:
                     new_gts.append(f"{sample}({g})")
@@ -221,12 +178,9 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
                     new_gts.append(sample)
             else:
                 # g is "0/0" or "./."
-                if include_nocalls and g == "./.":
-                    # No-call counts towards total but not output
-                    if sample in proband_map:
-                        total_count += 1
-                    if sample in control_map:
-                        control_total_count += 1
+                # We do not output these as variants
+                # If include_nocalls and g == "./." is True, that does not affect output now.
+                pass
 
         if list_samples:
             # If listing samples, don't output line now
@@ -237,23 +191,6 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
                 fields[gt_idx] = separator.join(new_gts)
             else:
                 fields[gt_idx] = ""
-
-            if count_genotypes:
-                if len(controls) > 0:
-                    fields += [
-                        str(total_count),
-                        str(variant_count),
-                        str(het_count + (2 * hom_count)),
-                        str(control_total_count),
-                        str(control_variant_count),
-                        str(control_het_count + (2 * control_hom_count))
-                    ]
-                else:
-                    fields += [
-                        str(total_count),
-                        str(variant_count),
-                        str(het_count + (2 * hom_count))
-                    ]
             yield "\t".join(fields)
 
     if list_samples:

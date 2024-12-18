@@ -187,12 +187,13 @@ def build_sample_phenotype_map(df: pd.DataFrame) -> Dict[str, Set[str]]:
 def assign_case_control_counts(df: pd.DataFrame, case_samples: Set[str], control_samples: Set[str],
                                all_samples: Set[str]) -> pd.DataFrame:
     """
-    Assign case/control counts and allele counts per variant.
+    Assign case/control counts, allele counts, and homozygous variant counts per variant.
 
     Creates columns:
     - proband_count/control_count: total number of case/control samples
-    - proband_variant_count/control_variant_count: how many case/control samples have the variant
+    - proband_variant_count/control_variant_count: number of case/control samples with a variant allele
     - proband_allele_count/control_allele_count: sum of variant alleles in case/control samples
+    - proband_homozygous_count/control_homozygous_count: how many case/control samples have a homozygous variant (1/1)
 
     Parameters
     ----------
@@ -208,7 +209,7 @@ def assign_case_control_counts(df: pd.DataFrame, case_samples: Set[str], control
     Returns
     -------
     pd.DataFrame
-        DataFrame with assigned case/control counts and alleles.
+        DataFrame with assigned case/control counts and alleles, including homozygous counts.
     """
     logger.debug("Assigning case/control counts to variants...")
 
@@ -220,6 +221,8 @@ def assign_case_control_counts(df: pd.DataFrame, case_samples: Set[str], control
     control_variant_count_list = []
     proband_allele_count_list = []
     control_allele_count_list = []
+    p_hom_count_list = []
+    c_hom_count_list = []
 
     for idx, val in enumerate(df["GT"]):
         # Log progress every 1000 variants
@@ -240,25 +243,36 @@ def assign_case_control_counts(df: pd.DataFrame, case_samples: Set[str], control
         c_variant_count = 0
         p_allele_count = 0
         c_allele_count = 0
+        p_hom_count = 0
+        c_hom_count = 0
 
         # For each sample, if not in samples_with_variant, assume genotype=0/0
         for sample_name in all_samples:
             genotype = samples_with_variant.get(sample_name, "0/0")
             allele_count = genotype_to_allele_count(genotype)
 
+            # Check if homozygous variant
+            is_hom_variant = (genotype == "1/1")
+
             if sample_name in case_samples:
                 if allele_count > 0:
                     p_variant_count += 1
                     p_allele_count += allele_count
+                    if is_hom_variant:
+                        p_hom_count += 1
             elif sample_name in control_samples:
                 if allele_count > 0:
                     c_variant_count += 1
                     c_allele_count += allele_count
+                    if is_hom_variant:
+                        c_hom_count += 1
 
         proband_variant_count_list.append(p_variant_count)
         control_variant_count_list.append(c_variant_count)
         proband_allele_count_list.append(p_allele_count)
         control_allele_count_list.append(c_allele_count)
+        p_hom_count_list.append(p_hom_count)
+        c_hom_count_list.append(c_hom_count)
 
     df["proband_count"] = total_proband
     df["control_count"] = total_control
@@ -266,12 +280,16 @@ def assign_case_control_counts(df: pd.DataFrame, case_samples: Set[str], control
     df["control_variant_count"] = control_variant_count_list
     df["proband_allele_count"] = proband_allele_count_list
     df["control_allele_count"] = control_allele_count_list
+    df["proband_homozygous_count"] = p_hom_count_list
+    df["control_homozygous_count"] = c_hom_count_list
 
     logger.debug("Case/control counts assigned.")
     if len(df) > 0:
         logger.debug("Example for first row: %s", df.iloc[0][[
             "proband_count", "proband_variant_count", "proband_allele_count",
-            "control_count", "control_variant_count", "control_allele_count"
+            "proband_homozygous_count",
+            "control_count", "control_variant_count", "control_allele_count",
+            "control_homozygous_count"
         ]].to_dict())
 
     return df
