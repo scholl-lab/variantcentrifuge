@@ -235,6 +235,9 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
             sys.exit(1)
         use_phenotypes = True
 
+    # Store phenotypes in cfg for determine_case_control_sets usage
+    cfg["phenotypes"] = phenotypes
+
     # Load phenotype terms
     case_hpo_terms = []
     control_hpo_terms = []

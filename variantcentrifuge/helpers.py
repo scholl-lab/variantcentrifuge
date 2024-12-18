@@ -26,7 +26,7 @@ def determine_case_control_sets(all_samples: Set[str], cfg: Dict[str, Any], df: 
 
     Logic:
     - If explicit case/control samples are provided, use them directly.
-    - Else if phenotype terms are given, classify samples based on those.
+    - Else if phenotype terms are given, classify samples based on those using phenotypes from the phenotype file.
     - Else, all samples become controls.
 
     Parameters
@@ -35,9 +35,9 @@ def determine_case_control_sets(all_samples: Set[str], cfg: Dict[str, Any], df: 
         The full set of sample names.
     cfg : dict
         Configuration dictionary that may include "case_samples", "control_samples",
-        "case_phenotypes", "control_phenotypes".
+        "case_phenotypes", "control_phenotypes", and "phenotypes" from the phenotype file.
     df : pd.DataFrame
-        DataFrame with variant information, potentially containing phenotypes.
+        DataFrame with variant information (not used for phenotype assignment anymore).
 
     Returns
     -------
@@ -67,13 +67,15 @@ def determine_case_control_sets(all_samples: Set[str], cfg: Dict[str, Any], df: 
     case_terms = cfg.get("case_phenotypes", [])
     control_terms = cfg.get("control_phenotypes", [])
 
+    # If no phenotype terms are given, default to all controls
     if not case_terms and not control_terms:
-        # Step 3: No criteria, all controls
         logger.debug("No phenotype terms or sets provided. All samples = controls.")
         return set(), all_samples
 
-    sample_phenotype_map = build_sample_phenotype_map(df)
-    logger.debug("Phenotype map has %d samples.", len(sample_phenotype_map))
+    # Use phenotypes from the phenotype input file (if provided)
+    # If no phenotype file was provided, this will be an empty dict.
+    sample_phenotype_map = cfg.get("phenotypes", {})
+    logger.debug("Phenotype map has %d samples (from phenotype file).", len(sample_phenotype_map))
 
     classified_cases = set()
     classified_controls = set()
@@ -118,17 +120,7 @@ def build_sample_phenotype_map(df: pd.DataFrame) -> Dict[str, Set[str]]:
 
     If multiple phenotype groups appear and multiple samples in GT are present:
     - If counts match, assign phenotypes group-wise.
-    - Otherwise, assign all phenotypes to all samples in that variant line.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        DataFrame containing a 'phenotypes' column and 'GT' column.
-
-    Returns
-    -------
-    dict of {str: set of str}
-        A dictionary mapping sample names to a set of phenotypes.
+    - Otherwise, skip phenotype assignment for that row to prevent incorrect inflation.
     """
     if "phenotypes" not in df.columns:
         return {}
@@ -162,19 +154,15 @@ def build_sample_phenotype_map(df: pd.DataFrame) -> Dict[str, Set[str]]:
                     phenos = {p.strip() for p in pgroup.split(",") if p.strip()}
                     sample_phenos[sname].update(phenos)
             else:
-                # Mismatch in counts, assign all to all samples
+                # Mismatch in counts, skip assignment
                 logger.warning(
                     "Phenotype groups (%d) != sample count (%d) at row %d. "
-                    "Assigning all phenotypes to all samples in this row.",
+                    "Skipping phenotype assignment for this row.",
                     len(pheno_groups),
                     len(sample_names),
                     idx
                 )
-                combined_phenos = set()
-                for pgroup in pheno_groups:
-                    combined_phenos.update({p.strip() for p in pgroup.split(",") if p.strip()})
-                for sname in sample_names:
-                    sample_phenos[sname].update(combined_phenos)
+                # No assignment here to prevent incorrect inflation
         else:
             # Only one phenotype group (or none)
             phenos = {p.strip() for p in pheno_str.split(",") if p.strip()}
