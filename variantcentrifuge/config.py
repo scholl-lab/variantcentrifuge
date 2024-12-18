@@ -5,7 +5,11 @@
 Configuration management module.
 
 This module handles loading configuration from a JSON file.
-All default values should now reside in config.json.
+All default values reside in config.json, which is included in
+the installed package directory.
+
+If no config_file is provided, this module attempts to load the default
+config.json from the package installation directory.
 """
 
 import os
@@ -17,14 +21,15 @@ def load_config(config_file: Optional[str] = None) -> Dict[str, Any]:
     """
     Load configuration from a JSON file.
 
-    If no config_file is provided, the function attempts to load 'config.json'
-    from the current directory. If it fails to find or parse the file, it raises
-    an error.
+    If no config_file is provided, the function attempts to load the
+    'config.json' from the installed package directory. If it fails
+    to find or parse the file, it raises an error.
 
     Parameters
     ----------
     config_file : str, optional
-        Path to a configuration file in JSON format. If None, defaults to 'config.json'.
+        Path to a configuration file in JSON format. If None, defaults to
+        the package-installed 'config.json'.
 
     Returns
     -------
@@ -39,7 +44,8 @@ def load_config(config_file: Optional[str] = None) -> Dict[str, Any]:
         If there is an error parsing the JSON configuration file.
     """
     if not config_file:
-        config_file = "config.json"
+        # Use the package's installed config.json
+        config_file = os.path.join(os.path.dirname(__file__), "config.json")
 
     if not os.path.exists(config_file):
         raise FileNotFoundError(f"Configuration file '{config_file}' not found.")

@@ -1,6 +1,5 @@
 # File: variantcentrifuge/setup.py
 # Location: variantcentrifuge/variantcentrifuge/setup.py
-
 """
 Setup script for variantcentrifuge.
 
@@ -42,6 +41,9 @@ setup(
         ]
     },
     include_package_data=True,
+    package_data={
+        "variantcentrifuge": ["config.json"]
+    },
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
