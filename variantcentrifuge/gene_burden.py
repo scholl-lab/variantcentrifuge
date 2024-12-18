@@ -71,7 +71,12 @@ def _compute_or_confidence_interval(table: list, odds_ratio: float, method: str,
     CI is computed as:
     log(OR) ± z * sqrt(1/a + 1/b + 1/c + 1/d)
     where z is the critical value (e.g., 1.96 for 95% CI).
+
+    If any cell in the table is zero, the normal approximation cannot be safely
+    computed, and NaN is returned for both CI bounds.
     """
+    from math import isnan, log, exp, sqrt
+
     if isnan(odds_ratio) or odds_ratio <= 0:
         # Cannot compute a CI if odds_ratio <= 0 or is NaN
         return float('nan'), float('nan')
@@ -82,11 +87,9 @@ def _compute_or_confidence_interval(table: list, odds_ratio: float, method: str,
     c = table[1][0]
     d = table[1][1]
 
-    # Prevent division by zero or invalid inputs
+    # If any cell is zero, normal approximation is not valid
     if a == 0 or b == 0 or c == 0 or d == 0:
-        # If any cell is zero, normal approximation is questionable
-        # but we can still attempt it. Values might be large or NaN.
-        pass
+        return float('nan'), float('nan')
 
     z = 1.96  # For a 95% CI; can be extended if alpha != 0.05
     if alpha != 0.05:
