@@ -150,7 +150,7 @@ def get_gene_bed(reference: str, gene_name: str, interval_expand: int = 0, add_c
     bed_fd, bed_path = tempfile.mkstemp(suffix=".bed")
     os.close(bed_fd)
 
-    cmd = ["snpEff", " -Xmx8g", "genes2bed", reference] + gene_args
+    cmd = ["snpEff", "-Xmx8g", "genes2bed", reference] + gene_args
     if interval_expand > 0:
         cmd.extend(["-ud", str(interval_expand)])
 
