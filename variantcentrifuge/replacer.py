@@ -9,7 +9,8 @@ and applies configurable genotype replacement logic.
 
 Logic:
 - If `append_genotype` is True, output sample(genotype) for variant genotypes; else just sample.
-- Only non-"0/0" genotypes ("0/1", "1/0", "1/1") are output as variants. "0/0" and "./." are skipped.
+- Only non-"0/0" genotypes ("0/1", "1/0", "1/1") and their phased counterparts ("0|1", "1|0", "1|1") 
+  are output as variants. "0/0" and "./." are skipped.
 - If `include_nocalls` is True, "./." contributes to totals but is not output.
 - If no variant genotypes are found, the GT field is left empty.
 - If no "GT" column is found, the lines are returned unchanged.
@@ -20,15 +21,20 @@ Enhancement #14:
 - Default: {r"[2-9]": "1"} replaces any allele >1 with '1'.
 - Users can adjust this map or provide an empty map to skip replacements.
 
+Enhancement #30 (bug fix):
+- Previously, phased genotypes (0|1, 1|0, etc.) were not handled. Now, any "|" separators in genotypes 
+  are replaced with "/" before applying the replacement logic. This ensures phased genotypes are treated 
+  consistently and recognized as variants when appropriate.
+
 Relevant `cfg` parameters:
-- "append_genotype": bool  
-- "sample_list": str (comma-separated)  
-- "proband_list": str (comma-separated)  
-- "control_list": str (comma-separated)  
-- "include_nocalls": bool  
-- "list_samples": bool  
-- "separator": str  
-- "genotype_replacement_map": dict (e.g., {r"[2-9]": "1"})  
+- "append_genotype": bool
+- "sample_list": str (comma-separated)
+- "proband_list": str (comma-separated)
+- "control_list": str (comma-separated)
+- "include_nocalls": bool
+- "list_samples": bool
+- "separator": str
+- "genotype_replacement_map": dict (e.g., {r"[2-9]": "1"})
 
 If `list_samples` is True, instead of modifying lines, the module will collect and output unique variant samples at the end.
 
@@ -53,6 +59,10 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
 
     Default logic (if not provided): {r"[2-9]": "1"}
 
+    Phased genotypes (e.g., 0|1, 1|0) are normalized to slash-based genotypes (0/1, 1/0)
+    before applying the replacement logic. This ensures consistent handling of both 
+    phased and unphased genotypes.
+
     Parameters
     ----------
     lines : Iterator[str]
@@ -64,11 +74,12 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
         - "sample_list": str
             Comma-separated list of samples in the order of genotypes.
         - "proband_list": str
-            Comma-separated list of samples considered probands (used for variant listing if needed).
+            Comma-separated list of samples considered probands.
         - "control_list": str
-            Comma-separated list of samples considered controls (used for variant listing if needed).
+            Comma-separated list of samples considered controls.
         - "include_nocalls": bool
-            Whether to include no-calls (./.) in processing totals (no longer affects counts here, but may be relevant).
+            Whether to include no-calls (./.) in processing totals 
+            (no direct output impact here).
         - "list_samples": bool
             Whether to list unique variant samples at the end instead of outputting variants.
         - "separator": str
@@ -133,7 +144,7 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
             gt_idx = header_fields.index("GT")
 
             if list_samples:
-                # If listing samples, we do not modify the header further
+                # If listing samples, do not modify the header
                 yield line
             else:
                 # Just yield the original header line
@@ -159,6 +170,7 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
                 continue
             sample = samples[i]
 
+            # Normalize phased genotypes by replacing '|' with '/'
             g = g.replace("|", "/")
 
             # Apply replacement logic
@@ -170,20 +182,16 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
             if g not in ["0/0", "./."]:
                 # Variant genotype
                 unique_samples.add(sample)
-
-                # Append sample or sample(genotype)
                 if append_genotype:
                     new_gts.append(f"{sample}({g})")
                 else:
                     new_gts.append(sample)
             else:
-                # g is "0/0" or "./."
-                # We do not output these as variants
-                # If include_nocalls and g == "./." is True, that does not affect output now.
+                # g is "0/0" or "./." - skip variant output
                 pass
 
         if list_samples:
-            # If listing samples, don't output line now
+            # If listing samples, accumulate only
             pass
         else:
             # Replace GT field with only variant samples
@@ -196,3 +204,73 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
     if list_samples:
         # If listing samples, output them at the end
         yield ",".join(sorted(unique_samples))
+
+
+#
+# Tests for phased genotype handling
+# These tests are embedded here for demonstration purposes.
+# In a real scenario, place them in a separate test file.
+#
+
+def test_replace_genotypes_phased():
+    """
+    Test that phased genotypes (with '|') are correctly handled and normalized to '/'.
+    """
+    cfg = {
+        "append_genotype": True,
+        "sample_list": "sample1,sample2",
+        "include_nocalls": False,
+        "list_samples": False,
+        "separator": ";",
+        "genotype_replacement_map": {r"[2-9]": "1"}
+    }
+
+    input_lines = [
+        "CHROM\tPOS\tREF\tALT\tGT",
+        "1\t100\tA\tT\tsample1(0|1),sample2(1|0)",
+        "1\t200\tG\tC\tsample1(0|1),sample2(0/0)"
+    ]
+
+    # Expected:
+    # For line 1: 0|1 and 1|0 become 0/1 and 1/0, both are variants -> "sample1(0/1);sample2(1/0)"
+    # For line 2: 0|1 becomes 0/1 (variant), 0/0 is not output
+    # -> "sample1(0/1)"
+
+    expected_output = [
+        "CHROM\tPOS\tREF\tALT\tGT",
+        "1\t100\tA\tT\tsample1(0/1);sample2(1/0)",
+        "1\t200\tG\tC\tsample1(0/1)"
+    ]
+
+    output = list(replace_genotypes(iter(input_lines), cfg))
+    assert output == expected_output, f"Phased genotype handling failed. Got: {output}, Expected: {expected_output}"
+
+def test_replace_genotypes_phased_with_replacements():
+    """
+    Test phased genotypes with replacements. For example, a genotype like 2|1 
+    should be replaced using the provided map, turning '2' into '1'.
+    """
+    cfg = {
+        "append_genotype": True,
+        "sample_list": "sample1",
+        "include_nocalls": False,
+        "list_samples": False,
+        "separator": ";",
+        "genotype_replacement_map": {r"[2-9]": "1"}
+    }
+
+    input_lines = [
+        "CHROM\tPOS\tREF\tALT\tGT",
+        "1\t300\tA\tT\tsample1(2|1)"
+    ]
+
+    # After normalization: 2|1 -> 2/1, after replacement: 2 -> 1, so becomes 1/1
+    # 1/1 is a variant, so output "sample1(1/1)"
+
+    expected_output = [
+        "CHROM\tPOS\tREF\tALT\tGT",
+        "1\t300\tA\tT\tsample1(1/1)"
+    ]
+
+    output = list(replace_genotypes(iter(input_lines), cfg))
+    assert output == expected_output, f"Phased genotype replacement failed. Got: {output}, Expected: {expected_output}"
