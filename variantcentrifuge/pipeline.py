@@ -336,8 +336,12 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         # The output is a new uncompressed VCF with splitted lines
         process_vcf_file(filtered_file, splitted_filtered_file)
 
-        # For subsequent steps, we will use splitted_filtered_file
-        final_filtered_for_extraction = splitted_filtered_file
+        # NEW: Gzip the splitted_filtered_file
+        splitted_filtered_file_gz = f"{splitted_filtered_file}.gz"
+        run_command(["bgzip", "-f", splitted_filtered_file])
+
+        # For subsequent steps, we will use the gzipped splitted_filtered_file
+        final_filtered_for_extraction = splitted_filtered_file_gz
     else:
         # If not splitting, we just use filtered_file as is
         final_filtered_for_extraction = filtered_file
