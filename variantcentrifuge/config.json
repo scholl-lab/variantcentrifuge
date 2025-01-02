@@ -11,6 +11,7 @@
   "perform_gene_burden": false,
 
   "presets": {
+    "5percent_or_pathogenic": "(((dbNSFP_gnomAD_exomes_AF[0] < 0.05) | (na dbNSFP_gnomAD_exomes_AC[0]) | (dbNSFP_gnomAD_genomes_AF[0] < 0.05) | (na dbNSFP_gnomAD_genomes_AC[0])) | ((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & (dbNSFP_clinvar_clnsig !~ '[Cc]onflicting'))",
     "5percent": "((dbNSFP_gnomAD_exomes_AF[0] < 0.05) | (na dbNSFP_gnomAD_exomes_AC[0]) | (dbNSFP_gnomAD_genomes_AF[0] < 0.05) | (na dbNSFP_gnomAD_genomes_AC[0]))",
     "1percent": "((dbNSFP_gnomAD_exomes_AF[0] < 0.001) | (na dbNSFP_gnomAD_exomes_AC[0]) | (dbNSFP_gnomAD_genomes_AF[0] < 0.001) | (na dbNSFP_gnomAD_genomes_AC[0]))",
     "rare": "((dbNSFP_gnomAD_exomes_AF[0] < 0.0001) | (na dbNSFP_gnomAD_exomes_AC[0]) | (dbNSFP_gnomAD_genomes_AF[0] < 0.0001) | (na dbNSFP_gnomAD_genomes_AC[0]))",
@@ -21,6 +22,11 @@
     "high_or_pathogenic": "((ANN[ANY].IMPACT has 'HIGH') | ((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & (dbNSFP_clinvar_clnsig !~ '[Cc]onflicting')))"
   },
   "links": {
-    "SpliceAI": "https://spliceailookup.broadinstitute.org/#variant={CHROM}-{POS}-{REF}-{ALT}&hg=19&bc=basic&distance=500&mask=0&ra=0"
+    "SpliceAI": "https://spliceailookup.broadinstitute.org/#variant={CHROM}-{POS}-{REF}-{ALT}&hg=19&bc=basic&distance=500&mask=0&ra=0",
+    "Franklin": "https://franklin.genoox.com/clinical-db/variant/snp/{CHROM}-{POS}-{REF}-{ALT}-hg19",
+    "Varsome": "https://varsome.com/variant/hg19/{CHROM}-{POS}-{REF}-{ALT}",
+    "gnomAD_2": "https://gnomad.broadinstitute.org/variant/{CHROM}-{POS}-{REF}-{ALT}?dataset=gnomad_r2_1",
+    "autopvs1": "https://autopvs1.bgi.com/variant/hg19/{CHROM}-{POS}-{REF}-{ALT}",
+    "ClinVar": "https://www.ncbi.nlm.nih.gov/clinvar/?term={CHROM}-{POS}-{REF}-{ALT}"
   }
 }
