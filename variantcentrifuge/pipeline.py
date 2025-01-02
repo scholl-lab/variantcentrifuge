@@ -346,7 +346,6 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         replaced_tsv = extracted_tsv
 
     # Integrate phenotypes if provided
-    use_phenotypes = use_phenotypes
     if use_phenotypes:
         pattern = re.compile(r"^([^()]+)(?:\([^)]+\))?$")
 
@@ -419,14 +418,86 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
             )
             sys.exit(1)
 
-    # ADDED: Check no_links before adding links
-    if not cfg.get("no_links", False):  # Only add links if no_links is False
+    # Add links if not disabled
+    if not cfg.get("no_links", False):
         links_config = cfg.get("links", {})
         if links_config:
             logger.debug("Adding link columns to final output.")
             buffer = add_links_to_table(buffer, links_config)
     else:
         logger.debug("Link columns are disabled by configuration.")
+
+    # -----------------------------------------------------------------------
+    # NEW FUNCTION FOR ADDING VARIANT IDENTIFIER
+    # -----------------------------------------------------------------------
+    def add_variant_identifier(lines: List[str]) -> List[str]:
+        """
+        Insert a leading VAR_ID column into each line.
+
+        The VAR_ID is generated from a zero-padded incrementing counter plus
+        a short 4-character hash based on CHROM, POS, REF, and ALT.
+
+        Parameters
+        ----------
+        lines : list of str
+            The lines of the final variant table.
+
+        Returns
+        -------
+        list of str
+            A new list of lines with a VAR_ID column inserted at the beginning.
+        """
+        new_lines = []
+        header_indices = {}
+        row_counter = 1
+
+        # Identify header and relevant columns
+        header_line = lines[0].rstrip("\n")
+        header_parts = header_line.split("\t")
+        for idx, col in enumerate(header_parts):
+            header_indices[col] = idx
+
+        # Prepend header
+        new_header = ["VAR_ID"] + header_parts
+        new_lines.append("\t".join(new_header))
+
+        # Identify column indexes
+        chrom_idx = header_indices.get("CHROM", None)
+        pos_idx = header_indices.get("POS", None)
+        ref_idx = header_indices.get("REF", None)
+        alt_idx = header_indices.get("ALT", None)
+
+        # Process data lines
+        for line in lines[1:]:
+            line = line.rstrip("\n")
+            if not line.strip():
+                new_lines.append(line)
+                continue
+
+            fields = line.split("\t")
+
+            # Safely retrieve these columns if they exist
+            chrom_val = fields[chrom_idx] if chrom_idx is not None else ""
+            pos_val = fields[pos_idx] if pos_idx is not None else ""
+            ref_val = fields[ref_idx] if ref_idx is not None else ""
+            alt_val = fields[alt_idx] if alt_idx is not None else ""
+
+            # Create short hash
+            combined = f"{chrom_val}{pos_val}{ref_val}{alt_val}"
+            short_hash = hashlib.md5(combined.encode("utf-8")).hexdigest()[:4]
+
+            # Construct ID like var_0001_abcd
+            var_id = f"var_{row_counter:04d}_{short_hash}"
+
+            row_counter += 1
+            new_line = [var_id] + fields
+            new_lines.append("\t".join(new_line))
+
+        return new_lines
+
+    # Add the VAR_ID column
+    buffer = add_variant_identifier(buffer)
+    # -----------------------------------------------------------------------
 
     if final_to_stdout:
         if buffer:
