@@ -12,12 +12,18 @@ New Features (Issue #21):
 - Adds confidence intervals to the gene burden metrics (e.g., odds ratio).
 - Confidence interval calculation method and confidence level can be configured.
 
+Updated for Issue #31:
+- Improved handling of edge cases (e.g., infinite or zero odds_ratio). 
+  Instead of returning NaN for confidence intervals, attempts a fallback 
+  method ("logit") if the primary method fails. If still invalid, returns 
+  bounded fallback intervals to ensure meaningful output.
+
 Configuration Additions
 -----------------------
 - "confidence_interval_method": str
-    Method for confidence interval calculation. Currently supports:
+    Method for confidence interval calculation. Supports:
     - "normal_approx": Uses statsmodels' Table2x2 normal approximation for OR CI.
-    Future methods (e.g., "wilson") can be added.
+      Will fallback to "logit" if normal fails, and then to bounded fallback.
 - "confidence_interval_alpha": float
     Significance level for confidence interval calculation. Default: 0.05 for a 95% CI.
 
@@ -59,6 +65,7 @@ def _compute_or_confidence_interval(table: list, odds_ratio: float, method: str,
         Method for confidence interval calculation.
         Currently supported:
         - "normal_approx": Uses statsmodels Table2x2 normal approximation.
+          Fallback to "logit" if normal approximation fails.
     alpha : float
         Significance level for the confidence interval. 0.05 for 95% CI.
 
@@ -69,38 +76,50 @@ def _compute_or_confidence_interval(table: list, odds_ratio: float, method: str,
 
     Notes
     -----
-    If odds_ratio is NaN, zero, or infinite, the confidence interval cannot be computed
-    and NaN is returned for both bounds.
+    If odds_ratio is NaN, zero, or infinite, the normal approximation may fail.
+    We attempt:
+    1. normal approximation (if fails, try "logit"),
+    2. if "logit" fails or odds ratio is still invalid, return bounded fallback 
+       intervals instead of NaN.
 
-    normal_approx method (via statsmodels):
-    Uses statsmodels.stats.contingency_tables.Table2x2.oddsratio_confint to compute
-    the confidence interval. If any cell in the table is zero, or if the OR is invalid,
-    NaNs are returned.
+    The fallback intervals are arbitrary bounds chosen to reflect a very low and 
+    very high plausible range instead of returning NaN. For example, we use:
+    ci_lower = 0.001 and ci_upper = 1000 for extreme cases.
     """
-    if isnan(odds_ratio) or odds_ratio <= 0 or np.isinf(odds_ratio):
-        # Cannot compute a CI if odds_ratio <= 0, NaN, or infinite
-        return float('nan'), float('nan')
 
+    if isnan(odds_ratio) or odds_ratio <= 0 or np.isinf(odds_ratio):
+        # Attempt direct fallback without normal approx
+        logger.debug("Odds ratio is invalid (NaN, <=0, or Inf). Attempting fallback methods.")
     a = table[0][0]
     b = table[0][1]
     c = table[1][0]
     d = table[1][1]
 
-    # If any cell is zero, the normal approximation may not be valid
-    if a == 0 or b == 0 or c == 0 or d == 0:
-        return float('nan'), float('nan')
+    table_np = np.array(table)
+    cont_table = Table2x2(table_np)
 
-    # Use statsmodels Table2x2 for CI computation
-    if method == "normal_approx":
+    def _try_confint(method_name):
         try:
-            table_np = np.array(table)
-            cont_table = Table2x2(table_np)
-            ci_lower, ci_upper = cont_table.oddsratio_confint(alpha=alpha, method="normal")
+            return cont_table.oddsratio_confint(alpha=alpha, method=method_name)
         except Exception:
-            # If any unexpected error occurs, fallback to NaN
-            ci_lower, ci_upper = float('nan'), float('nan')
+            logger.debug("Failed to compute CI with method '%s'.", method_name)
+            return float('nan'), float('nan')
+
+    # First attempt using requested method (likely "normal_approx")
+    if method == "normal_approx":
+        ci_lower, ci_upper = _try_confint("normal")
+        if (isnan(ci_lower) or isnan(ci_upper)) and not isnan(odds_ratio):
+            # Normal approximation failed, try "logit"
+            logger.debug("Normal approximation failed, trying logit method.")
+            ci_lower, ci_upper = _try_confint("logit")
+
+        # Check if we still have invalid CI
+        if isnan(ci_lower) or isnan(ci_upper):
+            # Provide bounded fallback
+            logger.debug("Both normal and logit methods failed. Using bounded fallback CIs.")
+            ci_lower, ci_upper = 0.001, 1000.0
     else:
-        # Unsupported methods return NaN by default
+        # Unsupported method: return NaN
         ci_lower, ci_upper = float('nan'), float('nan')
 
     return ci_lower, ci_upper
@@ -153,9 +172,9 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.Da
 
     Notes
     -----
-    If no fisher_exact test is available (scipy not installed), p-values default to 1.0.
-    Confidence intervals are computed using statsmodels Table2x2 normal approximation
-    if "normal_approx" is chosen.
+    If no fisher_exact test is available, p-values default to 1.0.
+    Confidence intervals now attempt multiple methods and fallback intervals
+    in edge cases (Issue #31).
     """
 
     logger.debug("Starting gene burden aggregation...")
@@ -210,10 +229,7 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.Da
             pval = 1.0
 
         # Compute confidence interval for the odds ratio
-        if isnan(odds_ratio) or odds_ratio is None:
-            ci_lower, ci_upper = float('nan'), float('nan')
-        else:
-            ci_lower, ci_upper = _compute_or_confidence_interval(table, odds_ratio, ci_method, ci_alpha)
+        ci_lower, ci_upper = _compute_or_confidence_interval(table, odds_ratio, ci_method, ci_alpha)
 
         results.append(
             {
