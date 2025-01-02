@@ -35,7 +35,8 @@ from .phenotype import load_phenotypes, aggregate_phenotypes_for_samples
 from .converter import convert_to_excel, append_tsv_as_sheet
 from .replacer import replace_genotypes
 from .phenotype_filter import filter_phenotypes
-from .links import add_links_to_table  # ADDED
+from .links import add_links_to_table
+from .filters import extract_variants, apply_snpsift_filter
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -303,7 +304,7 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
 
     # Filenames
     variants_file = os.path.join(intermediate_dir, f"{base_name}.variants.vcf.gz")
-    filtered_file = os.path.join(intermediate_dir, f"{base_name}.filtered.vcf")
+    filtered_file = os.path.join(intermediate_dir, f"{base_name}.filtered.vcf.gz")
     extracted_tsv = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv")
     genotype_replaced_tsv = os.path.join(intermediate_dir, f"{base_name}.genotype_replaced.tsv")
     phenotype_added_tsv = os.path.join(intermediate_dir, f"{base_name}.phenotypes_added.tsv")
@@ -316,14 +317,16 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         if substring_to_remove and substring_to_remove.strip():
             original_samples = [s.replace(substring_to_remove, "") for s in original_samples]
 
-    # Extract and filter variants
-    run_command(["bcftools", "view", args.vcf_file, "-R", bed_file, "-Oz", "-o", variants_file])
-    run_command(["bcftools", "index", variants_file])
-    run_command(["SnpSift", "filter", cfg["filters"], variants_file], output_file=filtered_file)
+    # >>> Replaced the old direct bcftools / index calls with filters.py functions
+    extract_variants(args.vcf_file, bed_file, cfg, variants_file)
+    apply_snpsift_filter(variants_file, cfg["filters"], cfg, filtered_file)
 
+    # SnpSift extractFields step
     field_list = (cfg["fields_to_extract"] or args.fields).strip().split()
-    run_command(["SnpSift", "extractFields", "-s", ",", "-e", "NA", filtered_file] + field_list,
-                output_file=extracted_tsv)
+    run_command(
+        ["SnpSift", "extractFields", "-s", ",", "-e", "NA", filtered_file] + field_list,
+        output_file=extracted_tsv
+    )
 
     # Post-process header
     with open(extracted_tsv, "r", encoding="utf-8") as f:

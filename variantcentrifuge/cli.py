@@ -1,4 +1,4 @@
-# Changes in variantcentrifuge/cli.py
+# File: variantcentrifuge/cli.py
 
 import argparse
 import sys
@@ -251,6 +251,14 @@ def main() -> None:
         help="Disable adding link columns to the final output (links are added by default)."
     )
 
+    # >>> New threads argument
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=1,
+        help="Number of threads to use for bcftools and related operations."
+    )
+
     args: argparse.Namespace = parser.parse_args()
 
     log_level_map = {
@@ -344,5 +352,8 @@ def main() -> None:
 
     # Store no_links parameter
     cfg["no_links"] = args.no_links
+
+    # >>> Store threads in cfg
+    cfg["threads"] = args.threads
 
     run_pipeline(args, cfg, start_time)
