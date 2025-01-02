@@ -43,6 +43,12 @@ def main() -> None:
     Changes for custom columns:
         - Added a --add-column argument which can be given multiple times to append columns with given
           headers (but blank values) to the final output.
+
+    Changes for transcript filtering:
+        - Added a --transcript-list and --transcript-file argument which allows specifying one or more
+          transcript IDs (by comma-separated list or a file with one transcript ID per line).
+        - If provided, these transcripts are used to construct a SnpSift filter expression that
+          filters variants by EFF[*].TRID field.
     """
     # Initial basic logging setup to stderr before arguments are parsed,
     # so that we can log early messages like start time.
@@ -282,6 +288,22 @@ def main() -> None:
         )
     )
 
+    # >>> New arguments for transcript filtering
+    parser.add_argument(
+        "--transcript-list",
+        help=(
+            "Comma-separated list of transcript IDs to filter for. "
+            "For example: NM_007294.4,NM_000059.4"
+        )
+    )
+    parser.add_argument(
+        "--transcript-file",
+        help=(
+            "Path to a file containing transcript IDs, one per line. "
+            "For example: a file where each line is a transcript like NM_007294.4"
+        )
+    )
+
     args: argparse.Namespace = parser.parse_args()
 
     log_level_map = {
@@ -378,6 +400,10 @@ def main() -> None:
 
     # >>> Store threads in cfg
     cfg["threads"] = args.threads
+
+    # >>> Store the transcript arguments in cfg so pipeline can see them
+    cfg["transcript_list"] = args.transcript_list  # e.g. "NM_007294.4,NM_000059.4"
+    cfg["transcript_file"] = args.transcript_file  # path to file with transcripts
 
     # Finally, run the pipeline
     run_pipeline(args, cfg, start_time)

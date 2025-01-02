@@ -336,7 +336,7 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         # The output is a new uncompressed VCF with splitted lines
         process_vcf_file(filtered_file, splitted_filtered_file)
 
-        # NEW: Gzip the splitted_filtered_file
+        # Gzip the splitted_filtered_file
         splitted_filtered_file_gz = f"{splitted_filtered_file}.gz"
         run_command(["bgzip", "-f", splitted_filtered_file])
 
@@ -345,6 +345,53 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     else:
         # If not splitting, we just use filtered_file as is
         final_filtered_for_extraction = filtered_file
+
+    # -----------------------------------------------------------------------
+    # Step 3b: Filter by transcripts if requested
+    # -----------------------------------------------------------------------
+    # e.g. user might pass --transcript-list NM_007294.4,NM_000059.4
+    # or --transcript-file with each transcript on a new line
+    transcripts = []
+    if args.transcript_list:
+        # e.g. "NM_007294.4,NM_000059.4"
+        transcripts.extend([t.strip() for t in args.transcript_list.split(",") if t.strip()])
+
+    if args.transcript_file:
+        if not os.path.exists(args.transcript_file):
+            logger.error(f"Transcript file not found: {args.transcript_file}")
+            sys.exit(1)
+        with open(args.transcript_file, "r", encoding="utf-8") as tf:
+            for line in tf:
+                tr = line.strip()
+                if tr:
+                    transcripts.append(tr)
+
+    transcripts = list(set(transcripts))  # remove duplicates if any
+
+    if transcripts:
+        logger.info("Filtering for transcripts using SnpSift.")
+        transcript_filtered_file = os.path.join(intermediate_dir, f"{base_name}.transcript_filtered.vcf.gz")
+
+        # Construct filter, e.g.:
+        # (EFF[*].TRID = 'NM_007294.4') | (EFF[*].TRID = 'NM_000059.4')
+        # for each transcript in transcripts
+        or_clauses = []
+        for tr in transcripts:
+            # We single-quote the transcript ID in case it has special chars
+            or_clauses.append(f"(EFF[*].TRID = '{tr}')")
+        transcript_filter_expr = " | ".join(or_clauses)
+
+        # Reuse apply_snpsift_filter with the new filter expression
+        apply_snpsift_filter(
+            final_filtered_for_extraction,
+            transcript_filter_expr,
+            cfg,
+            transcript_filtered_file
+        )
+
+        # Now we set final_filtered_for_extraction to transcript_filtered_file
+        final_filtered_for_extraction = transcript_filtered_file
+    # -----------------------------------------------------------------------
 
     # Step 4: Extract fields from whichever file is final_filtered_for_extraction
     field_list = " ".join((cfg["fields_to_extract"] or args.fields).strip().split())
