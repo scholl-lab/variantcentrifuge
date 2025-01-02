@@ -1,0 +1,1 @@
+The file vcfEffOnePerLine.pl is from the SnpEff package. It is a script that takes a VCF file as input and outputs a VCF file with one variant per line. This is useful for downstream processing of the VCF file.
