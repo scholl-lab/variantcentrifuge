@@ -42,6 +42,9 @@ from .links import add_links_to_table
 from .filters import extract_variants, apply_snpsift_filter
 from .extractor import extract_fields
 
+# NEW IMPORT for genotype filtering
+from .filters import filter_final_tsv_by_genotype
+
 logger = logging.getLogger("variantcentrifuge")
 
 
@@ -349,11 +352,8 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     # -----------------------------------------------------------------------
     # Step 3b: Filter by transcripts if requested
     # -----------------------------------------------------------------------
-    # e.g. user might pass --transcript-list NM_007294.4,NM_000059.4
-    # or --transcript-file with each transcript on a new line
     transcripts = []
     if args.transcript_list:
-        # e.g. "NM_007294.4,NM_000059.4"
         transcripts.extend([t.strip() for t in args.transcript_list.split(",") if t.strip()])
 
     if args.transcript_file:
@@ -372,24 +372,18 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         logger.info("Filtering for transcripts using SnpSift.")
         transcript_filtered_file = os.path.join(intermediate_dir, f"{base_name}.transcript_filtered.vcf.gz")
 
-        # Construct filter, e.g.:
-        # (EFF[*].TRID = 'NM_007294.4') | (EFF[*].TRID = 'NM_000059.4')
-        # for each transcript in transcripts
+        # Construct filter, e.g.: (EFF[*].TRID = 'NM_007294.4') | (EFF[*].TRID = 'NM_000059.4')
         or_clauses = []
         for tr in transcripts:
-            # We single-quote the transcript ID in case it has special chars
             or_clauses.append(f"(EFF[*].TRID = '{tr}')")
         transcript_filter_expr = " | ".join(or_clauses)
 
-        # Reuse apply_snpsift_filter with the new filter expression
         apply_snpsift_filter(
             final_filtered_for_extraction,
             transcript_filter_expr,
             cfg,
             transcript_filtered_file
         )
-
-        # Now we set final_filtered_for_extraction to transcript_filtered_file
         final_filtered_for_extraction = transcript_filtered_file
     # -----------------------------------------------------------------------
 
@@ -465,6 +459,21 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         final_tsv = phenotype_added_tsv
     else:
         final_tsv = replaced_tsv
+
+    # NEW GENOTYPE FILTER STEP (after all other filters, phenotypes, etc.)
+    if getattr(args, "genotype_filter", None) or getattr(args, "gene_genotype_file", None):
+        genotype_filtered_tsv = os.path.join(args.output_dir, f"{base_name}.genotype_filtered.tsv")
+        genotype_modes = set()
+        if getattr(args, "genotype_filter", None):
+            # e.g. "het", "hom", "comp_het", or comma-separated
+            genotype_modes = set(g.strip() for g in args.genotype_filter.split(",") if g.strip())
+        filter_final_tsv_by_genotype(
+            input_tsv=final_tsv,
+            output_tsv=genotype_filtered_tsv,
+            global_genotypes=genotype_modes,
+            gene_genotype_file=args.gene_genotype_file
+        )
+        final_tsv = genotype_filtered_tsv
 
     # If Excel requested
     if args.xlsx:

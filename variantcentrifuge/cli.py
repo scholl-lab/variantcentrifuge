@@ -304,6 +304,24 @@ def main() -> None:
         )
     )
 
+    # >>> NEW arguments for genotype filtering
+    parser.add_argument(
+        "--genotype-filter",
+        help=(
+            "Specify genotype filter(s), e.g. 'het', 'hom', 'comp_het' or "
+            "comma-separated combination (e.g. 'het,comp_het'). Only samples/lines "
+            "fulfilling these genotypes are kept (unless per-gene file overrides)."
+        )
+    )
+    parser.add_argument(
+        "--gene-genotype-file",
+        help=(
+            "Path to a file specifying per-gene genotype rules. It must contain at least two columns: "
+            "'GENE' and 'GENOTYPES' (a comma-separated list of genotype filters, e.g. het,comp_het). "
+            "If a gene is listed here, it overrides any global --genotype-filter."
+        )
+    )
+
     args: argparse.Namespace = parser.parse_args()
 
     log_level_map = {
