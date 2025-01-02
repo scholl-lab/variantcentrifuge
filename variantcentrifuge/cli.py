@@ -39,6 +39,10 @@ def main() -> None:
 
     Changes for links:
         - Added a --no-links argument to disable adding link columns. By default, links are added.
+
+    Changes for custom columns:
+        - Added a --add-column argument which can be given multiple times to append columns with given
+          headers (but blank values) to the final output.
     """
     # Initial basic logging setup to stderr before arguments are parsed,
     # so that we can log early messages like start time.
@@ -259,6 +263,14 @@ def main() -> None:
         help="Number of threads to use for bcftools and related operations."
     )
 
+    # >>> New argument for adding named columns
+    parser.add_argument(
+        "--add-column",
+        action="append",
+        default=[],
+        help="Append a named blank column to the final output. Repeat for multiple columns."
+    )
+
     args: argparse.Namespace = parser.parse_args()
 
     log_level_map = {
@@ -356,4 +368,5 @@ def main() -> None:
     # >>> Store threads in cfg
     cfg["threads"] = args.threads
 
+    # Finally, run the pipeline
     run_pipeline(args, cfg, start_time)

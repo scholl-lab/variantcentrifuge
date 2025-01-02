@@ -497,6 +497,54 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
 
     # Add the VAR_ID column
     buffer = add_variant_identifier(buffer)
+
+    # -----------------------------------------------------------------------
+    # NEW FUNCTION TO ADD NAMED BLANK COLUMNS (FROM --add-column)
+    # -----------------------------------------------------------------------
+    def add_named_columns(lines: List[str], col_names: List[str]) -> List[str]:
+        """
+        Append columns named in col_names to the table, with blank data for each row.
+
+        Parameters
+        ----------
+        lines : list of str
+            Lines (header + data) of the final table.
+        col_names : list of str
+            The column names to add.
+
+        Returns
+        -------
+        list of str
+            The updated table lines with extra named blank columns.
+        """
+        if not lines or not col_names:
+            return lines
+
+        new_lines = []
+
+        # Handle header (the first line in 'lines')
+        header_line = lines[0].rstrip("\n")
+        header_parts = header_line.split("\t")
+        header_parts.extend(col_names)  # add new column names
+        new_header = "\t".join(header_parts)
+        new_lines.append(new_header)
+
+        # Handle data lines (from the second line onward)
+        for line in lines[1:]:
+            line = line.rstrip("\n")
+            if not line.strip():
+                new_lines.append(line)
+                continue
+            fields = line.split("\t")
+            # Append blank cells for each new column
+            fields.extend([""] * len(col_names))
+            new_lines.append("\t".join(fields))
+
+        return new_lines
+
+    # Add named columns if requested
+    if args.add_column:
+        buffer = add_named_columns(buffer, args.add_column)
     # -----------------------------------------------------------------------
 
     if final_to_stdout:
