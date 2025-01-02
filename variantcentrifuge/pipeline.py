@@ -37,6 +37,7 @@ from .replacer import replace_genotypes
 from .phenotype_filter import filter_phenotypes
 from .links import add_links_to_table
 from .filters import extract_variants, apply_snpsift_filter
+from .extractor import extract_fields
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -317,26 +318,17 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         if substring_to_remove and substring_to_remove.strip():
             original_samples = [s.replace(substring_to_remove, "") for s in original_samples]
 
-    # >>> Replaced the old direct bcftools / index calls with filters.py functions
+    # Extract and filter variants
     extract_variants(args.vcf_file, bed_file, cfg, variants_file)
     apply_snpsift_filter(variants_file, cfg["filters"], cfg, filtered_file)
 
-    # SnpSift extractFields step
-    field_list = (cfg["fields_to_extract"] or args.fields).strip().split()
-    run_command(
-        ["SnpSift", "extractFields", "-s", ",", "-e", "NA", filtered_file] + field_list,
-        output_file=extracted_tsv
-    )
+    # extract the fields
+    field_list = " ".join((cfg["fields_to_extract"] or args.fields).strip().split())
+    logger.debug(f"Extracting fields: {field_list} to {extracted_tsv}")
+    from .extractor import extract_fields
+    extract_fields(filtered_file, field_list, cfg, extracted_tsv)
 
-    # Post-process header
-    with open(extracted_tsv, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-    if lines:
-        header = lines[0].replace("ANN[0].", "").replace("GEN[*].", "")
-        lines[0] = header
-    with open(extracted_tsv, "w", encoding="utf-8") as f:
-        f.writelines(lines)
-
+    # Check if we have a GT column
     with open(extracted_tsv, "r", encoding="utf-8") as f:
         header_line = f.readline().strip()
     columns = header_line.split("\t")
@@ -354,6 +346,7 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         replaced_tsv = extracted_tsv
 
     # Integrate phenotypes if provided
+    use_phenotypes = use_phenotypes
     if use_phenotypes:
         pattern = re.compile(r"^([^()]+)(?:\([^)]+\))?$")
 
