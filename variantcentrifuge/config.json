@@ -2,7 +2,7 @@
   "reference": "GRCh37.p13",
   "add_chr": false,
   "filters": "",
-  "fields_to_extract": "CHROM POS REF ALT ID QUAL AC ANN[0].GENE ANN[0].FEATUREID ANN[0].EFFECT ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P dbNSFP_SIFT_pred dbNSFP_Polyphen2_HDIV_pred dbNSFP_MutationTaster_pred dbNSFP_CADD_phred dbNSFP_gnomAD_exomes_AC dbNSFP_gnomAD_genomes_AC dbNSFP_ALFA_Total_AC dbNSFP_clinvar_clnsig GEN[*].GT",
+  "fields_to_extract": "CHROM POS REF ALT ID QUAL AC ANN[0].GENE ANN[0].FEATUREID ANN[0].EFFECT ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P dbNSFP_SIFT_pred dbNSFP_Polyphen2_HDIV_pred dbNSFP_MutationTaster_pred dbNSFP_REVEL_score dbNSFP_CADD_phred dbNSFP_gnomAD_exomes_AC dbNSFP_gnomAD_genomes_AC dbNSFP_ALFA_Total_AC dbNSFP_clinvar_clnsig ClinVar_CLNSIG GEN[*].GT",
   "sample_file": "samples.txt",
   "replace_script_options": "--append-genotype",
   "output_file": "variants.tsv",
@@ -11,15 +11,24 @@
   "perform_gene_burden": false,
 
   "presets": {
-    "5percent_or_pathogenic": "(((dbNSFP_gnomAD_exomes_AF[0] < 0.05) | (na dbNSFP_gnomAD_exomes_AC[0]) | (dbNSFP_gnomAD_genomes_AF[0] < 0.05) | (na dbNSFP_gnomAD_genomes_AC[0])) | ((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & (dbNSFP_clinvar_clnsig !~ '[Cc]onflicting'))",
+    "not_artefact": "((AC[ANY] <= 513) & (QUAL[ANY] >= 100))",
+    "5percent_or_pathogenic": "(((dbNSFP_gnomAD_exomes_AF[0] < 0.05) | (na dbNSFP_gnomAD_exomes_AC[0]) | (dbNSFP_gnomAD_genomes_AF[0] < 0.05) | (na dbNSFP_gnomAD_genomes_AC[0])) | (((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & !(dbNSFP_clinvar_clnsig =~ '[Cc]onflicting')) | ((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting'))))",
     "5percent": "((dbNSFP_gnomAD_exomes_AF[0] < 0.05) | (na dbNSFP_gnomAD_exomes_AC[0]) | (dbNSFP_gnomAD_genomes_AF[0] < 0.05) | (na dbNSFP_gnomAD_genomes_AC[0]))",
     "1percent": "((dbNSFP_gnomAD_exomes_AF[0] < 0.001) | (na dbNSFP_gnomAD_exomes_AC[0]) | (dbNSFP_gnomAD_genomes_AF[0] < 0.001) | (na dbNSFP_gnomAD_genomes_AC[0]))",
     "rare": "((dbNSFP_gnomAD_exomes_AF[0] < 0.0001) | (na dbNSFP_gnomAD_exomes_AC[0]) | (dbNSFP_gnomAD_genomes_AF[0] < 0.0001) | (na dbNSFP_gnomAD_genomes_AC[0]))",
     "super_rare": "((dbNSFP_gnomAD_exomes_AC[0] <= 2 ) | (na dbNSFP_gnomAD_exomes_AC[0]) | ( dbNSFP_gnomAD_genomes_AC[0] <= 2 ) | (na dbNSFP_gnomAD_genomes_AC[0]))",
-    "pathogenic": "((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & (dbNSFP_clinvar_clnsig !~ '[Cc]onflicting'))",
+    "pathogenic": "(((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & !(dbNSFP_clinvar_clnsig =~ '[Cc]onflicting')) | ((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting')))",
     "coding": "((ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE'))",
     "high": "((ANN[ANY].IMPACT has 'HIGH'))",
-    "high_or_pathogenic": "((ANN[ANY].IMPACT has 'HIGH') | ((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & (dbNSFP_clinvar_clnsig !~ '[Cc]onflicting')))"
+    "moderate": "((ANN[ANY].IMPACT has 'MODERATE'))",
+    "moderate_and_high_prediction": "(((ANN[ANY].IMPACT has 'MODERATE')) & ((dbNSFP_REVEL_score >= 0.9 | (dbNSFP_CADD_phred >= 30)))",
+    "low": "((ANN[ANY].IMPACT has 'LOW'))",
+    "high_or_moderate": "((ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE'))",
+    "high_or_moderate_or_low": "((ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE') | (ANN[ANY].IMPACT has 'LOW'))",
+    "modifier": "((ANN[ANY].IMPACT has 'MODIFIER'))",
+    "high_or_lof_or_nmd": "(((exists LOF[*].PERC) & (LOF[*].PERC > 0.9)) | ((exists LOF[*].PERC) & (LOF[*].PERC > 0.9)) | (ANN[ANY].IMPACT has 'HIGH')))",
+    "high_or_pathogenic": "(((ANN[ANY].IMPACT has 'HIGH') | (((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & !(dbNSFP_clinvar_clnsig =~ '[Cc]onflicting')) | ((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting'))))",
+    "aif": "((((dbNSFP_gnomAD_exomes_AF[0] < 0.05) | (na dbNSFP_gnomAD_exomes_AC[0]) | (dbNSFP_gnomAD_genomes_AF[0] < 0.05) | (na dbNSFP_gnomAD_genomes_AC[0])) | (((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & !(dbNSFP_clinvar_clnsig =~ '[Cc]onflicting')) | ((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting')))) & ((((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & !(dbNSFP_clinvar_clnsig =~ '[Cc]onflicting')) | ((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting'))) | (((dbNSFP_gnomAD_exomes_AF[0] < 0.01) | (na dbNSFP_gnomAD_exomes_AC[0]) | (dbNSFP_gnomAD_genomes_AF[0] < 0.01) | (na dbNSFP_gnomAD_genomes_AC[0])) & ((ANN[ANY].IMPACT has 'MODERATE') & ((dbNSFP_REVEL_score >= 0.9) | (dbNSFP_CADD_phred >= 30)))) | (((dbNSFP_gnomAD_exomes_AF[0] < 0.01) | (na dbNSFP_gnomAD_exomes_AC[0]) | (dbNSFP_gnomAD_genomes_AF[0] < 0.01) | (na dbNSFP_gnomAD_genomes_AC[0])) & (((exists LOF[*].PERC) & (LOF[*].PERC > 0.9)) | ((exists LOF[*].PERC) & (LOF[*].PERC > 0.9)) | (ANN[ANY].IMPACT has 'HIGH')))))"
   },
   "links": {
     "SpliceAI": "https://spliceailookup.broadinstitute.org/#variant={CHROM}-{POS}-{REF}-{ALT}&hg=19&bc=basic&distance=500&mask=0&ra=0",
