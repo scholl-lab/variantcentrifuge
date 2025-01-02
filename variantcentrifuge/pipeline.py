@@ -28,6 +28,9 @@ import re
 from typing import Optional, List, Dict, Any
 import argparse
 
+# Import the SNPeff annotation splitting function
+from .vcf_eff_one_per_line import process_vcf_file
+
 from .utils import check_external_tools, run_command, get_tool_version, sanitize_metadata_field
 from .gene_bed import get_gene_bed, normalize_genes
 from .analyze_variants import analyze_variants
@@ -318,15 +321,31 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         if substring_to_remove and substring_to_remove.strip():
             original_samples = [s.replace(substring_to_remove, "") for s in original_samples]
 
-    # Extract and filter variants
+    # Step 1: Extract variants into variants_file
     extract_variants(args.vcf_file, bed_file, cfg, variants_file)
+
+    # Step 2: Apply SnpSift filter on variants_file => filtered_file
     apply_snpsift_filter(variants_file, cfg["filters"], cfg, filtered_file)
 
-    # extract the fields
+    # Step 3: If requested, split SNPeff lines in the already filtered VCF
+    if args.split_snpeff_lines:
+        logger.info("Splitting multiple SNPeff (EFF/ANN) annotations into separate lines.")
+        splitted_filtered_file = os.path.join(intermediate_dir, f"{base_name}.splitted.filtered.vcf")
+
+        # Pass filtered_file as input to process_vcf_file
+        # The output is a new uncompressed VCF with splitted lines
+        process_vcf_file(filtered_file, splitted_filtered_file)
+
+        # For subsequent steps, we will use splitted_filtered_file
+        final_filtered_for_extraction = splitted_filtered_file
+    else:
+        # If not splitting, we just use filtered_file as is
+        final_filtered_for_extraction = filtered_file
+
+    # Step 4: Extract fields from whichever file is final_filtered_for_extraction
     field_list = " ".join((cfg["fields_to_extract"] or args.fields).strip().split())
     logger.debug(f"Extracting fields: {field_list} to {extracted_tsv}")
-    from .extractor import extract_fields
-    extract_fields(filtered_file, field_list, cfg, extracted_tsv)
+    extract_fields(final_filtered_for_extraction, field_list, cfg, extracted_tsv)
 
     # Check if we have a GT column
     with open(extracted_tsv, "r", encoding="utf-8") as f:

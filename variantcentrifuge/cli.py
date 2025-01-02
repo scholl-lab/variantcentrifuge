@@ -113,9 +113,8 @@ def main() -> None:
         action="append",
         help=(
             "Apply predefined filtering presets defined in the config file. "
-            "Specify multiple times for multiple presets. "
-            "They are combined with AND. If custom filters are also given, "
-            "they are combined with these presets using AND."
+            "Specify multiple times for multiple presets. They are combined with AND. "
+            "If custom filters are also given, they are combined with these presets using AND."
         )
     )
     parser.add_argument(
@@ -269,6 +268,18 @@ def main() -> None:
         action="append",
         default=[],
         help="Append a named blank column to the final output. Repeat for multiple columns."
+    )
+
+    # >>> New argument to split SNPeff lines
+    parser.add_argument(
+        "--split-snpeff-lines",
+        action="store_true",
+        default=False,
+        help=(
+            "If set, run the SNPeff annotation splitter step on the extracted variants VCF "
+            "before applying SNPsift filters. This splits multiple EFF/ANN annotations into "
+            "separate VCF lines."
+        )
     )
 
     args: argparse.Namespace = parser.parse_args()
