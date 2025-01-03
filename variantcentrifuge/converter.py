@@ -11,9 +11,11 @@ for the HTML report.
 
 import os
 import logging
+import hashlib
 from typing import Dict, Any, Optional, List
 import pandas as pd
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -41,6 +43,7 @@ def convert_to_excel(tsv_file: str, cfg: Dict[str, Any]) -> str:
 
 
 def append_tsv_as_sheet(xlsx_file: str, tsv_file: str, sheet_name: str = "Metadata") -> None:
+
     """
     Append a TSV file as a new sheet to an existing XLSX file.
 
@@ -65,6 +68,84 @@ def append_tsv_as_sheet(xlsx_file: str, tsv_file: str, sheet_name: str = "Metada
         df.to_excel(writer, index=False, sheet_name=sheet_name)
 
 
+def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
+    """
+    Apply final formatting to all sheets in xlsx_file:
+      - Freeze the top row
+      - Enable auto-filter
+      - For each column that matches a key in cfg["links"], generate hyperlinks from CHROM, POS, REF, ALT.
+        The link is built using the placeholder format in cfg["links"][column_name].
+    """
+    wb = load_workbook(xlsx_file)
+    link_templates = cfg.get("links", {})  # dict like { "ClinVar": "https://..." }
+
+    for ws in wb.worksheets:
+        # 1. Freeze top row
+        ws.freeze_panes = "A2"
+
+        # 2. Enable auto-filter
+        max_col_letter = get_column_letter(ws.max_column)
+        ws.auto_filter.ref = f"A1:{max_col_letter}1"
+
+        # 3. Build a map from header -> column index
+        headers = [cell.value for cell in ws[1]]
+        header_to_index = {str(h).strip(): i + 1 for i, h in enumerate(headers) if h}
+
+        # Identify positions of CHROM, POS, REF, ALT
+        chrom_idx = header_to_index.get("CHROM")
+        pos_idx = header_to_index.get("POS")
+        ref_idx = header_to_index.get("REF")
+        alt_idx = header_to_index.get("ALT")
+
+        # If we don't have all four columns, we can't fill placeholders
+        # safely. We can warn or just skip.
+        missing_cols = [x for x in ["CHROM", "POS", "REF", "ALT"] if x not in header_to_index]
+        if missing_cols:
+            logger.warning(
+                f"Cannot create hyperlinks: missing columns {missing_cols} in sheet '{ws.title}'."
+            )
+            continue
+
+        # For each link key in config, see if the sheet has that column
+        # e.g. "ClinVar", "Franklin", "SpliceAI", etc.
+        for link_name, link_template in link_templates.items():
+            link_col_idx = header_to_index.get(link_name)
+            if not link_col_idx:
+                # No such column in this sheet, skip it
+                continue
+
+            # For each data row, read CHROM/POS/REF/ALT and fill the link template
+            for row_num in range(2, ws.max_row + 1):
+                chrom_val = ws.cell(row=row_num, column=chrom_idx).value
+                pos_val = ws.cell(row=row_num, column=pos_idx).value
+                ref_val = ws.cell(row=row_num, column=ref_idx).value
+                alt_val = ws.cell(row=row_num, column=alt_idx).value
+
+                # Ensure they're all strings (just in case)
+                chrom_val = str(chrom_val) if chrom_val is not None else ""
+                pos_val = str(pos_val) if pos_val is not None else ""
+                ref_val = str(ref_val) if ref_val is not None else ""
+                alt_val = str(alt_val) if alt_val is not None else ""
+
+                # Build the final hyperlink
+                hyperlink_url = link_template.format(
+                    CHROM=chrom_val,
+                    POS=pos_val,
+                    REF=ref_val,
+                    ALT=alt_val
+                )
+
+                cell = ws.cell(row=row_num, column=link_col_idx)
+                # Make it a clickable link
+                cell.hyperlink = hyperlink_url
+                cell.style = "Hyperlink"
+
+                # Optionally, you can replace the displayed text:
+                # cell.value = link_name  # e.g. "ClinVar"
+
+    wb.save(xlsx_file)
+
+
 def produce_report_json(variant_tsv: str, output_dir: str) -> None:
     """
     Produce JSON files (variants.json and summary.json) from a TSV of variants.
@@ -87,10 +168,8 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
     logger.info(f"Producing JSON files for HTML report from {variant_tsv}")
 
     df = pd.read_csv(variant_tsv, sep="\t", header=0)
-    # Convert all variants to a list of dicts
     variants = df.to_dict(orient="records")
 
-    # Compute summary metrics
     num_variants = len(df)
     unique_genes = df["GENE"].unique() if "GENE" in df.columns else []
     num_genes = len(unique_genes)
@@ -103,17 +182,14 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
         "num_variants": num_variants,
         "num_genes": num_genes,
         "impact_distribution": impact_counts
-        # Add any other summary metrics needed from df here
     }
 
-    # Write variants.json
     variants_json_path = os.path.join(output_dir, "report", "variants.json")
     os.makedirs(os.path.dirname(variants_json_path), exist_ok=True)
     df.to_json(variants_json_path, orient="records", indent=2)
 
-    # Write summary.json
     summary_json_path = os.path.join(output_dir, "report", "summary.json")
-    with open(summary_json_path, "w") as sjf:
+    with open(summary_json_path, "w", encoding="utf-8") as sjf:
         import json
         json.dump(summary_data, sjf, indent=2)
 

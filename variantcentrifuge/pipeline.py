@@ -35,7 +35,7 @@ from .utils import check_external_tools, run_command, get_tool_version, sanitize
 from .gene_bed import get_gene_bed, normalize_genes
 from .analyze_variants import analyze_variants
 from .phenotype import load_phenotypes, aggregate_phenotypes_for_samples
-from .converter import convert_to_excel, append_tsv_as_sheet
+from .converter import convert_to_excel, append_tsv_as_sheet, finalize_excel_file, produce_report_json
 from .replacer import replace_genotypes
 from .phenotype_filter import filter_phenotypes
 from .links import add_links_to_table
@@ -693,22 +693,23 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     # Excel conversion if requested
     if args.xlsx and final_out_path and not final_to_stdout:
         if not os.path.exists(final_out_path) or os.path.getsize(final_out_path) == 0:
-            logger.warning(
-                "Final output file is empty. Cannot convert to Excel."
-            )
+            logger.warning("Final output file is empty. Cannot convert to Excel.")
         else:
             xlsx_file = convert_to_excel(final_out_path, cfg)
             append_tsv_as_sheet(xlsx_file, metadata_file, sheet_name="Metadata")
-            if (not cfg["no_stats"] and cfg.get("stats_output_file") and
-                    os.path.exists(cfg["stats_output_file"])):
+            if (not cfg["no_stats"] and cfg.get("stats_output_file")
+                    and os.path.exists(cfg["stats_output_file"])):
                 if os.path.getsize(cfg["stats_output_file"]) > 0:
                     append_tsv_as_sheet(xlsx_file, cfg["stats_output_file"], sheet_name="Statistics")
                 else:
                     logger.warning("Stats file is empty, skipping Statistics sheet.")
-            if (cfg.get("perform_gene_burden", False) and
-                    os.path.exists(gene_burden_tsv) and
-                    os.path.getsize(gene_burden_tsv) > 0):
+            if (cfg.get("perform_gene_burden", False)
+                    and os.path.exists(gene_burden_tsv)
+                    and os.path.getsize(gene_burden_tsv) > 0):
                 append_tsv_as_sheet(xlsx_file, gene_burden_tsv, sheet_name="Gene Burden")
+
+            # Now do the final formatting + hyperlink generation
+            finalize_excel_file(xlsx_file, cfg)
 
     # Produce HTML report if requested
     if args.html_report and final_out_path and os.path.exists(final_out_path):
