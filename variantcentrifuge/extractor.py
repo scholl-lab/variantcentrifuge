@@ -60,7 +60,7 @@ def extract_fields(
 
     if lines:
         # Clean up the header line by removing certain prefixes
-        lines[0] = lines[0].replace("ANN[0].", "").replace("GEN[*].", "")
+        lines[0] = lines[0].replace("ANN[*].", "").replace("ANN[0].", "").replace("GEN[*].", "").replace("GEN[0].", "").replace("NMD[*].", "NMD_").replace("NMD[0].", "NMD_").replace("LOF[*].", "LOF_").replace("LOF[0].", "LOF_")
 
     with open(output_file, "w", encoding="utf-8") as f:
         f.writelines(lines)
