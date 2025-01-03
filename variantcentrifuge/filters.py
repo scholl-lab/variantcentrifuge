@@ -209,11 +209,45 @@ def filter_final_tsv_by_genotype(
     if global_genotypes is None:
         global_genotypes = set()
 
+    logger.debug("filter_final_tsv_by_genotype called with:")
+    logger.debug("  input_tsv=%s", input_tsv)
+    logger.debug("  output_tsv=%s", output_tsv)
+    logger.debug("  global_genotypes=%s", global_genotypes)
+    logger.debug("  gene_genotype_file=%s", gene_genotype_file)
+
+    # Show the first few lines of the input_tsv (if available)
+    try:
+        with open(input_tsv, "r", encoding="utf-8") as inp_debug:
+            logger.debug("First lines from input_tsv:")
+            for i in range(3):
+                line = inp_debug.readline()
+                if not line:
+                    break
+                logger.debug("Line %d: %s", i + 1, line.rstrip("\n"))
+    except FileNotFoundError:
+        logger.error("input_tsv file not found: %s", input_tsv)
+        raise
+
     # Read the gene -> genotype(s) mapping if provided
     gene_to_genotypes: Dict[str, Set[str]] = {}
     if gene_genotype_file and os.path.exists(gene_genotype_file):
+        logger.debug("Attempting to read gene -> genotype rules from: %s", gene_genotype_file)
         with open(gene_genotype_file, "r", encoding="utf-8") as gfile:
-            header = next(gfile).strip().split("\t")
+            all_lines = gfile.readlines()
+
+        # Print the first few lines for debugging
+        logger.debug("First lines from gene_genotype_file:")
+        for i, l in enumerate(all_lines[:3]):
+            logger.debug("Line %d: %s", i + 1, l.rstrip("\n"))
+
+        if not all_lines:
+            logger.debug("Gene genotype file is empty, skipping parsing.")
+        else:
+            # Parse header
+            from io import StringIO
+            gfile_replay = StringIO("".join(all_lines))
+            header = next(gfile_replay).strip().split("\t")
+
             # Expect at least columns: GENE, GENOTYPES
             gene_idx = None
             geno_idx = None
@@ -226,7 +260,10 @@ def filter_final_tsv_by_genotype(
                 raise ValueError(
                     "gene_genotype_file must have columns named 'GENE' and 'GENOTYPES'."
                 )
-            for line in gfile:
+
+            # Read data lines
+            line_count = 0
+            for line in gfile_replay:
                 line = line.strip()
                 if not line:
                     continue
@@ -240,6 +277,10 @@ def filter_final_tsv_by_genotype(
                         gene_to_genotypes[gname] = set()
                     # Merge new genotype rules
                     gene_to_genotypes[gname].update(genos)
+                line_count += 1
+            logger.debug("Finished reading %d data lines from gene_genotype_file", line_count)
+    else:
+        logger.debug("No valid gene_genotype_file found, or file does not exist at: %s", gene_genotype_file)
 
     # Helper to detect if a genotype string is 'het' (0/1 or 1/0) or 'hom' (1/1)
     def is_het(gt_string: str) -> bool:
@@ -278,7 +319,6 @@ def filter_final_tsv_by_genotype(
             gene_val = parts[gene_idx].strip()
             gt_val = parts[gt_idx].strip()
 
-            # sample_genotypes_dict: {sample_id: genotype_str}
             sample_genotypes = {}
             if gt_val:
                 entries = gt_val.split(";")
@@ -346,7 +386,6 @@ def filter_final_tsv_by_genotype(
 
                 # If we have at least one reason, the sample passes
                 if reasons:
-                    # Append the reasons in parentheses, e.g. (het,comphet)
                     reason_str = f"({','.join(reasons)})"
                     new_sample_entries.append(f"{sample_id}({gt_string}){reason_str}")
 
