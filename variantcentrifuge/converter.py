@@ -73,11 +73,11 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
     Apply final formatting to all sheets in xlsx_file:
       - Freeze the top row
       - Enable auto-filter
-      - For each column that matches a key in cfg["links"], generate hyperlinks from CHROM, POS, REF, ALT.
-        The link is built using the placeholder format in cfg["links"][column_name].
+      - Only for the 'Results' sheet, generate hyperlinks from CHROM, POS, REF, ALT
+        using cfg["links"] (the link template dictionary).
     """
     wb = load_workbook(xlsx_file)
-    link_templates = cfg.get("links", {})  # dict like { "ClinVar": "https://..." }
+    link_templates = cfg.get("links", {})
 
     for ws in wb.worksheets:
         # 1. Freeze top row
@@ -86,6 +86,10 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
         # 2. Enable auto-filter
         max_col_letter = get_column_letter(ws.max_column)
         ws.auto_filter.ref = f"A1:{max_col_letter}1"
+
+        # Only generate links in the 'Results' sheet
+        if ws.title != "Results":
+            continue
 
         # 3. Build a map from header -> column index
         headers = [cell.value for cell in ws[1]]
@@ -97,37 +101,35 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
         ref_idx = header_to_index.get("REF")
         alt_idx = header_to_index.get("ALT")
 
-        # If we don't have all four columns, we can't fill placeholders
-        # safely. We can warn or just skip.
-        missing_cols = [x for x in ["CHROM", "POS", "REF", "ALT"] if x not in header_to_index]
+        # If missing any of these columns, skip hyperlink generation
+        missing_cols = [c for c in ["CHROM", "POS", "REF", "ALT"] if c not in header_to_index]
         if missing_cols:
             logger.warning(
-                f"Cannot create hyperlinks: missing columns {missing_cols} in sheet '{ws.title}'."
+                f"Cannot create hyperlinks in sheet '{ws.title}': "
+                f"missing columns {missing_cols}."
             )
             continue
 
-        # For each link key in config, see if the sheet has that column
-        # e.g. "ClinVar", "Franklin", "SpliceAI", etc.
+        # For each link key in cfg['links'], if we have that column, turn it into a hyperlink
         for link_name, link_template in link_templates.items():
             link_col_idx = header_to_index.get(link_name)
             if not link_col_idx:
-                # No such column in this sheet, skip it
+                # No such column in 'Results', skip it
                 continue
 
-            # For each data row, read CHROM/POS/REF/ALT and fill the link template
+            # For each row, build the final hyperlink from CHROM, POS, REF, ALT
             for row_num in range(2, ws.max_row + 1):
                 chrom_val = ws.cell(row=row_num, column=chrom_idx).value
                 pos_val = ws.cell(row=row_num, column=pos_idx).value
                 ref_val = ws.cell(row=row_num, column=ref_idx).value
                 alt_val = ws.cell(row=row_num, column=alt_idx).value
 
-                # Ensure they're all strings (just in case)
+                # Safely convert to strings
                 chrom_val = str(chrom_val) if chrom_val is not None else ""
                 pos_val = str(pos_val) if pos_val is not None else ""
                 ref_val = str(ref_val) if ref_val is not None else ""
                 alt_val = str(alt_val) if alt_val is not None else ""
 
-                # Build the final hyperlink
                 hyperlink_url = link_template.format(
                     CHROM=chrom_val,
                     POS=pos_val,
@@ -136,12 +138,10 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
                 )
 
                 cell = ws.cell(row=row_num, column=link_col_idx)
-                # Make it a clickable link
                 cell.hyperlink = hyperlink_url
                 cell.style = "Hyperlink"
-
-                # Optionally, you can replace the displayed text:
-                # cell.value = link_name  # e.g. "ClinVar"
+                # Optionally change display text:
+                # cell.value = link_name  # e.g., 'ClinVar'
 
     wb.save(xlsx_file)
 
