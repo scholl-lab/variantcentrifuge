@@ -49,6 +49,11 @@ def main() -> None:
           transcript IDs (by comma-separated list or a file with one transcript ID per line).
         - If provided, these transcripts are used to construct a SnpSift filter expression that
           filters variants by EFF[*].TRID field.
+
+    New changes for extra sample fields in genotype:
+        - Added --append-extra-sample-fields, --extra-sample-fields, and
+          --extra-sample-field-delimiter arguments to allow appending fields
+          like DP, AD, etc. alongside each genotype.
     """
     # Initial basic logging setup to stderr before arguments are parsed,
     # so that we can log early messages like start time.
@@ -322,6 +327,35 @@ def main() -> None:
         )
     )
 
+    # >>> NEW arguments for appending extra sample fields
+    parser.add_argument(
+        "--append-extra-sample-fields",
+        action="store_true",
+        default=False,
+        help=(
+            "If set, append extra sample fields (e.g. DP, AD) to the genotype in the final output, "
+            "e.g. sample(0/1:DP_value:AD_value). Requires that these fields are included in "
+            "--fields or cfg['fields_to_extract']. Defaults to False."
+        ),
+    )
+    parser.add_argument(
+        "--extra-sample-fields",
+        default="",
+        help=(
+            "Comma-separated list of additional sample-level fields (e.g. DP,AD) to append next "
+            "to each genotype in the final output if --append-extra-sample-fields is set. "
+            "These fields must also be present in the extracted TSV."
+        ),
+    )
+    parser.add_argument(
+        "--extra-sample-field-delimiter",
+        default=":",
+        help=(
+            "Delimiter to separate genotype from extra sample fields (and from each other). "
+            "Default is ':'."
+        ),
+    )
+
     args: argparse.Namespace = parser.parse_args()
 
     log_level_map = {
@@ -422,6 +456,19 @@ def main() -> None:
     # >>> Store the transcript arguments in cfg so pipeline can see them
     cfg["transcript_list"] = args.transcript_list  # e.g. "NM_007294.4,NM_000059.4"
     cfg["transcript_file"] = args.transcript_file  # path to file with transcripts
+
+    # >>> Store genotype-filter arguments
+    # (already in 'args', no further validation required here)
+    cfg["genotype_filter"] = args.genotype_filter
+    cfg["gene_genotype_file"] = args.gene_genotype_file
+
+    # >>> Store new arguments for extra sample fields
+    cfg["append_extra_sample_fields"] = args.append_extra_sample_fields
+    # Convert CSV string to a list
+    cfg["extra_sample_fields"] = [
+        f.strip() for f in args.extra_sample_fields.split(",") if f.strip()
+    ]
+    cfg["extra_sample_field_delimiter"] = args.extra_sample_field_delimiter
 
     # Finally, run the pipeline
     run_pipeline(args, cfg, start_time)

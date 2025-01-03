@@ -22,16 +22,22 @@ def extract_fields(
     output_file: str
 ) -> str:
     """
-    Extract specified fields from variant records and write them directly to `output_file`.
+    Extract specified fields from variant records and write them directly to
+    `output_file`, controlling the SnpSift field separator if needed.
 
     Parameters
     ----------
     variant_file : str
         Path to the VCF file from which fields should be extracted.
     fields : str
-        A space-separated list of fields to extract.
+        A space-separated list of fields to extract (e.g. "CHROM POS REF ALT DP AD").
     cfg : dict
         Configuration dictionary that may include tool paths, parameters, etc.
+        - "extract_fields_separator": str
+            The separator for multi-sample fields when using SnpSift `-s ...`.
+            Often a comma ",". Defaults to "," if not present.
+        - "debug_level": str or None
+            Optional debug level to control how much we log.
     output_file : str
         Path to the final TSV file where extracted fields will be written.
 
@@ -45,24 +51,50 @@ def extract_fields(
     RuntimeError
         If the field extraction command fails.
     """
-    field_list = fields.strip().split()
+    # Pull the user-defined or default multi-sample separator from config
+    # E.g. if we want DP,AD per sample, each sample's subfields will be separated by this
+    snpsift_sep = cfg.get("extract_fields_separator", ":")
+    logger.debug(f"Using SnpSift multi-sample separator: '{snpsift_sep}'")
 
-    cmd = ["SnpSift", "extractFields", "-s", ",", "-e", "NA", variant_file] + field_list
-    logger.debug("Extracting fields with command: %s", " ".join(cmd))
-    logger.debug("Output will be written to: %s", output_file)
+    field_list = fields.strip().split()
+    logger.debug(f"Field list to extract: {field_list}")
+
+    cmd = [
+        "SnpSift", "extractFields",
+        "-s", snpsift_sep,     # SnpSift subfield separator
+        "-e", "NA",            # Replace missing values with "NA"
+        variant_file
+    ] + field_list
+
+    logger.debug("Running SnpSift with command: %s", " ".join(cmd))
+    logger.debug("Extracted fields will be written to: %s", output_file)
 
     # Run SnpSift extractFields, writing directly to output_file
     run_command(cmd, output_file=output_file)
 
-    # Now we fix up the header line in place
+    # Now fix up the header line in place
     with open(output_file, "r", encoding="utf-8") as f:
         lines = f.readlines()
 
-    if lines:
-        # Clean up the header line by removing certain prefixes
-        lines[0] = lines[0].replace("ANN[*].", "").replace("ANN[0].", "").replace("GEN[*].", "").replace("GEN[0].", "").replace("NMD[*].", "NMD_").replace("NMD[0].", "NMD_").replace("LOF[*].", "LOF_").replace("LOF[0].", "LOF_")
+    if not lines:
+        logger.warning("No lines were written to the output after SnpSift extract. Check input.")
+        return output_file
+
+    # Clean up the header line by removing certain known prefixes
+    lines[0] = (
+        lines[0]
+        .replace("ANN[*].", "")
+        .replace("ANN[0].", "")
+        .replace("GEN[*].", "")
+        .replace("GEN[0].", "")
+        .replace("NMD[*].", "NMD_")
+        .replace("NMD[0].", "NMD_")
+        .replace("LOF[*].", "LOF_")
+        .replace("LOF[0].", "LOF_")
+    )
 
     with open(output_file, "w", encoding="utf-8") as f:
         f.writelines(lines)
 
+    logger.debug("SnpSift extractFields completed successfully.")
     return output_file

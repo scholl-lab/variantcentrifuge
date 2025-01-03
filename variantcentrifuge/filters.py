@@ -12,6 +12,11 @@ Added:
   applying different rules per gene based on a separate mapping file.
 - Enhanced to append a reason label (e.g., "(comphet)") to each sample genotype if it
   passed the filter because of 'comp_het' or 'het' or 'hom'.
+
+New changes for preserving extra fields (e.g., DP, AD) in parentheses:
+- If a sample's entry is "325879(0/1:53,55:108)", we parse "0/1" as the "main" genotype
+  but leave the rest of the substring (":53,55:108") intact. If this sample passes
+  'het', we produce "325879(0/1:53,55:108)(het)" in the final output.
 """
 
 import logging
@@ -168,7 +173,7 @@ def filter_final_tsv_by_genotype(
 
     Additionally, if a sample passes because of 'het' or 'hom' or 'comp_het',
     we append a reason marker. For example:
-      325879(0/1) => 325879(0/1)(het) or 325879(0/1)(het,comphet)
+      325879(0/1:53,55:108) => 325879(0/1:53,55:108)(het) or 325879(0/1:53,55:108)(het,comphet)
 
     Parameters
     ----------
@@ -235,7 +240,6 @@ def filter_final_tsv_by_genotype(
         with open(gene_genotype_file, "r", encoding="utf-8") as gfile:
             all_lines = gfile.readlines()
 
-        # Print the first few lines for debugging
         logger.debug("First lines from gene_genotype_file:")
         for i, l in enumerate(all_lines[:3]):
             logger.debug("Line %d: %s", i + 1, l.rstrip("\n"))
@@ -243,7 +247,6 @@ def filter_final_tsv_by_genotype(
         if not all_lines:
             logger.debug("Gene genotype file is empty, skipping parsing.")
         else:
-            # Parse header
             from io import StringIO
             gfile_replay = StringIO("".join(all_lines))
             header = next(gfile_replay).strip().split("\t")
@@ -260,8 +263,6 @@ def filter_final_tsv_by_genotype(
                 raise ValueError(
                     "gene_genotype_file must have columns named 'GENE' and 'GENOTYPES'."
                 )
-
-            # Read data lines
             line_count = 0
             for line in gfile_replay:
                 line = line.strip()
@@ -275,27 +276,26 @@ def filter_final_tsv_by_genotype(
                 if gname:
                     if gname not in gene_to_genotypes:
                         gene_to_genotypes[gname] = set()
-                    # Merge new genotype rules
                     gene_to_genotypes[gname].update(genos)
                 line_count += 1
             logger.debug("Finished reading %d data lines from gene_genotype_file", line_count)
     else:
         logger.debug("No valid gene_genotype_file found, or file does not exist at: %s", gene_genotype_file)
 
-    # Helper to detect if a genotype string is 'het' (0/1 or 1/0) or 'hom' (1/1)
+    # Helpers to detect genotype as 'het' (0/1 or 1/0) or 'hom' (1/1)
     def is_het(gt_string: str) -> bool:
         return gt_string in ("0/1", "1/0")
 
     def is_hom(gt_string: str) -> bool:
         return gt_string == "1/1"
 
-    # We'll load all lines, group by gene, parse the samples. Then do comp_het logic.
-    # First pass: store lines grouped by gene for 'comp_het' analysis.
+    # We'll parse the lines grouped by gene, so we can do 'comp_het' logic.
     lines_by_gene = {}
 
     with open(input_tsv, "r", encoding="utf-8") as inp:
         header = next(inp).rstrip("\n")
         header_cols = header.split("\t")
+        # Identify gene and GT columns
         try:
             gene_idx = header_cols.index(gene_column_name)
         except ValueError:
@@ -314,11 +314,13 @@ def filter_final_tsv_by_genotype(
             if not line.strip():
                 continue
             parts = line.split("\t")
-            if len(parts) < max(gene_idx, gt_idx) + 1:
+            if len(parts) <= max(gene_idx, gt_idx):
                 continue
+
             gene_val = parts[gene_idx].strip()
             gt_val = parts[gt_idx].strip()
 
+            # Parse each sample( genotype ) entry in GT
             sample_genotypes = {}
             if gt_val:
                 entries = gt_val.split(";")
@@ -326,69 +328,75 @@ def filter_final_tsv_by_genotype(
                     e = e.strip()
                     if not e:
                         continue
+                    # example: "325879(0/1:53,55:108)"
+                    # We'll store the entire substring "0/1:53,55:108" 
+                    # but also parse out the "main genotype" before a colon if present
                     if "(" in e and ")" in e:
-                        sample = e.split("(")[0].strip()
-                        genotype_paren = e.split("(")[1].strip(")")
-                        sample_genotypes[sample] = genotype_paren
+                        sample_name = e.split("(")[0].strip()
+                        inside_paren = e.split("(")[1].strip(")")
+                        sample_genotypes[sample_name] = inside_paren
 
             if gene_val not in lines_by_gene:
                 lines_by_gene[gene_val] = []
             lines_by_gene[gene_val].append((line, sample_genotypes))
 
-    # Identify genes that have comp_het in their set of genotype filters
-    def gene_filters(gene_name: str) -> Set[str]:
-        """
-        Return the set of genotype filters to be applied to the given gene.
-        """
-        if gene_name in gene_to_genotypes:
-            return gene_to_genotypes[gene_name]
+    # Identify which genes require 'comp_het'
+    def gene_filters(g: str) -> Set[str]:
+        if g in gene_to_genotypes:
+            return gene_to_genotypes[g]
         return global_genotypes
 
     comp_het_qualified: Dict[str, Set[str]] = {}
     all_genes = set(lines_by_gene.keys())
     relevant_for_comp_het = {g for g in all_genes if "comp_het" in gene_filters(g)}
 
-    # Count how many times each sample has a het genotype in each gene
+    # For each gene that uses comp_het, gather samples that have >=2 het variants
     for g in relevant_for_comp_het:
         sample_het_count = {}
         for line_str, sample_gt_dict in lines_by_gene[g]:
-            for sample_id, gt_string in sample_gt_dict.items():
-                if is_het(gt_string):
-                    sample_het_count[sample_id] = sample_het_count.get(sample_id, 0) + 1
-        # Samples with >=2 het variants are comp_het_qualified
+            for sample_name, genotype_substring in sample_gt_dict.items():
+                # e.g. genotype_substring = "0/1:53,55:108"
+                # parse the main genotype by splitting on the first colon
+                main_gt = genotype_substring.split(":")[0] if ":" in genotype_substring else genotype_substring
+                if is_het(main_gt):
+                    sample_het_count[sample_name] = sample_het_count.get(sample_name, 0) + 1
         qualified_samples = {s for s, c in sample_het_count.items() if c >= 2}
         comp_het_qualified[g] = qualified_samples
+        logger.debug("Gene '%s' => comp_het_qualified samples: %s", g, qualified_samples)
 
-    # Second pass: filter each line
-    filtered_lines: List[str] = [header]  # keep original header
+    # We'll build our filtered lines
+    filtered_lines: List[str] = [header]  # keep original header as is
 
+    # Now go through each gene's lines
     for g, items in lines_by_gene.items():
-        current_filters = gene_filters(g)
-        do_het = "het" in current_filters
-        do_hom = "hom" in current_filters
-        do_comp_het = "comp_het" in current_filters
+        filters_for_gene = gene_filters(g)
+        do_het = "het" in filters_for_gene
+        do_hom = "hom" in filters_for_gene
+        do_comp_het = "comp_het" in filters_for_gene
 
         for line_str, sample_gt_dict in items:
             parts = line_str.split("\t")
             new_sample_entries = []
 
-            for sample_id, gt_string in sample_gt_dict.items():
+            # For each sample, check if it meets the filter(s)
+            for sample_name, genotype_substring in sample_gt_dict.items():
+                main_gt = genotype_substring.split(":")[0] if ":" in genotype_substring else genotype_substring
+
                 reasons = []
-                # If it meets the 'het' condition
-                if do_het and is_het(gt_string):
+                if do_het and is_het(main_gt):
                     reasons.append("het")
-                # If it meets the 'hom' condition
-                if do_hom and is_hom(gt_string):
+                if do_hom and is_hom(main_gt):
                     reasons.append("hom")
-                # If it meets the 'comp_het' condition
-                if do_comp_het and is_het(gt_string) and sample_id in comp_het_qualified.get(g, set()):
+                if do_comp_het and is_het(main_gt) and sample_name in comp_het_qualified.get(g, set()):
                     reasons.append("comphet")
 
-                # If we have at least one reason, the sample passes
                 if reasons:
+                    # This sample passes the filter => we append the reason(s)
                     reason_str = f"({','.join(reasons)})"
-                    new_sample_entries.append(f"{sample_id}({gt_string}){reason_str}")
+                    # e.g. "325879(0/1:53,55:108)(het,comphet)"
+                    new_sample_entries.append(f"{sample_name}({genotype_substring}){reason_str}")
 
+            # If we have at least one sample that passes => keep the line
             if new_sample_entries:
                 parts[gt_idx] = "; ".join(new_sample_entries)
                 filtered_lines.append("\t".join(parts))

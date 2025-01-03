@@ -387,10 +387,20 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         final_filtered_for_extraction = transcript_filtered_file
     # -----------------------------------------------------------------------
 
-    # Step 4: Extract fields from whichever file is final_filtered_for_extraction
+    # Step 4: Extract fields
     field_list = " ".join((cfg["fields_to_extract"] or args.fields).strip().split())
-    logger.debug(f"Extracting fields: {field_list} to {extracted_tsv}")
-    extract_fields(final_filtered_for_extraction, field_list, cfg, extracted_tsv)
+    logger.debug(f"Extracting fields: {field_list} -> {extracted_tsv}")
+
+    # We store the multi-sample subfield delimiter in 'extract_fields_separator' for SnpSift
+    snpsift_sep = cfg.get("extract_fields_separator", ":")
+    logger.debug(f"Using SnpSift subfield separator for extractFields: '{snpsift_sep}'")
+
+    temp_cfg = cfg.copy()
+    temp_cfg["extract_fields_separator"] = snpsift_sep
+    extract_fields(final_filtered_for_extraction, field_list, temp_cfg, extracted_tsv)
+
+    # Then we do genotype replacement
+    logger.debug("Checking GT column presence for genotype replacement.")
 
     # Check if we have a GT column
     with open(extracted_tsv, "r", encoding="utf-8") as f:
@@ -408,6 +418,42 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         replaced_tsv = genotype_replaced_tsv
     else:
         replaced_tsv = extracted_tsv
+
+  # If user wants to remove extra columns:
+    if cfg.get("append_extra_sample_fields", False) and cfg.get("extra_sample_fields", []):
+        logger.debug("User config => removing columns after replacement: %s", cfg["extra_sample_fields"])
+        stripped_tsv = os.path.join(intermediate_dir, f"{base_name}.stripped_extras.tsv")
+
+        with open(replaced_tsv, "r", encoding="utf-8") as inp, \
+            open(stripped_tsv, "w", encoding="utf-8") as out:
+            header = next(inp).rstrip("\n").split("\t")
+            remove_indices = []
+            for col_name in cfg["extra_sample_fields"]:
+                if col_name in header:
+                    idx = header.index(col_name)
+                    remove_indices.append(idx)
+                    logger.debug("Removing column '%s' at index %d", col_name, idx)
+                else:
+                    logger.warning("Column '%s' was requested for removal but not found in header!", col_name)
+
+            remove_indices.sort(reverse=True)
+            new_header = [h for i, h in enumerate(header) if i not in remove_indices]
+            out.write("\t".join(new_header) + "\n")
+
+            for line_num, line in enumerate(inp, start=2):
+                line = line.rstrip("\n")
+                if not line.strip():
+                    out.write(line + "\n")
+                    continue
+                parts = line.split("\t")
+                for idx in remove_indices:
+                    if idx < len(parts):
+                        parts.pop(idx)
+                out.write("\t".join(parts) + "\n")
+
+        # Move file
+        os.rename(stripped_tsv, replaced_tsv)
+    logger.debug("Extra column removal (if requested) complete.")
 
     # Integrate phenotypes if provided
     if use_phenotypes:
