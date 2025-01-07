@@ -311,8 +311,8 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
 
     # Filenames for intermediate steps
     variants_file = os.path.join(intermediate_dir, f"{base_name}.variants.vcf.gz")
-    # We no longer produce an uncompressed 'splitted_variants_file'; we write directly to .gz
-    splitted_variants_file_gz = os.path.join(intermediate_dir, f"{base_name}.splitted.variants.vcf.gz")
+    splitted_before_file = os.path.join(intermediate_dir, f"{base_name}.splitted_before_filters.vcf.gz")
+    splitted_after_file = os.path.join(intermediate_dir, f"{base_name}.splitted_after_filters.vcf.gz")
     filtered_file = os.path.join(intermediate_dir, f"{base_name}.filtered.vcf.gz")
     transcript_filtered_file = os.path.join(intermediate_dir, f"{base_name}.transcript_filtered.vcf.gz")
     extracted_tsv = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv")
@@ -332,24 +332,30 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     # -----------------------------------------------------------------------
     extract_variants(args.vcf_file, bed_file, cfg, variants_file)
 
-    # -----------------------------------------------------------------------
-    # Step 2 (REFORMED): Split SNPeff lines *before* applying filters
-    # -----------------------------------------------------------------------
-    if args.split_snpeff_lines:
-        logger.info("Splitting multiple SNPeff (EFF/ANN) annotations into separate lines (before filtering).")
+    # >>> NEW: handle snpeff splitting mode (None, 'before_filters', or 'after_filters')
+    splitting_mode = cfg.get("snpeff_splitting_mode", None)
 
-        # Now we call process_vcf_file to write directly to .gz output
-        process_vcf_file(variants_file, splitted_variants_file_gz)
-        # The splitted_variants_file_gz is already bgzipped (and tabix-indexed)
-        # so we can just use it:
-        prefiltered_for_snpsift = splitted_variants_file_gz
+    # If splitting before filters
+    if splitting_mode == "before_filters":
+        logger.info("Splitting multiple SNPeff (EFF/ANN) annotations before main filtering.")
+        process_vcf_file(variants_file, splitted_before_file)
+        prefiltered_for_snpsift = splitted_before_file
     else:
+        # either None or 'after_filters'
         prefiltered_for_snpsift = variants_file
 
     # -----------------------------------------------------------------------
     # Step 3: Apply SnpSift filter => filtered_file
     # -----------------------------------------------------------------------
     apply_snpsift_filter(prefiltered_for_snpsift, cfg["filters"], cfg, filtered_file)
+
+    # If splitting after filters instead
+    if splitting_mode == "after_filters":
+        logger.info("Splitting multiple SNPeff (EFF/ANN) annotations after main filters, before transcript filter.")
+        process_vcf_file(filtered_file, splitted_after_file)
+        post_filter_for_transcripts = splitted_after_file
+    else:
+        post_filter_for_transcripts = filtered_file
 
     # -----------------------------------------------------------------------
     # Step 4: If a transcript list/file is provided, filter by transcripts
@@ -376,14 +382,14 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         transcript_filter_expr = " | ".join(or_clauses)
 
         apply_snpsift_filter(
-            filtered_file,
+            post_filter_for_transcripts,
             transcript_filter_expr,
             cfg,
             transcript_filtered_file
         )
         final_filtered_for_extraction = transcript_filtered_file
     else:
-        final_filtered_for_extraction = filtered_file
+        final_filtered_for_extraction = post_filter_for_transcripts
 
     # -----------------------------------------------------------------------
     # Step 5: Extract fields => extracted_tsv
@@ -578,13 +584,11 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         new_header = ["VAR_ID"] + header_parts
         new_lines.append("\t".join(new_header))
 
-        # Identify column indexes
         chrom_idx = header_indices.get("CHROM", None)
         pos_idx = header_indices.get("POS", None)
         ref_idx = header_indices.get("REF", None)
         alt_idx = header_indices.get("ALT", None)
 
-        # Process data lines
         for line in lines[1:]:
             line = line.rstrip("\n")
             if not line.strip():
@@ -592,19 +596,15 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
                 continue
 
             fields = line.split("\t")
-
             chrom_val = fields[chrom_idx] if chrom_idx is not None else ""
             pos_val = fields[pos_idx] if pos_idx is not None else ""
             ref_val = fields[ref_idx] if ref_idx is not None else ""
             alt_val = fields[alt_idx] if alt_idx is not None else ""
 
-            # Create short hash
             combined = f"{chrom_val}{pos_val}{ref_val}{alt_val}"
             short_hash = hashlib.md5(combined.encode("utf-8")).hexdigest()[:4]
 
-            # Construct ID like var_0001_abcd
             var_id = f"var_{row_counter:04d}_{short_hash}"
-
             row_counter += 1
             new_line = [var_id] + fields
             new_lines.append("\t".join(new_line))
@@ -791,7 +791,8 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     if not args.keep_intermediates:
         intermediates = [
             variants_file,
-            splitted_variants_file_gz,
+            splitted_before_file,
+            splitted_after_file,
             filtered_file,
             extracted_tsv
         ]

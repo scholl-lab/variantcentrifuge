@@ -56,7 +56,7 @@ def main() -> None:
           like DP, AD, etc. alongside each genotype.
     """
     # Initial basic logging setup to stderr before arguments are parsed,
-    # so that we can log early messages like start time.
+    # so we can log early messages like start time.
     logging.basicConfig(
         level=logging.INFO,
         format="%(levelname)s: %(message)s",
@@ -281,15 +281,27 @@ def main() -> None:
         help="Append a named blank column to the final output. Repeat for multiple columns."
     )
 
-    # >>> New argument to split SNPeff lines
+    # >>> Modified argument to accept a parameter for SNPeff splitting
+    # If used without a value => defaults to 'before_filters'
+    # If used with 'after_filters', do splitting after main filters
+    # If omitted entirely => no splitting
+    #
+    # Note: 'before_filters' is typically recommended when also doing transcript
+    # filtering (to ensure all EFF/ANN lines get their own variant record), but
+    # it can be slower for large multi-annotation VCFs. 
+    # 'after_filters' produces a smaller output and is often faster overall.
     parser.add_argument(
         "--split-snpeff-lines",
-        action="store_true",
-        default=False,
+        nargs='?',
+        const='before_filters',
+        choices=['before_filters', 'after_filters'],
         help=(
-            "If set, run the SNPeff annotation splitter step on the extracted variants VCF "
-            "before applying SNPsift filters. This splits multiple EFF/ANN annotations into "
-            "separate VCF lines."
+            "If set, run the SNPeff annotation splitter step in one of two modes:\n"
+            "  'before_filters' (default if no value is given) => Split lines right after variant extraction;\n"
+            "       recommended if you're also doing transcript filtering, though it can be slower.\n"
+            "  'after_filters' => Only split EFF/ANN lines after the main filter step,\n"
+            "       produces a smaller intermediate file and can be faster for big multi-annotation VCFs.\n\n"
+            "If omitted, splitting is not performed at all."
         )
     )
 
@@ -358,6 +370,7 @@ def main() -> None:
 
     args: argparse.Namespace = parser.parse_args()
 
+    # Configure logging level
     log_level_map = {
         "DEBUG": logging.DEBUG,
         "INFO": logging.INFO,
@@ -366,7 +379,7 @@ def main() -> None:
     }
     logging.getLogger("variantcentrifuge").setLevel(log_level_map[args.log_level])
 
-    # If a log file is specified, add a file handler in addition to stderr
+    # If a log file is specified, add a file handler
     if args.log_file:
         fh = logging.FileHandler(args.log_file)
         fh.setLevel(log_level_map[args.log_level])
@@ -384,7 +397,7 @@ def main() -> None:
     filters: Optional[str] = args.filters or cfg.get("filters")
     fields: Optional[str] = args.fields or cfg.get("fields_to_extract")
 
-    # Handle presets if provided
+    # Handle presets
     preset_dict = cfg.get("presets", {})
     if args.preset:
         chosen_presets = []
@@ -432,43 +445,43 @@ def main() -> None:
     cfg["bam_mapping_file"] = args.bam_mapping_file
     cfg["igv_reference"] = args.igv_reference
 
-    # If IGV is enabled, check that bam_mapping_file and igv_reference are provided
     if args.igv and (not args.bam_mapping_file or not args.igv_reference):
         logger.error("For IGV integration, --bam-mapping-file and --igv-reference must be provided.")
         sys.exit(1)
 
-    # Update filters and fields in cfg after handling presets
+    # Update filters/fields
     cfg["filters"] = filters
     cfg["fields_to_extract"] = fields
 
-    # Store remove_sample_substring parameter if given
-    if args.remove_sample_substring:
-        cfg["remove_sample_substring"] = args.remove_sample_substring
-    else:
-        cfg["remove_sample_substring"] = None
+    # Remove sample substring (optional)
+    cfg["remove_sample_substring"] = args.remove_sample_substring or None
 
-    # Store no_links parameter
+    # Toggle link columns
     cfg["no_links"] = args.no_links
 
-    # >>> Store threads in cfg
+    # Threads
     cfg["threads"] = args.threads
 
-    # >>> Store the transcript arguments in cfg so pipeline can see them
-    cfg["transcript_list"] = args.transcript_list  # e.g. "NM_007294.4,NM_000059.4"
-    cfg["transcript_file"] = args.transcript_file  # path to file with transcripts
+    # Transcript list/file
+    cfg["transcript_list"] = args.transcript_list
+    cfg["transcript_file"] = args.transcript_file
 
-    # >>> Store genotype-filter arguments
-    # (already in 'args', no further validation required here)
+    # Genotype filter arguments
     cfg["genotype_filter"] = args.genotype_filter
     cfg["gene_genotype_file"] = args.gene_genotype_file
 
-    # >>> Store new arguments for extra sample fields
+    # Extra sample fields
     cfg["append_extra_sample_fields"] = args.append_extra_sample_fields
-    # Convert CSV string to a list
     cfg["extra_sample_fields"] = [
         f.strip() for f in args.extra_sample_fields.split(",") if f.strip()
     ]
     cfg["extra_sample_field_delimiter"] = args.extra_sample_field_delimiter
 
-    # Finally, run the pipeline
+    # >>> Manage the new snpEff splitting mode:
+    # If user doesn't specify --split-snpeff-lines, it will be None
+    # If user uses the flag with no value => 'before_filters'
+    # If user uses it with 'after_filters' => 'after_filters'
+    cfg["snpeff_splitting_mode"] = args.split_snpeff_lines  # None, 'before_filters', or 'after_filters'
+
+    # Run the pipeline
     run_pipeline(args, cfg, start_time)
