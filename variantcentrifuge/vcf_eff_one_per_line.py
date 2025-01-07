@@ -4,7 +4,6 @@
 # File: variantcentrifuge/vcf_eff_one_per_line.py
 # Location: variantcentrifuge/variantcentrifuge/vcf_eff_one_per_line.py
 
-
 """
 Module: vcf_eff_one_per_line
 ============================
@@ -47,6 +46,8 @@ import sys
 import re
 import gzip
 import argparse
+import subprocess
+import io
 
 
 def split_vcf_effects(line: str) -> list[str]:
@@ -123,16 +124,42 @@ def process_vcf_file(input_file: str, output_file: str = None) -> None:
     Processes a VCF file (bgzipped or uncompressed), splits multiple EFF/ANN
     annotations into separate lines, and writes the output to a file or stdout.
 
+    If the output file ends with .gz (and is not '-'), the output is written
+    through bgzip and a tabix index is created automatically.
+
     :param input_file: Path to an uncompressed or bgzipped VCF file. Use '-'
                        to read from stdin.
-    :param output_file: Path to output file. Use '-' for stdout. If None, stdout
-                        is used by default.
+    :param output_file: Path to output file (may be .vcf or .gz). Use '-' for
+                        stdout. If None, stdout is used by default.
     """
+    # Decide if we should write BGZipped output
+    use_bgzip = False
+    if output_file is not None and output_file != '-' and output_file.endswith('.gz'):
+        use_bgzip = True
+
+    # Prepare the output handle
+    bgzip_proc = None
     if output_file is None or output_file == '-':
+        # Write to stdout (uncompressed)
         out_handle = sys.stdout
     else:
-        out_handle = open(output_file, 'w', encoding='utf-8')
+        if use_bgzip:
+            # We create a subprocess that writes to 'bgzip -c'
+            # so we can write text data that ends up BGZipped
+            # then we pipe that directly to our final .gz file
+            out_fh = open(output_file, 'wb')
+            bgzip_proc = subprocess.Popen(
+                ["bgzip", "-c"],
+                stdin=subprocess.PIPE,
+                stdout=out_fh,
+                stderr=subprocess.PIPE
+            )
+            out_handle = io.TextIOWrapper(bgzip_proc.stdin, encoding='utf-8')
+        else:
+            # Plain text
+            out_handle = open(output_file, 'w', encoding='utf-8')
 
+    # Open the input handle
     if input_file == '-':
         in_handle = sys.stdin
     elif input_file.endswith('.gz'):
@@ -140,13 +167,24 @@ def process_vcf_file(input_file: str, output_file: str = None) -> None:
     else:
         in_handle = open(input_file, 'r', encoding='utf-8')
 
-    with in_handle, out_handle:
-        for line in in_handle:
-            # Strip only trailing newlines (avoid removing other whitespace)
-            line = line.rstrip('\n')
-            split_lines = split_vcf_effects(line)
-            for out_line in split_lines:
-                out_handle.write(out_line + '\n')
+    # Read from in_handle, write to out_handle
+    try:
+        with in_handle:
+            for line in in_handle:
+                line = line.rstrip('\n')
+                split_lines = split_vcf_effects(line)
+                for out_line in split_lines:
+                    out_handle.write(out_line + '\n')
+    finally:
+        # Now close out_handle ourselves
+        if out_handle not in (sys.stdout, sys.stdin):
+            out_handle.close()
+
+        # If we used bgzip, wait for it and do tabix
+        if use_bgzip and bgzip_proc is not None:
+            bgzip_proc.wait()
+            if bgzip_proc.returncode == 0:
+                subprocess.run(["tabix", "-p", "vcf", output_file], check=True)
 
 
 def main():
@@ -169,7 +207,7 @@ def main():
         '-o',
         '--output',
         default='-',
-        help="Path to output file. Use '-' for stdout."
+        help="Path to output file. Use '-' for stdout. If '.gz' extension is used, output is bgzipped + tabixed."
     )
 
     args = parser.parse_args()
