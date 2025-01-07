@@ -309,9 +309,12 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
             if cfg.get("debug_level", "INFO") == "ERROR":
                 sys.exit(1)
 
-    # Filenames
+    # Filenames for intermediate steps
     variants_file = os.path.join(intermediate_dir, f"{base_name}.variants.vcf.gz")
+    # We no longer produce an uncompressed 'splitted_variants_file'; we write directly to .gz
+    splitted_variants_file_gz = os.path.join(intermediate_dir, f"{base_name}.splitted.variants.vcf.gz")
     filtered_file = os.path.join(intermediate_dir, f"{base_name}.filtered.vcf.gz")
+    transcript_filtered_file = os.path.join(intermediate_dir, f"{base_name}.transcript_filtered.vcf.gz")
     extracted_tsv = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv")
     genotype_replaced_tsv = os.path.join(intermediate_dir, f"{base_name}.genotype_replaced.tsv")
     phenotype_added_tsv = os.path.join(intermediate_dir, f"{base_name}.phenotypes_added.tsv")
@@ -324,33 +327,32 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         if substring_to_remove and substring_to_remove.strip():
             original_samples = [s.replace(substring_to_remove, "") for s in original_samples]
 
+    # -----------------------------------------------------------------------
     # Step 1: Extract variants into variants_file
+    # -----------------------------------------------------------------------
     extract_variants(args.vcf_file, bed_file, cfg, variants_file)
 
-    # Step 2: Apply SnpSift filter on variants_file => filtered_file
-    apply_snpsift_filter(variants_file, cfg["filters"], cfg, filtered_file)
-
-    # Step 3: If requested, split SNPeff lines in the already filtered VCF
+    # -----------------------------------------------------------------------
+    # Step 2 (REFORMED): Split SNPeff lines *before* applying filters
+    # -----------------------------------------------------------------------
     if args.split_snpeff_lines:
-        logger.info("Splitting multiple SNPeff (EFF/ANN) annotations into separate lines.")
-        splitted_filtered_file = os.path.join(intermediate_dir, f"{base_name}.splitted.filtered.vcf")
+        logger.info("Splitting multiple SNPeff (EFF/ANN) annotations into separate lines (before filtering).")
 
-        # Pass filtered_file as input to process_vcf_file
-        # The output is a new uncompressed VCF with splitted lines
-        process_vcf_file(filtered_file, splitted_filtered_file)
-
-        # Gzip the splitted_filtered_file
-        splitted_filtered_file_gz = f"{splitted_filtered_file}.gz"
-        run_command(["bgzip", "-f", splitted_filtered_file])
-
-        # For subsequent steps, we will use the gzipped splitted_filtered_file
-        final_filtered_for_extraction = splitted_filtered_file_gz
+        # Now we call process_vcf_file to write directly to .gz output
+        process_vcf_file(variants_file, splitted_variants_file_gz)
+        # The splitted_variants_file_gz is already bgzipped (and tabix-indexed)
+        # so we can just use it:
+        prefiltered_for_snpsift = splitted_variants_file_gz
     else:
-        # If not splitting, we just use filtered_file as is
-        final_filtered_for_extraction = filtered_file
+        prefiltered_for_snpsift = variants_file
 
     # -----------------------------------------------------------------------
-    # Step 3b: Filter by transcripts if requested
+    # Step 3: Apply SnpSift filter => filtered_file
+    # -----------------------------------------------------------------------
+    apply_snpsift_filter(prefiltered_for_snpsift, cfg["filters"], cfg, filtered_file)
+
+    # -----------------------------------------------------------------------
+    # Step 4: If a transcript list/file is provided, filter by transcripts
     # -----------------------------------------------------------------------
     transcripts = []
     if args.transcript_list:
@@ -370,28 +372,25 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
 
     if transcripts:
         logger.info("Filtering for transcripts using SnpSift.")
-        transcript_filtered_file = os.path.join(intermediate_dir, f"{base_name}.transcript_filtered.vcf.gz")
-
-        # Construct filter, e.g.: (EFF[*].TRID = 'NM_007294.4') | (EFF[*].TRID = 'NM_000059.4')
-        or_clauses = []
-        for tr in transcripts:
-            or_clauses.append(f"(EFF[*].TRID = '{tr}')")
+        or_clauses = [f"(EFF[*].TRID = '{tr}')" for tr in transcripts]
         transcript_filter_expr = " | ".join(or_clauses)
 
         apply_snpsift_filter(
-            final_filtered_for_extraction,
+            filtered_file,
             transcript_filter_expr,
             cfg,
             transcript_filtered_file
         )
         final_filtered_for_extraction = transcript_filtered_file
-    # -----------------------------------------------------------------------
+    else:
+        final_filtered_for_extraction = filtered_file
 
-    # Step 4: Extract fields
+    # -----------------------------------------------------------------------
+    # Step 5: Extract fields => extracted_tsv
+    # -----------------------------------------------------------------------
     field_list = " ".join((cfg["fields_to_extract"] or args.fields).strip().split())
     logger.debug(f"Extracting fields: {field_list} -> {extracted_tsv}")
 
-    # We store the multi-sample subfield delimiter in 'extract_fields_separator' for SnpSift
     snpsift_sep = cfg.get("extract_fields_separator", ":")
     logger.debug(f"Using SnpSift subfield separator for extractFields: '{snpsift_sep}'")
 
@@ -399,16 +398,13 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     temp_cfg["extract_fields_separator"] = snpsift_sep
     extract_fields(final_filtered_for_extraction, field_list, temp_cfg, extracted_tsv)
 
-    # Then we do genotype replacement
+    # Then genotype replacement
     logger.debug("Checking GT column presence for genotype replacement.")
-
-    # Check if we have a GT column
     with open(extracted_tsv, "r", encoding="utf-8") as f:
         header_line = f.readline().strip()
     columns = header_line.split("\t")
     gt_present = "GT" in columns
 
-    # Optional genotype replacement
     cfg["sample_list"] = ",".join(original_samples) if original_samples else ""
     if not args.no_replacement and gt_present:
         with open(extracted_tsv, "r", encoding="utf-8") as inp, \
@@ -419,7 +415,7 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     else:
         replaced_tsv = extracted_tsv
 
-  # If user wants to remove extra columns:
+    # If user wants to remove extra columns:
     if cfg.get("append_extra_sample_fields", False) and cfg.get("extra_sample_fields", []):
         logger.debug("User config => removing columns after replacement: %s", cfg["extra_sample_fields"])
         stripped_tsv = os.path.join(intermediate_dir, f"{base_name}.stripped_extras.tsv")
@@ -451,7 +447,6 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
                         parts.pop(idx)
                 out.write("\t".join(parts) + "\n")
 
-        # Move file
         os.rename(stripped_tsv, replaced_tsv)
     logger.debug("Extra column removal (if requested) complete.")
 
@@ -506,12 +501,11 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     else:
         final_tsv = replaced_tsv
 
-    # NEW GENOTYPE FILTER STEP (after all other filters, phenotypes, etc.)
+    # NEW GENOTYPE FILTER STEP
     if getattr(args, "genotype_filter", None) or getattr(args, "gene_genotype_file", None):
         genotype_filtered_tsv = os.path.join(args.output_dir, f"{base_name}.genotype_filtered.tsv")
         genotype_modes = set()
         if getattr(args, "genotype_filter", None):
-            # e.g. "het", "hom", "comp_het", or comma-separated
             genotype_modes = set(g.strip() for g in args.genotype_filter.split(",") if g.strip())
         filter_final_tsv_by_genotype(
             input_tsv=final_tsv,
@@ -552,9 +546,7 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     else:
         logger.debug("Link columns are disabled by configuration.")
 
-    # -----------------------------------------------------------------------
-    # NEW FUNCTION FOR ADDING VARIANT IDENTIFIER
-    # -----------------------------------------------------------------------
+    # Insert a leading VAR_ID column
     def add_variant_identifier(lines: List[str]) -> List[str]:
         """
         Insert a leading VAR_ID column into each line.
@@ -601,7 +593,6 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
 
             fields = line.split("\t")
 
-            # Safely retrieve these columns if they exist
             chrom_val = fields[chrom_idx] if chrom_idx is not None else ""
             pos_val = fields[pos_idx] if pos_idx is not None else ""
             ref_val = fields[ref_idx] if ref_idx is not None else ""
@@ -620,12 +611,9 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
 
         return new_lines
 
-    # Add the VAR_ID column
     buffer = add_variant_identifier(buffer)
 
-    # -----------------------------------------------------------------------
-    # NEW FUNCTION TO ADD NAMED BLANK COLUMNS (FROM --add-column)
-    # -----------------------------------------------------------------------
+    # Append named blank columns if requested
     def add_named_columns(lines: List[str], col_names: List[str]) -> List[str]:
         """
         Append columns named in col_names to the table, with blank data for each row.
@@ -646,31 +634,25 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
             return lines
 
         new_lines = []
-
-        # Handle header (the first line in 'lines')
         header_line = lines[0].rstrip("\n")
         header_parts = header_line.split("\t")
-        header_parts.extend(col_names)  # add new column names
+        header_parts.extend(col_names)
         new_header = "\t".join(header_parts)
         new_lines.append(new_header)
 
-        # Handle data lines (from the second line onward)
         for line in lines[1:]:
             line = line.rstrip("\n")
             if not line.strip():
                 new_lines.append(line)
                 continue
             fields = line.split("\t")
-            # Append blank cells for each new column
             fields.extend([""] * len(col_names))
             new_lines.append("\t".join(fields))
 
         return new_lines
 
-    # Add named columns if requested
     if args.add_column:
         buffer = add_named_columns(buffer, args.add_column)
-    # -----------------------------------------------------------------------
 
     if final_to_stdout:
         if buffer:
@@ -754,7 +736,6 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
                     and os.path.getsize(gene_burden_tsv) > 0):
                 append_tsv_as_sheet(xlsx_file, gene_burden_tsv, sheet_name="Gene Burden")
 
-            # Now do the final formatting + hyperlink generation
             finalize_excel_file(xlsx_file, cfg)
 
     # Produce HTML report if requested
@@ -779,7 +760,7 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         bam_map = cfg.get("bam_mapping_file")
         igv_ref = cfg.get("igv_reference")
         if not bam_map or not igv_ref:
-            logger.error("For IGV integration, --bam-mapping-file and --igv-reference are required.")
+            logger.error("For IGV integration, --bam-mapping-file and --igv-reference must be provided.")
             sys.exit(1)
 
         from .generate_igv_report import generate_igv_report
@@ -808,7 +789,12 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
 
     # Remove intermediates if requested
     if not args.keep_intermediates:
-        intermediates = [variants_file, filtered_file, extracted_tsv]
+        intermediates = [
+            variants_file,
+            splitted_variants_file_gz,
+            filtered_file,
+            extracted_tsv
+        ]
         if not args.no_replacement and gt_present:
             intermediates.append(genotype_replaced_tsv)
         if use_phenotypes:
