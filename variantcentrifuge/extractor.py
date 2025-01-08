@@ -10,7 +10,7 @@ from VCF records and save the result to the specified output file.
 
 import logging
 from typing import Dict, Any
-from .utils import run_command
+from .utils import run_command, normalize_snpeff_headers  # <-- Updated import
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -80,19 +80,10 @@ def extract_fields(
         logger.warning("No lines were written to the output after SnpSift extract. Check input.")
         return output_file
 
-    # Clean up the header line by removing certain known prefixes
-    lines[0] = (
-        lines[0]
-        .replace("ANN[*].", "")
-        .replace("ANN[0].", "")
-        .replace("GEN[*].", "")
-        .replace("GEN[0].", "")
-        .replace("NMD[*].", "NMD_")
-        .replace("NMD[0].", "NMD_")
-        .replace("LOF[*].", "LOF_")
-        .replace("LOF[0].", "LOF_")
-    )
+    # Use the new utility function to remove any SnpEff prefixes from the header
+    lines = normalize_snpeff_headers(lines)
 
+    # Rewrite the file with updated lines
     with open(output_file, "w", encoding="utf-8") as f:
         f.writelines(lines)
 

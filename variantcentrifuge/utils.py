@@ -12,7 +12,7 @@ import subprocess
 import sys
 import shutil
 import logging
-from typing import Optional
+from typing import Optional, List
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -72,6 +72,44 @@ def run_command(cmd: list, output_file: Optional[str] = None) -> str:
             return output_file
         else:
             return result.stdout
+
+
+def normalize_snpeff_headers(lines: List[str]) -> List[str]:
+    """
+    Remove known SnpEff prefixes (e.g. "ANN[*].", "GEN[0].", etc.) from the first line
+    (typically the header line) of the provided lines.
+
+    Parameters
+    ----------
+    lines : List[str]
+        A list of lines (e.g., lines from a file) whose first line may contain
+        SnpEff-generated prefixes in column headers.
+
+    Returns
+    -------
+    List[str]
+        The updated list of lines where the first line has had any matching SnpEff
+        prefixes removed or replaced.
+    """
+    if not lines:
+        return lines
+
+    # Only modify the first line to match the original behavior
+    header = lines[0]
+    header = (
+        header
+        .replace("ANN[*].", "")
+        .replace("ANN[0].", "")
+        .replace("GEN[*].", "")
+        .replace("GEN[0].", "")
+        .replace("NMD[*].", "NMD_")
+        .replace("NMD[0].", "NMD_")
+        .replace("LOF[*].", "LOF_")
+        .replace("LOF[0].", "LOF_")
+    )
+
+    lines[0] = header
+    return lines
 
 
 def check_external_tools() -> None:
