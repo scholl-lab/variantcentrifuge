@@ -285,28 +285,40 @@ def assign_case_control_counts(df: pd.DataFrame, case_samples: Set[str], control
 
 def extract_sample_and_genotype(sample_field: str) -> Tuple[str, str]:
     """
-    Extract sample name and genotype from a field like 'sample(0/1)'.
+    Extract sample name and genotype from a field like 'sample(0/1:172:110,62)' or 'sample(0/1)'.
 
     If parentheses are missing, assume no genotype is specified -> no variant (0/0).
+
+    The genotype portion may include extra fields after a colon (e.g. coverage),
+    so we split on the first colon to isolate the actual genotype string (e.g., '0/1').
 
     Parameters
     ----------
     sample_field : str
-        A string like 'sample(0/1)' or 'sample'.
+        A string like 'sample(0/1)', 'sample(0/1:172:110,62)', or 'sample'.
 
     Returns
     -------
     (str, str)
-        (sample_name, genotype)
+        (sample_name, genotype) where genotype is typically '0/1', '1/1', '0/0', etc.
     """
     start_idx = sample_field.find("(")
     end_idx = sample_field.find(")")
+    # Default is the entire string as the sample name, and genotype empty
+    sample_name = sample_field.strip()
+    genotype = ""
+
     if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
         sample_name = sample_field[:start_idx].strip()
-        genotype = sample_field[start_idx + 1:end_idx].strip()
-        return sample_name, genotype
-    else:
-        return sample_field.strip(), ""
+        genotype_str = sample_field[start_idx + 1:end_idx].strip()
+
+        # Split on the first colon to separate e.g. '0/1' from '172:110,62'
+        if ":" in genotype_str:
+            genotype = genotype_str.split(":", 1)[0]
+        else:
+            genotype = genotype_str
+
+    return sample_name, genotype
 
 
 def genotype_to_allele_count(genotype: str) -> int:
