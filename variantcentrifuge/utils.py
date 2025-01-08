@@ -242,3 +242,23 @@ def sanitize_metadata_field(value: str) -> str:
         Sanitized string value with no tabs or newlines.
     """
     return value.replace("\t", " ").replace("\n", " ").strip()
+
+
+def ensure_fields_in_extract(base_fields_str: str, extra_fields: List[str]) -> str:
+    """
+    Ensure each item in extra_fields is present in the space-delimited base_fields_str.
+
+    NOTE: We no longer normalize extra_fields here, so that raw columns like "GEN[*].DP"
+    remain unmodified.
+    """
+    if not base_fields_str:
+        base_list = []
+    else:
+        base_list = base_fields_str.split()
+
+    # Just deduplicate:
+    for raw_field in extra_fields:
+        if raw_field not in base_list:
+            base_list.append(raw_field)
+
+    return " ".join(base_list)

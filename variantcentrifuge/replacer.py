@@ -8,18 +8,36 @@ This module dynamically searches for a "GT" column in the header line of the
 input TSV and applies configurable genotype replacement logic.
 
 Logic:
-- If `append_genotype` is True, output sample(genotype) for variant genotypes;
-  else just sample.
-- Non-variant genotypes ("0/0", "./.") are skipped for the final column.
-- If `include_nocalls` is True, "./." still won't be output but is counted elsewhere.
-- If no "GT" column is found, the lines are returned unchanged.
-- Requires `cfg["sample_list"]` for sample names.
+-------
+1. A "GT" column is required. If absent, lines are returned unchanged.
 
-Optional Extra Fields:
-- If `cfg["append_extra_sample_fields"]` is True, extra columns like DP, AD, etc.
-  are appended to each genotype in parentheses, e.g. sample(0/1:DP:AD).
-- We split each column for each sample using the same SnpSift subfield separator
-  (cfg["extract_fields_separator"]).
+2. For each variant row:
+   - Parse the genotype subfields (split by `cfg["extract_fields_separator"]`, usually ":")
+   - Skip non-variant genotypes ("0/0" or "./.").
+   - If a `genotype_replacement_map` is provided (e.g. {r"[2-9]": "1"}), apply regex-based replacements
+     to transform the allele strings.
+
+3. If `cfg["append_extra_sample_fields"]` is True, the user-supplied fields in `cfg["extra_sample_fields"]`
+   are appended to each genotype. For instance, if extra fields are "GEN[*].DP" and "GEN[*].AD",
+   and the delimiter is ":", then an output entry might look like:
+       sampleName(0/1:100:52,48)
+
+4. The sample names come from `cfg["sample_list"]` (comma-separated). We pair each subfield in GT
+   with the corresponding sample. We do not list or output samples if the genotype is "0/0" or "./.".
+
+5. The final joined string for each variant is placed back into the "GT" column, separated from other
+   variants by `cfg["separator"]` (commonly ";").
+
+Header Normalization:
+---------------------
+SnpSift or other tools may remove "GEN[*]." or "ANN[*]." prefixes in headers. To handle this,
+we normalize both the final TSV header columns and the user-supplied extra fields so they match.
+
+Example:
+--------
+If the user passed --append-extra-sample-fields GEN[*].DP GEN[*].AD and the TSV header has columns
+"DP", "AD" (prefix removed by SnpSift), the code will still find them by normalizing them to "DP", "AD"
+internally. 
 """
 
 import logging
@@ -29,27 +47,51 @@ from typing import Iterator, Dict, Any
 logger = logging.getLogger("variantcentrifuge")
 
 
+def _normalize_snpeff_column_name(col_name: str) -> str:
+    """
+    Normalize known SnpEff or SnpSift prefixes from a single column name.
+
+    For example, "GEN[*].DP" or "ANN[*].Effect" might become "DP" or "Effect".
+    Modify or extend this if your pipeline uses additional/different prefixes.
+    """
+    return (col_name
+            .replace("ANN[*].", "")
+            .replace("ANN[0].", "")
+            .replace("GEN[*].", "")
+            .replace("GEN[0].", "")
+            .replace("NMD[*].", "NMD_")
+            .replace("NMD[0].", "NMD_")
+            .replace("LOF[*].", "LOF_")
+            .replace("LOF[0].", "LOF_"))
+
+
 def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]:
     """
-    Replace genotypes based on user-defined logic and return updated lines.
+    Replace and optionally append extra sample fields to genotypes in a TSV file.
 
-    The replacement logic is controlled by `cfg["genotype_replacement_map"]`,
-    e.g. {r"[2-9]": "1"} to replace any allele "2".."9" with "1".
+    Requirements:
+    -------------
+    - A "GT" column must exist in the header.
+    - `cfg["sample_list"]` is a comma-separated list of sample names matching the subfields in "GT".
+    - If `cfg["append_extra_sample_fields"]` is True and `cfg["extra_sample_fields"]` is a list of
+      columns, we will look them up by matching normalized column names in the header.
 
-    Phased genotypes (0|1, etc.) are normalized by replacing "|" with "/".
+    Steps:
+    ------
+    1. Identify the index of the "GT" column in the TSV header.
+    2. Build a map from normalized column names to the actual index in the header.
+    3. For each variant line:
+       - Split the "GT" column subfields (one subfield per sample).
+       - Optionally apply genotype replacements from `cfg["genotype_replacement_map"]`.
+       - Filter out genotypes that are "0/0" or "./.".
+       - If extra fields exist, append them in parentheses next to each genotype, e.g. "DP:100:52,48".
+       - Rejoin them with `cfg["separator"]` (often ";") for final placement in the "GT" column.
 
-    If `cfg["append_extra_sample_fields"]` is True, we also append columns like DP,AD
-    next to the genotype, separated by `cfg["extra_sample_field_delimiter"]`.
-    E.g.: sample(0/1:100:52,48)
-
-    Debug logs are added to help track potential issues with missing fields or columns.
+    Returns:
+    --------
+    Iterator of updated lines (strings).
     """
-    append_genotype = cfg.get("append_genotype", True)
-    sample_list_str = cfg.get("sample_list", "")
-    proband_list_str = cfg.get("proband_list", "")
-    control_list_str = cfg.get("control_list", "")
-    include_nocalls = cfg.get("include_nocalls", False)
-    list_samples = cfg.get("list_samples", False)
+    # Basic config
     separator = cfg.get("separator", ";")
     genotype_replacement_map = cfg.get("genotype_replacement_map", {r"[2-9]": "1"})
 
@@ -58,37 +100,20 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
     extra_sample_fields = cfg.get("extra_sample_fields", [])
     extra_field_delimiter = cfg.get("extra_sample_field_delimiter", ":")
 
-    # The real multi-sample subfield separator used by SnpSift for columns
+    # The real multi-sample subfield separator used by SnpSift for columns in the final TSV
     snpsift_sep = cfg.get("extract_fields_separator", ":")
 
     logger.debug("replace_genotypes called with config: %s", cfg)
-    logger.debug("append_genotype=%s, extra_fields=%s, snpsift_sep='%s'",
-                 append_genotype, extra_sample_fields, snpsift_sep)
+    logger.debug("Extra fields => %s", extra_sample_fields)
 
-    def parse_list_from_str(s: str) -> list:
-        """Split a comma-separated sample_list or proband_list string into a list."""
-        if not s:
-            return []
-        return [x.strip() for x in s.split(",") if x.strip()]
-
-    samples = parse_list_from_str(sample_list_str)
-    logger.debug("Parsed samples: %s", samples)
+    # Sample list
+    sample_list_str = cfg.get("sample_list", "")
+    samples = [s.strip() for s in sample_list_str.split(",") if s.strip()]
+    logger.debug("Parsed samples => %s", samples)
     if not samples:
         logger.warning("No samples found in cfg[sample_list]. Returning lines unchanged.")
-        # Just yield lines and return
-        for line in lines:
-            yield line
+        yield from lines
         return
-
-    # Optional usage for proband/control, though not strictly used here
-    probands = parse_list_from_str(proband_list_str) if proband_list_str else samples[:]
-    if control_list_str:
-        controls = parse_list_from_str(control_list_str)
-        logger.debug("Parsed controls: %s", controls)
-    else:
-        prob_set = set(probands)
-        controls = [s for s in samples if s not in prob_set]
-        logger.debug("Inferred controls: %s", controls)
 
     # Compile genotype replacement regex patterns
     compiled_patterns = []
@@ -96,127 +121,134 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
         compiled = re.compile(pat)
         compiled_patterns.append((compiled, repl))
 
-    unique_samples = set()
-    first_line = True
+    # We will store the index of the GT column and the indexes of each extra field
     gt_idx = None
-    # We'll keep track of extra field column indices:
     extra_field_indices = {}
 
+    first_line = True
     for line_idx, line in enumerate(lines, start=1):
         line = line.rstrip("\n")
+
+        # Header line => identify GT and any extra fields
         if first_line:
             header_cols = line.split("\t")
-            logger.debug("Header columns at line_idx=%d: %s", line_idx, header_cols)
+            logger.debug("Header columns at line_idx=%d => %s", line_idx, header_cols)
 
-            if "GT" not in header_cols:
+            # Build a map from normalized name => real index
+            normalized_to_index = {}
+            for i, c in enumerate(header_cols):
+                norm_c = _normalize_snpeff_column_name(c)
+                normalized_to_index[norm_c] = i
+
+            # Find the GT column
+            if "GT" in header_cols:
+                gt_idx = header_cols.index("GT")
+                logger.debug("Found 'GT' column at index %d (exact match).", gt_idx)
+            else:
+                # Fallback: maybe the column was normalized by something else
+                # e.g. "GEN[*].GT" => "GT"
+                # But if the user had a different naming, we can try the normalized map
+                # Usually it's just "GT", though
+                if "GT" in normalized_to_index:
+                    gt_idx = normalized_to_index["GT"]
+                    logger.debug("Found 'GT' column at index %d (via normalized map).", gt_idx)
+
+            if gt_idx is None:
                 logger.warning("No GT column found in header. Returning lines unmodified.")
                 yield line
-                for rest in lines:
-                    yield rest
+                # yield the rest of the lines
+                yield from lines
                 return
-
-            gt_idx = header_cols.index("GT")
-            logger.debug("Found GT column index: %d", gt_idx)
 
             # Identify requested extra fields
             if append_extra_fields and extra_sample_fields:
-                for ef_name in extra_sample_fields:
-                    if ef_name in header_cols:
-                        idx_ = header_cols.index(ef_name)
-                        extra_field_indices[ef_name] = idx_
-                        logger.debug("Found extra sample field '%s' at col index %d", ef_name, idx_)
+                # For each raw field the user provided, find its normalized match in the header
+                for raw_field in extra_sample_fields:
+                    nf = _normalize_snpeff_column_name(raw_field)
+                    if nf in normalized_to_index:
+                        ef_col_idx = normalized_to_index[nf]
+                        extra_field_indices[raw_field] = ef_col_idx
+                        logger.debug("Mapped raw extra field '%s' (normalized='%s') to col index %d",
+                                     raw_field, nf, ef_col_idx)
                     else:
-                        logger.warning("Extra field '%s' not found in header. Skipping it.", ef_name)
+                        logger.warning(
+                            "Extra field '%s' (normalized='%s') not found in header. Skipping.",
+                            raw_field, nf
+                        )
 
-            if list_samples:
-                logger.debug("list_samples=True => not modifying header line.")
-                yield line
-            else:
-                yield line
+            # Output the (possibly unchanged) header line
+            yield line
             first_line = False
             continue
 
-        # Subsequent data lines
+        # For data lines
         cols = line.split("\t")
-        if gt_idx >= len(cols):
-            logger.warning("Line %d has no GT value (index out of range). Skipping line => %s", line_idx, line)
-            if not list_samples:
-                yield line
+        if gt_idx is None or gt_idx >= len(cols):
+            # If we can't find GT or it's out of bounds, pass the line unchanged
+            yield line
             continue
 
-        gt_value = cols[gt_idx]
-        # Split subfields by snpsift_sep (commonly ",")
-        genotypes = gt_value.split(snpsift_sep)
+        gt_value = cols[gt_idx].strip()
+        # Split subfields by snpsift_sep
+        genotypes = gt_value.split(snpsift_sep) if gt_value else []
 
-        # Also split extra fields if applicable
+        # If we have extra fields, build a dictionary of field_name => [list of subfield values]
         extra_values_per_field = {}
         if append_extra_fields and extra_field_indices:
-            for ef_name, ef_col_idx in extra_field_indices.items():
-                if ef_col_idx < len(cols):
-                    raw_val = cols[ef_col_idx]
-                    extra_values = raw_val.split(snpsift_sep)
+            for raw_field, col_idx in extra_field_indices.items():
+                if col_idx < len(cols):
+                    raw_val = cols[col_idx].strip()
+                    extra_values_per_field[raw_field] = raw_val.split(snpsift_sep) if raw_val else []
                 else:
-                    extra_values = []
-                extra_values_per_field[ef_name] = extra_values
-                logger.debug("Line %d => Extra field '%s' => values: %s", line_idx, ef_name, extra_values)
+                    extra_values_per_field[raw_field] = []
 
-        # Build the new GT column
         new_gts = []
-        for i, genotype in enumerate(genotypes):
+        for i, genotype_subfield in enumerate(genotypes):
             if i >= len(samples):
-                # More genotype subfields than sample names => skip extras
-                logger.warning("Line %d => found %d genotype subfields but only %d samples. Truncating.",
-                               line_idx, len(genotypes), len(samples))
+                logger.warning(
+                    "Line %d => found %d genotype subfields but only %d samples. Truncating.",
+                    line_idx, len(genotypes), len(samples)
+                )
                 break
 
-            genotype = genotype.replace("|", "/")
-            # Apply regex replacements
-            for (compiled_pat, repl_str) in compiled_patterns:
-                if compiled_pat.search(genotype):
-                    genotype = compiled_pat.sub(repl_str, genotype)
+            # Replace phased genotypes
+            genotype_subfield = genotype_subfield.replace("|", "/")
 
-            # Skip "0/0" or "./."
-            if genotype in ["0/0", "./."]:
+            # Apply regex replacements (e.g. "2" => "1", etc.)
+            for (regex_pat, replacement) in compiled_patterns:
+                if regex_pat.search(genotype_subfield):
+                    genotype_subfield = regex_pat.sub(replacement, genotype_subfield)
+
+            # Skip "0/0" or "./." as "non-variant"
+            if genotype_subfield in ("0/0", "./."):
                 continue
 
+            # Build the genotype output
             sample_name = samples[i]
-            unique_samples.add(sample_name)
-            # If we want "sample(0/1:DP:AD)"
-            if append_genotype:
-                if append_extra_fields and extra_values_per_field:
-                    # gather the i-th entry from each extra field
-                    bits = []
-                    for ef_ in extra_sample_fields:
-                        # e.g. bits for DP, AD, etc.
-                        the_list = extra_values_per_field.get(ef_, [])
-                        val = the_list[i] if i < len(the_list) else ""
-                        bits.append(val)
-                    if bits:
-                        # e.g. "0/1:100:52,48"
-                        genotype_with_extras = f"{genotype}{extra_field_delimiter}{extra_field_delimiter.join(bits)}"
-                    else:
-                        genotype_with_extras = genotype
-                    new_gts.append(f"{sample_name}({genotype_with_extras})")
+            if append_extra_fields and extra_field_indices:
+                # Gather the i-th entry from each extra field
+                bits = []
+                for raw_field in extra_field_indices.keys():
+                    ev_list = extra_values_per_field.get(raw_field, [])
+                    val = ev_list[i] if i < len(ev_list) else ""
+                    bits.append(val)
+
+                if bits:
+                    # e.g. "0/1:100:52,48"
+                    genotype_plus_extra = f"{genotype_subfield}{extra_field_delimiter}{extra_field_delimiter.join(bits)}"
                 else:
-                    # Just sample(0/1)
-                    new_gts.append(f"{sample_name}({genotype})")
-            else:
-                # If we do not want genotype appended, just sample
-                new_gts.append(sample_name)
+                    genotype_plus_extra = genotype_subfield
 
-        if list_samples:
-            # We won't modify columns, just keep track
-            continue
+                # Format: sampleName(genotype_plus_extra)
+                new_gts.append(f"{sample_name}({genotype_plus_extra})")
+            else:
+                # Just sample(genotype_subfield)
+                new_gts.append(f"{sample_name}({genotype_subfield})")
+
+        # Rejoin the new GT column
+        if new_gts:
+            cols[gt_idx] = separator.join(new_gts)
         else:
-            if new_gts:
-                # Join with e.g. ";"
-                cols[gt_idx] = separator.join(new_gts)
-            else:
-                # no variants => empty
-                cols[gt_idx] = ""
-            yield "\t".join(cols)
+            cols[gt_idx] = ""
 
-    if list_samples:
-        # Output collected variant samples
-        logger.debug("list_samples=True => final unique samples: %s", sorted(unique_samples))
-        yield ",".join(sorted(unique_samples))
+        yield "\t".join(cols)

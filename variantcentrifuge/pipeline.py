@@ -31,7 +31,14 @@ import argparse
 # Import the SNPeff annotation splitting function
 from .vcf_eff_one_per_line import process_vcf_file
 
-from .utils import check_external_tools, run_command, get_tool_version, sanitize_metadata_field
+from .utils import (
+    check_external_tools,
+    run_command,
+    get_tool_version,
+    sanitize_metadata_field,
+    normalize_snpeff_headers,
+    ensure_fields_in_extract
+)
 from .gene_bed import get_gene_bed, normalize_genes
 from .analyze_variants import analyze_variants
 from .phenotype import load_phenotypes, aggregate_phenotypes_for_samples
@@ -39,11 +46,8 @@ from .converter import convert_to_excel, append_tsv_as_sheet, finalize_excel_fil
 from .replacer import replace_genotypes
 from .phenotype_filter import filter_phenotypes
 from .links import add_links_to_table
-from .filters import extract_variants, apply_snpsift_filter
+from .filters import extract_variants, apply_snpsift_filter, filter_final_tsv_by_genotype
 from .extractor import extract_fields
-
-# NEW IMPORT for genotype filtering
-from .filters import filter_final_tsv_by_genotype
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -102,10 +106,10 @@ def compute_base_name(vcf_path: str, gene_name: str) -> str:
         gene_hash = hashlib.md5(genes.encode('utf-8')).hexdigest()[:8]
         return f"{vcf_base}.multiple-genes-{gene_hash}"
     else:
-        if split_genes[0].lower() in vcf_base.lower():
+        if split_genes and split_genes[0].lower() in vcf_base.lower():
             return vcf_base
         else:
-            return f"{vcf_base}.{split_genes[0]}"
+            return f"{vcf_base}.{split_genes[0]}" if split_genes else vcf_base
 
 
 def load_terms_from_file(file_path: Optional[str], logger: logging.Logger) -> List[str]:
@@ -291,6 +295,7 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         )
         sys.exit(1)
 
+    # Check if requested genes found in reference
     if gene_name.lower() != "all":
         requested_genes = gene_name.split()
         found_genes = set()
@@ -328,14 +333,13 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
             original_samples = [s.replace(substring_to_remove, "") for s in original_samples]
 
     # -----------------------------------------------------------------------
-    # Step 1: Extract variants into variants_file
+    # Step 1: Extract variants => variants_file
     # -----------------------------------------------------------------------
     extract_variants(args.vcf_file, bed_file, cfg, variants_file)
 
-    # >>> NEW: handle snpeff splitting mode (None, 'before_filters', or 'after_filters')
+    # Handle snpeff splitting mode (None, 'before_filters', or 'after_filters')
     splitting_mode = cfg.get("snpeff_splitting_mode", None)
 
-    # If splitting before filters
     if splitting_mode == "before_filters":
         logger.info("Splitting multiple SNPeff (EFF/ANN) annotations before main filtering.")
         process_vcf_file(variants_file, splitted_before_file)
@@ -349,7 +353,7 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     # -----------------------------------------------------------------------
     apply_snpsift_filter(prefiltered_for_snpsift, cfg["filters"], cfg, filtered_file)
 
-    # If splitting after filters instead
+    # If splitting after filters
     if splitting_mode == "after_filters":
         logger.info("Splitting multiple SNPeff (EFF/ANN) annotations after main filters, before transcript filter.")
         process_vcf_file(filtered_file, splitted_after_file)
@@ -358,12 +362,11 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         post_filter_for_transcripts = filtered_file
 
     # -----------------------------------------------------------------------
-    # Step 4: If a transcript list/file is provided, filter by transcripts
+    # Step 4: If transcripts are provided, filter by transcripts => transcript_filtered_file
     # -----------------------------------------------------------------------
     transcripts = []
     if args.transcript_list:
         transcripts.extend([t.strip() for t in args.transcript_list.split(",") if t.strip()])
-
     if args.transcript_file:
         if not os.path.exists(args.transcript_file):
             logger.error(f"Transcript file not found: {args.transcript_file}")
@@ -374,7 +377,7 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
                 if tr:
                     transcripts.append(tr)
 
-    transcripts = list(set(transcripts))  # remove duplicates if any
+    transcripts = list(set(transcripts))  # remove duplicates
 
     if transcripts:
         logger.info("Filtering for transcripts using SnpSift.")
@@ -394,6 +397,13 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     # -----------------------------------------------------------------------
     # Step 5: Extract fields => extracted_tsv
     # -----------------------------------------------------------------------
+    # If user wants to append extra sample fields, ensure they're in the main fields
+    # (Unify them into cfg["fields_to_extract"])
+    if cfg.get("append_extra_sample_fields", False) and cfg.get("extra_sample_fields", []):
+        updated_fields = ensure_fields_in_extract(cfg["fields_to_extract"], cfg["extra_sample_fields"])
+        cfg["fields_to_extract"] = updated_fields
+        logger.debug(f"Updated fields_to_extract with extra sample fields: {cfg['fields_to_extract']}")
+
     field_list = " ".join((cfg["fields_to_extract"] or args.fields).strip().split())
     logger.debug(f"Extracting fields: {field_list} -> {extracted_tsv}")
 
@@ -404,8 +414,7 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     temp_cfg["extract_fields_separator"] = snpsift_sep
     extract_fields(final_filtered_for_extraction, field_list, temp_cfg, extracted_tsv)
 
-    # Then genotype replacement
-    logger.debug("Checking GT column presence for genotype replacement.")
+    # Genotype replacement logic
     with open(extracted_tsv, "r", encoding="utf-8") as f:
         header_line = f.readline().strip()
     columns = header_line.split("\t")
@@ -421,25 +430,48 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     else:
         replaced_tsv = extracted_tsv
 
-    # If user wants to remove extra columns:
-    if cfg.get("append_extra_sample_fields", False) and cfg.get("extra_sample_fields", []):
+    # If user has appended extra fields, they might want them removed after genotype assembly
+    if cfg.get("append_extra_sample_fields", False) and cfg.get("extra_sample_fields"):
         logger.debug("User config => removing columns after replacement: %s", cfg["extra_sample_fields"])
         stripped_tsv = os.path.join(intermediate_dir, f"{base_name}.stripped_extras.tsv")
 
         with open(replaced_tsv, "r", encoding="utf-8") as inp, \
-            open(stripped_tsv, "w", encoding="utf-8") as out:
-            header = next(inp).rstrip("\n").split("\t")
+             open(stripped_tsv, "w", encoding="utf-8") as out:
+            # Read the header line from replaced_tsv
+            raw_header_line = next(inp).rstrip("\n")
+            original_header_cols = raw_header_line.split("\t")
+
+            # Create a normalized copy of the header to see how columns might have been renamed
+            # by SnpSift or other tools:
+            normed_header_line = normalize_snpeff_headers([raw_header_line])[0]
+            normed_header_cols = normed_header_line.split("\t")
+
+            # Build a map from normalized_col -> original_index
+            normalized_to_index = {}
+            for i, col in enumerate(original_header_cols):
+                # Single-column approach to re-using normalize_snpeff_headers:
+                normed_col = normalize_snpeff_headers([col])[0]
+                normalized_to_index[normed_col] = i
+
             remove_indices = []
-            for col_name in cfg["extra_sample_fields"]:
-                if col_name in header:
-                    idx = header.index(col_name)
+            # For each user-supplied field, normalize it and see if it matches a normalized header col
+            for raw_col_name in cfg["extra_sample_fields"]:
+                single_line = normalize_snpeff_headers([raw_col_name])[0]
+                if single_line in normalized_to_index:
+                    idx = normalized_to_index[single_line]
                     remove_indices.append(idx)
-                    logger.debug("Removing column '%s' at index %d", col_name, idx)
+                    logger.debug(
+                        "Removing normalized column '%s' => real index %d",
+                        single_line, idx
+                    )
                 else:
-                    logger.warning("Column '%s' was requested for removal but not found in header!", col_name)
+                    logger.warning(
+                        "Column '%s' was requested for removal but not found in header!",
+                        raw_col_name
+                    )
 
             remove_indices.sort(reverse=True)
-            new_header = [h for i, h in enumerate(header) if i not in remove_indices]
+            new_header = [h for i, h in enumerate(original_header_cols) if i not in remove_indices]
             out.write("\t".join(new_header) + "\n")
 
             for line_num, line in enumerate(inp, start=2):
@@ -507,7 +539,7 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     else:
         final_tsv = replaced_tsv
 
-    # NEW GENOTYPE FILTER STEP
+    # Genotype filtering if requested
     if getattr(args, "genotype_filter", None) or getattr(args, "gene_genotype_file", None):
         genotype_filtered_tsv = os.path.join(args.output_dir, f"{base_name}.genotype_filtered.tsv")
         genotype_modes = set()

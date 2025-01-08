@@ -51,12 +51,13 @@ def main() -> None:
           filters variants by EFF[*].TRID field.
 
     New changes for extra sample fields in genotype:
-        - Added --append-extra-sample-fields, --extra-sample-fields, and
-          --extra-sample-field-delimiter arguments to allow appending fields
-          like DP, AD, etc. alongside each genotype.
+        - Replaced the old two-flag logic with a single --append-extra-sample-fields flag that
+          optionally takes zero or more fields. If this flag is used with no arguments, it simply
+          enables genotype+field appending with no extra fields. If arguments (space-separated) are
+          provided, those fields are appended (e.g. DP, AD).
+        - We retain --extra-sample-field-delimiter to control the delimiter between genotype and
+          extra fields (default ':').
     """
-    # Initial basic logging setup to stderr before arguments are parsed,
-    # so we can log early messages like start time.
     logging.basicConfig(
         level=logging.INFO,
         format="%(levelname)s: %(message)s",
@@ -118,7 +119,7 @@ def main() -> None:
         "--filters",
         help="Filters to apply in SnpSift filter"
     )
-    # New argument for presets:
+    # Preset argument
     parser.add_argument(
         "--preset",
         action="append",
@@ -251,13 +252,11 @@ def main() -> None:
         help="Genome reference identifier for IGV (e.g., 'hg19' or 'hg38'). Required if --igv is enabled."
     )
 
-    # New argument for sample name substring removal
     parser.add_argument(
         "--remove-sample-substring",
         help="If provided, this substring will be removed from all sample names found in the VCF."
     )
 
-    # Added argument to control adding links
     parser.add_argument(
         "--no-links",
         action="store_true",
@@ -265,7 +264,6 @@ def main() -> None:
         help="Disable adding link columns to the final output (links are added by default)."
     )
 
-    # >>> New threads argument
     parser.add_argument(
         "--threads",
         type=int,
@@ -273,7 +271,6 @@ def main() -> None:
         help="Number of threads to use for bcftools and related operations."
     )
 
-    # >>> New argument for adding named columns
     parser.add_argument(
         "--add-column",
         action="append",
@@ -281,15 +278,6 @@ def main() -> None:
         help="Append a named blank column to the final output. Repeat for multiple columns."
     )
 
-    # >>> Modified argument to accept a parameter for SNPeff splitting
-    # If used without a value => defaults to 'before_filters'
-    # If used with 'after_filters', do splitting after main filters
-    # If omitted entirely => no splitting
-    #
-    # Note: 'before_filters' is typically recommended when also doing transcript
-    # filtering (to ensure all EFF/ANN lines get their own variant record), but
-    # it can be slower for large multi-annotation VCFs. 
-    # 'after_filters' produces a smaller output and is often faster overall.
     parser.add_argument(
         "--split-snpeff-lines",
         nargs='?',
@@ -305,7 +293,6 @@ def main() -> None:
         )
     )
 
-    # >>> New arguments for transcript filtering
     parser.add_argument(
         "--transcript-list",
         help=(
@@ -321,7 +308,6 @@ def main() -> None:
         )
     )
 
-    # >>> NEW arguments for genotype filtering
     parser.add_argument(
         "--genotype-filter",
         help=(
@@ -339,24 +325,16 @@ def main() -> None:
         )
     )
 
-    # >>> NEW arguments for appending extra sample fields
+    # Unified argument for extra sample fields:
     parser.add_argument(
         "--append-extra-sample-fields",
-        action="store_true",
-        default=False,
+        nargs="*",
+        default=None,
         help=(
-            "If set, append extra sample fields (e.g. DP, AD) to the genotype in the final output, "
-            "e.g. sample(0/1:DP_value:AD_value). Requires that these fields are included in "
-            "--fields or cfg['fields_to_extract']. Defaults to False."
-        ),
-    )
-    parser.add_argument(
-        "--extra-sample-fields",
-        default="",
-        help=(
-            "Comma-separated list of additional sample-level fields (e.g. DP,AD) to append next "
-            "to each genotype in the final output if --append-extra-sample-fields is set. "
-            "These fields must also be present in the extracted TSV."
+            "Optionally append extra sample fields (e.g. DP, AD) next to each genotype in the final output. "
+            "If no arguments are provided, this flag is merely enabled without additional fields. If "
+            "arguments (space-separated) are provided, those must also appear in the extracted TSV columns "
+            "(see --fields). Example usage: --append-extra-sample-fields DP AD"
         ),
     )
     parser.add_argument(
@@ -444,7 +422,6 @@ def main() -> None:
     cfg["igv_enabled"] = args.igv
     cfg["bam_mapping_file"] = args.bam_mapping_file
     cfg["igv_reference"] = args.igv_reference
-
     if args.igv and (not args.bam_mapping_file or not args.igv_reference):
         logger.error("For IGV integration, --bam-mapping-file and --igv-reference must be provided.")
         sys.exit(1)
@@ -470,18 +447,20 @@ def main() -> None:
     cfg["genotype_filter"] = args.genotype_filter
     cfg["gene_genotype_file"] = args.gene_genotype_file
 
-    # Extra sample fields
-    cfg["append_extra_sample_fields"] = args.append_extra_sample_fields
-    cfg["extra_sample_fields"] = [
-        f.strip() for f in args.extra_sample_fields.split(",") if f.strip()
-    ]
+    # Unified extra sample fields logic:
+    if args.append_extra_sample_fields is not None:
+        # Flag used => enable genotype+field appending
+        cfg["append_extra_sample_fields"] = True
+        # Possibly empty list if used with no args
+        cfg["extra_sample_fields"] = args.append_extra_sample_fields
+    else:
+        # Flag not used at all
+        cfg["append_extra_sample_fields"] = False
+        cfg["extra_sample_fields"] = []
+
     cfg["extra_sample_field_delimiter"] = args.extra_sample_field_delimiter
 
-    # >>> Manage the new snpEff splitting mode:
-    # If user doesn't specify --split-snpeff-lines, it will be None
-    # If user uses the flag with no value => 'before_filters'
-    # If user uses it with 'after_filters' => 'after_filters'
+    # Manage the new snpEff splitting mode
     cfg["snpeff_splitting_mode"] = args.split_snpeff_lines  # None, 'before_filters', or 'after_filters'
 
-    # Run the pipeline
     run_pipeline(args, cfg, start_time)
