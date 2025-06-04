@@ -1,20 +1,16 @@
 # File: variantcentrifuge/cli.py
 
 import argparse
-import sys
-import logging
 import datetime
-import os
-from typing import Optional, Dict, Any
+import logging
+import sys
+from typing import Any, Dict, Optional
 
-from .version import __version__
 from .config import load_config
-from .validators import (
-    validate_mandatory_parameters,
-    validate_vcf_file,
-    validate_phenotype_file,
-)
 from .pipeline import run_pipeline
+from .validators import (validate_mandatory_parameters,
+                         validate_phenotype_file, validate_vcf_file)
+from .version import __version__
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -62,16 +58,12 @@ def main() -> None:
         - We retain --extra-sample-field-delimiter to control the delimiter between genotype and
           extra fields (default ':').
     """
-    logging.basicConfig(
-        level=logging.INFO, format="%(levelname)s: %(message)s", stream=sys.stderr
-    )
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s", stream=sys.stderr)
 
     start_time: datetime.datetime = datetime.datetime.now()
     logger.info(f"Run started at {start_time.isoformat()}")
 
-    parser = argparse.ArgumentParser(
-        description="variantcentrifuge: Filter and process VCF files."
-    )
+    parser = argparse.ArgumentParser(description="variantcentrifuge: Filter and process VCF files.")
     parser.add_argument(
         "--version",
         action="version",
@@ -94,9 +86,7 @@ def main() -> None:
         default=None,
     )
     parser.add_argument("-g", "--gene-name", help="Gene or list of genes of interest")
-    parser.add_argument(
-        "-G", "--gene-file", help="File containing gene names, one per line"
-    )
+    parser.add_argument("-G", "--gene-file", help="File containing gene names, one per line")
     parser.add_argument("-v", "--vcf-file", help="Input VCF file path", required=True)
     parser.add_argument(
         "-r",
@@ -115,9 +105,7 @@ def main() -> None:
             "If custom filters are also given, they are combined with these presets using AND."
         ),
     )
-    parser.add_argument(
-        "-e", "--fields", help="Fields to extract with SnpSift extractFields"
-    )
+    parser.add_argument("-e", "--fields", help="Fields to extract with SnpSift extractFields")
     parser.add_argument(
         "-o",
         "--output-file",
@@ -125,9 +113,7 @@ def main() -> None:
         const="stdout",
         help="Final output file name or 'stdout'/'-' for stdout",
     )
-    parser.add_argument(
-        "--xlsx", action="store_true", help="Convert final result to Excel"
-    )
+    parser.add_argument("--xlsx", action="store_true", help="Convert final result to Excel")
     parser.add_argument(
         "--no-replacement", action="store_true", help="Skip genotype replacement step"
     )
@@ -148,9 +134,7 @@ def main() -> None:
         default=True,
         help="Keep intermediate files.",
     )
-    parser.add_argument(
-        "--phenotype-file", help="Path to phenotype file (.csv or .tsv)"
-    )
+    parser.add_argument("--phenotype-file", help="Path to phenotype file (.csv or .tsv)")
     parser.add_argument(
         "--phenotype-sample-column",
         help="Name of the column containing sample IDs in phenotype file",
@@ -165,31 +149,19 @@ def main() -> None:
         default=False,
         help="Skip the statistics computation step.",
     )
-    parser.add_argument(
-        "--case-phenotypes", help="Comma-separated HPO terms defining case group"
-    )
+    parser.add_argument("--case-phenotypes", help="Comma-separated HPO terms defining case group")
     parser.add_argument(
         "--control-phenotypes", help="Comma-separated HPO terms defining control group"
     )
-    parser.add_argument(
-        "--case-phenotypes-file", help="File with HPO terms for case group"
-    )
-    parser.add_argument(
-        "--control-phenotypes-file", help="File with HPO terms for control group"
-    )
-    parser.add_argument(
-        "--case-samples", help="Comma-separated sample IDs defining the case group"
-    )
+    parser.add_argument("--case-phenotypes-file", help="File with HPO terms for case group")
+    parser.add_argument("--control-phenotypes-file", help="File with HPO terms for control group")
+    parser.add_argument("--case-samples", help="Comma-separated sample IDs defining the case group")
     parser.add_argument(
         "--control-samples",
         help="Comma-separated sample IDs defining the control group",
     )
-    parser.add_argument(
-        "--case-samples-file", help="File with sample IDs for case group"
-    )
-    parser.add_argument(
-        "--control-samples-file", help="File with sample IDs for control group"
-    )
+    parser.add_argument("--case-samples-file", help="File with sample IDs for case group")
+    parser.add_argument("--control-samples-file", help="File with sample IDs for control group")
     parser.add_argument(
         "--gene-burden-mode",
         choices=["samples", "alleles"],

@@ -20,19 +20,15 @@ Maintains previous functionality, CLI interface, and output format.
 """
 
 import io
-import pandas as pd
 import logging
-from typing import Iterator, Dict, Any
+from typing import Any, Dict, Iterator
 
-from . import stats
-from . import gene_burden
-from .helpers import (
-    determine_case_control_sets,
-    assign_case_control_counts,
-    build_sample_phenotype_map,
-    genotype_to_allele_count,
-    extract_sample_and_genotype,
-)
+import pandas as pd
+
+from . import gene_burden, stats
+from .helpers import (assign_case_control_counts, build_sample_phenotype_map,
+                      determine_case_control_sets, extract_sample_and_genotype,
+                      genotype_to_allele_count)
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -106,9 +102,7 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
         return
 
     if "sample_list" not in cfg or not cfg["sample_list"].strip():
-        logger.error(
-            "No sample_list found in cfg. Unable to determine the full sample set."
-        )
+        logger.error("No sample_list found in cfg. Unable to determine the full sample set.")
         for line in text_data.strip().split("\n"):
             yield line
         return
@@ -136,9 +130,7 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
     # Write basic stats if requested
     if stats_output_file:
         logger.debug("Writing basic stats to %s", stats_output_file)
-        basic_stats_df.to_csv(
-            stats_output_file, sep="\t", index=False, header=True, mode="w"
-        )
+        basic_stats_df.to_csv(stats_output_file, sep="\t", index=False, header=True, mode="w")
 
     # Compute comprehensive stats if not skipped
     if not no_stats:
@@ -162,9 +154,7 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
         if comp_stats_list and stats_output_file:
             logger.debug("Appending comprehensive stats to the stats file.")
             comp_stats_df = pd.DataFrame(comp_stats_list, columns=["metric", "value"])
-            comp_stats_df.to_csv(
-                stats_output_file, sep="\t", index=False, header=False, mode="a"
-            )
+            comp_stats_df.to_csv(stats_output_file, sep="\t", index=False, header=False, mode="a")
     else:
         logger.debug("No comprehensive stats requested (no_stats=True).")
 
@@ -174,17 +164,13 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
         gene_burden_results = gene_burden.perform_gene_burden_analysis(df, cfg)
 
         if gene_burden_results.empty:
-            logger.warning(
-                "Gene burden results are empty. Returning variant-level data."
-            )
+            logger.warning("Gene burden results are empty. Returning variant-level data.")
             out_str = df.to_csv(sep="\t", index=False)
             for line in out_str.strip().split("\n"):
                 yield line
             return
 
-        burden_output_file = cfg.get(
-            "gene_burden_output_file", "gene_burden_results.tsv"
-        )
+        burden_output_file = cfg.get("gene_burden_output_file", "gene_burden_results.tsv")
         logger.info("Writing gene burden results to %s", burden_output_file)
         gene_burden_results.to_csv(burden_output_file, sep="\t", index=False)
 

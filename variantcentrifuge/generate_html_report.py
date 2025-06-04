@@ -4,12 +4,11 @@
 import json
 from pathlib import Path
 from typing import Optional
+
 from jinja2 import Environment, FileSystemLoader
 
 
-def generate_html_report(
-    variants_json: str, summary_json: str, output_dir: str
-) -> None:
+def generate_html_report(variants_json: str, summary_json: str, output_dir: str) -> None:
     """
     Generate an interactive HTML report of variants and summary statistics.
 

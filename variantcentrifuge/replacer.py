@@ -42,7 +42,7 @@ internally.
 
 import logging
 import re
-from typing import Iterator, Dict, Any
+from typing import Any, Dict, Iterator
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -112,9 +112,7 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
     samples = [s.strip() for s in sample_list_str.split(",") if s.strip()]
     logger.debug("Parsed samples => %s", samples)
     if not samples:
-        logger.warning(
-            "No samples found in cfg[sample_list]. Returning lines unchanged."
-        )
+        logger.warning("No samples found in cfg[sample_list]. Returning lines unchanged.")
         yield from lines
         return
 
@@ -154,14 +152,10 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
                 # Usually it's just "GT", though
                 if "GT" in normalized_to_index:
                     gt_idx = normalized_to_index["GT"]
-                    logger.debug(
-                        "Found 'GT' column at index %d (via normalized map).", gt_idx
-                    )
+                    logger.debug("Found 'GT' column at index %d (via normalized map).", gt_idx)
 
             if gt_idx is None:
-                logger.warning(
-                    "No GT column found in header. Returning lines unmodified."
-                )
+                logger.warning("No GT column found in header. Returning lines unmodified.")
                 yield line
                 # yield the rest of the lines
                 yield from lines

@@ -14,7 +14,8 @@ Provides:
 import logging
 import sys
 from collections import defaultdict
-from typing import Dict, Any, Set, Tuple, List
+from typing import Any, Dict, List, Set, Tuple
+
 import pandas as pd
 
 logger = logging.getLogger("variantcentrifuge")
@@ -81,9 +82,7 @@ def determine_case_control_sets(
     # Use phenotypes from the phenotype input file (if provided)
     # If no phenotype file was provided, this will be an empty dict.
     sample_phenotype_map = cfg.get("phenotypes", {})
-    logger.debug(
-        "Phenotype map has %d samples (from phenotype file).", len(sample_phenotype_map)
-    )
+    logger.debug("Phenotype map has %d samples (from phenotype file).", len(sample_phenotype_map))
 
     classified_cases = set()
     classified_controls = set()
@@ -91,9 +90,7 @@ def determine_case_control_sets(
     for s in all_samples:
         phenos = sample_phenotype_map.get(s, set())
         match_case = any(p in phenos for p in case_terms) if case_terms else False
-        match_control = (
-            any(p in phenos for p in control_terms) if control_terms else False
-        )
+        match_control = any(p in phenos for p in control_terms) if control_terms else False
 
         if case_terms and not control_terms:
             # Only case terms

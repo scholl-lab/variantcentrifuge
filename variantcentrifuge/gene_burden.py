@@ -36,7 +36,8 @@ In addition to existing columns (p-values, odds ratio), the result now includes:
 
 import logging
 from math import isnan
-from typing import Dict, Any
+from typing import Any, Dict
+
 import pandas as pd
 
 try:
@@ -44,9 +45,9 @@ try:
 except ImportError:
     fisher_exact = None
 
+import numpy as np
 import statsmodels.stats.multitest as smm
 from statsmodels.stats.contingency_tables import Table2x2
-import numpy as np
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -91,9 +92,7 @@ def _compute_or_confidence_interval(
 
     if isnan(odds_ratio) or odds_ratio <= 0 or np.isinf(odds_ratio):
         # Attempt direct fallback without normal approx
-        logger.debug(
-            "Odds ratio is invalid (NaN, <=0, or Inf). Attempting fallback methods."
-        )
+        logger.debug("Odds ratio is invalid (NaN, <=0, or Inf). Attempting fallback methods.")
     a = table[0][0]
     b = table[0][1]
     c = table[1][0]
@@ -120,9 +119,7 @@ def _compute_or_confidence_interval(
         # Check if we still have invalid CI
         if isnan(ci_lower) or isnan(ci_upper):
             # Provide bounded fallback
-            logger.debug(
-                "Both normal and logit methods failed. Using bounded fallback CIs."
-            )
+            logger.debug("Both normal and logit methods failed. Using bounded fallback CIs.")
             ci_lower, ci_upper = 0.001, 1000.0
     else:
         # Unsupported method: return NaN
@@ -239,9 +236,7 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.Da
             pval = 1.0
 
         # Compute confidence interval for the odds ratio
-        ci_lower, ci_upper = _compute_or_confidence_interval(
-            table, odds_ratio, ci_method, ci_alpha
-        )
+        ci_lower, ci_upper = _compute_or_confidence_interval(table, odds_ratio, ci_method, ci_alpha)
 
         results.append(
             {

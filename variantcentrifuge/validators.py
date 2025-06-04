@@ -13,9 +13,9 @@ These validations ensure that all critical inputs and parameters
 are provided correctly before proceeding with the analysis.
 """
 
-import sys
-import os
 import logging
+import os
+import sys
 from typing import Optional
 
 logger = logging.getLogger("variantcentrifuge")
@@ -110,9 +110,7 @@ def validate_phenotype_file(
 
         data_line = pf.readline()
         if not data_line.strip():
-            logger.error(
-                "Phenotype file %s contains only a header and no data.", phenotype_file
-            )
+            logger.error("Phenotype file %s contains only a header and no data.", phenotype_file)
             sys.exit(1)
 
 
@@ -148,7 +146,5 @@ def validate_mandatory_parameters(
         sys.exit(1)
 
     if not fields:
-        sys.stderr.write(
-            "No fields to extract provided. Provide via --fields or in config.\n"
-        )
+        sys.stderr.write("No fields to extract provided. Provide via --fields or in config.\n")
         sys.exit(1)

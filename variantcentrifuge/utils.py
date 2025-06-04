@@ -8,11 +8,11 @@ Provides helper functions for logging, running commands, checking tool availabil
 and retrieving tool versions.
 """
 
+import logging
+import shutil
 import subprocess
 import sys
-import shutil
-import logging
-from typing import Optional, List
+from typing import List, Optional
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -59,13 +59,9 @@ def run_command(cmd: list, output_file: Optional[str] = None) -> str:
     logger.debug("Running command: %s", " ".join(cmd))
     if output_file:
         with open(output_file, "w", encoding="utf-8") as out_f:
-            result = subprocess.run(
-                cmd, stdout=out_f, stderr=subprocess.PIPE, text=True
-            )
+            result = subprocess.run(cmd, stdout=out_f, stderr=subprocess.PIPE, text=True)
     else:
-        result = subprocess.run(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-        )
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     if result.returncode != 0:
         logger.error("Command failed: %s\nError: %s", " ".join(cmd), result.stderr)
@@ -219,9 +215,7 @@ def get_tool_version(tool_name: str) -> str:
         )
         version = parse_func(result.stdout, result.stderr)
         if version == "N/A":
-            logger.warning(
-                "Could not parse version for %s. Returning 'N/A'.", tool_name
-            )
+            logger.warning("Could not parse version for %s. Returning 'N/A'.", tool_name)
         return version
     except Exception as e:
         logger.warning("Failed to retrieve version for %s: %s", tool_name, e)

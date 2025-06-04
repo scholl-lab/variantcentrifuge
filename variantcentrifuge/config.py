@@ -12,9 +12,9 @@ If no config_file is provided, this module attempts to load the default
 config.json from the package installation directory.
 """
 
-import os
 import json
-from typing import Dict, Any, Optional
+import os
+from typing import Any, Dict, Optional
 
 
 def load_config(config_file: Optional[str] = None) -> Dict[str, Any]:

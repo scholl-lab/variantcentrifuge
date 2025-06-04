@@ -21,9 +21,7 @@ def test_extract_variants_no_bed(monkeypatch):
         yield "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO"
         yield "1\t1000\t.\tA\tG\t.\t.\t."
 
-    monkeypatch.setattr(
-        "variantcentrifuge.filters.run_command_stream", mock_run_command
-    )
+    monkeypatch.setattr("variantcentrifuge.filters.run_command_stream", mock_run_command)
     cfg = {}
     lines = list(extract_variants("fake.vcf", "fake.bed", cfg))
     assert len(lines) > 0

@@ -42,12 +42,12 @@ Command-line arguments:
     -o, --output   Path to output file (or "-" for stdout).
 """
 
-import sys
-import re
-import gzip
 import argparse
-import subprocess
+import gzip
 import io
+import re
+import subprocess
+import sys
 
 
 def split_vcf_effects(line: str) -> list[str]:

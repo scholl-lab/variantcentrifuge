@@ -9,15 +9,14 @@ from VCF records and save the result to the specified output file.
 """
 
 import logging
-from typing import Dict, Any
-from .utils import run_command, normalize_snpeff_headers  # <-- Updated import
+from typing import Any, Dict
+
+from .utils import normalize_snpeff_headers, run_command  # <-- Updated import
 
 logger = logging.getLogger("variantcentrifuge")
 
 
-def extract_fields(
-    variant_file: str, fields: str, cfg: Dict[str, Any], output_file: str
-) -> str:
+def extract_fields(variant_file: str, fields: str, cfg: Dict[str, Any], output_file: str) -> str:
     """
     Extract specified fields from variant records and write them directly to
     `output_file`, controlling the SnpSift field separator if needed.
@@ -77,9 +76,7 @@ def extract_fields(
         lines = f.readlines()
 
     if not lines:
-        logger.warning(
-            "No lines were written to the output after SnpSift extract. Check input."
-        )
+        logger.warning("No lines were written to the output after SnpSift extract. Check input.")
         return output_file
 
     # Use the new utility function to remove any SnpEff prefixes from the header

@@ -15,9 +15,9 @@ to aggregate phenotypes for a given list of samples.
   - For multiple samples, join each sample's phenotype string by ";".
 """
 
-import os
 import logging
-from typing import Dict, Set, List
+import os
+from typing import Dict, List, Set
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -60,13 +60,9 @@ def load_phenotypes(
         header = header_line.split(delim)
 
         if sample_column not in header:
-            raise ValueError(
-                f"Sample column '{sample_column}' not found in phenotype file."
-            )
+            raise ValueError(f"Sample column '{sample_column}' not found in phenotype file.")
         if phenotype_column not in header:
-            raise ValueError(
-                f"Phenotype column '{phenotype_column}' not found in phenotype file."
-            )
+            raise ValueError(f"Phenotype column '{phenotype_column}' not found in phenotype file.")
 
         sample_idx = header.index(sample_column)
         pheno_idx = header.index(phenotype_column)
@@ -88,9 +84,7 @@ def load_phenotypes(
     return phenotypes
 
 
-def aggregate_phenotypes_for_samples(
-    samples: List[str], phenotypes: Dict[str, Set[str]]
-) -> str:
+def aggregate_phenotypes_for_samples(samples: List[str], phenotypes: Dict[str, Set[str]]) -> str:
     """
     Aggregate phenotypes for a given list of samples into a single string.
 

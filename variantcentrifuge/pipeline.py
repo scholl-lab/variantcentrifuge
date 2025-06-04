@@ -18,45 +18,32 @@ This module provides high-level orchestration of the analysis steps:
 All steps are coordinated within the run_pipeline function.
 """
 
-import os
-import sys
-import hashlib
-import datetime
-import logging
-import subprocess
-import re
-from typing import Optional, List, Dict, Any
 import argparse
+import datetime
+import hashlib
+import logging
+import os
+import re
+import subprocess
+import sys
+from typing import Any, Dict, List, Optional
 
+from .analyze_variants import analyze_variants
+from .converter import (append_tsv_as_sheet, convert_to_excel,
+                        finalize_excel_file, produce_report_json)
+from .extractor import extract_fields
+from .filters import (apply_snpsift_filter, extract_variants,
+                      filter_final_tsv_by_genotype)
+from .gene_bed import get_gene_bed, normalize_genes
+from .links import add_links_to_table
+from .phenotype import aggregate_phenotypes_for_samples, load_phenotypes
+from .phenotype_filter import filter_phenotypes
+from .replacer import replace_genotypes
+from .utils import (check_external_tools, ensure_fields_in_extract,
+                    get_tool_version, normalize_snpeff_headers, run_command,
+                    sanitize_metadata_field)
 # Import the SNPeff annotation splitting function
 from .vcf_eff_one_per_line import process_vcf_file
-
-from .utils import (
-    check_external_tools,
-    run_command,
-    get_tool_version,
-    sanitize_metadata_field,
-    normalize_snpeff_headers,
-    ensure_fields_in_extract,
-)
-from .gene_bed import get_gene_bed, normalize_genes
-from .analyze_variants import analyze_variants
-from .phenotype import load_phenotypes, aggregate_phenotypes_for_samples
-from .converter import (
-    convert_to_excel,
-    append_tsv_as_sheet,
-    finalize_excel_file,
-    produce_report_json,
-)
-from .replacer import replace_genotypes
-from .phenotype_filter import filter_phenotypes
-from .links import add_links_to_table
-from .filters import (
-    extract_variants,
-    apply_snpsift_filter,
-    filter_final_tsv_by_genotype,
-)
-from .extractor import extract_fields
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -213,9 +200,7 @@ def run_pipeline(
     check_external_tools()
 
     # Normalize genes
-    gene_name = normalize_genes(
-        args.gene_name if args.gene_name else "", args.gene_file, logger
-    )
+    gene_name = normalize_genes(args.gene_name if args.gene_name else "", args.gene_file, logger)
     logger.debug(f"Normalized gene list: {gene_name}")
 
     # Determine base name and output paths
@@ -227,9 +212,7 @@ def run_pipeline(
         else:
             final_to_stdout = False
             base_name = compute_base_name(args.vcf_file, gene_name)
-            final_output = os.path.join(
-                args.output_dir, os.path.basename(args.output_file)
-            )
+            final_output = os.path.join(args.output_dir, os.path.basename(args.output_file))
     else:
         final_to_stdout = False
         base_name = compute_base_name(args.vcf_file, gene_name)
@@ -240,20 +223,14 @@ def run_pipeline(
     os.makedirs(intermediate_dir, exist_ok=True)
 
     if not cfg["no_stats"] and not args.stats_output_file:
-        cfg["stats_output_file"] = os.path.join(
-            intermediate_dir, f"{base_name}.statistics.tsv"
-        )
+        cfg["stats_output_file"] = os.path.join(intermediate_dir, f"{base_name}.statistics.tsv")
     else:
         cfg["stats_output_file"] = args.stats_output_file
 
     # Load phenotypes if provided
     phenotypes = {}
     use_phenotypes = False
-    if (
-        args.phenotype_file
-        and args.phenotype_sample_column
-        and args.phenotype_value_column
-    ):
+    if args.phenotype_file and args.phenotype_sample_column and args.phenotype_value_column:
         phenotypes = load_phenotypes(
             args.phenotype_file,
             args.phenotype_sample_column,
@@ -274,15 +251,11 @@ def run_pipeline(
     case_hpo_terms = []
     control_hpo_terms = []
     if args.case_phenotypes:
-        case_hpo_terms = [
-            t.strip() for t in args.case_phenotypes.split(",") if t.strip()
-        ]
+        case_hpo_terms = [t.strip() for t in args.case_phenotypes.split(",") if t.strip()]
     case_hpo_terms += load_terms_from_file(args.case_phenotypes_file, logger)
 
     if args.control_phenotypes:
-        control_hpo_terms = [
-            t.strip() for t in args.control_phenotypes.split(",") if t.strip()
-        ]
+        control_hpo_terms = [t.strip() for t in args.control_phenotypes.split(",") if t.strip()]
     control_hpo_terms += load_terms_from_file(args.control_phenotypes_file, logger)
 
     cfg["case_phenotypes"] = case_hpo_terms
@@ -296,9 +269,7 @@ def run_pipeline(
     case_samples += load_terms_from_file(args.case_samples_file, logger)
 
     if args.control_samples:
-        control_samples = [
-            s.strip() for s in args.control_samples.split(",") if s.strip()
-        ]
+        control_samples = [s.strip() for s in args.control_samples.split(",") if s.strip()]
     control_samples += load_terms_from_file(args.control_samples_file, logger)
 
     cfg["case_samples"] = case_samples
@@ -315,9 +286,7 @@ def run_pipeline(
     logger.debug(f"Gene BED created at: {bed_file}")
 
     if not os.path.exists(bed_file) or os.path.getsize(bed_file) == 0:
-        logger.error(
-            "Gene BED file could not be created or is empty. Check genes or reference."
-        )
+        logger.error("Gene BED file could not be created or is empty. Check genes or reference.")
         sys.exit(1)
 
     # Check if requested genes found in reference
@@ -333,8 +302,7 @@ def run_pipeline(
         missing = [g for g in requested_genes if g not in found_genes]
         if missing:
             logger.warning(
-                "The following gene(s) were not found in the reference: "
-                f"{', '.join(missing)}"
+                "The following gene(s) were not found in the reference: " f"{', '.join(missing)}"
             )
             if cfg.get("debug_level", "INFO") == "ERROR":
                 sys.exit(1)
@@ -352,12 +320,8 @@ def run_pipeline(
         intermediate_dir, f"{base_name}.transcript_filtered.vcf.gz"
     )
     extracted_tsv = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv")
-    genotype_replaced_tsv = os.path.join(
-        intermediate_dir, f"{base_name}.genotype_replaced.tsv"
-    )
-    phenotype_added_tsv = os.path.join(
-        intermediate_dir, f"{base_name}.phenotypes_added.tsv"
-    )
+    genotype_replaced_tsv = os.path.join(intermediate_dir, f"{base_name}.genotype_replaced.tsv")
+    phenotype_added_tsv = os.path.join(intermediate_dir, f"{base_name}.phenotypes_added.tsv")
     gene_burden_tsv = os.path.join(args.output_dir, f"{base_name}.gene_burden.tsv")
 
     # Parse samples from VCF
@@ -365,9 +329,7 @@ def run_pipeline(
     if cfg.get("remove_sample_substring"):
         substring_to_remove = cfg["remove_sample_substring"]
         if substring_to_remove and substring_to_remove.strip():
-            original_samples = [
-                s.replace(substring_to_remove, "") for s in original_samples
-            ]
+            original_samples = [s.replace(substring_to_remove, "") for s in original_samples]
 
     # -----------------------------------------------------------------------
     # Step 1: Extract variants => variants_file
@@ -378,9 +340,7 @@ def run_pipeline(
     splitting_mode = cfg.get("snpeff_splitting_mode", None)
 
     if splitting_mode == "before_filters":
-        logger.info(
-            "Splitting multiple SNPeff (EFF/ANN) annotations before main filtering."
-        )
+        logger.info("Splitting multiple SNPeff (EFF/ANN) annotations before main filtering.")
         process_vcf_file(variants_file, splitted_before_file)
         prefiltered_for_snpsift = splitted_before_file
     else:
@@ -407,9 +367,7 @@ def run_pipeline(
     # -----------------------------------------------------------------------
     transcripts = []
     if args.transcript_list:
-        transcripts.extend(
-            [t.strip() for t in args.transcript_list.split(",") if t.strip()]
-        )
+        transcripts.extend([t.strip() for t in args.transcript_list.split(",") if t.strip()])
     if args.transcript_file:
         if not os.path.exists(args.transcript_file):
             logger.error(f"Transcript file not found: {args.transcript_file}")
@@ -442,9 +400,7 @@ def run_pipeline(
     # -----------------------------------------------------------------------
     # If user wants to append extra sample fields, ensure they're in the main fields
     # (Unify them into cfg["fields_to_extract"])
-    if cfg.get("append_extra_sample_fields", False) and cfg.get(
-        "extra_sample_fields", []
-    ):
+    if cfg.get("append_extra_sample_fields", False) and cfg.get("extra_sample_fields", []):
         updated_fields = ensure_fields_in_extract(
             cfg["fields_to_extract"], cfg["extra_sample_fields"]
         )
@@ -486,9 +442,7 @@ def run_pipeline(
             "User config => removing columns after replacement: %s",
             cfg["extra_sample_fields"],
         )
-        stripped_tsv = os.path.join(
-            intermediate_dir, f"{base_name}.stripped_extras.tsv"
-        )
+        stripped_tsv = os.path.join(intermediate_dir, f"{base_name}.stripped_extras.tsv")
 
         with open(replaced_tsv, "r", encoding="utf-8") as inp, open(
             stripped_tsv, "w", encoding="utf-8"
@@ -499,8 +453,8 @@ def run_pipeline(
 
             # Create a normalized copy of the header to see how columns might have been renamed
             # by SnpSift or other tools:
-            normed_header_line = normalize_snpeff_headers([raw_header_line])[0]
-            normed_header_cols = normed_header_line.split("\t")
+            # Keep normalized header code for potential future use
+            # normed_header_line = normalize_snpeff_headers([raw_header_line])[0]
 
             # Build a map from normalized_col -> original_index
             normalized_to_index = {}
@@ -528,9 +482,7 @@ def run_pipeline(
                     )
 
             remove_indices.sort(reverse=True)
-            new_header = [
-                h for i, h in enumerate(original_header_cols) if i not in remove_indices
-            ]
+            new_header = [h for i, h in enumerate(original_header_cols) if i not in remove_indices]
             out.write("\t".join(new_header) + "\n")
 
             for line_num, line in enumerate(inp, start=2):
@@ -583,9 +535,7 @@ def run_pipeline(
                                         samples_in_line.append(s)
                     pheno_str = ""
                     if samples_in_line:
-                        pheno_str = aggregate_phenotypes_for_samples(
-                            samples_in_line, phenotypes
-                        )
+                        pheno_str = aggregate_phenotypes_for_samples(samples_in_line, phenotypes)
                     fields_line.append(pheno_str)
                 else:
                     fields_line.append("")
@@ -602,17 +552,11 @@ def run_pipeline(
         final_tsv = replaced_tsv
 
     # Genotype filtering if requested
-    if getattr(args, "genotype_filter", None) or getattr(
-        args, "gene_genotype_file", None
-    ):
-        genotype_filtered_tsv = os.path.join(
-            args.output_dir, f"{base_name}.genotype_filtered.tsv"
-        )
+    if getattr(args, "genotype_filter", None) or getattr(args, "gene_genotype_file", None):
+        genotype_filtered_tsv = os.path.join(args.output_dir, f"{base_name}.genotype_filtered.tsv")
         genotype_modes = set()
         if getattr(args, "genotype_filter", None):
-            genotype_modes = set(
-                g.strip() for g in args.genotype_filter.split(",") if g.strip()
-            )
+            genotype_modes = set(g.strip() for g in args.genotype_filter.split(",") if g.strip())
         filter_final_tsv_by_genotype(
             input_tsv=final_tsv,
             output_tsv=genotype_filtered_tsv,
@@ -623,9 +567,7 @@ def run_pipeline(
 
     # If Excel requested
     if args.xlsx:
-        excel_file = (
-            os.path.splitext(final_output or f"{base_name}.final.tsv")[0] + ".xlsx"
-        )
+        excel_file = os.path.splitext(final_output or f"{base_name}.final.tsv")[0] + ".xlsx"
         cfg["final_excel_file"] = excel_file
     else:
         cfg["final_excel_file"] = None
@@ -803,9 +745,7 @@ def run_pipeline(
         meta_write("Run_end_time", end_time.isoformat())
         meta_write("Run_duration_seconds", str(duration))
         meta_write("Date", datetime.datetime.now().isoformat())
-        meta_write(
-            "Command_line", " ".join([sanitize_metadata_field(x) for x in sys.argv])
-        )
+        meta_write("Command_line", " ".join([sanitize_metadata_field(x) for x in sys.argv]))
 
         for k, v in cfg.items():
             meta_write(f"config.{k}", str(v))
@@ -844,9 +784,7 @@ def run_pipeline(
                 and os.path.exists(gene_burden_tsv)
                 and os.path.getsize(gene_burden_tsv) > 0
             ):
-                append_tsv_as_sheet(
-                    xlsx_file, gene_burden_tsv, sheet_name="Gene Burden"
-                )
+                append_tsv_as_sheet(xlsx_file, gene_burden_tsv, sheet_name="Gene Burden")
 
             finalize_excel_file(xlsx_file, cfg)
 
@@ -902,9 +840,7 @@ def run_pipeline(
                 )
                 logger.info("Standalone IGV report generated successfully.")
             else:
-                logger.warning(
-                    "Final variants TSV not found, cannot generate IGV report."
-                )
+                logger.warning("Final variants TSV not found, cannot generate IGV report.")
 
     # Remove intermediates if requested
     if not args.keep_intermediates:
@@ -926,6 +862,5 @@ def run_pipeline(
                 os.remove(f)
 
     logger.info(
-        f"Processing completed. Output saved to "
-        f"{'stdout' if final_to_stdout else final_output}"
+        f"Processing completed. Output saved to " f"{'stdout' if final_to_stdout else final_output}"
     )

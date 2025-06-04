@@ -20,17 +20,16 @@ New changes for preserving extra fields (e.g., DP, AD) in parentheses:
 """
 
 import logging
-import tempfile
 import os
-from typing import Dict, Any, Optional, Set, List
+import tempfile
+from typing import Any, Dict, List, Optional, Set
+
 from .utils import run_command
 
 logger = logging.getLogger("variantcentrifuge")
 
 
-def extract_variants(
-    vcf_file: str, bed_file: str, cfg: Dict[str, Any], output_file: str
-) -> str:
+def extract_variants(vcf_file: str, bed_file: str, cfg: Dict[str, Any], output_file: str) -> str:
     """
     Extract variants from a VCF using bcftools and a BED file, writing output
     to the specified compressed VCF ('.vcf.gz'). bcftools is invoked with the
@@ -234,9 +233,7 @@ def filter_final_tsv_by_genotype(
     # Read the gene -> genotype(s) mapping if provided
     gene_to_genotypes: Dict[str, Set[str]] = {}
     if gene_genotype_file and os.path.exists(gene_genotype_file):
-        logger.debug(
-            "Attempting to read gene -> genotype rules from: %s", gene_genotype_file
-        )
+        logger.debug("Attempting to read gene -> genotype rules from: %s", gene_genotype_file)
         with open(gene_genotype_file, "r", encoding="utf-8") as gfile:
             all_lines = gfile.readlines()
 
@@ -279,9 +276,7 @@ def filter_final_tsv_by_genotype(
                         gene_to_genotypes[gname] = set()
                     gene_to_genotypes[gname].update(genos)
                 line_count += 1
-            logger.debug(
-                "Finished reading %d data lines from gene_genotype_file", line_count
-            )
+            logger.debug("Finished reading %d data lines from gene_genotype_file", line_count)
     else:
         logger.debug(
             "No valid gene_genotype_file found, or file does not exist at: %s",
@@ -305,15 +300,11 @@ def filter_final_tsv_by_genotype(
         try:
             gene_idx = header_cols.index(gene_column_name)
         except ValueError:
-            raise ValueError(
-                f"Could not find gene column '{gene_column_name}' in TSV header."
-            )
+            raise ValueError(f"Could not find gene column '{gene_column_name}' in TSV header.")
         try:
             gt_idx = header_cols.index(gt_column_name)
         except ValueError:
-            raise ValueError(
-                f"Could not find genotype column '{gt_column_name}' in TSV header."
-            )
+            raise ValueError(f"Could not find genotype column '{gt_column_name}' in TSV header.")
 
         for line in inp:
             line = line.rstrip("\n")
@@ -369,14 +360,10 @@ def filter_final_tsv_by_genotype(
                     else genotype_substring
                 )
                 if is_het(main_gt):
-                    sample_het_count[sample_name] = (
-                        sample_het_count.get(sample_name, 0) + 1
-                    )
+                    sample_het_count[sample_name] = sample_het_count.get(sample_name, 0) + 1
         qualified_samples = {s for s, c in sample_het_count.items() if c >= 2}
         comp_het_qualified[g] = qualified_samples
-        logger.debug(
-            "Gene '%s' => comp_het_qualified samples: %s", g, qualified_samples
-        )
+        logger.debug("Gene '%s' => comp_het_qualified samples: %s", g, qualified_samples)
 
     # We'll build our filtered lines
     filtered_lines: List[str] = [header]  # keep original header as is
@@ -416,9 +403,7 @@ def filter_final_tsv_by_genotype(
                     # This sample passes the filter => we append the reason(s)
                     reason_str = f"({','.join(reasons)})"
                     # e.g. "325879(0/1:53,55:108)(het,comphet)"
-                    new_sample_entries.append(
-                        f"{sample_name}({genotype_substring}){reason_str}"
-                    )
+                    new_sample_entries.append(f"{sample_name}({genotype_substring}){reason_str}")
 
             # If we have at least one sample that passes => keep the line
             if new_sample_entries:
@@ -430,6 +415,4 @@ def filter_final_tsv_by_genotype(
         for line in filtered_lines:
             out.write(line + "\n")
 
-    logger.info(
-        "Genotype filtering complete. Input: %s, Output: %s", input_tsv, output_tsv
-    )
+    logger.info("Genotype filtering complete. Input: %s, Output: %s", input_tsv, output_tsv)

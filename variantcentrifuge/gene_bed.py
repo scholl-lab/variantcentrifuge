@@ -9,14 +9,14 @@ This module provides:
 - get_gene_bed: For generating a BED file corresponding to specified genes via snpEff genes2bed.
 """
 
-import subprocess
-import tempfile
-import os
 import hashlib
-import shutil
 import logging
+import os
+import shutil
+import subprocess
 import sys
-from typing import Optional, List
+import tempfile
+from typing import List, Optional
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -66,8 +66,7 @@ def normalize_genes(
             sys.exit(1)
         if os.path.exists(gene_name_str):
             logger.error(
-                f"It looks like you provided a file '{gene_name_str}' to "
-                f"-g/--gene-name."
+                f"It looks like you provided a file '{gene_name_str}' to " f"-g/--gene-name."
             )
             logger.error(
                 "If you meant to provide a file of gene names, please use "
@@ -76,9 +75,7 @@ def normalize_genes(
             sys.exit(1)
 
         g_str = gene_name_str.replace(",", " ")
-        genes = [
-            g.strip() for g_str_part in g_str.split() for g in [g_str_part.strip()] if g
-        ]
+        genes = [g.strip() for g_str_part in g_str.split() for g in [g_str_part.strip()] if g]
 
     if len(genes) == 1 and genes[0].lower() == "all":
         return "all"

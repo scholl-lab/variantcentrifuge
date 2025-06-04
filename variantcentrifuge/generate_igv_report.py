@@ -1,10 +1,10 @@
 # File: variantcentrifuge/reporting/generate_igv_report.py
 
-import os
-import subprocess
-import re
 import json
 import logging
+import os
+import re
+import subprocess
 from typing import Dict
 
 logger = logging.getLogger("variantcentrifuge")
@@ -80,9 +80,7 @@ def generate_igv_report(
     required_cols = ["CHROM", "POS", "REF", "ALT", "GT"]
     for rc in required_cols:
         if rc not in header:
-            logger.error(
-                f"Missing required column '{rc}' in {variants_tsv}. Cannot proceed."
-            )
+            logger.error(f"Missing required column '{rc}' in {variants_tsv}. Cannot proceed.")
             return
 
     chrom_idx = header.index("CHROM")
@@ -146,9 +144,7 @@ def generate_igv_report(
                         # If the sample carries the variant (not 0/0 or ./.)
                         if genotype not in ["0/0", "./."]:
                             if sample_id not in bam_mapping:
-                                logger.warning(
-                                    f"No BAM found for sample {sample_id}, skipping."
-                                )
+                                logger.warning(f"No BAM found for sample {sample_id}, skipping.")
                                 continue
 
                             variant_tsv_path = os.path.join(
@@ -158,9 +154,7 @@ def generate_igv_report(
                             with open(variant_tsv_path, "w", encoding="utf-8") as sf:
                                 # Columns: CHROM POS REF ALT
                                 sf.write("CHROM\tPOS\tREF\tALT\n")
-                                sf.write(
-                                    f"{chrom}\t{pos}\t{ref_allele}\t{alt_allele}\n"
-                                )
+                                sf.write(f"{chrom}\t{pos}\t{ref_allele}\t{alt_allele}\n")
 
                             sample_report_path = os.path.join(
                                 igv_dir,
@@ -198,22 +192,14 @@ def generate_igv_report(
 
                             # Log output from create_report
                             if result.stdout:
-                                logger.info(
-                                    f"create_report stdout: {result.stdout.strip()}"
-                                )
+                                logger.info(f"create_report stdout: {result.stdout.strip()}")
                             if result.stderr:
-                                logger.warning(
-                                    f"create_report stderr: {result.stderr.strip()}"
-                                )
+                                logger.warning(f"create_report stderr: {result.stderr.strip()}")
 
                             if result.returncode != 0:
-                                logger.error(
-                                    f"create_report failed for {sample_report_path}"
-                                )
+                                logger.error(f"create_report failed for {sample_report_path}")
                             else:
-                                logger.info(
-                                    f"IGV report generated: {sample_report_path}"
-                                )
+                                logger.info(f"IGV report generated: {sample_report_path}")
                                 # Add entry to variant report map
                                 variant_report_map.append(
                                     {

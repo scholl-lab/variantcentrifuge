@@ -4,25 +4,25 @@
 
 ## Key Features
 
-- **Gene-Centric Filtering:**  
+- **Gene-Centric Filtering:**
   Extract variants from regions defined by genes of interest, using `snpEff` genes2bed to generate BED files.
 
-- **Rare Variant Identification:**  
+- **Rare Variant Identification:**
   Apply custom filters via `SnpSift` to isolate rare and moderate/high-impact variants.
 
-- **Flexible Field Extraction:**  
+- **Flexible Field Extraction:**
   Easily specify which fields to extract from the VCF (e.g., gene annotations, functional predictions, allele counts).
 
-- **Genotype Replacement:**  
+- **Genotype Replacement:**
   Replace genotype fields with corresponding sample IDs, enabling more interpretable variant reports.
 
-- **Phenotype Integration:**  
+- **Phenotype Integration:**
   Integrate phenotype data from a provided table (CSV or TSV) to further filter or annotate variants based on sample-level attributes.
 
-- **Variant and Gene-Level Analysis:**  
-  Perform gene burden analyses (e.g., Fisher’s exact test) and variant-level statistics.  
+- **Variant and Gene-Level Analysis:**
+  Perform gene burden analyses (e.g., Fisher’s exact test) and variant-level statistics.
 
-- **Reporting and Visualization:**  
+- **Reporting and Visualization:**
   - Generate tab-delimited outputs by default and optionally convert them into Excel (XLSX) format.
   - Create an interactive HTML report with sortable variant tables and IGV.js integration for genomic visualization.
 
@@ -69,22 +69,22 @@ variantcentrifuge/
 
 - **Python 3.7+**
 
-- **External Tools:**  
+- **External Tools:**
   - `snpEff` for generating gene BED files and functional annotations.
   - `SnpSift` for filtering and field extraction.
   - `bcftools` for variant extraction and manipulation.
   - `bedtools` (specifically `sortBed`) for sorting BED files.
-  
+
   **Installation via mamba/conda:**
   ```sh
   mamba create -y -n annotation bcftools snpsift snpeff bedtools
   mamba activate annotation
   ```
-  
+
   Ensure these tools are in your `PATH` before running VariantCentrifuge.
 
-- **Python Packages:**  
-  The required Python packages can be installed via `pip` or `mamba/conda`.  
+- **Python Packages:**
+  The required Python packages can be installed via `pip` or `mamba/conda`.
   Minimal required packages include:
   - `pandas` (for XLSX conversion and data handling)
   - `pytest` (for testing)
@@ -135,15 +135,15 @@ VariantCentrifuge uses a JSON configuration file (`config.json`) to set default 
 - **fields_to_extract** (`str`): Space-separated list of fields to extract via SnpSift. No default; must be provided.
 
 **Optional Keys and Their Defaults:**
-- **interval_expand** (`int`): Number of bases to expand around genes. *Default: 0*  
-- **add_chr** (`bool`): Add "chr" prefix to chromosome names. *Default: true*  
-- **debug_level** (`str`): Logging level: "DEBUG", "INFO", "WARN", "ERROR". *Default: "INFO"*  
-- **no_stats** (`bool`): Skip statistics computation. *Default: false*  
-- **perform_gene_burden** (`bool`): Perform gene burden analysis. *Default: false*  
-- **gene_burden_mode** (`str`): "samples" or "alleles". *Default: "alleles"*  
-- **correction_method** (`str`): "fdr" or "bonferroni" for multiple testing correction. *Default: "fdr"*  
-- **igv_enabled** (`bool`): Enable IGV.js integration. *Default: false*  
-- **bam_mapping_file** (`str`): Required if igv_enabled=true. No default.  
+- **interval_expand** (`int`): Number of bases to expand around genes. *Default: 0*
+- **add_chr** (`bool`): Add "chr" prefix to chromosome names. *Default: true*
+- **debug_level** (`str`): Logging level: "DEBUG", "INFO", "WARN", "ERROR". *Default: "INFO"*
+- **no_stats** (`bool`): Skip statistics computation. *Default: false*
+- **perform_gene_burden** (`bool`): Perform gene burden analysis. *Default: false*
+- **gene_burden_mode** (`str`): "samples" or "alleles". *Default: "alleles"*
+- **correction_method** (`str`): "fdr" or "bonferroni" for multiple testing correction. *Default: "fdr"*
+- **igv_enabled** (`bool`): Enable IGV.js integration. *Default: false*
+- **bam_mapping_file** (`str`): Required if igv_enabled=true. No default.
 - **igv_reference** (`str`): Required if igv_enabled=true. No default.
 
 **Example `config.json`:**
@@ -208,6 +208,48 @@ Run tests with:
 ```sh
 pytest tests/
 ```
+
+## Code Style and Linting
+
+This project uses automated tools to maintain a consistent code style and quality:
+
+- **Black**: Formats Python code with a line length of 100 characters.
+- **Flake8**: Ensures compliance with PEP8 style guidelines (with specific exceptions).
+- **isort**: Organizes import statements in a consistent manner, compatible with Black.
+- **pre-commit**: Runs these tools automatically before each commit.
+
+### Setting Up Development Environment
+
+1. **Install the development tools** (included in the conda environment):
+   ```sh
+   # If using conda
+   conda env update -f conda/environment.yml
+
+   # Or using pip
+   pip install black flake8 isort pre-commit
+   ```
+
+2. **Install pre-commit hooks**:
+   ```sh
+   pre-commit install
+   ```
+
+3. **Run the formatters and linters manually** (optional):
+   ```sh
+   # Format code with black
+   black .
+
+   # Sort imports
+   isort .
+
+   # Check code with flake8
+   flake8 .
+
+   # Run all pre-commit hooks against all files
+   pre-commit run --all-files
+   ```
+
+**Note**: Once pre-commit is installed, it will automatically run the configured hooks on every `git commit` operation. If any hook fails, the commit will be rejected until the issues are fixed.
 
 ## Contributing
 

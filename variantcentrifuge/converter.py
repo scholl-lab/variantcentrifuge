@@ -9,10 +9,11 @@ and append additional sheets. It now also supports producing JSON files
 for the HTML report.
 """
 
-import os
-import logging
 import hashlib
-from typing import Dict, Any, Optional, List
+import logging
+import os
+from typing import Any, Dict, List, Optional
+
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
@@ -42,9 +43,7 @@ def convert_to_excel(tsv_file: str, cfg: Dict[str, Any]) -> str:
     return xlsx_file
 
 
-def append_tsv_as_sheet(
-    xlsx_file: str, tsv_file: str, sheet_name: str = "Metadata"
-) -> None:
+def append_tsv_as_sheet(xlsx_file: str, tsv_file: str, sheet_name: str = "Metadata") -> None:
     """
     Append a TSV file as a new sheet to an existing XLSX file.
 
@@ -65,9 +64,7 @@ def append_tsv_as_sheet(
     None
     """
     df = pd.read_csv(tsv_file, sep="\t", header=0)
-    with pd.ExcelWriter(
-        xlsx_file, engine="openpyxl", mode="a", if_sheet_exists="new"
-    ) as writer:
+    with pd.ExcelWriter(xlsx_file, engine="openpyxl", mode="a", if_sheet_exists="new") as writer:
         df.to_excel(writer, index=False, sheet_name=sheet_name)
 
 
@@ -105,9 +102,7 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
         alt_idx = header_to_index.get("ALT")
 
         # If missing any of these columns, skip hyperlink generation
-        missing_cols = [
-            c for c in ["CHROM", "POS", "REF", "ALT"] if c not in header_to_index
-        ]
+        missing_cols = [c for c in ["CHROM", "POS", "REF", "ALT"] if c not in header_to_index]
         if missing_cols:
             logger.warning(
                 f"Cannot create hyperlinks in sheet '{ws.title}': "

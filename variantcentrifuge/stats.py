@@ -15,6 +15,7 @@ All functions return DataFrames suitable for further processing.
 
 import logging
 from typing import Set
+
 import pandas as pd
 
 from .helpers import extract_sample_and_genotype
@@ -146,9 +147,7 @@ def compute_impact_summary(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     impact_counts = df.groupby(["GENE", "IMPACT"]).size().reset_index(name="count")
     pivot_impact = (
-        impact_counts.pivot(index="GENE", columns="IMPACT", values="count")
-        .fillna(0)
-        .reset_index()
+        impact_counts.pivot(index="GENE", columns="IMPACT", values="count").fillna(0).reset_index()
     )
     logger.debug("Impact summary computed.")
     return pivot_impact
@@ -175,9 +174,7 @@ def compute_variant_type_summary(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     type_counts = df.groupby(["GENE", "EFFECT"]).size().reset_index(name="count")
     pivot_types = (
-        type_counts.pivot(index="GENE", columns="EFFECT", values="count")
-        .fillna(0)
-        .reset_index()
+        type_counts.pivot(index="GENE", columns="EFFECT", values="count").fillna(0).reset_index()
     )
     logger.debug("Variant type summary computed.")
     return pivot_types

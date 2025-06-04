@@ -11,7 +11,7 @@ are retained.
 """
 
 import logging
-from typing import Iterator, Dict, Any
+from typing import Any, Dict, Iterator
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -78,9 +78,7 @@ def filter_phenotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
                 if s:
                     samples.append(s)
     else:
-        raise ValueError(
-            "No sample_list or sample_file provided for phenotype filtering."
-        )
+        raise ValueError("No sample_list or sample_file provided for phenotype filtering.")
 
     samples_set = set(samples)
 
