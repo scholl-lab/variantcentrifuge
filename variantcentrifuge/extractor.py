@@ -16,10 +16,7 @@ logger = logging.getLogger("variantcentrifuge")
 
 
 def extract_fields(
-    variant_file: str,
-    fields: str,
-    cfg: Dict[str, Any],
-    output_file: str
+    variant_file: str, fields: str, cfg: Dict[str, Any], output_file: str
 ) -> str:
     """
     Extract specified fields from variant records and write them directly to
@@ -60,10 +57,13 @@ def extract_fields(
     logger.debug(f"Field list to extract: {field_list}")
 
     cmd = [
-        "SnpSift", "extractFields",
-        "-s", snpsift_sep,     # SnpSift subfield separator
-        "-e", "NA",            # Replace missing values with "NA"
-        variant_file
+        "SnpSift",
+        "extractFields",
+        "-s",
+        snpsift_sep,  # SnpSift subfield separator
+        "-e",
+        "NA",  # Replace missing values with "NA"
+        variant_file,
     ] + field_list
 
     logger.debug("Running SnpSift with command: %s", " ".join(cmd))
@@ -77,7 +77,9 @@ def extract_fields(
         lines = f.readlines()
 
     if not lines:
-        logger.warning("No lines were written to the output after SnpSift extract. Check input.")
+        logger.warning(
+            "No lines were written to the output after SnpSift extract. Check input."
+        )
         return output_file
 
     # Use the new utility function to remove any SnpEff prefixes from the header

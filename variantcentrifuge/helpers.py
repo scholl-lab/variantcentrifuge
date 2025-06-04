@@ -20,7 +20,9 @@ import pandas as pd
 logger = logging.getLogger("variantcentrifuge")
 
 
-def determine_case_control_sets(all_samples: Set[str], cfg: Dict[str, Any], df: pd.DataFrame) -> Tuple[Set[str], Set[str]]:
+def determine_case_control_sets(
+    all_samples: Set[str], cfg: Dict[str, Any], df: pd.DataFrame
+) -> Tuple[Set[str], Set[str]]:
     """
     Determine case/control sample sets based on configuration.
 
@@ -56,7 +58,11 @@ def determine_case_control_sets(all_samples: Set[str], cfg: Dict[str, Any], df: 
 
     # Step 1: If explicit sets are provided
     if case_samples or control_samples:
-        logger.debug("Explicit sample sets provided: %d cases, %d controls", len(case_samples), len(control_samples))
+        logger.debug(
+            "Explicit sample sets provided: %d cases, %d controls",
+            len(case_samples),
+            len(control_samples),
+        )
         if case_samples and not control_samples:
             control_samples = all_samples - case_samples
         elif control_samples and not case_samples:
@@ -75,7 +81,9 @@ def determine_case_control_sets(all_samples: Set[str], cfg: Dict[str, Any], df: 
     # Use phenotypes from the phenotype input file (if provided)
     # If no phenotype file was provided, this will be an empty dict.
     sample_phenotype_map = cfg.get("phenotypes", {})
-    logger.debug("Phenotype map has %d samples (from phenotype file).", len(sample_phenotype_map))
+    logger.debug(
+        "Phenotype map has %d samples (from phenotype file).", len(sample_phenotype_map)
+    )
 
     classified_cases = set()
     classified_controls = set()
@@ -83,7 +91,9 @@ def determine_case_control_sets(all_samples: Set[str], cfg: Dict[str, Any], df: 
     for s in all_samples:
         phenos = sample_phenotype_map.get(s, set())
         match_case = any(p in phenos for p in case_terms) if case_terms else False
-        match_control = any(p in phenos for p in control_terms) if control_terms else False
+        match_control = (
+            any(p in phenos for p in control_terms) if control_terms else False
+        )
 
         if case_terms and not control_terms:
             # Only case terms
@@ -110,7 +120,11 @@ def determine_case_control_sets(all_samples: Set[str], cfg: Dict[str, Any], df: 
     if control_terms and len(classified_controls) == 0:
         logger.warning("No samples match the control phenotype terms.")
 
-    logger.debug("Classified %d cases, %d controls.", len(classified_cases), len(classified_controls))
+    logger.debug(
+        "Classified %d cases, %d controls.",
+        len(classified_cases),
+        len(classified_controls),
+    )
     return classified_cases, classified_controls
 
 
@@ -126,6 +140,7 @@ def build_sample_phenotype_map(df: pd.DataFrame) -> Dict[str, Set[str]]:
         return {}
 
     from collections import defaultdict
+
     sample_phenos = defaultdict(set)
 
     for idx, row in df.iterrows():
@@ -160,7 +175,7 @@ def build_sample_phenotype_map(df: pd.DataFrame) -> Dict[str, Set[str]]:
                     "Skipping phenotype assignment for this row.",
                     len(pheno_groups),
                     len(sample_names),
-                    idx
+                    idx,
                 )
                 # No assignment here to prevent incorrect inflation
         else:
@@ -172,8 +187,12 @@ def build_sample_phenotype_map(df: pd.DataFrame) -> Dict[str, Set[str]]:
     return dict(sample_phenos)
 
 
-def assign_case_control_counts(df: pd.DataFrame, case_samples: Set[str], control_samples: Set[str],
-                               all_samples: Set[str]) -> pd.DataFrame:
+def assign_case_control_counts(
+    df: pd.DataFrame,
+    case_samples: Set[str],
+    control_samples: Set[str],
+    all_samples: Set[str],
+) -> pd.DataFrame:
     """
     Assign case/control counts, allele counts, and homozygous variant counts per variant.
 
@@ -203,7 +222,11 @@ def assign_case_control_counts(df: pd.DataFrame, case_samples: Set[str], control
 
     total_proband = len(case_samples)
     total_control = len(control_samples)
-    logger.debug("Total proband samples: %d, Total control samples: %d", total_proband, total_control)
+    logger.debug(
+        "Total proband samples: %d, Total control samples: %d",
+        total_proband,
+        total_control,
+    )
 
     proband_variant_count_list = []
     control_variant_count_list = []
@@ -240,7 +263,7 @@ def assign_case_control_counts(df: pd.DataFrame, case_samples: Set[str], control
             allele_count = genotype_to_allele_count(genotype)
 
             # Check if homozygous variant
-            is_hom_variant = (genotype == "1/1")
+            is_hom_variant = genotype == "1/1"
 
             if sample_name in case_samples:
                 if allele_count > 0:
@@ -273,12 +296,21 @@ def assign_case_control_counts(df: pd.DataFrame, case_samples: Set[str], control
 
     logger.debug("Case/control counts assigned.")
     if len(df) > 0:
-        logger.debug("Example for first row: %s", df.iloc[0][[
-            "proband_count", "proband_variant_count", "proband_allele_count",
-            "proband_homozygous_count",
-            "control_count", "control_variant_count", "control_allele_count",
-            "control_homozygous_count"
-        ]].to_dict())
+        logger.debug(
+            "Example for first row: %s",
+            df.iloc[0][
+                [
+                    "proband_count",
+                    "proband_variant_count",
+                    "proband_allele_count",
+                    "proband_homozygous_count",
+                    "control_count",
+                    "control_variant_count",
+                    "control_allele_count",
+                    "control_homozygous_count",
+                ]
+            ].to_dict(),
+        )
 
     return df
 
@@ -310,7 +342,7 @@ def extract_sample_and_genotype(sample_field: str) -> Tuple[str, str]:
 
     if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
         sample_name = sample_field[:start_idx].strip()
-        genotype_str = sample_field[start_idx + 1:end_idx].strip()
+        genotype_str = sample_field[start_idx + 1 : end_idx].strip()
 
         # Split on the first colon to separate e.g. '0/1' from '172:110,62'
         if ":" in genotype_str:

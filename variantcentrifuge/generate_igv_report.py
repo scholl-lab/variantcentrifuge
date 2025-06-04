@@ -9,6 +9,7 @@ from typing import Dict
 
 logger = logging.getLogger("variantcentrifuge")
 
+
 def parse_bam_mapping(bam_mapping_file: str) -> Dict[str, str]:
     """Parse a BAM mapping file (TSV or CSV) that maps sample_id to BAM file paths."""
     mapping = {}
@@ -32,7 +33,7 @@ def generate_igv_report(
     output_dir: str,
     bam_mapping_file: str,
     igv_reference: str,
-    integrate_into_main: bool = False
+    integrate_into_main: bool = False,
 ) -> None:
     """
     Generate per-variant per-sample IGV reports using igv-reports 'create_report'.
@@ -51,7 +52,7 @@ def generate_igv_report(
 
     Changes:
     1. Place IGV reports into a subfolder report/igv/ within output_dir.
-    2. Create a JSON mapping file (igv_reports_map.json) that maps each generated IGV report 
+    2. Create a JSON mapping file (igv_reports_map.json) that maps each generated IGV report
        back to its sample and variant for integration in the interactive HTML report.
 
     Args:
@@ -79,7 +80,9 @@ def generate_igv_report(
     required_cols = ["CHROM", "POS", "REF", "ALT", "GT"]
     for rc in required_cols:
         if rc not in header:
-            logger.error(f"Missing required column '{rc}' in {variants_tsv}. Cannot proceed.")
+            logger.error(
+                f"Missing required column '{rc}' in {variants_tsv}. Cannot proceed."
+            )
             return
 
     chrom_idx = header.index("CHROM")
@@ -143,59 +146,92 @@ def generate_igv_report(
                         # If the sample carries the variant (not 0/0 or ./.)
                         if genotype not in ["0/0", "./."]:
                             if sample_id not in bam_mapping:
-                                logger.warning(f"No BAM found for sample {sample_id}, skipping.")
+                                logger.warning(
+                                    f"No BAM found for sample {sample_id}, skipping."
+                                )
                                 continue
 
                             variant_tsv_path = os.path.join(
                                 igv_dir,
-                                f"{sample_id}_{chrom}_{pos}_{ref_allele}_{alt_allele}_variant.tsv"
+                                f"{sample_id}_{chrom}_{pos}_{ref_allele}_{alt_allele}_variant.tsv",
                             )
                             with open(variant_tsv_path, "w", encoding="utf-8") as sf:
                                 # Columns: CHROM POS REF ALT
                                 sf.write("CHROM\tPOS\tREF\tALT\n")
-                                sf.write(f"{chrom}\t{pos}\t{ref_allele}\t{alt_allele}\n")
+                                sf.write(
+                                    f"{chrom}\t{pos}\t{ref_allele}\t{alt_allele}\n"
+                                )
 
                             sample_report_path = os.path.join(
                                 igv_dir,
-                                f"{sample_id}_{chrom}_{pos}_{ref_allele}_{alt_allele}_igv_report.html"
+                                f"{sample_id}_{chrom}_{pos}_{ref_allele}_{alt_allele}_igv_report.html",
                             )
 
                             cmd = [
                                 "create_report",
                                 variant_tsv_path,
-                                "--genome", igv_reference,
-                                "--sequence", "1", "--begin", "2", "--end", "2",
-                                "--flanking", "50",
-                                "--info-columns", "CHROM", "POS", "REF", "ALT",
-                                "--tracks", bam_mapping[sample_id],
-                                "--output", sample_report_path
+                                "--genome",
+                                igv_reference,
+                                "--sequence",
+                                "1",
+                                "--begin",
+                                "2",
+                                "--end",
+                                "2",
+                                "--flanking",
+                                "50",
+                                "--info-columns",
+                                "CHROM",
+                                "POS",
+                                "REF",
+                                "ALT",
+                                "--tracks",
+                                bam_mapping[sample_id],
+                                "--output",
+                                sample_report_path,
                             ]
 
-                            logger.debug(f"Running create_report for sample {sample_id}, variant {chrom}:{pos} {ref_allele}>{alt_allele}")
+                            logger.debug(
+                                f"Running create_report for sample {sample_id}, variant {chrom}:{pos} {ref_allele}>{alt_allele}"
+                            )
                             result = subprocess.run(cmd, capture_output=True, text=True)
 
                             # Log output from create_report
                             if result.stdout:
-                                logger.info(f"create_report stdout: {result.stdout.strip()}")
+                                logger.info(
+                                    f"create_report stdout: {result.stdout.strip()}"
+                                )
                             if result.stderr:
-                                logger.warning(f"create_report stderr: {result.stderr.strip()}")
+                                logger.warning(
+                                    f"create_report stderr: {result.stderr.strip()}"
+                                )
 
                             if result.returncode != 0:
-                                logger.error(f"create_report failed for {sample_report_path}")
+                                logger.error(
+                                    f"create_report failed for {sample_report_path}"
+                                )
                             else:
-                                logger.info(f"IGV report generated: {sample_report_path}")
+                                logger.info(
+                                    f"IGV report generated: {sample_report_path}"
+                                )
                                 # Add entry to variant report map
-                                variant_report_map.append({
-                                    "sample_id": sample_id,
-                                    "chrom": chrom,
-                                    "pos": pos,
-                                    "ref": ref_allele,
-                                    "alt": alt_allele,
-                                    "report_path": os.path.relpath(sample_report_path, output_dir)
-                                })
+                                variant_report_map.append(
+                                    {
+                                        "sample_id": sample_id,
+                                        "chrom": chrom,
+                                        "pos": pos,
+                                        "ref": ref_allele,
+                                        "alt": alt_allele,
+                                        "report_path": os.path.relpath(
+                                            sample_report_path, output_dir
+                                        ),
+                                    }
+                                )
 
                             processed_variants += 1
-                            logger.info(f"Progress: {processed_variants}/{total_variants} variants processed.")
+                            logger.info(
+                                f"Progress: {processed_variants}/{total_variants} variants processed."
+                            )
 
     # Write JSON mapping
     igv_map_file = os.path.join(igv_dir, "igv_reports_map.json")

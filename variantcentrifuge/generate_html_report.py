@@ -6,10 +6,9 @@ from pathlib import Path
 from typing import Optional
 from jinja2 import Environment, FileSystemLoader
 
+
 def generate_html_report(
-    variants_json: str,
-    summary_json: str,
-    output_dir: str
+    variants_json: str, summary_json: str, output_dir: str
 ) -> None:
     """
     Generate an interactive HTML report of variants and summary statistics.
@@ -49,11 +48,7 @@ def generate_html_report(
     template = env.get_template("index.html")
 
     # Render template with columns and variants
-    html_content = template.render(
-        variants=variants,
-        summary=summary,
-        columns=columns
-    )
+    html_content = template.render(variants=variants, summary=summary, columns=columns)
 
     output_path = Path(output_dir) / "index.html"
     with open(output_path, "w") as out_f:

@@ -92,7 +92,7 @@ def compute_gene_stats(df: pd.DataFrame) -> pd.DataFrame:
     Parameters
     ----------
     df : pd.DataFrame
-        Input variants DataFrame with assigned case/control counts. 
+        Input variants DataFrame with assigned case/control counts.
         Expected columns: "GENE", "proband_count", "control_count", "proband_allele_count", "control_allele_count".
 
     Returns
@@ -101,17 +101,26 @@ def compute_gene_stats(df: pd.DataFrame) -> pd.DataFrame:
         Gene-level summary DataFrame with columns: GENE, proband_count, control_count, proband_allele_count, control_allele_count.
     """
     logger.debug("Computing gene-level stats...")
-    for col in ["proband_count", "control_count", "proband_allele_count", "control_allele_count"]:
+    for col in [
+        "proband_count",
+        "control_count",
+        "proband_allele_count",
+        "control_allele_count",
+    ]:
         if col not in df.columns:
             df[col] = 0
-    grouped = df.groupby("GENE").agg(
-        {
-            "proband_count": "sum",
-            "control_count": "sum",
-            "proband_allele_count": "sum",
-            "control_allele_count": "sum",
-        }
-    ).reset_index()
+    grouped = (
+        df.groupby("GENE")
+        .agg(
+            {
+                "proband_count": "sum",
+                "control_count": "sum",
+                "proband_allele_count": "sum",
+                "control_allele_count": "sum",
+            }
+        )
+        .reset_index()
+    )
     logger.debug("Gene-level stats computed.")
     return grouped
 
@@ -136,7 +145,11 @@ def compute_impact_summary(df: pd.DataFrame) -> pd.DataFrame:
         logger.debug("No IMPACT or GENE column, returning empty impact summary.")
         return pd.DataFrame()
     impact_counts = df.groupby(["GENE", "IMPACT"]).size().reset_index(name="count")
-    pivot_impact = impact_counts.pivot(index="GENE", columns="IMPACT", values="count").fillna(0).reset_index()
+    pivot_impact = (
+        impact_counts.pivot(index="GENE", columns="IMPACT", values="count")
+        .fillna(0)
+        .reset_index()
+    )
     logger.debug("Impact summary computed.")
     return pivot_impact
 
@@ -161,7 +174,11 @@ def compute_variant_type_summary(df: pd.DataFrame) -> pd.DataFrame:
         logger.debug("No EFFECT or GENE column, returning empty variant type summary.")
         return pd.DataFrame()
     type_counts = df.groupby(["GENE", "EFFECT"]).size().reset_index(name="count")
-    pivot_types = type_counts.pivot(index="GENE", columns="EFFECT", values="count").fillna(0).reset_index()
+    pivot_types = (
+        type_counts.pivot(index="GENE", columns="EFFECT", values="count")
+        .fillna(0)
+        .reset_index()
+    )
     logger.debug("Variant type summary computed.")
     return pivot_types
 
@@ -169,7 +186,7 @@ def compute_variant_type_summary(df: pd.DataFrame) -> pd.DataFrame:
 def merge_and_format_stats(
     gene_stats: pd.DataFrame,
     impact_summary: pd.DataFrame,
-    variant_type_summary: pd.DataFrame
+    variant_type_summary: pd.DataFrame,
 ) -> pd.DataFrame:
     """
     Merge gene_stats with impact_summary and variant_type_summary into a single DataFrame.

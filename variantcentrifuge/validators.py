@@ -45,10 +45,12 @@ def validate_vcf_file(vcf_path: Optional[str], logger: logging.Logger) -> None:
         sys.exit(1)
 
 
-def validate_phenotype_file(phenotype_file: Optional[str],
-                            sample_col: str,
-                            value_col: str,
-                            logger: logging.Logger) -> None:
+def validate_phenotype_file(
+    phenotype_file: Optional[str],
+    sample_col: str,
+    value_col: str,
+    logger: logging.Logger,
+) -> None:
     """
     Validate phenotype file presence, non-empty status, and required columns.
 
@@ -92,24 +94,31 @@ def validate_phenotype_file(phenotype_file: Optional[str],
             columns = header.split(",")
 
         if sample_col not in columns:
-            logger.error("Phenotype sample column '%s' not found in %s.", sample_col, phenotype_file)
+            logger.error(
+                "Phenotype sample column '%s' not found in %s.",
+                sample_col,
+                phenotype_file,
+            )
             sys.exit(1)
         if value_col not in columns:
-            logger.error("Phenotype value column '%s' not found in %s.", value_col, phenotype_file)
+            logger.error(
+                "Phenotype value column '%s' not found in %s.",
+                value_col,
+                phenotype_file,
+            )
             sys.exit(1)
 
         data_line = pf.readline()
         if not data_line.strip():
             logger.error(
-                "Phenotype file %s contains only a header and no data.",
-                phenotype_file
+                "Phenotype file %s contains only a header and no data.", phenotype_file
             )
             sys.exit(1)
 
 
-def validate_mandatory_parameters(reference: Optional[str],
-                                  filters: Optional[str],
-                                  fields: Optional[str]) -> None:
+def validate_mandatory_parameters(
+    reference: Optional[str], filters: Optional[str], fields: Optional[str]
+) -> None:
     """
     Validate that mandatory parameters (reference, filters, fields) are provided.
 
@@ -135,9 +144,7 @@ def validate_mandatory_parameters(reference: Optional[str],
         sys.exit(1)
 
     if not filters:
-        sys.stderr.write(
-            "No filters provided. Provide via --filters or in config.\n"
-        )
+        sys.stderr.write("No filters provided. Provide via --filters or in config.\n")
         sys.exit(1)
 
     if not fields:

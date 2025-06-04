@@ -13,9 +13,9 @@ New Features (Issue #21):
 - Confidence interval calculation method and confidence level can be configured.
 
 Updated for Issue #31:
-- Improved handling of edge cases (e.g., infinite or zero odds_ratio). 
-  Instead of returning NaN for confidence intervals, attempts a fallback 
-  method ("logit") if the primary method fails. If still invalid, returns 
+- Improved handling of edge cases (e.g., infinite or zero odds_ratio).
+  Instead of returning NaN for confidence intervals, attempts a fallback
+  method ("logit") if the primary method fails. If still invalid, returns
   bounded fallback intervals to ensure meaningful output.
 
 Configuration Additions
@@ -51,7 +51,9 @@ import numpy as np
 logger = logging.getLogger("variantcentrifuge")
 
 
-def _compute_or_confidence_interval(table: list, odds_ratio: float, method: str, alpha: float) -> (float, float):
+def _compute_or_confidence_interval(
+    table: list, odds_ratio: float, method: str, alpha: float
+) -> (float, float):
     """
     Compute confidence intervals for the odds ratio using the specified method.
 
@@ -79,17 +81,19 @@ def _compute_or_confidence_interval(table: list, odds_ratio: float, method: str,
     If odds_ratio is NaN, zero, or infinite, the normal approximation may fail.
     We attempt:
     1. normal approximation (if fails, try "logit"),
-    2. if "logit" fails or odds ratio is still invalid, return bounded fallback 
+    2. if "logit" fails or odds ratio is still invalid, return bounded fallback
        intervals instead of NaN.
 
-    The fallback intervals are arbitrary bounds chosen to reflect a very low and 
+    The fallback intervals are arbitrary bounds chosen to reflect a very low and
     very high plausible range instead of returning NaN. For example, we use:
     ci_lower = 0.001 and ci_upper = 1000 for extreme cases.
     """
 
     if isnan(odds_ratio) or odds_ratio <= 0 or np.isinf(odds_ratio):
         # Attempt direct fallback without normal approx
-        logger.debug("Odds ratio is invalid (NaN, <=0, or Inf). Attempting fallback methods.")
+        logger.debug(
+            "Odds ratio is invalid (NaN, <=0, or Inf). Attempting fallback methods."
+        )
     a = table[0][0]
     b = table[0][1]
     c = table[1][0]
@@ -103,7 +107,7 @@ def _compute_or_confidence_interval(table: list, odds_ratio: float, method: str,
             return cont_table.oddsratio_confint(alpha=alpha, method=method_name)
         except Exception:
             logger.debug("Failed to compute CI with method '%s'.", method_name)
-            return float('nan'), float('nan')
+            return float("nan"), float("nan")
 
     # First attempt using requested method (likely "normal_approx")
     if method == "normal_approx":
@@ -116,11 +120,13 @@ def _compute_or_confidence_interval(table: list, odds_ratio: float, method: str,
         # Check if we still have invalid CI
         if isnan(ci_lower) or isnan(ci_upper):
             # Provide bounded fallback
-            logger.debug("Both normal and logit methods failed. Using bounded fallback CIs.")
+            logger.debug(
+                "Both normal and logit methods failed. Using bounded fallback CIs."
+            )
             ci_lower, ci_upper = 0.001, 1000.0
     else:
         # Unsupported method: return NaN
-        ci_lower, ci_upper = float('nan'), float('nan')
+        ci_lower, ci_upper = float("nan"), float("nan")
 
     return ci_lower, ci_upper
 
@@ -184,16 +190,20 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.Da
     ci_method = cfg.get("confidence_interval_method", "normal_approx")
     ci_alpha = cfg.get("confidence_interval_alpha", 0.05)
 
-    grouped = df.groupby("GENE").agg(
-        {
-            "proband_count": "max",
-            "control_count": "max",
-            "proband_variant_count": "sum",
-            "control_variant_count": "sum",
-            "proband_allele_count": "sum",
-            "control_allele_count": "sum",
-        }
-    ).reset_index()
+    grouped = (
+        df.groupby("GENE")
+        .agg(
+            {
+                "proband_count": "max",
+                "control_count": "max",
+                "proband_variant_count": "sum",
+                "control_variant_count": "sum",
+                "proband_allele_count": "sum",
+                "control_allele_count": "sum",
+            }
+        )
+        .reset_index()
+    )
 
     results = []
     for _, row in grouped.iterrows():
@@ -225,11 +235,13 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.Da
         if fisher_exact is not None:
             odds_ratio, pval = fisher_exact(table)
         else:
-            odds_ratio = float('nan')
+            odds_ratio = float("nan")
             pval = 1.0
 
         # Compute confidence interval for the odds ratio
-        ci_lower, ci_upper = _compute_or_confidence_interval(table, odds_ratio, ci_method, ci_alpha)
+        ci_lower, ci_upper = _compute_or_confidence_interval(
+            table, odds_ratio, ci_method, ci_alpha
+        )
 
         results.append(
             {

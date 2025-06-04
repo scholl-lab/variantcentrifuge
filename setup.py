@@ -12,7 +12,7 @@ from setuptools import setup, find_packages
 
 # Load version from version.py without importing the module
 version = {}
-with open(os.path.join('variantcentrifuge', 'version.py')) as f:
+with open(os.path.join("variantcentrifuge", "version.py")) as f:
     exec(f.read(), version)
 
 # Read the README for the long description
@@ -22,7 +22,7 @@ with open(os.path.join(this_dir, "README.md"), encoding="utf-8") as f:
 
 setup(
     name="variantcentrifuge",
-    version=version['__version__'],
+    version=version["__version__"],
     description="A tool to filter, extract, and analyze variants from VCF files.",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -35,15 +35,9 @@ setup(
         "pandas",
         "jinja2",
     ],
-    entry_points={
-        "console_scripts": [
-            "variantcentrifuge=variantcentrifuge.cli:main"
-        ]
-    },
+    entry_points={"console_scripts": ["variantcentrifuge=variantcentrifuge.cli:main"]},
     include_package_data=True,
-    package_data={
-        "variantcentrifuge": ["config.json"]
-    },
+    package_data={"variantcentrifuge": ["config.json"]},
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

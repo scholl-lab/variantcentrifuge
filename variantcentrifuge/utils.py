@@ -59,9 +59,13 @@ def run_command(cmd: list, output_file: Optional[str] = None) -> str:
     logger.debug("Running command: %s", " ".join(cmd))
     if output_file:
         with open(output_file, "w", encoding="utf-8") as out_f:
-            result = subprocess.run(cmd, stdout=out_f, stderr=subprocess.PIPE, text=True)
+            result = subprocess.run(
+                cmd, stdout=out_f, stderr=subprocess.PIPE, text=True
+            )
     else:
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        result = subprocess.run(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
 
     if result.returncode != 0:
         logger.error("Command failed: %s\nError: %s", " ".join(cmd), result.stderr)
@@ -97,8 +101,7 @@ def normalize_snpeff_headers(lines: List[str]) -> List[str]:
     # Only modify the first line to match the original behavior
     header = lines[0]
     header = (
-        header
-        .replace("ANN[*].", "")
+        header.replace("ANN[*].", "")
         .replace("ANN[0].", "")
         .replace("GEN[*].", "")
         .replace("GEN[0].", "")
@@ -135,7 +138,7 @@ def check_external_tools() -> None:
     if missing:
         logger.error(
             "Missing required external tools: %s. Please ensure they are installed and in PATH.",
-            ", ".join(missing)
+            ", ".join(missing),
         )
         sys.exit(1)
     else:
@@ -162,6 +165,7 @@ def get_tool_version(tool_name: str) -> str:
     str
         Version string or 'N/A' if not found or cannot be retrieved.
     """
+
     def parse_snpeff(stdout, stderr):
         for line in stdout.splitlines():
             if line.strip():
@@ -190,22 +194,16 @@ def get_tool_version(tool_name: str) -> str:
         return "N/A"
 
     tool_map = {
-        "snpEff": {
-            "command": ["snpEff", "-version"],
-            "parse_func": parse_snpeff
-        },
+        "snpEff": {"command": ["snpEff", "-version"], "parse_func": parse_snpeff},
         "bcftools": {
             "command": ["bcftools", "--version"],
-            "parse_func": parse_bcftools
+            "parse_func": parse_bcftools,
         },
-        "SnpSift": {
-            "command": ["SnpSift", "annotate"],
-            "parse_func": parse_snpsift
-        },
+        "SnpSift": {"command": ["SnpSift", "annotate"], "parse_func": parse_snpsift},
         "bedtools": {
             "command": ["bedtools", "--version"],
-            "parse_func": parse_bedtools
-        }
+            "parse_func": parse_bedtools,
+        },
     }
 
     if tool_name not in tool_map:
@@ -216,10 +214,14 @@ def get_tool_version(tool_name: str) -> str:
     parse_func = tool_map[tool_name]["parse_func"]
 
     try:
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+        result = subprocess.run(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False
+        )
         version = parse_func(result.stdout, result.stderr)
         if version == "N/A":
-            logger.warning("Could not parse version for %s. Returning 'N/A'.", tool_name)
+            logger.warning(
+                "Could not parse version for %s. Returning 'N/A'.", tool_name
+            )
         return version
     except Exception as e:
         logger.warning("Failed to retrieve version for %s: %s", tool_name, e)

@@ -21,7 +21,9 @@ from typing import Optional, List
 logger = logging.getLogger("variantcentrifuge")
 
 
-def normalize_genes(gene_name_str: Optional[str], gene_file_str: Optional[str], logger: logging.Logger) -> str:
+def normalize_genes(
+    gene_name_str: Optional[str], gene_file_str: Optional[str], logger: logging.Logger
+) -> str:
     """
     Normalize genes from either a single gene name, a list of genes,
     or a file containing gene names.
@@ -75,9 +77,7 @@ def normalize_genes(gene_name_str: Optional[str], gene_file_str: Optional[str], 
 
         g_str = gene_name_str.replace(",", " ")
         genes = [
-            g.strip()
-            for g_str_part in g_str.split()
-            for g in [g_str_part.strip()] if g
+            g.strip() for g_str_part in g_str.split() for g in [g_str_part.strip()] if g
         ]
 
     if len(genes) == 1 and genes[0].lower() == "all":
@@ -90,8 +90,13 @@ def normalize_genes(gene_name_str: Optional[str], gene_file_str: Optional[str], 
     return " ".join(genes)
 
 
-def get_gene_bed(reference: str, gene_name: str, interval_expand: int = 0, add_chr: bool = True,
-                  output_dir: str = "output") -> str:
+def get_gene_bed(
+    reference: str,
+    gene_name: str,
+    interval_expand: int = 0,
+    add_chr: bool = True,
+    output_dir: str = "output",
+) -> str:
     """
     Generate a BED file for the given gene(s) using snpEff genes2bed.
     If gene_name == "all", the command runs without specifying genes.
@@ -120,8 +125,13 @@ def get_gene_bed(reference: str, gene_name: str, interval_expand: int = 0, add_c
     subprocess.CalledProcessError
         If the snpEff genes2bed or sorting command fails.
     """
-    logger.debug("Entering get_gene_bed with reference=%s, gene_name=%s, interval_expand=%d, add_chr=%s",
-                 reference, gene_name, interval_expand, add_chr)
+    logger.debug(
+        "Entering get_gene_bed with reference=%s, gene_name=%s, interval_expand=%d, add_chr=%s",
+        reference,
+        gene_name,
+        interval_expand,
+        add_chr,
+    )
 
     cache_dir = os.path.join(output_dir, "bed_cache")
     os.makedirs(cache_dir, exist_ok=True)
@@ -171,7 +181,9 @@ def get_gene_bed(reference: str, gene_name: str, interval_expand: int = 0, add_c
     if add_chr:
         chr_bed = sorted_bed + ".chr"
         logger.debug("Adding 'chr' prefix to BED file %s", sorted_bed)
-        with open(chr_bed, "w", encoding="utf-8") as out_f, open(sorted_bed, "r", encoding="utf-8") as in_f:
+        with open(chr_bed, "w", encoding="utf-8") as out_f, open(
+            sorted_bed, "r", encoding="utf-8"
+        ) as in_f:
             for line in in_f:
                 if not line.startswith("chr"):
                     out_f.write("chr" + line)

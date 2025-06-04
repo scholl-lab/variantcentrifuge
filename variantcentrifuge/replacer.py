@@ -37,7 +37,7 @@ Example:
 --------
 If the user passed --append-extra-sample-fields GEN[*].DP GEN[*].AD and the TSV header has columns
 "DP", "AD" (prefix removed by SnpSift), the code will still find them by normalizing them to "DP", "AD"
-internally. 
+internally.
 """
 
 import logging
@@ -54,15 +54,16 @@ def _normalize_snpeff_column_name(col_name: str) -> str:
     For example, "GEN[*].DP" or "ANN[*].Effect" might become "DP" or "Effect".
     Modify or extend this if your pipeline uses additional/different prefixes.
     """
-    return (col_name
-            .replace("ANN[*].", "")
-            .replace("ANN[0].", "")
-            .replace("GEN[*].", "")
-            .replace("GEN[0].", "")
-            .replace("NMD[*].", "NMD_")
-            .replace("NMD[0].", "NMD_")
-            .replace("LOF[*].", "LOF_")
-            .replace("LOF[0].", "LOF_"))
+    return (
+        col_name.replace("ANN[*].", "")
+        .replace("ANN[0].", "")
+        .replace("GEN[*].", "")
+        .replace("GEN[0].", "")
+        .replace("NMD[*].", "NMD_")
+        .replace("NMD[0].", "NMD_")
+        .replace("LOF[*].", "LOF_")
+        .replace("LOF[0].", "LOF_")
+    )
 
 
 def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]:
@@ -111,7 +112,9 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
     samples = [s.strip() for s in sample_list_str.split(",") if s.strip()]
     logger.debug("Parsed samples => %s", samples)
     if not samples:
-        logger.warning("No samples found in cfg[sample_list]. Returning lines unchanged.")
+        logger.warning(
+            "No samples found in cfg[sample_list]. Returning lines unchanged."
+        )
         yield from lines
         return
 
@@ -151,10 +154,14 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
                 # Usually it's just "GT", though
                 if "GT" in normalized_to_index:
                     gt_idx = normalized_to_index["GT"]
-                    logger.debug("Found 'GT' column at index %d (via normalized map).", gt_idx)
+                    logger.debug(
+                        "Found 'GT' column at index %d (via normalized map).", gt_idx
+                    )
 
             if gt_idx is None:
-                logger.warning("No GT column found in header. Returning lines unmodified.")
+                logger.warning(
+                    "No GT column found in header. Returning lines unmodified."
+                )
                 yield line
                 # yield the rest of the lines
                 yield from lines
@@ -168,12 +175,17 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
                     if nf in normalized_to_index:
                         ef_col_idx = normalized_to_index[nf]
                         extra_field_indices[raw_field] = ef_col_idx
-                        logger.debug("Mapped raw extra field '%s' (normalized='%s') to col index %d",
-                                     raw_field, nf, ef_col_idx)
+                        logger.debug(
+                            "Mapped raw extra field '%s' (normalized='%s') to col index %d",
+                            raw_field,
+                            nf,
+                            ef_col_idx,
+                        )
                     else:
                         logger.warning(
                             "Extra field '%s' (normalized='%s') not found in header. Skipping.",
-                            raw_field, nf
+                            raw_field,
+                            nf,
                         )
 
             # Output the (possibly unchanged) header line
@@ -198,7 +210,9 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
             for raw_field, col_idx in extra_field_indices.items():
                 if col_idx < len(cols):
                     raw_val = cols[col_idx].strip()
-                    extra_values_per_field[raw_field] = raw_val.split(snpsift_sep) if raw_val else []
+                    extra_values_per_field[raw_field] = (
+                        raw_val.split(snpsift_sep) if raw_val else []
+                    )
                 else:
                     extra_values_per_field[raw_field] = []
 
@@ -207,7 +221,9 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
             if i >= len(samples):
                 logger.warning(
                     "Line %d => found %d genotype subfields but only %d samples. Truncating.",
-                    line_idx, len(genotypes), len(samples)
+                    line_idx,
+                    len(genotypes),
+                    len(samples),
                 )
                 break
 
@@ -215,7 +231,7 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
             genotype_subfield = genotype_subfield.replace("|", "/")
 
             # Apply regex replacements (e.g. "2" => "1", etc.)
-            for (regex_pat, replacement) in compiled_patterns:
+            for regex_pat, replacement in compiled_patterns:
                 if regex_pat.search(genotype_subfield):
                     genotype_subfield = regex_pat.sub(replacement, genotype_subfield)
 

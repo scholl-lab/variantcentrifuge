@@ -37,16 +37,25 @@ from .utils import (
     get_tool_version,
     sanitize_metadata_field,
     normalize_snpeff_headers,
-    ensure_fields_in_extract
+    ensure_fields_in_extract,
 )
 from .gene_bed import get_gene_bed, normalize_genes
 from .analyze_variants import analyze_variants
 from .phenotype import load_phenotypes, aggregate_phenotypes_for_samples
-from .converter import convert_to_excel, append_tsv_as_sheet, finalize_excel_file, produce_report_json
+from .converter import (
+    convert_to_excel,
+    append_tsv_as_sheet,
+    finalize_excel_file,
+    produce_report_json,
+)
 from .replacer import replace_genotypes
 from .phenotype_filter import filter_phenotypes
 from .links import add_links_to_table
-from .filters import extract_variants, apply_snpsift_filter, filter_final_tsv_by_genotype
+from .filters import (
+    extract_variants,
+    apply_snpsift_filter,
+    filter_final_tsv_by_genotype,
+)
 from .extractor import extract_fields
 
 logger = logging.getLogger("variantcentrifuge")
@@ -103,7 +112,7 @@ def compute_base_name(vcf_path: str, gene_name: str) -> str:
         return f"{vcf_base}.all"
     split_genes = genes.split()
     if len(split_genes) > 1:
-        gene_hash = hashlib.md5(genes.encode('utf-8')).hexdigest()[:8]
+        gene_hash = hashlib.md5(genes.encode("utf-8")).hexdigest()[:8]
         return f"{vcf_base}.multiple-genes-{gene_hash}"
     else:
         if split_genes and split_genes[0].lower() in vcf_base.lower():
@@ -180,7 +189,9 @@ def parse_samples_from_vcf(vcf_file: str) -> List[str]:
     return samples
 
 
-def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: datetime.datetime) -> None:
+def run_pipeline(
+    args: argparse.Namespace, cfg: Dict[str, Any], start_time: datetime.datetime
+) -> None:
     """
     High-level orchestration of the pipeline steps.
 
@@ -203,9 +214,7 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
 
     # Normalize genes
     gene_name = normalize_genes(
-        args.gene_name if args.gene_name else "",
-        args.gene_file,
-        logger
+        args.gene_name if args.gene_name else "", args.gene_file, logger
     )
     logger.debug(f"Normalized gene list: {gene_name}")
 
@@ -218,7 +227,9 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         else:
             final_to_stdout = False
             base_name = compute_base_name(args.vcf_file, gene_name)
-            final_output = os.path.join(args.output_dir, os.path.basename(args.output_file))
+            final_output = os.path.join(
+                args.output_dir, os.path.basename(args.output_file)
+            )
     else:
         final_to_stdout = False
         base_name = compute_base_name(args.vcf_file, gene_name)
@@ -229,17 +240,25 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     os.makedirs(intermediate_dir, exist_ok=True)
 
     if not cfg["no_stats"] and not args.stats_output_file:
-        cfg["stats_output_file"] = os.path.join(intermediate_dir, f"{base_name}.statistics.tsv")
+        cfg["stats_output_file"] = os.path.join(
+            intermediate_dir, f"{base_name}.statistics.tsv"
+        )
     else:
         cfg["stats_output_file"] = args.stats_output_file
 
     # Load phenotypes if provided
     phenotypes = {}
     use_phenotypes = False
-    if (args.phenotype_file and args.phenotype_sample_column and args.phenotype_value_column):
-        phenotypes = load_phenotypes(args.phenotype_file,
-                                     args.phenotype_sample_column,
-                                     args.phenotype_value_column)
+    if (
+        args.phenotype_file
+        and args.phenotype_sample_column
+        and args.phenotype_value_column
+    ):
+        phenotypes = load_phenotypes(
+            args.phenotype_file,
+            args.phenotype_sample_column,
+            args.phenotype_value_column,
+        )
         if not phenotypes:
             logger.error(
                 f"No phenotype data loaded from {args.phenotype_file}. "
@@ -255,11 +274,15 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     case_hpo_terms = []
     control_hpo_terms = []
     if args.case_phenotypes:
-        case_hpo_terms = [t.strip() for t in args.case_phenotypes.split(",") if t.strip()]
+        case_hpo_terms = [
+            t.strip() for t in args.case_phenotypes.split(",") if t.strip()
+        ]
     case_hpo_terms += load_terms_from_file(args.case_phenotypes_file, logger)
 
     if args.control_phenotypes:
-        control_hpo_terms = [t.strip() for t in args.control_phenotypes.split(",") if t.strip()]
+        control_hpo_terms = [
+            t.strip() for t in args.control_phenotypes.split(",") if t.strip()
+        ]
     control_hpo_terms += load_terms_from_file(args.control_phenotypes_file, logger)
 
     cfg["case_phenotypes"] = case_hpo_terms
@@ -273,7 +296,9 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     case_samples += load_terms_from_file(args.case_samples_file, logger)
 
     if args.control_samples:
-        control_samples = [s.strip() for s in args.control_samples.split(",") if s.strip()]
+        control_samples = [
+            s.strip() for s in args.control_samples.split(",") if s.strip()
+        ]
     control_samples += load_terms_from_file(args.control_samples_file, logger)
 
     cfg["case_samples"] = case_samples
@@ -285,7 +310,7 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         gene_name,
         interval_expand=cfg.get("interval_expand", 0),
         add_chr=cfg.get("add_chr", True),
-        output_dir=args.output_dir
+        output_dir=args.output_dir,
     )
     logger.debug(f"Gene BED created at: {bed_file}")
 
@@ -316,13 +341,23 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
 
     # Filenames for intermediate steps
     variants_file = os.path.join(intermediate_dir, f"{base_name}.variants.vcf.gz")
-    splitted_before_file = os.path.join(intermediate_dir, f"{base_name}.splitted_before_filters.vcf.gz")
-    splitted_after_file = os.path.join(intermediate_dir, f"{base_name}.splitted_after_filters.vcf.gz")
+    splitted_before_file = os.path.join(
+        intermediate_dir, f"{base_name}.splitted_before_filters.vcf.gz"
+    )
+    splitted_after_file = os.path.join(
+        intermediate_dir, f"{base_name}.splitted_after_filters.vcf.gz"
+    )
     filtered_file = os.path.join(intermediate_dir, f"{base_name}.filtered.vcf.gz")
-    transcript_filtered_file = os.path.join(intermediate_dir, f"{base_name}.transcript_filtered.vcf.gz")
+    transcript_filtered_file = os.path.join(
+        intermediate_dir, f"{base_name}.transcript_filtered.vcf.gz"
+    )
     extracted_tsv = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv")
-    genotype_replaced_tsv = os.path.join(intermediate_dir, f"{base_name}.genotype_replaced.tsv")
-    phenotype_added_tsv = os.path.join(intermediate_dir, f"{base_name}.phenotypes_added.tsv")
+    genotype_replaced_tsv = os.path.join(
+        intermediate_dir, f"{base_name}.genotype_replaced.tsv"
+    )
+    phenotype_added_tsv = os.path.join(
+        intermediate_dir, f"{base_name}.phenotypes_added.tsv"
+    )
     gene_burden_tsv = os.path.join(args.output_dir, f"{base_name}.gene_burden.tsv")
 
     # Parse samples from VCF
@@ -330,7 +365,9 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     if cfg.get("remove_sample_substring"):
         substring_to_remove = cfg["remove_sample_substring"]
         if substring_to_remove and substring_to_remove.strip():
-            original_samples = [s.replace(substring_to_remove, "") for s in original_samples]
+            original_samples = [
+                s.replace(substring_to_remove, "") for s in original_samples
+            ]
 
     # -----------------------------------------------------------------------
     # Step 1: Extract variants => variants_file
@@ -341,7 +378,9 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     splitting_mode = cfg.get("snpeff_splitting_mode", None)
 
     if splitting_mode == "before_filters":
-        logger.info("Splitting multiple SNPeff (EFF/ANN) annotations before main filtering.")
+        logger.info(
+            "Splitting multiple SNPeff (EFF/ANN) annotations before main filtering."
+        )
         process_vcf_file(variants_file, splitted_before_file)
         prefiltered_for_snpsift = splitted_before_file
     else:
@@ -355,7 +394,9 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
 
     # If splitting after filters
     if splitting_mode == "after_filters":
-        logger.info("Splitting multiple SNPeff (EFF/ANN) annotations after main filters, before transcript filter.")
+        logger.info(
+            "Splitting multiple SNPeff (EFF/ANN) annotations after main filters, before transcript filter."
+        )
         process_vcf_file(filtered_file, splitted_after_file)
         post_filter_for_transcripts = splitted_after_file
     else:
@@ -366,7 +407,9 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     # -----------------------------------------------------------------------
     transcripts = []
     if args.transcript_list:
-        transcripts.extend([t.strip() for t in args.transcript_list.split(",") if t.strip()])
+        transcripts.extend(
+            [t.strip() for t in args.transcript_list.split(",") if t.strip()]
+        )
     if args.transcript_file:
         if not os.path.exists(args.transcript_file):
             logger.error(f"Transcript file not found: {args.transcript_file}")
@@ -388,7 +431,7 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
             post_filter_for_transcripts,
             transcript_filter_expr,
             cfg,
-            transcript_filtered_file
+            transcript_filtered_file,
         )
         final_filtered_for_extraction = transcript_filtered_file
     else:
@@ -399,10 +442,16 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     # -----------------------------------------------------------------------
     # If user wants to append extra sample fields, ensure they're in the main fields
     # (Unify them into cfg["fields_to_extract"])
-    if cfg.get("append_extra_sample_fields", False) and cfg.get("extra_sample_fields", []):
-        updated_fields = ensure_fields_in_extract(cfg["fields_to_extract"], cfg["extra_sample_fields"])
+    if cfg.get("append_extra_sample_fields", False) and cfg.get(
+        "extra_sample_fields", []
+    ):
+        updated_fields = ensure_fields_in_extract(
+            cfg["fields_to_extract"], cfg["extra_sample_fields"]
+        )
         cfg["fields_to_extract"] = updated_fields
-        logger.debug(f"Updated fields_to_extract with extra sample fields: {cfg['fields_to_extract']}")
+        logger.debug(
+            f"Updated fields_to_extract with extra sample fields: {cfg['fields_to_extract']}"
+        )
 
     field_list = " ".join((cfg["fields_to_extract"] or args.fields).strip().split())
     logger.debug(f"Extracting fields: {field_list} -> {extracted_tsv}")
@@ -422,8 +471,9 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
 
     cfg["sample_list"] = ",".join(original_samples) if original_samples else ""
     if not args.no_replacement and gt_present:
-        with open(extracted_tsv, "r", encoding="utf-8") as inp, \
-                open(genotype_replaced_tsv, "w", encoding="utf-8") as out:
+        with open(extracted_tsv, "r", encoding="utf-8") as inp, open(
+            genotype_replaced_tsv, "w", encoding="utf-8"
+        ) as out:
             for line in replace_genotypes(inp, cfg):
                 out.write(line + "\n")
         replaced_tsv = genotype_replaced_tsv
@@ -432,11 +482,17 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
 
     # If user has appended extra fields, they might want them removed after genotype assembly
     if cfg.get("append_extra_sample_fields", False) and cfg.get("extra_sample_fields"):
-        logger.debug("User config => removing columns after replacement: %s", cfg["extra_sample_fields"])
-        stripped_tsv = os.path.join(intermediate_dir, f"{base_name}.stripped_extras.tsv")
+        logger.debug(
+            "User config => removing columns after replacement: %s",
+            cfg["extra_sample_fields"],
+        )
+        stripped_tsv = os.path.join(
+            intermediate_dir, f"{base_name}.stripped_extras.tsv"
+        )
 
-        with open(replaced_tsv, "r", encoding="utf-8") as inp, \
-             open(stripped_tsv, "w", encoding="utf-8") as out:
+        with open(replaced_tsv, "r", encoding="utf-8") as inp, open(
+            stripped_tsv, "w", encoding="utf-8"
+        ) as out:
             # Read the header line from replaced_tsv
             raw_header_line = next(inp).rstrip("\n")
             original_header_cols = raw_header_line.split("\t")
@@ -462,16 +518,19 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
                     remove_indices.append(idx)
                     logger.debug(
                         "Removing normalized column '%s' => real index %d",
-                        single_line, idx
+                        single_line,
+                        idx,
                     )
                 else:
                     logger.warning(
                         "Column '%s' was requested for removal but not found in header!",
-                        raw_col_name
+                        raw_col_name,
                     )
 
             remove_indices.sort(reverse=True)
-            new_header = [h for i, h in enumerate(original_header_cols) if i not in remove_indices]
+            new_header = [
+                h for i, h in enumerate(original_header_cols) if i not in remove_indices
+            ]
             out.write("\t".join(new_header) + "\n")
 
             for line_num, line in enumerate(inp, start=2):
@@ -492,8 +551,9 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
     if use_phenotypes:
         pattern = re.compile(r"^([^()]+)(?:\([^)]+\))?$")
 
-        with open(replaced_tsv, "r", encoding="utf-8") as inp, \
-                open(phenotype_added_tsv, "w", encoding="utf-8") as out:
+        with open(replaced_tsv, "r", encoding="utf-8") as inp, open(
+            phenotype_added_tsv, "w", encoding="utf-8"
+        ) as out:
             header = next(inp).rstrip("\n")
             header_fields = header.split("\t")
             header_fields.append("phenotypes")
@@ -523,7 +583,9 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
                                         samples_in_line.append(s)
                     pheno_str = ""
                     if samples_in_line:
-                        pheno_str = aggregate_phenotypes_for_samples(samples_in_line, phenotypes)
+                        pheno_str = aggregate_phenotypes_for_samples(
+                            samples_in_line, phenotypes
+                        )
                     fields_line.append(pheno_str)
                 else:
                     fields_line.append("")
@@ -540,22 +602,30 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         final_tsv = replaced_tsv
 
     # Genotype filtering if requested
-    if getattr(args, "genotype_filter", None) or getattr(args, "gene_genotype_file", None):
-        genotype_filtered_tsv = os.path.join(args.output_dir, f"{base_name}.genotype_filtered.tsv")
+    if getattr(args, "genotype_filter", None) or getattr(
+        args, "gene_genotype_file", None
+    ):
+        genotype_filtered_tsv = os.path.join(
+            args.output_dir, f"{base_name}.genotype_filtered.tsv"
+        )
         genotype_modes = set()
         if getattr(args, "genotype_filter", None):
-            genotype_modes = set(g.strip() for g in args.genotype_filter.split(",") if g.strip())
+            genotype_modes = set(
+                g.strip() for g in args.genotype_filter.split(",") if g.strip()
+            )
         filter_final_tsv_by_genotype(
             input_tsv=final_tsv,
             output_tsv=genotype_filtered_tsv,
             global_genotypes=genotype_modes,
-            gene_genotype_file=args.gene_genotype_file
+            gene_genotype_file=args.gene_genotype_file,
         )
         final_tsv = genotype_filtered_tsv
 
     # If Excel requested
     if args.xlsx:
-        excel_file = os.path.splitext(final_output or f"{base_name}.final.tsv")[0] + ".xlsx"
+        excel_file = (
+            os.path.splitext(final_output or f"{base_name}.final.tsv")[0] + ".xlsx"
+        )
         cfg["final_excel_file"] = excel_file
     else:
         cfg["final_excel_file"] = None
@@ -702,8 +772,9 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         gene_burden_cfg = cfg.copy()
         gene_burden_cfg["perform_gene_burden"] = True
         line_count = 0
-        with open(final_tsv, "r", encoding="utf-8") as inp, \
-                open(gene_burden_tsv, "w", encoding="utf-8") as out:
+        with open(final_tsv, "r", encoding="utf-8") as inp, open(
+            gene_burden_tsv, "w", encoding="utf-8"
+        ) as out:
             for line in analyze_variants(inp, gene_burden_cfg):
                 out.write(line + "\n")
                 line_count += 1
@@ -714,9 +785,7 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
 
     end_time = datetime.datetime.now()
     duration = (end_time - start_time).total_seconds()
-    logger.info(
-        f"Run ended at {end_time.isoformat()}, duration: {duration} seconds"
-    )
+    logger.info(f"Run ended at {end_time.isoformat()}, duration: {duration} seconds")
 
     # Metadata
     metadata_file = os.path.join(args.output_dir, f"{base_name}.metadata.tsv")
@@ -734,7 +803,9 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         meta_write("Run_end_time", end_time.isoformat())
         meta_write("Run_duration_seconds", str(duration))
         meta_write("Date", datetime.datetime.now().isoformat())
-        meta_write("Command_line", " ".join([sanitize_metadata_field(x) for x in sys.argv]))
+        meta_write(
+            "Command_line", " ".join([sanitize_metadata_field(x) for x in sys.argv])
+        )
 
         for k, v in cfg.items():
             meta_write(f"config.{k}", str(v))
@@ -757,32 +828,43 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         else:
             xlsx_file = convert_to_excel(final_out_path, cfg)
             append_tsv_as_sheet(xlsx_file, metadata_file, sheet_name="Metadata")
-            if (not cfg["no_stats"] and cfg.get("stats_output_file")
-                    and os.path.exists(cfg["stats_output_file"])):
+            if (
+                not cfg["no_stats"]
+                and cfg.get("stats_output_file")
+                and os.path.exists(cfg["stats_output_file"])
+            ):
                 if os.path.getsize(cfg["stats_output_file"]) > 0:
-                    append_tsv_as_sheet(xlsx_file, cfg["stats_output_file"], sheet_name="Statistics")
+                    append_tsv_as_sheet(
+                        xlsx_file, cfg["stats_output_file"], sheet_name="Statistics"
+                    )
                 else:
                     logger.warning("Stats file is empty, skipping Statistics sheet.")
-            if (cfg.get("perform_gene_burden", False)
-                    and os.path.exists(gene_burden_tsv)
-                    and os.path.getsize(gene_burden_tsv) > 0):
-                append_tsv_as_sheet(xlsx_file, gene_burden_tsv, sheet_name="Gene Burden")
+            if (
+                cfg.get("perform_gene_burden", False)
+                and os.path.exists(gene_burden_tsv)
+                and os.path.getsize(gene_burden_tsv) > 0
+            ):
+                append_tsv_as_sheet(
+                    xlsx_file, gene_burden_tsv, sheet_name="Gene Burden"
+                )
 
             finalize_excel_file(xlsx_file, cfg)
 
     # Produce HTML report if requested
     if args.html_report and final_out_path and os.path.exists(final_out_path):
         from .converter import produce_report_json
+
         produce_report_json(final_out_path, args.output_dir)
 
         from .generate_html_report import generate_html_report
+
         report_dir = os.path.join(args.output_dir, "report")
         variants_json = os.path.join(report_dir, "variants.json")
         summary_json = os.path.join(report_dir, "summary.json")
         generate_html_report(
             variants_json=variants_json,
             summary_json=summary_json,
-            output_dir=report_dir
+            output_dir=report_dir,
         )
         logger.info("HTML report generated successfully.")
 
@@ -792,17 +874,20 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
         bam_map = cfg.get("bam_mapping_file")
         igv_ref = cfg.get("igv_reference")
         if not bam_map or not igv_ref:
-            logger.error("For IGV integration, --bam-mapping-file and --igv-reference must be provided.")
+            logger.error(
+                "For IGV integration, --bam-mapping-file and --igv-reference must be provided."
+            )
             sys.exit(1)
 
         from .generate_igv_report import generate_igv_report
+
         if args.html_report and final_out_path and os.path.exists(final_out_path):
             generate_igv_report(
                 variants_tsv=final_out_path,
                 output_dir=report_dir,
                 bam_mapping_file=bam_map,
                 igv_reference=igv_ref,
-                integrate_into_main=True
+                integrate_into_main=True,
             )
         else:
             igv_report_dir = os.path.join(args.output_dir, "igv_report")
@@ -813,11 +898,13 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
                     output_dir=igv_report_dir,
                     bam_mapping_file=bam_map,
                     igv_reference=igv_ref,
-                    integrate_into_main=False
+                    integrate_into_main=False,
                 )
                 logger.info("Standalone IGV report generated successfully.")
             else:
-                logger.warning("Final variants TSV not found, cannot generate IGV report.")
+                logger.warning(
+                    "Final variants TSV not found, cannot generate IGV report."
+                )
 
     # Remove intermediates if requested
     if not args.keep_intermediates:
@@ -826,7 +913,7 @@ def run_pipeline(args: argparse.Namespace, cfg: Dict[str, Any], start_time: date
             splitted_before_file,
             splitted_after_file,
             filtered_file,
-            extracted_tsv
+            extracted_tsv,
         ]
         if not args.no_replacement and gt_present:
             intermediates.append(genotype_replaced_tsv)

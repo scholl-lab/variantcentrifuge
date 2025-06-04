@@ -29,10 +29,7 @@ logger = logging.getLogger("variantcentrifuge")
 
 
 def extract_variants(
-    vcf_file: str,
-    bed_file: str,
-    cfg: Dict[str, Any],
-    output_file: str
+    vcf_file: str, bed_file: str, cfg: Dict[str, Any], output_file: str
 ) -> str:
     """
     Extract variants from a VCF using bcftools and a BED file, writing output
@@ -65,12 +62,16 @@ def extract_variants(
     threads = str(cfg.get("threads", 1))
 
     cmd = [
-        "bcftools", "view",
-        "--threads", threads,
+        "bcftools",
+        "view",
+        "--threads",
+        threads,
         "-W",  # writes the index file automatically
-        "-R", bed_file,
+        "-R",
+        bed_file,
         "-Oz",  # compressed output
-        "-o", output_file,
+        "-o",
+        output_file,
         vcf_file,
     ]
     logger.debug("Extracting variants with command: %s", " ".join(cmd))
@@ -81,10 +82,7 @@ def extract_variants(
 
 
 def apply_snpsift_filter(
-    variant_file: str,
-    filter_string: str,
-    cfg: Dict[str, Any],
-    output_file: str
+    variant_file: str, filter_string: str, cfg: Dict[str, Any], output_file: str
 ) -> str:
     """
     Apply a SnpSift filter to a variant file, then compress and index the output.
@@ -150,7 +148,7 @@ def filter_final_tsv_by_genotype(
     global_genotypes: Optional[Set[str]] = None,
     gene_genotype_file: Optional[str] = None,
     gene_column_name: str = "GENE",
-    gt_column_name: str = "GT"
+    gt_column_name: str = "GT",
 ) -> None:
     """
     Filter the final TSV rows by genotype. This can be done globally (using a single
@@ -236,7 +234,9 @@ def filter_final_tsv_by_genotype(
     # Read the gene -> genotype(s) mapping if provided
     gene_to_genotypes: Dict[str, Set[str]] = {}
     if gene_genotype_file and os.path.exists(gene_genotype_file):
-        logger.debug("Attempting to read gene -> genotype rules from: %s", gene_genotype_file)
+        logger.debug(
+            "Attempting to read gene -> genotype rules from: %s", gene_genotype_file
+        )
         with open(gene_genotype_file, "r", encoding="utf-8") as gfile:
             all_lines = gfile.readlines()
 
@@ -248,6 +248,7 @@ def filter_final_tsv_by_genotype(
             logger.debug("Gene genotype file is empty, skipping parsing.")
         else:
             from io import StringIO
+
             gfile_replay = StringIO("".join(all_lines))
             header = next(gfile_replay).strip().split("\t")
 
@@ -278,9 +279,14 @@ def filter_final_tsv_by_genotype(
                         gene_to_genotypes[gname] = set()
                     gene_to_genotypes[gname].update(genos)
                 line_count += 1
-            logger.debug("Finished reading %d data lines from gene_genotype_file", line_count)
+            logger.debug(
+                "Finished reading %d data lines from gene_genotype_file", line_count
+            )
     else:
-        logger.debug("No valid gene_genotype_file found, or file does not exist at: %s", gene_genotype_file)
+        logger.debug(
+            "No valid gene_genotype_file found, or file does not exist at: %s",
+            gene_genotype_file,
+        )
 
     # Helpers to detect genotype as 'het' (0/1 or 1/0) or 'hom' (1/1)
     def is_het(gt_string: str) -> bool:
@@ -329,7 +335,7 @@ def filter_final_tsv_by_genotype(
                     if not e:
                         continue
                     # example: "325879(0/1:53,55:108)"
-                    # We'll store the entire substring "0/1:53,55:108" 
+                    # We'll store the entire substring "0/1:53,55:108"
                     # but also parse out the "main genotype" before a colon if present
                     if "(" in e and ")" in e:
                         sample_name = e.split("(")[0].strip()
@@ -357,12 +363,20 @@ def filter_final_tsv_by_genotype(
             for sample_name, genotype_substring in sample_gt_dict.items():
                 # e.g. genotype_substring = "0/1:53,55:108"
                 # parse the main genotype by splitting on the first colon
-                main_gt = genotype_substring.split(":")[0] if ":" in genotype_substring else genotype_substring
+                main_gt = (
+                    genotype_substring.split(":")[0]
+                    if ":" in genotype_substring
+                    else genotype_substring
+                )
                 if is_het(main_gt):
-                    sample_het_count[sample_name] = sample_het_count.get(sample_name, 0) + 1
+                    sample_het_count[sample_name] = (
+                        sample_het_count.get(sample_name, 0) + 1
+                    )
         qualified_samples = {s for s, c in sample_het_count.items() if c >= 2}
         comp_het_qualified[g] = qualified_samples
-        logger.debug("Gene '%s' => comp_het_qualified samples: %s", g, qualified_samples)
+        logger.debug(
+            "Gene '%s' => comp_het_qualified samples: %s", g, qualified_samples
+        )
 
     # We'll build our filtered lines
     filtered_lines: List[str] = [header]  # keep original header as is
@@ -380,21 +394,31 @@ def filter_final_tsv_by_genotype(
 
             # For each sample, check if it meets the filter(s)
             for sample_name, genotype_substring in sample_gt_dict.items():
-                main_gt = genotype_substring.split(":")[0] if ":" in genotype_substring else genotype_substring
+                main_gt = (
+                    genotype_substring.split(":")[0]
+                    if ":" in genotype_substring
+                    else genotype_substring
+                )
 
                 reasons = []
                 if do_het and is_het(main_gt):
                     reasons.append("het")
                 if do_hom and is_hom(main_gt):
                     reasons.append("hom")
-                if do_comp_het and is_het(main_gt) and sample_name in comp_het_qualified.get(g, set()):
+                if (
+                    do_comp_het
+                    and is_het(main_gt)
+                    and sample_name in comp_het_qualified.get(g, set())
+                ):
                     reasons.append("comphet")
 
                 if reasons:
                     # This sample passes the filter => we append the reason(s)
                     reason_str = f"({','.join(reasons)})"
                     # e.g. "325879(0/1:53,55:108)(het,comphet)"
-                    new_sample_entries.append(f"{sample_name}({genotype_substring}){reason_str}")
+                    new_sample_entries.append(
+                        f"{sample_name}({genotype_substring}){reason_str}"
+                    )
 
             # If we have at least one sample that passes => keep the line
             if new_sample_entries:
@@ -407,6 +431,5 @@ def filter_final_tsv_by_genotype(
             out.write(line + "\n")
 
     logger.info(
-        "Genotype filtering complete. Input: %s, Output: %s",
-        input_tsv, output_tsv
+        "Genotype filtering complete. Input: %s, Output: %s", input_tsv, output_tsv
     )

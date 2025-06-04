@@ -9,7 +9,11 @@ from typing import Optional, Dict, Any
 
 from .version import __version__
 from .config import load_config
-from .validators import validate_mandatory_parameters, validate_vcf_file, validate_phenotype_file
+from .validators import (
+    validate_mandatory_parameters,
+    validate_vcf_file,
+    validate_phenotype_file,
+)
 from .pipeline import run_pipeline
 
 logger = logging.getLogger("variantcentrifuge")
@@ -59,9 +63,7 @@ def main() -> None:
           extra fields (default ':').
     """
     logging.basicConfig(
-        level=logging.INFO,
-        format="%(levelname)s: %(message)s",
-        stream=sys.stderr
+        level=logging.INFO, format="%(levelname)s: %(message)s", stream=sys.stderr
     )
 
     start_time: datetime.datetime = datetime.datetime.now()
@@ -83,8 +85,7 @@ def main() -> None:
         help="Set the logging level",
     )
     parser.add_argument(
-        "--log-file",
-        help="Path to a file to write logs to (in addition to stderr)."
+        "--log-file", help="Path to a file to write logs to (in addition to stderr)."
     )
     parser.add_argument(
         "-c",
@@ -92,33 +93,18 @@ def main() -> None:
         help="Path to configuration file",
         default=None,
     )
+    parser.add_argument("-g", "--gene-name", help="Gene or list of genes of interest")
     parser.add_argument(
-        "-g",
-        "--gene-name",
-        help="Gene or list of genes of interest"
+        "-G", "--gene-file", help="File containing gene names, one per line"
     )
-    parser.add_argument(
-        "-G",
-        "--gene-file",
-        help="File containing gene names, one per line"
-    )
-    parser.add_argument(
-        "-v",
-        "--vcf-file",
-        help="Input VCF file path",
-        required=True
-    )
+    parser.add_argument("-v", "--vcf-file", help="Input VCF file path", required=True)
     parser.add_argument(
         "-r",
         "--reference",
         help="Reference database for snpEff",
         default=None,
     )
-    parser.add_argument(
-        "-f",
-        "--filters",
-        help="Filters to apply in SnpSift filter"
-    )
+    parser.add_argument("-f", "--filters", help="Filters to apply in SnpSift filter")
     # Preset argument
     parser.add_argument(
         "--preset",
@@ -127,162 +113,145 @@ def main() -> None:
             "Apply predefined filtering presets defined in the config file. "
             "Specify multiple times for multiple presets. They are combined with AND. "
             "If custom filters are also given, they are combined with these presets using AND."
-        )
+        ),
     )
     parser.add_argument(
-        "-e",
-        "--fields",
-        help="Fields to extract with SnpSift extractFields"
+        "-e", "--fields", help="Fields to extract with SnpSift extractFields"
     )
     parser.add_argument(
         "-o",
         "--output-file",
-        nargs='?',
-        const='stdout',
-        help="Final output file name or 'stdout'/'-' for stdout"
+        nargs="?",
+        const="stdout",
+        help="Final output file name or 'stdout'/'-' for stdout",
     )
     parser.add_argument(
-        "--xlsx",
-        action="store_true",
-        help="Convert final result to Excel"
+        "--xlsx", action="store_true", help="Convert final result to Excel"
     )
     parser.add_argument(
-        "--no-replacement",
-        action="store_true",
-        help="Skip genotype replacement step"
+        "--no-replacement", action="store_true", help="Skip genotype replacement step"
     )
-    parser.add_argument(
-        "--stats-output-file",
-        help="File to write analysis statistics"
-    )
+    parser.add_argument("--stats-output-file", help="File to write analysis statistics")
     parser.add_argument(
         "--perform-gene-burden",
         action="store_true",
-        help="Perform gene burden analysis"
+        help="Perform gene burden analysis",
     )
     parser.add_argument(
         "--output-dir",
         help="Directory to store intermediate and final output files",
-        default="output"
+        default="output",
     )
     parser.add_argument(
         "--keep-intermediates",
         action="store_true",
         default=True,
-        help="Keep intermediate files."
+        help="Keep intermediate files.",
     )
     parser.add_argument(
-        "--phenotype-file",
-        help="Path to phenotype file (.csv or .tsv)"
+        "--phenotype-file", help="Path to phenotype file (.csv or .tsv)"
     )
     parser.add_argument(
         "--phenotype-sample-column",
-        help="Name of the column containing sample IDs in phenotype file"
+        help="Name of the column containing sample IDs in phenotype file",
     )
     parser.add_argument(
         "--phenotype-value-column",
-        help="Name of the column containing phenotype values in phenotype file"
+        help="Name of the column containing phenotype values in phenotype file",
     )
     parser.add_argument(
         "--no-stats",
         action="store_true",
         default=False,
-        help="Skip the statistics computation step."
+        help="Skip the statistics computation step.",
     )
     parser.add_argument(
-        "--case-phenotypes",
-        help="Comma-separated HPO terms defining case group"
+        "--case-phenotypes", help="Comma-separated HPO terms defining case group"
     )
     parser.add_argument(
-        "--control-phenotypes",
-        help="Comma-separated HPO terms defining control group"
+        "--control-phenotypes", help="Comma-separated HPO terms defining control group"
     )
     parser.add_argument(
-        "--case-phenotypes-file",
-        help="File with HPO terms for case group"
+        "--case-phenotypes-file", help="File with HPO terms for case group"
     )
     parser.add_argument(
-        "--control-phenotypes-file",
-        help="File with HPO terms for control group"
+        "--control-phenotypes-file", help="File with HPO terms for control group"
     )
     parser.add_argument(
-        "--case-samples",
-        help="Comma-separated sample IDs defining the case group"
+        "--case-samples", help="Comma-separated sample IDs defining the case group"
     )
     parser.add_argument(
         "--control-samples",
-        help="Comma-separated sample IDs defining the control group"
+        help="Comma-separated sample IDs defining the control group",
     )
     parser.add_argument(
-        "--case-samples-file",
-        help="File with sample IDs for case group"
+        "--case-samples-file", help="File with sample IDs for case group"
     )
     parser.add_argument(
-        "--control-samples-file",
-        help="File with sample IDs for control group"
+        "--control-samples-file", help="File with sample IDs for control group"
     )
     parser.add_argument(
         "--gene-burden-mode",
         choices=["samples", "alleles"],
         default="alleles",
-        help="Mode for gene burden calculation: 'samples' or 'alleles'"
+        help="Mode for gene burden calculation: 'samples' or 'alleles'",
     )
     parser.add_argument(
         "--correction-method",
         choices=["fdr", "bonferroni"],
         default="fdr",
-        help="Multiple testing correction method for gene burden test"
+        help="Multiple testing correction method for gene burden test",
     )
     parser.add_argument(
         "--html-report",
         action="store_true",
-        help="Generate an interactive HTML report with sortable variant tables and summary plots."
+        help="Generate an interactive HTML report with sortable variant tables and summary plots.",
     )
     parser.add_argument(
         "--igv",
         action="store_true",
-        help="Enable IGV.js integration for genomic visualization."
+        help="Enable IGV.js integration for genomic visualization.",
     )
     parser.add_argument(
         "--bam-mapping-file",
-        help="Path to a TSV or CSV file mapping sample IDs to BAM files (sample_id,bam_path)."
+        help="Path to a TSV or CSV file mapping sample IDs to BAM files (sample_id,bam_path).",
     )
     parser.add_argument(
         "--igv-reference",
-        help="Genome reference identifier for IGV (e.g., 'hg19' or 'hg38'). Required if --igv is enabled."
+        help="Genome reference identifier for IGV (e.g., 'hg19' or 'hg38'). Required if --igv is enabled.",
     )
 
     parser.add_argument(
         "--remove-sample-substring",
-        help="If provided, this substring will be removed from all sample names found in the VCF."
+        help="If provided, this substring will be removed from all sample names found in the VCF.",
     )
 
     parser.add_argument(
         "--no-links",
         action="store_true",
         default=False,
-        help="Disable adding link columns to the final output (links are added by default)."
+        help="Disable adding link columns to the final output (links are added by default).",
     )
 
     parser.add_argument(
         "--threads",
         type=int,
         default=1,
-        help="Number of threads to use for bcftools and related operations."
+        help="Number of threads to use for bcftools and related operations.",
     )
 
     parser.add_argument(
         "--add-column",
         action="append",
         default=[],
-        help="Append a named blank column to the final output. Repeat for multiple columns."
+        help="Append a named blank column to the final output. Repeat for multiple columns.",
     )
 
     parser.add_argument(
         "--split-snpeff-lines",
-        nargs='?',
-        const='before_filters',
-        choices=['before_filters', 'after_filters'],
+        nargs="?",
+        const="before_filters",
+        choices=["before_filters", "after_filters"],
         help=(
             "If set, run the SNPeff annotation splitter step in one of two modes:\n"
             "  'before_filters' (default if no value is given) => Split lines right after variant extraction;\n"
@@ -290,7 +259,7 @@ def main() -> None:
             "  'after_filters' => Only split EFF/ANN lines after the main filter step,\n"
             "       produces a smaller intermediate file and can be faster for big multi-annotation VCFs.\n\n"
             "If omitted, splitting is not performed at all."
-        )
+        ),
     )
 
     parser.add_argument(
@@ -298,14 +267,14 @@ def main() -> None:
         help=(
             "Comma-separated list of transcript IDs to filter for. "
             "For example: NM_007294.4,NM_000059.4"
-        )
+        ),
     )
     parser.add_argument(
         "--transcript-file",
         help=(
             "Path to a file containing transcript IDs, one per line. "
             "For example: a file where each line is a transcript like NM_007294.4"
-        )
+        ),
     )
 
     parser.add_argument(
@@ -314,7 +283,7 @@ def main() -> None:
             "Specify genotype filter(s), e.g. 'het', 'hom', 'comp_het' or "
             "comma-separated combination (e.g. 'het,comp_het'). Only samples/lines "
             "fulfilling these genotypes are kept (unless per-gene file overrides)."
-        )
+        ),
     )
     parser.add_argument(
         "--gene-genotype-file",
@@ -322,7 +291,7 @@ def main() -> None:
             "Path to a file specifying per-gene genotype rules. It must contain at least two columns: "
             "'GENE' and 'GENOTYPES' (a comma-separated list of genotype filters, e.g. het,comp_het). "
             "If a gene is listed here, it overrides any global --genotype-filter."
-        )
+        ),
     )
 
     # Unified argument for extra sample fields:
@@ -410,7 +379,7 @@ def main() -> None:
             args.phenotype_file,
             args.phenotype_sample_column,
             args.phenotype_value_column,
-            logger
+            logger,
         )
 
     cfg["perform_gene_burden"] = args.perform_gene_burden
@@ -423,7 +392,9 @@ def main() -> None:
     cfg["bam_mapping_file"] = args.bam_mapping_file
     cfg["igv_reference"] = args.igv_reference
     if args.igv and (not args.bam_mapping_file or not args.igv_reference):
-        logger.error("For IGV integration, --bam-mapping-file and --igv-reference must be provided.")
+        logger.error(
+            "For IGV integration, --bam-mapping-file and --igv-reference must be provided."
+        )
         sys.exit(1)
 
     # Update filters/fields
@@ -461,6 +432,8 @@ def main() -> None:
     cfg["extra_sample_field_delimiter"] = args.extra_sample_field_delimiter
 
     # Manage the new snpEff splitting mode
-    cfg["snpeff_splitting_mode"] = args.split_snpeff_lines  # None, 'before_filters', or 'after_filters'
+    cfg["snpeff_splitting_mode"] = (
+        args.split_snpeff_lines
+    )  # None, 'before_filters', or 'after_filters'
 
     run_pipeline(args, cfg, start_time)

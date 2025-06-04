@@ -136,7 +136,9 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
     # Write basic stats if requested
     if stats_output_file:
         logger.debug("Writing basic stats to %s", stats_output_file)
-        basic_stats_df.to_csv(stats_output_file, sep="\t", index=False, header=True, mode="w")
+        basic_stats_df.to_csv(
+            stats_output_file, sep="\t", index=False, header=True, mode="w"
+        )
 
     # Compute comprehensive stats if not skipped
     if not no_stats:
@@ -160,7 +162,9 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
         if comp_stats_list and stats_output_file:
             logger.debug("Appending comprehensive stats to the stats file.")
             comp_stats_df = pd.DataFrame(comp_stats_list, columns=["metric", "value"])
-            comp_stats_df.to_csv(stats_output_file, sep="\t", index=False, header=False, mode="a")
+            comp_stats_df.to_csv(
+                stats_output_file, sep="\t", index=False, header=False, mode="a"
+            )
     else:
         logger.debug("No comprehensive stats requested (no_stats=True).")
 
@@ -170,13 +174,17 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
         gene_burden_results = gene_burden.perform_gene_burden_analysis(df, cfg)
 
         if gene_burden_results.empty:
-            logger.warning("Gene burden results are empty. Returning variant-level data.")
+            logger.warning(
+                "Gene burden results are empty. Returning variant-level data."
+            )
             out_str = df.to_csv(sep="\t", index=False)
             for line in out_str.strip().split("\n"):
                 yield line
             return
 
-        burden_output_file = cfg.get("gene_burden_output_file", "gene_burden_results.tsv")
+        burden_output_file = cfg.get(
+            "gene_burden_output_file", "gene_burden_results.tsv"
+        )
         logger.info("Writing gene burden results to %s", burden_output_file)
         gene_burden_results.to_csv(burden_output_file, sep="\t", index=False)
 

@@ -60,10 +60,10 @@ def split_vcf_effects(line: str) -> list[str]:
     :return: A list of one or more lines, each containing one EFF/ANN annotation.
     """
     # If this is a header line, return as is
-    if line.startswith('#'):
+    if line.startswith("#"):
         return [line]
 
-    columns = line.strip().split('\t')
+    columns = line.strip().split("\t")
     # VCF columns: CHROM (0), POS (1), ID (2), REF (3), ALT (4),
     #              QUAL (5), FILTER (6), INFO (7), FORMAT (8), ...
     INFO_FIELD_NUM = 7
@@ -73,7 +73,7 @@ def split_vcf_effects(line: str) -> list[str]:
         return [line]
 
     info_str = columns[INFO_FIELD_NUM]
-    infos = info_str.split(';')
+    infos = info_str.split(";")
 
     # We look for EFF= or ANN= in the INFO field
     effs = []
@@ -81,14 +81,14 @@ def split_vcf_effects(line: str) -> list[str]:
     other_info_parts = []
 
     for inf in infos:
-        match_eff = re.match(r'^(EFF)=(.*)', inf)
-        match_ann = re.match(r'^(ANN)=(.*)', inf)
+        match_eff = re.match(r"^(EFF)=(.*)", inf)
+        match_ann = re.match(r"^(ANN)=(.*)", inf)
         if match_eff:
             field_name = match_eff.group(1)
-            effs = match_eff.group(2).split(',')
+            effs = match_eff.group(2).split(",")
         elif match_ann:
             field_name = match_ann.group(1)
-            effs = match_ann.group(2).split(',')
+            effs = match_ann.group(2).split(",")
         else:
             other_info_parts.append(inf)
 
@@ -98,22 +98,22 @@ def split_vcf_effects(line: str) -> list[str]:
 
     # Otherwise, replicate line for each EFF/ANN
     pre_cols = columns[:INFO_FIELD_NUM]  # columns before INFO
-    post_cols = columns[INFO_FIELD_NUM + 1:]  # columns after INFO
+    post_cols = columns[INFO_FIELD_NUM + 1 :]  # columns after INFO
 
     split_lines = []
-    pre_string = '\t'.join(pre_cols)
-    post_string = '\t' + '\t'.join(post_cols) if post_cols else ''
+    pre_string = "\t".join(pre_cols)
+    post_string = "\t" + "\t".join(post_cols) if post_cols else ""
 
     # Reconstruct lines with each effect/annotation on separate lines
     for eff in effs:
         # Build the final INFO field: combine leftover info with the single EFF/ANN
-        new_info = ';'.join(filter(None, other_info_parts))
+        new_info = ";".join(filter(None, other_info_parts))
         if new_info:
-            new_info += f';{field_name}={eff}'
+            new_info += f";{field_name}={eff}"
         else:
-            new_info = f'{field_name}={eff}'
+            new_info = f"{field_name}={eff}"
 
-        new_line = f'{pre_string}\t{new_info}{post_string}'
+        new_line = f"{pre_string}\t{new_info}{post_string}"
         split_lines.append(new_line)
 
     return split_lines
@@ -134,12 +134,12 @@ def process_vcf_file(input_file: str, output_file: str = None) -> None:
     """
     # Decide if we should write BGZipped output
     use_bgzip = False
-    if output_file is not None and output_file != '-' and output_file.endswith('.gz'):
+    if output_file is not None and output_file != "-" and output_file.endswith(".gz"):
         use_bgzip = True
 
     # Prepare the output handle
     bgzip_proc = None
-    if output_file is None or output_file == '-':
+    if output_file is None or output_file == "-":
         # Write to stdout (uncompressed)
         out_handle = sys.stdout
     else:
@@ -147,34 +147,34 @@ def process_vcf_file(input_file: str, output_file: str = None) -> None:
             # We create a subprocess that writes to 'bgzip -c'
             # so we can write text data that ends up BGZipped
             # then we pipe that directly to our final .gz file
-            out_fh = open(output_file, 'wb')
+            out_fh = open(output_file, "wb")
             bgzip_proc = subprocess.Popen(
                 ["bgzip", "-c"],
                 stdin=subprocess.PIPE,
                 stdout=out_fh,
-                stderr=subprocess.PIPE
+                stderr=subprocess.PIPE,
             )
-            out_handle = io.TextIOWrapper(bgzip_proc.stdin, encoding='utf-8')
+            out_handle = io.TextIOWrapper(bgzip_proc.stdin, encoding="utf-8")
         else:
             # Plain text
-            out_handle = open(output_file, 'w', encoding='utf-8')
+            out_handle = open(output_file, "w", encoding="utf-8")
 
     # Open the input handle
-    if input_file == '-':
+    if input_file == "-":
         in_handle = sys.stdin
-    elif input_file.endswith('.gz'):
-        in_handle = gzip.open(input_file, mode='rt', encoding='utf-8')
+    elif input_file.endswith(".gz"):
+        in_handle = gzip.open(input_file, mode="rt", encoding="utf-8")
     else:
-        in_handle = open(input_file, 'r', encoding='utf-8')
+        in_handle = open(input_file, "r", encoding="utf-8")
 
     # Read from in_handle, write to out_handle
     try:
         with in_handle:
             for line in in_handle:
-                line = line.rstrip('\n')
+                line = line.rstrip("\n")
                 split_lines = split_vcf_effects(line)
                 for out_line in split_lines:
-                    out_handle.write(out_line + '\n')
+                    out_handle.write(out_line + "\n")
     finally:
         # Now close out_handle ourselves
         if out_handle not in (sys.stdout, sys.stdin):
@@ -198,21 +198,21 @@ def main():
         )
     )
     parser.add_argument(
-        '-i',
-        '--input',
-        default='-',
-        help="Path to input VCF file (uncompressed or bgzipped). Use '-' for stdin."
+        "-i",
+        "--input",
+        default="-",
+        help="Path to input VCF file (uncompressed or bgzipped). Use '-' for stdin.",
     )
     parser.add_argument(
-        '-o',
-        '--output',
-        default='-',
-        help="Path to output file. Use '-' for stdout. If '.gz' extension is used, output is bgzipped + tabixed."
+        "-o",
+        "--output",
+        default="-",
+        help="Path to output file. Use '-' for stdout. If '.gz' extension is used, output is bgzipped + tabixed.",
     )
 
     args = parser.parse_args()
     process_vcf_file(args.input, args.output)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

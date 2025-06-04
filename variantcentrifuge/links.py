@@ -81,7 +81,9 @@ def add_links_to_table(lines: List[str], link_configs: Dict[str, str]) -> List[s
                 placeholder_token = "{" + placeholder + "}"
                 if placeholder_token in template:
                     if col_index[placeholder] < len(fields):
-                        link_url = link_url.replace(placeholder_token, fields[col_index[placeholder]])
+                        link_url = link_url.replace(
+                            placeholder_token, fields[col_index[placeholder]]
+                        )
                     else:
                         # Column index out of range, set link_url empty
                         link_url = ""

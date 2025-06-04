@@ -22,7 +22,9 @@ from typing import Dict, Set, List
 logger = logging.getLogger("variantcentrifuge")
 
 
-def load_phenotypes(phenotype_file: str, sample_column: str, phenotype_column: str) -> Dict[str, Set[str]]:
+def load_phenotypes(
+    phenotype_file: str, sample_column: str, phenotype_column: str
+) -> Dict[str, Set[str]]:
     """
     Load phenotypes from a .csv or .tsv file into a dictionary.
 
@@ -58,9 +60,13 @@ def load_phenotypes(phenotype_file: str, sample_column: str, phenotype_column: s
         header = header_line.split(delim)
 
         if sample_column not in header:
-            raise ValueError(f"Sample column '{sample_column}' not found in phenotype file.")
+            raise ValueError(
+                f"Sample column '{sample_column}' not found in phenotype file."
+            )
         if phenotype_column not in header:
-            raise ValueError(f"Phenotype column '{phenotype_column}' not found in phenotype file.")
+            raise ValueError(
+                f"Phenotype column '{phenotype_column}' not found in phenotype file."
+            )
 
         sample_idx = header.index(sample_column)
         pheno_idx = header.index(phenotype_column)
@@ -82,7 +88,9 @@ def load_phenotypes(phenotype_file: str, sample_column: str, phenotype_column: s
     return phenotypes
 
 
-def aggregate_phenotypes_for_samples(samples: List[str], phenotypes: Dict[str, Set[str]]) -> str:
+def aggregate_phenotypes_for_samples(
+    samples: List[str], phenotypes: Dict[str, Set[str]]
+) -> str:
     """
     Aggregate phenotypes for a given list of samples into a single string.
 

@@ -22,8 +22,7 @@ def test_extract_variants_no_bed(monkeypatch):
         yield "1\t1000\t.\tA\tG\t.\t.\t."
 
     monkeypatch.setattr(
-        "variantcentrifuge.filters.run_command_stream",
-        mock_run_command
+        "variantcentrifuge.filters.run_command_stream", mock_run_command
     )
     cfg = {}
     lines = list(extract_variants("fake.vcf", "fake.bed", cfg))

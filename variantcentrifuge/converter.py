@@ -42,8 +42,9 @@ def convert_to_excel(tsv_file: str, cfg: Dict[str, Any]) -> str:
     return xlsx_file
 
 
-def append_tsv_as_sheet(xlsx_file: str, tsv_file: str, sheet_name: str = "Metadata") -> None:
-
+def append_tsv_as_sheet(
+    xlsx_file: str, tsv_file: str, sheet_name: str = "Metadata"
+) -> None:
     """
     Append a TSV file as a new sheet to an existing XLSX file.
 
@@ -64,7 +65,9 @@ def append_tsv_as_sheet(xlsx_file: str, tsv_file: str, sheet_name: str = "Metada
     None
     """
     df = pd.read_csv(tsv_file, sep="\t", header=0)
-    with pd.ExcelWriter(xlsx_file, engine='openpyxl', mode='a', if_sheet_exists='new') as writer:
+    with pd.ExcelWriter(
+        xlsx_file, engine="openpyxl", mode="a", if_sheet_exists="new"
+    ) as writer:
         df.to_excel(writer, index=False, sheet_name=sheet_name)
 
 
@@ -102,7 +105,9 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
         alt_idx = header_to_index.get("ALT")
 
         # If missing any of these columns, skip hyperlink generation
-        missing_cols = [c for c in ["CHROM", "POS", "REF", "ALT"] if c not in header_to_index]
+        missing_cols = [
+            c for c in ["CHROM", "POS", "REF", "ALT"] if c not in header_to_index
+        ]
         if missing_cols:
             logger.warning(
                 f"Cannot create hyperlinks in sheet '{ws.title}': "
@@ -131,10 +136,7 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
                 alt_val = str(alt_val) if alt_val is not None else ""
 
                 hyperlink_url = link_template.format(
-                    CHROM=chrom_val,
-                    POS=pos_val,
-                    REF=ref_val,
-                    ALT=alt_val
+                    CHROM=chrom_val, POS=pos_val, REF=ref_val, ALT=alt_val
                 )
 
                 cell = ws.cell(row=row_num, column=link_col_idx)
@@ -181,7 +183,7 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
     summary_data = {
         "num_variants": num_variants,
         "num_genes": num_genes,
-        "impact_distribution": impact_counts
+        "impact_distribution": impact_counts,
     }
 
     variants_json_path = os.path.join(output_dir, "report", "variants.json")
@@ -191,6 +193,7 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
     summary_json_path = os.path.join(output_dir, "report", "summary.json")
     with open(summary_json_path, "w", encoding="utf-8") as sjf:
         import json
+
         json.dump(summary_data, sjf, indent=2)
 
     logger.info(f"JSON files produced: {variants_json_path}, {summary_json_path}")
