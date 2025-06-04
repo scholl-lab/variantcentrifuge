@@ -219,6 +219,12 @@ def main() -> None:
     )
 
     parser.add_argument(
+        "--add-chr",
+        action="store_true",
+        help="Add 'chr' prefix to chromosome names in BED file. Overrides config setting.",
+    )
+
+    parser.add_argument(
         "--split-snpeff-lines",
         nargs="?",
         const="before_filters",
@@ -357,6 +363,11 @@ def main() -> None:
     cfg["no_stats"] = args.no_stats
     cfg["gene_burden_mode"] = args.gene_burden_mode
     cfg["correction_method"] = args.correction_method
+
+    # Handle add_chr configuration
+    if args.add_chr:
+        cfg["add_chr"] = True
+    # If flag is not provided, use the value from config file (already loaded)
 
     # IGV parameters
     cfg["igv_enabled"] = args.igv
