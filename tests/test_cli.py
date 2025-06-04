@@ -17,4 +17,4 @@ def test_cli_help():
     cmd = ["python", "-m", "variantcentrifuge.cli", "--help"]
     result = subprocess.run(cmd, capture_output=True, text=True)
     assert result.returncode == 0
-    assert "Usage" in result.stdout
+    assert "usage:" in result.stdout

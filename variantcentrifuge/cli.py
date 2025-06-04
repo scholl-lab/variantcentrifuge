@@ -420,3 +420,7 @@ def main() -> None:
     )  # None, 'before_filters', or 'after_filters'
 
     run_pipeline(args, cfg, start_time)
+
+
+if __name__ == "__main__":
+    main()
