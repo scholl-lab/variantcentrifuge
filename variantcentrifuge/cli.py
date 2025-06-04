@@ -8,8 +8,7 @@ from typing import Any, Dict, Optional
 
 from .config import load_config
 from .pipeline import run_pipeline
-from .validators import (validate_mandatory_parameters,
-                         validate_phenotype_file, validate_vcf_file)
+from .validators import validate_mandatory_parameters, validate_phenotype_file, validate_vcf_file
 from .version import __version__
 
 logger = logging.getLogger("variantcentrifuge")
@@ -369,7 +368,8 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # Update filters/fields
+    # Update reference/filters/fields
+    cfg["reference"] = reference
     cfg["filters"] = filters
     cfg["fields_to_extract"] = fields
 

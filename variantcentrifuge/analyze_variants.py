@@ -26,9 +26,13 @@ from typing import Any, Dict, Iterator
 import pandas as pd
 
 from . import gene_burden, stats
-from .helpers import (assign_case_control_counts, build_sample_phenotype_map,
-                      determine_case_control_sets, extract_sample_and_genotype,
-                      genotype_to_allele_count)
+from .helpers import (
+    assign_case_control_counts,
+    build_sample_phenotype_map,
+    determine_case_control_sets,
+    extract_sample_and_genotype,
+    genotype_to_allele_count,
+)
 
 logger = logging.getLogger("variantcentrifuge")
 

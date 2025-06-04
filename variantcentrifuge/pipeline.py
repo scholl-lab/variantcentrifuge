@@ -29,19 +29,28 @@ import sys
 from typing import Any, Dict, List, Optional
 
 from .analyze_variants import analyze_variants
-from .converter import (append_tsv_as_sheet, convert_to_excel,
-                        finalize_excel_file, produce_report_json)
+from .converter import (
+    append_tsv_as_sheet,
+    convert_to_excel,
+    finalize_excel_file,
+    produce_report_json,
+)
 from .extractor import extract_fields
-from .filters import (apply_snpsift_filter, extract_variants,
-                      filter_final_tsv_by_genotype)
+from .filters import apply_snpsift_filter, extract_variants, filter_final_tsv_by_genotype
 from .gene_bed import get_gene_bed, normalize_genes
 from .links import add_links_to_table
 from .phenotype import aggregate_phenotypes_for_samples, load_phenotypes
 from .phenotype_filter import filter_phenotypes
 from .replacer import replace_genotypes
-from .utils import (check_external_tools, ensure_fields_in_extract,
-                    get_tool_version, normalize_snpeff_headers, run_command,
-                    sanitize_metadata_field)
+from .utils import (
+    check_external_tools,
+    ensure_fields_in_extract,
+    get_tool_version,
+    normalize_snpeff_headers,
+    run_command,
+    sanitize_metadata_field,
+)
+
 # Import the SNPeff annotation splitting function
 from .vcf_eff_one_per_line import process_vcf_file
 
@@ -277,7 +286,7 @@ def run_pipeline(
 
     # Extract gene BED
     bed_file = get_gene_bed(
-        cfg.get("reference") or args.reference,
+        cfg["reference"],
         gene_name,
         interval_expand=cfg.get("interval_expand", 0),
         add_chr=cfg.get("add_chr", True),
