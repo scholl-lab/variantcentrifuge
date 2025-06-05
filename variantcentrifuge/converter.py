@@ -236,49 +236,32 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
                     if len(igv_reports) == 1:
                         # Single report - make a hyperlink
                         sample_id, original_path_from_map = igv_reports[0]
-                        igv_cell.value = sample_id  # Or f"{sample_id} (IGV)"
+                        # Make sure the cell value is sortable
+                        igv_cell.value = sample_id  # This is what will be used for sorting
                         excel_relative_hyperlink_path = os.path.join(
                             "report", original_path_from_map
                         )
                         igv_cell.hyperlink = excel_relative_hyperlink_path
                         igv_cell.style = "Hyperlink"
                     elif len(igv_reports) > 1:
-                        # Multiple reports - text only with sample IDs and paths
+                        # Multiple reports - for sortability use first sample ID as value
+                        first_sample = igv_reports[0][0]  # First sample ID
                         link_texts = [
                             f"{sid} ({os.path.join('report', rpath)})" for sid, rpath in igv_reports
                         ]
-                        igv_cell.value = "; ".join(link_texts)
+                        # Use first sample ID as sortable value, but show all in the tooltip/display
+                        igv_cell.value = first_sample + " (+ others)"
+                        # Add comment with full details for all reports
+                        from openpyxl.comments import Comment
+
+                        igv_cell.comment = Comment("; ".join(link_texts), "IGV Reports")
                     else:
                         igv_cell.value = "N/A"
 
-                # Add regular external links defined in cfg["links"]
-                for link_type, template in link_templates.items():
-                    # Find column for this link type or add it
-                    link_col = None
-                    for idx, name in enumerate(header_row, 1):
-                        if name == f"{link_type}_link":
-                            link_col = idx
-                            break
-
-                    if link_col is None:
-                        # Add a new column for this link type
-                        link_col = ws.max_column + 1
-                        link_col_letter = get_column_letter(link_col)
-                        header_cell = ws[f"{link_col_letter}1"]
-                        header_cell.value = f"{link_type}_link"
-
-                    # Create the link URL by substituting CHROM, POS, REF, ALT
-                    link_url = template
-                    link_url = link_url.replace("__CHROM__", chrom)
-                    link_url = link_url.replace("__POS__", pos)
-                    link_url = link_url.replace("__REF__", ref)
-                    link_url = link_url.replace("__ALT__", alt)
-
-                    # Set the cell value and hyperlink
-                    link_cell = ws.cell(row=row_idx, column=link_col)
-                    link_cell.value = link_type  # Use link_type as the clickable text
-                    link_cell.hyperlink = link_url
-                    link_cell.style = "Hyperlink"
+                # We're not adding the regular external links from cfg["links"] anymore
+                # because they're redundant with the IGV Report Links column
+                # and causing confusion in the Excel report
+                # The HTML report still shows all links as configured
 
     wb.save(xlsx_file)
 
