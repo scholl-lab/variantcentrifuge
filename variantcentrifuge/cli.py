@@ -220,7 +220,19 @@ def main() -> None:
         "--add-column",
         action="append",
         default=[],
-        help="Append a named blank column to the final output. Repeat for multiple columns.",
+        help="Add a blank column with the specified header name to the final TSV output. "
+        "Can be specified multiple times.",
+    )
+    parser.add_argument(
+        "--annotate-gene-list",
+        action="append",
+        default=[],
+        metavar="GENE_LIST_FILE_PATH",
+        help="Path to a gene list file (one gene per line, case-insensitive matching). "
+        "A new column will be added to the output TSV for each file, "
+        "named after a sanitized version of the file's basename (e.g., 'my_gene_set' from 'my_gene_set.txt'), "
+        "indicating if the variant's GENE (or one of its comma-separated genes) is in this list ('yes'/'no'). "
+        "Specify multiple times for multiple lists.",
     )
 
     parser.add_argument(
@@ -401,6 +413,9 @@ def main() -> None:
 
     # Threads
     cfg["threads"] = args.threads
+
+    # Gene list annotation
+    cfg["annotate_gene_list_files"] = args.annotate_gene_list
 
     # Transcript list/file
     cfg["transcript_list"] = args.transcript_list

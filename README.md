@@ -19,6 +19,9 @@
 - **Phenotype Integration:**
   Integrate phenotype data from a provided table (CSV or TSV) to further filter or annotate variants based on sample-level attributes.
 
+- **Gene List Annotation:**
+  Annotate variant TSV outputs with columns indicating gene membership from user-provided gene list files. Supports case-insensitive matching and multiple genes per variant.
+
 - **Variant and Gene-Level Analysis:**
   Perform gene burden analyses (e.g., Fisher’s exact test) and variant-level statistics.
 

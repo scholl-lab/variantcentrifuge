@@ -22,11 +22,13 @@ import argparse
 import datetime
 import hashlib
 import logging
+import locale
 import os
 import re
 import subprocess
 import sys
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from .analyze_variants import analyze_variants
 from .converter import (
@@ -49,6 +51,19 @@ from .utils import (
     normalize_snpeff_headers,
     run_command,
     sanitize_metadata_field,
+)
+from variantcentrifuge.helpers import (
+    annotate_variants_with_gene_lists,
+    check_file,
+    determine_case_control_sets,
+    dump_df_to_xlsx,
+    extract_gencode_id,
+    get_vcf_names,
+    get_vcf_regions,
+    get_vcf_samples,
+    get_vcf_size,
+    match_IGV_link_columns,
+    read_sequencing_manifest,
 )
 
 # Import the SNPeff annotation splitting function
@@ -595,6 +610,15 @@ def run_pipeline(
                 "No variant-level results produced. Check your filters, fields, and input data."
             )
             sys.exit(1)
+
+    # Apply gene list annotation if gene list files are provided
+    gene_list_annotation_files = cfg.get("annotate_gene_list_files", [])
+    if gene_list_annotation_files:
+        logger.info(
+            f"Annotating variants with {len(gene_list_annotation_files)} custom gene list(s)."
+        )
+        buffer = annotate_variants_with_gene_lists(buffer, gene_list_annotation_files)
+        logger.debug("Gene list annotation complete.")
 
     # Add links if not disabled
     if not cfg.get("no_links", False):
