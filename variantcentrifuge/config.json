@@ -9,6 +9,7 @@
   "interval_expand": 1000,
   "use_phenotype_filtering": false,
   "perform_gene_burden": false,
+  "keep_intermediates": false,
 
   "presets": {
     "not_artefact": "((AC[ANY] <= 513) & (QUAL[ANY] >= 100))",

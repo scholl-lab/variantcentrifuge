@@ -872,8 +872,13 @@ def run_pipeline(
         finalize_excel_file(xlsx_file, cfg)  # cfg contains igv_enabled
         logger.info("Excel file finalized with IGV links (if enabled).")
 
-    # Remove intermediates if requested
-    if not args.keep_intermediates:
+    # MODIFIED: Start of intermediate cleanup feature
+    # Check if intermediate files should be kept (from CLI args or config)
+    keep_intermediates = args.keep_intermediates or cfg.get("keep_intermediates", False)
+
+    # Clean up intermediate files if not keeping them
+    if not keep_intermediates:
+        logger.info("Cleaning up intermediate files...")
         intermediates = [
             variants_file,
             splitted_before_file,
@@ -885,11 +890,27 @@ def run_pipeline(
             intermediates.append(genotype_replaced_tsv)
         if use_phenotypes:
             intermediates.append(phenotype_added_tsv)
-        if final_out_path in intermediates:
+
+        # Safety check: never delete the final output
+        if final_out_path and final_out_path in intermediates:
             intermediates.remove(final_out_path)
+
+        # Clean up intermediate directory safely
+        intermediate_dir = os.path.join(args.output_dir, "intermediate")
+        files_deleted = 0
+
         for f in intermediates:
-            if os.path.exists(f):
-                os.remove(f)
+            if f and os.path.exists(f):
+                try:
+                    os.remove(f)
+                    files_deleted += 1
+                except (IOError, OSError) as e:
+                    logger.warning(f"Could not remove intermediate file {f}: {str(e)}")
+
+        logger.info(f"Deleted {files_deleted} intermediate files.")
+    else:
+        logger.info("Keeping intermediate files (use --keep-intermediates=False to delete them)")
+    # MODIFIED: End of intermediate cleanup feature
 
     logger.info(
         f"Processing completed. Output saved to " f"{'stdout' if final_to_stdout else final_output}"

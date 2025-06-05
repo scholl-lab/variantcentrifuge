@@ -132,12 +132,14 @@ def main() -> None:
         help="Directory to store intermediate and final output files",
         default="output",
     )
+    # MODIFIED: Start of intermediate cleanup feature
     parser.add_argument(
         "--keep-intermediates",
         action="store_true",
-        default=True,
-        help="Keep intermediate files.",
+        default=False,
+        help="Keep intermediate files (by default, they are deleted after successful pipeline completion).",
     )
+    # MODIFIED: End of intermediate cleanup feature
     parser.add_argument("--phenotype-file", help="Path to phenotype file (.csv or .tsv)")
     parser.add_argument(
         "--phenotype-sample-column",

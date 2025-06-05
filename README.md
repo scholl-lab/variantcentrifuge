@@ -187,6 +187,7 @@ variantcentrifuge \
 - `--samples-file SAMPLES.TXT` for genotype replacement mapping.
 - `--phenotype-file PHENO.TSV` along with `--phenotype-sample-column` and `--phenotype-value-column`.
 - `--xlsx` to convert the final output TSV into XLSX format.
+- `--keep-intermediates` to retain intermediate files (by default, they are deleted after a successful run).
 - `--perform-gene-burden` to run gene burden analysis.
 - `--html-report` to generate an interactive HTML report.
 - `--igv` with `--bam-mapping-file` and `--igv-reference` for IGV.js integration.
