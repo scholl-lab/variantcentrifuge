@@ -221,15 +221,66 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
                 )
                 break
 
-            # Replace phased genotypes
+            # Step 1: Replace phased genotypes
             genotype_subfield = genotype_subfield.replace("|", "/")
 
-            # Apply regex replacements (e.g. "2" => "1", etc.)
-            for regex_pat, replacement in compiled_patterns:
-                if regex_pat.search(genotype_subfield):
-                    genotype_subfield = regex_pat.sub(replacement, genotype_subfield)
+            # Step 2: Normalize genotypes with one missing allele (./N or N/.)
+            if "/" in genotype_subfield:
+                parts = genotype_subfield.split("/")
+                if len(parts) == 2:
+                    # Handle ./N case: parts[0] is '.', parts[1] consists of one or more digits
+                    if parts[0] == "." and parts[1].isdigit():
+                        genotype_subfield = "0/" + parts[1]
+                    # Handle N/. case: parts[1] is '.', parts[0] consists of one or more digits
+                    elif parts[1] == "." and parts[0].isdigit():
+                        genotype_subfield = parts[0] + "/0"
 
-            # Skip "0/0" or "./." as "non-variant"
+            # Step 3: Apply numeric allele replacements
+            if "/" in genotype_subfield:
+                parts = genotype_subfield.split("/")
+                processed_alleles = []
+                if len(parts) == 2:  # Ensure it's diploid
+                    a1, a2 = parts
+                    for allele_part in [a1, a2]:
+                        if (
+                            allele_part == "." or not allele_part.isdigit()
+                        ):  # Keep missing or non-numeric as is
+                            processed_alleles.append(allele_part)
+                            continue
+
+                        current_allele_val = allele_part
+                        # Apply configured regex patterns to the individual allele part
+                        for regex_pat, replacement_val in compiled_patterns:
+                            current_allele_val = regex_pat.sub(replacement_val, current_allele_val)
+
+                        # After applying patterns, if it's a digit and not '0', make it '1'
+                        # This ensures multi-digit numbers like '11' (from '12' via [2-9]->1 map) also become '1'
+                        if current_allele_val.isdigit() and current_allele_val != "0":
+                            processed_alleles.append("1")
+                        elif current_allele_val == "0":  # Explicitly keep '0'
+                            processed_alleles.append("0")
+                        else:  # If it became non-digit (e.g. map to '.') or was already '.', keep it
+                            processed_alleles.append(current_allele_val)
+                    genotype_subfield = "/".join(processed_alleles)
+                # else: if not 2 parts, do not attempt this logic, leave genotype_subfield as is from previous step
+                # else: # Not a diploid genotype, apply regex to whole field (original behavior for non-diploid)
+                # This part handles cases like single allele numbers or other formats if they reach here.
+                # However, VCF genotypes are typically like N/N, N|N, or N.
+                # If it's a single number (e.g. haploid), it should also be binarized.
+                original_genotype_subfield_for_non_diploid = genotype_subfield
+                for regex_pat, replacement_val in compiled_patterns:
+                    if regex_pat.search(genotype_subfield):
+                        genotype_subfield = regex_pat.sub(replacement_val, genotype_subfield)
+                # If it was a digit, and after map it's still a digit and not 0, make it 1.
+                if (
+                    original_genotype_subfield_for_non_diploid.isdigit()
+                    and genotype_subfield.isdigit()
+                    and genotype_subfield != "0"
+                ):
+                    genotype_subfield = "1"
+                # else, it remains as transformed by map, or original if not digit/not 0
+
+            # Step 4: Skip "0/0" or "./. as "non-variant" after all transformations
             if genotype_subfield in ("0/0", "./."):
                 continue
 
