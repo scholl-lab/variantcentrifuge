@@ -41,6 +41,12 @@ presets: []
 # Example: ["GEN[*].DP", "GEN[*].AD", "GEN[*].AF"]
 append_genotype_fields: [] 
 
+# Gene List Annotation
+# List of paths to gene list files (one gene per line) to annotate variants
+# Each file will add a column showing if variant's gene is in the list ('yes'/'no')
+# Example: ["path/to/cancer_genes.txt", "path/to/cardiac_genes.txt"]
+gene_list_files: []
+
 # IGV Report Generation
 enable_igv: false
 igv_reference: "hg38_1kg" # e.g., hg19, hg38_1kg

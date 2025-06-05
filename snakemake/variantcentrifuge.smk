@@ -20,6 +20,7 @@ VC_HTML_REPORT = config.get("generate_html_report", False)
 VC_ADD_CHR = config.get("add_chr_prefix", False)
 VC_PRESETS = config.get("presets", [])
 VC_APPEND_GT_FIELDS = config.get("append_genotype_fields", [])
+VC_GENE_LIST_FILES = config.get("gene_list_files", [])
 VC_ENABLE_IGV = config.get("enable_igv", False)
 VC_IGV_REF = config.get("igv_reference", "")
 VC_BAM_MAPPING = config.get("bam_mapping_file", "")
@@ -114,6 +115,7 @@ rule run_variantcentrifuge:
         html_flag = "--html-report" if VC_HTML_REPORT else "",
         presets_flags = " ".join([f"--preset {p}" for p in VC_PRESETS]),
         append_gt_flags = ("--append-extra-sample-fields " + " ".join(VC_APPEND_GT_FIELDS)) if VC_APPEND_GT_FIELDS else "",
+        gene_list_flags = " ".join([f"--annotate-gene-list {path}" for path in VC_GENE_LIST_FILES]) if VC_GENE_LIST_FILES else "",
         igv_flag = "--igv" if VC_ENABLE_IGV else "",
         igv_ref = f"--igv-reference {VC_IGV_REF}" if VC_ENABLE_IGV and VC_IGV_REF else "",
         bam_map = f"--bam-mapping-file {VC_BAM_MAPPING}" if VC_ENABLE_IGV and VC_BAM_MAPPING else ""
@@ -151,6 +153,7 @@ rule run_variantcentrifuge:
             {params.html_flag} \
             {params.presets_flags} \
             {params.append_gt_flags} \
+            {params.gene_list_flags} \
             {params.igv_flag} \
             {params.igv_ref} \
             {params.bam_map} \

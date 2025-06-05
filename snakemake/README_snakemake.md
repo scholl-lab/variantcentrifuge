@@ -29,6 +29,7 @@ The workflow processes multiple VCF files (specified in a list file) using `vari
     *   `base_output_folder`: Where all results will be written. A subdirectory will be created for each sample.
     *   `variantcentrifuge_config_file`: Path to the main JSON configuration file used by `variantcentrifuge` itself.
     *   Update other `variantcentrifuge` parameters (`genes_of_interest`, `threads_per_job`, flags, presets, IGV settings, etc.) as needed.
+    *   Configure `gene_list_files` with paths to gene list files for variant annotation (see [Gene List Annotation](#gene-list-annotation) below).
     *   `conda_environment_variantcentrifuge`: Specify the name of the conda environment that contains `variantcentrifuge` and its dependencies if you are using `--use-conda`.
 
 2.  **Input VCFs List File:**
@@ -99,3 +100,38 @@ base_output_folder/
     └── ...
 ```
 The exact contents of the `SAMPLE_X` subdirectories depend on the flags passed to `variantcentrifuge` (e.g., `--xlsx`, `--html-report`).
+
+## Gene List Annotation
+
+The workflow supports gene list annotation using the `--annotate-gene-list` parameter of VariantCentrifuge. This feature allows you to check if variant genes belong to specific gene lists of interest (e.g., cancer genes, cardiac genes, neurodevelopmental genes).
+
+### Configuration
+
+In your `config_vc.yaml` file, use the `gene_list_files` parameter to specify one or more gene list files:
+
+```yaml
+# Gene List Annotation
+# Each file will add a column to the output showing if variant's gene is in the list ('yes'/'no')
+gene_list_files: 
+  - "/path/to/cancer_genes.txt"
+  - "/path/to/cardiac_genes.txt"
+  - "/path/to/neurodevelopmental_genes.txt"
+```
+
+### Gene List File Format
+
+Each gene list file should contain one gene symbol per line. Matching is case-insensitive. Example file content:
+
+```text
+BRCA1
+BRCA2
+TP53
+ATM
+CHEK2
+```
+
+### Output Format
+
+For each gene list file provided, VariantCentrifuge will add a column to the output TSV/XLSX with a sanitized version of the file's basename as the header (e.g., "cancer_genes" from "cancer_genes.txt"). Each cell in this column will contain "yes" if the variant's gene is in the list, or "no" if it isn't.
+
+This feature is particularly useful when you want to prioritize variants based on their presence in specific gene panels or lists of interest.
