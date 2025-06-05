@@ -10,6 +10,7 @@ for the HTML report.
 """
 
 import hashlib
+import json
 import logging
 import os
 from typing import Any, Dict, List, Optional
@@ -85,8 +86,6 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
       - Add "IGV Report Links" column with hyperlinks to IGV reports if available
     """
     # Using load_workbook and get_column_letter already imported at module level
-    import json
-    import os
     import re
 
     wb = load_workbook(xlsx_file)
@@ -297,7 +296,6 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
     if os.path.exists(igv_map_path):
         logger.info(f"Found IGV reports mapping file: {igv_map_path}")
         try:
-            import json
             import re
 
             # Load IGV reports mapping
