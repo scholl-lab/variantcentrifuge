@@ -3,8 +3,8 @@
 # ----------------------------------------------------------------------
 # Input / Output Folders
 # ----------------------------------------------------------------------
-vcf_input_folder: "path/to/your/input_vcfs" 
-# Directory containing input VCF files (e.g., sampleA.vcf.gz, sampleB.vcf.gz)
+vcf_list_file: "path/to/your/vcf_list.txt" 
+# Path to a text file listing VCF files to process (one full path per line)
 
 base_output_folder: "results/variantcentrifuge_analysis" 
 # Main directory where all variantcentrifuge outputs will be stored (subdirs per sample)

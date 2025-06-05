@@ -7,7 +7,7 @@ import functools
 configfile: "config_vc.yaml" # Assumes config_vc.yaml is in the same directory or specified via --configfile
 
 # --- Global Parameters from Config ---
-VCF_INPUT_FOLDER = config["vcf_input_folder"]
+VCF_LIST_FILE = config["vcf_list_file"]
 BASE_OUTPUT_FOLDER = config["base_output_folder"]
 LOG_SUBFOLDER = config.get("log_subfolder", "logs_vc") # Default if not in config
 
@@ -32,18 +32,34 @@ DEFAULT_TIME = config.get("default_job_time", "24:00:00")
 SCRATCH_DIR = os.environ.get('TMPDIR', '/tmp') # Use system TMPDIR or HPC $TMPDIR
 
 # --- Helper Functions ---
-def get_vcf_samples():
-    """Retrieve base names of VCF files to serve as sample IDs."""
-    vcfs = glob.glob(os.path.join(VCF_INPUT_FOLDER, "*.vcf.gz"))
-    vcfs += glob.glob(os.path.join(VCF_INPUT_FOLDER, "*.vcf")) # Also allow uncompressed
-    if not vcfs:
-        raise FileNotFoundError(f"No VCF files found in {VCF_INPUT_FOLDER}")
-    samples = [
-        os.path.basename(f).replace(".vcf.gz", "").replace(".vcf", "") for f in vcfs
-    ]
-    return samples
+def get_vcf_info():
+    """Load VCF file paths from a list file and extract sample information.
+    Returns a dictionary mapping sample IDs to their full VCF paths.
+    """
+    if not os.path.exists(VCF_LIST_FILE):
+        raise FileNotFoundError(f"VCF list file not found: {VCF_LIST_FILE}")
+    
+    vcf_paths = {}
+    with open(VCF_LIST_FILE, 'r') as f:
+        for line in f:
+            path = line.strip()
+            if path and os.path.exists(path):
+                # Extract sample name from the file name (without directory and extension)
+                sample = os.path.basename(path)
+                if sample.endswith(".vcf.gz"):
+                    sample = sample[:-7]  # Remove .vcf.gz
+                elif sample.endswith(".vcf"):
+                    sample = sample[:-4]  # Remove .vcf
+                vcf_paths[sample] = path
+    
+    if not vcf_paths:
+        raise ValueError(f"No valid VCF paths found in {VCF_LIST_FILE}")
+    
+    return vcf_paths
 
-SAMPLES = get_vcf_samples()
+# Map of sample IDs to their VCF paths
+VCF_PATHS = get_vcf_info()
+SAMPLES = list(VCF_PATHS.keys())
 
 def get_sample_output_dir(wildcards):
     """Define a unique output directory for each sample within the base output folder."""
@@ -78,8 +94,8 @@ rule all:
 # --- Main VariantCentrifuge Rule ---
 rule run_variantcentrifuge:
     input:
-        # Find original VCF, could be .vcf.gz or .vcf
-        vcf=lambda wildcards: glob.glob(os.path.join(VCF_INPUT_FOLDER, f"{wildcards.sample}.vcf*"))
+        # Use the exact VCF path from our mapping
+        vcf=lambda wildcards: VCF_PATHS[wildcards.sample]
     output:
         # Snakemake needs to track specific output files.
         # VariantCentrifuge's --output-dir will contain many files.
@@ -125,7 +141,7 @@ rule run_variantcentrifuge:
         variantcentrifuge \
             -c {params.vc_config} \
             -g {params.genes} \
-            -v {input.vcf[0]} \
+            -v {input.vcf} \
             --output-file {output.final_tsv} \
             --output-dir {params.sample_output_dir} \
             --log-level {params.log_level} \

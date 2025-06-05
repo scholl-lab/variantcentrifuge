@@ -4,7 +4,7 @@ This directory contains a Snakemake workflow designed to automate the execution 
 
 ## Overview
 
-The workflow takes a directory of input VCF files and processes each one using `variantcentrifuge`, applying a common set of parameters defined in a configuration file. It manages output directories, logging, and can be submitted to an HPC cluster using the provided SLURM script.
+The workflow processes multiple VCF files (specified in a list file) using `variantcentrifuge`, applying a common set of parameters defined in a configuration file. It manages output directories, logging, and can be submitted to an HPC cluster using the provided SLURM script.
 
 ## Files
 
@@ -25,14 +25,22 @@ The workflow takes a directory of input VCF files and processes each one using `
 
 1.  **Copy and Edit Configuration:**
     Make a copy of `config_vc.yaml` (e.g., `my_vc_config.yaml`) and edit it to reflect your setup:
-    *   `vcf_input_folder`: Path to the directory containing your input VCF files (`.vcf` or `.vcf.gz`).
+    *   `vcf_list_file`: Path to a text file listing the full paths to VCF files you want to process (one path per line).
     *   `base_output_folder`: Where all results will be written. A subdirectory will be created for each sample.
     *   `variantcentrifuge_config_file`: Path to the main JSON configuration file used by `variantcentrifuge` itself.
     *   Update other `variantcentrifuge` parameters (`genes_of_interest`, `threads_per_job`, flags, presets, IGV settings, etc.) as needed.
     *   `conda_environment_variantcentrifuge`: Specify the name of the conda environment that contains `variantcentrifuge` and its dependencies if you are using `--use-conda`.
 
-2.  **Input VCFs:**
-    Place your input VCF files (e.g., `sample1.vcf.gz`, `sample2.vcf.gz`) into the directory specified by `vcf_input_folder` in your config file.
+2.  **Input VCFs List File:**
+    Create a text file (e.g., `vcf_list.txt`) containing the full paths to your VCF files, with one path per line. For example:
+    
+    ```text
+    /path/to/sample1.vcf.gz
+    /path/to/sample2.vcf
+    /different/path/sample3.vcf.gz
+    ```
+    
+    The sample names will be extracted from the filenames (without directories or extensions).
 
 ## Running the Workflow
 
