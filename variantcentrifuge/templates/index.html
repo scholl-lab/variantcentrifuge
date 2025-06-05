@@ -6,8 +6,11 @@
     <title>VariantCentrifuge Report</title>
     <!-- DataTables CSS/JS -->
     <link rel="stylesheet" href="https://cdn.datatables.net/1.10.20/css/jquery.dataTables.min.css"/>
+    <link rel="stylesheet" href="https://cdn.datatables.net/buttons/1.7.1/css/buttons.dataTables.min.css">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.10.20/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/1.7.1/js/dataTables.buttons.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/1.7.1/js/buttons.colVis.min.js"></script>
 
     <!-- Plotly JS -->
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
@@ -22,10 +25,31 @@
         height: 400px;
         margin-bottom: 50px;
     }
-    .igv-links a {
-        margin-right: 5px;
+    #variants_table th {
+        white-space: normal !important; /* Allow header text to wrap */
+        word-wrap: break-word;
+        text-align: left; /* Ensure consistent alignment */
+        vertical-align: middle; /* Better vertical alignment for wrapped headers */
+    }
+    #variants_table td {
+        text-align: left; /* Ensure consistent alignment */
+        vertical-align: top; /* Align content to the top of the cell */
+    }
+    .link-icon {
+        text-decoration: none;
+        margin-right: 4px; /* Space between icon and text */
+        color: #007bff; /* Bootstrap primary blue */
+        font-size: 0.9em;
+    }
+    .igv-individual-link {
+        margin-right: 8px; /* Space between multiple IGV links */
         text-decoration: underline;
         color: #0066cc;
+        display: inline-block;
+        white-space: nowrap; /* Prevent sample ID from wrapping */
+    }
+    .igv-individual-link .link-icon {
+        color: #5cb85c; /* Green color for IGV links */
     }
     </style>
 </head>
@@ -51,27 +75,36 @@ Plotly.newPlot('impact_chart', impactData);
 <table id="variants_table" class="display">
     <thead>
         <tr>
-            {% for col in columns %}
-                <th>{{ col }}</th>
+            {% for col_info in column_data %}
+                <th>{{ col_info.display_name }}</th>
             {% endfor %}
-            <th>IGV Links</th>
         </tr>
     </thead>
     <tbody>
-        {% for v in variants %}
+        {% for v_row in variants %}
         <tr>
-            {% for col in columns %}
-                <td>{{ v[col] }}</td>
+            {% for col_info in column_data %}
+                <td>
+                    {% if col_info.is_igv_link_column %}
+                        {# Handle structured igv_links data which is a list of dicts #}
+                        {% if v_row[col_info.original_name] and v_row[col_info.original_name]|length > 0 %}
+                            {% for igv_link_detail in v_row[col_info.original_name] %}
+                                <a href="{{ igv_link_detail.report_path }}" target="_blank" class="igv-individual-link" title="IGV report for {{ igv_link_detail.sample_id }}">
+                                    <span class="link-icon">🔗</span>{{ igv_link_detail.sample_id }}
+                                </a>{% if not loop.last %} {% endif %}
+                            {% endfor %}
+                        {% else %}
+                            N/A
+                        {% endif %}
+                    {% elif col_info.is_standard_link_column and v_row[col_info.original_name] and v_row[col_info.original_name] | string | trim != "" %}
+                        <a href="{{ v_row[col_info.original_name] }}" target="_blank" title="{{ v_row[col_info.original_name] }}">
+                            <span class="link-icon">🔗</span>{{ col_info.link_display_text }}
+                        </a>
+                    {% else %}
+                        {{ v_row[col_info.original_name] }}
+                    {% endif %}
+                </td>
             {% endfor %}
-            <td class="igv-links">
-                {% if v.igv_links and v.igv_links|length > 0 %}
-                    {% for link_info in v.igv_links %}
-                        <a href="{{ link_info.report_path }}" target="_blank">{{ link_info.sample_id }}</a>{% if not loop.last %};{% endif %}
-                    {% endfor %}
-                {% else %}
-                    N/A
-                {% endif %}
-            </td>
         </tr>
         {% endfor %}
     </tbody>
@@ -79,8 +112,38 @@ Plotly.newPlot('impact_chart', impactData);
 
 <script>
 $(document).ready(function() {
+    // Get list of original column names in the order they appear in the table
+    var allColumnOriginalNames = {{ column_data | map(attribute='original_name') | list | tojson }};
+    // Get list of original column names to hide by default
+    var defaultHiddenColumnOriginalNames = {{ default_hidden_columns | tojson }};
+    var hiddenColumnIndices = [];
+
+    // Find the index of each column to hide
+    defaultHiddenColumnOriginalNames.forEach(function(hiddenColName) {
+        var index = allColumnOriginalNames.indexOf(hiddenColName);
+        if (index !== -1) {
+            hiddenColumnIndices.push(index);
+        }
+    });
+
     $('#variants_table').DataTable({
-        "pageLength": 25
+        "pageLength": 10,
+        "scrollX": true, // Enable horizontal scrolling
+        "dom": 'lBfrtip', // Add length menu (l) and Buttons (B) to the DOM
+        "lengthMenu": [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]], // Options for rows per page
+        "buttons": [
+            {
+                extend: 'colvis',
+                text: 'Show/Hide Columns', // Customize button text
+                className: 'ml-2' // Add margin to separate from length menu
+            }
+        ],
+        "columnDefs": [
+            {
+                "targets": hiddenColumnIndices, // Target columns by their 0-based index
+                "visible": false // Set them to be hidden by default
+            }
+        ]
     });
 });
 </script>

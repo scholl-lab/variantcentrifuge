@@ -39,5 +39,6 @@
     "gnomAD_2": "https://gnomad.broadinstitute.org/variant/{CHROM}-{POS}-{REF}-{ALT}?dataset=gnomad_r2_1",
     "autopvs1": "https://autopvs1.bgi.com/variant/hg19/{CHROM}-{POS}-{REF}-{ALT}",
     "ClinVar": "https://www.ncbi.nlm.nih.gov/clinvar/?term={CHROM}-{POS}-{REF}-{ALT}"
-  }
+  },
+  "html_report_default_hidden_columns": ["QUAL", "AC", "AA_LEN", "dbNSFP_ALFA_Total_AC", "dbNSFP_REVEL_score", "dbNSFP_clinvar_clnsig", "proband_count", "control_count", "proband_variant_count", "control_variant_count", "proband_allele_count", "control_allele_count", "proband_homozygous_count", "control_homozygous_count"]
 }

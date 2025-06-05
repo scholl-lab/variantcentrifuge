@@ -838,6 +838,7 @@ def run_pipeline(
             variants_json=variants_json,
             summary_json=summary_json,
             output_dir=report_dir,  # HTML report itself is in report_dir
+            cfg=cfg,  # Pass the main configuration dictionary
         )
         logger.info("HTML report generated successfully.")
 
