@@ -57,7 +57,12 @@ def main() -> None:
         - We retain --extra-sample-field-delimiter to control the delimiter between genotype and
           extra fields (default ':').
     """
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s", stream=sys.stderr)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        stream=sys.stderr,
+    )
 
     start_time: datetime.datetime = datetime.datetime.now()
     logger.info(f"Run started at {start_time.isoformat()}")
@@ -307,7 +312,11 @@ def main() -> None:
     if args.log_file:
         fh = logging.FileHandler(args.log_file)
         fh.setLevel(log_level_map[args.log_level])
-        fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+        fh.setFormatter(
+            logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+            )
+        )
         logger.addHandler(fh)
         logger.debug(f"Logging to file enabled: {args.log_file}")
 
