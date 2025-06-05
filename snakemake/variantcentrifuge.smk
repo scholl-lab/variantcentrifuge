@@ -88,9 +88,9 @@ def get_html_report_output(wildcards):
 # --- Target Rule ---
 rule all:
     input:
-        lambda wc: expand(get_final_tsv_output(sample="{sample}"), sample=SAMPLES),
-        lambda wc: expand(get_final_xlsx_output(sample="{sample}"), sample=SAMPLES) if VC_XLSX else [],
-        lambda wc: expand(get_html_report_output(sample="{sample}"), sample=SAMPLES) if VC_HTML_REPORT else []
+        expand(os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.vc_analysis.tsv"), sample=SAMPLES),
+        expand(os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.vc_analysis.xlsx"), sample=SAMPLES) if VC_XLSX else [],
+        expand(os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "report", "index.html"), sample=SAMPLES) if VC_HTML_REPORT else []
 
 # --- Main VariantCentrifuge Rule ---
 rule run_variantcentrifuge:
@@ -101,9 +101,9 @@ rule run_variantcentrifuge:
         # Snakemake needs to track specific output files.
         # VariantCentrifuge's --output-dir will contain many files.
         # We track the main TSV, and conditionally the XLSX and HTML report.
-        final_tsv = get_final_tsv_output,
-        final_xlsx = touch(get_final_xlsx_output) if VC_XLSX else [], # Use touch for conditional optional output
-        html_report_index = touch(get_html_report_output) if VC_HTML_REPORT else []
+        final_tsv = os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.vc_analysis.tsv"),
+        final_xlsx = os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.vc_analysis.xlsx") if VC_XLSX else [], # Optional output 
+        html_report_index = os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "report", "index.html") if VC_HTML_REPORT else []
     params:
         sample_output_dir = get_sample_output_dir,
         vc_config = VC_CONFIG_FILE,

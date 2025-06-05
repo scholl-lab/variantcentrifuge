@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --time=168:00:00 # Max walltime for the entire workflow
 #SBATCH --mem=4000M      # Memory for the main Snakemake process
-#SBATCH --output=slurm_vc_logs/%x-%j.log
+#SBATCH --output=slurm_logs/%x-%j.log
 
 ################################################################################
 # Usage:
