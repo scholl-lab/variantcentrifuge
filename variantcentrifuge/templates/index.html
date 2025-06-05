@@ -25,15 +25,27 @@
         height: 400px;
         margin-bottom: 50px;
     }
+    /* Custom styles for compact table appearance */
+    #variants_table { 
+        font-size: 13px; /* Reduce from browser default, typically 16px */
+    }
     #variants_table th {
         white-space: normal !important; /* Allow header text to wrap */
         word-wrap: break-word;
         text-align: left; /* Ensure consistent alignment */
         vertical-align: middle; /* Better vertical alignment for wrapped headers */
+        line-height: 1.3; /* Slightly adjust line-height for wrapped headers */
+    }
+    
+    /* Further refine padding for the compact style */
+    #variants_table.compact th,
+    #variants_table.compact td {
+        padding: 4px 6px; /* Tighter padding than default compact style */
     }
     #variants_table td {
         text-align: left; /* Ensure consistent alignment */
         vertical-align: top; /* Align content to the top of the cell */
+        line-height: 1.3; /* Slightly adjust line-height for cell content */
     }
     
     /* Hover-expand cell styles */
@@ -65,19 +77,19 @@
         overflow: visible;
         background-color: #FFFFE0; /* Light yellow background */
         border: 1px solid #666;
-        padding: 8px;
+        padding: 5px; /* Reduced from previous 8px */
         z-index: 1000; /* Appear on top */
         box-shadow: 3px 3px 8px rgba(0,0,0,0.2);
         border-radius: 3px;
     }
     .link-icon {
         text-decoration: none;
-        margin-right: 4px; /* Space between icon and text */
+        margin-right: 3px; /* Reduced from previous 4px */
         color: #007bff; /* Bootstrap primary blue */
         font-size: 0.9em;
     }
     .igv-individual-link {
-        margin-right: 8px; /* Space between multiple IGV links */
+        margin-right: 5px; /* Reduced from previous 8px */
         text-decoration: underline;
         color: #0066cc;
         display: inline-block;
@@ -92,7 +104,7 @@
 <h1>VariantCentrifuge Interactive Report</h1>
 
 <h2>Variants Table</h2>
-<table id="variants_table" class="display">
+<table id="variants_table" class="display compact">
     <thead>
         <tr>
             {% for col_info in column_data %}

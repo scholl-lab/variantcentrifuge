@@ -49,6 +49,7 @@
       "HGVS_C",
       "ID",
       "EFFECT",
+      "IMPACT",
       "FEATUREID",
       "dbNSFP_clinvar_clnsig",
       "ClinVar_CLNSIG",
