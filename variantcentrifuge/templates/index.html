@@ -91,21 +91,6 @@
 <body>
 <h1>VariantCentrifuge Interactive Report</h1>
 
-<h2>Summary</h2>
-<p>Number of Variants: {{ summary.num_variants }}</p>
-<p>Number of Genes: {{ summary.num_genes }}</p>
-
-<h2>Impact Distribution</h2>
-<div id="impact_chart" class="chart-container"></div>
-<script>
-var impactData = [{
-    "x": Object.keys({{ summary.impact_distribution|tojson }}),
-    "y": Object.values({{ summary.impact_distribution|tojson }}),
-    "type": "bar"
-}];
-Plotly.newPlot('impact_chart', impactData);
-</script>
-
 <h2>Variants Table</h2>
 <table id="variants_table" class="display">
     <thead>
@@ -238,6 +223,21 @@ $(document).ready(function() {
         $(this).removeClass('expanded');
     });
 });
+</script>
+
+<h2>Summary</h2>
+<p>Number of Variants: {{ summary.num_variants }}</p>
+<p>Number of Genes: {{ summary.num_genes }}</p>
+
+<h2>Impact Distribution</h2>
+<div id="impact_chart" class="chart-container"></div>
+<script>
+var impactData = [{
+    "x": Object.keys({{ summary.impact_distribution|tojson }}),
+    "y": Object.values({{ summary.impact_distribution|tojson }}),
+    "type": "bar"
+}];
+Plotly.newPlot('impact_chart', impactData);
 </script>
 
 </body>
