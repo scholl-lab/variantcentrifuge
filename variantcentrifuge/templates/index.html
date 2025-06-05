@@ -166,11 +166,22 @@ $(document).ready(function() {
                 },
                 "render": function (data, type, row) {
                     if (type === 'display' && data != null && typeof data === 'string') {
-                        var escapedData = $('<div>').text(data).html(); // HTML escaping
-                        // The span will have its max-width applied for initial truncation
-                        return '<span class="hover-expand-content" style="max-width:' + colInfo.max_width_px + 'px;">' + 
-                               escapedData + 
-                               '</span>';
+                        // For genetic notation (like HGVS), we need to preserve '>' characters
+                        // while still protecting against XSS for other content
+                        if (colInfo.original_name === 'HGVS_C' || colInfo.original_name === 'HGVS_P' || 
+                            colInfo.original_name === 'GT' || colInfo.original_name === 'ID') {
+                            // Replace < with &lt; but leave > as is for genetic notation
+                            var safeData = data.replace(/</g, '&lt;');
+                            return '<span class="hover-expand-content" style="max-width:' + colInfo.max_width_px + 'px;">' + 
+                                   safeData + 
+                                   '</span>';
+                        } else {
+                            // Standard HTML escaping for other content
+                            var escapedData = $('<div>').text(data).html();
+                            return '<span class="hover-expand-content" style="max-width:' + colInfo.max_width_px + 'px;">' + 
+                                   escapedData + 
+                                   '</span>';
+                        }
                     }
                     return data;
                 }
