@@ -28,6 +28,7 @@
     /* Custom styles for compact table appearance */
     #variants_table { 
         font-size: 13px; /* Reduce from browser default, typically 16px */
+        width: 100% !important; /* Ensure the table always takes full width */
     }
     #variants_table th {
         white-space: normal !important; /* Allow header text to wrap */
@@ -208,6 +209,7 @@ $(document).ready(function() {
     });
 
     var table = $('#variants_table').DataTable({
+        "autoWidth": false, // Prevent automatic width calculation which can cause misalignment
         "pageLength": 10,
         "scrollX": true, // Enable horizontal scrolling
         "dom": 'lBfrtip', // Add length menu (l) and Buttons (B) to the DOM
@@ -221,6 +223,8 @@ $(document).ready(function() {
         ],
         "columnDefs": dtColumnDefs,
         "drawCallback": function( settings ) {
+            // Force column width adjustment to align headers with data cells
+            this.api().columns.adjust();
             // After each draw, check which cells are actually overflowing
             $('.hover-expand-content', this.api().table().body()).each(function() {
                 var $this = $(this);
