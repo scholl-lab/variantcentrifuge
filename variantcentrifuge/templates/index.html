@@ -35,6 +35,41 @@
         text-align: left; /* Ensure consistent alignment */
         vertical-align: top; /* Align content to the top of the cell */
     }
+    
+    /* Hover-expand cell styles */
+    .hover-expand-cell { 
+        position: relative; /* Needed for absolute positioning of the expanded content */
+    }
+    
+    .hover-expand-content { 
+        display: inline-block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        vertical-align: bottom; /* Align with non-truncated content */
+    }
+    
+    .hover-expand-content.can-expand {
+        cursor: help; /* Indicates that hovering will reveal more */
+    }
+    
+    .hover-expand-content.expanded {
+        position: absolute;
+        top: 0; 
+        left: 0; 
+        width: auto;
+        max-width: 400px; /* Maximum width for the expanded pop-up */
+        min-width: 100%; /* At least as wide as the original cell */
+        white-space: normal; /* Allow text to wrap */
+        word-wrap: break-word; /* Ensure long words break */
+        overflow: visible;
+        background-color: #FFFFE0; /* Light yellow background */
+        border: 1px solid #666;
+        padding: 8px;
+        z-index: 1000; /* Appear on top */
+        box-shadow: 3px 3px 8px rgba(0,0,0,0.2);
+        border-radius: 3px;
+    }
     .link-icon {
         text-decoration: none;
         margin-right: 4px; /* Space between icon and text */
@@ -64,9 +99,9 @@
 <div id="impact_chart" class="chart-container"></div>
 <script>
 var impactData = [{
-    x: Object.keys({{ summary.impact_distribution|tojson }}),
-    y: Object.values({{ summary.impact_distribution|tojson }}),
-    type: 'bar'
+    "x": Object.keys({{ summary.impact_distribution|tojson }}),
+    "y": Object.values({{ summary.impact_distribution|tojson }}),
+    "type": "bar"
 }];
 Plotly.newPlot('impact_chart', impactData);
 </script>
@@ -117,6 +152,8 @@ $(document).ready(function() {
     // Get list of original column names to hide by default
     var defaultHiddenColumnOriginalNames = {{ default_hidden_columns | tojson }};
     var hiddenColumnIndices = [];
+    var columnData = {{ column_data | tojson }};
+    var dtColumnDefs = [];
 
     // Find the index of each column to hide
     defaultHiddenColumnOriginalNames.forEach(function(hiddenColName) {
@@ -125,8 +162,44 @@ $(document).ready(function() {
             hiddenColumnIndices.push(index);
         }
     });
+    
+    // Setup for Default Hidden Columns
+    if (hiddenColumnIndices.length > 0) {
+        dtColumnDefs.push({
+            "targets": hiddenColumnIndices,
+            "visible": false
+        });
+    }
+    
+    // Setup for Hover-Expand and other rendering
+    columnData.forEach(function(colInfo, index) {
+        if (colInfo.apply_hover_expand && colInfo.max_width_px) {
+            dtColumnDefs.push({
+                "targets": index,
+                "createdCell": function (td, cellData, rowData, row, col) {
+                    $(td).addClass('hover-expand-cell');
+                },
+                "render": function (data, type, row) {
+                    if (type === 'display' && data != null && typeof data === 'string') {
+                        var escapedData = $('<div>').text(data).html(); // HTML escaping
+                        // The span will have its max-width applied for initial truncation
+                        return '<span class="hover-expand-content" style="max-width:' + colInfo.max_width_px + 'px;">' + 
+                               escapedData + 
+                               '</span>';
+                    }
+                    return data;
+                }
+            });
+        }
+        // If this column has a standard link rendering, preserve that
+        else if (colInfo.is_standard_link_column) {
+            // Keep the existing link rendering logic
+            // This would be added here if needed, we're assuming standard links have
+            // their own rendering handled in the Jinja2 template already
+        }
+    });
 
-    $('#variants_table').DataTable({
+    var table = $('#variants_table').DataTable({
         "pageLength": 10,
         "scrollX": true, // Enable horizontal scrolling
         "dom": 'lBfrtip', // Add length menu (l) and Buttons (B) to the DOM
@@ -138,12 +211,31 @@ $(document).ready(function() {
                 className: 'ml-2' // Add margin to separate from length menu
             }
         ],
-        "columnDefs": [
-            {
-                "targets": hiddenColumnIndices, // Target columns by their 0-based index
-                "visible": false // Set them to be hidden by default
-            }
-        ]
+        "columnDefs": dtColumnDefs,
+        "drawCallback": function( settings ) {
+            // After each draw, check which cells are actually overflowing
+            $('.hover-expand-content', this.api().table().body()).each(function() {
+                var $this = $(this);
+                // Check if content width is greater than element's current display width
+                if (this.offsetWidth < this.scrollWidth || this.offsetHeight < this.scrollHeight) {
+                    $this.addClass('can-expand');
+                    // Optional title attribute for accessibility
+                    $this.attr('title', 'Hover to see full content');
+                } else {
+                    $this.removeClass('can-expand');
+                    $this.removeAttr('title');
+                }
+            });
+        }
+    });
+
+    // Event delegation for hover-expand functionality
+    $('#variants_table tbody')
+    .on('mouseenter', 'td.hover-expand-cell span.hover-expand-content.can-expand', function() {
+        $(this).addClass('expanded');
+    })
+    .on('mouseleave', 'td.hover-expand-cell span.hover-expand-content.expanded', function() {
+        $(this).removeClass('expanded');
     });
 });
 </script>

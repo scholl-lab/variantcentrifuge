@@ -40,5 +40,19 @@
     "autopvs1": "https://autopvs1.bgi.com/variant/hg19/{CHROM}-{POS}-{REF}-{ALT}",
     "ClinVar": "https://www.ncbi.nlm.nih.gov/clinvar/?term={CHROM}-{POS}-{REF}-{ALT}"
   },
-  "html_report_default_hidden_columns": ["QUAL", "AC", "AA_LEN", "dbNSFP_ALFA_Total_AC", "dbNSFP_REVEL_score", "dbNSFP_clinvar_clnsig", "proband_count", "control_count", "proband_variant_count", "control_variant_count", "proband_allele_count", "control_allele_count", "proband_homozygous_count", "control_homozygous_count"]
+  "html_report_default_hidden_columns": ["QUAL", "AC", "AA_POS", "AA_LEN", "dbNSFP_ALFA_Total_AC", "dbNSFP_REVEL_score", "dbNSFP_clinvar_clnsig", "hgmd_CLASS", "proband_count", "control_count", "proband_variant_count", "control_variant_count", "proband_allele_count", "control_allele_count", "proband_homozygous_count", "control_homozygous_count"],
+  "html_report_truncate_settings": {
+    "default_max_width_px": 150,
+    "columns_for_hover_expand": [
+      "HGVS_P",
+      "HGVS_C",
+      "ID",
+      "EFFECT",
+      "FEATUREID",
+      "GT"
+    ],
+    "column_specific_max_widths_px": {
+      "GT": 250
+    }
+  }
 }

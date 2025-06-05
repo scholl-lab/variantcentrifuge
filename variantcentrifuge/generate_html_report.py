@@ -38,6 +38,13 @@ def generate_html_report(
     default_hidden_columns = cfg.get("html_report_default_hidden_columns", [])
     link_configs = cfg.get("links", {})  # For identifying link columns
 
+    # Get hover-to-expand settings from config
+    truncate_settings = cfg.get("html_report_truncate_settings", {})
+    # Default from config or a hardcoded fallback
+    default_max_width = truncate_settings.get("default_max_width_px", 150)
+    columns_for_hover_expand = truncate_settings.get("columns_for_hover_expand", [])
+    column_specific_max_widths = truncate_settings.get("column_specific_max_widths_px", {})
+
     column_data_for_template = []
     if variants_data:
         # Get ordered columns from the first variant
@@ -48,8 +55,15 @@ def generate_html_report(
             if col_name == "igv_links":
                 continue
 
-            display_name = col_name.replace("_", " ")  # Replace underscores for better readability
+            # Replace underscores for better readability
+            display_name = col_name.replace("_", " ")
             is_standard_link = col_name in link_configs
+
+            # Determine if this column should have hover-expand behavior
+            apply_hover_behavior = col_name in columns_for_hover_expand
+            hover_max_width = None
+            if apply_hover_behavior:
+                hover_max_width = column_specific_max_widths.get(col_name, default_max_width)
 
             column_data_for_template.append(
                 {
@@ -59,6 +73,9 @@ def generate_html_report(
                     "is_igv_link_column": False,
                     # Use original column name as link text for standard links
                     "link_display_text": col_name if is_standard_link else None,
+                    # Hover-expand settings
+                    "apply_hover_expand": apply_hover_behavior,
+                    "max_width_px": hover_max_width,
                 }
             )
 
@@ -70,6 +87,9 @@ def generate_html_report(
                 "is_standard_link_column": False,
                 "is_igv_link_column": True,
                 "link_display_text": None,
+                # IGV links don't need hover-expand as they're handled specially
+                "apply_hover_expand": False,
+                "max_width_px": None,
             }
         )
     else:
