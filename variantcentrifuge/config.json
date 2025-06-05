@@ -77,6 +77,8 @@
       "HGVS_P",
       "HGVS_C",
       "ID",
+      "REF",
+      "ALT",
       "EFFECT",
       "IMPACT",
       "FEATUREID",
