@@ -1,0 +1,60 @@
+# snakemake/config_vc.yaml
+
+# ----------------------------------------------------------------------
+# Input / Output Folders
+# ----------------------------------------------------------------------
+vcf_input_folder: "path/to/your/input_vcfs" 
+# Directory containing input VCF files (e.g., sampleA.vcf.gz, sampleB.vcf.gz)
+
+base_output_folder: "results/variantcentrifuge_analysis" 
+# Main directory where all variantcentrifuge outputs will be stored (subdirs per sample)
+
+log_subfolder: "logs_vc" 
+# Subfolder within base_output_folder for Snakemake rule logs
+
+# ----------------------------------------------------------------------
+# VariantCentrifuge General Parameters
+# ----------------------------------------------------------------------
+variantcentrifuge_config_file: "path/to/your/variantcentrifuge_config.json" 
+# Path to the main JSON config for variantcentrifuge (e.g., testing/apa_config.json)
+
+genes_of_interest: "all" 
+# Gene(s) to analyze. Can be a single gene, "all", or a path to a gene list file.
+# If a file path, ensure variantcentrifuge is called with -G; otherwise -g.
+
+log_level: "INFO" # DEBUG, INFO, WARN, ERROR for variantcentrifuge logs
+
+threads_per_job: 8 # Number of threads for variantcentrifuge operations
+
+# ----------------------------------------------------------------------
+# VariantCentrifuge Optional Flags (true/false or value)
+# ----------------------------------------------------------------------
+generate_xlsx: true
+generate_html_report: true
+add_chr_prefix: true # Corresponds to --add-chr
+
+# Presets (list of strings, will be passed as multiple --preset arguments)
+# Example: ["mutect2_TvsN_pass", "high_or_moderate"]
+presets: [] 
+
+# Genotype Appending
+# Example: ["GEN[*].DP", "GEN[*].AD", "GEN[*].AF"]
+append_genotype_fields: [] 
+
+# IGV Report Generation
+enable_igv: false
+igv_reference: "hg38_1kg" # e.g., hg19, hg38_1kg
+bam_mapping_file: "path/to/your/bam_mapping.txt" # Required if enable_igv is true
+
+# ----------------------------------------------------------------------
+# Conda Environment
+# ----------------------------------------------------------------------
+# If variantcentrifuge and its dependencies (bcftools, snpeff, etc.) are in a specific conda env
+conda_environment_variantcentrifuge: "variantcentrifuge_env_name" 
+# If variantcentrifuge is in PATH and its tools are found, this can be commented out or an empty string.
+
+# ----------------------------------------------------------------------
+# SLURM / HPC Settings (defaults for individual jobs)
+# ----------------------------------------------------------------------
+default_job_mem_mb: 16000 # Default memory in MB for each variantcentrifuge job
+default_job_time: "24:00:00" # Default time limit for each job
