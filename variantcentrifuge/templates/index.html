@@ -22,6 +22,11 @@
         height: 400px;
         margin-bottom: 50px;
     }
+    .igv-links a {
+        margin-right: 5px;
+        text-decoration: underline;
+        color: #0066cc;
+    }
     </style>
 </head>
 <body>
@@ -49,6 +54,7 @@ Plotly.newPlot('impact_chart', impactData);
             {% for col in columns %}
                 <th>{{ col }}</th>
             {% endfor %}
+            <th>IGV Links</th>
         </tr>
     </thead>
     <tbody>
@@ -57,6 +63,15 @@ Plotly.newPlot('impact_chart', impactData);
             {% for col in columns %}
                 <td>{{ v[col] }}</td>
             {% endfor %}
+            <td class="igv-links">
+                {% if v.igv_links and v.igv_links|length > 0 %}
+                    {% for link_info in v.igv_links %}
+                        <a href="{{ link_info.report_path }}" target="_blank">{{ link_info.sample_id }}</a>{% if not loop.last %};{% endif %}
+                    {% endfor %}
+                {% else %}
+                    N/A
+                {% endif %}
+            </td>
         </tr>
         {% endfor %}
     </tbody>

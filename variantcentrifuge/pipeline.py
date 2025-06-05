@@ -770,7 +770,12 @@ def run_pipeline(
         meta_write("tool.snpsift_version", snpsift_ver)
         meta_write("tool.bedtools_version", bedtools_ver)
 
-    # Excel conversion if requested
+    # Define report directory consistently
+    report_dir = os.path.join(args.output_dir, "report")
+    os.makedirs(report_dir, exist_ok=True)  # Ensure report_dir exists
+
+    # Phase 1: Excel conversion (without finalization) if requested
+    xlsx_file = None
     if args.xlsx and final_out_path and not final_to_stdout:
         if not os.path.exists(final_out_path) or os.path.getsize(final_out_path) == 0:
             logger.warning("Final output file is empty. Cannot convert to Excel.")
@@ -795,61 +800,52 @@ def run_pipeline(
             ):
                 append_tsv_as_sheet(xlsx_file, gene_burden_tsv, sheet_name="Gene Burden")
 
-            finalize_excel_file(xlsx_file, cfg)
+    # Phase 2: Generate IGV reports and map if IGV is enabled
+    # This must happen before finalize_excel_file and produce_report_json
+    igv_enabled = cfg.get("igv_enabled", False)
+    if igv_enabled and final_out_path and os.path.exists(final_out_path):
+        bam_map_file = cfg.get("bam_mapping_file")
+        igv_reference_genome = cfg.get("igv_reference")
+        if not bam_map_file or not igv_reference_genome:
+            logger.error(
+                "For IGV integration, --bam-mapping-file and --igv-reference must be provided."
+            )
+            sys.exit(1)  # Or handle more gracefully depending on project policy
 
-    # Produce HTML report if requested
+        from .generate_igv_report import generate_igv_report  # Ensure import is present
+
+        # The output_dir for generate_igv_report should be where igv_reports_map.json is expected
+        # which is output_dir/report, and report_path in map are relative to output_dir/report
+        generate_igv_report(
+            variants_tsv=final_out_path,  # final_out_path is the path to the main results TSV
+            output_dir=report_dir,  # This ensures map is in report/igv/
+            bam_mapping_file=bam_map_file,
+            igv_reference=igv_reference_genome,
+            integrate_into_main=True,  # Always integrate if IGV is enabled
+        )
+        logger.info("IGV reports and mapping file generated.")
+
+    # Phase 3: Produce HTML report if requested - after IGV reports are generated
     if args.html_report and final_out_path and os.path.exists(final_out_path):
-        from .converter import produce_report_json
-
+        # produce_report_json will look for the IGV map created in Phase 2
         produce_report_json(final_out_path, args.output_dir)
 
-        from .generate_html_report import generate_html_report
+        from .generate_html_report import generate_html_report  # Ensure import
 
-        report_dir = os.path.join(args.output_dir, "report")
         variants_json = os.path.join(report_dir, "variants.json")
         summary_json = os.path.join(report_dir, "summary.json")
         generate_html_report(
             variants_json=variants_json,
             summary_json=summary_json,
-            output_dir=report_dir,
+            output_dir=report_dir,  # HTML report itself is in report_dir
         )
         logger.info("HTML report generated successfully.")
 
-    # IGV integration
-    igv_enabled = cfg.get("igv_enabled", False)
-    if igv_enabled:
-        bam_map = cfg.get("bam_mapping_file")
-        igv_ref = cfg.get("igv_reference")
-        if not bam_map or not igv_ref:
-            logger.error(
-                "For IGV integration, --bam-mapping-file and --igv-reference must be provided."
-            )
-            sys.exit(1)
-
-        from .generate_igv_report import generate_igv_report
-
-        if args.html_report and final_out_path and os.path.exists(final_out_path):
-            generate_igv_report(
-                variants_tsv=final_out_path,
-                output_dir=report_dir,
-                bam_mapping_file=bam_map,
-                igv_reference=igv_ref,
-                integrate_into_main=True,
-            )
-        else:
-            igv_report_dir = os.path.join(args.output_dir, "igv_report")
-            os.makedirs(igv_report_dir, exist_ok=True)
-            if final_out_path and os.path.exists(final_out_path):
-                generate_igv_report(
-                    variants_tsv=final_out_path,
-                    output_dir=igv_report_dir,
-                    bam_mapping_file=bam_map,
-                    igv_reference=igv_ref,
-                    integrate_into_main=False,
-                )
-                logger.info("Standalone IGV report generated successfully.")
-            else:
-                logger.warning("Final variants TSV not found, cannot generate IGV report.")
+    # Phase 4: Finalize Excel file after IGV reports are generated
+    if xlsx_file:
+        # Now finalize the Excel file with awareness of IGV integration
+        finalize_excel_file(xlsx_file, cfg)  # cfg contains igv_enabled
+        logger.info("Excel file finalized with IGV links (if enabled).")
 
     # Remove intermediates if requested
     if not args.keep_intermediates:

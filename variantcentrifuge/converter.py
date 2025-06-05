@@ -38,6 +38,13 @@ def convert_to_excel(tsv_file: str, cfg: Dict[str, Any]) -> str:
         The path to the generated XLSX file.
     """
     df = pd.read_csv(tsv_file, sep="\t", na_values="NA")
+
+    # Remove raw igv_links column if it exists to avoid duplication with
+    # the formatted hyperlinked IGV Report Links column added in finalize_excel_file
+    if "igv_links" in df.columns:
+        logger.debug("Removing raw igv_links column from Excel conversion")
+        df = df.drop(columns=["igv_links"])
+
     xlsx_file = os.path.splitext(tsv_file)[0] + ".xlsx"
     df.to_excel(xlsx_file, index=False, sheet_name="Results")
     return xlsx_file
@@ -75,9 +82,76 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
       - Enable auto-filter
       - Only for the 'Results' sheet, generate hyperlinks from CHROM, POS, REF, ALT
         using cfg["links"] (the link template dictionary).
+      - Add "IGV Report Links" column with hyperlinks to IGV reports if available
     """
+    # Using load_workbook and get_column_letter already imported at module level
+    import json
+    import os
+    import re
+
     wb = load_workbook(xlsx_file)
     link_templates = cfg.get("links", {})
+
+    # Check for IGV reports map
+    igv_enabled = cfg.get("igv_enabled", False)
+    igv_map = None
+    igv_lookup = {}
+
+    if igv_enabled:
+        # Log that we're looking for the IGV mapping file
+        logger.info("Looking for IGV reports map for Excel integration...")
+
+        # First try finding the map in the standard location relative to the xlsx_file
+        output_dir = os.path.dirname(xlsx_file)
+        igv_map_path = os.path.join(output_dir, "report", "igv", "igv_reports_map.json")
+
+        # If not found, try looking one directory up
+        if not os.path.exists(igv_map_path):
+            parent_dir = os.path.dirname(output_dir)
+            alt_path = os.path.join(parent_dir, "report", "igv", "igv_reports_map.json")
+            if os.path.exists(alt_path):
+                igv_map_path = alt_path
+                logger.debug("IGV map found in parent directory")
+
+        logger.info(f"Checking for IGV map file at: {igv_map_path}")
+
+        if os.path.exists(igv_map_path):
+            try:
+                with open(igv_map_path, "r", encoding="utf-8") as f:
+                    igv_map = json.load(f)
+                logger.info(f"Found IGV reports mapping file: {igv_map_path}")
+                logger.info(f"Loaded IGV reports map with {len(igv_map)} entries")
+
+                # Handle both list and dictionary formats for the IGV map
+                if isinstance(igv_map, list):
+                    # Process list format (from generate_igv_report.py)
+                    for entry in igv_map:
+                        if all(
+                            k in entry
+                            for k in ["chrom", "pos", "ref", "alt", "sample_id", "report_path"]
+                        ):
+                            chrom = entry["chrom"]
+                            pos = entry["pos"]
+                            ref = entry["ref"]
+                            alt = entry["alt"]
+                            sample_id = entry["sample_id"]
+                            report_path = entry["report_path"]
+                            lookup_key = (chrom, pos, ref, alt, sample_id)
+                            igv_lookup[lookup_key] = report_path
+                elif isinstance(igv_map, dict):
+                    # Process dictionary format (if format changes in future)
+                    for variant_key, report_path in igv_map.items():
+                        parts = variant_key.split(":")
+                        if len(parts) == 5:
+                            chrom, pos, ref, alt, sample_id = parts
+                            lookup_key = (chrom, pos, ref, alt, sample_id)
+                            igv_lookup[lookup_key] = report_path
+            except Exception as e:
+                logger.error(f"Error loading IGV reports map: {e}")
+                igv_map = None
+        else:
+            logger.warning(f"IGV reports map file not found at: {igv_map_path}")
+            logger.warning("Excel file will not include IGV report links")
 
     for ws in wb.worksheets:
         # 1. Freeze top row
@@ -91,54 +165,120 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
         if ws.title != "Results":
             continue
 
-        # 3. Build a map from header -> column index
-        headers = [cell.value for cell in ws[1]]
-        header_to_index = {str(h).strip(): i + 1 for i, h in enumerate(headers) if h}
+        # 3. Generate links in the Results sheet
+        # First find required column indices
+        header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+        header_indices = {}
+        for idx, col_name in enumerate(header_row, 1):  # 1-indexed for openpyxl
+            if col_name in ["CHROM", "POS", "REF", "ALT", "GT"]:
+                header_indices[col_name] = idx
 
-        # Identify positions of CHROM, POS, REF, ALT
-        chrom_idx = header_to_index.get("CHROM")
-        pos_idx = header_to_index.get("POS")
-        ref_idx = header_to_index.get("REF")
-        alt_idx = header_to_index.get("ALT")
+        # Add IGV Report Links column if IGV enabled and map is available
+        igv_col = None
+        if igv_enabled and igv_map:
+            # Add the IGV Report Links column header
+            igv_col = ws.max_column + 1
+            igv_col_letter = get_column_letter(igv_col)
+            igv_header_cell = ws[f"{igv_col_letter}1"]
+            igv_header_cell.value = "IGV Report Links"
 
-        # If missing any of these columns, skip hyperlink generation
-        missing_cols = [c for c in ["CHROM", "POS", "REF", "ALT"] if c not in header_to_index]
-        if missing_cols:
-            logger.warning(
-                f"Cannot create hyperlinks in sheet '{ws.title}': "
-                f"missing columns {missing_cols}."
-            )
-            continue
+        # Process data rows for both regular links and IGV links
+        for row_idx, row in enumerate(ws.iter_rows(min_row=2), 2):  # Skip header
+            # Extract variant identifiers from the row
+            if all(col in header_indices for col in ["CHROM", "POS", "REF", "ALT"]):
+                chrom = str(ws.cell(row=row_idx, column=header_indices["CHROM"]).value or "")
+                pos = str(ws.cell(row=row_idx, column=header_indices["POS"]).value or "")
+                ref = str(ws.cell(row=row_idx, column=header_indices["REF"]).value or "")
+                alt = str(ws.cell(row=row_idx, column=header_indices["ALT"]).value or "")
 
-        # For each link key in cfg['links'], if we have that column, turn it into a hyperlink
-        for link_name, link_template in link_templates.items():
-            link_col_idx = header_to_index.get(link_name)
-            if not link_col_idx:
-                # No such column in 'Results', skip it
-                continue
+                # Add IGV Report Links if enabled
+                if igv_enabled and igv_map and igv_col and "GT" in header_indices:
+                    # Get the GT value for this row
+                    gt_cell = ws.cell(row=row_idx, column=header_indices["GT"])
+                    gt_value = gt_cell.value or ""
+                    gt_value = str(gt_value) if gt_value is not None else ""
 
-            # For each row, build the final hyperlink from CHROM, POS, REF, ALT
-            for row_num in range(2, ws.max_row + 1):
-                chrom_val = ws.cell(row=row_num, column=chrom_idx).value
-                pos_val = ws.cell(row=row_num, column=pos_idx).value
-                ref_val = ws.cell(row=row_num, column=ref_idx).value
-                alt_val = ws.cell(row=row_num, column=alt_idx).value
+                    if not gt_value:
+                        # No GT value, set N/A
+                        igv_cell = ws.cell(row=row_idx, column=igv_col)
+                        igv_cell.value = "N/A"
+                        continue
 
-                # Safely convert to strings
-                chrom_val = str(chrom_val) if chrom_val is not None else ""
-                pos_val = str(pos_val) if pos_val is not None else ""
-                ref_val = str(ref_val) if ref_val is not None else ""
-                alt_val = str(alt_val) if alt_val is not None else ""
+                    # Create a regular expression pattern for GT parsing
+                    pattern = re.compile(r"([^()]+)\(([^)]+)\)")
 
-                hyperlink_url = link_template.format(
-                    CHROM=chrom_val, POS=pos_val, REF=ref_val, ALT=alt_val
-                )
+                    # Find all related IGV reports for this variant
+                    igv_reports = []
+                    sample_entries = gt_value.split(";")
+                    for entry in sample_entries:
+                        entry = entry.strip()
+                        if not entry:
+                            continue
 
-                cell = ws.cell(row=row_num, column=link_col_idx)
-                cell.hyperlink = hyperlink_url
-                cell.style = "Hyperlink"
-                # Optionally change display text:
-                # cell.value = link_name  # e.g., 'ClinVar'
+                        m = pattern.match(entry)
+                        if m:
+                            sample_id = m.group(1).strip()
+                            genotype = m.group(2).strip()
+
+                            # Skip reference genotypes
+                            if genotype in ["0/0", "./."]:
+                                continue
+
+                            # Look up the IGV report path
+                            lookup_key = (chrom, pos, ref, alt, sample_id)
+                            if lookup_key in igv_lookup:
+                                # Get path from lookup (e.g., "igv/S1_var.html")
+                                original_path_from_map = igv_lookup[lookup_key]
+                                igv_reports.append((sample_id, original_path_from_map))
+
+                    # Update the IGV links cell
+                    igv_cell = ws.cell(row=row_idx, column=igv_col)
+                    if len(igv_reports) == 1:
+                        # Single report - make a hyperlink
+                        sample_id, original_path_from_map = igv_reports[0]
+                        igv_cell.value = sample_id  # Or f"{sample_id} (IGV)"
+                        excel_relative_hyperlink_path = os.path.join(
+                            "report", original_path_from_map
+                        )
+                        igv_cell.hyperlink = excel_relative_hyperlink_path
+                        igv_cell.style = "Hyperlink"
+                    elif len(igv_reports) > 1:
+                        # Multiple reports - text only with sample IDs and paths
+                        link_texts = [
+                            f"{sid} ({os.path.join('report', rpath)})" for sid, rpath in igv_reports
+                        ]
+                        igv_cell.value = "; ".join(link_texts)
+                    else:
+                        igv_cell.value = "N/A"
+
+                # Add regular external links defined in cfg["links"]
+                for link_type, template in link_templates.items():
+                    # Find column for this link type or add it
+                    link_col = None
+                    for idx, name in enumerate(header_row, 1):
+                        if name == f"{link_type}_link":
+                            link_col = idx
+                            break
+
+                    if link_col is None:
+                        # Add a new column for this link type
+                        link_col = ws.max_column + 1
+                        link_col_letter = get_column_letter(link_col)
+                        header_cell = ws[f"{link_col_letter}1"]
+                        header_cell.value = f"{link_type}_link"
+
+                    # Create the link URL by substituting CHROM, POS, REF, ALT
+                    link_url = template
+                    link_url = link_url.replace("__CHROM__", chrom)
+                    link_url = link_url.replace("__POS__", pos)
+                    link_url = link_url.replace("__REF__", ref)
+                    link_url = link_url.replace("__ALT__", alt)
+
+                    # Set the cell value and hyperlink
+                    link_cell = ws.cell(row=row_idx, column=link_col)
+                    link_cell.value = link_type  # Use link_type as the clickable text
+                    link_cell.hyperlink = link_url
+                    link_cell.style = "Hyperlink"
 
     wb.save(xlsx_file)
 
@@ -148,13 +288,15 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
     Produce JSON files (variants.json and summary.json) from a TSV of variants.
 
     The TSV file is expected to have columns including GENE, CHROM, POS, REF, ALT, IMPACT.
-    Additional columns can also be included. This function directly converts the variants
-    into a JSON array and computes summary statistics for summary.json.
+    Two JSON files are produced:
+      - variants.json: A list of all variants with their annotations.
+      - summary.json: Aggregated counts (num_variants, num_genes, impact_distribution).
+    These files are used by the HTML report generator.
 
     Parameters
     ----------
     variant_tsv : str
-        Path to the TSV file containing variant data.
+        Path to the TSV file containing annotated variants.
     output_dir : str
         Directory to write the JSON outputs (variants.json, summary.json).
 
@@ -166,6 +308,75 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
 
     df = pd.read_csv(variant_tsv, sep="\t", header=0)
     variants = df.to_dict(orient="records")
+
+    # Check for IGV reports mapping file
+    igv_map_path = os.path.join(output_dir, "report", "igv", "igv_reports_map.json")
+    if os.path.exists(igv_map_path):
+        logger.info(f"Found IGV reports mapping file: {igv_map_path}")
+        try:
+            import json
+            import re
+
+            # Load IGV reports mapping
+            with open(igv_map_path, "r", encoding="utf-8") as f:
+                igv_map = json.load(f)
+
+            # Create an efficient lookup dictionary
+            # Key: (chrom, pos, ref, alt, sample_id), Value: report_path
+            igv_lookup = {}
+            for entry in igv_map:
+                key = (
+                    entry["chrom"],
+                    str(entry["pos"]),
+                    entry["ref"],
+                    entry["alt"],
+                    entry["sample_id"],
+                )
+                igv_lookup[key] = entry["report_path"]
+
+            # Pattern to extract (SampleID, GenotypeString) tuples from GT column
+            pattern = re.compile(r"([^()]+)\(([^)]+)\)")
+
+            # Augment variants with IGV links
+            for variant_dict in variants:
+                # Initialize igv_links list
+                variant_dict["igv_links"] = []
+
+                # Extract variant identifiers
+                chrom = str(variant_dict.get("CHROM", ""))
+                pos = str(variant_dict.get("POS", ""))
+                ref = str(variant_dict.get("REF", ""))
+                alt = str(variant_dict.get("ALT", ""))
+
+                # Extract sample IDs with non-reference genotypes
+                gt_value = variant_dict.get("GT", "")
+                if gt_value:
+                    sample_entries = gt_value.split(";")
+                    for entry in sample_entries:
+                        entry = entry.strip()
+                        if not entry:
+                            continue
+
+                        m = pattern.match(entry)
+                        if m:
+                            sample_id = m.group(1).strip()
+                            genotype = m.group(2).strip()
+
+                            # Skip reference genotypes
+                            if genotype in ["0/0", "./."]:
+                                continue
+
+                            # Look up the IGV report path
+                            lookup_key = (chrom, pos, ref, alt, sample_id)
+                            if lookup_key in igv_lookup:
+                                variant_dict["igv_links"].append(
+                                    {"sample_id": sample_id, "report_path": igv_lookup[lookup_key]}
+                                )
+
+            logger.info("Enriched variants with IGV report links")
+        except Exception as e:
+            logger.error(f"Failed to process IGV reports map: {str(e)}")
+            # Continue with regular JSON generation without IGV links
 
     num_variants = len(df)
     unique_genes = df["GENE"].unique() if "GENE" in df.columns else []
@@ -181,14 +392,16 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
         "impact_distribution": impact_counts,
     }
 
+    # Ensure the report directory exists
     variants_json_path = os.path.join(output_dir, "report", "variants.json")
     os.makedirs(os.path.dirname(variants_json_path), exist_ok=True)
-    df.to_json(variants_json_path, orient="records", indent=2)
+
+    # Write the enriched variants JSON
+    with open(variants_json_path, "w", encoding="utf-8") as vjf:
+        json.dump(variants, vjf, indent=2)
 
     summary_json_path = os.path.join(output_dir, "report", "summary.json")
     with open(summary_json_path, "w", encoding="utf-8") as sjf:
-        import json
-
         json.dump(summary_data, sjf, indent=2)
 
     logger.info(f"JSON files produced: {variants_json_path}, {summary_json_path}")

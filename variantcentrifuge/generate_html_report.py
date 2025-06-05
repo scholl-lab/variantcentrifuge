@@ -36,6 +36,10 @@ def generate_html_report(variants_json: str, summary_json: str, output_dir: str)
         # Python 3.7+ guarantees that dict keys preserve insertion order.
         # The order should match the order in the original JSON.
         columns = list(variants[0].keys())
+
+        # Exclude raw igv_links column since we're adding a formatted IGV Links column
+        if "igv_links" in columns:
+            columns.remove("igv_links")
     else:
         columns = []
 
