@@ -76,28 +76,36 @@ def run_command(cmd: list, output_file: Optional[str] = None) -> str:
             return result.stdout
 
 
-def normalize_snpeff_headers(lines: List[str]) -> List[str]:
+def normalize_vcf_headers(lines: List[str]) -> List[str]:
     """
-    Remove known SnpEff prefixes (e.g. "ANN[*].", "GEN[0].", etc.) from the first line
-    (typically the header line) of the provided lines.
+    Normalize header lines from tools like SnpEff and SnpSift by:
+    1. Removing known prefixes (e.g., "ANN[*].", "ANN[0].")
+    2. Converting indexed genotype fields from format GEN[index].FIELD to FIELD_index
+       (e.g., "GEN[0].AF" -> "AF_0", "GEN[1].DP" -> "DP_1")
 
     Parameters
     ----------
     lines : List[str]
         A list of lines (e.g., lines from a file) whose first line may contain
-        SnpEff-generated prefixes in column headers.
+        SnpEff/SnpSift-generated prefixes in column headers.
 
     Returns
     -------
     List[str]
-        The updated list of lines where the first line has had any matching SnpEff
-        prefixes removed or replaced.
+        The updated list of lines where the first line has had matching prefixes
+        removed or replaced and indexed fields normalized.
     """
     if not lines:
         return lines
 
     # Only modify the first line to match the original behavior
     header = lines[0]
+
+    # First apply regex to handle indexed genotype fields (GEN[<index>].<FIELD> -> <FIELD>_<index>)
+    # This must be done before other replacements to avoid conflicts
+    pattern = r"GEN\[(\d+)\]\.([A-Za-z0-9_]+)"
+    header = re.sub(pattern, r"\2_\1", header)
+    # Now apply the standard transformations for non-indexed fields
     header = (
         header.replace("ANN[*].", "")
         .replace("ANN[0].", "")
@@ -111,6 +119,27 @@ def normalize_snpeff_headers(lines: List[str]) -> List[str]:
 
     lines[0] = header
     return lines
+
+
+# Keep the original function name as an alias for backward compatibility
+def normalize_snpeff_headers(lines: List[str]) -> List[str]:
+    """
+    Alias for normalize_vcf_headers for backward compatibility.
+
+    This function is deprecated, use normalize_vcf_headers instead.
+
+    Parameters
+    ----------
+    lines : List[str]
+        A list of lines (e.g., lines from a file) whose first line may contain
+        SnpEff-generated prefixes in column headers.
+
+    Returns
+    -------
+    List[str]
+        The updated list of lines with normalized headers.
+    """
+    return normalize_vcf_headers(lines)
 
 
 def check_external_tools() -> None:
