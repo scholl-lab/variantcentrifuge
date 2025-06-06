@@ -105,6 +105,8 @@
 <h1>VariantCentrifuge Interactive Report</h1>
 
 <h2>Variants Table</h2>
+<!-- MODIFIED: Start of empty report generation -->
+{% if variants and variants|length > 0 %}
 <table id="variants_table" class="display compact">
     <thead>
         <tr>
@@ -142,9 +144,43 @@
         {% endfor %}
     </tbody>
 </table>
+{% else %}
+<div class="alert alert-info">
+    <p><strong>No variants found matching the filtering criteria.</strong></p>
+    <p>The filtering process completed successfully but no variants remained after applying all filters. This may be due to:</p>
+    <ul>
+        <li>Strict filtering criteria</li>
+        <li>Specific gene selection with no matching variants</li>
+        <li>Sample-specific filters excluding all variants</li>
+    </ul>
+    <p>You may want to try adjusting your filtering parameters or check your input data.</p>
+</div>
+<style>
+.alert {
+    padding: 15px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
+.alert-info {
+    color: #31708f;
+    background-color: #d9edf7;
+    border-color: #bce8f1;
+}
+</style>
+{% endif %}
+<!-- MODIFIED: End of empty report generation -->
 
 <script>
 $(document).ready(function() {
+    // MODIFIED: Start of empty report generation
+    // Check if variants table exists
+    if ($('#variants_table').length === 0) {
+        // No variants table, so no need to initialize DataTable
+        return;
+    }
+    // MODIFIED: End of empty report generation
+
     // Get list of original column names in the order they appear in the table
     var allColumnOriginalNames = {{ column_data | map(attribute='original_name') | list | tojson }};
     // Get list of original column names to hide by default

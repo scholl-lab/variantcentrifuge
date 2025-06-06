@@ -39,7 +39,13 @@ def convert_to_excel(tsv_file: str, cfg: Dict[str, Any]) -> str:
     str
         The path to the generated XLSX file.
     """
+    # MODIFIED: Start of empty report generation
+    # Read the TSV, handling the case where it might only have a header
     df = pd.read_csv(tsv_file, sep="\t", na_values="NA")
+
+    # Log whether we have data or just headers
+    if len(df) == 0:
+        logger.warning("TSV file contains only headers or is empty. Creating header-only Excel.")
 
     # Remove raw igv_links column if it exists to avoid duplication with
     # the formatted hyperlinked IGV Report Links column added in finalize_excel_file
@@ -49,6 +55,7 @@ def convert_to_excel(tsv_file: str, cfg: Dict[str, Any]) -> str:
 
     xlsx_file = os.path.splitext(tsv_file)[0] + ".xlsx"
     df.to_excel(xlsx_file, index=False, sheet_name="Results")
+    # MODIFIED: End of empty report generation
     return xlsx_file
 
 
@@ -296,8 +303,23 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
     """
     logger.info(f"Producing JSON files for HTML report from {variant_tsv}")
 
-    df = pd.read_csv(variant_tsv, sep="\t", header=0)
-    variants = df.to_dict(orient="records")
+    # MODIFIED: Start of empty report generation
+    # Read the variants TSV, handling the case where it might only have a header
+    try:
+        df = pd.read_csv(variant_tsv, sep="\t")
+    except pd.errors.EmptyDataError:
+        logger.warning("Empty TSV file provided. Generating empty JSON files.")
+        df = pd.DataFrame()
+    # MODIFIED: End of empty report generation
+
+    # Convert to list of dictionaries for JSON
+    variants = df.to_dict(orient="records") if not df.empty else []
+
+    # Sanitize the variants list to ensure JSON compliance
+    for variant_dict in variants:
+        for key, val in variant_dict.items():
+            if pd.isna(val):
+                variant_dict[key] = None
 
     # Check for IGV reports mapping file
     igv_map_path = os.path.join(output_dir, "report", "igv", "igv_reports_map.json")
@@ -379,13 +401,16 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
             logger.error(f"Failed to process IGV reports map: {str(e)}")
             # Continue with regular JSON generation without IGV links
 
-    num_variants = len(df)
-    unique_genes = df["GENE"].unique() if "GENE" in df.columns else []
+    # MODIFIED: Start of empty report generation
+    # Create summary information, handling the empty case properly
+    num_variants = len(df) if not df.empty else 0
+    unique_genes = df["GENE"].unique() if not df.empty and "GENE" in df.columns else []
     num_genes = len(unique_genes)
 
     impact_counts = {}
-    if "IMPACT" in df.columns:
+    if not df.empty and "IMPACT" in df.columns:
         impact_counts = df["IMPACT"].value_counts().to_dict()
+    # MODIFIED: End of empty report generation
 
     summary_data = {
         "num_variants": num_variants,

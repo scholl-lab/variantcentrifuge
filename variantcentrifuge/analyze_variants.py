@@ -87,12 +87,23 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
     text_data = "".join(line for line in lines)
     if not text_data.strip():
         logger.debug("No input data provided to analyze_variants.")
+        # MODIFIED: Start of empty report generation - Return empty buffer
+        # This ensures that even if no input text data is provided,
+        # we still return something (for cases where empty input is acceptable)
         return
+        # MODIFIED: End of empty report generation
 
     df = pd.read_csv(io.StringIO(text_data), sep="\t", dtype=str)
     if len(df) == 0:
         logger.debug("Empty DataFrame after reading input in analyze_variants.")
+        # MODIFIED: Start of empty report generation
+        # Extract header from the input text and return it
+        header_line = text_data.strip().split("\n")[0] if text_data.strip() else ""
+        if header_line:
+            logger.debug("Returning only header row from analyze_variants.")
+            yield header_line
         return
+        # MODIFIED: End of empty report generation
 
     required_columns = ["CHROM", "POS", "REF", "ALT", "GENE", "GT"]
     missing_columns = [c for c in required_columns if c not in df.columns]

@@ -567,10 +567,9 @@ def run_pipeline(
                 wrote_data = True
 
             if not wrote_data:
-                logger.error(
-                    "Phenotype integration did not produce any output. Check phenotype data."
+                logger.warning(
+                    "Phenotype integration found no data rows to process. Only header row will be written."
                 )
-                sys.exit(1)
         final_tsv = phenotype_added_tsv
     else:
         final_tsv = replaced_tsv
@@ -605,29 +604,28 @@ def run_pipeline(
         for line in analyze_variants(inp, temp_cfg):
             buffer.append(line)
             line_count += 1
-        if line_count == 0:
-            logger.error(
-                "No variant-level results produced. Check your filters, fields, and input data."
+        if line_count <= 1:  # Only header or nothing
+            logger.warning(
+                "No variant-level results produced after filtering. Generating empty output files with headers."
             )
-            sys.exit(1)
 
-    # Apply gene list annotation if gene list files are provided
+    # Apply gene list annotation if gene list files are provided and we have data rows
     gene_list_annotation_files = cfg.get("annotate_gene_list_files", [])
-    if gene_list_annotation_files:
+    if gene_list_annotation_files and len(buffer) > 1:  # Only if we have more than just the header
         logger.info(
             f"Annotating variants with {len(gene_list_annotation_files)} custom gene list(s)."
         )
         buffer = annotate_variants_with_gene_lists(buffer, gene_list_annotation_files)
         logger.debug("Gene list annotation complete.")
 
-    # Add links if not disabled
-    if not cfg.get("no_links", False):
+    # Add links if not disabled and we have data rows
+    if not cfg.get("no_links", False) and len(buffer) > 1:
         links_config = cfg.get("links", {})
         if links_config:
             logger.debug("Adding link columns to final output.")
             buffer = add_links_to_table(buffer, links_config)
     else:
-        logger.debug("Link columns are disabled by configuration.")
+        logger.debug("Link columns are disabled by configuration or no variants to link.")
 
     # Insert a leading VAR_ID column
     def add_variant_identifier(lines: List[str]) -> List[str]:
@@ -688,7 +686,15 @@ def run_pipeline(
 
         return new_lines
 
-    buffer = add_variant_identifier(buffer)
+    # Add variant identifiers only if we have data rows
+    if len(buffer) > 1:
+        buffer = add_variant_identifier(buffer)
+    else:
+        # For empty results, just add the VAR_ID column to the header
+        if buffer and "\t" in buffer[0]:
+            header_parts = buffer[0].split("\t")
+            new_header = ["VAR_ID"] + header_parts
+            buffer[0] = "\t".join(new_header)
 
     # Append named blank columns if requested
     def add_named_columns(lines: List[str], col_names: List[str]) -> List[str]:
@@ -753,8 +759,8 @@ def run_pipeline(
             for line in analyze_variants(inp, gene_burden_cfg):
                 out.write(line + "\n")
                 line_count += 1
-        if line_count == 0:
-            logger.warning("Gene burden requested but no lines produced.")
+        if line_count <= 1:  # Only header or nothing
+            logger.warning("Gene burden requested but no variant data produced.")
         else:
             logger.debug(f"Gene burden analysis complete: {gene_burden_tsv}")
 
@@ -827,6 +833,7 @@ def run_pipeline(
     # Phase 2: Generate IGV reports and map if IGV is enabled
     # This must happen before finalize_excel_file and produce_report_json
     igv_enabled = cfg.get("igv_enabled", False)
+    # Check if the file exists and has content (at least header)
     if igv_enabled and final_out_path and os.path.exists(final_out_path):
         # MODIFIED: Start of local IGV FASTA feature
         bam_map_file = cfg.get("bam_mapping_file")
