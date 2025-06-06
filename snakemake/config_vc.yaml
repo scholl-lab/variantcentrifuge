@@ -52,6 +52,11 @@ enable_igv: false
 igv_reference: "hg38_1kg" # e.g., hg19, hg38_1kg
 bam_mapping_file: "path/to/your/bam_mapping.txt" # Required if enable_igv is true
 
+# Local IGV FASTA Support (for network-restricted environments)
+# These options take precedence over igv_reference when provided
+igv_fasta: null  # Path to local FASTA file (must have .fai index in same directory)
+igv_ideogram: null  # Path to local ideogram file
+
 # ----------------------------------------------------------------------
 # Conda Environment
 # ----------------------------------------------------------------------

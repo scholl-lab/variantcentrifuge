@@ -10,6 +10,11 @@
   "use_phenotype_filtering": false,
   "perform_gene_burden": false,
   "keep_intermediates": false,
+  
+  "igv_enabled": false,
+  "igv_reference": null,
+  "igv_fasta": null,
+  "igv_ideogram": null,
 
   "presets": {
     "not_artefact": "((AC[ANY] <= 513) & (QUAL[ANY] >= 100))",

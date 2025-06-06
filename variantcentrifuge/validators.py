@@ -8,6 +8,7 @@ This module provides functions to validate:
 - VCF files (existence, non-empty)
 - Phenotype files (existence, non-empty, required columns)
 - Mandatory parameters (reference, filters, fields)
+- IGV local FASTA and related files (existence, readability)
 
 These validations ensure that all critical inputs and parameters
 are provided correctly before proceeding with the analysis.
@@ -148,3 +149,55 @@ def validate_mandatory_parameters(
     if not fields:
         sys.stderr.write("No fields to extract provided. Provide via --fields or in config.\n")
         sys.exit(1)
+
+
+# MODIFIED: Start of local IGV FASTA feature
+def validate_igv_files(
+    local_fasta: Optional[str], fasta_index: Optional[str], ideogram: Optional[str]
+) -> None:
+    """Validates the existence and readability of files for IGV integration.
+
+    Parameters
+    ----------
+    local_fasta : str or None
+        Path to the local FASTA file.
+    fasta_index : str or None
+        Path to the FASTA index file (not used directly; the index is expected as <fasta_path>.fai).
+    ideogram : str or None
+        Path to the ideogram file.
+
+    Raises
+    ------
+    SystemExit
+        If any of the specified files do not exist or are not readable.
+    """
+    if local_fasta:
+        if not os.path.exists(local_fasta):
+            sys.stderr.write(f"Local FASTA file not found: {local_fasta}\n")
+            sys.exit(1)
+        if os.path.getsize(local_fasta) == 0:
+            sys.stderr.write(f"Local FASTA file is empty: {local_fasta}\n")
+            sys.exit(1)
+
+        # Check for FASTA index with expected naming convention (name.fa.fai or name.fasta.fai)
+        expected_fai = f"{local_fasta}.fai"
+        if not os.path.exists(expected_fai):
+            sys.stderr.write(f"FASTA index file not found: {expected_fai}\n")
+            sys.stderr.write(
+                f"Please ensure your FASTA file is indexed with 'samtools faidx {local_fasta}'\n"
+            )
+            sys.exit(1)
+        if os.path.getsize(expected_fai) == 0:
+            sys.stderr.write(f"FASTA index file is empty: {expected_fai}\n")
+            sys.exit(1)
+
+    if ideogram:
+        if not os.path.exists(ideogram):
+            sys.stderr.write(f"Ideogram file not found: {ideogram}\n")
+            sys.exit(1)
+        if os.path.getsize(ideogram) == 0:
+            sys.stderr.write(f"Ideogram file is empty: {ideogram}\n")
+            sys.exit(1)
+
+
+# MODIFIED: End of local IGV FASTA feature

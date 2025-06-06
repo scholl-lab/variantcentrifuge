@@ -28,13 +28,17 @@ def parse_bam_mapping(bam_mapping_file: str) -> Dict[str, str]:
     return mapping
 
 
+# MODIFIED: Start of local IGV FASTA feature
 def generate_igv_report(
     variants_tsv: str,
     output_dir: str,
     bam_mapping_file: str,
-    igv_reference: str,
+    igv_reference: str = None,
     integrate_into_main: bool = False,
+    igv_fasta: str = None,
+    igv_ideogram: str = None,
 ) -> None:
+    # MODIFIED: End of local IGV FASTA feature
     """
     Generate per-variant per-sample IGV reports using igv-reports 'create_report'.
 
@@ -42,7 +46,9 @@ def generate_igv_report(
     - Create a one-line TSV describing that variant with columns: CHROM, POS, REF, ALT.
     - For each sample carrying that variant, run create_report:
       create_report single_variant.tsv
-        --genome igv_reference
+        --genome igv_reference (if using an online genome reference)
+        OR
+        --fasta local_fasta_file (if using a local FASTA file)
         --sequence 1 --begin 2 --end 2
         --flanking 50
         --info-columns CHROM POS REF ALT
@@ -54,14 +60,19 @@ def generate_igv_report(
     1. Place IGV reports into a subfolder report/igv/ within output_dir.
     2. Create a JSON mapping file (igv_reports_map.json) that maps each generated IGV report
        back to its sample and variant for integration in the interactive HTML report.
+    3. Support for local FASTA files to avoid network access requirements.
 
     Args:
         variants_tsv (str): Path to the final variants TSV file.
         output_dir (str): Output directory where the main reports are stored.
                           IGV reports will be placed in output_dir/report/igv/.
         bam_mapping_file (str): Path to BAM mapping file.
-        igv_reference (str): Genome reference (e.g., hg19 or hg38) for IGV.
+        igv_reference (str, optional): Genome reference (e.g., hg19 or hg38) for IGV.
+                                      Not used if igv_fasta is provided.
         integrate_into_main (bool): If True, integrate into main report (placeholder).
+        igv_fasta (str, optional): Path to a local FASTA file for IGV reports. The index file (.fai)
+                                   should be in the same directory with the same name + '.fai' extension.
+        igv_ideogram (str, optional): Path to an ideogram file for IGV visualization.
     """
     logger.info("Starting IGV report generation.")
     # Place IGV reports into report/igv/ subfolder
@@ -161,11 +172,10 @@ def generate_igv_report(
                                 f"{sample_id}_{chrom}_{pos}_{ref_allele}_{alt_allele}_igv_report.html",
                             )
 
+                            # MODIFIED: Start of local IGV FASTA feature
                             cmd = [
                                 "create_report",
                                 variant_tsv_path,
-                                "--genome",
-                                igv_reference,
                                 "--sequence",
                                 "1",
                                 "--begin",
@@ -184,6 +194,16 @@ def generate_igv_report(
                                 "--output",
                                 sample_report_path,
                             ]
+                            # If local FASTA is provided, use it instead of genome reference
+                            if igv_fasta:
+                                cmd.extend(["--fasta", igv_fasta])
+                                # Optional ideogram file
+                                if igv_ideogram:
+                                    cmd.extend(["--ideogram", igv_ideogram])
+                            else:
+                                # Use genome reference if no local FASTA is provided
+                                cmd.extend(["--genome", igv_reference])
+                            # MODIFIED: End of local IGV FASTA feature
 
                             logger.debug(
                                 f"Running create_report for sample {sample_id}, variant {chrom}:{pos} {ref_allele}>{alt_allele}"

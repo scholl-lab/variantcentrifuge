@@ -196,8 +196,22 @@ def main() -> None:
     )
     parser.add_argument(
         "--igv-reference",
-        help="Genome reference identifier for IGV (e.g., 'hg19' or 'hg38'). Required if --igv is enabled.",
+        help="Genome reference identifier for IGV (e.g., 'hg19' or 'hg38'). Required if --igv is enabled unless --igv-fasta is provided.",
     )
+    # MODIFIED: Start of local IGV FASTA feature
+    parser.add_argument(
+        "--igv-fasta",
+        help="Path to a local FASTA file for IGV reports. This will be used instead of --igv-reference if both are provided.",
+    )
+    parser.add_argument(
+        "--igv-fasta-index",
+        help="Path to FASTA index file (.fai). If not provided, igv-reports will attempt to create or locate it.",
+    )
+    parser.add_argument(
+        "--igv-ideogram",
+        help="Path to an ideogram file for chromosome visualization in IGV reports.",
+    )
+    # MODIFIED: End of local IGV FASTA feature
 
     parser.add_argument(
         "--remove-sample-substring",
@@ -395,12 +409,32 @@ def main() -> None:
     # IGV parameters
     cfg["igv_enabled"] = args.igv
     cfg["bam_mapping_file"] = args.bam_mapping_file
-    cfg["igv_reference"] = args.igv_reference
-    if args.igv and (not args.bam_mapping_file or not args.igv_reference):
-        logger.error(
-            "For IGV integration, --bam-mapping-file and --igv-reference must be provided."
-        )
-        sys.exit(1)
+
+    # MODIFIED: Start of local IGV FASTA feature
+    # Store local FASTA-related parameters
+    cfg["igv_fasta"] = args.igv_fasta
+    cfg["igv_fasta_index"] = args.igv_fasta_index
+    cfg["igv_ideogram"] = args.igv_ideogram
+
+    # Handle precedence and validation
+    if args.igv:
+        if not args.bam_mapping_file:
+            logger.error("For IGV integration, --bam-mapping-file must be provided.")
+            sys.exit(1)
+
+        if not args.igv_fasta and not args.igv_reference:
+            logger.error(
+                "For IGV integration, either --igv-reference or --igv-fasta must be provided."
+            )
+            sys.exit(1)
+
+        if args.igv_fasta and args.igv_reference:
+            logger.warning(
+                "Both --igv-fasta and --igv-reference provided. Local FASTA file will take precedence."
+            )
+
+        cfg["igv_reference"] = args.igv_reference
+    # MODIFIED: End of local IGV FASTA feature
 
     # Update reference/filters/fields
     cfg["reference"] = reference

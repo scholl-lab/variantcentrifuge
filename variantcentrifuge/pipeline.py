@@ -828,25 +828,50 @@ def run_pipeline(
     # This must happen before finalize_excel_file and produce_report_json
     igv_enabled = cfg.get("igv_enabled", False)
     if igv_enabled and final_out_path and os.path.exists(final_out_path):
+        # MODIFIED: Start of local IGV FASTA feature
         bam_map_file = cfg.get("bam_mapping_file")
         igv_reference_genome = cfg.get("igv_reference")
-        if not bam_map_file or not igv_reference_genome:
+        igv_fasta_file = cfg.get("igv_fasta")
+        igv_ideogram_file = cfg.get("igv_ideogram")
+
+        # Validate the required parameters and files
+        if not bam_map_file:
+            logger.error("For IGV integration, --bam-mapping-file must be provided.")
+            sys.exit(1)
+
+        if not igv_fasta_file and not igv_reference_genome:
             logger.error(
-                "For IGV integration, --bam-mapping-file and --igv-reference must be provided."
+                "For IGV integration, either --igv-reference or --igv-fasta must be provided."
             )
-            sys.exit(1)  # Or handle more gracefully depending on project policy
+            sys.exit(1)
+
+        # Validate local FASTA files if provided
+        if igv_fasta_file or igv_ideogram_file:
+            from .validators import validate_igv_files
+
+            validate_igv_files(igv_fasta_file, None, igv_ideogram_file)
+
+        if igv_fasta_file and igv_reference_genome:
+            logger.warning(
+                "Both local FASTA file and genome reference ID provided. Local FASTA file will take precedence."
+            )
+        # MODIFIED: End of local IGV FASTA feature
 
         from .generate_igv_report import generate_igv_report  # Ensure import is present
 
         # The output_dir for generate_igv_report should be where igv_reports_map.json is expected
         # which is output_dir/report, and report_path in map are relative to output_dir/report
+        # MODIFIED: Start of local IGV FASTA feature
         generate_igv_report(
             variants_tsv=final_out_path,  # final_out_path is the path to the main results TSV
             output_dir=report_dir,  # This ensures map is in report/igv/
             bam_mapping_file=bam_map_file,
             igv_reference=igv_reference_genome,
             integrate_into_main=True,  # Always integrate if IGV is enabled
+            igv_fasta=igv_fasta_file,
+            igv_ideogram=igv_ideogram_file,
         )
+        # MODIFIED: End of local IGV FASTA feature
         logger.info("IGV reports and mapping file generated.")
 
     # Phase 3: Produce HTML report if requested - after IGV reports are generated

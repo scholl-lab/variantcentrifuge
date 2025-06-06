@@ -146,8 +146,10 @@ VariantCentrifuge uses a JSON configuration file (`config.json`) to set default 
 - **gene_burden_mode** (`str`): "samples" or "alleles". *Default: "alleles"*
 - **correction_method** (`str`): "fdr" or "bonferroni" for multiple testing correction. *Default: "fdr"*
 - **igv_enabled** (`bool`): Enable IGV.js integration. *Default: false*
-- **bam_mapping_file** (`str`): Required if igv_enabled=true. No default.
-- **igv_reference** (`str`): Required if igv_enabled=true. No default.
+- **bam_mapping_file** (`str`): Required if igv_enabled=true. Path to a TSV or CSV file mapping sample IDs to BAM files. No default.
+- **igv_reference** (`str`): Genome reference identifier for IGV (e.g., 'hg19' or 'hg38'). Required if igv_enabled=true and no local FASTA is provided. No default.
+- **igv_fasta** (`str`): Path to a local FASTA file for IGV reports. Takes precedence over igv_reference if provided. Must have a corresponding .fai index file in the same directory. *Default: null*
+- **igv_ideogram** (`str`): Path to a local ideogram file for IGV visualization. *Default: null*
 
 **Example `config.json`:**
 ```json
