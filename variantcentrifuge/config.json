@@ -16,6 +16,7 @@
   "igv_fasta": null,
   "igv_ideogram": null,
   "igv_fasta_index": null,
+  "igv_flanking": 50,
   
   "igv_max_allele_len_filename": 10,
   "igv_hash_len_filename": 6,

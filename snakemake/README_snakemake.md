@@ -29,6 +29,7 @@ The workflow processes multiple VCF files (specified in a list file) using `vari
     *   `base_output_folder`: Where all results will be written. A subdirectory will be created for each sample.
     *   `variantcentrifuge_config_file`: Path to the main JSON configuration file used by `variantcentrifuge` itself.
     *   Update other `variantcentrifuge` parameters (`genes_of_interest`, `threads_per_job`, flags, presets, IGV settings, etc.) as needed.
+    *   For IGV reports, you can configure the flanking region size (in base pairs) with `igv_flanking` (default: 50).
     *   Configure `gene_list_files` with paths to gene list files for variant annotation (see [Gene List Annotation](#gene-list-annotation) below).
     *   `conda_environment_variantcentrifuge`: Specify the name of the conda environment that contains `variantcentrifuge` and its dependencies if you are using `--use-conda`.
 

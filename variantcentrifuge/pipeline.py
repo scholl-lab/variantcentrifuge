@@ -883,6 +883,9 @@ def run_pipeline(
             igv_max_allele_len_filename=cfg.get("igv_max_allele_len_filename", 10),
             igv_hash_len_filename=cfg.get("igv_hash_len_filename", 6),
             igv_max_variant_part_filename=cfg.get("igv_max_variant_part_filename", 50),
+            # MODIFIED: Start of IGV flanking feature - pass configurable flanking value
+            igv_flanking=cfg.get("igv_flanking", 50),
+            # MODIFIED: End of IGV flanking feature
         )
         # MODIFIED: End of local IGV FASTA feature
         logger.info("IGV reports and mapping file generated.")

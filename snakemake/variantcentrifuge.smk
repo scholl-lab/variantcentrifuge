@@ -26,6 +26,9 @@ VC_IGV_REF = config.get("igv_reference", "")
 VC_BAM_MAPPING = config.get("bam_mapping_file", "")
 VC_IGV_FASTA = config.get("igv_fasta", "")
 VC_IGV_IDEOGRAM = config.get("igv_ideogram", "")
+# MODIFIED: Start of IGV flanking feature
+VC_IGV_FLANKING = config.get("igv_flanking", 50)
+# MODIFIED: End of IGV flanking feature
 
 CONDA_ENV_VC = config.get("conda_environment_variantcentrifuge", None)
 
@@ -122,7 +125,10 @@ rule run_variantcentrifuge:
         igv_ref = f"--igv-reference {VC_IGV_REF}" if VC_ENABLE_IGV and VC_IGV_REF else "",
         bam_map = f"--bam-mapping-file {VC_BAM_MAPPING}" if VC_ENABLE_IGV and VC_BAM_MAPPING else "",
         igv_fasta = f"--igv-fasta {VC_IGV_FASTA}" if VC_ENABLE_IGV and VC_IGV_FASTA else "",
-        igv_ideogram = f"--igv-ideogram {VC_IGV_IDEOGRAM}" if VC_ENABLE_IGV and VC_IGV_IDEOGRAM else ""
+        igv_ideogram = f"--igv-ideogram {VC_IGV_IDEOGRAM}" if VC_ENABLE_IGV and VC_IGV_IDEOGRAM else "",
+        # MODIFIED: Start of IGV flanking feature
+        igv_flanking = f"--igv-flanking {VC_IGV_FLANKING}" if VC_ENABLE_IGV else ""
+        # MODIFIED: End of IGV flanking feature
     log:
         os.path.join(BASE_OUTPUT_FOLDER, LOG_SUBFOLDER, "{sample}.variantcentrifuge.log")
     conda:
@@ -163,6 +169,7 @@ rule run_variantcentrifuge:
             {params.bam_map} \
             {params.igv_fasta} \
             {params.igv_ideogram} \
+            {params.igv_flanking} \
             >> {log} 2>&1
         
         echo "Finished VariantCentrifuge for sample {wildcards.sample} at: $(date)" >> {log}

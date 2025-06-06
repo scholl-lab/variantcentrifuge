@@ -57,6 +57,10 @@ bam_mapping_file: "path/to/your/bam_mapping.txt" # Required if enable_igv is tru
 igv_fasta: null  # Path to local FASTA file (must have .fai index in same directory)
 igv_ideogram: null  # Path to local ideogram file
 
+# MODIFIED: Start of IGV flanking feature
+igv_flanking: 50  # Flanking region size in base pairs for IGV reports (default: 50)
+# MODIFIED: End of IGV flanking feature
+
 # ----------------------------------------------------------------------
 # Conda Environment
 # ----------------------------------------------------------------------

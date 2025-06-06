@@ -43,6 +43,8 @@ def generate_igv_report(
     igv_max_allele_len_filename: int = 10,
     igv_hash_len_filename: int = 6,
     igv_max_variant_part_filename: int = 50,
+    # MODIFIED: Start of IGV flanking feature
+    igv_flanking: int = 50,
 ) -> None:
     # MODIFIED: End of local IGV FASTA feature
     """
@@ -68,6 +70,7 @@ def generate_igv_report(
        back to its sample and variant for integration in the interactive HTML report.
     3. Support for local FASTA files to avoid network access requirements.
     4. Implement filename shortening for long REF/ALT alleles to prevent "File name too long" errors.
+    5. Support for configurable flanking region size for IGV reports.
 
     Args:
         variants_tsv (str): Path to the final variants TSV file.
@@ -86,6 +89,9 @@ def generate_igv_report(
                                              Default is 6.
         igv_max_variant_part_filename (int, optional): Maximum length for the variant part of filenames.
                                                      Default is 50.
+        igv_flanking (int, optional): Flanking region size in base pairs for IGV reports.
+                                    Default is 50.
+    # MODIFIED: End of IGV flanking feature
     """
     logger.info("Starting IGV report generation.")
     # Place IGV reports into report/igv/ subfolder
@@ -212,7 +218,9 @@ def generate_igv_report(
                                 "--end",
                                 "2",
                                 "--flanking",
-                                "50",
+                                # MODIFIED: Start of IGV flanking feature - use configurable value
+                                str(igv_flanking),
+                                # MODIFIED: End of IGV flanking feature
                                 "--info-columns",
                                 "CHROM",
                                 "POS",

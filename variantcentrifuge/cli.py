@@ -228,8 +228,16 @@ def main() -> None:
         "--igv-max-variant-part-filename",
         type=int,
         default=50,
-        help="Maximum length for the variant part of IGV report filenames (default: 50).",
+        help="Maximum length for the variant part of IGV report filenames",
     )
+    # MODIFIED: Start of IGV flanking feature
+    parser.add_argument(
+        "--igv-flanking",
+        type=int,
+        default=None,
+        help="Flanking region size in base pairs for IGV reports (default: 50)",
+    )
+    # MODIFIED: End of IGV flanking feature
     # MODIFIED: IGV filename shortening feature - END
     # MODIFIED: End of local IGV FASTA feature
 
@@ -440,6 +448,11 @@ def main() -> None:
     cfg["igv_max_allele_len_filename"] = args.igv_max_allele_len_filename
     cfg["igv_hash_len_filename"] = args.igv_hash_len_filename
     cfg["igv_max_variant_part_filename"] = args.igv_max_variant_part_filename
+
+    # MODIFIED: Start of IGV flanking feature
+    # Use CLI argument if provided, otherwise use config value, with a default of 50
+    cfg["igv_flanking"] = args.igv_flanking or cfg.get("igv_flanking", 50)
+    # MODIFIED: End of IGV flanking feature
 
     # Handle precedence and validation
     if args.igv:
