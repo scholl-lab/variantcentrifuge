@@ -15,6 +15,11 @@
   "igv_reference": null,
   "igv_fasta": null,
   "igv_ideogram": null,
+  "igv_fasta_index": null,
+  
+  "igv_max_allele_len_filename": 10,
+  "igv_hash_len_filename": 6,
+  "igv_max_variant_part_filename": 50,
 
   "presets": {
     "not_artefact": "((AC[ANY] <= 513) & (QUAL[ANY] >= 100))",

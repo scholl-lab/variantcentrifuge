@@ -162,7 +162,8 @@ def validate_igv_files(
     local_fasta : str or None
         Path to the local FASTA file.
     fasta_index : str or None
-        Path to the FASTA index file (not used directly; the index is expected as <fasta_path>.fai).
+        Path to the FASTA index file. If None but local_fasta is provided,
+        the index is expected as <fasta_path>.fai.
     ideogram : str or None
         Path to the ideogram file.
 
@@ -179,16 +180,24 @@ def validate_igv_files(
             sys.stderr.write(f"Local FASTA file is empty: {local_fasta}\n")
             sys.exit(1)
 
-        # Check for FASTA index with expected naming convention (name.fa.fai or name.fasta.fai)
-        expected_fai = f"{local_fasta}.fai"
-        if not os.path.exists(expected_fai):
-            sys.stderr.write(f"FASTA index file not found: {expected_fai}\n")
-            sys.stderr.write(
-                f"Please ensure your FASTA file is indexed with 'samtools faidx {local_fasta}'\n"
-            )
+        # If custom index file path is provided, check that
+        if fasta_index:
+            index_path = fasta_index
+            index_description = "Custom FASTA index"
+        else:
+            # Otherwise, check for FASTA index with expected naming convention (name.fa.fai)
+            index_path = f"{local_fasta}.fai"
+            index_description = "Default FASTA index"
+        if not os.path.exists(index_path):
+            sys.stderr.write(f"{index_description} file not found: {index_path}\n")
+            if not fasta_index:  # Only suggest indexing if using default location
+                sys.stderr.write(
+                    f"Please index your FASTA file with 'samtools faidx {local_fasta}'\n"
+                )
             sys.exit(1)
-        if os.path.getsize(expected_fai) == 0:
-            sys.stderr.write(f"FASTA index file is empty: {expected_fai}\n")
+
+        if os.path.getsize(index_path) == 0:
+            sys.stderr.write(f"{index_description} file is empty: {index_path}\n")
             sys.exit(1)
 
     if ideogram:

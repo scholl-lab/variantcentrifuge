@@ -7,6 +7,8 @@ import re
 import subprocess
 from typing import Dict
 
+from .utils import generate_igv_safe_filename_base
+
 logger = logging.getLogger("variantcentrifuge")
 
 
@@ -37,6 +39,10 @@ def generate_igv_report(
     integrate_into_main: bool = False,
     igv_fasta: str = None,
     igv_ideogram: str = None,
+    igv_fasta_index: str = None,
+    igv_max_allele_len_filename: int = 10,
+    igv_hash_len_filename: int = 6,
+    igv_max_variant_part_filename: int = 50,
 ) -> None:
     # MODIFIED: End of local IGV FASTA feature
     """
@@ -61,6 +67,7 @@ def generate_igv_report(
     2. Create a JSON mapping file (igv_reports_map.json) that maps each generated IGV report
        back to its sample and variant for integration in the interactive HTML report.
     3. Support for local FASTA files to avoid network access requirements.
+    4. Implement filename shortening for long REF/ALT alleles to prevent "File name too long" errors.
 
     Args:
         variants_tsv (str): Path to the final variants TSV file.
@@ -73,6 +80,12 @@ def generate_igv_report(
         igv_fasta (str, optional): Path to a local FASTA file for IGV reports. The index file (.fai)
                                    should be in the same directory with the same name + '.fai' extension.
         igv_ideogram (str, optional): Path to an ideogram file for IGV visualization.
+        igv_max_allele_len_filename (int, optional): Maximum length for REF/ALT alleles in filenames.
+                                                   Default is 10.
+        igv_hash_len_filename (int, optional): Length of hash to append when truncating alleles.
+                                             Default is 6.
+        igv_max_variant_part_filename (int, optional): Maximum length for the variant part of filenames.
+                                                     Default is 50.
     """
     logger.info("Starting IGV report generation.")
     # Place IGV reports into report/igv/ subfolder
@@ -125,8 +138,12 @@ def generate_igv_report(
                             total_variants += 1
     logger.info(f"Total variants to process for IGV reports: {total_variants}")
 
-    processed_variants = 0
-    variant_report_map = []  # will store JSON mapping entries
+    # Initialize list to store mapping of variants to reports
+    # The structure will be: [{ chrom, pos, ref, alt, sample_reports: {sample_id: report_path, ...} }, ...]
+    variant_report_map = []
+    # Dictionary to map variant identifiers (chrom_pos_ref_alt) to their index in variant_report_map
+    variant_index_map = {}
+    processed_variants = 0  # Initialize counter for processed variants
 
     # Now process variants again
     with open(variants_tsv, "r", encoding="utf-8") as f:
@@ -158,18 +175,30 @@ def generate_igv_report(
                                 logger.warning(f"No BAM found for sample {sample_id}, skipping.")
                                 continue
 
+                            # MODIFIED: Use filename shortening for variant TSV files
+                            safe_filename_base = generate_igv_safe_filename_base(
+                                sample_id,
+                                chrom,
+                                pos,
+                                ref_allele,
+                                alt_allele,
+                                max_allele_len=igv_max_allele_len_filename,
+                                hash_len=igv_hash_len_filename,
+                                max_variant_part_len=igv_max_variant_part_filename,
+                            )
                             variant_tsv_path = os.path.join(
                                 igv_dir,
-                                f"{sample_id}_{chrom}_{pos}_{ref_allele}_{alt_allele}_variant.tsv",
+                                f"{safe_filename_base}_variant.tsv",
                             )
                             with open(variant_tsv_path, "w", encoding="utf-8") as sf:
                                 # Columns: CHROM POS REF ALT
                                 sf.write("CHROM\tPOS\tREF\tALT\n")
+                                # Write the original full REF/ALT alleles to the TSV for proper visualization
                                 sf.write(f"{chrom}\t{pos}\t{ref_allele}\t{alt_allele}\n")
 
                             sample_report_path = os.path.join(
                                 igv_dir,
-                                f"{sample_id}_{chrom}_{pos}_{ref_allele}_{alt_allele}_igv_report.html",
+                                f"{safe_filename_base}_igv_report.html",
                             )
 
                             # MODIFIED: Start of local IGV FASTA feature
@@ -221,18 +250,29 @@ def generate_igv_report(
                             else:
                                 logger.info(f"IGV report generated: {sample_report_path}")
                                 # Add entry to variant report map
-                                variant_report_map.append(
-                                    {
-                                        "sample_id": sample_id,
+                                # Create a unique key for this variant
+                                variant_key = f"{chrom}_{pos}_{ref_allele}_{alt_allele}"
+
+                                # Get the relative path to the report
+                                rel_report_path = os.path.relpath(sample_report_path, output_dir)
+
+                                # If this variant is already in our map, add this sample's report
+                                if variant_key in variant_index_map:
+                                    variant_idx = variant_index_map[variant_key]
+                                    variant_report_map[variant_idx]["sample_reports"][
+                                        sample_id
+                                    ] = rel_report_path
+                                else:
+                                    # First time seeing this variant, create a new entry
+                                    new_variant = {
                                         "chrom": chrom,
                                         "pos": pos,
                                         "ref": ref_allele,
                                         "alt": alt_allele,
-                                        "report_path": os.path.relpath(
-                                            sample_report_path, output_dir
-                                        ),
+                                        "sample_reports": {sample_id: rel_report_path},
                                     }
-                                )
+                                    variant_report_map.append(new_variant)
+                                    variant_index_map[variant_key] = len(variant_report_map) - 1
 
                             processed_variants += 1
                             logger.info(
@@ -242,7 +282,8 @@ def generate_igv_report(
     # Write JSON mapping
     igv_map_file = os.path.join(igv_dir, "igv_reports_map.json")
     with open(igv_map_file, "w", encoding="utf-8") as jf:
-        json.dump(variant_report_map, jf, indent=2)
+        # Wrap the variant report map in a dictionary with 'variants' key
+        json.dump({"variants": variant_report_map}, jf, indent=2)
     logger.info(f"IGV report mapping JSON created at {igv_map_file}")
 
     logger.info("IGV report generation completed.")

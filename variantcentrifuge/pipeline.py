@@ -849,7 +849,9 @@ def run_pipeline(
         if igv_fasta_file or igv_ideogram_file:
             from .validators import validate_igv_files
 
-            validate_igv_files(igv_fasta_file, None, igv_ideogram_file)
+            # Get the FASTA index file if provided
+            igv_fasta_index_file = cfg.get("igv_fasta_index")
+            validate_igv_files(igv_fasta_file, igv_fasta_index_file, igv_ideogram_file)
 
         if igv_fasta_file and igv_reference_genome:
             logger.warning(
@@ -870,6 +872,10 @@ def run_pipeline(
             integrate_into_main=True,  # Always integrate if IGV is enabled
             igv_fasta=igv_fasta_file,
             igv_ideogram=igv_ideogram_file,
+            # MODIFIED: Pass filename shortening parameters
+            igv_max_allele_len_filename=cfg.get("igv_max_allele_len_filename", 10),
+            igv_hash_len_filename=cfg.get("igv_hash_len_filename", 6),
+            igv_max_variant_part_filename=cfg.get("igv_max_variant_part_filename", 50),
         )
         # MODIFIED: End of local IGV FASTA feature
         logger.info("IGV reports and mapping file generated.")

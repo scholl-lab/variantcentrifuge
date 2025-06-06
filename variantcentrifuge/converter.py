@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -86,8 +87,6 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
       - Add "IGV Report Links" column with hyperlinks to IGV reports if available
     """
     # Using load_workbook and get_column_letter already imported at module level
-    import re
-
     wb = load_workbook(xlsx_file)
     link_templates = cfg.get("links", {})
 
@@ -99,52 +98,59 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
     if igv_enabled:
         # Log that we're looking for the IGV mapping file
         logger.info("Looking for IGV reports map for Excel integration...")
-
-        # First try finding the map in the standard location relative to the xlsx_file
         output_dir = os.path.dirname(xlsx_file)
         igv_map_path = os.path.join(output_dir, "report", "igv", "igv_reports_map.json")
-
-        # If not found, try looking one directory up
         if not os.path.exists(igv_map_path):
-            parent_dir = os.path.dirname(output_dir)
+            # Try the parent directory as an alternative location
+            parent_dir = os.path.dirname(os.path.dirname(output_dir))
             alt_path = os.path.join(parent_dir, "report", "igv", "igv_reports_map.json")
             if os.path.exists(alt_path):
                 igv_map_path = alt_path
-                logger.debug("IGV map found in parent directory")
-
-        logger.info(f"Checking for IGV map file at: {igv_map_path}")
 
         if os.path.exists(igv_map_path):
+            logger.info(f"Found IGV reports mapping file: {igv_map_path}")
             try:
+                # Load IGV reports mapping
                 with open(igv_map_path, "r", encoding="utf-8") as f:
-                    igv_map = json.load(f)
-                logger.info(f"Found IGV reports mapping file: {igv_map_path}")
-                logger.info(f"Loaded IGV reports map with {len(igv_map)} entries")
+                    igv_map_data = json.load(f)
 
-                # Handle both list and dictionary formats for the IGV map
-                if isinstance(igv_map, list):
-                    # Process list format (from generate_igv_report.py)
-                    for entry in igv_map:
-                        if all(
-                            k in entry
-                            for k in ["chrom", "pos", "ref", "alt", "sample_id", "report_path"]
-                        ):
-                            chrom = entry["chrom"]
-                            pos = entry["pos"]
-                            ref = entry["ref"]
-                            alt = entry["alt"]
-                            sample_id = entry["sample_id"]
-                            report_path = entry["report_path"]
-                            lookup_key = (chrom, pos, ref, alt, sample_id)
-                            igv_lookup[lookup_key] = report_path
-                elif isinstance(igv_map, dict):
-                    # Process dictionary format (if format changes in future)
-                    for variant_key, report_path in igv_map.items():
-                        parts = variant_key.split(":")
-                        if len(parts) == 5:
-                            chrom, pos, ref, alt, sample_id = parts
-                            lookup_key = (chrom, pos, ref, alt, sample_id)
-                            igv_lookup[lookup_key] = report_path
+                # Handle both old and new IGV map format
+                if "variants" in igv_map_data:
+                    # New format - variant-centric with nested sample reports
+                    igv_map = igv_map_data["variants"]
+                    # Count total entries (number of sample-variant combinations)
+                    total_entries = sum(len(entry.get("sample_reports", {})) for entry in igv_map)
+                    logger.info(
+                        f"Loaded IGV reports map with {len(igv_map)} variants and "
+                        f"{total_entries} total reports"
+                    )
+                else:
+                    # Old format - flat list of entries
+                    igv_map = igv_map_data
+                    logger.info(f"Loaded IGV reports map with {len(igv_map)} entries")
+
+                # MODIFIED: Start of IGV Excel link fix
+                # Populate the igv_lookup dictionary for quick access when adding links to Excel
+                igv_lookup = {}
+                for entry in igv_map:
+                    # Extract variant identifiers
+                    chrom = entry.get("chrom", "")
+                    pos = str(entry.get("pos", ""))
+                    ref = entry.get("ref", "")
+                    alt = entry.get("alt", "")
+
+                    # Handle new format with sample_reports nested dictionary
+                    if "sample_reports" in entry:
+                        for sample_id, report_path in entry["sample_reports"].items():
+                            key = (chrom, pos, ref, alt, sample_id)
+                            igv_lookup[key] = report_path
+                    # Handle old format with flat sample_id and report_path
+                    elif "sample_id" in entry and "report_path" in entry:
+                        key = (chrom, pos, ref, alt, entry["sample_id"])
+                        igv_lookup[key] = entry["report_path"]
+
+                logger.info(f"Created lookup for {len(igv_lookup)} IGV report entries")
+                # MODIFIED: End of IGV Excel link fix
             except Exception as e:
                 logger.error(f"Error loading IGV reports map: {e}")
                 igv_map = None
@@ -245,11 +251,13 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
                     elif len(igv_reports) > 1:
                         # Multiple reports - for sortability use first sample ID as value
                         first_sample = igv_reports[0][0]  # First sample ID
-                        link_texts = [
-                            f"{sid} ({os.path.join('report', rpath)})" for sid, rpath in igv_reports
-                        ]
+                        link_texts = []
+                        for sid, rpath in igv_reports:
+                            link_texts.append(f"{sid} ({os.path.join('report', rpath)})")
                         # Use first sample ID as sortable value, but show all in the tooltip/display
-                        igv_cell.value = first_sample + " (+ others)"
+                        # MODIFIED: Make display format more informative
+                        num_others = len(igv_reports) - 1
+                        igv_cell.value = f"{first_sample} (+{num_others} others)"
                         # Add comment with full details for all reports
                         from openpyxl.comments import Comment
 
@@ -296,24 +304,36 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
     if os.path.exists(igv_map_path):
         logger.info(f"Found IGV reports mapping file: {igv_map_path}")
         try:
-            import re
-
             # Load IGV reports mapping
             with open(igv_map_path, "r", encoding="utf-8") as f:
-                igv_map = json.load(f)
+                igv_map_data = json.load(f)
+
+            # Handle both old and new IGV map format
+            if "variants" in igv_map_data:
+                # New format - variant-centric with nested sample reports
+                igv_map = igv_map_data["variants"]
+            else:
+                # Old format - flat list of entries
+                igv_map = igv_map_data
 
             # Create an efficient lookup dictionary
             # Key: (chrom, pos, ref, alt, sample_id), Value: report_path
             igv_lookup = {}
             for entry in igv_map:
-                key = (
-                    entry["chrom"],
-                    str(entry["pos"]),
-                    entry["ref"],
-                    entry["alt"],
-                    entry["sample_id"],
-                )
-                igv_lookup[key] = entry["report_path"]
+                chrom = entry["chrom"]
+                pos = str(entry["pos"])
+                ref = entry["ref"]
+                alt = entry["alt"]
+
+                # Handle new format with sample_reports nested dictionary
+                if "sample_reports" in entry:
+                    for sample_id, report_path in entry["sample_reports"].items():
+                        key = (chrom, pos, ref, alt, sample_id)
+                        igv_lookup[key] = report_path
+                # Handle old format with flat sample_id and report_path
+                elif "sample_id" in entry and "report_path" in entry:
+                    key = (chrom, pos, ref, alt, entry["sample_id"])
+                    igv_lookup[key] = entry["report_path"]
 
             # Pattern to extract (SampleID, GenotypeString) tuples from GT column
             pattern = re.compile(r"([^()]+)\(([^)]+)\)")

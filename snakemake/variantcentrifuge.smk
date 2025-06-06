@@ -24,6 +24,8 @@ VC_GENE_LIST_FILES = config.get("gene_list_files", [])
 VC_ENABLE_IGV = config.get("enable_igv", False)
 VC_IGV_REF = config.get("igv_reference", "")
 VC_BAM_MAPPING = config.get("bam_mapping_file", "")
+VC_IGV_FASTA = config.get("igv_fasta", "")
+VC_IGV_IDEOGRAM = config.get("igv_ideogram", "")
 
 CONDA_ENV_VC = config.get("conda_environment_variantcentrifuge", None)
 
@@ -118,7 +120,9 @@ rule run_variantcentrifuge:
         gene_list_flags = " ".join([f"--annotate-gene-list {path}" for path in VC_GENE_LIST_FILES]) if VC_GENE_LIST_FILES else "",
         igv_flag = "--igv" if VC_ENABLE_IGV else "",
         igv_ref = f"--igv-reference {VC_IGV_REF}" if VC_ENABLE_IGV and VC_IGV_REF else "",
-        bam_map = f"--bam-mapping-file {VC_BAM_MAPPING}" if VC_ENABLE_IGV and VC_BAM_MAPPING else ""
+        bam_map = f"--bam-mapping-file {VC_BAM_MAPPING}" if VC_ENABLE_IGV and VC_BAM_MAPPING else "",
+        igv_fasta = f"--igv-fasta {VC_IGV_FASTA}" if VC_ENABLE_IGV and VC_IGV_FASTA else "",
+        igv_ideogram = f"--igv-ideogram {VC_IGV_IDEOGRAM}" if VC_ENABLE_IGV and VC_IGV_IDEOGRAM else ""
     log:
         os.path.join(BASE_OUTPUT_FOLDER, LOG_SUBFOLDER, "{sample}.variantcentrifuge.log")
     conda:
@@ -157,6 +161,8 @@ rule run_variantcentrifuge:
             {params.igv_flag} \
             {params.igv_ref} \
             {params.bam_map} \
+            {params.igv_fasta} \
+            {params.igv_ideogram} \
             >> {log} 2>&1
         
         echo "Finished VariantCentrifuge for sample {wildcards.sample} at: $(date)" >> {log}

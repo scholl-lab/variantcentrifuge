@@ -211,6 +211,26 @@ def main() -> None:
         "--igv-ideogram",
         help="Path to an ideogram file for chromosome visualization in IGV reports.",
     )
+    # MODIFIED: IGV filename shortening feature - START
+    parser.add_argument(
+        "--igv-max-allele-len-filename",
+        type=int,
+        default=10,
+        help="Maximum length for REF/ALT alleles in IGV report filenames (default: 10). Longer alleles will be truncated and hashed.",
+    )
+    parser.add_argument(
+        "--igv-hash-len-filename",
+        type=int,
+        default=6,
+        help="Length of hash to append when truncating alleles in filenames (default: 6).",
+    )
+    parser.add_argument(
+        "--igv-max-variant-part-filename",
+        type=int,
+        default=50,
+        help="Maximum length for the variant part of IGV report filenames (default: 50).",
+    )
+    # MODIFIED: IGV filename shortening feature - END
     # MODIFIED: End of local IGV FASTA feature
 
     parser.add_argument(
@@ -415,6 +435,11 @@ def main() -> None:
     cfg["igv_fasta"] = args.igv_fasta
     cfg["igv_fasta_index"] = args.igv_fasta_index
     cfg["igv_ideogram"] = args.igv_ideogram
+
+    # MODIFIED: IGV filename shortening parameters
+    cfg["igv_max_allele_len_filename"] = args.igv_max_allele_len_filename
+    cfg["igv_hash_len_filename"] = args.igv_hash_len_filename
+    cfg["igv_max_variant_part_filename"] = args.igv_max_variant_part_filename
 
     # Handle precedence and validation
     if args.igv:
