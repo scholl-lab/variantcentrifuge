@@ -68,52 +68,166 @@ def find_input_files(input_pattern):
 
 def extract_sample_id(file_path, regex_pattern):
     """Extract sample ID from file path using the provided regex pattern."""
+    logger.debug(
+        f"Attempting to extract sample ID from: '{file_path}' using regex: '{regex_pattern}'"
+    )
     match = re.search(regex_pattern, file_path)
-    if match and match.group(1):
-        return match.group(1)
-    # Fallback: use filename without extension if regex doesn't match
-    return os.path.splitext(os.path.basename(file_path))[0]
+    if match:
+        # Ensure group 1 exists and is not None
+        if len(match.groups()) > 0 and match.group(1):
+            sample_id = match.group(1)
+            logger.info(
+                f"Regex match successful. Extracted SampleID: '{sample_id}' from '{file_path}'"
+            )
+            return sample_id
+        else:
+            # This case handles if regex matches but capture group 1 is missing or empty
+            logger.warning(
+                f"Regex matched for '{file_path}', but capture group 1 was missing or empty. Match groups: {match.groups()}. Regex: '{regex_pattern}'"
+            )
+    else:
+        logger.warning(
+            f"Regex pattern '{regex_pattern}' did not match for file path: '{file_path}'."
+        )
+
+    # Fallback: use the name of the parent directory of the file_path
+    # This is often more robust if 'variants.tsv' (or similar) is consistently named
+    # and located within a sample-specific directory.
+    try:
+        parent_dir_name = os.path.basename(os.path.dirname(file_path))
+        if parent_dir_name:  # Ensure parent_dir_name is not empty
+            logger.info(
+                f"Using fallback: parent directory name '{parent_dir_name}' as SampleID for '{file_path}'"
+            )
+            return parent_dir_name
+        else:  # Handle cases like file_path being in root directory, e.g. "/variants.tsv"
+            logger.warning(
+                f"Fallback to parent directory name failed for '{file_path}' (parent_dir_name is empty). Using filename as last resort."
+            )
+    except Exception as e:
+        logger.error(f"Error during fallback parent directory extraction for '{file_path}': {e}")
+
+    # Last resort fallback: filename without extension
+    final_fallback_id = os.path.splitext(os.path.basename(file_path))[0]
+    logger.info(
+        f"Using last resort fallback: filename without extension '{final_fallback_id}' as SampleID for '{file_path}'"
+    )
+    return final_fallback_id
 
 
 def aggregate_data(input_files, sample_regex):
     """Aggregate data from multiple TSV files into a single DataFrame."""
-    logger.info("Aggregating data from input files...")
+    logger.info(
+        f"Starting data aggregation from {len(input_files)} input file(s) using pattern for sample_regex: '{sample_regex}'"
+    )
 
     dfs = []
+    collected_sample_ids = []  # To track all extracted IDs
 
     for file_path in input_files:
+        logger.info(f"Processing file: {file_path}")  # More prominent log for each file
         try:
-            # Read the TSV file
             df = pd.read_csv(file_path, sep="\t")
+            logger.debug(f"Successfully read {file_path}. Columns: {df.columns.tolist()}")
 
-            # Extract sample ID and add as a column
-            sample_id = extract_sample_id(file_path, sample_regex)
+            sample_id = extract_sample_id(
+                file_path, sample_regex
+            )  # Calls the updated extract_sample_id
             df["SampleID"] = sample_id
+            collected_sample_ids.append(sample_id)
+            logger.info(f"Assigned SampleID '{sample_id}' to data from {file_path}")
 
             # Look for sample-specific allele frequency column (may be named differently)
             af_col = None
             for col in df.columns:
-                if "AF" in col and col != "AF_EXAC" and col != "AF_GNOMAD" and col != "AF_1000G":
+                # Ensure 'AF' is part of the column name, and it's not one of the standard population AF columns
+                if "AF" in col and col not in [
+                    "AF_EXAC",
+                    "AF_GNOMAD",
+                    "AF_1000G",
+                    "SampleAF",
+                ]:  # Added SampleAF to avoid re-processing
                     af_col = col
                     break
 
-            # Rename sample-specific allele frequency column if found
-            if af_col and af_col != "SampleAF":
-                df.rename(columns={af_col: "SampleAF"}, inplace=True)
+            if af_col:  # If a suitable AF column is found
+                if "SampleAF" not in df.columns:  # And SampleAF doesn't already exist
+                    df.rename(columns={af_col: "SampleAF"}, inplace=True)
+                    logger.debug(
+                        f"Renamed sample-specific AF column '{af_col}' to 'SampleAF' for sample '{sample_id}' from '{file_path}'"
+                    )
+                elif (
+                    af_col != "SampleAF"
+                ):  # If SampleAF exists but we found another candidate (e.g. TUMOR_AF)
+                    logger.debug(
+                        f"Column 'SampleAF' already exists. Did not rename '{af_col}' for sample '{sample_id}' from '{file_path}'"
+                    )
+
+            # Ensure the Gene column exists (case-insensitive check and rename)
+            if "Gene" not in df.columns:
+                found_gene_col_original_case = None
+                for col_idx, col_name in enumerate(df.columns):
+                    if col_name.lower() == "gene":
+                        found_gene_col_original_case = col_name
+                        break
+                if found_gene_col_original_case:
+                    df.rename(columns={found_gene_col_original_case: "Gene"}, inplace=True)
+                    logger.debug(
+                        f"Renamed column '{found_gene_col_original_case}' to 'Gene' for sample '{sample_id}' from '{file_path}'"
+                    )
+                else:
+                    logger.warning(
+                        f"'Gene' column (or case-insensitive 'gene') not found in {file_path} for sample '{sample_id}'. Adding 'Unknown' as placeholder."
+                    )
+                    df["Gene"] = "Unknown"  # Add placeholder if no gene column
 
             dfs.append(df)
-            logger.debug(f"Processed {file_path} (sample: {sample_id})")
 
         except Exception as e:
-            logger.warning(f"Error processing {file_path}: {str(e)}")
+            logger.error(
+                f"Failed to process {file_path}. Error: {str(e)}", exc_info=True
+            )  # exc_info=True for traceback
 
     if not dfs:
-        logger.error("No valid data found in input files")
+        logger.critical(
+            "CRITICAL: No dataframes were created after processing all input files. This means no valid data could be read or processed. Exiting."
+        )
         sys.exit(1)
 
-    # Concatenate all DataFrames
     master_df = pd.concat(dfs, ignore_index=True)
-    logger.info(f"Aggregated {len(master_df)} total variants from {len(dfs)} samples")
+
+    unique_extracted_samples = sorted(
+        list(set(collected_sample_ids))
+    )  # Get sorted list of unique IDs
+    logger.info(f"Aggregation complete. Total variants aggregated: {len(master_df)}.")
+    logger.info(
+        f"All SampleIDs extracted during aggregation (includes duplicates if any): {collected_sample_ids}"
+    )
+    logger.info(
+        f"Number of unique SampleIDs successfully extracted: {len(unique_extracted_samples)}. Unique IDs found: {unique_extracted_samples}"
+    )
+
+    if "SampleID" in master_df.columns:
+        df_unique_samples_count = master_df["SampleID"].nunique()
+        df_unique_samples_list = sorted(list(master_df["SampleID"].unique()))
+        logger.info(
+            f"Verification: Unique SampleIDs present in the final aggregated DataFrame: {df_unique_samples_count}. IDs: {df_unique_samples_list}"
+        )
+        if (
+            len(unique_extracted_samples) != df_unique_samples_count
+            or unique_extracted_samples != df_unique_samples_list
+        ):
+            logger.warning(
+                "Potential Mismatch Alert! The set of unique SampleIDs extracted during file processing "
+                f"({len(unique_extracted_samples)}: {unique_extracted_samples}) "
+                "differs from the unique SampleIDs found in the final DataFrame "
+                f"({df_unique_samples_count}: {df_unique_samples_list}). "
+                "This could indicate an issue in data concatenation or SampleID assignment."
+            )
+    else:
+        logger.error(
+            "CRITICAL: 'SampleID' column is MISSING from the final aggregated DataFrame. Sample identification will fail."
+        )
 
     return master_df
 
@@ -228,7 +342,7 @@ def create_report(output_dir, report_name, df, summary):
         report_name=report_name,
         generation_date=pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
         variants_json=variants_json,
-        summary_json=summary_json
+        summary_json=summary_json,
     )
 
     # Write the HTML to a file
