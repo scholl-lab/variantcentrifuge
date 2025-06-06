@@ -152,18 +152,14 @@ def validate_mandatory_parameters(
 
 
 # MODIFIED: Start of local IGV FASTA feature
-def validate_igv_files(
-    local_fasta: Optional[str], fasta_index: Optional[str], ideogram: Optional[str]
-) -> None:
+def validate_igv_files(local_fasta: Optional[str], ideogram: Optional[str]) -> None:
     """Validates the existence and readability of files for IGV integration.
 
     Parameters
     ----------
     local_fasta : str or None
-        Path to the local FASTA file.
-    fasta_index : str or None
-        Path to the FASTA index file. If None but local_fasta is provided,
-        the index is expected as <fasta_path>.fai.
+        Path to the local FASTA file. If provided, its index file is expected
+        to be co-located with the same name plus '.fai' extension (e.g., genome.fa.fai).
     ideogram : str or None
         Path to the ideogram file.
 
@@ -180,20 +176,13 @@ def validate_igv_files(
             sys.stderr.write(f"Local FASTA file is empty: {local_fasta}\n")
             sys.exit(1)
 
-        # If custom index file path is provided, check that
-        if fasta_index:
-            index_path = fasta_index
-            index_description = "Custom FASTA index"
-        else:
-            # Otherwise, check for FASTA index with expected naming convention (name.fa.fai)
-            index_path = f"{local_fasta}.fai"
-            index_description = "Default FASTA index"
+        # Check for FASTA index with standard naming convention (e.g., genome.fa.fai)
+        index_path = f"{local_fasta}.fai"
+        index_description = "FASTA index"
         if not os.path.exists(index_path):
             sys.stderr.write(f"{index_description} file not found: {index_path}\n")
-            if not fasta_index:  # Only suggest indexing if using default location
-                sys.stderr.write(
-                    f"Please index your FASTA file with 'samtools faidx {local_fasta}'\n"
-                )
+            # Provide helpful suggestion on how to create the index file
+            sys.stderr.write(f"Please index your FASTA file with 'samtools faidx {local_fasta}'\n")
             sys.exit(1)
 
         if os.path.getsize(index_path) == 0:

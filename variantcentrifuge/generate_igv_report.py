@@ -39,7 +39,6 @@ def generate_igv_report(
     integrate_into_main: bool = False,
     igv_fasta: str = None,
     igv_ideogram: str = None,
-    igv_fasta_index: str = None,
     igv_max_allele_len_filename: int = 10,
     igv_hash_len_filename: int = 6,
     igv_max_variant_part_filename: int = 50,
@@ -81,7 +80,8 @@ def generate_igv_report(
                                       Not used if igv_fasta is provided.
         integrate_into_main (bool): If True, integrate into main report (placeholder).
         igv_fasta (str, optional): Path to a local FASTA file for IGV reports. The index file (.fai)
-                                   should be in the same directory with the same name + '.fai' extension.
+                                   must exist in the same directory with the same name + '.fai' extension
+                                   following the standard convention (e.g., genome.fa.fai).
         igv_ideogram (str, optional): Path to an ideogram file for IGV visualization.
         igv_max_allele_len_filename (int, optional): Maximum length for REF/ALT alleles in filenames.
                                                    Default is 10.

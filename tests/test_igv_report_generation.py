@@ -155,9 +155,9 @@ def test_igv_report_with_local_fasta(monkeypatch, create_test_data):
     with open(fasta_file, "w") as f:
         f.write(">chr1\nACGTACGT\n>chr2\nTGCATGCA\n")
 
-    # Create a mock FASTA index file
-    fasta_index = os.path.join(test_data["temp_dir"], "reference.fa.fai")
-    with open(fasta_index, "w") as f:
+    # Create a mock FASTA index file with standard naming convention (FASTA filename + .fai)
+    # This follows the convention where the index exists alongside the FASTA with .fai extension
+    with open(f"{fasta_file}.fai", "w") as f:
         f.write("chr1\t8\t6\t8\t9\n")
         f.write("chr2\t8\t21\t8\t9\n")
 
@@ -190,7 +190,7 @@ def test_igv_report_with_local_fasta(monkeypatch, create_test_data):
         output_dir=test_data["report_dir"],
         bam_mapping_file=test_data["bam_mapping"],
         igv_fasta=fasta_file,  # Use local FASTA instead of reference genome
-        igv_fasta_index=fasta_index,  # Use custom FASTA index
+        # FASTA index is expected to be at fasta_file + '.fai' following standard convention
         igv_max_allele_len_filename=8,
         igv_hash_len_filename=5,
         igv_max_variant_part_filename=40,

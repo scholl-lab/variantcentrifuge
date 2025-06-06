@@ -857,8 +857,8 @@ def run_pipeline(
             from .validators import validate_igv_files
 
             # Get the FASTA index file if provided
-            igv_fasta_index_file = cfg.get("igv_fasta_index")
-            validate_igv_files(igv_fasta_file, igv_fasta_index_file, igv_ideogram_file)
+            # FASTA index now follows standard naming convention (FASTA file + .fai)
+            validate_igv_files(igv_fasta_file, igv_ideogram_file)
 
         if igv_fasta_file and igv_reference_genome:
             logger.warning(

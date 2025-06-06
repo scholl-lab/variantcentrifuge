@@ -201,11 +201,7 @@ def main() -> None:
     # MODIFIED: Start of local IGV FASTA feature
     parser.add_argument(
         "--igv-fasta",
-        help="Path to a local FASTA file for IGV reports. This will be used instead of --igv-reference if both are provided.",
-    )
-    parser.add_argument(
-        "--igv-fasta-index",
-        help="Path to FASTA index file (.fai). If not provided, igv-reports will attempt to create or locate it.",
+        help="Path to a local FASTA file for IGV reports. The index file (.fai) must exist in the same location with the same name (e.g., reference.fa.fai). This will be used instead of --igv-reference if both are provided.",
     )
     parser.add_argument(
         "--igv-ideogram",
@@ -441,7 +437,6 @@ def main() -> None:
     # MODIFIED: Start of local IGV FASTA feature
     # Store local FASTA-related parameters
     cfg["igv_fasta"] = args.igv_fasta
-    cfg["igv_fasta_index"] = args.igv_fasta_index
     cfg["igv_ideogram"] = args.igv_ideogram
 
     # MODIFIED: IGV filename shortening parameters
