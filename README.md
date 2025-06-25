@@ -1,272 +1,128 @@
 # VariantCentrifuge
 
+[![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://scholl-lab.github.io/variantcentrifuge/)
+[![GitHub Issues](https://img.shields.io/github/issues/scholl-lab/variantcentrifuge)](https://github.com/scholl-lab/variantcentrifuge/issues)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Python Version](https://img.shields.io/badge/python-3.7+-blue.svg)](https://python.org)
+
 **VariantCentrifuge** is a Python-based command-line tool designed to filter, extract, and refine genetic variant data (VCF files) based on genes of interest, rarity criteria, and impact annotations. Built with modularity and extensibility in mind, VariantCentrifuge replaces the complexity of traditional Bash/R pipelines with a cleaner, maintainable Python codebase.
 
-## Key Features
+## ✨ Key Features
 
-- **Gene-Centric Filtering:**
-  Extract variants from regions defined by genes of interest, using `snpEff` genes2bed to generate BED files.
+- **🎯 Gene-Centric Filtering:** Extract variants from regions defined by genes of interest
+- **🔍 Rare Variant Identification:** Apply custom filters to isolate rare and moderate/high-impact variants
+- **⚙️ Flexible Configuration:** JSON-based configuration with reusable filter presets
+- **📊 Interactive Reports:** Generate HTML reports with sortable tables and IGV.js integration
+- **🧬 Gene Burden Analysis:** Perform statistical analysis with Fisher's exact test
+- **🔗 Clinical Integration:** ClinVar, gnomAD, and external database annotations
+- **👥 Cohort Analysis:** Aggregate results from multiple samples with interactive visualizations
 
-- **Rare Variant Identification:**
-  Apply custom filters via `SnpSift` to isolate rare and moderate/high-impact variants.
+## 🚀 Quick Start
 
-- **Flexible Field Extraction:**
-  Easily specify which fields to extract from the VCF (e.g., gene annotations, functional predictions, allele counts).
+### Installation
 
-- **Genotype Replacement:**
-  Replace genotype fields with corresponding sample IDs, enabling more interpretable variant reports.
+```bash
+# Install from PyPI (recommended)
+pip install variantcentrifuge
 
-- **Phenotype Integration:**
-  Integrate phenotype data from a provided table (CSV or TSV) to further filter or annotate variants based on sample-level attributes.
-
-- **Gene List Annotation:**
-  Annotate variant TSV outputs with columns indicating gene membership from user-provided gene list files. Supports case-insensitive matching and multiple genes per variant.
-
-- **Variant and Gene-Level Analysis:**
-  Perform gene burden analyses (e.g., Fisher’s exact test) and variant-level statistics.
-
-- **Reporting and Visualization:**
-  - Generate tab-delimited outputs by default and optionally convert them into Excel (XLSX) format.
-  - Create an interactive HTML report with sortable variant tables and IGV.js integration for genomic visualization.
-
-## Project Structure
-
-A typical directory layout is:
-
-```
-variantcentrifuge/
-├─ variantcentrifuge/
-│  ├─ __init__.py
-│  ├─ analyze_variants.py
-│  ├─ cli.py
-│  ├─ config.py
-│  ├─ converter.py
-│  ├─ extractor.py
-│  ├─ filters.py
-│  ├─ gene_bed.py
-│  ├─ gene_burden.py
-│  ├─ generate_html_report.py
-│  ├─ generate_igv_report.py
-│  ├─ helpers.py
-│  ├─ phenotype_filter.py
-│  ├─ phenotype.py
-│  ├─ pipeline.py
-│  ├─ replacer.py
-│  ├─ stats.py
-│  ├─ utils.py
-│  ├─ validators.py
-│  └─ templates/
-│     └─ index.html
-├─ tests/
-│  ├─ test_cli.py
-│  └─ test_filters.py
-├─ requirements.txt
-├─ setup.py
-├─ pyproject.toml
-├─ MANIFEST.in
-├─ README.md
-└─ LICENSE
+# Or install from source
+git clone https://github.com/scholl-lab/variantcentrifuge.git
+cd variantcentrifuge
+pip install .
 ```
 
-## Dependencies
+### Basic Usage
 
-- **Python 3.7+**
+```bash
+# Analyze variants in a single gene
+variantcentrifuge \\\n  --gene-name BRCA1 \\\n  --vcf-file input.vcf.gz \\\n  --output-file brca1_variants.tsv
 
-- **External Tools:**
-  - `snpEff` for generating gene BED files and functional annotations.
-  - `SnpSift` for filtering and field extraction.
-  - `bcftools` for variant extraction and manipulation.
-  - `bedtools` (specifically `sortBed`) for sorting BED files.
+# Use predefined filters for rare, coding variants
+variantcentrifuge \\\n  --gene-file cancer_genes.txt \\\n  --vcf-file input.vcf.gz \\\n  --preset rare,coding \\\n  --html-report \\\n  --xlsx
+```
 
-  **Installation via mamba/conda:**
-  ```sh
-  mamba create -y -n annotation bcftools snpsift snpeff bedtools
-  mamba activate annotation
-  ```
+## 📋 Prerequisites
 
-  Ensure these tools are in your `PATH` before running VariantCentrifuge.
+**External Tools** (must be in PATH):
+- `bcftools` - VCF manipulation
+- `snpEff` - Functional annotation
+- `SnpSift` - Variant filtering and field extraction
+- `bedtools` - BED file operations
 
-- **Python Packages:**
-  The required Python packages can be installed via `pip` or `mamba/conda`.
-  Minimal required packages include:
-  - `pandas` (for XLSX conversion and data handling)
-  - `pytest` (for testing)
-  - `scipy` (for Fisher exact test in variant analysis)
-  - `statsmodels` (for multiple testing correction in gene burden analysis)
-  - `jinja2` (for HTML template rendering)
-  - `openpyxl` (for XLSX creation)
+**Install via conda:**
+```bash
+mamba create -y -n variantcentrifuge bcftools snpsift snpeff bedtools
+mamba activate variantcentrifuge
+```
 
-  To install using `pip`:
-  ```sh
-  pip install -r requirements.txt
-  ```
+## 📖 Documentation
 
-  Or using `mamba/conda`:
-  ```sh
-  mamba install pandas pytest scipy statsmodels jinja2 openpyxl
-  ```
+**📚 [Complete Documentation](https://scholl-lab.github.io/variantcentrifuge/)**
 
-## Installation
+### Quick Links
 
-1. **Clone the repository:**
-   ```sh
-   git clone https://github.com/scholl-lab/variantcentrifuge/
-   cd variantcentrifuge
-   ```
+- **[Installation Guide](https://scholl-lab.github.io/variantcentrifuge/installation.html)** - Detailed setup instructions
+- **[Usage Guide](https://scholl-lab.github.io/variantcentrifuge/usage.html)** - Command-line options and examples
+- **[Configuration](https://scholl-lab.github.io/variantcentrifuge/configuration.html)** - Filter presets and customization
+- **[API Reference](https://scholl-lab.github.io/variantcentrifuge/api/)** - Developer documentation
 
-2. **Set up a virtual environment (optional but recommended):**
-   ```sh
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
+### Practical Guides
 
-3. **Install the tool with pip:**
-   ```sh
-   pip install .
-   ```
+- **[Annotation Strategies](https://scholl-lab.github.io/variantcentrifuge/guides/annotation_strategies.html)** - VCF annotation best practices
+- **[Cohort Analysis](https://scholl-lab.github.io/variantcentrifuge/guides/cohort_analysis.html)** - Multi-sample analysis workflows
+- **[Rare Disease Workflow](https://scholl-lab.github.io/variantcentrifuge/guides/rare_disease_workflow.html)** - Clinical variant analysis
+- **[Cancer Analysis](https://scholl-lab.github.io/variantcentrifuge/guides/cancer_analysis.html)** - Somatic variant workflows
 
-4. **Check external tools:**
-   Ensure `bcftools`, `snpEff`, `SnpSift`, and `bedtools` are installed and available in your `PATH`.
+## 🎯 Use Cases
 
-## Configuration
+### Rare Disease Analysis
+```bash
+variantcentrifuge \\\n  --gene-file disease_genes.txt \\\n  --vcf-file patient.vcf.gz \\\n  --preset rare_pathogenic,high_confidence \\\n  --phenotype-file patient_data.tsv \\\n  --html-report \\\n  --output-file rare_disease_analysis.tsv
+```
 
-VariantCentrifuge uses a JSON configuration file (`config.json`) to set default parameters. You can specify a custom configuration file with `--config`. If no configuration file is found, a helpful error message will guide you to create one.
+### Cancer Genomics
+```bash
+variantcentrifuge \\\n  --gene-file oncogenes_tsg.txt \\\n  --vcf-file tumor_normal.vcf.gz \\\n  --preset mutect2_TvsN,coding \\\n  --igv \\\n  --bam-mapping-file bam_files.tsv \\\n  --html-report
+```
 
-**Required Keys:**
-- **reference** (`str`): Reference genome database for `snpEff`. No default; must be provided.
-- **filters** (`str`): A SnpSift filter expression to select variants. No default; must be provided.
-- **fields_to_extract** (`str`): Space-separated list of fields to extract via SnpSift. No default; must be provided.
+### Population Genetics
+```bash
+variantcentrifuge \\\n  --gene-file population_genes.txt \\\n  --vcf-file cohort.vcf.gz \\\n  --preset 5percent,coding \\\n  --perform-gene-burden \\\n  --html-report
+```
 
-**Optional Keys and Their Defaults:**
-- **interval_expand** (`int`): Number of bases to expand around genes. *Default: 0*
-- **add_chr** (`bool`): Add "chr" prefix to chromosome names. *Default: true*
-- **debug_level** (`str`): Logging level: "DEBUG", "INFO", "WARN", "ERROR". *Default: "INFO"*
-- **no_stats** (`bool`): Skip statistics computation. *Default: false*
-- **perform_gene_burden** (`bool`): Perform gene burden analysis. *Default: false*
-- **gene_burden_mode** (`str`): "samples" or "alleles". *Default: "alleles"*
-- **correction_method** (`str`): "fdr" or "bonferroni" for multiple testing correction. *Default: "fdr"*
-- **igv_enabled** (`bool`): Enable IGV.js integration. *Default: false*
-- **bam_mapping_file** (`str`): Required if igv_enabled=true. Path to a TSV or CSV file mapping sample IDs to BAM files. No default.
-- **igv_reference** (`str`): Genome reference identifier for IGV (e.g., 'hg19' or 'hg38'). Required if igv_enabled=true and no local FASTA is provided. No default.
-- **igv_fasta** (`str`): Path to a local FASTA file for IGV reports. Takes precedence over igv_reference if provided. Must have a corresponding .fai index file in the same directory. *Default: null*
-- **igv_ideogram** (`str`): Path to a local ideogram file for IGV visualization. *Default: null*
+## 🏗️ Example Configuration
 
-**Example `config.json`:**
 ```json
 {
-  "reference": "GRCh37.75",
-  "filters": "(( dbNSFP_gnomAD_exomes_AC[0] <= 2 ) | ( na dbNSFP_gnomAD_exomes_AC[0] )) & ((ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE'))",
-  "fields_to_extract": "CHROM POS REF ALT ANN[0].GENE ANN[0].IMPACT GEN[*].GT",
-  "interval_expand": 0,
-  "add_chr": true,
-  "debug_level": "INFO",
-  "no_stats": false,
-  "perform_gene_burden": false,
-  "gene_burden_mode": "alleles",
-  "correction_method": "fdr",
-  "igv_enabled": false
+  \"reference\": \"GRCh38.99\",
+  \"filters\": \"\",
+  \"fields_to_extract\": \"CHROM POS REF ALT ANN[0].GENE ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P gnomAD_exomes_AF ClinVar_CLNSIG GEN[*].GT\",
+  \"presets\": {
+    \"rare\": \"(((gnomAD_exomes_AF < 0.0001) | (na gnomAD_exomes_AF)) & ((gnomAD_genomes_AF < 0.0001) | (na gnomAD_genomes_AF)))\",
+    \"coding\": \"((ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE'))\",
+    \"pathogenic\": \"((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting'))\"
+  }
 }
 ```
 
-If `config.json` is missing or incomplete, VariantCentrifuge will print a clear error message. Provide required keys in the config or use CLI arguments to override defaults. This encourages a user-friendly configuration workflow.
+## 🤝 Contributing
 
-## Usage
+We welcome contributions! Please see our [Contributing Guide](https://scholl-lab.github.io/variantcentrifuge/contributing.html) for details.
 
-**Basic command:**
-```sh
-variantcentrifuge \
-  --gene-name BICC1 \
-  --vcf-file path/to/your.vcf \
-  --output-file output.tsv
-```
+- **🐛 Bug Reports:** [GitHub Issues](https://github.com/scholl-lab/variantcentrifuge/issues)
+- **💡 Feature Requests:** [GitHub Issues](https://github.com/scholl-lab/variantcentrifuge/issues)
+- **💬 Discussions:** [GitHub Discussions](https://github.com/scholl-lab/variantcentrifuge/discussions)
 
-**Additional options:**
-- `--config CONFIG_FILE` to load custom parameters from a JSON config file.
-- `--reference REFERENCE` to specify the snpEff reference database (overrides config).
-- `--filters "FILTER_EXPRESSION"` to apply custom SnpSift filters (overrides config).
-- `--fields "FIELD_LIST"` to extract custom fields from the VCF (overrides config).
-- `--gene-file GENES.TXT` to provide multiple genes of interest.
-- `--samples-file SAMPLES.TXT` for genotype replacement mapping.
-- `--phenotype-file PHENO.TSV` along with `--phenotype-sample-column` and `--phenotype-value-column`.
-- `--xlsx` to convert the final output TSV into XLSX format.
-- `--keep-intermediates` to retain intermediate files (by default, they are deleted after a successful run).
-- `--perform-gene-burden` to run gene burden analysis.
-- `--html-report` to generate an interactive HTML report.
-- `--igv` with `--bam-mapping-file` and `--igv-reference` for IGV.js integration.
-- `--version` to show the current version and exit.
-
-**Example:**
-```sh
-variantcentrifuge \
-  --gene-name BICC1 \
-  --vcf-file input.vcf.gz \
-  --filters "(( dbNSFP_gnomAD_exomes_AC[0] <= 2 ) | ( na dbNSFP_gnomAD_exomes_AC[0] )) & ((ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE'))" \
-  --xlsx
-```
-
-## Phenotype Integration
-
-If you provide a `--phenotype-file` (CSV or TSV) along with `--phenotype-sample-column` and `--phenotype-value-column`, VariantCentrifuge will integrate sample phenotypes into the final output. This enables downstream filtering or annotation by phenotype.
-
-## Testing
-
-Run tests with:
-```sh
-pytest tests/
-```
-
-## Code Style and Linting
-
-This project uses automated tools to maintain a consistent code style and quality:
-
-- **Black**: Formats Python code with a line length of 100 characters.
-- **Flake8**: Ensures compliance with PEP8 style guidelines (with specific exceptions).
-- **isort**: Organizes import statements in a consistent manner, compatible with Black.
-- **pre-commit**: Runs these tools automatically before each commit.
-
-### Setting Up Development Environment
-
-1. **Install the development tools** (included in the conda environment):
-   ```sh
-   # If using conda
-   conda env update -f conda/environment.yml
-
-   # Or using pip
-   pip install black flake8 isort pre-commit
-   ```
-
-2. **Install pre-commit hooks**:
-   ```sh
-   pre-commit install
-   ```
-
-3. **Run the formatters and linters manually** (optional):
-   ```sh
-   # Format code with black
-   black .
-
-   # Sort imports
-   isort .
-
-   # Check code with flake8
-   flake8 .
-
-   # Run all pre-commit hooks against all files
-   pre-commit run --all-files
-   ```
-
-**Note**: Once pre-commit is installed, it will automatically run the configured hooks on every `git commit` operation. If any hook fails, the commit will be rejected until the issues are fixed.
-
-## Contributing
-
-Contributions are welcome! Open issues, submit pull requests, or suggest features. Please maintain code quality, follow PEP8 style guidelines, and ensure that all tests pass before submitting a pull request.
-
-## License
+## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
 
-## Acknowledgments
+## 🙏 Acknowledgments
 
-- Inspired by prior Bash/R pipelines for variant filtering.
-- Built upon the rich ecosystem of bioinformatics tools (snpEff, SnpSift, bcftools, bedtools).
-- Special thanks to contributors and the open-source community.
+- Built upon the rich ecosystem of bioinformatics tools (snpEff, SnpSift, bcftools, bedtools)
+- Special thanks to contributors and the open-source community
+- Inspired by prior Bash/R pipelines for variant filtering
+
+---
+
+**📖 [View Full Documentation](https://scholl-lab.github.io/variantcentrifuge/) | 🚀 [Get Started](https://scholl-lab.github.io/variantcentrifuge/installation.html) | 💬 [Join Discussion](https://github.com/scholl-lab/variantcentrifuge/discussions)**

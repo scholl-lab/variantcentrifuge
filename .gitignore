@@ -169,3 +169,8 @@ testing/
 *.vcf
 output/
 temp_bed_files/
+
+# Claude Code files
+CLAUDE.md
+.claude/
+.windsurfrules
