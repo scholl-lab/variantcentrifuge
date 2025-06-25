@@ -1,0 +1,15 @@
+# Documentation Tools
+sphinx>=7.0.0
+furo
+myst-parser
+sphinx-autodoc-typehints
+linkify-it-py
+
+# Required dependencies for variantcentrifuge package
+pandas
+jinja2
+scipy
+statsmodels
+
+# Required to install the local package for autodoc
+-e ..
