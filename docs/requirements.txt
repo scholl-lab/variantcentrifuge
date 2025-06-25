@@ -12,4 +12,4 @@ scipy
 statsmodels
 
 # Required to install the local package for autodoc
--e ..
+-e .
