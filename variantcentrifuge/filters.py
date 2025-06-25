@@ -44,6 +44,7 @@ def extract_variants(vcf_file: str, bed_file: str, cfg: Dict[str, Any], output_f
     cfg : dict
         Configuration dictionary that may include paths and parameters for tools.
         Expected keys include:
+
             - "threads": Number of threads to use with bcftools (default = 1).
     output_file : str
         Path to the final compressed output VCF file ('.vcf.gz').
@@ -101,6 +102,7 @@ def apply_snpsift_filter(
     cfg : dict
         Configuration dictionary that may include paths and parameters for tools.
         Expected keys include:
+
             - "threads": Number of threads to use with bgzip and bcftools index (default = 1).
     output_file : str
         Path to the compressed VCF file (.vcf.gz) containing filtered variants.
@@ -200,13 +202,13 @@ def filter_final_tsv_by_genotype(
     (with 0/1 or 1/0), then keep those rows for those samples only. We also annotate
     each genotype with the reason(s) it passed (het, hom, comphet).
 
-    Example
-    -------
-    filter_final_tsv_by_genotype(
-        "input.genotype_replaced.tsv",
-        "output.genotype_filtered.tsv",
-        global_genotypes={"comp_het"}
-    )
+    Examples
+    --------
+    >>> filter_final_tsv_by_genotype(
+    ...     "input.genotype_replaced.tsv",
+    ...     "output.genotype_filtered.tsv",
+    ...     global_genotypes={"comp_het"}
+    ... )
     """
     if global_genotypes is None:
         global_genotypes = set()

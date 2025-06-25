@@ -88,9 +88,10 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
        - If extra fields exist, append them in parentheses next to each genotype, e.g. "DP:100:52,48".
        - Rejoin them with `cfg["separator"]` (often ";") for final placement in the "GT" column.
 
-    Returns:
-    --------
-    Iterator of updated lines (strings).
+    Returns
+    -------
+    Iterator[str]
+        Iterator of updated lines (strings).
     """
     # Basic config
     separator = cfg.get("separator", ";")

@@ -13,7 +13,19 @@ logger = logging.getLogger("variantcentrifuge")
 
 
 def parse_bam_mapping(bam_mapping_file: str) -> Dict[str, str]:
-    """Parse a BAM mapping file (TSV or CSV) that maps sample_id to BAM file paths."""
+    """
+    Parse a BAM mapping file (TSV or CSV) that maps sample_id to BAM file paths.
+
+    Parameters
+    ----------
+    bam_mapping_file : str
+        Path to the BAM mapping file.
+
+    Returns
+    -------
+    dict
+        Dictionary mapping sample IDs to BAM file paths.
+    """
     mapping = {}
     with open(bam_mapping_file, "r", encoding="utf-8") as f:
         for line in f:
@@ -71,27 +83,42 @@ def generate_igv_report(
     4. Implement filename shortening for long REF/ALT alleles to prevent "File name too long" errors.
     5. Support for configurable flanking region size for IGV reports.
 
-    Args:
-        variants_tsv (str): Path to the final variants TSV file.
-        output_dir (str): Output directory where the main reports are stored.
-                          IGV reports will be placed in output_dir/report/igv/.
-        bam_mapping_file (str): Path to BAM mapping file.
-        igv_reference (str, optional): Genome reference (e.g., hg19 or hg38) for IGV.
-                                      Not used if igv_fasta is provided.
-        integrate_into_main (bool): If True, integrate into main report (placeholder).
-        igv_fasta (str, optional): Path to a local FASTA file for IGV reports. The index file (.fai)
-                                   must exist in the same directory with the same name + '.fai' extension
-                                   following the standard convention (e.g., genome.fa.fai).
-        igv_ideogram (str, optional): Path to an ideogram file for IGV visualization.
-        igv_max_allele_len_filename (int, optional): Maximum length for REF/ALT alleles in filenames.
-                                                   Default is 10.
-        igv_hash_len_filename (int, optional): Length of hash to append when truncating alleles.
-                                             Default is 6.
-        igv_max_variant_part_filename (int, optional): Maximum length for the variant part of filenames.
-                                                     Default is 50.
-        igv_flanking (int, optional): Flanking region size in base pairs for IGV reports.
-                                    Default is 50.
-    # MODIFIED: End of IGV flanking feature
+    Parameters
+    ----------
+    variants_tsv : str
+        Path to the final variants TSV file.
+    output_dir : str
+        Output directory where the main reports are stored.
+        IGV reports will be placed in output_dir/report/igv/.
+    bam_mapping_file : str
+        Path to BAM mapping file.
+    igv_reference : str, optional
+        Genome reference (e.g., hg19 or hg38) for IGV.
+        Not used if igv_fasta is provided.
+    integrate_into_main : bool
+        If True, integrate into main report (placeholder).
+    igv_fasta : str, optional
+        Path to a local FASTA file for IGV reports. The index file (.fai)
+        must exist in the same directory with the same name + '.fai' extension
+        following the standard convention (e.g., genome.fa.fai).
+    igv_ideogram : str, optional
+        Path to an ideogram file for IGV visualization.
+    igv_max_allele_len_filename : int, optional
+        Maximum length for REF/ALT alleles in filenames.
+        Default is 10.
+    igv_hash_len_filename : int, optional
+        Length of hash to append when truncating alleles.
+        Default is 6.
+    igv_max_variant_part_filename : int, optional
+        Maximum length for the variant part of filenames.
+        Default is 50.
+    igv_flanking : int, optional
+        Flanking region size in base pairs for IGV reports.
+        Default is 50.
+
+    Returns
+    -------
+    None
     """
     logger.info("Starting IGV report generation.")
     # Place IGV reports into report/igv/ subfolder

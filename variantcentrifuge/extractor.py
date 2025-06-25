@@ -29,6 +29,7 @@ def extract_fields(variant_file: str, fields: str, cfg: Dict[str, Any], output_f
         A space-separated list of fields to extract (e.g. "CHROM POS REF ALT DP AD").
     cfg : dict
         Configuration dictionary that may include tool paths, parameters, etc.
+
         - "extract_fields_separator": str
             The separator for multi-sample fields when using SnpSift `-s ...`.
             Often a comma ",". Defaults to "," if not present.

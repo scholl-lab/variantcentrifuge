@@ -5,6 +5,11 @@ myst-parser
 sphinx-autodoc-typehints
 linkify-it-py
 
+# Code quality tools for CI
+flake8
+flake8-docstrings
+pydocstyle
+
 # Required dependencies for variantcentrifuge package
 pandas
 jinja2

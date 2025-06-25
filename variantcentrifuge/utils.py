@@ -132,6 +132,7 @@ def check_external_tools() -> None:
     Check if required external tools are installed and in the PATH.
 
     Tools checked:
+
     - bcftools
     - snpEff
     - SnpSift
@@ -162,6 +163,7 @@ def get_tool_version(tool_name: str) -> str:
     Retrieve the version of a given tool.
 
     Supported tools:
+
     - snpEff
     - bcftools
     - SnpSift
@@ -260,7 +262,9 @@ def ensure_fields_in_extract(base_fields_str: str, extra_fields: List[str]) -> s
     """
     Ensure each item in extra_fields is present in the space-delimited base_fields_str.
 
-    NOTE: We no longer normalize extra_fields here, so that raw columns like "GEN[*].DP"
+    Notes
+    -----
+    We no longer normalize extra_fields here, so that raw columns like "GEN[*].DP"
     remain unmodified.
     """
     if not base_fields_str:

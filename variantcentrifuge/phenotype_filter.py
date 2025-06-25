@@ -31,6 +31,7 @@ def filter_phenotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
         Iterator of lines (strings) representing CSV/TSV data.
     cfg : dict
         Configuration dictionary. Must contain:
+
         - "column_name": str
             The name of the column containing sample IDs.
         - "sample_list": str, optional

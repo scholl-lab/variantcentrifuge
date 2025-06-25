@@ -46,7 +46,7 @@ exclude_patterns = []
 # The suffix(es) of source filenames.
 source_suffix = {
     '.rst': None,
-    '.md': None,
+    '.md': 'markdown',
 }
 
 # The master toctree document.

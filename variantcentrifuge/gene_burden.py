@@ -54,7 +54,7 @@ logger = logging.getLogger("variantcentrifuge")
 
 def _compute_or_confidence_interval(
     table: list, odds_ratio: float, method: str, alpha: float
-) -> (float, float):
+) -> tuple:
     """
     Compute confidence intervals for the odds ratio using the specified method.
 
@@ -74,14 +74,15 @@ def _compute_or_confidence_interval(
 
     Returns
     -------
-    (float, float)
-        Tuple of (ci_lower, ci_upper).
+    tuple
+        Tuple of (ci_lower, ci_upper) as floats.
 
     Notes
     -----
     If odds_ratio is NaN, zero, or infinite, the normal approximation may fail.
     We attempt:
-    1. normal approximation (if fails, try "logit"),
+
+    1. normal approximation (if fails, try "logit")
     2. if "logit" fails or odds ratio is still invalid, return bounded fallback
        intervals instead of NaN.
 
@@ -93,6 +94,7 @@ def _compute_or_confidence_interval(
     if isnan(odds_ratio) or odds_ratio <= 0 or np.isinf(odds_ratio):
         # Attempt direct fallback without normal approx
         logger.debug("Odds ratio is invalid (NaN, <=0, or Inf). Attempting fallback methods.")
+
     a = table[0][0]
     b = table[0][1]
     c = table[1][0]
@@ -147,6 +149,7 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.Da
         "control_variant_count", "proband_allele_count", "control_allele_count".
     cfg : dict
         Configuration dictionary with keys:
+
         - "gene_burden_mode": str
             "samples" or "alleles" indicating the aggregation mode.
         - "correction_method": str
@@ -163,6 +166,7 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.Da
         and confidence intervals.
 
         The output includes:
+
         - "GENE"
         - "proband_count", "control_count"
         - Either "proband_variant_count", "control_variant_count" or

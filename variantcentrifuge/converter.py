@@ -86,12 +86,24 @@ def append_tsv_as_sheet(xlsx_file: str, tsv_file: str, sheet_name: str = "Metada
 
 def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
     """
-    Apply final formatting to all sheets in xlsx_file:
-      - Freeze the top row
-      - Enable auto-filter
-      - Only for the 'Results' sheet, generate hyperlinks from CHROM, POS, REF, ALT
-        using cfg["links"] (the link template dictionary).
-      - Add "IGV Report Links" column with hyperlinks to IGV reports if available
+    Apply final formatting to all sheets in xlsx_file.
+
+    - Freeze the top row
+    - Enable auto-filter
+    - Only for the 'Results' sheet, generate hyperlinks from CHROM, POS, REF, ALT
+      using cfg["links"] (the link template dictionary).
+    - Add "IGV Report Links" column with hyperlinks to IGV reports if available
+
+    Parameters
+    ----------
+    xlsx_file : str
+        Path to the Excel file to finalize.
+    cfg : dict
+        Configuration dictionary containing links and IGV settings.
+
+    Returns
+    -------
+    None
     """
     # Using load_workbook and get_column_letter already imported at module level
     wb = load_workbook(xlsx_file)
