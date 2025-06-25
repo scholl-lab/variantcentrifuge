@@ -94,13 +94,13 @@ variantcentrifuge \\\n  --gene-file population_genes.txt \\\n  --vcf-file cohort
 
 ```json
 {
-  \"reference\": \"GRCh38.99\",
-  \"filters\": \"\",
-  \"fields_to_extract\": \"CHROM POS REF ALT ANN[0].GENE ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P gnomAD_exomes_AF ClinVar_CLNSIG GEN[*].GT\",
-  \"presets\": {
-    \"rare\": \"(((gnomAD_exomes_AF < 0.0001) | (na gnomAD_exomes_AF)) & ((gnomAD_genomes_AF < 0.0001) | (na gnomAD_genomes_AF)))\",
-    \"coding\": \"((ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE'))\",
-    \"pathogenic\": \"((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting'))\"
+  "reference": "GRCh38.99",
+  "filters": "",
+  "fields_to_extract": "CHROM POS REF ALT ANN[0].GENE ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P gnomAD_exomes_AF ClinVar_CLNSIG GEN[*].GT",
+  "presets": {
+    "rare": "(((gnomAD_exomes_AF < 0.0001) | (na gnomAD_exomes_AF)) & ((gnomAD_genomes_AF < 0.0001) | (na gnomAD_genomes_AF)))",
+    "coding": "((ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE'))",
+    "pathogenic": "((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting'))"
   }
 }
 ```
