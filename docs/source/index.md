@@ -70,7 +70,7 @@ VariantCentrifuge requires these bioinformatics tools to be installed and availa
 ## Getting Help
 
 - **Issues:** Report bugs and request features on [GitHub Issues](https://github.com/scholl-lab/variantcentrifuge/issues)
-- **Discussions:** Join the conversation on [GitHub Discussions](https://github.com/scholl-lab/variantcentrifuge/discussions)
+- **Discussions:** Join the conversation by [creating an issue](https://github.com/scholl-lab/variantcentrifuge/issues)
 - **Documentation:** Browse the complete documentation on this site
 
 ## License

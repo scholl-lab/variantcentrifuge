@@ -136,8 +136,19 @@ suppress_warnings = [
     "docutils.nodes",
     "docutils.utils",
     "myst",
+    "toc.not_included",
 ]
 nitpicky = False
 
 # Configure to not treat warnings as errors
 keep_warnings = True
+
+# Linkcheck settings
+linkcheck_ignore = [
+    # GitHub login redirects are expected
+    r'https://github\.com/login.*',
+    # Ignore local file links that may not exist during CI
+    r'file://.*',
+]
+linkcheck_retries = 2
+linkcheck_timeout = 10
