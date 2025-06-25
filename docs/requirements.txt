@@ -10,6 +10,7 @@ pandas
 jinja2
 scipy
 statsmodels
+openpyxl
 
 # Required to install the local package for autodoc
 -e .

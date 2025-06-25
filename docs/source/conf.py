@@ -125,3 +125,7 @@ intersphinx_mapping = {
 typehints_fully_qualified = False
 always_document_param_types = True
 typehints_document_rtype = True
+
+# Build settings - continue on warnings
+suppress_warnings = ['autodoc.import_object']
+nitpicky = False
