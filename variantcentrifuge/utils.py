@@ -18,21 +18,6 @@ from typing import List, Optional, Union
 
 logger = logging.getLogger("variantcentrifuge")
 
-current_log_level = "INFO"
-
-
-def set_log_level(level: str) -> None:
-    """
-    Set the global logging level.
-
-    Parameters
-    ----------
-    level : str
-        Logging level, one of ["DEBUG", "INFO", "WARN", "ERROR"].
-    """
-    global current_log_level
-    current_log_level = level
-
 
 def run_command(cmd: list, output_file: Optional[str] = None) -> str:
     """
