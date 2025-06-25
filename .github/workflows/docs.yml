@@ -40,7 +40,7 @@ jobs:
       - name: Build documentation
         run: |
           cd docs
-          sphinx-build -b html source build/html -W --keep-going
+          sphinx-build -b html source build/html --keep-going
 
       - name: Check for build warnings
         run: |

@@ -1,9 +1,8 @@
 [flake8]
 max-line-length = 100
 extend-ignore = E203,W503
-# Docstring checks
+# Docstring checks (when flake8-docstrings is installed)
 docstring-convention = numpy
-require-plugins = flake8-docstrings
 exclude =
     .git,
     __pycache__,

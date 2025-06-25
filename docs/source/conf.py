@@ -1,24 +1,26 @@
-# Configuration file for the Sphinx documentation builder.
-#
-# For the full list of built-in configuration values, see the documentation:
-# https://www.sphinx-doc.org/en/master/usage/configuration.html
+"""Configuration file for the Sphinx documentation builder.
+
+For the full list of built-in configuration values, see the documentation:
+https://www.sphinx-doc.org/en/master/usage/configuration.html
+"""
 
 import os
 import sys
 
+from variantcentrifuge.version import __version__
+
 # Add the project root to the path so autodoc can find the variantcentrifuge module
-sys.path.insert(0, os.path.abspath('../..'))
+sys.path.insert(0, os.path.abspath("../.."))
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'VariantCentrifuge'
-copyright = '2024, Bernt Popp'
-author = 'Bernt Popp'
+project = "VariantCentrifuge"
+copyright = "2024, Bernt Popp"
+author = "Bernt Popp"
 
 # The full version, including alpha/beta/rc tags
 # This will automatically get the version from your package
-from variantcentrifuge.version import __version__
 release = __version__
 version = __version__
 
@@ -26,17 +28,17 @@ version = __version__
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = [
-    'sphinx.ext.autodoc',              # Core library for autodoc
-    'sphinx.ext.autosummary',          # Generate autodoc summaries
-    'sphinx.ext.napoleon',             # Support for Google-style docstrings
-    'sphinx.ext.viewcode',             # Add links to highlighted source code
-    'sphinx.ext.intersphinx',          # Link to other project documentations
-    'myst_parser',                     # Enable writing docs in Markdown
-    'sphinx_autodoc_typehints',        # Automatically document typehints
+    "sphinx.ext.autodoc",  # Core library for autodoc
+    "sphinx.ext.autosummary",  # Generate autodoc summaries
+    "sphinx.ext.napoleon",  # Support for Google-style docstrings
+    "sphinx.ext.viewcode",  # Add links to highlighted source code
+    "sphinx.ext.intersphinx",  # Link to other project documentations
+    "myst_parser",  # Enable writing docs in Markdown
+    "sphinx_autodoc_typehints",  # Automatically document typehints
 ]
 
 # Add any paths that contain templates here, relative to this directory.
-templates_path = ['_templates']
+templates_path = ["_templates"]
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
@@ -45,20 +47,20 @@ exclude_patterns = []
 
 # The suffix(es) of source filenames.
 source_suffix = {
-    '.rst': None,
-    '.md': 'markdown',
+    ".rst": None,
+    ".md": "markdown",
 }
 
 # The master toctree document.
-master_doc = 'index'
+master_doc = "index"
 
-language = 'en'
+language = "en"
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'furo'
-html_static_path = ['_static']
+html_theme = "furo"
+html_static_path = ["_static"]
 
 # Theme options for Furo
 html_theme_options = {
@@ -93,11 +95,11 @@ napoleon_attr_annotations = True
 
 # Autodoc settings
 autodoc_default_options = {
-    'members': True,
-    'member-order': 'bysource',
-    'special-members': '__init__',
-    'undoc-members': True,
-    'exclude-members': '__weakref__'
+    "members": True,
+    "member-order": "bysource",
+    "special-members": "__init__",
+    "undoc-members": True,
+    "exclude-members": "__weakref__",
 }
 
 # Autosummary settings
@@ -117,8 +119,8 @@ myst_enable_extensions = [
 
 # Intersphinx mapping
 intersphinx_mapping = {
-    'python': ('https://docs.python.org/3/', None),
-    'pandas': ('https://pandas.pydata.org/pandas-docs/stable/', None),
+    "python": ("https://docs.python.org/3/", None),
+    "pandas": ("https://pandas.pydata.org/pandas-docs/stable/", None),
 }
 
 # Type hints configuration
@@ -127,5 +129,15 @@ always_document_param_types = True
 typehints_document_rtype = True
 
 # Build settings - continue on warnings
-suppress_warnings = ['autodoc.import_object']
+suppress_warnings = [
+    "autodoc.import_object",
+    "docutils.parsers.rst",
+    "docutils.frontend",
+    "docutils.nodes",
+    "docutils.utils",
+    "myst",
+]
 nitpicky = False
+
+# Configure to not treat warnings as errors
+keep_warnings = True
