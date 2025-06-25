@@ -8,6 +8,7 @@ Provides helper functions for logging, running commands, checking tool availabil
 and retrieving tool versions.
 """
 
+import gzip
 import hashlib
 import logging
 import re
@@ -17,6 +18,31 @@ import sys
 from typing import List, Optional, Union
 
 logger = logging.getLogger("variantcentrifuge")
+
+
+def open_text_file(filename: str, mode: str = "r", encoding: str = "utf-8"):
+    """
+    Open a text file, automatically detecting if it's gzipped.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the file.
+    mode : str
+        File mode ('r', 'w', 'a', etc.).
+    encoding : str
+        Text encoding.
+
+    Returns
+    -------
+    File handle
+    """
+    if filename.endswith(".gz"):
+        if "b" not in mode:
+            mode = mode.replace("r", "rt").replace("w", "wt").replace("a", "at")
+        return gzip.open(filename, mode, encoding=encoding)
+    else:
+        return open(filename, mode, encoding=encoding)
 
 
 def run_command(cmd: list, output_file: Optional[str] = None) -> str:
@@ -45,8 +71,14 @@ def run_command(cmd: list, output_file: Optional[str] = None) -> str:
     """
     logger.debug("Running command: %s", " ".join(cmd))
     if output_file:
-        with open(output_file, "w", encoding="utf-8") as out_f:
-            result = subprocess.run(cmd, stdout=out_f, stderr=subprocess.PIPE, text=True)
+        # Use open_text_file for .tsv files (which may be gzipped),
+        # but use regular open for .vcf.gz files (binary bgzip output)
+        if output_file.endswith(".vcf.gz"):
+            with open(output_file, "w", encoding="utf-8") as out_f:
+                result = subprocess.run(cmd, stdout=out_f, stderr=subprocess.PIPE, text=True)
+        else:
+            with open_text_file(output_file, "w") as out_f:
+                result = subprocess.run(cmd, stdout=out_f, stderr=subprocess.PIPE, text=True)
     else:
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 

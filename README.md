@@ -16,6 +16,8 @@
 - **🧬 Gene Burden Analysis:** Perform statistical analysis with Fisher's exact test
 - **🔗 Clinical Integration:** ClinVar, gnomAD, and external database annotations
 - **👥 Cohort Analysis:** Aggregate results from multiple samples with interactive visualizations
+- **📦 Results Archiving:** Automatically create compressed archives of complete analysis results
+- **💾 Space Optimization:** Gzip compression for intermediate files to reduce disk usage
 
 ## 🚀 Quick Start
 
@@ -39,6 +41,9 @@ variantcentrifuge \\\n  --gene-name BRCA1 \\\n  --vcf-file input.vcf.gz \\\n  --
 
 # Use predefined filters for rare, coding variants
 variantcentrifuge \\\n  --gene-file cancer_genes.txt \\\n  --vcf-file input.vcf.gz \\\n  --preset rare,coding \\\n  --html-report \\\n  --xlsx
+
+# Analysis with space optimization and result archiving
+variantcentrifuge \\\n  --gene-file cancer_genes.txt \\\n  --vcf-file input.vcf.gz \\\n  --preset rare,coding \\\n  --gzip-intermediates \\\n  --archive-results \\\n  --html-report
 ```
 
 ## 📋 Prerequisites

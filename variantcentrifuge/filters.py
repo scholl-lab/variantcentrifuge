@@ -24,7 +24,7 @@ import os
 import tempfile
 from typing import Any, Dict, List, Optional, Set
 
-from .utils import run_command
+from .utils import open_text_file, run_command
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -221,7 +221,7 @@ def filter_final_tsv_by_genotype(
 
     # Show the first few lines of the input_tsv (if available)
     try:
-        with open(input_tsv, "r", encoding="utf-8") as inp_debug:
+        with open_text_file(input_tsv, "r") as inp_debug:
             logger.debug("First lines from input_tsv:")
             for i in range(3):
                 line = inp_debug.readline()
@@ -236,7 +236,7 @@ def filter_final_tsv_by_genotype(
     gene_to_genotypes: Dict[str, Set[str]] = {}
     if gene_genotype_file and os.path.exists(gene_genotype_file):
         logger.debug("Attempting to read gene -> genotype rules from: %s", gene_genotype_file)
-        with open(gene_genotype_file, "r", encoding="utf-8") as gfile:
+        with open_text_file(gene_genotype_file, "r") as gfile:
             all_lines = gfile.readlines()
 
         logger.debug("First lines from gene_genotype_file:")
@@ -295,7 +295,7 @@ def filter_final_tsv_by_genotype(
     # We'll parse the lines grouped by gene, so we can do 'comp_het' logic.
     lines_by_gene = {}
 
-    with open(input_tsv, "r", encoding="utf-8") as inp:
+    with open_text_file(input_tsv, "r") as inp:
         header = next(inp).rstrip("\n")
         header_cols = header.split("\t")
         # Identify gene and GT columns
@@ -413,7 +413,7 @@ def filter_final_tsv_by_genotype(
                 filtered_lines.append("\t".join(parts))
 
     # Write out the filtered lines
-    with open(output_tsv, "w", encoding="utf-8") as out:
+    with open_text_file(output_tsv, "w") as out:
         for line in filtered_lines:
             out.write(line + "\n")
 

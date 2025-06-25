@@ -11,7 +11,7 @@ from VCF records and save the result to the specified output file.
 import logging
 from typing import Any, Dict
 
-from .utils import normalize_vcf_headers, run_command
+from .utils import normalize_vcf_headers, open_text_file, run_command
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -73,7 +73,7 @@ def extract_fields(variant_file: str, fields: str, cfg: Dict[str, Any], output_f
     run_command(cmd, output_file=output_file)
 
     # Now fix up the header line in place
-    with open(output_file, "r", encoding="utf-8") as f:
+    with open_text_file(output_file, "r") as f:
         lines = f.readlines()
 
     if not lines:
@@ -84,7 +84,7 @@ def extract_fields(variant_file: str, fields: str, cfg: Dict[str, Any], output_f
     lines = normalize_vcf_headers(lines)
 
     # Rewrite the file with updated lines
-    with open(output_file, "w", encoding="utf-8") as f:
+    with open_text_file(output_file, "w") as f:
         f.writelines(lines)
 
     logger.debug("SnpSift extractFields completed successfully.")

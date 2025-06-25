@@ -20,6 +20,7 @@ All steps are coordinated within the run_pipeline function.
 
 import argparse
 import datetime
+import gzip
 import hashlib
 import logging
 import locale
@@ -27,6 +28,7 @@ import os
 import re
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -48,6 +50,7 @@ from .utils import (
     check_external_tools,
     ensure_fields_in_extract,
     get_tool_version,
+    open_text_file,
     normalize_snpeff_headers,
     run_command,
     sanitize_metadata_field,
@@ -200,6 +203,80 @@ def parse_samples_from_vcf(vcf_file: str) -> List[str]:
     return samples
 
 
+def get_compressed_filename(filename: str, use_gzip: bool) -> str:
+    """
+    Get the appropriate filename with or without .gz extension.
+
+    Parameters
+    ----------
+    filename : str
+        Base filename.
+    use_gzip : bool
+        Whether to use gzip compression.
+
+    Returns
+    -------
+    str
+        Filename with .gz extension if use_gzip is True.
+    """
+    if use_gzip and not filename.endswith(".gz"):
+        return filename + ".gz"
+    return filename
+
+
+def create_results_archive(output_dir: str, archive_name: Optional[str] = None) -> str:
+    """
+    Create a compressed archive of the results directory.
+
+    Parameters
+    ----------
+    output_dir : str
+        Path to the results directory to archive.
+    archive_name : str, optional
+        Name for the archive file. If None, generates a name based on output_dir.
+
+    Returns
+    -------
+    str
+        Path to the created archive file.
+    """
+    logger = logging.getLogger("variantcentrifuge")
+
+    if not os.path.exists(output_dir):
+        logger.error(f"Output directory {output_dir} does not exist, cannot create archive.")
+        return ""
+
+    # Generate archive name if not provided
+    if archive_name is None:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        dir_name = os.path.basename(os.path.abspath(output_dir))
+        archive_name = f"{dir_name}_{timestamp}.tar.gz"
+
+    # Ensure archive has .tar.gz extension
+    if not archive_name.endswith(".tar.gz"):
+        archive_name += ".tar.gz"
+
+    # Place archive in parent directory of output_dir
+    parent_dir = os.path.dirname(os.path.abspath(output_dir))
+    archive_path = os.path.join(parent_dir, archive_name)
+
+    try:
+        logger.info(f"Creating archive: {archive_path}")
+        with tarfile.open(archive_path, "w:gz") as tar:
+            # Add the entire directory with relative paths
+            tar.add(output_dir, arcname=os.path.basename(output_dir))
+
+        archive_size = os.path.getsize(archive_path)
+        logger.info(
+            f"Archive created successfully: {archive_path} ({archive_size / (1024*1024):.1f} MB)"
+        )
+        return archive_path
+
+    except (OSError, tarfile.TarError) as e:
+        logger.error(f"Failed to create archive: {str(e)}")
+        return ""
+
+
 def run_pipeline(
     args: argparse.Namespace, cfg: Dict[str, Any], start_time: datetime.datetime
 ) -> None:
@@ -343,9 +420,17 @@ def run_pipeline(
     transcript_filtered_file = os.path.join(
         intermediate_dir, f"{base_name}.transcript_filtered.vcf.gz"
     )
-    extracted_tsv = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv")
-    genotype_replaced_tsv = os.path.join(intermediate_dir, f"{base_name}.genotype_replaced.tsv")
-    phenotype_added_tsv = os.path.join(intermediate_dir, f"{base_name}.phenotypes_added.tsv")
+    # Use gzip compression for intermediate TSV files if requested
+    use_gzip = cfg.get("gzip_intermediates", False)
+    extracted_tsv = get_compressed_filename(
+        os.path.join(intermediate_dir, f"{base_name}.extracted.tsv"), use_gzip
+    )
+    genotype_replaced_tsv = get_compressed_filename(
+        os.path.join(intermediate_dir, f"{base_name}.genotype_replaced.tsv"), use_gzip
+    )
+    phenotype_added_tsv = get_compressed_filename(
+        os.path.join(intermediate_dir, f"{base_name}.phenotypes_added.tsv"), use_gzip
+    )
     gene_burden_tsv = os.path.join(args.output_dir, f"{base_name}.gene_burden.tsv")
 
     # Parse samples from VCF
@@ -444,15 +529,15 @@ def run_pipeline(
     extract_fields(final_filtered_for_extraction, field_list, temp_cfg, extracted_tsv)
 
     # Genotype replacement logic
-    with open(extracted_tsv, "r", encoding="utf-8") as f:
+    with open_text_file(extracted_tsv, "r") as f:
         header_line = f.readline().strip()
     columns = header_line.split("\t")
     gt_present = "GT" in columns
 
     cfg["sample_list"] = ",".join(original_samples) if original_samples else ""
     if not args.no_replacement and gt_present:
-        with open(extracted_tsv, "r", encoding="utf-8") as inp, open(
-            genotype_replaced_tsv, "w", encoding="utf-8"
+        with open_text_file(extracted_tsv, "r") as inp, open_text_file(
+            genotype_replaced_tsv, "w"
         ) as out:
             for line in replace_genotypes(inp, cfg):
                 out.write(line + "\n")
@@ -466,11 +551,11 @@ def run_pipeline(
             "User config => removing columns after replacement: %s",
             cfg["extra_sample_fields"],
         )
-        stripped_tsv = os.path.join(intermediate_dir, f"{base_name}.stripped_extras.tsv")
+        stripped_tsv = get_compressed_filename(
+            os.path.join(intermediate_dir, f"{base_name}.stripped_extras.tsv"), use_gzip
+        )
 
-        with open(replaced_tsv, "r", encoding="utf-8") as inp, open(
-            stripped_tsv, "w", encoding="utf-8"
-        ) as out:
+        with open_text_file(replaced_tsv, "r") as inp, open_text_file(stripped_tsv, "w") as out:
             # Read the header line from replaced_tsv
             raw_header_line = next(inp).rstrip("\n")
             original_header_cols = raw_header_line.split("\t")
@@ -527,8 +612,8 @@ def run_pipeline(
     if use_phenotypes:
         pattern = re.compile(r"^([^()]+)(?:\([^)]+\))?$")
 
-        with open(replaced_tsv, "r", encoding="utf-8") as inp, open(
-            phenotype_added_tsv, "w", encoding="utf-8"
+        with open_text_file(replaced_tsv, "r") as inp, open_text_file(
+            phenotype_added_tsv, "w"
         ) as out:
             header = next(inp).rstrip("\n")
             header_fields = header.split("\t")
@@ -952,6 +1037,15 @@ def run_pipeline(
     else:
         logger.info("Keeping intermediate files (use --keep-intermediates=False to delete them)")
     # MODIFIED: End of intermediate cleanup feature
+
+    # Create archive if requested
+    if cfg.get("archive_results", False):
+        logger.info("Creating results archive...")
+        archive_path = create_results_archive(args.output_dir)
+        if archive_path:
+            logger.info(f"Results archived to: {archive_path}")
+        else:
+            logger.warning("Failed to create results archive")
 
     logger.info(
         f"Processing completed. Output saved to " f"{'stdout' if final_to_stdout else final_output}"

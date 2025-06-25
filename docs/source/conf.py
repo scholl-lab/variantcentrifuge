@@ -146,9 +146,9 @@ keep_warnings = True
 # Linkcheck settings
 linkcheck_ignore = [
     # GitHub login redirects are expected
-    r'https://github\.com/login.*',
+    r"https://github\.com/login.*",
     # Ignore local file links that may not exist during CI
-    r'file://.*',
+    r"file://.*",
 ]
 linkcheck_retries = 2
 linkcheck_timeout = 10

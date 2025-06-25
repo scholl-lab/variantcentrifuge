@@ -140,6 +140,21 @@ def main() -> None:
         help="Keep intermediate files (by default, they are deleted after successful pipeline completion).",
     )
     # MODIFIED: End of intermediate cleanup feature
+
+    # Archive and compression features
+    parser.add_argument(
+        "--archive-results",
+        action="store_true",
+        default=False,
+        help="Create a compressed archive (.tar.gz) of the entire results directory after processing.",
+    )
+    parser.add_argument(
+        "--gzip-intermediates",
+        action="store_true",
+        default=False,
+        help="Compress intermediate TSV files with gzip to save disk space during processing.",
+    )
+
     parser.add_argument("--phenotype-file", help="Path to phenotype file (.csv or .tsv)")
     parser.add_argument(
         "--phenotype-sample-column",
@@ -511,6 +526,10 @@ def main() -> None:
     cfg["snpeff_splitting_mode"] = (
         args.split_snpeff_lines
     )  # None, 'before_filters', or 'after_filters'
+
+    # Archive and compression settings
+    cfg["archive_results"] = args.archive_results
+    cfg["gzip_intermediates"] = args.gzip_intermediates
 
     run_pipeline(args, cfg, start_time)
 
