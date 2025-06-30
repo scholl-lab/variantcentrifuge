@@ -46,8 +46,13 @@ except ImportError:
     fisher_exact = None
 
 import numpy as np
-import statsmodels.stats.multitest as smm
-from statsmodels.stats.contingency_tables import Table2x2
+
+try:
+    import statsmodels.stats.multitest as smm
+    from statsmodels.stats.contingency_tables import Table2x2
+except ImportError:
+    smm = None
+    Table2x2 = None
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -99,6 +104,10 @@ def _compute_or_confidence_interval(
     b = table[0][1]
     c = table[1][0]
     d = table[1][1]
+
+    if Table2x2 is None:
+        logger.warning("statsmodels not available. Using fallback confidence intervals.")
+        return 0.001, 1000.0
 
     table_np = np.array(table)
     cont_table = Table2x2(table_np)
@@ -264,11 +273,15 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.Da
 
     # Multiple testing correction
     pvals = results_df["raw_p_value"].values
-    if correction_method == "bonferroni":
-        corrected_pvals = smm.multipletests(pvals, method="bonferroni")[1]
+    if smm is None:
+        logger.warning("statsmodels not available. Skipping multiple testing correction.")
+        corrected_pvals = pvals  # Use raw p-values as fallback
     else:
-        # Default to FDR (Benjamini–Hochberg)
-        corrected_pvals = smm.multipletests(pvals, method="fdr_bh")[1]
+        if correction_method == "bonferroni":
+            corrected_pvals = smm.multipletests(pvals, method="bonferroni")[1]
+        else:
+            # Default to FDR (Benjamini–Hochberg)
+            corrected_pvals = smm.multipletests(pvals, method="fdr_bh")[1]
 
     results_df["corrected_p_value"] = corrected_pvals
 

@@ -43,6 +43,7 @@ from .gene_bed import get_gene_bed, normalize_genes
 from .links import add_links_to_table
 from .phenotype import aggregate_phenotypes_for_samples, load_phenotypes
 from .phenotype_filter import filter_phenotypes
+from .ped_reader import read_pedigree
 from .replacer import replace_genotypes
 from .scoring import read_scoring_config
 from .utils import (
@@ -282,6 +283,17 @@ def run_pipeline(
             )
         except Exception as e:
             logger.error(f"Failed to load scoring configuration: {e}")
+            sys.exit(1)
+
+    # Load pedigree data if provided
+    pedigree_data = None
+    if cfg.get("ped_file") and cfg.get("calculate_inheritance"):
+        try:
+            pedigree_data = read_pedigree(cfg["ped_file"])
+            cfg["pedigree_data"] = pedigree_data
+            logger.info(f"Loaded pedigree data for {len(pedigree_data)} individuals.")
+        except Exception as e:
+            logger.error(f"Failed to load PED file: {e}")
             sys.exit(1)
 
     # Load phenotype terms
@@ -612,6 +624,8 @@ def run_pipeline(
     temp_cfg = cfg.copy()
     temp_cfg["perform_gene_burden"] = False
     temp_cfg["scoring_config"] = scoring_config  # Pass the loaded config
+    temp_cfg["pedigree_data"] = pedigree_data  # Pass the loaded pedigree data
+    temp_cfg["calculate_inheritance"] = cfg.get("calculate_inheritance", False)
     buffer = []
     with open(final_tsv, "r", encoding="utf-8") as inp:
         line_count = 0

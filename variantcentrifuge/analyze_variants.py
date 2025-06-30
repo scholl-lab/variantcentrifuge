@@ -26,6 +26,7 @@ from typing import Any, Dict, Iterator
 import pandas as pd
 
 from . import gene_burden, scoring, stats
+from .inheritance.analyzer import analyze_inheritance
 from .helpers import (
     assign_case_control_counts,
     build_sample_phenotype_map,
@@ -137,7 +138,19 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
     # Assign case/control counts per variant
     df = assign_case_control_counts(df, case_samples, control_samples, all_samples)
 
-    # Apply scoring if configuration is provided
+    # Apply inheritance analysis first, as scores might depend on it
+    if cfg.get("calculate_inheritance") and cfg.get("pedigree_data"):
+        logger.info("Performing inheritance pattern analysis...")
+        try:
+            df = analyze_inheritance(df, cfg["pedigree_data"], cfg["sample_list"].split(","))
+            logger.info("Inheritance analysis complete.")
+        except Exception as e:
+            logger.error(f"Inheritance analysis failed: {e}")
+            # Add empty columns to prevent downstream errors
+            df["Inheritance_Pattern"] = "error"
+            df["Inheritance_Details"] = "{}"
+
+    # Apply scoring if configuration is provided (can now use inheritance results)
     scoring_config = cfg.get("scoring_config")
     if scoring_config:
         logger.info("Applying custom scoring model to variants.")

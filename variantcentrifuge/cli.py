@@ -355,6 +355,17 @@ def main() -> None:
         "(variable_assignment_config.json and formula_config.json).",
     )
 
+    # Inheritance analysis arguments
+    parser.add_argument(
+        "--ped",
+        help="Path to the PED file defining family structure for inheritance analysis.",
+    )
+    parser.add_argument(
+        "--calculate-inheritance",
+        action="store_true",
+        help="Enable deduction of Mendelian inheritance patterns (requires --ped).",
+    )
+
     args: argparse.Namespace = parser.parse_args()
 
     # Configure logging level
@@ -520,6 +531,15 @@ def main() -> None:
 
     # Scoring configuration
     cfg["scoring_config_path"] = args.scoring_config_path
+
+    # Inheritance analysis configuration
+    cfg["ped_file"] = args.ped
+    cfg["calculate_inheritance"] = args.calculate_inheritance
+
+    # Validate inheritance arguments
+    if args.calculate_inheritance and not args.ped:
+        logger.error("--calculate-inheritance requires --ped file to be provided.")
+        sys.exit(1)
 
     run_pipeline(args, cfg, start_time)
 

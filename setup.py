@@ -35,6 +35,9 @@ setup(
     install_requires=[
         "pandas",
         "jinja2",
+        "scipy",
+        "statsmodels",
+        "numpy",
     ],
     entry_points={"console_scripts": ["variantcentrifuge=variantcentrifuge.cli:main"]},
     include_package_data=True,
