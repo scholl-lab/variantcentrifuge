@@ -352,7 +352,7 @@ def main() -> None:
     parser.add_argument(
         "--scoring-config-path",
         help="Path to a directory containing a scoring model "
-             "(variable_assignment_config.json and formula_config.json).",
+        "(variable_assignment_config.json and formula_config.json).",
     )
 
     args: argparse.Namespace = parser.parse_args()

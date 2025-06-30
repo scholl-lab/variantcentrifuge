@@ -57,6 +57,27 @@ def read_scoring_config(config_path: str) -> Dict[str, Any]:
         raise
 
 
+def convert_to_numeric(series: pd.Series, default: float = 0.0) -> pd.Series:
+    """
+    Convert a series to numeric, handling empty strings and other non-numeric values.
+
+    Parameters
+    ----------
+    series : pd.Series
+        The series to convert.
+    default : float
+        The default value to use for non-numeric entries.
+
+    Returns
+    -------
+    pd.Series
+        The numeric series.
+    """
+    # Replace empty strings with NaN, then convert to numeric
+    series = series.replace("", default).replace(".", default)
+    return pd.to_numeric(series, errors="coerce").fillna(default)
+
+
 def apply_scoring(df: pd.DataFrame, scoring_config: Dict[str, Any]) -> pd.DataFrame:
     """
     Applies scoring formulas to the DataFrame of variants.
@@ -106,11 +127,17 @@ def apply_scoring(df: pd.DataFrame, scoring_config: Dict[str, Any]) -> pd.DataFr
             continue
 
         if original_col in scored_df.columns:
+            # Convert numeric columns to proper numeric type
+            if "AF" in original_col or "CADD" in original_col:
+                scored_df[original_col] = convert_to_numeric(
+                    scored_df[original_col], float(default_val_str)
+                )
             rename_map[original_col] = target_name
         else:
             # If the column is missing, create it with the default value
             logger.warning(
-                f"Scoring variable column '{original_col}' not found. Using default value '{default_val_str}'."
+                f"Scoring variable column '{original_col}' not found. "
+                f"Using default value '{default_val_str}'."
             )
             try:
                 default_value = float(default_val_str)

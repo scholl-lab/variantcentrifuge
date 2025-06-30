@@ -16,6 +16,7 @@
 - **🧬 Gene Burden Analysis:** Perform statistical analysis with Fisher's exact test
 - **🔗 Clinical Integration:** ClinVar, gnomAD, and external database annotations
 - **👥 Cohort Analysis:** Aggregate results from multiple samples with interactive visualizations
+- **🎨 Custom Scoring:** Apply configurable variant scoring models without code changes
 
 ## 🚀 Quick Start
 
@@ -39,6 +40,9 @@ variantcentrifuge \\\n  --gene-name BRCA1 \\\n  --vcf-file input.vcf.gz \\\n  --
 
 # Use predefined filters for rare, coding variants
 variantcentrifuge \\\n  --gene-file cancer_genes.txt \\\n  --vcf-file input.vcf.gz \\\n  --preset rare,coding \\\n  --html-report \\\n  --xlsx
+
+# Apply custom variant scoring
+variantcentrifuge \\\n  --gene-name GENE \\\n  --vcf-file input.vcf.gz \\\n  --scoring-config-path scoring/nephro_variant_score \\\n  --output-file scored_variants.tsv
 ```
 
 ## 📋 Prerequisites
@@ -88,6 +92,11 @@ variantcentrifuge \\\n  --gene-file oncogenes_tsg.txt \\\n  --vcf-file tumor_nor
 ### Population Genetics
 ```bash
 variantcentrifuge \\\n  --gene-file population_genes.txt \\\n  --vcf-file cohort.vcf.gz \\\n  --preset 5percent,coding \\\n  --perform-gene-burden \\\n  --html-report
+```
+
+### Variant Scoring
+```bash
+variantcentrifuge \\\n  --gene-file kidney_genes.txt \\\n  --vcf-file patient.vcf.gz \\\n  --preset rare,coding \\\n  --scoring-config-path scoring/nephro_variant_score \\\n  --html-report \\\n  --output-file scored_kidney_variants.tsv
 ```
 
 ## 🏗️ Example Configuration

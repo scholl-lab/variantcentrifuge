@@ -25,6 +25,7 @@ Learn how to design and execute variant analysis workflows for different researc
 Explore advanced VariantCentrifuge features and customization options:
 
 - Custom filter development
+- Variant scoring models
 - Cohort analysis workflows
 - Integration with other tools
 - Performance optimization
@@ -36,6 +37,7 @@ annotation_strategies
 cohort_analysis
 rare_disease_workflow
 cancer_analysis
+variant_scoring
 custom_filters
 performance_tips
 ```

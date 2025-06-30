@@ -277,7 +277,9 @@ def run_pipeline(
     if cfg.get("scoring_config_path"):
         try:
             scoring_config = read_scoring_config(cfg["scoring_config_path"])
-            logger.info(f"Successfully loaded scoring configuration from {cfg['scoring_config_path']}")
+            logger.info(
+                f"Successfully loaded scoring configuration from {cfg['scoring_config_path']}"
+            )
         except Exception as e:
             logger.error(f"Failed to load scoring configuration: {e}")
             sys.exit(1)

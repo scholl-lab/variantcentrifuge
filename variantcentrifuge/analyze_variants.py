@@ -143,8 +143,10 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
         logger.info("Applying custom scoring model to variants.")
         try:
             df = scoring.apply_scoring(df, scoring_config)
-            logger.debug("Scoring applied successfully. New columns: %s", 
-                         [col for col in df.columns if col not in required_columns])
+            logger.debug(
+                "Scoring applied successfully. New columns: %s",
+                [col for col in df.columns if col not in required_columns],
+            )
         except Exception as e:
             logger.error(f"Failed to apply scoring: {e}")
             # Decide whether to exit or continue without scores. Continuing is more robust.

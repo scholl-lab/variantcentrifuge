@@ -28,7 +28,10 @@ def sample_scoring_config():
         "formulas": [
             {"pathogenicity_score": "cadd + (1 - freq) * 10"},
             {
-                "impact_score": "((impact_val == 'HIGH') * 10) + ((impact_val == 'MODERATE') * 5) + ((impact_val == 'LOW') * 1)"
+                "impact_score": (
+                    "((impact_val == 'HIGH') * 10) + ((impact_val == 'MODERATE') * 5) + "
+                    "((impact_val == 'LOW') * 1)"
+                )
             },
         ],
     }
