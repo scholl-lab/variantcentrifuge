@@ -25,7 +25,7 @@ from typing import Any, Dict, Iterator
 
 import pandas as pd
 
-from . import gene_burden, stats
+from . import gene_burden, scoring, stats
 from .helpers import (
     assign_case_control_counts,
     build_sample_phenotype_map,
@@ -136,6 +136,18 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
 
     # Assign case/control counts per variant
     df = assign_case_control_counts(df, case_samples, control_samples, all_samples)
+
+    # Apply scoring if configuration is provided
+    scoring_config = cfg.get("scoring_config")
+    if scoring_config:
+        logger.info("Applying custom scoring model to variants.")
+        try:
+            df = scoring.apply_scoring(df, scoring_config)
+            logger.debug("Scoring applied successfully. New columns: %s", 
+                         [col for col in df.columns if col not in required_columns])
+        except Exception as e:
+            logger.error(f"Failed to apply scoring: {e}")
+            # Decide whether to exit or continue without scores. Continuing is more robust.
 
     # Compute basic stats
     logger.debug("Computing basic statistics...")

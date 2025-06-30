@@ -1,0 +1,9 @@
+{
+  "variables": {
+    "dbNSFP_gnomAD_exomes_AF": "gnomad_exomes_af|default:0.0",
+    "dbNSFP_gnomAD_genomes_AF": "gnomad_genomes_af|default:0.0",
+    "dbNSFP_CADD_phred": "cadd_phred|default:0.0",
+    "EFFECT": "effect|default:''",
+    "IMPACT": "impact|default:''"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "formulas": [
+    {
+      "nephro_variant_score": "1 / (1 + @np.exp(-((-36.30796) + ((gnomad_exomes_af - 0.00658) / 0.05959) * (-309.33539) + (cadd_phred - 12.47608) / 11.78359 * 2.68520 + (impact == 'HIGH') * 3.14 + (impact == 'MODERATE') * 1.5)))"
+    }
+  ]
+}
