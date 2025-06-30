@@ -41,6 +41,10 @@ Configuration options with default values:
 - **`igv_ideogram`** (`str`) - Path to local ideogram file for IGV visualization
 - **`igv_flanking`** (`int`) - Flanking bases around variants for IGV. *Default: 50*
 
+### Variant Scoring
+
+- **`scoring_config_path`** (`str`) - Path to directory containing scoring configuration files (variable_assignment_config.json and formula_config.json)
+
 ## Filter Presets
 
 The configuration system supports predefined filter presets that can be combined and reused. Presets are defined in the `presets` section:
@@ -180,6 +184,94 @@ VariantCentrifuge validates your configuration and provides helpful error messag
 - Invalid preset references will be caught at startup
 - Filter expression syntax is validated when possible
 
+## Variant Scoring Configuration
+
+VariantCentrifuge supports custom variant scoring through configuration files. The scoring system requires two JSON files in a directory:
+
+### Variable Assignment Configuration
+
+`variable_assignment_config.json` maps VCF annotation fields to formula variables:
+
+```json
+{
+  "variables": {
+    "dbNSFP_gnomAD_exomes_AF": "gnomade_variant|default:0.0",
+    "dbNSFP_gnomAD_genomes_AF": "gnomadg_variant|default:0.0",
+    "dbNSFP_CADD_phred": "cadd_phred_variant|default:0.0",
+    "ANN[0].EFFECT": "consequence_terms_variant|default:''",
+    "ANN[0].IMPACT": "impact_variant|default:''"
+  }
+}
+```
+
+Each mapping specifies:
+- **Key**: The column name in your VCF data
+- **Value**: The variable name for the formula, with optional default value
+
+### Formula Configuration
+
+`formula_config.json` contains the scoring formulas:
+
+```json
+{
+  "formulas": [
+    {
+      "score_name": "formula_expression"
+    }
+  ]
+}
+```
+
+Formulas use pandas eval syntax and can include:
+- Mathematical operations
+- Conditional logic (`(condition) * value`)
+- String operations (`.str.contains()`)
+- Any valid pandas expression
+
+### Example: Nephro Variant Score
+
+A complete scoring configuration for kidney disease variants:
+
+```json
+// variable_assignment_config.json
+{
+  "variables": {
+    "dbNSFP_gnomAD_exomes_AF": "gnomade_variant|default:0.0",
+    "dbNSFP_gnomAD_genomes_AF": "gnomadg_variant|default:0.0",
+    "dbNSFP_CADD_phred": "cadd_phred_variant|default:0.0",
+    "ANN[0].EFFECT": "consequence_terms_variant|default:''",
+    "ANN[0].IMPACT": "impact_variant|default:''"
+  }
+}
+
+// formula_config.json
+{
+  "formulas": [
+    {
+      "nephro_variant_score": "1 / (1 + 2.718281828459045 ** (-((-36.30796) + ((gnomade_variant - 0.00658) / 0.05959) * (-309.33539) + ((gnomadg_variant - 0.02425) / 0.11003) * (-2.54581) + (((consequence_terms_variant == 'missense_variant') * 1.0 - 0.24333) / 0.42909) * (-1.14313) + ((cadd_phred_variant - 12.47608) / 11.78359) * 2.68520 + ((((impact_variant == 'HIGH') * 4 + (impact_variant == 'MODERATE') * 3 + (impact_variant == 'LOW') * 2 + (impact_variant == 'MODIFIER') * 1) - 2.49999) / 1.11804) * 3.14822)))"
+    }
+  ]
+}
+```
+
+### Using Scoring
+
+To apply scoring to your analysis:
+
+```bash
+variantcentrifuge \
+  --gene-name GENE \
+  --vcf-file input.vcf.gz \
+  --scoring-config-path /path/to/scoring/config/dir \
+  --output-file scored_variants.tsv
+```
+
+The scoring module will:
+1. Load the configuration files from the specified directory
+2. Map VCF columns to formula variables
+3. Apply the formula to calculate scores
+4. Add score columns to the output
+
 ## Best Practices
 
 1. **Use version control** - Store your configuration files in version control alongside your analysis scripts
@@ -187,3 +279,4 @@ VariantCentrifuge validates your configuration and provides helpful error messag
 3. **Document custom presets** - Add comments explaining complex filter logic
 4. **Test filters** - Validate filter expressions on small datasets before large analyses
 5. **Modular approach** - Use presets to build complex filters from simpler components
+6. **Test scoring formulas** - Validate scoring on known variants before production use

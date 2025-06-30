@@ -1,0 +1,45 @@
+##fileformat=VCFv4.2
+##reference=GRCh38
+##INFO=<ID=AC,Number=A,Type=Integer,Description="Allele count in genotypes">
+##INFO=<ID=AF,Number=A,Type=Float,Description="Allele Frequency">
+##INFO=<ID=AN,Number=1,Type=Integer,Description="Total number of alleles">
+##INFO=<ID=BaseQRankSum,Number=1,Type=Float,Description="Z-score from Wilcoxon rank sum test of Alt Vs. Ref base qualities">
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Approximate read depth">
+##INFO=<ID=ExcessHet,Number=1,Type=Float,Description="Phred-scaled p-value for exact test of excess heterozygosity">
+##INFO=<ID=FS,Number=1,Type=Float,Description="Phred-scaled p-value using Fisher's exact test">
+##INFO=<ID=MLEAC,Number=A,Type=Integer,Description="Maximum likelihood expectation for allele counts">
+##INFO=<ID=MLEAF,Number=A,Type=Float,Description="Maximum likelihood expectation for allele frequency">
+##INFO=<ID=MQ,Number=1,Type=Float,Description="RMS Mapping Quality">
+##INFO=<ID=MQRankSum,Number=1,Type=Float,Description="Z-score From Wilcoxon rank sum test of Alt vs. Ref read mapping qualities">
+##INFO=<ID=QD,Number=1,Type=Float,Description="Variant Confidence/Quality by Depth">
+##INFO=<ID=ReadPosRankSum,Number=1,Type=Float,Description="Z-score from Wilcoxon rank sum test of Alt vs. Ref read position bias">
+##INFO=<ID=SOR,Number=1,Type=Float,Description="Symmetric Odds Ratio of 2x2 contingency table">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allelic depths for the ref and alt alleles">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Approximate read depth">
+##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">
+##FORMAT=<ID=PL,Number=G,Type=Integer,Description="Normalized, Phred-scaled likelihoods for genotypes">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	Sample1
+1	45508799	.	A	AT	2442.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=1.16;DP=185;ExcessHet=0;FS=2.543;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=13.16;ReadPosRankSum=-1.194;SOR=0.866	GT:AD:DP:GQ:PL	0/1:95,90:185:99:2442,0,2386
+2	169139571	.	C	T	2831.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=0.358;DP=210;ExcessHet=0;FS=1.756;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=14.21;ReadPosRankSum=0.562;SOR=0.693	GT:AD:DP:GQ:PL	0/1:108,102:210:99:2831,0,2756
+2	227279826	.	TG	T	2156.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=-0.894;DP=175;ExcessHet=0;FS=3.122;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=12.32;ReadPosRankSum=1.023;SOR=0.912	GT:AD:DP:GQ:PL	0/1:88,87:175:99:2156,0,2143
+4	15502427	.	A	T	2623.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=0.674;DP=198;ExcessHet=0;FS=0.899;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=13.25;ReadPosRankSum=-0.438;SOR=0.756	GT:AD:DP:GQ:PL	0/1:100,98:198:99:2623,0,2598
+4	38137292	.	A	AC	2289.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=-1.231;DP=182;ExcessHet=0;FS=2.104;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=12.58;ReadPosRankSum=0.871;SOR=0.823	GT:AD:DP:GQ:PL	0/1:92,90:182:99:2289,0,2267
+6	10400506	.	G	A	2754.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=0.115;DP=205;ExcessHet=0;FS=1.432;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=13.44;ReadPosRankSum=-0.625;SOR=0.712	GT:AD:DP:GQ:PL	0/1:104,101:205:99:2754,0,2701
+6	24302294	.	G	GA	2067.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=-0.756;DP=168;ExcessHet=0;FS=2.876;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=12.31;ReadPosRankSum=1.142;SOR=0.887	GT:AD:DP:GQ:PL	0/1:85,83:168:99:2067,0,2052
+6	32096201	.	CCT	C	2398.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=0.932;DP=190;ExcessHet=0;FS=0.567;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=12.63;ReadPosRankSum=-0.287;SOR=0.698	GT:AD:DP:GQ:PL	0/1:96,94:190:99:2398,0,2376
+6	52025536	.	A	C	2512.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=-0.423;DP=195;ExcessHet=0;FS=1.876;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=12.89;ReadPosRankSum=0.698;SOR=0.789	GT:AD:DP:GQ:PL	0/1:98,97:195:99:2512,0,2487
+9	14789040	.	T	C	2689.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=0.567;DP=202;ExcessHet=0;FS=0.994;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=13.31;ReadPosRankSum=-0.812;SOR=0.734	GT:AD:DP:GQ:PL	0/1:102,100:202:99:2689,0,2654
+9	14851608	.	C	G	2234.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=-1.012;DP=178;ExcessHet=0;FS=2.456;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=12.56;ReadPosRankSum=0.934;SOR=0.854	GT:AD:DP:GQ:PL	0/1:90,88:178:99:2234,0,2212
+9	14868743	.	C	A	2876.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=0.234;DP=215;ExcessHet=0;FS=1.234;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=13.38;ReadPosRankSum=-0.456;SOR=0.701	GT:AD:DP:GQ:PL	0/1:109,106:215:99:2876,0,2834
+11	5225718	.	G	GC	2145.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=-0.876;DP=172;ExcessHet=0;FS=3.234;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=12.48;ReadPosRankSum=1.123;SOR=0.923	GT:AD:DP:GQ:PL	0/1:87,85:172:99:2145,0,2123
+12	867869	.	C	T	2567.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=0.789;DP=194;ExcessHet=0;FS=0.876;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=13.24;ReadPosRankSum=-0.345;SOR=0.745	GT:AD:DP:GQ:PL	0/1:98,96:194:99:2567,0,2534
+12	88049337	.	A	ATACT	2423.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=-1.156;DP=188;ExcessHet=0;FS=2.234;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=12.89;ReadPosRankSum=0.823;SOR=0.812	GT:AD:DP:GQ:PL	0/1:95,93:188:99:2423,0,2389
+12	110628749	.	GT	G	2312.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=0.456;DP=184;ExcessHet=0;FS=1.543;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=12.57;ReadPosRankSum=-0.678;SOR=0.778	GT:AD:DP:GQ:PL	0/1:93,91:184:99:2312,0,2287
+13	32340035	.	T	TA	2198.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=-0.987;DP=176;ExcessHet=0;FS=2.876;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=12.49;ReadPosRankSum=1.045;SOR=0.898	GT:AD:DP:GQ:PL	0/1:89,87:176:99:2198,0,2176
+15	30905153	.	G	A	2723.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=0.321;DP=208;ExcessHet=0;FS=1.098;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=13.09;ReadPosRankSum=-0.543;SOR=0.723	GT:AD:DP:GQ:PL	0/1:105,103:208:99:2723,0,2687
+15	74180375	.	G	A	2456.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=-0.234;DP=192;ExcessHet=0;FS=1.987;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=12.79;ReadPosRankSum=0.765;SOR=0.798	GT:AD:DP:GQ:PL	0/1:97,95:192:99:2456,0,2423
+16	1204310	.	C	T	2634.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=0.678;DP=200;ExcessHet=0;FS=0.765;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=13.17;ReadPosRankSum=-0.432;SOR=0.734	GT:AD:DP:GQ:PL	0/1:101,99:200:99:2634,0,2598
+17	46171370	.	CA	TG	2378.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=0.987;DP=186;ExcessHet=0;FS=0.432;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=12.79;ReadPosRankSum=-0.123;SOR=0.687	GT:AD:DP:GQ:PL	0/1:94,92:186:99:2378,0,2354
+17	58214740	.	C	T	2801.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=0.123;DP=212;ExcessHet=0;FS=1.543;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=13.22;ReadPosRankSum=-0.654;SOR=0.712	GT:AD:DP:GQ:PL	0/1:107,105:212:99:2801,0,2765
+20	44402596	.	C	T	2489.77	PASS	AC=1;AF=0.5;AN=2;BaseQRankSum=-0.543;DP=196;ExcessHet=0;FS=2.123;MLEAC=1;MLEAF=0.5;MQ=60;MQRankSum=0;QD=12.70;ReadPosRankSum=0.876;SOR=0.801	GT:AD:DP:GQ:PL	0/1:99,97:196:99:2489,0,2456

@@ -349,6 +349,12 @@ def main() -> None:
         ),
     )
 
+    parser.add_argument(
+        "--scoring-config-path",
+        help="Path to a directory containing a scoring model "
+        "(variable_assignment_config.json and formula_config.json).",
+    )
+
     args: argparse.Namespace = parser.parse_args()
 
     # Configure logging level
@@ -511,6 +517,9 @@ def main() -> None:
     cfg["snpeff_splitting_mode"] = (
         args.split_snpeff_lines
     )  # None, 'before_filters', or 'after_filters'
+
+    # Scoring configuration
+    cfg["scoring_config_path"] = args.scoring_config_path
 
     run_pipeline(args, cfg, start_time)
 

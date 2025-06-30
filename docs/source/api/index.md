@@ -20,6 +20,7 @@ config
 analyze_variants
 gene_burden
 stats
+scoring
 ```
 
 ## Data Processing
@@ -76,6 +77,7 @@ gene_bed
 - **{doc}`analyze_variants`** - Variant-level analysis and gene burden testing
 - **{doc}`gene_burden`** - Statistical methods for gene burden analysis
 - **{doc}`stats`** - Summary statistics and data aggregation
+- **{doc}`scoring`** - Custom variant scoring with configurable formulas
 
 ### Data Processing
 

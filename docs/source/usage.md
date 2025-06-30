@@ -47,6 +47,10 @@ variantcentrifuge \
 - `--bam-mapping-file` - TSV/CSV file mapping sample IDs to BAM files
 - `--igv-reference` - Genome reference for IGV (e.g., 'hg19', 'hg38')
 
+### Scoring Options
+
+- `--scoring-config-path` - Path to scoring configuration directory containing variable_assignment_config.json and formula_config.json
+
 ### Other Options
 
 - `--version` - Show version and exit
@@ -101,6 +105,19 @@ variantcentrifuge \
   --igv-reference hg38 \
   --html-report \
   --output-file tp53_variants.tsv
+```
+
+### Variant Scoring
+
+```bash
+# Apply custom scoring model to variants
+variantcentrifuge \
+  --gene-file kidney_genes.txt \
+  --vcf-file patient.vcf.gz \
+  --scoring-config-path scoring/nephro_variant_score \
+  --preset rare,coding \
+  --html-report \
+  --output-file scored_variants.tsv
 ```
 
 ## Input File Formats

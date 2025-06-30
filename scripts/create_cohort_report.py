@@ -83,7 +83,8 @@ def extract_sample_id(file_path, regex_pattern):
         else:
             # This case handles if regex matches but capture group 1 is missing or empty
             logger.warning(
-                f"Regex matched for '{file_path}', but capture group 1 was missing or empty. Match groups: {match.groups()}. Regex: '{regex_pattern}'"
+                f"Regex matched for '{file_path}', but capture group 1 was missing or empty. "
+                f"Match groups: {match.groups()}. Regex: '{regex_pattern}'"
             )
     else:
         logger.warning(
@@ -97,12 +98,14 @@ def extract_sample_id(file_path, regex_pattern):
         parent_dir_name = os.path.basename(os.path.dirname(file_path))
         if parent_dir_name:  # Ensure parent_dir_name is not empty
             logger.info(
-                f"Using fallback: parent directory name '{parent_dir_name}' as SampleID for '{file_path}'"
+                f"Using fallback: parent directory name '{parent_dir_name}' as SampleID "
+                f"for '{file_path}'"
             )
             return parent_dir_name
         else:  # Handle cases like file_path being in root directory, e.g. "/variants.tsv"
             logger.warning(
-                f"Fallback to parent directory name failed for '{file_path}' (parent_dir_name is empty). Using filename as last resort."
+                f"Fallback to parent directory name failed for '{file_path}' "
+                f"(parent_dir_name is empty). Using filename as last resort."
             )
     except Exception as e:
         logger.error(f"Error during fallback parent directory extraction for '{file_path}': {e}")
@@ -110,7 +113,8 @@ def extract_sample_id(file_path, regex_pattern):
     # Last resort fallback: filename without extension
     final_fallback_id = os.path.splitext(os.path.basename(file_path))[0]
     logger.info(
-        f"Using last resort fallback: filename without extension '{final_fallback_id}' as SampleID for '{file_path}'"
+        f"Using last resort fallback: filename without extension '{final_fallback_id}' "
+        f"as SampleID for '{file_path}'"
     )
     return final_fallback_id
 
@@ -118,7 +122,8 @@ def extract_sample_id(file_path, regex_pattern):
 def aggregate_data(input_files, sample_regex):
     """Aggregate data from multiple TSV files into a single DataFrame."""
     logger.info(
-        f"Starting data aggregation from {len(input_files)} input file(s) using pattern for sample_regex: '{sample_regex}'"
+        f"Starting data aggregation from {len(input_files)} input file(s) using pattern "
+        f"for sample_regex: '{sample_regex}'"
     )
 
     dfs = []
@@ -140,27 +145,31 @@ def aggregate_data(input_files, sample_regex):
             # Look for sample-specific allele frequency column (may be named differently)
             af_col = None
             for col in df.columns:
-                # Ensure 'AF' is part of the column name, and it's not one of the standard population AF columns
+                # Ensure 'AF' is part of the column name, and it's not one of the
+                # standard population AF columns
                 if "AF" in col and col not in [
                     "AF_EXAC",
                     "AF_GNOMAD",
                     "AF_1000G",
-                    "SampleAF",
-                ]:  # Added SampleAF to avoid re-processing
+                    "SampleAF",  # Added SampleAF to avoid re-processing
+                ]:
                     af_col = col
                     break
 
             if af_col:  # If a suitable AF column is found
                 if "SampleAF" not in df.columns:  # And SampleAF doesn't already exist
                     df.rename(columns={af_col: "SampleAF"}, inplace=True)
-                    logger.debug(
-                        f"Renamed sample-specific AF column '{af_col}' to 'SampleAF' for sample '{sample_id}' from '{file_path}'"
+                    msg = (
+                        f"Renamed sample-specific AF column '{af_col}' to 'SampleAF' "
+                        f"for sample '{sample_id}' from '{file_path}'"
                     )
+                    logger.debug(msg)
                 elif (
                     af_col != "SampleAF"
                 ):  # If SampleAF exists but we found another candidate (e.g. TUMOR_AF)
                     logger.debug(
-                        f"Column 'SampleAF' already exists. Did not rename '{af_col}' for sample '{sample_id}' from '{file_path}'"
+                        f"Column 'SampleAF' already exists. Did not rename '{af_col}' "
+                        f"for sample '{sample_id}' from '{file_path}'"
                     )
 
             # Ensure the Gene column exists (case-insensitive check and rename)
@@ -173,11 +182,13 @@ def aggregate_data(input_files, sample_regex):
                 if found_gene_col_original_case:
                     df.rename(columns={found_gene_col_original_case: "Gene"}, inplace=True)
                     logger.debug(
-                        f"Renamed column '{found_gene_col_original_case}' to 'Gene' for sample '{sample_id}' from '{file_path}'"
+                        f"Renamed column '{found_gene_col_original_case}' to 'Gene' "
+                        f"for sample '{sample_id}' from '{file_path}'"
                     )
                 else:
                     logger.warning(
-                        f"'Gene' column (or case-insensitive 'gene') not found in {file_path} for sample '{sample_id}'. Adding 'Unknown' as placeholder."
+                        f"'Gene' column (or case-insensitive 'gene') not found in {file_path} "
+                        f"for sample '{sample_id}'. Adding 'Unknown' as placeholder."
                     )
                     df["Gene"] = "Unknown"  # Add placeholder if no gene column
 
@@ -190,7 +201,8 @@ def aggregate_data(input_files, sample_regex):
 
     if not dfs:
         logger.critical(
-            "CRITICAL: No dataframes were created after processing all input files. This means no valid data could be read or processed. Exiting."
+            "CRITICAL: No dataframes were created after processing all input files. "
+            "This means no valid data could be read or processed. Exiting."
         )
         sys.exit(1)
 
@@ -201,24 +213,28 @@ def aggregate_data(input_files, sample_regex):
     )  # Get sorted list of unique IDs
     logger.info(f"Aggregation complete. Total variants aggregated: {len(master_df)}.")
     logger.info(
-        f"All SampleIDs extracted during aggregation (includes duplicates if any): {collected_sample_ids}"
+        f"All SampleIDs extracted during aggregation (includes duplicates if any): "
+        f"{collected_sample_ids}"
     )
     logger.info(
-        f"Number of unique SampleIDs successfully extracted: {len(unique_extracted_samples)}. Unique IDs found: {unique_extracted_samples}"
+        f"Number of unique SampleIDs successfully extracted: {len(unique_extracted_samples)}. "
+        f"Unique IDs found: {unique_extracted_samples}"
     )
 
     if "SampleID" in master_df.columns:
         df_unique_samples_count = master_df["SampleID"].nunique()
         df_unique_samples_list = sorted(list(master_df["SampleID"].unique()))
         logger.info(
-            f"Verification: Unique SampleIDs present in the final aggregated DataFrame: {df_unique_samples_count}. IDs: {df_unique_samples_list}"
+            f"Verification: Unique SampleIDs present in the final aggregated DataFrame: "
+            f"{df_unique_samples_count}. IDs: {df_unique_samples_list}"
         )
         if (
             len(unique_extracted_samples) != df_unique_samples_count
             or unique_extracted_samples != df_unique_samples_list
         ):
             logger.warning(
-                "Potential Mismatch Alert! The set of unique SampleIDs extracted during file processing "
+                "Potential Mismatch Alert! The set of unique SampleIDs extracted during "
+                "file processing "
                 f"({len(unique_extracted_samples)}: {unique_extracted_samples}) "
                 "differs from the unique SampleIDs found in the final DataFrame "
                 f"({df_unique_samples_count}: {df_unique_samples_list}). "
@@ -226,7 +242,8 @@ def aggregate_data(input_files, sample_regex):
             )
     else:
         logger.error(
-            "CRITICAL: 'SampleID' column is MISSING from the final aggregated DataFrame. Sample identification will fail."
+            "CRITICAL: 'SampleID' column is MISSING from the final aggregated DataFrame. "
+            "Sample identification will fail."
         )
 
     return master_df

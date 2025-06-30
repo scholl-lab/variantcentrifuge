@@ -44,6 +44,7 @@ from .links import add_links_to_table
 from .phenotype import aggregate_phenotypes_for_samples, load_phenotypes
 from .phenotype_filter import filter_phenotypes
 from .replacer import replace_genotypes
+from .scoring import read_scoring_config
 from .utils import (
     check_external_tools,
     ensure_fields_in_extract,
@@ -270,6 +271,18 @@ def run_pipeline(
 
     # Store phenotypes in cfg for determine_case_control_sets usage
     cfg["phenotypes"] = phenotypes
+
+    # Load scoring configuration if path is provided
+    scoring_config = None
+    if cfg.get("scoring_config_path"):
+        try:
+            scoring_config = read_scoring_config(cfg["scoring_config_path"])
+            logger.info(
+                f"Successfully loaded scoring configuration from {cfg['scoring_config_path']}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to load scoring configuration: {e}")
+            sys.exit(1)
 
     # Load phenotype terms
     case_hpo_terms = []
@@ -598,6 +611,7 @@ def run_pipeline(
     # Run analyze_variants for variant-level results
     temp_cfg = cfg.copy()
     temp_cfg["perform_gene_burden"] = False
+    temp_cfg["scoring_config"] = scoring_config  # Pass the loaded config
     buffer = []
     with open(final_tsv, "r", encoding="utf-8") as inp:
         line_count = 0
