@@ -1,6 +1,5 @@
 """Tests for genotype utility functions."""
 
-import pytest
 from variantcentrifuge.genotype_utils import (
     parse_genotype,
     is_het,

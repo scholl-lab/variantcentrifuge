@@ -27,7 +27,6 @@ from variantcentrifuge.annotator import (
     _load_gene_lists,
     _load_json_gene_data,
     _extract_genes_from_row,
-    _find_region_overlaps,
     _find_gene_list_matches,
     _find_json_gene_matches,
     INTERVALTREE_AVAILABLE,

@@ -17,6 +17,10 @@ New changes for preserving extra fields (e.g., DP, AD) in parentheses:
 - If a sample's entry is "325879(0/1:53,55:108)", we parse "0/1" as the "main" genotype
   but leave the rest of the substring (":53,55:108") intact. If this sample passes
   'het', we produce "325879(0/1:53,55:108)(het)" in the final output.
+
+TSV-based filtering:
+- Added filter_tsv_with_expression() to apply filters on TSV data after scoring
+  and annotation steps are complete, allowing filtering on computed columns.
 """
 
 import logging
@@ -418,3 +422,88 @@ def filter_final_tsv_by_genotype(
             out.write(line + "\n")
 
     logger.info("Genotype filtering complete. Input: %s, Output: %s", input_tsv, output_tsv)
+
+
+def filter_tsv_with_expression(
+    input_tsv: str, output_tsv: str, filter_expression: str, pandas_query: bool = True
+) -> None:
+    """
+    Filter a TSV file using a filter expression.
+
+    This function enables filtering on any column in the TSV, including computed
+    columns like scores, inheritance patterns, and custom annotations that are
+    added during the analysis pipeline.
+
+    Parameters
+    ----------
+    input_tsv : str
+        Path to the input TSV file
+    output_tsv : str
+        Path to the output filtered TSV file
+    filter_expression : str
+        Filter expression. If pandas_query is True, this should be a pandas query
+        string (e.g., "Score > 0.5 & Impact == 'HIGH'"). If False, it should be
+        a SnpSift-style expression that will be translated.
+    pandas_query : bool
+        If True, use pandas query syntax. If False, translate from SnpSift syntax.
+    """
+    import pandas as pd
+    import re
+
+    logger.info(f"Applying TSV filter: {filter_expression}")
+
+    try:
+        # Read the TSV file
+        df = pd.read_csv(input_tsv, sep="\t", dtype=str, keep_default_na=False)
+        initial_count = len(df)
+
+        if initial_count == 0:
+            logger.warning("Input TSV is empty, writing empty output")
+            df.to_csv(output_tsv, sep="\t", index=False)
+            return
+
+        if not pandas_query:
+            # Convert SnpSift-style expression to pandas query
+            # This is a simplified converter - extend as needed
+            expression = filter_expression
+
+            # Handle basic conversions
+            expression = expression.replace("=", "==")
+            expression = expression.replace("!==", "!=")
+            expression = re.sub(r"\b&\b", " & ", expression)
+            expression = re.sub(r"\b\|\b", " | ", expression)
+
+            # Convert numeric comparisons for score columns
+            # Assume columns ending with _Score or Score are numeric
+            score_columns = [
+                col for col in df.columns if col.endswith("Score") or col.endswith("_score")
+            ]
+            for col in score_columns:
+                # Convert string column to numeric for comparison
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+            filter_expression = expression
+
+        # Apply the filter
+        try:
+            filtered_df = df.query(filter_expression)
+        except Exception as e:
+            logger.error(f"Failed to apply filter expression: {e}")
+            logger.info("Writing unfiltered data to output")
+            df.to_csv(output_tsv, sep="\t", index=False)
+            return
+
+        final_count = len(filtered_df)
+        logger.info(
+            f"Filter retained {final_count}/{initial_count} variants ({final_count/initial_count*100:.1f}%)"
+        )
+
+        # Write the filtered data
+        filtered_df.to_csv(output_tsv, sep="\t", index=False)
+
+    except Exception as e:
+        logger.error(f"Error in TSV filtering: {e}")
+        # Copy input to output on error
+        import shutil
+
+        shutil.copy2(input_tsv, output_tsv)

@@ -43,7 +43,12 @@ from .converter import (
     produce_report_json,
 )
 from .extractor import extract_fields
-from .filters import apply_snpsift_filter, extract_variants, filter_final_tsv_by_genotype
+from .filters import (
+    apply_snpsift_filter,
+    extract_variants,
+    filter_final_tsv_by_genotype,
+    filter_tsv_with_expression,
+)
 from .gene_bed import get_gene_bed, normalize_genes
 from .links import add_links_to_table
 from .phenotype import aggregate_phenotypes_for_samples, load_phenotypes
@@ -412,9 +417,16 @@ def run_pipeline(
         prefiltered_for_snpsift = variants_file
 
     # -----------------------------------------------------------------------
-    # Step 3: Apply SnpSift filter => filtered_file
+    # Step 3: Apply SnpSift filter => filtered_file (skip if late filtering is enabled)
     # -----------------------------------------------------------------------
-    apply_snpsift_filter(prefiltered_for_snpsift, cfg["filters"], cfg, filtered_file)
+    if cfg.get("late_filtering", False):
+        logger.info("Late filtering enabled - skipping early SnpSift filter step")
+        # Just copy the file without filtering
+        import shutil
+
+        shutil.copy2(prefiltered_for_snpsift, filtered_file)
+    else:
+        apply_snpsift_filter(prefiltered_for_snpsift, cfg["filters"], cfg, filtered_file)
 
     # If splitting after filters
     if splitting_mode == "after_filters":
@@ -689,6 +701,32 @@ def run_pipeline(
             "Gene list annotation is now integrated into the unified Custom_Annotation system. "
             "Individual gene list columns are no longer added separately."
         )
+
+    # Apply late filtering if enabled and filters are specified
+    if cfg.get("late_filtering", False) and cfg.get("filters") and len(buffer) > 1:
+        logger.info("Applying late filtering on scored and annotated data...")
+
+        # Write buffer to a temporary file
+        temp_scored_tsv = os.path.join(intermediate_dir, f"{base_name}.scored.tsv")
+        with open(temp_scored_tsv, "w", encoding="utf-8") as f:
+            for line in buffer:
+                f.write(line + "\n")
+
+        # Apply the filter
+        temp_filtered_tsv = os.path.join(intermediate_dir, f"{base_name}.late_filtered.tsv")
+        filter_tsv_with_expression(
+            temp_scored_tsv,
+            temp_filtered_tsv,
+            cfg["filters"],
+            pandas_query=False,  # Use SnpSift-style syntax
+        )
+
+        # Read the filtered results back into buffer
+        with open(temp_filtered_tsv, "r", encoding="utf-8") as f:
+            buffer = [line.rstrip("\n") for line in f]
+
+        if len(buffer) <= 1:
+            logger.warning("No variants passed late filtering")
 
     # Add links if not disabled and we have data rows
     if not cfg.get("no_links", False) and len(buffer) > 1:

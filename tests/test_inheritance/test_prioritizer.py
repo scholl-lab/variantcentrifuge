@@ -1,6 +1,5 @@
 """Tests for inheritance pattern prioritizer."""
 
-import pytest
 from variantcentrifuge.inheritance.prioritizer import (
     prioritize_patterns,
     adjust_pattern_score,

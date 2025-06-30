@@ -99,6 +99,12 @@ def main() -> None:
         default=None,
     )
     parser.add_argument("-f", "--filters", help="Filters to apply in SnpSift filter")
+    parser.add_argument(
+        "--late-filtering",
+        action="store_true",
+        help="Apply filters after scoring and annotation (allows filtering on computed columns like scores). "
+        "By default, filters are applied early on VCF data.",
+    )
     # Preset argument
     parser.add_argument(
         "--preset",
@@ -576,6 +582,9 @@ def main() -> None:
     if args.calculate_inheritance and not args.ped:
         logger.error("--calculate-inheritance requires --ped file to be provided.")
         sys.exit(1)
+
+    # Late filtering configuration
+    cfg["late_filtering"] = args.late_filtering
 
     run_pipeline(args, cfg, start_time)
 
