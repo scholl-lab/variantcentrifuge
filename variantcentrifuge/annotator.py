@@ -1,0 +1,573 @@
+"""
+Unified Annotation Module for VariantCentrifuge.
+
+This module provides comprehensive custom annotation capabilities that unify
+BED file annotations, gene list annotations, and structured JSON gene data
+into a single, powerful annotation system.
+
+Key Features:
+- Efficient interval-based annotation using IntervalTrees for BED files
+- Gene list annotation with flexible naming
+- Structured JSON gene data integration
+- Unified output in a single 'Custom_Annotation' column
+- Full integration with filtering and scoring systems
+
+The module generates semicolon-separated key-value pairs in the format:
+Region=promoter_X;InGeneList=cancer_panel;Panel=HereditaryCancer
+"""
+
+import logging
+import json
+import os
+import pandas as pd
+from typing import Dict, List, Set, Any, Optional
+import re
+
+# Handle optional dependency gracefully
+try:
+    from intervaltree import Interval, IntervalTree
+
+    INTERVALTREE_AVAILABLE = True
+except ImportError:
+    INTERVALTREE_AVAILABLE = False
+    IntervalTree = None
+    Interval = None
+
+logger = logging.getLogger("variantcentrifuge")
+
+
+def _sanitize_name(name: str) -> str:
+    """
+    Sanitize a name to be safe for use in annotations.
+
+    Args:
+        name: Raw name string
+
+    Returns:
+        Sanitized name with only alphanumeric characters and underscores
+    """
+    # Remove extension and path
+    base_name = os.path.splitext(os.path.basename(name))[0]
+    # Replace non-alphanumeric characters with underscores
+    sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", base_name)
+    # Remove leading/trailing underscores and collapse multiple underscores
+    sanitized = re.sub(r"_+", "_", sanitized).strip("_")
+    # Ensure not empty
+    return sanitized if sanitized else "unnamed"
+
+
+def _parse_bed_line(line: str) -> Optional[tuple]:
+    """
+    Parse a single BED file line.
+
+    Args:
+        line: BED format line
+
+    Returns:
+        Tuple of (chrom, start, end, name) or None if invalid
+    """
+    line = line.strip()
+    if not line or line.startswith(("#", "track", "browser")):
+        return None
+
+    parts = line.split("\t")
+    if len(parts) < 3:
+        return None
+
+    try:
+        chrom = parts[0].replace("chr", "")
+        start = int(parts[1])
+        end = int(parts[2])
+        name = parts[3] if len(parts) > 3 else f"region_{start}_{end}"
+        return (chrom, start, end, name)
+    except (ValueError, IndexError):
+        return None
+
+
+def _load_bed_files(bed_files: List[str]) -> Dict[str, Any]:
+    """
+    Load BED files into interval trees for efficient overlap detection.
+
+    Args:
+        bed_files: List of BED file paths
+
+    Returns:
+        Dictionary with chromosome-keyed interval trees
+    """
+    if not INTERVALTREE_AVAILABLE:
+        logger.warning("intervaltree not available. BED annotation disabled.")
+        return {}
+
+    regions_by_chrom = {}
+
+    for file_path in bed_files:
+        if not os.path.exists(file_path):
+            logger.warning(f"BED file not found: {file_path}")
+            continue
+
+        file_name = _sanitize_name(file_path)
+        regions_loaded = 0
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                for line_num, line in enumerate(f, 1):
+                    parsed = _parse_bed_line(line)
+                    if parsed is None:
+                        continue
+
+                    chrom, start, end, name = parsed
+
+                    # Ensure interval is valid
+                    if start >= end:
+                        logger.debug(f"Invalid interval in {file_path}:{line_num}: {start}-{end}")
+                        continue
+
+                    if chrom not in regions_by_chrom:
+                        regions_by_chrom[chrom] = IntervalTree()
+
+                    # Store both region name and file source
+                    annotation_name = f"{name}_{file_name}"
+                    regions_by_chrom[chrom][start:end] = annotation_name
+                    regions_loaded += 1
+
+            logger.info(f"Loaded {regions_loaded} regions from BED file: {file_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to load BED file {file_path}: {e}")
+
+    return regions_by_chrom
+
+
+def _load_gene_lists(gene_list_files: List[str]) -> Dict[str, Set[str]]:
+    """
+    Load gene lists from text files.
+
+    Args:
+        gene_list_files: List of gene list file paths
+
+    Returns:
+        Dictionary mapping list names to sets of gene symbols (uppercase)
+    """
+    gene_lists = {}
+
+    for file_path in gene_list_files:
+        if not os.path.exists(file_path):
+            logger.warning(f"Gene list file not found: {file_path}")
+            continue
+
+        list_name = _sanitize_name(file_path)
+        genes_loaded = 0
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                genes = set()
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        # Handle comma-separated genes on a single line
+                        for gene in line.split(","):
+                            gene = gene.strip()
+                            if gene:
+                                genes.add(gene.upper())
+                                genes_loaded += 1
+
+                gene_lists[list_name] = genes
+
+            logger.info(f"Loaded {genes_loaded} genes from list: {file_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to load gene list {file_path}: {e}")
+
+    return gene_lists
+
+
+def _load_json_gene_data(json_files: List[str], mapping_config: str) -> Dict[str, Dict[str, Any]]:
+    """
+    Load structured gene data from JSON files.
+
+    Args:
+        json_files: List of JSON file paths
+        mapping_config: JSON string specifying field mapping
+
+    Returns:
+        Dictionary mapping gene symbols to their data dictionaries
+    """
+    if not mapping_config:
+        logger.warning("No JSON gene mapping provided. Skipping JSON gene data.")
+        return {}
+
+    try:
+        mapping = json.loads(mapping_config)
+        identifier_key = mapping.get("identifier", "gene_symbol")
+        data_fields = mapping.get("dataFields", [])
+
+        if not data_fields:
+            logger.warning("No data fields specified in JSON mapping. Skipping JSON gene data.")
+            return {}
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON mapping configuration: {e}")
+        return {}
+
+    json_gene_data = {}
+
+    for file_path in json_files:
+        if not os.path.exists(file_path):
+            logger.warning(f"JSON gene file not found: {file_path}")
+            continue
+
+        genes_loaded = 0
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            # Handle both list and dict formats
+            items = (
+                data if isinstance(data, list) else data.values() if isinstance(data, dict) else []
+            )
+
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+
+                identifier = item.get(identifier_key)
+                if not identifier:
+                    continue
+
+                gene_symbol = str(identifier).upper()
+                gene_annotations = {}
+
+                for field in data_fields:
+                    value = item.get(field)
+                    if value is not None:
+                        # Convert value to string and sanitize
+                        str_value = str(value).strip()
+                        if str_value:
+                            # Sanitize field name
+                            clean_field = re.sub(r"[^a-zA-Z0-9_]", "_", field)
+                            gene_annotations[clean_field] = str_value
+
+                if gene_annotations:
+                    json_gene_data[gene_symbol] = gene_annotations
+                    genes_loaded += 1
+
+            logger.info(f"Loaded data for {genes_loaded} genes from JSON: {file_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to load JSON gene file {file_path}: {e}")
+
+    return json_gene_data
+
+
+def load_custom_features(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Load all custom annotation features from configuration.
+
+    Args:
+        cfg: Configuration dictionary containing annotation file paths
+
+    Returns:
+        Dictionary containing all loaded annotation features
+    """
+    logger.info("Loading custom annotation features...")
+
+    features = {"regions_by_chrom": {}, "gene_lists": {}, "json_gene_data": {}}
+
+    # Load BED files
+    bed_files = cfg.get("annotate_bed_files", [])
+    if bed_files:
+        logger.info(f"Loading {len(bed_files)} BED file(s) for region annotation...")
+        features["regions_by_chrom"] = _load_bed_files(bed_files)
+
+    # Load gene lists
+    gene_list_files = cfg.get("annotate_gene_lists", [])
+    if gene_list_files:
+        logger.info(f"Loading {len(gene_list_files)} gene list file(s)...")
+        features["gene_lists"] = _load_gene_lists(gene_list_files)
+
+    # Load JSON gene data
+    json_files = cfg.get("annotate_json_genes", [])
+    if json_files:
+        logger.info(f"Loading {len(json_files)} JSON gene file(s)...")
+        features["json_gene_data"] = _load_json_gene_data(
+            json_files, cfg.get("json_gene_mapping", "")
+        )
+
+    # Log summary
+    total_regions = sum(len(tree) for tree in features["regions_by_chrom"].values())
+    total_gene_lists = len(features["gene_lists"])
+    total_json_genes = len(features["json_gene_data"])
+
+    logger.info(
+        f"Custom annotation features loaded: {total_regions} regions, "
+        f"{total_gene_lists} gene lists, {total_json_genes} JSON gene entries"
+    )
+
+    return features
+
+
+def _extract_genes_from_row(row: pd.Series) -> Set[str]:
+    """
+    Extract gene symbols from a variant row.
+
+    Args:
+        row: Pandas Series representing a variant row
+
+    Returns:
+        Set of uppercase gene symbols
+    """
+    genes = set()
+
+    # Check common gene annotation columns
+    gene_columns = ["GENE", "Gene", "gene_symbol", "symbol"]
+
+    for col in gene_columns:
+        if col in row:
+            gene_value = str(row[col])
+            if gene_value and gene_value.lower() not in ("nan", "none", ""):
+                # Handle multiple genes separated by common delimiters
+                for separator in [",", ";", "|", "&"]:
+                    if separator in gene_value:
+                        gene_parts = gene_value.split(separator)
+                        genes.update(g.strip().upper() for g in gene_parts if g.strip())
+                        break
+                else:
+                    # Single gene
+                    genes.add(gene_value.strip().upper())
+
+    return genes
+
+
+def _find_region_overlaps(row: pd.Series, regions_by_chrom: Dict[str, Any]) -> List[str]:
+    """
+    Find overlapping regions for a variant.
+
+    Args:
+        row: Variant row
+        regions_by_chrom: Dictionary of interval trees by chromosome
+
+    Returns:
+        List of region annotation strings
+    """
+    annotations = []
+
+    if not regions_by_chrom or not INTERVALTREE_AVAILABLE:
+        return annotations
+
+    # Extract position information
+    chrom = str(row.get("CHROM", "")).replace("chr", "")
+
+    try:
+        pos = int(row.get("POS", 0))
+        if pos <= 0:
+            return annotations
+    except (ValueError, TypeError):
+        return annotations
+
+    # Find overlapping intervals
+    if chrom in regions_by_chrom:
+        overlaps = regions_by_chrom[chrom][pos]
+        for interval in overlaps:
+            annotations.append(f"Region={interval.data}")
+
+    return annotations
+
+
+def _find_gene_list_matches(genes: Set[str], gene_lists: Dict[str, Set[str]]) -> List[str]:
+    """
+    Find gene list matches for a set of genes.
+
+    Args:
+        genes: Set of gene symbols
+        gene_lists: Dictionary of gene lists
+
+    Returns:
+        List of gene list annotation strings
+    """
+    annotations = []
+
+    for list_name, gene_set in gene_lists.items():
+        if genes & gene_set:  # Intersection check
+            annotations.append(f"InGeneList={list_name}")
+
+    return annotations
+
+
+def _find_json_gene_matches(
+    genes: Set[str], json_gene_data: Dict[str, Dict[str, Any]]
+) -> List[str]:
+    """
+    Find JSON gene data matches for a set of genes.
+
+    Args:
+        genes: Set of gene symbols
+        json_gene_data: Dictionary of gene data
+
+    Returns:
+        List of gene data annotation strings
+    """
+    annotations = []
+
+    for gene in genes:
+        if gene in json_gene_data:
+            for key, value in json_gene_data[gene].items():
+                annotations.append(f"{key}={value}")
+
+    return annotations
+
+
+def annotate_dataframe_with_features(df: pd.DataFrame, features: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Add Custom_Annotation column to DataFrame with unified annotation data.
+
+    Args:
+        df: Input DataFrame with variant data
+        features: Dictionary of loaded annotation features
+
+    Returns:
+        DataFrame with added Custom_Annotation column
+    """
+    if df.empty:
+        logger.warning("Empty DataFrame provided for annotation")
+        df["Custom_Annotation"] = ""
+        return df
+
+    # Check if any features are available
+    has_features = (
+        bool(features.get("regions_by_chrom"))
+        or bool(features.get("gene_lists"))
+        or bool(features.get("json_gene_data"))
+    )
+
+    if not has_features:
+        logger.info(
+            "No custom annotation features available, adding empty Custom_Annotation column"
+        )
+        df["Custom_Annotation"] = ""
+        return df
+
+    logger.info(f"Applying custom annotations to {len(df)} variants...")
+
+    def annotate_variant(row):
+        """Apply all annotations to a single variant row."""
+        annotations = []
+
+        # Extract genes for this variant
+        variant_genes = _extract_genes_from_row(row)
+
+        # Find region overlaps
+        region_annotations = _find_region_overlaps(row, features["regions_by_chrom"])
+        annotations.extend(region_annotations)
+
+        # Find gene list matches
+        gene_list_annotations = _find_gene_list_matches(variant_genes, features["gene_lists"])
+        annotations.extend(gene_list_annotations)
+
+        # Find JSON gene data matches
+        json_annotations = _find_json_gene_matches(variant_genes, features["json_gene_data"])
+        annotations.extend(json_annotations)
+
+        # Sort annotations for consistent output
+        return ";".join(sorted(annotations)) if annotations else ""
+
+    # Apply annotations
+    df = df.copy()  # Avoid modifying original DataFrame
+    df["Custom_Annotation"] = df.apply(annotate_variant, axis=1)
+
+    # Log statistics
+    annotated_variants = (df["Custom_Annotation"] != "").sum()
+    logger.info(f"Custom annotation complete: {annotated_variants}/{len(df)} variants annotated")
+
+    return df
+
+
+def get_annotation_summary(df: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Generate a summary of annotation results.
+
+    Args:
+        df: DataFrame with Custom_Annotation column
+
+    Returns:
+        Dictionary with annotation statistics
+    """
+    if "Custom_Annotation" not in df.columns:
+        return {"error": "Custom_Annotation column not found"}
+
+    total_variants = len(df)
+    annotated_variants = (df["Custom_Annotation"] != "").sum()
+
+    # Count annotation types
+    annotation_types = {}
+    for annotations in df["Custom_Annotation"]:
+        if annotations:
+            for annotation in annotations.split(";"):
+                if "=" in annotation:
+                    key = annotation.split("=")[0]
+                    annotation_types[key] = annotation_types.get(key, 0) + 1
+
+    return {
+        "total_variants": total_variants,
+        "annotated_variants": annotated_variants,
+        "annotation_rate": annotated_variants / total_variants if total_variants > 0 else 0,
+        "annotation_types": annotation_types,
+    }
+
+
+def validate_annotation_config(cfg: Dict[str, Any]) -> List[str]:
+    """
+    Validate annotation configuration and return any errors.
+
+    Args:
+        cfg: Configuration dictionary
+
+    Returns:
+        List of validation error messages
+    """
+    errors = []
+
+    # Check BED files
+    for bed_file in cfg.get("annotate_bed_files", []):
+        if not os.path.exists(bed_file):
+            errors.append(f"BED file not found: {bed_file}")
+        elif not os.path.isfile(bed_file):
+            errors.append(f"BED path is not a file: {bed_file}")
+
+    # Check gene list files
+    for gene_file in cfg.get("annotate_gene_lists", []):
+        if not os.path.exists(gene_file):
+            errors.append(f"Gene list file not found: {gene_file}")
+        elif not os.path.isfile(gene_file):
+            errors.append(f"Gene list path is not a file: {gene_file}")
+
+    # Check JSON files and mapping
+    json_files = cfg.get("annotate_json_genes", [])
+    json_mapping = cfg.get("json_gene_mapping", "")
+
+    if json_files and not json_mapping:
+        errors.append("JSON gene files specified but no json_gene_mapping provided")
+    elif json_mapping and not json_files:
+        errors.append("JSON gene mapping provided but no JSON files specified")
+
+    if json_mapping:
+        try:
+            mapping = json.loads(json_mapping)
+            if not isinstance(mapping, dict):
+                errors.append("JSON gene mapping must be a JSON object")
+            elif "identifier" not in mapping:
+                errors.append("JSON gene mapping must include 'identifier' field")
+        except json.JSONDecodeError:
+            errors.append("Invalid JSON syntax in gene mapping")
+
+    for json_file in json_files:
+        if not os.path.exists(json_file):
+            errors.append(f"JSON gene file not found: {json_file}")
+        elif not os.path.isfile(json_file):
+            errors.append(f"JSON gene path is not a file: {json_file}")
+
+    # Check intervaltree availability if BED files are specified
+    if cfg.get("annotate_bed_files") and not INTERVALTREE_AVAILABLE:
+        errors.append("intervaltree package required for BED file annotation but not installed")
+
+    return errors

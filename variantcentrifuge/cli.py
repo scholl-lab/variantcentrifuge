@@ -355,6 +355,26 @@ def main() -> None:
         "(variable_assignment_config.json and formula_config.json).",
     )
 
+    # Unified annotation arguments
+    parser.add_argument(
+        "--annotate-bed",
+        action="append",
+        default=[],
+        metavar="BED_FILE",
+        help="Path to a BED file for annotation. Adds 'Region=<name>' to the Custom_Annotation column for overlapping variants. Can be used multiple times.",
+    )
+    parser.add_argument(
+        "--annotate-json-genes",
+        action="append",
+        default=[],
+        metavar="JSON_FILE",
+        help="Path to a JSON file with structured gene data. Requires --json-gene-mapping.",
+    )
+    parser.add_argument(
+        "--json-gene-mapping",
+        help='JSON string to map fields in JSON gene files. e.g., \'{"identifier":"gene_symbol","dataFields":["panel","inheritance"]}\'',
+    )
+
     # Inheritance analysis arguments
     parser.add_argument(
         "--ped",
@@ -531,6 +551,22 @@ def main() -> None:
 
     # Scoring configuration
     cfg["scoring_config_path"] = args.scoring_config_path
+
+    # Unified annotation configuration
+    cfg["annotate_bed_files"] = args.annotate_bed
+    cfg["annotate_json_genes"] = args.annotate_json_genes
+    cfg["json_gene_mapping"] = args.json_gene_mapping
+    # Note: args.annotate_gene_list is already handled above as "annotate_gene_list_files"
+    # We'll map it to the new unified system
+    cfg["annotate_gene_lists"] = args.annotate_gene_list
+
+    # Validate unified annotation arguments
+    if args.annotate_json_genes and not args.json_gene_mapping:
+        logger.error("--annotate-json-genes requires --json-gene-mapping to be provided.")
+        sys.exit(1)
+    if args.json_gene_mapping and not args.annotate_json_genes:
+        logger.error("--json-gene-mapping requires --annotate-json-genes to be provided.")
+        sys.exit(1)
 
     # Inheritance analysis configuration
     cfg["ped_file"] = args.ped

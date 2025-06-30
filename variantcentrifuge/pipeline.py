@@ -31,6 +31,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from .analyze_variants import analyze_variants
+from .annotator import (
+    load_custom_features,
+    annotate_dataframe_with_features,
+    validate_annotation_config,
+)
 from .converter import (
     append_tsv_as_sheet,
     convert_to_excel,
@@ -295,6 +300,16 @@ def run_pipeline(
         except Exception as e:
             logger.error(f"Failed to load PED file: {e}")
             sys.exit(1)
+
+    # Validate and load custom annotation features
+    annotation_errors = validate_annotation_config(cfg)
+    if annotation_errors:
+        logger.error("Custom annotation configuration errors:")
+        for error in annotation_errors:
+            logger.error(f"  - {error}")
+        sys.exit(1)
+
+    custom_features = load_custom_features(cfg)
 
     # Load phenotype terms
     case_hpo_terms = []
@@ -620,6 +635,34 @@ def run_pipeline(
     else:
         cfg["final_excel_file"] = None
 
+    # Load TSV into DataFrame for unified annotation and analysis
+    import pandas as pd
+
+    try:
+        df = pd.read_csv(final_tsv, sep="\t", dtype=str, keep_default_na=False)
+        logger.info(f"Loaded {len(df)} variants for annotation and analysis")
+    except Exception as e:
+        logger.error(f"Failed to load TSV file {final_tsv}: {e}")
+        sys.exit(1)
+
+    # Apply unified custom annotations
+    has_custom_features = (
+        bool(custom_features.get("regions_by_chrom"))
+        or bool(custom_features.get("gene_lists"))
+        or bool(custom_features.get("json_gene_data"))
+    )
+
+    if has_custom_features:
+        logger.info("Applying unified custom annotations...")
+        df = annotate_dataframe_with_features(df, custom_features)
+    else:
+        # Add empty Custom_Annotation column for consistency
+        df["Custom_Annotation"] = ""
+
+    # Convert DataFrame back to file format for analyze_variants
+    annotated_tsv = os.path.join(intermediate_dir, f"{base_name}.annotated.tsv")
+    df.to_csv(annotated_tsv, sep="\t", index=False, na_rep="")
+
     # Run analyze_variants for variant-level results
     temp_cfg = cfg.copy()
     temp_cfg["perform_gene_burden"] = False
@@ -627,7 +670,7 @@ def run_pipeline(
     temp_cfg["pedigree_data"] = pedigree_data  # Pass the loaded pedigree data
     temp_cfg["calculate_inheritance"] = cfg.get("calculate_inheritance", False)
     buffer = []
-    with open(final_tsv, "r", encoding="utf-8") as inp:
+    with open(annotated_tsv, "r", encoding="utf-8") as inp:
         line_count = 0
         for line in analyze_variants(inp, temp_cfg):
             buffer.append(line)
@@ -637,14 +680,15 @@ def run_pipeline(
                 "No variant-level results produced after filtering. Generating empty output files with headers."
             )
 
-    # Apply gene list annotation if gene list files are provided and we have data rows
+    # Note: Gene list annotation is now handled by the unified annotation system above
+    # This ensures --annotate-gene-list files are processed through the new Custom_Annotation column
+    # The old separate column system is deprecated but kept here for backward compatibility checking
     gene_list_annotation_files = cfg.get("annotate_gene_list_files", [])
-    if gene_list_annotation_files and len(buffer) > 1:  # Only if we have more than just the header
-        logger.info(
-            f"Annotating variants with {len(gene_list_annotation_files)} custom gene list(s)."
+    if gene_list_annotation_files and len(buffer) > 1:
+        logger.warning(
+            "Gene list annotation is now integrated into the unified Custom_Annotation system. "
+            "Individual gene list columns are no longer added separately."
         )
-        buffer = annotate_variants_with_gene_lists(buffer, gene_list_annotation_files)
-        logger.debug("Gene list annotation complete.")
 
     # Add links if not disabled and we have data rows
     if not cfg.get("no_links", False) and len(buffer) > 1:

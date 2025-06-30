@@ -38,6 +38,7 @@ setup(
         "scipy",
         "statsmodels",
         "numpy",
+        "intervaltree",
     ],
     entry_points={"console_scripts": ["variantcentrifuge=variantcentrifuge.cli:main"]},
     include_package_data=True,
