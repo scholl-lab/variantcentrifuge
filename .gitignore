@@ -165,7 +165,7 @@ testing/
 # potential input and output files like TSV or XLSX and output folders
 *.tsv
 *.xlsx
-*.vcf
+/*.vcf
 output/
 temp_bed_files/
 
