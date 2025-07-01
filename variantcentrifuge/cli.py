@@ -386,9 +386,14 @@ def main() -> None:
         help="Path to the PED file defining family structure for inheritance analysis.",
     )
     parser.add_argument(
-        "--calculate-inheritance",
-        action="store_true",
-        help="Enable deduction of Mendelian inheritance patterns (requires --ped).",
+        "--inheritance-mode",
+        choices=["simple", "columns", "full"],
+        default=None,
+        help="Define the output format for inheritance analysis. "
+        "'simple': Show pattern only (default if analysis is triggered). "
+        "'columns': Unpack key details into separate columns. "
+        "'full': Show the complete JSON object in a single column. "
+        "Note: Analysis is triggered by this flag or --ped. Without --ped, treats all samples as affected singletons.",
     )
     parser.add_argument(
         "--no-vectorized-comp-het",
@@ -580,13 +585,16 @@ def main() -> None:
 
     # Inheritance analysis configuration
     cfg["ped_file"] = args.ped
-    cfg["calculate_inheritance"] = args.calculate_inheritance
+    # Enable inheritance analysis if inheritance mode is explicitly specified OR if PED file is provided
+    # This allows single-sample analysis without PED
+    cfg["calculate_inheritance"] = args.inheritance_mode is not None or args.ped is not None
+    # If inheritance is calculated but no mode specified, default to "simple"
+    cfg["inheritance_mode"] = args.inheritance_mode or (
+        "simple" if cfg["calculate_inheritance"] else None
+    )
     cfg["use_vectorized_comp_het"] = (
         not args.no_vectorized_comp_het
     )  # Default to True unless disabled
-
-    # Validate inheritance arguments - no longer required
-    # Allow calculate_inheritance without PED file for single sample analysis
 
     # Late filtering configuration
     cfg["late_filtering"] = args.late_filtering

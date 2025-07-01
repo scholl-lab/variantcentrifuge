@@ -939,6 +939,28 @@ def run_pipeline(
 
         return new_lines
 
+    # Process inheritance output based on mode if inheritance was calculated
+    if cfg.get("calculate_inheritance", False) and cfg.get("inheritance_mode") and len(buffer) > 1:
+        # Convert buffer to DataFrame for processing
+        import io
+
+        buffer_str = "\n".join(buffer)
+        df_for_inheritance = pd.read_csv(
+            io.StringIO(buffer_str), sep="\t", dtype=str, keep_default_na=False
+        )
+
+        # Apply inheritance output processing
+        from .inheritance.analyzer import process_inheritance_output
+
+        df_for_inheritance = process_inheritance_output(
+            df_for_inheritance, cfg.get("inheritance_mode", "simple")
+        )
+
+        # Convert back to buffer
+        output_str = io.StringIO()
+        df_for_inheritance.to_csv(output_str, sep="\t", index=False, na_rep="")
+        buffer = output_str.getvalue().rstrip("\n").split("\n")
+
     # Add variant identifiers only if we have data rows
     if len(buffer) > 1:
         buffer = add_variant_identifier(buffer)

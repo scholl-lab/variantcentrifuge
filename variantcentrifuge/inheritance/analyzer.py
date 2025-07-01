@@ -431,3 +431,86 @@ def export_inheritance_report(
         json.dump(report_data, f, indent=2)
 
     logger.info(f"Inheritance report saved to {output_path}")
+
+
+def process_inheritance_output(df: pd.DataFrame, mode: str) -> pd.DataFrame:
+    """
+    Process inheritance analysis output based on the selected mode.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with inheritance analysis results
+    mode : str
+        Output mode: 'simple', 'columns', or 'full'
+
+    Returns
+    -------
+    pd.DataFrame
+        Processed DataFrame based on the selected mode
+    """
+    # If no inheritance columns exist, return as-is
+    if "Inheritance_Pattern" not in df.columns or "Inheritance_Details" not in df.columns:
+        logger.debug("No inheritance columns found in DataFrame")
+        return df
+
+    if mode == "full":
+        # Return as-is with full JSON details
+        return df
+
+    elif mode == "simple":
+        # Drop the details column
+        if "Inheritance_Details" in df.columns:
+            df = df.drop(columns=["Inheritance_Details"])
+        return df
+
+    elif mode == "columns":
+        # Create new columns from the JSON details
+        new_columns = []
+
+        for idx, row in df.iterrows():
+            try:
+                details = json.loads(row["Inheritance_Details"])
+
+                # Extract key information
+                confidence = details.get("confidence", 0)
+                pattern_desc = details.get("pattern_description", "")
+                samples_info = details.get("samples_with_pattern", [])
+
+                # Format samples with pattern
+                sample_strings = []
+                for sample in samples_info:
+                    sample_id = sample.get("sample_id", "")
+                    genotype = sample.get("genotype", "")
+
+                    # Basic format: sample_id(genotype)
+                    sample_str = f"{sample_id}({genotype})"
+
+                    # Add compound het partner if present
+                    if "compound_het_partner" in sample:
+                        partner = sample["compound_het_partner"]
+                        sample_str += f", partner:{partner}"
+
+                    sample_strings.append(sample_str)
+
+                # Set the values
+                df.at[idx, "Inheritance_Confidence"] = f"{confidence:.2f}"
+                df.at[idx, "Inheritance_Description"] = pattern_desc
+                df.at[idx, "Inheritance_Samples"] = "; ".join(sample_strings)
+
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
+                logger.debug(f"Error parsing inheritance details for row {idx}: {e}")
+                # Set empty values for this row
+                df.at[idx, "Inheritance_Confidence"] = ""
+                df.at[idx, "Inheritance_Description"] = ""
+                df.at[idx, "Inheritance_Samples"] = ""
+
+        # Drop the original details column
+        if "Inheritance_Details" in df.columns:
+            df = df.drop(columns=["Inheritance_Details"])
+
+        return df
+
+    else:
+        logger.warning(f"Unknown inheritance mode: {mode}. Returning data as-is.")
+        return df

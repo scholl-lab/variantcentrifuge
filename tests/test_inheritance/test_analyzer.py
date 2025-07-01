@@ -10,6 +10,7 @@ from variantcentrifuge.inheritance.analyzer import (
     get_inheritance_summary,
     filter_by_inheritance_pattern,
     export_inheritance_report,
+    process_inheritance_output,
 )
 import tempfile
 import os
@@ -298,3 +299,102 @@ class TestInheritanceAnalyzer:
         assert len(result_df) == 2
         # Patterns might be different without mother data
         assert "Inheritance_Pattern" in result_df.columns
+
+    def test_process_inheritance_output_simple(self, de_novo_variants_df, trio_pedigree):
+        """Test process_inheritance_output with simple mode."""
+        sample_list = ["father", "mother", "child"]
+        result_df = analyze_inheritance(de_novo_variants_df, trio_pedigree, sample_list)
+
+        # Process with simple mode
+        processed_df = process_inheritance_output(result_df, "simple")
+
+        # Should have pattern but not details
+        assert "Inheritance_Pattern" in processed_df.columns
+        assert "Inheritance_Details" not in processed_df.columns
+        assert len(processed_df) == len(result_df)
+
+    def test_process_inheritance_output_full(self, de_novo_variants_df, trio_pedigree):
+        """Test process_inheritance_output with full mode."""
+        sample_list = ["father", "mother", "child"]
+        result_df = analyze_inheritance(de_novo_variants_df, trio_pedigree, sample_list)
+
+        # Process with full mode
+        processed_df = process_inheritance_output(result_df, "full")
+
+        # Should have both columns unchanged
+        assert "Inheritance_Pattern" in processed_df.columns
+        assert "Inheritance_Details" in processed_df.columns
+        assert processed_df.equals(result_df)
+
+    def test_process_inheritance_output_columns(self, de_novo_variants_df, trio_pedigree):
+        """Test process_inheritance_output with columns mode."""
+        sample_list = ["father", "mother", "child"]
+        result_df = analyze_inheritance(de_novo_variants_df, trio_pedigree, sample_list)
+
+        # Process with columns mode
+        processed_df = process_inheritance_output(result_df, "columns")
+
+        # Should have pattern and new columns but not details
+        assert "Inheritance_Pattern" in processed_df.columns
+        assert "Inheritance_Details" not in processed_df.columns
+        assert "Inheritance_Confidence" in processed_df.columns
+        assert "Inheritance_Description" in processed_df.columns
+        assert "Inheritance_Samples" in processed_df.columns
+
+        # Check values
+        for idx, row in processed_df.iterrows():
+            assert row["Inheritance_Pattern"] == "de_novo"
+            assert float(row["Inheritance_Confidence"]) > 0
+            assert "de novo" in row["Inheritance_Description"].lower()
+            assert "child(0/1)" in row["Inheritance_Samples"]
+
+    def test_process_inheritance_output_compound_het_columns(
+        self, compound_het_variants_df, trio_pedigree
+    ):
+        """Test process_inheritance_output columns mode with compound het variants."""
+        sample_list = ["father", "mother", "child"]
+        result_df = analyze_inheritance(compound_het_variants_df, trio_pedigree, sample_list)
+
+        # Process with columns mode
+        processed_df = process_inheritance_output(result_df, "columns")
+
+        # Check that compound het partner info is included
+        for idx, row in processed_df.iterrows():
+            if "partner:" in row["Inheritance_Samples"]:
+                # This is a compound het variant
+                assert "compound" in row["Inheritance_Description"].lower()
+
+    def test_process_inheritance_output_no_inheritance_columns(self):
+        """Test process_inheritance_output with DataFrame missing inheritance columns."""
+        # Create DataFrame without inheritance columns
+        df = pd.DataFrame(
+            {
+                "CHROM": ["chr1"],
+                "POS": [1000],
+                "REF": ["A"],
+                "ALT": ["T"],
+            }
+        )
+
+        # Should return unchanged for all modes
+        for mode in ["simple", "columns", "full"]:
+            processed_df = process_inheritance_output(df, mode)
+            assert processed_df.equals(df)
+
+    def test_process_inheritance_output_invalid_json(self):
+        """Test process_inheritance_output with invalid JSON in details."""
+        # Create DataFrame with invalid JSON
+        df = pd.DataFrame(
+            {
+                "Inheritance_Pattern": ["de_novo"],
+                "Inheritance_Details": ["invalid json"],
+            }
+        )
+
+        # Process with columns mode - should handle gracefully
+        processed_df = process_inheritance_output(df, "columns")
+
+        assert "Inheritance_Confidence" in processed_df.columns
+        assert processed_df.iloc[0]["Inheritance_Confidence"] == ""
+        assert processed_df.iloc[0]["Inheritance_Description"] == ""
+        assert processed_df.iloc[0]["Inheritance_Samples"] == ""
