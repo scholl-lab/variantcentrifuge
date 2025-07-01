@@ -251,7 +251,7 @@ def create_inheritance_details(
             continue
 
         gt = str(row[sample_id])
-        if gt == "./." or pd.isna(gt):
+        if gt in ["./.", "0/0"] or pd.isna(gt):
             continue
 
         sample_info = {
