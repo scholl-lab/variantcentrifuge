@@ -113,6 +113,7 @@ def apply_scoring(df: pd.DataFrame, scoring_config: Dict[str, Any]) -> pd.DataFr
     # Create a mapping from original column names to formula variable names
     # and handle default values for missing columns.
     rename_map = {}
+    created_vars = []  # Track variables created for missing columns
     for original_col, var_config in variables.items():
         if isinstance(var_config, str):  # Legacy format "target|default:value"
             parts = var_config.split("|")
@@ -144,6 +145,7 @@ def apply_scoring(df: pd.DataFrame, scoring_config: Dict[str, Any]) -> pd.DataFr
             except ValueError:
                 default_value = 0
             scored_df[target_name] = default_value
+            created_vars.append(target_name)
 
     # Rename columns for formula evaluation
     if rename_map:
@@ -162,6 +164,18 @@ def apply_scoring(df: pd.DataFrame, scoring_config: Dict[str, Any]) -> pd.DataFr
                 # Add a column with NaN to indicate failure without crashing
                 scored_df[score_name] = float("nan")
 
-    # Rename columns back to original if needed, or decide to keep new names
-    # For now, we will return the DataFrame with the new score columns and renamed variable columns.
+    # After scoring, we need to clean up:
+    # 1. Rename columns back to their original names
+    # 2. Remove any variables that were created for missing columns
+    # 3. Keep the new score columns
+
+    # First, rename columns back to original names
+    inverse_rename_map = {v: k for k, v in rename_map.items()}
+    scored_df.rename(columns=inverse_rename_map, inplace=True)
+
+    # Now remove only the created variables (for missing columns)
+    if created_vars:
+        cols_to_keep = [col for col in scored_df.columns if col not in created_vars]
+        scored_df = scored_df[cols_to_keep]
+
     return scored_df
