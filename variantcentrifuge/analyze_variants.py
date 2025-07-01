@@ -143,7 +143,16 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
         f"calculate_inheritance: {cfg.get('calculate_inheritance')}, "
         f"pedigree_data type: {type(cfg.get('pedigree_data'))}"
     )
-    if cfg.get("calculate_inheritance") and cfg.get("pedigree_data") is not None:
+    # Check if inheritance analysis has already been performed (columns exist)
+    inheritance_already_done = (
+        "Inheritance_Pattern" in df.columns and "Inheritance_Details" in df.columns
+    )
+
+    if (
+        cfg.get("calculate_inheritance")
+        and cfg.get("pedigree_data") is not None
+        and not inheritance_already_done
+    ):
         logger.info("Performing inheritance pattern analysis...")
         try:
             sample_list = cfg.get("sample_list", "").split(",") if cfg.get("sample_list") else []
@@ -163,6 +172,8 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
             for col in ["_inheritance_patterns", "_comp_het_info"]:
                 if col in df.columns:
                     df = df.drop(columns=[col])
+    elif inheritance_already_done:
+        logger.info("Inheritance analysis already performed, skipping re-calculation.")
 
     # Apply scoring if configuration is provided (can now use inheritance results)
     scoring_config = cfg.get("scoring_config")

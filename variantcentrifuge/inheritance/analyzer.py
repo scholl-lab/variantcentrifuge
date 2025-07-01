@@ -72,7 +72,8 @@ def analyze_inheritance(
         f"Starting inheritance analysis for {len(df)} variants across {len(sample_list)} samples"
     )
 
-    # Initialize new columns
+    # Create a copy to avoid fragmentation and initialize new columns
+    df = df.copy()
     df["_inheritance_patterns"] = None
     df["_comp_het_info"] = None
     df["Inheritance_Pattern"] = "none"

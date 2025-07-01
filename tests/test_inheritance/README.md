@@ -29,10 +29,18 @@ This directory contains comprehensive tests for the enhanced inheritance analysi
   - Confidence calculation
   - Pattern categorization
 
-- **`test_vcf_genotype_extractor.py`** - Tests for VCF genotype extraction
-  - Direct VCF genotype reading
-  - DataFrame augmentation
-  - Error handling
+### Genotype Format Tests
+
+- **`test_colon_separated_genotypes.py`** - Tests for colon-separated GT format
+  - Handling GEN[*].GT extraction format
+  - Performance with many samples
+  - Different separators
+  - Missing data handling
+
+- **`test_gen_star_gt_format.py`** - Documentation tests for GEN[*].GT format
+  - Regression tests for compound het detection
+  - Format expectations
+  - Pipeline behavior documentation
 
 ### Integration Tests
 

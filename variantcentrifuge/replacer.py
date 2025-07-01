@@ -111,7 +111,7 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
     samples = [s.strip() for s in sample_list_str.split(",") if s.strip()]
     logger.debug("Parsed samples => %s", samples)
     logger.debug("Number of samples: %d", len(samples))
-    
+
     if not samples:
         logger.warning("No samples found in cfg[sample_list]. Returning lines unchanged.")
         for line in lines:
@@ -129,10 +129,10 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
     extra_field_indices = {}
 
     first_line = True
-    lines_processed = 0
+    # Process the input lines
     for line_idx, line in enumerate(lines, start=1):
         line = line.rstrip("\n")
-        
+
         # Log progress every 10000 lines
         if line_idx % 10000 == 0:
             logger.debug(f"Processed {line_idx} lines in genotype replacement")
@@ -319,12 +319,14 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
             new_gt_field = separator.join(new_gts)
             # Warn if GT field is extremely long
             if len(new_gt_field) > 100000:
-                logger.warning(f"Line {line_idx}: GT field is very long ({len(new_gt_field)} chars) with {len(new_gts)} samples")
+                logger.warning(
+                    f"Line {line_idx}: GT field is very long ({len(new_gt_field)} chars) with {len(new_gts)} samples"
+                )
             cols[gt_idx] = new_gt_field
         else:
             cols[gt_idx] = ""
 
         yield "\t".join(cols)
-    
+
     # Log completion
     logger.debug(f"Genotype replacement completed. Processed {line_idx} total lines.")

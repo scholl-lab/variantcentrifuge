@@ -516,18 +516,114 @@ def run_pipeline(
     temp_cfg["extract_fields_separator"] = snpsift_sep
     extract_fields(final_filtered_for_extraction, field_list, temp_cfg, extracted_tsv)
 
-    # Genotype replacement logic
+    # Check if GT column is present
     with open(extracted_tsv, "r", encoding="utf-8") as f:
         header_line = f.readline().strip()
     columns = header_line.split("\t")
     gt_present = "GT" in columns
 
     cfg["sample_list"] = ",".join(original_samples) if original_samples else ""
+
+    # MODIFIED: Perform inheritance analysis BEFORE genotype replacement
+    if cfg.get("calculate_inheritance", False) and pedigree_data is not None and original_samples:
+        logger.info("Performing inheritance analysis before genotype replacement...")
+
+        try:
+            # Load the extracted TSV with individual sample genotypes
+            import pandas as pd
+
+            df = pd.read_csv(extracted_tsv, sep="\t", dtype=str, keep_default_na=False)
+
+            # Check if we have a single GT column with colon-separated values (from GEN[*].GT)
+            # or individual sample columns
+            if "GT" in df.columns and len(df) > 0:
+                # Check if GT column contains colon-separated genotypes
+                first_gt = str(df["GT"].iloc[0]) if not df["GT"].isna().all() else ""
+                snpsift_sep = cfg.get("extract_fields_separator", ":")
+
+                if snpsift_sep in first_gt:
+                    # GT column contains colon-separated genotypes for all samples
+                    # We need to split it into individual sample columns
+                    logger.debug(
+                        f"GT column contains {snpsift_sep}-separated values, splitting into sample columns"
+                    )
+
+                    # Pre-create all sample columns data
+                    sample_data = {sample_id: [] for sample_id in original_samples}
+
+                    # Extract genotypes for each row
+                    for idx, row in df.iterrows():
+                        gt_value = str(row["GT"])
+                        if gt_value and gt_value != "NA" and gt_value != "nan":
+                            genotypes = gt_value.split(snpsift_sep)
+                            for i, sample_id in enumerate(original_samples):
+                                if i < len(genotypes):
+                                    sample_data[sample_id].append(genotypes[i])
+                                else:
+                                    sample_data[sample_id].append("./.")
+                        else:
+                            # Missing GT data
+                            for sample_id in original_samples:
+                                sample_data[sample_id].append("./.")
+
+                    # Create a new DataFrame with sample columns and concatenate
+                    sample_df = pd.DataFrame(sample_data)
+                    df = pd.concat([df, sample_df], axis=1)
+                else:
+                    # GT column doesn't contain separator, might be indexed columns
+                    logger.debug(
+                        "GT column doesn't contain separator, checking for indexed columns"
+                    )
+                    rename_map = {}
+                    for i, sample_id in enumerate(original_samples):
+                        if f"GT_{i}" in df.columns:
+                            rename_map[f"GT_{i}"] = sample_id
+                    if rename_map:
+                        logger.debug(f"Renaming indexed columns: {list(rename_map.keys())[:5]}")
+                        df = df.rename(columns=rename_map)
+            else:
+                # No GT column, check for indexed columns
+                rename_map = {}
+                for i, sample_id in enumerate(original_samples):
+                    if f"GT_{i}" in df.columns:
+                        rename_map[f"GT_{i}"] = sample_id
+                if rename_map:
+                    logger.debug(
+                        f"Found indexed columns without GT column: {list(rename_map.keys())[:5]}"
+                    )
+                    df = df.rename(columns=rename_map)
+
+            # Perform inheritance analysis
+            from .inheritance.analyzer import analyze_inheritance
+
+            use_vectorized = not args.no_vectorized_comp_het
+            df = analyze_inheritance(
+                df, pedigree_data, original_samples, use_vectorized_comp_het=use_vectorized
+            )
+
+            # Remove individual sample columns before saving
+            # But keep all other columns including case/control counts
+            cols_to_keep = [col for col in df.columns if col not in original_samples]
+            df = df[cols_to_keep]
+
+            # Save the TSV with inheritance columns added
+            df.to_csv(extracted_tsv, sep="\t", index=False, na_rep="")
+            logger.info("Inheritance analysis complete. Results added to extracted TSV.")
+
+            # Set flag to skip inheritance analysis later
+            cfg["inheritance_already_calculated"] = True
+
+        except Exception as e:
+            logger.error(f"Failed to perform inheritance analysis: {e}")
+            logger.error("Inheritance analysis will be skipped")
+            cfg["calculate_inheritance"] = False
+
+    # Genotype replacement logic
     if not args.no_replacement and gt_present:
         logger.info("Starting genotype replacement...")
         replacement_start_time = time.time()
         lines_written = 0
-        
+
         try:
             with open(extracted_tsv, "r", encoding="utf-8") as inp, open(
                 genotype_replaced_tsv, "w", encoding="utf-8"
@@ -535,18 +631,20 @@ def run_pipeline(
                 for line in replace_genotypes(inp, cfg):
                     out.write(line + "\n")
                     lines_written += 1
-                    
+
                     # Log progress every 10000 lines
                     if lines_written % 10000 == 0:
                         elapsed = time.time() - replacement_start_time
                         rate = lines_written / elapsed if elapsed > 0 else 0
-                        logger.info(f"Genotype replacement: {lines_written} lines in {elapsed:.1f}s ({rate:.0f} lines/sec)")
+                        logger.info(
+                            f"Genotype replacement: {lines_written} lines in {elapsed:.1f}s ({rate:.0f} lines/sec)"
+                        )
                         out.flush()  # Ensure data is written to disk
         except Exception as e:
             logger.error(f"Error during genotype replacement at line {lines_written}: {e}")
             logger.error("Consider using --no-replacement flag to skip this step")
             raise
-                    
+
         total_time = time.time() - replacement_start_time
         logger.info(f"Genotype replacement completed: {lines_written} lines in {total_time:.1f}s")
         replaced_tsv = genotype_replaced_tsv
@@ -712,14 +810,8 @@ def run_pipeline(
         # Add empty Custom_Annotation column for consistency
         df["Custom_Annotation"] = ""
 
-    # If inheritance analysis is requested, augment DataFrame with VCF genotypes
-    if cfg.get("calculate_inheritance", False) and pedigree_data is not None:
-        logger.info("Augmenting DataFrame with VCF genotypes for inheritance analysis...")
-        from .vcf_genotype_extractor import augment_dataframe_with_vcf_genotypes
-
-        # Use the final filtered VCF file for genotype extraction
-        vcf_for_genotypes = final_filtered_for_extraction
-        df = augment_dataframe_with_vcf_genotypes(df, vcf_for_genotypes, original_samples)
+    # Inheritance analysis already done before genotype replacement if requested
+    # No need to re-augment from VCF or re-calculate
 
     # Convert DataFrame back to file format for analyze_variants
     annotated_tsv = os.path.join(intermediate_dir, f"{base_name}.annotated.tsv")
