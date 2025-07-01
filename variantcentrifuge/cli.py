@@ -390,6 +390,11 @@ def main() -> None:
         action="store_true",
         help="Enable deduction of Mendelian inheritance patterns (requires --ped).",
     )
+    parser.add_argument(
+        "--no-vectorized-comp-het",
+        action="store_true",
+        help="Disable vectorized compound heterozygous analysis (use original implementation).",
+    )
 
     args: argparse.Namespace = parser.parse_args()
 
@@ -576,6 +581,7 @@ def main() -> None:
     # Inheritance analysis configuration
     cfg["ped_file"] = args.ped
     cfg["calculate_inheritance"] = args.calculate_inheritance
+    cfg["use_vectorized_comp_het"] = not args.no_vectorized_comp_het  # Default to True unless disabled
 
     # Validate inheritance arguments - no longer required
     # Allow calculate_inheritance without PED file for single sample analysis
