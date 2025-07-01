@@ -71,8 +71,6 @@ PATTERN_CATEGORIES = {
 
 def prioritize_patterns(
     patterns: List[str],
-    variant_info: Optional[Dict[str, Any]] = None,
-    sample_info: Optional[Dict[str, Any]] = None,
     segregation_results: Optional[Dict[str, Tuple[bool, float]]] = None,
 ) -> Tuple[str, float]:
     """
@@ -82,10 +80,6 @@ def prioritize_patterns(
     ----------
     patterns : List[str]
         List of possible inheritance patterns
-    variant_info : Optional[Dict[str, Any]]
-        Optional variant-specific information for scoring
-    sample_info : Optional[Dict[str, Any]]
-        Optional sample-specific information for scoring
     segregation_results : Optional[Dict[str, Tuple[bool, float]]]
         Optional segregation check results
 
@@ -114,24 +108,17 @@ def prioritize_patterns(
                 # If no segregation data, include in segregating list
                 segregating_patterns.append(pattern)
 
-        # Strongly prefer segregating patterns
+        # Use segregating patterns if any exist, otherwise fall back to non-segregating
         if segregating_patterns:
             patterns = segregating_patterns
         elif non_segregating_patterns:
-            # If no patterns segregate well, use all but penalize scores
             patterns = non_segregating_patterns
 
     # Calculate scores for each pattern
     pattern_scores = {}
     for pattern in patterns:
         base_score = PATTERN_PRIORITY.get(pattern, 0)
-
-        # Adjust score based on additional information
-        adjusted_score = adjust_pattern_score(
-            pattern, base_score, variant_info, sample_info, segregation_results
-        )
-
-        pattern_scores[pattern] = adjusted_score
+        pattern_scores[pattern] = base_score
 
     # Get highest scoring pattern
     best_pattern = max(pattern_scores.items(), key=lambda x: x[1])
@@ -145,12 +132,12 @@ def prioritize_patterns(
 def adjust_pattern_score(
     pattern: str,
     base_score: float,
-    variant_info: Optional[Dict[str, Any]] = None,
-    sample_info: Optional[Dict[str, Any]] = None,
-    segregation_results: Optional[Dict[str, Tuple[bool, float]]] = None,
 ) -> float:
     """
     Adjust pattern score based on additional evidence.
+
+    Note: This function is preserved for backwards compatibility but
+    currently just returns the base score without adjustment.
 
     Parameters
     ----------
@@ -158,61 +145,13 @@ def adjust_pattern_score(
         The inheritance pattern
     base_score : float
         Base priority score
-    variant_info : Optional[Dict[str, Any]]
-        Variant-specific information
-    sample_info : Optional[Dict[str, Any]]
-        Sample-specific information
-    segregation_results : Optional[Dict[str, Tuple[bool, float]]]
-        Segregation check results
 
     Returns
     -------
     float
-        Adjusted score
+        Adjusted score (currently just returns base_score)
     """
-    score = base_score
-
-    # Apply segregation penalty/bonus
-    if segregation_results and pattern in segregation_results:
-        segregates, seg_confidence = segregation_results[pattern]
-        if segregates:
-            # Bonus for good segregation
-            score += seg_confidence * 20
-        else:
-            # Penalty for poor segregation
-            score -= (1 - seg_confidence) * 30
-
-    if variant_info:
-        # Boost de novo if variant is rare
-        if pattern == "de_novo":
-            if variant_info.get("is_rare", False):
-                score += 20
-            if variant_info.get("is_deleterious", False):
-                score += 15
-
-        # Boost recessive patterns for loss-of-function variants
-        if pattern in ["autosomal_recessive", "compound_heterozygous"]:
-            if variant_info.get("is_lof", False):
-                score += 10
-
-        # Consider allele frequency
-        af = variant_info.get("allele_frequency", 1.0)
-        if af < 0.001:  # Very rare
-            score += 5
-        elif af > 0.05:  # Common
-            score -= 10
-
-    if sample_info:
-        # Boost X-linked patterns for males
-        if pattern == "x_linked_recessive" and sample_info.get("sex") == "1":
-            score += 10
-
-        # Consider family history
-        if sample_info.get("family_history", False):
-            if pattern in ["autosomal_dominant", "autosomal_recessive"]:
-                score += 5
-
-    return max(score, 0)  # Don't allow negative scores
+    return base_score
 
 
 def calculate_confidence(pattern_scores: Dict[str, float], best_pattern: str) -> float:
@@ -386,7 +325,7 @@ def resolve_conflicting_patterns(
 
     # Otherwise, prioritize based on pattern priority
     unique_patterns = list(set(all_patterns))
-    best_pattern, _ = prioritize_patterns(unique_patterns, variant_info)
+    best_pattern, _ = prioritize_patterns(unique_patterns)
 
     return best_pattern
 

@@ -5,7 +5,6 @@ import pandas as pd
 import json
 from variantcentrifuge.inheritance.analyzer import (
     analyze_inheritance,
-    prepare_variant_info,
     create_inheritance_details,
     get_inheritance_summary,
     filter_by_inheritance_pattern,
@@ -164,32 +163,6 @@ class TestInheritanceAnalyzer:
         assert "Inheritance_Details" in result_df.columns
         assert len(result_df) == 0
 
-    def test_prepare_variant_info(self):
-        """Test variant info preparation."""
-        # Rare, deleterious variant
-        row = pd.Series(
-            {"AF": 0.0001, "gnomAD_AF": 0.00005, "IMPACT": "HIGH", "CLIN_SIG": "Pathogenic"}
-        )
-
-        info = prepare_variant_info(row)
-
-        assert info["allele_frequency"] == 0.00005
-        assert info["is_rare"] is True
-        assert info["is_very_rare"] is True
-        assert info["is_deleterious"] is True
-        assert info["is_lof"] is True
-        assert info["is_pathogenic"] is True
-
-        # Common, benign variant
-        row = pd.Series({"AF": 0.1, "IMPACT": "LOW", "CLIN_SIG": "Benign"})
-
-        info = prepare_variant_info(row)
-
-        assert info["allele_frequency"] == 0.1
-        assert info["is_rare"] is False
-        assert info["is_deleterious"] is False
-        assert info["is_pathogenic"] is False
-
     def test_create_inheritance_details(self, trio_pedigree):
         """Test inheritance details creation."""
         row = pd.Series({"father": "0/1", "mother": "0/1", "child": "1/1"})
@@ -345,7 +318,7 @@ class TestInheritanceAnalyzer:
         for idx, row in processed_df.iterrows():
             assert row["Inheritance_Pattern"] == "de_novo"
             assert float(row["Inheritance_Confidence"]) > 0
-            assert "de novo" in row["Inheritance_Description"].lower()
+            assert "new mutation" in row["Inheritance_Description"].lower()
             assert "child(0/1)" in row["Inheritance_Samples"]
 
     def test_process_inheritance_output_compound_het_columns(
@@ -362,7 +335,7 @@ class TestInheritanceAnalyzer:
         for idx, row in processed_df.iterrows():
             if "partner:" in row["Inheritance_Samples"]:
                 # This is a compound het variant
-                assert "compound" in row["Inheritance_Description"].lower()
+                assert "two different mutations" in row["Inheritance_Description"].lower()
 
     def test_process_inheritance_output_no_inheritance_columns(self):
         """Test process_inheritance_output with DataFrame missing inheritance columns."""

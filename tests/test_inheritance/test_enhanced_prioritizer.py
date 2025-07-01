@@ -71,55 +71,38 @@ class TestScoreAdjustment:
     def test_adjust_score_with_segregation(self):
         """Test score adjustment based on segregation."""
         base_score = 50
-        segregation_results = {
-            "pattern1": (True, 0.9),  # Good segregation
-            "pattern2": (False, 0.1),  # Poor segregation
-        }
-
-        # Good segregation should boost score
-        score1 = adjust_pattern_score(
-            "pattern1", base_score, segregation_results=segregation_results
-        )
-        assert score1 > base_score
-
-        # Poor segregation should reduce score
-        score2 = adjust_pattern_score(
-            "pattern2", base_score, segregation_results=segregation_results
-        )
-        assert score2 < base_score
+        
+        # adjust_pattern_score now just returns base score
+        score1 = adjust_pattern_score("pattern1", base_score)
+        assert score1 == base_score
+        
+        score2 = adjust_pattern_score("pattern2", base_score)
+        assert score2 == base_score
 
     def test_adjust_score_with_variant_info(self):
         """Test score adjustment based on variant information."""
         base_score = 50
 
-        # Rare variant should boost de novo
-        variant_info = {"is_rare": True, "is_deleterious": True}
-        score = adjust_pattern_score("de_novo", base_score, variant_info=variant_info)
-        assert score > base_score  # Should get bonus for rare and deleterious
+        # adjust_pattern_score now just returns base score
+        score = adjust_pattern_score("de_novo", base_score)
+        assert score == base_score
 
-        # LoF variant should boost recessive
-        variant_info = {"is_lof": True}
-        score = adjust_pattern_score("autosomal_recessive", base_score, variant_info=variant_info)
-        assert score >= base_score
+        score = adjust_pattern_score("autosomal_recessive", base_score)
+        assert score == base_score
 
-        # Common variant should reduce score
-        variant_info = {"allele_frequency": 0.1}  # 10% frequency
-        score = adjust_pattern_score("de_novo", base_score, variant_info=variant_info)
-        assert score < base_score
+        score = adjust_pattern_score("de_novo", base_score)
+        assert score == base_score
 
     def test_adjust_score_with_sample_info(self):
         """Test score adjustment based on sample information."""
         base_score = 50
 
-        # Male should boost X-linked recessive
-        sample_info = {"sex": "1"}  # Male
-        score = adjust_pattern_score("x_linked_recessive", base_score, sample_info=sample_info)
-        assert score > base_score
+        # adjust_pattern_score now just returns base score
+        score = adjust_pattern_score("x_linked_recessive", base_score)
+        assert score == base_score
 
-        # Family history should boost dominant/recessive
-        sample_info = {"family_history": True}
-        score = adjust_pattern_score("autosomal_dominant", base_score, sample_info=sample_info)
-        assert score > base_score
+        score = adjust_pattern_score("autosomal_dominant", base_score)
+        assert score == base_score
 
 
 class TestConfidenceCalculation:

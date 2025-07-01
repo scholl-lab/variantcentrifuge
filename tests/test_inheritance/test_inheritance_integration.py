@@ -6,7 +6,6 @@ from variantcentrifuge.inheritance.analyzer import (
     analyze_inheritance,
     get_inheritance_summary,
     filter_by_inheritance_pattern,
-    prepare_variant_info,
     create_inheritance_details,
 )
 
@@ -307,37 +306,6 @@ class TestInheritanceFiltering:
             df, ["de_novo", "autosomal_recessive"], min_confidence=0.85
         )
         assert len(filtered) == 1  # Only de novo has confidence >= 0.85
-
-
-class TestVariantInfoPreparation:
-    """Test variant information extraction."""
-
-    def test_prepare_variant_info(self):
-        """Test extracting variant properties for prioritization."""
-        row = pd.Series(
-            {"AF": "0.0001", "gnomAD_AF": "0.0005", "IMPACT": "HIGH", "CLIN_SIG": "Pathogenic"}
-        )
-
-        info = prepare_variant_info(row)
-
-        assert info["allele_frequency"] == 0.0001  # Min of available AFs
-        assert info["is_rare"] is True
-        assert info["is_very_rare"] is True
-        assert info["is_deleterious"] is True
-        assert info["is_lof"] is True
-        assert info["is_pathogenic"] is True
-
-    def test_prepare_variant_info_missing_data(self):
-        """Test variant info with missing data."""
-        row = pd.Series({"IMPACT": "LOW"})
-
-        info = prepare_variant_info(row)
-
-        assert info["allele_frequency"] == 1.0  # Default when no AF data
-        assert info["is_rare"] is False
-        assert info["is_deleterious"] is False
-        assert info["is_lof"] is False
-        assert info["is_pathogenic"] is False
 
 
 class TestInheritanceDetails:

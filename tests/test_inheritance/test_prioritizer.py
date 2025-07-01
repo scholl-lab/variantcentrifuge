@@ -46,45 +46,36 @@ class TestPatternPrioritizer:
         """Test score adjustment for de novo patterns."""
         base_score = PATTERN_PRIORITY["de_novo"]
 
-        # With rare and deleterious variant
-        variant_info = {"is_rare": True, "is_deleterious": True, "allele_frequency": 0.0001}
-        adjusted = adjust_pattern_score("de_novo", base_score, variant_info)
+        # adjust_pattern_score now just returns base score
+        adjusted = adjust_pattern_score("de_novo", base_score)
 
-        assert adjusted > base_score
-        assert adjusted == base_score + 20 + 15 + 5  # Rare + deleterious + very rare bonuses
+        assert adjusted == base_score
 
     def test_adjust_pattern_score_recessive(self):
         """Test score adjustment for recessive patterns."""
         base_score = PATTERN_PRIORITY["autosomal_recessive"]
 
-        # With loss-of-function variant
-        variant_info = {"is_lof": True, "allele_frequency": 0.01}  # Not very rare, so no AF bonus
-        adjusted = adjust_pattern_score("autosomal_recessive", base_score, variant_info)
+        # adjust_pattern_score now just returns base score
+        adjusted = adjust_pattern_score("autosomal_recessive", base_score)
 
-        assert adjusted == base_score + 10
+        assert adjusted == base_score
 
     def test_adjust_pattern_score_frequency(self):
         """Test score adjustment based on allele frequency."""
         base_score = 50
 
-        # Very rare variant
-        variant_info = {"allele_frequency": 0.0001}
-        adjusted = adjust_pattern_score("autosomal_dominant", base_score, variant_info)
-        assert adjusted == base_score + 5
-
-        # Common variant
-        variant_info = {"allele_frequency": 0.1}
-        adjusted = adjust_pattern_score("autosomal_dominant", base_score, variant_info)
-        assert adjusted == base_score - 10
+        # adjust_pattern_score now just returns base score
+        adjusted = adjust_pattern_score("autosomal_dominant", base_score)
+        assert adjusted == base_score
 
     def test_adjust_pattern_score_x_linked_male(self):
         """Test X-linked pattern scoring for males."""
         base_score = PATTERN_PRIORITY["x_linked_recessive"]
 
-        sample_info = {"sex": "1"}  # Male
-        adjusted = adjust_pattern_score("x_linked_recessive", base_score, None, sample_info)
+        # adjust_pattern_score now just returns base score
+        adjusted = adjust_pattern_score("x_linked_recessive", base_score)
 
-        assert adjusted == base_score + 10
+        assert adjusted == base_score
 
     def test_calculate_confidence(self):
         """Test confidence calculation."""
@@ -208,15 +199,7 @@ class TestPatternPrioritizer:
         """Test prioritization with variant information."""
         patterns = ["de_novo", "autosomal_dominant"]
 
-        # Rare, deleterious variant should boost de novo
-        variant_info = {"is_rare": True, "is_deleterious": True, "allele_frequency": 0.00001}
-
-        pattern, confidence = prioritize_patterns(patterns, variant_info)
-        assert pattern == "de_novo"
-        assert confidence > 0.7
-
-        # Common variant should reduce scores
-        variant_info = {"allele_frequency": 0.2}
-        pattern, confidence = prioritize_patterns(patterns, variant_info)
-        # Scores reduced but de novo still wins due to base priority
-        assert pattern == "de_novo"
+        # prioritize_patterns no longer takes variant_info
+        pattern, confidence = prioritize_patterns(patterns)
+        assert pattern == "de_novo"  # de_novo has higher priority
+        assert confidence > 0.5

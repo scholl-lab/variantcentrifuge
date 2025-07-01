@@ -152,9 +152,6 @@ def analyze_inheritance(
             if pattern not in all_patterns:
                 all_patterns.append(pattern)
 
-        # Prepare variant info for prioritization
-        variant_info = prepare_variant_info(row)
-
         # Calculate segregation scores for all patterns if we have family data
         segregation_results = None
         if pedigree_data and len(pedigree_data) > 1:
@@ -164,7 +161,7 @@ def analyze_inheritance(
 
         # Get the best pattern with segregation consideration
         best_pattern, confidence = prioritize_patterns(
-            all_patterns, variant_info, None, segregation_results
+            all_patterns, segregation_results
         )
 
         # Create detailed inheritance information
@@ -184,50 +181,6 @@ def analyze_inheritance(
     logger.info(f"Inheritance analysis complete. Pattern distribution: {pattern_counts.to_dict()}")
 
     return df
-
-
-def prepare_variant_info(row: pd.Series) -> Dict[str, Any]:
-    """
-    Prepare variant information for pattern prioritization.
-
-    Parameters
-    ----------
-    row : pd.Series
-        Variant row from DataFrame
-
-    Returns
-    -------
-    Dict[str, Any]
-        Dictionary with variant properties
-    """
-    variant_info = {}
-
-    # Check rarity based on population frequencies
-    af_fields = ["AF", "gnomAD_AF", "MAX_AF", "gnomADg_AF_POPMAX"]
-    min_af = 1.0
-
-    for field in af_fields:
-        if field in row and pd.notna(row[field]):
-            try:
-                af = float(row[field])
-                min_af = min(min_af, af)
-            except (ValueError, TypeError):
-                pass
-
-    variant_info["allele_frequency"] = min_af
-    variant_info["is_rare"] = min_af < 0.01
-    variant_info["is_very_rare"] = min_af < 0.001
-
-    # Check deleteriousness
-    impact = row.get("IMPACT", "").upper()
-    variant_info["is_deleterious"] = impact in ["HIGH", "MODERATE"]
-    variant_info["is_lof"] = impact == "HIGH"
-
-    # Add clinical significance if available
-    clin_sig = row.get("CLIN_SIG", "")
-    variant_info["is_pathogenic"] = "pathogenic" in str(clin_sig).lower()
-
-    return variant_info
 
 
 def create_inheritance_details(
