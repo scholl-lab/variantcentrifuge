@@ -328,6 +328,121 @@ tabix -p vcf database.vcf.gz
 bcftools annotate --check-ref e -a custom_annotations.vcf.gz ...
 ```
 
+## Custom Gene Annotations with VariantCentrifuge
+
+In addition to standard VCF annotations, VariantCentrifuge provides built-in functionality to add custom annotations during analysis. These annotations are applied after variant extraction and are included in the final output.
+
+### JSON Gene Annotations
+
+The `--annotate-json-genes` feature allows you to integrate structured gene metadata from JSON files directly into your variant analysis.
+
+#### JSON File Format
+
+Create a JSON file containing an array of gene objects:
+
+```json
+[
+  {
+    "gene_symbol": "BRCA1",
+    "panel": "HereditaryCancer",
+    "inheritance": "AD",
+    "function": "DNA repair",
+    "disease_association": "Breast/Ovarian cancer",
+    "actionability": "Tier1"
+  },
+  {
+    "gene_symbol": "TP53",
+    "panel": "HereditaryCancer",
+    "inheritance": "AD",
+    "function": "Tumor suppressor",
+    "disease_association": "Li-Fraumeni syndrome",
+    "actionability": "Tier1"
+  },
+  {
+    "gene_symbol": "MLH1",
+    "panel": "Lynch",
+    "inheritance": "AD",
+    "function": "DNA mismatch repair",
+    "disease_association": "Lynch syndrome",
+    "actionability": "Tier1"
+  }
+]
+```
+
+#### Field Mapping Configuration
+
+Use the `--json-gene-mapping` parameter to specify how JSON fields map to annotations:
+
+```json
+{
+  "identifier": "gene_symbol",
+  "dataFields": ["panel", "inheritance", "actionability"]
+}
+```
+
+- `identifier`: The JSON field containing the gene symbol
+- `dataFields`: Array of fields to include in the Custom_Annotation column
+
+#### Usage Example
+
+```bash
+variantcentrifuge \
+  --gene-file cancer_genes.txt \
+  --vcf-file patient.vcf.gz \
+  --annotate-json-genes gene_metadata.json \
+  --json-gene-mapping '{"identifier":"gene_symbol","dataFields":["panel","inheritance","actionability"]}' \
+  --output-file annotated_variants.tsv
+```
+
+This will add annotations like `panel=HereditaryCancer;inheritance=AD;actionability=Tier1` to the Custom_Annotation column for variants in matching genes.
+
+### BED File Annotations
+
+Annotate variants with genomic regions using BED files:
+
+```bash
+variantcentrifuge \
+  --gene-name GENE \
+  --vcf-file input.vcf.gz \
+  --annotate-bed hotspots.bed \
+  --annotate-bed regulatory_regions.bed \
+  --output-file output.tsv
+```
+
+### Gene List Annotations
+
+Check if variants affect genes in custom lists:
+
+```bash
+variantcentrifuge \
+  --gene-file all_genes.txt \
+  --vcf-file input.vcf.gz \
+  --annotate-gene-list actionable_genes.txt \
+  --annotate-gene-list drug_targets.txt \
+  --output-file output.tsv
+```
+
+### Combined Annotation Strategy
+
+For comprehensive analysis, combine multiple annotation sources:
+
+```bash
+variantcentrifuge \
+  --gene-file disease_genes.txt \
+  --vcf-file patient.vcf.gz \
+  --annotate-bed known_hotspots.bed \
+  --annotate-gene-list clinically_actionable.txt \
+  --annotate-json-genes gene_database.json \
+  --json-gene-mapping '{"identifier":"symbol","dataFields":["panel","evidence","notes"]}' \
+  --preset rare,coding \
+  --html-report \
+  --output-file comprehensive_analysis.tsv
+```
+
+### Integration with Scoring
+
+Custom annotations can be used in variant scoring formulas. For example, if you annotate with `actionability` levels, you can create scoring formulas that prioritize Tier1 actionable variants.
+
 ## Best Practices Summary
 
 1. **Plan your annotation strategy** based on your analysis goals
@@ -340,5 +455,7 @@ bcftools annotate --check-ref e -a custom_annotations.vcf.gz ...
 8. **Backup original VCF files** before annotation
 9. **Monitor resource usage** for large-scale annotations
 10. **Validate critical variants manually** when needed
+11. **Use custom annotations** to integrate project-specific gene metadata
+12. **Combine annotation sources** for comprehensive variant characterization
 
 By following these annotation strategies, you'll ensure that VariantCentrifuge has access to high-quality, comprehensive variant annotations for effective filtering and analysis.

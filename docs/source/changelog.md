@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - User guides for installation, usage, and configuration
 - Development and contributing guides
 - Annotation strategy guides for VCF preprocessing
+- Unified annotation system supporting BED files, gene lists, and JSON gene data
+- JSON gene annotation feature with flexible field mapping (`--annotate-json-genes` and `--json-gene-mapping`)
+- Custom annotation integration in the pipeline workflow
 
 ### Changed
 - Documentation migrated from README to structured Sphinx documentation

@@ -51,6 +51,13 @@ variantcentrifuge \
 
 - `--scoring-config-path` - Path to scoring configuration directory containing variable_assignment_config.json and formula_config.json
 
+### Annotation Options
+
+- `--annotate-bed BED_FILE` - Annotate variants with genomic regions from BED files (can specify multiple)
+- `--annotate-gene-list GENE_LIST` - Check if variants affect genes in custom gene lists (can specify multiple)
+- `--annotate-json-genes JSON_FILE` - Annotate variants with gene information from JSON file
+- `--json-gene-mapping MAPPING` - Specify JSON field mapping for gene annotations (required with --annotate-json-genes)
+
 ### Other Options
 
 - `--version` - Show version and exit
@@ -120,6 +127,29 @@ variantcentrifuge \
   --output-file scored_variants.tsv
 ```
 
+### Custom Annotations
+
+```bash
+# Annotate with JSON gene information
+variantcentrifuge \
+  --gene-name BRCA1 \
+  --vcf-file samples.vcf.gz \
+  --annotate-json-genes gene_metadata.json \
+  --json-gene-mapping '{"identifier":"gene_symbol","dataFields":["panel","inheritance","function"]}' \
+  --output-file annotated_variants.tsv
+
+# Multiple annotation sources
+variantcentrifuge \
+  --gene-file cancer_genes.txt \
+  --vcf-file samples.vcf.gz \
+  --annotate-bed cancer_hotspots.bed \
+  --annotate-gene-list actionable_genes.txt \
+  --annotate-json-genes gene_panels.json \
+  --json-gene-mapping '{"identifier":"symbol","dataFields":["panel_name","evidence_level"]}' \
+  --html-report \
+  --output-file multi_annotated.tsv
+```
+
 ## Input File Formats
 
 ### VCF Files
@@ -171,6 +201,31 @@ Patient_A	/path/to/patient_a.bam
 Patient_B	/path/to/patient_b.bam
 Control_001	/path/to/control_001.bam
 ```
+
+### JSON Gene Files
+
+For gene annotation, provide a JSON file containing an array of gene objects:
+
+```json
+[
+  {
+    "gene_symbol": "BRCA1",
+    "panel": "HereditaryCancer",
+    "inheritance": "AD",
+    "function": "DNA repair"
+  },
+  {
+    "gene_symbol": "TP53",
+    "panel": "HereditaryCancer",
+    "inheritance": "AD",
+    "function": "Tumor suppressor"
+  }
+]
+```
+
+The `--json-gene-mapping` parameter specifies:
+- `identifier`: The field containing the gene symbol (e.g., "gene_symbol")
+- `dataFields`: Array of fields to include as annotations (e.g., ["panel", "inheritance", "function"])
 
 ## Output Files
 
