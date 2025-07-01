@@ -168,11 +168,22 @@ def augment_dataframe_with_vcf_genotypes(df, vcf_file: str, sample_list: List[st
     pandas.DataFrame
         DataFrame with added sample genotype columns
     """
+    import pandas as pd
+    
     # Get genotype mapping
     genotype_map = create_variant_genotype_map(df, vcf_file, sample_list)
 
-    # Add genotype columns for each sample
+    # Build all genotype columns at once to avoid fragmentation
+    genotype_columns = {}
     for sample_id in sample_list:
-        df[sample_id] = df.index.map(lambda idx: genotype_map.get(idx, {}).get(sample_id, "./."))
-
-    return df
+        genotype_columns[sample_id] = df.index.map(
+            lambda idx: genotype_map.get(idx, {}).get(sample_id, "./.")
+        ).tolist()
+    
+    # Create a new DataFrame with genotype columns and concatenate
+    genotype_df = pd.DataFrame(genotype_columns, index=df.index)
+    
+    # Concatenate original DataFrame with genotype columns
+    result_df = pd.concat([df, genotype_df], axis=1)
+    
+    return result_df
