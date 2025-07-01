@@ -525,7 +525,7 @@ def run_pipeline(
     cfg["sample_list"] = ",".join(original_samples) if original_samples else ""
     if not args.no_replacement and gt_present:
         logger.info("Starting genotype replacement...")
-        start_time = time.time()
+        replacement_start_time = time.time()
         lines_written = 0
         
         try:
@@ -538,7 +538,7 @@ def run_pipeline(
                     
                     # Log progress every 10000 lines
                     if lines_written % 10000 == 0:
-                        elapsed = time.time() - start_time
+                        elapsed = time.time() - replacement_start_time
                         rate = lines_written / elapsed if elapsed > 0 else 0
                         logger.info(f"Genotype replacement: {lines_written} lines in {elapsed:.1f}s ({rate:.0f} lines/sec)")
                         out.flush()  # Ensure data is written to disk
@@ -547,7 +547,7 @@ def run_pipeline(
             logger.error("Consider using --no-replacement flag to skip this step")
             raise
                     
-        total_time = time.time() - start_time
+        total_time = time.time() - replacement_start_time
         logger.info(f"Genotype replacement completed: {lines_written} lines in {total_time:.1f}s")
         replaced_tsv = genotype_replaced_tsv
     else:
