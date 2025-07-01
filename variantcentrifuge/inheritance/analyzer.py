@@ -244,7 +244,12 @@ def create_inheritance_details(
         if comp_het_info and sample_id in comp_het_info:
             ch_info = comp_het_info[sample_id]
             if ch_info.get("is_compound_het"):
-                sample_info["compound_het_partner"] = ch_info.get("partner_variant")
+                # Handle both old single partner and new multiple partners format
+                if "partner_variants" in ch_info:
+                    sample_info["compound_het_partners"] = ch_info["partner_variants"]
+                elif "partner_variant" in ch_info:
+                    # Backward compatibility - single partner
+                    sample_info["compound_het_partner"] = ch_info["partner_variant"]
                 sample_info["compound_het_gene"] = ch_info.get("gene")
                 sample_info["compound_het_configuration"] = ch_info.get("inheritance_type")
 
@@ -439,8 +444,18 @@ def process_inheritance_output(df: pd.DataFrame, mode: str) -> pd.DataFrame:
                     # Basic format: sample_id(genotype)
                     sample_str = f"{sample_id}({genotype})"
 
-                    # Add compound het partner if present
-                    if "compound_het_partner" in sample:
+                    # Add compound het partner(s) if present
+                    if "compound_het_partners" in sample:
+                        # New format - list of partners
+                        partners = sample["compound_het_partners"]
+                        if partners:
+                            if len(partners) == 1:
+                                sample_str += f", partner:{partners[0]}"
+                            else:
+                                partners_str = ", ".join(partners)
+                                sample_str += f", partners:[{partners_str}]"
+                    elif "compound_het_partner" in sample:
+                        # Old format - single partner (backward compatibility)
                         partner = sample["compound_het_partner"]
                         sample_str += f", partner:{partner}"
 

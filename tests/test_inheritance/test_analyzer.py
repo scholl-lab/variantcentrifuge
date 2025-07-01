@@ -149,7 +149,8 @@ class TestInheritanceAnalyzer:
             child_info = next(
                 s for s in details["samples_with_pattern"] if s["sample_id"] == "child"
             )
-            assert "compound_het_partner" in child_info
+            # Check for either old or new format
+            assert "compound_het_partner" in child_info or "compound_het_partners" in child_info
             assert child_info["compound_het_gene"] == "GENE4"
 
     def test_analyze_inheritance_empty_df(self, trio_pedigree):

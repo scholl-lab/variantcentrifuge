@@ -128,80 +128,100 @@ def analyze_gene_for_compound_het_vectorized(
 
         # Get parent information
         father_id, mother_id = get_parents(sample_id, pedigree_data)
-        has_parents = (
-            father_id and mother_id and father_id in sample_list and mother_id in sample_list
-        )
+        has_father = father_id and father_id in sample_list
+        has_mother = mother_id and mother_id in sample_list
 
-        if has_parents:
-            # Vectorized parent genotype analysis
+        partners_by_variant_idx = {}  # This will store the results
+
+        if has_father and has_mother:
+            # Case 1: Both parents present
             father_genotypes = genotype_matrix.get(father_id, np.array([]))
             mother_genotypes = genotype_matrix.get(mother_id, np.array([]))
-
-            # Find trans-configured pairs efficiently
-            comp_het_pairs = find_trans_pairs_vectorized(
+            partners_by_variant_idx = find_potential_partners_vectorized(
                 het_indices, father_genotypes, mother_genotypes
             )
+
+        elif has_father or has_mother:
+            # Case 2: Exactly one parent present
+            known_parent_id = father_id if has_father else mother_id
+            parent_gts = genotype_matrix.get(known_parent_id, np.array([]))
+            
+            # Extract genotypes for het positions
+            parent_het_gts = parent_gts[het_indices]
+            
+            # A variant is from the known parent if the parent has it (genotype > 0)
+            from_known_parent_mask = parent_het_gts > 0
+            
+            # Iterate through each het variant to find its partners
+            for i, var_idx in enumerate(het_indices):
+                # If var_i is from the known parent, its partners must NOT be from that parent
+                if from_known_parent_mask[i]:
+                    partner_mask = ~from_known_parent_mask
+                # If var_i is NOT from the known parent, its partners MUST be from that parent
+                else:
+                    partner_mask = from_known_parent_mask
+                
+                # The variant cannot be its own partner
+                partner_mask[i] = False
+                
+                # Get partner indices
+                partner_positions = np.where(partner_mask)[0]
+                if len(partner_positions) > 0:
+                    partners_by_variant_idx[int(var_idx)] = het_indices[partner_positions].tolist()
+
         else:
-            # No parent data - all het pairs are potential compound hets
-            # For affected individuals
+            # Case 3: No parental data
             if is_affected(sample_id, pedigree_data):
-                comp_het_pairs = [
-                    (i, j) for i in range(len(het_indices)) for j in range(i + 1, len(het_indices))
-                ]
-                comp_het_pairs = [(het_indices[i], het_indices[j]) for i, j in comp_het_pairs]
-            else:
-                comp_het_pairs = []
+                # For each het variant, all other het variants are potential partners
+                for i, var_idx in enumerate(het_indices):
+                    partners = np.delete(het_indices, i)
+                    if len(partners) > 0:
+                        partners_by_variant_idx[int(var_idx)] = partners.tolist()
 
-        # Store results for all pairs
-        for var1_idx, var2_idx in comp_het_pairs:
-            var1_key = create_variant_key_fast(gene_df, var1_idx)
-            var2_key = create_variant_key_fast(gene_df, var2_idx)
-
-            # Determine compound het type
-            if has_parents:
-                trans_config, comp_het_type = determine_compound_het_type_vectorized(
-                    var1_idx,
-                    var2_idx,
-                    father_genotypes,
-                    mother_genotypes,
-                    gene_df,
-                    sample_id,
-                    pedigree_data,
-                )
+        # Store results based on the new partner structure
+        for var_idx, partner_indices in partners_by_variant_idx.items():
+            var_key = create_variant_key_fast(gene_df, var_idx)
+            
+            # Create list of partner variant keys
+            partner_keys = [create_variant_key_fast(gene_df, pidx) for pidx in partner_indices]
+            
+            # Determine compound het type based on data availability
+            if has_father and has_mother:
+                comp_het_type = "compound_heterozygous"
+                inheritance_type = "trans"
+            elif has_father or has_mother:
+                comp_het_type = "compound_heterozygous_possible_missing_parents"
+                inheritance_type = "unknown"
             else:
-                trans_config = "unknown"
                 comp_het_type = "compound_heterozygous_possible_no_pedigree"
-
-            # Store compound het info
+                inheritance_type = "unknown"
+            
+            # Store compound het info with list of partners
             comp_het_info = {
                 "sample_id": sample_id,
                 "gene": gene_name,
-                "partner_variant": var2_key,
+                "partner_variants": partner_keys,  # Now a list instead of single partner
                 "is_compound_het": True,
                 "comp_het_type": comp_het_type,
-                "inheritance_type": trans_config,
+                "inheritance_type": inheritance_type,
             }
-
-            # Store for both variants
-            for vkey, partner_key in [(var1_key, var2_key), (var2_key, var1_key)]:
-                if vkey not in comp_het_results:
-                    comp_het_results[vkey] = {}
-                info = comp_het_info.copy()
-                info["partner_variant"] = partner_key
-                comp_het_results[vkey][sample_id] = info
+            
+            if var_key not in comp_het_results:
+                comp_het_results[var_key] = {}
+            comp_het_results[var_key][sample_id] = comp_het_info
 
     return comp_het_results
 
 
-def find_trans_pairs_vectorized(
+def find_potential_partners_vectorized(
     het_indices: np.ndarray, father_genotypes: np.ndarray, mother_genotypes: np.ndarray
-) -> List[Tuple[int, int]]:
+) -> Dict[int, List[int]]:
     """
-    Find trans-configured heterozygous pairs using vectorized operations.
+    Find potential trans-configured partners for each heterozygous variant.
 
-    This is where the major performance gain comes from - instead of
-    checking each pair individually, we use broadcasting to check all
-    pairs simultaneously.
+    Instead of finding all pairs, this function identifies for each variant
+    which other variants could be its compound het partner based on
+    parental inheritance patterns.
 
     Parameters
     ----------
@@ -214,46 +234,56 @@ def find_trans_pairs_vectorized(
 
     Returns
     -------
-    List[Tuple[int, int]]
-        List of variant index pairs in trans configuration
+    Dict[int, List[int]]
+        Dictionary mapping each variant index to its list of potential partners
     """
-    trans_pairs = []
-
+    partners_by_variant = {}
+    
     # Extract parent genotypes for heterozygous positions
     father_het_gts = father_genotypes[het_indices]
     mother_het_gts = mother_genotypes[het_indices]
-
-    # Create matrices for pairwise comparison using broadcasting
-    n_het = len(het_indices)
-
-    # Check if father has variant (1 or 2)
-    father_has_var = (father_het_gts > 0).astype(np.int8)
-    mother_has_var = (mother_het_gts > 0).astype(np.int8)
-
-    # For each pair (i,j), check trans configuration:
-    # Pattern 1: var1 from father, var2 from mother
-    # Pattern 2: var1 from mother, var2 from father
-
-    for i in range(n_het):
-        for j in range(i + 1, n_het):
-            # Check trans patterns
-            pattern1 = (
-                father_has_var[i]
-                and not mother_has_var[i]
-                and not father_has_var[j]
-                and mother_has_var[j]
-            )
-            pattern2 = (
-                not father_has_var[i]
-                and mother_has_var[i]
-                and father_has_var[j]
-                and not mother_has_var[j]
-            )
-
-            if pattern1 or pattern2:
-                trans_pairs.append((het_indices[i], het_indices[j]))
-
-    return trans_pairs
+    
+    # Check if each variant is present in each parent
+    father_has_var = father_het_gts > 0
+    mother_has_var = mother_het_gts > 0
+    
+    # Determine origin of each variant
+    # A variant is clearly from one parent if present in that parent but not the other
+    from_father_only = father_has_var & ~mother_has_var
+    from_mother_only = ~father_has_var & mother_has_var
+    from_both = father_has_var & mother_has_var
+    from_neither = ~father_has_var & ~mother_has_var
+    
+    # For each variant, find its potential partners
+    for i, var_idx in enumerate(het_indices):
+        potential_partners = []
+        
+        # Determine this variant's origin
+        if from_father_only[i]:
+            # This variant is from father, partners must be from mother only
+            partner_mask = from_mother_only
+        elif from_mother_only[i]:
+            # This variant is from mother, partners must be from father only
+            partner_mask = from_father_only
+        elif from_both[i] or from_neither[i]:
+            # Ambiguous origin - could pair with variants from either parent
+            # that have clear origin
+            partner_mask = from_father_only | from_mother_only
+        else:
+            # Should not happen, but be safe
+            partner_mask = np.zeros(len(het_indices), dtype=bool)
+        
+        # A variant cannot be its own partner
+        partner_mask[i] = False
+        
+        # Get the partner indices
+        partner_positions = np.where(partner_mask)[0]
+        potential_partners = het_indices[partner_positions].tolist()
+        
+        if potential_partners:
+            partners_by_variant[int(var_idx)] = potential_partners
+    
+    return partners_by_variant
 
 
 def create_variant_key_fast(df: pd.DataFrame, idx: int) -> str:
@@ -373,59 +403,6 @@ def determine_compound_het_type_vectorized(
     return ("unknown", "compound_heterozygous_possible")
 
 
-def handle_multiple_compound_hets(
-    het_indices: np.ndarray, sample_id: str, gene_name: str, prioritize: bool = True
-) -> List[Tuple[int, int]]:
-    """
-    Handle cases with 3+ heterozygous variants in the same gene.
-
-    When there are multiple potential compound het pairs, this function
-    can prioritize the most likely pairs based on various criteria.
-
-    Parameters
-    ----------
-    het_indices : np.ndarray
-        Indices of all heterozygous variants
-    sample_id : str
-        Sample being analyzed
-    gene_name : str
-        Gene name
-    prioritize : bool
-        Whether to prioritize pairs (e.g., by impact, frequency)
-
-    Returns
-    -------
-    List[Tuple[int, int]]
-        Prioritized list of variant pairs
-    """
-    n_variants = len(het_indices)
-
-    if n_variants == 2:
-        # Simple case - only one possible pair
-        return [(het_indices[0], het_indices[1])]
-
-    # Generate all possible pairs
-    all_pairs = []
-    for i in range(n_variants):
-        for j in range(i + 1, n_variants):
-            all_pairs.append((het_indices[i], het_indices[j]))
-
-    logger.info(
-        f"Sample {sample_id} has {n_variants} heterozygous variants in {gene_name}, "
-        f"resulting in {len(all_pairs)} potential compound het pairs"
-    )
-
-    if not prioritize:
-        return all_pairs
-
-    # TODO: Implement prioritization based on:
-    # - Variant impact (HIGH > MODERATE > LOW)
-    # - Allele frequency (rarer variants prioritized)
-    # - Functional predictions (CADD, REVEL scores)
-    # - Distance between variants
-    # For now, return all pairs
-
-    return all_pairs
 
 
 # Compatibility wrapper to use vectorized version with existing code
