@@ -43,6 +43,13 @@ def analyze_inheritance(
         df["Inheritance_Details"] = "{}"
         return df
 
+    # Handle single sample case (no pedigree data)
+    if not pedigree_data:
+        logger.info("No pedigree data available - marking all variants as from single samples")
+        df["Inheritance_Pattern"] = "single_sample"
+        df["Inheritance_Details"] = "{}"
+        return df
+
     logger.info(
         f"Starting inheritance analysis for {len(df)} variants across {len(sample_list)} samples"
     )

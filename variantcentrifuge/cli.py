@@ -578,10 +578,8 @@ def main() -> None:
     cfg["ped_file"] = args.ped
     cfg["calculate_inheritance"] = args.calculate_inheritance
 
-    # Validate inheritance arguments
-    if args.calculate_inheritance and not args.ped:
-        logger.error("--calculate-inheritance requires --ped file to be provided.")
-        sys.exit(1)
+    # Validate inheritance arguments - no longer required
+    # Allow calculate_inheritance without PED file for single sample analysis
 
     # Late filtering configuration
     cfg["late_filtering"] = args.late_filtering

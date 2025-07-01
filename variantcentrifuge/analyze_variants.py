@@ -139,10 +139,16 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
     df = assign_case_control_counts(df, case_samples, control_samples, all_samples)
 
     # Apply inheritance analysis first, as scores might depend on it
-    if cfg.get("calculate_inheritance") and cfg.get("pedigree_data"):
+    logger.debug(
+        f"calculate_inheritance: {cfg.get('calculate_inheritance')}, "
+        f"pedigree_data type: {type(cfg.get('pedigree_data'))}"
+    )
+    if cfg.get("calculate_inheritance") and cfg.get("pedigree_data") is not None:
         logger.info("Performing inheritance pattern analysis...")
         try:
-            df = analyze_inheritance(df, cfg["pedigree_data"], cfg["sample_list"].split(","))
+            sample_list = cfg.get("sample_list", "").split(",") if cfg.get("sample_list") else []
+            logger.debug(f"Sample list for inheritance: {sample_list}")
+            df = analyze_inheritance(df, cfg["pedigree_data"], sample_list)
             logger.info("Inheritance analysis complete.")
         except Exception as e:
             logger.error(f"Inheritance analysis failed: {e}")

@@ -297,14 +297,20 @@ def run_pipeline(
 
     # Load pedigree data if provided
     pedigree_data = None
-    if cfg.get("ped_file") and cfg.get("calculate_inheritance"):
-        try:
-            pedigree_data = read_pedigree(cfg["ped_file"])
+    if cfg.get("calculate_inheritance"):
+        if cfg.get("ped_file"):
+            try:
+                pedigree_data = read_pedigree(cfg["ped_file"])
+                cfg["pedigree_data"] = pedigree_data
+                logger.info(f"Loaded pedigree data for {len(pedigree_data)} individuals.")
+            except Exception as e:
+                logger.error(f"Failed to load PED file: {e}")
+                sys.exit(1)
+        else:
+            # Create single-sample pedigree data for inheritance analysis
+            logger.info("No PED file provided - treating all samples as unrelated individuals.")
+            pedigree_data = {}
             cfg["pedigree_data"] = pedigree_data
-            logger.info(f"Loaded pedigree data for {len(pedigree_data)} individuals.")
-        except Exception as e:
-            logger.error(f"Failed to load PED file: {e}")
-            sys.exit(1)
 
     # Validate and load custom annotation features
     annotation_errors = validate_annotation_config(cfg)
@@ -681,6 +687,7 @@ def run_pipeline(
     temp_cfg["scoring_config"] = scoring_config  # Pass the loaded config
     temp_cfg["pedigree_data"] = pedigree_data  # Pass the loaded pedigree data
     temp_cfg["calculate_inheritance"] = cfg.get("calculate_inheritance", False)
+    temp_cfg["sample_list"] = cfg.get("sample_list", "")  # Ensure sample_list is passed
     buffer = []
     with open(annotated_tsv, "r", encoding="utf-8") as inp:
         line_count = 0
