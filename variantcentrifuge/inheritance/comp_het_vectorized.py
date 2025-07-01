@@ -273,10 +273,10 @@ def create_variant_key_fast(df: pd.DataFrame, idx: int) -> str:
         Variant key string
     """
     row = df.iloc[idx]
-    chrom = row.get('CHROM', 'chr?')
-    pos = row.get('POS', '0')
-    ref = row.get('REF', 'N')
-    alt = row.get('ALT', 'N')
+    chrom = row.get("CHROM", "chr?")
+    pos = row.get("POS", "0")
+    ref = row.get("REF", "N")
+    alt = row.get("ALT", "N")
     return f"{chrom}:{pos}:{ref}>{alt}"
 
 

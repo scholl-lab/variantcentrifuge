@@ -27,6 +27,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -523,11 +524,31 @@ def run_pipeline(
 
     cfg["sample_list"] = ",".join(original_samples) if original_samples else ""
     if not args.no_replacement and gt_present:
-        with open(extracted_tsv, "r", encoding="utf-8") as inp, open(
-            genotype_replaced_tsv, "w", encoding="utf-8"
-        ) as out:
-            for line in replace_genotypes(inp, cfg):
-                out.write(line + "\n")
+        logger.info("Starting genotype replacement...")
+        start_time = time.time()
+        lines_written = 0
+        
+        try:
+            with open(extracted_tsv, "r", encoding="utf-8") as inp, open(
+                genotype_replaced_tsv, "w", encoding="utf-8"
+            ) as out:
+                for line in replace_genotypes(inp, cfg):
+                    out.write(line + "\n")
+                    lines_written += 1
+                    
+                    # Log progress every 10000 lines
+                    if lines_written % 10000 == 0:
+                        elapsed = time.time() - start_time
+                        rate = lines_written / elapsed if elapsed > 0 else 0
+                        logger.info(f"Genotype replacement: {lines_written} lines in {elapsed:.1f}s ({rate:.0f} lines/sec)")
+                        out.flush()  # Ensure data is written to disk
+        except Exception as e:
+            logger.error(f"Error during genotype replacement at line {lines_written}: {e}")
+            logger.error("Consider using --no-replacement flag to skip this step")
+            raise
+                    
+        total_time = time.time() - start_time
+        logger.info(f"Genotype replacement completed: {lines_written} lines in {total_time:.1f}s")
         replaced_tsv = genotype_replaced_tsv
     else:
         replaced_tsv = extracted_tsv

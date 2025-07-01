@@ -110,9 +110,12 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
     sample_list_str = cfg.get("sample_list", "")
     samples = [s.strip() for s in sample_list_str.split(",") if s.strip()]
     logger.debug("Parsed samples => %s", samples)
+    logger.debug("Number of samples: %d", len(samples))
+    
     if not samples:
         logger.warning("No samples found in cfg[sample_list]. Returning lines unchanged.")
-        yield from lines
+        for line in lines:
+            yield line.rstrip("\n")
         return
 
     # Compile genotype replacement regex patterns
@@ -126,8 +129,13 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
     extra_field_indices = {}
 
     first_line = True
+    lines_processed = 0
     for line_idx, line in enumerate(lines, start=1):
         line = line.rstrip("\n")
+        
+        # Log progress every 10000 lines
+        if line_idx % 10000 == 0:
+            logger.debug(f"Processed {line_idx} lines in genotype replacement")
 
         # Header line => identify GT and any extra fields
         if first_line:
@@ -157,7 +165,8 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
                 logger.warning("No GT column found in header. Returning lines unmodified.")
                 yield line
                 # yield the rest of the lines
-                yield from lines
+                for remaining_line in lines:
+                    yield remaining_line.rstrip("\n")
                 return
 
             # Identify requested extra fields
@@ -307,8 +316,15 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
 
         # Rejoin the new GT column
         if new_gts:
-            cols[gt_idx] = separator.join(new_gts)
+            new_gt_field = separator.join(new_gts)
+            # Warn if GT field is extremely long
+            if len(new_gt_field) > 100000:
+                logger.warning(f"Line {line_idx}: GT field is very long ({len(new_gt_field)} chars) with {len(new_gts)} samples")
+            cols[gt_idx] = new_gt_field
         else:
             cols[gt_idx] = ""
 
         yield "\t".join(cols)
+    
+    # Log completion
+    logger.debug(f"Genotype replacement completed. Processed {line_idx} total lines.")
