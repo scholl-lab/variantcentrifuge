@@ -95,7 +95,6 @@ def _compute_or_confidence_interval(
     very high plausible range instead of returning NaN. For example, we use:
     ci_lower = 0.001 and ci_upper = 1000 for extreme cases.
     """
-
     if isnan(odds_ratio) or odds_ratio <= 0 or np.isinf(odds_ratio):
         # Attempt direct fallback without normal approx
         logger.debug("Odds ratio is invalid (NaN, <=0, or Inf). Attempting fallback methods.")
@@ -192,7 +191,6 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.Da
     Confidence intervals now attempt multiple methods and fallback intervals
     in edge cases (Issue #31).
     """
-
     logger.debug("Starting gene burden aggregation...")
 
     mode = cfg.get("gene_burden_mode", "alleles")

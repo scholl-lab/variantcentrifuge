@@ -7,6 +7,8 @@ Genotype replacement module.
 This module dynamically searches for a "GT" column in the header line of the
 input TSV and applies configurable genotype replacement logic.
 
+1. Find the GT column in the TSV header.
+
 2. For each variant row:
    - Parse the genotype subfields (split by `cfg["extract_fields_separator"]`, usually ":")
    - Skip non-variant genotypes ("0/0" or "./.").
@@ -24,13 +26,13 @@ input TSV and applies configurable genotype replacement logic.
 5. The final joined string for each variant is placed back into the "GT" column, separated from other
    variants by `cfg["separator"]` (commonly ";").
 
-Header Normalization:
----------------------
+Header Normalization
+--------------------
 SnpSift or other tools may remove "GEN[*]." or "ANN[*]." prefixes in headers. To handle this,
 we normalize both the final TSV header columns and the user-supplied extra fields so they match.
 
-Example:
---------
+Example
+-------
 If the user passed --append-extra-sample-fields GEN[*].DP GEN[*].AD and the TSV header has columns
 "DP", "AD" (prefix removed by SnpSift), the code will still find them by normalizing them to "DP", "AD"
 internally.

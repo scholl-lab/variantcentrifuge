@@ -581,7 +581,9 @@ def main() -> None:
     # Inheritance analysis configuration
     cfg["ped_file"] = args.ped
     cfg["calculate_inheritance"] = args.calculate_inheritance
-    cfg["use_vectorized_comp_het"] = not args.no_vectorized_comp_het  # Default to True unless disabled
+    cfg["use_vectorized_comp_het"] = (
+        not args.no_vectorized_comp_het
+    )  # Default to True unless disabled
 
     # Validate inheritance arguments - no longer required
     # Allow calculate_inheritance without PED file for single sample analysis

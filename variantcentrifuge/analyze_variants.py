@@ -150,7 +150,9 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
             logger.debug(f"Sample list for inheritance: {sample_list}")
             # Use vectorized compound het implementation by default for better performance
             use_vectorized = cfg.get("use_vectorized_comp_het", True)
-            df = analyze_inheritance(df, cfg["pedigree_data"], sample_list, use_vectorized_comp_het=use_vectorized)
+            df = analyze_inheritance(
+                df, cfg["pedigree_data"], sample_list, use_vectorized_comp_het=use_vectorized
+            )
             logger.info("Inheritance analysis complete.")
         except Exception as e:
             logger.error(f"Inheritance analysis failed: {e}", exc_info=True)
