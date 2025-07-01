@@ -151,10 +151,14 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
             df = analyze_inheritance(df, cfg["pedigree_data"], sample_list)
             logger.info("Inheritance analysis complete.")
         except Exception as e:
-            logger.error(f"Inheritance analysis failed: {e}")
+            logger.error(f"Inheritance analysis failed: {e}", exc_info=True)
             # Add empty columns to prevent downstream errors
             df["Inheritance_Pattern"] = "error"
             df["Inheritance_Details"] = "{}"
+            # Clean up any temporary columns that might have been created
+            for col in ["_inheritance_patterns", "_comp_het_info"]:
+                if col in df.columns:
+                    df = df.drop(columns=[col])
 
     # Apply scoring if configuration is provided (can now use inheritance results)
     scoring_config = cfg.get("scoring_config")

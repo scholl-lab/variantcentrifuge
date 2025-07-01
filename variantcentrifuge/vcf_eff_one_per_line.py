@@ -5,8 +5,8 @@
 # Location: variantcentrifuge/variantcentrifuge/vcf_eff_one_per_line.py
 
 """
-Module: vcf_eff_one_per_line
-============================
+Module: vcf_eff_one_per_line.
+
 Replicates the functionality of the original vcfEffOnePerLine.pl script in Python.
 It reads VCF lines (uncompressed or bgzipped) that contain SNPeff or SnpSift
 annotations (EFF or ANN in the INFO field), and splits multiple annotations
@@ -52,9 +52,9 @@ import sys
 
 def split_vcf_effects(line: str) -> list[str]:
     """
-    Splits multiple EFF or ANN annotations in the INFO field of a VCF line
-    into separate lines. If no EFF/ANN is found or only one is found,
-    returns a list containing the original line.
+    Split multiple EFF or ANN annotations in the INFO field of a VCF line into separate lines.
+
+    If no EFF/ANN is found or only one is found, returns a list containing the original line.
 
     :param line: A single VCF record (line).
     :return: A list of one or more lines, each containing one EFF/ANN annotation.
@@ -121,11 +121,10 @@ def split_vcf_effects(line: str) -> list[str]:
 
 def process_vcf_file(input_file: str, output_file: str = None) -> None:
     """
-    Processes a VCF file (bgzipped or uncompressed), splits multiple EFF/ANN
-    annotations into separate lines, and writes the output to a file or stdout.
+    Process a VCF file, split multiple EFF/ANN annotations into separate lines, and write the output.
 
-    If the output file ends with .gz (and is not '-'), the output is written
-    through bgzip and a tabix index is created automatically.
+    Handles both bgzipped and uncompressed files. If the output file ends with .gz (and is not '-'),
+    the output is written through bgzip and a tabix index is created automatically.
 
     :param input_file: Path to an uncompressed or bgzipped VCF file. Use '-'
                        to read from stdin.
@@ -188,9 +187,7 @@ def process_vcf_file(input_file: str, output_file: str = None) -> None:
 
 
 def main():
-    """
-    CLI entry point for splitting multiple EFF/ANN annotations in a VCF file.
-    """
+    """Serve as CLI entry point for splitting multiple EFF/ANN annotations in a VCF file."""
     parser = argparse.ArgumentParser(
         description=(
             "Split multiple EFF or ANN annotations in a VCF file into separate lines. "

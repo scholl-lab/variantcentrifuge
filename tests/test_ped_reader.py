@@ -7,10 +7,11 @@ from variantcentrifuge.ped_reader import read_pedigree, get_parents, is_affected
 
 
 class TestPedReader:
+    """Test PED file reader."""
 
     @pytest.fixture
     def valid_ped_content(self):
-        """Standard trio PED file content."""
+        """Provide standard trio PED file content."""
         return """FAM1 father 0 0 1 1
 FAM1 mother 0 0 2 1
 FAM1 child father mother 1 2"""

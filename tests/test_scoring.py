@@ -1,4 +1,4 @@
-# File: tests/test_scoring.py
+"""Tests for scoring module."""
 
 import pandas as pd
 import pytest
@@ -7,7 +7,7 @@ from variantcentrifuge.scoring import apply_scoring
 
 @pytest.fixture
 def sample_df():
-    """Provides a sample DataFrame for testing."""
+    """Provide a sample DataFrame for testing."""
     data = {
         "dbNSFP_CADD_phred": [10.0, 25.0, 5.0],
         "dbNSFP_gnomAD_exomes_AF": [0.1, 0.001, 0.0],
@@ -18,7 +18,7 @@ def sample_df():
 
 @pytest.fixture
 def sample_scoring_config():
-    """Provides a sample scoring configuration."""
+    """Provide a sample scoring configuration."""
     return {
         "variables": {
             "dbNSFP_CADD_phred": "cadd",

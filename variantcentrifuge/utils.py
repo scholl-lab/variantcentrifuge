@@ -21,8 +21,7 @@ logger = logging.getLogger("variantcentrifuge")
 
 def run_command(cmd: list, output_file: Optional[str] = None) -> str:
     """
-    Run a shell command and write its stdout to output_file if provided,
-    else return stdout as a string.
+    Run a shell command and write stdout to output_file if provided, else return stdout.
 
     Parameters
     ----------
@@ -63,7 +62,9 @@ def run_command(cmd: list, output_file: Optional[str] = None) -> str:
 
 def normalize_vcf_headers(lines: List[str]) -> List[str]:
     """
-    Normalize header lines from tools like SnpEff and SnpSift by:
+    Normalize header lines from tools like SnpEff and SnpSift.
+
+    By:
     1. Removing known prefixes (e.g., "ANN[*].", "ANN[0].")
     2. Converting indexed genotype fields from format GEN[index].FIELD to FIELD_index
        (e.g., "GEN[0].AF" -> "AF_0", "GEN[1].DP" -> "DP_1")
@@ -242,8 +243,7 @@ def get_tool_version(tool_name: str) -> str:
 
 def sanitize_metadata_field(value: str) -> str:
     """
-    Sanitize a metadata field by removing tabs and newlines,
-    replacing them with spaces to ensure TSV compatibility.
+    Sanitize a metadata field by removing tabs and newlines, replacing with spaces for TSV.
 
     Parameters
     ----------

@@ -1,9 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""
-Integration tests for IGV report generation in variantcentrifuge.
-"""
+"""Integration tests for IGV report generation in variantcentrifuge."""
 
 import os
 import json

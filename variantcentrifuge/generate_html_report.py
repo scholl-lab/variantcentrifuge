@@ -1,5 +1,4 @@
-# File: variantcentrifuge/generate_html_report.py
-# Location: variantcentrifuge/generate_html_report.py
+"""HTML report generation for VariantCentrifuge."""
 
 import json
 from pathlib import Path

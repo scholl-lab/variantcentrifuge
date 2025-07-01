@@ -153,7 +153,7 @@ def validate_mandatory_parameters(
 
 # MODIFIED: Start of local IGV FASTA feature
 def validate_igv_files(local_fasta: Optional[str], ideogram: Optional[str]) -> None:
-    """Validates the existence and readability of files for IGV integration.
+    """Validate the existence and readability of files for IGV integration.
 
     Parameters
     ----------

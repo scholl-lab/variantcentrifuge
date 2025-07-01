@@ -40,10 +40,14 @@ def _sanitize_name(name: str) -> str:
     """
     Sanitize a name to be safe for use in annotations.
 
-    Args:
-        name: Raw name string
+    Parameters
+    ----------
+    name : str
+        Raw name string
 
-    Returns:
+    Returns
+    -------
+    str
         Sanitized name with only alphanumeric characters and underscores
     """
     # Remove extension and path
@@ -60,10 +64,14 @@ def _parse_bed_line(line: str) -> Optional[tuple]:
     """
     Parse a single BED file line.
 
-    Args:
-        line: BED format line
+    Parameters
+    ----------
+    line : str
+        BED format line
 
-    Returns:
+    Returns
+    -------
+    tuple or None
         Tuple of (chrom, start, end, name) or None if invalid
     """
     line = line.strip()
@@ -88,10 +96,14 @@ def _load_bed_files(bed_files: List[str]) -> Dict[str, Any]:
     """
     Load BED files into interval trees for efficient overlap detection.
 
-    Args:
-        bed_files: List of BED file paths
+    Parameters
+    ----------
+    bed_files : List[str]
+        List of BED file paths
 
-    Returns:
+    Returns
+    -------
+    Dict[str, Any]
         Dictionary with chromosome-keyed interval trees
     """
     if not INTERVALTREE_AVAILABLE:
@@ -142,10 +154,14 @@ def _load_gene_lists(gene_list_files: List[str]) -> Dict[str, Set[str]]:
     """
     Load gene lists from text files.
 
-    Args:
-        gene_list_files: List of gene list file paths
+    Parameters
+    ----------
+    gene_list_files : List[str]
+        List of gene list file paths
 
-    Returns:
+    Returns
+    -------
+    Dict[str, Set[str]]
         Dictionary mapping list names to sets of gene symbols (uppercase)
     """
     gene_lists = {}
@@ -185,11 +201,16 @@ def _load_json_gene_data(json_files: List[str], mapping_config: str) -> Dict[str
     """
     Load structured gene data from JSON files.
 
-    Args:
-        json_files: List of JSON file paths
-        mapping_config: JSON string specifying field mapping
+    Parameters
+    ----------
+    json_files : List[str]
+        List of JSON file paths
+    mapping_config : str
+        JSON string specifying field mapping
 
-    Returns:
+    Returns
+    -------
+    Dict[str, Dict[str, Any]]
         Dictionary mapping gene symbols to their data dictionaries
     """
     if not mapping_config:
@@ -264,10 +285,14 @@ def load_custom_features(cfg: Dict[str, Any]) -> Dict[str, Any]:
     """
     Load all custom annotation features from configuration.
 
-    Args:
-        cfg: Configuration dictionary containing annotation file paths
+    Parameters
+    ----------
+    cfg : Dict[str, Any]
+        Configuration dictionary containing annotation file paths
 
-    Returns:
+    Returns
+    -------
+    Dict[str, Any]
         Dictionary containing all loaded annotation features
     """
     logger.info("Loading custom annotation features...")
@@ -311,10 +336,14 @@ def _extract_genes_from_row(row: pd.Series) -> Set[str]:
     """
     Extract gene symbols from a variant row.
 
-    Args:
-        row: Pandas Series representing a variant row
+    Parameters
+    ----------
+    row : pd.Series
+        Pandas Series representing a variant row
 
-    Returns:
+    Returns
+    -------
+    Set[str]
         Set of uppercase gene symbols
     """
     genes = set()
@@ -343,11 +372,16 @@ def _find_region_overlaps(row: pd.Series, regions_by_chrom: Dict[str, Any]) -> L
     """
     Find overlapping regions for a variant.
 
-    Args:
-        row: Variant row
-        regions_by_chrom: Dictionary of interval trees by chromosome
+    Parameters
+    ----------
+    row : pd.Series
+        Variant row
+    regions_by_chrom : Dict[str, Any]
+        Dictionary of interval trees by chromosome
 
-    Returns:
+    Returns
+    -------
+    List[str]
         List of region annotation strings
     """
     annotations = []
@@ -378,11 +412,16 @@ def _find_gene_list_matches(genes: Set[str], gene_lists: Dict[str, Set[str]]) ->
     """
     Find gene list matches for a set of genes.
 
-    Args:
-        genes: Set of gene symbols
-        gene_lists: Dictionary of gene lists
+    Parameters
+    ----------
+    genes : Set[str]
+        Set of gene symbols
+    gene_lists : Dict[str, Set[str]]
+        Dictionary of gene lists
 
-    Returns:
+    Returns
+    -------
+    List[str]
         List of gene list annotation strings
     """
     annotations = []
@@ -400,11 +439,16 @@ def _find_json_gene_matches(
     """
     Find JSON gene data matches for a set of genes.
 
-    Args:
-        genes: Set of gene symbols
-        json_gene_data: Dictionary of gene data
+    Parameters
+    ----------
+    genes : Set[str]
+        Set of gene symbols
+    json_gene_data : Dict[str, Dict[str, Any]]
+        Dictionary of gene data
 
-    Returns:
+    Returns
+    -------
+    List[str]
         List of gene data annotation strings
     """
     annotations = []
@@ -421,11 +465,16 @@ def annotate_dataframe_with_features(df: pd.DataFrame, features: Dict[str, Any])
     """
     Add Custom_Annotation column to DataFrame with unified annotation data.
 
-    Args:
-        df: Input DataFrame with variant data
-        features: Dictionary of loaded annotation features
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input DataFrame with variant data
+    features : Dict[str, Any]
+        Dictionary of loaded annotation features
 
-    Returns:
+    Returns
+    -------
+    pd.DataFrame
         DataFrame with added Custom_Annotation column
     """
     if df.empty:
@@ -486,10 +535,14 @@ def get_annotation_summary(df: pd.DataFrame) -> Dict[str, Any]:
     """
     Generate a summary of annotation results.
 
-    Args:
-        df: DataFrame with Custom_Annotation column
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with Custom_Annotation column
 
-    Returns:
+    Returns
+    -------
+    Dict[str, Any]
         Dictionary with annotation statistics
     """
     if "Custom_Annotation" not in df.columns:
@@ -519,10 +572,14 @@ def validate_annotation_config(cfg: Dict[str, Any]) -> List[str]:
     """
     Validate annotation configuration and return any errors.
 
-    Args:
-        cfg: Configuration dictionary
+    Parameters
+    ----------
+    cfg : Dict[str, Any]
+        Configuration dictionary
 
-    Returns:
+    Returns
+    -------
+    List[str]
         List of validation error messages
     """
     errors = []

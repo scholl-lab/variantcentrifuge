@@ -14,16 +14,22 @@ logger = logging.getLogger(__name__)
 
 def read_pedigree(file_path: str) -> Dict[str, Dict[str, Any]]:
     """
-    Parses a PED file into a dictionary keyed by sample ID.
+    Parse a PED file into a dictionary keyed by sample ID.
 
-    Args:
-        file_path: Path to the PED file
+    Parameters
+    ----------
+    file_path : str
+        Path to the PED file
 
-    Returns:
+    Returns
+    -------
+    Dict[str, Dict[str, Any]]
         Dictionary mapping sample IDs to their pedigree information
 
-    Raises:
-        ValueError: If the PED file is invalid or cannot be parsed
+    Raises
+    ------
+    ValueError
+        If the PED file is invalid or cannot be parsed
     """
     try:
         # First, read without column names to check format
@@ -92,11 +98,16 @@ def get_parents(sample_id: str, pedigree_data: Dict[str, Dict[str, Any]]) -> tup
     """
     Get the parent IDs for a given sample.
 
-    Args:
-        sample_id: The sample ID to get parents for
-        pedigree_data: The pedigree data dictionary
+    Parameters
+    ----------
+    sample_id : str
+        The sample ID to get parents for
+    pedigree_data : Dict[str, Dict[str, Any]]
+        The pedigree data dictionary
 
-    Returns:
+    Returns
+    -------
+    tuple
         Tuple of (father_id, mother_id), where '0' indicates no parent
     """
     if sample_id not in pedigree_data:
@@ -113,11 +124,16 @@ def is_affected(sample_id: str, pedigree_data: Dict[str, Dict[str, Any]]) -> boo
     """
     Check if a sample is affected according to the pedigree.
 
-    Args:
-        sample_id: The sample ID to check
-        pedigree_data: The pedigree data dictionary
+    Parameters
+    ----------
+    sample_id : str
+        The sample ID to check
+    pedigree_data : Dict[str, Dict[str, Any]]
+        The pedigree data dictionary
 
-    Returns:
+    Returns
+    -------
+    bool
         True if affected (status = 2), False otherwise
     """
     if sample_id not in pedigree_data:
@@ -131,11 +147,16 @@ def get_family_members(sample_id: str, pedigree_data: Dict[str, Dict[str, Any]])
     """
     Get all family members for a given sample.
 
-    Args:
-        sample_id: The sample ID to get family for
-        pedigree_data: The pedigree data dictionary
+    Parameters
+    ----------
+    sample_id : str
+        The sample ID to get family for
+    pedigree_data : Dict[str, Dict[str, Any]]
+        The pedigree data dictionary
 
-    Returns:
+    Returns
+    -------
+    list
         List of sample IDs in the same family
     """
     if sample_id not in pedigree_data:

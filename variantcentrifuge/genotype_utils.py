@@ -12,10 +12,14 @@ def parse_genotype(gt: str) -> Tuple[Optional[int], Optional[int]]:
     """
     Parse a genotype string into allele indices.
 
-    Args:
-        gt: Genotype string (e.g., "0/1", "1|1", "./.")
+    Parameters
+    ----------
+    gt : str
+        Genotype string (e.g., "0/1", "1|1", "./.")
 
-    Returns:
+    Returns
+    -------
+    Tuple[Optional[int], Optional[int]]
         Tuple of (allele1, allele2) where None indicates missing
     """
     if not gt or gt == "./.":
@@ -77,10 +81,14 @@ def get_allele_count(gt: str) -> int:
     """
     Get the count of alternate alleles in the genotype.
 
-    Args:
-        gt: Genotype string
+    Parameters
+    ----------
+    gt : str
+        Genotype string
 
-    Returns:
+    Returns
+    -------
+    int
         Number of alternate alleles (0, 1, or 2)
     """
     if is_missing(gt):
@@ -104,10 +112,14 @@ def get_genotype_type(gt: str) -> str:
     """
     Get a string representation of the genotype type.
 
-    Args:
-        gt: Genotype string
+    Parameters
+    ----------
+    gt : str
+        Genotype string
 
-    Returns:
+    Returns
+    -------
+    str
         One of: 'ref', 'het', 'hom_alt', 'missing'
     """
     if is_missing(gt):
@@ -126,12 +138,18 @@ def is_mendelian_consistent(child_gt: str, father_gt: str, mother_gt: str) -> bo
     """
     Check if a child's genotype is consistent with Mendelian inheritance.
 
-    Args:
-        child_gt: Child's genotype
-        father_gt: Father's genotype
-        mother_gt: Mother's genotype
+    Parameters
+    ----------
+    child_gt : str
+        Child's genotype
+    father_gt : str
+        Father's genotype
+    mother_gt : str
+        Mother's genotype
 
-    Returns:
+    Returns
+    -------
+    bool
         True if consistent with Mendelian inheritance
     """
     # Parse genotypes
@@ -165,12 +183,18 @@ def could_be_de_novo(child_gt: str, father_gt: str, mother_gt: str) -> bool:
     """
     Check if a variant could be de novo in the child.
 
-    Args:
-        child_gt: Child's genotype
-        father_gt: Father's genotype
-        mother_gt: Mother's genotype
+    Parameters
+    ----------
+    child_gt : str
+        Child's genotype
+    father_gt : str
+        Father's genotype
+    mother_gt : str
+        Mother's genotype
 
-    Returns:
+    Returns
+    -------
+    bool
         True if the variant appears de novo in the child
     """
     # Child must have variant
@@ -188,10 +212,14 @@ def merge_genotypes(genotypes: List[str]) -> str:
     """
     Merge multiple genotypes into a consensus genotype.
 
-    Args:
-        genotypes: List of genotype strings
+    Parameters
+    ----------
+    genotypes : List[str]
+        List of genotype strings
 
-    Returns:
+    Returns
+    -------
+    str
         Merged genotype string
     """
     # Filter out missing genotypes

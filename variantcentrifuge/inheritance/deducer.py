@@ -6,10 +6,12 @@ based on genotypes in a family.
 """
 
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from ..genotype_utils import (
     is_variant,
     is_hom_alt,
+    is_het,
+    is_ref,
     is_missing,
     could_be_de_novo,
 )
@@ -24,15 +26,25 @@ def deduce_patterns_for_variant(
     """
     Deduce all possible inheritance patterns for a variant.
 
-    Args:
-        variant_row: Dictionary containing variant data with sample genotypes
-        pedigree_data: Pedigree information dictionary
-        sample_list: List of sample IDs to analyze
+    Parameters
+    ----------
+    variant_row : Dict[str, Any]
+        Dictionary containing variant data with sample genotypes
+    pedigree_data : Dict[str, Dict[str, Any]]
+        Pedigree information dictionary
+    sample_list : List[str]
+        List of sample IDs to analyze
 
-    Returns:
+    Returns
+    -------
+    List[str]
         List of possible inheritance patterns
     """
     patterns = []
+
+    # Handle single sample case (no pedigree data)
+    if not pedigree_data or len(sample_list) == 1:
+        return deduce_single_sample_patterns(variant_row, sample_list)
 
     # Analyze each sample
     for sample_id in sample_list:
@@ -55,6 +67,41 @@ def deduce_patterns_for_variant(
     return unique_patterns
 
 
+def deduce_single_sample_patterns(variant_row: Dict[str, Any], sample_list: List[str]) -> List[str]:
+    """
+    Deduce patterns for single sample analysis (no family data).
+
+    Parameters
+    ----------
+    variant_row : Dict[str, Any]
+        Variant data with genotypes
+    sample_list : List[str]
+        List of sample IDs (typically just one)
+
+    Returns
+    -------
+    List[str]
+        List of basic patterns based on genotype
+    """
+    patterns = []
+
+    for sample_id in sample_list:
+        gt = variant_row.get(sample_id, "./.")
+
+        if is_missing(gt):
+            continue
+        elif is_ref(gt):
+            patterns.append("reference")
+        elif is_hom_alt(gt):
+            patterns.append("homozygous")
+        elif is_het(gt):
+            # For single sample, heterozygous pattern is unknown
+            # Will be resolved by compound het analysis if multiple variants in same gene
+            patterns.append("unknown")
+
+    return patterns if patterns else ["unknown"]
+
+
 def deduce_patterns_for_sample(
     sample_id: str,
     variant_row: Dict[str, Any],
@@ -64,13 +111,20 @@ def deduce_patterns_for_sample(
     """
     Deduce inheritance patterns for a specific sample.
 
-    Args:
-        sample_id: The sample to analyze
-        variant_row: Variant data with genotypes
-        pedigree_data: Pedigree information
-        sample_list: All available samples
+    Parameters
+    ----------
+    sample_id : str
+        The sample to analyze
+    variant_row : Dict[str, Any]
+        Variant data with genotypes
+    pedigree_data : Dict[str, Dict[str, Any]]
+        Pedigree information
+    sample_list : List[str]
+        All available samples
 
-    Returns:
+    Returns
+    -------
+    List[str]
         List of possible patterns for this sample
     """
     patterns = []
@@ -92,155 +146,335 @@ def deduce_patterns_for_sample(
 
         if could_be_de_novo(sample_gt, father_gt, mother_gt):
             patterns.append("de_novo")
+        elif is_missing(father_gt) or is_missing(mother_gt):
+            # If parent genotypes are missing, it could be de novo
+            if is_variant(sample_gt) and is_affected(sample_id, pedigree_data):
+                patterns.append("de_novo_candidate")
 
     # Check for dominant patterns
-    if is_dominant_pattern(sample_id, variant_row, pedigree_data, sample_list):
-        patterns.append("autosomal_dominant")
+    dom_result = check_dominant_pattern(sample_id, variant_row, pedigree_data, sample_list)
+    if dom_result:
+        patterns.append(dom_result)
 
     # Check for recessive patterns
-    if is_recessive_pattern(sample_id, variant_row, pedigree_data, sample_list):
-        patterns.append("autosomal_recessive")
+    rec_result = check_recessive_pattern(sample_id, variant_row, pedigree_data, sample_list)
+    if rec_result:
+        patterns.append(rec_result)
 
-    # Check for X-linked patterns
-    sex = pedigree_data[sample_id].get("sex", "0")
-    if sex in ["1", "2"]:  # Known sex
-        if is_x_linked_pattern(sample_id, variant_row, pedigree_data, sample_list):
-            if sex == "1":  # Male
-                patterns.append("x_linked_recessive")
-            else:  # Female
-                patterns.append("x_linked_dominant")
+    # Check for X-linked patterns if on X chromosome
+    chrom = str(variant_row.get("CHROM", "")).upper()
+    if chrom in ["X", "CHRX", "23"]:
+        x_patterns = check_x_linked_patterns(sample_id, variant_row, pedigree_data, sample_list)
+        patterns.extend(x_patterns)
+
+    # Check for mitochondrial if on MT chromosome
+    if chrom in ["MT", "M", "CHRM", "CHRMT"]:
+        if check_mitochondrial_pattern(sample_id, variant_row, pedigree_data, sample_list):
+            patterns.append("mitochondrial")
 
     # If no specific pattern found but variant present
     if not patterns and is_variant(sample_gt):
-        patterns.append("unknown")
+        if is_affected(sample_id, pedigree_data):
+            patterns.append("unknown")
+        else:
+            patterns.append("carrier")
 
     return patterns
 
 
-def is_dominant_pattern(
+def check_dominant_pattern(
     sample_id: str,
     variant_row: Dict[str, Any],
     pedigree_data: Dict[str, Dict[str, Any]],
     sample_list: List[str],
-) -> bool:
+) -> Optional[str]:
     """
     Check if variant follows autosomal dominant pattern.
 
-    Criteria:
-    - Affected individuals have the variant
-    - At least one parent has the variant (unless de novo)
-    - Transmitted from affected parent to affected offspring
+    Returns specific pattern type or None.
     """
     sample_gt = variant_row.get(sample_id, "./.")
 
     # Must have variant
     if not is_variant(sample_gt):
-        return False
+        return None
 
     # Check if affected
     if not is_affected(sample_id, pedigree_data):
-        return False
+        return None
 
     # Check parents
     father_id, mother_id = get_parents(sample_id, pedigree_data)
 
+    father_has_variant = False
+    mother_has_variant = False
+    parent_data_complete = True
+
     if father_id and father_id in sample_list:
         father_gt = variant_row.get(father_id, "./.")
-        if is_variant(father_gt) and is_affected(father_id, pedigree_data):
-            return True
+        if is_missing(father_gt):
+            parent_data_complete = False
+        elif is_variant(father_gt):
+            father_has_variant = True
 
     if mother_id and mother_id in sample_list:
         mother_gt = variant_row.get(mother_id, "./.")
-        if is_variant(mother_gt) and is_affected(mother_id, pedigree_data):
-            return True
+        if is_missing(mother_gt):
+            parent_data_complete = False
+        elif is_variant(mother_gt):
+            mother_has_variant = True
 
-    return False
+    # Classic dominant: at least one parent affected and has variant
+    if father_has_variant or mother_has_variant:
+        if (father_has_variant and is_affected(father_id, pedigree_data)) or (
+            mother_has_variant and is_affected(mother_id, pedigree_data)
+        ):
+            return "autosomal_dominant"
+        else:
+            # Parent has variant but not affected - incomplete penetrance?
+            return "autosomal_dominant_possible"
+
+    # If parent data incomplete
+    if not parent_data_complete:
+        return "autosomal_dominant_possible"
+
+    return None
 
 
-def is_recessive_pattern(
+def check_recessive_pattern(
     sample_id: str,
     variant_row: Dict[str, Any],
     pedigree_data: Dict[str, Dict[str, Any]],
     sample_list: List[str],
-) -> bool:
+) -> Optional[str]:
     """
     Check if variant follows autosomal recessive pattern.
 
-    Criteria:
-    - Affected individuals are homozygous for the variant
-    - Parents are typically carriers (heterozygous)
-    - Both parents must carry at least one copy
+    Returns specific pattern type or None.
     """
     sample_gt = variant_row.get(sample_id, "./.")
 
-    # Must be homozygous alt
+    # Must be homozygous alt for classic recessive
     if not is_hom_alt(sample_gt):
-        return False
+        return None
 
     # Should be affected
     if not is_affected(sample_id, pedigree_data):
-        return False
+        return None
 
     # Check parents
     father_id, mother_id = get_parents(sample_id, pedigree_data)
 
     # Both parents should be carriers or affected
-    father_carrier = False
-    mother_carrier = False
+    father_carrier = None
+    mother_carrier = None
+    parent_data_complete = True
 
     if father_id and father_id in sample_list:
         father_gt = variant_row.get(father_id, "./.")
-        father_carrier = is_variant(father_gt)
+        if is_missing(father_gt):
+            parent_data_complete = False
+        else:
+            father_carrier = is_variant(father_gt)
 
     if mother_id and mother_id in sample_list:
         mother_gt = variant_row.get(mother_id, "./.")
-        mother_carrier = is_variant(mother_gt)
+        if is_missing(mother_gt):
+            parent_data_complete = False
+        else:
+            mother_carrier = is_variant(mother_gt)
 
-    # Both parents must carry the variant
-    return father_carrier and mother_carrier
+    # Classic recessive: both parents are carriers
+    if father_carrier and mother_carrier:
+        # Check if parents are affected
+        father_affected = is_affected(father_id, pedigree_data) if father_id else False
+        mother_affected = is_affected(mother_id, pedigree_data) if mother_id else False
+
+        # If both parents are carriers but not affected, classic recessive
+        if not father_affected and not mother_affected:
+            return "autosomal_recessive"
+        else:
+            # One or both parents affected - still recessive but unusual
+            return "autosomal_recessive"
+
+    # If we have incomplete parent data but what we have is consistent
+    if (
+        not parent_data_complete
+        and (father_carrier is None or father_carrier)
+        and (mother_carrier is None or mother_carrier)
+    ):
+        return "autosomal_recessive_possible"
+
+    return None
 
 
-def is_x_linked_pattern(
+def check_x_linked_patterns(
+    sample_id: str,
+    variant_row: Dict[str, Any],
+    pedigree_data: Dict[str, Dict[str, Any]],
+    sample_list: List[str],
+) -> List[str]:
+    """
+    Check if variant follows X-linked patterns.
+
+    Returns list of possible X-linked patterns.
+    """
+    patterns = []
+    sample_gt = variant_row.get(sample_id, "./.")
+    sex = pedigree_data[sample_id].get("sex", "0")
+    affected = is_affected(sample_id, pedigree_data)
+
+    # Must have variant
+    if not is_variant(sample_gt):
+        return patterns
+
+    # Get parent information
+    father_id, mother_id = get_parents(sample_id, pedigree_data)
+
+    # Check X-linked recessive
+    xlr_consistent = check_x_linked_recessive(sample_id, variant_row, pedigree_data, sample_list)
+    if xlr_consistent:
+        patterns.append(xlr_consistent)
+
+    # Check X-linked dominant
+    xld_consistent = check_x_linked_dominant(sample_id, variant_row, pedigree_data, sample_list)
+    if xld_consistent:
+        patterns.append(xld_consistent)
+
+    # If affected but patterns unclear, add possible
+    if affected and not patterns:
+        if sex == "1":  # Male
+            patterns.append("x_linked_recessive_possible")
+        else:  # Female
+            if is_hom_alt(sample_gt):
+                patterns.append("x_linked_recessive_possible")
+            else:
+                patterns.append("x_linked_dominant_possible")
+
+    return patterns
+
+
+def check_x_linked_recessive(
+    sample_id: str,
+    variant_row: Dict[str, Any],
+    pedigree_data: Dict[str, Dict[str, Any]],
+    sample_list: List[str],
+) -> Optional[str]:
+    """Check for X-linked recessive pattern with sophisticated logic."""
+    sample_gt = variant_row.get(sample_id, "./.")
+    sex = pedigree_data[sample_id].get("sex", "0")
+    affected = is_affected(sample_id, pedigree_data)
+
+    father_id, mother_id = get_parents(sample_id, pedigree_data)
+
+    # Male logic
+    if sex == "1":  # Male
+        if affected and is_variant(sample_gt):
+            # Check mother is carrier
+            if mother_id and mother_id in sample_list:
+                mother_gt = variant_row.get(mother_id, "./.")
+                if is_missing(mother_gt):
+                    return "x_linked_recessive_possible"
+                elif is_variant(mother_gt):
+                    # Check father doesn't have it (males can't pass X to sons)
+                    if father_id and father_id in sample_list:
+                        father_gt = variant_row.get(father_id, "./.")
+                        if is_variant(father_gt):
+                            return None  # Violation: father can't pass X to son
+                    return "x_linked_recessive"
+                else:
+                    return None  # Mother must be carrier
+            else:
+                return "x_linked_recessive_possible"
+
+    # Female logic
+    elif sex == "2":  # Female
+        if affected and is_hom_alt(sample_gt):
+            # Both parents must contribute
+            father_has = None
+            mother_has = None
+
+            if father_id and father_id in sample_list:
+                father_gt = variant_row.get(father_id, "./.")
+                if not is_missing(father_gt):
+                    father_has = is_variant(father_gt)
+
+            if mother_id and mother_id in sample_list:
+                mother_gt = variant_row.get(mother_id, "./.")
+                if not is_missing(mother_gt):
+                    mother_has = is_variant(mother_gt)
+
+            if father_has and mother_has:
+                return "x_linked_recessive"
+            elif father_has is None or mother_has is None:
+                return "x_linked_recessive_possible"
+
+    return None
+
+
+def check_x_linked_dominant(
+    sample_id: str,
+    variant_row: Dict[str, Any],
+    pedigree_data: Dict[str, Dict[str, Any]],
+    sample_list: List[str],
+) -> Optional[str]:
+    """Check for X-linked dominant pattern."""
+    sample_gt = variant_row.get(sample_id, "./.")
+    sex = pedigree_data[sample_id].get("sex", "0")
+    affected = is_affected(sample_id, pedigree_data)
+
+    if not affected or not is_variant(sample_gt):
+        return None
+
+    father_id, mother_id = get_parents(sample_id, pedigree_data)
+
+    # Check inheritance patterns
+    if father_id and father_id in sample_list:
+        father_gt = variant_row.get(father_id, "./.")
+        father_affected = is_affected(father_id, pedigree_data)
+
+        # If affected father has variant and child is female, consistent with XLD
+        if father_affected and is_variant(father_gt) and sex == "2":
+            return "x_linked_dominant"
+
+    if mother_id and mother_id in sample_list:
+        mother_gt = variant_row.get(mother_id, "./.")
+        mother_affected = is_affected(mother_id, pedigree_data)
+
+        # If affected mother has variant, consistent with XLD
+        if mother_affected and is_variant(mother_gt):
+            return "x_linked_dominant"
+
+    # If we can't determine parent status clearly
+    if affected and is_variant(sample_gt):
+        return "x_linked_dominant_possible"
+
+    return None
+
+
+def check_mitochondrial_pattern(
     sample_id: str,
     variant_row: Dict[str, Any],
     pedigree_data: Dict[str, Dict[str, Any]],
     sample_list: List[str],
 ) -> bool:
-    """
-    Check if variant follows X-linked pattern.
-
-    Criteria:
-    - Males: Hemizygous (one copy is sufficient)
-    - Females: Need two copies for recessive, one for dominant
-    - Typically transmitted from carrier mothers to affected sons
-    """
+    """Check for mitochondrial inheritance pattern."""
     sample_gt = variant_row.get(sample_id, "./.")
-    sex = pedigree_data[sample_id].get("sex", "0")
 
-    # Must have variant
     if not is_variant(sample_gt):
         return False
 
-    # Should be affected
-    if not is_affected(sample_id, pedigree_data):
-        return False
+    father_id, mother_id = get_parents(sample_id, pedigree_data)
 
-    # Male-specific logic
-    if sex == "1":  # Male
-        # Males need only one copy (hemizygous)
-        # Check if mother is carrier
-        father_id, mother_id = get_parents(sample_id, pedigree_data)
-        if mother_id and mother_id in sample_list:
-            mother_gt = variant_row.get(mother_id, "./.")
+    # Check maternal transmission
+    if mother_id and mother_id in sample_list:
+        mother_gt = variant_row.get(mother_id, "./.")
+        if not is_missing(mother_gt):
+            # If mother has it, consistent with mitochondrial
             return is_variant(mother_gt)
 
-    # Female-specific logic
-    elif sex == "2":  # Female
-        # For X-linked recessive, females need to be homozygous
-        # For X-linked dominant, heterozygous is sufficient
-        return is_variant(sample_gt)
-
-    return False
+    # If no mother data, could still be mitochondrial
+    return True
 
 
 def check_segregation(
@@ -252,13 +486,20 @@ def check_segregation(
     """
     Check if variant segregates according to the specified pattern.
 
-    Args:
-        variant_row: Variant data with genotypes
-        pedigree_data: Pedigree information
-        sample_list: All available samples
-        pattern: The inheritance pattern to check
+    Parameters
+    ----------
+    variant_row : Dict[str, Any]
+        Variant data with genotypes
+    pedigree_data : Dict[str, Dict[str, Any]]
+        Pedigree information
+    sample_list : List[str]
+        All available samples
+    pattern : str
+        The inheritance pattern to check
 
-    Returns:
+    Returns
+    -------
+    bool
         True if segregation is consistent with pattern
     """
     # Count affected and unaffected individuals with variants
@@ -305,13 +546,20 @@ def get_inheritance_info(
     """
     Get detailed inheritance information for a sample.
 
-    Args:
-        sample_id: The sample ID
-        patterns: List of deduced patterns
-        variant_row: Variant data
-        pedigree_data: Pedigree information
+    Parameters
+    ----------
+    sample_id : str
+        The sample ID
+    patterns : List[str]
+        List of deduced patterns
+    variant_row : Dict[str, Any]
+        Variant data
+    pedigree_data : Dict[str, Dict[str, Any]]
+        Pedigree information
 
-    Returns:
+    Returns
+    -------
+    Dict[str, Any]
         Dictionary with detailed inheritance information
     """
     info = {

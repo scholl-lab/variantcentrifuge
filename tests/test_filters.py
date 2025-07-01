@@ -12,9 +12,7 @@ from variantcentrifuge.filters import extract_variants
 
 
 def test_extract_variants_no_bed(monkeypatch):
-    """
-    Test extract_variants when run_command is mocked.
-    """
+    """Test extract_variants when run_command is mocked."""
 
     def mock_run_command(cmd):
         # Instead of yielding content, just simulate success

@@ -308,7 +308,9 @@ def run_pipeline(
                 sys.exit(1)
         else:
             # Create single-sample pedigree data for inheritance analysis
-            logger.info("No PED file provided - treating all samples as unrelated individuals.")
+            logger.info("No PED file provided - treating all samples as affected individuals.")
+            # When no PED file is provided, create empty pedigree_data
+            # Will be populated later when we have sample information
             pedigree_data = {}
             cfg["pedigree_data"] = pedigree_data
 
@@ -405,6 +407,18 @@ def run_pipeline(
         substring_to_remove = cfg["remove_sample_substring"]
         if substring_to_remove and substring_to_remove.strip():
             original_samples = [s.replace(substring_to_remove, "") for s in original_samples]
+
+    # If no PED file was provided, populate pedigree_data with samples as affected
+    if pedigree_data is not None and not pedigree_data and cfg.get("calculate_inheritance", False):
+        logger.debug("Populating pedigree data for single sample analysis")
+        for sample in original_samples:
+            pedigree_data[sample] = {
+                "sample_id": sample,
+                "father_id": "0",
+                "mother_id": "0",
+                "sex": "0",  # Unknown sex
+                "affected_status": "2",  # Affected
+            }
 
     # -----------------------------------------------------------------------
     # Step 1: Extract variants => variants_file
@@ -676,6 +690,15 @@ def run_pipeline(
     else:
         # Add empty Custom_Annotation column for consistency
         df["Custom_Annotation"] = ""
+
+    # If inheritance analysis is requested, augment DataFrame with VCF genotypes
+    if cfg.get("calculate_inheritance", False) and pedigree_data is not None:
+        logger.info("Augmenting DataFrame with VCF genotypes for inheritance analysis...")
+        from .vcf_genotype_extractor import augment_dataframe_with_vcf_genotypes
+
+        # Use the final filtered VCF file for genotype extraction
+        vcf_for_genotypes = final_filtered_for_extraction
+        df = augment_dataframe_with_vcf_genotypes(df, vcf_for_genotypes, original_samples)
 
     # Convert DataFrame back to file format for analyze_variants
     annotated_tsv = os.path.join(intermediate_dir, f"{base_name}.annotated.tsv")

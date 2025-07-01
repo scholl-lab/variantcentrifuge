@@ -17,7 +17,7 @@ logger = logging.getLogger("variantcentrifuge")
 
 
 def filter_phenotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]:
-    """
+    r"""
     Filter variants based on phenotype information (sample IDs).
 
     This function reads lines from an input iterator (representing a CSV/TSV file),

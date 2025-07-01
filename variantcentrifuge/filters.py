@@ -35,8 +35,9 @@ logger = logging.getLogger("variantcentrifuge")
 
 def extract_variants(vcf_file: str, bed_file: str, cfg: Dict[str, Any], output_file: str) -> str:
     """
-    Extract variants from a VCF using bcftools and a BED file, writing output
-    to the specified compressed VCF ('.vcf.gz'). bcftools is invoked with the
+    Extract variants from a VCF using bcftools and a BED file.
+
+    Write output to the specified compressed VCF ('.vcf.gz'). bcftools is invoked with the
     '-W' option, which writes the index file automatically.
 
     Parameters
@@ -156,9 +157,11 @@ def filter_final_tsv_by_genotype(
     gt_column_name: str = "GT",
 ) -> None:
     """
-    Filter the final TSV rows by genotype. This can be done globally (using a single
-    set of requested genotypes like {"het"}, {"hom"}, or {"comp_het"}) or on a per-gene basis
-    if gene_genotype_file is provided. The gene_genotype_file must contain at least two columns:
+    Filter the final TSV rows by genotype.
+
+    This can be done globally (using a single set of requested genotypes like {"het"}, {"hom"},
+    or {"comp_het"}) or on a per-gene basis if gene_genotype_file is provided.
+    The gene_genotype_file must contain at least two columns:
       1) GENE
       2) GENOTYPES (one or more of het, hom, comp_het, comma-separated)
 

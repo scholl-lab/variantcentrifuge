@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
+"""Script to create a cohort report from multiple sample TSV files.
+
 create_cohort_report.py
 
 This script aggregates results from multiple single-sample VariantCentrifuge reports
@@ -372,7 +373,7 @@ def create_report(output_dir, report_name, df, summary):
 
 
 def main():
-    """Main function to execute the cohort report creation."""
+    """Execute the cohort report creation."""
     # Parse command line arguments
     args = parse_arguments()
 

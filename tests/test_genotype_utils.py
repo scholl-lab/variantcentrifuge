@@ -17,6 +17,7 @@ from variantcentrifuge.genotype_utils import (
 
 
 class TestGenotypeUtils:
+    """Test genotype utility functions."""
 
     def test_parse_genotype(self):
         """Test parsing various genotype formats."""

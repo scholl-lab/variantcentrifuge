@@ -9,7 +9,7 @@ from each parent.
 import logging
 from typing import Dict, List, Any, Tuple
 import pandas as pd
-from ..genotype_utils import is_het, is_variant, is_ref
+from ..genotype_utils import is_het, is_variant, is_ref, is_missing
 from ..ped_reader import get_parents, is_affected
 
 logger = logging.getLogger(__name__)
@@ -21,12 +21,18 @@ def analyze_gene_for_compound_het(
     """
     Analyze a gene for compound heterozygous patterns.
 
-    Args:
-        gene_df: DataFrame containing all variants in a single gene
-        pedigree_data: Pedigree information
-        sample_list: List of sample IDs to analyze
+    Parameters
+    ----------
+    gene_df : pd.DataFrame
+        DataFrame containing all variants in a single gene
+    pedigree_data : Dict[str, Dict[str, Any]]
+        Pedigree information
+    sample_list : List[str]
+        List of sample IDs to analyze
 
-    Returns:
+    Returns
+    -------
+    Dict[str, Dict[str, Any]]
         Dictionary mapping variant keys to compound het details
     """
     comp_het_results = {}
@@ -40,8 +46,15 @@ def analyze_gene_for_compound_het(
 
     # Analyze each sample
     for sample_id in sample_list:
+        # For samples without pedigree data, still check if affected
         if sample_id not in pedigree_data:
-            continue
+            # Create minimal pedigree entry for single samples
+            pedigree_data[sample_id] = {
+                "sample_id": sample_id,
+                "father_id": "0",
+                "mother_id": "0",
+                "affected_status": "2",  # Assume affected if no pedigree
+            }
 
         # Find compound het pairs for this sample
         comp_het_pairs = find_compound_het_pairs(sample_id, gene_df, pedigree_data, sample_list)
@@ -51,17 +64,19 @@ def analyze_gene_for_compound_het(
             var1_key = create_variant_key(gene_df.iloc[var1_idx])
             var2_key = create_variant_key(gene_df.iloc[var2_idx])
 
+            # Determine compound het type
+            trans_config, comp_het_type = determine_compound_het_type(
+                sample_id, var1_idx, var2_idx, gene_df, pedigree_data, sample_list
+            )
+
             # Store compound het info for both variants
             comp_het_info = {
                 "sample_id": sample_id,
                 "gene": gene_name,
                 "partner_variant": var2_key,
                 "is_compound_het": True,
-                "inheritance_type": (
-                    "trans"
-                    if is_trans_configuration(sample_id, var1_idx, var2_idx, gene_df, pedigree_data)
-                    else "unknown"
-                ),
+                "comp_het_type": comp_het_type,
+                "inheritance_type": trans_config,
             }
 
             if var1_key not in comp_het_results:
@@ -88,22 +103,29 @@ def find_compound_het_pairs(
     """
     Find all compound heterozygous variant pairs for a sample in a gene.
 
-    Args:
-        sample_id: The sample to analyze
-        gene_df: DataFrame with variants in the gene
-        pedigree_data: Pedigree information
-        sample_list: Available samples
+    Parameters
+    ----------
+    sample_id : str
+        The sample to analyze
+    gene_df : pd.DataFrame
+        DataFrame with variants in the gene
+    pedigree_data : Dict[str, Dict[str, Any]]
+        Pedigree information
+    sample_list : List[str]
+        Available samples
 
-    Returns:
+    Returns
+    -------
+    List[Tuple[int, int]]
         List of tuples (variant1_index, variant2_index) representing comp het pairs
     """
     pairs = []
 
     # Get indices of heterozygous variants for this sample
     het_indices = []
-    for idx, row in gene_df.iterrows():
+    for pos_idx, (idx, row) in enumerate(gene_df.iterrows()):
         if sample_id in row and is_het(str(row[sample_id])):
-            het_indices.append(idx)
+            het_indices.append(pos_idx)
 
     # Need at least 2 heterozygous variants
     if len(het_indices) < 2:
@@ -134,15 +156,24 @@ def is_potential_compound_het(
     """
     Check if two variants could form a compound heterozygous pair.
 
-    Args:
-        sample_id: The sample to check
-        var1_idx: Index of first variant
-        var2_idx: Index of second variant
-        gene_df: DataFrame with gene variants
-        pedigree_data: Pedigree information
-        sample_list: Available samples
+    Parameters
+    ----------
+    sample_id : str
+        The sample to check
+    var1_idx : int
+        Index of first variant
+    var2_idx : int
+        Index of second variant
+    gene_df : pd.DataFrame
+        DataFrame with gene variants
+    pedigree_data : Dict[str, Dict[str, Any]]
+        Pedigree information
+    sample_list : List[str]
+        Available samples
 
-    Returns:
+    Returns
+    -------
+    bool
         True if variants could be compound heterozygous
     """
     var1 = gene_df.iloc[var1_idx]
@@ -187,33 +218,55 @@ def is_potential_compound_het(
     return is_affected(sample_id, pedigree_data)
 
 
-def is_trans_configuration(
+def determine_compound_het_type(
     sample_id: str,
     var1_idx: int,
     var2_idx: int,
     gene_df: pd.DataFrame,
     pedigree_data: Dict[str, Dict[str, Any]],
-) -> bool:
+    sample_list: List[str],
+) -> Tuple[str, str]:
     """
-    Check if two variants are in trans configuration (on different chromosomes).
+    Determine the type of compound heterozygous pattern.
 
-    Args:
-        sample_id: The sample to check
-        var1_idx: Index of first variant
-        var2_idx: Index of second variant
-        gene_df: DataFrame with gene variants
-        pedigree_data: Pedigree information
+    Parameters
+    ----------
+    sample_id : str
+        The sample to analyze
+    var1_idx : int
+        Index of first variant
+    var2_idx : int
+        Index of second variant
+    gene_df : pd.DataFrame
+        DataFrame with gene variants
+    pedigree_data : Dict[str, Dict[str, Any]]
+        Pedigree information
+    sample_list : List[str]
+        Available samples
 
-    Returns:
-        True if variants are definitely in trans
+    Returns
+    -------
+    Tuple[str, str]
+        Tuple of (inheritance_type, comp_het_type)
+        inheritance_type: "trans", "cis", "unknown", "ambiguous"
+        comp_het_type: "compound_heterozygous", "compound_heterozygous_possible", etc.
     """
     var1 = gene_df.iloc[var1_idx]
     var2 = gene_df.iloc[var2_idx]
 
     father_id, mother_id = get_parents(sample_id, pedigree_data)
 
+    # No pedigree data
+    if not pedigree_data or (not father_id and not mother_id):
+        return ("unknown", "compound_heterozygous_possible_no_pedigree")
+
+    # Missing parents
     if not (father_id and mother_id):
-        return False
+        return ("unknown", "compound_heterozygous_possible_missing_parents")
+
+    # Parents not in sample list
+    if father_id not in sample_list or mother_id not in sample_list:
+        return ("unknown", "compound_heterozygous_possible_missing_parents")
 
     # Get genotypes
     father_var1_gt = str(var1.get(father_id, "./."))
@@ -221,32 +274,59 @@ def is_trans_configuration(
     father_var2_gt = str(var2.get(father_id, "./."))
     mother_var2_gt = str(var2.get(mother_id, "./."))
 
-    # Check for trans pattern
-    pattern1 = (
-        is_variant(father_var1_gt)
-        and is_ref(mother_var1_gt)
-        and is_ref(father_var2_gt)
-        and is_variant(mother_var2_gt)
+    # Check for missing genotypes
+    missing_genotypes = (
+        is_missing(father_var1_gt)
+        or is_missing(mother_var1_gt)
+        or is_missing(father_var2_gt)
+        or is_missing(mother_var2_gt)
     )
 
-    pattern2 = (
-        is_ref(father_var1_gt)
-        and is_variant(mother_var1_gt)
-        and is_variant(father_var2_gt)
-        and is_ref(mother_var2_gt)
-    )
+    if missing_genotypes:
+        return ("unknown", "compound_heterozygous_possible_missing_parent_genotypes")
 
-    return pattern1 or pattern2
+    # Determine parent of origin for each variant
+    var1_from_father = is_variant(father_var1_gt)
+    var1_from_mother = is_variant(mother_var1_gt)
+    var2_from_father = is_variant(father_var2_gt)
+    var2_from_mother = is_variant(mother_var2_gt)
+
+    # Clear trans pattern
+    if (
+        var1_from_father and not var1_from_mother and not var2_from_father and var2_from_mother
+    ) or (not var1_from_father and var1_from_mother and var2_from_father and not var2_from_mother):
+        return ("trans", "compound_heterozygous")
+
+    # Clear cis pattern (both from same parent)
+    if (
+        var1_from_father and var2_from_father and not var1_from_mother and not var2_from_mother
+    ) or (var1_from_mother and var2_from_mother and not var1_from_father and not var2_from_father):
+        return ("cis", "not_compound_heterozygous")
+
+    # Ambiguous case - both parents have both variants
+    if var1_from_father and var1_from_mother and var2_from_father and var2_from_mother:
+        return ("ambiguous", "compound_heterozygous_possible")
+
+    # One variant has ambiguous origin
+    if (var1_from_father and var1_from_mother) or (var2_from_father and var2_from_mother):
+        return ("ambiguous", "compound_heterozygous_possible")
+
+    # Default to possible
+    return ("unknown", "compound_heterozygous_possible")
 
 
 def create_variant_key(variant_row: pd.Series) -> str:
     """
     Create a unique key for a variant.
 
-    Args:
-        variant_row: Series containing variant information
+    Parameters
+    ----------
+    variant_row : pd.Series
+        Series containing variant information
 
-    Returns:
+    Returns
+    -------
+    str
         Unique variant identifier
     """
     chrom = variant_row.get("CHROM", "chr?")
@@ -263,11 +343,16 @@ def get_compound_het_summary(
     """
     Get a summary of compound heterozygous findings for a sample.
 
-    Args:
-        comp_het_results: Complete compound het analysis results
-        sample_id: Sample to summarize
+    Parameters
+    ----------
+    comp_het_results : Dict[str, Dict[str, Any]]
+        Complete compound het analysis results
+    sample_id : str
+        Sample to summarize
 
-    Returns:
+    Returns
+    -------
+    Dict[str, Any]
         Summary dictionary
     """
     summary = {"total_comp_het_variants": 0, "comp_het_pairs": [], "genes_with_comp_het": set()}
@@ -304,11 +389,16 @@ def filter_high_confidence_compound_hets(
     """
     Filter compound het results to keep only high-confidence calls.
 
-    Args:
-        comp_het_results: All compound het results
-        min_quality: Minimum quality score
+    Parameters
+    ----------
+    comp_het_results : Dict[str, Dict[str, Any]]
+        All compound het results
+    min_quality : float
+        Minimum quality score
 
-    Returns:
+    Returns
+    -------
+    Dict[str, Dict[str, Any]]
         Filtered results
     """
     # This is a placeholder for quality filtering

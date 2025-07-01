@@ -391,7 +391,8 @@ def extract_sample_and_genotype(sample_field: str) -> Tuple[str, str]:
 
 def genotype_to_allele_count(genotype: str) -> int:
     """
-    Convert genotype string to allele count:
+    Convert genotype string to allele count.
+
     - '1/1' -> 2
     - '0/1' or '1/0' -> 1
     - '0/0' or '' -> 0
@@ -457,8 +458,9 @@ def load_gene_list(file_path: str) -> Set[str]:
 
 def _sanitize_column_name(file_path: str) -> str:
     """
-    Convert a file path to a valid TSV column name by extracting the filename and
-    removing invalid characters.
+    Convert a file path to a valid TSV column name.
+
+    Extract the filename and remove invalid characters.
 
     Parameters
     ----------

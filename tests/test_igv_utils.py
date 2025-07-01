@@ -1,9 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""
-Tests for IGV report utility functions in variantcentrifuge.
-"""
+"""Tests for IGV report utility functions in variantcentrifuge."""
 
 from variantcentrifuge.utils import generate_igv_safe_filename_base
 

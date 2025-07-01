@@ -12,6 +12,7 @@ import pandas as pd
 from .deducer import deduce_patterns_for_variant
 from .comp_het import analyze_gene_for_compound_het, create_variant_key
 from .prioritizer import prioritize_patterns, get_pattern_description
+from .segregation_checker import calculate_segregation_score
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +28,18 @@ def analyze_inheritance(
     2. Compound heterozygous analysis (per gene)
     3. Pattern prioritization and finalization
 
-    Args:
-        df: DataFrame containing variant data with sample genotypes
-        pedigree_data: Pedigree information dictionary
-        sample_list: List of sample IDs to analyze
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing variant data with sample genotypes
+    pedigree_data : Dict[str, Dict[str, Any]]
+        Pedigree information dictionary
+    sample_list : List[str]
+        List of sample IDs to analyze
 
-    Returns:
+    Returns
+    -------
+    pd.DataFrame
         DataFrame with added inheritance columns:
         - Inheritance_Pattern: The highest priority pattern
         - Inheritance_Details: JSON string with detailed information
@@ -43,12 +50,10 @@ def analyze_inheritance(
         df["Inheritance_Details"] = "{}"
         return df
 
-    # Handle single sample case (no pedigree data)
+    # Handle empty pedigree data differently - allow analysis to proceed
     if not pedigree_data:
-        logger.info("No pedigree data available - marking all variants as from single samples")
-        df["Inheritance_Pattern"] = "single_sample"
-        df["Inheritance_Details"] = "{}"
-        return df
+        pedigree_data = {}
+        logger.info("No pedigree data provided - treating samples as unrelated individuals")
 
     logger.info(
         f"Starting inheritance analysis for {len(df)} variants across {len(sample_list)} samples"
@@ -72,14 +77,23 @@ def analyze_inheritance(
     # Group by gene and analyze
     comp_het_results_by_gene = {}
     if "GENE" in df.columns:
+        gene_counts = df.groupby("GENE").size()
+        logger.debug(f"Genes with multiple variants: {gene_counts[gene_counts > 1].to_dict()}")
+
         for gene, gene_df in df.groupby("GENE"):
             if pd.isna(gene) or gene == "":
                 continue
+
+            if len(gene_df) > 1:
+                logger.debug(f"Analyzing gene {gene} with {len(gene_df)} variants for compound het")
 
             comp_het_results = analyze_gene_for_compound_het(gene_df, pedigree_data, sample_list)
 
             if comp_het_results:
                 comp_het_results_by_gene[gene] = comp_het_results
+                logger.debug(
+                    f"Found compound het patterns in gene {gene}: {len(comp_het_results)} variants"
+                )
 
     # Apply compound het results to DataFrame
     for idx, row in df.iterrows():
@@ -98,16 +112,33 @@ def analyze_inheritance(
 
         # Add compound het pattern if applicable
         comp_het_info = row["_comp_het_info"]
+        comp_het_patterns = []
         if comp_het_info:
             for sample_id, info in comp_het_info.items():
                 if info.get("is_compound_het"):
-                    all_patterns.append("compound_heterozygous")
+                    comp_het_type = info.get("comp_het_type", "compound_heterozygous")
+                    if comp_het_type != "not_compound_heterozygous":
+                        comp_het_patterns.append(comp_het_type)
+
+        # Add unique compound het patterns
+        for pattern in comp_het_patterns:
+            if pattern not in all_patterns:
+                all_patterns.append(pattern)
 
         # Prepare variant info for prioritization
         variant_info = prepare_variant_info(row)
 
-        # Get the best pattern
-        best_pattern, confidence = prioritize_patterns(all_patterns, variant_info)
+        # Calculate segregation scores for all patterns if we have family data
+        segregation_results = None
+        if pedigree_data and len(pedigree_data) > 1:
+            segregation_results = calculate_segregation_score(
+                all_patterns, row.to_dict(), pedigree_data, sample_list
+            )
+
+        # Get the best pattern with segregation consideration
+        best_pattern, confidence = prioritize_patterns(
+            all_patterns, variant_info, None, segregation_results
+        )
 
         # Create detailed inheritance information
         details = create_inheritance_details(
@@ -132,10 +163,14 @@ def prepare_variant_info(row: pd.Series) -> Dict[str, Any]:
     """
     Prepare variant information for pattern prioritization.
 
-    Args:
-        row: Variant row from DataFrame
+    Parameters
+    ----------
+    row : pd.Series
+        Variant row from DataFrame
 
-    Returns:
+    Returns
+    -------
+    Dict[str, Any]
         Dictionary with variant properties
     """
     variant_info = {}
@@ -180,16 +215,26 @@ def create_inheritance_details(
     """
     Create detailed inheritance information dictionary.
 
-    Args:
-        row: Variant row
-        best_pattern: The prioritized pattern
-        all_patterns: All possible patterns
-        confidence: Confidence score
-        comp_het_info: Compound het information if applicable
-        pedigree_data: Pedigree data
-        sample_list: Sample list
+    Parameters
+    ----------
+    row : pd.Series
+        Variant row
+    best_pattern : str
+        The prioritized pattern
+    all_patterns : List[str]
+        All possible patterns
+    confidence : float
+        Confidence score
+    comp_het_info : Optional[Dict[str, Any]]
+        Compound het information if applicable
+    pedigree_data : Dict[str, Dict[str, Any]]
+        Pedigree data
+    sample_list : List[str]
+        Sample list
 
-    Returns:
+    Returns
+    -------
+    Dict[str, Any]
         Dictionary with detailed inheritance information
     """
     details = {
@@ -240,10 +285,14 @@ def get_inheritance_summary(df: pd.DataFrame) -> Dict[str, Any]:
     """
     Generate a summary of inheritance analysis results.
 
-    Args:
-        df: DataFrame with inheritance analysis results
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with inheritance analysis results
 
-    Returns:
+    Returns
+    -------
+    Dict[str, Any]
         Summary dictionary
     """
     summary = {
@@ -287,12 +336,18 @@ def filter_by_inheritance_pattern(
     """
     Filter DataFrame by inheritance patterns.
 
-    Args:
-        df: DataFrame with inheritance analysis
-        patterns: List of patterns to include
-        min_confidence: Minimum confidence threshold
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with inheritance analysis
+    patterns : List[str]
+        List of patterns to include
+    min_confidence : Optional[float]
+        Minimum confidence threshold
 
-    Returns:
+    Returns
+    -------
+    pd.DataFrame
         Filtered DataFrame
     """
     # Filter by pattern
@@ -314,10 +369,14 @@ def export_inheritance_report(
     """
     Export a detailed inheritance report.
 
-    Args:
-        df: DataFrame with inheritance analysis
-        output_path: Path for output file
-        sample_list: Optional subset of samples to include
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with inheritance analysis
+    output_path : str
+        Path for output file
+    sample_list : Optional[List[str]]
+        Optional subset of samples to include
     """
     report_data = []
 

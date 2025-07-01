@@ -25,8 +25,7 @@ def normalize_genes(
     gene_name_str: Optional[str], gene_file_str: Optional[str], logger: logging.Logger
 ) -> str:
     """
-    Normalize genes from either a single gene name, a list of genes,
-    or a file containing gene names.
+    Normalize genes from either a single gene name, a list of genes, or a file.
 
     If 'all' is provided or no genes after filtering, returns "all".
 
@@ -96,6 +95,7 @@ def get_gene_bed(
 ) -> str:
     """
     Generate a BED file for the given gene(s) using snpEff genes2bed.
+
     If gene_name == "all", the command runs without specifying genes.
     If multiple genes are provided, they are passed as arguments.
 

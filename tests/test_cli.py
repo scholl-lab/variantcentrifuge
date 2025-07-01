@@ -11,9 +11,7 @@ import subprocess
 
 
 def test_cli_help():
-    """
-    Test that the CLI help message can be displayed.
-    """
+    """Test that the CLI help message can be displayed."""
     cmd = ["python", "-m", "variantcentrifuge.cli", "--help"]
     result = subprocess.run(cmd, capture_output=True, text=True)
     assert result.returncode == 0

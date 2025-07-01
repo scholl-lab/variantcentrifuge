@@ -17,7 +17,7 @@ logger = logging.getLogger("variantcentrifuge")
 
 def read_scoring_config(config_path: str) -> Dict[str, Any]:
     """
-    Reads and parses the scoring configuration files from a directory.
+    Read and parse the scoring configuration files from a directory.
 
     Expects two files:
     - variable_assignment_config.json: Maps DataFrame columns to shorter variable names.
@@ -80,7 +80,7 @@ def convert_to_numeric(series: pd.Series, default: float = 0.0) -> pd.Series:
 
 def apply_scoring(df: pd.DataFrame, scoring_config: Dict[str, Any]) -> pd.DataFrame:
     """
-    Applies scoring formulas to the DataFrame of variants.
+    Apply scoring formulas to the DataFrame of variants.
 
     This function iterates through the scoring formulas, renames columns to match
     the variables used in the formulas, evaluates the formulas using pandas.eval(),

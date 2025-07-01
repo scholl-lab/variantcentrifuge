@@ -15,6 +15,7 @@ from variantcentrifuge.inheritance.prioritizer import (
 
 
 class TestPatternPrioritizer:
+    """Test inheritance pattern prioritizer."""
 
     def test_prioritize_patterns_single(self):
         """Test prioritizing a single pattern."""
@@ -38,7 +39,7 @@ class TestPatternPrioritizer:
         patterns = []
         pattern, confidence = prioritize_patterns(patterns)
 
-        assert pattern == "none"
+        assert pattern == "unknown"
         assert confidence == 0.0
 
     def test_adjust_pattern_score_de_novo(self):

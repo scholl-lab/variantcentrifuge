@@ -1,4 +1,4 @@
-# File: variantcentrifuge/reporting/generate_igv_report.py
+"""IGV report generation for VariantCentrifuge."""
 
 import json
 import logging

@@ -16,10 +16,11 @@ import os
 
 
 class TestInheritanceAnalyzer:
+    """Test the main inheritance analyzer."""
 
     @pytest.fixture
     def trio_pedigree(self):
-        """Standard trio pedigree."""
+        """Provide standard trio pedigree."""
         return {
             "father": {
                 "family_id": "FAM1",
@@ -49,7 +50,7 @@ class TestInheritanceAnalyzer:
 
     @pytest.fixture
     def de_novo_variants_df(self):
-        """DataFrame with de novo variants."""
+        """Provide DataFrame with de novo variants."""
         data = {
             "CHROM": ["chr1", "chr2"],
             "POS": [1000, 2000],
@@ -66,7 +67,7 @@ class TestInheritanceAnalyzer:
 
     @pytest.fixture
     def recessive_variants_df(self):
-        """DataFrame with recessive inheritance pattern."""
+        """Provide DataFrame with recessive inheritance pattern."""
         data = {
             "CHROM": ["chr3"],
             "POS": [3000],
@@ -83,7 +84,7 @@ class TestInheritanceAnalyzer:
 
     @pytest.fixture
     def compound_het_variants_df(self):
-        """DataFrame with compound heterozygous variants."""
+        """Provide DataFrame with compound heterozygous variants."""
         data = {
             "CHROM": ["chr4", "chr4"],
             "POS": [4000, 5000],

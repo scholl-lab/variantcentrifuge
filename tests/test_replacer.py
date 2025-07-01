@@ -7,7 +7,7 @@ from variantcentrifuge.replacer import replace_genotypes
 
 @pytest.fixture
 def basic_cfg():
-    """Basic configuration for replacer tests."""
+    """Provide basic configuration for replacer tests."""
     return {
         "sample_list": "Sample1,Sample2,Sample3",
         "separator": ";",
@@ -20,7 +20,7 @@ def basic_cfg():
 
 @pytest.fixture
 def cfg_with_extra_fields():
-    """Configuration with extra fields for testing phased genotype with sample information."""
+    """Provide configuration with extra fields for testing phased genotype."""
     return {
         "sample_list": "Sample1,Sample2,Sample3",
         "separator": ";",
@@ -33,7 +33,7 @@ def cfg_with_extra_fields():
 
 
 def run_replacer_test(input_header, input_data, expected_output, cfg):
-    """Helper function to run the replacer on a simple input and verify expected output."""
+    """Run the replacer on a simple input and verify expected output."""
     lines = iter([input_header, input_data])
     result = list(replace_genotypes(lines, cfg))
     assert len(result) == 2

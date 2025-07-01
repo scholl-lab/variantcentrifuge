@@ -2,7 +2,7 @@
 # Location: variantcentrifuge/variantcentrifuge/__init__.py
 
 """
-variantcentrifuge Package
+variantcentrifuge Package.
 
 This package provides modules for filtering and processing VCF files,
 focusing on extracting rare variants, applying custom filters,

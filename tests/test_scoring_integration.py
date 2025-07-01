@@ -1,4 +1,4 @@
-# File: tests/test_scoring_integration.py
+"""Tests for scoring integration."""
 
 import os
 import tempfile
@@ -52,7 +52,6 @@ def scoring_config_dir():
 
 def test_scoring_integration_with_annotated_vcf(annotated_vcf, scoring_config_dir, temp_output_dir):
     """Test the full scoring pipeline with an annotated VCF file."""
-
     # Define output file
     output_file = os.path.join(temp_output_dir, "scored_variants.tsv")
 
@@ -124,7 +123,6 @@ def test_scoring_integration_with_annotated_vcf(annotated_vcf, scoring_config_di
 
 def test_scoring_with_missing_columns(annotated_vcf, scoring_config_dir, temp_output_dir):
     """Test scoring behavior when some expected columns are missing."""
-
     output_file = os.path.join(temp_output_dir, "scored_variants_minimal.tsv")
 
     # Use minimal fields that don't include all scoring variables
@@ -166,7 +164,6 @@ def test_scoring_with_missing_columns(annotated_vcf, scoring_config_dir, temp_ou
 
 def test_scoring_with_all_genes(annotated_vcf, scoring_config_dir, temp_output_dir):
     """Test scoring with gene set to 'all' to process all variants."""
-
     output_file = os.path.join(temp_output_dir, "scored_all_genes.tsv")
 
     cmd = [
@@ -222,7 +219,6 @@ def test_scoring_with_different_filters(
     annotated_vcf, scoring_config_dir, temp_output_dir, impact_filter, expected_min_variants
 ):
     """Test scoring with different filter conditions."""
-
     output_file = os.path.join(
         temp_output_dir, f"scored_filtered_{impact_filter.replace(' ', '_')}.tsv"
     )

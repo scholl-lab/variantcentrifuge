@@ -18,8 +18,9 @@ logger = logging.getLogger("variantcentrifuge")
 
 def extract_fields(variant_file: str, fields: str, cfg: Dict[str, Any], output_file: str) -> str:
     """
-    Extract specified fields from variant records and write them directly to
-    `output_file`, controlling the SnpSift field separator if needed.
+    Extract specified fields from variant records.
+
+    Write them directly to `output_file`, controlling the SnpSift field separator if needed.
 
     Parameters
     ----------

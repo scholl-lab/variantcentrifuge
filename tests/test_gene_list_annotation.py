@@ -1,6 +1,4 @@
-"""
-Unit tests for gene list annotation functionality.
-"""
+"""Unit tests for gene list annotation functionality."""
 
 import tempfile
 from pathlib import Path
@@ -122,7 +120,7 @@ class TestVariantAnnotation:
         self.tsv_lines = [self.header] + self.variants
 
     def create_gene_list_file(self, tmp_path, name, genes):
-        """Helper to create a gene list file."""
+        """Create a gene list file."""
         file_path = tmp_path / f"{name}.txt"
         file_path.write_text("\n".join(genes))
         return str(file_path)

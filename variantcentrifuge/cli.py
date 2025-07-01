@@ -1,4 +1,4 @@
-# File: variantcentrifuge/cli.py
+"""Command-line interface for VariantCentrifuge."""
 
 import argparse
 import datetime
@@ -15,8 +15,7 @@ logger = logging.getLogger("variantcentrifuge")
 
 
 def main() -> None:
-    """
-    Main entry point for variantcentrifuge CLI.
+    """Run main entry point for variantcentrifuge CLI.
 
     Steps:
         1. Parse arguments.

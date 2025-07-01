@@ -1,5 +1,6 @@
 """
 Integration tests for the gene list annotation feature.
+
 Tests the integration with the pipeline and CLI components.
 """
 

@@ -25,7 +25,9 @@ logger = logging.getLogger("variantcentrifuge")
 
 def compute_basic_stats(df: pd.DataFrame, all_samples: Set[str]) -> pd.DataFrame:
     """
-    Compute basic statistics about the dataset, including:
+    Compute basic statistics about the dataset.
+
+    Including:
     - Number of variants
     - Number of samples
     - Number of genes

@@ -7,10 +7,6 @@ Genotype replacement module.
 This module dynamically searches for a "GT" column in the header line of the
 input TSV and applies configurable genotype replacement logic.
 
-Logic:
--------
-1. A "GT" column is required. If absent, lines are returned unchanged.
-
 2. For each variant row:
    - Parse the genotype subfields (split by `cfg["extract_fields_separator"]`, usually ":")
    - Skip non-variant genotypes ("0/0" or "./.").

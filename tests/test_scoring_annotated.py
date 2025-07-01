@@ -1,4 +1,4 @@
-# File: tests/test_scoring_annotated.py
+"""Tests for scoring with annotated data."""
 
 import os
 import gzip
@@ -49,7 +49,6 @@ def sample_annotated_data():
 
 def test_scoring_with_annotated_data(sample_annotated_data, scoring_config):
     """Test scoring on data that mimics annotated VCF output."""
-
     # Apply scoring
     scored_df = apply_scoring(sample_annotated_data, scoring_config)
 
@@ -83,7 +82,6 @@ def test_scoring_with_annotated_data(sample_annotated_data, scoring_config):
 
 def test_scoring_with_missing_annotations(sample_annotated_data, scoring_config):
     """Test scoring when some annotations are missing."""
-
     # Remove some annotation columns
     df_missing = sample_annotated_data.drop(columns=["dbNSFP_gnomAD_genomes_AF"])
 
@@ -96,7 +94,6 @@ def test_scoring_with_missing_annotations(sample_annotated_data, scoring_config)
 
 def test_scoring_formula_components(sample_annotated_data, scoring_config):
     """Test that the scoring formula components work correctly."""
-
     # Apply scoring
     scored_df = apply_scoring(sample_annotated_data, scoring_config)
 
