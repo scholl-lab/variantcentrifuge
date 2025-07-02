@@ -16,3 +16,13 @@ def test_cli_help():
     result = subprocess.run(cmd, capture_output=True, text=True)
     assert result.returncode == 0
     assert "usage:" in result.stdout
+
+
+def test_bcftools_prefilter_in_help():
+    """Test that the bcftools-prefilter argument is in the help text."""
+    cmd = ["python", "-m", "variantcentrifuge.cli", "--help"]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    assert result.returncode == 0
+    assert "--bcftools-prefilter" in result.stdout
+    # Check that the help text mentions bcftools expression
+    assert "bcftools expression" in result.stdout.lower()

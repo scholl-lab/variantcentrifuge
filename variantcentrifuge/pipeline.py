@@ -250,6 +250,7 @@ def _process_bed_chunk(
     # Use limited threads for bcftools since it only helps with compression
     chunk_cfg = cfg.copy()
     chunk_cfg["threads"] = min(2, cfg.get("threads", 1))  # Max 2 threads for bcftools
+    # Extract variants (with optional bcftools pre-filter)
     extract_variants(original_vcf, chunk_bed_file, chunk_cfg, chunk_variants_vcf)
 
     # Handle snpeff splitting mode
@@ -690,7 +691,7 @@ def run_pipeline(
                 if cfg.get("debug_level", "INFO") == "ERROR":
                     sys.exit(1)
 
-        # Extract variants
+        # Extract variants (with optional bcftools pre-filter)
         extract_variants(args.vcf_file, bed_file, cfg, variants_file)
 
         # Handle snpeff splitting mode (None, 'before_filters', or 'after_filters')

@@ -99,6 +99,14 @@ def main() -> None:
     )
     parser.add_argument("-f", "--filters", help="Filters to apply in SnpSift filter")
     parser.add_argument(
+        "--bcftools-prefilter",
+        type=str,
+        default=None,
+        help="Optional bcftools expression to pre-filter the VCF file for performance. "
+             "This is applied during variant extraction to reduce data early. "
+             "Example: 'FILTER=\"PASS\" && INFO/AC<10'"
+    )
+    parser.add_argument(
         "--late-filtering",
         action="store_true",
         help="Apply filters after scoring and annotation (allows filtering on computed columns like scores). "
@@ -606,6 +614,9 @@ def main() -> None:
 
     # Late filtering configuration
     cfg["late_filtering"] = args.late_filtering
+    
+    # Bcftools pre-filtering configuration
+    cfg["bcftools_prefilter"] = args.bcftools_prefilter
 
     run_pipeline(args, cfg, start_time)
 

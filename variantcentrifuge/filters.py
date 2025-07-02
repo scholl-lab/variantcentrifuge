@@ -33,6 +33,69 @@ from .utils import run_command
 logger = logging.getLogger("variantcentrifuge")
 
 
+def apply_bcftools_prefilter(
+    input_vcf: str, 
+    output_vcf: str, 
+    filter_expression: str, 
+    cfg: Dict[str, Any]
+) -> str:
+    """
+    Apply a bcftools filter expression to a VCF file.
+    
+    This function is used for pre-filtering VCF files before more resource-intensive
+    operations like SnpSift filtering. It applies the filter expression using
+    bcftools view -i option.
+    
+    Parameters
+    ----------
+    input_vcf : str
+        Path to the input VCF file
+    output_vcf : str
+        Path to the output filtered VCF file
+    filter_expression : str
+        bcftools filter expression. Note: bcftools uses different syntax than SnpSift.
+        Examples:
+        - 'FILTER="PASS"' - only PASS variants
+        - 'INFO/AC<10' - allele count less than 10
+        - 'FILTER="PASS" && INFO/AC<10' - combined filters
+        - 'INFO/AF<0.01 || INFO/AC<5' - AF less than 1% OR AC less than 5
+    cfg : dict
+        Configuration dictionary that may include:
+        - "threads": Number of threads to use with bcftools (default = 1)
+    
+    Returns
+    -------
+    str
+        Path to the output VCF file
+        
+    Raises
+    ------
+    RuntimeError
+        If the bcftools command fails
+    """
+    threads = str(cfg.get("threads", 1))
+    
+    cmd = [
+        "bcftools", "view",
+        "--threads", threads,
+        "-i", filter_expression,
+        "-Oz",  # Output compressed VCF
+        "-o", output_vcf,
+        input_vcf
+    ]
+    
+    logger.info(f"Applying bcftools pre-filter: {filter_expression}")
+    logger.debug(f"bcftools prefilter command: {' '.join(cmd)}")
+    run_command(cmd)
+
+    # bcftools view does not automatically index, so we must do it
+    index_cmd = ["bcftools", "index", "--threads", threads, output_vcf]
+    logger.debug(f"Indexing pre-filtered VCF: {' '.join(index_cmd)}")
+    run_command(index_cmd)
+    
+    return output_vcf
+
+
 def extract_variants(vcf_file: str, bed_file: str, cfg: Dict[str, Any], output_file: str) -> str:
     """
     Extract variants from a VCF using bcftools and a BED file.
@@ -51,6 +114,7 @@ def extract_variants(vcf_file: str, bed_file: str, cfg: Dict[str, Any], output_f
         Expected keys include:
 
             - "threads": Number of threads to use with bcftools (default = 1).
+            - "bcftools_prefilter": Optional bcftools filter expression to apply during extraction.
     output_file : str
         Path to the final compressed output VCF file ('.vcf.gz').
 
@@ -74,11 +138,20 @@ def extract_variants(vcf_file: str, bed_file: str, cfg: Dict[str, Any], output_f
         "-W",  # writes the index file automatically
         "-R",
         bed_file,
+    ]
+    
+    # Add optional pre-filter expression if provided
+    if cfg.get("bcftools_prefilter"):
+        cmd.extend(["-i", cfg["bcftools_prefilter"]])
+        logger.info(f"Applying bcftools pre-filter during extraction: {cfg['bcftools_prefilter']}")
+    
+    cmd.extend([
         "-Oz",  # compressed output
         "-o",
         output_file,
         vcf_file,
-    ]
+    ])
+    
     logger.debug("Extracting variants with command: %s", " ".join(cmd))
     logger.debug("Output will be written to: %s", output_file)
 
