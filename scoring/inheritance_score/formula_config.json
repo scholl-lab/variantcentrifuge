@@ -1,0 +1,25 @@
+{
+  "output_scores": [
+    "inheritance_score"
+  ],
+  "formulas": [
+    {
+      "base_score": "(pattern == 'de_novo') * 0.95 + ((pattern == 'homozygous') | (pattern == 'compound_heterozygous') | (pattern == 'autosomal_recessive')) * 0.8 + (pattern == 'x_linked_recessive') * 0.7 + (pattern == 'x_linked_dominant') * 0.5 + (pattern == 'autosomal_dominant') * 0.4 + (pattern.str.contains('compound_heterozygous_possible')) * 0.4 + (pattern == 'unknown') * 0.1"
+    },
+    {
+      "segregation_p_value": "details.str.extract(r'\"segregation_p_value\":\\s*([\\d.]+)', expand=False).astype('float')"
+    },
+    {
+      "has_segregation": "~segregation_p_value.isna()"
+    },
+    {
+      "penalized_patterns": "~pattern.isin(['de_novo', 'unknown', 'compound_heterozygous_possible_no_pedigree'])"
+    },
+    {
+      "penalty_factor": "(segregation_p_value.isna() & penalized_patterns) * 0.2"
+    },
+    {
+      "inheritance_score": "base_score * (1 - penalty_factor)"
+    }
+  ]
+}

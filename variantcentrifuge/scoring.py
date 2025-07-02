@@ -11,6 +11,7 @@ import os
 from typing import Any, Dict
 
 import pandas as pd
+import numpy as np
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -48,6 +49,7 @@ def read_scoring_config(config_path: str) -> Dict[str, Any]:
         return {
             "variables": variable_assignment.get("variables", {}),
             "formulas": formula_config.get("formulas", []),
+            "output_scores": formula_config.get("output_scores", None),
         }
     except FileNotFoundError as e:
         logger.error(f"Scoring configuration file not found: {e.filename}")
@@ -110,6 +112,9 @@ def apply_scoring(df: pd.DataFrame, scoring_config: Dict[str, Any]) -> pd.DataFr
     # Create a copy to avoid modifying the original DataFrame in place
     scored_df = df.copy()
 
+    # Track calculated columns for potential filtering
+    calculated_columns = []
+
     # Create a mapping from original column names to formula variable names
     # and handle default values for missing columns.
     rename_map = {}
@@ -157,7 +162,8 @@ def apply_scoring(df: pd.DataFrame, scoring_config: Dict[str, Any]) -> pd.DataFr
             logger.debug(f"Evaluating formula for '{score_name}': {formula_str}")
             try:
                 # Use pandas.eval for safe and efficient evaluation
-                scored_df[score_name] = scored_df.eval(formula_str, engine="python")
+                # Make numpy available in the eval context
+                scored_df[score_name] = scored_df.eval(formula_str, engine="python", local_dict={'np': np})
 
                 # Ensure the result is numeric (convert object dtype to float)
                 # This is crucial for formulas that produce boolean/object results
@@ -168,10 +174,13 @@ def apply_scoring(df: pd.DataFrame, scoring_config: Dict[str, Any]) -> pd.DataFr
                     scored_df[score_name] = pd.to_numeric(scored_df[score_name], errors="coerce")
 
                 logger.info(f"Successfully calculated score column: '{score_name}'")
+                # Track the calculated column
+                calculated_columns.append(score_name)
             except Exception as e:
                 logger.error(f"Error evaluating formula for '{score_name}': {e}")
                 # Add a column with NaN to indicate failure without crashing
                 scored_df[score_name] = float("nan")
+                calculated_columns.append(score_name)
 
     # After scoring, we need to clean up:
     # 1. Rename columns back to their original names
@@ -186,5 +195,14 @@ def apply_scoring(df: pd.DataFrame, scoring_config: Dict[str, Any]) -> pd.DataFr
     if created_vars:
         cols_to_keep = [col for col in scored_df.columns if col not in created_vars]
         scored_df = scored_df[cols_to_keep]
+
+    # Handle output_scores filtering if specified
+    output_scores = scoring_config.get("output_scores")
+    if output_scores is not None:
+        # Calculate columns to drop
+        columns_to_drop = [col for col in calculated_columns if col not in output_scores]
+        if columns_to_drop:
+            logger.info(f"Dropping intermediate columns: {columns_to_drop}")
+            scored_df = scored_df.drop(columns=columns_to_drop)
 
     return scored_df

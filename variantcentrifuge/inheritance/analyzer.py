@@ -164,7 +164,8 @@ def analyze_inheritance(
 
         # Create detailed inheritance information
         details = create_inheritance_details(
-            row, best_pattern, all_patterns, confidence, comp_het_info, pedigree_data, sample_list
+            row, best_pattern, all_patterns, confidence, comp_het_info, pedigree_data, sample_list,
+            segregation_results
         )
 
         # Set final values
@@ -189,6 +190,7 @@ def create_inheritance_details(
     comp_het_info: Optional[Dict[str, Any]],
     pedigree_data: Dict[str, Dict[str, Any]],
     sample_list: List[str],
+    segregation_results: Optional[Dict[str, tuple]] = None,
 ) -> Dict[str, Any]:
     """
     Create detailed inheritance information dictionary.
@@ -222,6 +224,11 @@ def create_inheritance_details(
         "pattern_description": get_pattern_description(best_pattern),
         "samples_with_pattern": [],
     }
+    
+    # Add segregation p-value if available
+    if segregation_results and best_pattern in segregation_results:
+        # The 'confidence' from the segregation check is our p-value equivalent.
+        details["segregation_p_value"] = segregation_results[best_pattern][1]
 
     # Add sample-specific information
     for sample_id in sample_list:

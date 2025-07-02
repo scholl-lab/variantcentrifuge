@@ -77,3 +77,85 @@ def test_apply_scoring_handles_missing_columns(sample_df, sample_scoring_config)
     pd.testing.assert_series_equal(
         scored_df["pathogenicity_score"], pd.Series([15.0, 30.0, 10.0]), check_names=False
     )
+
+
+def test_scoring_hides_intermediate_columns():
+    """Test that scoring correctly hides intermediate columns when output_scores is specified."""
+    # Create a simple DataFrame
+    df = pd.DataFrame({
+        "value1": [1.0, 2.0, 3.0],
+        "value2": [4.0, 5.0, 6.0],
+    })
+    
+    # Multi-step config with output_scores
+    config = {
+        "variables": {
+            "value1": "v1",
+            "value2": "v2",
+        },
+        "output_scores": ["final_score"],  # Only keep final_score
+        "formulas": [
+            {"intermediate1": "v1 * 2"},
+            {"intermediate2": "v2 * 3"},
+            {"final_score": "intermediate1 + intermediate2"},
+        ],
+    }
+    
+    scored_df = apply_scoring(df, config)
+    
+    # Check that only final_score was kept
+    assert "final_score" in scored_df.columns
+    assert "intermediate1" not in scored_df.columns
+    assert "intermediate2" not in scored_df.columns
+    
+    # Verify the final score is correct
+    # Row 1: (1 * 2) + (4 * 3) = 2 + 12 = 14
+    # Row 2: (2 * 2) + (5 * 3) = 4 + 15 = 19
+    # Row 3: (3 * 2) + (6 * 3) = 6 + 18 = 24
+    pd.testing.assert_series_equal(
+        scored_df["final_score"], pd.Series([14.0, 19.0, 24.0]), check_names=False
+    )
+    
+    # Original columns should still be present
+    assert "value1" in scored_df.columns
+    assert "value2" in scored_df.columns
+
+
+def test_scoring_backward_compatibility_without_output_scores():
+    """Test that scoring keeps all columns when output_scores is not specified."""
+    # Create a simple DataFrame
+    df = pd.DataFrame({
+        "value1": [1.0, 2.0, 3.0],
+        "value2": [4.0, 5.0, 6.0],
+    })
+    
+    # Multi-step config WITHOUT output_scores
+    config = {
+        "variables": {
+            "value1": "v1",
+            "value2": "v2",
+        },
+        "formulas": [
+            {"intermediate1": "v1 * 2"},
+            {"intermediate2": "v2 * 3"},
+            {"final_score": "intermediate1 + intermediate2"},
+        ],
+    }
+    
+    scored_df = apply_scoring(df, config)
+    
+    # Check that all calculated columns are kept
+    assert "final_score" in scored_df.columns
+    assert "intermediate1" in scored_df.columns
+    assert "intermediate2" in scored_df.columns
+    
+    # Verify all calculations
+    pd.testing.assert_series_equal(
+        scored_df["intermediate1"], pd.Series([2.0, 4.0, 6.0]), check_names=False
+    )
+    pd.testing.assert_series_equal(
+        scored_df["intermediate2"], pd.Series([12.0, 15.0, 18.0]), check_names=False
+    )
+    pd.testing.assert_series_equal(
+        scored_df["final_score"], pd.Series([14.0, 19.0, 24.0]), check_names=False
+    )
