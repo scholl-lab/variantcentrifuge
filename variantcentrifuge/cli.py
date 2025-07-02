@@ -415,6 +415,15 @@ def main() -> None:
         action="store_true",
         help="Disable vectorized compound heterozygous analysis (use original implementation).",
     )
+    
+    parser.add_argument(
+        "--final-filter",
+        type=str,
+        default=None,
+        help="An expression to filter the final results table. Uses pandas query() syntax. "
+             "This is applied after all annotations and scores have been calculated. "
+             "Example: 'inheritance_score > 0.5 and IMPACT == \"HIGH\"'"
+    )
 
     args: argparse.Namespace = parser.parse_args()
 
@@ -617,6 +626,9 @@ def main() -> None:
     
     # Bcftools pre-filtering configuration
     cfg["bcftools_prefilter"] = args.bcftools_prefilter
+    
+    # Final filter configuration
+    cfg["final_filter"] = args.final_filter
 
     run_pipeline(args, cfg, start_time)
 

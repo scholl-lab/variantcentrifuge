@@ -32,6 +32,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
+import pandas as pd
+
 from .analyze_variants import analyze_variants
 from .annotator import (
     load_custom_features,
@@ -1248,6 +1250,27 @@ def run_pipeline(
 
     if args.add_column:
         buffer = add_named_columns(buffer, args.add_column)
+
+    # Apply final filter if provided
+    if cfg.get("final_filter") and len(buffer) > 1:
+        logger.info("Applying final filter to results")
+        
+        # Convert buffer to DataFrame
+        import io
+        buffer_str = "\n".join(buffer)
+        df = pd.read_csv(io.StringIO(buffer_str), sep="\t", dtype=str, keep_default_na=False)
+        
+        # Apply the filter
+        from .filters import filter_dataframe_with_query
+        df = filter_dataframe_with_query(df, cfg["final_filter"])
+        
+        # Convert back to buffer
+        output_str = io.StringIO()
+        df.to_csv(output_str, sep="\t", index=False, na_rep="")
+        buffer = output_str.getvalue().rstrip("\n").split("\n")
+        
+        if len(buffer) <= 1:
+            logger.warning("No variants passed the final filter")
 
     if final_to_stdout:
         if buffer:

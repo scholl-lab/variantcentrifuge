@@ -8,6 +8,51 @@ Tips for optimizing VariantCentrifuge performance with large datasets.
 - **Storage:** SSD for intermediate files
 - **CPU:** Multi-core for parallel processing
 
+## Performance Features
+
+### bcftools Pre-filtering
+
+The `--bcftools-prefilter` option allows you to apply fast bcftools filters during the initial variant extraction step, significantly reducing the amount of data processed by subsequent steps:
+
+```bash
+# Filter out low-quality and common variants early
+variantcentrifuge \
+  --gene-file genes.txt \
+  --vcf-file large_cohort.vcf.gz \
+  --bcftools-prefilter 'FILTER="PASS" && QUAL>20 && INFO/AC<10' \
+  --preset rare,coding \
+  --output-file results.tsv
+```
+
+**Benefits:**
+- Reduces memory usage by filtering early in the pipeline
+- Speeds up SnpSift filtering and field extraction
+- Particularly effective for large cohort VCFs
+
+**bcftools Filter Syntax:**
+- `FILTER="PASS"` - Only PASS variants
+- `QUAL>20` - Quality score threshold
+- `INFO/AC<10` - Allele count less than 10
+- `INFO/AF<0.01` - Allele frequency less than 1%
+- Combine with `&&` (AND) or `||` (OR)
+
+### Optimized Filtering Workflow
+
+For maximum performance with large datasets:
+
+```bash
+# Combine bcftools pre-filter with late filtering
+variantcentrifuge \
+  --gene-file large_gene_list.txt \
+  --vcf-file cohort_1000_samples.vcf.gz \
+  --bcftools-prefilter 'FILTER="PASS" && INFO/AC<20' \
+  --late-filtering \
+  --preset rare,coding \
+  --scoring-config-path scoring/my_scores \
+  --filters "score > 0.5" \
+  --output-file high_score_rare.tsv
+```
+
 ## Large Dataset Strategies
 
 ### Chromosome-based Processing

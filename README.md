@@ -10,7 +10,10 @@
 ## ✨ Key Features
 
 - **🎯 Gene-Centric Filtering:** Extract variants from regions defined by genes of interest
-- **🔍 Rare Variant Identification:** Apply custom filters to isolate rare and moderate/high-impact variants
+- **🔍 Advanced Filtering Pipeline:**
+  - **bcftools pre-filtering** for performance optimization on large VCFs
+  - **SnpSift filtering** for complex variant selection
+  - **Final filtering** with pandas query syntax on computed columns (scores, inheritance patterns)
 - **⚙️ Flexible Configuration:** JSON-based configuration with reusable filter presets
 - **📊 Interactive Reports:** Generate HTML reports with sortable tables and IGV.js integration
 - **🧬 Gene Burden Analysis:** Perform statistical analysis with Fisher's exact test
@@ -43,6 +46,9 @@ variantcentrifuge \\\n  --gene-file cancer_genes.txt \\\n  --vcf-file input.vcf.
 
 # Apply custom variant scoring
 variantcentrifuge \\\n  --gene-name GENE \\\n  --vcf-file input.vcf.gz \\\n  --scoring-config-path scoring/nephro_variant_score \\\n  --output-file scored_variants.tsv
+
+# Performance-optimized filtering with final filter on scores
+variantcentrifuge \\\n  --gene-file genes.txt \\\n  --vcf-file large_cohort.vcf.gz \\\n  --bcftools-prefilter 'FILTER="PASS" && INFO/AC<10' \\\n  --preset rare,coding \\\n  --scoring-config-path scoring/my_model \\\n  --final-filter 'score > 0.8 and IMPACT == "HIGH"' \\\n  --output-file high_priority_variants.tsv
 ```
 
 ## 📋 Prerequisites

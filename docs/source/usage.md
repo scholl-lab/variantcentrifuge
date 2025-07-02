@@ -30,6 +30,12 @@ variantcentrifuge \
 - `--filters "FILTER_EXPRESSION"` - Custom SnpSift filters (overrides config)
 - `--fields "FIELD_LIST"` - Custom fields to extract (overrides config)
 
+### Filtering Options
+
+- `--bcftools-prefilter "EXPRESSION"` - Apply bcftools pre-filter during variant extraction for performance
+- `--late-filtering` - Apply SnpSift filters after scoring and annotation (allows filtering on computed columns)
+- `--final-filter "EXPRESSION"` - Apply pandas query expression on final results (filter on any column including scores)
+
 ### Input/Output Options
 
 - `--samples-file SAMPLES.TXT` - Sample ID mapping for genotype replacement
@@ -149,6 +155,45 @@ variantcentrifuge \
   --json-gene-mapping '{"identifier":"symbol","dataFields":["panel_name","evidence_level"]}' \
   --html-report \
   --output-file multi_annotated.tsv
+```
+
+### Advanced Filtering
+
+```bash
+# Pre-filter with bcftools for performance (e.g., only PASS variants with AC < 10)
+variantcentrifuge \
+  --gene-file large_gene_list.txt \
+  --vcf-file large_cohort.vcf.gz \
+  --bcftools-prefilter 'FILTER="PASS" && INFO/AC<10' \
+  --preset rare,coding \
+  --output-file filtered_variants.tsv
+
+# Late filtering to filter on computed scores
+variantcentrifuge \
+  --gene-name BRCA1 \
+  --vcf-file samples.vcf.gz \
+  --scoring-config-path scoring/nephro_variant_score \
+  --late-filtering \
+  --filters "inheritance_score > 0.5" \
+  --output-file high_score_variants.tsv
+
+# Final filter using pandas query syntax
+variantcentrifuge \
+  --gene-file cancer_genes.txt \
+  --vcf-file samples.vcf.gz \
+  --preset rare,coding \
+  --scoring-config-path scoring/cancer_variant_score \
+  --final-filter 'pathogenicity_score > 0.8 and IMPACT == "HIGH"' \
+  --output-file high_priority_variants.tsv
+
+# Complex final filter with inheritance patterns
+variantcentrifuge \
+  --gene-name BRCA1 \
+  --vcf-file trio.vcf.gz \
+  --ped family.ped \
+  --inheritance-mode columns \
+  --final-filter 'Inheritance_Pattern in ["de_novo", "compound_heterozygous"] and Inheritance_Confidence > 0.8' \
+  --output-file denovo_and_compound_het.tsv
 ```
 
 ## Input File Formats

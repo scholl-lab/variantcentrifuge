@@ -17,13 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unified annotation system supporting BED files, gene lists, and JSON gene data
 - JSON gene annotation feature with flexible field mapping (`--annotate-json-genes` and `--json-gene-mapping`)
 - Custom annotation integration in the pipeline workflow
+- **bcftools pre-filtering** (`--bcftools-prefilter`) for early variant filtering during extraction, significantly improving performance on large VCFs
+- **Final filtering** (`--final-filter`) using pandas query syntax, allowing filtering on any column including computed scores and inheritance patterns
+- Comprehensive test suite for new filtering features
 
 ### Changed
 - Documentation migrated from README to structured Sphinx documentation
 - Improved configuration documentation with preset examples
+- Enhanced filtering capabilities with three-stage filtering approach (bcftools pre-filter, SnpSift filter, final filter)
 
 ### Fixed
 - Documentation structure and navigation
+- Numeric type conversion in final filtering to handle mixed data types correctly
 
 ## [0.5.0] - 2024-XX-XX
 

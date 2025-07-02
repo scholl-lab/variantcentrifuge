@@ -28,6 +28,8 @@ import os
 import tempfile
 from typing import Any, Dict, List, Optional, Set
 
+import pandas as pd
+
 from .utils import run_command
 
 logger = logging.getLogger("variantcentrifuge")
@@ -583,3 +585,46 @@ def filter_tsv_with_expression(
         import shutil
 
         shutil.copy2(input_tsv, output_tsv)
+
+
+def filter_dataframe_with_query(df: pd.DataFrame, filter_expression: str) -> pd.DataFrame:
+    """
+    Filters a pandas DataFrame using a query expression.
+
+    Args:
+        df: The input DataFrame.
+        filter_expression: The query string to apply.
+
+    Returns:
+        The filtered DataFrame.
+    """
+    if not filter_expression:
+        return df
+
+    logger.info(f"Applying final filter expression: {filter_expression}")
+    original_count = len(df)
+    
+    try:
+        # Create a copy to avoid modifying the original DataFrame
+        df_copy = df.copy()
+        
+        # Convert numeric columns to numeric types to allow for comparisons like > or <
+        # This should be done carefully to avoid converting string columns by mistake.
+        for col in df_copy.columns:
+            if df_copy[col].dtype == 'object':
+                # Attempt to convert columns that look numeric
+                # Use coerce to convert 'NA' and other non-numeric strings to NaN
+                converted = pd.to_numeric(df_copy[col], errors='coerce')
+                # Only update if some values were successfully converted
+                if converted.notna().any():
+                    df_copy[col] = converted
+        
+        filtered_df = df_copy.query(filter_expression)
+        final_count = len(filtered_df)
+        logger.info(f"Final filter retained {final_count} of {original_count} variants.")
+        return filtered_df
+    
+    except Exception as e:
+        logger.error(f"Failed to apply final filter expression: {e}")
+        logger.error("Please check your --final-filter syntax. Returning unfiltered data.")
+        return df
