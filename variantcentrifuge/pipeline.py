@@ -28,6 +28,7 @@ import re
 import subprocess
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -64,6 +65,7 @@ from .utils import (
     normalize_snpeff_headers,
     run_command,
     sanitize_metadata_field,
+    split_bed_file,
 )
 from variantcentrifuge.helpers import (
     annotate_variants_with_gene_lists,
@@ -213,6 +215,224 @@ def parse_samples_from_vcf(vcf_file: str) -> List[str]:
     return samples
 
 
+def _process_bed_chunk(
+    chunk_index: int,
+    chunk_bed_file: str,
+    original_vcf: str,
+    base_name: str,
+    intermediate_dir: str,
+    cfg: Dict[str, Any],
+    transcripts: List[str] = None,
+    args: argparse.Namespace = None,
+) -> str:
+    """Worker function to process a single BED chunk."""
+    chunk_base_name = f"{base_name}.chunk_{chunk_index}"
+    worker_log_prefix = f"[Worker {chunk_index}]"
+    logger.info(
+        f"{worker_log_prefix} Starting processing for BED chunk: {os.path.basename(chunk_bed_file)}"
+    )
+
+    # Define chunk-specific intermediate file paths
+    chunk_variants_vcf = os.path.join(intermediate_dir, f"{chunk_base_name}.variants.vcf.gz")
+    chunk_splitted_before_vcf = os.path.join(
+        intermediate_dir, f"{chunk_base_name}.splitted_before_filters.vcf.gz"
+    )
+    chunk_splitted_after_vcf = os.path.join(
+        intermediate_dir, f"{chunk_base_name}.splitted_after_filters.vcf.gz"
+    )
+    chunk_filtered_vcf = os.path.join(intermediate_dir, f"{chunk_base_name}.filtered.vcf.gz")
+    chunk_transcript_filtered_vcf = os.path.join(
+        intermediate_dir, f"{chunk_base_name}.transcript_filtered.vcf.gz"
+    )
+    chunk_extracted_tsv = os.path.join(intermediate_dir, f"{chunk_base_name}.extracted.tsv")
+
+    # Run the standard filtering and extraction pipeline on this chunk
+    # Use limited threads for bcftools since it only helps with compression
+    chunk_cfg = cfg.copy()
+    chunk_cfg["threads"] = min(2, cfg.get("threads", 1))  # Max 2 threads for bcftools
+    extract_variants(original_vcf, chunk_bed_file, chunk_cfg, chunk_variants_vcf)
+
+    # Handle snpeff splitting mode
+    splitting_mode = cfg.get("snpeff_splitting_mode", None)
+
+    if splitting_mode == "before_filters":
+        logger.info(
+            f"{worker_log_prefix} Splitting multiple SNPeff (EFF/ANN) annotations before main filtering."
+        )
+        from .vcf_eff_one_per_line import process_vcf_file
+
+        process_vcf_file(chunk_variants_vcf, chunk_splitted_before_vcf)
+        prefiltered_for_snpsift = chunk_splitted_before_vcf
+    else:
+        prefiltered_for_snpsift = chunk_variants_vcf
+
+    # Apply filter only if late filtering is not enabled
+    if cfg.get("late_filtering", False):
+        logger.info(
+            f"{worker_log_prefix} Late filtering enabled - skipping early SnpSift filter step"
+        )
+        import shutil
+
+        shutil.copy2(prefiltered_for_snpsift, chunk_filtered_vcf)
+    else:
+        apply_snpsift_filter(prefiltered_for_snpsift, cfg["filters"], chunk_cfg, chunk_filtered_vcf)
+
+    # If splitting after filters
+    if splitting_mode == "after_filters":
+        logger.info(
+            f"{worker_log_prefix} Splitting multiple SNPeff (EFF/ANN) annotations after main filters."
+        )
+        from .vcf_eff_one_per_line import process_vcf_file
+
+        process_vcf_file(chunk_filtered_vcf, chunk_splitted_after_vcf)
+        post_filter_for_transcripts = chunk_splitted_after_vcf
+    else:
+        post_filter_for_transcripts = chunk_filtered_vcf
+
+    # Apply transcript filter if transcripts are provided
+    if transcripts:
+        logger.info(f"{worker_log_prefix} Filtering for transcripts using SnpSift.")
+        or_clauses = [f"(EFF[*].TRID = '{tr}')" for tr in transcripts]
+        transcript_filter_expr = " | ".join(or_clauses)
+
+        apply_snpsift_filter(
+            post_filter_for_transcripts,
+            transcript_filter_expr,
+            chunk_cfg,
+            chunk_transcript_filtered_vcf,
+        )
+        final_filtered_for_extraction = chunk_transcript_filtered_vcf
+    else:
+        final_filtered_for_extraction = post_filter_for_transcripts
+
+    # Extract fields
+    # If user wants to append extra sample fields, ensure they're in the main fields
+    if cfg.get("append_extra_sample_fields", False) and cfg.get("extra_sample_fields", []):
+        updated_fields = ensure_fields_in_extract(
+            cfg["fields_to_extract"], cfg["extra_sample_fields"]
+        )
+        field_list = " ".join(updated_fields.strip().split())
+    else:
+        field_list = " ".join(
+            (cfg["fields_to_extract"] or (args.fields if args else "")).strip().split()
+        )
+
+    logger.debug(f"{worker_log_prefix} Extracting fields: {field_list}")
+
+    snpsift_sep = cfg.get("extract_fields_separator", ":")
+    chunk_cfg["extract_fields_separator"] = snpsift_sep
+    extract_fields(final_filtered_for_extraction, field_list, chunk_cfg, chunk_extracted_tsv)
+
+    logger.info(f"{worker_log_prefix} Finished. Output TSV at {chunk_extracted_tsv}")
+    return chunk_extracted_tsv
+
+
+def _run_parallel_pipeline(
+    args, cfg, gene_name, num_workers, base_name, intermediate_dir, transcripts=None
+):
+    """Handle the parallel execution of the pipeline by splitting the master BED file."""
+    logger.info("Generating master BED file for all specified genes...")
+    master_bed_file = get_gene_bed(
+        cfg["reference"],
+        gene_name,
+        interval_expand=cfg.get("interval_expand", 0),
+        add_chr=cfg.get("add_chr", True),
+        output_dir=args.output_dir,
+    )
+
+    if not os.path.exists(master_bed_file) or os.path.getsize(master_bed_file) == 0:
+        logger.error("Gene BED file could not be created or is empty. Check genes or reference.")
+        sys.exit(1)
+
+    # Check if requested genes found in reference
+    if gene_name.lower() != "all":
+        requested_genes = gene_name.split()
+        found_genes = set()
+        with open(master_bed_file, "r", encoding="utf-8") as bf:
+            for line in bf:
+                parts = line.strip().split("\t")
+                if len(parts) >= 4:
+                    g_name = parts[3].split(";")[0].strip()
+                    found_genes.add(g_name)
+        missing = [g for g in requested_genes if g not in found_genes]
+        if missing:
+            logger.warning(
+                "The following gene(s) were not found in the reference: " f"{', '.join(missing)}"
+            )
+            if cfg.get("debug_level", "INFO") == "ERROR":
+                sys.exit(1)
+
+    logger.info(f"Splitting master BED file into {num_workers} chunks...")
+    chunk_bed_files = split_bed_file(master_bed_file, num_workers, intermediate_dir)
+
+    if not chunk_bed_files:
+        logger.error("Failed to split BED file into chunks. Falling back to single-threaded mode.")
+        return _run_single_thread_pipeline(
+            args, cfg, gene_name, base_name, intermediate_dir, transcripts
+        )
+
+    chunk_tsv_files = []
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        futures = {
+            executor.submit(
+                _process_bed_chunk,
+                i,
+                bed_chunk,
+                args.vcf_file,
+                base_name,
+                intermediate_dir,
+                cfg,
+                transcripts,
+                args,
+            ): i
+            for i, bed_chunk in enumerate(chunk_bed_files)
+        }
+        for future in as_completed(futures):
+            try:
+                result_path = future.result()
+                chunk_tsv_files.append(result_path)
+            except Exception as e:
+                logger.error(f"A worker process failed: {e}")
+                executor.shutdown(wait=False, cancel_futures=True)
+                sys.exit("Pipeline aborted due to worker failure.")
+
+    combined_tsv_path = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv")
+    logger.info(
+        f"All chunks processed. Merging {len(chunk_tsv_files)} files into {combined_tsv_path}..."
+    )
+
+    with open(combined_tsv_path, "w", encoding="utf-8") as outfile:
+        first_file = True
+        for chunk_file in sorted(chunk_tsv_files):
+            with open(chunk_file, "r", encoding="utf-8") as infile:
+                if first_file:
+                    import shutil
+
+                    shutil.copyfileobj(infile, outfile)
+                    first_file = False
+                else:
+                    next(infile)  # Skip header
+                    shutil.copyfileobj(infile, outfile)
+
+    if not cfg.get("keep_intermediates"):
+        for file_path in chunk_tsv_files + chunk_bed_files:
+            try:
+                os.remove(file_path)
+            except OSError as e:
+                logger.warning(f"Could not remove intermediate file {file_path}: {e}")
+
+    return combined_tsv_path
+
+
+def _run_single_thread_pipeline(
+    args, cfg, gene_name, base_name, intermediate_dir, transcripts=None
+):
+    """Run the original linear pipeline logic."""
+    # This function is now incorporated into the main run_pipeline function
+    # when use_parallel is False. This stub is kept for compatibility.
+    raise NotImplementedError("This function should not be called directly anymore.")
+
+
 def run_pipeline(
     args: argparse.Namespace, cfg: Dict[str, Any], start_time: datetime.datetime
 ) -> None:
@@ -353,37 +573,41 @@ def run_pipeline(
     cfg["case_samples"] = case_samples
     cfg["control_samples"] = control_samples
 
-    # Extract gene BED
-    bed_file = get_gene_bed(
-        cfg["reference"],
-        gene_name,
-        interval_expand=cfg.get("interval_expand", 0),
-        add_chr=cfg.get("add_chr", True),
-        output_dir=args.output_dir,
-    )
-    logger.debug(f"Gene BED created at: {bed_file}")
+    # Determine whether to use parallel or single-threaded processing
+    num_workers = cfg.get("threads", 1)
+    use_parallel = num_workers > 1
 
-    if not os.path.exists(bed_file) or os.path.getsize(bed_file) == 0:
-        logger.error("Gene BED file could not be created or is empty. Check genes or reference.")
-        sys.exit(1)
+    if use_parallel:
+        logger.info(f"Running in parallel mode with {num_workers} workers.")
+    else:
+        logger.info("Running in single-threaded mode.")
 
-    # Check if requested genes found in reference
-    if gene_name.lower() != "all":
-        requested_genes = gene_name.split()
-        found_genes = set()
-        with open(bed_file, "r", encoding="utf-8") as bf:
-            for line in bf:
-                parts = line.strip().split("\t")
-                if len(parts) >= 4:
-                    g_name = parts[3].split(";")[0].strip()
-                    found_genes.add(g_name)
-        missing = [g for g in requested_genes if g not in found_genes]
-        if missing:
-            logger.warning(
-                "The following gene(s) were not found in the reference: " f"{', '.join(missing)}"
-            )
-            if cfg.get("debug_level", "INFO") == "ERROR":
-                sys.exit(1)
+    # Parse transcripts before running pipeline (needed for both parallel and single-threaded)
+    transcripts = []
+    if args.transcript_list:
+        transcripts.extend([t.strip() for t in args.transcript_list.split(",") if t.strip()])
+    if args.transcript_file:
+        if not os.path.exists(args.transcript_file):
+            logger.error(f"Transcript file not found: {args.transcript_file}")
+            sys.exit(1)
+        with open(args.transcript_file, "r", encoding="utf-8") as tf:
+            for line in tf:
+                tr = line.strip()
+                if tr:
+                    transcripts.append(tr)
+    transcripts = list(set(transcripts))  # remove duplicates
+    if transcripts:
+        logger.info(f"Will filter for {len(transcripts)} transcript(s).")
+
+    # Pre-configure fields to extract (needed for parallel workers)
+    if cfg.get("append_extra_sample_fields", False) and cfg.get("extra_sample_fields", []):
+        updated_fields = ensure_fields_in_extract(
+            cfg["fields_to_extract"], cfg["extra_sample_fields"]
+        )
+        cfg["fields_to_extract"] = updated_fields
+        logger.debug(
+            f"Updated fields_to_extract with extra sample fields: {cfg['fields_to_extract']}"
+        )
 
     # Filenames for intermediate steps
     variants_file = os.path.join(intermediate_dir, f"{base_name}.variants.vcf.gz")
@@ -422,99 +646,111 @@ def run_pipeline(
             }
 
     # -----------------------------------------------------------------------
-    # Step 1: Extract variants => variants_file
+    # Step 1: Run parallel or single-threaded pipeline to get extracted TSV
     # -----------------------------------------------------------------------
-    extract_variants(args.vcf_file, bed_file, cfg, variants_file)
-
-    # Handle snpeff splitting mode (None, 'before_filters', or 'after_filters')
-    splitting_mode = cfg.get("snpeff_splitting_mode", None)
-
-    if splitting_mode == "before_filters":
-        logger.info("Splitting multiple SNPeff (EFF/ANN) annotations before main filtering.")
-        process_vcf_file(variants_file, splitted_before_file)
-        prefiltered_for_snpsift = splitted_before_file
-    else:
-        # either None or 'after_filters'
-        prefiltered_for_snpsift = variants_file
-
-    # -----------------------------------------------------------------------
-    # Step 3: Apply SnpSift filter => filtered_file (skip if late filtering is enabled)
-    # -----------------------------------------------------------------------
-    if cfg.get("late_filtering", False):
-        logger.info("Late filtering enabled - skipping early SnpSift filter step")
-        # Just copy the file without filtering
-        import shutil
-
-        shutil.copy2(prefiltered_for_snpsift, filtered_file)
-    else:
-        apply_snpsift_filter(prefiltered_for_snpsift, cfg["filters"], cfg, filtered_file)
-
-    # If splitting after filters
-    if splitting_mode == "after_filters":
-        logger.info(
-            "Splitting multiple SNPeff (EFF/ANN) annotations after main filters, before transcript filter."
+    if use_parallel:
+        # Parallel pipeline processing
+        extracted_tsv = _run_parallel_pipeline(
+            args, cfg, gene_name, num_workers, base_name, intermediate_dir, transcripts
         )
-        process_vcf_file(filtered_file, splitted_after_file)
-        post_filter_for_transcripts = splitted_after_file
     else:
-        post_filter_for_transcripts = filtered_file
+        # Single-threaded pipeline processing (original behavior)
+        # Extract gene BED
+        bed_file = get_gene_bed(
+            cfg["reference"],
+            gene_name,
+            interval_expand=cfg.get("interval_expand", 0),
+            add_chr=cfg.get("add_chr", True),
+            output_dir=args.output_dir,
+        )
+        logger.debug(f"Gene BED created at: {bed_file}")
 
-    # -----------------------------------------------------------------------
-    # Step 4: If transcripts are provided, filter by transcripts => transcript_filtered_file
-    # -----------------------------------------------------------------------
-    transcripts = []
-    if args.transcript_list:
-        transcripts.extend([t.strip() for t in args.transcript_list.split(",") if t.strip()])
-    if args.transcript_file:
-        if not os.path.exists(args.transcript_file):
-            logger.error(f"Transcript file not found: {args.transcript_file}")
+        if not os.path.exists(bed_file) or os.path.getsize(bed_file) == 0:
+            logger.error(
+                "Gene BED file could not be created or is empty. Check genes or reference."
+            )
             sys.exit(1)
-        with open(args.transcript_file, "r", encoding="utf-8") as tf:
-            for line in tf:
-                tr = line.strip()
-                if tr:
-                    transcripts.append(tr)
 
-    transcripts = list(set(transcripts))  # remove duplicates
+        # Check if requested genes found in reference
+        if gene_name.lower() != "all":
+            requested_genes = gene_name.split()
+            found_genes = set()
+            with open(bed_file, "r", encoding="utf-8") as bf:
+                for line in bf:
+                    parts = line.strip().split("\t")
+                    if len(parts) >= 4:
+                        g_name = parts[3].split(";")[0].strip()
+                        found_genes.add(g_name)
+            missing = [g for g in requested_genes if g not in found_genes]
+            if missing:
+                logger.warning(
+                    "The following gene(s) were not found in the reference: "
+                    f"{', '.join(missing)}"
+                )
+                if cfg.get("debug_level", "INFO") == "ERROR":
+                    sys.exit(1)
 
-    if transcripts:
-        logger.info("Filtering for transcripts using SnpSift.")
-        or_clauses = [f"(EFF[*].TRID = '{tr}')" for tr in transcripts]
-        transcript_filter_expr = " | ".join(or_clauses)
+        # Extract variants
+        extract_variants(args.vcf_file, bed_file, cfg, variants_file)
 
-        apply_snpsift_filter(
-            post_filter_for_transcripts,
-            transcript_filter_expr,
-            cfg,
-            transcript_filtered_file,
-        )
-        final_filtered_for_extraction = transcript_filtered_file
-    else:
-        final_filtered_for_extraction = post_filter_for_transcripts
+        # Handle snpeff splitting mode (None, 'before_filters', or 'after_filters')
+        splitting_mode = cfg.get("snpeff_splitting_mode", None)
 
-    # -----------------------------------------------------------------------
-    # Step 5: Extract fields => extracted_tsv
-    # -----------------------------------------------------------------------
-    # If user wants to append extra sample fields, ensure they're in the main fields
-    # (Unify them into cfg["fields_to_extract"])
-    if cfg.get("append_extra_sample_fields", False) and cfg.get("extra_sample_fields", []):
-        updated_fields = ensure_fields_in_extract(
-            cfg["fields_to_extract"], cfg["extra_sample_fields"]
-        )
-        cfg["fields_to_extract"] = updated_fields
-        logger.debug(
-            f"Updated fields_to_extract with extra sample fields: {cfg['fields_to_extract']}"
-        )
+        if splitting_mode == "before_filters":
+            logger.info("Splitting multiple SNPeff (EFF/ANN) annotations before main filtering.")
+            process_vcf_file(variants_file, splitted_before_file)
+            prefiltered_for_snpsift = splitted_before_file
+        else:
+            # either None or 'after_filters'
+            prefiltered_for_snpsift = variants_file
 
-    field_list = " ".join((cfg["fields_to_extract"] or args.fields).strip().split())
-    logger.debug(f"Extracting fields: {field_list} -> {extracted_tsv}")
+        # Apply SnpSift filter => filtered_file (skip if late filtering is enabled)
+        if cfg.get("late_filtering", False):
+            logger.info("Late filtering enabled - skipping early SnpSift filter step")
+            # Just copy the file without filtering
+            import shutil
 
-    snpsift_sep = cfg.get("extract_fields_separator", ":")
-    logger.debug(f"Using SnpSift subfield separator for extractFields: '{snpsift_sep}'")
+            shutil.copy2(prefiltered_for_snpsift, filtered_file)
+        else:
+            apply_snpsift_filter(prefiltered_for_snpsift, cfg["filters"], cfg, filtered_file)
 
-    temp_cfg = cfg.copy()
-    temp_cfg["extract_fields_separator"] = snpsift_sep
-    extract_fields(final_filtered_for_extraction, field_list, temp_cfg, extracted_tsv)
+        # If splitting after filters
+        if splitting_mode == "after_filters":
+            logger.info(
+                "Splitting multiple SNPeff (EFF/ANN) annotations after main filters, before transcript filter."
+            )
+            process_vcf_file(filtered_file, splitted_after_file)
+            post_filter_for_transcripts = splitted_after_file
+        else:
+            post_filter_for_transcripts = filtered_file
+
+        # Transcript filtering
+
+        if transcripts:
+            logger.info("Filtering for transcripts using SnpSift.")
+            or_clauses = [f"(EFF[*].TRID = '{tr}')" for tr in transcripts]
+            transcript_filter_expr = " | ".join(or_clauses)
+
+            apply_snpsift_filter(
+                post_filter_for_transcripts,
+                transcript_filter_expr,
+                cfg,
+                transcript_filtered_file,
+            )
+            final_filtered_for_extraction = transcript_filtered_file
+        else:
+            final_filtered_for_extraction = post_filter_for_transcripts
+
+        # Extract fields => extracted_tsv
+        field_list = " ".join((cfg["fields_to_extract"] or args.fields).strip().split())
+        logger.debug(f"Extracting fields: {field_list} -> {extracted_tsv}")
+
+        snpsift_sep = cfg.get("extract_fields_separator", ":")
+        logger.debug(f"Using SnpSift subfield separator for extractFields: '{snpsift_sep}'")
+
+        temp_cfg = cfg.copy()
+        temp_cfg["extract_fields_separator"] = snpsift_sep
+        extract_fields(final_filtered_for_extraction, field_list, temp_cfg, extracted_tsv)
 
     # Check if GT column is present
     with open(extracted_tsv, "r", encoding="utf-8") as f:

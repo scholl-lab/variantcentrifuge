@@ -10,6 +10,8 @@ and retrieving tool versions.
 
 import hashlib
 import logging
+import math
+import os
 import re
 import shutil
 import subprocess
@@ -389,3 +391,89 @@ def generate_igv_safe_filename_base(
 
 
 # MODIFIED: End of IGV filename shortening feature
+
+
+def split_bed_file(input_bed: str, num_chunks: int, output_dir: str) -> List[str]:
+    """
+    Split a BED file into a specified number of chunks with roughly equal total base pairs.
+
+    Parameters
+    ----------
+    input_bed : str
+        Path to the sorted input BED file.
+    num_chunks : int
+        The number of smaller BED files to create.
+    output_dir : str
+        The directory where the chunked BED files will be saved.
+
+    Returns
+    -------
+    List[str]
+        A list of file paths to the created chunked BED files.
+    """
+    regions = []
+    total_bases = 0
+    with open(input_bed, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.startswith(("#", "track", "browser")):
+                continue
+            parts = line.strip().split("\t")
+            if len(parts) < 3:
+                continue
+
+            try:
+                start, end = int(parts[1]), int(parts[2])
+                size = end - start
+                regions.append({"line": line.strip(), "size": size})
+                total_bases += size
+            except (ValueError, IndexError):
+                logger.warning(f"Could not parse line in BED file: {line.strip()}")
+                continue
+
+    if not regions:
+        logger.warning("Input BED file for splitting is empty or invalid.")
+        return []
+
+    if num_chunks > len(regions):
+        logger.warning(
+            f"Number of chunks ({num_chunks}) is greater than number of regions "
+            f"({len(regions)}). Reducing chunks to {len(regions)}."
+        )
+        num_chunks = len(regions)
+
+    target_bases_per_chunk = math.ceil(total_bases / num_chunks)
+    logger.info(
+        f"Total bases: {total_bases}, splitting into {num_chunks} chunks of "
+        f"~{target_bases_per_chunk} bases each."
+    )
+
+    chunk_files = []
+    current_chunk_bases = 0
+    current_chunk_lines = []
+    chunk_index = 0
+
+    for region in regions:
+        current_chunk_lines.append(region["line"])
+        current_chunk_bases += region["size"]
+
+        # If the current chunk is full and we're not on the last chunk, write it.
+        if current_chunk_bases >= target_bases_per_chunk and chunk_index < num_chunks - 1:
+            chunk_path = os.path.join(output_dir, f"chunk_{chunk_index}.bed")
+            with open(chunk_path, "w", encoding="utf-8") as f_chunk:
+                f_chunk.write("\n".join(current_chunk_lines) + "\n")
+            chunk_files.append(chunk_path)
+
+            # Reset for the next chunk
+            chunk_index += 1
+            current_chunk_bases = 0
+            current_chunk_lines = []
+
+    # Write the last chunk, which contains the remainder
+    if current_chunk_lines:
+        chunk_path = os.path.join(output_dir, f"chunk_{chunk_index}.bed")
+        with open(chunk_path, "w", encoding="utf-8") as f_chunk:
+            f_chunk.write("\n".join(current_chunk_lines) + "\n")
+        chunk_files.append(chunk_path)
+
+    logger.info(f"Successfully split BED file into {len(chunk_files)} chunks.")
+    return chunk_files

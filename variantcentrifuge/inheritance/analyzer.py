@@ -160,9 +160,7 @@ def analyze_inheritance(
             )
 
         # Get the best pattern with segregation consideration
-        best_pattern, confidence = prioritize_patterns(
-            all_patterns, segregation_results
-        )
+        best_pattern, confidence = prioritize_patterns(all_patterns, segregation_results)
 
         # Create detailed inheritance information
         details = create_inheritance_details(
@@ -424,8 +422,6 @@ def process_inheritance_output(df: pd.DataFrame, mode: str) -> pd.DataFrame:
 
     elif mode == "columns":
         # Create new columns from the JSON details
-        new_columns = []
-
         for idx, row in df.iterrows():
             try:
                 details = json.loads(row["Inheritance_Details"])

@@ -145,13 +145,13 @@ def analyze_gene_for_compound_het_vectorized(
             # Case 2: Exactly one parent present
             known_parent_id = father_id if has_father else mother_id
             parent_gts = genotype_matrix.get(known_parent_id, np.array([]))
-            
+
             # Extract genotypes for het positions
             parent_het_gts = parent_gts[het_indices]
-            
+
             # A variant is from the known parent if the parent has it (genotype > 0)
             from_known_parent_mask = parent_het_gts > 0
-            
+
             # Iterate through each het variant to find its partners
             for i, var_idx in enumerate(het_indices):
                 # If var_i is from the known parent, its partners must NOT be from that parent
@@ -160,10 +160,10 @@ def analyze_gene_for_compound_het_vectorized(
                 # If var_i is NOT from the known parent, its partners MUST be from that parent
                 else:
                     partner_mask = from_known_parent_mask
-                
+
                 # The variant cannot be its own partner
                 partner_mask[i] = False
-                
+
                 # Get partner indices
                 partner_positions = np.where(partner_mask)[0]
                 if len(partner_positions) > 0:
@@ -181,10 +181,10 @@ def analyze_gene_for_compound_het_vectorized(
         # Store results based on the new partner structure
         for var_idx, partner_indices in partners_by_variant_idx.items():
             var_key = create_variant_key_fast(gene_df, var_idx)
-            
+
             # Create list of partner variant keys
             partner_keys = [create_variant_key_fast(gene_df, pidx) for pidx in partner_indices]
-            
+
             # Determine compound het type based on data availability
             if has_father and has_mother:
                 comp_het_type = "compound_heterozygous"
@@ -195,7 +195,7 @@ def analyze_gene_for_compound_het_vectorized(
             else:
                 comp_het_type = "compound_heterozygous_possible_no_pedigree"
                 inheritance_type = "unknown"
-            
+
             # Store compound het info with list of partners
             comp_het_info = {
                 "sample_id": sample_id,
@@ -205,7 +205,7 @@ def analyze_gene_for_compound_het_vectorized(
                 "comp_het_type": comp_het_type,
                 "inheritance_type": inheritance_type,
             }
-            
+
             if var_key not in comp_het_results:
                 comp_het_results[var_key] = {}
             comp_het_results[var_key][sample_id] = comp_het_info
@@ -238,26 +238,26 @@ def find_potential_partners_vectorized(
         Dictionary mapping each variant index to its list of potential partners
     """
     partners_by_variant = {}
-    
+
     # Extract parent genotypes for heterozygous positions
     father_het_gts = father_genotypes[het_indices]
     mother_het_gts = mother_genotypes[het_indices]
-    
+
     # Check if each variant is present in each parent
     father_has_var = father_het_gts > 0
     mother_has_var = mother_het_gts > 0
-    
+
     # Determine origin of each variant
     # A variant is clearly from one parent if present in that parent but not the other
     from_father_only = father_has_var & ~mother_has_var
     from_mother_only = ~father_has_var & mother_has_var
     from_both = father_has_var & mother_has_var
     from_neither = ~father_has_var & ~mother_has_var
-    
+
     # For each variant, find its potential partners
     for i, var_idx in enumerate(het_indices):
         potential_partners = []
-        
+
         # Determine this variant's origin
         if from_father_only[i]:
             # This variant is from father, partners must be from mother only
@@ -272,17 +272,17 @@ def find_potential_partners_vectorized(
         else:
             # Should not happen, but be safe
             partner_mask = np.zeros(len(het_indices), dtype=bool)
-        
+
         # A variant cannot be its own partner
         partner_mask[i] = False
-        
+
         # Get the partner indices
         partner_positions = np.where(partner_mask)[0]
         potential_partners = het_indices[partner_positions].tolist()
-        
+
         if potential_partners:
             partners_by_variant[int(var_idx)] = potential_partners
-    
+
     return partners_by_variant
 
 
@@ -401,8 +401,6 @@ def determine_compound_het_type_vectorized(
         return ("ambiguous", "compound_heterozygous_possible")
 
     return ("unknown", "compound_heterozygous_possible")
-
-
 
 
 # Compatibility wrapper to use vectorized version with existing code

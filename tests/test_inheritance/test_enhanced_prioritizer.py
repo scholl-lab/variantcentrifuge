@@ -71,11 +71,11 @@ class TestScoreAdjustment:
     def test_adjust_score_with_segregation(self):
         """Test score adjustment based on segregation."""
         base_score = 50
-        
+
         # adjust_pattern_score now just returns base score
         score1 = adjust_pattern_score("pattern1", base_score)
         assert score1 == base_score
-        
+
         score2 = adjust_pattern_score("pattern2", base_score)
         assert score2 == base_score
 

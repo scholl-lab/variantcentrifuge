@@ -258,7 +258,8 @@ def main() -> None:
         "--threads",
         type=int,
         default=1,
-        help="Number of threads to use for bcftools and related operations.",
+        help="Number of parallel worker processes to use for variant extraction and filtering. "
+        "Set to 1 to disable parallelization (default: 1).",
     )
 
     parser.add_argument(
