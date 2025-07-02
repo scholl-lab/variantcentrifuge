@@ -396,6 +396,24 @@ variantcentrifuge \
 
 This will add annotations like `panel=HereditaryCancer;inheritance=AD;actionability=Tier1` to the Custom_Annotation column for variants in matching genes.
 
+#### Adding JSON Annotations as Separate Columns
+
+For a more structured output suitable for direct analysis, you can add each JSON data field as its own column instead of bundling them into the `Custom_Annotation` field. This is enabled with the `--json-genes-as-columns` flag.
+
+**Usage Example:**
+
+```bash
+variantcentrifuge \
+  --gene-name GENE \
+  --vcf-file input.vcf.gz \
+  --annotate-json-genes gene_data.json \
+  --json-gene-mapping '{"identifier":"symbol","dataFields":["ngs","actionability"]}' \
+  --json-genes-as-columns \
+  --output-file variants_with_columns.tsv
+```
+
+This command will produce a TSV with two new columns, `ngs` and `actionability`, populated with the corresponding values from `gene_data.json`.
+
 ### BED File Annotations
 
 Annotate variants with genomic regions using BED files:

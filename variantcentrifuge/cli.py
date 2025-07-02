@@ -380,6 +380,12 @@ def main() -> None:
         "--json-gene-mapping",
         help='JSON string to map fields in JSON gene files. e.g., \'{"identifier":"gene_symbol","dataFields":["panel","inheritance"]}\'',
     )
+    parser.add_argument(
+        "--json-genes-as-columns",
+        action="store_true",
+        help="When using --annotate-json-genes, add each specified dataField as a separate column "
+             "instead of appending key-value pairs to the Custom_Annotation column.",
+    )
 
     # Inheritance analysis arguments
     parser.add_argument(
@@ -572,6 +578,7 @@ def main() -> None:
     cfg["annotate_bed_files"] = args.annotate_bed
     cfg["annotate_json_genes"] = args.annotate_json_genes
     cfg["json_gene_mapping"] = args.json_gene_mapping
+    cfg["json_genes_as_columns"] = args.json_genes_as_columns
     # Note: args.annotate_gene_list is already handled above as "annotate_gene_list_files"
     # We'll map it to the new unified system
     cfg["annotate_gene_lists"] = args.annotate_gene_list

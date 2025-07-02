@@ -29,6 +29,7 @@ from variantcentrifuge.annotator import (
     _extract_genes_from_row,
     _find_gene_list_matches,
     _find_json_gene_matches,
+    _add_json_annotations_as_columns,
     INTERVALTREE_AVAILABLE,
 )
 
@@ -569,6 +570,154 @@ class TestIntegrationScenarios:
         assert "InGeneList=actionable_genes" in pik3ca_annotation
         assert "panel=Targeted_Therapy" in pik3ca_annotation
         assert "tier=2" in pik3ca_annotation
+
+
+class TestJsonColumnAnnotation:
+    """Test JSON annotation as separate columns functionality."""
+
+    @pytest.fixture
+    def sample_dataframe_for_columns(self):
+        """Create a sample DataFrame for column-based testing."""
+        data = {
+            "CHROM": ["chr1", "chr2", "chr3", "chr4"],
+            "POS": [1000, 2000, 3000, 4000],
+            "REF": ["A", "G", "C", "T"],
+            "ALT": ["T", "C", "A", "G"],
+            "GENE": ["BRCA1", "TP53", "UNKNOWN", "EGFR"],
+        }
+        return pd.DataFrame(data)
+
+    @pytest.fixture
+    def features_with_json_columns(self):
+        """Create features with json_genes_as_columns enabled."""
+        features = {
+            "regions_by_chrom": {},
+            "gene_lists": {"cancer_genes": {"BRCA1", "TP53"}},
+            "json_gene_data": {
+                "BRCA1": {"ngs": "panel1", "actionability": "Tier1", "inheritance": "AD"},
+                "TP53": {"ngs": "panel2", "actionability": "Tier1", "inheritance": "AD"},
+                "EGFR": {"ngs": "panel3", "actionability": "Tier2"},  # Missing inheritance
+            },
+            "json_genes_as_columns": True,
+        }
+        return features
+
+    def test_json_as_columns_functionality(self, sample_dataframe_for_columns, features_with_json_columns):
+        """Test that JSON data is added as separate columns."""
+        result_df = annotate_dataframe_with_features(sample_dataframe_for_columns, features_with_json_columns)
+
+        # Check that new columns were added
+        assert "ngs" in result_df.columns
+        assert "actionability" in result_df.columns
+        assert "inheritance" in result_df.columns
+
+        # Check column values for BRCA1
+        assert result_df.iloc[0]["ngs"] == "panel1"
+        assert result_df.iloc[0]["actionability"] == "Tier1"
+        assert result_df.iloc[0]["inheritance"] == "AD"
+
+        # Check column values for TP53
+        assert result_df.iloc[1]["ngs"] == "panel2"
+        assert result_df.iloc[1]["actionability"] == "Tier1"
+        assert result_df.iloc[1]["inheritance"] == "AD"
+
+        # Check that UNKNOWN gene has empty/NA values
+        assert pd.isna(result_df.iloc[2]["ngs"]) or result_df.iloc[2]["ngs"] == ""
+        assert pd.isna(result_df.iloc[2]["actionability"]) or result_df.iloc[2]["actionability"] == ""
+
+        # Check EGFR has inheritance as NA (missing field)
+        assert result_df.iloc[3]["ngs"] == "panel3"
+        assert result_df.iloc[3]["actionability"] == "Tier2"
+        assert pd.isna(result_df.iloc[3]["inheritance"]) or result_df.iloc[3]["inheritance"] == ""
+
+        # Verify that JSON data is NOT in Custom_Annotation
+        for annotation in result_df["Custom_Annotation"]:
+            assert "ngs=" not in annotation
+            assert "actionability=" not in annotation
+            assert "inheritance=" not in annotation
+
+    def test_json_as_columns_with_other_annotations(self, sample_dataframe_for_columns, features_with_json_columns):
+        """Test that other annotations still work with column mode."""
+        result_df = annotate_dataframe_with_features(sample_dataframe_for_columns, features_with_json_columns)
+
+        # Check that gene list annotations still appear in Custom_Annotation
+        assert "InGeneList=cancer_genes" in result_df.iloc[0]["Custom_Annotation"]  # BRCA1
+        assert "InGeneList=cancer_genes" in result_df.iloc[1]["Custom_Annotation"]  # TP53
+        assert result_df.iloc[2]["Custom_Annotation"] == ""  # UNKNOWN
+        assert result_df.iloc[3]["Custom_Annotation"] == ""  # EGFR not in cancer_genes
+
+    def test_json_default_behavior_regression(self, sample_dataframe_for_columns):
+        """Test that default behavior (json_genes_as_columns=False) still works."""
+        features = {
+            "regions_by_chrom": {},
+            "gene_lists": {},
+            "json_gene_data": {
+                "BRCA1": {"panel": "Cancer", "tier": "1"},
+                "TP53": {"panel": "Cancer", "tier": "1"},
+            },
+            "json_genes_as_columns": False,  # Explicit false
+        }
+
+        result_df = annotate_dataframe_with_features(sample_dataframe_for_columns, features)
+
+        # Check that JSON columns were NOT added
+        assert "panel" not in result_df.columns
+        assert "tier" not in result_df.columns
+
+        # Check that JSON data IS in Custom_Annotation
+        assert "panel=Cancer" in result_df.iloc[0]["Custom_Annotation"]
+        assert "tier=1" in result_df.iloc[0]["Custom_Annotation"]
+        assert "panel=Cancer" in result_df.iloc[1]["Custom_Annotation"]
+        assert "tier=1" in result_df.iloc[1]["Custom_Annotation"]
+
+    def test_json_as_columns_empty_data(self):
+        """Test column mode with no JSON data."""
+        df = pd.DataFrame({"CHROM": ["chr1"], "POS": [1000], "GENE": ["BRCA1"]})
+        features = {
+            "regions_by_chrom": {},
+            "gene_lists": {},
+            "json_gene_data": {},  # Empty
+            "json_genes_as_columns": True,
+        }
+
+        result_df = annotate_dataframe_with_features(df, features)
+
+        # Should not add any new columns beyond Custom_Annotation
+        assert set(result_df.columns) == set(df.columns) | {"Custom_Annotation"}
+
+    def test_json_as_columns_all_columns_present(self):
+        """Test that all unique fields from all genes create columns."""
+        df = pd.DataFrame({
+            "CHROM": ["chr1", "chr2"], 
+            "POS": [1000, 2000],
+            "GENE": ["GENE1", "GENE2"]
+        })
+        
+        features = {
+            "regions_by_chrom": {},
+            "gene_lists": {},
+            "json_gene_data": {
+                "GENE1": {"field1": "value1", "field2": "value2"},
+                "GENE2": {"field2": "value2b", "field3": "value3"},  # field1 missing, field3 new
+            },
+            "json_genes_as_columns": True,
+        }
+        
+        result_df = annotate_dataframe_with_features(df, features)
+        
+        # All unique fields should be present as columns
+        assert "field1" in result_df.columns
+        assert "field2" in result_df.columns
+        assert "field3" in result_df.columns
+        
+        # Check values
+        assert result_df.iloc[0]["field1"] == "value1"
+        assert result_df.iloc[0]["field2"] == "value2"
+        assert pd.isna(result_df.iloc[0]["field3"]) or result_df.iloc[0]["field3"] == ""
+        
+        assert pd.isna(result_df.iloc[1]["field1"]) or result_df.iloc[1]["field1"] == ""
+        assert result_df.iloc[1]["field2"] == "value2b"
+        assert result_df.iloc[1]["field3"] == "value3"
 
 
 if __name__ == "__main__":

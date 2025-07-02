@@ -57,6 +57,7 @@ variantcentrifuge \
 - `--annotate-gene-list GENE_LIST` - Check if variants affect genes in custom gene lists (can specify multiple)
 - `--annotate-json-genes JSON_FILE` - Annotate variants with gene information from JSON file
 - `--json-gene-mapping MAPPING` - Specify JSON field mapping for gene annotations (required with --annotate-json-genes)
+- `--json-genes-as-columns` - Output JSON gene data as separate columns instead of appending to Custom_Annotation column
 
 ### Other Options
 
