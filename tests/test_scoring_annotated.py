@@ -47,6 +47,59 @@ def sample_annotated_data():
     return pd.DataFrame(data)
 
 
+def test_multi_formula_scoring():
+    """Test scoring with multiple formulas where second formula depends on first."""
+    # Create sample data
+    data = {
+        "CHROM": ["1", "2"],
+        "POS": [1000, 2000],
+        "IMPACT": ["HIGH", "MODERATE"],
+        "EFFECT": ["stop_gained", "missense_variant"],
+        "dbNSFP_CADD_phred": ["25.0", "20.0"],
+        "dbNSFP_gnomAD_exomes_AF": ["0.001", "0.01"],
+        "dbNSFP_gnomAD_genomes_AF": ["0.002", "0.02"],
+        "ngs": ["2.5", "3.0"],  # This would be the nephro_gene_score
+    }
+    df = pd.DataFrame(data)
+    
+    # Create a multi-formula config
+    config = {
+        "variables": {
+            "dbNSFP_gnomAD_exomes_AF": "gnomade_variant|default:0.0",
+            "dbNSFP_gnomAD_genomes_AF": "gnomadg_variant|default:0.0", 
+            "dbNSFP_CADD_phred": "cadd_phred_variant|default:0.0",
+            "EFFECT": "consequence_terms_variant|default:''",
+            "IMPACT": "impact_variant|default:''",
+            "ngs": "nephro_gene_score|default:0.0"
+        },
+        "formulas": [
+            # Simplified first formula that might produce object dtype
+            {"nephro_variant_score": "((impact_variant == 'HIGH') * 4 + (impact_variant == 'MODERATE') * 3) * 0.1"},
+            # Second formula that depends on the first
+            {"nephro_candidate_score": "nephro_variant_score * 4 + nephro_gene_score * 0.5"}
+        ]
+    }
+    
+    # Apply scoring
+    result_df = apply_scoring(df, config)
+    
+    # Verify that both scores were calculated
+    assert "nephro_variant_score" in result_df.columns
+    assert "nephro_candidate_score" in result_df.columns
+    
+    # Verify the scores are numeric
+    assert pd.api.types.is_numeric_dtype(result_df["nephro_variant_score"])
+    assert pd.api.types.is_numeric_dtype(result_df["nephro_candidate_score"])
+    
+    # Verify the calculations
+    # First row: HIGH impact -> (4 * 0.1) = 0.4, candidate = 0.4 * 4 + 2.5 * 0.5 = 1.6 + 1.25 = 2.85
+    # Second row: MODERATE impact -> (3 * 0.1) = 0.3, candidate = 0.3 * 4 + 3.0 * 0.5 = 1.2 + 1.5 = 2.7
+    assert abs(result_df.iloc[0]["nephro_variant_score"] - 0.4) < 0.001
+    assert abs(result_df.iloc[1]["nephro_variant_score"] - 0.3) < 0.001
+    assert abs(result_df.iloc[0]["nephro_candidate_score"] - 2.85) < 0.001
+    assert abs(result_df.iloc[1]["nephro_candidate_score"] - 2.7) < 0.001
+
+
 def test_scoring_with_annotated_data(sample_annotated_data, scoring_config):
     """Test scoring on data that mimics annotated VCF output."""
     # Apply scoring
@@ -63,19 +116,19 @@ def test_scoring_with_annotated_data(sample_annotated_data, scoring_config):
     assert (scores >= 0).all() and (scores <= 1).all()
 
     # Check that HIGH impact variants generally have higher scores
-    # Note: The scoring module renames columns to match the config
-    high_impact_scores = scored_df[scored_df["impact_variant"] == "HIGH"][
+    # Use original column names (scoring module renames them temporarily but restores originals)
+    high_impact_scores = scored_df[scored_df["IMPACT"] == "HIGH"][
         "nephro_variant_score"
     ].mean()
-    low_impact_scores = scored_df[scored_df["impact_variant"] == "LOW"][
+    low_impact_scores = scored_df[scored_df["IMPACT"] == "LOW"][
         "nephro_variant_score"
     ].mean()
     assert high_impact_scores > low_impact_scores
 
     # Check that variants with higher CADD scores have higher pathogenicity scores
-    # Use the renamed column 'cadd_phred_variant'
-    high_cadd = scored_df[scored_df["cadd_phred_variant"] > 25]
-    low_cadd = scored_df[scored_df["cadd_phred_variant"] < 10]
+    # Use the original column name
+    high_cadd = scored_df[scored_df["dbNSFP_CADD_phred"] > 25]
+    low_cadd = scored_df[scored_df["dbNSFP_CADD_phred"] < 10]
     if len(high_cadd) > 0 and len(low_cadd) > 0:
         assert high_cadd["nephro_variant_score"].mean() > low_cadd["nephro_variant_score"].mean()
 
@@ -102,11 +155,11 @@ def test_scoring_formula_components(sample_annotated_data, scoring_config):
 
     # Test specific cases
     # HIGH impact with high CADD and low frequency should have high score
-    # Use renamed columns matching the config
+    # Use original column names (not the renamed versions)
     high_risk_mask = (
-        (scored_df["impact_variant"] == "HIGH")
-        & (scored_df["cadd_phred_variant"] > 30)
-        & (scored_df["gnomade_variant"] < 0.001)
+        (scored_df["IMPACT"] == "HIGH")
+        & (scored_df["dbNSFP_CADD_phred"] > 30)
+        & (scored_df["dbNSFP_gnomAD_exomes_AF"] < 0.001)
     )
     if high_risk_mask.any():
         high_risk_scores = scored_df[high_risk_mask]["nephro_variant_score"]

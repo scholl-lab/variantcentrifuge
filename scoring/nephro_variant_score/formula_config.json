@@ -2,6 +2,9 @@
   "formulas": [
     {
       "nephro_variant_score": "1 / (1 + 2.718281828459045 ** (-((-36.30796) + ((gnomade_variant - 0.00658) / 0.05959) * (-309.33539) + ((gnomadg_variant - 0.02425) / 0.11003) * (-2.54581) + (((consequence_terms_variant == 'missense_variant') * 1.0 - 0.24333) / 0.42909) * (-1.14313) + (((consequence_terms_variant == 'synonymous_variant') * 1.0 - 0.22931) / 0.42039) * (-0.96418) + (((consequence_terms_variant == 'stop_gained') * 1.0 - 0.06932) / 0.25400) * (-0.40553) + (((consequence_terms_variant.str.contains('frameshift', case=False, na=False)) * 1.0 - 0.13615) / 0.34295) * (0.90216) + ((cadd_phred_variant - 12.47608) / 11.78359) * 2.68520 + ((((impact_variant == 'HIGH') * 4 + (impact_variant == 'MODERATE') * 3 + (impact_variant == 'LOW') * 2 + (impact_variant == 'MODIFIER') * 1) - 2.49999) / 1.11804) * 3.14822)))"
+    },
+    {
+      "nephro_candidate_score": "nephro_variant_score * 4 + nephro_gene_score * 4"
     }
   ]
 }

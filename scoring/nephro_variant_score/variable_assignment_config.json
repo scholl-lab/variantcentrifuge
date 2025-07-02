@@ -4,6 +4,7 @@
     "dbNSFP_gnomAD_genomes_AF": "gnomadg_variant|default:0.0",
     "dbNSFP_CADD_phred": "cadd_phred_variant|default:0.0",
     "EFFECT": "consequence_terms_variant|default:''",
-    "IMPACT": "impact_variant|default:''"
+    "IMPACT": "impact_variant|default:''",
+    "ngs": "nephro_gene_score|default:0.0"
   }
 }
