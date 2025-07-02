@@ -164,8 +164,14 @@ def analyze_inheritance(
 
         # Create detailed inheritance information
         details = create_inheritance_details(
-            row, best_pattern, all_patterns, confidence, comp_het_info, pedigree_data, sample_list,
-            segregation_results
+            row,
+            best_pattern,
+            all_patterns,
+            confidence,
+            comp_het_info,
+            pedigree_data,
+            sample_list,
+            segregation_results,
         )
 
         # Set final values
@@ -224,7 +230,7 @@ def create_inheritance_details(
         "pattern_description": get_pattern_description(best_pattern),
         "samples_with_pattern": [],
     }
-    
+
     # Add segregation p-value if available
     if segregation_results and best_pattern in segregation_results:
         # The 'confidence' from the segregation check is our p-value equivalent.

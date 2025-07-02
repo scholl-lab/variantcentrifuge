@@ -163,7 +163,9 @@ def apply_scoring(df: pd.DataFrame, scoring_config: Dict[str, Any]) -> pd.DataFr
             try:
                 # Use pandas.eval for safe and efficient evaluation
                 # Make numpy available in the eval context
-                scored_df[score_name] = scored_df.eval(formula_str, engine="python", local_dict={'np': np})
+                scored_df[score_name] = scored_df.eval(
+                    formula_str, engine="python", local_dict={"np": np}
+                )
 
                 # Ensure the result is numeric (convert object dtype to float)
                 # This is crucial for formulas that produce boolean/object results

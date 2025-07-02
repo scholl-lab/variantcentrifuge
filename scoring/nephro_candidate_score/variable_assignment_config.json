@@ -5,6 +5,8 @@
     "dbNSFP_CADD_phred": "cadd_phred_variant|default:0.0",
     "EFFECT": "consequence_terms_variant|default:''",
     "IMPACT": "impact_variant|default:''",
-    "ngs": "nephro_gene_score|default:0.0"
+    "ngs": "nephro_gene_score|default:0.0",
+    "Inheritance_Pattern": "pattern",
+    "Inheritance_Details": "details"
   }
 }
