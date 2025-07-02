@@ -462,7 +462,9 @@ def _find_json_gene_matches(
     return annotations
 
 
-def _add_json_annotations_as_columns(df: pd.DataFrame, json_gene_data: Dict[str, Dict[str, Any]]) -> pd.DataFrame:
+def _add_json_annotations_as_columns(
+    df: pd.DataFrame, json_gene_data: Dict[str, Dict[str, Any]]
+) -> pd.DataFrame:
     """Adds annotations from JSON data as separate columns to the DataFrame."""
     if not json_gene_data:
         return df
@@ -471,7 +473,7 @@ def _add_json_annotations_as_columns(df: pd.DataFrame, json_gene_data: Dict[str,
     all_new_columns = set()
     for data in json_gene_data.values():
         all_new_columns.update(data.keys())
-    
+
     if not all_new_columns:
         return df
 
@@ -491,12 +493,12 @@ def _add_json_annotations_as_columns(df: pd.DataFrame, json_gene_data: Dict[str,
     if annotations_for_df:
         # Ensure the index matches the original DataFrame for proper alignment
         annotations_df = pd.DataFrame(annotations_for_df, index=df.index)
-        
+
         # Add any missing columns from all_new_columns to ensure all are present
         for col in all_new_columns:
             if col not in annotations_df.columns:
                 annotations_df[col] = pd.NA
-        
+
         # Concatenate the new columns to the original DataFrame
         df = pd.concat([df, annotations_df[list(all_new_columns)]], axis=1)
 
@@ -526,7 +528,7 @@ def annotate_dataframe_with_features(df: pd.DataFrame, features: Dict[str, Any])
 
     # Make a copy to work on
     df = df.copy()
-    
+
     # Handle JSON as columns if flag is set
     if features.get("json_genes_as_columns") and features.get("json_gene_data"):
         logger.info("Annotating with JSON data as new columns...")
@@ -536,7 +538,7 @@ def annotate_dataframe_with_features(df: pd.DataFrame, features: Dict[str, Any])
     def annotate_variant(row):
         annotations = []
         variant_genes = _extract_genes_from_row(row)
-        
+
         annotations.extend(_find_region_overlaps(row, features["regions_by_chrom"]))
         annotations.extend(_find_gene_list_matches(variant_genes, features["gene_lists"]))
 
@@ -547,10 +549,12 @@ def annotate_dataframe_with_features(df: pd.DataFrame, features: Dict[str, Any])
         return ";".join(sorted(list(set(annotations)))) if annotations else ""
 
     df["Custom_Annotation"] = df.apply(annotate_variant, axis=1)
-    
+
     annotated_variants = (df["Custom_Annotation"] != "").sum()
-    logger.info(f"Custom annotation complete: {annotated_variants}/{len(df)} variants annotated in 'Custom_Annotation' column.")
-    
+    logger.info(
+        f"Custom annotation complete: {annotated_variants}/{len(df)} variants annotated in 'Custom_Annotation' column."
+    )
+
     return df
 
 

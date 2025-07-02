@@ -602,9 +602,13 @@ class TestJsonColumnAnnotation:
         }
         return features
 
-    def test_json_as_columns_functionality(self, sample_dataframe_for_columns, features_with_json_columns):
+    def test_json_as_columns_functionality(
+        self, sample_dataframe_for_columns, features_with_json_columns
+    ):
         """Test that JSON data is added as separate columns."""
-        result_df = annotate_dataframe_with_features(sample_dataframe_for_columns, features_with_json_columns)
+        result_df = annotate_dataframe_with_features(
+            sample_dataframe_for_columns, features_with_json_columns
+        )
 
         # Check that new columns were added
         assert "ngs" in result_df.columns
@@ -623,7 +627,9 @@ class TestJsonColumnAnnotation:
 
         # Check that UNKNOWN gene has empty/NA values
         assert pd.isna(result_df.iloc[2]["ngs"]) or result_df.iloc[2]["ngs"] == ""
-        assert pd.isna(result_df.iloc[2]["actionability"]) or result_df.iloc[2]["actionability"] == ""
+        assert (
+            pd.isna(result_df.iloc[2]["actionability"]) or result_df.iloc[2]["actionability"] == ""
+        )
 
         # Check EGFR has inheritance as NA (missing field)
         assert result_df.iloc[3]["ngs"] == "panel3"
@@ -636,9 +642,13 @@ class TestJsonColumnAnnotation:
             assert "actionability=" not in annotation
             assert "inheritance=" not in annotation
 
-    def test_json_as_columns_with_other_annotations(self, sample_dataframe_for_columns, features_with_json_columns):
+    def test_json_as_columns_with_other_annotations(
+        self, sample_dataframe_for_columns, features_with_json_columns
+    ):
         """Test that other annotations still work with column mode."""
-        result_df = annotate_dataframe_with_features(sample_dataframe_for_columns, features_with_json_columns)
+        result_df = annotate_dataframe_with_features(
+            sample_dataframe_for_columns, features_with_json_columns
+        )
 
         # Check that gene list annotations still appear in Custom_Annotation
         assert "InGeneList=cancer_genes" in result_df.iloc[0]["Custom_Annotation"]  # BRCA1
@@ -687,12 +697,10 @@ class TestJsonColumnAnnotation:
 
     def test_json_as_columns_all_columns_present(self):
         """Test that all unique fields from all genes create columns."""
-        df = pd.DataFrame({
-            "CHROM": ["chr1", "chr2"], 
-            "POS": [1000, 2000],
-            "GENE": ["GENE1", "GENE2"]
-        })
-        
+        df = pd.DataFrame(
+            {"CHROM": ["chr1", "chr2"], "POS": [1000, 2000], "GENE": ["GENE1", "GENE2"]}
+        )
+
         features = {
             "regions_by_chrom": {},
             "gene_lists": {},
@@ -702,19 +710,19 @@ class TestJsonColumnAnnotation:
             },
             "json_genes_as_columns": True,
         }
-        
+
         result_df = annotate_dataframe_with_features(df, features)
-        
+
         # All unique fields should be present as columns
         assert "field1" in result_df.columns
         assert "field2" in result_df.columns
         assert "field3" in result_df.columns
-        
+
         # Check values
         assert result_df.iloc[0]["field1"] == "value1"
         assert result_df.iloc[0]["field2"] == "value2"
         assert pd.isna(result_df.iloc[0]["field3"]) or result_df.iloc[0]["field3"] == ""
-        
+
         assert pd.isna(result_df.iloc[1]["field1"]) or result_df.iloc[1]["field1"] == ""
         assert result_df.iloc[1]["field2"] == "value2b"
         assert result_df.iloc[1]["field3"] == "value3"

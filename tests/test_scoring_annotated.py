@@ -61,36 +61,38 @@ def test_multi_formula_scoring():
         "ngs": ["2.5", "3.0"],  # This would be the nephro_gene_score
     }
     df = pd.DataFrame(data)
-    
+
     # Create a multi-formula config
     config = {
         "variables": {
             "dbNSFP_gnomAD_exomes_AF": "gnomade_variant|default:0.0",
-            "dbNSFP_gnomAD_genomes_AF": "gnomadg_variant|default:0.0", 
+            "dbNSFP_gnomAD_genomes_AF": "gnomadg_variant|default:0.0",
             "dbNSFP_CADD_phred": "cadd_phred_variant|default:0.0",
             "EFFECT": "consequence_terms_variant|default:''",
             "IMPACT": "impact_variant|default:''",
-            "ngs": "nephro_gene_score|default:0.0"
+            "ngs": "nephro_gene_score|default:0.0",
         },
         "formulas": [
             # Simplified first formula that might produce object dtype
-            {"nephro_variant_score": "((impact_variant == 'HIGH') * 4 + (impact_variant == 'MODERATE') * 3) * 0.1"},
+            {
+                "nephro_variant_score": "((impact_variant == 'HIGH') * 4 + (impact_variant == 'MODERATE') * 3) * 0.1"
+            },
             # Second formula that depends on the first
-            {"nephro_candidate_score": "nephro_variant_score * 4 + nephro_gene_score * 0.5"}
-        ]
+            {"nephro_candidate_score": "nephro_variant_score * 4 + nephro_gene_score * 0.5"},
+        ],
     }
-    
+
     # Apply scoring
     result_df = apply_scoring(df, config)
-    
+
     # Verify that both scores were calculated
     assert "nephro_variant_score" in result_df.columns
     assert "nephro_candidate_score" in result_df.columns
-    
+
     # Verify the scores are numeric
     assert pd.api.types.is_numeric_dtype(result_df["nephro_variant_score"])
     assert pd.api.types.is_numeric_dtype(result_df["nephro_candidate_score"])
-    
+
     # Verify the calculations
     # First row: HIGH impact -> (4 * 0.1) = 0.4, candidate = 0.4 * 4 + 2.5 * 0.5 = 1.6 + 1.25 = 2.85
     # Second row: MODERATE impact -> (3 * 0.1) = 0.3, candidate = 0.3 * 4 + 3.0 * 0.5 = 1.2 + 1.5 = 2.7
@@ -117,12 +119,8 @@ def test_scoring_with_annotated_data(sample_annotated_data, scoring_config):
 
     # Check that HIGH impact variants generally have higher scores
     # Use original column names (scoring module renames them temporarily but restores originals)
-    high_impact_scores = scored_df[scored_df["IMPACT"] == "HIGH"][
-        "nephro_variant_score"
-    ].mean()
-    low_impact_scores = scored_df[scored_df["IMPACT"] == "LOW"][
-        "nephro_variant_score"
-    ].mean()
+    high_impact_scores = scored_df[scored_df["IMPACT"] == "HIGH"]["nephro_variant_score"].mean()
+    low_impact_scores = scored_df[scored_df["IMPACT"] == "LOW"]["nephro_variant_score"].mean()
     assert high_impact_scores > low_impact_scores
 
     # Check that variants with higher CADD scores have higher pathogenicity scores

@@ -158,13 +158,15 @@ def apply_scoring(df: pd.DataFrame, scoring_config: Dict[str, Any]) -> pd.DataFr
             try:
                 # Use pandas.eval for safe and efficient evaluation
                 scored_df[score_name] = scored_df.eval(formula_str, engine="python")
-                
+
                 # Ensure the result is numeric (convert object dtype to float)
                 # This is crucial for formulas that produce boolean/object results
                 if not pd.api.types.is_numeric_dtype(scored_df[score_name]):
-                    logger.debug(f"Converting score column '{score_name}' from {scored_df[score_name].dtype} to numeric type")
-                    scored_df[score_name] = pd.to_numeric(scored_df[score_name], errors='coerce')
-                
+                    logger.debug(
+                        f"Converting score column '{score_name}' from {scored_df[score_name].dtype} to numeric type"
+                    )
+                    scored_df[score_name] = pd.to_numeric(scored_df[score_name], errors="coerce")
+
                 logger.info(f"Successfully calculated score column: '{score_name}'")
             except Exception as e:
                 logger.error(f"Error evaluating formula for '{score_name}': {e}")

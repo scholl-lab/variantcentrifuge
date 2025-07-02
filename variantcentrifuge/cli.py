@@ -384,7 +384,7 @@ def main() -> None:
         "--json-genes-as-columns",
         action="store_true",
         help="When using --annotate-json-genes, add each specified dataField as a separate column "
-             "instead of appending key-value pairs to the Custom_Annotation column.",
+        "instead of appending key-value pairs to the Custom_Annotation column.",
     )
 
     # Inheritance analysis arguments
