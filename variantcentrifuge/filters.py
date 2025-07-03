@@ -23,6 +23,7 @@ TSV-based filtering:
   and annotation steps are complete, allowing filtering on computed columns.
 """
 
+import gzip
 import logging
 import os
 import tempfile
@@ -36,18 +37,15 @@ logger = logging.getLogger("variantcentrifuge")
 
 
 def apply_bcftools_prefilter(
-    input_vcf: str, 
-    output_vcf: str, 
-    filter_expression: str, 
-    cfg: Dict[str, Any]
+    input_vcf: str, output_vcf: str, filter_expression: str, cfg: Dict[str, Any]
 ) -> str:
     """
     Apply a bcftools filter expression to a VCF file.
-    
+
     This function is used for pre-filtering VCF files before more resource-intensive
     operations like SnpSift filtering. It applies the filter expression using
     bcftools view -i option.
-    
+
     Parameters
     ----------
     input_vcf : str
@@ -64,28 +62,32 @@ def apply_bcftools_prefilter(
     cfg : dict
         Configuration dictionary that may include:
         - "threads": Number of threads to use with bcftools (default = 1)
-    
+
     Returns
     -------
     str
         Path to the output VCF file
-        
+
     Raises
     ------
     RuntimeError
         If the bcftools command fails
     """
     threads = str(cfg.get("threads", 1))
-    
+
     cmd = [
-        "bcftools", "view",
-        "--threads", threads,
-        "-i", filter_expression,
+        "bcftools",
+        "view",
+        "--threads",
+        threads,
+        "-i",
+        filter_expression,
         "-Oz",  # Output compressed VCF
-        "-o", output_vcf,
-        input_vcf
+        "-o",
+        output_vcf,
+        input_vcf,
     ]
-    
+
     logger.info(f"Applying bcftools pre-filter: {filter_expression}")
     logger.debug(f"bcftools prefilter command: {' '.join(cmd)}")
     run_command(cmd)
@@ -94,7 +96,7 @@ def apply_bcftools_prefilter(
     index_cmd = ["bcftools", "index", "--threads", threads, output_vcf]
     logger.debug(f"Indexing pre-filtered VCF: {' '.join(index_cmd)}")
     run_command(index_cmd)
-    
+
     return output_vcf
 
 
@@ -141,19 +143,21 @@ def extract_variants(vcf_file: str, bed_file: str, cfg: Dict[str, Any], output_f
         "-R",
         bed_file,
     ]
-    
+
     # Add optional pre-filter expression if provided
     if cfg.get("bcftools_prefilter"):
         cmd.extend(["-i", cfg["bcftools_prefilter"]])
         logger.info(f"Applying bcftools pre-filter during extraction: {cfg['bcftools_prefilter']}")
-    
-    cmd.extend([
-        "-Oz",  # compressed output
-        "-o",
-        output_file,
-        vcf_file,
-    ])
-    
+
+    cmd.extend(
+        [
+            "-Oz",  # compressed output
+            "-o",
+            output_file,
+            vcf_file,
+        ]
+    )
+
     logger.debug("Extracting variants with command: %s", " ".join(cmd))
     logger.debug("Output will be written to: %s", output_file)
 
@@ -221,6 +225,21 @@ def apply_snpsift_filter(
 
     logger.debug("Filtered output is now available at: %s", output_file)
     return output_file
+
+
+def smart_open(filename: str, mode: str = "r", encoding: str = "utf-8"):
+    """
+    Open a file with automatic gzip support based on file extension.
+    """
+    if filename.endswith(".gz"):
+        if "t" not in mode and "b" not in mode:
+            mode = mode + "t"
+        return gzip.open(filename, mode, encoding=encoding)
+    else:
+        if "b" not in mode:
+            return open(filename, mode, encoding=encoding)
+        else:
+            return open(filename, mode)
 
 
 def filter_final_tsv_by_genotype(
@@ -377,7 +396,7 @@ def filter_final_tsv_by_genotype(
     # We'll parse the lines grouped by gene, so we can do 'comp_het' logic.
     lines_by_gene = {}
 
-    with open(input_tsv, "r", encoding="utf-8") as inp:
+    with smart_open(input_tsv, "r") as inp:
         header = next(inp).rstrip("\n")
         header_cols = header.split("\t")
         # Identify gene and GT columns
@@ -495,7 +514,7 @@ def filter_final_tsv_by_genotype(
                 filtered_lines.append("\t".join(parts))
 
     # Write out the filtered lines
-    with open(output_tsv, "w", encoding="utf-8") as out:
+    with smart_open(output_tsv, "w") as out:
         for line in filtered_lines:
             out.write(line + "\n")
 
@@ -532,12 +551,16 @@ def filter_tsv_with_expression(
 
     try:
         # Read the TSV file
-        df = pd.read_csv(input_tsv, sep="\t", dtype=str, keep_default_na=False)
+        compression = "gzip" if input_tsv.endswith(".gz") else None
+        df = pd.read_csv(
+            input_tsv, sep="\t", dtype=str, keep_default_na=False, compression=compression
+        )
         initial_count = len(df)
 
         if initial_count == 0:
             logger.warning("Input TSV is empty, writing empty output")
-            df.to_csv(output_tsv, sep="\t", index=False)
+            compression_out = "gzip" if output_tsv.endswith(".gz") else None
+            df.to_csv(output_tsv, sep="\t", index=False, compression=compression_out)
             return
 
         if not pandas_query:
@@ -568,7 +591,8 @@ def filter_tsv_with_expression(
         except Exception as e:
             logger.error(f"Failed to apply filter expression: {e}")
             logger.info("Writing unfiltered data to output")
-            df.to_csv(output_tsv, sep="\t", index=False)
+            compression_out = "gzip" if output_tsv.endswith(".gz") else None
+            df.to_csv(output_tsv, sep="\t", index=False, compression=compression_out)
             return
 
         final_count = len(filtered_df)
@@ -577,7 +601,8 @@ def filter_tsv_with_expression(
         )
 
         # Write the filtered data
-        filtered_df.to_csv(output_tsv, sep="\t", index=False)
+        compression_out = "gzip" if output_tsv.endswith(".gz") else None
+        filtered_df.to_csv(output_tsv, sep="\t", index=False, compression=compression_out)
 
     except Exception as e:
         logger.error(f"Error in TSV filtering: {e}")
@@ -603,27 +628,27 @@ def filter_dataframe_with_query(df: pd.DataFrame, filter_expression: str) -> pd.
 
     logger.info(f"Applying final filter expression: {filter_expression}")
     original_count = len(df)
-    
+
     try:
         # Create a copy to avoid modifying the original DataFrame
         df_copy = df.copy()
-        
+
         # Convert numeric columns to numeric types to allow for comparisons like > or <
         # This should be done carefully to avoid converting string columns by mistake.
         for col in df_copy.columns:
-            if df_copy[col].dtype == 'object':
+            if df_copy[col].dtype == "object":
                 # Attempt to convert columns that look numeric
                 # Use coerce to convert 'NA' and other non-numeric strings to NaN
-                converted = pd.to_numeric(df_copy[col], errors='coerce')
+                converted = pd.to_numeric(df_copy[col], errors="coerce")
                 # Only update if some values were successfully converted
                 if converted.notna().any():
                     df_copy[col] = converted
-        
+
         filtered_df = df_copy.query(filter_expression)
         final_count = len(filtered_df)
         logger.info(f"Final filter retained {final_count} of {original_count} variants.")
         return filtered_df
-    
+
     except Exception as e:
         logger.error(f"Failed to apply final filter expression: {e}")
         logger.error("Please check your --final-filter syntax. Returning unfiltered data.")

@@ -6,7 +6,7 @@ variantcentrifuge.utils module, focusing on header normalization
 for SnpEff and SnpSift output.
 """
 
-from variantcentrifuge.utils import normalize_vcf_headers, normalize_snpeff_headers
+from variantcentrifuge.utils import normalize_vcf_headers
 
 
 class TestHeaderNormalization:

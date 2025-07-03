@@ -20,7 +20,9 @@ All steps are coordinated within the run_pipeline function.
 
 import argparse
 import datetime
+import gzip
 import hashlib
+import io
 import logging
 import locale
 import os
@@ -30,7 +32,7 @@ import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, Iterator
 
 import pandas as pd
 
@@ -87,6 +89,573 @@ from variantcentrifuge.helpers import (
 from .vcf_eff_one_per_line import process_vcf_file
 
 logger = logging.getLogger("variantcentrifuge")
+
+
+def smart_open(filename: str, mode: str = "r", encoding: str = "utf-8"):
+    """
+    Open a file with automatic gzip support based on file extension.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the file
+    mode : str
+        File opening mode ('r', 'w', 'rt', 'wt', etc.)
+    encoding : str
+        Text encoding (for text modes)
+
+    Returns
+    -------
+    file object
+        Opened file handle
+    """
+    if filename.endswith(".gz"):
+        # Ensure text mode for gzip
+        if "t" not in mode and "b" not in mode:
+            mode = mode + "t"
+        return gzip.open(filename, mode, encoding=encoding)
+    else:
+        # For regular files, only add encoding for text mode
+        if "b" not in mode:
+            return open(filename, mode, encoding=encoding)
+        else:
+            return open(filename, mode)
+
+
+def sort_tsv_by_gene(
+    input_file: str,
+    output_file: str,
+    gene_column: str = "GENE",
+    temp_dir: Optional[str] = None,
+    memory_limit: str = "2G",
+    parallel: int = 4,
+) -> str:
+    """
+    Sort a TSV file by gene column using external sort command for memory efficiency.
+
+    This function uses the system sort command which is memory-efficient and can
+    handle files larger than available RAM by using disk-based sorting.
+
+    Parameters
+    ----------
+    input_file : str
+        Path to the input TSV file (can be gzipped)
+    output_file : str
+        Path to the output sorted TSV file (can be gzipped)
+    gene_column : str
+        Name of the gene column to sort by
+    temp_dir : str, optional
+        Directory for temporary files during sorting
+    memory_limit : str
+        Memory limit for sort command (e.g., '2G', '500M')
+    parallel : int
+        Number of parallel threads for sorting
+
+    Returns
+    -------
+    str
+        Path to the sorted output file
+    """
+    logger.info(f"Sorting TSV file by gene column: {input_file} -> {output_file}")
+    logger.info(f"Using memory limit: {memory_limit}, parallel threads: {parallel}")
+
+    # First, we need to find the gene column index
+    with smart_open(input_file, "r") as f:
+        header = f.readline().strip()
+        if not header:
+            logger.error(f"Input file '{input_file}' is empty or has no header")
+            raise ValueError(f"Input file '{input_file}' is empty or has no header")
+        columns = header.split("\t")
+
+    try:
+        gene_col_idx = columns.index(gene_column) + 1  # sort uses 1-based indexing
+    except ValueError:
+        logger.error(f"Gene column '{gene_column}' not found in TSV header")
+        raise ValueError(f"Gene column '{gene_column}' not found in TSV file")
+
+    logger.info(f"Found gene column '{gene_column}' at position {gene_col_idx}")
+
+    # Build sort arguments with memory efficiency options
+    sort_args = [
+        f"-k{gene_col_idx},{gene_col_idx}",  # Sort by gene column
+        f"--buffer-size={memory_limit}",  # Memory limit
+        f"--parallel={parallel}",  # Parallel threads
+        "--stable",  # Stable sort for consistent results
+        "--compress-program=gzip",  # Use gzip for temp files
+    ]
+
+    if temp_dir:
+        sort_args.append(f"-T {temp_dir}")
+
+    sort_cmd = " ".join(sort_args)
+
+    # Escape file paths to prevent shell injection
+    import shlex
+
+    safe_input = shlex.quote(input_file)
+    safe_output = shlex.quote(output_file)
+
+    # Build the complete command
+    if input_file.endswith(".gz"):
+        if output_file.endswith(".gz"):
+            # Both gzipped
+            cmd = (
+                f"gzip -cd {safe_input} | "
+                f"{{ IFS= read -r header; echo \"$header\"; sort {sort_cmd} -t$'\\t'; }} | "
+                f"gzip -c > {safe_output}"
+            )
+        else:
+            # Input gzipped, output not
+            cmd = (
+                f"gzip -cd {safe_input} | "
+                f"{{ IFS= read -r header; echo \"$header\"; sort {sort_cmd} -t$'\\t'; }} "
+                f"> {safe_output}"
+            )
+    else:
+        if output_file.endswith(".gz"):
+            # Input not gzipped, output gzipped
+            cmd = (
+                f'{{ IFS= read -r header < {safe_input}; echo "$header"; tail -n +2 {safe_input} | '
+                f"sort {sort_cmd} -t$'\\t'; }} | "
+                f"gzip -c > {safe_output}"
+            )
+        else:
+            # Neither gzipped
+            cmd = (
+                f'{{ IFS= read -r header < {safe_input}; echo "$header"; tail -n +2 {safe_input} | '
+                f"sort {sort_cmd} -t$'\\t'; }} "
+                f"> {safe_output}"
+            )
+
+    # Execute the command
+    logger.debug(f"Running sort command: {cmd}")
+
+    import subprocess
+    import shutil
+
+    # Find bash executable
+    bash_path = shutil.which("bash") or "/bin/bash"
+    if not os.path.exists(bash_path):
+        logger.warning(f"bash not found at {bash_path}, falling back to shell default")
+        bash_path = None
+
+    # Use bash explicitly to ensure bash-specific syntax works
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, executable=bash_path)
+
+    if result.returncode != 0:
+        logger.error(f"Sort command failed: {result.stderr}")
+        raise RuntimeError(f"Failed to sort TSV file: {result.stderr}")
+
+    # Verify output file was created
+    if not os.path.exists(output_file):
+        logger.error(f"Sort command completed but output file '{output_file}' was not created")
+        raise RuntimeError(f"Output file '{output_file}' was not created")
+
+    # Check if output file has content
+    with smart_open(output_file, "r") as f:
+        first_line = f.readline()
+        if not first_line:
+            logger.error(f"Sort command completed but output file '{output_file}' is empty")
+            raise RuntimeError(f"Output file '{output_file}' is empty")
+
+    logger.info("Successfully sorted TSV file by gene column")
+    return output_file
+
+
+def process_chunked_pipeline(
+    final_tsv: str,
+    final_output: str,
+    cfg: Dict[str, Any],
+    custom_features: Dict[str, Any],
+    scoring_config: Optional[Dict[str, Any]],
+    pedigree_data: Optional[Dict[str, Any]],
+    args: argparse.Namespace,
+    base_name: str,
+    intermediate_dir: str,
+    chunksize: int = 10000,
+) -> None:
+    """
+    Process the pipeline in a streaming, chunked manner to handle large files.
+
+    This function replaces the in-memory DataFrame processing with a streaming
+    approach that processes data in gene-aware chunks.
+
+    Parameters
+    ----------
+    final_tsv : str
+        Path to the input TSV file
+    final_output : str
+        Path to the final output file
+    cfg : dict
+        Configuration dictionary
+    custom_features : dict
+        Custom annotation features
+    scoring_config : dict, optional
+        Scoring configuration
+    pedigree_data : dict, optional
+        Pedigree data for inheritance analysis
+    args : argparse.Namespace
+        Command line arguments
+    base_name : str
+        Base name for output files
+    intermediate_dir : str
+        Directory for intermediate files
+    chunksize : int
+        Target chunk size for processing
+    """
+    logger.info("Starting chunked pipeline processing")
+
+    # Determine gene column name
+    with smart_open(final_tsv, "r") as f:
+        header_line = f.readline().strip()
+        header_cols = header_line.split("\t")
+
+    gene_col_name = None
+    for col in header_cols:
+        if col == "GENE" or col.endswith(".GENE"):
+            gene_col_name = col
+            break
+
+    if not gene_col_name:
+        logger.warning("No GENE column found, falling back to non-chunked processing")
+        # Fall back to original processing
+        return False
+
+    # Prepare output file
+    output_handle = smart_open(final_output, "w")
+    header_written = False
+
+    # Prepare analyze_variants config
+    temp_cfg = cfg.copy()
+    temp_cfg["perform_gene_burden"] = False
+    temp_cfg["scoring_config"] = scoring_config
+    temp_cfg["pedigree_data"] = pedigree_data
+    temp_cfg["calculate_inheritance"] = cfg.get("calculate_inheritance", False)
+    temp_cfg["sample_list"] = cfg.get("sample_list", "")
+
+    # Process chunks
+    total_chunks = 0
+    total_variants = 0
+
+    try:
+        for chunk_num, chunk_df in enumerate(
+            read_tsv_in_gene_chunks(final_tsv, gene_column=gene_col_name, chunksize=chunksize)
+        ):
+            logger.info(f"Processing chunk {chunk_num + 1} with {len(chunk_df)} variants")
+
+            # Apply unified custom annotations
+            if custom_features and (
+                bool(custom_features.get("regions_by_chrom"))
+                or bool(custom_features.get("gene_lists"))
+                or bool(custom_features.get("json_gene_data"))
+            ):
+                chunk_df = annotate_dataframe_with_features(chunk_df, custom_features)
+            else:
+                if "Custom_Annotation" not in chunk_df.columns:
+                    chunk_df["Custom_Annotation"] = ""
+
+            # Convert chunk to temporary file for analyze_variants
+            chunk_tsv = os.path.join(intermediate_dir, f"{base_name}.chunk_{chunk_num}.tsv.gz")
+            chunk_df.to_csv(chunk_tsv, sep="\t", index=False, na_rep="", compression="gzip")
+
+            # Run analyze_variants on chunk
+            chunk_buffer = []
+            with smart_open(chunk_tsv, "r") as inp:
+                for line in analyze_variants(inp, temp_cfg):
+                    chunk_buffer.append(line)
+
+            # Clean up chunk file
+            if not cfg.get("keep_intermediates"):
+                os.remove(chunk_tsv)
+
+            # Process chunk results
+            if chunk_buffer:
+                # Apply late filtering if needed
+                if (
+                    cfg.get("late_filtering", False)
+                    and cfg.get("filters")
+                    and len(chunk_buffer) > 1
+                ):
+                    # Convert to DataFrame for filtering
+                    chunk_str = "\n".join(chunk_buffer)
+                    filter_df = pd.read_csv(
+                        io.StringIO(chunk_str), sep="\t", dtype=str, keep_default_na=False
+                    )
+
+                    # Apply filter using the existing function
+                    from .filters import filter_dataframe_with_query
+
+                    if hasattr(
+                        filter_dataframe_with_query, "__name__"
+                    ):  # Check if it's the pandas query version
+                        filter_df = filter_dataframe_with_query(filter_df, cfg["filters"])
+
+                    # Convert back to buffer
+                    output_str = io.StringIO()
+                    filter_df.to_csv(output_str, sep="\t", index=False, na_rep="")
+                    chunk_buffer = output_str.getvalue().rstrip("\n").split("\n")
+
+                # Add links if needed
+                if not cfg.get("no_links", False) and len(chunk_buffer) > 1:
+                    links_config = cfg.get("links", {})
+                    if links_config:
+                        chunk_buffer = add_links_to_table(chunk_buffer, links_config)
+
+                # Process inheritance output if needed
+                if (
+                    cfg.get("calculate_inheritance", False)
+                    and cfg.get("inheritance_mode")
+                    and len(chunk_buffer) > 1
+                ):
+                    chunk_str = "\n".join(chunk_buffer)
+                    inheritance_df = pd.read_csv(
+                        io.StringIO(chunk_str), sep="\t", dtype=str, keep_default_na=False
+                    )
+
+                    from .inheritance.analyzer import process_inheritance_output
+
+                    inheritance_df = process_inheritance_output(
+                        inheritance_df, cfg.get("inheritance_mode", "simple")
+                    )
+
+                    output_str = io.StringIO()
+                    inheritance_df.to_csv(output_str, sep="\t", index=False, na_rep="")
+                    chunk_buffer = output_str.getvalue().rstrip("\n").split("\n")
+
+                # Write chunk results
+                if not header_written and chunk_buffer:
+                    # First chunk - process header for VAR_ID
+                    header_line = chunk_buffer[0]
+                    header_parts = header_line.split("\t")
+
+                    # Add any additional columns requested
+                    if hasattr(args, "add_column") and args.add_column:
+                        header_parts.extend(args.add_column)
+
+                    # Add VAR_ID as first column
+                    new_header = ["VAR_ID"] + header_parts
+                    output_handle.write("\t".join(new_header) + "\n")
+                    header_written = True
+
+                    # Find column indices for VAR_ID generation
+                    header_indices = {col: idx for idx, col in enumerate(header_parts)}
+                    chrom_idx = header_indices.get("CHROM", None)
+                    pos_idx = header_indices.get("POS", None)
+                    ref_idx = header_indices.get("REF", None)
+                    alt_idx = header_indices.get("ALT", None)
+
+                    # Write data rows with VAR_ID
+                    for line in chunk_buffer[1:]:
+                        if line.strip():
+                            fields = line.split("\t")
+
+                            # Generate VAR_ID
+                            chrom_val = fields[chrom_idx] if chrom_idx is not None else ""
+                            pos_val = fields[pos_idx] if pos_idx is not None else ""
+                            ref_val = fields[ref_idx] if ref_idx is not None else ""
+                            alt_val = fields[alt_idx] if alt_idx is not None else ""
+
+                            combined = f"{chrom_val}{pos_val}{ref_val}{alt_val}"
+                            short_hash = hashlib.md5(combined.encode("utf-8")).hexdigest()[:4]
+                            var_id = f"var_{total_variants + 1:04d}_{short_hash}"
+
+                            # Add any additional blank columns if requested
+                            if hasattr(args, "add_column") and args.add_column:
+                                fields.extend([""] * len(args.add_column))
+
+                            # Write line with VAR_ID
+                            new_fields = [var_id] + fields
+                            output_handle.write("\t".join(new_fields) + "\n")
+                            total_variants += 1
+                else:
+                    # Subsequent chunks - skip header but add VAR_ID
+                    for line in chunk_buffer[1:]:
+                        if line.strip():
+                            fields = line.split("\t")
+
+                            # Generate VAR_ID (using the already established indices)
+                            chrom_val = fields[chrom_idx] if chrom_idx is not None else ""
+                            pos_val = fields[pos_idx] if pos_idx is not None else ""
+                            ref_val = fields[ref_idx] if ref_idx is not None else ""
+                            alt_val = fields[alt_idx] if alt_idx is not None else ""
+
+                            combined = f"{chrom_val}{pos_val}{ref_val}{alt_val}"
+                            short_hash = hashlib.md5(combined.encode("utf-8")).hexdigest()[:4]
+                            var_id = f"var_{total_variants + 1:04d}_{short_hash}"
+
+                            # Add any additional blank columns if requested
+                            if hasattr(args, "add_column") and args.add_column:
+                                fields.extend([""] * len(args.add_column))
+
+                            # Write line with VAR_ID
+                            new_fields = [var_id] + fields
+                            output_handle.write("\t".join(new_fields) + "\n")
+                            total_variants += 1
+
+            total_chunks += 1
+
+            # Log progress
+            if total_chunks % 10 == 0:
+                logger.info(f"Processed {total_chunks} chunks, {total_variants} variants written")
+
+    finally:
+        output_handle.close()
+
+    logger.info(
+        f"Chunked processing complete: {total_chunks} chunks, {total_variants} total variants"
+    )
+
+    # Apply final filter if provided
+    if cfg.get("final_filter"):
+        logger.info("Applying final filter to results")
+
+        # Read the output file
+        df = pd.read_csv(
+            final_output,
+            sep="\t",
+            dtype=str,
+            keep_default_na=False,
+            compression="gzip" if final_output.endswith(".gz") else None,
+        )
+
+        # Apply the filter
+        from .filters import filter_dataframe_with_query
+
+        df = filter_dataframe_with_query(df, cfg["final_filter"])
+
+        # Write back
+        df.to_csv(
+            final_output,
+            sep="\t",
+            index=False,
+            na_rep="",
+            compression="gzip" if final_output.endswith(".gz") else None,
+        )
+
+        logger.info(f"Final filter retained {len(df)} variants")
+
+    return True
+
+
+def read_tsv_in_gene_chunks(
+    filepath: str, gene_column: str = "GENE", chunksize: int = 10000, compression: str = "infer"
+) -> Iterator[pd.DataFrame]:
+    """
+    Read a TSV file in gene-aware chunks, ensuring all variants for a gene are in the same chunk.
+
+    This generator function reads a TSV file chunk by chunk but ensures that all rows
+    belonging to the same gene are yielded together. This is critical for analyses
+    like compound heterozygous detection that require all variants for a gene to be
+    processed together.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to the TSV file (can be gzipped)
+    gene_column : str
+        Name of the column containing gene identifiers
+    chunksize : int
+        Target number of rows per chunk (actual chunks may be larger to keep genes together)
+    compression : str
+        Compression type ('infer' to auto-detect, 'gzip', or None)
+
+    Yields
+    ------
+    pd.DataFrame
+        DataFrames containing complete gene data, never splitting a gene across chunks
+
+    Notes
+    -----
+    The input TSV file MUST be sorted by the gene column for this to work correctly.
+    Each yielded chunk will contain at least one complete gene and may contain multiple
+    genes if they fit within the chunksize limit.
+    """
+    logger.info(f"Starting gene-aware chunked reading of {filepath}")
+    logger.info(f"Target chunk size: {chunksize} rows, gene column: {gene_column}")
+
+    # Initialize variables
+    gene_buffer = pd.DataFrame()
+    chunks_yielded = 0
+    total_rows = 0
+
+    # Use pandas chunked reader
+    chunk_iterator = pd.read_csv(
+        filepath,
+        sep="\t",
+        chunksize=chunksize,
+        dtype=str,
+        keep_default_na=False,
+        compression=compression,
+    )
+
+    for chunk_num, chunk in enumerate(chunk_iterator):
+        # Add chunk to buffer
+        if gene_buffer.empty:
+            gene_buffer = chunk
+        else:
+            gene_buffer = pd.concat([gene_buffer, chunk], ignore_index=True)
+
+        # Warn if buffer is getting very large (potential memory issue)
+        if len(gene_buffer) > chunksize * 10:
+            logger.warning(
+                f"Gene buffer has grown to {len(gene_buffer)} rows. "
+                f"Consider increasing chunksize if you have genes with many variants."
+            )
+
+        # Check if we have enough data to yield
+        while len(gene_buffer) >= chunksize:
+            # Find the last complete gene in the buffer
+            if gene_column not in gene_buffer.columns:
+                logger.error(f"Gene column '{gene_column}' not found in TSV file")
+                raise ValueError(f"Gene column '{gene_column}' not found in TSV file")
+
+            # Get unique genes in order of appearance
+            gene_values = gene_buffer[gene_column].values
+
+            # Find where gene changes occur
+            gene_change_indices = [0]  # Start with first index
+            current_gene = gene_values[0]
+
+            for i in range(1, len(gene_values)):
+                if gene_values[i] != current_gene:
+                    gene_change_indices.append(i)
+                    current_gene = gene_values[i]
+
+            # Find the split point - we want at least chunksize rows but complete genes
+            split_index = None
+            for idx in gene_change_indices:
+                if idx >= chunksize:
+                    split_index = idx
+                    break
+
+            # If no split point found (all rows belong to same gene or last gene extends beyond chunksize)
+            if split_index is None:
+                # Keep accumulating - we'll yield this in the final cleanup
+                break
+            else:
+                # Yield the complete genes
+                yield_df = gene_buffer.iloc[:split_index].copy()
+                yield yield_df
+
+                chunks_yielded += 1
+                total_rows += len(yield_df)
+
+                # Keep the remaining data
+                gene_buffer = gene_buffer.iloc[split_index:].reset_index(drop=True)
+
+                # Log progress
+                if chunks_yielded % 10 == 0:
+                    logger.info(f"Yielded {chunks_yielded} chunks, processed {total_rows} rows")
+
+    # Yield any remaining data
+    if not gene_buffer.empty:
+        yield gene_buffer
+        chunks_yielded += 1
+        total_rows += len(gene_buffer)
+
+    logger.info(
+        f"Completed gene-aware chunked reading: {chunks_yielded} chunks, {total_rows} total rows"
+    )
 
 
 def remove_vcf_extensions(filename: str) -> str:
@@ -246,7 +815,7 @@ def _process_bed_chunk(
     chunk_transcript_filtered_vcf = os.path.join(
         intermediate_dir, f"{chunk_base_name}.transcript_filtered.vcf.gz"
     )
-    chunk_extracted_tsv = os.path.join(intermediate_dir, f"{chunk_base_name}.extracted.tsv")
+    chunk_extracted_tsv = os.path.join(intermediate_dir, f"{chunk_base_name}.extracted.tsv.gz")
 
     # Run the standard filtering and extraction pipeline on this chunk
     # Use limited threads for bcftools since it only helps with compression
@@ -399,28 +968,42 @@ def _run_parallel_pipeline(
                 executor.shutdown(wait=False, cancel_futures=True)
                 sys.exit("Pipeline aborted due to worker failure.")
 
-    combined_tsv_path = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv")
+    combined_tsv_path = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv.gz")
     logger.info(
         f"All chunks processed. Merging {len(chunk_tsv_files)} files into {combined_tsv_path}..."
     )
 
-    with open(combined_tsv_path, "w", encoding="utf-8") as outfile:
-        first_file = True
-        for chunk_file in sorted(chunk_tsv_files):
-            with open(chunk_file, "r", encoding="utf-8") as infile:
-                if first_file:
-                    import shutil
+    # Merge chunks into combined file
+    try:
+        with smart_open(combined_tsv_path, "w") as outfile:
+            first_file = True
+            for chunk_file in sorted(chunk_tsv_files):
+                # Verify chunk file exists before trying to read
+                if not os.path.exists(chunk_file):
+                    logger.error(f"Chunk file {chunk_file} not found during merge")
+                    raise FileNotFoundError(f"Chunk file {chunk_file} not found")
 
-                    shutil.copyfileobj(infile, outfile)
-                    first_file = False
-                else:
-                    next(infile)  # Skip header
-                    shutil.copyfileobj(infile, outfile)
+                with smart_open(chunk_file, "r") as infile:
+                    if first_file:
+                        import shutil
 
+                        shutil.copyfileobj(infile, outfile)
+                        first_file = False
+                    else:
+                        next(infile)  # Skip header
+                        shutil.copyfileobj(infile, outfile)
+    except Exception as e:
+        logger.error(f"Failed to merge chunk files: {e}")
+        raise
+
+    # Cleanup intermediate files only after successful merge
     if not cfg.get("keep_intermediates"):
+        logger.debug("Cleaning up intermediate chunk files")
         for file_path in chunk_tsv_files + chunk_bed_files:
             try:
-                os.remove(file_path)
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    logger.debug(f"Removed intermediate file: {file_path}")
             except OSError as e:
                 logger.warning(f"Could not remove intermediate file {file_path}: {e}")
 
@@ -624,9 +1207,9 @@ def run_pipeline(
     transcript_filtered_file = os.path.join(
         intermediate_dir, f"{base_name}.transcript_filtered.vcf.gz"
     )
-    extracted_tsv = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv")
-    genotype_replaced_tsv = os.path.join(intermediate_dir, f"{base_name}.genotype_replaced.tsv")
-    phenotype_added_tsv = os.path.join(intermediate_dir, f"{base_name}.phenotypes_added.tsv")
+    extracted_tsv = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv.gz")
+    genotype_replaced_tsv = os.path.join(intermediate_dir, f"{base_name}.genotype_replaced.tsv.gz")
+    phenotype_added_tsv = os.path.join(intermediate_dir, f"{base_name}.phenotypes_added.tsv.gz")
     gene_burden_tsv = os.path.join(args.output_dir, f"{base_name}.gene_burden.tsv")
 
     # Parse samples from VCF
@@ -755,8 +1338,64 @@ def run_pipeline(
         temp_cfg["extract_fields_separator"] = snpsift_sep
         extract_fields(final_filtered_for_extraction, field_list, temp_cfg, extracted_tsv)
 
+    # Get field_list for sorting logic (needed for both parallel and single-threaded)
+    if cfg.get("append_extra_sample_fields", False) and cfg.get("extra_sample_fields", []):
+        updated_fields = ensure_fields_in_extract(
+            cfg["fields_to_extract"], cfg["extra_sample_fields"]
+        )
+        field_list_for_sorting = " ".join(updated_fields.strip().split())
+    else:
+        field_list_for_sorting = " ".join((cfg["fields_to_extract"] or args.fields).strip().split())
+
+    # Sort the extracted TSV by gene for efficient chunked processing
+    sorted_tsv = os.path.join(intermediate_dir, f"{base_name}.extracted.sorted.tsv.gz")
+
+    # Check if GENE column exists in the extracted fields (could be GENE or ANN[0].GENE etc)
+    possible_gene_fields = ["GENE", "ANN[0].GENE", "ANN[*].GENE"]
+    gene_field_found = None
+    for field in possible_gene_fields:
+        if field in field_list_for_sorting:
+            gene_field_found = field
+            break
+
+    if gene_field_found:
+        # Check actual column name in the file (SnpSift may normalize it)
+        with smart_open(extracted_tsv, "r") as f:
+            header_line = f.readline().strip()
+            header_cols = header_line.split("\t")
+
+        # Find the actual gene column name
+        gene_col_name = None
+        for col in header_cols:
+            if col == "GENE" or col.endswith(".GENE"):
+                gene_col_name = col
+                break
+
+        if gene_col_name:
+            logger.info(
+                f"Sorting extracted TSV by gene column '{gene_col_name}' for efficient processing..."
+            )
+            sort_tsv_by_gene(
+                extracted_tsv,
+                sorted_tsv,
+                gene_column=gene_col_name,
+                temp_dir=intermediate_dir,
+                memory_limit=cfg.get("sort_memory_limit", "2G"),
+                parallel=cfg.get("sort_parallel", 4),
+            )
+            # Replace extracted_tsv with sorted version
+            if not cfg.get("keep_intermediates"):
+                os.remove(extracted_tsv)
+            extracted_tsv = sorted_tsv
+        else:
+            logger.warning("Could not find GENE column in TSV header, skipping sorting step")
+    else:
+        logger.warning(
+            "GENE field not found in extracted fields configuration, skipping sorting step"
+        )
+
     # Check if GT column is present
-    with open(extracted_tsv, "r", encoding="utf-8") as f:
+    with smart_open(extracted_tsv, "r") as f:
         header_line = f.readline().strip()
     columns = header_line.split("\t")
     gt_present = "GT" in columns
@@ -771,7 +1410,13 @@ def run_pipeline(
             # Load the extracted TSV with individual sample genotypes
             import pandas as pd
 
-            df = pd.read_csv(extracted_tsv, sep="\t", dtype=str, keep_default_na=False)
+            df = pd.read_csv(
+                extracted_tsv,
+                sep="\t",
+                dtype=str,
+                keep_default_na=False,
+                compression="gzip" if extracted_tsv.endswith(".gz") else None,
+            )
 
             # Check if we have a single GT column with colon-separated values (from GEN[*].GT)
             # or individual sample columns
@@ -795,6 +1440,10 @@ def run_pipeline(
                         gt_value = str(row["GT"])
                         if gt_value and gt_value != "NA" and gt_value != "nan":
                             genotypes = gt_value.split(snpsift_sep)
+                            if len(genotypes) != len(original_samples):
+                                logger.warning(
+                                    f"Row {idx}: Expected {len(original_samples)} genotypes but found {len(genotypes)}"
+                                )
                             for i, sample_id in enumerate(original_samples):
                                 if i < len(genotypes):
                                     sample_data[sample_id].append(genotypes[i])
@@ -846,7 +1495,13 @@ def run_pipeline(
             df = df[cols_to_keep]
 
             # Save the TSV with inheritance columns added
-            df.to_csv(extracted_tsv, sep="\t", index=False, na_rep="")
+            df.to_csv(
+                extracted_tsv,
+                sep="\t",
+                index=False,
+                na_rep="",
+                compression="gzip" if extracted_tsv.endswith(".gz") else None,
+            )
             logger.info("Inheritance analysis complete. Results added to extracted TSV.")
 
             # Set flag to skip inheritance analysis later
@@ -864,8 +1519,8 @@ def run_pipeline(
         lines_written = 0
 
         try:
-            with open(extracted_tsv, "r", encoding="utf-8") as inp, open(
-                genotype_replaced_tsv, "w", encoding="utf-8"
+            with smart_open(extracted_tsv, "r") as inp, smart_open(
+                genotype_replaced_tsv, "w"
             ) as out:
                 for line in replace_genotypes(inp, cfg):
                     out.write(line + "\n")
@@ -896,11 +1551,9 @@ def run_pipeline(
             "User config => removing columns after replacement: %s",
             cfg["extra_sample_fields"],
         )
-        stripped_tsv = os.path.join(intermediate_dir, f"{base_name}.stripped_extras.tsv")
+        stripped_tsv = os.path.join(intermediate_dir, f"{base_name}.stripped_extras.tsv.gz")
 
-        with open(replaced_tsv, "r", encoding="utf-8") as inp, open(
-            stripped_tsv, "w", encoding="utf-8"
-        ) as out:
+        with smart_open(replaced_tsv, "r") as inp, smart_open(stripped_tsv, "w") as out:
             # Read the header line from replaced_tsv
             raw_header_line = next(inp).rstrip("\n")
             original_header_cols = raw_header_line.split("\t")
@@ -957,9 +1610,7 @@ def run_pipeline(
     if use_phenotypes:
         pattern = re.compile(r"^([^()]+)(?:\([^)]+\))?$")
 
-        with open(replaced_tsv, "r", encoding="utf-8") as inp, open(
-            phenotype_added_tsv, "w", encoding="utf-8"
-        ) as out:
+        with smart_open(replaced_tsv, "r") as inp, smart_open(phenotype_added_tsv, "w") as out:
             header = next(inp).rstrip("\n")
             header_fields = header.split("\t")
             header_fields.append("phenotypes")
@@ -1006,7 +1657,9 @@ def run_pipeline(
 
     # Genotype filtering if requested
     if getattr(args, "genotype_filter", None) or getattr(args, "gene_genotype_file", None):
-        genotype_filtered_tsv = os.path.join(args.output_dir, f"{base_name}.genotype_filtered.tsv")
+        genotype_filtered_tsv = os.path.join(
+            args.output_dir, f"{base_name}.genotype_filtered.tsv.gz"
+        )
         genotype_modes = set()
         if getattr(args, "genotype_filter", None):
             genotype_modes = set(g.strip() for g in args.genotype_filter.split(",") if g.strip())
@@ -1025,54 +1678,106 @@ def run_pipeline(
     else:
         cfg["final_excel_file"] = None
 
-    # Load TSV into DataFrame for unified annotation and analysis
-    import pandas as pd
+    # Determine if we should use chunked processing
+    use_chunked_processing = not cfg.get("no_chunked_processing", False)
 
-    try:
-        df = pd.read_csv(final_tsv, sep="\t", dtype=str, keep_default_na=False)
-        logger.info(f"Loaded {len(df)} variants for annotation and analysis")
-    except Exception as e:
-        logger.error(f"Failed to load TSV file {final_tsv}: {e}")
-        sys.exit(1)
+    # Check file size to decide on processing mode
+    if use_chunked_processing:
+        file_size_mb = os.path.getsize(final_tsv) / (1024 * 1024)
+        logger.info(f"Input file size: {file_size_mb:.1f} MB")
 
-    # Apply unified custom annotations
-    has_custom_features = (
-        bool(custom_features.get("regions_by_chrom"))
-        or bool(custom_features.get("gene_lists"))
-        or bool(custom_features.get("json_gene_data"))
-    )
+        # Use chunked processing for files > 100MB or if explicitly requested
+        if file_size_mb > 100 or cfg.get("force_chunked_processing", False):
+            logger.info("Using chunked processing for large file")
 
-    if has_custom_features:
-        logger.info("Applying unified custom annotations...")
-        df = annotate_dataframe_with_features(df, custom_features)
-    else:
-        # Add empty Custom_Annotation column for consistency
-        df["Custom_Annotation"] = ""
+            # Prepare intermediate output file
+            chunked_output = os.path.join(intermediate_dir, f"{base_name}.chunked_output.tsv.gz")
 
-    # Inheritance analysis already done before genotype replacement if requested
-    # No need to re-augment from VCF or re-calculate
-
-    # Convert DataFrame back to file format for analyze_variants
-    annotated_tsv = os.path.join(intermediate_dir, f"{base_name}.annotated.tsv")
-    df.to_csv(annotated_tsv, sep="\t", index=False, na_rep="")
-
-    # Run analyze_variants for variant-level results
-    temp_cfg = cfg.copy()
-    temp_cfg["perform_gene_burden"] = False
-    temp_cfg["scoring_config"] = scoring_config  # Pass the loaded config
-    temp_cfg["pedigree_data"] = pedigree_data  # Pass the loaded pedigree data
-    temp_cfg["calculate_inheritance"] = cfg.get("calculate_inheritance", False)
-    temp_cfg["sample_list"] = cfg.get("sample_list", "")  # Ensure sample_list is passed
-    buffer = []
-    with open(annotated_tsv, "r", encoding="utf-8") as inp:
-        line_count = 0
-        for line in analyze_variants(inp, temp_cfg):
-            buffer.append(line)
-            line_count += 1
-        if line_count <= 1:  # Only header or nothing
-            logger.warning(
-                "No variant-level results produced after filtering. Generating empty output files with headers."
+            # Run chunked processing
+            success = process_chunked_pipeline(
+                final_tsv=final_tsv,
+                final_output=chunked_output,
+                cfg=cfg,
+                custom_features=custom_features,
+                scoring_config=scoring_config,
+                pedigree_data=pedigree_data,
+                args=args,
+                base_name=base_name,
+                intermediate_dir=intermediate_dir,
+                chunksize=cfg.get("chunk_size", 10000),
             )
+
+            if success:
+                # Read the chunked output into buffer for final processing
+                with smart_open(chunked_output, "r") as f:
+                    buffer = [line.rstrip("\n") for line in f]
+
+                # Clean up intermediate file
+                if not cfg.get("keep_intermediates"):
+                    os.remove(chunked_output)
+            else:
+                # Fall back to regular processing
+                use_chunked_processing = False
+        else:
+            logger.info("File size below threshold, using regular processing")
+            use_chunked_processing = False
+
+    # Regular (non-chunked) processing
+    if not use_chunked_processing:
+        # Load TSV into DataFrame for unified annotation and analysis
+        import pandas as pd
+
+        try:
+            df = pd.read_csv(
+                final_tsv,
+                sep="\t",
+                dtype=str,
+                keep_default_na=False,
+                compression="gzip" if final_tsv.endswith(".gz") else None,
+            )
+            logger.info(f"Loaded {len(df)} variants for annotation and analysis")
+        except Exception as e:
+            logger.error(f"Failed to load TSV file {final_tsv}: {e}")
+            sys.exit(1)
+
+        # Apply unified custom annotations
+        has_custom_features = (
+            bool(custom_features.get("regions_by_chrom"))
+            or bool(custom_features.get("gene_lists"))
+            or bool(custom_features.get("json_gene_data"))
+        )
+
+        if has_custom_features:
+            logger.info("Applying unified custom annotations...")
+            df = annotate_dataframe_with_features(df, custom_features)
+        else:
+            # Add empty Custom_Annotation column for consistency
+            df["Custom_Annotation"] = ""
+
+        # Inheritance analysis already done before genotype replacement if requested
+        # No need to re-augment from VCF or re-calculate
+
+        # Convert DataFrame back to file format for analyze_variants
+        annotated_tsv = os.path.join(intermediate_dir, f"{base_name}.annotated.tsv.gz")
+        df.to_csv(annotated_tsv, sep="\t", index=False, na_rep="", compression="gzip")
+
+        # Run analyze_variants for variant-level results
+        temp_cfg = cfg.copy()
+        temp_cfg["perform_gene_burden"] = False
+        temp_cfg["scoring_config"] = scoring_config  # Pass the loaded config
+        temp_cfg["pedigree_data"] = pedigree_data  # Pass the loaded pedigree data
+        temp_cfg["calculate_inheritance"] = cfg.get("calculate_inheritance", False)
+        temp_cfg["sample_list"] = cfg.get("sample_list", "")  # Ensure sample_list is passed
+        buffer = []
+        with smart_open(annotated_tsv, "r") as inp:
+            line_count = 0
+            for line in analyze_variants(inp, temp_cfg):
+                buffer.append(line)
+                line_count += 1
+            if line_count <= 1:  # Only header or nothing
+                logger.warning(
+                    "No variant-level results produced after filtering. Generating empty output files with headers."
+                )
 
     # Note: Gene list annotation is now handled by the unified annotation system above
     # This ensures --annotate-gene-list files are processed through the new Custom_Annotation column
@@ -1089,13 +1794,13 @@ def run_pipeline(
         logger.info("Applying late filtering on scored and annotated data...")
 
         # Write buffer to a temporary file
-        temp_scored_tsv = os.path.join(intermediate_dir, f"{base_name}.scored.tsv")
-        with open(temp_scored_tsv, "w", encoding="utf-8") as f:
+        temp_scored_tsv = os.path.join(intermediate_dir, f"{base_name}.scored.tsv.gz")
+        with smart_open(temp_scored_tsv, "w") as f:
             for line in buffer:
                 f.write(line + "\n")
 
         # Apply the filter
-        temp_filtered_tsv = os.path.join(intermediate_dir, f"{base_name}.late_filtered.tsv")
+        temp_filtered_tsv = os.path.join(intermediate_dir, f"{base_name}.late_filtered.tsv.gz")
         filter_tsv_with_expression(
             temp_scored_tsv,
             temp_filtered_tsv,
@@ -1104,7 +1809,7 @@ def run_pipeline(
         )
 
         # Read the filtered results back into buffer
-        with open(temp_filtered_tsv, "r", encoding="utf-8") as f:
+        with smart_open(temp_filtered_tsv, "r") as f:
             buffer = [line.rstrip("\n") for line in f]
 
         if len(buffer) <= 1:
@@ -1178,37 +1883,49 @@ def run_pipeline(
 
         return new_lines
 
-    # Process inheritance output based on mode if inheritance was calculated
-    if cfg.get("calculate_inheritance", False) and cfg.get("inheritance_mode") and len(buffer) > 1:
-        # Convert buffer to DataFrame for processing
-        import io
+    # Skip post-processing if chunked processing was used (already handled)
+    chunked_processing_used = False
+    if use_chunked_processing and "buffer" in locals() and buffer:
+        # Check if buffer already has VAR_ID column (indicates chunked processing completed)
+        if buffer[0].startswith("VAR_ID"):
+            chunked_processing_used = True
 
-        buffer_str = "\n".join(buffer)
-        df_for_inheritance = pd.read_csv(
-            io.StringIO(buffer_str), sep="\t", dtype=str, keep_default_na=False
-        )
+    if not chunked_processing_used:
+        # Process inheritance output based on mode if inheritance was calculated
+        if (
+            cfg.get("calculate_inheritance", False)
+            and cfg.get("inheritance_mode")
+            and len(buffer) > 1
+        ):
+            # Convert buffer to DataFrame for processing
+            import io
 
-        # Apply inheritance output processing
-        from .inheritance.analyzer import process_inheritance_output
+            buffer_str = "\n".join(buffer)
+            df_for_inheritance = pd.read_csv(
+                io.StringIO(buffer_str), sep="\t", dtype=str, keep_default_na=False
+            )
 
-        df_for_inheritance = process_inheritance_output(
-            df_for_inheritance, cfg.get("inheritance_mode", "simple")
-        )
+            # Apply inheritance output processing
+            from .inheritance.analyzer import process_inheritance_output
 
-        # Convert back to buffer
-        output_str = io.StringIO()
-        df_for_inheritance.to_csv(output_str, sep="\t", index=False, na_rep="")
-        buffer = output_str.getvalue().rstrip("\n").split("\n")
+            df_for_inheritance = process_inheritance_output(
+                df_for_inheritance, cfg.get("inheritance_mode", "simple")
+            )
 
-    # Add variant identifiers only if we have data rows
-    if len(buffer) > 1:
-        buffer = add_variant_identifier(buffer)
-    else:
-        # For empty results, just add the VAR_ID column to the header
-        if buffer and "\t" in buffer[0]:
-            header_parts = buffer[0].split("\t")
-            new_header = ["VAR_ID"] + header_parts
-            buffer[0] = "\t".join(new_header)
+            # Convert back to buffer
+            output_str = io.StringIO()
+            df_for_inheritance.to_csv(output_str, sep="\t", index=False, na_rep="")
+            buffer = output_str.getvalue().rstrip("\n").split("\n")
+
+        # Add variant identifiers only if we have data rows
+        if len(buffer) > 1:
+            buffer = add_variant_identifier(buffer)
+        else:
+            # For empty results, just add the VAR_ID column to the header
+            if buffer and "\t" in buffer[0]:
+                header_parts = buffer[0].split("\t")
+                new_header = ["VAR_ID"] + header_parts
+                buffer[0] = "\t".join(new_header)
 
     # Append named blank columns if requested
     def add_named_columns(lines: List[str], col_names: List[str]) -> List[str]:
@@ -1248,29 +1965,33 @@ def run_pipeline(
 
         return new_lines
 
-    if args.add_column:
-        buffer = add_named_columns(buffer, args.add_column)
+    # Skip add_column and final_filter if chunked processing handled it
+    if not chunked_processing_used:
+        if args.add_column:
+            buffer = add_named_columns(buffer, args.add_column)
 
-    # Apply final filter if provided
-    if cfg.get("final_filter") and len(buffer) > 1:
-        logger.info("Applying final filter to results")
-        
-        # Convert buffer to DataFrame
-        import io
-        buffer_str = "\n".join(buffer)
-        df = pd.read_csv(io.StringIO(buffer_str), sep="\t", dtype=str, keep_default_na=False)
-        
-        # Apply the filter
-        from .filters import filter_dataframe_with_query
-        df = filter_dataframe_with_query(df, cfg["final_filter"])
-        
-        # Convert back to buffer
-        output_str = io.StringIO()
-        df.to_csv(output_str, sep="\t", index=False, na_rep="")
-        buffer = output_str.getvalue().rstrip("\n").split("\n")
-        
-        if len(buffer) <= 1:
-            logger.warning("No variants passed the final filter")
+        # Apply final filter if provided
+        if cfg.get("final_filter") and len(buffer) > 1:
+            logger.info("Applying final filter to results")
+
+            # Convert buffer to DataFrame
+            import io
+
+            buffer_str = "\n".join(buffer)
+            df = pd.read_csv(io.StringIO(buffer_str), sep="\t", dtype=str, keep_default_na=False)
+
+            # Apply the filter
+            from .filters import filter_dataframe_with_query
+
+            df = filter_dataframe_with_query(df, cfg["final_filter"])
+
+            # Convert back to buffer
+            output_str = io.StringIO()
+            df.to_csv(output_str, sep="\t", index=False, na_rep="")
+            buffer = output_str.getvalue().rstrip("\n").split("\n")
+
+            if len(buffer) <= 1:
+                logger.warning("No variants passed the final filter")
 
     if final_to_stdout:
         if buffer:

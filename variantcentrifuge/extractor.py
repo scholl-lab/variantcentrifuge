@@ -8,7 +8,9 @@ This module uses SnpSift extractFields to extract specific fields
 from VCF records and save the result to the specified output file.
 """
 
+import gzip
 import logging
+import os
 from typing import Any, Dict
 
 from .utils import normalize_vcf_headers, run_command
@@ -68,25 +70,37 @@ def extract_fields(variant_file: str, fields: str, cfg: Dict[str, Any], output_f
     ] + field_list
 
     logger.debug("Running SnpSift with command: %s", " ".join(cmd))
-    logger.debug("Extracted fields will be written to: %s", output_file)
 
-    # Run SnpSift extractFields, writing directly to output_file
-    run_command(cmd, output_file=output_file)
+    # Write to a temporary uncompressed file first
+    temp_output = output_file.replace(".gz", "")
+    logger.debug("Extracted fields will be written to temporary file: %s", temp_output)
 
-    # Now fix up the header line in place
-    with open(output_file, "r", encoding="utf-8") as f:
+    # Run SnpSift extractFields, writing to temp file
+    run_command(cmd, output_file=temp_output)
+
+    # Now fix up the header line and compress
+    open_func = gzip.open if output_file.endswith(".gz") else open
+    mode = "wt" if output_file.endswith(".gz") else "w"
+
+    with open(temp_output, "r", encoding="utf-8") as f:
         lines = f.readlines()
 
     if not lines:
         logger.warning("No lines were written to the output after SnpSift extract. Check input.")
+        if output_file.endswith(".gz") and os.path.exists(temp_output):
+            os.remove(temp_output)
         return output_file
 
     # Use the utility function to normalize VCF headers, including indexed field renaming
     lines = normalize_vcf_headers(lines)
 
-    # Rewrite the file with updated lines
-    with open(output_file, "w", encoding="utf-8") as f:
+    # Write the compressed output
+    with open_func(output_file, mode, encoding="utf-8") as f:
         f.writelines(lines)
 
-    logger.debug("SnpSift extractFields completed successfully.")
+    # Clean up temporary file
+    if output_file.endswith(".gz") and os.path.exists(temp_output):
+        os.remove(temp_output)
+
+    logger.debug("SnpSift extractFields completed successfully. Output written to: %s", output_file)
     return output_file

@@ -103,8 +103,8 @@ def main() -> None:
         type=str,
         default=None,
         help="Optional bcftools expression to pre-filter the VCF file for performance. "
-             "This is applied during variant extraction to reduce data early. "
-             "Example: 'FILTER=\"PASS\" && INFO/AC<10'"
+        "This is applied during variant extraction to reduce data early. "
+        "Example: 'FILTER=\"PASS\" && INFO/AC<10'",
     )
     parser.add_argument(
         "--late-filtering",
@@ -415,14 +415,51 @@ def main() -> None:
         action="store_true",
         help="Disable vectorized compound heterozygous analysis (use original implementation).",
     )
-    
+
     parser.add_argument(
         "--final-filter",
         type=str,
         default=None,
         help="An expression to filter the final results table. Uses pandas query() syntax. "
-             "This is applied after all annotations and scores have been calculated. "
-             "Example: 'inheritance_score > 0.5 and IMPACT == \"HIGH\"'"
+        "This is applied after all annotations and scores have been calculated. "
+        "Example: 'inheritance_score > 0.5 and IMPACT == \"HIGH\"'",
+    )
+
+    # Chunked processing options
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=10000,
+        help="Number of variants per chunk for memory-efficient processing (default: 10000). "
+        "Automatically adjusts to keep genes together.",
+    )
+
+    parser.add_argument(
+        "--no-chunked-processing",
+        action="store_true",
+        help="Disable chunked processing even for large files. "
+        "May cause memory issues with very large datasets.",
+    )
+
+    parser.add_argument(
+        "--force-chunked-processing",
+        action="store_true",
+        help="Force chunked processing even for small files. "
+        "Useful for testing or memory-constrained environments.",
+    )
+
+    parser.add_argument(
+        "--sort-memory-limit",
+        type=str,
+        default="2G",
+        help="Memory limit for external sort command (default: 2G). " "Examples: 500M, 4G, 8G",
+    )
+
+    parser.add_argument(
+        "--sort-parallel",
+        type=int,
+        default=4,
+        help="Number of parallel threads for sorting (default: 4)",
     )
 
     args: argparse.Namespace = parser.parse_args()
@@ -623,12 +660,19 @@ def main() -> None:
 
     # Late filtering configuration
     cfg["late_filtering"] = args.late_filtering
-    
+
     # Bcftools pre-filtering configuration
     cfg["bcftools_prefilter"] = args.bcftools_prefilter
-    
+
     # Final filter configuration
     cfg["final_filter"] = args.final_filter
+
+    # Chunked processing configuration
+    cfg["chunk_size"] = args.chunk_size
+    cfg["no_chunked_processing"] = args.no_chunked_processing
+    cfg["force_chunked_processing"] = args.force_chunked_processing
+    cfg["sort_memory_limit"] = args.sort_memory_limit
+    cfg["sort_parallel"] = args.sort_parallel
 
     run_pipeline(args, cfg, start_time)
 

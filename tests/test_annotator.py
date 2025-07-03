@@ -29,7 +29,6 @@ from variantcentrifuge.annotator import (
     _extract_genes_from_row,
     _find_gene_list_matches,
     _find_json_gene_matches,
-    _add_json_annotations_as_columns,
     INTERVALTREE_AVAILABLE,
 )
 
