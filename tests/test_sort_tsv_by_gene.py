@@ -11,8 +11,6 @@ import tempfile
 import gzip
 import pytest
 from unittest.mock import patch, Mock
-import subprocess
-
 from variantcentrifuge.pipeline import sort_tsv_by_gene
 
 
@@ -37,11 +35,11 @@ chr1\t500\tGENE3\tA\tG"""
 
         try:
             # Sort the file
-            result = sort_tsv_by_gene(input_file, output_file, gene_column="GENE")
+            _ = sort_tsv_by_gene(input_file, output_file, gene_column="GENE")
 
             # Verify output file exists
             assert os.path.exists(output_file)
-            assert result == output_file
+            assert _ == output_file
 
             # Read and verify content
             with open(output_file, "r") as f:
@@ -75,7 +73,7 @@ chr1\t300\tMMM\tG\tA"""
 
         try:
             # Sort the file
-            result = sort_tsv_by_gene(input_file, output_file, gene_column="GENE")
+            _ = sort_tsv_by_gene(input_file, output_file, gene_column="GENE")
 
             # Verify output file exists
             assert os.path.exists(output_file)
@@ -110,7 +108,7 @@ chr1\t200\tGENE2"""
 
         try:
             # Sort with custom parameters
-            result = sort_tsv_by_gene(
+            _ = sort_tsv_by_gene(
                 input_file,
                 output_file,
                 gene_column="GENE",
@@ -208,7 +206,7 @@ chr1\t200\tGENE2"""
 
         try:
             # Should handle special characters properly
-            result = sort_tsv_by_gene(input_file, output_file)
+            _ = sort_tsv_by_gene(input_file, output_file)
             assert os.path.exists(output_file)
 
             # Verify content
@@ -237,7 +235,7 @@ chr1\t300\tGENE2\tG\tA"""
 
         try:
             # Sort using alternate column name
-            result = sort_tsv_by_gene(input_file, output_file, gene_column="ANN[0].GENE")
+            _ = sort_tsv_by_gene(input_file, output_file, gene_column="ANN[0].GENE")
 
             # Verify sorting worked
             with open(output_file, "r") as f:

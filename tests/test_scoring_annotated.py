@@ -75,10 +75,12 @@ def test_multi_formula_scoring():
         "formulas": [
             # Simplified first formula that might produce object dtype
             {
-                "nephro_variant_score": "((impact_variant == 'HIGH') * 4 + (impact_variant == 'MODERATE') * 3) * 0.1"
+                "nephro_variant_score": (
+                    "((impact_variant == 'HIGH') * 4 + (impact_variant == 'MODERATE') * 3) * 0.1"
+                )
             },
             # Second formula that depends on the first
-            {"nephro_candidate_score": "nephro_variant_score * 4 + nephro_gene_score * 0.5"},
+            {"nephro_candidate_score": ("nephro_variant_score * 4 + nephro_gene_score * 0.5")},
         ],
     }
 
@@ -95,7 +97,8 @@ def test_multi_formula_scoring():
 
     # Verify the calculations
     # First row: HIGH impact -> (4 * 0.1) = 0.4, candidate = 0.4 * 4 + 2.5 * 0.5 = 1.6 + 1.25 = 2.85
-    # Second row: MODERATE impact -> (3 * 0.1) = 0.3, candidate = 0.3 * 4 + 3.0 * 0.5 = 1.2 + 1.5 = 2.7
+    # Second row: MODERATE impact -> (3 * 0.1) = 0.3
+    # candidate = 0.3 * 4 + 3.0 * 0.5 = 1.2 + 1.5 = 2.7
     assert abs(result_df.iloc[0]["nephro_variant_score"] - 0.4) < 0.001
     assert abs(result_df.iloc[1]["nephro_variant_score"] - 0.3) < 0.001
     assert abs(result_df.iloc[0]["nephro_candidate_score"] - 2.85) < 0.001

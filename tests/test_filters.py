@@ -8,17 +8,16 @@ This file contains tests for the filtering functions to ensure
 they handle variant streams as expected.
 """
 
-import pytest
 import pandas as pd
 from variantcentrifuge.filters import (
     extract_variants,
     filter_dataframe_with_query,
+    apply_bcftools_prefilter,
 )
 
 
 def test_extract_variants_no_bed(monkeypatch):
     """Test extract_variants when run_command is mocked."""
-
     called_commands = []
 
     def mock_run_command(cmd):
@@ -48,7 +47,6 @@ def test_extract_variants_no_bed(monkeypatch):
 
 def test_extract_variants_with_prefilter(monkeypatch):
     """Test extract_variants with bcftools prefilter."""
-
     called_commands = []
 
     def mock_run_command(cmd):
@@ -82,7 +80,6 @@ def test_extract_variants_with_prefilter(monkeypatch):
 
 def test_apply_bcftools_prefilter(monkeypatch):
     """Test apply_bcftools_prefilter with mocked run_command."""
-
     called_commands = []
 
     def mock_run_command(cmd, output_file=None):
@@ -129,7 +126,6 @@ def test_apply_bcftools_prefilter(monkeypatch):
 
 def test_apply_bcftools_prefilter_default_threads(monkeypatch):
     """Test apply_bcftools_prefilter with default thread count."""
-
     called_commands = []
 
     def mock_run_command(cmd, output_file=None):

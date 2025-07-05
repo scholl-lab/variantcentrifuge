@@ -49,29 +49,27 @@ def apply_bcftools_prefilter(
     Parameters
     ----------
     input_vcf : str
-        Path to the input VCF file
+        Path to the input VCF file.
     output_vcf : str
-        Path to the output filtered VCF file
+        Path to the output filtered VCF file.
     filter_expression : str
-        bcftools filter expression. Note: bcftools uses different syntax than SnpSift.
-        Examples:
-        - 'FILTER="PASS"' - only PASS variants
-        - 'INFO/AC<10' - allele count less than 10
-        - 'FILTER="PASS" && INFO/AC<10' - combined filters
-        - 'INFO/AF<0.01 || INFO/AC<5' - AF less than 1% OR AC less than 5
+        bcftools filter expression. Note that bcftools uses different syntax than SnpSift.
+        Examples include 'FILTER="PASS"' for only PASS variants, 'INFO/AC<10' for allele
+        count less than 10, 'FILTER="PASS" && INFO/AC<10' for combined filters, or
+        'INFO/AF<0.01 || INFO/AC<5' for AF less than 1% OR AC less than 5.
     cfg : dict
-        Configuration dictionary that may include:
-        - "threads": Number of threads to use with bcftools (default = 1)
+        Configuration dictionary that may include "threads" (number of threads to use
+        with bcftools, default is 1).
 
     Returns
     -------
     str
-        Path to the output VCF file
+        Path to the output VCF file.
 
     Raises
     ------
     RuntimeError
-        If the bcftools command fails
+        If the bcftools command fails.
     """
     threads = str(cfg.get("threads", 1))
 
@@ -228,9 +226,7 @@ def apply_snpsift_filter(
 
 
 def smart_open(filename: str, mode: str = "r", encoding: str = "utf-8"):
-    """
-    Open a file with automatic gzip support based on file extension.
-    """
+    """Open a file with automatic gzip support based on file extension."""
     if filename.endswith(".gz"):
         if "t" not in mode and "b" not in mode:
             mode = mode + "t"
@@ -614,13 +610,18 @@ def filter_tsv_with_expression(
 
 def filter_dataframe_with_query(df: pd.DataFrame, filter_expression: str) -> pd.DataFrame:
     """
-    Filters a pandas DataFrame using a query expression.
+    Filter a pandas DataFrame using a query expression.
 
-    Args:
-        df: The input DataFrame.
-        filter_expression: The query string to apply.
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input DataFrame.
+    filter_expression : str
+        The query string to apply.
 
-    Returns:
+    Returns
+    -------
+    pd.DataFrame
         The filtered DataFrame.
     """
     if not filter_expression:

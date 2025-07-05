@@ -5,15 +5,12 @@ This test focuses on verifying the filter_dataframe_with_query function
 works correctly when integrated into the pipeline flow.
 """
 
-import os
-import tempfile
 import pandas as pd
 from variantcentrifuge.filters import filter_dataframe_with_query
 
 
 def test_final_filter_integration():
     """Test that final filter correctly filters a DataFrame like the pipeline would produce."""
-
     # Create a sample DataFrame that mimics what the pipeline would produce
     df = pd.DataFrame(
         {
@@ -67,7 +64,6 @@ def test_final_filter_integration():
 
 def test_final_filter_with_empty_result():
     """Test that filter handles cases where no rows match."""
-
     df = pd.DataFrame({"CHROM": ["chr1", "chr2"], "POS": ["1000", "2000"], "score": ["0.1", "0.2"]})
 
     # Filter that matches nothing
@@ -78,7 +74,6 @@ def test_final_filter_with_empty_result():
 
 def test_final_filter_preserves_all_columns():
     """Test that filtering preserves all columns from the original DataFrame."""
-
     # Create a DataFrame with many columns like the real pipeline output
     df = pd.DataFrame(
         {

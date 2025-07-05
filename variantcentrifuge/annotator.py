@@ -465,7 +465,7 @@ def _find_json_gene_matches(
 def _add_json_annotations_as_columns(
     df: pd.DataFrame, json_gene_data: Dict[str, Dict[str, Any]]
 ) -> pd.DataFrame:
-    """Adds annotations from JSON data as separate columns to the DataFrame."""
+    """Add annotations from JSON data as separate columns to the DataFrame."""
     if not json_gene_data:
         return df
 
@@ -552,7 +552,8 @@ def annotate_dataframe_with_features(df: pd.DataFrame, features: Dict[str, Any])
 
     annotated_variants = (df["Custom_Annotation"] != "").sum()
     logger.info(
-        f"Custom annotation complete: {annotated_variants}/{len(df)} variants annotated in 'Custom_Annotation' column."
+        f"Custom annotation complete: {annotated_variants}/{len(df)} variants annotated "
+        f"in 'Custom_Annotation' column."
     )
 
     return df

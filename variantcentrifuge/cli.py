@@ -67,38 +67,83 @@ def main() -> None:
     logger.info(f"Run started at {start_time.isoformat()}")
 
     parser = argparse.ArgumentParser(description="variantcentrifuge: Filter and process VCF files.")
-    parser.add_argument(
+
+    # General Options
+    general_group = parser.add_argument_group("General Options")
+    general_group.add_argument(
         "--version",
         action="version",
         version=f"variantcentrifuge {__version__}",
         help="Show the current version and exit",
     )
-    parser.add_argument(
+    general_group.add_argument(
         "--log-level",
         choices=["DEBUG", "INFO", "WARN", "ERROR"],
         default="INFO",
         help="Set the logging level",
     )
-    parser.add_argument(
+    general_group.add_argument(
         "--log-file", help="Path to a file to write logs to (in addition to stderr)."
     )
-    parser.add_argument(
+    general_group.add_argument(
         "-c",
         "--config",
         help="Path to configuration file",
         default=None,
     )
-    parser.add_argument("-g", "--gene-name", help="Gene or list of genes of interest")
-    parser.add_argument("-G", "--gene-file", help="File containing gene names, one per line")
-    parser.add_argument("-v", "--vcf-file", help="Input VCF file path", required=True)
-    parser.add_argument(
+
+    # Core Input/Output
+    io_group = parser.add_argument_group("Core Input/Output")
+    io_group.add_argument("-v", "--vcf-file", help="Input VCF file path", required=True)
+    io_group.add_argument(
+        "-o",
+        "--output-file",
+        nargs="?",
+        const="stdout",
+        help="Final output file name or 'stdout'/'-' for stdout",
+    )
+    io_group.add_argument(
+        "--output-dir",
+        help="Directory to store intermediate and final output files",
+        default="output",
+    )
+    io_group.add_argument("--xlsx", action="store_true", help="Convert final result to Excel")
+    io_group.add_argument(
+        "--keep-intermediates",
+        action="store_true",
+        default=False,
+        help="Keep intermediate files (by default, they are deleted after successful pipeline completion).",
+    )
+
+    # Gene Selection
+    gene_group = parser.add_argument_group("Gene Selection")
+    gene_group.add_argument("-g", "--gene-name", help="Gene or list of genes of interest")
+    gene_group.add_argument("-G", "--gene-file", help="File containing gene names, one per line")
+    gene_group.add_argument(
+        "--transcript-list",
+        help=(
+            "Comma-separated list of transcript IDs to filter for. "
+            "For example: NM_007294.4,NM_000059.4"
+        ),
+    )
+    gene_group.add_argument(
+        "--transcript-file",
+        help=(
+            "Path to a file containing transcript IDs, one per line. "
+            "For example: a file where each line is a transcript like NM_007294.4"
+        ),
+    )
+
+    # Filtering & Annotation
+    filter_group = parser.add_argument_group("Filtering & Annotation")
+    filter_group.add_argument(
         "-r",
         "--reference",
         help="Reference database for snpEff",
         default=None,
     )
-    parser.add_argument("-f", "--filters", help="Filters to apply in SnpSift filter")
-    parser.add_argument(
+    filter_group.add_argument("-f", "--filters", help="Filters to apply in SnpSift filter")
+    filter_group.add_argument(
         "--bcftools-prefilter",
         type=str,
         default=None,
@@ -106,14 +151,7 @@ def main() -> None:
         "This is applied during variant extraction to reduce data early. "
         "Example: 'FILTER=\"PASS\" && INFO/AC<10'",
     )
-    parser.add_argument(
-        "--late-filtering",
-        action="store_true",
-        help="Apply filters after scoring and annotation (allows filtering on computed columns like scores). "
-        "By default, filters are applied early on VCF data.",
-    )
-    # Preset argument
-    parser.add_argument(
+    filter_group.add_argument(
         "--preset",
         action="append",
         help=(
@@ -122,180 +160,21 @@ def main() -> None:
             "If custom filters are also given, they are combined with these presets using AND."
         ),
     )
-    parser.add_argument("-e", "--fields", help="Fields to extract with SnpSift extractFields")
-    parser.add_argument(
-        "-o",
-        "--output-file",
-        nargs="?",
-        const="stdout",
-        help="Final output file name or 'stdout'/'-' for stdout",
-    )
-    parser.add_argument("--xlsx", action="store_true", help="Convert final result to Excel")
-    parser.add_argument(
-        "--no-replacement", action="store_true", help="Skip genotype replacement step"
-    )
-    parser.add_argument("--stats-output-file", help="File to write analysis statistics")
-    parser.add_argument(
-        "--perform-gene-burden",
+    filter_group.add_argument(
+        "--late-filtering",
         action="store_true",
-        help="Perform gene burden analysis",
+        help="Apply filters after scoring and annotation (allows filtering on computed columns like scores). "
+        "By default, filters are applied early on VCF data.",
     )
-    parser.add_argument(
-        "--output-dir",
-        help="Directory to store intermediate and final output files",
-        default="output",
-    )
-    # MODIFIED: Start of intermediate cleanup feature
-    parser.add_argument(
-        "--keep-intermediates",
-        action="store_true",
-        default=False,
-        help="Keep intermediate files (by default, they are deleted after successful pipeline completion).",
-    )
-    # MODIFIED: End of intermediate cleanup feature
-    parser.add_argument("--phenotype-file", help="Path to phenotype file (.csv or .tsv)")
-    parser.add_argument(
-        "--phenotype-sample-column",
-        help="Name of the column containing sample IDs in phenotype file",
-    )
-    parser.add_argument(
-        "--phenotype-value-column",
-        help="Name of the column containing phenotype values in phenotype file",
-    )
-    parser.add_argument(
-        "--no-stats",
-        action="store_true",
-        default=False,
-        help="Skip the statistics computation step.",
-    )
-    parser.add_argument("--case-phenotypes", help="Comma-separated HPO terms defining case group")
-    parser.add_argument(
-        "--control-phenotypes", help="Comma-separated HPO terms defining control group"
-    )
-    parser.add_argument("--case-phenotypes-file", help="File with HPO terms for case group")
-    parser.add_argument("--control-phenotypes-file", help="File with HPO terms for control group")
-    parser.add_argument("--case-samples", help="Comma-separated sample IDs defining the case group")
-    parser.add_argument(
-        "--control-samples",
-        help="Comma-separated sample IDs defining the control group",
-    )
-    parser.add_argument("--case-samples-file", help="File with sample IDs for case group")
-    parser.add_argument("--control-samples-file", help="File with sample IDs for control group")
-    parser.add_argument(
-        "--gene-burden-mode",
-        choices=["samples", "alleles"],
-        default="alleles",
-        help="Mode for gene burden calculation: 'samples' or 'alleles'",
-    )
-    parser.add_argument(
-        "--correction-method",
-        choices=["fdr", "bonferroni"],
-        default="fdr",
-        help="Multiple testing correction method for gene burden test",
-    )
-    parser.add_argument(
-        "--html-report",
-        action="store_true",
-        help="Generate an interactive HTML report with sortable variant tables and summary plots.",
-    )
-    parser.add_argument(
-        "--igv",
-        action="store_true",
-        help="Enable IGV.js integration for genomic visualization.",
-    )
-    parser.add_argument(
-        "--bam-mapping-file",
-        help="Path to a TSV or CSV file mapping sample IDs to BAM files (sample_id,bam_path).",
-    )
-    parser.add_argument(
-        "--igv-reference",
-        help="Genome reference identifier for IGV (e.g., 'hg19' or 'hg38'). Required if --igv is enabled unless --igv-fasta is provided.",
-    )
-    # MODIFIED: Start of local IGV FASTA feature
-    parser.add_argument(
-        "--igv-fasta",
-        help="Path to a local FASTA file for IGV reports. The index file (.fai) must exist in the same location with the same name (e.g., reference.fa.fai). This will be used instead of --igv-reference if both are provided.",
-    )
-    parser.add_argument(
-        "--igv-ideogram",
-        help="Path to an ideogram file for chromosome visualization in IGV reports.",
-    )
-    # MODIFIED: IGV filename shortening feature - START
-    parser.add_argument(
-        "--igv-max-allele-len-filename",
-        type=int,
-        default=10,
-        help="Maximum length for REF/ALT alleles in IGV report filenames (default: 10). Longer alleles will be truncated and hashed.",
-    )
-    parser.add_argument(
-        "--igv-hash-len-filename",
-        type=int,
-        default=6,
-        help="Length of hash to append when truncating alleles in filenames (default: 6).",
-    )
-    parser.add_argument(
-        "--igv-max-variant-part-filename",
-        type=int,
-        default=50,
-        help="Maximum length for the variant part of IGV report filenames",
-    )
-    # MODIFIED: Start of IGV flanking feature
-    parser.add_argument(
-        "--igv-flanking",
-        type=int,
+    filter_group.add_argument(
+        "--final-filter",
+        type=str,
         default=None,
-        help="Flanking region size in base pairs for IGV reports (default: 50)",
+        help="An expression to filter the final results table. Uses pandas query() syntax. "
+        "This is applied after all annotations and scores have been calculated. "
+        "Example: 'inheritance_score > 0.5 and IMPACT == \"HIGH\"'",
     )
-    # MODIFIED: End of IGV flanking feature
-    # MODIFIED: IGV filename shortening feature - END
-    # MODIFIED: End of local IGV FASTA feature
-
-    parser.add_argument(
-        "--remove-sample-substring",
-        help="If provided, this substring will be removed from all sample names found in the VCF.",
-    )
-
-    parser.add_argument(
-        "--no-links",
-        action="store_true",
-        default=False,
-        help="Disable adding link columns to the final output (links are added by default).",
-    )
-
-    parser.add_argument(
-        "--threads",
-        type=int,
-        default=1,
-        help="Number of parallel worker processes to use for variant extraction and filtering. "
-        "Set to 1 to disable parallelization (default: 1).",
-    )
-
-    parser.add_argument(
-        "--add-column",
-        action="append",
-        default=[],
-        help="Add a blank column with the specified header name to the final TSV output. "
-        "Can be specified multiple times.",
-    )
-    parser.add_argument(
-        "--annotate-gene-list",
-        action="append",
-        default=[],
-        metavar="GENE_LIST_FILE_PATH",
-        help="Path to a gene list file (one gene per line, case-insensitive matching). "
-        "A new column will be added to the output TSV for each file, "
-        "named after a sanitized version of the file's basename (e.g., 'my_gene_set' from 'my_gene_set.txt'), "
-        "indicating if the variant's GENE (or one of its comma-separated genes) is in this list ('yes'/'no'). "
-        "Specify multiple times for multiple lists.",
-    )
-
-    parser.add_argument(
-        "--add-chr",
-        action="store_true",
-        help="Add 'chr' prefix to chromosome names in BED file. Overrides config setting.",
-    )
-
-    parser.add_argument(
+    filter_group.add_argument(
         "--split-snpeff-lines",
         nargs="?",
         const="before_filters",
@@ -310,22 +189,37 @@ def main() -> None:
         ),
     )
 
-    parser.add_argument(
-        "--transcript-list",
-        help=(
-            "Comma-separated list of transcript IDs to filter for. "
-            "For example: NM_007294.4,NM_000059.4"
-        ),
+    # Field Extraction & Formatting
+    format_group = parser.add_argument_group("Field Extraction & Formatting")
+    format_group.add_argument("-e", "--fields", help="Fields to extract with SnpSift extractFields")
+    format_group.add_argument(
+        "--no-replacement", action="store_true", help="Skip genotype replacement step"
     )
-    parser.add_argument(
-        "--transcript-file",
-        help=(
-            "Path to a file containing transcript IDs, one per line. "
-            "For example: a file where each line is a transcript like NM_007294.4"
-        ),
+    format_group.add_argument(
+        "--add-column",
+        action="append",
+        default=[],
+        help="Add a blank column with the specified header name to the final TSV output. "
+        "Can be specified multiple times.",
     )
-
-    parser.add_argument(
+    format_group.add_argument(
+        "--no-links",
+        action="store_true",
+        default=False,
+        help="Disable adding link columns to the final output (links are added by default).",
+    )
+    format_group.add_argument(
+        "--add-chr",
+        action="store_true",
+        help="Add 'chr' prefix to chromosome names in BED file. Overrides config setting.",
+    )
+    format_group.add_argument(
+        "--remove-sample-substring",
+        help="If provided, this substring will be removed from all sample names found in the VCF.",
+    )
+    # Genotype Analysis
+    genotype_group = parser.add_argument_group("Genotype Analysis")
+    genotype_group.add_argument(
         "--genotype-filter",
         help=(
             "Specify genotype filter(s), e.g. 'het', 'hom', 'comp_het' or "
@@ -333,7 +227,7 @@ def main() -> None:
             "fulfilling these genotypes are kept (unless per-gene file overrides)."
         ),
     )
-    parser.add_argument(
+    genotype_group.add_argument(
         "--gene-genotype-file",
         help=(
             "Path to a file specifying per-gene genotype rules. It must contain at least two columns: "
@@ -341,9 +235,7 @@ def main() -> None:
             "If a gene is listed here, it overrides any global --genotype-filter."
         ),
     )
-
-    # Unified argument for extra sample fields:
-    parser.add_argument(
+    genotype_group.add_argument(
         "--append-extra-sample-fields",
         nargs="*",
         default=None,
@@ -354,7 +246,7 @@ def main() -> None:
             "(see --fields). Example usage: --append-extra-sample-fields DP AD"
         ),
     )
-    parser.add_argument(
+    genotype_group.add_argument(
         "--extra-sample-field-delimiter",
         default=":",
         help=(
@@ -363,44 +255,73 @@ def main() -> None:
         ),
     )
 
-    parser.add_argument(
-        "--scoring-config-path",
-        help="Path to a directory containing a scoring model "
-        "(variable_assignment_config.json and formula_config.json).",
+    # Phenotype & Sample Groups
+    phenotype_group = parser.add_argument_group("Phenotype & Sample Groups")
+    phenotype_group.add_argument("--phenotype-file", help="Path to phenotype file (.csv or .tsv)")
+    phenotype_group.add_argument(
+        "--phenotype-sample-column",
+        help="Name of the column containing sample IDs in phenotype file",
     )
-
-    # Unified annotation arguments
-    parser.add_argument(
-        "--annotate-bed",
-        action="append",
-        default=[],
-        metavar="BED_FILE",
-        help="Path to a BED file for annotation. Adds 'Region=<name>' to the Custom_Annotation column for overlapping variants. Can be used multiple times.",
+    phenotype_group.add_argument(
+        "--phenotype-value-column",
+        help="Name of the column containing phenotype values in phenotype file",
     )
-    parser.add_argument(
-        "--annotate-json-genes",
-        action="append",
-        default=[],
-        metavar="JSON_FILE",
-        help="Path to a JSON file with structured gene data. Requires --json-gene-mapping.",
+    phenotype_group.add_argument(
+        "--case-phenotypes", help="Comma-separated HPO terms defining case group"
     )
-    parser.add_argument(
-        "--json-gene-mapping",
-        help='JSON string to map fields in JSON gene files. e.g., \'{"identifier":"gene_symbol","dataFields":["panel","inheritance"]}\'',
+    phenotype_group.add_argument(
+        "--control-phenotypes", help="Comma-separated HPO terms defining control group"
     )
-    parser.add_argument(
-        "--json-genes-as-columns",
+    phenotype_group.add_argument(
+        "--case-phenotypes-file", help="File with HPO terms for case group"
+    )
+    phenotype_group.add_argument(
+        "--control-phenotypes-file", help="File with HPO terms for control group"
+    )
+    phenotype_group.add_argument(
+        "--case-samples", help="Comma-separated sample IDs defining the case group"
+    )
+    phenotype_group.add_argument(
+        "--control-samples",
+        help="Comma-separated sample IDs defining the control group",
+    )
+    phenotype_group.add_argument("--case-samples-file", help="File with sample IDs for case group")
+    phenotype_group.add_argument(
+        "--control-samples-file", help="File with sample IDs for control group"
+    )
+    # Statistical Analysis
+    stats_group = parser.add_argument_group("Statistical Analysis")
+    stats_group.add_argument(
+        "--perform-gene-burden",
         action="store_true",
-        help="When using --annotate-json-genes, add each specified dataField as a separate column "
-        "instead of appending key-value pairs to the Custom_Annotation column.",
+        help="Perform gene burden analysis",
     )
-
-    # Inheritance analysis arguments
-    parser.add_argument(
+    stats_group.add_argument(
+        "--gene-burden-mode",
+        choices=["samples", "alleles"],
+        default="alleles",
+        help="Mode for gene burden calculation: 'samples' or 'alleles'",
+    )
+    stats_group.add_argument(
+        "--correction-method",
+        choices=["fdr", "bonferroni"],
+        default="fdr",
+        help="Multiple testing correction method for gene burden test",
+    )
+    stats_group.add_argument(
+        "--no-stats",
+        action="store_true",
+        default=False,
+        help="Skip the statistics computation step.",
+    )
+    stats_group.add_argument("--stats-output-file", help="File to write analysis statistics")
+    # Inheritance Analysis
+    inheritance_group = parser.add_argument_group("Inheritance Analysis")
+    inheritance_group.add_argument(
         "--ped",
         help="Path to the PED file defining family structure for inheritance analysis.",
     )
-    parser.add_argument(
+    inheritance_group.add_argument(
         "--inheritance-mode",
         choices=["simple", "columns", "full"],
         default=None,
@@ -410,52 +331,143 @@ def main() -> None:
         "'full': Show the complete JSON object in a single column. "
         "Note: Analysis is triggered by this flag or --ped. Without --ped, treats all samples as affected singletons.",
     )
-    parser.add_argument(
+    inheritance_group.add_argument(
         "--no-vectorized-comp-het",
         action="store_true",
         help="Disable vectorized compound heterozygous analysis (use original implementation).",
     )
 
-    parser.add_argument(
-        "--final-filter",
-        type=str,
-        default=None,
-        help="An expression to filter the final results table. Uses pandas query() syntax. "
-        "This is applied after all annotations and scores have been calculated. "
-        "Example: 'inheritance_score > 0.5 and IMPACT == \"HIGH\"'",
+    # Scoring & Custom Annotations
+    scoring_group = parser.add_argument_group("Scoring & Custom Annotations")
+    scoring_group.add_argument(
+        "--scoring-config-path",
+        help="Path to a directory containing a scoring model "
+        "(variable_assignment_config.json and formula_config.json).",
+    )
+    scoring_group.add_argument(
+        "--annotate-bed",
+        action="append",
+        default=[],
+        metavar="BED_FILE",
+        help="Path to a BED file for annotation. Adds 'Region=<name>' to the Custom_Annotation column for overlapping variants. Can be used multiple times.",
+    )
+    scoring_group.add_argument(
+        "--annotate-gene-list",
+        action="append",
+        default=[],
+        metavar="GENE_LIST_FILE_PATH",
+        help="Path to a gene list file (one gene per line, case-insensitive matching). "
+        "A new column will be added to the output TSV for each file, "
+        "named after a sanitized version of the file's basename (e.g., 'my_gene_set' from 'my_gene_set.txt'), "
+        "indicating if the variant's GENE (or one of its comma-separated genes) is in this list ('yes'/'no'). "
+        "Specify multiple times for multiple lists.",
+    )
+    scoring_group.add_argument(
+        "--annotate-json-genes",
+        action="append",
+        default=[],
+        metavar="JSON_FILE",
+        help="Path to a JSON file with structured gene data. Requires --json-gene-mapping.",
+    )
+    scoring_group.add_argument(
+        "--json-gene-mapping",
+        help='JSON string to map fields in JSON gene files. e.g., \'{"identifier":"gene_symbol","dataFields":["panel","inheritance"]}\'',
+    )
+    scoring_group.add_argument(
+        "--json-genes-as-columns",
+        action="store_true",
+        help="When using --annotate-json-genes, add each specified dataField as a separate column "
+        "instead of appending key-value pairs to the Custom_Annotation column.",
     )
 
-    # Chunked processing options
-    parser.add_argument(
+    # Reporting & Visualization
+    report_group = parser.add_argument_group("Reporting & Visualization")
+    report_group.add_argument(
+        "--html-report",
+        action="store_true",
+        help="Generate an interactive HTML report with sortable variant tables and summary plots.",
+    )
+    report_group.add_argument(
+        "--igv",
+        action="store_true",
+        help="Enable IGV.js integration for genomic visualization.",
+    )
+    report_group.add_argument(
+        "--bam-mapping-file",
+        help="Path to a TSV or CSV file mapping sample IDs to BAM files (sample_id,bam_path).",
+    )
+    report_group.add_argument(
+        "--igv-reference",
+        help="Genome reference identifier for IGV (e.g., 'hg19' or 'hg38'). Required if --igv is enabled unless --igv-fasta is provided.",
+    )
+    report_group.add_argument(
+        "--igv-fasta",
+        help="Path to a local FASTA file for IGV reports. The index file (.fai) must exist in the same location with the same name (e.g., reference.fa.fai). This will be used instead of --igv-reference if both are provided.",
+    )
+    report_group.add_argument(
+        "--igv-ideogram",
+        help="Path to an ideogram file for chromosome visualization in IGV reports.",
+    )
+    report_group.add_argument(
+        "--igv-flanking",
+        type=int,
+        default=None,
+        help="Flanking region size in base pairs for IGV reports (default: 50)",
+    )
+    report_group.add_argument(
+        "--igv-max-allele-len-filename",
+        type=int,
+        default=10,
+        help="Maximum length for REF/ALT alleles in IGV report filenames (default: 10). Longer alleles will be truncated and hashed.",
+    )
+    report_group.add_argument(
+        "--igv-hash-len-filename",
+        type=int,
+        default=6,
+        help="Length of hash to append when truncating alleles in filenames (default: 6).",
+    )
+    report_group.add_argument(
+        "--igv-max-variant-part-filename",
+        type=int,
+        default=50,
+        help="Maximum length for the variant part of IGV report filenames",
+    )
+
+    # Performance & Processing
+    performance_group = parser.add_argument_group("Performance & Processing")
+    performance_group.add_argument(
+        "--threads",
+        type=int,
+        default=1,
+        help="Number of parallel worker processes to use for variant extraction and filtering. "
+        "Set to 1 to disable parallelization (default: 1).",
+    )
+    performance_group.add_argument(
         "--chunk-size",
         type=int,
         default=10000,
         help="Number of variants per chunk for memory-efficient processing (default: 10000). "
         "Automatically adjusts to keep genes together.",
     )
-
-    parser.add_argument(
+    performance_group.add_argument(
         "--no-chunked-processing",
         action="store_true",
         help="Disable chunked processing even for large files. "
         "May cause memory issues with very large datasets.",
     )
-
-    parser.add_argument(
+    performance_group.add_argument(
         "--force-chunked-processing",
         action="store_true",
         help="Force chunked processing even for small files. "
         "Useful for testing or memory-constrained environments.",
     )
-
-    parser.add_argument(
+    performance_group.add_argument(
         "--sort-memory-limit",
         type=str,
         default="2G",
         help="Memory limit for external sort command (default: 2G). " "Examples: 500M, 4G, 8G",
     )
-
-    parser.add_argument(
+    performance_group.add_argument(
         "--sort-parallel",
         type=int,
         default=4,

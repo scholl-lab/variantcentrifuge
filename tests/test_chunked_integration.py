@@ -1,6 +1,4 @@
-"""
-Integration test for chunked processing with real-world scenarios.
-"""
+"""Integration test for chunked processing with real-world scenarios."""
 
 import os
 import tempfile
@@ -8,8 +6,6 @@ import pandas as pd
 import pytest
 from unittest.mock import Mock, patch
 import numpy as np
-
-from variantcentrifuge.pipeline import run_pipeline
 
 
 class TestChunkedIntegration:
@@ -96,7 +92,7 @@ class TestChunkedIntegration:
                 df.to_csv(output_regular, sep="\t", index=False)
 
             # Run 2: Chunked processing
-            output_chunked = os.path.join(temp_dir, "output_chunked.tsv")
+            _ = os.path.join(temp_dir, "output_chunked.tsv")
             config_chunked = base_config.copy()
             config_chunked["force_chunked_processing"] = True
 
@@ -122,7 +118,7 @@ class TestChunkedIntegration:
             test_data.to_csv(input_tsv, sep="\t", index=False)
 
             # Mock scoring config
-            scoring_config = {
+            _ = {
                 "variable_mapping": {"cadd": "CADD_phred", "af": "gnomAD_AF"},
                 "formulas": {"test_score": "cadd * (1 - af)"},
             }
@@ -143,7 +139,7 @@ class TestChunkedIntegration:
             input_tsv = os.path.join(temp_dir, "test_input.tsv")
             test_data.to_csv(input_tsv, sep="\t", index=False)
 
-            config = {
+            _ = {
                 "use_chunked_processing": True,
                 "force_chunked_processing": True,
                 "chunk_size": 20,

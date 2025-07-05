@@ -171,7 +171,8 @@ def apply_scoring(df: pd.DataFrame, scoring_config: Dict[str, Any]) -> pd.DataFr
                 # This is crucial for formulas that produce boolean/object results
                 if not pd.api.types.is_numeric_dtype(scored_df[score_name]):
                     logger.debug(
-                        f"Converting score column '{score_name}' from {scored_df[score_name].dtype} to numeric type"
+                        f"Converting score column '{score_name}' from "
+                        f"{scored_df[score_name].dtype} to numeric type"
                     )
                     scored_df[score_name] = pd.to_numeric(scored_df[score_name], errors="coerce")
 
