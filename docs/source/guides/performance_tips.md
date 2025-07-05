@@ -81,3 +81,45 @@ export JAVA_OPTS="-Xmx16g"
 # Use streaming for large files
 bcftools view large.vcf.gz | variantcentrifuge --vcf-file /dev/stdin ...
 ```
+
+## Storage Optimization
+
+### Archive Results
+
+For easy storage and transfer of analysis results, use the `--archive-results` option to create a compressed archive:
+
+```bash
+# Create timestamped archive after analysis
+variantcentrifuge \
+  --gene-file genes.txt \
+  --vcf-file input.vcf.gz \
+  --html-report \
+  --xlsx \
+  --archive-results \
+  --output-file results.tsv
+
+# Result: variantcentrifuge_results_input_20241217_143052.tar.gz
+```
+
+**Benefits:**
+- Automatic compression reduces storage requirements by 50-80%
+- Timestamped archives for version tracking
+- Single file for easy transfer and backup
+- Archive placed outside output directory to avoid recursion
+
+### Intermediate File Management
+
+```bash
+# Delete intermediate files automatically (default behavior)
+variantcentrifuge ... # intermediates deleted after success
+
+# Keep intermediates for debugging
+variantcentrifuge --keep-intermediates ...
+
+# Combine with archiving for complete workflow
+variantcentrifuge \
+  --gene-file genes.txt \
+  --vcf-file input.vcf.gz \
+  --archive-results \  # Archive everything
+  --output-file results.tsv  # Then clean intermediates
+```

@@ -114,6 +114,13 @@ def main() -> None:
         default=False,
         help="Keep intermediate files (by default, they are deleted after successful pipeline completion).",
     )
+    io_group.add_argument(
+        "--archive-results",
+        action="store_true",
+        default=False,
+        help="Create a compressed tar.gz archive of the entire results directory after pipeline completion. "
+        "Archive will be timestamped and placed in the parent directory of the output folder.",
+    )
 
     # Gene Selection
     gene_group = parser.add_argument_group("Gene Selection")

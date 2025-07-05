@@ -44,6 +44,7 @@ variantcentrifuge \
 - `--phenotype-value-column` - Column name for phenotype values
 - `--xlsx` - Convert final output TSV to XLSX format
 - `--keep-intermediates` - Retain intermediate files after successful run
+- `--archive-results` - Create a compressed tar.gz archive of the entire results directory after pipeline completion
 
 ### Analysis Options
 
