@@ -485,6 +485,31 @@ def main() -> None:
         help="Number of parallel threads for sorting (default: 4)",
     )
 
+    # Checkpoint & Resume Options
+    checkpoint_group = parser.add_argument_group("Checkpoint & Resume Options")
+    checkpoint_group.add_argument(
+        "--enable-checkpoint",
+        action="store_true",
+        help="Enable checkpoint system to track pipeline progress and allow resumption",
+    )
+    checkpoint_group.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume pipeline from the last successful checkpoint. "
+        "Requires --enable-checkpoint and previous run in same output directory",
+    )
+    checkpoint_group.add_argument(
+        "--checkpoint-checksum",
+        action="store_true",
+        help="Calculate file checksums for checkpoint validation (slower but more reliable). "
+        "Default is to use file size and modification time only",
+    )
+    checkpoint_group.add_argument(
+        "--show-checkpoint-status",
+        action="store_true",
+        help="Show checkpoint status for the output directory and exit",
+    )
+
     # Data Privacy Options
     privacy_group = parser.add_argument_group("Data Privacy Options")
     privacy_group.add_argument(
@@ -526,6 +551,36 @@ def main() -> None:
         action="store_true",
         help="Also create pseudonymized PED file for sharing",
     )
+
+    # For --show-checkpoint-status, we don't need other required arguments
+    if "--show-checkpoint-status" in sys.argv:
+        # Create a minimal parser just for checkpoint status
+        status_parser = argparse.ArgumentParser(description="Show checkpoint status")
+        status_parser.add_argument("--show-checkpoint-status", action="store_true")
+        status_parser.add_argument("--output-dir", default="output", help="Output directory")
+        status_parser.add_argument(
+            "--log-level", choices=["DEBUG", "INFO", "WARN", "ERROR"], default="INFO"
+        )
+        status_args = status_parser.parse_args()
+
+        # Configure logging
+        log_level_map = {
+            "DEBUG": logging.DEBUG,
+            "INFO": logging.INFO,
+            "WARN": logging.WARNING,
+            "ERROR": logging.ERROR,
+        }
+        logging.getLogger("variantcentrifuge").setLevel(log_level_map[status_args.log_level])
+
+        # Show checkpoint status
+        from .checkpoint import PipelineState
+
+        pipeline_state = PipelineState(status_args.output_dir)
+        if pipeline_state.load():
+            print(pipeline_state.get_summary())
+        else:
+            print(f"No checkpoint state found in {status_args.output_dir}")
+        sys.exit(0)
 
     args: argparse.Namespace = parser.parse_args()
 
@@ -741,6 +796,19 @@ def main() -> None:
 
     # Statistics configuration
     cfg["stats_config"] = args.stats_config
+
+    # Checkpoint configuration
+    cfg["enable_checkpoint"] = args.enable_checkpoint
+    cfg["resume"] = args.resume
+    cfg["checkpoint_checksum"] = args.checkpoint_checksum
+    cfg["pipeline_version"] = __version__  # Add pipeline version for compatibility checking
+
+    # Note: --show-checkpoint-status is handled earlier before argument parsing
+
+    # Validate checkpoint arguments
+    if args.resume and not args.enable_checkpoint:
+        logger.error("--resume requires --enable-checkpoint to be set")
+        sys.exit(1)
 
     # Pseudonymization configuration
     cfg["pseudonymize"] = args.pseudonymize

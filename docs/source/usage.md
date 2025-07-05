@@ -54,6 +54,13 @@ variantcentrifuge \
 - `--bam-mapping-file` - TSV/CSV file mapping sample IDs to BAM files
 - `--igv-reference` - Genome reference for IGV (e.g., 'hg19', 'hg38')
 
+### Checkpoint Options
+
+- `--enable-checkpoint` - Enable checkpoint tracking for pipeline state
+- `--resume` - Resume pipeline from last successful checkpoint (requires --enable-checkpoint)
+- `--checkpoint-checksum` - Calculate file checksums for checkpoint validation (slower but more reliable)
+- `--show-checkpoint-status` - Display checkpoint status for a previous run and exit
+
 ### Scoring Options
 
 - `--scoring-config-path` - Path to scoring configuration directory containing variable_assignment_config.json and formula_config.json
@@ -195,6 +202,36 @@ variantcentrifuge \
   --inheritance-mode columns \
   --final-filter 'Inheritance_Pattern in ["de_novo", "compound_heterozygous"] and Inheritance_Confidence > 0.8' \
   --output-file denovo_and_compound_het.tsv
+```
+
+### Checkpoint and Resume
+
+```bash
+# Run large analysis with checkpoint tracking
+variantcentrifuge \
+  --gene-file all_protein_coding_genes.txt \
+  --vcf-file large_cohort.vcf.gz \
+  --enable-checkpoint \
+  --threads 16 \
+  --preset rare,coding \
+  --html-report \
+  --output-file all_genes_analysis.tsv
+
+# If interrupted, resume from last checkpoint
+variantcentrifuge \
+  --gene-file all_protein_coding_genes.txt \
+  --vcf-file large_cohort.vcf.gz \
+  --enable-checkpoint \
+  --resume \
+  --threads 16 \
+  --preset rare,coding \
+  --html-report \
+  --output-file all_genes_analysis.tsv
+
+# Check status of a previous run
+variantcentrifuge \
+  --show-checkpoint-status \
+  --output-dir previous_analysis/
 ```
 
 ## Input File Formats

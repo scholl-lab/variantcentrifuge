@@ -27,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - PED file pseudonymization support (`--pseudonymize-ped`)
   - Secure mapping table storage in parent directory
   - Comprehensive test suite and documentation
+- **Checkpoint and resume system** for robust pipeline execution:
+  - Automatic pipeline state tracking with `.variantcentrifuge_state.json`
+  - Resume capability after interruptions (`--enable-checkpoint` and `--resume`)
+  - Full support for parallel processing (`--threads`)
+  - Optional file checksum validation (`--checkpoint-checksum`)
+  - Status inspection without resuming (`--show-checkpoint-status`)
+  - Thread-safe state updates for parallel chunk processing
+  - Comprehensive tracking of all major pipeline steps
 
 ### Changed
 - Documentation migrated from README to structured Sphinx documentation

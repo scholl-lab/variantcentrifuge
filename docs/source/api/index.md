@@ -10,6 +10,7 @@ This section provides auto-generated documentation from the VariantCentrifuge so
 cli
 pipeline
 config
+checkpoint
 ```
 
 ## Analysis Components
@@ -71,6 +72,7 @@ gene_bed
 - **{doc}`cli`** - Command-line interface and argument parsing
 - **{doc}`pipeline`** - Main workflow orchestration and coordination
 - **{doc}`config`** - Configuration file loading and validation
+- **{doc}`checkpoint`** - Pipeline state tracking and resume functionality
 
 ### Analysis & Statistics
 

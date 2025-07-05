@@ -123,3 +123,139 @@ variantcentrifuge \
   --archive-results \  # Archive everything
   --output-file results.tsv  # Then clean intermediates
 ```
+
+## Checkpoint and Resume
+
+VariantCentrifuge includes a checkpoint system that tracks pipeline progress and allows resumption after interruptions. This is particularly useful for long-running analyses on large datasets.
+
+### Basic Checkpoint Usage
+
+Enable checkpointing with the `--enable-checkpoint` flag:
+
+```bash
+# Run with checkpoint tracking
+variantcentrifuge \
+  --gene-file large_gene_list.txt \
+  --vcf-file large_cohort.vcf.gz \
+  --enable-checkpoint \
+  --threads 8 \
+  --output-file results.tsv
+```
+
+If the pipeline is interrupted (e.g., system crash, job timeout), resume from the last checkpoint:
+
+```bash
+# Resume from checkpoint
+variantcentrifuge \
+  --gene-file large_gene_list.txt \
+  --vcf-file large_cohort.vcf.gz \
+  --enable-checkpoint \
+  --resume \
+  --threads 8 \
+  --output-file results.tsv
+```
+
+### How Checkpointing Works
+
+The checkpoint system:
+- Tracks each major pipeline step (gene BED creation, variant extraction, filtering, etc.)
+- Saves state to `.variantcentrifuge_state.json` in the output directory
+- Records input/output files, parameters, and completion status for each step
+- Validates configuration hasn't changed between runs
+- Skips already-completed steps when resuming
+
+### Checkpoint Features
+
+#### Parallel Processing Support
+Checkpoints work seamlessly with parallel processing (`--threads`):
+- Tracks individual chunk processing in parallel runs
+- Properly handles the merge step after parallel processing
+- Maintains thread-safe state updates
+
+#### File Integrity Checking
+Optional file checksum validation ensures data integrity:
+
+```bash
+# Enable checksum validation (slower but more reliable)
+variantcentrifuge \
+  --gene-file genes.txt \
+  --vcf-file input.vcf.gz \
+  --enable-checkpoint \
+  --checkpoint-checksum \
+  --output-file results.tsv
+```
+
+#### Status Inspection
+Check the status of a previous run without resuming:
+
+```bash
+# Show checkpoint status
+variantcentrifuge \
+  --show-checkpoint-status \
+  --output-dir previous_analysis/
+```
+
+### Tracked Pipeline Steps
+
+The checkpoint system tracks these major steps:
+1. **Gene BED creation** - Converting gene names to genomic regions
+2. **Parallel processing** (if using `--threads`):
+   - BED file splitting
+   - Individual chunk processing
+   - Chunk merging
+3. **TSV sorting** - Sorting extracted variants by gene
+4. **Genotype replacement** - Converting genotypes to sample IDs
+5. **Phenotype integration** - Adding phenotype data
+6. **Variant analysis** - Computing statistics and scores
+7. **Final output** - Writing results and reports
+
+### Best Practices
+
+1. **Use for long-running analyses**: Particularly beneficial for:
+   - Large cohort VCFs (>100 samples)
+   - Extensive gene lists (>100 genes)
+   - Complex scoring and annotation pipelines
+
+2. **Combine with job schedulers**: Ideal for HPC environments:
+   ```bash
+   #!/bin/bash
+   #SBATCH --time=24:00:00
+   #SBATCH --mem=32G
+   
+   variantcentrifuge \
+     --gene-file all_genes.txt \
+     --vcf-file cohort.vcf.gz \
+     --enable-checkpoint \
+     --resume \  # Safe to use even on first run
+     --threads 16 \
+     --output-file results.tsv
+   ```
+
+3. **Monitor progress**: The log shows which steps are skipped:
+   ```
+   INFO: Skipping gene BED creation (already completed)
+   INFO: Skipping chunk merging (already completed)
+   INFO: Resuming from genotype replacement...
+   ```
+
+### Limitations
+
+- Configuration must remain identical between runs (same filters, fields, etc.)
+- Pipeline version must match (no resume across VariantCentrifuge updates)
+- Intermediate files must not be manually modified
+- Output directory structure must remain intact
+
+### Troubleshooting Checkpoint Issues
+
+1. **"Configuration has changed, cannot resume"**
+   - Ensure all command-line arguments match the original run
+   - Check that config files haven't been modified
+
+2. **"Output file validation failed"**
+   - An intermediate file may have been corrupted or deleted
+   - Remove `.variantcentrifuge_state.json` to start fresh
+   - Use `--checkpoint-checksum` for better validation
+
+3. **"Pipeline version mismatch"**
+   - VariantCentrifuge was updated between runs
+   - Complete the analysis with the original version or start fresh
