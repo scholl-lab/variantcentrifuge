@@ -1,0 +1,95 @@
+{
+  "stats_version": "1.0",
+  "description": "Default statistics configuration for VariantCentrifuge",
+  
+  "dataset_stats": [
+    {
+      "name": "total_variants",
+      "expression": "len(df)",
+      "description": "Total number of variants in dataset"
+    },
+    {
+      "name": "total_genes",
+      "expression": "df['GENE'].nunique()",
+      "required_columns": ["GENE"],
+      "description": "Number of unique genes with variants"
+    },
+    {
+      "name": "total_samples",
+      "expression": "len([col for col in df.columns if col.endswith('_GT')])",
+      "description": "Number of samples in dataset"
+    },
+    {
+      "name": "high_impact_count",
+      "expression": "(df['IMPACT'] == 'HIGH').sum()",
+      "required_columns": ["IMPACT"],
+      "description": "Number of HIGH impact variants"
+    },
+    {
+      "name": "moderate_impact_count",
+      "expression": "(df['IMPACT'] == 'MODERATE').sum()",
+      "required_columns": ["IMPACT"],
+      "description": "Number of MODERATE impact variants"
+    },
+    {
+      "name": "mean_allele_frequency",
+      "expression": "pd.to_numeric(df['gnomAD_exomes_AF'], errors='coerce').mean()",
+      "required_columns": ["gnomAD_exomes_AF"],
+      "description": "Mean allele frequency across all variants"
+    }
+  ],
+  
+  "gene_stats": [
+    {
+      "name": "variant_count",
+      "expression": "size()",
+      "groupby": "GENE",
+      "description": "Number of variants per gene"
+    },
+    {
+      "name": "high_impact_variants",
+      "expression": "(group_df['IMPACT'] == 'HIGH').sum()",
+      "groupby": "GENE",
+      "required_columns": ["IMPACT"],
+      "description": "Number of HIGH impact variants per gene"
+    },
+    {
+      "name": "mean_cadd_score",
+      "expression": "pd.to_numeric(group_df['dbNSFP_CADD_phred'], errors='coerce').mean()",
+      "groupby": "GENE",
+      "required_columns": ["dbNSFP_CADD_phred"],
+      "description": "Mean CADD score per gene"
+    },
+    {
+      "name": "max_cadd_score",
+      "expression": "pd.to_numeric(group_df['dbNSFP_CADD_phred'], errors='coerce').max()",
+      "groupby": "GENE", 
+      "required_columns": ["dbNSFP_CADD_phred"],
+      "description": "Maximum CADD score per gene"
+    },
+    {
+      "name": "unique_consequences",
+      "expression": "group_df['Consequence'].nunique()",
+      "groupby": "GENE",
+      "required_columns": ["Consequence"],
+      "description": "Number of unique consequence types per gene"
+    }
+  ],
+  
+  "grouped_stats": [
+    {
+      "name": "variants_by_impact_and_gene",
+      "expression": "size()",
+      "groupby": ["GENE", "IMPACT"],
+      "output_format": "pivot",
+      "description": "Cross-tabulation of variants by gene and impact"
+    },
+    {
+      "name": "inheritance_pattern_summary",
+      "expression": "size()",
+      "groupby": ["Inheritance_Pattern"],
+      "required_columns": ["Inheritance_Pattern"],
+      "description": "Count of variants by inheritance pattern"
+    }
+  ]
+}

@@ -1,0 +1,126 @@
+{
+  "stats_version": "1.0",
+  "description": "Example custom statistics configuration showing various capabilities",
+  
+  "dataset_stats": [
+    {
+      "name": "total_samples",
+      "expression": "len([col for col in df.columns if col.endswith('_GT')])",
+      "description": "Count of samples in the dataset"
+    },
+    {
+      "name": "ultra_rare_variant_count",
+      "expression": "(pd.to_numeric(df['gnomAD_exomes_AF'], errors='coerce') < 0.0001).sum()",
+      "required_columns": ["gnomAD_exomes_AF"],
+      "description": "Count of ultra-rare variants (AF < 0.0001)"
+    },
+    {
+      "name": "mean_cadd_high_impact",
+      "expression": "pd.to_numeric(df[df['IMPACT'] == 'HIGH']['dbNSFP_CADD_phred'], errors='coerce').mean()",
+      "required_columns": ["IMPACT", "dbNSFP_CADD_phred"],
+      "description": "Mean CADD score for HIGH impact variants"
+    },
+    {
+      "name": "pathogenic_variant_fraction",
+      "expression": "df['ClinicalSignificance'].str.contains('Pathogenic', case=False, na=False).mean()",
+      "required_columns": ["ClinicalSignificance"],
+      "description": "Fraction of variants classified as pathogenic"
+    }
+  ],
+  
+  "gene_stats": [
+    {
+      "name": "variant_count",
+      "expression": "size()",
+      "groupby": "GENE",
+      "description": "Number of variants per gene"
+    },
+    {
+      "name": "mean_cadd_score",
+      "expression": "pd.to_numeric(group_df['dbNSFP_CADD_phred'], errors='coerce').mean()",
+      "groupby": "GENE",
+      "required_columns": ["dbNSFP_CADD_phred"],
+      "description": "Mean CADD score per gene"
+    },
+    {
+      "name": "max_cadd_score",
+      "expression": "pd.to_numeric(group_df['dbNSFP_CADD_phred'], errors='coerce').max()",
+      "groupby": "GENE",
+      "required_columns": ["dbNSFP_CADD_phred"],
+      "description": "Maximum CADD score per gene"
+    },
+    {
+      "name": "std_cadd_score",
+      "expression": "pd.to_numeric(group_df['dbNSFP_CADD_phred'], errors='coerce').std()",
+      "groupby": "GENE",
+      "required_columns": ["dbNSFP_CADD_phred"],
+      "description": "Standard deviation of CADD scores per gene"
+    },
+    {
+      "name": "ultra_rare_count",
+      "expression": "(pd.to_numeric(group_df['gnomAD_exomes_AF'], errors='coerce') < 0.0001).sum()",
+      "groupby": "GENE",
+      "required_columns": ["gnomAD_exomes_AF"],
+      "description": "Number of ultra-rare variants per gene"
+    },
+    {
+      "name": "high_impact_ratio",
+      "expression": "(group_df['IMPACT'] == 'HIGH').mean()",
+      "groupby": "GENE",
+      "required_columns": ["IMPACT"],
+      "description": "Fraction of HIGH impact variants per gene"
+    },
+    {
+      "name": "unique_consequences",
+      "expression": "group_df['Consequence'].nunique()",
+      "groupby": "GENE",
+      "required_columns": ["Consequence"],
+      "description": "Number of unique consequence types per gene"
+    },
+    {
+      "name": "mean_revel_score",
+      "expression": "pd.to_numeric(group_df['dbNSFP_REVEL_score'], errors='coerce').mean()",
+      "groupby": "GENE",
+      "required_columns": ["dbNSFP_REVEL_score"],
+      "description": "Mean REVEL score per gene"
+    },
+    {
+      "name": "pathogenic_count",
+      "expression": "group_df['ClinicalSignificance'].str.contains('Pathogenic', case=False, na=False).sum()",
+      "groupby": "GENE",
+      "required_columns": ["ClinicalSignificance"],
+      "description": "Number of pathogenic variants per gene"
+    }
+  ],
+  
+  "grouped_stats": [
+    {
+      "name": "variants_by_impact_consequence",
+      "expression": "size()",
+      "groupby": ["IMPACT", "Consequence"],
+      "output_format": "long",
+      "description": "Count of variants by impact and consequence type"
+    },
+    {
+      "name": "inheritance_pattern_summary",
+      "expression": "size()",
+      "groupby": ["Inheritance_Pattern"],
+      "required_columns": ["Inheritance_Pattern"],
+      "description": "Count of variants by inheritance pattern"
+    },
+    {
+      "name": "gene_impact_matrix",
+      "expression": "size()",
+      "groupby": ["GENE", "IMPACT"],
+      "output_format": "pivot",
+      "description": "Cross-tabulation of genes vs impact types"
+    },
+    {
+      "name": "cadd_by_impact",
+      "expression": "pd.to_numeric(group_df['dbNSFP_CADD_phred'], errors='coerce').mean()",
+      "groupby": ["IMPACT"],
+      "required_columns": ["dbNSFP_CADD_phred"],
+      "description": "Mean CADD score by impact type"
+    }
+  ]
+}

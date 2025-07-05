@@ -14,11 +14,13 @@ All functions return DataFrames suitable for further processing.
 """
 
 import logging
-from typing import Set
+from typing import Set, Dict, Optional
+import os
 
 import pandas as pd
 
 from .helpers import extract_sample_and_genotype
+from .stats_engine import StatsEngine
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -182,10 +184,45 @@ def compute_variant_type_summary(df: pd.DataFrame) -> pd.DataFrame:
     return pivot_types
 
 
+def compute_custom_stats(
+    df: pd.DataFrame, stats_config: Optional[str] = None
+) -> Dict[str, pd.DataFrame]:
+    """
+    Compute custom statistics based on configuration.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input variants DataFrame
+    stats_config : Optional[str]
+        Path to statistics configuration JSON file.
+        If None, uses default configuration.
+
+    Returns
+    -------
+    Dict[str, pd.DataFrame]
+        Dictionary with statistics results by category (dataset, genes, groups)
+    """
+    if stats_config is None:
+        # Use default configuration
+        default_config_path = os.path.join(os.path.dirname(__file__), "default_stats_config.json")
+        stats_config = default_config_path
+
+    try:
+        engine = StatsEngine(stats_config)
+        results = engine.compute(df)
+        logger.info(f"Computed custom statistics using config: {stats_config}")
+        return results
+    except Exception as e:
+        logger.error(f"Failed to compute custom statistics: {e}")
+        return {}
+
+
 def merge_and_format_stats(
     gene_stats: pd.DataFrame,
     impact_summary: pd.DataFrame,
     variant_type_summary: pd.DataFrame,
+    custom_stats: Optional[Dict[str, pd.DataFrame]] = None,
 ) -> pd.DataFrame:
     """
     Merge gene_stats with impact_summary and variant_type_summary into a single DataFrame.
@@ -198,6 +235,8 @@ def merge_and_format_stats(
         DataFrame of gene vs. impact counts.
     variant_type_summary : pd.DataFrame
         DataFrame of gene vs. variant type counts.
+    custom_stats : Optional[Dict[str, pd.DataFrame]]
+        Dictionary of custom statistics from StatsEngine
 
     Returns
     -------
@@ -210,6 +249,14 @@ def merge_and_format_stats(
         merged = pd.merge(merged, impact_summary, on="GENE", how="left")
     if not variant_type_summary.empty:
         merged = pd.merge(merged, variant_type_summary, on="GENE", how="left")
+
+    # Merge custom gene-level stats if available
+    if custom_stats and "genes" in custom_stats and not custom_stats["genes"].empty:
+        custom_gene_stats = custom_stats["genes"]
+        if "GENE" in custom_gene_stats.columns:
+            merged = pd.merge(merged, custom_gene_stats, on="GENE", how="left")
+            logger.debug("Merged custom gene-level statistics")
+
     merged = merged.fillna(0)
     logger.debug("All gene-level stats merged.")
     return merged

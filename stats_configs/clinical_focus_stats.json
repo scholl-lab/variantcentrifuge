@@ -1,0 +1,81 @@
+{
+  "stats_version": "1.0",
+  "description": "Statistics configuration focused on clinical interpretation",
+  
+  "dataset_stats": [
+    {
+      "name": "pathogenic_or_likely_pathogenic",
+      "expression": "df['ClinicalSignificance'].str.contains('athogenic', case=False, na=False).sum()",
+      "required_columns": ["ClinicalSignificance"],
+      "description": "Count of P/LP variants"
+    },
+    {
+      "name": "vus_count",
+      "expression": "df['ClinicalSignificance'].str.contains('uncertain|VUS', case=False, regex=True, na=False).sum()",
+      "required_columns": ["ClinicalSignificance"],
+      "description": "Count of variants of uncertain significance"
+    },
+    {
+      "name": "acmg_criteria_available",
+      "expression": "(df['ACMG_Classification'].notna()).sum()",
+      "required_columns": ["ACMG_Classification"],
+      "description": "Count of variants with ACMG classification"
+    },
+    {
+      "name": "mean_cadd_pathogenic",
+      "expression": "pd.to_numeric(df[df['ClinicalSignificance'].str.contains('athogenic', case=False, na=False)]['dbNSFP_CADD_phred'], errors='coerce').mean()",
+      "required_columns": ["ClinicalSignificance", "dbNSFP_CADD_phred"],
+      "description": "Mean CADD score for P/LP variants"
+    }
+  ],
+  
+  "gene_stats": [
+    {
+      "name": "clinvar_variants",
+      "expression": "(group_df['ClinicalSignificance'].notna()).sum()",
+      "groupby": "GENE",
+      "required_columns": ["ClinicalSignificance"],
+      "description": "Number of ClinVar annotated variants per gene"
+    },
+    {
+      "name": "pathogenic_burden",
+      "expression": "group_df['ClinicalSignificance'].str.contains('athogenic', case=False, na=False).sum()",
+      "groupby": "GENE",
+      "required_columns": ["ClinicalSignificance"],
+      "description": "Number of P/LP variants per gene"
+    },
+    {
+      "name": "mean_conservation_score",
+      "expression": "pd.to_numeric(group_df['dbNSFP_phyloP100way_vertebrate'], errors='coerce').mean()",
+      "groupby": "GENE",
+      "required_columns": ["dbNSFP_phyloP100way_vertebrate"],
+      "description": "Mean conservation score per gene"
+    },
+    {
+      "name": "splicing_variants",
+      "expression": "group_df['Consequence'].str.contains('splice', case=False, na=False).sum()",
+      "groupby": "GENE",
+      "required_columns": ["Consequence"],
+      "description": "Number of splicing-related variants per gene"
+    }
+  ],
+  
+  "grouped_stats": [
+    {
+      "name": "clinical_significance_by_gene",
+      "expression": "size()",
+      "groupby": ["GENE", "ClinicalSignificance"],
+      "required_columns": ["ClinicalSignificance"],
+      "output_format": "pivot",
+      "description": "Clinical significance distribution by gene"
+    },
+    {
+      "name": "inheritance_clinical_correlation",
+      "expression": "size()",
+      "groupby": ["Inheritance_Pattern", "ClinicalSignificance"],
+      "required_columns": ["Inheritance_Pattern", "ClinicalSignificance"],
+      "output_format": "long",
+      "description": "Correlation between inheritance patterns and clinical significance"
+    }
+  ]
+}

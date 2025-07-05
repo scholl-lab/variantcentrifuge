@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Example script demonstrating the pseudonymization functionality.
-"""
+"""Example script demonstrating the pseudonymization functionality."""
 
 import pandas as pd
 from variantcentrifuge.pseudonymizer import create_pseudonymizer

@@ -205,8 +205,16 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
         comprehensive_df = stats.compute_gene_stats(df)
         impact_summary = stats.compute_impact_summary(df)
         variant_type_summary = stats.compute_variant_type_summary(df)
+
+        # Compute custom statistics if configured
+        custom_stats = None
+        stats_config_path = cfg.get("stats_config")
+        if stats_config_path:
+            logger.info(f"Computing custom statistics using config: {stats_config_path}")
+            custom_stats = stats.compute_custom_stats(df, stats_config_path)
+
         combined_stats = stats.merge_and_format_stats(
-            comprehensive_df, impact_summary, variant_type_summary
+            comprehensive_df, impact_summary, variant_type_summary, custom_stats
         )
         logger.debug("Comprehensive statistics computed.")
 
@@ -222,6 +230,41 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
             logger.debug("Appending comprehensive stats to the stats file.")
             comp_stats_df = pd.DataFrame(comp_stats_list, columns=["metric", "value"])
             comp_stats_df.to_csv(stats_output_file, sep="\t", index=False, header=False, mode="a")
+
+            # Write custom stats if available
+            if custom_stats:
+                # Dataset-level custom stats
+                if "dataset" in custom_stats and not custom_stats["dataset"].empty:
+                    logger.debug("Appending custom dataset stats to the stats file.")
+                    custom_stats["dataset"].to_csv(
+                        stats_output_file, sep="\t", index=False, header=False, mode="a"
+                    )
+
+                # Grouped custom stats (formatted as metric/value pairs)
+                if "groups" in custom_stats:
+                    for stat_name, stat_df in custom_stats["groups"].items():
+                        logger.debug(
+                            f"Appending custom grouped stats '{stat_name}' to the stats file."
+                        )
+                        # Convert to metric/value format
+                        for idx, row in stat_df.iterrows():
+                            if isinstance(row, pd.Series):
+                                for col in stat_df.columns:
+                                    if col not in stat_df.index.names:
+                                        metric_name = (
+                                            f"{stat_name}_{idx}_{col}"
+                                            if isinstance(idx, tuple)
+                                            else f"{stat_name}_{idx}_{col}"
+                                        )
+                                        comp_stats_list.append([metric_name, str(row[col])])
+
+                    if comp_stats_list:
+                        additional_stats_df = pd.DataFrame(
+                            comp_stats_list, columns=["metric", "value"]
+                        )
+                        additional_stats_df.to_csv(
+                            stats_output_file, sep="\t", index=False, header=False, mode="a"
+                        )
     else:
         logger.debug("No comprehensive stats requested (no_stats=True).")
 

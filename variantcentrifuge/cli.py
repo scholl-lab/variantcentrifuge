@@ -322,6 +322,10 @@ def main() -> None:
         help="Skip the statistics computation step.",
     )
     stats_group.add_argument("--stats-output-file", help="File to write analysis statistics")
+    stats_group.add_argument(
+        "--stats-config",
+        help="Path to custom statistics configuration JSON file. If not provided, uses default statistics.",
+    )
     # Inheritance Analysis
     inheritance_group = parser.add_argument_group("Inheritance Analysis")
     inheritance_group.add_argument(
@@ -734,6 +738,9 @@ def main() -> None:
     cfg["force_chunked_processing"] = args.force_chunked_processing
     cfg["sort_memory_limit"] = args.sort_memory_limit
     cfg["sort_parallel"] = args.sort_parallel
+
+    # Statistics configuration
+    cfg["stats_config"] = args.stats_config
 
     # Pseudonymization configuration
     cfg["pseudonymize"] = args.pseudonymize
