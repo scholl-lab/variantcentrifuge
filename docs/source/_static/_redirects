@@ -1,0 +1,22 @@
+# Redirects for VariantCentrifuge documentation
+# Format: from_path to_path status_code
+
+# Common redirects
+/docs/* /latest/:splat 301
+/documentation/* /latest/:splat 301
+
+# Legacy URLs
+/manual/* /usage/ 301
+/tutorial/* /guides/ 301
+/getting-started /installation/ 301
+/quickstart /usage/#quick-start 301
+
+# API redirects
+/api/reference/* /api/:splat 301
+/reference/* /api/:splat 301
+
+# Simplified URLs
+/install /installation/ 301
+/guide /guides/ 301
+/examples /usage/#examples 301
+/config /configuration/ 301

@@ -12,6 +12,9 @@ from variantcentrifuge.version import __version__
 # Add the project root to the path so autodoc can find the variantcentrifuge module
 sys.path.insert(0, os.path.abspath("../.."))
 
+# Add custom extensions directory
+sys.path.insert(0, os.path.abspath("_ext"))
+
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
@@ -35,6 +38,7 @@ extensions = [
     "sphinx.ext.intersphinx",  # Link to other project documentations
     "myst_parser",  # Enable writing docs in Markdown
     "sphinx_autodoc_typehints",  # Automatically document typehints
+    "sphinx_seo",  # Custom SEO extension
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -61,6 +65,10 @@ language = "en"
 
 html_theme = "furo"
 html_static_path = ["_static"]
+
+# SEO Configuration
+html_baseurl = "https://scholl-lab.github.io/variantcentrifuge/"
+html_title = "VariantCentrifuge - Clinical Variant Analysis Tool"
 
 # Theme options for Furo
 html_theme_options = {

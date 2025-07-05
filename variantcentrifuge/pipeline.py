@@ -33,6 +33,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
+from contextlib import nullcontext
 
 import pandas as pd
 
@@ -89,6 +90,9 @@ from .utils import (
 
 # Import the SNPeff annotation splitting function
 from .vcf_eff_one_per_line import process_vcf_file
+
+# Import checkpoint system
+from .checkpoint import PipelineState, CheckpointContext
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -788,6 +792,42 @@ def parse_samples_from_vcf(vcf_file: str) -> List[str]:
     return samples
 
 
+def _process_bed_chunk_with_checkpoint(
+    chunk_index: int,
+    chunk_bed_file: str,
+    original_vcf: str,
+    base_name: str,
+    intermediate_dir: str,
+    cfg: Dict[str, Any],
+    transcripts: List[str] = None,
+    args: argparse.Namespace = None,
+    step_name: str = None,
+    checkpointing_enabled: bool = False,
+) -> str:
+    """Worker function to process a single BED chunk with checkpoint tracking.
+
+    Note: This function no longer manages checkpoint state directly to avoid
+    race conditions. The main process handles state updates after completion.
+    """
+    try:
+        # Call the original function
+        result = _process_bed_chunk(
+            chunk_index,
+            chunk_bed_file,
+            original_vcf,
+            base_name,
+            intermediate_dir,
+            cfg,
+            transcripts,
+            args,
+        )
+        return result
+    except Exception as e:
+        # Log the error but let the main process handle checkpoint failure
+        logger.error(f"Worker {chunk_index} failed processing chunk: {e}")
+        raise
+
+
 def _process_bed_chunk(
     chunk_index: int,
     chunk_bed_file: str,
@@ -905,14 +945,42 @@ def _run_parallel_pipeline(
     args, cfg, gene_name, num_workers, base_name, intermediate_dir, transcripts=None
 ):
     """Handle the parallel execution of the pipeline by splitting the master BED file."""
+    # Get pipeline state from config
+    pipeline_state = cfg.get("_pipeline_state")
+
     logger.info("Generating master BED file for all specified genes...")
-    master_bed_file = get_gene_bed(
-        cfg["reference"],
-        gene_name,
-        interval_expand=cfg.get("interval_expand", 0),
-        add_chr=cfg.get("add_chr", True),
-        output_dir=args.output_dir,
-    )
+
+    # Checkpoint: Gene BED creation
+    if pipeline_state and pipeline_state.should_skip_step("parallel_gene_bed_creation"):
+        logger.info("Skipping gene BED creation (already completed)")
+        # Get the actual path from the checkpoint state
+        step_info = pipeline_state.state["steps"].get("parallel_gene_bed_creation")
+        if step_info and step_info.output_files:
+            master_bed_file = step_info.output_files[0].path
+            logger.debug(f"Using BED file from checkpoint: {master_bed_file}")
+        else:
+            # Fallback to reconstructing the expected path
+            logger.warning("Could not find BED file path in checkpoint state, reconstructing...")
+            master_bed_file = os.path.join(
+                args.output_dir,
+                "bed_cache",
+                f"genes_{hashlib.md5(gene_name.encode()).hexdigest()}.bed",
+            )
+    else:
+        with (
+            CheckpointContext(pipeline_state, "parallel_gene_bed_creation")
+            if pipeline_state
+            else nullcontext()
+        ) as ctx:
+            master_bed_file = get_gene_bed(
+                cfg["reference"],
+                gene_name,
+                interval_expand=cfg.get("interval_expand", 0),
+                add_chr=cfg.get("add_chr", True),
+                output_dir=args.output_dir,
+            )
+            if ctx and not isinstance(ctx, nullcontext):
+                ctx.add_output_file(master_bed_file)
 
     if not os.path.exists(master_bed_file) or os.path.getsize(master_bed_file) == 0:
         logger.error("Gene BED file could not be created or is empty. Check genes or reference.")
@@ -936,8 +1004,43 @@ def _run_parallel_pipeline(
             if cfg.get("debug_level", "INFO") == "ERROR":
                 sys.exit(1)
 
-    logger.info(f"Splitting master BED file into {num_workers} chunks...")
-    chunk_bed_files = split_bed_file(master_bed_file, num_workers, intermediate_dir)
+    # Checkpoint: BED file splitting
+    if pipeline_state and pipeline_state.should_skip_step("parallel_bed_splitting"):
+        logger.info("Skipping BED file splitting (already completed)")
+        # Get the actual chunk files from the checkpoint state
+        step_info = pipeline_state.state["steps"].get("parallel_bed_splitting")
+        if step_info and step_info.output_files:
+            chunk_bed_files = [f.path for f in step_info.output_files]
+            logger.debug(f"Using {len(chunk_bed_files)} chunk files from checkpoint")
+        else:
+            # Fallback to reconstructing chunk file names
+            logger.warning(
+                "Could not find chunk files in checkpoint state, looking for existing files..."
+            )
+            chunk_bed_files = []
+            i = 0
+            while True:
+                chunk_file = os.path.join(intermediate_dir, f"chunk_{i}.bed")
+                if os.path.exists(chunk_file):
+                    chunk_bed_files.append(chunk_file)
+                    i += 1
+                else:
+                    break
+            logger.debug(f"Found {len(chunk_bed_files)} existing chunk files")
+    else:
+        with (
+            CheckpointContext(
+                pipeline_state, "parallel_bed_splitting", parameters={"num_chunks": num_workers}
+            )
+            if pipeline_state
+            else nullcontext()
+        ) as ctx:
+            logger.info(f"Splitting master BED file into {num_workers} chunks...")
+            chunk_bed_files = split_bed_file(master_bed_file, num_workers, intermediate_dir)
+            if ctx and not isinstance(ctx, nullcontext):
+                ctx.add_input_file(master_bed_file)
+                for chunk_file in chunk_bed_files:
+                    ctx.add_output_file(chunk_file)
 
     if not chunk_bed_files:
         logger.error("Failed to split BED file into chunks. Falling back to single-threaded mode.")
@@ -945,61 +1048,159 @@ def _run_parallel_pipeline(
             args, cfg, gene_name, base_name, intermediate_dir, transcripts
         )
 
+    # Process chunks - check which ones need processing
     chunk_tsv_files = []
-    with ProcessPoolExecutor(max_workers=num_workers) as executor:
-        futures = {
-            executor.submit(
-                _process_bed_chunk,
-                i,
-                bed_chunk,
-                args.vcf_file,
-                base_name,
-                intermediate_dir,
-                cfg,
-                transcripts,
-                args,
-            ): i
-            for i, bed_chunk in enumerate(chunk_bed_files)
-        }
-        for future in as_completed(futures):
-            try:
-                result_path = future.result()
-                chunk_tsv_files.append(result_path)
-            except Exception as e:
-                logger.error(f"A worker process failed: {e}")
-                executor.shutdown(wait=False, cancel_futures=True)
-                sys.exit("Pipeline aborted due to worker failure.")
+    chunks_to_process = []
+    chunk_info = {}  # Track all chunks for proper ordering
+
+    for i, bed_chunk in enumerate(chunk_bed_files):
+        step_name = f"parallel_chunk_{i}_processing"
+        expected_output = os.path.join(intermediate_dir, f"{base_name}.chunk_{i}.extracted.tsv.gz")
+        chunk_info[i] = expected_output
+
+        if pipeline_state and pipeline_state.should_skip_step(step_name):
+            logger.info(f"Skipping chunk {i} processing (already completed)")
+            # Don't append to chunk_tsv_files yet - we'll sort them later
+        else:
+            chunks_to_process.append((i, bed_chunk, step_name))
+
+    # Process remaining chunks in parallel
+    if chunks_to_process:
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            futures = {
+                executor.submit(
+                    _process_bed_chunk_with_checkpoint,
+                    i,
+                    bed_chunk,
+                    args.vcf_file,
+                    base_name,
+                    intermediate_dir,
+                    cfg,
+                    transcripts,
+                    args,
+                    step_name,
+                    pipeline_state is not None,  # Pass whether checkpointing is enabled
+                ): (i, bed_chunk, step_name)
+                for i, bed_chunk, step_name in chunks_to_process
+            }
+
+            # Track completed chunks for checkpoint updates
+            completed_chunks = []
+            failed_chunks = []
+
+            for future in as_completed(futures):
+                try:
+                    result_path = future.result()
+
+                    # Track successful completion
+                    i, bed_chunk, step_name = futures[future]
+                    completed_chunks.append((i, bed_chunk, step_name, result_path))
+
+                except Exception as e:
+                    i, bed_chunk, step_name = futures[future]
+                    logger.error(f"Worker {i} failed: {e}")
+                    failed_chunks.append((i, bed_chunk, step_name, str(e)))
+
+                    # Cancel remaining futures on failure
+                    executor.shutdown(wait=False, cancel_futures=True)
+
+                    # Update checkpoint state for all chunks before exiting
+                    if pipeline_state:
+                        # Mark completed chunks
+                        for comp_i, comp_bed, comp_step, comp_result in completed_chunks:
+                            with CheckpointContext(
+                                pipeline_state,
+                                comp_step,
+                                parameters={"chunk_index": comp_i, "bed_file": comp_bed},
+                            ) as ctx:
+                                ctx.add_input_file(comp_bed)
+                                ctx.add_input_file(args.vcf_file)
+                                ctx.add_output_file(comp_result)
+
+                        # Mark failed chunk
+                        pipeline_state.fail_step(step_name, str(e))
+                        pipeline_state.save()
+
+                    sys.exit("Pipeline aborted due to worker failure.")
+
+            # Update checkpoint state for all successful chunks
+            if pipeline_state and completed_chunks:
+                for comp_i, comp_bed, comp_step, comp_result in completed_chunks:
+                    # Use CheckpointContext to properly record the step
+                    with CheckpointContext(
+                        pipeline_state,
+                        comp_step,
+                        parameters={"chunk_index": comp_i, "bed_file": comp_bed},
+                    ) as ctx:
+                        ctx.add_input_file(comp_bed)
+                        ctx.add_input_file(args.vcf_file)
+                        ctx.add_output_file(comp_result)
+
+                # Save once after all chunks are recorded
+                pipeline_state.save()
+
+    # Ensure chunk_tsv_files are in the correct order
+    chunk_tsv_files = [
+        chunk_info[i] for i in sorted(chunk_info.keys()) if os.path.exists(chunk_info[i])
+    ]
 
     combined_tsv_path = os.path.join(intermediate_dir, f"{base_name}.extracted.tsv.gz")
-    logger.info(
-        f"All chunks processed. Merging {len(chunk_tsv_files)} files into {combined_tsv_path}..."
-    )
 
-    # Merge chunks into combined file
-    try:
-        with smart_open(combined_tsv_path, "w") as outfile:
-            first_file = True
-            for chunk_file in sorted(chunk_tsv_files):
-                # Verify chunk file exists before trying to read
-                if not os.path.exists(chunk_file):
-                    logger.error(f"Chunk file {chunk_file} not found during merge")
-                    raise FileNotFoundError(f"Chunk file {chunk_file} not found")
+    # Checkpoint: Merge chunks
+    merge_was_skipped = False
+    if pipeline_state and pipeline_state.should_skip_step("parallel_merge_chunks"):
+        logger.info("Skipping chunk merging (already completed)")
+        merge_was_skipped = True
+        # Retrieve the actual merged file path from checkpoint
+        step_info = pipeline_state.state["steps"].get("parallel_merge_chunks")
+        if step_info and step_info.output_files:
+            combined_tsv_path = step_info.output_files[0].path
+            logger.debug(f"Using merged TSV from checkpoint: {combined_tsv_path}")
+    else:
+        with (
+            CheckpointContext(
+                pipeline_state,
+                "parallel_merge_chunks",
+                parameters={"num_chunks": len(chunk_tsv_files)},
+            )
+            if pipeline_state
+            else nullcontext()
+        ) as ctx:
+            logger.info(
+                f"All chunks processed. Merging {len(chunk_tsv_files)} files into {combined_tsv_path}..."
+            )
 
-                with smart_open(chunk_file, "r") as infile:
-                    if first_file:
-                        import shutil
+            # Merge chunks into combined file
+            try:
+                with smart_open(combined_tsv_path, "w") as outfile:
+                    first_file = True
+                    for chunk_file in sorted(chunk_tsv_files):
+                        # Verify chunk file exists before trying to read
+                        if not os.path.exists(chunk_file):
+                            logger.error(f"Chunk file {chunk_file} not found during merge")
+                            raise FileNotFoundError(f"Chunk file {chunk_file} not found")
 
-                        shutil.copyfileobj(infile, outfile)
-                        first_file = False
-                    else:
-                        next(infile)  # Skip header
-                        shutil.copyfileobj(infile, outfile)
-    except Exception as e:
-        logger.error(f"Failed to merge chunk files: {e}")
-        raise
+                        with smart_open(chunk_file, "r") as infile:
+                            if first_file:
+                                import shutil
 
-    # Cleanup intermediate files only after successful merge
-    if not cfg.get("keep_intermediates"):
+                                shutil.copyfileobj(infile, outfile)
+                                first_file = False
+                            else:
+                                next(infile)  # Skip header
+                                shutil.copyfileobj(infile, outfile)
+
+                if ctx and not isinstance(ctx, nullcontext):
+                    for chunk_file in chunk_tsv_files:
+                        ctx.add_input_file(chunk_file)
+                    ctx.add_output_file(combined_tsv_path)
+
+            except Exception as e:
+                logger.error(f"Failed to merge chunk files: {e}")
+                raise
+
+    # Cleanup intermediate files only after successful merge (not when resuming)
+    if not cfg.get("keep_intermediates") and not merge_was_skipped:
         logger.debug("Cleaning up intermediate chunk files")
         for file_path in chunk_tsv_files + chunk_bed_files:
             try:
@@ -1098,7 +1299,7 @@ def run_pipeline(
     gene_name = normalize_genes(args.gene_name if args.gene_name else "", args.gene_file, logger)
     logger.debug(f"Normalized gene list: {gene_name}")
 
-    # Determine base name and output paths
+    # Determine base name and output paths (needed before checkpoint logic)
     if args.output_file is not None:
         if args.output_file in ["stdout", "-"]:
             final_to_stdout = True
@@ -1116,6 +1317,72 @@ def run_pipeline(
     os.makedirs(args.output_dir, exist_ok=True)
     intermediate_dir = os.path.join(args.output_dir, "intermediate")
     os.makedirs(intermediate_dir, exist_ok=True)
+
+    # Initialize checkpoint system if enabled
+    pipeline_state = None
+    if cfg.get("enable_checkpoint", False):
+        pipeline_state = PipelineState(
+            args.output_dir, enable_checksum=cfg.get("checkpoint_checksum", False)
+        )
+
+        # Get pipeline version
+        pipeline_version = cfg.get("pipeline_version", "unknown")
+
+        # Handle resume logic
+        if cfg.get("resume", False):
+            if pipeline_state.load():
+                if pipeline_state.can_resume(cfg, pipeline_version):
+                    logger.info("Resume mode: Checking pipeline state...")
+                    logger.info(pipeline_state.get_summary())
+
+                    # Check if pipeline already completed
+                    if pipeline_state.should_skip_step("final_output"):
+                        logger.info("Pipeline already completed successfully!")
+                        # Check if final output file exists - construct the actual path
+                        if final_output and os.path.exists(final_output):
+                            logger.info(f"Final output already exists: {final_output}")
+                            return
+                        else:
+                            logger.warning(
+                                "Pipeline completed but output file not found. "
+                                "Continuing to regenerate output..."
+                            )
+
+                    resume_point = pipeline_state.get_resume_point()
+                    if resume_point:
+                        logger.info(f"Resuming from step: {resume_point}")
+                else:
+                    logger.warning("Cannot resume - configuration or version mismatch")
+                    # Before starting fresh, check if the pipeline was already completed
+                    if pipeline_state.should_skip_step("final_output"):
+                        logger.info("Pipeline was already completed in previous run.")
+                        if final_output and os.path.exists(final_output):
+                            logger.info("=" * 70)
+                            logger.info("Pipeline already completed successfully!")
+                            logger.info(f"Final output exists: {final_output}")
+                            logger.info(
+                                "Cannot resume due to validation issues, but output is available."
+                            )
+                            logger.info("Nothing to do. Exiting.")
+                            logger.info("=" * 70)
+                            return
+                        else:
+                            logger.warning(
+                                "Pipeline was completed but output file not found. "
+                                "Starting fresh run to regenerate output."
+                            )
+                    logger.info("Starting fresh pipeline run")
+                    pipeline_state.initialize(cfg, pipeline_version)
+            else:
+                logger.info("No previous state found - starting fresh pipeline run")
+                pipeline_state.initialize(cfg, pipeline_version)
+        else:
+            # Fresh run
+            pipeline_state.initialize(cfg, pipeline_version)
+            logger.info("Checkpoint system enabled for this run")
+
+    # Pass pipeline_state through config for access in functions
+    cfg["_pipeline_state"] = pipeline_state
 
     if not cfg["no_stats"] and not args.stats_output_file:
         cfg["stats_output_file"] = os.path.join(intermediate_dir, f"{base_name}.statistics.tsv")
@@ -1294,14 +1561,25 @@ def run_pipeline(
     else:
         # Single-threaded pipeline processing (original behavior)
         # Extract gene BED
-        bed_file = get_gene_bed(
-            cfg["reference"],
-            gene_name,
-            interval_expand=cfg.get("interval_expand", 0),
-            add_chr=cfg.get("add_chr", True),
-            output_dir=args.output_dir,
-        )
-        logger.debug(f"Gene BED created at: {bed_file}")
+        if pipeline_state and pipeline_state.should_skip_step("gene_bed_creation"):
+            logger.info("Skipping gene BED creation (already completed)")
+            bed_file = os.path.join(args.output_dir, f"{base_name}.genes.bed")
+        else:
+            with (
+                CheckpointContext(pipeline_state, "gene_bed_creation")
+                if pipeline_state
+                else nullcontext()
+            ) as ctx:
+                bed_file = get_gene_bed(
+                    cfg["reference"],
+                    gene_name,
+                    interval_expand=cfg.get("interval_expand", 0),
+                    add_chr=cfg.get("add_chr", True),
+                    output_dir=args.output_dir,
+                )
+                logger.debug(f"Gene BED created at: {bed_file}")
+                if ctx and not isinstance(ctx, nullcontext):
+                    ctx.add_output_file(bed_file)
 
         if not os.path.exists(bed_file) or os.path.getsize(bed_file) == 0:
             logger.error(
@@ -1329,28 +1607,81 @@ def run_pipeline(
                     sys.exit(1)
 
         # Extract variants (with optional bcftools pre-filter)
-        extract_variants(args.vcf_file, bed_file, cfg, variants_file)
+        if pipeline_state and pipeline_state.should_skip_step("variant_extraction"):
+            logger.info("Skipping variant extraction (already completed)")
+        else:
+            with (
+                CheckpointContext(
+                    pipeline_state,
+                    "variant_extraction",
+                    parameters={
+                        "bed_file": bed_file,
+                        "bcftools_filter": cfg.get("bcftools_filter"),
+                    },
+                )
+                if pipeline_state
+                else nullcontext()
+            ) as ctx:
+                extract_variants(args.vcf_file, bed_file, cfg, variants_file)
+                if ctx and not isinstance(ctx, nullcontext):
+                    ctx.add_input_file(args.vcf_file)
+                    ctx.add_input_file(bed_file)
+                    ctx.add_output_file(variants_file)
 
         # Handle snpeff splitting mode (None, 'before_filters', or 'after_filters')
         splitting_mode = cfg.get("snpeff_splitting_mode", None)
 
         if splitting_mode == "before_filters":
-            logger.info("Splitting multiple SNPeff (EFF/ANN) annotations before main filtering.")
-            process_vcf_file(variants_file, splitted_before_file)
-            prefiltered_for_snpsift = splitted_before_file
+            if pipeline_state and pipeline_state.should_skip_step("snpeff_split_before"):
+                logger.info("Skipping SNPeff splitting before filters (already completed)")
+                prefiltered_for_snpsift = splitted_before_file
+            else:
+                with (
+                    CheckpointContext(pipeline_state, "snpeff_split_before")
+                    if pipeline_state
+                    else nullcontext()
+                ) as ctx:
+                    logger.info(
+                        "Splitting multiple SNPeff (EFF/ANN) annotations before main filtering."
+                    )
+                    process_vcf_file(variants_file, splitted_before_file)
+                    prefiltered_for_snpsift = splitted_before_file
+                    if ctx and not isinstance(ctx, nullcontext):
+                        ctx.add_input_file(variants_file)
+                        ctx.add_output_file(splitted_before_file)
         else:
             # either None or 'after_filters'
             prefiltered_for_snpsift = variants_file
 
         # Apply SnpSift filter => filtered_file (skip if late filtering is enabled)
-        if cfg.get("late_filtering", False):
-            logger.info("Late filtering enabled - skipping early SnpSift filter step")
-            # Just copy the file without filtering
-            import shutil
-
-            shutil.copy2(prefiltered_for_snpsift, filtered_file)
+        if pipeline_state and pipeline_state.should_skip_step("snpsift_filter"):
+            logger.info("Skipping SnpSift filtering (already completed)")
         else:
-            apply_snpsift_filter(prefiltered_for_snpsift, cfg["filters"], cfg, filtered_file)
+            with (
+                CheckpointContext(
+                    pipeline_state,
+                    "snpsift_filter",
+                    parameters={
+                        "filters": cfg["filters"],
+                        "late_filtering": cfg.get("late_filtering", False),
+                    },
+                )
+                if pipeline_state
+                else nullcontext()
+            ) as ctx:
+                if cfg.get("late_filtering", False):
+                    logger.info("Late filtering enabled - skipping early SnpSift filter step")
+                    # Just copy the file without filtering
+                    import shutil
+
+                    shutil.copy2(prefiltered_for_snpsift, filtered_file)
+                else:
+                    apply_snpsift_filter(
+                        prefiltered_for_snpsift, cfg["filters"], cfg, filtered_file
+                    )
+                if ctx and not isinstance(ctx, nullcontext):
+                    ctx.add_input_file(prefiltered_for_snpsift)
+                    ctx.add_output_file(filtered_file)
 
         # If splitting after filters
         if splitting_mode == "after_filters":
@@ -1380,15 +1711,30 @@ def run_pipeline(
             final_filtered_for_extraction = post_filter_for_transcripts
 
         # Extract fields => extracted_tsv
-        field_list = " ".join((cfg["fields_to_extract"] or args.fields).strip().split())
-        logger.debug(f"Extracting fields: {field_list} -> {extracted_tsv}")
+        if pipeline_state and pipeline_state.should_skip_step("field_extraction"):
+            logger.info("Skipping field extraction (already completed)")
+        else:
+            with (
+                CheckpointContext(
+                    pipeline_state,
+                    "field_extraction",
+                    parameters={"fields": cfg["fields_to_extract"] or args.fields},
+                )
+                if pipeline_state
+                else nullcontext()
+            ) as ctx:
+                field_list = " ".join((cfg["fields_to_extract"] or args.fields).strip().split())
+                logger.debug(f"Extracting fields: {field_list} -> {extracted_tsv}")
 
-        snpsift_sep = cfg.get("extract_fields_separator", ":")
-        logger.debug(f"Using SnpSift subfield separator for extractFields: '{snpsift_sep}'")
+                snpsift_sep = cfg.get("extract_fields_separator", ":")
+                logger.debug(f"Using SnpSift subfield separator for extractFields: '{snpsift_sep}'")
 
-        temp_cfg = cfg.copy()
-        temp_cfg["extract_fields_separator"] = snpsift_sep
-        extract_fields(final_filtered_for_extraction, field_list, temp_cfg, extracted_tsv)
+                temp_cfg = cfg.copy()
+                temp_cfg["extract_fields_separator"] = snpsift_sep
+                extract_fields(final_filtered_for_extraction, field_list, temp_cfg, extracted_tsv)
+                if ctx and not isinstance(ctx, nullcontext):
+                    ctx.add_input_file(final_filtered_for_extraction)
+                    ctx.add_output_file(extracted_tsv)
 
     # Get field_list for sorting logic (needed for both parallel and single-threaded)
     if cfg.get("append_extra_sample_fields", False) and cfg.get("extra_sample_fields", []):
@@ -1410,41 +1756,99 @@ def run_pipeline(
             gene_field_found = field
             break
 
-    if gene_field_found:
-        # Check actual column name in the file (SnpSift may normalize it)
-        with smart_open(extracted_tsv, "r") as f:
-            header_line = f.readline().strip()
-            header_cols = header_line.split("\t")
-
-        # Find the actual gene column name
-        gene_col_name = None
-        for col in header_cols:
-            if col == "GENE" or col.endswith(".GENE"):
-                gene_col_name = col
-                break
-
-        if gene_col_name:
-            logger.info(
-                f"Sorting extracted TSV by gene column '{gene_col_name}' for efficient processing..."
-            )
-            sort_tsv_by_gene(
-                extracted_tsv,
-                sorted_tsv,
-                gene_column=gene_col_name,
-                temp_dir=intermediate_dir,
-                memory_limit=cfg.get("sort_memory_limit", "2G"),
-                parallel=cfg.get("sort_parallel", 4),
-            )
-            # Replace extracted_tsv with sorted version
-            if not cfg.get("keep_intermediates"):
-                os.remove(extracted_tsv)
-            extracted_tsv = sorted_tsv
-        else:
-            logger.warning("Could not find GENE column in TSV header, skipping sorting step")
+    # Checkpoint: Sort TSV by gene
+    if pipeline_state and pipeline_state.should_skip_step("tsv_sorting"):
+        logger.info("Skipping TSV sorting (already completed)")
+        # Check first if the pipeline already completed and handle gracefully
+        if pipeline_state.should_skip_step("final_output"):
+            if final_output and os.path.exists(final_output):
+                logger.info("=" * 70)
+                logger.info("Pipeline already completed successfully!")
+                logger.info(f"Final output exists: {final_output}")
+                logger.info("Intermediate files were cleaned up after successful completion.")
+                logger.info("Nothing to do. Exiting.")
+                logger.info("=" * 70)
+                return
+            else:
+                logger.error(
+                    "Pipeline was marked as completed but output file not found. "
+                    "Cannot continue without intermediate files. "
+                    "Try running without --resume to regenerate."
+                )
+                sys.exit(1)
+        # Retrieve the sorted file path from checkpoint state
+        step_info = pipeline_state.state["steps"].get("tsv_sorting")
+        if step_info and step_info.output_files:
+            sorted_file_path = step_info.output_files[0].path
+            if os.path.exists(sorted_file_path):
+                extracted_tsv = sorted_file_path
+                logger.debug(f"Using sorted TSV from checkpoint: {extracted_tsv}")
+            else:
+                # File might have been deleted, check if we can continue
+                logger.warning(f"Sorted TSV from checkpoint not found: {sorted_file_path}")
+                # Check if the unsorted extracted.tsv still exists
+                if not os.path.exists(extracted_tsv):
+                    logger.error(
+                        "Neither sorted TSV nor extracted TSV found. "
+                        "Intermediate files may have been cleaned up. "
+                        "Cannot continue resume. Try running without --resume or with --keep-intermediates."
+                    )
+                    sys.exit(1)
+                # If extracted_tsv exists but sorted doesn't, we can continue with unsorted
     else:
-        logger.warning(
-            "GENE field not found in extracted fields configuration, skipping sorting step"
-        )
+        if gene_field_found:
+            # Check actual column name in the file (SnpSift may normalize it)
+            with smart_open(extracted_tsv, "r") as f:
+                header_line = f.readline().strip()
+                header_cols = header_line.split("\t")
+
+            # Find the actual gene column name
+            gene_col_name = None
+            for col in header_cols:
+                if col == "GENE" or col.endswith(".GENE"):
+                    gene_col_name = col
+                    break
+
+            if gene_col_name:
+                with (
+                    CheckpointContext(
+                        pipeline_state,
+                        "tsv_sorting",
+                        parameters={
+                            "gene_column": gene_col_name,
+                            "memory_limit": cfg.get("sort_memory_limit", "2G"),
+                            "parallel": cfg.get("sort_parallel", 4),
+                        },
+                    )
+                    if pipeline_state
+                    else nullcontext()
+                ) as ctx:
+                    logger.info(
+                        f"Sorting extracted TSV by gene column '{gene_col_name}' for efficient processing..."
+                    )
+                    sort_tsv_by_gene(
+                        extracted_tsv,
+                        sorted_tsv,
+                        gene_column=gene_col_name,
+                        temp_dir=intermediate_dir,
+                        memory_limit=cfg.get("sort_memory_limit", "2G"),
+                        parallel=cfg.get("sort_parallel", 4),
+                    )
+                    # Add checkpoint file tracking
+                    if ctx and not isinstance(ctx, nullcontext):
+                        ctx.add_input_file(extracted_tsv)
+                        ctx.add_output_file(sorted_tsv)
+
+                    # Replace extracted_tsv with sorted version
+                    if not cfg.get("keep_intermediates"):
+                        os.remove(extracted_tsv)
+                    extracted_tsv = sorted_tsv
+            else:
+                logger.warning("Could not find GENE column in TSV header, skipping sorting step")
+        else:
+            logger.warning(
+                "GENE field not found in extracted fields configuration, skipping sorting step"
+            )
 
     # Check if GT column is present
     with smart_open(extracted_tsv, "r") as f:
@@ -1566,34 +1970,50 @@ def run_pipeline(
 
     # Genotype replacement logic
     if not args.no_replacement and gt_present:
-        logger.info("Starting genotype replacement...")
-        replacement_start_time = time.time()
-        lines_written = 0
+        if pipeline_state and pipeline_state.should_skip_step("genotype_replacement"):
+            logger.info("Skipping genotype replacement (already completed)")
+            replaced_tsv = genotype_replaced_tsv
+        else:
+            with (
+                CheckpointContext(pipeline_state, "genotype_replacement")
+                if pipeline_state
+                else nullcontext()
+            ) as ctx:
+                logger.info("Starting genotype replacement...")
+                replacement_start_time = time.time()
+                lines_written = 0
 
-        try:
-            with smart_open(extracted_tsv, "r") as inp, smart_open(
-                genotype_replaced_tsv, "w"
-            ) as out:
-                for line in replace_genotypes(inp, cfg):
-                    out.write(line + "\n")
-                    lines_written += 1
+                try:
+                    with smart_open(extracted_tsv, "r") as inp, smart_open(
+                        genotype_replaced_tsv, "w"
+                    ) as out:
+                        for line in replace_genotypes(inp, cfg):
+                            out.write(line + "\n")
+                            lines_written += 1
 
-                    # Log progress every 10000 lines
-                    if lines_written % 10000 == 0:
-                        elapsed = time.time() - replacement_start_time
-                        rate = lines_written / elapsed if elapsed > 0 else 0
-                        logger.info(
-                            f"Genotype replacement: {lines_written} lines in {elapsed:.1f}s ({rate:.0f} lines/sec)"
-                        )
-                        out.flush()  # Ensure data is written to disk
-        except Exception as e:
-            logger.error(f"Error during genotype replacement at line {lines_written}: {e}")
-            logger.error("Consider using --no-replacement flag to skip this step")
-            raise
+                            # Log progress every 10000 lines
+                            if lines_written % 10000 == 0:
+                                elapsed = time.time() - replacement_start_time
+                                rate = lines_written / elapsed if elapsed > 0 else 0
+                                logger.info(
+                                    f"Genotype replacement: {lines_written} lines in {elapsed:.1f}s ({rate:.0f} lines/sec)"
+                                )
+                                out.flush()  # Ensure data is written to disk
+                except Exception as e:
+                    logger.error(f"Error during genotype replacement at line {lines_written}: {e}")
+                    logger.error("Consider using --no-replacement flag to skip this step")
+                    raise
 
-        total_time = time.time() - replacement_start_time
-        logger.info(f"Genotype replacement completed: {lines_written} lines in {total_time:.1f}s")
-        replaced_tsv = genotype_replaced_tsv
+                total_time = time.time() - replacement_start_time
+                logger.info(
+                    f"Genotype replacement completed: {lines_written} lines in {total_time:.1f}s"
+                )
+
+                if ctx and not isinstance(ctx, nullcontext):
+                    ctx.add_input_file(extracted_tsv)
+                    ctx.add_output_file(genotype_replaced_tsv)
+
+                replaced_tsv = genotype_replaced_tsv
     else:
         replaced_tsv = extracted_tsv
 
@@ -1660,50 +2080,68 @@ def run_pipeline(
 
     # Integrate phenotypes if provided
     if use_phenotypes:
-        pattern = re.compile(r"^([^()]+)(?:\([^)]+\))?$")
+        if pipeline_state and pipeline_state.should_skip_step("phenotype_integration"):
+            logger.info("Skipping phenotype integration (already completed)")
+            final_tsv = phenotype_added_tsv
+        else:
+            with (
+                CheckpointContext(pipeline_state, "phenotype_integration")
+                if pipeline_state
+                else nullcontext()
+            ) as ctx:
+                pattern = re.compile(r"^([^()]+)(?:\([^)]+\))?$")
 
-        with smart_open(replaced_tsv, "r") as inp, smart_open(phenotype_added_tsv, "w") as out:
-            header = next(inp).rstrip("\n")
-            header_fields = header.split("\t")
-            header_fields.append("phenotypes")
-            out.write("\t".join(header_fields) + "\n")
+                with smart_open(replaced_tsv, "r") as inp, smart_open(
+                    phenotype_added_tsv, "w"
+                ) as out:
+                    header = next(inp).rstrip("\n")
+                    header_fields = header.split("\t")
+                    header_fields.append("phenotypes")
+                    out.write("\t".join(header_fields) + "\n")
 
-            wrote_data = False
-            gt_idx = header_fields.index("GT") if "GT" in header_fields else None
-            for line in inp:
-                line = line.rstrip("\n")
-                if not line.strip():
-                    out.write(line + "\n")
-                    continue
-                fields_line = line.split("\t")
+                    wrote_data = False
+                    gt_idx = header_fields.index("GT") if "GT" in header_fields else None
+                    for line in inp:
+                        line = line.rstrip("\n")
+                        if not line.strip():
+                            out.write(line + "\n")
+                            continue
+                        fields_line = line.split("\t")
 
-                if gt_idx is not None and gt_idx < len(fields_line):
-                    gt_value = fields_line[gt_idx]
-                    samples_in_line = []
-                    if gt_value.strip():
-                        sample_entries = gt_value.split(";")
-                        for entry in sample_entries:
-                            entry = entry.strip()
-                            if entry:
-                                m = pattern.match(entry)
-                                if m:
-                                    s = m.group(1).strip()
-                                    if s:
-                                        samples_in_line.append(s)
-                    pheno_str = ""
-                    if samples_in_line:
-                        pheno_str = aggregate_phenotypes_for_samples(samples_in_line, phenotypes)
-                    fields_line.append(pheno_str)
-                else:
-                    fields_line.append("")
-                out.write("\t".join(fields_line) + "\n")
-                wrote_data = True
+                        if gt_idx is not None and gt_idx < len(fields_line):
+                            gt_value = fields_line[gt_idx]
+                            samples_in_line = []
+                            if gt_value.strip():
+                                sample_entries = gt_value.split(";")
+                                for entry in sample_entries:
+                                    entry = entry.strip()
+                                    if entry:
+                                        m = pattern.match(entry)
+                                        if m:
+                                            s = m.group(1).strip()
+                                            if s:
+                                                samples_in_line.append(s)
+                            pheno_str = ""
+                            if samples_in_line:
+                                pheno_str = aggregate_phenotypes_for_samples(
+                                    samples_in_line, phenotypes
+                                )
+                            fields_line.append(pheno_str)
+                        else:
+                            fields_line.append("")
+                        out.write("\t".join(fields_line) + "\n")
+                        wrote_data = True
 
-            if not wrote_data:
-                logger.warning(
-                    "Phenotype integration found no data rows to process. Only header row will be written."
-                )
-        final_tsv = phenotype_added_tsv
+                    if not wrote_data:
+                        logger.warning(
+                            "Phenotype integration found no data rows to process. Only header row will be written."
+                        )
+
+                if ctx and not isinstance(ctx, nullcontext):
+                    ctx.add_input_file(replaced_tsv)
+                    ctx.add_output_file(phenotype_added_tsv)
+
+                final_tsv = phenotype_added_tsv
     else:
         final_tsv = replaced_tsv
 
@@ -1814,22 +2252,47 @@ def run_pipeline(
         df.to_csv(annotated_tsv, sep="\t", index=False, na_rep="", compression="gzip")
 
         # Run analyze_variants for variant-level results
-        temp_cfg = cfg.copy()
-        temp_cfg["perform_gene_burden"] = False
-        temp_cfg["scoring_config"] = scoring_config  # Pass the loaded config
-        temp_cfg["pedigree_data"] = pedigree_data  # Pass the loaded pedigree data
-        temp_cfg["calculate_inheritance"] = cfg.get("calculate_inheritance", False)
-        temp_cfg["sample_list"] = cfg.get("sample_list", "")  # Ensure sample_list is passed
-        buffer = []
-        with smart_open(annotated_tsv, "r") as inp:
-            line_count = 0
-            for line in analyze_variants(inp, temp_cfg):
-                buffer.append(line)
-                line_count += 1
-            if line_count <= 1:  # Only header or nothing
-                logger.warning(
-                    "No variant-level results produced after filtering. Generating empty output files with headers."
-                )
+        if pipeline_state and pipeline_state.should_skip_step("variant_analysis"):
+            logger.info("Skipping variant analysis (already completed)")
+            # Read the previously analyzed results
+            analyzed_tsv = os.path.join(intermediate_dir, f"{base_name}.analyzed.tsv.gz")
+            buffer = []
+            with smart_open(analyzed_tsv, "r") as f:
+                for line in f:
+                    buffer.append(line.rstrip("\n"))
+        else:
+            with (
+                CheckpointContext(pipeline_state, "variant_analysis")
+                if pipeline_state
+                else nullcontext()
+            ) as ctx:
+                temp_cfg = cfg.copy()
+                temp_cfg["perform_gene_burden"] = False
+                temp_cfg["scoring_config"] = scoring_config  # Pass the loaded config
+                temp_cfg["pedigree_data"] = pedigree_data  # Pass the loaded pedigree data
+                temp_cfg["calculate_inheritance"] = cfg.get("calculate_inheritance", False)
+                temp_cfg["sample_list"] = cfg.get("sample_list", "")  # Ensure sample_list is passed
+                buffer = []
+                with smart_open(annotated_tsv, "r") as inp:
+                    line_count = 0
+                    for line in analyze_variants(inp, temp_cfg):
+                        buffer.append(line)
+                        line_count += 1
+                    if line_count <= 1:  # Only header or nothing
+                        logger.warning(
+                            "No variant-level results produced after filtering. Generating empty output files with headers."
+                        )
+
+                # Save analyzed results for checkpoint
+                if pipeline_state:
+                    analyzed_tsv = os.path.join(intermediate_dir, f"{base_name}.analyzed.tsv.gz")
+                    with smart_open(analyzed_tsv, "w") as f:
+                        for line in buffer:
+                            f.write(line + "\n")
+
+                    if ctx and not isinstance(ctx, nullcontext):
+                        ctx.add_input_file(annotated_tsv)
+                        ctx.add_output_file(analyzed_tsv)
 
     # Note: Gene list annotation is now handled by the unified annotation system above
     # This ensures --annotate-gene-list files are processed through the new Custom_Annotation column
@@ -2102,11 +2565,30 @@ def run_pipeline(
             sys.stdout.write("\n".join(buffer) + "\n")
         final_out_path = None
     else:
-        final_file = final_output
-        with open(final_file, "w", encoding="utf-8") as out:
-            for line in buffer:
-                out.write(line + "\n")
-        final_out_path = final_file
+        if pipeline_state and pipeline_state.should_skip_step("final_output"):
+            logger.info("Skipping final output writing (already completed)")
+            final_out_path = final_output
+        else:
+            with (
+                CheckpointContext(pipeline_state, "final_output")
+                if pipeline_state
+                else nullcontext()
+            ) as ctx:
+                final_file = final_output
+                with open(final_file, "w", encoding="utf-8") as out:
+                    for line in buffer:
+                        out.write(line + "\n")
+                final_out_path = final_file
+
+                if ctx and not isinstance(ctx, nullcontext):
+                    # Add the analyzed TSV or the last processed file as input
+                    if "analyzed_tsv" in locals():
+                        ctx.add_input_file(analyzed_tsv)
+                    elif "annotated_tsv" in locals():
+                        ctx.add_input_file(annotated_tsv)
+                    elif "final_tsv" in locals():
+                        ctx.add_input_file(final_tsv)
+                    ctx.add_output_file(final_out_path)
 
     # Gene burden if requested
     if cfg.get("perform_gene_burden", False):
@@ -2252,20 +2734,37 @@ def run_pipeline(
 
     # Phase 3: Produce HTML report if requested - after IGV reports are generated
     if args.html_report and final_out_path and os.path.exists(final_out_path):
-        # produce_report_json will look for the IGV map created in Phase 2
-        produce_report_json(final_out_path, args.output_dir)
+        if pipeline_state and pipeline_state.should_skip_step("html_report_generation"):
+            logger.info("Skipping HTML report generation (already completed)")
+        else:
+            with (
+                CheckpointContext(pipeline_state, "html_report_generation")
+                if pipeline_state
+                else nullcontext()
+            ) as ctx:
+                # produce_report_json will look for the IGV map created in Phase 2
+                produce_report_json(final_out_path, args.output_dir)
 
-        from .generate_html_report import generate_html_report  # Ensure import
+                from .generate_html_report import generate_html_report  # Ensure import
 
-        variants_json = os.path.join(report_dir, "variants.json")
-        summary_json = os.path.join(report_dir, "summary.json")
-        generate_html_report(
-            variants_json=variants_json,
-            summary_json=summary_json,
-            output_dir=report_dir,  # HTML report itself is in report_dir
-            cfg=cfg,  # Pass the main configuration dictionary
-        )
-        logger.info("HTML report generated successfully.")
+                variants_json = os.path.join(report_dir, "variants.json")
+                summary_json = os.path.join(report_dir, "summary.json")
+                generate_html_report(
+                    variants_json=variants_json,
+                    summary_json=summary_json,
+                    output_dir=report_dir,  # HTML report itself is in report_dir
+                    cfg=cfg,  # Pass the main configuration dictionary
+                )
+                logger.info("HTML report generated successfully.")
+
+                if ctx and not isinstance(ctx, nullcontext):
+                    ctx.add_input_file(final_out_path)
+                    ctx.add_output_file(variants_json)
+                    ctx.add_output_file(summary_json)
+                    # Add the HTML report file
+                    html_report_file = os.path.join(report_dir, "index.html")
+                    if os.path.exists(html_report_file):
+                        ctx.add_output_file(html_report_file)
 
     # Phase 4: Finalize Excel file after IGV reports are generated
     if xlsx_file:
@@ -2325,3 +2824,8 @@ def run_pipeline(
             logger.info(f"Results archived to: {archive_path}")
         else:
             logger.warning("Failed to create results archive, but pipeline completed successfully")
+
+    # Mark pipeline as complete in checkpoint state
+    if pipeline_state:
+        logger.info("Pipeline completed successfully. Saving final checkpoint state.")
+        pipeline_state.save()

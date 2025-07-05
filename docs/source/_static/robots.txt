@@ -1,0 +1,25 @@
+# robots.txt for VariantCentrifuge Documentation
+# https://scholl-lab.github.io/variantcentrifuge/
+
+User-agent: *
+Allow: /
+
+# Allow search engines to index documentation
+Allow: /installation/
+Allow: /usage/
+Allow: /guides/
+Allow: /api/
+Allow: /configuration/
+Allow: /changelog/
+
+# Disallow build artifacts and internal files
+Disallow: /_sources/
+Disallow: /_static/
+Disallow: /.doctrees/
+Disallow: /objects.inv
+
+# Optimize crawl rate
+Crawl-delay: 1
+
+# Sitemap location
+Sitemap: https://scholl-lab.github.io/variantcentrifuge/sitemap.xml

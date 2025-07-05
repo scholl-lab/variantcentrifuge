@@ -1,17 +1,34 @@
-# Welcome to VariantCentrifuge!
+# VariantCentrifuge: Clinical Variant Analysis Tool for VCF Files
 
-**VariantCentrifuge** is a Python-based command-line tool designed to filter, extract, and refine genetic variant data (VCF files) based on genes of interest, rarity criteria, and impact annotations. Built with modularity and extensibility in mind, VariantCentrifuge replaces the complexity of traditional Bash/R pipelines with a cleaner, maintainable Python codebase.
+**VariantCentrifuge** is a powerful Python-based command-line tool for filtering, analyzing, and interpreting genetic variants from VCF (Variant Call Format) files. Designed for clinical geneticists, bioinformaticians, and researchers, it streamlines the identification of disease-causing variants through sophisticated filtering, Mendelian inheritance analysis, and comprehensive reporting.
 
-## Key Features
+## Why Choose VariantCentrifuge?
 
-- **Gene-Centric Filtering:** Extract variants from regions defined by genes of interest
-- **Rare Variant Identification:** Apply custom filters to isolate rare and moderate/high-impact variants
-- **Flexible Field Extraction:** Easily specify which fields to extract from the VCF
-- **Genotype Replacement:** Replace genotype fields with corresponding sample IDs
-- **Phenotype Integration:** Integrate phenotype data for enhanced variant analysis
-- **Gene List Annotation:** Annotate variant outputs with gene membership information
-- **Comprehensive Analysis:** Perform gene burden analyses and variant-level statistics
-- **Rich Reporting:** Generate interactive HTML reports with IGV.js integration
+VariantCentrifuge addresses the critical challenges in clinical variant interpretation by providing:
+
+### 🧬 Advanced Variant Filtering
+- **Gene-Centric Analysis:** Focus on specific genes of interest with automatic region extraction
+- **Rare Variant Detection:** Identify clinically relevant rare variants using population frequency databases
+- **Impact-Based Filtering:** Prioritize high and moderate impact variants using SnpEff annotations
+- **Custom Filter Presets:** 20+ pre-configured filters for common clinical scenarios
+
+### 🔬 Clinical Interpretation Features
+- **Mendelian Inheritance Analysis:** Automatically detect de novo, recessive, dominant, and compound heterozygous patterns
+- **ACMG Classification Support:** Integrate pathogenicity predictions and clinical significance
+- **Phenotype Integration:** Link variants to patient phenotypes for enhanced interpretation
+- **Custom Variant Scoring:** Apply configurable scoring algorithms for variant prioritization
+
+### 📊 Comprehensive Analysis Tools
+- **Gene Burden Testing:** Statistical analysis for case-control studies using Fisher's exact test
+- **Compound Heterozygous Detection:** Optimized algorithm (10-50x faster) for identifying compound het variants
+- **Multi-Sample Support:** Analyze families, trios, and cohorts with pedigree files
+- **Performance Optimization:** Handle large VCF files with chunked processing and parallel execution
+
+### 📈 Professional Reporting
+- **Interactive HTML Reports:** Sortable tables, filtering, and search functionality
+- **IGV.js Integration:** Visualize variants directly in the browser with genomic context
+- **Excel Export:** Generate formatted Excel workbooks for clinical review
+- **Detailed Statistics:** Comprehensive variant and gene-level statistics
 
 ## Quick Start
 
@@ -40,6 +57,7 @@ installation
 usage
 configuration
 guides/index
+faq
 ```
 
 ```{toctree}
