@@ -481,6 +481,48 @@ def main() -> None:
         help="Number of parallel threads for sorting (default: 4)",
     )
 
+    # Data Privacy Options
+    privacy_group = parser.add_argument_group("Data Privacy Options")
+    privacy_group.add_argument(
+        "--pseudonymize",
+        action="store_true",
+        help="Enable sample pseudonymization for privacy-preserving output",
+    )
+    privacy_group.add_argument(
+        "--pseudonymize-schema",
+        type=str,
+        choices=["sequential", "categorical", "anonymous", "custom"],
+        default="sequential",
+        help="Pseudonymization naming schema (default: sequential)",
+    )
+    privacy_group.add_argument(
+        "--pseudonymize-prefix",
+        type=str,
+        default="SAMPLE",
+        help="Prefix for sequential schema (default: SAMPLE)",
+    )
+    privacy_group.add_argument(
+        "--pseudonymize-pattern",
+        type=str,
+        help="Custom pattern for 'custom' schema (e.g., '{prefix}_{category}_{index:03d}')",
+    )
+    privacy_group.add_argument(
+        "--pseudonymize-category-field",
+        type=str,
+        default="phenotype",
+        help="Metadata field for categorical schema (default: phenotype)",
+    )
+    privacy_group.add_argument(
+        "--pseudonymize-table",
+        type=str,
+        help="Path to save pseudonymization mapping table (required if --pseudonymize)",
+    )
+    privacy_group.add_argument(
+        "--pseudonymize-ped",
+        action="store_true",
+        help="Also create pseudonymized PED file for sharing",
+    )
+
     args: argparse.Namespace = parser.parse_args()
 
     # Configure logging level
@@ -692,6 +734,29 @@ def main() -> None:
     cfg["force_chunked_processing"] = args.force_chunked_processing
     cfg["sort_memory_limit"] = args.sort_memory_limit
     cfg["sort_parallel"] = args.sort_parallel
+
+    # Pseudonymization configuration
+    cfg["pseudonymize"] = args.pseudonymize
+    cfg["pseudonymize_schema"] = args.pseudonymize_schema
+    cfg["pseudonymize_prefix"] = args.pseudonymize_prefix
+    cfg["pseudonymize_pattern"] = args.pseudonymize_pattern
+    cfg["pseudonymize_category_field"] = args.pseudonymize_category_field
+    cfg["pseudonymize_table"] = args.pseudonymize_table
+    cfg["pseudonymize_ped"] = args.pseudonymize_ped
+
+    # Validate pseudonymization arguments
+    if args.pseudonymize and not args.pseudonymize_table:
+        logger.error("--pseudonymize-table is required when using --pseudonymize")
+        sys.exit(1)
+    if args.pseudonymize_table and not args.pseudonymize:
+        logger.warning("--pseudonymize-table provided without --pseudonymize. It will be ignored.")
+    if args.pseudonymize_ped and not args.pseudonymize:
+        logger.warning("--pseudonymize-ped provided without --pseudonymize. It will be ignored.")
+    if args.pseudonymize_pattern and args.pseudonymize_schema != "custom":
+        logger.warning(
+            f"--pseudonymize-pattern is only used with --pseudonymize-schema custom. "
+            f"Current schema: {args.pseudonymize_schema}"
+        )
 
     run_pipeline(args, cfg, start_time)
 

@@ -30,6 +30,15 @@ Explore advanced VariantCentrifuge features and customization options:
 - Integration with other tools
 - Performance optimization
 
+## Privacy and Data Sharing
+
+Learn how to protect participant privacy when sharing genomic data:
+
+- Sample pseudonymization with flexible naming schemas
+- Security best practices for mapping tables
+- Creating publication-ready datasets
+- Reversing pseudonymization for internal use
+
 ```{toctree}
 :maxdepth: 1
 
@@ -39,5 +48,6 @@ rare_disease_workflow
 cancer_analysis
 variant_scoring
 custom_filters
+../user-guide/privacy_and_pseudonymization
 performance_tips
 ```

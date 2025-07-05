@@ -23,8 +23,8 @@ import datetime
 import gzip
 import hashlib
 import io
-import logging
 import locale
+import logging
 import os
 import re
 import subprocess
@@ -32,14 +32,28 @@ import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Iterator
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
 
 import pandas as pd
 
+from variantcentrifuge.helpers import (
+    annotate_variants_with_gene_lists,
+    check_file,
+    determine_case_control_sets,
+    dump_df_to_xlsx,
+    extract_gencode_id,
+    get_vcf_names,
+    get_vcf_regions,
+    get_vcf_samples,
+    get_vcf_size,
+    match_IGV_link_columns,
+    read_sequencing_manifest,
+)
+
 from .analyze_variants import analyze_variants
 from .annotator import (
-    load_custom_features,
     annotate_dataframe_with_features,
+    load_custom_features,
     validate_annotation_config,
 )
 from .converter import (
@@ -57,9 +71,10 @@ from .filters import (
 )
 from .gene_bed import get_gene_bed, normalize_genes
 from .links import add_links_to_table
+from .ped_reader import read_pedigree
 from .phenotype import aggregate_phenotypes_for_samples, load_phenotypes
 from .phenotype_filter import filter_phenotypes
-from .ped_reader import read_pedigree
+from .pseudonymizer import apply_pseudonymization
 from .replacer import replace_genotypes
 from .scoring import read_scoring_config
 from .utils import (
@@ -70,19 +85,6 @@ from .utils import (
     run_command,
     sanitize_metadata_field,
     split_bed_file,
-)
-from variantcentrifuge.helpers import (
-    annotate_variants_with_gene_lists,
-    check_file,
-    determine_case_control_sets,
-    dump_df_to_xlsx,
-    extract_gencode_id,
-    get_vcf_names,
-    get_vcf_regions,
-    get_vcf_samples,
-    get_vcf_size,
-    match_IGV_link_columns,
-    read_sequencing_manifest,
 )
 
 # Import the SNPeff annotation splitting function
@@ -230,8 +232,8 @@ def sort_tsv_by_gene(
     # Execute the command
     logger.debug(f"Running sort command: {cmd}")
 
-    import subprocess
     import shutil
+    import subprocess
 
     # Find bash executable
     bash_path = shutil.which("bash") or "/bin/bash"
@@ -2042,6 +2044,58 @@ def run_pipeline(
 
             if len(buffer) <= 1:
                 logger.warning("No variants passed the final filter")
+
+    # Apply pseudonymization if configured
+    pseudonymizer = None
+    if cfg.get("pseudonymize"):
+        # Extract sample list from the buffer (GT column)
+        sample_list = set()
+        if len(buffer) > 1:
+            # Find GT column index
+            header_parts = buffer[0].split("\t")
+            gt_idx = None
+            for i, col in enumerate(header_parts):
+                if col == "GT":
+                    gt_idx = i
+                    break
+
+            if gt_idx is not None:
+                # Extract all sample IDs from GT column
+                for line in buffer[1:]:
+                    fields = line.split("\t")
+                    if len(fields) > gt_idx:
+                        gt_value = fields[gt_idx]
+                        # Extract sample IDs from format like "Sample1(0/1);Sample2(1/1)"
+                        import re
+
+                        pattern = re.compile(r"([^;()\s]+)\(")
+                        matches = pattern.findall(gt_value)
+                        sample_list.update(matches)
+
+        # Load pedigree data for metadata if available
+        ped_data = None
+        if cfg.get("ped_file"):
+            try:
+                ped_data = read_pedigree(cfg["ped_file"])
+            except Exception as e:
+                logger.warning(f"Could not load PED file for pseudonymization metadata: {e}")
+
+        # Apply pseudonymization
+        buffer, pseudonymizer = apply_pseudonymization(buffer, list(sample_list), cfg, ped_data)
+
+        # Save mapping table
+        if pseudonymizer and cfg.get("pseudonymize_table"):
+            # Save in parent directory of output directory
+            output_parent = os.path.dirname(os.path.abspath(args.output_dir))
+            table_path = os.path.join(output_parent, os.path.basename(cfg["pseudonymize_table"]))
+            pseudonymizer.save_mapping(table_path)
+            logger.info(f"Pseudonymization mapping saved to: {table_path}")
+
+            # Create pseudonymized PED if requested
+            if cfg.get("pseudonymize_ped") and cfg.get("ped_file"):
+                ped_output = table_path.replace(".tsv", "_pedigree.ped")
+                pseudonymizer.pseudonymize_ped_file(cfg["ped_file"], ped_output)
+                logger.info(f"Pseudonymized PED file saved to: {ped_output}")
 
     if final_to_stdout:
         if buffer:

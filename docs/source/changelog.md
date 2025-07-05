@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **bcftools pre-filtering** (`--bcftools-prefilter`) for early variant filtering during extraction, significantly improving performance on large VCFs
 - **Final filtering** (`--final-filter`) using pandas query syntax, allowing filtering on any column including computed scores and inheritance patterns
 - Comprehensive test suite for new filtering features
+- **Sample pseudonymization** for privacy-preserving data sharing (Issue #34):
+  - Multiple naming schemas: sequential, categorical, anonymous, and custom patterns
+  - Consistent pseudonym mapping across all output formats (TSV, Excel, HTML)
+  - Automatic handling of genotype and inheritance columns
+  - PED file pseudonymization support (`--pseudonymize-ped`)
+  - Secure mapping table storage in parent directory
+  - Comprehensive test suite and documentation
 
 ### Changed
 - Documentation migrated from README to structured Sphinx documentation
