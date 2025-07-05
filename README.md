@@ -135,7 +135,6 @@ This project is licensed under the [MIT License](LICENSE).
 ## 🙏 Acknowledgments
 
 - Built upon the rich ecosystem of bioinformatics tools (snpEff, SnpSift, bcftools, bedtools)
-- Special thanks to contributors and the open-source community
 - Inspired by prior Bash/R pipelines for variant filtering
 
 ---
