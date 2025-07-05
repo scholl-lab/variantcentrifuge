@@ -92,27 +92,27 @@ class TestArchiveResults:
     def test_archive_results_timestamp_format(self):
         """Test that archive filename has correct timestamp format."""
         import re
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = os.path.join(tmpdir, "test_output")
             os.makedirs(output_dir)
 
             archive_path = archive_results_directory(output_dir, "test_sample")
-            
+
             # Extract the filename
             filename = os.path.basename(archive_path)
-            
+
             # Check the format: variantcentrifuge_results_<base_name>_<timestamp>.tar.gz
             pattern = r"variantcentrifuge_results_test_sample_(\d{8})_(\d{6})\.tar\.gz"
             match = re.match(pattern, filename)
-            
+
             assert match is not None, f"Filename {filename} doesn't match expected pattern"
-            
+
             # Check date format (YYYYMMDD)
             date_part = match.group(1)
             assert len(date_part) == 8
             assert date_part.isdigit()
-            
+
             # Check time format (HHMMSS)
             time_part = match.group(2)
             assert len(time_part) == 6

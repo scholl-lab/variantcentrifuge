@@ -1022,14 +1022,14 @@ def _run_single_thread_pipeline(
 def archive_results_directory(output_dir: str, base_name: str) -> Optional[str]:
     """
     Archive the results directory into a compressed tar.gz file.
-    
+
     Parameters
     ----------
     output_dir : str
         Path to the directory to archive
     base_name : str
         Base name for the archive (from input VCF)
-        
+
     Returns
     -------
     Optional[str]
@@ -1037,24 +1037,24 @@ def archive_results_directory(output_dir: str, base_name: str) -> Optional[str]:
     """
     import tarfile
     from datetime import datetime
-    
+
     # Generate timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
+
     # Create archive name: variantcentrifuge_results_<basename>_<timestamp>.tar.gz
     archive_name = f"variantcentrifuge_results_{base_name}_{timestamp}.tar.gz"
-    
+
     # Place archive in parent directory of output_dir
     parent_dir = os.path.dirname(os.path.abspath(output_dir))
     archive_path = os.path.join(parent_dir, archive_name)
-    
+
     try:
         logger.info(f"Creating archive: {archive_path}")
-        
+
         with tarfile.open(archive_path, "w:gz") as tar:
             # Add the entire output directory
             tar.add(output_dir, arcname=os.path.basename(output_dir))
-            
+
         # Verify archive was created and get size
         if os.path.exists(archive_path):
             size_mb = os.path.getsize(archive_path) / (1024 * 1024)
@@ -1063,7 +1063,7 @@ def archive_results_directory(output_dir: str, base_name: str) -> Optional[str]:
         else:
             logger.error("Archive file was not created")
             return None
-            
+
     except Exception as e:
         logger.error(f"Failed to create archive: {str(e)}")
         return None
@@ -2262,7 +2262,7 @@ def run_pipeline(
     logger.info(
         f"Processing completed. Output saved to " f"{'stdout' if final_to_stdout else final_output}"
     )
-    
+
     # Archive results if requested
     if args.archive_results:
         logger.info("Creating compressed archive of results directory...")
