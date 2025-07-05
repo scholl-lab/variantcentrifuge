@@ -213,7 +213,6 @@ class TestPipelineIntegration:
     def test_archive_results_cli_flag(self):
         """Test that --archive-results flag exists in CLI."""
         import argparse
-        import variantcentrifuge.cli
 
         # Create a parser the same way the CLI does
         parser = argparse.ArgumentParser()

@@ -4,7 +4,7 @@ import os
 import tempfile
 import tarfile
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from variantcentrifuge.pipeline import archive_results_directory
 

@@ -14,18 +14,19 @@ New Features (Issue #21):
 
 Updated for Issue #31:
 - Improved handling of edge cases (e.g., infinite or zero odds_ratio).
-  Instead of returning NaN for confidence intervals, attempts a fallback
-  method ("logit") if the primary method fails. If still invalid, returns
-  bounded fallback intervals to ensure meaningful output.
+  Now properly detects structural zeros and applies continuity correction
+  for zero cells to calculate meaningful confidence intervals.
+- Uses score method as primary CI calculation (more robust for sparse data).
+- Returns NaN for structural zeros where OR cannot be calculated.
 
 Configuration Additions
 -----------------------
 - "confidence_interval_method": str
-    Method for confidence interval calculation. Supports:
-    - "normal_approx": Uses statsmodels' Table2x2 normal approximation for OR CI.
-      Will fallback to "logit" if normal fails, and then to bounded fallback.
+    Method for confidence interval calculation. Defaults to "normal_approx".
 - "confidence_interval_alpha": float
     Significance level for confidence interval calculation. Default: 0.05 for a 95% CI.
+- "continuity_correction": float
+    Value to add to zero cells for continuity correction. Default: 0.5.
 
 Outputs
 -------
@@ -58,10 +59,10 @@ logger = logging.getLogger("variantcentrifuge")
 
 
 def _compute_or_confidence_interval(
-    table: list, odds_ratio: float, method: str, alpha: float
+    table: list, odds_ratio: float, method: str, alpha: float, continuity_correction: float = 0.5
 ) -> tuple:
     """
-    Compute confidence intervals for the odds ratio using the specified method.
+    Compute confidence intervals for the odds ratio with robust handling of zero cells.
 
     Parameters
     ----------
@@ -76,6 +77,8 @@ def _compute_or_confidence_interval(
           Fallback to "logit" if normal approximation fails.
     alpha : float
         Significance level for the confidence interval. 0.05 for 95% CI.
+    continuity_correction : float
+        Value to add to zero cells for continuity correction (default: 0.5).
 
     Returns
     -------
@@ -84,58 +87,51 @@ def _compute_or_confidence_interval(
 
     Notes
     -----
-    If odds_ratio is NaN, zero, or infinite, the normal approximation may fail.
-    We attempt:
-
-    1. normal approximation (if fails, try "logit")
-    2. if "logit" fails or odds ratio is still invalid, return bounded fallback
-       intervals instead of NaN.
-
-    The fallback intervals are arbitrary bounds chosen to reflect a very low and
-    very high plausible range instead of returning NaN. For example, we use:
-    ci_lower = 0.001 and ci_upper = 1000 for extreme cases.
+    This enhanced function first checks for structural zeros. If found, it correctly
+    returns NaN as no OR can be calculated. It then applies a continuity correction
+    if any cell is zero to prevent division-by-zero errors, allowing for the
+    calculation of meaningful CIs in edge cases.
     """
-    if isnan(odds_ratio) or odds_ratio <= 0 or np.isinf(odds_ratio):
-        # Attempt direct fallback without normal approx
-        logger.debug("Odds ratio is invalid (NaN, <=0, or Inf). Attempting fallback methods.")
-
     a = table[0][0]
     b = table[0][1]
     c = table[1][0]
     d = table[1][1]
 
+    # Check for structural zeros where an OR is not calculable
+    if (a + b == 0) or (c + d == 0) or (a + c == 0) or (b + d == 0):
+        logger.debug(f"Structural zero in table {table}, cannot compute OR or CI.")
+        return np.nan, np.nan
+
     if Table2x2 is None:
-        logger.warning("statsmodels not available. Using fallback confidence intervals.")
-        return 0.001, 1000.0
+        logger.warning("statsmodels not available. Cannot compute confidence intervals.")
+        return np.nan, np.nan
 
-    table_np = np.array(table)
-    cont_table = Table2x2(table_np)
-
-    def _try_confint(method_name):
-        try:
-            return cont_table.oddsratio_confint(alpha=alpha, method=method_name)
-        except Exception:
-            logger.debug("Failed to compute CI with method '%s'.", method_name)
-            return float("nan"), float("nan")
-
-    # First attempt using requested method (likely "normal_approx")
-    if method == "normal_approx":
-        ci_lower, ci_upper = _try_confint("normal")
-        if (isnan(ci_lower) or isnan(ci_upper)) and not isnan(odds_ratio):
-            # Normal approximation failed, try "logit"
-            logger.debug("Normal approximation failed, trying logit method.")
-            ci_lower, ci_upper = _try_confint("logit")
-
-        # Check if we still have invalid CI
-        if isnan(ci_lower) or isnan(ci_upper):
-            # Provide bounded fallback
-            logger.debug("Both normal and logit methods failed. Using bounded fallback CIs.")
-            ci_lower, ci_upper = 0.001, 1000.0
+    # Apply continuity correction if any cell is zero
+    table_np = np.array(table, dtype=float)
+    if 0 in table_np.flatten():
+        logger.debug(f"Applying continuity correction ({continuity_correction}) to table {table}")
+        table_for_ci = table_np + continuity_correction
     else:
-        # Unsupported method: return NaN
-        ci_lower, ci_upper = float("nan"), float("nan")
+        table_for_ci = table_np
 
-    return ci_lower, ci_upper
+    try:
+        cont_table = Table2x2(table_for_ci)
+        # Use the score method for confidence intervals, as it's robust for sparse data
+        ci_lower, ci_upper = cont_table.oddsratio_confint(alpha=alpha, method="score")
+
+        # If score method fails, try other methods
+        if isnan(ci_lower) or isnan(ci_upper):
+            logger.debug("Score method failed, trying normal approximation.")
+            ci_lower, ci_upper = cont_table.oddsratio_confint(alpha=alpha, method="normal")
+
+            if isnan(ci_lower) or isnan(ci_upper):
+                logger.debug("Normal approximation failed, trying logit method.")
+                ci_lower, ci_upper = cont_table.oddsratio_confint(alpha=alpha, method="logit")
+
+        return ci_lower, ci_upper
+    except Exception as e:
+        logger.warning(f"Failed to compute CI for table {table_for_ci.tolist()}: {e}")
+        return np.nan, np.nan
 
 
 def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
@@ -197,6 +193,7 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.Da
     correction_method = cfg.get("correction_method", "fdr")
     ci_method = cfg.get("confidence_interval_method", "normal_approx")
     ci_alpha = cfg.get("confidence_interval_alpha", 0.05)
+    continuity_correction = cfg.get("continuity_correction", 0.5)
 
     grouped = (
         df.groupby("GENE")
@@ -247,7 +244,9 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.Da
             pval = 1.0
 
         # Compute confidence interval for the odds ratio
-        ci_lower, ci_upper = _compute_or_confidence_interval(table, odds_ratio, ci_method, ci_alpha)
+        ci_lower, ci_upper = _compute_or_confidence_interval(
+            table, odds_ratio, ci_method, ci_alpha, continuity_correction
+        )
 
         results.append(
             {

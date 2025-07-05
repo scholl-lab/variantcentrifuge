@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Documentation structure and navigation
 - Numeric type conversion in final filtering to handle mixed data types correctly
+- **Gene burden analysis edge cases** (Issue #31): Improved handling of infinite and zero odds ratios by:
+  - Detecting structural zeros (e.g., entire row/column zero) and returning NaN appropriately
+  - Applying continuity correction (default 0.5) to zero cells to calculate meaningful confidence intervals
+  - Using score method as primary CI calculation (more robust for sparse data)
+  - Removing arbitrary fallback bounds in favor of statistically sound methods
 
 ## [0.5.0] - 2024-XX-XX
 
