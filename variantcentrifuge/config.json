@@ -22,6 +22,7 @@
   "igv_max_variant_part_filename": 50,
 
   "presets": {
+    "pass": "(FILTER = 'PASS')",
     "not_artefact": "((AC[ANY] <= 513) & (QUAL[ANY] >= 100))",
     "not_benign": "(!(dbNSFP_clinvar_clnsig =~ '[Bb]enign') & !(ClinVar_CLNSIG =~ '[Bb]enign'))",
     "5percent_or_pathogenic": "(((dbNSFP_gnomAD_exomes_AF[0] < 0.05) | (na dbNSFP_gnomAD_exomes_AC[0]) | (dbNSFP_gnomAD_genomes_AF[0] < 0.05) | (na dbNSFP_gnomAD_genomes_AC[0])) | (((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & !(dbNSFP_clinvar_clnsig =~ '[Cc]onflicting')) | ((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting'))))",
