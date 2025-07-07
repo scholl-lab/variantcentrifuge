@@ -4,6 +4,7 @@ import json
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
+from concurrent.futures import Future
 import pandas as pd
 import pytest
 
@@ -13,6 +14,10 @@ from variantcentrifuge.stages.output_stages import (
     TSVOutputStage,
     MetadataGenerationStage,
     ArchiveCreationStage,
+    ParallelReportGenerationStage,
+    ExcelReportStage,
+    HTMLReportStage,
+    IGVReportStage,
 )
 from tests.mocks.fixtures import create_test_context
 
@@ -222,3 +227,109 @@ class TestArchiveCreationStage:
         """Test parallel safety."""
         stage = ArchiveCreationStage()
         assert stage.parallel_safe is True
+
+
+class TestParallelReportGenerationStage:
+    """Test ParallelReportGenerationStage."""
+
+    @pytest.fixture
+    def context(self):
+        """Create test context."""
+        ctx = create_test_context()
+        ctx.data = Path("/tmp/test.tsv")
+        ctx.mark_complete("tsv_output")
+        return ctx
+
+    def test_no_reports_requested(self, context):
+        """Test when no reports are requested."""
+        context.config = {"no_metadata": True}
+
+        stage = ParallelReportGenerationStage()
+        result = stage(context)
+
+        # Should pass through unchanged
+        assert result == context
+
+    @patch.object(MetadataGenerationStage, "_process")
+    def test_single_report_generation(self, mock_metadata, context):
+        """Test generating a single report."""
+        context.config = {"no_metadata": False}
+        mock_metadata.return_value = context
+
+        stage = ParallelReportGenerationStage()
+        result = stage(context)
+
+        # Should call the single report stage
+        assert mock_metadata.called
+
+    @patch("variantcentrifuge.stages.output_stages.as_completed")
+    @patch("variantcentrifuge.stages.output_stages.ThreadPoolExecutor")
+    @patch.object(ExcelReportStage, "_process")
+    @patch.object(HTMLReportStage, "_process")
+    @patch.object(MetadataGenerationStage, "_process")
+    def test_parallel_report_generation(
+        self, mock_metadata, mock_html, mock_excel, mock_executor, mock_as_completed, context
+    ):
+        """Test generating multiple reports in parallel."""
+        context.config = {"xlsx": True, "html_report": True, "no_metadata": False}
+
+        # Mock the report stages
+        mock_excel.return_value = context
+        mock_html.return_value = context
+        mock_metadata.return_value = context
+
+        # Mock futures
+        mock_futures = []
+        for _ in range(3):
+            future = Mock(spec=Future)
+            future.result.return_value = None
+            mock_futures.append(future)
+
+        # Mock the executor
+        mock_executor_instance = Mock()
+        mock_executor_instance.submit.side_effect = mock_futures
+        mock_executor.return_value.__enter__.return_value = mock_executor_instance
+
+        # Mock as_completed to return futures immediately
+        mock_as_completed.return_value = mock_futures
+
+        stage = ParallelReportGenerationStage()
+        result = stage(context)
+
+        # Should use ThreadPoolExecutor
+        assert mock_executor.called
+        # Should submit 3 tasks (excel, html, metadata)
+        assert mock_executor_instance.submit.call_count == 3
+
+    @patch("variantcentrifuge.stages.output_stages.as_completed")
+    @patch("variantcentrifuge.stages.output_stages.ThreadPoolExecutor")
+    @patch.object(ExcelReportStage, "_process")
+    def test_report_generation_error_handling(
+        self, mock_excel, mock_executor, mock_as_completed, context
+    ):
+        """Test error handling during report generation."""
+        context.config = {"excel": True}
+
+        # Mock excel generation to fail
+        mock_excel.side_effect = Exception("Excel generation failed")
+
+        # Mock the executor
+        mock_future = Mock(spec=Future)
+        mock_future.result.side_effect = Exception("Excel generation failed")
+        mock_executor_instance = Mock()
+        mock_executor_instance.submit.return_value = mock_future
+        mock_executor.return_value.__enter__.return_value = mock_executor_instance
+
+        # Mock as_completed
+        mock_as_completed.return_value = [mock_future]
+
+        stage = ParallelReportGenerationStage()
+        # Should not raise exception, just log error
+        result = stage(context)
+
+        assert result == context
+
+    def test_parallel_safe_property(self, context):
+        """Test that this stage is not marked as parallel safe."""
+        stage = ParallelReportGenerationStage()
+        assert stage.parallel_safe is False  # Manages its own parallelism
