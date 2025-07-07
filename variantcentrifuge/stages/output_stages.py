@@ -58,6 +58,11 @@ class VariantIdentifierStage(Stage):
         # but we don't strictly depend on them - variant IDs can be generated without them
         return deps
 
+    @property
+    def parallel_safe(self) -> bool:
+        """Return whether this stage can run in parallel with others."""
+        return True  # Safe - only modifies DataFrame, no external I/O
+
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Add variant identifiers."""
         df = context.current_dataframe
@@ -114,6 +119,11 @@ class FinalFilteringStage(Stage):
         """Return the set of stage names this stage depends on."""
         # Only depends on dataframe_loading since filtering can work on any columns
         return {"dataframe_loading"}
+
+    @property
+    def parallel_safe(self) -> bool:
+        """Return whether this stage can run in parallel with others."""
+        return True  # Safe - only filters DataFrame, no external I/O
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply final filtering."""
@@ -572,6 +582,11 @@ class ArchiveCreationStage(Stage):
         # Archive should run after all outputs
         # Just depend on TSV output as minimum
         return {"tsv_output"}
+
+    @property
+    def parallel_safe(self) -> bool:
+        """Return whether this stage can run in parallel with others."""
+        return True  # Safe - creates file in parent directory, no conflicts
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Create archive if requested."""

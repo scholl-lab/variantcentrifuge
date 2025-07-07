@@ -43,13 +43,9 @@ class DataFrameLoadingStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Depends on whatever data transformation happened
-        return {
-            "field_extraction",
-            "genotype_replacement",
-            "phenotype_integration",
-            "extra_column_removal",
-        }
+        # Always depends on field extraction (the TSV file must exist)
+        # Other transformations are optional
+        return {"field_extraction"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Load data into DataFrame or prepare chunked processing."""
@@ -111,10 +107,9 @@ class CustomAnnotationStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        deps = {"dataframe_loading"}
-        if self._has_annotation_config():
-            deps.add("annotation_config_loading")
-        return deps
+        # Always depends on dataframe being loaded
+        # Annotation config is handled in setup stages if needed
+        return {"dataframe_loading"}
 
     def _has_annotation_config(self) -> bool:
         """Check if annotation config stage exists."""
@@ -288,13 +283,14 @@ class StatisticsGenerationStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Run after all analysis stages
-        return {
-            "dataframe_loading",
-            "custom_annotation",
-            "inheritance_analysis",
-            "variant_scoring",
-        }
+        # Only depends on dataframe being loaded
+        # Statistics can be run on whatever columns are available
+        return {"dataframe_loading"}
+
+    @property
+    def parallel_safe(self) -> bool:
+        """Return whether this stage can run in parallel with others."""
+        return True  # Safe - read-only computation on DataFrame
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Generate statistics."""

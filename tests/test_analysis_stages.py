@@ -79,7 +79,7 @@ class TestDataFrameLoadingStage:
         # Create a dummy file
         tsv_file = tmp_path / "test.tsv"
         tsv_file.write_text("CHROM\tPOS\n1\t100\n")
-        
+
         workspace = Workspace(tmp_path, "test")
         context = PipelineContext(args=Mock(), config={"chunks": 1000}, workspace=workspace)
         context.data = tsv_file
@@ -106,16 +106,20 @@ class TestCustomAnnotationStage:
     def test_process_with_bed_annotation(self, tmp_path):
         """Test BED file annotation."""
         # Create test DataFrame
-        df = pd.DataFrame({
-            "CHROM": ["1", "1", "2"],
-            "POS": [100, 200, 300],
-            "REF": ["A", "G", "C"],
-            "ALT": ["T", "C", "G"],
-        })
+        df = pd.DataFrame(
+            {
+                "CHROM": ["1", "1", "2"],
+                "POS": [100, 200, 300],
+                "REF": ["A", "G", "C"],
+                "ALT": ["T", "C", "G"],
+            }
+        )
 
         # Create context
         workspace = Workspace(tmp_path, "test")
-        context = PipelineContext(args=Mock(), config={"annotate_bed": ["exon.bed"]}, workspace=workspace)
+        context = PipelineContext(
+            args=Mock(), config={"annotate_bed": ["exon.bed"]}, workspace=workspace
+        )
         context.current_dataframe = df
         context.annotation_configs = None  # No configs means it returns early
 
@@ -129,15 +133,19 @@ class TestCustomAnnotationStage:
     def test_process_with_gene_list_annotation(self, tmp_path):
         """Test gene list annotation returns early without configs."""
         # Create test DataFrame
-        df = pd.DataFrame({
-            "CHROM": ["1", "2", "3"],
-            "POS": [100, 200, 300],
-            "GENE": ["BRCA1", "BRCA2", "TP53"],
-        })
+        df = pd.DataFrame(
+            {
+                "CHROM": ["1", "2", "3"],
+                "POS": [100, 200, 300],
+                "GENE": ["BRCA1", "BRCA2", "TP53"],
+            }
+        )
 
         # Create context
         workspace = Workspace(tmp_path, "test")
-        context = PipelineContext(args=Mock(), config={"annotate_gene_list": ["cancer_genes.txt"]}, workspace=workspace)
+        context = PipelineContext(
+            args=Mock(), config={"annotate_gene_list": ["cancer_genes.txt"]}, workspace=workspace
+        )
         context.current_dataframe = df
         context.annotation_configs = None  # No configs
 
@@ -151,7 +159,7 @@ class TestCustomAnnotationStage:
     def test_process_without_annotations(self, tmp_path):
         """Test processing without annotations."""
         df = pd.DataFrame({"CHROM": ["1"], "POS": [100]})
-        
+
         workspace = Workspace(tmp_path, "test")
         context = PipelineContext(args=Mock(), config={}, workspace=workspace)
         context.current_dataframe = df
@@ -178,20 +186,43 @@ class TestInheritanceAnalysisStage:
     def test_process_with_pedigree(self, mock_analyze, tmp_path):
         """Test inheritance analysis with pedigree."""
         # Create test DataFrame
-        df = pd.DataFrame({
-            "CHROM": ["1", "1"],
-            "POS": [100, 200],
-            "GENE": ["GENE1", "GENE1"],
-            "Sample1": ["0/1", "0/0"],
-            "Sample2": ["0/0", "0/1"],
-            "Sample3": ["0/1", "0/1"],
-        })
+        df = pd.DataFrame(
+            {
+                "CHROM": ["1", "1"],
+                "POS": [100, 200],
+                "GENE": ["GENE1", "GENE1"],
+                "Sample1": ["0/1", "0/0"],
+                "Sample2": ["0/0", "0/1"],
+                "Sample3": ["0/1", "0/1"],
+            }
+        )
 
         # Mock pedigree data
         pedigree_data = {
-            "Sample1": {"family": "FAM1", "individual": "Sample1", "father": "Sample2", "mother": "Sample3", "sex": "M", "phenotype": "affected"},
-            "Sample2": {"family": "FAM1", "individual": "Sample2", "father": "0", "mother": "0", "sex": "M", "phenotype": "unaffected"},
-            "Sample3": {"family": "FAM1", "individual": "Sample3", "father": "0", "mother": "0", "sex": "F", "phenotype": "unaffected"},
+            "Sample1": {
+                "family": "FAM1",
+                "individual": "Sample1",
+                "father": "Sample2",
+                "mother": "Sample3",
+                "sex": "M",
+                "phenotype": "affected",
+            },
+            "Sample2": {
+                "family": "FAM1",
+                "individual": "Sample2",
+                "father": "0",
+                "mother": "0",
+                "sex": "M",
+                "phenotype": "unaffected",
+            },
+            "Sample3": {
+                "family": "FAM1",
+                "individual": "Sample3",
+                "father": "0",
+                "mother": "0",
+                "sex": "F",
+                "phenotype": "unaffected",
+            },
         }
 
         # Mock inheritance analysis result
@@ -200,7 +231,9 @@ class TestInheritanceAnalysisStage:
 
         # Create context
         workspace = Workspace(tmp_path, "test")
-        context = PipelineContext(args=Mock(), config={"inheritance_mode": "simple"}, workspace=workspace)
+        context = PipelineContext(
+            args=Mock(), config={"inheritance_mode": "simple"}, workspace=workspace
+        )
         context.current_dataframe = df
         context.pedigree_data = pedigree_data
         context.vcf_samples = ["Sample1", "Sample2", "Sample3"]
@@ -216,7 +249,7 @@ class TestInheritanceAnalysisStage:
     def test_process_without_pedigree(self, tmp_path):
         """Test skipping when no pedigree data."""
         df = pd.DataFrame({"CHROM": ["1"], "POS": [100]})
-        
+
         workspace = Workspace(tmp_path, "test")
         context = PipelineContext(args=Mock(), config={}, workspace=workspace)
         context.current_dataframe = df
@@ -236,19 +269,26 @@ class TestVariantScoringStage:
         stage = VariantScoringStage()
         assert stage.name == "variant_scoring"
         assert "Calculate variant scores" in stage.description
-        assert stage.dependencies == {"dataframe_loading", "custom_annotation", "inheritance_analysis", "scoring_config_loading"}
+        assert stage.dependencies == {
+            "dataframe_loading",
+            "custom_annotation",
+            "inheritance_analysis",
+            "scoring_config_loading",
+        }
         assert stage.parallel_safe is False
 
     @patch("variantcentrifuge.stages.analysis_stages.apply_scoring")
     def test_process_with_scoring_config(self, mock_scoring, tmp_path):
         """Test variant scoring with config."""
         # Create test DataFrame
-        df = pd.DataFrame({
-            "CHROM": ["1", "2"],
-            "POS": [100, 200],
-            "QUAL": [30, 40],
-            "IMPACT": ["HIGH", "MODERATE"],
-        })
+        df = pd.DataFrame(
+            {
+                "CHROM": ["1", "2"],
+                "POS": [100, 200],
+                "QUAL": [30, 40],
+                "IMPACT": ["HIGH", "MODERATE"],
+            }
+        )
 
         # Mock scoring config
         scoring_config = {
@@ -277,7 +317,7 @@ class TestVariantScoringStage:
     def test_process_without_scoring_config(self, tmp_path):
         """Test skipping when no scoring config."""
         df = pd.DataFrame({"CHROM": ["1"], "POS": [100]})
-        
+
         workspace = Workspace(tmp_path, "test")
         context = PipelineContext(args=Mock(), config={}, workspace=workspace)
         context.current_dataframe = df
@@ -304,12 +344,14 @@ class TestStatisticsGenerationStage:
     def test_process_generates_statistics(self, mock_stats_engine, tmp_path):
         """Test statistics generation."""
         # Create test DataFrame
-        df = pd.DataFrame({
-            "CHROM": ["1", "1", "2"],
-            "POS": [100, 200, 300],
-            "GENE": ["GENE1", "GENE1", "GENE2"],
-            "IMPACT": ["HIGH", "MODERATE", "HIGH"],
-        })
+        df = pd.DataFrame(
+            {
+                "CHROM": ["1", "1", "2"],
+                "POS": [100, 200, 300],
+                "GENE": ["GENE1", "GENE1", "GENE2"],
+                "IMPACT": ["HIGH", "MODERATE", "HIGH"],
+            }
+        )
 
         # Mock statistics engine and result
         mock_engine = Mock()
@@ -338,7 +380,7 @@ class TestStatisticsGenerationStage:
     def test_process_with_empty_dataframe(self, tmp_path):
         """Test statistics with empty DataFrame."""
         df = pd.DataFrame()
-        
+
         workspace = Workspace(tmp_path, "test")
         context = PipelineContext(args=Mock(), config={}, workspace=workspace)
         context.current_dataframe = df
@@ -368,25 +410,29 @@ class TestGeneBurdenAnalysisStage:
     def test_process_with_case_control(self, mock_analyze, mock_burden, tmp_path):
         """Test gene burden analysis with cases and controls."""
         # Create test DataFrame
-        df = pd.DataFrame({
-            "GENE": ["GENE1", "GENE1", "GENE2"],
-            "Sample1": ["0/1", "0/0", "0/1"],
-            "Sample2": ["0/0", "0/1", "0/0"],
-            "Sample3": ["0/1", "0/1", "0/0"],
-            "Sample4": ["0/0", "0/0", "0/1"],
-        })
+        df = pd.DataFrame(
+            {
+                "GENE": ["GENE1", "GENE1", "GENE2"],
+                "Sample1": ["0/1", "0/0", "0/1"],
+                "Sample2": ["0/0", "0/1", "0/0"],
+                "Sample3": ["0/1", "0/1", "0/0"],
+                "Sample4": ["0/0", "0/0", "0/1"],
+            }
+        )
 
         # Mock analyze variants result
         mock_analyze.return_value = df.copy()
-        
+
         # Mock burden test result
-        burden_result = pd.DataFrame({
-            "gene": ["GENE1", "GENE2"],
-            "case_count": [2, 1],
-            "control_count": [1, 1],
-            "p_value": [0.5, 0.8],
-            "odds_ratio": [2.0, 1.0],
-        })
+        burden_result = pd.DataFrame(
+            {
+                "gene": ["GENE1", "GENE2"],
+                "case_count": [2, 1],
+                "control_count": [1, 1],
+                "p_value": [0.5, 0.8],
+                "odds_ratio": [2.0, 1.0],
+            }
+        )
         mock_burden.return_value = burden_result
 
         # Create context
@@ -400,7 +446,7 @@ class TestGeneBurdenAnalysisStage:
                 "case_samples": ["Sample1", "Sample3"],
                 "control_samples": ["Sample2", "Sample4"],
             },
-            workspace=workspace
+            workspace=workspace,
         )
         context.current_dataframe = df
 
@@ -416,7 +462,7 @@ class TestGeneBurdenAnalysisStage:
     def test_process_without_gene_burden(self, tmp_path):
         """Test skipping when gene burden not requested."""
         df = pd.DataFrame({"GENE": ["GENE1"], "Sample1": ["0/1"]})
-        
+
         workspace = Workspace(tmp_path, "test")
         context = PipelineContext(args=Mock(), config={}, workspace=workspace)
         context.current_dataframe = df
@@ -429,12 +475,10 @@ class TestGeneBurdenAnalysisStage:
     def test_process_without_samples(self, tmp_path):
         """Test warning when no case/control samples."""
         df = pd.DataFrame({"GENE": ["GENE1"], "Sample1": ["0/1"]})
-        
+
         workspace = Workspace(tmp_path, "test")
         context = PipelineContext(
-            args=Mock(),
-            config={"perform_gene_burden": True},
-            workspace=workspace
+            args=Mock(), config={"perform_gene_burden": True}, workspace=workspace
         )
         context.current_dataframe = df
 
@@ -454,11 +498,11 @@ class TestChunkedAnalysisStage:
         assert "Process large files in memory-efficient chunks" in stage.description
         # ChunkedAnalysisStage has more dependencies
         expected_deps = {
-            "field_extraction", 
+            "field_extraction",
             "phenotype_integration",
             "annotation_config_loading",
-            "scoring_config_loading", 
-            "pedigree_loading"
+            "scoring_config_loading",
+            "pedigree_loading",
         }
         assert stage.dependencies == expected_deps
         assert stage.parallel_safe is False
@@ -478,7 +522,7 @@ class TestChunkedAnalysisStage:
                 "chunk_size": 1,
                 "output_file": "output.tsv",
             },
-            workspace=workspace
+            workspace=workspace,
         )
         context.data = tsv_file
 

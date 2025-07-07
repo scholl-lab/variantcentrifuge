@@ -257,7 +257,14 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
     # Create runner
     enable_checkpoints = getattr(args, "enable_checkpoint", False)
     max_workers = getattr(args, "threads", None)
-    runner = PipelineRunner(enable_checkpoints=enable_checkpoints, max_workers=max_workers)
+    # Use process executor for better parallelization of CPU-bound tasks
+    executor_type = "process" if max_workers and max_workers > 1 else "thread"
+    runner = PipelineRunner(
+        enable_checkpoints=enable_checkpoints,
+        max_workers=max_workers,
+        executor_type=executor_type,
+        enable_stage_batching=True
+    )
 
     # Show execution plan in debug mode
     if log_level == "DEBUG":

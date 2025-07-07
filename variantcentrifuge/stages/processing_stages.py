@@ -48,6 +48,11 @@ class GeneBedCreationStage(Stage):
         """Return the set of stage names this stage depends on."""
         return {"configuration_loading"}
 
+    @property
+    def parallel_safe(self) -> bool:
+        """Return whether this stage can run in parallel with others."""
+        return True  # Safe - creates independent BED file
+
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Create BED file for specified genes."""
         # Get normalized gene names
@@ -362,6 +367,11 @@ class MultiAllelicSplitStage(Stage):
         """Return the set of stage names this stage depends on."""
         # Must run after gene bed creation and variant data exists
         return {"gene_bed_creation"}
+
+    @property
+    def parallel_safe(self) -> bool:
+        """Return whether this stage can run in parallel with others."""
+        return True  # Safe - independent transformation, creates new file
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Split SNPeff annotations if requested."""

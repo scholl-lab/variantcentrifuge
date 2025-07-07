@@ -8,8 +8,9 @@ handling dependencies, parallel execution, and error recovery.
 import logging
 import time
 from collections import defaultdict, deque
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional
+from concurrent.futures import Future, ThreadPoolExecutor, ProcessPoolExecutor, as_completed
+from typing import Dict, List, Optional, Literal
+import multiprocessing
 
 from .context import PipelineContext
 from .stage import Stage
@@ -36,7 +37,13 @@ class PipelineRunner:
         Maximum number of parallel workers
     """
 
-    def __init__(self, enable_checkpoints: bool = False, max_workers: Optional[int] = None):
+    def __init__(
+        self,
+        enable_checkpoints: bool = False,
+        max_workers: Optional[int] = None,
+        executor_type: Literal["thread", "process"] = "thread",
+        enable_stage_batching: bool = True
+    ):
         """Initialize the pipeline runner.
 
         Parameters
@@ -45,10 +52,17 @@ class PipelineRunner:
             Enable checkpoint tracking for resume capability
         max_workers : int, optional
             Maximum parallel workers (default: CPU count)
+        executor_type : {"thread", "process"}, optional
+            Type of executor for parallel execution (default: "thread")
+        enable_stage_batching : bool
+            Enable batching of lightweight stages (default: True)
         """
         self.enable_checkpoints = enable_checkpoints
-        self.max_workers = max_workers
+        self.max_workers = max_workers or multiprocessing.cpu_count()
+        self.executor_type = executor_type
+        self.enable_stage_batching = enable_stage_batching
         self._execution_times: Dict[str, float] = {}
+        self._stage_metrics: Dict[str, Dict[str, float]] = {}
 
     def run(self, stages: List[Stage], context: PipelineContext) -> PipelineContext:
         """Execute all stages in dependency order with parallelization.
@@ -168,6 +182,14 @@ class PipelineRunner:
             # Sort stages in level by estimated runtime (longest first)
             # This helps with better work distribution
             current_level.sort(key=lambda s: s.estimated_runtime, reverse=True)
+
+            # Log level composition for debugging
+            parallel_count = sum(1 for s in current_level if s.parallel_safe)
+            logger.debug(
+                f"Level {len(execution_plan)}: {len(current_level)} stages "
+                f"({parallel_count} parallel-safe)"
+            )
+
             execution_plan.append(current_level)
 
         # Check for circular dependencies
@@ -263,9 +285,23 @@ class PipelineRunner:
         PipelineContext
             Updated context with all stage results merged
         """
-        logger.info(f"Executing {len(stages)} stages in parallel")
+        logger.info(
+            f"Executing {len(stages)} stages in parallel using {self.executor_type} executor"
+        )
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+        # Batch lightweight stages if enabled
+        if self.enable_stage_batching:
+            stages = self._batch_lightweight_stages(stages)
+
+        # Choose executor based on type
+        executor_class = (
+            ProcessPoolExecutor if self.executor_type == "process" else ThreadPoolExecutor
+        )
+
+        # Adjust max_workers based on stage count
+        effective_workers = min(self.max_workers, len(stages))
+
+        with executor_class(max_workers=effective_workers) as executor:
             # Submit all stages
             future_to_stage: Dict[Future, Stage] = {}
             for stage in stages:
@@ -275,12 +311,17 @@ class PipelineRunner:
                 future_to_stage[future] = stage
 
             # Wait for all to complete
+            completed_count = 0
             for future in as_completed(future_to_stage):
                 stage = future_to_stage[future]
+                completed_count += 1
                 try:
                     # Get result (this will raise any exceptions)
                     future.result()
-                    logger.debug(f"Parallel stage '{stage.name}' completed")
+                    logger.debug(
+                        f"Parallel stage '{stage.name}' completed "
+                        f"({completed_count}/{len(stages)})"
+                    )
                 except Exception as e:
                     logger.error(f"Parallel stage '{stage.name}' failed: {e}")
                     # Cancel remaining futures
@@ -290,6 +331,48 @@ class PipelineRunner:
                     raise
 
         return context
+
+    def _batch_lightweight_stages(self, stages: List[Stage]) -> List[Stage]:
+        """Batch lightweight stages together for more efficient execution.
+
+        Parameters
+        ----------
+        stages : List[Stage]
+            Stages to potentially batch
+
+        Returns
+        -------
+        List[Stage]
+            Stages with lightweight ones potentially batched
+        """
+        # For now, return stages as-is
+        # TODO: Implement intelligent batching based on estimated runtime
+        return stages
+
+    def _get_executor_for_stage(self, stage: Stage):
+        """Get the appropriate executor type for a stage.
+
+        Parameters
+        ----------
+        stage : Stage
+            Stage to execute
+
+        Returns
+        -------
+        type
+            Executor class (ThreadPoolExecutor or ProcessPoolExecutor)
+        """
+        # Use ProcessPoolExecutor for CPU-intensive stages
+        cpu_intensive_stages = {
+            "variant_scoring",
+            "inheritance_analysis",
+            "gene_burden_analysis",
+            "statistics_generation"
+        }
+
+        if stage.name in cpu_intensive_stages and self.executor_type == "process":
+            return ProcessPoolExecutor
+        return ThreadPoolExecutor
 
     def _log_execution_summary(self) -> None:
         """Log summary of stage execution times."""
