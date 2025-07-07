@@ -257,6 +257,9 @@ def sanitize_metadata_field(value: str) -> str:
     str
         Sanitized string value with no tabs or newlines.
     """
+    # Handle non-string values by converting to string first
+    if not isinstance(value, str):
+        value = str(value)
     return value.replace("\t", " ").replace("\n", " ").strip()
 
 

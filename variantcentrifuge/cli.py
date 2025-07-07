@@ -721,6 +721,10 @@ def main() -> None:
 
     # Threads
     cfg["threads"] = args.threads
+    
+    # Output file - important to override default config value
+    if args.output_file is not None:
+        cfg["output_file"] = args.output_file
 
     # Gene list annotation
     cfg["annotate_gene_list_files"] = args.annotate_gene_list

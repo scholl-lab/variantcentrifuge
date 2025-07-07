@@ -39,22 +39,28 @@ class ConfigurationLoadingStage(Stage):
         """Load configuration and merge with CLI arguments."""
         logger.info("Loading configuration...")
 
-        # Load base configuration
-        if hasattr(context.args, "config") and context.args.config:
-            config = load_config(context.args.config)
-            logger.info(f"Loaded configuration from {context.args.config}")
+        # Check if config was already passed as a dict (from main pipeline)
+        if hasattr(context.args, "config") and isinstance(context.args.config, dict):
+            # Config already fully merged by cli.py, just use it
+            config = context.args.config
+            logger.info("Using pre-merged configuration from main pipeline")
         else:
-            config = load_config()  # Load default config
-            logger.info("Loaded default configuration")
+            # Load base configuration
+            if hasattr(context.args, "config") and context.args.config:
+                config = load_config(context.args.config)
+                logger.info(f"Loaded configuration from {context.args.config}")
+            else:
+                config = load_config()  # Load default config
+                logger.info("Loaded default configuration")
 
-        # Merge CLI arguments (CLI takes precedence)
-        cli_args = vars(context.args)
-        for key, value in cli_args.items():
-            if value is not None and key != "config":
-                # Skip internal arguments
-                if key.startswith("_"):
-                    continue
-                config[key] = value
+            # Merge CLI arguments (CLI takes precedence)
+            cli_args = vars(context.args)
+            for key, value in cli_args.items():
+                if value is not None and key not in ["config", "fields"]:
+                    # Skip internal arguments and fields (handled as fields_to_extract)
+                    if key.startswith("_"):
+                        continue
+                    config[key] = value
 
         # Set pipeline version
         config["pipeline_version"] = config.get("pipeline_version", "1.0.0")

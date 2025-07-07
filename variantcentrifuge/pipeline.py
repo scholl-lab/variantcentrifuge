@@ -1297,12 +1297,23 @@ def run_pipeline(
         logger.info("Using new pipeline architecture (Stage-based)")
         from .pipeline_refactored import run_refactored_pipeline
 
-        # Add args to namespace if not present
-        if not hasattr(args, "config"):
-            args.config = cfg
-        if not hasattr(args, "start_time"):
-            args.start_time = start_time
-        run_refactored_pipeline(args)
+        # Pass the merged config directly to the refactored pipeline
+        # Note: We can't modify args.config reliably, so we'll pass it another way
+        from types import SimpleNamespace
+
+        # Create a new args object with the config properly set
+        refactored_args = SimpleNamespace(**vars(args))
+        refactored_args.config = cfg
+        if not hasattr(refactored_args, "start_time"):
+            refactored_args.start_time = start_time
+
+        # Debug logging
+        logger.debug(
+            f"Passing config to refactored pipeline with fields_to_extract: {cfg.get('fields_to_extract', 'NOT SET')}"
+        )
+        logger.debug(f"refactored_args.config type: {type(refactored_args.config)}")
+
+        run_refactored_pipeline(refactored_args)
         return
 
     # Check external tools

@@ -42,6 +42,7 @@ from .stages.analysis_stages import (
     VariantScoringStage,
     StatisticsGenerationStage,
     GeneBurdenAnalysisStage,
+    VariantAnalysisStage,
 )
 from .stages.output_stages import (
     VariantIdentifierStage,
@@ -121,7 +122,8 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
     stages.append(FieldExtractionStage())
 
     # Optional transformations
-    if hasattr(args, "replace_genotypes") and args.replace_genotypes:
+    # Default behavior: do genotype replacement unless --no-replacement is specified
+    if not getattr(args, "no_replacement", False):
         stages.append(GenotypeReplacementStage())
 
     if args.phenotype_file:
@@ -151,13 +153,17 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
     if hasattr(args, "scoring_config_path") and args.scoring_config_path:
         stages.append(VariantScoringStage())
 
+    # Always run variant analysis to add standard columns
+    stages.append(VariantAnalysisStage())
+
     if not getattr(args, "no_stats", False):
         stages.append(StatisticsGenerationStage())
 
     if hasattr(args, "perform_gene_burden") and args.perform_gene_burden:
         stages.append(GeneBurdenAnalysisStage())
 
-    # Output stages
+    # Output stages - VariantIdentifierStage should run before TSVOutput
+    # so VAR_ID is included in the output
     stages.append(VariantIdentifierStage())
 
     if getattr(args, "late_filtering", False) or getattr(args, "final_filter", None):
@@ -266,9 +272,17 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
     # Merge VCF file path into config
     initial_config["vcf_file"] = vcf_file
 
-    # Add other important args to config if not already present
-    for key in ["reference", "filters", "fields", "gzip_intermediates"]:
-        if hasattr(args, key) and key not in initial_config:
+    # Ensure all important config values are present
+    # The config from cli.py has all merged values we need
+    # Make sure we preserve all of them, not just a subset
+    # Note: initial_config already has the full merged config if passed as dict
+    
+    # Only add args that might not be in config yet
+    args_to_add = ["reference", "filters", "gzip_intermediates", "no_replacement", 
+                   "late_filtering", "threads", "keep_intermediates", "output_file",
+                   "no_links", "output_dir", "xlsx", "html_report"]
+    for key in args_to_add:
+        if hasattr(args, key) and getattr(args, key) is not None and key not in initial_config:
             initial_config[key] = getattr(args, key)
 
     # Create pipeline context

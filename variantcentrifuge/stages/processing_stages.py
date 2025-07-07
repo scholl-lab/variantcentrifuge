@@ -279,6 +279,9 @@ class ParallelVariantExtractionStage(Stage):
         # Cleanup chunks
         self._cleanup_chunks(bed_chunks, chunk_outputs)
 
+        # Mark variant_extraction as complete so field_extraction can proceed
+        context.mark_complete("variant_extraction")
+
         return context
 
     def _split_bed_file(self, bed_file: Path, n_chunks: int) -> List[Path]:
@@ -494,8 +497,14 @@ class SnpSiftFilterStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Must run after configuration and gene bed (variant extraction sets context.data)
-        return {"gene_bed_creation", "configuration_loading"}
+        # Must run after configuration
+        return {"configuration_loading"}
+    
+    @property
+    def soft_dependencies(self) -> Set[str]:
+        """Return the set of stage names that should run before if present."""
+        # Run after either extraction stage
+        return {"variant_extraction", "parallel_variant_extraction"}
 
     def _split_before_filter(self) -> bool:
         """Check if we should split before filtering."""
@@ -512,11 +521,16 @@ class SnpSiftFilterStage(Stage):
             return context
 
         # Get input VCF from context (set by variant extraction stage)
-        input_vcf = context.extracted_vcf or context.data
+        input_vcf = getattr(context, 'extracted_vcf', None) or context.data
         if not input_vcf:
             logger.error("No input VCF available for filtering")
             return context
-            
+        
+        # Ensure the input VCF exists
+        if not Path(input_vcf).exists():
+            logger.error(f"Input VCF file does not exist: {input_vcf}")
+            return context
+
         output_vcf = context.workspace.get_intermediate_path(
             f"{context.workspace.base_name}.filtered.vcf.gz"
         )
@@ -547,15 +561,26 @@ class FieldExtractionStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Must have gene bed and config, optionally after filtering
-        deps = {"gene_bed_creation", "configuration_loading"}
-        # Note: snpsift_filtering dependency is handled by execution order,
-        # not explicit dependency to avoid circular deps when filtering is not used
+        # Must have gene bed and config, and variant extraction
+        deps = {"gene_bed_creation", "configuration_loading", "variant_extraction"}
         return deps
+    
+    @property
+    def soft_dependencies(self) -> Set[str]:
+        """Return the set of stage names that should run before if present."""
+        # Prefer to run after filtering if it exists
+        return {"snpsift_filtering"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Extract fields to TSV format."""
-        input_vcf = context.data
+        # Use filtered VCF if available, otherwise use the extracted VCF
+        if hasattr(context, 'filtered_vcf') and context.filtered_vcf:
+            input_vcf = context.filtered_vcf
+            logger.debug(f"Using filtered VCF: {input_vcf}")
+        else:
+            input_vcf = context.data
+            logger.debug(f"Using unfiltered VCF: {input_vcf}")
+            
         fields = context.config.get("extract", [])
 
         # Debug logging
@@ -627,8 +652,9 @@ class GenotypeReplacementStage(Stage):
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Replace genotypes with sample IDs."""
-        if not context.config.get("replace_genotypes"):
-            logger.debug("Genotype replacement not requested")
+        # Default behavior: replace genotypes unless explicitly disabled
+        if context.config.get("no_replacement", False):
+            logger.debug("Genotype replacement disabled")
             return context
 
         input_tsv = context.data
@@ -647,14 +673,42 @@ class GenotypeReplacementStage(Stage):
             return context
 
         logger.info(f"Replacing genotypes for {len(samples)} samples")
-        replace_genotypes(
-            str(input_tsv),
-            samples,
-            str(output_tsv),
-            missing_string=context.config.get("missing_string", ""),
-            output_to_stdout=False,
-        )
 
+        # Prepare config for replace_genotypes
+        replacer_config = {
+            "sample_list": ",".join(samples),
+            "separator": ";",
+            "extract_fields_separator": ",",
+            "append_extra_sample_fields": False,
+            "genotype_replacement_map": context.config.get("genotype_replacement_map", {}),
+        }
+
+        # Run genotype replacement
+        # Handle gzipped input files
+        import gzip
+        
+        if str(input_tsv).endswith(".gz"):
+            inp_handle = gzip.open(input_tsv, "rt", encoding="utf-8")
+        else:
+            inp_handle = open(input_tsv, "r", encoding="utf-8")
+            
+        if str(output_tsv).endswith(".gz"):
+            out_handle = gzip.open(output_tsv, "wt", encoding="utf-8")
+        else:
+            out_handle = open(output_tsv, "w", encoding="utf-8")
+            
+        try:
+            with inp_handle as inp, out_handle as out:
+                for line in replace_genotypes(inp, replacer_config):
+                    out.write(line + "\n")
+        finally:
+            # Ensure files are closed
+            if hasattr(inp_handle, "close"):
+                inp_handle.close()
+            if hasattr(out_handle, "close"):
+                out_handle.close()
+
+        context.genotype_replaced_tsv = output_tsv
         context.data = output_tsv
         return context
 
@@ -728,6 +782,7 @@ class PhenotypeIntegrationStage(Stage):
         compression = "gzip" if str(output_tsv).endswith(".gz") else None
         df.to_csv(output_tsv, sep="\t", index=False, compression=compression)
 
+        context.phenotypes_added_tsv = output_tsv
         context.data = output_tsv
         return context
 
@@ -783,6 +838,7 @@ class ExtraColumnRemovalStage(Stage):
         compression = "gzip" if str(output_tsv).endswith(".gz") else None
         df.to_csv(output_tsv, sep="\t", index=False, compression=compression)
 
+        context.extra_columns_removed_tsv = output_tsv
         context.data = output_tsv
         return context
 

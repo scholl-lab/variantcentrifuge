@@ -142,7 +142,21 @@ class PipelineRunner:
         """
         # Build dependency graph
         graph = {stage.name: stage for stage in stages}
-        dependencies = {stage.name: stage.dependencies for stage in stages}
+        stage_names = set(graph.keys())
+
+        # Build effective dependencies including soft dependencies that exist
+        dependencies = {}
+        for stage in stages:
+            # Start with hard dependencies
+            deps = set(stage.dependencies)
+
+            # Add soft dependencies if they exist in the pipeline
+            if hasattr(stage, "soft_dependencies"):
+                for soft_dep in stage.soft_dependencies:
+                    if soft_dep in stage_names:
+                        deps.add(soft_dep)
+
+            dependencies[stage.name] = deps
 
         # Build reverse dependency graph (who depends on each stage)
         dependents = defaultdict(set)
@@ -154,7 +168,9 @@ class PipelineRunner:
         # Calculate in-degree (number of dependencies each stage has)
         in_degree = {}
         for stage_name in graph:
-            in_degree[stage_name] = len(dependencies[stage_name])
+            # Only count dependencies that exist in the graph
+            valid_deps = [dep for dep in dependencies[stage_name] if dep in graph]
+            in_degree[stage_name] = len(valid_deps)
 
         # Find stages with no dependencies (in-degree 0)
         queue = deque([name for name, degree in in_degree.items() if degree == 0])
@@ -195,6 +211,11 @@ class PipelineRunner:
         # Check for circular dependencies
         if len(processed) != len(stages):
             unprocessed = set(graph.keys()) - processed
+            logger.debug(f"Processed stages: {processed}")
+            logger.debug(f"Unprocessed stages: {unprocessed}")
+            logger.debug("Dependencies for unprocessed stages:")
+            for stage_name in unprocessed:
+                logger.debug(f"  {stage_name}: {dependencies[stage_name]}")
             raise ValueError(f"Circular dependency detected involving stages: {unprocessed}")
 
         return execution_plan

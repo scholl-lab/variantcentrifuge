@@ -23,6 +23,7 @@ from ..inheritance import analyze_inheritance
 from ..pipeline_core import PipelineContext, Stage
 from ..scoring import apply_scoring
 from ..stats_engine import StatsEngine
+from ..links import add_links_to_table
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +45,43 @@ class DataFrameLoadingStage(Stage):
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
         # Always depends on field extraction (the TSV file must exist)
-        # Other transformations are optional
+        # We don't add other dependencies here to avoid circular dependencies
+        # Instead, we handle the data flow in _process() method
         return {"field_extraction"}
+
+    @property
+    def soft_dependencies(self) -> Set[str]:
+        """Return the set of stage names that should run before if present."""
+        # Prefer to run after all data transformation stages
+        return {"genotype_replacement", "phenotype_integration", "extra_column_removal"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Load data into DataFrame or prepare chunked processing."""
-        input_file = context.data
+        # Use the most recent TSV file in the pipeline
+        # Priority: extra_columns_removed > phenotypes_added > genotype_replaced > extracted
+        if hasattr(context, "extra_columns_removed_tsv") and context.extra_columns_removed_tsv:
+            input_file = context.extra_columns_removed_tsv
+        elif hasattr(context, "phenotypes_added_tsv") and context.phenotypes_added_tsv:
+            input_file = context.phenotypes_added_tsv
+        elif hasattr(context, "genotype_replaced_tsv") and context.genotype_replaced_tsv:
+            input_file = context.genotype_replaced_tsv
+        elif hasattr(context, "extracted_tsv") and context.extracted_tsv:
+            input_file = context.extracted_tsv
+        else:
+            # Fallback to context.data, but log a warning if it's not a TSV
+            input_file = context.data
+            if input_file and str(input_file).endswith(".vcf.gz"):
+                logger.warning(
+                    f"DataFrameLoadingStage received VCF file instead of TSV: {input_file}"
+                )
+                # Try to find the extracted TSV
+                if hasattr(context, "extracted_tsv") and context.extracted_tsv:
+                    logger.info(f"Using extracted TSV instead: {context.extracted_tsv}")
+                    input_file = context.extracted_tsv
+                else:
+                    raise ValueError(
+                        f"DataFrameLoadingStage requires a TSV file, but got VCF: {input_file}"
+                    )
 
         # Check if we should use chunked processing
         if self._should_use_chunks(context, input_file):
@@ -62,6 +94,8 @@ class DataFrameLoadingStage(Stage):
         logger.info(f"Loading data from {input_file}")
         compression = "gzip" if str(input_file).endswith(".gz") else None
 
+        # Use quoting=3 (QUOTE_NONE) to handle data with quotes
+        # Use low_memory=False to avoid dtype inference issues
         df = pd.read_csv(
             input_file,
             sep="\t",
@@ -69,6 +103,9 @@ class DataFrameLoadingStage(Stage):
             keep_default_na=False,
             na_values=[""],
             compression=compression,
+            quoting=3,  # QUOTE_NONE - don't treat quotes specially
+            low_memory=False,
+            on_bad_lines='warn'  # Warn about problematic lines instead of failing
         )
 
         context.current_dataframe = df
@@ -132,12 +169,15 @@ class CustomAnnotationStage(Stage):
             return context
 
         # Load annotation features
-        features = load_custom_features(
-            bed_files=context.annotation_configs.get("bed_files", []),
-            gene_lists=context.annotation_configs.get("gene_lists", []),
-            json_genes_file=context.annotation_configs.get("json_genes"),
-            json_mapping=context.annotation_configs.get("json_mapping"),
-        )
+        # Create config dict for load_custom_features
+        annotation_cfg = {
+            "annotate_bed_files": context.annotation_configs.get("bed_files", []),
+            "annotate_gene_lists": context.annotation_configs.get("gene_lists", []),
+            "annotate_json_genes": context.annotation_configs.get("json_genes", []),
+            "json_gene_mapping": context.annotation_configs.get("json_mapping", ""),
+            "json_genes_as_columns": context.config.get("json_genes_as_columns", False)
+        }
+        features = load_custom_features(annotation_cfg)
 
         # Apply annotations
         logger.info(f"Applying {len(features)} custom annotation features")
@@ -163,9 +203,15 @@ class InheritanceAnalysisStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Static dependencies only - pedigree loading is optional
-        # and will be checked at runtime
-        return {"dataframe_loading", "custom_annotation"}
+        # Only depend on dataframe_loading as a hard requirement
+        # custom_annotation is optional and will run before if present
+        return {"dataframe_loading"}
+
+    @property
+    def soft_dependencies(self) -> Set[str]:
+        """Return the set of stage names that should run before if present."""
+        # Prefer to run after custom_annotation if it exists
+        return {"custom_annotation"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Calculate inheritance patterns."""
@@ -232,11 +278,16 @@ class VariantScoringStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Static dependencies only - scoring config loading is optional
-        # and will be checked at runtime
-        # Note: inheritance_analysis should run before scoring so scores
-        # can use inheritance patterns
-        return {"dataframe_loading", "custom_annotation", "inheritance_analysis"}
+        # Only depend on dataframe_loading as a hard requirement
+        # Other stages (custom_annotation, inheritance_analysis) are optional
+        # The pipeline runner will ensure correct ordering based on what stages are present
+        return {"dataframe_loading"}
+
+    @property
+    def soft_dependencies(self) -> Set[str]:
+        """Return the set of stage names that should run before if present."""
+        # Prefer to run after annotations and inheritance if they exist
+        return {"custom_annotation", "inheritance_analysis"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply variant scoring."""
@@ -343,6 +394,98 @@ class StatisticsGenerationStage(Stage):
                     df.to_csv(f, sep="\t", index=False)
 
         logger.info(f"Wrote statistics to {output_file}")
+
+
+class VariantAnalysisStage(Stage):
+    """Run variant-level analysis to add analysis columns."""
+
+    @property
+    def name(self) -> str:
+        """Return the stage name."""
+        return "variant_analysis"
+
+    @property
+    def description(self) -> str:
+        """Return a description of what this stage does."""
+        return "Perform variant-level analysis"
+
+    @property
+    def dependencies(self) -> Set[str]:
+        """Return the set of stage names this stage depends on."""
+        # Depends on having a DataFrame with variants
+        deps = {"dataframe_loading"}
+        return deps
+    
+    @property 
+    def soft_dependencies(self) -> Set[str]:
+        """Return the set of stage names that should run before if present."""
+        # Run after variant_identifier to preserve VAR_ID column
+        return {"variant_identifier"}
+
+    def _process(self, context: PipelineContext) -> PipelineContext:
+        """Run variant analysis."""
+        if context.current_dataframe is None:
+            logger.warning("No DataFrame available for variant analysis")
+            return context
+
+        df = context.current_dataframe
+
+        # Prepare config for analyze_variants
+        analysis_config = {
+            "vcf_sample_names": context.vcf_samples or [],
+            "sample_list": ",".join(context.vcf_samples or []),
+            "no_db_links": context.config.get("no_db_links", False),
+            "base_name": context.workspace.base_name,
+            "reference": context.config.get("reference", "GRCh37"),
+        }
+
+        # Create temporary TSV file for analyze_variants
+        temp_tsv = context.workspace.get_intermediate_path("temp_for_analysis.tsv")
+        df.to_csv(temp_tsv, sep="\t", index=False)
+
+        logger.info("Running variant-level analysis")
+
+        # Run analyze_variants and collect results
+        analysis_results = []
+        with open(temp_tsv, "r") as inp:
+            for line in analyze_variants(inp, analysis_config):
+                analysis_results.append(line)
+
+        # Parse results back into DataFrame
+        if analysis_results:
+            # First line is header
+            header = analysis_results[0].split("\t")
+            data = [line.split("\t") for line in analysis_results[1:]]
+
+            # Create new DataFrame with analysis results
+            analysis_df = pd.DataFrame(data, columns=header)
+            
+            # Merge with original dataframe to preserve any columns added by other stages
+            # (like VAR_ID from VariantIdentifierStage)
+            original_cols = list(df.columns)
+            new_cols = [col for col in analysis_df.columns if col not in original_cols]
+            
+            # If VAR_ID exists in original, preserve it
+            if "VAR_ID" in original_cols and "VAR_ID" not in analysis_df.columns:
+                analysis_df.insert(0, "VAR_ID", df["VAR_ID"].values)
+            
+            # If Custom_Annotation exists in original, preserve it
+            if "Custom_Annotation" in original_cols and "Custom_Annotation" not in analysis_df.columns:
+                # Find appropriate position
+                if "GT" in analysis_df.columns:
+                    gt_pos = analysis_df.columns.get_loc("GT") + 1
+                    analysis_df.insert(gt_pos, "Custom_Annotation", df["Custom_Annotation"].values)
+                else:
+                    analysis_df["Custom_Annotation"] = df["Custom_Annotation"].values
+
+            context.current_dataframe = analysis_df
+            logger.info(f"Variant analysis complete: {len(analysis_df)} variants analyzed")
+
+        # Clean up temp file
+        if temp_tsv.exists():
+            temp_tsv.unlink()
+
+        return context
 
 
 class GeneBurdenAnalysisStage(Stage):

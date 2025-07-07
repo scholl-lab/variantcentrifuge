@@ -82,29 +82,44 @@ class VariantIdentifierStage(Stage):
             logger.warning("No DataFrame for variant identifier generation")
             return context
 
-        # Check if ID column already exists
-        id_column = context.config.get("variant_id_column", "Variant_ID")
+        # Use VAR_ID to match old pipeline
+        id_column = "VAR_ID"
         if id_column in df.columns:
             logger.debug(f"Variant ID column '{id_column}' already exists")
             return context
 
         logger.info("Generating variant identifiers")
 
-        # Generate IDs based on key fields
+        # Generate IDs based on key fields with hash like old pipeline
         key_fields = ["CHROM", "POS", "REF", "ALT"]
         if all(field in df.columns for field in key_fields):
-            df[id_column] = (
-                df["CHROM"].astype(str)
-                + ":"
-                + df["POS"].astype(str)
-                + ":"
-                + df["REF"].astype(str)
-                + ">"
-                + df["ALT"].astype(str)
-            )
+            import hashlib
+            var_ids = []
+            for idx, row in enumerate(df.itertuples(index=False), 1):
+                chrom = str(getattr(row, "CHROM", ""))
+                pos = str(getattr(row, "POS", ""))
+                ref = str(getattr(row, "REF", ""))
+                alt = str(getattr(row, "ALT", ""))
+                
+                combined = f"{chrom}{pos}{ref}{alt}"
+                short_hash = hashlib.md5(combined.encode("utf-8")).hexdigest()[:4]
+                var_id = f"var_{idx:04d}_{short_hash}"
+                var_ids.append(var_id)
+            
+            # Insert VAR_ID as the first column
+            df.insert(0, id_column, var_ids)
         else:
             # Fallback to simple index
-            df[id_column] = [f"VAR_{i:06d}" for i in range(len(df))]
+            df.insert(0, id_column, [f"var_{i:04d}_0000" for i in range(1, len(df)+1)])
+
+        # Also ensure Custom_Annotation column exists (even if empty)
+        if "Custom_Annotation" not in df.columns:
+            # Find a good position for it - after GT column if it exists
+            if "GT" in df.columns:
+                gt_pos = df.columns.get_loc("GT") + 1
+                df.insert(gt_pos, "Custom_Annotation", "")
+            else:
+                df["Custom_Annotation"] = ""
 
         context.current_dataframe = df
         return context
@@ -341,9 +356,17 @@ class TSVOutputStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # TSV output only needs the dataframe to be loaded
-        # All other processing stages are optional
-        return {"dataframe_loading"}
+        # TSV output should run after all processing and analysis stages
+        # We depend on dataframe_loading as the base requirement
+        # All analysis stages that modify the dataframe should run before this
+        deps = {"dataframe_loading"}
+
+        # Note: We don't add optional dependencies here like variant_identifier,
+        # final_filtering, or pseudonymization because they may not exist in
+        # all pipelines. The runner will still ensure proper ordering based
+        # on the dependency graph of stages that are actually present.
+
+        return deps
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Write final TSV output."""
@@ -371,16 +394,40 @@ class TSVOutputStage(Stage):
             return context
 
         # Write to file
-        output_path = context.workspace.get_output_path("", ".tsv")
-        if context.config.get("output_file"):
-            # Use specified filename
-            output_path = context.workspace.output_dir / Path(context.config["output_file"]).name
+        output_file_config = context.config.get("output_file")
+        logger.debug(f"TSVOutputStage - output_file from config: {output_file_config}")
+        
+        if output_file_config:
+            # Use specified path
+            output_path = Path(output_file_config)
+            logger.debug(f"Using specified output path: {output_path}")
+        else:
+            # Generate default output path
+            output_path = context.workspace.get_output_path("", ".tsv")
+            logger.debug(f"Using default output path: {output_path}")
 
         logger.info(f"Writing {len(df)} variants to {output_path}")
 
-        # Add external links if configured
-        if context.config.get("add_links"):
-            df = add_links_to_table(df)
+        # Add external links if configured (default is to add links unless no_links is True)
+        if not context.config.get("no_links", False):
+            # Get link configurations from config
+            link_configs = context.config.get("links", {})
+            if link_configs:
+                # Convert DataFrame to lines, add links, then convert back
+                # First, save to lines format
+                lines = []
+                # Header
+                lines.append("\t".join(df.columns))
+                # Data rows
+                for _, row in df.iterrows():
+                    lines.append("\t".join(str(val) for val in row))
+                
+                # Add links
+                lines_with_links = add_links_to_table(lines, link_configs)
+                
+                # Convert back to DataFrame
+                import io
+                df = pd.read_csv(io.StringIO("\n".join(lines_with_links)), sep="\t", dtype=str)
 
         # Write file
         compression = None
@@ -390,6 +437,8 @@ class TSVOutputStage(Stage):
                 output_path = Path(str(output_path) + ".gz")
 
         df.to_csv(output_path, sep="\t", index=False, na_rep="", compression=compression)
+        
+        logger.info(f"Successfully wrote output to: {output_path}")
 
         context.final_output_path = output_path
         context.report_paths["tsv"] = output_path

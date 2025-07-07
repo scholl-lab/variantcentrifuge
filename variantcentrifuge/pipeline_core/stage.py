@@ -51,6 +51,20 @@ class Stage(ABC):
         return set()
 
     @property
+    def soft_dependencies(self) -> Set[str]:
+        """Stage names that should run before this stage if present.
+
+        These are optional dependencies - if the stage is in the pipeline,
+        it should run before this stage, but if it's not present, that's OK.
+
+        Returns
+        -------
+        Set[str]
+            Set of stage names this stage prefers to run after
+        """
+        return set()
+
+    @property
     def description(self) -> str:
         """Human-readable description for logging.
 

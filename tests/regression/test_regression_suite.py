@@ -62,13 +62,25 @@ REGRESSION_TESTS = [
     RegressionTestConfig(
         name="gene_with_scoring",
         gene_name="CFTR",
-        extra_args=["--filters", "FILTER = 'PASS'", "--scoring-config-path", "scoring/inheritance_score"],
+        extra_args=[
+            "--filters",
+            "FILTER = 'PASS'",
+            "--scoring-config-path",
+            "scoring/inheritance_score",
+        ],
         description="Gene with variant scoring",
     ),
     RegressionTestConfig(
         name="gene_with_inheritance",
         gene_name="PKD1",
-        extra_args=["--filters", "FILTER = 'PASS'", "--ped", "test_family.ped", "--inheritance-mode", "columns"],
+        extra_args=[
+            "--filters",
+            "FILTER = 'PASS'",
+            "--ped",
+            "test_family.ped",
+            "--inheritance-mode",
+            "columns",
+        ],
         description="Gene with inheritance analysis",
     ),
     RegressionTestConfig(
@@ -143,13 +155,14 @@ class PipelineRunner:
 
         # Convert relative paths to absolute
         import os
+
         project_root = Path(__file__).parent.parent.parent
-        
+
         # Update VCF path if relative
         if not Path(vcf_file).is_absolute():
             vcf_file = str(project_root / vcf_file)
             cmd[cmd.index("--vcf-file") + 1] = vcf_file
-            
+
         try:
             result = subprocess.run(
                 cmd,
@@ -321,7 +334,7 @@ def test_vcf_file(test_data_dir):
     regression_vcf = Path("tests/fixtures/test_regression_variants.GRCh37.annotated.vcf.gz")
     if regression_vcf.exists():
         return str(regression_vcf)
-    
+
     # Fall back to test_cohort.vcf.gz in test data dir
     vcf_file = test_data_dir / "test_cohort.vcf.gz"
     if not vcf_file.exists():
@@ -435,7 +448,7 @@ class TestPipelineRegression:
         # Update config to use test fixtures
         if config.gene_file == "test_genes.txt":
             config.gene_file = "tests/fixtures/test_genes.txt"
-            
+
         # Update extra args to use test fixtures
         new_extra_args = []
         for i, arg in enumerate(config.extra_args):

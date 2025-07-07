@@ -92,7 +92,7 @@ class BaselineGenerator:
         # Prepare output files
         output_filename = f"{config.name}.tsv"
         log_file = self.logs_dir / f"{config.name}.log"
-        
+
         # Ensure directories exist
         self.outputs_dir.mkdir(parents=True, exist_ok=True)
         log_file.parent.mkdir(parents=True, exist_ok=True)
