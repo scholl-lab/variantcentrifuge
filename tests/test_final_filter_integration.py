@@ -72,7 +72,9 @@ chr1\t2000\t.\tG\tC\t100\tPASS\tAF=0.5\tGT\t1/1
             return MagicMock(returncode=0)
 
         monkeypatch.setattr("subprocess.run", mock_subprocess_run)
-        monkeypatch.setattr("variantcentrifuge.pipeline.check_external_tools", mock_check_tools)
+        monkeypatch.setattr(
+            "variantcentrifuge.pipeline_core.check_external_tools", mock_check_tools
+        )
         monkeypatch.setattr("variantcentrifuge.utils.run_command", mock_run_command)
         monkeypatch.setattr("variantcentrifuge.filters.run_command", mock_run_command)
         monkeypatch.setattr("variantcentrifuge.extractor.run_command", mock_run_command)
@@ -169,7 +171,9 @@ chr3\t3000\t.\tC\tG\t100\tPASS\t.\tGT\t0/1
             return MagicMock(returncode=0)
 
         monkeypatch.setattr("subprocess.run", mock_subprocess_run)
-        monkeypatch.setattr("variantcentrifuge.pipeline.check_external_tools", mock_check_tools)
+        monkeypatch.setattr(
+            "variantcentrifuge.pipeline_core.check_external_tools", mock_check_tools
+        )
         monkeypatch.setattr("variantcentrifuge.utils.run_command", mock_run_command)
         monkeypatch.setattr("variantcentrifuge.filters.run_command", mock_run_command)
         monkeypatch.setattr("variantcentrifuge.extractor.run_command", mock_run_command)
@@ -260,7 +264,9 @@ chr1\t1000\t.\tA\tT\t100\tPASS\t.\tGT\t0/1
             return MagicMock(returncode=0)
 
         monkeypatch.setattr("subprocess.run", mock_subprocess_run)
-        monkeypatch.setattr("variantcentrifuge.pipeline.check_external_tools", mock_check_tools)
+        monkeypatch.setattr(
+            "variantcentrifuge.pipeline_core.check_external_tools", mock_check_tools
+        )
         monkeypatch.setattr("variantcentrifuge.utils.run_command", mock_run_command)
         monkeypatch.setattr("variantcentrifuge.filters.run_command", mock_run_command)
         monkeypatch.setattr("variantcentrifuge.extractor.run_command", mock_run_command)

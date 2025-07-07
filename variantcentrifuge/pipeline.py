@@ -1292,6 +1292,19 @@ def run_pipeline(
     None
         Writes output files and may print results to stdout.
     """
+    # Feature flag for new pipeline architecture
+    if cfg.get("use_new_pipeline_architecture", False) or getattr(args, "use_new_pipeline", False):
+        logger.info("Using new pipeline architecture (Stage-based)")
+        from .pipeline_refactored import run_refactored_pipeline
+
+        # Add args to namespace if not present
+        if not hasattr(args, "config"):
+            args.config = cfg
+        if not hasattr(args, "start_time"):
+            args.start_time = start_time
+        run_refactored_pipeline(args)
+        return
+
     # Check external tools
     check_external_tools()
 

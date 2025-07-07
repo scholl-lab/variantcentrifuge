@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 from unittest.mock import Mock, patch
 
-from variantcentrifuge.pipeline import (
+from variantcentrifuge.pipeline_core import (
     read_tsv_in_gene_chunks,
     sort_tsv_by_gene,
     process_chunked_pipeline,
@@ -232,8 +232,8 @@ class TestSortByGene:
 class TestChunkedPipeline:
     """Test the full chunked pipeline processing."""
 
-    @patch("variantcentrifuge.pipeline.analyze_variants")
-    @patch("variantcentrifuge.pipeline.annotate_dataframe_with_features")
+    @patch("variantcentrifuge.pipeline_core.analyze_variants")
+    @patch("variantcentrifuge.pipeline_core.annotate_dataframe_with_features")
     def test_process_chunked_pipeline_basic(self, mock_annotate, mock_analyze):
         """Test basic chunked pipeline processing."""
         # Create test data

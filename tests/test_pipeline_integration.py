@@ -61,9 +61,9 @@ class TestPipelineIntegration:
             "sort_parallel": 2,
         }
 
-    @patch("variantcentrifuge.pipeline.check_external_tools")
-    @patch("variantcentrifuge.pipeline.get_gene_bed")
-    @patch("variantcentrifuge.pipeline.extract_variants")
+    @patch("variantcentrifuge.pipeline_core.check_external_tools")
+    @patch("variantcentrifuge.pipeline_core.get_gene_bed")
+    @patch("variantcentrifuge.pipeline_core.extract_variants")
     @patch("variantcentrifuge.filters.apply_snpsift_filter")
     @patch("variantcentrifuge.extractor.extract_fields")
     @patch("variantcentrifuge.replacer.replace_genotypes")
@@ -98,8 +98,8 @@ class TestPipelineIntegration:
                 assert len(lines) == 2
                 assert "GENE1" in lines[1]
 
-    @patch("variantcentrifuge.pipeline.check_external_tools")
-    @patch("variantcentrifuge.pipeline.analyze_variants")
+    @patch("variantcentrifuge.pipeline_core.check_external_tools")
+    @patch("variantcentrifuge.pipeline_core.analyze_variants")
     def test_chunked_processing_large_file(self, mock_analyze, mock_check_tools):
         """Test chunked processing triggers for large files."""
         # Create test environment

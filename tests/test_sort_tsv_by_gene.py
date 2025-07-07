@@ -11,7 +11,7 @@ import tempfile
 import gzip
 import pytest
 from unittest.mock import patch, Mock
-from variantcentrifuge.pipeline import sort_tsv_by_gene
+from variantcentrifuge.pipeline_core import sort_tsv_by_gene
 
 
 class TestSortTsvByGene:

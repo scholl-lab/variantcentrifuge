@@ -10,8 +10,8 @@ from variantcentrifuge.checkpoint import PipelineState, CheckpointContext
 class TestCheckpointResume:
     """Test checkpoint resume functionality in the pipeline."""
 
-    @patch("variantcentrifuge.pipeline.get_gene_bed")
-    @patch("variantcentrifuge.pipeline.split_bed_file")
+    @patch("variantcentrifuge.pipeline_core.get_gene_bed")
+    @patch("variantcentrifuge.pipeline_core.split_bed_file")
     def test_parallel_pipeline_resume_from_checkpoint(self, mock_split_bed, mock_get_gene_bed):
         """Test that parallel pipeline correctly resumes from checkpoint state."""
         with tempfile.TemporaryDirectory() as output_dir:
@@ -71,12 +71,12 @@ class TestCheckpointResume:
             )
 
             # Mock the chunk processing to avoid actual work
-            with patch("variantcentrifuge.pipeline._process_bed_chunk") as mock_process:
+            with patch("variantcentrifuge.pipeline_core._process_bed_chunk") as mock_process:
                 mock_process.return_value = "/fake/output.tsv"
 
                 # Mock file operations
-                with patch("variantcentrifuge.pipeline.os.path.exists") as mock_exists:
-                    with patch("variantcentrifuge.pipeline.os.path.getsize") as mock_getsize:
+                with patch("variantcentrifuge.pipeline_core.os.path.exists") as mock_exists:
+                    with patch("variantcentrifuge.pipeline_core.os.path.getsize") as mock_getsize:
                         # Make the mocked files appear to exist
                         def exists_side_effect(path):
                             if path == bed_file:
