@@ -263,7 +263,7 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
         enable_checkpoints=enable_checkpoints,
         max_workers=max_workers,
         executor_type=executor_type,
-        enable_stage_batching=True
+        enable_stage_batching=True,
     )
 
     # Show execution plan in debug mode

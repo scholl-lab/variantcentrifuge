@@ -42,7 +42,7 @@ class PipelineRunner:
         enable_checkpoints: bool = False,
         max_workers: Optional[int] = None,
         executor_type: Literal["thread", "process"] = "thread",
-        enable_stage_batching: bool = True
+        enable_stage_batching: bool = True,
     ):
         """Initialize the pipeline runner.
 
@@ -367,7 +367,7 @@ class PipelineRunner:
             "variant_scoring",
             "inheritance_analysis",
             "gene_burden_analysis",
-            "statistics_generation"
+            "statistics_generation",
         }
 
         if stage.name in cpu_intensive_stages and self.executor_type == "process":
