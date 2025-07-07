@@ -5,27 +5,45 @@
 ### ✅ Completed
 - **Core Infrastructure**: PipelineContext, Stage, Workspace, PipelineRunner (100%)
 - **Stage Implementation**: All 35 stages implemented (100%)
+  - Setup: 6 stages
+  - Processing: 11 stages  
+  - Analysis: 8 stages
+  - Output: 10 stages
 - **Linting & Code Quality**: All issues resolved, passes flake8 (100%)
-- **Unit Tests**: 28/37 stages have unit tests (76% coverage)
+- **Unit Tests**: 21/35 stages have unit tests (60% coverage)
+  - Setup: 6/6 tested (100%)
+  - Processing: 6/11 tested (55%)
+  - Analysis: 0/8 tested (0% - test file not created)
+  - Output: 9/10 tested (90%)
 - **Feature Flag**: Added to CLI with `--use-new-pipeline` flag
 - **API Compatibility**: Fixed function signature mismatches in processing stages
 - **Parallelization**: Optimized with parallel_safe flags, ThreadPoolExecutor working
 - **End-to-End Testing**: New pipeline executes successfully (fails on missing tools as expected)
 
 ### 🔴 Critical Missing Items
-1. **Regression Testing**: No baseline outputs generated (requires bcftools/snpEff)
-2. **Unit Test Coverage**: 9/37 stages still need tests (24% remaining - processing stages)
-3. **Performance Benchmarks**: No measurements completed
-4. **Integration**: Old pipeline code not yet removed
-5. **ProcessPoolExecutor**: Disabled due to pickling issues with PipelineContext
+1. **Analysis Stage Tests**: All 8 analysis stages completely missing tests (0% coverage)
+2. **Processing Stage Tests**: 5/11 processing stages need tests:
+   - BCFToolsPrefilterStage
+   - MultiAllelicSplitStage
+   - SnpSiftFilterStage
+   - ExtraColumnRemovalStage
+   - StreamingDataProcessingStage
+3. **Output Stage Tests**: 1/10 output stage needs tests:
+   - ParallelReportGenerationStage
+4. **Regression Testing**: No baseline outputs generated (requires bcftools/snpEff)
+5. **Performance Benchmarks**: No measurements completed
+6. **Integration**: Old pipeline code not yet removed
+7. **ProcessPoolExecutor**: Disabled due to pickling issues with PipelineContext
 
 ### 📋 Next Priority Actions
-1. Write unit tests for remaining 9 processing stages
-2. Fix PipelineContext pickling for ProcessPoolExecutor support
-3. Generate baseline test outputs with original pipeline (needs tool environment)
-4. Run regression tests to ensure identical outputs
-5. Complete performance benchmarking
-6. Remove old pipeline code after validation
+1. Create test file and write unit tests for ALL 8 analysis stages (highest priority)
+2. Write unit tests for remaining 5 processing stages
+3. Write unit test for ParallelReportGenerationStage
+4. Fix PipelineContext pickling for ProcessPoolExecutor support
+5. Generate baseline test outputs with original pipeline (needs tool environment)
+6. Run regression tests to ensure identical outputs
+7. Complete performance benchmarking
+8. Remove old pipeline code after validation
 
 ---
 
@@ -363,8 +381,8 @@ Target End Date: TBD
 - Completed unit tests for all 7 analysis stages
 - Completed unit tests for 9 output stages (simplified versions)
 - Completed unit tests for all 6 setup stages
-- 28/37 stages now have unit tests (76% coverage)
+- 21/35 stages now have unit tests (60% coverage)
 - Optimized parallelization: marked 6 stages as parallel_safe
 - Fixed ProcessPoolExecutor pickling issues by using ThreadPoolExecutor
 - Successfully tested end-to-end execution of new pipeline
-- Priority: Write tests for remaining 9 processing stages
+- Priority: Write tests for 8 analysis stages (0% coverage) + 5 processing stages + 1 output stage
