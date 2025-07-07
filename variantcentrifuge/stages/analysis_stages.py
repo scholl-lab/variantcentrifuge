@@ -163,14 +163,9 @@ class InheritanceAnalysisStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        deps = {"dataframe_loading", "custom_annotation"}
-        if self._has_pedigree():
-            deps.add("pedigree_loading")
-        return deps
-
-    def _has_pedigree(self) -> bool:
-        """Check if pedigree stage exists."""
-        return True  # Simplified
+        # Static dependencies only - pedigree loading is optional
+        # and will be checked at runtime
+        return {"dataframe_loading", "custom_annotation"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Calculate inheritance patterns."""
@@ -233,14 +228,11 @@ class VariantScoringStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        deps = {"dataframe_loading", "custom_annotation", "inheritance_analysis"}
-        if self._has_scoring_config():
-            deps.add("scoring_config_loading")
-        return deps
-
-    def _has_scoring_config(self) -> bool:
-        """Check if scoring config stage exists."""
-        return True  # Simplified
+        # Static dependencies only - scoring config loading is optional
+        # and will be checked at runtime
+        # Note: inheritance_analysis should run before scoring so scores
+        # can use inheritance patterns
+        return {"dataframe_loading", "custom_annotation", "inheritance_analysis"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply variant scoring."""

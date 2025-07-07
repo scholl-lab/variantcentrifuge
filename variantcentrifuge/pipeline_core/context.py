@@ -25,31 +25,38 @@ class PicklableLock:
     """A lock that can be pickled by creating a new lock on unpickling."""
 
     def __init__(self):
+        """Initialize a new picklable lock."""
         self._lock = threading.RLock()
 
     def __getstate__(self):
+        """Return state for pickling, excluding the unpicklable RLock."""
         # Return empty state - we don't need to save the lock state
         return {}
 
     def __setstate__(self, state):
+        """Restore state after unpickling by creating a fresh lock."""
         # Create a fresh lock on unpickling
         self._lock = threading.RLock()
 
     def __enter__(self):
+        """Enter the context manager by acquiring the lock."""
         # Ensure lock exists (in case of edge cases)
         if not hasattr(self, "_lock"):
             self._lock = threading.RLock()
         return self._lock.__enter__()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit the context manager by releasing the lock."""
         return self._lock.__exit__(exc_type, exc_val, exc_tb)
 
     def acquire(self, blocking=True, timeout=-1):
+        """Acquire the lock with optional blocking and timeout."""
         if not hasattr(self, "_lock"):
             self._lock = threading.RLock()
         return self._lock.acquire(blocking, timeout)
 
     def release(self):
+        """Release the lock."""
         return self._lock.release()
 
 
@@ -231,6 +238,68 @@ class PipelineContext:
             Elapsed time since pipeline start
         """
         return (datetime.now() - self.start_time).total_seconds()
+
+    def merge_from(self, other: "PipelineContext") -> None:
+        """Merge updates from another context (e.g., from parallel execution).
+        
+        This method is used to merge state updates from parallel stage execution
+        back into the main context. Only mutable state is merged.
+        
+        Parameters
+        ----------
+        other : PipelineContext
+            Context with updates to merge
+        """
+        with self._lock:
+            # Merge completed stages
+            self.completed_stages.update(other.completed_stages)
+            
+            # Merge stage results
+            self.stage_results.update(other.stage_results)
+            
+            # Update file paths if they were set in the other context
+            if other.gene_bed_file and not self.gene_bed_file:
+                self.gene_bed_file = other.gene_bed_file
+            if other.extracted_vcf and not self.extracted_vcf:
+                self.extracted_vcf = other.extracted_vcf
+            if other.filtered_vcf and not self.filtered_vcf:
+                self.filtered_vcf = other.filtered_vcf
+            if other.extracted_tsv and not self.extracted_tsv:
+                self.extracted_tsv = other.extracted_tsv
+                
+            # Update analysis results if present
+            if other.current_dataframe is not None and self.current_dataframe is None:
+                self.current_dataframe = other.current_dataframe
+            if other.statistics:
+                self.statistics.update(other.statistics)
+            if other.gene_burden_results is not None and self.gene_burden_results is None:
+                self.gene_burden_results = other.gene_burden_results
+                
+            # Update configurations loaded by parallel stages
+            if other.pedigree_data and not self.pedigree_data:
+                self.pedigree_data = other.pedigree_data
+            if other.phenotype_data and not self.phenotype_data:
+                self.phenotype_data = other.phenotype_data
+            if other.scoring_config and not self.scoring_config:
+                self.scoring_config = other.scoring_config
+            if other.annotation_configs:
+                self.annotation_configs.update(other.annotation_configs)
+                
+            # Update output paths
+            if other.final_output_path and not self.final_output_path:
+                self.final_output_path = other.final_output_path
+            if other.report_paths:
+                self.report_paths.update(other.report_paths)
+                
+            # Update vcf_samples if populated
+            if other.vcf_samples and not self.vcf_samples:
+                self.vcf_samples = other.vcf_samples
+                
+            logger.debug(
+                f"Merged context updates: "
+                f"{len(other.completed_stages)} completed stages, "
+                f"{len(other.stage_results)} stage results"
+            )
 
     def __repr__(self) -> str:
         """Return string representation showing key state information."""

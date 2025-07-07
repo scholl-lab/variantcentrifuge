@@ -310,14 +310,16 @@ class PipelineRunner:
                 future = executor.submit(self._execute_stage, stage, context)
                 future_to_stage[future] = stage
 
-            # Wait for all to complete
+            # Wait for all to complete and collect results
             completed_count = 0
+            updated_contexts = []
             for future in as_completed(future_to_stage):
                 stage = future_to_stage[future]
                 completed_count += 1
                 try:
-                    # Get result (this will raise any exceptions)
-                    future.result()
+                    # Get the updated context from the stage execution
+                    updated_context = future.result()
+                    updated_contexts.append(updated_context)
                     logger.debug(
                         f"Parallel stage '{stage.name}' completed "
                         f"({completed_count}/{len(stages)})"
@@ -329,6 +331,14 @@ class PipelineRunner:
                         if not f.done():
                             f.cancel()
                     raise
+
+        # Merge all updates back into the main context
+        for updated_context in updated_contexts:
+            context.merge_from(updated_context)
+            
+        logger.debug(
+            f"Merged updates from {len(updated_contexts)} parallel stages"
+        )
 
         return context
 
