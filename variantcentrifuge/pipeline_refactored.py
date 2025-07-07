@@ -257,9 +257,8 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
     # Create runner
     enable_checkpoints = getattr(args, "enable_checkpoint", False)
     max_workers = getattr(args, "threads", None)
-    # Use thread executor for now due to pickling issues with PipelineContext
-    # TODO: Fix pickling issues to enable ProcessPoolExecutor for better CPU-bound performance
-    executor_type = "thread"
+    # Use process executor for better CPU-bound performance when multiple threads requested
+    executor_type = "process" if max_workers and max_workers > 1 else "thread"
     runner = PipelineRunner(
         enable_checkpoints=enable_checkpoints,
         max_workers=max_workers,

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
+import threading
 
 import pandas as pd
 
@@ -18,6 +19,38 @@ if TYPE_CHECKING:
     from .workspace import Workspace
 
 logger = logging.getLogger(__name__)
+
+
+class PicklableLock:
+    """A lock that can be pickled by creating a new lock on unpickling."""
+
+    def __init__(self):
+        self._lock = threading.RLock()
+
+    def __getstate__(self):
+        # Return empty state - we don't need to save the lock state
+        return {}
+
+    def __setstate__(self, state):
+        # Create a fresh lock on unpickling
+        self._lock = threading.RLock()
+
+    def __enter__(self):
+        # Ensure lock exists (in case of edge cases)
+        if not hasattr(self, "_lock"):
+            self._lock = threading.RLock()
+        return self._lock.__enter__()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return self._lock.__exit__(exc_type, exc_val, exc_tb)
+
+    def acquire(self, blocking=True, timeout=-1):
+        if not hasattr(self, "_lock"):
+            self._lock = threading.RLock()
+        return self._lock.acquire(blocking, timeout)
+
+    def release(self):
+        return self._lock.release()
 
 
 @dataclass
@@ -115,13 +148,7 @@ class PipelineContext:
     checkpoint_state: Optional[Any] = None
 
     # Thread safety lock for parallel stages
-    _lock: Any = field(default_factory=lambda: None, init=False, repr=False)
-
-    def __post_init__(self):
-        """Initialize thread lock for parallel execution safety."""
-        import threading
-
-        self._lock = threading.RLock()
+    _lock: PicklableLock = field(default_factory=PicklableLock, init=False, repr=False)
 
     def mark_complete(self, stage_name: str, result: Any = None) -> None:
         """Mark a stage as complete with optional result storage.
