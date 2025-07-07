@@ -25,9 +25,7 @@ class TestConfigurationLoadingStage:
     def context(self):
         """Create test context."""
         return create_test_context(
-            gene_name="BRCA1",
-            vcf_file="/tmp/test.vcf",
-            config_overrides={"reference": "hg38"}
+            gene_name="BRCA1", vcf_file="/tmp/test.vcf", config_overrides={"reference": "hg38"}
         )
 
     @patch("variantcentrifuge.config.load_config")
@@ -37,15 +35,15 @@ class TestConfigurationLoadingStage:
         mock_load_config.return_value = {
             "filters": {"rare": "AF < 0.01"},
             "fields": ["CHROM", "POS", "REF", "ALT"],
-            "reference": "hg37"  # Different from context
+            "reference": "hg37",  # Different from context
         }
-        
+
         stage = ConfigurationLoadingStage()
         result = stage(context)
 
         # Check config was loaded
         mock_load_config.assert_called_once()
-        
+
         # Check config was merged - CLI args take precedence
         assert result.config["reference"] == "hg38"  # Original preserved
         assert "filters" in result.config  # New added
@@ -83,15 +81,12 @@ class TestPhenotypeLoadingStage:
         result = stage(context)
 
         # Check phenotypes were loaded
-        assert result.phenotype_data == {
-            "Sample1": "Affected",
-            "Sample2": "Unaffected"
-        }
+        assert result.phenotype_data == {"Sample1": "Affected", "Sample2": "Unaffected"}
 
     def test_no_phenotype_file(self, context):
         """Test when no phenotype file specified."""
         context.config["phenotype_file"] = None
-        
+
         stage = PhenotypeLoadingStage()
         result = stage(context)
 
@@ -120,7 +115,7 @@ class TestScoringConfigLoadingStage:
         # Mock scoring config
         mock_scoring_config = {"formulas": {"score": "AF * 10"}}
         mock_read_scoring_config.return_value = mock_scoring_config
-        
+
         stage = ScoringConfigLoadingStage()
         result = stage(context)
 
@@ -131,7 +126,7 @@ class TestScoringConfigLoadingStage:
     def test_no_scoring_config(self, context):
         """Test when no scoring config specified."""
         context.config["scoring_config_path"] = None
-        
+
         stage = ScoringConfigLoadingStage()
         result = stage(context)
 
@@ -163,7 +158,7 @@ class TestPedigreeLoadingStage:
         # Mock pedigree loading
         mock_samples = {"Sample1": {"affected": True, "sex": "male"}}
         mock_read_pedigree.return_value = mock_samples
-        
+
         stage = PedigreeLoadingStage()
         result = stage(context)
 
@@ -174,7 +169,7 @@ class TestPedigreeLoadingStage:
     def test_no_pedigree_file(self, context):
         """Test when no pedigree file specified."""
         context.config["ped_file"] = None
-        
+
         stage = PedigreeLoadingStage()
         result = stage(context)
 
@@ -197,11 +192,11 @@ class TestAnnotationConfigLoadingStage:
         # Create temp BED file
         bed_file = Path(tempfile.mktemp(suffix=".bed"))
         bed_file.write_text("chr1\t100\t200\tRegion1\n")
-        
+
         # Create temp gene list
         gene_list = Path(tempfile.mktemp(suffix=".txt"))
         gene_list.write_text("BRCA1\nBRCA2\n")
-        
+
         ctx.config["annotate_bed"] = [str(bed_file)]
         ctx.config["annotate_gene_list"] = [str(gene_list)]
         return ctx
@@ -212,7 +207,7 @@ class TestAnnotationConfigLoadingStage:
         result = stage(context)
 
         # Check annotation configs were created
-        assert hasattr(result, 'annotation_configs')
+        assert hasattr(result, "annotation_configs")
         assert "bed_files" in result.annotation_configs
         assert "gene_lists" in result.annotation_configs
         assert len(result.annotation_configs["bed_files"]) == 1
@@ -222,24 +217,22 @@ class TestAnnotationConfigLoadingStage:
         """Test JSON gene annotation loading."""
         # Create temp JSON file
         json_file = Path(tempfile.mktemp(suffix=".json"))
-        json_file.write_text(json.dumps([
-            {"symbol": "BRCA1", "panel": "Cancer"},
-            {"symbol": "BRCA2", "panel": "Cancer"}
-        ]))
-        
+        json_file.write_text(
+            json.dumps(
+                [{"symbol": "BRCA1", "panel": "Cancer"}, {"symbol": "BRCA2", "panel": "Cancer"}]
+            )
+        )
+
         context.config["annotate_bed"] = []
         context.config["annotate_gene_list"] = []
         context.config["annotate_json_genes"] = [str(json_file)]
-        context.config["json_gene_mapping"] = {
-            "identifier": "symbol",
-            "dataFields": ["panel"]
-        }
-        
+        context.config["json_gene_mapping"] = {"identifier": "symbol", "dataFields": ["panel"]}
+
         stage = AnnotationConfigLoadingStage()
         result = stage(context)
 
         # Check JSON annotation was loaded
-        assert hasattr(result, 'annotation_configs')
+        assert hasattr(result, "annotation_configs")
         assert "json_genes" in result.annotation_configs
         assert result.annotation_configs["json_genes"] == [str(json_file)]
         assert "json_mapping" in result.annotation_configs
@@ -249,7 +242,7 @@ class TestAnnotationConfigLoadingStage:
         context.config["annotate_bed"] = []
         context.config["annotate_gene_list"] = []
         context.config["annotate_json_genes"] = []
-        
+
         stage = AnnotationConfigLoadingStage()
         result = stage(context)
 
@@ -276,7 +269,7 @@ class TestSampleConfigLoadingStage:
         """Test sample loading from VCF."""
         # Mock sample extraction
         mock_get_samples.return_value = ["Sample1", "Sample2", "Sample3"]
-        
+
         stage = SampleConfigLoadingStage()
         result = stage(context)
 
@@ -292,20 +285,24 @@ class TestSampleConfigLoadingStage:
         case_file.write_text("Sample1\nSample2\n")
         control_file = Path(tempfile.mktemp())
         control_file.write_text("Sample3\n")
-        
+
         context.config["case_samples_file"] = str(case_file)
         context.config["control_samples_file"] = str(control_file)
-        
+
         # Mock full sample list
         mock_get_samples.return_value = ["Sample1", "Sample2", "Sample3", "Sample4"]
-        
+
         stage = SampleConfigLoadingStage()
         result = stage(context)
 
         # Check sample subsetting
         assert result.case_samples == ["Sample1", "Sample2"]
         assert result.control_samples == ["Sample3"]
-        assert set(result.vcf_samples) == {"Sample1", "Sample2", "Sample3"}  # Only specified samples
+        assert set(result.vcf_samples) == {
+            "Sample1",
+            "Sample2",
+            "Sample3",
+        }  # Only specified samples
 
     def test_parallel_safe(self):
         """Test parallel safety."""
