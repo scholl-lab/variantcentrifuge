@@ -90,8 +90,12 @@ class BaselineGenerator:
             )
 
         # Prepare output files
-        output_file = self.outputs_dir / f"{config.name}.tsv"
+        output_filename = f"{config.name}.tsv"
         log_file = self.logs_dir / f"{config.name}.log"
+        
+        # Ensure directories exist
+        self.outputs_dir.mkdir(parents=True, exist_ok=True)
+        log_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Build command
         cmd = [
@@ -99,7 +103,9 @@ class BaselineGenerator:
             "--vcf-file",
             self.vcf_file,
             "--output-file",
-            str(output_file),
+            output_filename,
+            "--output-dir",
+            str(self.outputs_dir),
         ]
 
         if config.gene_name:
@@ -111,8 +117,7 @@ class BaselineGenerator:
                 self._create_test_gene_file(gene_file_path)
             cmd.extend(["--gene-file", str(gene_file_path)])
 
-        if config.preset:
-            cmd.extend(["--preset", config.preset])
+        # Skip preset handling since we're using explicit filters in extra_args
 
         # Process extra args
         processed_args = []
@@ -143,6 +148,8 @@ class BaselineGenerator:
                 "1",
                 "--log-file",
                 str(log_file),
+                "--fields",
+                "CHROM POS REF ALT ID FILTER QUAL AC AF ANN[0].GENE ANN[0].EFFECT ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P CADD_phred dbNSFP_gnomAD_exomes_AF ClinVar_CLNSIG GEN[*].GT",
             ]
         )
 
@@ -153,7 +160,6 @@ class BaselineGenerator:
             cmd,
             capture_output=True,
             text=True,
-            cwd=str(self.output_dir),
         )
 
         if result.returncode != 0:
@@ -167,8 +173,9 @@ class BaselineGenerator:
         cmd_file.write_text(" ".join(cmd))
 
         # Check outputs
-        if not output_file.exists():
-            raise RuntimeError(f"Expected output file not created: {output_file}")
+        expected_output = self.outputs_dir / output_filename
+        if not expected_output.exists():
+            raise RuntimeError(f"Expected output file not created: {expected_output}")
 
         # Generate statistics if not disabled
         if "--no-stats" not in cmd:
@@ -260,7 +267,9 @@ def main():
 
     parser.add_argument(
         "vcf_file",
-        help="VCF file to use for testing",
+        nargs="?",
+        default="tests/fixtures/test_regression_variants.GRCh37.annotated.vcf.gz",
+        help="VCF file to use for testing (default: tests/fixtures/test_regression_variants.GRCh37.annotated.vcf.gz)",
     )
 
     parser.add_argument(

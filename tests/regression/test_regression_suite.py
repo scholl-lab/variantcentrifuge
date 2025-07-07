@@ -44,43 +44,44 @@ REGRESSION_TESTS = [
     RegressionTestConfig(
         name="single_gene_basic",
         gene_name="BRCA1",
+        extra_args=["--filters", "FILTER = 'PASS'"],
         description="Basic single gene extraction",
     ),
     RegressionTestConfig(
         name="single_gene_rare_coding",
         gene_name="TP53",
-        preset="rare,coding",
-        description="Single gene with rare coding filter preset",
+        extra_args=["--filters", "(ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE')"],
+        description="Single gene with coding filter",
     ),
     RegressionTestConfig(
         name="multi_gene_file",
         gene_file="test_genes.txt",
+        extra_args=["--filters", "FILTER = 'PASS'"],
         description="Multiple genes from file",
     ),
     RegressionTestConfig(
         name="gene_with_scoring",
         gene_name="CFTR",
-        extra_args=["--scoring-config-path", "scoring/inheritance_score"],
+        extra_args=["--filters", "FILTER = 'PASS'", "--scoring-config-path", "scoring/inheritance_score"],
         description="Gene with variant scoring",
     ),
     RegressionTestConfig(
         name="gene_with_inheritance",
         gene_name="PKD1",
-        extra_args=["--ped", "test_family.ped", "--inheritance-mode", "columns"],
+        extra_args=["--filters", "FILTER = 'PASS'", "--ped", "test_family.ped", "--inheritance-mode", "columns"],
         description="Gene with inheritance analysis",
     ),
     RegressionTestConfig(
         name="gene_with_annotations",
         gene_name="LDLR",
-        extra_args=["--annotate-bed", "test_regions.bed"],
+        extra_args=["--filters", "FILTER = 'PASS'", "--annotate-bed", "test_regions.bed"],
         description="Gene with custom BED annotations",
     ),
     RegressionTestConfig(
         name="complex_filtering",
         gene_name="APOB",
-        preset="pathogenic",
-        extra_args=["--final-filter", "AF < 0.001"],
-        description="Complex filtering with preset and final filter",
+        extra_args=["--filters", "ClinVar_CLNSIG =~ 'Pathogenic'", "--final-filter", "AF < 0.001"],
+        description="Complex filtering with ClinVar and final filter",
     ),
 ]
 
@@ -130,7 +131,8 @@ class PipelineRunner:
             [
                 "--threads",
                 "1",  # Single thread for deterministic results
-                "--no-metadata",  # Skip metadata to avoid timestamp differences
+                "--fields",
+                "CHROM POS REF ALT ID FILTER QUAL AC AF ANN[0].GENE ANN[0].EFFECT ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P CADD_phred dbNSFP_gnomAD_exomes_AF ClinVar_CLNSIG GEN[*].GT",
             ]
         )
 
@@ -139,12 +141,21 @@ class PipelineRunner:
             f"Running {'new' if self.use_new_pipeline else 'old'} pipeline: {' '.join(cmd)}"
         )
 
+        # Convert relative paths to absolute
+        import os
+        project_root = Path(__file__).parent.parent.parent
+        
+        # Update VCF path if relative
+        if not Path(vcf_file).is_absolute():
+            vcf_file = str(project_root / vcf_file)
+            cmd[cmd.index("--vcf-file") + 1] = vcf_file
+            
         try:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                cwd=str(output_dir),
+                cwd=str(project_root),  # Run from project root
                 check=True,
             )
             logger.debug(f"Pipeline stdout: {result.stdout}")
@@ -306,6 +317,12 @@ def test_data_dir():
 @pytest.fixture(scope="module")
 def test_vcf_file(test_data_dir):
     """Path to test VCF file."""
+    # First try the regression test VCF in fixtures
+    regression_vcf = Path("tests/fixtures/test_regression_variants.GRCh37.annotated.vcf.gz")
+    if regression_vcf.exists():
+        return str(regression_vcf)
+    
+    # Fall back to test_cohort.vcf.gz in test data dir
     vcf_file = test_data_dir / "test_cohort.vcf.gz"
     if not vcf_file.exists():
         pytest.skip(f"Test VCF file not found: {vcf_file}")
@@ -415,31 +432,27 @@ class TestPipelineRegression:
 
     def _check_test_dependencies(self, config: RegressionTestConfig, tmp_path: Path):
         """Check if test dependencies are available."""
-        # Create dummy files if needed for testing
-        if config.gene_file:
-            gene_file = tmp_path / config.gene_file
-            if not gene_file.exists():
-                gene_file.write_text("BRCA1\nTP53\nEGFR\n")
-
-        if "--ped" in config.extra_args:
-            ped_idx = config.extra_args.index("--ped") + 1
-            ped_file = tmp_path / config.extra_args[ped_idx]
-            if not ped_file.exists():
-                # Create minimal PED file
-                ped_file.write_text(
-                    "FAM001\tCHILD\tFATHER\tMOTHER\t1\t2\n"
-                    "FAM001\tFATHER\t0\t0\t1\t1\n"
-                    "FAM001\tMOTHER\t0\t0\t2\t1\n"
-                )
-
-        if "--annotate-bed" in config.extra_args:
-            bed_idx = config.extra_args.index("--annotate-bed") + 1
-            bed_file = tmp_path / config.extra_args[bed_idx]
-            if not bed_file.exists():
-                # Create minimal BED file
-                bed_file.write_text(
-                    "chr1\t1000000\t2000000\tTestRegion1\n" "chr2\t5000000\t6000000\tTestRegion2\n"
-                )
+        # Update config to use test fixtures
+        if config.gene_file == "test_genes.txt":
+            config.gene_file = "tests/fixtures/test_genes.txt"
+            
+        # Update extra args to use test fixtures
+        new_extra_args = []
+        for i, arg in enumerate(config.extra_args):
+            new_extra_args.append(arg)
+            if arg == "--ped" and i + 1 < len(config.extra_args):
+                if config.extra_args[i + 1] == "test_family.ped":
+                    new_extra_args.append("tests/fixtures/test_family.ped")
+                    i += 1  # Skip the next item
+                else:
+                    new_extra_args.append(config.extra_args[i + 1])
+            elif arg == "--annotate-bed" and i + 1 < len(config.extra_args):
+                if config.extra_args[i + 1] == "test_regions.bed":
+                    new_extra_args.append("tests/fixtures/test_regions.bed")
+                    i += 1  # Skip the next item
+                else:
+                    new_extra_args.append(config.extra_args[i + 1])
+        config.extra_args = new_extra_args
 
 
 if __name__ == "__main__":

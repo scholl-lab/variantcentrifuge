@@ -173,3 +173,25 @@ temp_bed_files/
 CLAUDE.md
 .claude/
 .windsurfrules
+
+# Regression testing outputs
+baseline_outputs/
+test_*.sh
+check_tools.sh
+run_regression_tests.sh
+
+# Test output files
+test_*.tsv
+*.log
+!tests/**/*.log  # But keep test logs in the tests directory
+
+# Temporary helper scripts
+temp_*.py
+tmp_*.py
+
+# IDE and system files
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
