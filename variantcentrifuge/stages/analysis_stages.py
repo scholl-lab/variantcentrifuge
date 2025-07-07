@@ -105,7 +105,7 @@ class DataFrameLoadingStage(Stage):
             compression=compression,
             quoting=3,  # QUOTE_NONE - don't treat quotes specially
             low_memory=False,
-            on_bad_lines='warn'  # Warn about problematic lines instead of failing
+            on_bad_lines="warn",  # Warn about problematic lines instead of failing
         )
 
         context.current_dataframe = df
@@ -175,7 +175,7 @@ class CustomAnnotationStage(Stage):
             "annotate_gene_lists": context.annotation_configs.get("gene_lists", []),
             "annotate_json_genes": context.annotation_configs.get("json_genes", []),
             "json_gene_mapping": context.annotation_configs.get("json_mapping", ""),
-            "json_genes_as_columns": context.config.get("json_genes_as_columns", False)
+            "json_genes_as_columns": context.config.get("json_genes_as_columns", False),
         }
         features = load_custom_features(annotation_cfg)
 
@@ -415,8 +415,8 @@ class VariantAnalysisStage(Stage):
         # Depends on having a DataFrame with variants
         deps = {"dataframe_loading"}
         return deps
-    
-    @property 
+
+    @property
     def soft_dependencies(self) -> Set[str]:
         """Return the set of stage names that should run before if present."""
         # Run after variant_identifier to preserve VAR_ID column
@@ -459,18 +459,21 @@ class VariantAnalysisStage(Stage):
 
             # Create new DataFrame with analysis results
             analysis_df = pd.DataFrame(data, columns=header)
-            
+
             # Merge with original dataframe to preserve any columns added by other stages
             # (like VAR_ID from VariantIdentifierStage)
             original_cols = list(df.columns)
             new_cols = [col for col in analysis_df.columns if col not in original_cols]
-            
+
             # If VAR_ID exists in original, preserve it
             if "VAR_ID" in original_cols and "VAR_ID" not in analysis_df.columns:
                 analysis_df.insert(0, "VAR_ID", df["VAR_ID"].values)
-            
+
             # If Custom_Annotation exists in original, preserve it
-            if "Custom_Annotation" in original_cols and "Custom_Annotation" not in analysis_df.columns:
+            if (
+                "Custom_Annotation" in original_cols
+                and "Custom_Annotation" not in analysis_df.columns
+            ):
                 # Find appropriate position
                 if "GT" in analysis_df.columns:
                     gt_pos = analysis_df.columns.get_loc("GT") + 1

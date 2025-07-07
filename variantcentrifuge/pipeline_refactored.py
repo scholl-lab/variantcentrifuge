@@ -276,11 +276,22 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
     # The config from cli.py has all merged values we need
     # Make sure we preserve all of them, not just a subset
     # Note: initial_config already has the full merged config if passed as dict
-    
+
     # Only add args that might not be in config yet
-    args_to_add = ["reference", "filters", "gzip_intermediates", "no_replacement", 
-                   "late_filtering", "threads", "keep_intermediates", "output_file",
-                   "no_links", "output_dir", "xlsx", "html_report"]
+    args_to_add = [
+        "reference",
+        "filters",
+        "gzip_intermediates",
+        "no_replacement",
+        "late_filtering",
+        "threads",
+        "keep_intermediates",
+        "output_file",
+        "no_links",
+        "output_dir",
+        "xlsx",
+        "html_report",
+    ]
     for key in args_to_add:
         if hasattr(args, key) and getattr(args, key) is not None and key not in initial_config:
             initial_config[key] = getattr(args, key)

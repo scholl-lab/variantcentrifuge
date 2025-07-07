@@ -499,7 +499,7 @@ class SnpSiftFilterStage(Stage):
         """Return the set of stage names this stage depends on."""
         # Must run after configuration
         return {"configuration_loading"}
-    
+
     @property
     def soft_dependencies(self) -> Set[str]:
         """Return the set of stage names that should run before if present."""
@@ -521,11 +521,11 @@ class SnpSiftFilterStage(Stage):
             return context
 
         # Get input VCF from context (set by variant extraction stage)
-        input_vcf = getattr(context, 'extracted_vcf', None) or context.data
+        input_vcf = getattr(context, "extracted_vcf", None) or context.data
         if not input_vcf:
             logger.error("No input VCF available for filtering")
             return context
-        
+
         # Ensure the input VCF exists
         if not Path(input_vcf).exists():
             logger.error(f"Input VCF file does not exist: {input_vcf}")
@@ -564,7 +564,7 @@ class FieldExtractionStage(Stage):
         # Must have gene bed and config, and variant extraction
         deps = {"gene_bed_creation", "configuration_loading", "variant_extraction"}
         return deps
-    
+
     @property
     def soft_dependencies(self) -> Set[str]:
         """Return the set of stage names that should run before if present."""
@@ -574,13 +574,13 @@ class FieldExtractionStage(Stage):
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Extract fields to TSV format."""
         # Use filtered VCF if available, otherwise use the extracted VCF
-        if hasattr(context, 'filtered_vcf') and context.filtered_vcf:
+        if hasattr(context, "filtered_vcf") and context.filtered_vcf:
             input_vcf = context.filtered_vcf
             logger.debug(f"Using filtered VCF: {input_vcf}")
         else:
             input_vcf = context.data
             logger.debug(f"Using unfiltered VCF: {input_vcf}")
-            
+
         fields = context.config.get("extract", [])
 
         # Debug logging
@@ -686,17 +686,17 @@ class GenotypeReplacementStage(Stage):
         # Run genotype replacement
         # Handle gzipped input files
         import gzip
-        
+
         if str(input_tsv).endswith(".gz"):
             inp_handle = gzip.open(input_tsv, "rt", encoding="utf-8")
         else:
             inp_handle = open(input_tsv, "r", encoding="utf-8")
-            
+
         if str(output_tsv).endswith(".gz"):
             out_handle = gzip.open(output_tsv, "wt", encoding="utf-8")
         else:
             out_handle = open(output_tsv, "w", encoding="utf-8")
-            
+
         try:
             with inp_handle as inp, out_handle as out:
                 for line in replace_genotypes(inp, replacer_config):

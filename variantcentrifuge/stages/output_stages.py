@@ -94,23 +94,24 @@ class VariantIdentifierStage(Stage):
         key_fields = ["CHROM", "POS", "REF", "ALT"]
         if all(field in df.columns for field in key_fields):
             import hashlib
+
             var_ids = []
             for idx, row in enumerate(df.itertuples(index=False), 1):
                 chrom = str(getattr(row, "CHROM", ""))
                 pos = str(getattr(row, "POS", ""))
                 ref = str(getattr(row, "REF", ""))
                 alt = str(getattr(row, "ALT", ""))
-                
+
                 combined = f"{chrom}{pos}{ref}{alt}"
                 short_hash = hashlib.md5(combined.encode("utf-8")).hexdigest()[:4]
                 var_id = f"var_{idx:04d}_{short_hash}"
                 var_ids.append(var_id)
-            
+
             # Insert VAR_ID as the first column
             df.insert(0, id_column, var_ids)
         else:
             # Fallback to simple index
-            df.insert(0, id_column, [f"var_{i:04d}_0000" for i in range(1, len(df)+1)])
+            df.insert(0, id_column, [f"var_{i:04d}_0000" for i in range(1, len(df) + 1)])
 
         # Also ensure Custom_Annotation column exists (even if empty)
         if "Custom_Annotation" not in df.columns:
@@ -396,7 +397,7 @@ class TSVOutputStage(Stage):
         # Write to file
         output_file_config = context.config.get("output_file")
         logger.debug(f"TSVOutputStage - output_file from config: {output_file_config}")
-        
+
         if output_file_config:
             # Use specified path
             output_path = Path(output_file_config)
@@ -421,12 +422,13 @@ class TSVOutputStage(Stage):
                 # Data rows
                 for _, row in df.iterrows():
                     lines.append("\t".join(str(val) for val in row))
-                
+
                 # Add links
                 lines_with_links = add_links_to_table(lines, link_configs)
-                
+
                 # Convert back to DataFrame
                 import io
+
                 df = pd.read_csv(io.StringIO("\n".join(lines_with_links)), sep="\t", dtype=str)
 
         # Write file
@@ -437,7 +439,7 @@ class TSVOutputStage(Stage):
                 output_path = Path(str(output_path) + ".gz")
 
         df.to_csv(output_path, sep="\t", index=False, na_rep="", compression=compression)
-        
+
         logger.info(f"Successfully wrote output to: {output_path}")
 
         context.final_output_path = output_path

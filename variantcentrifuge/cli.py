@@ -721,7 +721,7 @@ def main() -> None:
 
     # Threads
     cfg["threads"] = args.threads
-    
+
     # Output file - important to override default config value
     if args.output_file is not None:
         cfg["output_file"] = args.output_file
