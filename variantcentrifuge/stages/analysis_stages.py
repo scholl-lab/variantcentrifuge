@@ -202,11 +202,15 @@ class InheritanceAnalysisStage(Stage):
         # Apply inheritance analysis
         df = analyze_inheritance(
             df=df,
-            vcf_samples=vcf_samples,
+            sample_list=vcf_samples,
             pedigree_data=pedigree_data,
-            inheritance_mode=inheritance_mode,
-            use_vectorized=not context.config.get("no_vectorized_comp_het", False),
+            use_vectorized_comp_het=not context.config.get("no_vectorized_comp_het", False),
         )
+
+        # Process output based on inheritance mode
+        from ..inheritance.analyzer import process_inheritance_output
+
+        df = process_inheritance_output(df, inheritance_mode)
 
         context.current_dataframe = df
         return context

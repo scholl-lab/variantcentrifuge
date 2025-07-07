@@ -65,6 +65,15 @@ class VariantIdentifierStage(Stage):
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Add variant identifiers."""
+        # Handle streaming mode for large files
+        if (
+            context.config.get("stream_variant_ids")
+            and context.data
+            and not context.current_dataframe
+        ):
+            return self._process_streaming(context)
+
+        # Standard DataFrame mode
         df = context.current_dataframe
         if df is None:
             if context.config.get("use_chunked_processing"):
@@ -98,6 +107,77 @@ class VariantIdentifierStage(Stage):
             df[id_column] = [f"VAR_{i:06d}" for i in range(len(df))]
 
         context.current_dataframe = df
+        return context
+
+    def _process_streaming(self, context: PipelineContext) -> PipelineContext:
+        """Process large files in streaming mode without loading into memory."""
+        import gzip
+        from pathlib import Path
+
+        input_file = Path(context.data)
+        output_file = context.workspace.get_intermediate_path("with_variant_ids.tsv.gz")
+        id_column = context.config.get("variant_id_column", "Variant_ID")
+
+        logger.info(f"Adding variant IDs in streaming mode: {input_file} -> {output_file}")
+
+        # Determine if input is compressed
+        open_func = gzip.open if str(input_file).endswith(".gz") else open
+
+        with open_func(input_file, "rt") as inp, gzip.open(output_file, "wt") as out:
+            # Process header
+            header_line = inp.readline().rstrip("\n")
+            header_fields = header_line.split("\t")
+
+            # Check if ID column already exists
+            if id_column in header_fields:
+                logger.debug(
+                    f"Variant ID column '{id_column}' already exists, copying file unchanged"
+                )
+                out.write(header_line + "\n")
+                for line in inp:
+                    out.write(line)
+                context.data = output_file
+                return context
+
+            # Find key field indices
+            key_indices = {}
+            for field in ["CHROM", "POS", "REF", "ALT"]:
+                if field in header_fields:
+                    key_indices[field] = header_fields.index(field)
+
+            # Write new header with ID column first
+            out.write(f"{id_column}\t{header_line}\n")
+
+            # Process data lines
+            line_count = 0
+            use_key_fields = len(key_indices) == 4  # All key fields present
+
+            for line in inp:
+                line = line.rstrip("\n")
+                if not line:
+                    continue
+
+                fields = line.split("\t")
+
+                # Generate variant ID
+                if use_key_fields:
+                    chrom = fields[key_indices["CHROM"]]
+                    pos = fields[key_indices["POS"]]
+                    ref = fields[key_indices["REF"]]
+                    alt = fields[key_indices["ALT"]]
+                    var_id = f"{chrom}:{pos}:{ref}>{alt}"
+                else:
+                    var_id = f"VAR_{line_count:06d}"
+
+                # Write line with ID
+                out.write(f"{var_id}\t{line}\n")
+                line_count += 1
+
+                if line_count % 100000 == 0:
+                    logger.debug(f"Processed {line_count:,} variants")
+
+        logger.info(f"Added variant IDs to {line_count:,} variants")
+        context.data = output_file
         return context
 
 

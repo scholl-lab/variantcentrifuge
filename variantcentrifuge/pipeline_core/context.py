@@ -241,10 +241,10 @@ class PipelineContext:
 
     def merge_from(self, other: "PipelineContext") -> None:
         """Merge updates from another context (e.g., from parallel execution).
-        
+
         This method is used to merge state updates from parallel stage execution
         back into the main context. Only mutable state is merged.
-        
+
         Parameters
         ----------
         other : PipelineContext
@@ -253,10 +253,10 @@ class PipelineContext:
         with self._lock:
             # Merge completed stages
             self.completed_stages.update(other.completed_stages)
-            
+
             # Merge stage results
             self.stage_results.update(other.stage_results)
-            
+
             # Update file paths if they were set in the other context
             if other.gene_bed_file and not self.gene_bed_file:
                 self.gene_bed_file = other.gene_bed_file
@@ -266,7 +266,7 @@ class PipelineContext:
                 self.filtered_vcf = other.filtered_vcf
             if other.extracted_tsv and not self.extracted_tsv:
                 self.extracted_tsv = other.extracted_tsv
-                
+
             # Update analysis results if present
             if other.current_dataframe is not None and self.current_dataframe is None:
                 self.current_dataframe = other.current_dataframe
@@ -274,7 +274,13 @@ class PipelineContext:
                 self.statistics.update(other.statistics)
             if other.gene_burden_results is not None and self.gene_burden_results is None:
                 self.gene_burden_results = other.gene_burden_results
-                
+
+            # Merge config updates (important for ConfigurationLoadingStage)
+            if other.config:
+                # Log config merging for debugging
+                logger.debug(f"Merging config updates: {len(other.config)} keys from other context")
+                self.config.update(other.config)
+
             # Update configurations loaded by parallel stages
             if other.pedigree_data and not self.pedigree_data:
                 self.pedigree_data = other.pedigree_data
@@ -284,17 +290,17 @@ class PipelineContext:
                 self.scoring_config = other.scoring_config
             if other.annotation_configs:
                 self.annotation_configs.update(other.annotation_configs)
-                
+
             # Update output paths
             if other.final_output_path and not self.final_output_path:
                 self.final_output_path = other.final_output_path
             if other.report_paths:
                 self.report_paths.update(other.report_paths)
-                
+
             # Update vcf_samples if populated
             if other.vcf_samples and not self.vcf_samples:
                 self.vcf_samples = other.vcf_samples
-                
+
             logger.debug(
                 f"Merged context updates: "
                 f"{len(other.completed_stages)} completed stages, "

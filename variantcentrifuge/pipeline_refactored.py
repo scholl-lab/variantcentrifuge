@@ -113,7 +113,8 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
     if hasattr(args, "snpeff_split_by_transcript") and args.snpeff_split_by_transcript:
         stages.append(MultiAllelicSplitStage())
 
-    if hasattr(args, "filter") and args.filter and not getattr(args, "late_filtering", False):
+    # Add SnpSift filtering stage (it will check config for filters at runtime)
+    if not getattr(args, "late_filtering", False):
         stages.append(SnpSiftFilterStage())
 
     # Field extraction
@@ -227,24 +228,48 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
     workspace = Workspace(Path(output_dir), base_name)
 
     # Load initial config - it might be passed as args.config or already merged
+    logger.debug(
+        f"Checking args.config: hasattr={hasattr(args, 'config')}, type={type(getattr(args, 'config', None)) if hasattr(args, 'config') else 'N/A'}"
+    )
     if hasattr(args, "config") and isinstance(args.config, dict):
         # Config already loaded and passed as dict
         initial_config = args.config
+        logger.debug(f"Using args.config as dict with {len(initial_config)} keys")
     elif hasattr(args, "config") and args.config:
         # Config file path
         initial_config = load_config(args.config)
+        logger.debug(f"Loaded config from file: {args.config}")
     else:
         initial_config = {}
+        logger.debug("Using empty initial config")
 
     # Ensure config has extract field from fields_to_extract
     if "extract" not in initial_config and "fields_to_extract" in initial_config:
         initial_config["extract"] = initial_config["fields_to_extract"].split()
 
+    # Debug log to understand config state
+    logger.debug(f"Initial config keys: {list(initial_config.keys())}")
+    logger.debug(f"fields_to_extract in config: {'fields_to_extract' in initial_config}")
+    logger.debug(f"extract in config: {'extract' in initial_config}")
+    if "fields_to_extract" in initial_config:
+        logger.debug(f"fields_to_extract value: {initial_config['fields_to_extract'][:100]}...")
+    if "extract" in initial_config:
+        logger.debug(f"extract fields count: {len(initial_config['extract'])}")
+
     # Add normalized genes to config
     initial_config["normalized_genes"] = gene_name
 
+    # Add gene_name and gene_file from args to config
+    initial_config["gene_name"] = getattr(args, "gene_name", "") or ""
+    initial_config["gene_file"] = getattr(args, "gene_file", None)
+
     # Merge VCF file path into config
     initial_config["vcf_file"] = vcf_file
+
+    # Add other important args to config if not already present
+    for key in ["reference", "filters", "fields", "gzip_intermediates"]:
+        if hasattr(args, key) and key not in initial_config:
+            initial_config[key] = getattr(args, key)
 
     # Create pipeline context
     context = PipelineContext(args=args, config=initial_config, workspace=workspace)

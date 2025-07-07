@@ -11,7 +11,9 @@ This module contains stages that handle the core data processing tasks:
 """
 
 import logging
+import os
 import shutil
+import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Set
@@ -23,6 +25,14 @@ from ..filters import apply_snpsift_filter, extract_variants
 from ..gene_bed import get_gene_bed, normalize_genes
 from ..phenotype import aggregate_phenotypes_for_samples
 from ..pipeline_core import PipelineContext, Stage
+from ..pipeline_core.error_handling import (
+    graceful_error_handling,
+    retry_on_failure,
+    ToolNotFoundError,
+    FileFormatError,
+    validate_file_exists,
+    validate_output_directory,
+)
 from ..replacer import replace_genotypes
 from ..utils import run_command, split_bed_file
 from ..vcf_eff_one_per_line import process_vcf_file as split_snpeff_annotations
@@ -55,32 +65,74 @@ class GeneBedCreationStage(Stage):
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Create BED file for specified genes."""
-        # Get normalized gene names
-        gene_name = context.config.get("gene_name", "")
-        gene_file = context.config.get("gene_file")
+        with graceful_error_handling(self.name):
+            # Get normalized gene names
+            gene_name = context.config.get("gene_name", "")
+            gene_file = context.config.get("gene_file")
 
-        # Normalize genes
-        normalized_genes = normalize_genes(gene_name, gene_file, logger)
-        context.config["normalized_genes"] = normalized_genes
+            # Validate gene file if provided
+            if gene_file:
+                gene_file = str(validate_file_exists(gene_file, self.name))
 
-        # Generate BED file
-        reference = context.config.get("reference", "GRCh37.75")
-        interval_expand = context.config.get("interval_expand", 0)
-        add_chr = context.config.get("add_chr", True)
+            # Normalize genes
+            try:
+                normalized_genes = normalize_genes(gene_name, gene_file, logger)
+                context.config["normalized_genes"] = normalized_genes
+            except SystemExit as e:
+                # Convert SystemExit to proper exception
+                # Check the specific error condition
+                if not gene_name and not gene_file:
+                    raise ValueError(
+                        "No gene name provided. Use --gene-name or --gene-file to specify genes."
+                    )
+                elif gene_file and not os.path.exists(gene_file):
+                    raise FileNotFoundError(f"Gene file not found: {gene_file}")
+                elif gene_name and os.path.exists(gene_name):
+                    raise ValueError(
+                        f"File path '{gene_name}' provided to --gene-name. "
+                        f"Use --gene-file for gene list files."
+                    )
+                else:
+                    # Generic error for other SystemExit cases
+                    raise ValueError("Invalid gene specification")
 
-        logger.info(f"Creating BED file for genes: {normalized_genes}")
-        bed_file = get_gene_bed(
-            reference=reference,
-            gene_name=normalized_genes,
-            interval_expand=interval_expand,
-            add_chr=add_chr,
-            output_dir=str(context.workspace.output_dir),
-        )
+            # Generate BED file
+            reference = context.config.get("reference", "GRCh37.75")
+            interval_expand = context.config.get("interval_expand", 0)
+            add_chr = context.config.get("add_chr", True)
 
-        context.gene_bed_file = Path(bed_file)
-        logger.info(f"Created BED file: {bed_file}")
+            logger.info(f"Creating BED file for genes: {normalized_genes}")
 
-        return context
+            # Retry logic for external tool failures
+            @retry_on_failure(
+                max_attempts=3, delay=2.0, exceptions=(subprocess.CalledProcessError,)
+            )
+            def create_bed():
+                return get_gene_bed(
+                    reference=reference,
+                    gene_name=normalized_genes,
+                    interval_expand=interval_expand,
+                    add_chr=add_chr,
+                    output_dir=str(context.workspace.output_dir),
+                )
+
+            try:
+                bed_file = create_bed()
+            except subprocess.CalledProcessError as e:
+                # Check if it's a tool not found error
+                if "snpEff" in str(e) and ("not found" in str(e) or "No such file" in str(e)):
+                    raise ToolNotFoundError("snpEff", self.name)
+                # Check if it's a gene not found error
+                if "not found in database" in str(e):
+                    raise FileFormatError(
+                        normalized_genes, f"valid gene names for {reference}", self.name
+                    )
+                raise
+
+            context.gene_bed_file = Path(bed_file)
+            logger.info(f"Created BED file: {bed_file}")
+
+            return context
 
     def get_output_files(self, context: PipelineContext) -> List[Path]:
         """Return the generated BED file."""
@@ -109,32 +161,61 @@ class VariantExtractionStage(Stage):
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Extract variants using the BED file."""
-        vcf_file = context.config["vcf_file"]
-        bed_file = str(context.gene_bed_file)
+        with graceful_error_handling(self.name):
+            # Validate inputs
+            vcf_file = context.config.get("vcf_file")
+            if not vcf_file:
+                raise ValueError("No VCF file specified")
 
-        # Output path
-        output_vcf = context.workspace.get_intermediate_path(
-            f"{context.workspace.base_name}.variants.vcf.gz"
-        )
+            vcf_path = validate_file_exists(vcf_file, self.name)
 
-        # Prepare config for extract_variants
-        extract_config = {
-            "threads": context.config.get("threads", 1),
-            "bcftools_prefilter": context.config.get("bcftools_filter"),
-        }
+            if not context.gene_bed_file:
+                raise ValueError("No BED file available from gene extraction")
 
-        logger.info(f"Extracting variants from {vcf_file} using {bed_file}")
-        extract_variants(
-            vcf_file=vcf_file,
-            bed_file=bed_file,
-            cfg=extract_config,
-            output_file=str(output_vcf),
-        )
+            bed_file = str(context.gene_bed_file)
 
-        context.extracted_vcf = output_vcf
-        context.data = output_vcf
+            # Output path
+            output_vcf = context.workspace.get_intermediate_path(
+                f"{context.workspace.base_name}.variants.vcf.gz"
+            )
 
-        return context
+            # Prepare config for extract_variants
+            extract_config = {
+                "threads": context.config.get("threads", 1),
+                "bcftools_prefilter": context.config.get("bcftools_filter"),
+            }
+
+            logger.info(f"Extracting variants from {vcf_file} using {bed_file}")
+
+            @retry_on_failure(
+                max_attempts=3, delay=2.0, exceptions=(subprocess.CalledProcessError,)
+            )
+            def extract():
+                extract_variants(
+                    vcf_file=str(vcf_path),
+                    bed_file=bed_file,
+                    cfg=extract_config,
+                    output_file=str(output_vcf),
+                )
+
+            try:
+                extract()
+            except subprocess.CalledProcessError as e:
+                # Check for specific error conditions
+                if "bcftools" in str(e) and ("not found" in str(e) or "No such file" in str(e)):
+                    raise ToolNotFoundError("bcftools", self.name)
+                if "invalid" in str(e).lower() and "vcf" in str(e).lower():
+                    raise FileFormatError(str(vcf_path), "valid VCF format", self.name)
+                raise
+
+            # Verify output was created
+            if not output_vcf.exists():
+                raise FileNotFoundError(f"Variant extraction failed to create output: {output_vcf}")
+
+            context.extracted_vcf = output_vcf
+            context.data = output_vcf
+
+            return context
 
     def get_output_files(self, context: PipelineContext) -> List[Path]:
         """Return the extracted VCF file."""
@@ -413,8 +494,8 @@ class SnpSiftFilterStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Must run after some form of variant extraction
-        return {"gene_bed_creation"}
+        # Must run after configuration and gene bed (variant extraction sets context.data)
+        return {"gene_bed_creation", "configuration_loading"}
 
     def _split_before_filter(self) -> bool:
         """Check if we should split before filtering."""
@@ -423,13 +504,19 @@ class SnpSiftFilterStage(Stage):
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply SnpSift filters."""
-        filter_expr = context.config.get("filter")
+        # Check both "filter" and "filters" keys (different parts use different names)
+        filter_expr = context.config.get("filter") or context.config.get("filters")
 
         if not filter_expr or context.config.get("late_filtering"):
             logger.debug("No SnpSift filter or using late filtering")
             return context
 
-        input_vcf = context.data
+        # Get input VCF from context (set by variant extraction stage)
+        input_vcf = context.extracted_vcf or context.data
+        if not input_vcf:
+            logger.error("No input VCF available for filtering")
+            return context
+            
         output_vcf = context.workspace.get_intermediate_path(
             f"{context.workspace.base_name}.filtered.vcf.gz"
         )
@@ -460,13 +547,24 @@ class FieldExtractionStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Must have gene bed and some form of extraction
-        return {"gene_bed_creation"}
+        # Must have gene bed and config, optionally after filtering
+        deps = {"gene_bed_creation", "configuration_loading"}
+        # Note: snpsift_filtering dependency is handled by execution order,
+        # not explicit dependency to avoid circular deps when filtering is not used
+        return deps
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Extract fields to TSV format."""
         input_vcf = context.data
         fields = context.config.get("extract", [])
+
+        # Debug logging
+        logger.debug(f"FieldExtractionStage - config keys: {list(context.config.keys())[:10]}...")
+        logger.debug(f"FieldExtractionStage - 'extract' in config: {'extract' in context.config}")
+        logger.debug(
+            f"FieldExtractionStage - 'fields_to_extract' in config: {'fields_to_extract' in context.config}"
+        )
+        logger.debug(f"FieldExtractionStage - fields value: {fields}")
 
         if not fields:
             raise ValueError("No fields specified for extraction")
@@ -762,24 +860,42 @@ class StreamingDataProcessingStage(Stage):
         """Stream process file line by line."""
         import gzip
 
+        # Validate input file
+        input_file = validate_file_exists(input_file, self.name)
+
+        # Ensure output directory exists
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
         # Determine compression
         in_compressed = str(input_file).endswith(".gz")
         out_compressed = str(output_file).endswith(".gz")
 
-        # Open files
-        if in_compressed:
-            in_fh = gzip.open(input_file, "rt")
-        else:
-            in_fh = open(input_file, "r")
-
-        if out_compressed:
-            out_fh = gzip.open(output_file, "wt")
-        else:
-            out_fh = open(output_file, "w")
+        in_fh = None
+        out_fh = None
 
         try:
+            # Open files with proper error handling
+            try:
+                if in_compressed:
+                    in_fh = gzip.open(input_file, "rt")
+                else:
+                    in_fh = open(input_file, "r")
+            except (IOError, OSError) as e:
+                raise FileFormatError(str(input_file), "readable TSV file", self.name) from e
+
+            try:
+                if out_compressed:
+                    out_fh = gzip.open(output_file, "wt")
+                else:
+                    out_fh = open(output_file, "w")
+            except (IOError, OSError) as e:
+                raise PermissionError(f"Cannot write to output file: {output_file}") from e
+
             # Process header
             header = in_fh.readline().strip()
+            if not header:
+                raise FileFormatError(str(input_file), "TSV file with header", self.name)
+
             columns = header.split("\t")
 
             # Find columns to process
@@ -843,8 +959,26 @@ class StreamingDataProcessingStage(Stage):
                 # Write line
                 out_fh.write("\t".join(new_fields) + "\n")
 
+        except Exception as e:
+            logger.error(f"Error during streaming processing: {e}")
+            # Clean up partial output file
+            if output_file.exists():
+                try:
+                    output_file.unlink()
+                except Exception:
+                    pass
+            raise
         finally:
-            in_fh.close()
-            out_fh.close()
+            # Safely close file handles
+            if in_fh is not None:
+                try:
+                    in_fh.close()
+                except Exception:
+                    pass
+            if out_fh is not None:
+                try:
+                    out_fh.close()
+                except Exception:
+                    pass
 
         logger.info(f"Streaming processing complete: {output_file}")

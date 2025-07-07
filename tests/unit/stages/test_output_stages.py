@@ -64,6 +64,74 @@ class TestVariantIdentifierStage:
         stage = VariantIdentifierStage()
         assert stage.parallel_safe is True
 
+    def test_streaming_mode(self, tmp_path):
+        """Test streaming mode for large files."""
+        import gzip
+
+        # Create test input file
+        input_file = tmp_path / "test_variants.tsv.gz"
+        with gzip.open(input_file, "wt") as f:
+            f.write("CHROM\tPOS\tREF\tALT\tQUAL\n")
+            f.write("chr1\t100\tA\tT\t30\n")
+            f.write("chr1\t200\tG\tC\t40\n")
+            f.write("chr2\t300\tC\tG\t50\n")
+
+        # Create context for streaming
+        ctx = create_test_context()
+        ctx.config["stream_variant_ids"] = True
+        ctx.data = str(input_file)
+        ctx.current_dataframe = None  # No DataFrame in streaming mode
+        ctx.workspace = Mock()
+        ctx.workspace.get_intermediate_path = lambda x: tmp_path / x
+
+        # Run stage
+        stage = VariantIdentifierStage()
+        result = stage(ctx)
+
+        # Check output file was created
+        output_file = tmp_path / "with_variant_ids.tsv.gz"
+        assert output_file.exists()
+        assert result.data == output_file
+
+        # Verify content
+        with gzip.open(output_file, "rt") as f:
+            lines = f.readlines()
+            assert lines[0].strip() == "Variant_ID\tCHROM\tPOS\tREF\tALT\tQUAL"
+            assert lines[1].strip() == "chr1:100:A>T\tchr1\t100\tA\tT\t30"
+            assert lines[2].strip() == "chr1:200:G>C\tchr1\t200\tG\tC\t40"
+            assert lines[3].strip() == "chr2:300:C>G\tchr2\t300\tC\tG\t50"
+
+    def test_streaming_mode_missing_key_fields(self, tmp_path):
+        """Test streaming mode when key fields are missing."""
+        import gzip
+
+        # Create test input file without standard fields
+        input_file = tmp_path / "test_variants.tsv.gz"
+        with gzip.open(input_file, "wt") as f:
+            f.write("Gene\tImpact\tScore\n")
+            f.write("BRCA1\tHIGH\t0.95\n")
+            f.write("TP53\tMODERATE\t0.80\n")
+
+        # Create context for streaming
+        ctx = create_test_context()
+        ctx.config["stream_variant_ids"] = True
+        ctx.data = str(input_file)
+        ctx.current_dataframe = None
+        ctx.workspace = Mock()
+        ctx.workspace.get_intermediate_path = lambda x: tmp_path / x
+
+        # Run stage
+        stage = VariantIdentifierStage()
+        result = stage(ctx)
+
+        # Verify fallback to index-based IDs
+        output_file = tmp_path / "with_variant_ids.tsv.gz"
+        with gzip.open(output_file, "rt") as f:
+            lines = f.readlines()
+            assert lines[0].strip() == "Variant_ID\tGene\tImpact\tScore"
+            assert lines[1].strip() == "VAR_000000\tBRCA1\tHIGH\t0.95"
+            assert lines[2].strip() == "VAR_000001\tTP53\tMODERATE\t0.80"
+
 
 class TestFinalFilteringStage:
     """Test FinalFilteringStage."""

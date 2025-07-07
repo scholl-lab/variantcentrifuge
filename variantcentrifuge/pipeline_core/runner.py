@@ -333,12 +333,15 @@ class PipelineRunner:
                     raise
 
         # Merge all updates back into the main context
-        for updated_context in updated_contexts:
+        for i, updated_context in enumerate(updated_contexts):
+            # Log completed stages and important state from each context
+            logger.debug(
+                f"Merging context updates: {len(updated_context.completed_stages)} completed stages, "
+                f"{len(updated_context.stage_results)} stage results"
+            )
             context.merge_from(updated_context)
-            
-        logger.debug(
-            f"Merged updates from {len(updated_contexts)} parallel stages"
-        )
+
+        logger.debug(f"Merged updates from {len(updated_contexts)} parallel stages")
 
         return context
 

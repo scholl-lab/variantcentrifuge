@@ -59,6 +59,13 @@ class ConfigurationLoadingStage(Stage):
         # Set pipeline version
         config["pipeline_version"] = config.get("pipeline_version", "1.0.0")
 
+        # Convert fields_to_extract to extract for downstream stages
+        if "extract" not in config and "fields_to_extract" in config:
+            config["extract"] = config["fields_to_extract"].split()
+            logger.debug(
+                f"Converted fields_to_extract to extract list with {len(config['extract'])} fields"
+            )
+
         # Update context
         context.config = config
 
