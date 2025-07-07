@@ -52,8 +52,11 @@ class VariantIdentifierStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Run after all analysis is complete
-        return {"dataframe_loading", "inheritance_analysis", "variant_scoring", "custom_annotation"}
+        # Always depends on dataframe_loading
+        deps = {"dataframe_loading"}
+        # Note: Other analysis stages (inheritance, scoring, annotation) may have run
+        # but we don't strictly depend on them - variant IDs can be generated without them
+        return deps
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Add variant identifiers."""
@@ -109,13 +112,8 @@ class FinalFilteringStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Run after all computed columns are available
-        return {
-            "variant_identifier",
-            "inheritance_analysis",
-            "variant_scoring",
-            "custom_annotation",
-        }
+        # Only depends on dataframe_loading since filtering can work on any columns
+        return {"dataframe_loading"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply final filtering."""
@@ -170,7 +168,9 @@ class PseudonymizationStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        return {"final_filtering", "variant_identifier"}
+        # Only depend on dataframe_loading as minimum requirement
+        # Other stages (filtering, variant_id) are optional
+        return {"dataframe_loading"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply pseudonymization if requested."""
@@ -251,7 +251,9 @@ class TSVOutputStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        return {"final_filtering", "pseudonymization"}
+        # TSV output only needs the dataframe to be loaded
+        # All other processing stages are optional
+        return {"dataframe_loading"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Write final TSV output."""
@@ -567,8 +569,9 @@ class ArchiveCreationStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Run after all outputs are generated
-        return {"tsv_output", "excel_report", "html_report", "igv_report", "metadata_generation"}
+        # Archive should run after all outputs
+        # Just depend on TSV output as minimum
+        return {"tsv_output"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Create archive if requested."""

@@ -91,6 +91,12 @@ def main() -> None:
         help="Path to configuration file",
         default=None,
     )
+    general_group.add_argument(
+        "--use-new-pipeline",
+        action="store_true",
+        default=False,
+        help="Use the new refactored pipeline architecture (experimental)",
+    )
 
     # Core Input/Output
     io_group = parser.add_argument_group("Core Input/Output")

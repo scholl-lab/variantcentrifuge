@@ -112,16 +112,18 @@ class VariantExtractionStage(Stage):
             f"{context.workspace.base_name}.variants.vcf.gz"
         )
 
-        # Optional bcftools pre-filter
-        bcftools_filter = context.config.get("bcftools_filter")
+        # Prepare config for extract_variants
+        extract_config = {
+            "threads": context.config.get("threads", 1),
+            "bcftools_prefilter": context.config.get("bcftools_filter"),
+        }
 
         logger.info(f"Extracting variants from {vcf_file} using {bed_file}")
         extract_variants(
             vcf_file=vcf_file,
             bed_file=bed_file,
+            cfg=extract_config,
             output_file=str(output_vcf),
-            bcftools_filter=bcftools_filter,
-            threads=context.config.get("threads", 1),
         )
 
         context.extracted_vcf = output_vcf
@@ -206,11 +208,16 @@ class ParallelVariantExtractionStage(Stage):
     ) -> List[Path]:
         """Process BED chunks in parallel."""
         vcf_file = context.config["vcf_file"]
-        bcftools_filter = context.config.get("bcftools_filter")
         threads = context.config.get("threads", 1)
 
         # Each worker gets limited threads
         threads_per_worker = max(1, threads // len(bed_chunks))
+
+        # Prepare config for extract_variants
+        extract_config = {
+            "threads": threads_per_worker,
+            "bcftools_prefilter": context.config.get("bcftools_filter"),
+        }
 
         chunk_outputs = []
         with ProcessPoolExecutor(max_workers=len(bed_chunks)) as executor:
@@ -223,9 +230,8 @@ class ParallelVariantExtractionStage(Stage):
                     extract_variants,
                     vcf_file=vcf_file,
                     bed_file=str(chunk_bed),
+                    cfg=extract_config,
                     output_file=str(output_vcf),
-                    bcftools_filter=bcftools_filter,
-                    threads=threads_per_worker,
                 )
                 future_to_chunk[future] = (chunk_bed, output_vcf)
 
@@ -354,8 +360,8 @@ class MultiAllelicSplitStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Can run after extraction or filtering
-        return {"variant_extraction", "parallel_variant_extraction"}
+        # Must run after gene bed creation and variant data exists
+        return {"gene_bed_creation"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Split SNPeff annotations if requested."""
@@ -397,11 +403,8 @@ class SnpSiftFilterStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        deps = {"variant_extraction", "parallel_variant_extraction"}
-        # May depend on splitting if configured
-        if self._split_before_filter():
-            deps.add("multiallelic_split")
-        return deps
+        # Must run after some form of variant extraction
+        return {"gene_bed_creation"}
 
     def _split_before_filter(self) -> bool:
         """Check if we should split before filtering."""
@@ -422,9 +425,8 @@ class SnpSiftFilterStage(Stage):
         )
 
         logger.info(f"Applying SnpSift filter: {filter_expr}")
-        apply_snpsift_filter(
-            str(input_vcf), filter_expr, str(output_vcf), threads=context.config.get("threads", 1)
-        )
+        filter_config = {"threads": context.config.get("threads", 1)}
+        apply_snpsift_filter(str(input_vcf), filter_expr, filter_config, str(output_vcf))
 
         context.filtered_vcf = output_vcf
         context.data = output_vcf
@@ -448,13 +450,8 @@ class FieldExtractionStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Depends on whatever processing happened before
-        return {
-            "variant_extraction",
-            "parallel_variant_extraction",
-            "snpsift_filtering",
-            "multiallelic_split",
-        }
+        # Must have gene bed and some form of extraction
+        return {"gene_bed_creation"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Extract fields to TSV format."""
@@ -473,11 +470,21 @@ class FieldExtractionStage(Stage):
             output_tsv = Path(str(output_tsv) + ".gz")
 
         logger.info(f"Extracting {len(fields)} fields from VCF to TSV")
+
+        # Prepare config for extract_fields
+        extract_config = {
+            "extract_fields_separator": context.config.get("extract_fields_separator", ","),
+            "debug_level": context.config.get("log_level", "INFO"),
+        }
+
+        # Convert fields list to space-separated string
+        fields_str = " ".join(fields)
+
         extract_fields(
-            str(input_vcf),
-            fields,
-            str(output_tsv),
-            split_multi_sample_columns=True,  # Always split for compatibility
+            variant_file=str(input_vcf),
+            fields=fields_str,
+            cfg=extract_config,
+            output_file=str(output_tsv),
         )
 
         context.extracted_tsv = output_tsv

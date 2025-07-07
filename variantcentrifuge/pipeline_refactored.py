@@ -11,9 +11,11 @@ from pathlib import Path
 from typing import List
 
 from .config import load_config
+from .pipeline import compute_base_name
 from .pipeline_core.context import PipelineContext
 from .pipeline_core.runner import PipelineRunner
 from .pipeline_core.workspace import Workspace
+from .gene_bed import normalize_genes
 from .stages.setup_stages import (
     ConfigurationLoadingStage,
     PhenotypeLoadingStage,
@@ -211,9 +213,17 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
         level=log_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
+    # Normalize genes first to compute base name
+    gene_name = normalize_genes(
+        getattr(args, "gene_name", "") or "", getattr(args, "gene_file", None), logger
+    )
+
+    # Compute base name like the original pipeline
+    vcf_file = getattr(args, "vcf_file", "")
+    base_name = compute_base_name(vcf_file, gene_name)
+
     # Create workspace
     output_dir = getattr(args, "output_dir", "output")
-    base_name = getattr(args, "base_name", "results")
     workspace = Workspace(Path(output_dir), base_name)
 
     # Load initial config - it might be passed as args.config or already merged
@@ -225,6 +235,16 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
         initial_config = load_config(args.config)
     else:
         initial_config = {}
+
+    # Ensure config has extract field from fields_to_extract
+    if "extract" not in initial_config and "fields_to_extract" in initial_config:
+        initial_config["extract"] = initial_config["fields_to_extract"].split()
+
+    # Add normalized genes to config
+    initial_config["normalized_genes"] = gene_name
+
+    # Merge VCF file path into config
+    initial_config["vcf_file"] = vcf_file
 
     # Create pipeline context
     context = PipelineContext(args=args, config=initial_config, workspace=workspace)

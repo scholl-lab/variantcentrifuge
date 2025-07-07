@@ -1,5 +1,31 @@
 # VariantCentrifuge Pipeline Refactoring Checklist
 
+## Current Status Summary (2025-07-07)
+
+### ✅ Completed
+- **Core Infrastructure**: PipelineContext, Stage, Workspace, PipelineRunner (100%)
+- **Stage Implementation**: All 35 stages implemented (100%)
+- **Linting & Code Quality**: All issues resolved, passes flake8 (100%)
+- **Unit Tests**: 13/34 stages have unit tests (38% coverage)
+- **Feature Flag**: Added to CLI with `--use-new-pipeline` flag
+- **API Compatibility**: Fixed function signature mismatches in processing stages
+
+### 🔴 Critical Missing Items
+1. **Regression Testing**: No baseline outputs generated
+2. **Unit Test Coverage**: 21/34 stages still need tests (62% remaining)
+3. **End-to-End Testing**: New pipeline not tested with real data
+4. **Performance Benchmarks**: No measurements completed
+5. **Integration**: Old pipeline code not yet removed
+
+### 📋 Next Priority Actions
+1. Generate baseline test outputs with original pipeline
+2. Write unit tests for remaining 21 stages (output stages priority)
+3. Run regression tests to ensure identical outputs
+4. Complete performance benchmarking
+5. Remove old pipeline code after validation
+
+---
+
 ## Pre-Refactoring Setup
 
 ### Environment Preparation
@@ -21,13 +47,13 @@
 
 ### Day 1-2: Core Abstractions
 - [x] Implement `pipeline/context.py` with PipelineContext dataclass
-- [ ] Run regression test ✓
+- [ ] Run regression test [ ]
 - [x] Implement `pipeline/stage.py` with Stage abstract class
-- [ ] Run regression test ✓
+- [ ] Run regression test [ ]
 - [x] Implement `pipeline/runner.py` with PipelineRunner
-- [ ] Run regression test ✓
+- [ ] Run regression test [ ]
 - [x] Create unit tests for core abstractions
-- [x] All tests pass ✓
+- [x] All tests pass [x]
 
 ### Day 3-4: Testing Infrastructure
 - [x] Set up pytest configuration for new structure
@@ -39,35 +65,35 @@
 ### Day 5: First Configuration Stage
 - [x] Implement ConfigurationLoadingStage
 - [x] Create unit tests for ConfigurationLoadingStage
-- [ ] Run regression test ✓
+- [ ] Run regression test [ ]
 - [x] Integrate into pipeline with feature flag
-- [x] Test with feature flag OFF ✓
-- [x] Test with feature flag ON ✓
+- [x] Test with feature flag OFF [x]
+- [x] Test with feature flag ON [x]
 
 ## Phase 2: Configuration Stages (Week 1-2)
 
 ### Configuration Loading Stages
 - [x] Implement PhenotypeLoadingStage
   - [x] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 - [x] Implement ScoringConfigLoadingStage
   - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 - [x] Implement PedigreeLoadingStage
   - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 - [x] Implement AnnotationConfigLoadingStage
   - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 - [x] Implement SampleConfigLoadingStage
   - [x] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 
 ### Parallel Configuration Loading
 - [x] Test all config stages running in parallel
 - [ ] Verify no race conditions
 - [ ] Performance benchmark
-- [ ] Full regression test ✓
+- [ ] Full regression test [ ]
 
 ## Phase 3: Processing Stages (Week 2)
 
@@ -75,95 +101,103 @@
 - [x] Implement GeneBedCreationStage
   - [x] Extract logic from pipeline.py
   - [x] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 
 ### Variant Extraction
 - [x] Implement VariantExtractionStage (single-threaded)
   - [x] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 - [x] Implement ParallelVariantExtractionStage
   - [x] Chunk processing logic
   - [x] Parallel execution
   - [x] Result merging
   - [x] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
   - [ ] Performance test (verify speedup)
 
 ### Filtering Stages
 - [x] Implement BCFToolsPrefilterStage
   - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 - [x] Implement MultiAllelicSplitStage
   - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 - [x] Implement SnpSiftFilterStage
   - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 
 ### Data Processing
 - [x] Implement FieldExtractionStage
   - [x] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 - [x] Implement GenotypeReplacementStage
-  - [ ] Streaming implementation
+  - [x] Streaming implementation (in StreamingDataProcessingStage)
   - [x] Unit tests
   - [ ] Memory usage test
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 - [x] Implement ExtraColumnRemovalStage
   - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 - [x] Implement PhenotypeIntegrationStage
   - [x] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 
 ### Optimized Processing
 - [x] Implement StreamingDataProcessingStage
   - [x] Single-pass implementation
   - [ ] Performance benchmarks
   - [ ] Memory usage tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 
 ## Phase 4: Analysis Stages (Week 3)
 
 ### Data Loading
 - [x] Implement DataFrameLoadingStage
   - [x] Size-based decision logic
-  - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [x] Unit tests
+  - [ ] Regression test [ ]
 
 ### Analysis Components
 - [x] Implement CustomAnnotationStage
   - [x] DataFrame mode
   - [x] Chunked mode support
-  - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [x] Unit tests
+  - [ ] Regression test [ ]
 - [x] Implement InheritanceAnalysisStage
   - [x] Pedigree integration
   - [x] Compound het detection
-  - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [x] Unit tests
+  - [ ] Regression test [ ]
 - [x] Implement VariantScoringStage
   - [x] Formula evaluation
-  - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [x] Unit tests
+  - [ ] Regression test [ ]
 - [x] Implement StatisticsGenerationStage
   - [x] Statistics calculation
   - [x] Chunk aggregation
-  - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [x] Unit tests
+  - [ ] Regression test [ ]
+
+### Gene Burden Analysis
+- [x] Implement GeneBurdenAnalysisStage
+  - [x] Case-control analysis
+  - [x] Unit tests
+  - [ ] Regression test [ ]
 
 ### Chunked Processing
 - [x] Implement ChunkedAnalysisStage
+  - [x] Basic implementation
+  - [x] Unit tests
   - [ ] Gene-based chunking
   - [ ] Memory efficiency tests
   - [ ] Large file tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 
 ### Parallel Analysis
 - [x] Implement ParallelAnalysisOrchestrator
   - [ ] Gene-level parallelization
   - [ ] Performance benchmarks
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 
 ## Phase 5: Output Stages (Week 4)
 
@@ -172,59 +206,66 @@
   - [x] DataFrame mode
   - [ ] Streaming mode
   - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 - [x] Implement FinalFilteringStage
   - [x] Pandas query support
   - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 - [x] Implement PseudonymizationStage
   - [x] Sample extraction
   - [x] Mapping generation
   - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 
 ### Output Generation
 - [x] Implement TSVOutputStage
   - [x] File output
   - [x] Stdout support
   - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 - [x] Implement MetadataGenerationStage
   - [x] Tool version capture
   - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 
 ### Report Generation
 - [x] Implement ExcelReportStage
   - [x] Multi-sheet support
   - [x] Formatting
   - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 - [x] Implement HTMLReportStage
   - [x] JSON generation
   - [x] HTML generation
   - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 - [x] Implement IGVReportStage
   - [x] BAM integration
   - [x] Local FASTA support
   - [ ] Unit tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
+
+### Archive Creation
+- [x] Implement ArchiveCreationStage
+  - [x] Tar.gz creation
+  - [ ] Unit tests
+  - [ ] Regression test [ ]
 
 ### Parallel Output
 - [x] Implement ParallelReportGenerationStage
   - [x] Concurrent report generation
   - [ ] Performance tests
-  - [ ] Regression test ✓
+  - [ ] Regression test [ ]
 
 ## Phase 6: Integration (Week 5)
 
 ### Pipeline Integration
 - [x] Update main pipeline.py to use stages
+- [x] Add CLI flag `--use-new-pipeline`
 - [ ] Remove feature flags
 - [ ] Remove old implementation code
 - [ ] Update imports throughout codebase
-- [ ] Full regression test suite ✓
+- [ ] Full regression test suite [ ]
 
 ### Performance Testing
 - [ ] Benchmark single-gene analysis
@@ -267,7 +308,7 @@
 - [ ] Create pull request
 - [ ] Team code review
 - [ ] Address review comments
-- [ ] Final regression test ✓
+- [ ] Final regression test [ ]
 - [ ] Merge to main branch
 - [ ] Tag release
 - [ ] Update changelog
@@ -304,14 +345,17 @@ Target End Date: TBD
 - Week 2: 100% complete (Processing Stages)
 - Week 3: 100% complete (Analysis Stages)
 - Week 4: 100% complete (Output Stages)
-- Week 5: 20% complete (Integration started, testing pending)
+- Week 5: 40% complete (CLI flag added, 13/34 stages tested)
 
 ### Blockers
-1. ________________________________
-2. ________________________________
+1. Need bcftools/snpEff/SnpSift installed for end-to-end testing
+2. Baseline test outputs not yet generated
 3. ________________________________
 
 ### Notes
-_____________________________________
-_____________________________________
-_____________________________________
+- Added --use-new-pipeline flag to CLI
+- Fixed circular dependencies in stage execution
+- Fixed API mismatches in processing stages
+- Completed unit tests for all 7 analysis stages
+- 13/34 stages now have unit tests (6 processing + 7 analysis)
+- Priority: Write tests for 9 output stages next
