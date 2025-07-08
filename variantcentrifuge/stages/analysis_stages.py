@@ -11,6 +11,7 @@ This module contains stages that perform analysis on the extracted data:
 """
 
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
 
@@ -251,10 +252,93 @@ class InheritanceAnalysisStage(Stage):
             logger.warning("No VCF samples available for inheritance analysis")
             return context
 
+        # Convert vcf_samples from set to list if needed
+        if isinstance(vcf_samples, set):
+            vcf_samples = list(vcf_samples)
+
         logger.info(
             f"Calculating inheritance patterns ({inheritance_mode} mode) "
             f"for {len(vcf_samples)} samples"
         )
+
+        # Prepare sample columns if GT field exists and contains multiple samples
+        if "GT" in df.columns:
+            logger.debug("Preparing sample columns from GT field for inheritance analysis")
+            
+            # Get the separator used by SnpSift (usually comma)
+            snpsift_sep = context.config.get("extract_fields_separator", ",")
+            
+            # Check if GT contains the separator (multi-sample format)
+            first_gt = str(df.iloc[0]["GT"]) if len(df) > 0 else ""
+            
+            # Check if genotype replacement has already been done
+            # (format: "Sample1(0/1);Sample2(0/0)")
+            if "(" in first_gt and ")" in first_gt:
+                logger.info("GT column contains replaced genotypes, extracting sample genotypes")
+                
+                # Pre-create all sample columns data
+                sample_data = {sample_id: [] for sample_id in vcf_samples}
+                
+                # Parse replaced genotype format
+                for idx, row in df.iterrows():
+                    gt_value = str(row["GT"])
+                    # Initialize all samples with missing genotype
+                    row_genotypes = {sample_id: "./." for sample_id in vcf_samples}
+                    
+                    if gt_value and gt_value != "NA" and gt_value != "nan":
+                        # Split by separator (usually semicolon) for different samples
+                        sample_entries = gt_value.split(context.config.get("separator", ";"))
+                        for entry in sample_entries:
+                            # Parse "SampleName(genotype:extra:fields)"
+                            match = re.match(r"^([^(]+)\(([^)]+)\)", entry)
+                            if match:
+                                sample_name = match.group(1)
+                                genotype_info = match.group(2)
+                                # Extract just the genotype part (before the first colon)
+                                genotype = genotype_info.split(":")[0]
+                                if sample_name in row_genotypes:
+                                    row_genotypes[sample_name] = genotype
+                    
+                    # Add genotypes for all samples
+                    for sample_id in vcf_samples:
+                        sample_data[sample_id].append(row_genotypes[sample_id])
+                
+                # Create DataFrame from sample data and concatenate
+                sample_df = pd.DataFrame(sample_data)
+                df = pd.concat([df, sample_df], axis=1)
+                
+                logger.info(f"Created {len(sample_data)} sample columns from replaced genotypes")
+                
+            elif snpsift_sep in first_gt:
+                logger.info(f"Extracting sample genotypes from GT column using separator '{snpsift_sep}'")
+                
+                # Pre-create all sample columns data
+                sample_data = {sample_id: [] for sample_id in vcf_samples}
+                
+                # Extract genotypes for each row
+                for idx, row in df.iterrows():
+                    gt_value = str(row["GT"])
+                    if gt_value and gt_value != "NA" and gt_value != "nan":
+                        genotypes = gt_value.split(snpsift_sep)
+                        if len(genotypes) != len(vcf_samples):
+                            logger.warning(
+                                f"Row {idx}: Expected {len(vcf_samples)} genotypes but found {len(genotypes)}"
+                            )
+                        for i, sample_id in enumerate(vcf_samples):
+                            if i < len(genotypes):
+                                sample_data[sample_id].append(genotypes[i])
+                            else:
+                                sample_data[sample_id].append("./.")
+                    else:
+                        # Missing GT data
+                        for sample_id in vcf_samples:
+                            sample_data[sample_id].append("./.")
+                
+                # Create DataFrame from sample data and concatenate
+                sample_df = pd.DataFrame(sample_data)
+                df = pd.concat([df, sample_df], axis=1)
+                
+                logger.info(f"Created {len(sample_data)} sample columns for inheritance analysis")
 
         # Apply inheritance analysis
         df = analyze_inheritance(
@@ -268,6 +352,13 @@ class InheritanceAnalysisStage(Stage):
         from ..inheritance.analyzer import process_inheritance_output
 
         df = process_inheritance_output(df, inheritance_mode)
+
+        # Remove individual sample columns that were added for inheritance analysis
+        # Keep all columns except those that match sample names
+        if vcf_samples:
+            cols_to_keep = [col for col in df.columns if col not in vcf_samples]
+            df = df[cols_to_keep]
+            logger.debug(f"Removed {len(vcf_samples)} sample columns after inheritance analysis")
 
         context.current_dataframe = df
         return context

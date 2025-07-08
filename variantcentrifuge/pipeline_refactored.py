@@ -151,10 +151,16 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
     ):
         stages.append(CustomAnnotationStage())
 
-    if hasattr(args, "ped_file") and args.ped_file:
-        stages.append(InheritanceAnalysisStage())
-    elif hasattr(args, "inheritance_mode") and args.inheritance_mode:
-        # Can do inheritance without PED (all samples as affected singletons)
+    # Check both args and config for inheritance settings
+    should_calculate_inheritance = (
+        (hasattr(args, "ped_file") and args.ped_file) or
+        (hasattr(args, "inheritance_mode") and args.inheritance_mode) or
+        config.get("calculate_inheritance", False) or
+        config.get("ped_file") or
+        config.get("inheritance_mode")
+    )
+    
+    if should_calculate_inheritance:
         stages.append(InheritanceAnalysisStage())
 
     # Always run variant analysis to add standard columns
@@ -314,6 +320,8 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
         "output_dir",
         "xlsx",
         "html_report",
+        "inheritance_mode",  # Add inheritance_mode to config
+        "calculate_inheritance",  # Add calculate_inheritance flag
     ]
     for key in args_to_add:
         if hasattr(args, key) and getattr(args, key) is not None and key not in initial_config:

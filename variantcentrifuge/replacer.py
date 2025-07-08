@@ -129,6 +129,7 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
     extra_field_indices = {}
 
     first_line = True
+    line_idx = 0  # Initialize to handle empty input case
     # Process the input lines
     for line_idx, line in enumerate(lines, start=1):
         line = line.rstrip("\n")
