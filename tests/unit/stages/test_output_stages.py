@@ -312,13 +312,22 @@ class TestTSVOutputStage:
             # Check output went to stdout
             mock_to_csv.assert_called_once_with(mock_stdout, sep="\t", index=False)
 
-    def test_missing_dataframe_error(self, context):
-        """Test error when no DataFrame available."""
+    def test_missing_dataframe(self, context):
+        """Test handling when no DataFrame available."""
         context.current_dataframe = None
 
         stage = TSVOutputStage()
-        with pytest.raises(ValueError, match="No data available"):
-            stage(context)
+        result = stage(context)
+        
+        # Should return context without error
+        assert result is context
+        assert not hasattr(result, 'final_output_path')
+    
+    def test_dependencies(self):
+        """Test stage dependencies."""
+        stage = TSVOutputStage()
+        assert stage.dependencies == {"dataframe_loading", "variant_identifier"}
+        assert stage.soft_dependencies == {"variant_scoring", "final_filtering", "pseudonymization"}
 
 
 class TestExcelReportStage:

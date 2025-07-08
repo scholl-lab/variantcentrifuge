@@ -78,11 +78,17 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
     # Always load configuration
     stages.append(ConfigurationLoadingStage())
 
+    # Get config to check for scoring_config_path
+    # If args.config is a dict, use it; otherwise check individual args
+    config = args.config if hasattr(args, "config") and isinstance(args.config, dict) else {}
+
     # Setup stages (can run in parallel)
     if args.phenotype_file:
         stages.append(PhenotypeLoadingStage())
 
-    if hasattr(args, "scoring_config_path") and args.scoring_config_path:
+    # Check for scoring config in merged config or args
+    if (config.get("scoring_config_path") or 
+        (hasattr(args, "scoring_config_path") and args.scoring_config_path)):
         stages.append(ScoringConfigLoadingStage())
 
     if hasattr(args, "ped_file") and args.ped_file:
@@ -150,7 +156,9 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
         # Can do inheritance without PED (all samples as affected singletons)
         stages.append(InheritanceAnalysisStage())
 
-    if hasattr(args, "scoring_config_path") and args.scoring_config_path:
+    # Check for scoring config in merged config or args
+    if (config.get("scoring_config_path") or 
+        (hasattr(args, "scoring_config_path") and args.scoring_config_path)):
         stages.append(VariantScoringStage())
 
     # Always run variant analysis to add standard columns

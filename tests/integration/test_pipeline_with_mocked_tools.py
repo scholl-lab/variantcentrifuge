@@ -23,7 +23,7 @@ class MockedToolsTestCase:
     def setup_mocks(self):
         """Set up mocks for external tools."""
         self.bcftools_patcher = patch("variantcentrifuge.stages.processing_stages.run_command")
-        self.snpeff_patcher = patch("variantcentrifuge.gene_bed.run_command")
+        self.snpeff_patcher = patch("variantcentrifuge.gene_bed.subprocess.run")
         self.snpsift_patcher = patch("variantcentrifuge.filters.run_command")
 
         self.mock_bcftools = self.bcftools_patcher.start()
@@ -58,14 +58,24 @@ class MockedToolsTestCase:
 
         # Mock snpEff responses
         def snpeff_side_effect(cmd, *args, **kwargs):
-            result = Mock()
-            result.returncode = 0
-
-            if "genes2bed" in " ".join(cmd):
-                # Mock BED file generation
-                result.stdout = "chr17\t43044294\t43125483\tBRCA1\n"
-
-            return result
+            # subprocess.run returns a CompletedProcess object
+            from subprocess import CompletedProcess
+            
+            # Check if this is a snpEff genes2bed command
+            if isinstance(cmd, list) and "genes2bed" in cmd:
+                # Write BED content to the output file if stdout is redirected
+                if "stdout" in kwargs and hasattr(kwargs["stdout"], "write"):
+                    kwargs["stdout"].write("chr17\t43044294\t43125483\tBRCA1\n")
+                return CompletedProcess(cmd, 0)
+            
+            # For sortBed commands
+            if isinstance(cmd, list) and "sortBed" in cmd:
+                # Just return success
+                if "stdout" in kwargs and hasattr(kwargs["stdout"], "write"):
+                    kwargs["stdout"].write("chr17\t43044294\t43125483\tBRCA1\n")
+                return CompletedProcess(cmd, 0)
+            
+            return CompletedProcess(cmd if isinstance(cmd, list) else [cmd], 0)
 
         # Mock SnpSift responses
         def snpsift_side_effect(cmd, *args, **kwargs):

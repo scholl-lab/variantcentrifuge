@@ -385,6 +385,13 @@ class TSVOutputStage(Stage):
         # graph of stages that are actually present.
 
         return deps
+    
+    @property 
+    def soft_dependencies(self) -> Set[str]:
+        """Return the set of stage names that should run before if present."""
+        # Soft dependencies are optional - if these stages exist, we should run after them
+        # This includes all stages that might modify the DataFrame
+        return {"variant_scoring", "final_filtering", "pseudonymization"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Write final TSV output."""

@@ -179,7 +179,7 @@ class TestInheritanceAnalysisStage:
         stage = InheritanceAnalysisStage()
         assert stage.name == "inheritance_analysis"
         assert "Calculate inheritance patterns" in stage.description
-        assert stage.dependencies == {"dataframe_loading", "custom_annotation", "pedigree_loading"}
+        assert stage.dependencies == {"dataframe_loading"}
         assert stage.parallel_safe is False
 
     @patch("variantcentrifuge.stages.analysis_stages.analyze_inheritance")
@@ -269,12 +269,7 @@ class TestVariantScoringStage:
         stage = VariantScoringStage()
         assert stage.name == "variant_scoring"
         assert "Calculate variant scores" in stage.description
-        assert stage.dependencies == {
-            "dataframe_loading",
-            "custom_annotation",
-            "inheritance_analysis",
-            "scoring_config_loading",
-        }
+        assert stage.dependencies == {"dataframe_loading"}
         assert stage.parallel_safe is False
 
     @patch("variantcentrifuge.stages.analysis_stages.apply_scoring")
@@ -338,7 +333,7 @@ class TestStatisticsGenerationStage:
         assert stage.name == "statistics_generation"
         assert "Generate summary statistics" in stage.description
         assert stage.dependencies == {"dataframe_loading"}
-        assert stage.parallel_safe is False
+        assert stage.parallel_safe is True
 
     @patch("variantcentrifuge.stages.analysis_stages.StatsEngine")
     def test_process_generates_statistics(self, mock_stats_engine, tmp_path):

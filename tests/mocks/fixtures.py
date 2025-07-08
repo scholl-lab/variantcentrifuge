@@ -35,22 +35,27 @@ def create_test_context(
     PipelineContext
         Configured test context
     """
-    # Create args
-    args = argparse.Namespace(
-        vcf_file=vcf_file,
-        output_dir=output_dir or tempfile.mkdtemp(),
-        gene_name=gene_name,
-        gene_file=None,
-        output_file=None,
-        config=None,
-        phenotype_file=None,
-        phenotype_sample_column=None,
-        phenotype_value_column=None,
-        ped_file=None,
-        scoring_config_path=None,
-        threads=1,
-        **kwargs,
-    )
+    # Create args with defaults
+    default_args = {
+        "vcf_file": vcf_file,
+        "output_dir": output_dir or tempfile.mkdtemp(),
+        "gene_name": gene_name,
+        "gene_file": None,
+        "output_file": None,
+        "config": None,
+        "phenotype_file": None,
+        "phenotype_sample_column": None,
+        "phenotype_value_column": None,
+        "ped_file": None,
+        "scoring_config_path": None,
+        "threads": 1,
+    }
+    
+    # Update with any kwargs, avoiding duplicates
+    default_args.update(kwargs)
+    
+    # Create namespace
+    args = argparse.Namespace(**default_args)
 
     # Create workspace
     workspace = Workspace(Path(args.output_dir), "test_run")
