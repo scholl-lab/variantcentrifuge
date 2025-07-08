@@ -28,6 +28,7 @@ from .stages.processing_stages import (
     GeneBedCreationStage,
     VariantExtractionStage,
     ParallelVariantExtractionStage,
+    ParallelCompleteProcessingStage,
     MultiAllelicSplitStage,
     SnpSiftFilterStage,
     FieldExtractionStage,
@@ -110,23 +111,26 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
     # Processing stages
     stages.append(GeneBedCreationStage())
 
-    # Choose parallel or single-threaded extraction
+    # Choose parallel or single-threaded processing
     threads = getattr(args, "threads", 1)
     if threads > 1:
-        stages.append(ParallelVariantExtractionStage())
+        # Use the new complete parallel processing stage that runs the entire
+        # pipeline (extraction -> filtering -> field extraction) for each chunk
+        stages.append(ParallelCompleteProcessingStage())
     else:
+        # Single-threaded processing uses individual stages
         stages.append(VariantExtractionStage())
 
-    # Optional processing stages
-    if hasattr(args, "snpeff_split_by_transcript") and args.snpeff_split_by_transcript:
-        stages.append(MultiAllelicSplitStage())
+        # Optional processing stages
+        if hasattr(args, "snpeff_split_by_transcript") and args.snpeff_split_by_transcript:
+            stages.append(MultiAllelicSplitStage())
 
-    # Add SnpSift filtering stage (it will check config for filters at runtime)
-    if not getattr(args, "late_filtering", False):
-        stages.append(SnpSiftFilterStage())
+        # Add SnpSift filtering stage (it will check config for filters at runtime)
+        if not getattr(args, "late_filtering", False):
+            stages.append(SnpSiftFilterStage())
 
-    # Field extraction
-    stages.append(FieldExtractionStage())
+        # Field extraction
+        stages.append(FieldExtractionStage())
 
     # Optional transformations
     # Default behavior: do genotype replacement unless --no-replacement is specified

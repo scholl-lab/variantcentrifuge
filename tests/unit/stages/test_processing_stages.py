@@ -1,19 +1,21 @@
 """Unit tests for processing stages."""
 
 from pathlib import Path
-from unittest.mock import Mock, patch, ANY
+from unittest.mock import ANY, Mock, patch
 
 import pandas as pd
 import pytest
-from variantcentrifuge.stages.processing_stages import (
-    GeneBedCreationStage,
-    VariantExtractionStage,
-    ParallelVariantExtractionStage,
-    FieldExtractionStage,
-    GenotypeReplacementStage,
-    PhenotypeIntegrationStage,
-)
+
 from tests.mocks.fixtures import create_test_context
+from variantcentrifuge.stages.processing_stages import (
+    FieldExtractionStage,
+    GeneBedCreationStage,
+    GenotypeReplacementStage,
+    ParallelCompleteProcessingStage,
+    ParallelVariantExtractionStage,
+    PhenotypeIntegrationStage,
+    VariantExtractionStage,
+)
 
 
 class TestGeneBedCreationStage:

@@ -26,10 +26,10 @@ from ..gene_bed import get_gene_bed, normalize_genes
 from ..phenotype import aggregate_phenotypes_for_samples
 from ..pipeline_core import PipelineContext, Stage
 from ..pipeline_core.error_handling import (
+    FileFormatError,
+    ToolNotFoundError,
     graceful_error_handling,
     retry_on_failure,
-    ToolNotFoundError,
-    FileFormatError,
     validate_file_exists,
 )
 from ..replacer import replace_genotypes
@@ -1080,7 +1080,7 @@ class StreamingDataProcessingStage(Stage):
 
 class ParallelCompleteProcessingStage(Stage):
     """Run complete processing pipeline in parallel for each BED chunk.
-    
+
     This stage replicates the old pipeline's behavior where each chunk
     is processed completely (extraction -> filtering -> field extraction)
     in parallel, then the TSV results are merged.
@@ -1115,45 +1115,45 @@ class ParallelCompleteProcessingStage(Stage):
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Process variants in parallel with complete pipeline per chunk."""
         threads = context.config.get("threads", 1)
-        
+
         if threads <= 1:
             logger.info("Thread count <= 1, falling back to sequential stages")
             # Return context unchanged - let normal stages handle it
             return context
-        
+
         # Split BED file into chunks
         bed_chunks = self._split_bed_file(context.gene_bed_file, threads)
         logger.info(f"Split BED file into {len(bed_chunks)} chunks for parallel processing")
-        
+
         # Process chunks in parallel (complete pipeline per chunk)
         chunk_tsvs = self._process_chunks_parallel(context, bed_chunks)
-        
+
         # Merge TSV results
         merged_tsv = self._merge_tsv_outputs(context, chunk_tsvs)
-        
+
         # Update context
         context.extracted_tsv = merged_tsv
         context.data = merged_tsv
-        
+
         # Mark stages as complete so they don't run again
         context.mark_complete("variant_extraction")
         context.mark_complete("parallel_variant_extraction")
         context.mark_complete("snpsift_filtering")
         context.mark_complete("field_extraction")
-        
+
         # Cleanup chunks
         self._cleanup_chunks(bed_chunks, chunk_tsvs, context)
-        
+
         return context
-    
+
     def _split_bed_file(self, bed_file: Path, n_chunks: int) -> List[Path]:
         """Split BED file into roughly equal chunks."""
         chunk_dir = bed_file.parent / "chunks"
         chunk_dir.mkdir(exist_ok=True)
-        
+
         chunks = split_bed_file(str(bed_file), n_chunks, str(chunk_dir))
         return [Path(chunk) for chunk in chunks]
-    
+
     def _process_single_chunk(
         self,
         chunk_index: int,
@@ -1161,21 +1161,23 @@ class ParallelCompleteProcessingStage(Stage):
         vcf_file: str,
         base_name: str,
         intermediate_dir: Path,
-        config: Dict
+        config: Dict,
     ) -> Path:
         """Process a single BED chunk through complete pipeline."""
         chunk_base = f"{base_name}.chunk_{chunk_index}"
-        
+
         # Step 1: Extract variants
         chunk_vcf = intermediate_dir / f"{chunk_base}.variants.vcf.gz"
         extract_variants(
             vcf_file=vcf_file,
             bed_file=str(chunk_bed),
-            cfg={"threads": config.get("threads_per_chunk", 2),
-                 "bcftools_prefilter": config.get("bcftools_prefilter")},
-            output_file=str(chunk_vcf)
+            cfg={
+                "threads": config.get("threads_per_chunk", 2),
+                "bcftools_prefilter": config.get("bcftools_prefilter"),
+            },
+            output_file=str(chunk_vcf),
         )
-        
+
         # Step 2: Apply SnpSift filter (if not late filtering)
         if config.get("late_filtering", False):
             filtered_vcf = chunk_vcf
@@ -1187,27 +1189,27 @@ class ParallelCompleteProcessingStage(Stage):
                     str(chunk_vcf),
                     filter_expr,
                     {"threads": config.get("threads_per_chunk", 2)},
-                    str(filtered_vcf)
+                    str(filtered_vcf),
                 )
             else:
                 filtered_vcf = chunk_vcf
-        
+
         # Step 3: Extract fields to TSV
         chunk_tsv = intermediate_dir / f"{chunk_base}.extracted.tsv.gz"
         fields = config.get("extract", [])
         if not fields:
             raise ValueError("No fields specified for extraction")
-        
+
         extract_fields(
             variant_file=str(filtered_vcf),
             fields=" ".join(fields),
             cfg={"extract_fields_separator": config.get("extract_fields_separator", ",")},
-            output_file=str(chunk_tsv)
+            output_file=str(chunk_tsv),
         )
-        
+
         logger.debug(f"Completed processing chunk {chunk_index}")
         return chunk_tsv
-    
+
     def _process_chunks_parallel(
         self, context: PipelineContext, bed_chunks: List[Path]
     ) -> List[Path]:
@@ -1216,10 +1218,10 @@ class ParallelCompleteProcessingStage(Stage):
         threads = context.config.get("threads", 1)
         base_name = context.workspace.base_name
         intermediate_dir = context.workspace.intermediate_dir
-        
+
         # Each worker gets limited threads
         threads_per_worker = max(2, threads // len(bed_chunks))
-        
+
         # Prepare config for workers
         worker_config = {
             "threads_per_chunk": threads_per_worker,
@@ -1230,7 +1232,7 @@ class ParallelCompleteProcessingStage(Stage):
             "extract": context.config.get("extract", []),
             "extract_fields_separator": context.config.get("extract_fields_separator", ","),
         }
-        
+
         chunk_tsvs = []
         with ProcessPoolExecutor(max_workers=len(bed_chunks)) as executor:
             # Submit all jobs
@@ -1243,10 +1245,10 @@ class ParallelCompleteProcessingStage(Stage):
                     vcf_file,
                     base_name,
                     intermediate_dir,
-                    worker_config
+                    worker_config,
                 )
                 future_to_chunk[future] = (i, chunk_bed)
-            
+
             # Collect results
             for future in as_completed(future_to_chunk):
                 chunk_index, chunk_bed = future_to_chunk[future]
@@ -1257,32 +1259,32 @@ class ParallelCompleteProcessingStage(Stage):
                 except Exception as e:
                     logger.error(f"Failed to process chunk {chunk_bed}: {e}")
                     raise
-        
+
         return chunk_tsvs
-    
+
     def _merge_tsv_outputs(self, context: PipelineContext, chunk_tsvs: List[Path]) -> Path:
         """Merge TSV chunks into a single file."""
         output_tsv = context.workspace.get_intermediate_path(
             f"{context.workspace.base_name}.extracted.tsv"
         )
-        
+
         # Handle gzip compression
         if context.config.get("gzip_intermediates"):
             output_tsv = Path(str(output_tsv) + ".gz")
-        
+
         if len(chunk_tsvs) == 1:
             # Just move the single file
             shutil.move(str(chunk_tsvs[0]), str(output_tsv))
         else:
             # Merge TSV files - need to handle headers
             import gzip
-            
+
             # Open output file
             if str(output_tsv).endswith(".gz"):
                 out_fh = gzip.open(output_tsv, "wt")
             else:
                 out_fh = open(output_tsv, "w")
-            
+
             try:
                 first_file = True
                 for chunk_tsv in sorted(chunk_tsvs):  # Sort to ensure consistent order
@@ -1291,7 +1293,7 @@ class ParallelCompleteProcessingStage(Stage):
                         in_fh = gzip.open(chunk_tsv, "rt")
                     else:
                         in_fh = open(chunk_tsv, "r")
-                    
+
                     try:
                         if first_file:
                             # Copy entire first file including header
@@ -1304,20 +1306,22 @@ class ParallelCompleteProcessingStage(Stage):
                             shutil.copyfileobj(in_fh, out_fh)
                     finally:
                         in_fh.close()
-                        
+
             finally:
                 out_fh.close()
-        
+
         logger.info(f"Merged {len(chunk_tsvs)} TSV chunks into {output_tsv}")
         return output_tsv
-    
-    def _cleanup_chunks(self, bed_chunks: List[Path], tsv_chunks: List[Path], context: PipelineContext) -> None:
+
+    def _cleanup_chunks(
+        self, bed_chunks: List[Path], tsv_chunks: List[Path], context: PipelineContext
+    ) -> None:
         """Clean up temporary chunk files."""
         if not context.config.get("keep_intermediates", False):
             for chunk in bed_chunks + tsv_chunks:
                 if chunk.exists():
                     chunk.unlink()
-            
+
             # Remove chunks directory if empty
             if bed_chunks and bed_chunks[0].parent.name == "chunks":
                 chunk_dir = bed_chunks[0].parent
