@@ -731,19 +731,34 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
         # Track bcftools calls
         bcftools_calls = []
 
+        # Store the original side effect from the base class
+        original_bcftools_side_effect = self.mock_bcftools.side_effect
+        
         def track_bcftools_calls(cmd, *args, **kwargs):
-            bcftools_calls.append(cmd)
+            # Track the call
+            if isinstance(cmd, list) and "bcftools" in cmd[0]:
+                bcftools_calls.append(cmd)
+            
             # Create expected output files
-            if "view" in cmd and "-o" in cmd:
+            if isinstance(cmd, list) and "view" in cmd and "-o" in cmd:
                 output_idx = cmd.index("-o") + 1
                 output_file = cmd[output_idx]
                 # Write valid VCF content
+                Path(output_file).parent.mkdir(parents=True, exist_ok=True)
                 Path(output_file).write_text(
                     "##fileformat=VCFv4.2\n"
                     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
                     "chr17\t43044295\t.\tA\tG\t30\tPASS\tAC=2\n"
                 )
-            return Mock(returncode=0, stdout="")
+            
+            # Call the original side effect for default behavior
+            if original_bcftools_side_effect:
+                return original_bcftools_side_effect(cmd, *args, **kwargs)
+            else:
+                result = Mock()
+                result.returncode = 0
+                result.stdout = ""
+                return result
 
         self.mock_bcftools.side_effect = track_bcftools_calls
 
@@ -839,19 +854,34 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
         # Track bcftools calls
         bcftools_calls = []
 
+        # Store the original side effect from the base class
+        original_bcftools_side_effect = self.mock_bcftools.side_effect
+        
         def track_bcftools_calls(cmd, *args, **kwargs):
-            bcftools_calls.append(cmd)
+            # Track the call
+            if isinstance(cmd, list) and "bcftools" in cmd[0]:
+                bcftools_calls.append(cmd)
+            
             # Create expected output files
-            if "view" in cmd and "-o" in cmd:
+            if isinstance(cmd, list) and "view" in cmd and "-o" in cmd:
                 output_idx = cmd.index("-o") + 1
                 output_file = cmd[output_idx]
                 # Write valid VCF content
+                Path(output_file).parent.mkdir(parents=True, exist_ok=True)
                 Path(output_file).write_text(
                     "##fileformat=VCFv4.2\n"
                     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
                     "chr17\t43044295\t.\tA\tG\t30\tPASS\tAC=2\n"
                 )
-            return Mock(returncode=0, stdout="")
+            
+            # Call the original side effect for default behavior
+            if original_bcftools_side_effect:
+                return original_bcftools_side_effect(cmd, *args, **kwargs)
+            else:
+                result = Mock()
+                result.returncode = 0
+                result.stdout = ""
+                return result
 
         self.mock_bcftools.side_effect = track_bcftools_calls
 

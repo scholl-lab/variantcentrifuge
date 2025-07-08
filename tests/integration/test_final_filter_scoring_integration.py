@@ -233,6 +233,12 @@ class TestFinalFilterWithScoring:
             xlsx=False,
             html_report=False,
             use_new_pipeline=True,
+            phenotype_file=None,
+            ped_file=None,
+            annotate_bed=None,
+            annotate_gene_list=None,
+            annotate_json_genes=None,
+            threads=1,
         )
 
         # Build stages
