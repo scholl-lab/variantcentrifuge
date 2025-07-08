@@ -3,7 +3,7 @@
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from concurrent.futures import Future
 import pandas as pd
 import pytest
@@ -17,7 +17,6 @@ from variantcentrifuge.stages.output_stages import (
     ParallelReportGenerationStage,
     ExcelReportStage,
     HTMLReportStage,
-    IGVReportStage,
 )
 from tests.mocks.fixtures import create_test_context
 
@@ -132,7 +131,7 @@ class TestTSVOutputStage:
         """Test TSV file output."""
         # TSVOutputStage depends on variant_identifier, so mark it complete
         context.mark_complete("variant_identifier")
-        
+
         stage = TSVOutputStage()
         result = stage(context)
 
@@ -171,13 +170,13 @@ class TestMetadataGenerationStage:
         """Test metadata file generation."""
         # Add normalized_genes to config
         context.config["normalized_genes"] = ["BRCA1"]
-        
+
         # Mock tool versions
         mock_get_version.return_value = "1.0.0"
-        
+
         # Mock sanitize to pass through the metadata unchanged
         mock_sanitize.side_effect = lambda x: x
-        
+
         stage = MetadataGenerationStage()
         result = stage(context)
 
@@ -274,7 +273,7 @@ class TestParallelReportGenerationStage:
         mock_metadata.return_value = context
 
         stage = ParallelReportGenerationStage()
-        result = stage(context)
+        stage(context)
 
         # Should call the single report stage
         assert mock_metadata.called
@@ -311,7 +310,7 @@ class TestParallelReportGenerationStage:
         mock_as_completed.return_value = mock_futures
 
         stage = ParallelReportGenerationStage()
-        result = stage(context)
+        stage(context)
 
         # Should use ThreadPoolExecutor
         assert mock_executor.called

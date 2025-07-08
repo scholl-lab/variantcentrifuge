@@ -75,10 +75,11 @@ class TestVariantExtractionStage:
         """Create test context with gene bed."""
         # Create a temp VCF file that actually exists
         import tempfile
+
         vcf_file = tempfile.NamedTemporaryFile(suffix=".vcf", delete=False)
         vcf_file.write(b"##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
         vcf_file.close()
-        
+
         ctx = create_test_context(vcf_file=vcf_file.name, config_overrides={"threads": 2})
         ctx.gene_bed_file = Path("/tmp/genes.bed")
         ctx.mark_complete("gene_bed_creation")
@@ -93,9 +94,9 @@ class TestVariantExtractionStage:
             output_path = Path(kwargs["output_file"])
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.touch()
-            
+
         mock_extract.side_effect = mock_extract_side_effect
-        
+
         stage = VariantExtractionStage()
         result = stage(context)
 
@@ -115,14 +116,14 @@ class TestVariantExtractionStage:
     def test_with_bcftools_filter(self, mock_extract, context):
         """Test extraction with bcftools filter."""
         context.config["bcftools_prefilter"] = "QUAL >= 30"
-        
+
         # Mock the extract_variants to create output file
         def mock_extract_side_effect(**kwargs):
             # Create the output file
             output_path = Path(kwargs["output_file"])
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.touch()
-            
+
         mock_extract.side_effect = mock_extract_side_effect
 
         stage = VariantExtractionStage()
@@ -142,10 +143,11 @@ class TestParallelVariantExtractionStage:
         """Create test context for parallel processing."""
         # Create a temp VCF file that actually exists
         import tempfile
+
         vcf_file = tempfile.NamedTemporaryFile(suffix=".vcf", delete=False)
         vcf_file.write(b"##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
         vcf_file.close()
-        
+
         ctx = create_test_context(vcf_file=vcf_file.name, config_overrides={"threads": 4})
         ctx.gene_bed_file = Path("/tmp/genes.bed")
         ctx.mark_complete("gene_bed_creation")
@@ -155,14 +157,14 @@ class TestParallelVariantExtractionStage:
     def test_fallback_to_single_thread(self, mock_extract, context):
         """Test fallback when threads <= 1."""
         context.config["threads"] = 1
-        
+
         # Mock the extract_variants to create output file
         def mock_extract_side_effect(**kwargs):
             # Create the output file
             output_path = Path(kwargs["output_file"])
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.touch()
-            
+
         mock_extract.side_effect = mock_extract_side_effect
 
         stage = ParallelVariantExtractionStage()
@@ -220,26 +222,28 @@ class TestParallelVariantExtractionStage:
     @patch("variantcentrifuge.stages.processing_stages.run_command")
     @patch("variantcentrifuge.stages.processing_stages.extract_variants")
     @patch("variantcentrifuge.stages.processing_stages.split_bed_file")
-    def test_with_bcftools_prefilter(self, mock_split, mock_extract, mock_run, mock_executor, context):
+    def test_with_bcftools_prefilter(
+        self, mock_split, mock_extract, mock_run, mock_executor, context
+    ):
         """Test parallel extraction with bcftools prefilter."""
         # Add bcftools prefilter to config
-        context.config["bcftools_prefilter"] = "FILTER=\"PASS\" & INFO/AC[0] < 10"
-        
+        context.config["bcftools_prefilter"] = 'FILTER="PASS" & INFO/AC[0] < 10'
+
         # Setup mocks
         mock_split.return_value = ["/tmp/chunk0.bed", "/tmp/chunk1.bed"]
-        
+
         # Mock ProcessPoolExecutor
         mock_executor_instance = Mock()
         mock_executor.return_value.__enter__ = Mock(return_value=mock_executor_instance)
         mock_executor.return_value.__exit__ = Mock(return_value=None)
-        
+
         # Mock futures
         future1 = Mock()
         future1.result.return_value = None
         future2 = Mock()
         future2.result.return_value = None
         mock_executor_instance.submit.side_effect = [future1, future2]
-        
+
         with patch("variantcentrifuge.stages.processing_stages.shutil.move"):
             with patch(
                 "variantcentrifuge.stages.processing_stages.as_completed",
@@ -247,10 +251,10 @@ class TestParallelVariantExtractionStage:
             ):
                 stage = ParallelVariantExtractionStage()
                 stage(context)
-        
+
         # Verify extract_variants was called with bcftools_prefilter
         assert mock_executor_instance.submit.call_count == 2
-        
+
         # Check that extract_variants calls include bcftools_prefilter
         for call in mock_executor_instance.submit.call_args_list:
             # submit is called with (function, *args, **kwargs)
@@ -260,7 +264,7 @@ class TestParallelVariantExtractionStage:
                 # Check the config argument passed to extract_variants
                 for arg in args:
                     if isinstance(arg, dict) and "bcftools_prefilter" in arg:
-                        assert arg["bcftools_prefilter"] == "FILTER=\"PASS\" & INFO/AC[0] < 10"
+                        assert arg["bcftools_prefilter"] == 'FILTER="PASS" & INFO/AC[0] < 10'
                         break
 
 
@@ -291,7 +295,7 @@ class TestFieldExtractionStage:
         """Test field extraction to TSV."""
         # Mock return value - extract_fields returns the output path
         mock_extract.return_value = "mocked_output.tsv"
-        
+
         stage = FieldExtractionStage()
         result = stage(context)
 
@@ -311,7 +315,7 @@ class TestFieldExtractionStage:
     def test_with_gzip_compression(self, mock_extract, context):
         """Test extraction with gzip compression."""
         context.config["gzip_intermediates"] = True
-        
+
         # Mock return value
         mock_extract.return_value = "mocked_output.tsv.gz"
 
@@ -338,15 +342,14 @@ class TestGenotypeReplacementStage:
     def context(self):
         """Create test context with samples."""
         import tempfile
+
         # Create a temp TSV file that actually exists
         tsv_file = tempfile.NamedTemporaryFile(suffix=".tsv", delete=False)
         tsv_file.write(b"CHROM\tPOS\tREF\tALT\tSample1\tSample2\tSample3\n")
         tsv_file.write(b"chr1\t100\tA\tG\t0/1\t0/0\t1/1\n")
         tsv_file.close()
-        
-        ctx = create_test_context(
-            config_overrides={"replace_genotypes": True}
-        )
+
+        ctx = create_test_context(config_overrides={"replace_genotypes": True})
         ctx.data = Path(tsv_file.name)
         ctx.extracted_tsv = Path(tsv_file.name)
         ctx.vcf_samples = ["Sample1", "Sample2", "Sample3"]
@@ -359,7 +362,7 @@ class TestGenotypeReplacementStage:
         """Test genotype replacement."""
         # Mock replace_genotypes to return some lines
         mock_replace.return_value = iter(["header", "line1", "line2"])
-        
+
         stage = GenotypeReplacementStage()
         result = stage(context)
 
@@ -367,7 +370,7 @@ class TestGenotypeReplacementStage:
         mock_replace.assert_called_once()
         call_args = mock_replace.call_args[0]
         # First arg is the opened file handle
-        assert hasattr(call_args[0], 'read')  # It's a file-like object
+        assert hasattr(call_args[0], "read")  # It's a file-like object
         # Second arg is the config dict
         assert isinstance(call_args[1], dict)
         assert call_args[1]["sample_list"] == "Sample1,Sample2,Sample3"
@@ -407,15 +410,20 @@ class TestPhenotypeIntegrationStage:
     def context(self):
         """Create test context with phenotype data."""
         import tempfile
+
         # Create a temp TSV file that actually exists
         tsv_file = tempfile.NamedTemporaryFile(suffix=".tsv", delete=False)
         tsv_file.write(b"CHROM\tPOS\tREF\tALT\tSample1\tSample2\tSample3\n")
         tsv_file.write(b"chr1\t100\tA\tG\t0/1\t0/0\t1/1\n")
         tsv_file.close()
-        
+
         ctx = create_test_context()
         ctx.data = Path(tsv_file.name)
-        ctx.phenotype_data = {"Sample1": {"Affected"}, "Sample2": {"Unaffected"}, "Sample3": {"Affected"}}
+        ctx.phenotype_data = {
+            "Sample1": {"Affected"},
+            "Sample2": {"Unaffected"},
+            "Sample3": {"Affected"},
+        }
         ctx.vcf_samples = ["Sample1", "Sample2", "Sample3"]
         ctx.mark_complete("field_extraction")
         ctx.mark_complete("phenotype_loading")

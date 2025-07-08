@@ -6,14 +6,12 @@ These tests verify the complete pipeline flow without requiring actual bioinform
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import pandas as pd
 import pytest
 from argparse import Namespace
 
 from variantcentrifuge.pipeline_refactored import run_refactored_pipeline, build_pipeline_stages
-from variantcentrifuge.pipeline_core import PipelineContext, PipelineRunner
-from variantcentrifuge.pipeline_core.workspace import Workspace
 
 
 class MockedToolsTestCase:
@@ -25,10 +23,13 @@ class MockedToolsTestCase:
         self.bcftools_patcher = patch("variantcentrifuge.stages.processing_stages.run_command")
         self.snpeff_patcher = patch("variantcentrifuge.gene_bed.subprocess.run")
         self.snpsift_patcher = patch("variantcentrifuge.filters.run_command")
+        # Also patch run_command in utils for extractor
+        self.utils_patcher = patch("variantcentrifuge.utils.run_command")
 
         self.mock_bcftools = self.bcftools_patcher.start()
         self.mock_snpeff = self.snpeff_patcher.start()
         self.mock_snpsift = self.snpsift_patcher.start()
+        self.mock_utils = self.utils_patcher.start()
 
         # Configure default behaviors
         self._configure_tool_mocks()
@@ -38,9 +39,56 @@ class MockedToolsTestCase:
         self.bcftools_patcher.stop()
         self.snpeff_patcher.stop()
         self.snpsift_patcher.stop()
+        self.utils_patcher.stop()
 
     def _configure_tool_mocks(self):
         """Configure default behaviors for mocked tools."""
+        # Mock utils run_command for SnpSift extractFields
+        def utils_side_effect(cmd, output_file=None, *args, **kwargs):
+            # Debug log the command
+            print(f"DEBUG: utils_side_effect called with cmd={cmd}, output_file={output_file}")
+            if "SnpSift" in cmd and "extractFields" in cmd:
+                # Extract field names from the command (last N args after the filename)
+                field_idx = None
+                for i, arg in enumerate(cmd):
+                    if arg.endswith('.vcf') or arg.endswith('.vcf.gz'):
+                        field_idx = i + 1
+                        break
+                
+                if field_idx and field_idx < len(cmd):
+                    fields = cmd[field_idx:]
+                    header = "\t".join(fields) + "\n"
+                    # Generate dummy data based on field count
+                    data_values = []
+                    for field in fields:
+                        if field == "CHROM":
+                            data_values.append("chr17")
+                        elif field == "POS":
+                            data_values.append("43044295")
+                        elif field == "REF":
+                            data_values.append("A")
+                        elif field == "ALT":
+                            data_values.append("G")
+                        elif field == "QUAL":
+                            data_values.append("30")
+                        else:
+                            data_values.append("NA")
+                    data = "\t".join(data_values) + "\n"
+                    content = header + data
+                else:
+                    content = "CHROM\tPOS\tREF\tALT\nchr17\t43044295\tA\tG\n"
+                
+                if output_file:
+                    with open(output_file, 'w') as f:
+                        f.write(content)
+                    return output_file
+                else:
+                    return content
+            # Default behavior
+            result = Mock()
+            result.returncode = 0
+            result.stdout = ""
+            return result
 
         # Mock bcftools responses
         def bcftools_side_effect(cmd, *args, **kwargs):
@@ -86,14 +134,22 @@ class MockedToolsTestCase:
                 # Mock filtering
                 result.stdout = ""
             elif "extractFields" in cmd:
-                # Mock field extraction
-                result.stdout = "CHROM\tPOS\tREF\tALT\nchr17\t43044295\tA\tG\n"
+                # Mock field extraction - write to output file if specified
+                if "-o" in cmd:
+                    output_idx = cmd.index("-o") + 1
+                    if output_idx < len(cmd):
+                        output_file = cmd[output_idx]
+                        # Write TSV output
+                        with open(output_file, 'w') as f:
+                            f.write("CHROM\tPOS\tREF\tALT\tQUAL\nchr17\t43044295\tA\tG\t30\n")
+                result.stdout = "CHROM\tPOS\tREF\tALT\tQUAL\nchr17\t43044295\tA\tG\t30\n"
 
             return result
 
         self.mock_bcftools.side_effect = bcftools_side_effect
         self.mock_snpeff.side_effect = snpeff_side_effect
         self.mock_snpsift.side_effect = snpsift_side_effect
+        self.mock_utils.side_effect = utils_side_effect
 
 
 class TestBasicPipelineFlow(MockedToolsTestCase):
@@ -123,7 +179,7 @@ class TestBasicPipelineFlow(MockedToolsTestCase):
             filter=None,
             late_filtering=False,
             final_filter=None,
-            fields_to_extract=["CHROM", "POS", "REF", "ALT"],
+            fields_to_extract="CHROM POS REF ALT",  # Should be a string, not a list
             threads=1,
             no_stats=True,
             xlsx=False,
@@ -146,6 +202,9 @@ class TestBasicPipelineFlow(MockedToolsTestCase):
             pseudonymize=False,
             use_new_pipeline=True,
             start_time=None,
+            keep_intermediates=False,
+            enable_checkpoint=False,
+            no_replacement=False,
         )
 
         # Mock file operations
@@ -215,7 +274,7 @@ class TestComplexPipelineFlow(MockedToolsTestCase):
             filter=None,
             late_filtering=False,
             final_filter=None,
-            fields_to_extract=["CHROM", "POS", "REF", "ALT", "GT"],
+            fields_to_extract="CHROM POS REF ALT GT",  # Should be a string, not a list
             threads=1,
             no_stats=False,
             xlsx=True,
@@ -289,7 +348,6 @@ class TestErrorHandling(MockedToolsTestCase):
 
     def test_missing_gene_handling(self, tmp_path):
         """Test handling of missing gene in snpEff."""
-
         # Configure snpEff to return error for missing gene
         def snpeff_error_side_effect(cmd, *args, **kwargs):
             result = Mock()
@@ -320,6 +378,19 @@ class TestErrorHandling(MockedToolsTestCase):
             reference="GRCh37",
             use_new_pipeline=True,
             start_time=None,
+            phenotype_file=None,
+            fields_to_extract="CHROM POS REF ALT",
+            threads=1,
+            preset=None,
+            filter=None,
+            late_filtering=False,
+            final_filter=None,
+            no_stats=True,
+            xlsx=False,
+            html_report=False,
+            keep_intermediates=False,
+            enable_checkpoint=False,
+            no_replacement=False,
         )
 
         # Should raise an error
@@ -330,7 +401,6 @@ class TestErrorHandling(MockedToolsTestCase):
 
     def test_vcf_processing_error(self, tmp_path):
         """Test handling of VCF processing errors."""
-
         # Configure bcftools to return error
         def bcftools_error_side_effect(cmd, *args, **kwargs):
             result = Mock()
@@ -355,6 +425,19 @@ class TestErrorHandling(MockedToolsTestCase):
             reference="GRCh37",
             use_new_pipeline=True,
             start_time=None,
+            phenotype_file=None,
+            fields_to_extract="CHROM POS REF ALT",
+            threads=1,
+            preset=None,
+            filter=None,
+            late_filtering=False,
+            final_filter=None,
+            no_stats=True,
+            xlsx=False,
+            html_report=False,
+            keep_intermediates=False,
+            enable_checkpoint=False,
+            no_replacement=False,
         )
 
         # Should handle error gracefully
@@ -395,10 +478,14 @@ class TestParallelProcessing(MockedToolsTestCase):
             filter=None,
             late_filtering=False,
             final_filter=None,
-            fields_to_extract=["CHROM", "POS", "REF", "ALT"],
+            fields_to_extract="CHROM POS REF ALT",  # Should be a string, not a list
             no_stats=True,
             xlsx=False,
             html_report=False,
+            phenotype_file=None,
+            keep_intermediates=False,
+            enable_checkpoint=False,
+            no_replacement=False,
         )
 
         # Mock BED generation for multiple genes
@@ -417,7 +504,10 @@ class TestParallelProcessing(MockedToolsTestCase):
                 ends = ["43125483", "7590863", "55279321", "25403870"]
 
                 if bed_counter < len(genes):
-                    result.stdout = f"{chroms[bed_counter]}\t{starts[bed_counter]}\t{ends[bed_counter]}\t{genes[bed_counter]}\n"
+                    result.stdout = (
+                        f"{chroms[bed_counter]}\t{starts[bed_counter]}\t"
+                        f"{ends[bed_counter]}\t{genes[bed_counter]}\n"
+                    )
                     bed_counter += 1
 
             return result
@@ -471,8 +561,11 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
             filters=None,
             late_filtering=False,
             final_filter=None,
-            fields_to_extract=["CHROM", "POS", "REF", "ALT", "QUAL"],
+            fields_to_extract="CHROM POS REF ALT QUAL",
             extract=["CHROM", "POS", "REF", "ALT", "QUAL"],
+            keep_intermediates=False,
+            enable_checkpoint=False,
+            no_replacement=False,
             threads=1,
             quiet=True,
             log_level="INFO",
@@ -510,7 +603,12 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
             if "view" in cmd and "-o" in cmd:
                 output_idx = cmd.index("-o") + 1
                 output_file = cmd[output_idx]
-                Path(output_file).touch()
+                # Write valid VCF content
+                Path(output_file).write_text(
+                    "##fileformat=VCFv4.2\n"
+                    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+                    "chr17\t43044295\t.\tA\tG\t30\tPASS\tAC=2\n"
+                )
             return Mock(returncode=0, stdout="")
 
         self.mock_bcftools.side_effect = track_bcftools_calls
@@ -520,14 +618,16 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
             "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
         ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
             "variantcentrifuge.stages.output_stages.pd.DataFrame.to_csv"
-        ), patch("variantcentrifuge.helpers.get_vcf_samples", return_value=set()):
+        ), patch(
+            "variantcentrifuge.helpers.get_vcf_samples", return_value=set()
+        ):
             # Run pipeline
             run_refactored_pipeline(args)
 
         # Verify bcftools was called with the prefilter
         view_calls = [call for call in bcftools_calls if "view" in call]
         assert len(view_calls) > 0, "bcftools view should have been called"
-        
+
         # Check that at least one view call has the prefilter
         prefilter_found = False
         for call in view_calls:
@@ -536,7 +636,7 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
                 if idx + 1 < len(call) and 'FILTER="PASS"' in call[idx + 1]:
                     prefilter_found = True
                     break
-        
+
         assert prefilter_found, "bcftools prefilter expression should have been applied"
 
     def test_bcftools_prefilter_with_complex_expression(self, temp_files):
@@ -547,14 +647,17 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
             vcf_file=temp_files["vcf"],
             output_file=temp_files["output"],
             output_dir=str(temp_files["tmpdir"]),
-            bcftools_prefilter='(QUAL >= 30) & (FORMAT/DP[*] >= 10) & (INFO/AC[0] < 5)',
+            bcftools_prefilter="(QUAL >= 30) & (FORMAT/DP[*] >= 10) & (INFO/AC[0] < 5)",
             preset=None,
             filter=None,
             filters=None,
             late_filtering=False,
             final_filter=None,
-            fields_to_extract=["CHROM", "POS", "REF", "ALT", "QUAL"],
+            fields_to_extract="CHROM POS REF ALT QUAL",
             extract=["CHROM", "POS", "REF", "ALT", "QUAL"],
+            keep_intermediates=False,
+            enable_checkpoint=False,
+            no_replacement=False,
             threads=1,
             quiet=True,
             log_level="INFO",
@@ -592,7 +695,12 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
             if "view" in cmd and "-o" in cmd:
                 output_idx = cmd.index("-o") + 1
                 output_file = cmd[output_idx]
-                Path(output_file).touch()
+                # Write valid VCF content
+                Path(output_file).write_text(
+                    "##fileformat=VCFv4.2\n"
+                    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+                    "chr17\t43044295\t.\tA\tG\t30\tPASS\tAC=2\n"
+                )
             return Mock(returncode=0, stdout="")
 
         self.mock_bcftools.side_effect = track_bcftools_calls
@@ -601,14 +709,16 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
             "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
         ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
             "variantcentrifuge.stages.output_stages.pd.DataFrame.to_csv"
-        ), patch("variantcentrifuge.helpers.get_vcf_samples", return_value=set()):
+        ), patch(
+            "variantcentrifuge.helpers.get_vcf_samples", return_value=set()
+        ):
             # Run pipeline
             run_refactored_pipeline(args)
 
         # Verify the complex expression was passed correctly
         view_calls = [call for call in bcftools_calls if "view" in call]
         complex_filter_found = False
-        
+
         for call in view_calls:
             if "-i" in call:
                 idx = call.index("-i")
@@ -617,5 +727,5 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
                     assert "FORMAT/DP[*] >= 10" in call[idx + 1]
                     assert "INFO/AC[0] < 5" in call[idx + 1]
                     break
-        
+
         assert complex_filter_found, "Complex bcftools filter expression should have been applied"

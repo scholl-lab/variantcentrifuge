@@ -2,8 +2,7 @@
 
 import pandas as pd
 import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from argparse import Namespace
 
 from variantcentrifuge.pipeline_core.context import PipelineContext

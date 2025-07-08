@@ -13,14 +13,13 @@ import json
 import os
 import platform
 import psutil
-import resource
 import subprocess
 import sys
 import time
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -223,7 +222,7 @@ class PerformanceBenchmark:
             # Count lines minus header
             with open(output_file) as f:
                 return sum(1 for _ in f) - 1
-        except:
+        except Exception:
             return 0
 
     def run_comparison(
@@ -370,7 +369,7 @@ class PerformanceBenchmark:
         # Setup plot style
         try:
             plt.style.use("seaborn-v0_8-darkgrid")
-        except:
+        except Exception:
             # Fallback to a standard style if seaborn not available
             plt.style.use("ggplot")
 
@@ -583,7 +582,7 @@ def create_benchmark_configs() -> List[BenchmarkConfig]:
 
 
 def main():
-    """Main entry point."""
+    """Run the benchmark pipeline performance comparison."""
     parser = argparse.ArgumentParser(
         description="Benchmark pipeline performance",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -738,9 +737,9 @@ def main():
         )
 
     print(f"\nDetailed results saved to: {output_dir}")
-    print(f"  - Raw data: benchmark_results.csv")
-    print(f"  - Report: performance_report.json")
-    print(f"  - Plots: plots/")
+    print("  - Raw data: benchmark_results.csv")
+    print("  - Report: performance_report.json")
+    print("  - Plots: plots/")
 
 
 if __name__ == "__main__":

@@ -1,8 +1,7 @@
 """Unit tests for output stages."""
 
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock, ANY, mock_open
-import json
+from unittest.mock import Mock, patch, MagicMock, mock_open
 import pandas as pd
 import pytest
 
@@ -125,7 +124,7 @@ class TestVariantIdentifierStage:
 
         # Run stage
         stage = VariantIdentifierStage()
-        result = stage(ctx)
+        stage(ctx)
 
         # Verify fallback to index-based IDs
         output_file = tmp_path / "with_variant_ids.tsv.gz"
@@ -172,7 +171,9 @@ class TestFinalFilteringStage:
         # Use "filter" (singular) as expected by the implementation
         context.config["filter"] = "(QUAL >= 30) & (AF < 0.1)"
 
-        with patch("variantcentrifuge.stages.output_stages.filter_dataframe_with_query") as mock_apply:
+        with patch(
+            "variantcentrifuge.stages.output_stages.filter_dataframe_with_query"
+        ) as mock_apply:
             mock_apply.return_value = context.current_dataframe[
                 (context.current_dataframe["QUAL"] >= 30) & (context.current_dataframe["AF"] < 0.1)
             ]
@@ -240,7 +241,7 @@ class TestPseudonymizationStage:
 
         # Check pseudonymizer was created
         mock_create_pseudonymizer.assert_called_once_with("sequential", prefix="SAMPLE")
-        
+
         # Check mapping was created
         mock_pseudonymizer.create_mapping.assert_called_once_with(
             ["Sample1", "Sample2", "Sample3"], {}
@@ -267,7 +268,7 @@ class TestPseudonymizationStage:
         mock_create_pseudonymizer.return_value = mock_pseudonymizer
 
         stage = PseudonymizationStage()
-        result = stage(context)
+        stage(context)
 
         # Check JSON was written
         assert mock_json_dump.called
@@ -331,13 +332,14 @@ class TestTSVOutputStage:
         # Mock the DataFrame's to_csv method
         with patch.object(context.current_dataframe, "to_csv") as mock_to_csv:
             stage = TSVOutputStage()
-            result = stage(context)
+            stage(context)
 
             # Check output went to stdout with proper arguments
             assert mock_to_csv.call_count == 1
             call_args = mock_to_csv.call_args
             # First argument should be sys.stdout (actual stdout, not a mock)
             import sys
+
             assert call_args[0][0] == sys.stdout
             # Check other arguments
             assert call_args[1]["sep"] == "\t"
@@ -385,9 +387,9 @@ class TestExcelReportStage:
         # Set final output path which TSV output would have created
         context.final_output_path = context.workspace.output_dir / "output.tsv"
         context.final_output_path.touch()  # Create the file
-        
+
         stage = ExcelReportStage()
-        result = stage(context)
+        stage(context)
 
         # Check convert_to_excel was called
         mock_convert.assert_called_once()
@@ -439,9 +441,9 @@ class TestHTMLReportStage:
         # Set final output path which TSV output would have created
         context.final_output_path = context.workspace.output_dir / "output.tsv"
         context.final_output_path.touch()  # Create the file
-        
+
         stage = HTMLReportStage()
-        result = stage(context)
+        stage(context)
 
         # Check JSON was produced first
         mock_produce_json.assert_called_once()
@@ -495,16 +497,16 @@ class TestIGVReportStage:
         # Set final output path which TSV output would have created
         context.final_output_path = context.workspace.output_dir / "output.tsv"
         context.final_output_path.touch()  # Create the file
-        
+
         # Mock the CSV reading
         mock_df = pd.DataFrame({"CHROM": ["chr1"], "POS": [100]})
         mock_read_csv.return_value = mock_df
-        
+
         # Mock IGV column matching
         mock_match_igv.return_value = {"chr": "CHROM", "start": "POS", "end": "POS"}
-        
+
         stage = IGVReportStage()
-        result = stage(context)
+        stage(context)
 
         # Check report generation
         mock_generate.assert_called_once()
@@ -552,27 +554,30 @@ class TestMetadataGenerationStage:
         """Test metadata file generation."""
         # Mark TSV output as complete since metadata depends on it
         context.mark_complete("tsv_output")
-        
+
         # Add normalized_genes to config
         context.config["normalized_genes"] = ["BRCA1"]
-        
+
         # Mock tool versions
         mock_get_version.return_value = "1.0.0"
-        
+
         # Mock sanitize to pass through the metadata unchanged
         mock_sanitize.side_effect = lambda x: x
-        
+
         # Mock json.dump to capture the metadata
         metadata_written = None
+
         def capture_metadata(data, file, **kwargs):
             nonlocal metadata_written
             metadata_written = data
-            
-        with patch("variantcentrifuge.stages.output_stages.json.dump", side_effect=capture_metadata):
+
+        with patch(
+            "variantcentrifuge.stages.output_stages.json.dump", side_effect=capture_metadata
+        ):
             with patch("builtins.open", mock_open()):
                 stage = MetadataGenerationStage()
-                result = stage(context)
-        
+                stage(context)
+
         # Check metadata contents
         assert metadata_written is not None
         assert metadata_written["input_files"]["genes"] == ["BRCA1"]
@@ -605,14 +610,14 @@ class TestArchiveCreationStage:
         # Mock the tarfile context manager
         mock_tar = MagicMock()
         mock_tarfile_open.return_value.__enter__.return_value = mock_tar
-        
+
         # Create the archive path to avoid stat() error
         archive_path = context.workspace.get_archive_path()
-        
+
         # Mock Path.stat() to avoid FileNotFoundError
         with patch.object(Path, "stat") as mock_stat:
             mock_stat.return_value.st_size = 1024 * 1024  # 1MB
-            
+
             stage = ArchiveCreationStage()
             result = stage(context)
 
@@ -622,12 +627,12 @@ class TestArchiveCreationStage:
         # First argument should be the archive path
         assert call_args[0][0] == archive_path
         assert call_args[0][1] == "w:gz"
-        
+
         # Check that output_dir was added to archive
         mock_tar.add.assert_called_once()
         add_args = mock_tar.add.call_args[0]
         assert add_args[0] == context.workspace.output_dir
-        
+
         # Check result has archive path
         assert result.report_paths["archive"] == archive_path
 

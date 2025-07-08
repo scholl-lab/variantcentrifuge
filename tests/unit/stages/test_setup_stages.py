@@ -3,8 +3,7 @@
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-import pandas as pd
+from unittest.mock import patch
 import pytest
 
 from variantcentrifuge.stages.setup_stages import (
@@ -160,9 +159,9 @@ class TestPedigreeLoadingStage:
             "Sample1": {
                 "family_id": "FAM1",
                 "father_id": "0",
-                "mother_id": "0", 
+                "mother_id": "0",
                 "sex": "1",  # 1=male, 2=female
-                "affected_status": "2"  # 2=affected, 1=unaffected
+                "affected_status": "2",  # 2=affected, 1=unaffected
             }
         }
         mock_read_pedigree.return_value = mock_samples

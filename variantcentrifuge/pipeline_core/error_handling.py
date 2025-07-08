@@ -13,7 +13,7 @@ import time
 from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Type, Union
+from typing import Callable, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ class StageExecutionError(PipelineError):
         self.recovery_attempted = recovery_attempted
 
     def __reduce__(self):
-        """Custom pickling to handle multiprocessing correctly."""
+        """Provide custom pickling to handle multiprocessing correctly."""
         return (
             self.__class__,
             (self.stage, self.original_error, self.recovery_attempted),
@@ -100,7 +100,7 @@ def retry_on_failure(
     exceptions: tuple = (Exception,),
     logger: Optional[logging.Logger] = None,
 ) -> Callable:
-    """Decorator to retry function on failure with exponential backoff.
+    """Create decorator to retry function on failure with exponential backoff.
 
     Parameters
     ----------
@@ -436,7 +436,7 @@ def validate_file_exists(file_path: Union[str, Path], stage_name: str) -> Path:
 
     # Check if readable
     try:
-        with open(path, "r") as f:
+        with open(path, "r"):
             pass
     except PermissionError:
         raise PermissionError(f"Cannot read file: {path}")

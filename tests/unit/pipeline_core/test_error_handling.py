@@ -1,10 +1,8 @@
 """Unit tests for error handling utilities."""
 
-import logging
 import pytest
 import time
-from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from variantcentrifuge.pipeline_core.error_handling import (
     PipelineError,
@@ -134,7 +132,6 @@ class TestRetryDecorator:
 
         @retry_on_failure(max_attempts=3, delay=0.1, backoff=2.0)
         def track_delays():
-            nonlocal delays
             if delays:
                 delays.append(time.time())
             else:

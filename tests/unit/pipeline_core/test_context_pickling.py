@@ -10,7 +10,7 @@ from variantcentrifuge.pipeline_core.workspace import Workspace
 
 
 def process_context_in_subprocess(ctx):
-    """Function to run in subprocess for testing pickling."""
+    """Process context in subprocess for testing pickling."""
     ctx.mark_complete("subprocess_stage")
     return ctx.is_complete("subprocess_stage")
 

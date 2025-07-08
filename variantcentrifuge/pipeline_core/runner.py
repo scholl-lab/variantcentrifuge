@@ -357,8 +357,8 @@ class PipelineRunner:
         for i, updated_context in enumerate(updated_contexts):
             # Log completed stages and important state from each context
             logger.debug(
-                f"Merging context updates: {len(updated_context.completed_stages)} completed stages, "
-                f"{len(updated_context.stage_results)} stage results"
+                f"Merging context updates: {len(updated_context.completed_stages)} "
+                f"completed stages, {len(updated_context.stage_results)} stage results"
             )
             context.merge_from(updated_context)
 

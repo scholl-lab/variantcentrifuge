@@ -7,10 +7,8 @@ are identical, ensuring no regression in functionality.
 import hashlib
 import json
 import logging
-import os
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -25,7 +23,10 @@ TOOLS_AVAILABLE = all(shutil.which(tool) is not None for tool in REQUIRED_TOOLS)
 
 if not TOOLS_AVAILABLE:
     pytest.skip(
-        f"Skipping regression tests: Missing required tools: {[t for t in REQUIRED_TOOLS if not shutil.which(t)]}",
+        (
+            "Skipping regression tests: Missing required tools: "
+            f"{[t for t in REQUIRED_TOOLS if not shutil.which(t)]}"
+        ),
         allow_module_level=True,
     )
 
@@ -192,7 +193,11 @@ class PipelineRunner:
                 "--threads",
                 "1",  # Single thread for deterministic results
                 "--fields",
-                "CHROM POS REF ALT ID FILTER QUAL AC AF ANN[0].GENE ANN[0].EFFECT ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P CADD_phred dbNSFP_gnomAD_exomes_AF ClinVar_CLNSIG GEN[*].GT",
+                (
+                    "CHROM POS REF ALT ID FILTER QUAL AC AF ANN[0].GENE ANN[0].EFFECT "
+                    "ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P CADD_phred "
+                    "dbNSFP_gnomAD_exomes_AF ClinVar_CLNSIG GEN[*].GT"
+                ),
                 "--keep-intermediates",  # Keep intermediate files for debugging
             ]
         )
@@ -205,8 +210,6 @@ class PipelineRunner:
         )
 
         # Convert relative paths to absolute
-        import os
-
         project_root = Path(__file__).parent.parent.parent
 
         # Update VCF path if relative
@@ -259,7 +262,10 @@ class PipelineRunner:
                 possible_files = list(output_dir.rglob("*.tsv"))
                 if possible_files:
                     logger.warning(
-                        f"Output file not at expected location {output_file}, found in subdirs: {possible_files}"
+                        (
+                            f"Output file not at expected location {output_file}, "
+                            f"found in subdirs: {possible_files}"
+                        )
                     )
                     output_file = possible_files[0]
                 else:
@@ -517,7 +523,7 @@ class TestPipelineRegression:
             outputs2["tsv"],
         )
 
-        assert tsv_match, f"Pipeline output is not deterministic:\n" + "\n".join(diffs)
+        assert tsv_match, "Pipeline output is not deterministic:\n" + "\n".join(diffs)
 
         # Compare file hashes
         hash1 = self.validator.calculate_file_hash(outputs1["tsv"])

@@ -1,10 +1,7 @@
 """Tests for all analysis stages."""
 
-import json
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import pandas as pd
-import pytest
 
 from variantcentrifuge.pipeline_core import PipelineContext
 from variantcentrifuge.pipeline_core.workspace import Workspace

@@ -13,12 +13,15 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from tests.regression.test_regression_suite import REGRESSION_TESTS, RegressionTestConfig
+from tests.regression.test_regression_suite import (
+    REGRESSION_TESTS,
+    RegressionTestConfig,
+)  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -149,7 +152,11 @@ class BaselineGenerator:
                 "--log-file",
                 str(log_file),
                 "--fields",
-                "CHROM POS REF ALT ID FILTER QUAL AC AF ANN[0].GENE ANN[0].EFFECT ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P CADD_phred dbNSFP_gnomAD_exomes_AF ClinVar_CLNSIG GEN[*].GT",
+                (
+                    "CHROM POS REF ALT ID FILTER QUAL AC AF ANN[0].GENE ANN[0].EFFECT "
+                    "ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P CADD_phred "
+                    "dbNSFP_gnomAD_exomes_AF ClinVar_CLNSIG GEN[*].GT"
+                ),
             ]
         )
 
@@ -259,7 +266,7 @@ class BaselineGenerator:
 
 
 def main():
-    """Main entry point."""
+    """Generate baseline outputs for regression testing."""
     parser = argparse.ArgumentParser(
         description="Generate baseline outputs for regression testing",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -269,7 +276,10 @@ def main():
         "vcf_file",
         nargs="?",
         default="tests/fixtures/test_regression_variants.GRCh37.annotated.vcf.gz",
-        help="VCF file to use for testing (default: tests/fixtures/test_regression_variants.GRCh37.annotated.vcf.gz)",
+        help=(
+            "VCF file to use for testing "
+            "(default: tests/fixtures/test_regression_variants.GRCh37.annotated.vcf.gz)"
+        ),
     )
 
     parser.add_argument(

@@ -212,7 +212,7 @@ class OutputComparator:
         ignore_keys: List[str],
     ):
         """Recursively compare JSON objects."""
-        if type(old_obj) != type(new_obj):
+        if type(old_obj) is not type(new_obj):
             differences.append(
                 f"{path}: Type mismatch - old={type(old_obj).__name__}, "
                 f"new={type(new_obj).__name__}"
@@ -325,7 +325,7 @@ class OutputComparator:
 
 
 def main():
-    """Main entry point."""
+    """Compare outputs between old and new pipeline implementations."""
     parser = argparse.ArgumentParser(
         description="Compare outputs between old and new pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,

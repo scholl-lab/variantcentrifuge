@@ -18,7 +18,10 @@ TOOLS_AVAILABLE = all(shutil.which(tool) is not None for tool in REQUIRED_TOOLS)
 
 if not TOOLS_AVAILABLE:
     pytest.skip(
-        f"Skipping regression tests: Missing required tools: {[t for t in REQUIRED_TOOLS if not shutil.which(t)]}",
+        (
+            "Skipping regression tests: Missing required tools: "
+            f"{[t for t in REQUIRED_TOOLS if not shutil.which(t)]}"
+        ),
         allow_module_level=True,
     )
 
@@ -68,7 +71,10 @@ class TestBaselineComparison:
             missing_in_baseline = set(new_df.columns) - set(baseline_df.columns)
             return (
                 False,
-                f"Column mismatch: missing_in_new={missing_in_new}, missing_in_baseline={missing_in_baseline}",
+                (
+                    f"Column mismatch: missing_in_new={missing_in_new}, "
+                    f"missing_in_baseline={missing_in_baseline}"
+                ),
             )
 
         # Ignore specified columns
@@ -235,7 +241,11 @@ class TestBaselineComparison:
         command.extend(
             [
                 "--fields",
-                "CHROM POS REF ALT ID FILTER QUAL AC AF ANN[0].GENE ANN[0].EFFECT ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P CADD_phred dbNSFP_gnomAD_exomes_AF ClinVar_CLNSIG GEN[*].GT",
+                (
+                    "CHROM POS REF ALT ID FILTER QUAL AC AF ANN[0].GENE ANN[0].EFFECT "
+                    "ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P CADD_phred "
+                    "dbNSFP_gnomAD_exomes_AF ClinVar_CLNSIG GEN[*].GT"
+                ),
             ]
         )
 

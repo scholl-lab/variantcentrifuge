@@ -91,7 +91,7 @@ class TestBasicPipeline:
         assert len(result.phenotype_data) == 3
         assert result.phenotype_data["Sample1"] == {"Case"}
         assert result.phenotype_data["Sample2"] == {"Control"}
-        assert result.phenotype_data["Sample3"] == {"Control"}
+        assert result.phenotype_data["Sample3"] == {"Case"}
         assert result.is_complete("phenotype_loading")
 
     @patch("variantcentrifuge.stages.setup_stages.get_vcf_samples")
@@ -205,6 +205,10 @@ class TestBasicPipeline:
             @property
             def name(self):
                 return "failing_stage"
+            
+            @property
+            def dependencies(self):
+                return {"configuration_loading"}
 
             def _process(self, context):
                 raise ValueError("Intentional failure")

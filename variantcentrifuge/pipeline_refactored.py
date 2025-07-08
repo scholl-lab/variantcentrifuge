@@ -157,17 +157,19 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
         # Can do inheritance without PED (all samples as affected singletons)
         stages.append(InheritanceAnalysisStage())
 
-    # Check for scoring config in merged config or args
-    if config.get("scoring_config_path") or (
-        hasattr(args, "scoring_config_path") and args.scoring_config_path
-    ):
-        stages.append(VariantScoringStage())
-
     # Always run variant analysis to add standard columns
     stages.append(VariantAnalysisStage())
 
     # Add VAR_ID after variant analysis since it creates a new DataFrame
     stages.append(VariantIdentifierStage())
+
+    # Check for scoring config in merged config or args
+    # IMPORTANT: Scoring must happen AFTER variant analysis and variant identifier
+    # because it may depend on columns created by those stages
+    if config.get("scoring_config_path") or (
+        hasattr(args, "scoring_config_path") and args.scoring_config_path
+    ):
+        stages.append(VariantScoringStage())
 
     if not getattr(args, "no_stats", False):
         stages.append(StatisticsGenerationStage())
@@ -244,7 +246,8 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
 
     # Load initial config - it might be passed as args.config or already merged
     logger.debug(
-        f"Checking args.config: hasattr={hasattr(args, 'config')}, type={type(getattr(args, 'config', None)) if hasattr(args, 'config') else 'N/A'}"
+        f"Checking args.config: hasattr={hasattr(args, 'config')}, "
+        f"type={type(getattr(args, 'config', None)) if hasattr(args, 'config') else 'N/A'}"
     )
     if hasattr(args, "config") and isinstance(args.config, dict):
         # Config already loaded and passed as dict
@@ -293,6 +296,7 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
         "gzip_intermediates",
         "no_replacement",
         "late_filtering",
+        "final_filter",  # Add final_filter to ensure it's transferred to config
         "threads",
         "keep_intermediates",
         "output_file",

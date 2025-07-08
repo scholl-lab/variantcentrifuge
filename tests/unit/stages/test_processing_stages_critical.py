@@ -2,7 +2,7 @@
 
 import pytest
 from pathlib import Path
-from unittest.mock import Mock, patch, call
+from unittest.mock import Mock, patch
 from argparse import Namespace
 
 from variantcentrifuge.pipeline_core.context import PipelineContext
@@ -75,10 +75,11 @@ class TestSnpSiftFilterStage:
 
         base_context.config = {"filter": "(GEN[*].DP >= 10)", "threads": 4}
         base_context.data = input_vcf
-        
+
         # Mock apply_snpsift_filter to create the output file
         def mock_apply_side_effect(input_file, filter_expr, config, output_file):
             Path(output_file).touch()
+
         mock_apply_filter.side_effect = mock_apply_side_effect
 
         stage = SnpSiftFilterStage()
@@ -93,11 +94,13 @@ class TestSnpSiftFilterStage:
 
         # Verify output paths updated
         assert result.filtered_vcf.name == "test.filtered.vcf.gz"
-        # The implementation incorrectly uses hasattr which always returns True for dataclass attributes
-        # So context.data won't be updated. This is a bug in the implementation, but for now test the actual behavior
+        # The implementation incorrectly uses hasattr which always returns True for dataclass
+        # attributes. So context.data won't be updated. This is a bug in the implementation,
+        # but for now test the actual behavior
         assert result.data == input_vcf  # Bug: data is not updated due to hasattr check
         # But filtered_vcf should still be set correctly
-        assert result.filtered_vcf == base_context.workspace.intermediate_dir / "test.filtered.vcf.gz"
+        expected_path = base_context.workspace.intermediate_dir / "test.filtered.vcf.gz"
+        assert result.filtered_vcf == expected_path
 
     @patch("variantcentrifuge.stages.processing_stages.apply_snpsift_filter")
     def test_complex_filter_expression(self, mock_apply_filter, base_context, tmp_path):
@@ -116,7 +119,7 @@ class TestSnpSiftFilterStage:
         base_context.data = input_vcf
 
         stage = SnpSiftFilterStage()
-        result = stage._process(base_context)
+        stage._process(base_context)
 
         # Verify complex expression passed correctly
         assert mock_apply_filter.call_args[0][1] == complex_filter
@@ -224,7 +227,7 @@ class TestBCFToolsPrefilterStage:
         base_context.data = input_vcf
 
         stage = BCFToolsPrefilterStage()
-        result = stage._process(base_context)
+        stage._process(base_context)
 
         # Verify complex expression passed correctly
         view_cmd = mock_run_command.call_args_list[0][0][0]
@@ -260,7 +263,7 @@ class TestBCFToolsPrefilterStage:
         base_context.data = input_vcf
 
         stage = BCFToolsPrefilterStage()
-        result = stage._process(base_context)
+        stage._process(base_context)
 
         assert mock_run_command.called
         # This filter should significantly reduce variants before SnpSift
@@ -324,7 +327,7 @@ class TestMultiAllelicSplitStage:
         base_context.mark_complete("snpsift_filtering")
 
         stage = MultiAllelicSplitStage()
-        result = stage._process(base_context)
+        stage._process(base_context)
 
         # Should use filtered VCF as input
         if mock_split.called:
@@ -411,7 +414,6 @@ class TestExtraColumnRemovalStage:
     def test_gzip_handling(self, base_context, tmp_path):
         """Test handling of gzipped files."""
         import pandas as pd
-        import gzip
 
         # Create gzipped test file
         input_tsv = tmp_path / "input.tsv.gz"
@@ -479,7 +481,7 @@ class TestStreamingDataProcessingStage:
 
         # Verify processing worked
         result_df = pd.read_csv(result.data, sep="\t")
-        # Should have processed the data (streaming doesn't replace genotypes in the expected format)
+        # Should have processed the data (streaming doesn't replace genotypes in expected format)
         assert len(result_df) == 2  # Two variants
         assert "Gene" in result_df.columns
         assert "Variant" in result_df.columns

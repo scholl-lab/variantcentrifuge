@@ -239,6 +239,10 @@ class FinalFilteringStage(Stage):
         final_filter = context.config.get("final_filter")
         original_filter = context.config.get("filter") if late_filtering else None
 
+        logger.debug(f"FinalFilteringStage - late_filtering: {late_filtering}")
+        logger.debug(f"FinalFilteringStage - final_filter: {final_filter}")
+        logger.debug(f"FinalFilteringStage - original_filter: {original_filter}")
+
         if not any([late_filtering, final_filter]):
             logger.debug("No final filtering configured")
             return context
@@ -252,6 +256,16 @@ class FinalFilteringStage(Stage):
             return context
 
         initial_count = len(df)
+        # Debug: Check what columns are available
+        logger.debug(f"FinalFilteringStage - Available columns: {list(df.columns)}")
+        if 'nephro_candidate_score' in df.columns:
+            logger.debug("FinalFilteringStage - nephro_candidate_score column exists")
+            # Show some sample values
+            sample_values = df['nephro_candidate_score'].head(10).tolist()
+            logger.debug(f"FinalFilteringStage - Sample nephro_candidate_score values: "
+                         f"{sample_values}")
+        else:
+            logger.debug("FinalFilteringStage - nephro_candidate_score column NOT found")
 
         # Apply late filtering if configured
         if late_filtering and original_filter:
@@ -262,8 +276,11 @@ class FinalFilteringStage(Stage):
         # Apply final filter if configured
         if final_filter:
             logger.info(f"Applying final filter: {final_filter}")
+            pre_filter_count = len(df)
             df = filter_dataframe_with_query(df, final_filter)
-            logger.info(f"Final filter retained {len(df)}/{initial_count} variants")
+            post_filter_count = len(df)
+            logger.info(f"Final filter retained {post_filter_count}/{pre_filter_count} "
+                        f"variants (total: {post_filter_count}/{initial_count})")
 
         context.current_dataframe = df
         return context

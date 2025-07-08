@@ -23,7 +23,6 @@ from ..inheritance import analyze_inheritance
 from ..pipeline_core import PipelineContext, Stage
 from ..scoring import apply_scoring
 from ..stats_engine import StatsEngine
-from ..links import add_links_to_table
 
 logger = logging.getLogger(__name__)
 
@@ -473,8 +472,9 @@ class VariantAnalysisStage(Stage):
             # Create new DataFrame with analysis results
             analysis_df = pd.DataFrame(data, columns=header)
 
-            # The analyze_variants function may filter or reorder rows, so we need to match them properly
-            # We'll use the key columns (CHROM, POS, REF, ALT) to merge back any missing columns
+            # The analyze_variants function may filter or reorder rows, so we need to match
+            # them properly. We'll use key columns (CHROM, POS, REF, ALT) to merge back missing
+            # columns
             key_cols = ["CHROM", "POS", "REF", "ALT"]
 
             # Check if we have the key columns in both dataframes
@@ -509,7 +509,8 @@ class VariantAnalysisStage(Stage):
                     logger.debug(f"Preserved columns from original dataframe: {original_only_cols}")
             else:
                 logger.warning(
-                    "Could not preserve columns from original dataframe - missing key columns for merging"
+                    "Could not preserve columns from original dataframe - missing key columns "
+                    "for merging"
                 )
 
             context.current_dataframe = analysis_df
@@ -647,7 +648,6 @@ class ChunkedAnalysisStage(Stage):
         logger.info(f"Processing {input_file} in chunks of {chunk_size} variants")
 
         # Import required modules for chunk processing
-        from variantcentrifuge.helpers import find_column
         from variantcentrifuge.analyze_variants import analyze_variants
         from variantcentrifuge.scoring import score_dataframe
 
@@ -912,10 +912,6 @@ class ParallelAnalysisOrchestrator(Stage):
 
         # Import required modules
         from concurrent.futures import ProcessPoolExecutor, as_completed
-        from variantcentrifuge.analyze_variants import analyze_variants
-        from variantcentrifuge.scoring import score_dataframe
-        import pickle
-        import tempfile
 
         # Split DataFrame by gene
         gene_groups = df.groupby(gene_column)
@@ -1016,7 +1012,6 @@ class ParallelAnalysisOrchestrator(Stage):
         skip_analysis: bool,
     ) -> pd.DataFrame:
         """Process a single gene's variants (runs in worker process)."""
-        import pandas as pd
         from variantcentrifuge.analyze_variants import analyze_variants
         from variantcentrifuge.scoring import score_dataframe
 

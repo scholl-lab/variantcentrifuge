@@ -31,7 +31,6 @@ from ..pipeline_core.error_handling import (
     ToolNotFoundError,
     FileFormatError,
     validate_file_exists,
-    validate_output_directory,
 )
 from ..replacer import replace_genotypes
 from ..utils import run_command, split_bed_file
@@ -78,7 +77,7 @@ class GeneBedCreationStage(Stage):
             try:
                 normalized_genes = normalize_genes(gene_name, gene_file, logger)
                 context.config["normalized_genes"] = normalized_genes
-            except SystemExit as e:
+            except SystemExit:
                 # Convert SystemExit to proper exception
                 # Check the specific error condition
                 if not gene_name and not gene_file:
@@ -380,7 +379,7 @@ class ParallelVariantExtractionStage(Stage):
 
 class BCFToolsPrefilterStage(Stage):
     """Apply bcftools pre-filtering for performance optimization.
-    
+
     Note: This stage is typically not needed as pre-filtering is applied
     during the variant extraction stage for better performance.
     This remains here for cases where separate filtering is needed.
@@ -602,7 +601,8 @@ class FieldExtractionStage(Stage):
         logger.debug(f"FieldExtractionStage - config keys: {list(context.config.keys())[:10]}...")
         logger.debug(f"FieldExtractionStage - 'extract' in config: {'extract' in context.config}")
         logger.debug(
-            f"FieldExtractionStage - 'fields_to_extract' in config: {'fields_to_extract' in context.config}"
+            "FieldExtractionStage - 'fields_to_extract' in config: "
+            f"{'fields_to_extract' in context.config}"
         )
         logger.debug(f"FieldExtractionStage - fields value: {fields}")
 
