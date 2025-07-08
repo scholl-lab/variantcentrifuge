@@ -81,7 +81,7 @@ class TestPhenotypeLoadingStage:
         result = stage(context)
 
         # Check phenotypes were loaded
-        assert result.phenotype_data == {"Sample1": "Affected", "Sample2": "Unaffected"}
+        assert result.phenotype_data == {"Sample1": {"Affected"}, "Sample2": {"Unaffected"}}
 
     def test_no_phenotype_file(self, context):
         """Test when no phenotype file specified."""

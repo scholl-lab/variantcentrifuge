@@ -89,8 +89,9 @@ class TestBasicPipeline:
         # Verify phenotypes loaded
         assert result.phenotype_data is not None
         assert len(result.phenotype_data) == 3
-        assert result.phenotype_data["Sample1"] == "Case"
-        assert result.phenotype_data["Sample2"] == "Control"
+        assert result.phenotype_data["Sample1"] == {"Case"}
+        assert result.phenotype_data["Sample2"] == {"Control"}
+        assert result.phenotype_data["Sample3"] == {"Control"}
         assert result.is_complete("phenotype_loading")
 
     @patch("variantcentrifuge.stages.setup_stages.get_vcf_samples")
