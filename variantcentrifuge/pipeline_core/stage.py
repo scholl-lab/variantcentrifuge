@@ -9,7 +9,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Set
+from typing import Dict, List, Set
 
 from .context import PipelineContext
 
@@ -26,6 +26,10 @@ class Stage(ABC):
     The stage execution is handled by __call__, which validates dependencies,
     logs execution, handles errors, and tracks timing.
     """
+
+    def __init__(self):
+        """Initialize the stage with subtask tracking."""
+        self._subtask_times: Dict[str, float] = {}
 
     @property
     @abstractmethod
@@ -265,3 +269,45 @@ class Stage(ABC):
         """Return string representation of the stage."""
         deps = f", depends_on={self.dependencies}" if self.dependencies else ""
         return f"{self.__class__.__name__}(name='{self.name}'{deps})"
+
+    def _start_subtask(self, subtask_name: str) -> float:
+        """Start timing a subtask.
+
+        Parameters
+        ----------
+        subtask_name : str
+            Name of the subtask
+
+        Returns
+        -------
+        float
+            Start time for the subtask
+        """
+        start_time = time.time()
+        logger.debug(f"Stage '{self.name}': Starting subtask '{subtask_name}'")
+        return start_time
+
+    def _end_subtask(self, subtask_name: str, start_time: float) -> None:
+        """End timing a subtask and record duration.
+
+        Parameters
+        ----------
+        subtask_name : str
+            Name of the subtask
+        start_time : float
+            Start time from _start_subtask
+        """
+        elapsed = time.time() - start_time
+        self._subtask_times[subtask_name] = elapsed
+        logger.debug(f"Stage '{self.name}': Completed subtask '{subtask_name}' in {elapsed:.1f}s")
+
+    @property
+    def subtask_times(self) -> Dict[str, float]:
+        """Get recorded subtask durations.
+
+        Returns
+        -------
+        Dict[str, float]
+            Dictionary of subtask names to durations in seconds
+        """
+        return self._subtask_times.copy()

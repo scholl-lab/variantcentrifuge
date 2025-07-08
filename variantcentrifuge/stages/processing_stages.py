@@ -1122,14 +1122,20 @@ class ParallelCompleteProcessingStage(Stage):
             return context
 
         # Split BED file into chunks
+        split_start = self._start_subtask("bed_splitting")
         bed_chunks = self._split_bed_file(context.gene_bed_file, threads)
+        self._end_subtask("bed_splitting", split_start)
         logger.info(f"Split BED file into {len(bed_chunks)} chunks for parallel processing")
 
         # Process chunks in parallel (complete pipeline per chunk)
+        process_start = self._start_subtask("parallel_chunk_processing")
         chunk_tsvs = self._process_chunks_parallel(context, bed_chunks)
+        self._end_subtask("parallel_chunk_processing", process_start)
 
         # Merge TSV results
+        merge_start = self._start_subtask("tsv_merging")
         merged_tsv = self._merge_tsv_outputs(context, chunk_tsvs)
+        self._end_subtask("tsv_merging", merge_start)
 
         # Update context
         context.extracted_tsv = merged_tsv
@@ -1142,7 +1148,9 @@ class ParallelCompleteProcessingStage(Stage):
         context.mark_complete("field_extraction")
 
         # Cleanup chunks
+        cleanup_start = self._start_subtask("cleanup")
         self._cleanup_chunks(bed_chunks, chunk_tsvs, context)
+        self._end_subtask("cleanup", cleanup_start)
 
         return context
 
@@ -1162,11 +1170,15 @@ class ParallelCompleteProcessingStage(Stage):
         base_name: str,
         intermediate_dir: Path,
         config: Dict,
+        subtask_times: Dict[str, float] = None,
     ) -> Path:
         """Process a single BED chunk through complete pipeline."""
+        import time
+        
         chunk_base = f"{base_name}.chunk_{chunk_index}"
 
         # Step 1: Extract variants
+        extract_start = time.time()
         chunk_vcf = intermediate_dir / f"{chunk_base}.variants.vcf.gz"
         extract_variants(
             vcf_file=vcf_file,
@@ -1177,10 +1189,13 @@ class ParallelCompleteProcessingStage(Stage):
             },
             output_file=str(chunk_vcf),
         )
+        extract_time = time.time() - extract_start
 
         # Step 2: Apply SnpSift filter (if not late filtering)
+        filter_start = time.time()
         if config.get("late_filtering", False):
             filtered_vcf = chunk_vcf
+            filter_time = 0.0
         else:
             filtered_vcf = intermediate_dir / f"{chunk_base}.filtered.vcf.gz"
             filter_expr = config.get("filter") or config.get("filters")
@@ -1193,8 +1208,10 @@ class ParallelCompleteProcessingStage(Stage):
                 )
             else:
                 filtered_vcf = chunk_vcf
+            filter_time = time.time() - filter_start
 
         # Step 3: Extract fields to TSV
+        field_extract_start = time.time()
         chunk_tsv = intermediate_dir / f"{chunk_base}.extracted.tsv.gz"
         fields = config.get("extract", [])
         if not fields:
@@ -1206,6 +1223,13 @@ class ParallelCompleteProcessingStage(Stage):
             cfg={"extract_fields_separator": config.get("extract_fields_separator", ",")},
             output_file=str(chunk_tsv),
         )
+        field_extract_time = time.time() - field_extract_start
+
+        # Store subtask times if dict provided
+        if subtask_times is not None:
+            subtask_times[f"chunk_{chunk_index}_extraction"] = extract_time
+            subtask_times[f"chunk_{chunk_index}_filtering"] = filter_time
+            subtask_times[f"chunk_{chunk_index}_field_extraction"] = field_extract_time
 
         logger.debug(f"Completed processing chunk {chunk_index}")
         return chunk_tsv
@@ -1233,6 +1257,11 @@ class ParallelCompleteProcessingStage(Stage):
             "extract_fields_separator": context.config.get("extract_fields_separator", ","),
         }
 
+        # Use a manager to share the subtask times dict across processes
+        from multiprocessing import Manager
+        manager = Manager()
+        shared_subtask_times = manager.dict()
+
         chunk_tsvs = []
         with ProcessPoolExecutor(max_workers=len(bed_chunks)) as executor:
             # Submit all jobs
@@ -1246,6 +1275,7 @@ class ParallelCompleteProcessingStage(Stage):
                     base_name,
                     intermediate_dir,
                     worker_config,
+                    shared_subtask_times,
                 )
                 future_to_chunk[future] = (i, chunk_bed)
 
@@ -1259,6 +1289,29 @@ class ParallelCompleteProcessingStage(Stage):
                 except Exception as e:
                     logger.error(f"Failed to process chunk {chunk_bed}: {e}")
                     raise
+
+        # Aggregate subtask times
+        if shared_subtask_times:
+            # Group by subtask type
+            extraction_times = []
+            filtering_times = []
+            field_extraction_times = []
+            
+            for key, value in shared_subtask_times.items():
+                if "_extraction" in key and "_field_" not in key:
+                    extraction_times.append(value)
+                elif "_filtering" in key:
+                    filtering_times.append(value)
+                elif "_field_extraction" in key:
+                    field_extraction_times.append(value)
+            
+            # Record aggregated times
+            if extraction_times:
+                self._subtask_times["variant_extraction"] = sum(extraction_times) / len(extraction_times)
+            if filtering_times:
+                self._subtask_times["snpsift_filtering"] = sum(filtering_times) / len(filtering_times)
+            if field_extraction_times:
+                self._subtask_times["field_extraction"] = sum(field_extraction_times) / len(field_extraction_times)
 
         return chunk_tsvs
 

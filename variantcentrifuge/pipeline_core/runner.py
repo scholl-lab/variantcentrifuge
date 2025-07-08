@@ -63,6 +63,7 @@ class PipelineRunner:
         self.enable_stage_batching = enable_stage_batching
         self._execution_times: Dict[str, float] = {}
         self._stage_metrics: Dict[str, Dict[str, float]] = {}
+        self._subtask_times: Dict[str, Dict[str, float]] = {}
 
     def run(self, stages: List[Stage], context: PipelineContext) -> PipelineContext:
         """Execute all stages in dependency order with parallelization.
@@ -287,6 +288,11 @@ class PipelineRunner:
         result = stage(context)
         elapsed = time.time() - start_time
         self._execution_times[stage.name] = elapsed
+        
+        # Capture subtask times if any were recorded
+        if hasattr(stage, 'subtask_times') and stage.subtask_times:
+            self._subtask_times[stage.name] = stage.subtask_times
+            
         return result
 
     def _execute_parallel_stages(
@@ -425,6 +431,20 @@ class PipelineRunner:
         for stage_name, elapsed in sorted_times:
             percentage = (elapsed / total_time) * 100 if total_time > 0 else 0
             logger.info(f"{stage_name:30s} {elapsed:6.1f}s ({percentage:4.1f}%)")
+            
+            # Log subtask times if available
+            if stage_name in self._subtask_times:
+                subtasks = self._subtask_times[stage_name]
+                if subtasks:
+                    # Sort subtasks by time
+                    sorted_subtasks = sorted(subtasks.items(), key=lambda x: x[1], reverse=True)
+                    for subtask_name, subtask_elapsed in sorted_subtasks:
+                        subtask_percentage = (subtask_elapsed / elapsed) * 100 if elapsed > 0 else 0
+                        # Add "(avg)" suffix for averaged chunk processing times
+                        display_name = subtask_name
+                        if stage_name == "parallel_complete_processing" and subtask_name in ["variant_extraction", "snpsift_filtering", "field_extraction"]:
+                            display_name += " (avg)"
+                        logger.info(f"  └─ {display_name:32s} {subtask_elapsed:6.1f}s ({subtask_percentage:4.1f}%)")
 
         logger.info("-" * 60)
         logger.info(f"{'Total stage time:':30s} {total_time:6.1f}s")

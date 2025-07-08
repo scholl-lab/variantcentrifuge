@@ -264,6 +264,7 @@ class InheritanceAnalysisStage(Stage):
         # Prepare sample columns if GT field exists and contains multiple samples
         if "GT" in df.columns:
             logger.debug("Preparing sample columns from GT field for inheritance analysis")
+            prep_start = self._start_subtask("sample_column_preparation")
 
             # Get the separator used by SnpSift (usually comma)
             snpsift_sep = context.config.get("extract_fields_separator", ",")
@@ -308,6 +309,8 @@ class InheritanceAnalysisStage(Stage):
                 df = pd.concat([df, sample_df], axis=1)
 
                 logger.info(f"Created {len(sample_data)} sample columns from replaced genotypes")
+                
+                self._end_subtask("sample_column_preparation", prep_start)
 
             elif snpsift_sep in first_gt:
                 logger.info(
@@ -341,26 +344,34 @@ class InheritanceAnalysisStage(Stage):
                 df = pd.concat([df, sample_df], axis=1)
 
                 logger.info(f"Created {len(sample_data)} sample columns for inheritance analysis")
+            
+            self._end_subtask("sample_column_preparation", prep_start)
 
         # Apply inheritance analysis
+        analysis_start = self._start_subtask("inheritance_calculation")
         df = analyze_inheritance(
             df=df,
             sample_list=vcf_samples,
             pedigree_data=pedigree_data,
             use_vectorized_comp_het=not context.config.get("no_vectorized_comp_het", False),
         )
+        self._end_subtask("inheritance_calculation", analysis_start)
 
         # Process output based on inheritance mode
+        output_start = self._start_subtask("output_processing")
         from ..inheritance.analyzer import process_inheritance_output
 
         df = process_inheritance_output(df, inheritance_mode)
+        self._end_subtask("output_processing", output_start)
 
         # Remove individual sample columns that were added for inheritance analysis
         # Keep all columns except those that match sample names
         if vcf_samples:
+            cleanup_start = self._start_subtask("column_cleanup")
             cols_to_keep = [col for col in df.columns if col not in vcf_samples]
             df = df[cols_to_keep]
             logger.debug(f"Removed {len(vcf_samples)} sample columns after inheritance analysis")
+            self._end_subtask("column_cleanup", cleanup_start)
 
         context.current_dataframe = df
         return context
