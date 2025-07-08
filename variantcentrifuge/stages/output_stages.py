@@ -54,14 +54,21 @@ class VariantIdentifierStage(Stage):
         """Return the set of stage names this stage depends on."""
         # Always depends on dataframe_loading
         deps = {"dataframe_loading"}
-        # Note: Other analysis stages (inheritance, scoring, annotation) may have run
-        # but we don't strictly depend on them - variant IDs can be generated without them
+        # Note: Should run after variant_analysis but we handle this through
+        # pipeline ordering rather than hard dependency, so the stage can be
+        # used independently in tests or other contexts
         return deps
+
+    @property
+    def soft_dependencies(self) -> Set[str]:
+        """Return the set of stage names that should run before if present."""
+        # Should run after variant_analysis because it creates a new DataFrame
+        return {"variant_analysis"}
 
     @property
     def parallel_safe(self) -> bool:
         """Return whether this stage can run in parallel with others."""
-        return True  # Safe - only modifies DataFrame, no external I/O
+        return False  # Must run in main process - modifies DataFrame in-place
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Add variant identifiers."""
@@ -132,7 +139,7 @@ class VariantIdentifierStage(Stage):
 
         input_file = Path(context.data)
         output_file = context.workspace.get_intermediate_path("with_variant_ids.tsv.gz")
-        id_column = context.config.get("variant_id_column", "Variant_ID")
+        id_column = "VAR_ID"  # Match the old pipeline
 
         logger.info(f"Adding variant IDs in streaming mode: {input_file} -> {output_file}")
 
@@ -167,6 +174,7 @@ class VariantIdentifierStage(Stage):
             # Process data lines
             line_count = 0
             use_key_fields = len(key_indices) == 4  # All key fields present
+            import hashlib
 
             for line in inp:
                 line = line.rstrip("\n")
@@ -174,20 +182,23 @@ class VariantIdentifierStage(Stage):
                     continue
 
                 fields = line.split("\t")
+                line_count += 1
 
-                # Generate variant ID
+                # Generate variant ID matching regular mode format
                 if use_key_fields:
                     chrom = fields[key_indices["CHROM"]]
                     pos = fields[key_indices["POS"]]
                     ref = fields[key_indices["REF"]]
                     alt = fields[key_indices["ALT"]]
-                    var_id = f"{chrom}:{pos}:{ref}>{alt}"
+                    
+                    combined = f"{chrom}{pos}{ref}{alt}"
+                    short_hash = hashlib.md5(combined.encode("utf-8")).hexdigest()[:4]
+                    var_id = f"var_{line_count:04d}_{short_hash}"
                 else:
-                    var_id = f"VAR_{line_count:06d}"
+                    var_id = f"var_{line_count:04d}_0000"
 
                 # Write line with ID
                 out.write(f"{var_id}\t{line}\n")
-                line_count += 1
 
                 if line_count % 100000 == 0:
                     logger.debug(f"Processed {line_count:,} variants")
@@ -362,10 +373,16 @@ class TSVOutputStage(Stage):
         # All analysis stages that modify the dataframe should run before this
         deps = {"dataframe_loading"}
 
-        # Note: We don't add optional dependencies here like variant_identifier,
-        # final_filtering, or pseudonymization because they may not exist in
-        # all pipelines. The runner will still ensure proper ordering based
-        # on the dependency graph of stages that are actually present.
+        # IMPORTANT: We must explicitly depend on variant_identifier to ensure
+        # VAR_ID is added before we write the output. The runner cannot infer
+        # this dependency automatically since both stages modify the same DataFrame.
+        # This prevents them from running in parallel and ensures VAR_ID is present.
+        deps.add("variant_identifier")
+
+        # Note: We don't add other optional dependencies here like final_filtering
+        # or pseudonymization because they may not exist in all pipelines.
+        # The runner will still ensure proper ordering based on the dependency
+        # graph of stages that are actually present.
 
         return deps
 
