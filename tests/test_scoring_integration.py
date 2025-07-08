@@ -16,9 +16,13 @@ except ImportError:
     STATSMODELS_AVAILABLE = False
 
 # Skip all tests in this module if statsmodels is not available
-pytestmark = pytest.mark.skipif(
-    not STATSMODELS_AVAILABLE, reason="statsmodels is required for integration tests"
-)
+# Also mark all tests as slow since they require external bioinformatics tools
+pytestmark = [
+    pytest.mark.skipif(
+        not STATSMODELS_AVAILABLE, reason="statsmodels is required for integration tests"
+    ),
+    pytest.mark.slow  # These tests require bcftools, snpEff, SnpSift, bedtools
+]
 
 # Get the directory where test files are located
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))

@@ -37,9 +37,9 @@ def scoring_config():
         
         # Write formula config
         formula_config = {
-            "output_scores": ["test_score"],
+            "output_scores": ["test_simple_score"],
             "formulas": [{
-                "test_score": "((impact_variant == 'HIGH') * 0.8 + (impact_variant == 'MODERATE') * 0.6 + (impact_variant == 'LOW') * 0.3 + (impact_variant == 'MODIFIER') * 0.1) * (1 - gnomade_variant)"
+                "test_simple_score": "((impact_variant == 'HIGH') * 0.8 + (impact_variant == 'MODERATE') * 0.6 + (impact_variant == 'LOW') * 0.3 + (impact_variant == 'MODIFIER') * 0.1) * (1 - gnomade_variant)"
             }]
         }
         with open(os.path.join(config_path, "formula_config.json"), "w") as f:
@@ -138,19 +138,19 @@ def test_scoring_with_annotated_data(sample_annotated_data, scoring_config):
     scored_df = apply_scoring(sample_annotated_data, scoring_config)
 
     # Check that the score column was added
-    assert "test_score" in scored_df.columns
+    assert "test_simple_score" in scored_df.columns
 
     # Check that scores were calculated
-    assert not scored_df["test_score"].isna().all()
+    assert not scored_df["test_simple_score"].isna().all()
 
     # Verify scores are in expected range (0 to 1 for our simple formula)
-    scores = scored_df["test_score"]
+    scores = scored_df["test_simple_score"]
     assert (scores >= 0).all() and (scores <= 1).all()
 
     # Check that HIGH impact variants generally have higher scores
     # Use original column names (scoring module renames them temporarily but restores originals)
-    high_impact_scores = scored_df[scored_df["IMPACT"] == "HIGH"]["test_score"].mean()
-    low_impact_scores = scored_df[scored_df["IMPACT"] == "LOW"]["test_score"].mean()
+    high_impact_scores = scored_df[scored_df["IMPACT"] == "HIGH"]["test_simple_score"].mean()
+    low_impact_scores = scored_df[scored_df["IMPACT"] == "LOW"]["test_simple_score"].mean()
     assert high_impact_scores > low_impact_scores
 
 
@@ -162,8 +162,8 @@ def test_scoring_with_missing_annotations(sample_annotated_data, scoring_config)
     # Apply scoring - should still work with defaults
     scored_df = apply_scoring(df_missing, scoring_config)
 
-    assert "test_score" in scored_df.columns
-    assert not scored_df["test_score"].isna().all()
+    assert "test_simple_score" in scored_df.columns
+    assert not scored_df["test_simple_score"].isna().all()
 
 
 def test_scoring_formula_components(sample_annotated_data, scoring_config):
@@ -172,7 +172,7 @@ def test_scoring_formula_components(sample_annotated_data, scoring_config):
     scored_df = apply_scoring(sample_annotated_data, scoring_config)
 
     # Verify the formula was applied
-    assert "test_score" in scored_df.columns
+    assert "test_simple_score" in scored_df.columns
 
     # Test specific cases
     # HIGH impact with low frequency should have high score
@@ -182,7 +182,7 @@ def test_scoring_formula_components(sample_annotated_data, scoring_config):
         & (scored_df["dbNSFP_gnomAD_exomes_AF"] < 0.001)
     )
     if high_risk_mask.any():
-        high_risk_scores = scored_df[high_risk_mask]["test_score"]
+        high_risk_scores = scored_df[high_risk_mask]["test_simple_score"]
         assert (high_risk_scores > 0.5).all(), "High risk variants should have high scores"
 
 
@@ -209,9 +209,9 @@ def test_read_scoring_config():
         
         # Write formula config
         formula_config = {
-            "output_scores": ["test_score"],
+            "output_scores": ["test_simple_score"],
             "formulas": [{
-                "test_score": "((impact_variant == 'HIGH') * 0.8 + (impact_variant == 'MODERATE') * 0.6 + (impact_variant == 'LOW') * 0.3 + (impact_variant == 'MODIFIER') * 0.1) * (1 - gnomade_variant)"
+                "test_simple_score": "((impact_variant == 'HIGH') * 0.8 + (impact_variant == 'MODERATE') * 0.6 + (impact_variant == 'LOW') * 0.3 + (impact_variant == 'MODIFIER') * 0.1) * (1 - gnomade_variant)"
             }]
         }
         with open(os.path.join(config_path, "formula_config.json"), "w") as f:
@@ -231,7 +231,7 @@ def test_read_scoring_config():
 
     # Check that we have at least one formula
     assert len(config["formulas"]) > 0
-    assert "test_score" in config["formulas"][0]
+    assert "test_simple_score" in config["formulas"][0]
 
 
 def test_scoring_with_real_vcf_sample():
