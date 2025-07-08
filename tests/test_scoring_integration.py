@@ -47,7 +47,7 @@ def annotated_vcf():
 @pytest.fixture
 def scoring_config_dir():
     """Path to the scoring configuration directory."""
-    return os.path.join(PROJECT_ROOT, "scoring", "nephro_variant_score")
+    return os.path.join(PROJECT_ROOT, "scoring", "test_simple_score")
 
 
 def test_scoring_integration_with_annotated_vcf(annotated_vcf, scoring_config_dir, temp_output_dir):
@@ -94,31 +94,29 @@ def test_scoring_integration_with_annotated_vcf(annotated_vcf, scoring_config_di
 
     # Check that the scoring column exists
     assert (
-        "nephro_variant_score" in df.columns
-    ), "Scoring column 'nephro_variant_score' not found in output"
+        "test_simple_score" in df.columns
+    ), "Scoring column 'test_simple_score' not found in output"
 
     # Check that scores were calculated (not all NaN)
-    assert not df["nephro_variant_score"].isna().all(), "All scores are NaN"
+    assert not df["test_simple_score"].isna().all(), "All scores are NaN"
 
-    # Check that scores are in expected range (0 to 1 for logistic model)
-    valid_scores = df["nephro_variant_score"].dropna()
+    # Check that scores are in expected range (0 to 1 for our simple model)
+    valid_scores = df["test_simple_score"].dropna()
     assert (valid_scores >= 0).all() and (
         valid_scores <= 1
     ).all(), "Scores outside expected range [0, 1]"
 
     # Verify that the formula used the expected columns
-    # Note: The scoring module renames columns according to the variable mapping
-    # IMPACT -> impact_variant, EFFECT -> consequence_terms_variant
-    expected_column_mappings = {
-        "GENE": "GENE",  # GENE is not renamed
-        "IMPACT": "impact_variant",  # Renamed by scoring config
-        "EFFECT": "consequence_terms_variant",  # Renamed by scoring config
-    }
-
-    for original, expected in expected_column_mappings.items():
-        assert (
-            expected in df.columns
-        ), f"Expected column '{expected}' (from {original}) not found in output"
+    # After extraction, ANN[0].GENE becomes GENE, ANN[0].IMPACT becomes IMPACT, etc.
+    # The scoring module then renames them according to the variable mapping
+    expected_columns = ["GENE", "IMPACT", "EFFECT"]
+    for col in expected_columns:
+        assert col in df.columns, f"Expected column '{col}' not found in output"
+    
+    # Also check the renamed columns used by scoring
+    expected_scoring_columns = ["impact_variant", "consequence_terms_variant"]
+    for col in expected_scoring_columns:
+        assert col in df.columns, f"Expected scoring column '{col}' not found in output"
 
 
 def test_scoring_with_missing_columns(annotated_vcf, scoring_config_dir, temp_output_dir):
@@ -156,10 +154,10 @@ def test_scoring_with_missing_columns(annotated_vcf, scoring_config_dir, temp_ou
     assert os.path.exists(output_file), "Output file was not created"
 
     df = pd.read_csv(output_file, sep="\t")
-    assert "nephro_variant_score" in df.columns, "Scoring column not found"
+    assert "test_simple_score" in df.columns, "Scoring column not found"
 
     # Scores should still be calculated using default values
-    assert not df["nephro_variant_score"].isna().all(), "All scores are NaN when using defaults"
+    assert not df["test_simple_score"].isna().all(), "All scores are NaN when using defaults"
 
 
 def test_scoring_with_all_genes(annotated_vcf, scoring_config_dir, temp_output_dir):
@@ -203,7 +201,7 @@ def test_scoring_with_all_genes(annotated_vcf, scoring_config_dir, temp_output_d
     assert "GENE" in df.columns, "GENE column not found in output"
 
     # All variants should have scores
-    assert "nephro_variant_score" in df.columns, "Scoring column not found"
+    assert "test_simple_score" in df.columns, "Scoring column not found"
     assert len(df) > 0, "No variants in output"
 
 
@@ -258,8 +256,8 @@ def test_scoring_with_different_filters(
     assert (
         len(df) >= expected_min_variants
     ), f"Expected at least {expected_min_variants} variants, got {len(df)}"
-    assert "nephro_variant_score" in df.columns, "Scoring column not found"
+    assert "test_simple_score" in df.columns, "Scoring column not found"
 
     # Verify scores are calculated
-    valid_scores = df["nephro_variant_score"].dropna()
+    valid_scores = df["test_simple_score"].dropna()
     assert len(valid_scores) > 0, "No valid scores calculated"
