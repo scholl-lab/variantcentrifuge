@@ -101,6 +101,12 @@ class PipelineContext:
         Path to filtered VCF
     extracted_tsv : Optional[Path]
         Path to extracted fields TSV
+    genotype_replaced_tsv : Optional[Path]
+        Path to TSV with genotypes replaced by sample IDs
+    phenotypes_added_tsv : Optional[Path]
+        Path to TSV with phenotype data integrated
+    extra_columns_removed_tsv : Optional[Path]
+        Path to TSV with extra columns removed
     current_dataframe : Optional[pd.DataFrame]
         Current DataFrame for analysis stages
     statistics : Dict[str, Any]
@@ -141,6 +147,9 @@ class PipelineContext:
     extracted_vcf: Optional[Path] = None
     filtered_vcf: Optional[Path] = None
     extracted_tsv: Optional[Path] = None
+    genotype_replaced_tsv: Optional[Path] = None
+    phenotypes_added_tsv: Optional[Path] = None
+    extra_columns_removed_tsv: Optional[Path] = None
 
     # Analysis results
     current_dataframe: Optional[pd.DataFrame] = None
@@ -266,6 +275,12 @@ class PipelineContext:
                 self.filtered_vcf = other.filtered_vcf
             if other.extracted_tsv and not self.extracted_tsv:
                 self.extracted_tsv = other.extracted_tsv
+            if other.genotype_replaced_tsv and not self.genotype_replaced_tsv:
+                self.genotype_replaced_tsv = other.genotype_replaced_tsv
+            if other.phenotypes_added_tsv and not self.phenotypes_added_tsv:
+                self.phenotypes_added_tsv = other.phenotypes_added_tsv
+            if other.extra_columns_removed_tsv and not self.extra_columns_removed_tsv:
+                self.extra_columns_removed_tsv = other.extra_columns_removed_tsv
 
             # Update analysis results if present
             if other.current_dataframe is not None and self.current_dataframe is None:

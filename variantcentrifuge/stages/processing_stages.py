@@ -427,8 +427,11 @@ class BCFToolsPrefilterStage(Stage):
         run_command(cmd)
         run_command(["bcftools", "index", str(output_vcf)])
 
+        context.bcftools_filtered_vcf = output_vcf
         context.filtered_vcf = output_vcf
-        context.data = output_vcf
+        # Only update context.data if we haven't extracted to TSV yet
+        if not hasattr(context, "extracted_tsv"):
+            context.data = output_vcf
 
         return context
 
@@ -449,8 +452,8 @@ class MultiAllelicSplitStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Must run after gene bed creation and variant data exists
-        return {"gene_bed_creation"}
+        # Must run after variant extraction but before field extraction
+        return {"variant_extraction"}
 
     @property
     def parallel_safe(self) -> bool:
@@ -477,7 +480,10 @@ class MultiAllelicSplitStage(Stage):
         logger.info("Splitting SNPeff annotations by transcript")
         split_snpeff_annotations(str(input_vcf), str(output_vcf))
 
-        context.data = output_vcf
+        context.split_annotations_vcf = output_vcf
+        # Only update context.data if we haven't extracted to TSV yet
+        if not hasattr(context, "extracted_tsv"):
+            context.data = output_vcf
         return context
 
 
@@ -497,7 +503,8 @@ class SnpSiftFilterStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Must run after configuration
+        # Must run after configuration and at least one extraction stage
+        # We check for variant extraction explicitly in _process
         return {"configuration_loading"}
 
     @property
@@ -506,10 +513,11 @@ class SnpSiftFilterStage(Stage):
         # Run after either extraction stage
         return {"variant_extraction", "parallel_variant_extraction"}
 
-    def _split_before_filter(self) -> bool:
+    def _split_before_filter(self, context: PipelineContext) -> bool:
         """Check if we should split before filtering."""
-        # This is a simplification - in real implementation would check context
-        return True
+        # Check if snpeff_splitting_mode is set to "before_filters"
+        splitting_mode = context.config.get("snpeff_splitting_mode", None)
+        return splitting_mode == "before_filters"
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply SnpSift filters."""
@@ -540,7 +548,9 @@ class SnpSiftFilterStage(Stage):
         apply_snpsift_filter(str(input_vcf), filter_expr, filter_config, str(output_vcf))
 
         context.filtered_vcf = output_vcf
-        context.data = output_vcf
+        # Only update context.data if we haven't extracted to TSV yet
+        if not hasattr(context, "extracted_tsv"):
+            context.data = output_vcf
 
         return context
 
@@ -729,22 +739,32 @@ class PhenotypeIntegrationStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        deps = {"field_extraction"}
-        if self._has_genotype_replacement():
-            deps.add("genotype_replacement")
-        if self._has_phenotype_data():
-            deps.add("phenotype_loading")
-        return deps
+        # Only declare the hard requirement - field extraction must be complete
+        return {"field_extraction"}
+    
+    @property
+    def soft_dependencies(self) -> Set[str]:
+        """Return the set of stage names that should run before if present."""
+        # These stages should run before if they exist in the pipeline
+        return {"genotype_replacement", "phenotype_loading"}
 
-    def _has_genotype_replacement(self) -> bool:
+    def _has_genotype_replacement(self, context: PipelineContext) -> bool:
         """Check if genotype replacement is enabled."""
-        # Simplified - would check context in real implementation
-        return True
+        # Check if genotype replacement is not disabled and GT field is present
+        if context.config.get("no_replacement", False):
+            return False
+        
+        # Check if genotype_replaced_tsv exists in context
+        return hasattr(context, "genotype_replaced_tsv") and context.genotype_replaced_tsv is not None
 
-    def _has_phenotype_data(self) -> bool:
+    def _has_phenotype_data(self, context: PipelineContext) -> bool:
         """Check if phenotype data is available."""
-        # Simplified - would check context in real implementation
-        return True
+        # Check if phenotypes were loaded
+        if not hasattr(context, "phenotype_data") or context.phenotype_data is None:
+            return False
+        
+        # Check if phenotypes dict is populated
+        return bool(context.phenotype_data)
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Add phenotype data to the table."""
@@ -752,7 +772,13 @@ class PhenotypeIntegrationStage(Stage):
             logger.debug("No phenotype data to integrate")
             return context
 
-        input_tsv = context.data
+        # Determine input file - use genotype_replaced if available, otherwise extracted
+        if hasattr(context, "genotype_replaced_tsv") and context.genotype_replaced_tsv:
+            input_tsv = context.genotype_replaced_tsv
+        elif hasattr(context, "extracted_tsv") and context.extracted_tsv:
+            input_tsv = context.extracted_tsv
+        else:
+            input_tsv = context.data
         output_tsv = context.workspace.get_intermediate_path(
             f"{context.workspace.base_name}.phenotypes_added.tsv"
         )
