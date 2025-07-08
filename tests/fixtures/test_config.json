@@ -1,0 +1,14 @@
+{
+  "reference": "GRCh37.p13",
+  "add_chr": false,
+  "filters": "",
+  "fields_to_extract": "CHROM POS REF ALT ID FILTER QUAL AC AF ANN[0].GENE ANN[0].EFFECT ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P CADD_phred dbNSFP_gnomAD_exomes_AF ClinVar_CLNSIG GEN[*].GT",
+  "presets": {
+    "pass": "(FILTER = 'PASS')",
+    "rare": "((dbNSFP_gnomAD_exomes_AF[0] < 0.0001) | (na dbNSFP_gnomAD_exomes_AF[0]))",
+    "coding": "((ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE'))",
+    "pathogenic": "((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting'))",
+    "high": "((ANN[ANY].IMPACT has 'HIGH'))",
+    "moderate": "((ANN[ANY].IMPACT has 'MODERATE'))"
+  }
+}

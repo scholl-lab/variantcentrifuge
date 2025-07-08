@@ -5,6 +5,7 @@ This module ensures that the refactored pipeline produces identical
 results to the original monolithic pipeline.
 """
 
+import shutil
 import tempfile
 from pathlib import Path
 from typing import List, Tuple
@@ -15,6 +16,16 @@ import pytest
 from variantcentrifuge.cli import parse_args
 from variantcentrifuge.config import load_config
 from variantcentrifuge.pipeline import run_pipeline
+
+# Check for required external tools
+REQUIRED_TOOLS = ["bcftools", "snpEff", "SnpSift", "bedtools"]
+TOOLS_AVAILABLE = all(shutil.which(tool) is not None for tool in REQUIRED_TOOLS)
+
+if not TOOLS_AVAILABLE:
+    pytest.skip(
+        f"Skipping regression tests: Missing required tools: {[t for t in REQUIRED_TOOLS if not shutil.which(t)]}",
+        allow_module_level=True
+    )
 
 
 def compare_tsv_files(file1: Path, file2: Path, ignore_columns: List[str] = None) -> bool:
@@ -165,7 +176,7 @@ class TestPipelineRegression:
             "BRCA1",
             "--fields",
             "CHROM,POS,REF,ALT,QUAL,ANN[*].GENE",
-            "--filter",
+            "--filters",
             "QUAL >= 30",
         ]
 
@@ -182,7 +193,7 @@ class TestPipelineRegression:
             "BRCA1",
             "--fields",
             "CHROM,POS,REF,ALT,QUAL,GEN[*].GT",
-            "--replace-genotypes",
+            # Note: --replace-genotypes was removed, genotype replacement is now automatic
         ]
 
         success, message = self.run_pipeline_comparison(args)

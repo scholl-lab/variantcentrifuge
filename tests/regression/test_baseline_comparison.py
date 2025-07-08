@@ -1,6 +1,7 @@
 """Test that compares new pipeline outputs against baseline outputs."""
 
 import json
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -10,6 +11,16 @@ import pytest
 from variantcentrifuge.cli import parse_args
 from variantcentrifuge.config import load_config
 from variantcentrifuge.pipeline import run_pipeline
+
+# Check for required external tools
+REQUIRED_TOOLS = ["bcftools", "snpEff", "SnpSift", "bedtools"]
+TOOLS_AVAILABLE = all(shutil.which(tool) is not None for tool in REQUIRED_TOOLS)
+
+if not TOOLS_AVAILABLE:
+    pytest.skip(
+        f"Skipping regression tests: Missing required tools: {[t for t in REQUIRED_TOOLS if not shutil.which(t)]}",
+        allow_module_level=True
+    )
 
 
 class TestBaselineComparison:

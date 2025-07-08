@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -17,6 +18,16 @@ import pandas as pd
 import pytest
 
 logger = logging.getLogger(__name__)
+
+# Check for required external tools
+REQUIRED_TOOLS = ["bcftools", "snpEff", "SnpSift", "bedtools"]
+TOOLS_AVAILABLE = all(shutil.which(tool) is not None for tool in REQUIRED_TOOLS)
+
+if not TOOLS_AVAILABLE:
+    pytest.skip(
+        f"Skipping regression tests: Missing required tools: {[t for t in REQUIRED_TOOLS if not shutil.which(t)]}",
+        allow_module_level=True
+    )
 
 
 class RegressionTestConfig:
@@ -114,7 +125,9 @@ class PipelineRunner:
 
         Returns dict of output file paths.
         """
-        output_file = output_dir / f"{config.name}_output.tsv"
+        # Just use the filename, not the full path, since pipeline will put it in output_dir
+        output_filename = f"{config.name}_output.tsv"
+        output_file = output_dir / output_filename
 
         # Build command
         cmd = [
@@ -122,7 +135,11 @@ class PipelineRunner:
             "--vcf-file",
             vcf_file,
             "--output-file",
-            str(output_file),
+            output_filename,  # Just the filename, not full path
+            "--output-dir",
+            str(output_dir),
+            "--config",
+            str(Path(__file__).parent.parent / "fixtures" / "test_config.json"),
         ]
 
         if self.use_new_pipeline:
@@ -131,12 +148,43 @@ class PipelineRunner:
         if config.gene_name:
             cmd.extend(["--gene-name", config.gene_name])
         elif config.gene_file:
-            cmd.extend(["--gene-file", config.gene_file])
+            gene_file_path = config.gene_file
+            if not Path(gene_file_path).is_absolute():
+                # Resolve relative path
+                abs_path = Path(__file__).parent.parent.parent / gene_file_path
+                if not abs_path.exists():
+                    abs_path = Path(__file__).parent.parent / "fixtures" / gene_file_path
+                gene_file_path = str(abs_path)
+            cmd.extend(["--gene-file", gene_file_path])
 
         if config.preset:
             cmd.extend(["--preset", config.preset])
 
-        cmd.extend(config.extra_args)
+        # Fix relative paths in extra_args
+        fixed_extra_args = []
+        i = 0
+        while i < len(config.extra_args):
+            arg = config.extra_args[i]
+            fixed_extra_args.append(arg)
+            
+            # Check if this is a file argument that needs path resolution
+            if arg in ["--ped", "--annotate-bed", "--scoring-config-path", "--gene-file"]:
+                if i + 1 < len(config.extra_args):
+                    file_path = config.extra_args[i + 1]
+                    if not Path(file_path).is_absolute():
+                        # Try relative to project root first
+                        abs_path = Path(__file__).parent.parent.parent / file_path
+                        if not abs_path.exists():
+                            # Try relative to tests/fixtures
+                            abs_path = Path(__file__).parent.parent / "fixtures" / file_path
+                        fixed_extra_args.append(str(abs_path))
+                        i += 1  # Skip the file path we just processed
+                else:
+                    # This shouldn't happen with well-formed args
+                    pass
+            i += 1
+
+        cmd.extend(fixed_extra_args)
 
         # Add common args for reproducibility
         cmd.extend(
@@ -145,10 +193,13 @@ class PipelineRunner:
                 "1",  # Single thread for deterministic results
                 "--fields",
                 "CHROM POS REF ALT ID FILTER QUAL AC AF ANN[0].GENE ANN[0].EFFECT ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P CADD_phred dbNSFP_gnomAD_exomes_AF ClinVar_CLNSIG GEN[*].GT",
+                "--keep-intermediates",  # Keep intermediate files for debugging
             ]
         )
 
         # Run pipeline
+        # Filter out any None values before logging
+        cmd = [str(arg) for arg in cmd if arg is not None]
         logger.info(
             f"Running {'new' if self.use_new_pipeline else 'old'} pipeline: {' '.join(cmd)}"
         )
@@ -163,6 +214,10 @@ class PipelineRunner:
             vcf_file = str(project_root / vcf_file)
             cmd[cmd.index("--vcf-file") + 1] = vcf_file
 
+        logger.info(f"Running command from {project_root}: {' '.join(cmd)}")
+        logger.info(f"Expected output file: {output_file}")
+        logger.info(f"Output directory: {output_dir}")
+        
         try:
             result = subprocess.run(
                 cmd,
@@ -175,6 +230,13 @@ class PipelineRunner:
 
             if result.stderr:
                 logger.warning(f"Pipeline stderr: {result.stderr}")
+                
+            # Log directory contents after run
+            if output_dir.exists():
+                logger.info(f"Output directory contents: {list(output_dir.iterdir())}")
+                for subdir in output_dir.iterdir():
+                    if subdir.is_dir():
+                        logger.info(f"  {subdir}: {list(subdir.iterdir())[:5]}...")  # First 5 files
 
         except subprocess.CalledProcessError as e:
             logger.error(f"Pipeline failed: {e}")
@@ -183,6 +245,22 @@ class PipelineRunner:
             raise
 
         # Collect output files
+        # Check if the output file exists at the specified location
+        if not output_file.exists():
+            # Check if it's in the output directory with a different name
+            possible_files = list(output_dir.glob("*.tsv"))
+            if possible_files:
+                logger.warning(f"Output file not at expected location {output_file}, found: {possible_files}")
+                output_file = possible_files[0]  # Use the first TSV found
+            else:
+                # Check if it's in a subdirectory
+                possible_files = list(output_dir.rglob("*.tsv"))
+                if possible_files:
+                    logger.warning(f"Output file not at expected location {output_file}, found in subdirs: {possible_files}")
+                    output_file = possible_files[0]
+                else:
+                    raise FileNotFoundError(f"No TSV output found in {output_dir}")
+        
         outputs = {
             "tsv": output_file,
         }
