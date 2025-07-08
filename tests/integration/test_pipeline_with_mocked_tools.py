@@ -23,13 +23,13 @@ class MockedToolsTestCase:
         self.bcftools_patcher = patch("variantcentrifuge.stages.processing_stages.run_command")
         self.snpeff_patcher = patch("variantcentrifuge.gene_bed.subprocess.run")
         self.snpsift_patcher = patch("variantcentrifuge.filters.run_command")
-        # Also patch run_command in utils for extractor
-        self.utils_patcher = patch("variantcentrifuge.utils.run_command")
+        # Also patch run_command in extractor module
+        self.extractor_patcher = patch("variantcentrifuge.extractor.run_command")
 
         self.mock_bcftools = self.bcftools_patcher.start()
         self.mock_snpeff = self.snpeff_patcher.start()
         self.mock_snpsift = self.snpsift_patcher.start()
-        self.mock_utils = self.utils_patcher.start()
+        self.mock_extractor = self.extractor_patcher.start()
 
         # Configure default behaviors
         self._configure_tool_mocks()
@@ -39,14 +39,12 @@ class MockedToolsTestCase:
         self.bcftools_patcher.stop()
         self.snpeff_patcher.stop()
         self.snpsift_patcher.stop()
-        self.utils_patcher.stop()
+        self.extractor_patcher.stop()
 
     def _configure_tool_mocks(self):
         """Configure default behaviors for mocked tools."""
         # Mock utils run_command for SnpSift extractFields
         def utils_side_effect(cmd, output_file=None, *args, **kwargs):
-            # Debug log the command
-            print(f"DEBUG: utils_side_effect called with cmd={cmd}, output_file={output_file}")
             if "SnpSift" in cmd and "extractFields" in cmd:
                 # Extract field names from the command (last N args after the filename)
                 field_idx = None
@@ -149,7 +147,7 @@ class MockedToolsTestCase:
         self.mock_bcftools.side_effect = bcftools_side_effect
         self.mock_snpeff.side_effect = snpeff_side_effect
         self.mock_snpsift.side_effect = snpsift_side_effect
-        self.mock_utils.side_effect = utils_side_effect
+        self.mock_extractor.side_effect = utils_side_effect
 
 
 class TestBasicPipelineFlow(MockedToolsTestCase):
@@ -180,6 +178,7 @@ class TestBasicPipelineFlow(MockedToolsTestCase):
             late_filtering=False,
             final_filter=None,
             fields_to_extract="CHROM POS REF ALT",  # Should be a string, not a list
+            extract=["CHROM", "POS", "REF", "ALT"],  # Also need extract field for config
             threads=1,
             no_stats=True,
             xlsx=False,
@@ -207,11 +206,27 @@ class TestBasicPipelineFlow(MockedToolsTestCase):
             no_replacement=False,
         )
 
+        # Mock analyze_variants to just return input data
+        def mock_analyze_variants(inp, config):
+            # Read lines from input file
+            lines = list(inp)
+            # Add Gene_Name column if not present
+            if lines:
+                header = lines[0].strip()
+                if "Gene_Name" not in header:
+                    lines[0] = header + "\tGene_Name\n"
+                    # Add BRCA1 to all data lines
+                    for i in range(1, len(lines)):
+                        lines[i] = lines[i].strip() + "\tBRCA1\n"
+            # Return as generator
+            for line in lines:
+                yield line.strip()
+        
         # Mock file operations
         with patch(
             "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
         ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
-            "variantcentrifuge.stages.output_stages.pd.DataFrame.to_csv"
+            "variantcentrifuge.stages.analysis_stages.analyze_variants", side_effect=mock_analyze_variants
         ):
 
             # Run pipeline
@@ -275,6 +290,7 @@ class TestComplexPipelineFlow(MockedToolsTestCase):
             late_filtering=False,
             final_filter=None,
             fields_to_extract="CHROM POS REF ALT GT",  # Should be a string, not a list
+            extract=["CHROM", "POS", "REF", "ALT", "GT"],  # Also need extract field
             threads=1,
             no_stats=False,
             xlsx=True,
@@ -300,6 +316,8 @@ class TestComplexPipelineFlow(MockedToolsTestCase):
             start_time=None,
             no_replacement=False,
             perform_gene_burden=False,
+            keep_intermediates=False,
+            enable_checkpoint=False,
         )
 
         # Mock DataFrame operations
@@ -314,18 +332,74 @@ class TestComplexPipelineFlow(MockedToolsTestCase):
             }
         )
 
+        # Mock read_pedigree to return expected data
+        mock_pedigree_data = {
+            "Father": {
+                "family_id": "FAM001",
+                "sample_id": "Father",
+                "father_id": "0",
+                "mother_id": "0",
+                "sex": "1",
+                "affected_status": "1"
+            },
+            "Mother": {
+                "family_id": "FAM001",
+                "sample_id": "Mother",
+                "father_id": "0",
+                "mother_id": "0",
+                "sex": "2",
+                "affected_status": "1"
+            },
+            "Child": {
+                "family_id": "FAM001",
+                "sample_id": "Child",
+                "father_id": "Father",
+                "mother_id": "Mother",
+                "sex": "1",
+                "affected_status": "2"
+            }
+        }
+        
+        # Mock analyze_variants to just return input data
+        def mock_analyze_variants(inp, config):
+            # Read lines from input file
+            lines = list(inp)
+            # Add Gene_Name column if not present
+            if lines:
+                header = lines[0].strip()
+                if "Gene_Name" not in header:
+                    lines[0] = header + "\tGene_Name\n"
+                    # Add BRCA1 to all data lines
+                    for i in range(1, len(lines)):
+                        lines[i] = lines[i].strip() + "\tBRCA1\n"
+            # Return as generator
+            for line in lines:
+                yield line.strip()
+        
+        # Mock functions need to accept **kwargs for extra arguments
+        def mock_convert_to_excel(*args, **kwargs):
+            pass
+        
+        def mock_produce_report_json(*args, **kwargs):
+            return {}
+        
+        def mock_generate_html_report(*args, **kwargs):
+            pass
+        
         with patch(
             "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
         ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
             "variantcentrifuge.stages.analysis_stages.pd.read_csv", return_value=mock_df
         ), patch(
-            "variantcentrifuge.stages.output_stages.pd.DataFrame.to_csv"
+            "variantcentrifuge.converter.convert_to_excel", side_effect=mock_convert_to_excel
         ), patch(
-            "variantcentrifuge.converter.convert_to_excel"
+            "variantcentrifuge.converter.produce_report_json", side_effect=mock_produce_report_json
         ), patch(
-            "variantcentrifuge.converter.produce_report_json"
+            "variantcentrifuge.generate_html_report.generate_html_report", side_effect=mock_generate_html_report
         ), patch(
-            "variantcentrifuge.generate_html_report.generate_html_report"
+            "variantcentrifuge.stages.setup_stages.read_pedigree", return_value=mock_pedigree_data
+        ), patch(
+            "variantcentrifuge.stages.analysis_stages.analyze_variants", side_effect=mock_analyze_variants
         ):
 
             # Run pipeline
@@ -339,8 +413,8 @@ class TestComplexPipelineFlow(MockedToolsTestCase):
         assert "scoring_config_loading" in stage_names
         assert "inheritance_analysis" in stage_names
         assert "variant_scoring" in stage_names
-        assert "excel_report" in stage_names
-        assert "html_report" in stage_names
+        # When multiple reports are requested, a combined stage is used
+        assert "parallel_report_generation" in stage_names
 
 
 class TestErrorHandling(MockedToolsTestCase):

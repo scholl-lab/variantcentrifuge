@@ -177,7 +177,14 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
     if hasattr(args, "perform_gene_burden") and args.perform_gene_burden:
         stages.append(GeneBurdenAnalysisStage())
 
-    if getattr(args, "late_filtering", False) or getattr(args, "final_filter", None):
+    # Check for final filtering - need to check both args attributes and config
+    late_filtering = getattr(args, "late_filtering", False) or config.get("late_filtering", False)
+    final_filter = getattr(args, "final_filter", None) or config.get("final_filter", None)
+    
+    logger.debug(f"Checking for final filtering - late_filtering: {late_filtering}, final_filter: {final_filter}")
+    
+    if late_filtering or final_filter:
+        logger.debug("Adding FinalFilteringStage to pipeline")
         stages.append(FinalFilteringStage())
 
     if hasattr(args, "pseudonymize") and args.pseudonymize:
@@ -269,10 +276,13 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
     logger.debug(f"Initial config keys: {list(initial_config.keys())}")
     logger.debug(f"fields_to_extract in config: {'fields_to_extract' in initial_config}")
     logger.debug(f"extract in config: {'extract' in initial_config}")
+    logger.debug(f"final_filter in config: {'final_filter' in initial_config}")
     if "fields_to_extract" in initial_config:
         logger.debug(f"fields_to_extract value: {initial_config['fields_to_extract'][:100]}...")
     if "extract" in initial_config:
         logger.debug(f"extract fields count: {len(initial_config['extract'])}")
+    if "final_filter" in initial_config:
+        logger.debug(f"final_filter value: {initial_config['final_filter']}")
 
     # Add normalized genes to config
     initial_config["normalized_genes"] = gene_name

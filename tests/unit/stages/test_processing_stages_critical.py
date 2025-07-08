@@ -214,6 +214,141 @@ class TestBCFToolsPrefilterStage:
         # Same hasattr bug as SnpSiftFilterStage - data won't be updated
         assert result.data == input_vcf  # Bug: data is not updated due to hasattr check
 
+    def test_extract_variants_no_bed(self, base_context, tmp_path):
+        """Test extract_variants behavior without BED file - migrated from test_filters.py."""
+        # This tests the underlying extract_variants function used by VariantExtractionStage
+        from variantcentrifuge.filters import extract_variants
+        
+        input_vcf = tmp_path / "input.vcf"
+        input_vcf.touch()
+        bed_file = tmp_path / "regions.bed"
+        bed_file.touch()
+        output_file = tmp_path / "output.vcf.gz"
+        
+        with patch("variantcentrifuge.filters.run_command") as mock_run_command:
+            mock_run_command.return_value = 0
+            
+            cfg = {}
+            result = extract_variants(str(input_vcf), str(bed_file), cfg, str(output_file))
+            
+            # Check that the function returns the expected output file path
+            assert result == str(output_file)
+            
+            # Check that bcftools was called with the correct basic arguments
+            assert mock_run_command.call_count == 1
+            cmd = mock_run_command.call_args[0][0]
+            assert cmd[0] == "bcftools"
+            assert cmd[1] == "view"
+            assert "-R" in cmd
+            assert str(bed_file) in cmd
+            assert "-o" in cmd
+            assert str(output_file) in cmd
+            assert str(input_vcf) in cmd
+            # Should NOT have -i flag when no prefilter is specified
+            assert "-i" not in cmd
+
+    def test_extract_variants_with_prefilter(self, base_context, tmp_path):
+        """Test extract_variants with bcftools prefilter - migrated from test_filters.py."""
+        from variantcentrifuge.filters import extract_variants
+        
+        input_vcf = tmp_path / "input.vcf"
+        input_vcf.touch()
+        bed_file = tmp_path / "regions.bed"
+        bed_file.touch()
+        output_file = tmp_path / "output.vcf.gz"
+        
+        with patch("variantcentrifuge.filters.run_command") as mock_run_command:
+            mock_run_command.return_value = 0
+            
+            cfg = {"threads": 4, "bcftools_prefilter": 'FILTER="PASS" && INFO/AC<10'}
+            result = extract_variants(str(input_vcf), str(bed_file), cfg, str(output_file))
+            
+            assert result == str(output_file)
+            assert mock_run_command.call_count == 1
+            
+            cmd = mock_run_command.call_args[0][0]
+            assert cmd[0] == "bcftools"
+            assert cmd[1] == "view"
+            assert "--threads" in cmd
+            assert "4" in cmd
+            assert "-R" in cmd
+            assert str(bed_file) in cmd
+            assert "-i" in cmd
+            # Find the position of -i and check the next element is the filter
+            i_idx = cmd.index("-i")
+            assert cmd[i_idx + 1] == 'FILTER="PASS" && INFO/AC<10'
+            assert "-o" in cmd
+            assert str(output_file) in cmd
+            assert str(input_vcf) in cmd
+
+    def test_apply_bcftools_prefilter_function(self, base_context, tmp_path):
+        """Test apply_bcftools_prefilter function - migrated from test_filters.py."""
+        from variantcentrifuge.filters import apply_bcftools_prefilter
+        
+        input_vcf = tmp_path / "input.vcf.gz"
+        input_vcf.touch()
+        output_vcf = tmp_path / "output.vcf.gz"
+        
+        with patch("variantcentrifuge.filters.run_command") as mock_run_command:
+            mock_run_command.return_value = 0
+            
+            cfg = {"threads": 4}
+            filter_expr = 'FILTER=="PASS" & INFO/AC < 10'
+            
+            result = apply_bcftools_prefilter(str(input_vcf), str(output_vcf), filter_expr, cfg)
+            
+            # Check return value
+            assert result == str(output_vcf)
+            
+            # Check that bcftools view was called with correct arguments
+            assert mock_run_command.call_count == 2  # view and index commands
+            
+            # Check the view command
+            view_cmd = mock_run_command.call_args_list[0][0][0]
+            assert view_cmd[0] == "bcftools"
+            assert view_cmd[1] == "view"
+            assert "--threads" in view_cmd
+            assert "4" in view_cmd
+            assert "-i" in view_cmd
+            assert filter_expr in view_cmd
+            assert "-Oz" in view_cmd
+            assert "-o" in view_cmd
+            assert str(output_vcf) in view_cmd
+            assert str(input_vcf) in view_cmd
+            
+            # Check the index command
+            index_cmd = mock_run_command.call_args_list[1][0][0]
+            assert index_cmd[0] == "bcftools"
+            assert index_cmd[1] == "index"
+            assert "--threads" in index_cmd
+            assert "4" in index_cmd
+            assert str(output_vcf) in index_cmd
+
+    def test_apply_bcftools_prefilter_default_threads(self, base_context, tmp_path):
+        """Test apply_bcftools_prefilter with default thread count - migrated from test_filters.py."""
+        from variantcentrifuge.filters import apply_bcftools_prefilter
+        
+        input_vcf = tmp_path / "input.vcf.gz"
+        input_vcf.touch()
+        output_vcf = tmp_path / "output.vcf.gz"
+        
+        with patch("variantcentrifuge.filters.run_command") as mock_run_command:
+            mock_run_command.return_value = 0
+            
+            # No threads specified in config
+            cfg = {}
+            filter_expr = "INFO/DP > 20"
+            
+            result = apply_bcftools_prefilter(str(input_vcf), str(output_vcf), filter_expr, cfg)
+            
+            assert result == str(output_vcf)
+            
+            # Check that default thread count (1) was used
+            view_cmd = mock_run_command.call_args_list[0][0][0]
+            assert "--threads" in view_cmd
+            thread_idx = view_cmd.index("--threads")
+            assert view_cmd[thread_idx + 1] == "1"
+
     @patch("variantcentrifuge.stages.processing_stages.run_command")
     def test_complex_bcftools_expression(self, mock_run_command, base_context, tmp_path):
         """Test complex bcftools filter expression."""

@@ -232,6 +232,12 @@ class FinalFilteringStage(Stage):
         """Return whether this stage can run in parallel with others."""
         return True  # Safe - only filters DataFrame, no external I/O
 
+    @property
+    def soft_dependencies(self) -> Set[str]:
+        """Return the set of stage names that should run before if present."""
+        # Final filtering often filters on computed columns from these stages
+        return {"variant_scoring", "inheritance_analysis", "custom_annotation"}
+
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply final filtering."""
         # Check for late filtering or final filter
