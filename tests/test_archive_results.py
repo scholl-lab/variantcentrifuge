@@ -6,7 +6,7 @@ import tarfile
 import pytest
 from unittest.mock import patch
 
-from variantcentrifuge.pipeline_core import archive_results_directory
+from variantcentrifuge.pipeline import archive_results_directory
 
 
 class TestArchiveResults:

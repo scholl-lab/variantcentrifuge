@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 from unittest.mock import Mock, patch
 
-from variantcentrifuge.pipeline_core import (
+from variantcentrifuge.pipeline import (
     read_tsv_in_gene_chunks,
     sort_tsv_by_gene,
     process_chunked_pipeline,

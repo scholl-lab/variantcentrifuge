@@ -62,6 +62,12 @@ class ConfigurationLoadingStage(Stage):
                         continue
                     config[key] = value
 
+        # Merge any existing config from context (e.g., from tests)
+        if context.config:
+            for key, value in context.config.items():
+                if key not in config:
+                    config[key] = value
+
         # Set pipeline version
         config["pipeline_version"] = config.get("pipeline_version", "1.0.0")
 
