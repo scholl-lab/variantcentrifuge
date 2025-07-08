@@ -24,7 +24,7 @@ class TestFinalFilterWithScoring:
         """Create test files for the pipeline."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            
+
             # Create test VCF file
             vcf_file = tmp_path / "test.vcf"
             vcf_file.write_text(
@@ -40,41 +40,54 @@ class TestFinalFilterWithScoring:
             scoring_dir.mkdir()
 
             var_config = scoring_dir / "variable_assignment_config.json"
-            var_config.write_text(json.dumps({
-                "variables": {
-                    "CADD_PHRED": "CADD_PHRED_value|default:0",
-                    "AF": "AF_value|default:1"
-                }
-            }))
+            var_config.write_text(
+                json.dumps(
+                    {
+                        "variables": {
+                            "CADD_PHRED": "CADD_PHRED_value|default:0",
+                            "AF": "AF_value|default:1",
+                        }
+                    }
+                )
+            )
 
             formula_config = scoring_dir / "formula_config.json"
-            formula_config.write_text(json.dumps({
-                "formulas": [
+            formula_config.write_text(
+                json.dumps(
                     {
-                        "base_score": "CADD_PHRED_value"
-                    },
-                    {
-                        "nephro_candidate_score": "CADD_PHRED_value * (1 - (AF_value >= 0.01) * 0.5)"
+                        "formulas": [
+                            {"base_score": "CADD_PHRED_value"},
+                            {
+                                "nephro_candidate_score": "CADD_PHRED_value * (1 - (AF_value >= 0.01) * 0.5)"
+                            },
+                        ]
                     }
-                ]
-            }))
+                )
+            )
 
             # Create output directory and intermediate directory
             output_dir = tmp_path / "output"
             output_dir.mkdir(exist_ok=True)
             (output_dir / "intermediate").mkdir(exist_ok=True)
-            
+
             yield {
                 "vcf": str(vcf_file),
                 "scoring_dir": str(scoring_dir),
-                "output_dir": str(output_dir)
+                "output_dir": str(output_dir),
             }
 
     @patch("variantcentrifuge.extractor.run_command")
     @patch("variantcentrifuge.utils.run_command")
     @patch("variantcentrifuge.gene_bed.subprocess.run")
     @patch("variantcentrifuge.stages.setup_stages.get_vcf_samples")
-    def test_final_filter_on_computed_score(self, mock_get_samples, mock_snpeff, mock_run_command, mock_extractor_run_command, setup_files):
+    def test_final_filter_on_computed_score(
+        self,
+        mock_get_samples,
+        mock_snpeff,
+        mock_run_command,
+        mock_extractor_run_command,
+        setup_files,
+    ):
         """Test that final filter can filter on computed scores."""
         # Mock VCF samples
         mock_get_samples.return_value = ["Sample1"]
@@ -82,10 +95,12 @@ class TestFinalFilterWithScoring:
         # Mock snpEff for gene BED creation
         def snpeff_side_effect(cmd, *args, **kwargs):
             from subprocess import CompletedProcess
+
             if isinstance(cmd, list) and "genes2bed" in cmd:
                 if "stdout" in kwargs and hasattr(kwargs["stdout"], "write"):
                     kwargs["stdout"].write("chr17\t43044294\t43125483\tBRCA1\n")
             return CompletedProcess(cmd, 0)
+
         mock_snpeff.side_effect = snpeff_side_effect
 
         # Mock run_command for bcftools and SnpSift
@@ -113,7 +128,7 @@ class TestFinalFilterWithScoring:
                 if "extractFields" in cmd_str:
                     # Mock field extraction
                     if output_file:
-                        with open(output_file, 'w') as f:
+                        with open(output_file, "w") as f:
                             f.write("CHROM\tPOS\tREF\tALT\tQUAL\tCADD_PHRED\tAF\tGT\n")
                             f.write("chr17\t43044295\tA\tG\t100\t25\t0.01\tSample1:0/1\n")
                             f.write("chr17\t43044296\tC\tT\t90\t15\t0.05\tSample1:0/1\n")
@@ -123,10 +138,11 @@ class TestFinalFilterWithScoring:
                     if output_file and len(cmd) > 2:
                         # Copy input to output
                         import shutil
+
                         # Find the input file (usually the last argument before output redirection)
                         input_file = None
-                        for i in range(len(cmd)-1):
-                            if cmd[i].endswith('.vcf') or cmd[i].endswith('.vcf.gz'):
+                        for i in range(len(cmd) - 1):
+                            if cmd[i].endswith(".vcf") or cmd[i].endswith(".vcf.gz"):
                                 input_file = cmd[i]
                                 break
                         if input_file and Path(input_file).exists():
@@ -194,11 +210,16 @@ class TestFinalFilterWithScoring:
             for line in lines:
                 yield line.strip()
 
-        with patch("variantcentrifuge.stages.processing_stages.Path.exists", return_value=True), \
-             patch("variantcentrifuge.stages.processing_stages.Path.touch"), \
-             patch("variantcentrifuge.stages.analysis_stages.analyze_variants", side_effect=mock_analyze_variants), \
-             patch("variantcentrifuge.pipeline_core.workspace.Path.mkdir"), \
-             patch("variantcentrifuge.helpers.get_vcf_samples", return_value=["Sample1"]):
+        with patch(
+            "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
+        ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
+            "variantcentrifuge.stages.analysis_stages.analyze_variants",
+            side_effect=mock_analyze_variants,
+        ), patch(
+            "variantcentrifuge.pipeline_core.workspace.Path.mkdir"
+        ), patch(
+            "variantcentrifuge.helpers.get_vcf_samples", return_value=["Sample1"]
+        ):
 
             # Run pipeline
             run_refactored_pipeline(args)
@@ -216,7 +237,7 @@ class TestFinalFilterWithScoring:
         # Read the output file
         output_file = Path(setup_files["output_dir"]) / "output.tsv"
         assert output_file.exists(), f"Output file not created: {output_file}"
-        
+
         final_df = pd.read_csv(output_file, sep="\t")
 
         # Check that scoring columns exist
@@ -224,11 +245,14 @@ class TestFinalFilterWithScoring:
         assert "nephro_candidate_score" in final_df.columns, f"Columns: {list(final_df.columns)}"
 
         # Verify filtering worked - at least one variant should pass
-        assert len(final_df) >= 1, f"Expected at least 1 variant after filtering, got {len(final_df)}"
-        
+        assert (
+            len(final_df) >= 1
+        ), f"Expected at least 1 variant after filtering, got {len(final_df)}"
+
         # Check the remaining variants have high scores
-        assert all(final_df["nephro_candidate_score"] > 20), \
-            f"Some variants have low scores: {final_df['nephro_candidate_score'].tolist()}"
+        assert all(
+            final_df["nephro_candidate_score"] > 20
+        ), f"Some variants have low scores: {final_df['nephro_candidate_score'].tolist()}"
 
     def test_stage_execution_order(self, setup_files):
         """Test that FinalFilteringStage runs after VariantScoringStage."""
@@ -259,7 +283,7 @@ class TestFinalFilterWithScoring:
 
         # Build stages
         stages = build_pipeline_stages(args)
-        
+
         # Find the stages we care about
         scoring_stage = None
         filtering_stage = None
@@ -273,16 +297,18 @@ class TestFinalFilterWithScoring:
         assert filtering_stage is not None, "FinalFilteringStage not found"
 
         # Check dependencies
-        assert "variant_scoring" in filtering_stage.soft_dependencies, \
-            "FinalFilteringStage should have variant_scoring as soft dependency"
+        assert (
+            "variant_scoring" in filtering_stage.soft_dependencies
+        ), "FinalFilteringStage should have variant_scoring as soft dependency"
 
         # Create a runner to check execution order
         from variantcentrifuge.pipeline_core import PipelineRunner
+
         runner = PipelineRunner()
-        
+
         # Get execution plan
         plan = runner.dry_run(stages)
-        
+
         # Find which level each stage is at
         scoring_level = None
         filtering_level = None
@@ -294,5 +320,6 @@ class TestFinalFilterWithScoring:
 
         assert scoring_level is not None, "variant_scoring not in execution plan"
         assert filtering_level is not None, "final_filtering not in execution plan"
-        assert filtering_level > scoring_level, \
-            f"final_filtering (level {filtering_level}) should run after variant_scoring (level {scoring_level})"
+        assert (
+            filtering_level > scoring_level
+        ), f"final_filtering (level {filtering_level}) should run after variant_scoring (level {scoring_level})"

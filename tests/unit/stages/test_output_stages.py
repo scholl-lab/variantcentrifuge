@@ -211,10 +211,10 @@ class TestFinalFilteringStage:
     def test_empty_filter_expression(self, context):
         """Test that empty filter expression returns unmodified DataFrame - migrated from test_filters.py."""
         context.config["final_filter"] = ""
-        
+
         stage = FinalFilteringStage()
         result = stage(context)
-        
+
         # DataFrame should be unchanged
         assert len(result.current_dataframe) == 4
         pd.testing.assert_frame_equal(result.current_dataframe, context.current_dataframe)
@@ -224,10 +224,10 @@ class TestFinalFilteringStage:
         # Add string numeric values that should be converted
         context.current_dataframe["score"] = ["0.5", "0.8", "0.3", "0.9"]
         context.config["final_filter"] = "score > 0.4"
-        
+
         stage = FinalFilteringStage()
         result = stage(context)
-        
+
         # Check filtering worked
         assert len(result.current_dataframe) == 3
         assert result.current_dataframe["CHROM"].tolist() == ["chr1", "chr1", "chr3"]
@@ -236,10 +236,10 @@ class TestFinalFilteringStage:
         """Test string equality filter - migrated from test_filters.py."""
         context.current_dataframe["IMPACT"] = ["HIGH", "MODERATE", "HIGH", "LOW"]
         context.config["final_filter"] = 'IMPACT == "HIGH"'
-        
+
         stage = FinalFilteringStage()
         result = stage(context)
-        
+
         assert len(result.current_dataframe) == 2
         assert result.current_dataframe["CHROM"].tolist() == ["chr1", "chr2"]
 
@@ -248,10 +248,10 @@ class TestFinalFilteringStage:
         context.current_dataframe["IMPACT"] = ["HIGH", "HIGH", "MODERATE", "HIGH"]
         context.current_dataframe["score"] = ["0.5", "0.8", "0.3", "0.9"]
         context.config["final_filter"] = 'IMPACT == "HIGH" and score > 0.6'
-        
+
         stage = FinalFilteringStage()
         result = stage(context)
-        
+
         assert len(result.current_dataframe) == 2
         assert result.current_dataframe["CHROM"].tolist() == ["chr1", "chr3"]
 
@@ -260,25 +260,33 @@ class TestFinalFilteringStage:
         context.current_dataframe["IMPACT"] = ["HIGH", "MODERATE", "LOW", "LOW"]
         context.current_dataframe["score"] = ["0.9", "0.4", "0.2", "0.85"]
         context.config["final_filter"] = 'IMPACT == "HIGH" or score > 0.8'
-        
+
         stage = FinalFilteringStage()
         result = stage(context)
-        
+
         assert len(result.current_dataframe) == 2
         assert result.current_dataframe["CHROM"].tolist() == ["chr1", "chr3"]
 
     def test_filter_with_in_operator(self, context):
         """Test filter using 'in' operator - migrated from test_filters.py."""
         context.current_dataframe["Inheritance_Pattern"] = [
-            "de_novo", "autosomal_recessive", "compound_heterozygous", "unknown"
+            "de_novo",
+            "autosomal_recessive",
+            "compound_heterozygous",
+            "unknown",
         ]
-        context.config["final_filter"] = 'Inheritance_Pattern in ["de_novo", "compound_heterozygous"]'
-        
+        context.config["final_filter"] = (
+            'Inheritance_Pattern in ["de_novo", "compound_heterozygous"]'
+        )
+
         stage = FinalFilteringStage()
         result = stage(context)
-        
+
         assert len(result.current_dataframe) == 2
-        assert set(result.current_dataframe["Inheritance_Pattern"]) == {"de_novo", "compound_heterozygous"}
+        assert set(result.current_dataframe["Inheritance_Pattern"]) == {
+            "de_novo",
+            "compound_heterozygous",
+        }
 
     def test_filter_with_string_contains(self, context):
         """Test filter using string contains method - migrated from test_filters.py."""
@@ -286,13 +294,13 @@ class TestFinalFilteringStage:
             "InGeneList=cancer_panel",
             "Region=exon",
             "InGeneList=cardiac_panel",
-            "Region=intron"
+            "Region=intron",
         ]
         context.config["final_filter"] = 'Custom_Annotation.str.contains("cancer")'
-        
+
         stage = FinalFilteringStage()
         result = stage(context)
-        
+
         assert len(result.current_dataframe) == 1
         assert result.current_dataframe["CHROM"].tolist() == ["chr1"]
 
@@ -301,10 +309,10 @@ class TestFinalFilteringStage:
         context.current_dataframe["dbNSFP_CADD_phred"] = ["25.5", "NA", "30.2", "22.1"]
         context.current_dataframe["gene"] = ["BRCA1", "TP53", "EGFR", "KRAS"]
         context.config["final_filter"] = "dbNSFP_CADD_phred > 26"
-        
+
         stage = FinalFilteringStage()
         result = stage(context)
-        
+
         assert len(result.current_dataframe) == 1
         assert result.current_dataframe["gene"].tolist() == ["EGFR"]
 
@@ -312,13 +320,13 @@ class TestFinalFilteringStage:
         """Test that invalid filter expression returns unfiltered data with error log - migrated from test_filters.py."""
         # Invalid syntax
         context.config["final_filter"] = 'CHROM === "chr1"'  # Triple equals invalid
-        
+
         stage = FinalFilteringStage()
         result = stage(context)
-        
+
         # Should return original dataframe
         pd.testing.assert_frame_equal(result.current_dataframe, context.current_dataframe)
-        
+
         # Check error was logged
         assert "Failed to apply final filter expression" in caplog.text
 
@@ -328,10 +336,10 @@ class TestFinalFilteringStage:
         context.current_dataframe["inheritance_score"] = ["0.95", "0.45", "0.78", "0.82"]
         context.current_dataframe["Inheritance_Confidence"] = ["0.9", "0.3", "0.8", "0.85"]
         context.config["final_filter"] = "inheritance_score > 0.7 and Inheritance_Confidence > 0.75"
-        
+
         stage = FinalFilteringStage()
         result = stage(context)
-        
+
         assert len(result.current_dataframe) == 3
         assert set(result.current_dataframe["gene"]) == {"BRCA1", "EGFR", "KRAS"}
 

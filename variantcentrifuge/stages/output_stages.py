@@ -264,12 +264,13 @@ class FinalFilteringStage(Stage):
         initial_count = len(df)
         # Debug: Check what columns are available
         logger.debug(f"FinalFilteringStage - Available columns: {list(df.columns)}")
-        if 'nephro_candidate_score' in df.columns:
+        if "nephro_candidate_score" in df.columns:
             logger.debug("FinalFilteringStage - nephro_candidate_score column exists")
             # Show some sample values
-            sample_values = df['nephro_candidate_score'].head(10).tolist()
-            logger.debug(f"FinalFilteringStage - Sample nephro_candidate_score values: "
-                         f"{sample_values}")
+            sample_values = df["nephro_candidate_score"].head(10).tolist()
+            logger.debug(
+                f"FinalFilteringStage - Sample nephro_candidate_score values: " f"{sample_values}"
+            )
         else:
             logger.debug("FinalFilteringStage - nephro_candidate_score column NOT found")
 
@@ -285,8 +286,10 @@ class FinalFilteringStage(Stage):
             pre_filter_count = len(df)
             df = filter_dataframe_with_query(df, final_filter)
             post_filter_count = len(df)
-            logger.info(f"Final filter retained {post_filter_count}/{pre_filter_count} "
-                        f"variants (total: {post_filter_count}/{initial_count})")
+            logger.info(
+                f"Final filter retained {post_filter_count}/{pre_filter_count} "
+                f"variants (total: {post_filter_count}/{initial_count})"
+            )
 
         context.current_dataframe = df
         return context

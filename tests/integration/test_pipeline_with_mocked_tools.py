@@ -43,16 +43,17 @@ class MockedToolsTestCase:
 
     def _configure_tool_mocks(self):
         """Configure default behaviors for mocked tools."""
+
         # Mock utils run_command for SnpSift extractFields
         def utils_side_effect(cmd, output_file=None, *args, **kwargs):
             if "SnpSift" in cmd and "extractFields" in cmd:
                 # Extract field names from the command (last N args after the filename)
                 field_idx = None
                 for i, arg in enumerate(cmd):
-                    if arg.endswith('.vcf') or arg.endswith('.vcf.gz'):
+                    if arg.endswith(".vcf") or arg.endswith(".vcf.gz"):
                         field_idx = i + 1
                         break
-                
+
                 if field_idx and field_idx < len(cmd):
                     fields = cmd[field_idx:]
                     header = "\t".join(fields) + "\n"
@@ -75,9 +76,9 @@ class MockedToolsTestCase:
                     content = header + data
                 else:
                     content = "CHROM\tPOS\tREF\tALT\nchr17\t43044295\tA\tG\n"
-                
+
                 if output_file:
-                    with open(output_file, 'w') as f:
+                    with open(output_file, "w") as f:
                         f.write(content)
                     return output_file
                 else:
@@ -138,7 +139,7 @@ class MockedToolsTestCase:
                     if output_idx < len(cmd):
                         output_file = cmd[output_idx]
                         # Write TSV output
-                        with open(output_file, 'w') as f:
+                        with open(output_file, "w") as f:
                             f.write("CHROM\tPOS\tREF\tALT\tQUAL\nchr17\t43044295\tA\tG\t30\n")
                 result.stdout = "CHROM\tPOS\tREF\tALT\tQUAL\nchr17\t43044295\tA\tG\t30\n"
 
@@ -221,12 +222,13 @@ class TestBasicPipelineFlow(MockedToolsTestCase):
             # Return as generator
             for line in lines:
                 yield line.strip()
-        
+
         # Mock file operations
         with patch(
             "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
         ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
-            "variantcentrifuge.stages.analysis_stages.analyze_variants", side_effect=mock_analyze_variants
+            "variantcentrifuge.stages.analysis_stages.analyze_variants",
+            side_effect=mock_analyze_variants,
         ):
 
             # Run pipeline
@@ -340,7 +342,7 @@ class TestComplexPipelineFlow(MockedToolsTestCase):
                 "father_id": "0",
                 "mother_id": "0",
                 "sex": "1",
-                "affected_status": "1"
+                "affected_status": "1",
             },
             "Mother": {
                 "family_id": "FAM001",
@@ -348,7 +350,7 @@ class TestComplexPipelineFlow(MockedToolsTestCase):
                 "father_id": "0",
                 "mother_id": "0",
                 "sex": "2",
-                "affected_status": "1"
+                "affected_status": "1",
             },
             "Child": {
                 "family_id": "FAM001",
@@ -356,10 +358,10 @@ class TestComplexPipelineFlow(MockedToolsTestCase):
                 "father_id": "Father",
                 "mother_id": "Mother",
                 "sex": "1",
-                "affected_status": "2"
-            }
+                "affected_status": "2",
+            },
         }
-        
+
         # Mock analyze_variants to just return input data
         def mock_analyze_variants(inp, config):
             # Read lines from input file
@@ -375,17 +377,17 @@ class TestComplexPipelineFlow(MockedToolsTestCase):
             # Return as generator
             for line in lines:
                 yield line.strip()
-        
+
         # Mock functions need to accept **kwargs for extra arguments
         def mock_convert_to_excel(*args, **kwargs):
             pass
-        
+
         def mock_produce_report_json(*args, **kwargs):
             return {}
-        
+
         def mock_generate_html_report(*args, **kwargs):
             pass
-        
+
         with patch(
             "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
         ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
@@ -395,11 +397,13 @@ class TestComplexPipelineFlow(MockedToolsTestCase):
         ), patch(
             "variantcentrifuge.converter.produce_report_json", side_effect=mock_produce_report_json
         ), patch(
-            "variantcentrifuge.generate_html_report.generate_html_report", side_effect=mock_generate_html_report
+            "variantcentrifuge.generate_html_report.generate_html_report",
+            side_effect=mock_generate_html_report,
         ), patch(
             "variantcentrifuge.stages.setup_stages.read_pedigree", return_value=mock_pedigree_data
         ), patch(
-            "variantcentrifuge.stages.analysis_stages.analyze_variants", side_effect=mock_analyze_variants
+            "variantcentrifuge.stages.analysis_stages.analyze_variants",
+            side_effect=mock_analyze_variants,
         ):
 
             # Run pipeline
@@ -422,10 +426,11 @@ class TestErrorHandling(MockedToolsTestCase):
 
     def test_missing_gene_handling(self, tmp_path):
         """Test handling of missing gene in snpEff."""
+
         # Configure snpEff to return error for missing gene
         def snpeff_error_side_effect(cmd, *args, **kwargs):
             from subprocess import CompletedProcess, CalledProcessError
-            
+
             if isinstance(cmd, list) and "genes2bed" in cmd and "INVALID_GENE" in cmd:
                 # Raise CalledProcessError when check=True and returncode != 0
                 raise CalledProcessError(
@@ -474,13 +479,17 @@ class TestErrorHandling(MockedToolsTestCase):
 
         # Check for either the original error message or the stage execution error
         error_msg = str(exc_info.value)
-        assert ("INVALID_GENE" in error_msg and "genes2bed" in error_msg) or "Gene INVALID_GENE not found" in error_msg
+        assert (
+            "INVALID_GENE" in error_msg and "genes2bed" in error_msg
+        ) or "Gene INVALID_GENE not found" in error_msg
 
     def test_vcf_processing_error(self, tmp_path):
         """Test handling of VCF processing errors."""
+
         # Configure bcftools to return error
         def bcftools_error_side_effect(cmd, *args, **kwargs):
             from variantcentrifuge.utils import CommandError
+
             # Raise CommandError which is what run_command raises on failure
             raise CommandError("ERROR: Invalid VCF format")
 
@@ -528,7 +537,9 @@ class TestErrorHandling(MockedToolsTestCase):
 class TestParallelProcessing(MockedToolsTestCase):
     """Test parallel processing capabilities."""
 
-    @pytest.mark.xfail(reason="Parallel processing with temporary directories requires complex mocking")
+    @pytest.mark.xfail(
+        reason="Parallel processing with temporary directories requires complex mocking"
+    )
     def test_parallel_variant_extraction(self, tmp_path):
         """Test parallel extraction with multiple genes."""
         # Create test VCF
@@ -574,36 +585,36 @@ class TestParallelProcessing(MockedToolsTestCase):
         def multi_gene_snpeff(cmd, *args, **kwargs):
             nonlocal bed_counter
             from subprocess import CompletedProcess
-            
+
             if isinstance(cmd, list) and "genes2bed" in cmd:
                 # Return different BED regions for different genes
                 genes = ["BRCA1", "TP53", "EGFR", "KRAS"]
                 chroms = ["chr17", "chr17", "chr7", "chr12"]
                 starts = ["43044294", "7571719", "55086724", "25357722"]
                 ends = ["43125483", "7590863", "55279321", "25403870"]
-                
+
                 # Find which gene is being requested
                 gene_idx = -1
                 for i, gene in enumerate(genes):
                     if gene in cmd:
                         gene_idx = i
                         break
-                
+
                 if gene_idx >= 0 and "stdout" in kwargs and hasattr(kwargs["stdout"], "write"):
                     kwargs["stdout"].write(
                         f"{chroms[gene_idx]}\t{starts[gene_idx]}\t"
                         f"{ends[gene_idx]}\t{genes[gene_idx]}\n"
                     )
-                
+
                 return CompletedProcess(cmd, 0)
-            
+
             # For sortBed
             if isinstance(cmd, list) and "sortBed" in cmd:
                 if "stdout" in kwargs and hasattr(kwargs["stdout"], "write"):
                     # Just echo back some BED content
                     kwargs["stdout"].write("chr17\t43044294\t43125483\tBRCA1\n")
                 return CompletedProcess(cmd, 0)
-                
+
             return CompletedProcess(cmd if isinstance(cmd, list) else [cmd], 0)
 
         self.mock_snpeff.side_effect = multi_gene_snpeff
@@ -626,7 +637,7 @@ class TestParallelProcessing(MockedToolsTestCase):
 
         # Mock chunk file creation
         original_bcftools = self.mock_bcftools.side_effect
-        
+
         def bcftools_chunk_side_effect(cmd, *args, **kwargs):
             # If this is creating a chunk file, create it
             if isinstance(cmd, list) and "view" in cmd and "-o" in cmd:
@@ -635,17 +646,20 @@ class TestParallelProcessing(MockedToolsTestCase):
                     output_file = cmd[output_idx]
                     # Write valid VCF content - need to handle .gz files
                     Path(output_file).parent.mkdir(parents=True, exist_ok=True)
-                    if output_file.endswith('.gz'):
+                    if output_file.endswith(".gz"):
                         import gzip
-                        content = b"##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-                        with gzip.open(output_file, 'wb') as f:
+
+                        content = (
+                            b"##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+                        )
+                        with gzip.open(output_file, "wb") as f:
                             f.write(content)
                     else:
                         Path(output_file).write_text(
                             "##fileformat=VCFv4.2\n"
                             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
                         )
-            
+
             # Call original if it exists
             if original_bcftools:
                 return original_bcftools(cmd, *args, **kwargs)
@@ -654,13 +668,14 @@ class TestParallelProcessing(MockedToolsTestCase):
                 result.returncode = 0
                 result.stdout = ""
                 return result
-        
+
         self.mock_bcftools.side_effect = bcftools_chunk_side_effect
-        
+
         with patch(
             "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
         ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
-            "variantcentrifuge.stages.analysis_stages.analyze_variants", side_effect=mock_analyze_variants
+            "variantcentrifuge.stages.analysis_stages.analyze_variants",
+            side_effect=mock_analyze_variants,
         ):
 
             # Run pipeline
@@ -742,12 +757,12 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
 
         # Store the original side effect from the base class
         original_bcftools_side_effect = self.mock_bcftools.side_effect
-        
+
         def track_bcftools_calls(cmd, *args, **kwargs):
             # Track the call
             if isinstance(cmd, list) and len(cmd) > 0 and cmd[0] == "bcftools":
                 bcftools_calls.append(cmd)
-            
+
             # Create expected output files
             if isinstance(cmd, list) and "view" in cmd and "-o" in cmd:
                 output_idx = cmd.index("-o") + 1
@@ -759,7 +774,7 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
                     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
                     "chr17\t43044295\t.\tA\tG\t30\tPASS\tAC=2\n"
                 )
-            
+
             # Call the original side effect for default behavior
             if original_bcftools_side_effect:
                 return original_bcftools_side_effect(cmd, *args, **kwargs)
@@ -794,7 +809,8 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
         ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
             "variantcentrifuge.helpers.get_vcf_samples", return_value=set()
         ), patch(
-            "variantcentrifuge.stages.analysis_stages.analyze_variants", side_effect=mock_analyze_variants
+            "variantcentrifuge.stages.analysis_stages.analyze_variants",
+            side_effect=mock_analyze_variants,
         ):
             # Run pipeline
             run_refactored_pipeline(args)
@@ -866,12 +882,12 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
 
         # Store the original side effect from the base class
         original_bcftools_side_effect = self.mock_bcftools.side_effect
-        
+
         def track_bcftools_calls(cmd, *args, **kwargs):
             # Track the call
             if isinstance(cmd, list) and len(cmd) > 0 and cmd[0] == "bcftools":
                 bcftools_calls.append(cmd)
-            
+
             # Create expected output files
             if isinstance(cmd, list) and "view" in cmd and "-o" in cmd:
                 output_idx = cmd.index("-o") + 1
@@ -883,7 +899,7 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
                     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
                     "chr17\t43044295\t.\tA\tG\t30\tPASS\tAC=2\n"
                 )
-            
+
             # Call the original side effect for default behavior
             if original_bcftools_side_effect:
                 return original_bcftools_side_effect(cmd, *args, **kwargs)
@@ -917,7 +933,8 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
         ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
             "variantcentrifuge.helpers.get_vcf_samples", return_value=set()
         ), patch(
-            "variantcentrifuge.stages.analysis_stages.analyze_variants", side_effect=mock_analyze_variants
+            "variantcentrifuge.stages.analysis_stages.analyze_variants",
+            side_effect=mock_analyze_variants,
         ):
             # Run pipeline
             run_refactored_pipeline(args)

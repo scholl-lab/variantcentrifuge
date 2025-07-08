@@ -21,7 +21,7 @@ def scoring_config():
     if not os.path.exists(config_path):
         # Create it if it doesn't exist
         os.makedirs(config_path, exist_ok=True)
-        
+
         # Write variable assignment config
         var_config = {
             "variables": {
@@ -29,22 +29,24 @@ def scoring_config():
                 "dbNSFP_gnomAD_genomes_AF": "gnomadg_variant|default:0.0",
                 "dbNSFP_CADD_phred": "cadd_phred_variant|default:0.0",
                 "EFFECT": "consequence_terms_variant|default:''",
-                "IMPACT": "impact_variant|default:''"
+                "IMPACT": "impact_variant|default:''",
             }
         }
         with open(os.path.join(config_path, "variable_assignment_config.json"), "w") as f:
             json.dump(var_config, f, indent=2)
-        
+
         # Write formula config
         formula_config = {
             "output_scores": ["test_simple_score"],
-            "formulas": [{
-                "test_simple_score": "((impact_variant == 'HIGH') * 0.8 + (impact_variant == 'MODERATE') * 0.6 + (impact_variant == 'LOW') * 0.3 + (impact_variant == 'MODIFIER') * 0.1) * (1 - gnomade_variant)"
-            }]
+            "formulas": [
+                {
+                    "test_simple_score": "((impact_variant == 'HIGH') * 0.8 + (impact_variant == 'MODERATE') * 0.6 + (impact_variant == 'LOW') * 0.3 + (impact_variant == 'MODIFIER') * 0.1) * (1 - gnomade_variant)"
+                }
+            ],
         }
         with open(os.path.join(config_path, "formula_config.json"), "w") as f:
             json.dump(formula_config, f, indent=2)
-    
+
     return read_scoring_config(config_path)
 
 
@@ -177,9 +179,8 @@ def test_scoring_formula_components(sample_annotated_data, scoring_config):
     # Test specific cases
     # HIGH impact with low frequency should have high score
     # Use original column names (not the renamed versions)
-    high_risk_mask = (
-        (scored_df["IMPACT"] == "HIGH")
-        & (scored_df["dbNSFP_gnomAD_exomes_AF"] < 0.001)
+    high_risk_mask = (scored_df["IMPACT"] == "HIGH") & (
+        scored_df["dbNSFP_gnomAD_exomes_AF"] < 0.001
     )
     if high_risk_mask.any():
         high_risk_scores = scored_df[high_risk_mask]["test_simple_score"]
@@ -193,7 +194,7 @@ def test_read_scoring_config():
     if not os.path.exists(config_path):
         # Create it if needed
         os.makedirs(config_path, exist_ok=True)
-        
+
         # Write variable assignment config
         var_config = {
             "variables": {
@@ -201,18 +202,20 @@ def test_read_scoring_config():
                 "dbNSFP_gnomAD_genomes_AF": "gnomadg_variant|default:0.0",
                 "dbNSFP_CADD_phred": "cadd_phred_variant|default:0.0",
                 "EFFECT": "consequence_terms_variant|default:''",
-                "IMPACT": "impact_variant|default:''"
+                "IMPACT": "impact_variant|default:''",
             }
         }
         with open(os.path.join(config_path, "variable_assignment_config.json"), "w") as f:
             json.dump(var_config, f, indent=2)
-        
+
         # Write formula config
         formula_config = {
             "output_scores": ["test_simple_score"],
-            "formulas": [{
-                "test_simple_score": "((impact_variant == 'HIGH') * 0.8 + (impact_variant == 'MODERATE') * 0.6 + (impact_variant == 'LOW') * 0.3 + (impact_variant == 'MODIFIER') * 0.1) * (1 - gnomade_variant)"
-            }]
+            "formulas": [
+                {
+                    "test_simple_score": "((impact_variant == 'HIGH') * 0.8 + (impact_variant == 'MODERATE') * 0.6 + (impact_variant == 'LOW') * 0.3 + (impact_variant == 'MODIFIER') * 0.1) * (1 - gnomade_variant)"
+                }
+            ],
         }
         with open(os.path.join(config_path, "formula_config.json"), "w") as f:
             json.dump(formula_config, f, indent=2)

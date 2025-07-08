@@ -157,13 +157,13 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
 
     # Check both args and config for inheritance settings
     should_calculate_inheritance = (
-        (hasattr(args, "ped_file") and args.ped_file) or
-        (hasattr(args, "inheritance_mode") and args.inheritance_mode) or
-        config.get("calculate_inheritance", False) or
-        config.get("ped_file") or
-        config.get("inheritance_mode")
+        (hasattr(args, "ped_file") and args.ped_file)
+        or (hasattr(args, "inheritance_mode") and args.inheritance_mode)
+        or config.get("calculate_inheritance", False)
+        or config.get("ped_file")
+        or config.get("inheritance_mode")
     )
-    
+
     if should_calculate_inheritance:
         stages.append(InheritanceAnalysisStage())
 
@@ -190,9 +190,11 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
     # Check for final filtering - need to check both args attributes and config
     late_filtering = getattr(args, "late_filtering", False) or config.get("late_filtering", False)
     final_filter = getattr(args, "final_filter", None) or config.get("final_filter", None)
-    
-    logger.debug(f"Checking for final filtering - late_filtering: {late_filtering}, final_filter: {final_filter}")
-    
+
+    logger.debug(
+        f"Checking for final filtering - late_filtering: {late_filtering}, final_filter: {final_filter}"
+    )
+
     if late_filtering or final_filter:
         logger.debug("Adding FinalFilteringStage to pipeline")
         stages.append(FinalFilteringStage())

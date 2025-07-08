@@ -164,7 +164,7 @@ class TestParallelCompleteProcessingStage:
             # Create intermediate directory
             intermediate_dir = tmppath / "intermediate"
             intermediate_dir.mkdir()
-            
+
             # Mock workspace paths
             context.workspace.intermediate_dir = intermediate_dir
             context.workspace.get_intermediate_path = lambda name: intermediate_dir / name
@@ -194,7 +194,7 @@ class TestParallelCompleteProcessingStage:
             # Create intermediate directory
             intermediate_dir = tmppath / "intermediate"
             intermediate_dir.mkdir()
-            
+
             # Mock workspace paths
             context.workspace.intermediate_dir = intermediate_dir
             context.workspace.get_intermediate_path = lambda name: intermediate_dir / name

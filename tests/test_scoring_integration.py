@@ -21,7 +21,7 @@ pytestmark = [
     pytest.mark.skipif(
         not STATSMODELS_AVAILABLE, reason="statsmodels is required for integration tests"
     ),
-    pytest.mark.slow  # These tests require bcftools, snpEff, SnpSift, bedtools
+    pytest.mark.slow,  # These tests require bcftools, snpEff, SnpSift, bedtools
 ]
 
 # Get the directory where test files are located
@@ -116,7 +116,7 @@ def test_scoring_integration_with_annotated_vcf(annotated_vcf, scoring_config_di
     expected_columns = ["GENE", "IMPACT", "EFFECT"]
     for col in expected_columns:
         assert col in df.columns, f"Expected column '{col}' not found in output"
-    
+
     # Also check the renamed columns used by scoring
     expected_scoring_columns = ["impact_variant", "consequence_terms_variant"]
     for col in expected_scoring_columns:

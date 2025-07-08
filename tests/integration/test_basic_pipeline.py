@@ -205,7 +205,7 @@ class TestBasicPipeline:
             @property
             def name(self):
                 return "failing_stage"
-            
+
             @property
             def dependencies(self):
                 return {"configuration_loading"}

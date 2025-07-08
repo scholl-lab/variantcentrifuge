@@ -23,7 +23,7 @@ class TestInheritanceAnalysis:
         """Create test files for the pipeline."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            
+
             # Create test VCF file with multiple samples
             vcf_file = tmp_path / "test.vcf"
             vcf_file.write_text(
@@ -53,42 +53,44 @@ class TestInheritanceAnalysis:
             output_dir = tmp_path / "output"
             output_dir.mkdir(exist_ok=True)
             (output_dir / "intermediate").mkdir(exist_ok=True)
-            
-            yield {
-                "vcf": str(vcf_file),
-                "ped": str(ped_file),
-                "output_dir": str(output_dir)
-            }
+
+            yield {"vcf": str(vcf_file), "ped": str(ped_file), "output_dir": str(output_dir)}
 
     @patch("variantcentrifuge.extractor.run_command")
     @patch("variantcentrifuge.utils.run_command")
     @patch("variantcentrifuge.gene_bed.subprocess.run")
     @patch("variantcentrifuge.stages.setup_stages.get_vcf_samples")
     @patch("variantcentrifuge.stages.setup_stages.read_pedigree")
-    def test_inheritance_patterns_detected(self, mock_read_ped, mock_get_samples, 
-                                          mock_snpeff, mock_run_command, 
-                                          mock_extractor_run_command, setup_files):
+    def test_inheritance_patterns_detected(
+        self,
+        mock_read_ped,
+        mock_get_samples,
+        mock_snpeff,
+        mock_run_command,
+        mock_extractor_run_command,
+        setup_files,
+    ):
         """Test that inheritance patterns are correctly detected."""
         # Mock VCF samples
         mock_get_samples.return_value = {"Child", "Father", "Mother"}
-        
+
         # Mock pedigree data
         mock_read_ped.return_value = {
             "Father": {
                 "family_id": "FAM001",
-                "sample_id": "Father", 
+                "sample_id": "Father",
                 "father_id": "0",
                 "mother_id": "0",
                 "sex": "1",
-                "affected_status": "1"
+                "affected_status": "1",
             },
             "Mother": {
                 "family_id": "FAM001",
                 "sample_id": "Mother",
                 "father_id": "0",
-                "mother_id": "0", 
+                "mother_id": "0",
                 "sex": "2",
-                "affected_status": "1"
+                "affected_status": "1",
             },
             "Child": {
                 "family_id": "FAM001",
@@ -96,22 +98,22 @@ class TestInheritanceAnalysis:
                 "father_id": "Father",
                 "mother_id": "Mother",
                 "sex": "1",
-                "affected_status": "2"
-            }
+                "affected_status": "2",
+            },
         }
 
         # Mock snpEff for gene BED creation
         def snpeff_side_effect(cmd, *args, **kwargs):
             from subprocess import CompletedProcess
+
             if isinstance(cmd, list) and "genes2bed" in cmd:
                 if "stdout" in kwargs and hasattr(kwargs["stdout"], "write"):
                     # Return BED regions for all genes
                     kwargs["stdout"].write(
-                        "chr1\t50\t150\tGENE1\n"
-                        "chr2\t150\t600\tGENE2\n" 
-                        "chr3\t350\t450\tGENE3\n"
+                        "chr1\t50\t150\tGENE1\n" "chr2\t150\t600\tGENE2\n" "chr3\t350\t450\tGENE3\n"
                     )
             return CompletedProcess(cmd, 0)
+
         mock_snpeff.side_effect = snpeff_side_effect
 
         # Mock run_command for bcftools and SnpSift
@@ -140,7 +142,7 @@ class TestInheritanceAnalysis:
             elif "SnpSift" in cmd_str and "extractFields" in cmd_str:
                 # Mock field extraction - maintain sample genotypes
                 if output_file:
-                    with open(output_file, 'w') as f:
+                    with open(output_file, "w") as f:
                         f.write("CHROM\tPOS\tREF\tALT\tQUAL\tGENE\tGT\n")
                         # GT field contains comma-separated genotypes for each sample
                         f.write("chr1\t100\tA\tG\t100\tGENE1\t0/1,0/0,0/0\n")
@@ -220,16 +222,23 @@ class TestInheritanceAnalysis:
         # Track DataFrame writes to verify inheritance patterns
         written_dfs = []
         original_to_csv = pd.DataFrame.to_csv
+
         def track_df_write(self, *args, **kwargs):
             written_dfs.append(self.copy())
             return original_to_csv(self, *args, **kwargs)
 
-        with patch("variantcentrifuge.stages.processing_stages.Path.exists", return_value=True), \
-             patch("variantcentrifuge.stages.processing_stages.Path.touch"), \
-             patch("variantcentrifuge.stages.output_stages.pd.DataFrame.to_csv", side_effect=track_df_write), \
-             patch("variantcentrifuge.stages.analysis_stages.analyze_variants", side_effect=mock_analyze_variants), \
-             patch("variantcentrifuge.pipeline_core.workspace.Path.mkdir"), \
-             patch("variantcentrifuge.helpers.get_vcf_samples", return_value={"Child", "Father", "Mother"}):
+        with patch(
+            "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
+        ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
+            "variantcentrifuge.stages.output_stages.pd.DataFrame.to_csv", side_effect=track_df_write
+        ), patch(
+            "variantcentrifuge.stages.analysis_stages.analyze_variants",
+            side_effect=mock_analyze_variants,
+        ), patch(
+            "variantcentrifuge.pipeline_core.workspace.Path.mkdir"
+        ), patch(
+            "variantcentrifuge.helpers.get_vcf_samples", return_value={"Child", "Father", "Mother"}
+        ):
 
             # Run pipeline
             run_refactored_pipeline(args)
@@ -247,21 +256,24 @@ class TestInheritanceAnalysis:
 
         # Check that inheritance columns exist
         assert "Inheritance_Pattern" in final_df.columns, f"Columns: {list(final_df.columns)}"
-        
+
         # Verify specific patterns
         patterns = final_df["Inheritance_Pattern"].tolist()
-        
+
         # Check for expected patterns
         # Note: The exact pattern names might vary, but we should see different patterns
-        assert len(set(patterns)) > 1, f"Expected multiple inheritance patterns, got: {set(patterns)}"
-        
+        assert (
+            len(set(patterns)) > 1
+        ), f"Expected multiple inheritance patterns, got: {set(patterns)}"
+
         # For GENE2, we should have compound het patterns
         gene2_variants = final_df[final_df.get("Gene_Name", final_df.get("GENE", "")) == "GENE2"]
         if len(gene2_variants) >= 2:
             gene2_patterns = gene2_variants["Inheritance_Pattern"].tolist()
             # At least some variants in GENE2 should show compound het pattern
-            assert any("compound" in str(p).lower() for p in gene2_patterns), \
-                f"Expected compound het pattern in GENE2, got: {gene2_patterns}"
+            assert any(
+                "compound" in str(p).lower() for p in gene2_patterns
+            ), f"Expected compound het pattern in GENE2, got: {gene2_patterns}"
 
     def test_stage_configuration(self, setup_files):
         """Test that inheritance analysis stage is properly configured."""
@@ -292,7 +304,7 @@ class TestInheritanceAnalysis:
 
         # Build stages
         stages = build_pipeline_stages(args)
-        
+
         # Find inheritance analysis stage
         inheritance_stage = None
         for stage in stages:
@@ -301,7 +313,7 @@ class TestInheritanceAnalysis:
                 break
 
         assert inheritance_stage is not None, "InheritanceAnalysisStage not found"
-        
+
         # Check dependencies
         assert "dataframe_loading" in inheritance_stage.dependencies
         assert "custom_annotation" in inheritance_stage.soft_dependencies
