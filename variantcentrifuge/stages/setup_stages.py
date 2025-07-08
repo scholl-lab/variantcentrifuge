@@ -201,9 +201,9 @@ class PedigreeLoadingStage(Stage):
                 context.pedigree_data = pedigree_data
 
                 # Log pedigree summary
-                n_samples = len(pedigree_data["samples"])
-                n_affected = sum(1 for s in pedigree_data["samples"].values() if s.get("affected"))
-                logger.info(f"Loaded pedigree with {n_samples} samples " f"({n_affected} affected)")
+                n_samples = len(pedigree_data)
+                n_affected = sum(1 for s in pedigree_data.values() if s.get("affected_status") == "2")
+                logger.info(f"Loaded pedigree with {n_samples} samples ({n_affected} affected)")
             except Exception as e:
                 raise ValueError(f"Failed to load pedigree file: {e}")
         else:

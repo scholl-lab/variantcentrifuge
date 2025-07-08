@@ -1640,7 +1640,7 @@ def run_pipeline(
                     "variant_extraction",
                     parameters={
                         "bed_file": bed_file,
-                        "bcftools_filter": cfg.get("bcftools_filter"),
+                        "bcftools_prefilter": cfg.get("bcftools_prefilter"),
                     },
                 )
                 if pipeline_state

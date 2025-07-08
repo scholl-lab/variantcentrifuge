@@ -75,6 +75,11 @@ class TestSnpSiftFilterStage:
 
         base_context.config = {"filter": "(GEN[*].DP >= 10)", "threads": 4}
         base_context.data = input_vcf
+        
+        # Mock apply_snpsift_filter to create the output file
+        def mock_apply_side_effect(input_file, filter_expr, config, output_file):
+            Path(output_file).touch()
+        mock_apply_filter.side_effect = mock_apply_side_effect
 
         stage = SnpSiftFilterStage()
         result = stage._process(base_context)
@@ -88,6 +93,7 @@ class TestSnpSiftFilterStage:
 
         # Verify output paths updated
         assert result.filtered_vcf.name == "test.filtered.vcf.gz"
+        # context.data should be updated to point to filtered_vcf only if extracted_tsv is not set
         assert result.data == result.filtered_vcf
 
     @patch("variantcentrifuge.stages.processing_stages.apply_snpsift_filter")

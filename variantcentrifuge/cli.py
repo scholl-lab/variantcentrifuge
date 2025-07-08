@@ -518,13 +518,6 @@ def create_parser() -> argparse.ArgumentParser:
         "This may increase processing time but significantly reduces disk usage for large analyses.",
     )
     misc_group.add_argument(
-        "--bcftools-filter",
-        type=str,
-        default=None,
-        help="bcftools filter expression to apply during variant extraction. "
-        "This is an alias for --bcftools-prefilter for backward compatibility.",
-    )
-    misc_group.add_argument(
         "--chunks",
         type=int,
         default=None,
@@ -536,12 +529,12 @@ def create_parser() -> argparse.ArgumentParser:
 
 def parse_args(args_list=None):
     """Parse command line arguments.
-    
+
     Parameters
     ----------
     args_list : list, optional
         List of arguments to parse. If None, uses sys.argv
-        
+
     Returns
     -------
     argparse.Namespace

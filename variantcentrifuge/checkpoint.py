@@ -411,7 +411,7 @@ class PipelineState:
             "late_filtering",
             "chunk_size",
             "samples_file",
-            "bcftools_filter",
+            "bcftools_prefilter",
             "final_filter",
             "scoring_config_path",
             "ped",

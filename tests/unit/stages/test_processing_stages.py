@@ -73,7 +73,13 @@ class TestVariantExtractionStage:
     @pytest.fixture
     def context(self):
         """Create test context with gene bed."""
-        ctx = create_test_context(vcf_file="/tmp/test.vcf", config_overrides={"threads": 2})
+        # Create a temp VCF file that actually exists
+        import tempfile
+        vcf_file = tempfile.NamedTemporaryFile(suffix=".vcf", delete=False)
+        vcf_file.write(b"##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+        vcf_file.close()
+        
+        ctx = create_test_context(vcf_file=vcf_file.name, config_overrides={"threads": 2})
         ctx.gene_bed_file = Path("/tmp/genes.bed")
         ctx.mark_complete("gene_bed_creation")
         return ctx
@@ -81,16 +87,25 @@ class TestVariantExtractionStage:
     @patch("variantcentrifuge.stages.processing_stages.extract_variants")
     def test_variant_extraction(self, mock_extract, context):
         """Test variant extraction."""
+        # Mock the extract_variants to create output file
+        def mock_extract_side_effect(**kwargs):
+            # Create the output file
+            output_path = Path(kwargs["output_file"])
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.touch()
+            
+        mock_extract.side_effect = mock_extract_side_effect
+        
         stage = VariantExtractionStage()
         result = stage(context)
 
-        # Verify extraction call
+        # Verify extraction call - extract_variants uses keyword arguments
         mock_extract.assert_called_once()
-        call_args = mock_extract.call_args[1]
-        assert call_args["vcf_file"] == "/tmp/test.vcf"
-        assert call_args["bed_file"] == "/tmp/genes.bed"
-        assert call_args["threads"] == 2
-        assert ".variants.vcf.gz" in call_args["output_file"]
+        kwargs = mock_extract.call_args[1]
+        assert kwargs["vcf_file"] == context.config["vcf_file"]
+        assert kwargs["bed_file"] == "/tmp/genes.bed"
+        assert kwargs["cfg"]["threads"] == 2
+        assert ".variants.vcf.gz" in kwargs["output_file"]
 
         # Verify context updates
         assert result.extracted_vcf is not None
@@ -99,14 +114,24 @@ class TestVariantExtractionStage:
     @patch("variantcentrifuge.stages.processing_stages.extract_variants")
     def test_with_bcftools_filter(self, mock_extract, context):
         """Test extraction with bcftools filter."""
-        context.config["bcftools_filter"] = "QUAL >= 30"
+        context.config["bcftools_prefilter"] = "QUAL >= 30"
+        
+        # Mock the extract_variants to create output file
+        def mock_extract_side_effect(**kwargs):
+            # Create the output file
+            output_path = Path(kwargs["output_file"])
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.touch()
+            
+        mock_extract.side_effect = mock_extract_side_effect
 
         stage = VariantExtractionStage()
         stage(context)
 
         # Verify filter passed
-        call_args = mock_extract.call_args[1]
-        assert call_args["bcftools_filter"] == "QUAL >= 30"
+        kwargs = mock_extract.call_args[1]
+        assert "bcftools_prefilter" in kwargs["cfg"]
+        assert kwargs["cfg"]["bcftools_prefilter"] == "QUAL >= 30"
 
 
 class TestParallelVariantExtractionStage:
@@ -115,7 +140,13 @@ class TestParallelVariantExtractionStage:
     @pytest.fixture
     def context(self):
         """Create test context for parallel processing."""
-        ctx = create_test_context(vcf_file="/tmp/test.vcf", config_overrides={"threads": 4})
+        # Create a temp VCF file that actually exists
+        import tempfile
+        vcf_file = tempfile.NamedTemporaryFile(suffix=".vcf", delete=False)
+        vcf_file.write(b"##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+        vcf_file.close()
+        
+        ctx = create_test_context(vcf_file=vcf_file.name, config_overrides={"threads": 4})
         ctx.gene_bed_file = Path("/tmp/genes.bed")
         ctx.mark_complete("gene_bed_creation")
         return ctx
@@ -124,6 +155,15 @@ class TestParallelVariantExtractionStage:
     def test_fallback_to_single_thread(self, mock_extract, context):
         """Test fallback when threads <= 1."""
         context.config["threads"] = 1
+        
+        # Mock the extract_variants to create output file
+        def mock_extract_side_effect(**kwargs):
+            # Create the output file
+            output_path = Path(kwargs["output_file"])
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.touch()
+            
+        mock_extract.side_effect = mock_extract_side_effect
 
         stage = ParallelVariantExtractionStage()
         stage(context)
@@ -191,6 +231,8 @@ class TestFieldExtractionStage:
         )
         ctx.data = Path("/tmp/variants.vcf.gz")
         # Mark all potential dependencies as complete
+        ctx.mark_complete("configuration_loading")
+        ctx.mark_complete("gene_bed_creation")
         ctx.mark_complete("variant_extraction")
         ctx.mark_complete("parallel_variant_extraction")
         ctx.mark_complete("multiallelic_split")
@@ -200,18 +242,19 @@ class TestFieldExtractionStage:
     @patch("variantcentrifuge.stages.processing_stages.extract_fields")
     def test_field_extraction(self, mock_extract, context):
         """Test field extraction to TSV."""
+        # Mock return value - extract_fields returns the output path
+        mock_extract.return_value = "mocked_output.tsv"
+        
         stage = FieldExtractionStage()
         result = stage(context)
 
-        # Verify extraction
+        # Verify extraction - extract_fields uses keyword arguments
         mock_extract.assert_called_once()
-        call_args = mock_extract.call_args[0]
-        assert call_args[0] == "/tmp/variants.vcf.gz"
-        assert call_args[1] == ["CHROM", "POS", "REF", "ALT", "QUAL"]
-        assert ".extracted.tsv" in call_args[2]
-
-        # Verify split_multi_sample_columns is True
-        assert mock_extract.call_args[1]["split_multi_sample_columns"] is True
+        kwargs = mock_extract.call_args[1]
+        assert kwargs["variant_file"] == "/tmp/variants.vcf.gz"  # variant_file
+        assert kwargs["fields"] == "CHROM POS REF ALT QUAL"  # fields as string
+        assert isinstance(kwargs["cfg"], dict)  # cfg
+        assert ".extracted.tsv" in kwargs["output_file"]  # output_file
 
         # Verify context updates
         assert result.extracted_tsv is not None
@@ -221,12 +264,15 @@ class TestFieldExtractionStage:
     def test_with_gzip_compression(self, mock_extract, context):
         """Test extraction with gzip compression."""
         context.config["gzip_intermediates"] = True
+        
+        # Mock return value
+        mock_extract.return_value = "mocked_output.tsv.gz"
 
         stage = FieldExtractionStage()
         stage(context)
 
         # Verify gzipped output
-        output_path = mock_extract.call_args[0][2]
+        output_path = mock_extract.call_args[1]["output_file"]  # output_file argument
         assert output_path.endswith(".gz")
 
     def test_no_fields_error(self, context):
@@ -244,10 +290,18 @@ class TestGenotypeReplacementStage:
     @pytest.fixture
     def context(self):
         """Create test context with samples."""
+        import tempfile
+        # Create a temp TSV file that actually exists
+        tsv_file = tempfile.NamedTemporaryFile(suffix=".tsv", delete=False)
+        tsv_file.write(b"CHROM\tPOS\tREF\tALT\tSample1\tSample2\tSample3\n")
+        tsv_file.write(b"chr1\t100\tA\tG\t0/1\t0/0\t1/1\n")
+        tsv_file.close()
+        
         ctx = create_test_context(
-            config_overrides={"replace_genotypes": True, "missing_string": "NA"}
+            config_overrides={"replace_genotypes": True}
         )
-        ctx.data = Path("/tmp/extracted.tsv")
+        ctx.data = Path(tsv_file.name)
+        ctx.extracted_tsv = Path(tsv_file.name)
         ctx.vcf_samples = ["Sample1", "Sample2", "Sample3"]
         ctx.mark_complete("field_extraction")
         ctx.mark_complete("sample_config_loading")
@@ -256,23 +310,26 @@ class TestGenotypeReplacementStage:
     @patch("variantcentrifuge.stages.processing_stages.replace_genotypes")
     def test_genotype_replacement(self, mock_replace, context):
         """Test genotype replacement."""
+        # Mock replace_genotypes to return some lines
+        mock_replace.return_value = iter(["header", "line1", "line2"])
+        
         stage = GenotypeReplacementStage()
         result = stage(context)
 
-        # Verify replacement
+        # Verify replacement was called
         mock_replace.assert_called_once()
         call_args = mock_replace.call_args[0]
-        assert call_args[0] == "/tmp/extracted.tsv"
-        assert call_args[1] == ["Sample1", "Sample2", "Sample3"]
-        assert ".genotype_replaced.tsv" in call_args[2]
-
-        # Verify options
-        kwargs = mock_replace.call_args[1]
-        assert kwargs["missing_string"] == "NA"
-        assert kwargs["output_to_stdout"] is False
-
-        # Verify context update
-        assert result.data.name.endswith(".genotype_replaced.tsv")
+        # First arg is the opened file handle
+        assert hasattr(call_args[0], 'read')  # It's a file-like object
+        # Second arg is the config dict
+        assert isinstance(call_args[1], dict)
+        assert call_args[1]["sample_list"] == "Sample1,Sample2,Sample3"
+        # Just verify it's a dict with expected keys
+        assert "sample_list" in call_args[1]
+        # Verify context updates
+        assert result.genotype_replaced_tsv is not None
+        assert result.data == result.genotype_replaced_tsv
+        assert ".genotype_replaced.tsv" in str(result.data)
 
     def test_skip_if_disabled(self, context):
         """Test skipping when replacement disabled."""
@@ -282,7 +339,7 @@ class TestGenotypeReplacementStage:
         result = stage(context)
 
         # Data should not change
-        assert result.data == Path("/tmp/extracted.tsv")
+        assert result.data == context.data
 
     def test_skip_if_no_samples(self, context):
         """Test skipping when no samples available."""
@@ -302,9 +359,16 @@ class TestPhenotypeIntegrationStage:
     @pytest.fixture
     def context(self):
         """Create test context with phenotype data."""
+        import tempfile
+        # Create a temp TSV file that actually exists
+        tsv_file = tempfile.NamedTemporaryFile(suffix=".tsv", delete=False)
+        tsv_file.write(b"CHROM\tPOS\tREF\tALT\tSample1\tSample2\tSample3\n")
+        tsv_file.write(b"chr1\t100\tA\tG\t0/1\t0/0\t1/1\n")
+        tsv_file.close()
+        
         ctx = create_test_context()
-        ctx.data = Path("/tmp/genotypes.tsv")
-        ctx.phenotype_data = {"Sample1": "Affected", "Sample2": "Unaffected", "Sample3": "Affected"}
+        ctx.data = Path(tsv_file.name)
+        ctx.phenotype_data = {"Sample1": {"Affected"}, "Sample2": {"Unaffected"}, "Sample3": {"Affected"}}
         ctx.vcf_samples = ["Sample1", "Sample2", "Sample3"]
         ctx.mark_complete("field_extraction")
         ctx.mark_complete("phenotype_loading")

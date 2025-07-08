@@ -182,7 +182,7 @@ class VariantExtractionStage(Stage):
             # Prepare config for extract_variants
             extract_config = {
                 "threads": context.config.get("threads", 1),
-                "bcftools_prefilter": context.config.get("bcftools_filter"),
+                "bcftools_prefilter": context.config.get("bcftools_prefilter"),
             }
 
             logger.info(f"Extracting variants from {vcf_file} using {bed_file}")
@@ -305,7 +305,7 @@ class ParallelVariantExtractionStage(Stage):
         # Prepare config for extract_variants
         extract_config = {
             "threads": threads_per_worker,
-            "bcftools_prefilter": context.config.get("bcftools_filter"),
+            "bcftools_prefilter": context.config.get("bcftools_prefilter"),
         }
 
         chunk_outputs = []
@@ -379,7 +379,12 @@ class ParallelVariantExtractionStage(Stage):
 
 
 class BCFToolsPrefilterStage(Stage):
-    """Apply bcftools pre-filtering for performance optimization."""
+    """Apply bcftools pre-filtering for performance optimization.
+    
+    Note: This stage is typically not needed as pre-filtering is applied
+    during the variant extraction stage for better performance.
+    This remains here for cases where separate filtering is needed.
+    """
 
     @property
     def name(self) -> str:
@@ -398,15 +403,15 @@ class BCFToolsPrefilterStage(Stage):
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply bcftools filter if specified."""
-        bcftools_filter = context.config.get("bcftools_filter")
+        bcftools_prefilter = context.config.get("bcftools_prefilter")
 
-        if not bcftools_filter:
-            logger.debug("No bcftools filter specified, skipping")
+        if not bcftools_prefilter:
+            logger.debug("No bcftools prefilter specified, skipping")
             return context
 
         # Note: This is typically applied during extraction for efficiency
         # This stage is here for cases where we need a separate filtering step
-        logger.info(f"Applying bcftools filter: {bcftools_filter}")
+        logger.info(f"Applying bcftools prefilter: {bcftools_prefilter}")
 
         input_vcf = context.extracted_vcf or context.data
         output_vcf = context.workspace.get_intermediate_path(
@@ -417,7 +422,7 @@ class BCFToolsPrefilterStage(Stage):
             "bcftools",
             "view",
             "-i",
-            bcftools_filter,
+            bcftools_prefilter,
             "-Oz",
             "-o",
             str(output_vcf),

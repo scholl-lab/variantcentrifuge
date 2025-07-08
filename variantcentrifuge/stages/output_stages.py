@@ -190,7 +190,7 @@ class VariantIdentifierStage(Stage):
                     pos = fields[key_indices["POS"]]
                     ref = fields[key_indices["REF"]]
                     alt = fields[key_indices["ALT"]]
-                    
+
                     combined = f"{chrom}{pos}{ref}{alt}"
                     short_hash = hashlib.md5(combined.encode("utf-8")).hexdigest()[:4]
                     var_id = f"var_{line_count:04d}_{short_hash}"
@@ -385,8 +385,8 @@ class TSVOutputStage(Stage):
         # graph of stages that are actually present.
 
         return deps
-    
-    @property 
+
+    @property
     def soft_dependencies(self) -> Set[str]:
         """Return the set of stage names that should run before if present."""
         # Soft dependencies are optional - if these stages exist, we should run after them

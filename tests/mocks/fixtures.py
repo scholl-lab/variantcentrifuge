@@ -50,10 +50,10 @@ def create_test_context(
         "scoring_config_path": None,
         "threads": 1,
     }
-    
+
     # Update with any kwargs, avoiding duplicates
     default_args.update(kwargs)
-    
+
     # Create namespace
     args = argparse.Namespace(**default_args)
 

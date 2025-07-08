@@ -26,7 +26,7 @@ TOOLS_AVAILABLE = all(shutil.which(tool) is not None for tool in REQUIRED_TOOLS)
 if not TOOLS_AVAILABLE:
     pytest.skip(
         f"Skipping regression tests: Missing required tools: {[t for t in REQUIRED_TOOLS if not shutil.which(t)]}",
-        allow_module_level=True
+        allow_module_level=True,
     )
 
 
@@ -166,7 +166,7 @@ class PipelineRunner:
         while i < len(config.extra_args):
             arg = config.extra_args[i]
             fixed_extra_args.append(arg)
-            
+
             # Check if this is a file argument that needs path resolution
             if arg in ["--ped", "--annotate-bed", "--scoring-config-path", "--gene-file"]:
                 if i + 1 < len(config.extra_args):
@@ -217,7 +217,7 @@ class PipelineRunner:
         logger.info(f"Running command from {project_root}: {' '.join(cmd)}")
         logger.info(f"Expected output file: {output_file}")
         logger.info(f"Output directory: {output_dir}")
-        
+
         try:
             result = subprocess.run(
                 cmd,
@@ -230,7 +230,7 @@ class PipelineRunner:
 
             if result.stderr:
                 logger.warning(f"Pipeline stderr: {result.stderr}")
-                
+
             # Log directory contents after run
             if output_dir.exists():
                 logger.info(f"Output directory contents: {list(output_dir.iterdir())}")
@@ -250,17 +250,21 @@ class PipelineRunner:
             # Check if it's in the output directory with a different name
             possible_files = list(output_dir.glob("*.tsv"))
             if possible_files:
-                logger.warning(f"Output file not at expected location {output_file}, found: {possible_files}")
+                logger.warning(
+                    f"Output file not at expected location {output_file}, found: {possible_files}"
+                )
                 output_file = possible_files[0]  # Use the first TSV found
             else:
                 # Check if it's in a subdirectory
                 possible_files = list(output_dir.rglob("*.tsv"))
                 if possible_files:
-                    logger.warning(f"Output file not at expected location {output_file}, found in subdirs: {possible_files}")
+                    logger.warning(
+                        f"Output file not at expected location {output_file}, found in subdirs: {possible_files}"
+                    )
                     output_file = possible_files[0]
                 else:
                     raise FileNotFoundError(f"No TSV output found in {output_dir}")
-        
+
         outputs = {
             "tsv": output_file,
         }

@@ -60,21 +60,21 @@ class MockedToolsTestCase:
         def snpeff_side_effect(cmd, *args, **kwargs):
             # subprocess.run returns a CompletedProcess object
             from subprocess import CompletedProcess
-            
+
             # Check if this is a snpEff genes2bed command
             if isinstance(cmd, list) and "genes2bed" in cmd:
                 # Write BED content to the output file if stdout is redirected
                 if "stdout" in kwargs and hasattr(kwargs["stdout"], "write"):
                     kwargs["stdout"].write("chr17\t43044294\t43125483\tBRCA1\n")
                 return CompletedProcess(cmd, 0)
-            
+
             # For sortBed commands
             if isinstance(cmd, list) and "sortBed" in cmd:
                 # Just return success
                 if "stdout" in kwargs and hasattr(kwargs["stdout"], "write"):
                     kwargs["stdout"].write("chr17\t43044294\t43125483\tBRCA1\n")
                 return CompletedProcess(cmd, 0)
-            
+
             return CompletedProcess(cmd if isinstance(cmd, list) else [cmd], 0)
 
         # Mock SnpSift responses

@@ -133,6 +133,12 @@ class TestBasicPipeline:
             phenotype_value_column="Phenotype",
         )
 
+        # For parallel execution test, ensure config has phenotype settings
+        # since stages may run before configuration_loading completes
+        context.config["phenotype_file"] = str(test_data["phenotypes"])
+        context.config["phenotype_sample_column"] = "Sample"
+        context.config["phenotype_value_column"] = "Phenotype"
+
         # Create stages
         stages = [
             ConfigurationLoadingStage(),

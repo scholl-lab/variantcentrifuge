@@ -476,26 +476,28 @@ class VariantAnalysisStage(Stage):
             # The analyze_variants function may filter or reorder rows, so we need to match them properly
             # We'll use the key columns (CHROM, POS, REF, ALT) to merge back any missing columns
             key_cols = ["CHROM", "POS", "REF", "ALT"]
-            
+
             # Check if we have the key columns in both dataframes
-            if all(col in df.columns for col in key_cols) and all(col in analysis_df.columns for col in key_cols):
+            if all(col in df.columns for col in key_cols) and all(
+                col in analysis_df.columns for col in key_cols
+            ):
                 # Get columns from original df that are not in analysis_df
                 original_only_cols = [col for col in df.columns if col not in analysis_df.columns]
-                
+
                 if original_only_cols:
                     # Create a subset of original df with key columns and missing columns
                     merge_df = df[key_cols + original_only_cols].copy()
-                    
+
                     # Merge to get the missing columns
                     analysis_df = pd.merge(analysis_df, merge_df, on=key_cols, how="left")
-                    
+
                     # Reorder columns to put VAR_ID first if it exists
                     if "VAR_ID" in analysis_df.columns:
                         cols = analysis_df.columns.tolist()
                         cols.remove("VAR_ID")
                         cols = ["VAR_ID"] + cols
                         analysis_df = analysis_df[cols]
-                    
+
                     # Put Custom_Annotation after GT if both exist
                     if "Custom_Annotation" in analysis_df.columns and "GT" in analysis_df.columns:
                         cols = analysis_df.columns.tolist()
@@ -503,10 +505,12 @@ class VariantAnalysisStage(Stage):
                         gt_idx = cols.index("GT")
                         cols.insert(gt_idx + 1, "Custom_Annotation")
                         analysis_df = analysis_df[cols]
-                    
+
                     logger.debug(f"Preserved columns from original dataframe: {original_only_cols}")
             else:
-                logger.warning("Could not preserve columns from original dataframe - missing key columns for merging")
+                logger.warning(
+                    "Could not preserve columns from original dataframe - missing key columns for merging"
+                )
 
             context.current_dataframe = analysis_df
             logger.info(f"Variant analysis complete: {len(analysis_df)} variants analyzed")

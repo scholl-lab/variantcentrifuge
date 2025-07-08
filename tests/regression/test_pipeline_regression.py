@@ -24,7 +24,7 @@ TOOLS_AVAILABLE = all(shutil.which(tool) is not None for tool in REQUIRED_TOOLS)
 if not TOOLS_AVAILABLE:
     pytest.skip(
         f"Skipping regression tests: Missing required tools: {[t for t in REQUIRED_TOOLS if not shutil.which(t)]}",
-        allow_module_level=True
+        allow_module_level=True,
     )
 
 

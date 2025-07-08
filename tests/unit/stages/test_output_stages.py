@@ -171,7 +171,7 @@ class TestFinalFilteringStage:
         context.config["late_filtering"] = True
         context.config["filters"] = ["QUAL >= 30", "AF < 0.1"]
 
-        with patch("variantcentrifuge.filters.apply_filters") as mock_apply:
+        with patch("variantcentrifuge.filters.filter_dataframe_with_query") as mock_apply:
             mock_apply.return_value = context.current_dataframe[
                 (context.current_dataframe["QUAL"] >= 30) & (context.current_dataframe["AF"] < 0.1)
             ]
@@ -221,19 +221,27 @@ class TestPseudonymizationStage:
         ctx.mark_complete("sample_config_loading")
         return ctx
 
-    @patch("variantcentrifuge.pseudonymize.create_pseudonymization_mapping")
-    def test_sequential_pseudonymization(self, mock_create_mapping, context):
+    @patch("variantcentrifuge.stages.output_stages.create_pseudonymizer")
+    def test_sequential_pseudonymization(self, mock_create_pseudonymizer, context):
         """Test sequential pseudonymization schema."""
-        # Mock the mapping function
+        # Mock the pseudonymizer object
+        mock_pseudonymizer = Mock()
         mock_mapping = {"Sample1": "SAMPLE_001", "Sample2": "SAMPLE_002", "Sample3": "SAMPLE_003"}
-        mock_create_mapping.return_value = mock_mapping
+        mock_pseudonymizer.create_mapping.return_value = mock_mapping
+        mock_pseudonymizer.pseudonymize_dataframe.return_value = context.current_dataframe.rename(
+            columns={"Sample1": "SAMPLE_001", "Sample2": "SAMPLE_002", "Sample3": "SAMPLE_003"}
+        )
+        mock_create_pseudonymizer.return_value = mock_pseudonymizer
 
         stage = PseudonymizationStage()
         result = stage(context)
 
+        # Check pseudonymizer was created
+        mock_create_pseudonymizer.assert_called_once_with("sequential", prefix="SAMPLE")
+        
         # Check mapping was created
-        mock_create_mapping.assert_called_once_with(
-            ["Sample1", "Sample2", "Sample3"], "sequential", None
+        mock_pseudonymizer.create_mapping.assert_called_once_with(
+            ["Sample1", "Sample2", "Sample3"], {}
         )
 
         # Check DataFrame columns were renamed
@@ -243,14 +251,18 @@ class TestPseudonymizationStage:
         assert "Sample1" not in result.current_dataframe.columns
 
         # Check context updated
-        assert result.pseudonymization_mapping == mock_mapping
+        assert result.config["pseudonymization_mapping"] == mock_mapping
 
     @patch("variantcentrifuge.stages.output_stages.json.dump")
-    @patch("variantcentrifuge.pseudonymize.create_pseudonymization_mapping")
-    def test_mapping_file_creation(self, mock_create_mapping, mock_json_dump, context):
+    @patch("variantcentrifuge.stages.output_stages.create_pseudonymizer")
+    def test_mapping_file_creation(self, mock_create_pseudonymizer, mock_json_dump, context):
         """Test pseudonymization mapping file creation."""
+        # Mock the pseudonymizer object
+        mock_pseudonymizer = Mock()
         mock_mapping = {"Sample1": "SAMPLE_001"}
-        mock_create_mapping.return_value = mock_mapping
+        mock_pseudonymizer.create_mapping.return_value = mock_mapping
+        mock_pseudonymizer.pseudonymize_dataframe.return_value = context.current_dataframe
+        mock_create_pseudonymizer.return_value = mock_pseudonymizer
 
         stage = PseudonymizationStage()
         result = stage(context)
@@ -284,6 +296,7 @@ class TestTSVOutputStage:
             {"CHROM": ["chr1", "chr1"], "POS": [100, 200], "QUAL": [30, 40]}
         )
         ctx.mark_complete("dataframe_loading")
+        ctx.mark_complete("variant_identifier")  # TSVOutputStage depends on this
         return ctx
 
     def test_tsv_output(self, context):
@@ -318,11 +331,11 @@ class TestTSVOutputStage:
 
         stage = TSVOutputStage()
         result = stage(context)
-        
+
         # Should return context without error
         assert result is context
-        assert not hasattr(result, 'final_output_path')
-    
+        assert not hasattr(result, "final_output_path")
+
     def test_dependencies(self):
         """Test stage dependencies."""
         stage = TSVOutputStage()
