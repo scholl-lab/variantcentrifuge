@@ -156,15 +156,14 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
     # Always run variant analysis to add standard columns
     stages.append(VariantAnalysisStage())
 
+    # Add VAR_ID after variant analysis since it creates a new DataFrame
+    stages.append(VariantIdentifierStage())
+
     if not getattr(args, "no_stats", False):
         stages.append(StatisticsGenerationStage())
 
     if hasattr(args, "perform_gene_burden") and args.perform_gene_burden:
         stages.append(GeneBurdenAnalysisStage())
-
-    # Output stages - VariantIdentifierStage should run before TSVOutput
-    # so VAR_ID is included in the output
-    stages.append(VariantIdentifierStage())
 
     if getattr(args, "late_filtering", False) or getattr(args, "final_filter", None):
         stages.append(FinalFilteringStage())
