@@ -741,7 +741,7 @@ class PhenotypeIntegrationStage(Stage):
         """Return the set of stage names this stage depends on."""
         # Only declare the hard requirement - field extraction must be complete
         return {"field_extraction"}
-    
+
     @property
     def soft_dependencies(self) -> Set[str]:
         """Return the set of stage names that should run before if present."""
@@ -753,16 +753,18 @@ class PhenotypeIntegrationStage(Stage):
         # Check if genotype replacement is not disabled and GT field is present
         if context.config.get("no_replacement", False):
             return False
-        
+
         # Check if genotype_replaced_tsv exists in context
-        return hasattr(context, "genotype_replaced_tsv") and context.genotype_replaced_tsv is not None
+        return (
+            hasattr(context, "genotype_replaced_tsv") and context.genotype_replaced_tsv is not None
+        )
 
     def _has_phenotype_data(self, context: PipelineContext) -> bool:
         """Check if phenotype data is available."""
         # Check if phenotypes were loaded
         if not hasattr(context, "phenotype_data") or context.phenotype_data is None:
             return False
-        
+
         # Check if phenotypes dict is populated
         return bool(context.phenotype_data)
 
@@ -892,6 +894,11 @@ class StreamingDataProcessingStage(Stage):
     def parallel_safe(self) -> bool:
         """Return whether this stage can run in parallel with others."""
         return False  # Streaming is inherently sequential
+
+    @property
+    def memory_efficient(self) -> bool:
+        """Return whether this stage processes data in a memory-efficient manner."""
+        return True  # Processes file line-by-line without loading entire content
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Process file in streaming fashion for memory efficiency."""

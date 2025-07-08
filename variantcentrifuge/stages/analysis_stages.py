@@ -70,12 +70,19 @@ class DataFrameLoadingStage(Stage):
         else:
             # Fallback to context.data, but verify it's a TSV file
             input_file = context.data
-            if input_file and (str(input_file).endswith(".vcf.gz") or str(input_file).endswith(".vcf")):
+            if input_file and (
+                str(input_file).endswith(".vcf.gz") or str(input_file).endswith(".vcf")
+            ):
                 logger.warning(
                     f"DataFrameLoadingStage received VCF file instead of TSV: {input_file}"
                 )
                 # Try to find any TSV file in order of preference
-                for attr in ["extracted_tsv", "genotype_replaced_tsv", "phenotypes_added_tsv", "extra_columns_removed_tsv"]:
+                for attr in [
+                    "extracted_tsv",
+                    "genotype_replaced_tsv",
+                    "phenotypes_added_tsv",
+                    "extra_columns_removed_tsv",
+                ]:
                     if hasattr(context, attr):
                         tsv_file = getattr(context, attr)
                         if tsv_file and tsv_file.exists():
@@ -124,7 +131,7 @@ class DataFrameLoadingStage(Stage):
         if context.config.get("chunks"):
             return True
 
-        # Check file size (simplified - real implementation would check actual size)
+        # Check file size to determine if chunking is needed
         try:
             size_mb = file_path.stat().st_size / (1024 * 1024)
             threshold_mb = context.config.get("chunk_threshold_mb", 500)
@@ -604,7 +611,7 @@ class ChunkedAnalysisStage(Stage):
             return context
 
         chunk_size = context.config.get("chunks", 10000)
-        
+
         # Determine input file
         if context.extra_columns_removed_tsv:
             input_file = context.extra_columns_removed_tsv
@@ -624,34 +631,34 @@ class ChunkedAnalysisStage(Stage):
         from variantcentrifuge.helpers import find_column
         from variantcentrifuge.analyze_variants import analyze_variants
         from variantcentrifuge.scoring import score_dataframe
-        
+
         # Find gene column
         gene_col_name = None
-        with open(input_file, 'r') as f:
-            header = f.readline().strip().split('\t')
+        with open(input_file, "r") as f:
+            header = f.readline().strip().split("\t")
             for gene_col in ["GENE", "Gene", "gene", "SYMBOL", "ANN[*].GENE", "EFF[*].GENE"]:
                 if gene_col in header:
                     gene_col_name = gene_col
                     break
-        
+
         if not gene_col_name:
             logger.warning("No GENE column found, falling back to non-chunked processing")
             return context
-            
+
         # Sort file by gene column if not already sorted
         sorted_file = self._ensure_sorted_by_gene(input_file, gene_col_name, context)
-        
+
         # Process chunks
         output_chunks = []
         chunk_num = 0
-        
+
         for chunk_df in self._read_tsv_in_gene_chunks(sorted_file, gene_col_name, chunk_size):
             logger.info(f"Processing chunk {chunk_num + 1} with {len(chunk_df)} variants")
-            
+
             # Apply scoring if configured
             if context.scoring_config:
                 chunk_df = score_dataframe(chunk_df, context.scoring_config)
-            
+
             # Apply analysis
             if not context.config.get("skip_analysis", False):
                 analysis_cfg = {
@@ -665,141 +672,146 @@ class ChunkedAnalysisStage(Stage):
                     "aggregate_column": context.config.get("aggregate_column"),
                     "sample_values": context.config.get("sample_values", {}),
                 }
-                
+
                 chunk_df = analyze_variants(chunk_df, context.pedigree_data or {}, analysis_cfg)
-            
+
             output_chunks.append(chunk_df)
             chunk_num += 1
-        
+
         # Combine all chunks
         if output_chunks:
             logger.info(f"Combining {len(output_chunks)} processed chunks")
             context.current_dataframe = pd.concat(output_chunks, ignore_index=True)
             context.config["chunked_processing_complete"] = True
-            logger.info(f"Chunked processing completed: {len(context.current_dataframe)} total variants")
+            logger.info(
+                f"Chunked processing completed: {len(context.current_dataframe)} total variants"
+            )
         else:
             logger.warning("No chunks were processed")
 
         return context
-    
-    def _ensure_sorted_by_gene(self, input_file: Path, gene_col: str, context: PipelineContext) -> Path:
+
+    def _ensure_sorted_by_gene(
+        self, input_file: Path, gene_col: str, context: PipelineContext
+    ) -> Path:
         """Ensure the TSV file is sorted by gene column."""
         import subprocess
         import tempfile
-        
+
         # Check if already sorted
         if context.config.get("assume_sorted", False):
             return input_file
-            
+
         sorted_file = context.workspace.intermediate / f"{input_file.stem}.sorted.tsv"
-        
+
         if sorted_file.exists():
             logger.info(f"Using existing sorted file: {sorted_file}")
             return sorted_file
-            
+
         logger.info(f"Sorting {input_file} by {gene_col} column")
-        
+
         # Find column index (1-based for sort command)
-        with open(input_file, 'r') as f:
-            header = f.readline().strip().split('\t')
+        with open(input_file, "r") as f:
+            header = f.readline().strip().split("\t")
             try:
                 col_idx = header.index(gene_col) + 1  # 1-based index
             except ValueError:
                 logger.error(f"Column {gene_col} not found in header")
                 return input_file
-        
+
         # Use system sort for memory efficiency
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as tmp:
             # Write header to temp file
-            with open(input_file, 'r') as f:
+            with open(input_file, "r") as f:
                 tmp.write(f.readline())
             tmp_path = tmp.name
-        
+
         # Sort data (skip header)
         sort_cmd = [
             "sort",
-            "-t", "\t",  # Tab delimiter
-            "-k", str(col_idx),  # Sort by gene column
+            "-t",
+            "\t",  # Tab delimiter
+            "-k",
+            str(col_idx),  # Sort by gene column
             "--stable",  # Stable sort
-            "-T", str(context.workspace.temp),  # Use temp directory
+            "-T",
+            str(context.workspace.temp),  # Use temp directory
         ]
-        
+
         memory_limit = context.config.get("sort_memory_limit", "1G")
         if memory_limit:
             sort_cmd.extend(["-S", memory_limit])
-        
+
         # Sort command: tail -n +2 input | sort ... >> tmp_file
-        with open(tmp_path, 'a') as out_f:
+        with open(tmp_path, "a") as out_f:
             tail_proc = subprocess.Popen(
-                ["tail", "-n", "+2", str(input_file)],
-                stdout=subprocess.PIPE
+                ["tail", "-n", "+2", str(input_file)], stdout=subprocess.PIPE
             )
-            sort_proc = subprocess.Popen(
-                sort_cmd,
-                stdin=tail_proc.stdout,
-                stdout=out_f
-            )
+            sort_proc = subprocess.Popen(sort_cmd, stdin=tail_proc.stdout, stdout=out_f)
             tail_proc.stdout.close()
             sort_proc.wait()
-        
+
         # Move temp file to final location
         import shutil
+
         shutil.move(tmp_path, sorted_file)
-        
+
         logger.info(f"Sorting complete: {sorted_file}")
         return sorted_file
-    
+
     def _read_tsv_in_gene_chunks(self, filepath: Path, gene_column: str, chunksize: int):
         """Read TSV file in gene-aware chunks."""
         import pandas as pd
-        
-        logger.info(f"Reading {filepath} in gene-aware chunks (column: {gene_column}, size: {chunksize})")
-        
+
+        logger.info(
+            f"Reading {filepath} in gene-aware chunks (column: {gene_column}, size: {chunksize})"
+        )
+
         # Create reader for chunked reading
         reader = pd.read_csv(
             filepath,
-            sep='\t',
+            sep="\t",
             chunksize=chunksize,
             low_memory=False,
             dtype=str,  # Read all as strings to preserve data
         )
-        
+
         gene_buffer = pd.DataFrame()
         chunks_yielded = 0
-        
+
         for chunk in reader:
             # Combine with buffer
             if gene_buffer.empty:
                 gene_buffer = chunk
             else:
                 gene_buffer = pd.concat([gene_buffer, chunk], ignore_index=True)
-            
+
             # Check buffer size
             if len(gene_buffer) > chunksize * 10:
                 logger.warning(
                     f"Gene buffer has grown to {len(gene_buffer)} rows. "
                     f"This may indicate a gene with too many variants or unsorted data."
                 )
-            
+
             # Find gene boundaries
             if len(gene_buffer) >= chunksize:
                 # Find where genes change
                 gene_values = gene_buffer[gene_column].values
                 gene_change_indices = [0]
                 current_gene = gene_values[0]
-                
+
                 for i in range(1, len(gene_values)):
                     if gene_values[i] != current_gene:
                         gene_change_indices.append(i)
                         current_gene = gene_values[i]
-                
+
                 # Find split point after chunksize
                 split_index = None
                 for idx in gene_change_indices:
                     if idx >= chunksize:
                         split_index = idx
                         break
-                
+
                 if split_index is None:
                     # All rows belong to same gene or last gene extends beyond chunksize
                     # Keep accumulating unless we're at the last chunk
@@ -809,15 +821,15 @@ class ChunkedAnalysisStage(Stage):
                     yield_df = gene_buffer.iloc[:split_index].copy()
                     yield yield_df
                     chunks_yielded += 1
-                    
+
                     # Keep remaining for next iteration
                     gene_buffer = gene_buffer.iloc[split_index:].reset_index(drop=True)
-        
+
         # Yield any remaining data
         if not gene_buffer.empty:
             yield gene_buffer
             chunks_yielded += 1
-        
+
         logger.info(f"Completed reading {chunks_yielded} gene-aware chunks")
 
 
@@ -863,7 +875,7 @@ class ParallelAnalysisOrchestrator(Stage):
             return context
 
         gene_column = context.config.get("gene_column", "GENE")
-        
+
         # Find the gene column if not specified
         if gene_column not in df.columns:
             for col in ["GENE", "Gene", "gene", "SYMBOL", "ANN[*].GENE", "EFF[*].GENE"]:
@@ -873,13 +885,11 @@ class ParallelAnalysisOrchestrator(Stage):
             else:
                 logger.warning("No gene column found, cannot perform parallel analysis by gene")
                 return context
-        
+
         unique_genes = df[gene_column].unique()
         num_genes = len(unique_genes)
 
-        logger.info(
-            f"Running parallel analysis for {num_genes} genes using {threads} threads"
-        )
+        logger.info(f"Running parallel analysis for {num_genes} genes using {threads} threads")
 
         # Import required modules
         from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -887,10 +897,10 @@ class ParallelAnalysisOrchestrator(Stage):
         from variantcentrifuge.scoring import score_dataframe
         import pickle
         import tempfile
-        
+
         # Split DataFrame by gene
         gene_groups = df.groupby(gene_column)
-        
+
         # Prepare analysis configuration
         analysis_cfg = {
             "add_variant_id": context.config.get("add_variant_id", True),
@@ -903,11 +913,11 @@ class ParallelAnalysisOrchestrator(Stage):
             "aggregate_column": context.config.get("aggregate_column"),
             "sample_values": context.config.get("sample_values", {}),
         }
-        
+
         # Track successful and failed genes
         successful_results = []
         failed_genes = []
-        
+
         # Process genes in parallel
         with ProcessPoolExecutor(max_workers=threads) as executor:
             # Submit tasks
@@ -920,10 +930,10 @@ class ParallelAnalysisOrchestrator(Stage):
                     context.pedigree_data,
                     context.scoring_config,
                     analysis_cfg,
-                    context.config.get("skip_analysis", False)
+                    context.config.get("skip_analysis", False),
                 )
                 futures[future] = gene_name
-            
+
             # Process results as they complete
             try:
                 for future in as_completed(futures):
@@ -937,19 +947,21 @@ class ParallelAnalysisOrchestrator(Stage):
                         logger.error(f"Failed to process gene {gene_name}: {str(e)}")
                         failed_genes.append(gene_name)
                         # Don't cancel other tasks, continue processing
-                        
+
             except KeyboardInterrupt:
                 logger.warning("Parallel processing interrupted by user")
                 # Cancel remaining futures
                 for future in futures:
                     future.cancel()
                 raise
-        
+
         # Merge results
         if successful_results:
-            logger.info(f"Merging results from {len(successful_results)} successfully processed genes")
+            logger.info(
+                f"Merging results from {len(successful_results)} successfully processed genes"
+            )
             context.current_dataframe = pd.concat(successful_results, ignore_index=True)
-            
+
             # Restore original column order
             original_columns = df.columns.tolist()
             current_columns = context.current_dataframe.columns.tolist()
@@ -959,18 +971,22 @@ class ParallelAnalysisOrchestrator(Stage):
             # Only reorder columns that exist in the result
             ordered_columns = [col for col in ordered_columns if col in current_columns]
             context.current_dataframe = context.current_dataframe[ordered_columns]
-            
+
             if failed_genes:
-                logger.warning(f"Failed to process {len(failed_genes)} genes: {', '.join(failed_genes[:10])}")
+                logger.warning(
+                    f"Failed to process {len(failed_genes)} genes: {', '.join(failed_genes[:10])}"
+                )
                 if len(failed_genes) > 10:
                     logger.warning(f"... and {len(failed_genes) - 10} more")
         else:
             logger.error("No genes were successfully processed")
             context.current_dataframe = df  # Keep original data
 
-        logger.info(f"Parallel analysis completed: {len(successful_results)}/{num_genes} genes processed")
+        logger.info(
+            f"Parallel analysis completed: {len(successful_results)}/{num_genes} genes processed"
+        )
         return context
-    
+
     @staticmethod
     def _process_gene_group(
         gene_name: str,
@@ -978,34 +994,31 @@ class ParallelAnalysisOrchestrator(Stage):
         pedigree_data: Optional[Dict],
         scoring_config: Optional[Dict],
         analysis_cfg: Dict,
-        skip_analysis: bool
+        skip_analysis: bool,
     ) -> pd.DataFrame:
         """Process a single gene's variants (runs in worker process)."""
         import pandas as pd
         from variantcentrifuge.analyze_variants import analyze_variants
         from variantcentrifuge.scoring import score_dataframe
-        
+
         # Make a copy to avoid modifying the original
         result_df = gene_df.copy()
-        
+
         try:
             # Apply scoring if configured
             if scoring_config:
                 result_df = score_dataframe(result_df, scoring_config)
-            
+
             # Apply analysis if not skipped
             if not skip_analysis:
-                result_df = analyze_variants(
-                    result_df, 
-                    pedigree_data or {}, 
-                    analysis_cfg
-                )
-            
+                result_df = analyze_variants(result_df, pedigree_data or {}, analysis_cfg)
+
             return result_df
-            
+
         except Exception as e:
             # Log error and re-raise
             import logging
+
             logger = logging.getLogger(__name__)
             logger.error(f"Error processing gene {gene_name}: {str(e)}")
             raise

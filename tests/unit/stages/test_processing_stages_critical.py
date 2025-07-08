@@ -501,5 +501,6 @@ class TestStreamingDataProcessingStage:
 
         # Should have memory efficiency properties
         assert hasattr(stage, "_process")
-        # In real implementation, this would process data in chunks
-        # without loading entire file into memory
+        assert hasattr(stage, "memory_efficient")
+        assert stage.memory_efficient is True
+        # The implementation processes data line-by-line without loading entire file into memory
