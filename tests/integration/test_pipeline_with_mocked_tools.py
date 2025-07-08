@@ -461,17 +461,44 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
         """Test that bcftools prefilter is correctly applied during extraction."""
         args = Namespace(
             gene_name="BRCA1",
+            gene_file=None,
             vcf_file=temp_files["vcf"],
             output_file=temp_files["output"],
+            output_dir=str(temp_files["tmpdir"]),
             bcftools_prefilter='FILTER="PASS" & INFO/AC[0] < 10',
             preset=None,
+            filter=None,
             filters=None,
+            late_filtering=False,
+            final_filter=None,
+            fields_to_extract=["CHROM", "POS", "REF", "ALT", "QUAL"],
             extract=["CHROM", "POS", "REF", "ALT", "QUAL"],
             threads=1,
             quiet=True,
+            log_level="INFO",
+            reference="GRCh37",
             config=None,
+            no_stats=True,
             xlsx=False,
             html_report=False,
+            phenotype_file=None,
+            scoring_config_path=None,
+            ped_file=None,
+            calculate_inheritance=False,
+            annotate_bed=None,
+            annotate_gene_list=None,
+            annotate_json_genes=None,
+            case_samples=None,
+            control_samples=None,
+            case_samples_file=None,
+            control_samples_file=None,
+            case_phenotypes=None,
+            control_phenotypes=None,
+            case_phenotypes_file=None,
+            control_phenotypes_file=None,
+            pseudonymize=False,
+            use_new_pipeline=True,
+            start_time=None,
         )
 
         # Track bcftools calls
@@ -493,7 +520,7 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
             "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
         ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
             "variantcentrifuge.stages.output_stages.pd.DataFrame.to_csv"
-        ):
+        ), patch("variantcentrifuge.helpers.get_vcf_samples", return_value=set()):
             # Run pipeline
             run_refactored_pipeline(args)
 
@@ -516,17 +543,44 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
         """Test bcftools prefilter with complex expression."""
         args = Namespace(
             gene_name="BRCA1",
+            gene_file=None,
             vcf_file=temp_files["vcf"],
             output_file=temp_files["output"],
+            output_dir=str(temp_files["tmpdir"]),
             bcftools_prefilter='(QUAL >= 30) & (FORMAT/DP[*] >= 10) & (INFO/AC[0] < 5)',
             preset=None,
+            filter=None,
             filters=None,
+            late_filtering=False,
+            final_filter=None,
+            fields_to_extract=["CHROM", "POS", "REF", "ALT", "QUAL"],
             extract=["CHROM", "POS", "REF", "ALT", "QUAL"],
             threads=1,
             quiet=True,
+            log_level="INFO",
+            reference="GRCh37",
             config=None,
+            no_stats=True,
             xlsx=False,
             html_report=False,
+            phenotype_file=None,
+            scoring_config_path=None,
+            ped_file=None,
+            calculate_inheritance=False,
+            annotate_bed=None,
+            annotate_gene_list=None,
+            annotate_json_genes=None,
+            case_samples=None,
+            control_samples=None,
+            case_samples_file=None,
+            control_samples_file=None,
+            case_phenotypes=None,
+            control_phenotypes=None,
+            case_phenotypes_file=None,
+            control_phenotypes_file=None,
+            pseudonymize=False,
+            use_new_pipeline=True,
+            start_time=None,
         )
 
         # Track bcftools calls
@@ -547,7 +601,7 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
             "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
         ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
             "variantcentrifuge.stages.output_stages.pd.DataFrame.to_csv"
-        ):
+        ), patch("variantcentrifuge.helpers.get_vcf_samples", return_value=set()):
             # Run pipeline
             run_refactored_pipeline(args)
 
