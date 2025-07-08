@@ -274,8 +274,8 @@ def main():
 
     parser.add_argument(
         "--output-dir",
-        default="baseline_outputs",
-        help="Directory for baseline outputs (default: baseline_outputs)",
+        default="tests/regression/baseline_outputs",
+        help="Directory for baseline outputs (default: tests/regression/baseline_outputs)",
     )
 
     parser.add_argument(
