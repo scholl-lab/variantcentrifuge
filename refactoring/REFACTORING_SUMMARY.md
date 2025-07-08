@@ -226,6 +226,7 @@ The following documentation files were created during the refactoring process an
    - Moved baseline_outputs/ to tests/regression/baseline_outputs/
    - Created test_baseline_comparison.py to use baseline outputs
    - Removed temporary import_updates_summary.txt file
+   - Removed redundant test_files/ directory (superseded by tests/fixtures/)
    - All test infrastructure now properly organized
 
 ---
