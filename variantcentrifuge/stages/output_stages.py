@@ -378,8 +378,10 @@ class TSVOutputStage(Stage):
             # Output already written during chunked processing
             output_file = context.config.get("chunked_output_file")
             if output_file:
-                context.final_output_path = Path(output_file)
-                logger.info(f"Chunked processing output: {output_file}")
+                # Ensure the path is within the output directory
+                output_filename = Path(output_file).name
+                context.final_output_path = context.workspace.output_dir / output_filename
+                logger.info(f"Chunked processing output: {context.final_output_path}")
             return context
 
         if df is None:
@@ -399,9 +401,10 @@ class TSVOutputStage(Stage):
         logger.debug(f"TSVOutputStage - output_file from config: {output_file_config}")
 
         if output_file_config:
-            # Use specified path
-            output_path = Path(output_file_config)
-            logger.debug(f"Using specified output path: {output_path}")
+            # Use specified filename but place it in the output directory
+            output_filename = Path(output_file_config).name
+            output_path = context.workspace.output_dir / output_filename
+            logger.debug(f"Using specified filename in output dir: {output_path}")
         else:
             # Generate default output path
             output_path = context.workspace.get_output_path("", ".tsv")
