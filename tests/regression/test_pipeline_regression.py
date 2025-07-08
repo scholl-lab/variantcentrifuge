@@ -14,7 +14,7 @@ import pytest
 
 from variantcentrifuge.cli import parse_args
 from variantcentrifuge.config import load_config
-from variantcentrifuge.pipeline_core import run_pipeline
+from variantcentrifuge.pipeline import run_pipeline
 
 
 def compare_tsv_files(file1: Path, file2: Path, ignore_columns: List[str] = None) -> bool:
@@ -62,7 +62,7 @@ class TestPipelineRegression:
     @pytest.fixture
     def test_data_dir(self):
         """Path to test data directory."""
-        return Path(__file__).parent.parent.parent / "test_data"
+        return Path(__file__).parent / "data"
 
     @pytest.fixture
     def small_vcf(self, test_data_dir):
@@ -148,7 +148,7 @@ class TestPipelineRegression:
             str(small_vcf),
             "--gene-name",
             "BRCA1",
-            "--extract",
+            "--fields",
             "CHROM,POS,REF,ALT,QUAL",
         ]
 
@@ -163,7 +163,7 @@ class TestPipelineRegression:
             str(small_vcf),
             "--gene-name",
             "BRCA1",
-            "--extract",
+            "--fields",
             "CHROM,POS,REF,ALT,QUAL,ANN[*].GENE",
             "--filter",
             "QUAL >= 30",
@@ -180,7 +180,7 @@ class TestPipelineRegression:
             str(small_vcf),
             "--gene-name",
             "BRCA1",
-            "--extract",
+            "--fields",
             "CHROM,POS,REF,ALT,QUAL,GEN[*].GT",
             "--replace-genotypes",
         ]
@@ -196,7 +196,7 @@ class TestPipelineRegression:
             str(small_vcf),
             "--gene-name",
             "BRCA1,BRCA2,TP53",
-            "--extract",
+            "--fields",
             "CHROM,POS,REF,ALT,QUAL",
             "--threads",
             "4",
@@ -216,7 +216,7 @@ class TestPipelineRegression:
             "BRCA1",
             "--preset",
             preset,
-            "--extract",
+            "--fields",
             "CHROM,POS,REF,ALT,QUAL,ANN[*].IMPACT",
         ]
 
