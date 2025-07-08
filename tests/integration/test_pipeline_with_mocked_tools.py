@@ -439,3 +439,129 @@ class TestParallelProcessing(MockedToolsTestCase):
 
         # With multiple threads, should use parallel extraction
         assert "parallel_variant_extraction" in stage_names
+
+
+class TestBCFToolsPrefilter(MockedToolsTestCase):
+    """Test bcftools prefilter functionality in the pipeline."""
+
+    @pytest.fixture
+    def temp_files(self):
+        """Create temporary files for testing."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            vcf_file = tmp_path / "test.vcf"
+            vcf_file.write_text(
+                "##fileformat=VCFv4.2\n"
+                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+                "chr17\t43044295\t.\tA\tG\t30\tPASS\tAC=2\n"
+            )
+            yield {"vcf": str(vcf_file), "output": str(tmp_path / "output.tsv"), "tmpdir": tmp_path}
+
+    def test_bcftools_prefilter_applied(self, temp_files):
+        """Test that bcftools prefilter is correctly applied during extraction."""
+        args = Namespace(
+            gene_name="BRCA1",
+            vcf_file=temp_files["vcf"],
+            output_file=temp_files["output"],
+            bcftools_prefilter='FILTER="PASS" & INFO/AC[0] < 10',
+            preset=None,
+            filters=None,
+            extract=["CHROM", "POS", "REF", "ALT", "QUAL"],
+            threads=1,
+            quiet=True,
+            config=None,
+            xlsx=False,
+            html_report=False,
+        )
+
+        # Track bcftools calls
+        bcftools_calls = []
+
+        def track_bcftools_calls(cmd, *args, **kwargs):
+            bcftools_calls.append(cmd)
+            # Create expected output files
+            if "view" in cmd and "-o" in cmd:
+                output_idx = cmd.index("-o") + 1
+                output_file = cmd[output_idx]
+                Path(output_file).touch()
+            return Mock(returncode=0, stdout="")
+
+        self.mock_bcftools.side_effect = track_bcftools_calls
+
+        # Set up other mocks
+        with patch(
+            "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
+        ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
+            "variantcentrifuge.stages.output_stages.pd.DataFrame.to_csv"
+        ):
+            # Run pipeline
+            run_refactored_pipeline(args)
+
+        # Verify bcftools was called with the prefilter
+        view_calls = [call for call in bcftools_calls if "view" in call]
+        assert len(view_calls) > 0, "bcftools view should have been called"
+        
+        # Check that at least one view call has the prefilter
+        prefilter_found = False
+        for call in view_calls:
+            if "-i" in call:
+                idx = call.index("-i")
+                if idx + 1 < len(call) and 'FILTER="PASS"' in call[idx + 1]:
+                    prefilter_found = True
+                    break
+        
+        assert prefilter_found, "bcftools prefilter expression should have been applied"
+
+    def test_bcftools_prefilter_with_complex_expression(self, temp_files):
+        """Test bcftools prefilter with complex expression."""
+        args = Namespace(
+            gene_name="BRCA1",
+            vcf_file=temp_files["vcf"],
+            output_file=temp_files["output"],
+            bcftools_prefilter='(QUAL >= 30) & (FORMAT/DP[*] >= 10) & (INFO/AC[0] < 5)',
+            preset=None,
+            filters=None,
+            extract=["CHROM", "POS", "REF", "ALT", "QUAL"],
+            threads=1,
+            quiet=True,
+            config=None,
+            xlsx=False,
+            html_report=False,
+        )
+
+        # Track bcftools calls
+        bcftools_calls = []
+
+        def track_bcftools_calls(cmd, *args, **kwargs):
+            bcftools_calls.append(cmd)
+            # Create expected output files
+            if "view" in cmd and "-o" in cmd:
+                output_idx = cmd.index("-o") + 1
+                output_file = cmd[output_idx]
+                Path(output_file).touch()
+            return Mock(returncode=0, stdout="")
+
+        self.mock_bcftools.side_effect = track_bcftools_calls
+
+        with patch(
+            "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
+        ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
+            "variantcentrifuge.stages.output_stages.pd.DataFrame.to_csv"
+        ):
+            # Run pipeline
+            run_refactored_pipeline(args)
+
+        # Verify the complex expression was passed correctly
+        view_calls = [call for call in bcftools_calls if "view" in call]
+        complex_filter_found = False
+        
+        for call in view_calls:
+            if "-i" in call:
+                idx = call.index("-i")
+                if idx + 1 < len(call) and "(QUAL >= 30)" in call[idx + 1]:
+                    complex_filter_found = True
+                    assert "FORMAT/DP[*] >= 10" in call[idx + 1]
+                    assert "INFO/AC[0] < 5" in call[idx + 1]
+                    break
+        
+        assert complex_filter_found, "Complex bcftools filter expression should have been applied"

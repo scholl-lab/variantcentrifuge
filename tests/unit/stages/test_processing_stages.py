@@ -216,6 +216,48 @@ class TestParallelVariantExtractionStage:
         assert not stage.parallel_safe  # Manages own parallelism
         assert stage.estimated_runtime == 30.0
 
+    @patch("variantcentrifuge.stages.processing_stages.ProcessPoolExecutor")
+    @patch("variantcentrifuge.stages.processing_stages.run_command")
+    @patch("variantcentrifuge.stages.processing_stages.extract_variants")
+    @patch("variantcentrifuge.stages.processing_stages.split_bed_file")
+    def test_with_bcftools_prefilter(self, mock_split, mock_extract, mock_run, mock_executor, context):
+        """Test parallel extraction with bcftools prefilter."""
+        # Add bcftools prefilter to config
+        context.config["bcftools_prefilter"] = "FILTER=\"PASS\" & INFO/AC[0] < 10"
+        
+        # Setup mocks
+        mock_split.return_value = ["/tmp/chunk0.bed", "/tmp/chunk1.bed"]
+        
+        # Mock ProcessPoolExecutor
+        mock_executor_instance = Mock()
+        mock_executor.return_value.__enter__ = Mock(return_value=mock_executor_instance)
+        mock_executor.return_value.__exit__ = Mock(return_value=None)
+        
+        # Mock futures
+        future1 = Mock()
+        future1.result.return_value = None
+        future2 = Mock()
+        future2.result.return_value = None
+        mock_executor_instance.submit.side_effect = [future1, future2]
+        
+        with patch("variantcentrifuge.stages.processing_stages.shutil.move"):
+            with patch(
+                "variantcentrifuge.stages.processing_stages.as_completed",
+                return_value=[future1, future2],
+            ):
+                stage = ParallelVariantExtractionStage()
+                stage(context)
+        
+        # Verify extract_variants was called with bcftools_prefilter
+        assert mock_executor_instance.submit.call_count == 2
+        
+        # Check that extract_variants calls include bcftools_prefilter
+        for call in mock_executor_instance.submit.call_args_list:
+            # The third argument to submit is the cfg dictionary
+            cfg_arg = call[0][2]  # args[2] is the cfg parameter
+            assert "bcftools_prefilter" in cfg_arg
+            assert cfg_arg["bcftools_prefilter"] == "FILTER=\"PASS\" & INFO/AC[0] < 10"
+
 
 class TestFieldExtractionStage:
     """Test FieldExtractionStage."""

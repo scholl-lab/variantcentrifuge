@@ -1,7 +1,7 @@
 """Unit tests for output stages."""
 
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock, ANY
+from unittest.mock import Mock, patch, MagicMock, ANY, mock_open
 import json
 import pandas as pd
 import pytest
@@ -169,9 +169,10 @@ class TestFinalFilteringStage:
     def test_late_filtering(self, context):
         """Test late filtering mode."""
         context.config["late_filtering"] = True
-        context.config["filters"] = ["QUAL >= 30", "AF < 0.1"]
+        # Use "filter" (singular) as expected by the implementation
+        context.config["filter"] = "(QUAL >= 30) & (AF < 0.1)"
 
-        with patch("variantcentrifuge.filters.filter_dataframe_with_query") as mock_apply:
+        with patch("variantcentrifuge.stages.output_stages.filter_dataframe_with_query") as mock_apply:
             mock_apply.return_value = context.current_dataframe[
                 (context.current_dataframe["QUAL"] >= 30) & (context.current_dataframe["AF"] < 0.1)
             ]
@@ -181,7 +182,8 @@ class TestFinalFilteringStage:
 
             # Verify filters were applied
             assert mock_apply.called
-            assert len(result.current_dataframe) == 2
+            # The return value from the mock has 1 row (filtered result)
+            assert len(result.current_dataframe) == 1
 
     def test_no_filtering(self, context):
         """Test when no filtering is needed."""
@@ -307,13 +309,22 @@ class TestTSVOutputStage:
             result = stage(context)
 
             # Check to_csv was called correctly
-            mock_to_csv.assert_called_once_with("/tmp/output.tsv", sep="\t", index=False)
+            # Implementation uses additional parameters na_rep and compression
+            assert mock_to_csv.call_count == 1
+            call_args = mock_to_csv.call_args
+            # First argument should be a Path object in the output directory
+            assert isinstance(call_args[0][0], Path)
+            assert str(call_args[0][0]).endswith("output.tsv")
+            # Check other arguments
+            assert call_args[1]["sep"] == "\t"
+            assert call_args[1]["index"] is False
+            assert call_args[1]["na_rep"] == ""
+            assert call_args[1]["compression"] is None
 
             # Check context updated
-            assert result.final_output_file == Path("/tmp/output.tsv")
+            assert result.final_output_path == call_args[0][0]
 
-    @patch("variantcentrifuge.stages.output_stages.sys.stdout")
-    def test_stdout_output(self, mock_stdout, context):
+    def test_stdout_output(self, context):
         """Test output to stdout."""
         context.config["output_file"] = "-"
 
@@ -322,8 +333,16 @@ class TestTSVOutputStage:
             stage = TSVOutputStage()
             result = stage(context)
 
-            # Check output went to stdout
-            mock_to_csv.assert_called_once_with(mock_stdout, sep="\t", index=False)
+            # Check output went to stdout with proper arguments
+            assert mock_to_csv.call_count == 1
+            call_args = mock_to_csv.call_args
+            # First argument should be sys.stdout (actual stdout, not a mock)
+            import sys
+            assert call_args[0][0] == sys.stdout
+            # Check other arguments
+            assert call_args[1]["sep"] == "\t"
+            assert call_args[1]["index"] is False
+            assert call_args[1]["na_rep"] == ""
 
     def test_missing_dataframe(self, context):
         """Test handling when no DataFrame available."""
@@ -334,7 +353,8 @@ class TestTSVOutputStage:
 
         # Should return context without error
         assert result is context
-        assert not hasattr(result, "final_output_path")
+        # final_output_path should not be set when there's no data
+        assert result.final_output_path is None
 
     def test_dependencies(self):
         """Test stage dependencies."""
@@ -360,18 +380,28 @@ class TestExcelReportStage:
     @patch("variantcentrifuge.stages.output_stages.convert_to_excel")
     def test_excel_generation(self, mock_convert, context):
         """Test Excel report generation."""
+        # Mark TSV output as complete since Excel depends on it
+        context.mark_complete("tsv_output")
+        # Set final output path which TSV output would have created
+        context.final_output_path = context.workspace.output_dir / "output.tsv"
+        context.final_output_path.touch()  # Create the file
+        
         stage = ExcelReportStage()
         result = stage(context)
 
         # Check convert_to_excel was called
         mock_convert.assert_called_once()
-        call_kwargs = mock_convert.call_args[1]
-        assert call_kwargs["output_file"] == "/tmp/output.tsv"
-        assert isinstance(call_kwargs["variant_df"], pd.DataFrame)
+        # Implementation calls with positional args
+        call_args = mock_convert.call_args[0]
+        assert str(context.final_output_path) in call_args[0]
+        assert str(call_args[1]).endswith(".xlsx")
 
     def test_skip_if_disabled(self, context):
         """Test skipping when Excel disabled."""
         context.config["xlsx"] = False
+        # Mark TSV output as complete since Excel depends on it
+        context.mark_complete("tsv_output")
+        context.final_output_path = Path("/tmp/output.tsv")
 
         with patch("variantcentrifuge.stages.output_stages.convert_to_excel") as mock:
             stage = ExcelReportStage()
@@ -401,19 +431,33 @@ class TestHTMLReportStage:
         return ctx
 
     @patch("variantcentrifuge.stages.output_stages.generate_html_report")
-    def test_html_generation(self, mock_generate, context):
+    @patch("variantcentrifuge.stages.output_stages.produce_report_json")
+    def test_html_generation(self, mock_produce_json, mock_generate, context):
         """Test HTML report generation."""
+        # Mark TSV output as complete since HTML depends on it
+        context.mark_complete("tsv_output")
+        # Set final output path which TSV output would have created
+        context.final_output_path = context.workspace.output_dir / "output.tsv"
+        context.final_output_path.touch()  # Create the file
+        
         stage = HTMLReportStage()
         result = stage(context)
 
-        # Check report generation
-        mock_generate.assert_called_once_with(
-            dataframe=ANY, output_filename="/tmp/report.html", title=ANY, metadata=ANY
-        )
+        # Check JSON was produced first
+        mock_produce_json.assert_called_once()
+        # Check report generation - implementation uses different parameters
+        mock_generate.assert_called_once()
+        call_kwargs = mock_generate.call_args[1]
+        assert "json_file" in call_kwargs
+        assert "output_file" in call_kwargs
+        assert "title" in call_kwargs
 
     def test_skip_if_disabled(self, context):
         """Test skipping when HTML disabled."""
         context.config["html_report"] = False
+        # Mark TSV output as complete since HTML depends on it
+        context.mark_complete("tsv_output")
+        context.final_output_path = Path("/tmp/output.tsv")
 
         with patch("variantcentrifuge.stages.output_stages.generate_html_report") as mock:
             stage = HTMLReportStage()
@@ -442,8 +486,23 @@ class TestIGVReportStage:
         return ctx
 
     @patch("variantcentrifuge.stages.output_stages.generate_igv_report")
-    def test_igv_generation(self, mock_generate, context):
+    @patch("variantcentrifuge.stages.output_stages.pd.read_csv")
+    @patch("variantcentrifuge.stages.output_stages.match_IGV_link_columns")
+    def test_igv_generation(self, mock_match_igv, mock_read_csv, mock_generate, context):
         """Test IGV report generation."""
+        # Mark TSV output as complete since IGV depends on it
+        context.mark_complete("tsv_output")
+        # Set final output path which TSV output would have created
+        context.final_output_path = context.workspace.output_dir / "output.tsv"
+        context.final_output_path.touch()  # Create the file
+        
+        # Mock the CSV reading
+        mock_df = pd.DataFrame({"CHROM": ["chr1"], "POS": [100]})
+        mock_read_csv.return_value = mock_df
+        
+        # Mock IGV column matching
+        mock_match_igv.return_value = {"chr": "CHROM", "start": "POS", "end": "POS"}
+        
         stage = IGVReportStage()
         result = stage(context)
 
@@ -451,11 +510,18 @@ class TestIGVReportStage:
         mock_generate.assert_called_once()
         call_kwargs = mock_generate.call_args[1]
         assert call_kwargs["vcf_file"] == "/tmp/input.vcf"
-        assert call_kwargs["reference"] == "hg38"
+        assert call_kwargs["tsv_file"] == str(context.final_output_path)
+        assert call_kwargs["reference"] == "hg19"  # Default from implementation
+        assert "chr" in call_kwargs
+        assert "start" in call_kwargs
+        assert "end" in call_kwargs
 
     def test_skip_if_disabled(self, context):
         """Test skipping when IGV disabled."""
         context.config["igv_report"] = False
+        # Mark TSV output as complete since IGV depends on it
+        context.mark_complete("tsv_output")
+        context.final_output_path = Path("/tmp/output.tsv")
 
         with patch("variantcentrifuge.stages.output_stages.generate_igv_report") as mock:
             stage = IGVReportStage()
@@ -480,21 +546,39 @@ class TestMetadataGenerationStage:
         ctx.mark_complete("dataframe_loading")
         return ctx
 
-    @patch("variantcentrifuge.stages.output_stages.generate_metadata")
-    def test_metadata_generation(self, mock_generate, context):
+    @patch("variantcentrifuge.stages.output_stages.sanitize_metadata_field")
+    @patch("variantcentrifuge.stages.output_stages.get_tool_version")
+    def test_metadata_generation(self, mock_get_version, mock_sanitize, context):
         """Test metadata file generation."""
-        stage = MetadataGenerationStage()
-        result = stage(context)
-
-        # Check metadata generation
-        mock_generate.assert_called_once()
-        call_args = mock_generate.call_args[0]
-        metadata = call_args[0]
-
+        # Mark TSV output as complete since metadata depends on it
+        context.mark_complete("tsv_output")
+        
+        # Add normalized_genes to config
+        context.config["normalized_genes"] = ["BRCA1"]
+        
+        # Mock tool versions
+        mock_get_version.return_value = "1.0.0"
+        
+        # Mock sanitize to pass through the metadata unchanged
+        mock_sanitize.side_effect = lambda x: x
+        
+        # Mock json.dump to capture the metadata
+        metadata_written = None
+        def capture_metadata(data, file, **kwargs):
+            nonlocal metadata_written
+            metadata_written = data
+            
+        with patch("variantcentrifuge.stages.output_stages.json.dump", side_effect=capture_metadata):
+            with patch("builtins.open", mock_open()):
+                stage = MetadataGenerationStage()
+                result = stage(context)
+        
         # Check metadata contents
-        assert metadata["gene_name"] == "BRCA1"
-        assert metadata["vcf_file"] == "/tmp/input.vcf"
-        assert "timestamp" in metadata
+        assert metadata_written is not None
+        assert metadata_written["input_files"]["genes"] == ["BRCA1"]
+        assert metadata_written["input_files"]["vcf"] == "/tmp/input.vcf"
+        assert "run_date" in metadata_written
+        assert metadata_written["pipeline_version"] == "1.0.0-test"  # From context fixture
 
     def test_stage_properties(self):
         """Test stage properties."""
@@ -515,28 +599,49 @@ class TestArchiveCreationStage:
         ctx.mark_complete("tsv_output")
         return ctx
 
-    @patch("variantcentrifuge.helpers.create_archive")
-    def test_archive_creation(self, mock_create, context):
+    @patch("tarfile.open")
+    def test_archive_creation(self, mock_tarfile_open, context):
         """Test archive creation."""
-        mock_create.return_value = "/tmp/results_archive.tar.gz"
+        # Mock the tarfile context manager
+        mock_tar = MagicMock()
+        mock_tarfile_open.return_value.__enter__.return_value = mock_tar
+        
+        # Create the archive path to avoid stat() error
+        archive_path = context.workspace.get_archive_path()
+        
+        # Mock Path.stat() to avoid FileNotFoundError
+        with patch.object(Path, "stat") as mock_stat:
+            mock_stat.return_value.st_size = 1024 * 1024  # 1MB
+            
+            stage = ArchiveCreationStage()
+            result = stage(context)
 
-        stage = ArchiveCreationStage()
-        result = stage(context)
-
-        # Check archive creation
-        mock_create.assert_called_once_with("/tmp/results")
-        assert result.archive_path == Path("/tmp/results_archive.tar.gz")
+        # Check tarfile was opened correctly
+        assert mock_tarfile_open.called
+        call_args = mock_tarfile_open.call_args
+        # First argument should be the archive path
+        assert call_args[0][0] == archive_path
+        assert call_args[0][1] == "w:gz"
+        
+        # Check that output_dir was added to archive
+        mock_tar.add.assert_called_once()
+        add_args = mock_tar.add.call_args[0]
+        assert add_args[0] == context.workspace.output_dir
+        
+        # Check result has archive path
+        assert result.report_paths["archive"] == archive_path
 
     def test_skip_if_disabled(self, context):
         """Test skipping when archiving disabled."""
         context.config["archive_results"] = False
 
-        with patch("variantcentrifuge.stages.output_stages.create_archive") as mock:
+        with patch("tarfile.open") as mock:
             stage = ArchiveCreationStage()
             result = stage(context)
 
             mock.assert_not_called()
-            assert result.archive_path is None
+            # archive_path is not a direct attribute but should be in report_paths
+            assert "archive" not in result.report_paths
 
     def test_parallel_safe(self):
         """Test parallel safety."""

@@ -66,6 +66,7 @@ class TestPipelineRunner:
         context.mark_complete = Mock()
         context.completed_stages = set()
         context.checkpoint_state = None
+        context.stage_results = {}
 
         # Make mark_complete update completed_stages
         def mark_complete_side_effect(name):
