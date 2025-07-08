@@ -431,8 +431,9 @@ class VariantAnalysisStage(Stage):
     @property
     def soft_dependencies(self) -> Set[str]:
         """Return the set of stage names that should run before if present."""
-        # Run after variant_identifier to preserve VAR_ID column
-        return {"variant_identifier"}
+        # Note: variant_identifier should run AFTER this stage, not before,
+        # because analyze_variants creates a new DataFrame
+        return set()
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Run variant analysis."""

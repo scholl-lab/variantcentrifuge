@@ -45,14 +45,14 @@ class TestVariantIdentifierStage:
         stage = VariantIdentifierStage()
         result = stage(context)
 
-        # Check that Variant_ID column was added
-        assert "Variant_ID" in result.current_dataframe.columns
+        # Check that VAR_ID column was added
+        assert "VAR_ID" in result.current_dataframe.columns
 
         # Check format of variant IDs
-        variant_ids = result.current_dataframe["Variant_ID"].tolist()
-        assert variant_ids[0] == "chr1:100:A>T"
-        assert variant_ids[1] == "chr1:200:G>C"
-        assert variant_ids[2] == "chr2:300:C>G"
+        variant_ids = result.current_dataframe["VAR_ID"].tolist()
+        assert variant_ids[0].startswith("var_0001_")
+        assert variant_ids[1].startswith("var_0002_")
+        assert variant_ids[2].startswith("var_0003_")
 
     def test_dependencies(self):
         """Test stage dependencies."""
@@ -62,7 +62,7 @@ class TestVariantIdentifierStage:
     def test_parallel_safe(self):
         """Test parallel safety."""
         stage = VariantIdentifierStage()
-        assert stage.parallel_safe is True
+        assert stage.parallel_safe is False  # Must run in main process to modify DataFrame
 
     def test_streaming_mode(self, tmp_path):
         """Test streaming mode for large files."""
@@ -83,6 +83,7 @@ class TestVariantIdentifierStage:
         ctx.current_dataframe = None  # No DataFrame in streaming mode
         ctx.workspace = Mock()
         ctx.workspace.get_intermediate_path = lambda x: tmp_path / x
+        ctx.mark_complete("dataframe_loading")  # Mark required dependency
 
         # Run stage
         stage = VariantIdentifierStage()
@@ -96,10 +97,11 @@ class TestVariantIdentifierStage:
         # Verify content
         with gzip.open(output_file, "rt") as f:
             lines = f.readlines()
-            assert lines[0].strip() == "Variant_ID\tCHROM\tPOS\tREF\tALT\tQUAL"
-            assert lines[1].strip() == "chr1:100:A>T\tchr1\t100\tA\tT\t30"
-            assert lines[2].strip() == "chr1:200:G>C\tchr1\t200\tG\tC\t40"
-            assert lines[3].strip() == "chr2:300:C>G\tchr2\t300\tC\tG\t50"
+            assert lines[0].strip() == "VAR_ID\tCHROM\tPOS\tREF\tALT\tQUAL"
+            # Check ID format: var_XXXX_yyyy where XXXX is sequential and yyyy is hash
+            assert lines[1].startswith("var_0001_") and "\tchr1\t100\tA\tT\t30" in lines[1]
+            assert lines[2].startswith("var_0002_") and "\tchr1\t200\tG\tC\t40" in lines[2]
+            assert lines[3].startswith("var_0003_") and "\tchr2\t300\tC\tG\t50" in lines[3]
 
     def test_streaming_mode_missing_key_fields(self, tmp_path):
         """Test streaming mode when key fields are missing."""
@@ -119,6 +121,7 @@ class TestVariantIdentifierStage:
         ctx.current_dataframe = None
         ctx.workspace = Mock()
         ctx.workspace.get_intermediate_path = lambda x: tmp_path / x
+        ctx.mark_complete("dataframe_loading")
 
         # Run stage
         stage = VariantIdentifierStage()
@@ -128,9 +131,9 @@ class TestVariantIdentifierStage:
         output_file = tmp_path / "with_variant_ids.tsv.gz"
         with gzip.open(output_file, "rt") as f:
             lines = f.readlines()
-            assert lines[0].strip() == "Variant_ID\tGene\tImpact\tScore"
-            assert lines[1].strip() == "VAR_000000\tBRCA1\tHIGH\t0.95"
-            assert lines[2].strip() == "VAR_000001\tTP53\tMODERATE\t0.80"
+            assert lines[0].strip() == "VAR_ID\tGene\tImpact\tScore"
+            assert lines[1].startswith("var_0001_0000\t") and "\tBRCA1\tHIGH\t0.95" in lines[1]
+            assert lines[2].startswith("var_0002_0000\t") and "\tTP53\tMODERATE\t0.80" in lines[2]
 
 
 class TestFinalFilteringStage:
