@@ -71,7 +71,7 @@ class TestInheritanceAnalysisStage:
             mock_analyze.return_value = mock_df
             
             # Mock process_inheritance_output
-            with patch("variantcentrifuge.stages.analysis_stages.process_inheritance_output") as mock_process:
+            with patch("variantcentrifuge.inheritance.analyzer.process_inheritance_output") as mock_process:
                 mock_process.return_value = mock_df
                 
                 result = stage(context)
@@ -118,7 +118,7 @@ class TestInheritanceAnalysisStage:
             mock_df["Inheritance_Details"] = "{}"
             mock_analyze.return_value = mock_df
             
-            with patch("variantcentrifuge.stages.analysis_stages.process_inheritance_output") as mock_process:
+            with patch("variantcentrifuge.inheritance.analyzer.process_inheritance_output") as mock_process:
                 mock_process.return_value = mock_df
                 
                 result = stage(context)
@@ -142,7 +142,7 @@ class TestInheritanceAnalysisStage:
             mock_df["Inheritance_Details"] = "{}"
             mock_analyze.return_value = mock_df
             
-            with patch("variantcentrifuge.stages.analysis_stages.process_inheritance_output") as mock_process:
+            with patch("variantcentrifuge.inheritance.analyzer.process_inheritance_output") as mock_process:
                 mock_process.return_value = mock_df
                 
                 result = stage(context)
@@ -167,7 +167,7 @@ class TestInheritanceAnalysisStage:
             mock_df["Inheritance_Details"] = "{}"
             mock_analyze.return_value = mock_df
             
-            with patch("variantcentrifuge.stages.analysis_stages.process_inheritance_output") as mock_process:
+            with patch("variantcentrifuge.inheritance.analyzer.process_inheritance_output") as mock_process:
                 mock_process.return_value = mock_df
                 
                 result = stage(context)
@@ -202,7 +202,7 @@ class TestInheritanceAnalysisStage:
             mock_df["Inheritance_Details"] = []
             mock_analyze.return_value = mock_df
             
-            with patch("variantcentrifuge.stages.analysis_stages.process_inheritance_output") as mock_process:
+            with patch("variantcentrifuge.inheritance.analyzer.process_inheritance_output") as mock_process:
                 mock_process.return_value = mock_df
                 
                 result = stage(context)
@@ -223,7 +223,7 @@ class TestInheritanceAnalysisStage:
             mock_df["Inheritance_Details"] = "{}"
             mock_analyze.return_value = mock_df
             
-            with patch("variantcentrifuge.stages.analysis_stages.process_inheritance_output") as mock_process:
+            with patch("variantcentrifuge.inheritance.analyzer.process_inheritance_output") as mock_process:
                 mock_process.return_value = mock_df
                 
                 result = stage(context)
