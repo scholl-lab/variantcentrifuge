@@ -13,7 +13,6 @@ import pytest
 from argparse import Namespace
 
 from variantcentrifuge.pipeline_refactored import run_refactored_pipeline, build_pipeline_stages
-from variantcentrifuge.pipeline_core import PipelineContext
 
 
 class TestFinalFilterWithScoring:

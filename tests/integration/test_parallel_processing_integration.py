@@ -4,7 +4,6 @@ This test verifies that the ParallelCompleteProcessingStage correctly
 processes data in parallel and produces the same results as sequential processing.
 """
 
-import json
 import tempfile
 from argparse import Namespace
 from pathlib import Path

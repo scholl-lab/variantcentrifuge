@@ -4,7 +4,6 @@ This test verifies that inheritance analysis correctly detects patterns
 including compound heterozygous variants.
 """
 
-import json
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch

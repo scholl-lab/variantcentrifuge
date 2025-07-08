@@ -1174,7 +1174,7 @@ class ParallelCompleteProcessingStage(Stage):
     ) -> Path:
         """Process a single BED chunk through complete pipeline."""
         import time
-        
+
         chunk_base = f"{base_name}.chunk_{chunk_index}"
 
         # Step 1: Extract variants
@@ -1259,6 +1259,7 @@ class ParallelCompleteProcessingStage(Stage):
 
         # Use a manager to share the subtask times dict across processes
         from multiprocessing import Manager
+
         manager = Manager()
         shared_subtask_times = manager.dict()
 
@@ -1296,7 +1297,7 @@ class ParallelCompleteProcessingStage(Stage):
             extraction_times = []
             filtering_times = []
             field_extraction_times = []
-            
+
             for key, value in shared_subtask_times.items():
                 if "_extraction" in key and "_field_" not in key:
                     extraction_times.append(value)
@@ -1304,14 +1305,20 @@ class ParallelCompleteProcessingStage(Stage):
                     filtering_times.append(value)
                 elif "_field_extraction" in key:
                     field_extraction_times.append(value)
-            
+
             # Record aggregated times
             if extraction_times:
-                self._subtask_times["variant_extraction"] = sum(extraction_times) / len(extraction_times)
+                self._subtask_times["variant_extraction"] = sum(extraction_times) / len(
+                    extraction_times
+                )
             if filtering_times:
-                self._subtask_times["snpsift_filtering"] = sum(filtering_times) / len(filtering_times)
+                self._subtask_times["snpsift_filtering"] = sum(filtering_times) / len(
+                    filtering_times
+                )
             if field_extraction_times:
-                self._subtask_times["field_extraction"] = sum(field_extraction_times) / len(field_extraction_times)
+                self._subtask_times["field_extraction"] = sum(field_extraction_times) / len(
+                    field_extraction_times
+                )
 
         return chunk_tsvs
 

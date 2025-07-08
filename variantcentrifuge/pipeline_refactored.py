@@ -27,7 +27,6 @@ from .stages.setup_stages import (
 from .stages.processing_stages import (
     GeneBedCreationStage,
     VariantExtractionStage,
-    ParallelVariantExtractionStage,
     ParallelCompleteProcessingStage,
     MultiAllelicSplitStage,
     SnpSiftFilterStage,
@@ -192,7 +191,8 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
     final_filter = getattr(args, "final_filter", None) or config.get("final_filter", None)
 
     logger.debug(
-        f"Checking for final filtering - late_filtering: {late_filtering}, final_filter: {final_filter}"
+        f"Checking for final filtering - late_filtering: {late_filtering}, "
+        f"final_filter: {final_filter}"
     )
 
     if late_filtering or final_filter:

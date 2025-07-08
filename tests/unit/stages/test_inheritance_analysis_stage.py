@@ -2,7 +2,7 @@
 
 import pandas as pd
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from variantcentrifuge.stages.analysis_stages import InheritanceAnalysisStage
 from tests.mocks.fixtures import create_test_context

@@ -11,7 +11,6 @@ from variantcentrifuge.stages.processing_stages import (
     FieldExtractionStage,
     GeneBedCreationStage,
     GenotypeReplacementStage,
-    ParallelCompleteProcessingStage,
     ParallelVariantExtractionStage,
     PhenotypeIntegrationStage,
     VariantExtractionStage,

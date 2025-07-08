@@ -309,7 +309,7 @@ class InheritanceAnalysisStage(Stage):
                 df = pd.concat([df, sample_df], axis=1)
 
                 logger.info(f"Created {len(sample_data)} sample columns from replaced genotypes")
-                
+
                 self._end_subtask("sample_column_preparation", prep_start)
 
             elif snpsift_sep in first_gt:
@@ -327,7 +327,8 @@ class InheritanceAnalysisStage(Stage):
                         genotypes = gt_value.split(snpsift_sep)
                         if len(genotypes) != len(vcf_samples):
                             logger.warning(
-                                f"Row {idx}: Expected {len(vcf_samples)} genotypes but found {len(genotypes)}"
+                                f"Row {idx}: Expected {len(vcf_samples)} genotypes "
+                                f"but found {len(genotypes)}"
                             )
                         for i, sample_id in enumerate(vcf_samples):
                             if i < len(genotypes):
@@ -344,25 +345,28 @@ class InheritanceAnalysisStage(Stage):
                 df = pd.concat([df, sample_df], axis=1)
 
                 logger.info(f"Created {len(sample_data)} sample columns for inheritance analysis")
-            
+
             self._end_subtask("sample_column_preparation", prep_start)
 
         # Apply inheritance analysis
         analysis_start = self._start_subtask("inheritance_calculation")
-        
+
         # Check if we should use parallel processing
         threads = context.config.get("threads", 1)
         min_variants_for_parallel = context.config.get("min_variants_for_parallel_inheritance", 100)
-        
+
         if threads > 1 and len(df) >= min_variants_for_parallel:
             # Use parallel analyzer for better performance
-            logger.info(f"Using parallel inheritance analyzer with {threads} workers")
+            logger.info(
+                f"Using parallel inheritance analyzer with {threads} workers"
+            )
             from ..inheritance.parallel_analyzer import analyze_inheritance_parallel
-            
+
             # Track detailed timing
             import time
+
             comp_het_start = time.time()
-            
+
             df = analyze_inheritance_parallel(
                 df=df,
                 sample_list=vcf_samples,
@@ -371,7 +375,7 @@ class InheritanceAnalysisStage(Stage):
                 n_workers=threads,
                 min_variants_for_parallel=min_variants_for_parallel,
             )
-            
+
             # Record compound het timing (this is a major component)
             comp_het_time = time.time() - comp_het_start
             if comp_het_time > 1.0:  # Only record if significant
@@ -384,7 +388,7 @@ class InheritanceAnalysisStage(Stage):
                 pedigree_data=pedigree_data,
                 use_vectorized_comp_het=not context.config.get("no_vectorized_comp_het", False),
             )
-        
+
         self._end_subtask("inheritance_calculation", analysis_start)
 
         # Process output based on inheritance mode
