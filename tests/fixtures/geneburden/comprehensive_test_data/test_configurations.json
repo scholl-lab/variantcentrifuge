@@ -1,0 +1,75 @@
+{
+  "test_direct_samples": {
+    "description": "Test direct sample specification",
+    "command_args": [
+      "--case-samples",
+      "CASE_001,CASE_002,CASE_003,CASE_004,CASE_005,CASE_006,CASE_007,CASE_008,CASE_009,CASE_010",
+      "--control-samples",
+      "CTRL_001,CTRL_002,CTRL_003,CTRL_004,CTRL_005,CTRL_006,CTRL_007,CTRL_008,CTRL_009,CTRL_010,CTRL_011,CTRL_012,CTRL_013,CTRL_014,CTRL_015"
+    ],
+    "expected_cases": 10,
+    "expected_controls": 15
+  },
+  "test_sample_files": {
+    "description": "Test sample file specification",
+    "command_args": [
+      "--case-samples-file",
+      "case_samples.txt",
+      "--control-samples-file",
+      "control_samples.txt"
+    ],
+    "expected_cases": 40,
+    "expected_controls": 60
+  },
+  "test_hpo_classification": {
+    "description": "Test HPO-based classification",
+    "command_args": [
+      "--phenotype-file",
+      "phenotypes_basic.csv",
+      "--phenotype-sample-column",
+      "SampleID",
+      "--phenotype-value-column",
+      "identifier",
+      "--case-phenotypes",
+      "HP:0000113,HP:0000003,HP:0000107,HP:0000822,HP:0003774",
+      "--control-phenotypes",
+      "HP:0000001,HP:0032101"
+    ],
+    "expected_cases": "variable",
+    "expected_controls": "variable"
+  },
+  "test_hpo_files": {
+    "description": "Test HPO term files",
+    "command_args": [
+      "--phenotype-file",
+      "phenotypes_basic.csv",
+      "--phenotype-sample-column",
+      "SampleID",
+      "--phenotype-value-column",
+      "identifier",
+      "--case-phenotypes-file",
+      "case_hpo_terms.txt",
+      "--control-phenotypes-file",
+      "control_hpo_terms.txt"
+    ],
+    "expected_cases": "variable",
+    "expected_controls": "variable"
+  },
+  "test_alt_columns": {
+    "description": "Test alternative column names",
+    "command_args": [
+      "--phenotype-file",
+      "phenotypes_alt_columns.csv",
+      "--phenotype-sample-column",
+      "sample_name",
+      "--phenotype-value-column",
+      "hpo_id",
+      "--case-phenotypes",
+      "HP:0000113,HP:0000003,HP:0000107,HP:0000822,HP:0003774",
+      "--control-phenotypes",
+      "HP:0000001,HP:0032101"
+    ],
+    "expected_cases": "variable",
+    "expected_controls": "variable"
+  }
+}

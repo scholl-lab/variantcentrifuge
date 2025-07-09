@@ -1,0 +1,101 @@
+MNPPSD,CGRSequenceID,SampleID,Sex,category_term,identifier,name,link
+mnp000,300000,CASE_001,male,hpo_identifier,HP:0000107,Renal cyst,https://hpo.jax.org/app/browse/term/HP:0000107
+mnp001,300001,CASE_002,male,hpo_identifier,HP:0000107,Renal cyst,https://hpo.jax.org/app/browse/term/HP:0000107
+mnp002,300002,CASE_003,female,hpo_identifier,HP:0000113,Polycystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000113
+mnp003,300003,CASE_004,male,hpo_identifier,HP:0000107,Renal cyst,https://hpo.jax.org/app/browse/term/HP:0000107
+mnp004,300004,CASE_005,male,hpo_identifier,HP:0000822,Hypertension,https://hpo.jax.org/app/browse/term/HP:0000822
+mnp005,300005,CASE_006,male,hpo_identifier,HP:0000113,Polycystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000113
+mnp006,300006,CASE_007,male,hpo_identifier,HP:0000107,Renal cyst,https://hpo.jax.org/app/browse/term/HP:0000107
+mnp007,300007,CASE_008,female,hpo_identifier,HP:0000113,Polycystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000113
+mnp008,300008,CASE_009,female,hpo_identifier,HP:0000003,Multicystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000003
+mnp009,300009,CASE_010,female,hpo_identifier,HP:0000003,Multicystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000003
+mnp010,300010,CASE_011,male,hpo_identifier,HP:0000113,Polycystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000113
+mnp011,300011,CASE_012,female,hpo_identifier,HP:0000003,Multicystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000003
+mnp012,300012,CASE_013,male,hpo_identifier,HP:0000822,Hypertension,https://hpo.jax.org/app/browse/term/HP:0000822
+mnp013,300013,CASE_014,female,hpo_identifier,HP:0000107,Renal cyst,https://hpo.jax.org/app/browse/term/HP:0000107
+mnp014,300014,CASE_015,female,hpo_identifier,HP:0000003,Multicystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000003
+mnp015,300015,CASE_016,male,hpo_identifier,HP:0000113,Polycystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000113
+mnp016,300016,CASE_017,female,hpo_identifier,HP:0003774,Stage 5 chronic kidney disease,https://hpo.jax.org/app/browse/term/HP:0003774
+mnp017,300017,CASE_018,female,hpo_identifier,HP:0000003,Multicystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000003
+mnp018,300018,CASE_019,male,hpo_identifier,HP:0000107,Renal cyst,https://hpo.jax.org/app/browse/term/HP:0000107
+mnp019,300019,CASE_020,male,hpo_identifier,HP:0000822,Hypertension,https://hpo.jax.org/app/browse/term/HP:0000822
+mnp020,300020,CASE_021,male,hpo_identifier,HP:0000107,Renal cyst,https://hpo.jax.org/app/browse/term/HP:0000107
+mnp021,300021,CASE_022,female,hpo_identifier,HP:0000003,Multicystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000003
+mnp022,300022,CASE_023,male,hpo_identifier,HP:0000113,Polycystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000113
+mnp023,300023,CASE_024,male,hpo_identifier,HP:0000003,Multicystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000003
+mnp024,300024,CASE_025,female,hpo_identifier,HP:0000113,Polycystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000113
+mnp025,300025,CASE_026,female,hpo_identifier,HP:0000113,Polycystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000113
+mnp026,300026,CASE_027,female,hpo_identifier,HP:0000822,Hypertension,https://hpo.jax.org/app/browse/term/HP:0000822
+mnp027,300027,CASE_028,female,hpo_identifier,HP:0000822,Hypertension,https://hpo.jax.org/app/browse/term/HP:0000822
+mnp028,300028,CASE_029,female,hpo_identifier,HP:0000113,Polycystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000113
+mnp029,300029,CASE_030,female,hpo_identifier,HP:0000003,Multicystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000003
+mnp030,300030,CASE_031,female,hpo_identifier,HP:0000822,Hypertension,https://hpo.jax.org/app/browse/term/HP:0000822
+mnp031,300031,CASE_032,female,hpo_identifier,HP:0000003,Multicystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000003
+mnp032,300032,CASE_033,female,hpo_identifier,HP:0000113,Polycystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000113
+mnp033,300033,CASE_034,female,hpo_identifier,HP:0000822,Hypertension,https://hpo.jax.org/app/browse/term/HP:0000822
+mnp034,300034,CASE_035,female,hpo_identifier,HP:0000107,Renal cyst,https://hpo.jax.org/app/browse/term/HP:0000107
+mnp035,300035,CASE_036,male,hpo_identifier,HP:0000107,Renal cyst,https://hpo.jax.org/app/browse/term/HP:0000107
+mnp036,300036,CASE_037,male,hpo_identifier,HP:0000003,Multicystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000003
+mnp037,300037,CASE_038,male,hpo_identifier,HP:0000113,Polycystic kidney dysplasia,https://hpo.jax.org/app/browse/term/HP:0000113
+mnp038,300038,CASE_039,female,hpo_identifier,HP:0003774,Stage 5 chronic kidney disease,https://hpo.jax.org/app/browse/term/HP:0003774
+mnp039,300039,CASE_040,female,hpo_identifier,HP:0003774,Stage 5 chronic kidney disease,https://hpo.jax.org/app/browse/term/HP:0003774
+mnp040,300040,CTRL_001,male,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp041,300041,CTRL_002,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp042,300042,CTRL_003,female,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp043,300043,CTRL_004,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp044,300044,CTRL_005,male,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp045,300045,CTRL_006,male,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp046,300046,CTRL_007,male,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp047,300047,CTRL_008,male,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp048,300048,CTRL_009,male,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp049,300049,CTRL_010,male,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp050,300050,CTRL_011,female,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp051,300051,CTRL_012,female,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp052,300052,CTRL_013,male,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp053,300053,CTRL_014,female,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp054,300054,CTRL_015,male,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp055,300055,CTRL_016,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp056,300056,CTRL_017,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp057,300057,CTRL_018,male,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp058,300058,CTRL_019,male,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp059,300059,CTRL_020,male,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp060,300060,CTRL_021,male,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp061,300061,CTRL_022,male,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp062,300062,CTRL_023,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp063,300063,CTRL_024,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp064,300064,CTRL_025,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp065,300065,CTRL_026,male,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp066,300066,CTRL_027,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp067,300067,CTRL_028,male,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp068,300068,CTRL_029,male,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp069,300069,CTRL_030,female,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp070,300070,CTRL_031,male,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp071,300071,CTRL_032,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp072,300072,CTRL_033,male,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp073,300073,CTRL_034,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp074,300074,CTRL_035,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp075,300075,CTRL_036,male,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp076,300076,CTRL_037,male,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp077,300077,CTRL_038,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp078,300078,CTRL_039,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp079,300079,CTRL_040,male,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp080,300080,CTRL_041,female,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp081,300081,CTRL_042,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp082,300082,CTRL_043,female,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp083,300083,CTRL_044,male,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp084,300084,CTRL_045,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp085,300085,CTRL_046,male,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp086,300086,CTRL_047,male,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp087,300087,CTRL_048,male,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp088,300088,CTRL_049,male,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp089,300089,CTRL_050,female,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp090,300090,CTRL_051,female,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp091,300091,CTRL_052,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp092,300092,CTRL_053,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp093,300093,CTRL_054,male,hpo_identifier,HP:0000001,All,https://hpo.jax.org/app/browse/term/HP:0000001
+mnp094,300094,CTRL_055,male,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp095,300095,CTRL_056,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp096,300096,CTRL_057,male,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp097,300097,CTRL_058,female,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp098,300098,CTRL_059,male,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
+mnp099,300099,CTRL_060,male,hpo_identifier,HP:0032101,Normal phenotype,https://hpo.jax.org/app/browse/term/HP:0032101
