@@ -580,10 +580,7 @@ class TestParallelProcessing(MockedToolsTestCase):
         )
 
         # Mock BED generation for multiple genes
-        bed_counter = 0
-
         def multi_gene_snpeff(cmd, *args, **kwargs):
-            nonlocal bed_counter
             from subprocess import CompletedProcess
 
             if isinstance(cmd, list) and "genes2bed" in cmd:

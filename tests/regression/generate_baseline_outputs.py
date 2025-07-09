@@ -18,10 +18,10 @@ from typing import Dict
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from tests.regression.test_regression_suite import (
+from tests.regression.test_regression_suite import (  # noqa: E402
     REGRESSION_TESTS,
     RegressionTestConfig,
-)  # noqa: E402
+)
 
 logging.basicConfig(
     level=logging.INFO,

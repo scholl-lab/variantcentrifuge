@@ -16,10 +16,12 @@ class StageWithSubtasks(Stage):
 
     @property
     def name(self) -> str:
+        """Return the stage name."""
         return "test_stage_with_subtasks"
 
     @property
     def description(self) -> str:
+        """Return the stage description."""
         return "Test stage with subtasks"
 
     def _process(self, context: PipelineContext) -> PipelineContext:
@@ -42,17 +44,21 @@ class SimpleStage(Stage):
 
     @property
     def name(self) -> str:
+        """Return the stage name."""
         return "simple_stage"
 
     @property
     def description(self) -> str:
+        """Return the stage description."""
         return "Simple stage"
 
     @property
     def dependencies(self) -> Set[str]:
+        """Return the stage dependencies."""
         return {"test_stage_with_subtasks"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
+        """Process the stage."""
         time.sleep(0.1)
         return context
 

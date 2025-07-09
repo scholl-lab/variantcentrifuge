@@ -217,7 +217,8 @@ class TestParallelProcessing:
                                         )
 
                                         f.write(
-                                            f"{chrom}\t{pos}\t{ref}\t{alt}\t{qual}\t{gene}\t{ac}\tSample1:{gt}\n"
+                                            f"{chrom}\t{pos}\t{ref}\t{alt}\t{qual}\t{gene}\t"
+                                            f"{ac}\tSample1:{gt}\n"
                                         )
                         processed_files[mode].append(("extract", output_file))
 

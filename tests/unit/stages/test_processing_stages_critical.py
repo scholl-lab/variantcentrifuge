@@ -325,7 +325,10 @@ class TestBCFToolsPrefilterStage:
             assert str(output_vcf) in index_cmd
 
     def test_apply_bcftools_prefilter_default_threads(self, base_context, tmp_path):
-        """Test apply_bcftools_prefilter with default thread count - migrated from test_filters.py."""
+        """Test apply_bcftools_prefilter with default thread count.
+
+        Migrated from test_filters.py.
+        """
         from variantcentrifuge.filters import apply_bcftools_prefilter
 
         input_vcf = tmp_path / "input.vcf.gz"

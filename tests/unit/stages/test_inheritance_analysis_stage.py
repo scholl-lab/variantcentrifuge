@@ -78,7 +78,7 @@ class TestInheritanceAnalysisStage:
             ) as mock_process:
                 mock_process.return_value = mock_df
 
-                result = stage(context)
+                stage(context)
 
         # Verify analyze_inheritance was called
         mock_analyze.assert_called_once()
@@ -127,7 +127,7 @@ class TestInheritanceAnalysisStage:
             ) as mock_process:
                 mock_process.return_value = mock_df
 
-                result = stage(context)
+                stage(context)
 
         # Check DataFrame has sample columns with correct genotypes
         df_arg = mock_analyze.call_args[1]["df"]
@@ -153,7 +153,7 @@ class TestInheritanceAnalysisStage:
             ) as mock_process:
                 mock_process.return_value = mock_df
 
-                result = stage(context)
+                stage(context)
 
         # Verify sample_list was passed as list
         call_args = mock_analyze.call_args
@@ -180,7 +180,7 @@ class TestInheritanceAnalysisStage:
             ) as mock_process:
                 mock_process.return_value = mock_df
 
-                result = stage(context)
+                stage(context)
 
         # Should still call analyze_inheritance but without sample columns
         mock_analyze.assert_called_once()
@@ -240,7 +240,7 @@ class TestInheritanceAnalysisStage:
             ) as mock_process:
                 mock_process.return_value = mock_df
 
-                result = stage(context)
+                stage(context)
 
         # Should still work without GENE column
         mock_analyze.assert_called_once()

@@ -209,7 +209,10 @@ class TestFinalFilteringStage:
         assert "custom_annotation" in stage.soft_dependencies
 
     def test_empty_filter_expression(self, context):
-        """Test that empty filter expression returns unmodified DataFrame - migrated from test_filters.py."""
+        """Test that empty filter expression returns unmodified DataFrame.
+
+        Migrated from test_filters.py.
+        """
         context.config["final_filter"] = ""
 
         stage = FinalFilteringStage()
@@ -220,7 +223,10 @@ class TestFinalFilteringStage:
         pd.testing.assert_frame_equal(result.current_dataframe, context.current_dataframe)
 
     def test_simple_numeric_filter(self, context):
-        """Test simple numeric comparison filter - migrated from test_filters.py."""
+        """Test simple numeric comparison filter.
+
+        Migrated from test_filters.py.
+        """
         # Add string numeric values that should be converted
         context.current_dataframe["score"] = ["0.5", "0.8", "0.3", "0.9"]
         context.config["final_filter"] = "score > 0.4"
@@ -233,7 +239,10 @@ class TestFinalFilteringStage:
         assert result.current_dataframe["CHROM"].tolist() == ["chr1", "chr1", "chr3"]
 
     def test_string_equality_filter(self, context):
-        """Test string equality filter - migrated from test_filters.py."""
+        """Test string equality filter.
+
+        Migrated from test_filters.py.
+        """
         context.current_dataframe["IMPACT"] = ["HIGH", "MODERATE", "HIGH", "LOW"]
         context.config["final_filter"] = 'IMPACT == "HIGH"'
 
@@ -244,7 +253,10 @@ class TestFinalFilteringStage:
         assert result.current_dataframe["CHROM"].tolist() == ["chr1", "chr2"]
 
     def test_complex_filter_with_and(self, context):
-        """Test complex filter with AND condition - migrated from test_filters.py."""
+        """Test complex filter with AND condition.
+
+        Migrated from test_filters.py.
+        """
         context.current_dataframe["IMPACT"] = ["HIGH", "HIGH", "MODERATE", "HIGH"]
         context.current_dataframe["score"] = ["0.5", "0.8", "0.3", "0.9"]
         context.config["final_filter"] = 'IMPACT == "HIGH" and score > 0.6'
@@ -256,7 +268,10 @@ class TestFinalFilteringStage:
         assert result.current_dataframe["CHROM"].tolist() == ["chr1", "chr3"]
 
     def test_complex_filter_with_or(self, context):
-        """Test complex filter with OR condition - migrated from test_filters.py."""
+        """Test complex filter with OR condition.
+
+        Migrated from test_filters.py.
+        """
         context.current_dataframe["IMPACT"] = ["HIGH", "MODERATE", "LOW", "LOW"]
         context.current_dataframe["score"] = ["0.9", "0.4", "0.2", "0.85"]
         context.config["final_filter"] = 'IMPACT == "HIGH" or score > 0.8'
@@ -268,7 +283,10 @@ class TestFinalFilteringStage:
         assert result.current_dataframe["CHROM"].tolist() == ["chr1", "chr3"]
 
     def test_filter_with_in_operator(self, context):
-        """Test filter using 'in' operator - migrated from test_filters.py."""
+        """Test filter using 'in' operator.
+
+        Migrated from test_filters.py.
+        """
         context.current_dataframe["Inheritance_Pattern"] = [
             "de_novo",
             "autosomal_recessive",
@@ -289,7 +307,10 @@ class TestFinalFilteringStage:
         }
 
     def test_filter_with_string_contains(self, context):
-        """Test filter using string contains method - migrated from test_filters.py."""
+        """Test filter using string contains method.
+
+        Migrated from test_filters.py.
+        """
         context.current_dataframe["Custom_Annotation"] = [
             "InGeneList=cancer_panel",
             "Region=exon",
@@ -305,7 +326,10 @@ class TestFinalFilteringStage:
         assert result.current_dataframe["CHROM"].tolist() == ["chr1"]
 
     def test_numeric_conversion_with_mixed_types(self, context):
-        """Test that numeric conversion handles mixed types correctly - migrated from test_filters.py."""
+        """Test that numeric conversion handles mixed types correctly.
+
+        Migrated from test_filters.py.
+        """
         context.current_dataframe["dbNSFP_CADD_phred"] = ["25.5", "NA", "30.2", "22.1"]
         context.current_dataframe["gene"] = ["BRCA1", "TP53", "EGFR", "KRAS"]
         context.config["final_filter"] = "dbNSFP_CADD_phred > 26"
@@ -317,7 +341,10 @@ class TestFinalFilteringStage:
         assert result.current_dataframe["gene"].tolist() == ["EGFR"]
 
     def test_invalid_filter_expression(self, context, caplog):
-        """Test that invalid filter expression returns unfiltered data with error log - migrated from test_filters.py."""
+        """Test that invalid filter expression returns unfiltered data with error log.
+
+        Migrated from test_filters.py.
+        """
         # Invalid syntax
         context.config["final_filter"] = 'CHROM === "chr1"'  # Triple equals invalid
 
@@ -331,7 +358,10 @@ class TestFinalFilteringStage:
         assert "Failed to apply final filter expression" in caplog.text
 
     def test_filter_on_computed_columns(self, context):
-        """Test filtering on columns that might be computed during analysis - migrated from test_filters.py."""
+        """Test filtering on columns that might be computed during analysis.
+
+        Migrated from test_filters.py.
+        """
         context.current_dataframe["gene"] = ["BRCA1", "TP53", "EGFR", "KRAS"]
         context.current_dataframe["inheritance_score"] = ["0.95", "0.45", "0.78", "0.82"]
         context.current_dataframe["Inheritance_Confidence"] = ["0.9", "0.3", "0.8", "0.85"]

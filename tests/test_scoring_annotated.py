@@ -40,7 +40,13 @@ def scoring_config():
             "output_scores": ["test_simple_score"],
             "formulas": [
                 {
-                    "test_simple_score": "((impact_variant == 'HIGH') * 0.8 + (impact_variant == 'MODERATE') * 0.6 + (impact_variant == 'LOW') * 0.3 + (impact_variant == 'MODIFIER') * 0.1) * (1 - gnomade_variant)"
+                    "test_simple_score": (
+                        "((impact_variant == 'HIGH') * 0.8 + "
+                        "(impact_variant == 'MODERATE') * 0.6 + "
+                        "(impact_variant == 'LOW') * 0.3 + "
+                        "(impact_variant == 'MODIFIER') * 0.1) * "
+                        "(1 - gnomade_variant)"
+                    )
                 }
             ],
         }
@@ -213,7 +219,13 @@ def test_read_scoring_config():
             "output_scores": ["test_simple_score"],
             "formulas": [
                 {
-                    "test_simple_score": "((impact_variant == 'HIGH') * 0.8 + (impact_variant == 'MODERATE') * 0.6 + (impact_variant == 'LOW') * 0.3 + (impact_variant == 'MODIFIER') * 0.1) * (1 - gnomade_variant)"
+                    "test_simple_score": (
+                        "((impact_variant == 'HIGH') * 0.8 + "
+                        "(impact_variant == 'MODERATE') * 0.6 + "
+                        "(impact_variant == 'LOW') * 0.3 + "
+                        "(impact_variant == 'MODIFIER') * 0.1) * "
+                        "(1 - gnomade_variant)"
+                    )
                 }
             ],
         }
