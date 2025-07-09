@@ -1,7 +1,9 @@
 # Exclude generated files
 data/
 reference/
+variants/
 logs/
 extraction_status.json
 *.extraction_info.json
+*.call_info.json
 *.bai
