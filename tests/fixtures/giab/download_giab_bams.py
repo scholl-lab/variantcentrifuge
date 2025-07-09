@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download GIAB BAM files and extract specific genomic regions defined in BED files."""
+"""Extract specific genomic regions from remote GIAB BAM files using samtools."""
 
 import sys
 import subprocess
@@ -7,6 +7,7 @@ import argparse
 import logging
 import hashlib
 import json
+import time
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -24,98 +25,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# GIAB BAM URLs and MD5 checksums
-GIAB_BAMS = {
+# GIAB HG19 Exome BAM URLs
+GIAB_EXOME_BAMS = {
     "HG002": {
-        "GRCh38": {
-            "bam": (
-                "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/"
-                "HG002_NA24385_son/NIST_HiSeq_HG002_Homogeneity-10953946/"
-                "NHGRI_Illumina300X_AJtrio_novoalign_bams/HG002.GRCh38.300x.bam"
-            ),
-            "bai": (
-                "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/"
-                "HG002_NA24385_son/NIST_HiSeq_HG002_Homogeneity-10953946/"
-                "NHGRI_Illumina300X_AJtrio_novoalign_bams/HG002.GRCh38.300x.bam.bai"
-            ),
-            "bam_md5": "a2a85243fba525d485a6ba89d73b46a9",
-            "bai_md5": "491d644a55382424c1824e3b664827da",
-        },
-        "GRCh37": {
-            "bam": (
-                "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/"
-                "HG002_NA24385_son/NIST_HiSeq_HG002_Homogeneity-10953946/"
-                "NHGRI_Illumina300X_AJtrio_novoalign_bams/HG002.hs37d5.300x.bam"
-            ),
-            "bai": (
-                "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/"
-                "HG002_NA24385_son/NIST_HiSeq_HG002_Homogeneity-10953946/"
-                "NHGRI_Illumina300X_AJtrio_novoalign_bams/HG002.hs37d5.300x.bam.bai"
-            ),
-            "bam_md5": "306da46fc735f3b28ff0d619d6337de2",
-            "bai_md5": "98a533624e2070db4a4ad0d6ee4b295e",
-        },
+        "bam": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG002_NA24385_son/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG002-EEogPU_v02-KIT-Av5_AGATGTAC_L008.posiSrt.markDup.bam",
+        "bai": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG002_NA24385_son/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG002-EEogPU_v02-KIT-Av5_AGATGTAC_L008.posiSrt.markDup.bai",
+        "bam_md5": "c80f0cab24bfaa504393457b8f7191fa",
+        "bai_md5": "d4fea426c3e2e9a71bb92e6526b4df6f"
     },
     "HG003": {
-        "GRCh38": {
-            "bam": (
-                "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/"
-                "HG003_NA24149_father/NIST_HiSeq_HG003_Homogeneity-12389378/"
-                "NHGRI_Illumina300X_AJtrio_novoalign_bams/HG003.GRCh38.300x.bam"
-            ),
-            "bai": (
-                "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/"
-                "HG003_NA24149_father/NIST_HiSeq_HG003_Homogeneity-12389378/"
-                "NHGRI_Illumina300X_AJtrio_novoalign_bams/HG003.GRCh38.300x.bam.bai"
-            ),
-            "bam_md5": "3642fca7bd403073ce7c0b62a5686f66",
-            "bai_md5": "e59006c82ad053ca5e40357e26ee2342",
-        },
-        "GRCh37": {
-            "bam": (
-                "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/"
-                "HG003_NA24149_father/NIST_HiSeq_HG003_Homogeneity-12389378/"
-                "NHGRI_Illumina300X_AJtrio_novoalign_bams/HG003.hs37d5.300x.bam"
-            ),
-            "bai": (
-                "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/"
-                "HG003_NA24149_father/NIST_HiSeq_HG003_Homogeneity-12389378/"
-                "NHGRI_Illumina300X_AJtrio_novoalign_bams/HG003.hs37d5.300x.bam.bai"
-            ),
-            "bam_md5": "478322e9a29c3323f056cdbf8b20ab2f",
-            "bai_md5": "4cc888558e946058f4fcaef2086ddd56",
-        },
+        "bam": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG003_NA24149_father/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG003-EEogPU_v02-KIT-Av5_TCTTCACA_L008.posiSrt.markDup.bam",
+        "bai": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG003_NA24149_father/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG003-EEogPU_v02-KIT-Av5_TCTTCACA_L008.posiSrt.markDup.bai",
+        "bam_md5": "79ce0edc9363710030e973bd12af5423",
+        "bai_md5": "0512b54f2b66f3a04653be9f5975ae7"
     },
     "HG004": {
-        "GRCh38": {
-            "bam": (
-                "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/"
-                "HG004_NA24143_mother/NIST_HiSeq_HG004_Homogeneity-14572558/"
-                "NHGRI_Illumina300X_AJtrio_novoalign_bams/HG004.GRCh38.300x.bam"
-            ),
-            "bai": (
-                "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/"
-                "HG004_NA24143_mother/NIST_HiSeq_HG004_Homogeneity-14572558/"
-                "NHGRI_Illumina300X_AJtrio_novoalign_bams/HG004.GRCh38.300x.bam.bai"
-            ),
-            "bam_md5": "b0a04174824f9ffa66ac06a16eeb8c73",
-            "bai_md5": "0daf310b2d3767f98401b0395583988d",
-        },
-        "GRCh37": {
-            "bam": (
-                "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/"
-                "HG004_NA24143_mother/NIST_HiSeq_HG004_Homogeneity-14572558/"
-                "NHGRI_Illumina300X_AJtrio_novoalign_bams/HG004.hs37d5.300x.bam"
-            ),
-            "bai": (
-                "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/"
-                "HG004_NA24143_mother/NIST_HiSeq_HG004_Homogeneity-14572558/"
-                "NHGRI_Illumina300X_AJtrio_novoalign_bams/HG004.hs37d5.300x.bam.bai"
-            ),
-            "bam_md5": "7b8d1b5a39734633adf0d901e3231cb4",
-            "bai_md5": "3e73c04bd7daeebcc8193e3a77d9082a",
-        },
-    },
+        "bam": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG004_NA24143_mother/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG004-EEogPU_v02-KIT-Av5_CCGAAGTA_L008.posiSrt.markDup.bam",
+        "bai": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG004_NA24143_mother/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG004-EEogPU_v02-KIT-Av5_CCGAAGTA_L008.posiSrt.markDup.bai",
+        "bam_md5": "39e90d925fff5ea7dd6dab255f299581",
+        "bai_md5": "8914bfb6fa6bd304192f2c9e13e903f4"
+    }
 }
 
 
@@ -128,117 +57,29 @@ def calculate_md5(filepath, chunk_size=8192):
     return md5_hash.hexdigest()
 
 
-def verify_file_md5(filepath, expected_md5):
-    """Verify file MD5 checksum."""
-    if not filepath.exists():
-        return False
-
-    logger.info(f"Calculating MD5 for {filepath.name}...")
-    actual_md5 = calculate_md5(filepath)
-
-    if actual_md5 == expected_md5:
-        logger.info(f"MD5 verified for {filepath.name}: {actual_md5}")
-        return True
-    else:
-        logger.error(f"MD5 mismatch for {filepath.name}: expected {expected_md5}, got {actual_md5}")
-        return False
-
-
-def load_download_status():
-    """Load download status from JSON file."""
-    status_file = Path("download_status.json")
+def load_extraction_status():
+    """Load extraction status from JSON file."""
+    status_file = Path("extraction_status.json")
     if status_file.exists():
         with open(status_file, "r") as f:
             return json.load(f)
     return {}
 
 
-def save_download_status(status):
-    """Save download status to JSON file."""
-    status_file = Path("download_status.json")
+def save_extraction_status(status):
+    """Save extraction status to JSON file."""
+    status_file = Path("extraction_status.json")
     with open(status_file, "w") as f:
         json.dump(status, f, indent=2)
 
 
-def download_file(url, output_path, expected_md5=None):
-    """Download a file using wget with resume support."""
-    logger.info(f"Downloading {output_path.name} from {url}")
-
-    # Check if file already exists and is valid
-    if output_path.exists() and expected_md5:
-        if verify_file_md5(output_path, expected_md5):
-            logger.info(f"{output_path.name} already exists with correct MD5, skipping download")
-            return True
-        else:
-            logger.warning(f"{output_path.name} exists but MD5 mismatch, re-downloading")
-            output_path.unlink()
-
-    # Download with wget (resume support)
-    cmd = ["wget", "-c", "-O", str(output_path), url]
-    result = subprocess.run(cmd, capture_output=True)
-
-    if result.returncode != 0:
-        logger.error(f"Failed to download {url}: {result.stderr.decode()}")
-        return False
-
-    # Verify MD5 if provided
-    if expected_md5:
-        if not verify_file_md5(output_path, expected_md5):
-            output_path.unlink()  # Remove corrupted file
-            return False
-
-    return True
-
-
-def download_sample_files(sample, assembly, temp_dir):
-    """Download BAM and BAI files for a sample."""
-    urls = GIAB_BAMS[sample][assembly]
-    bam_path = temp_dir / f"{sample}.{assembly}.full.bam"
-    bai_path = temp_dir / f"{sample}.{assembly}.full.bam.bai"
-
-    # Load download status
-    status = load_download_status()
-    sample_key = f"{sample}_{assembly}"
-
-    # Check if already completed
-    if sample_key in status and status[sample_key].get("completed", False):
-        if bam_path.exists() and bai_path.exists():
-            logger.info(f"{sample} {assembly} already downloaded and verified")
-            return (sample, bam_path)
-
-    # Download both files
-    success = True
-
-    # Download BAI first (smaller file)
-    if not download_file(urls["bai"], bai_path, urls.get("bai_md5")):
-        success = False
-
-    # Download BAM
-    if success and not download_file(urls["bam"], bam_path, urls.get("bam_md5")):
-        success = False
-
-    # Update status
-    if success:
-        status[sample_key] = {
-            "completed": True,
-            "timestamp": datetime.now().isoformat(),
-            "bam_md5": calculate_md5(bam_path),
-            "bai_md5": calculate_md5(bai_path),
-            "bam_size": bam_path.stat().st_size,
-            "bai_size": bai_path.stat().st_size,
-        }
-        save_download_status(status)
-        logger.info(f"Successfully downloaded {sample} {assembly}")
-
-    return (sample, bam_path if success else None)
-
-
-def extract_regions_from_bam(bam_path, bed_file, output_bam, threads=4):
-    """Extract regions from a BAM file using a BED file."""
-    # Check if output already exists
+def extract_regions_from_remote_bam(sample, bam_url, bed_file, output_bam, threads=4):
+    """Extract regions directly from remote BAM URL using samtools."""
+    logger.info(f"Starting extraction: {sample} -> {output_bam.name}")
+    
+    # Check if output already exists and is valid
     if output_bam.exists() and output_bam.with_suffix(".bam.bai").exists():
         logger.info(f"{output_bam} already exists, checking integrity...")
-        # Quick check if BAM is valid
         result = subprocess.run(["samtools", "quickcheck", str(output_bam)], capture_output=True)
         if result.returncode == 0:
             size_mb = output_bam.stat().st_size / (1024 * 1024)
@@ -249,7 +90,7 @@ def extract_regions_from_bam(bam_path, bed_file, output_bam, threads=4):
             output_bam.unlink(missing_ok=True)
             output_bam.with_suffix(".bam.bai").unlink(missing_ok=True)
 
-    # Read regions from BED
+    # Count regions for logging
     regions = []
     with open(bed_file, "r") as f:
         for line in f:
@@ -262,106 +103,131 @@ def extract_regions_from_bam(bam_path, bed_file, output_bam, threads=4):
         logger.error(f"No regions found in {bed_file}")
         return False
 
-    logger.info(f"Extracting {len(regions)} regions from {bam_path.name}")
+    logger.info(f"Extracting {len(regions)} regions from remote BAM (this streams data, no local download)")
 
-    # Create a BED file for samtools view -L
-    temp_bed = output_bam.parent / "temp_regions.bed"
-    with open(bed_file, "r") as infile, open(temp_bed, "w") as outfile:
-        for line in infile:
-            if line.strip() and not line.startswith("#"):
-                outfile.write(line)
-
-    # Extract regions using BED file
+    # Build command with individual regions for remote BAM
     cmd = [
-        "samtools",
-        "view",
-        "-b",
-        "-@",
-        str(threads),
-        "-L",
-        str(temp_bed),
-        "-o",
-        str(output_bam),
-        str(bam_path),
+        "samtools", "view", "-b",
+        "-@", str(threads),
+        "-o", str(output_bam),
+        bam_url
     ]
+    
+    # Add each region individually
+    for region in regions:
+        cmd.append(region)
 
-    result = subprocess.run(cmd, capture_output=True)
+    logger.info(f"Running: samtools view -b -@ {threads} -o {output_bam.name} {bam_url} {' '.join(regions)}")
+    logger.info(f"Streaming extraction from remote BAM - this may take several minutes...")
+    
+    start_time = time.time()
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    end_time = time.time()
+    
     if result.returncode != 0:
-        logger.error(f"Failed to extract regions: {result.stderr.decode()}")
-        temp_bed.unlink()
+        logger.error(f"Failed to extract regions from remote BAM: {result.stderr}")
         return False
+    
+    logger.info(f"Remote extraction completed successfully in {end_time - start_time:.1f} seconds")
 
-    # Index the output
+    # Sort the BAM file (required because multiple regions create unsorted output)
+    sorted_bam = output_bam.with_suffix(".sorted.bam")
+    logger.info(f"Sorting {output_bam.name}...")
+    sort_start = time.time()
+    sort_result = subprocess.run([
+        "samtools", "sort", 
+        "-@", str(threads),
+        "-o", str(sorted_bam),
+        str(output_bam)
+    ], capture_output=True, text=True)
+    sort_end = time.time()
+    
+    if sort_result.returncode != 0:
+        logger.error(f"Failed to sort BAM: {sort_result.stderr}")
+        return False
+    
+    # Replace unsorted with sorted
+    output_bam.unlink()
+    sorted_bam.rename(output_bam)
+    logger.info(f"Sorting completed successfully in {sort_end - sort_start:.1f} seconds")
+
+    # Index the sorted output
     logger.info(f"Indexing {output_bam.name}")
-    subprocess.run(["samtools", "index", str(output_bam)], check=True)
+    index_result = subprocess.run(["samtools", "index", str(output_bam)], capture_output=True, text=True)
+    if index_result.returncode != 0:
+        logger.error(f"Failed to index BAM: {index_result.stderr}")
+        return False
+    logger.info(f"Indexing completed successfully")
 
     # Calculate MD5 of extracted BAM
+    logger.info(f"Calculating MD5 for {output_bam.name}...")
     output_md5 = calculate_md5(output_bam)
     logger.info(f"MD5 of extracted BAM: {output_md5}")
 
     # Save extraction info
     extraction_info = {
-        "source_bam": str(bam_path),
+        "sample": sample,
+        "assembly": "HG19",
+        "source_url": bam_url,
         "bed_file": str(bed_file),
         "output_bam": str(output_bam),
         "output_md5": output_md5,
         "timestamp": datetime.now().isoformat(),
         "regions": len(regions),
+        "extraction_time_seconds": end_time - start_time,
+        "sort_time_seconds": sort_end - sort_start,
     }
 
     info_file = output_bam.with_suffix(".extraction_info.json")
     with open(info_file, "w") as f:
         json.dump(extraction_info, f, indent=2)
 
-    # Cleanup
-    temp_bed.unlink()
-
     # Report size
     size_mb = output_bam.stat().st_size / (1024 * 1024)
     logger.info(f"Created {output_bam} ({size_mb:.1f} MB)")
+
+    # Clean up any temporary files that might have been created during processing
+    temp_files = [
+        Path.cwd() / f"{sample}.bai",
+        Path.cwd() / f"{sample}.HG19.exome.bai", 
+        Path.cwd() / "temp_regions.bed"
+    ]
+    
+    for temp_file in temp_files:
+        if temp_file.exists():
+            logger.info(f"Cleaning up temporary file: {temp_file}")
+            temp_file.unlink()
 
     return True
 
 
 def main():
-    """Download GIAB BAM files and extract gene regions."""
-    parser = argparse.ArgumentParser(description="Download GIAB BAM files and extract gene regions")
+    """Extract gene regions from remote GIAB HG19 exome BAM files using samtools."""
+    parser = argparse.ArgumentParser(description="Extract gene regions from remote GIAB HG19 exome BAM files")
     parser.add_argument("--output-dir", type=Path, default=Path("data"), help="Output directory")
     parser.add_argument(
         "--samples",
         nargs="+",
         choices=["HG002", "HG003", "HG004", "all"],
         default=["all"],
-        help="Samples to download",
+        help="Samples to extract",
     )
-    parser.add_argument(
-        "--assembly", choices=["GRCh37", "GRCh38"], required=True, help="Genome assembly"
-    )
-    parser.add_argument("--threads", type=int, default=4, help="Number of threads")
-    parser.add_argument(
-        "--keep-full", action="store_true", help="Keep full BAM files after extraction"
-    )
-    parser.add_argument(
-        "--skip-md5", action="store_true", help="Skip MD5 verification for faster processing"
-    )
+    parser.add_argument("--threads", type=int, default=4, help="Number of threads for samtools")
 
     args = parser.parse_args()
 
-    logger.info(f"Starting GIAB download script - Log file: {log_file}")
-    logger.info(
-        f"Parameters: assembly={args.assembly}, samples={args.samples}, " f"threads={args.threads}"
-    )
+    logger.info(f"Starting GIAB HG19 exome extraction script - Log file: {log_file}")
+    logger.info(f"Parameters: samples={args.samples}, threads={args.threads}")
 
-    # Check dependencies
-    for tool in ["samtools", "wget"]:
-        try:
-            subprocess.run([tool, "--version"], capture_output=True, check=True)
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            logger.error(f"{tool} not found. Please install {tool} first.")
-            sys.exit(1)
+    # Check dependencies - only need samtools now
+    try:
+        subprocess.run(["samtools", "--version"], capture_output=True, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        logger.error("samtools not found. Please install samtools first.")
+        sys.exit(1)
 
-    # Get BED file
-    bed_file = Path(__file__).parent / f"gene_regions_{args.assembly}.bed"
+    # Get BED file - using HG19/GRCh37 coordinates
+    bed_file = Path(__file__).parent / "gene_regions_GRCh37.bed"
     if not bed_file.exists():
         logger.error(f"BED file not found: {bed_file}")
         sys.exit(1)
@@ -369,64 +235,50 @@ def main():
     # Get samples
     samples = ["HG002", "HG003", "HG004"] if "all" in args.samples else args.samples
 
-    # Create directories
+    # Create output directory
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    temp_dir = args.output_dir / "temp"
-    temp_dir.mkdir(exist_ok=True)
 
-    # Download files in parallel
-    logger.info(f"Processing {len(samples)} samples...")
-    download_tasks = []
+    # Extract regions from remote BAMs in parallel
+    logger.info(f"Extracting regions from {len(samples)} remote HG19 exome BAM files...")
+    extraction_tasks = []
 
     with ThreadPoolExecutor(max_workers=min(len(samples), args.threads)) as executor:
-        # Submit download tasks
+        # Submit extraction tasks
         for sample in samples:
-            output_bam = args.output_dir / f"{sample}.{args.assembly}.bam"
+            output_bam = args.output_dir / f"{sample}.HG19.exome.bam"
 
-            # Check if final output already exists
+            # Check if final output already exists and is valid
             if output_bam.exists() and output_bam.with_suffix(".bam.bai").exists():
-                result = subprocess.run(
-                    ["samtools", "quickcheck", str(output_bam)], capture_output=True
-                )
+                result = subprocess.run(["samtools", "quickcheck", str(output_bam)], capture_output=True)
                 if result.returncode == 0:
                     logger.info(f"{output_bam} already exists and is valid, skipping")
                     continue
 
-            future = executor.submit(download_sample_files, sample, args.assembly, temp_dir)
-            download_tasks.append(future)
+            # Get remote BAM URL
+            bam_url = GIAB_EXOME_BAMS[sample]["bam"]
+            
+            # Submit extraction task
+            future = executor.submit(
+                extract_regions_from_remote_bam, 
+                sample, bam_url, bed_file, output_bam, args.threads
+            )
+            extraction_tasks.append((future, sample))
 
-        # Process completed downloads
-        for future in as_completed(download_tasks):
-            sample, full_bam_path = future.result()
-            if full_bam_path:
-                logger.info(f"Download complete for {sample}, starting extraction")
-
-                # Extract regions
-                output_bam = args.output_dir / f"{sample}.{args.assembly}.bam"
-                success = extract_regions_from_bam(
-                    full_bam_path, bed_file, output_bam, args.threads
-                )
-
-                if success and not args.keep_full:
-                    # Remove full BAM files
-                    logger.info(f"Removing full BAM files for {sample}")
-                    full_bam_path.unlink()
-                    full_bam_path.with_suffix(".bam.bai").unlink()
+        # Process completed extractions
+        for future, sample in extraction_tasks:
+            success = future.result()
+            if success:
+                logger.info(f"Extraction complete for {sample}")
             else:
-                logger.error(f"Download failed for {sample}")
-
-    # Cleanup temp directory if empty
-    if not args.keep_full and not any(temp_dir.iterdir()):
-        temp_dir.rmdir()
+                logger.error(f"Extraction failed for {sample}")
 
     # Final summary
     logger.info("\n" + "=" * 60)
-    logger.info("DOWNLOAD SUMMARY")
+    logger.info("EXTRACTION SUMMARY")
     logger.info("=" * 60)
 
     # Report successful extractions
     extracted_bams = list(args.output_dir.glob("*.bam"))
-    extracted_bams = [b for b in extracted_bams if "full" not in b.name]
 
     if extracted_bams:
         logger.info(f"Successfully extracted {len(extracted_bams)} BAM files:")
@@ -436,8 +288,30 @@ def main():
             total_size += size_mb
             logger.info(f"  - {bam.name}: {size_mb:.1f} MB")
         logger.info(f"Total size: {total_size:.1f} MB")
+        
+        # Show total extraction info files
+        info_files = list(args.output_dir.glob("*.extraction_info.json"))
+        if info_files:
+            logger.info(f"Extraction metadata saved in {len(info_files)} .extraction_info.json files")
     else:
         logger.warning("No BAM files were successfully extracted")
+
+    # Final cleanup of any stray temporary files in working directory
+    logger.info("Performing final cleanup...")
+    cleanup_patterns = ["*.bai", "temp_*.bed", "*temp*.bam"]
+    cleanup_count = 0
+    
+    for pattern in cleanup_patterns:
+        for temp_file in Path.cwd().glob(pattern):
+            if temp_file.is_file() and temp_file.name not in [f.name for f in extracted_bams]:
+                logger.info(f"Removing temporary file: {temp_file}")
+                temp_file.unlink()
+                cleanup_count += 1
+    
+    if cleanup_count > 0:
+        logger.info(f"Cleaned up {cleanup_count} temporary files")
+    else:
+        logger.info("No temporary files to clean up")
 
     logger.info(f"\nLog saved to: {log_file}")
     logger.info("Done!")

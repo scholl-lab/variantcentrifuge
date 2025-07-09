@@ -1,5 +1,6 @@
-# Exclude temporary and downloaded files
-data/temp/
+# Exclude generated files
+data/
 logs/
-download_status.json
+extraction_status.json
 *.extraction_info.json
+*.bai

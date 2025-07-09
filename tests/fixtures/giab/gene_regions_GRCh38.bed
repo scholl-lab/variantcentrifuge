@@ -1,8 +1,0 @@
-# Gene regions for GIAB test data - GRCh38
-# Format: chr	start	end	gene_name
-# Positions include 1kb padding on each side
-chr17	43043000	43126000	BRCA1
-chr17	7570000	7592000	TP53
-chr16	9846000	10029000	GRIN2A
-chrX	153194000	153199000	NAA10
-chr4	88027000	88098000	PKD2
