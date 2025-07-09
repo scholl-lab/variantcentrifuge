@@ -86,12 +86,12 @@ python download_giab_bams.py --output-dir /path/to/data
 **Output:**
 ```
 data/
-├── HG002.HG19.exome.bam     # ~50-100 MB per sample
-├── HG002.HG19.exome.bam.bai
-├── HG003.HG19.exome.bam
-├── HG003.HG19.exome.bam.bai
-├── HG004.HG19.exome.bam
-└── HG004.HG19.exome.bam.bai
+├── HG002.HG19.exome.subset.bam     # ~50-100 MB per sample
+├── HG002.HG19.exome.subset.bam.bai
+├── HG003.HG19.exome.subset.bam
+├── HG003.HG19.exome.subset.bam.bai
+├── HG004.HG19.exome.subset.bam
+└── HG004.HG19.exome.subset.bam.bai
 ```
 
 ### Step 2: Reference Genome Download (`download_reference_genome.py`)
@@ -157,9 +157,9 @@ python call_variants_gatk.py --data-dir data --reference-dir reference --output-
 ```bash
 gatk --java-options -Xmx4g HaplotypeCaller \
   -R reference/human_g1k_v37_decoy.fasta \
-  -I data/HG002.HG19.exome.bam \
-  -I data/HG003.HG19.exome.bam \
-  -I data/HG004.HG19.exome.bam \
+  -I data/HG002.HG19.exome.subset.bam \
+  -I data/HG003.HG19.exome.subset.bam \
+  -I data/HG004.HG19.exome.subset.bam \
   -L variants/gene_regions.interval_list \
   -O variants/HG002-trio_haplotypecaller.vcf.gz
 ```
@@ -186,12 +186,12 @@ After running all three scripts:
 ```
 tests/fixtures/giab/
 ├── data/                             # GIAB BAM files
-│   ├── HG002.HG19.exome.bam
-│   ├── HG002.HG19.exome.bam.bai
-│   ├── HG003.HG19.exome.bam
-│   ├── HG003.HG19.exome.bam.bai
-│   ├── HG004.HG19.exome.bam
-│   └── HG004.HG19.exome.bam.bai
+│   ├── HG002.HG19.exome.subset.bam
+│   ├── HG002.HG19.exome.subset.bam.bai
+│   ├── HG003.HG19.exome.subset.bam
+│   ├── HG003.HG19.exome.subset.bam.bai
+│   ├── HG004.HG19.exome.subset.bam
+│   └── HG004.HG19.exome.subset.bam.bai
 ├── reference/                        # Reference genome files
 │   ├── human_g1k_v37_decoy.fasta
 │   ├── human_g1k_v37_decoy.fasta.fai
@@ -320,7 +320,7 @@ python download_giab_bams.py  # Already optimized
 ### Quality Control
 ```bash
 # Check BAM quality
-samtools flagstat data/HG002.HG19.exome.bam
+samtools flagstat data/HG002.HG19.exome.subset.bam
 
 # Validate VCF
 gatk ValidateVariants -V variants/HG002-trio_haplotypecaller.vcf.gz -R reference/human_g1k_v37_decoy.fasta

@@ -31,20 +31,20 @@ GIAB_EXOME_BAMS = {
         "bam": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG002_NA24385_son/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG002-EEogPU_v02-KIT-Av5_AGATGTAC_L008.posiSrt.markDup.bam",
         "bai": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG002_NA24385_son/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG002-EEogPU_v02-KIT-Av5_AGATGTAC_L008.posiSrt.markDup.bai",
         "bam_md5": "c80f0cab24bfaa504393457b8f7191fa",
-        "bai_md5": "d4fea426c3e2e9a71bb92e6526b4df6f"
+        "bai_md5": "d4fea426c3e2e9a71bb92e6526b4df6f",
     },
     "HG003": {
         "bam": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG003_NA24149_father/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG003-EEogPU_v02-KIT-Av5_TCTTCACA_L008.posiSrt.markDup.bam",
         "bai": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG003_NA24149_father/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG003-EEogPU_v02-KIT-Av5_TCTTCACA_L008.posiSrt.markDup.bai",
         "bam_md5": "79ce0edc9363710030e973bd12af5423",
-        "bai_md5": "0512b54f2b66f3a04653be9f5975ae7"
+        "bai_md5": "0512b54f2b66f3a04653be9f5975ae7",
     },
     "HG004": {
         "bam": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG004_NA24143_mother/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG004-EEogPU_v02-KIT-Av5_CCGAAGTA_L008.posiSrt.markDup.bam",
         "bai": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG004_NA24143_mother/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG004-EEogPU_v02-KIT-Av5_CCGAAGTA_L008.posiSrt.markDup.bai",
         "bam_md5": "39e90d925fff5ea7dd6dab255f299581",
-        "bai_md5": "8914bfb6fa6bd304192f2c9e13e903f4"
-    }
+        "bai_md5": "8914bfb6fa6bd304192f2c9e13e903f4",
+    },
 }
 
 
@@ -76,7 +76,7 @@ def save_extraction_status(status):
 def extract_regions_from_remote_bam(sample, bam_url, bed_file, output_bam, threads=4):
     """Extract regions directly from remote BAM URL using samtools."""
     logger.info(f"Starting extraction: {sample} -> {output_bam.name}")
-    
+
     # Check if output already exists and is valid
     if output_bam.exists() and output_bam.with_suffix(".bam.bai").exists():
         logger.info(f"{output_bam} already exists, checking integrity...")
@@ -103,49 +103,47 @@ def extract_regions_from_remote_bam(sample, bam_url, bed_file, output_bam, threa
         logger.error(f"No regions found in {bed_file}")
         return False
 
-    logger.info(f"Extracting {len(regions)} regions from remote BAM (this streams data, no local download)")
+    logger.info(
+        f"Extracting {len(regions)} regions from remote BAM (this streams data, no local download)"
+    )
 
     # Build command with individual regions for remote BAM
-    cmd = [
-        "samtools", "view", "-b",
-        "-@", str(threads),
-        "-o", str(output_bam),
-        bam_url
-    ]
-    
+    cmd = ["samtools", "view", "-b", "-@", str(threads), "-o", str(output_bam), bam_url]
+
     # Add each region individually
     for region in regions:
         cmd.append(region)
 
-    logger.info(f"Running: samtools view -b -@ {threads} -o {output_bam.name} {bam_url} {' '.join(regions)}")
+    logger.info(
+        f"Running: samtools view -b -@ {threads} -o {output_bam.name} {bam_url} {' '.join(regions)}"
+    )
     logger.info(f"Streaming extraction from remote BAM - this may take several minutes...")
-    
+
     start_time = time.time()
     result = subprocess.run(cmd, capture_output=True, text=True)
     end_time = time.time()
-    
+
     if result.returncode != 0:
         logger.error(f"Failed to extract regions from remote BAM: {result.stderr}")
         return False
-    
+
     logger.info(f"Remote extraction completed successfully in {end_time - start_time:.1f} seconds")
 
     # Sort the BAM file (required because multiple regions create unsorted output)
     sorted_bam = output_bam.with_suffix(".sorted.bam")
     logger.info(f"Sorting {output_bam.name}...")
     sort_start = time.time()
-    sort_result = subprocess.run([
-        "samtools", "sort", 
-        "-@", str(threads),
-        "-o", str(sorted_bam),
-        str(output_bam)
-    ], capture_output=True, text=True)
+    sort_result = subprocess.run(
+        ["samtools", "sort", "-@", str(threads), "-o", str(sorted_bam), str(output_bam)],
+        capture_output=True,
+        text=True,
+    )
     sort_end = time.time()
-    
+
     if sort_result.returncode != 0:
         logger.error(f"Failed to sort BAM: {sort_result.stderr}")
         return False
-    
+
     # Replace unsorted with sorted
     output_bam.unlink()
     sorted_bam.rename(output_bam)
@@ -153,7 +151,9 @@ def extract_regions_from_remote_bam(sample, bam_url, bed_file, output_bam, threa
 
     # Index the sorted output
     logger.info(f"Indexing {output_bam.name}")
-    index_result = subprocess.run(["samtools", "index", str(output_bam)], capture_output=True, text=True)
+    index_result = subprocess.run(
+        ["samtools", "index", str(output_bam)], capture_output=True, text=True
+    )
     if index_result.returncode != 0:
         logger.error(f"Failed to index BAM: {index_result.stderr}")
         return False
@@ -189,10 +189,10 @@ def extract_regions_from_remote_bam(sample, bam_url, bed_file, output_bam, threa
     # Clean up any temporary files that might have been created during processing
     temp_files = [
         Path.cwd() / f"{sample}.bai",
-        Path.cwd() / f"{sample}.HG19.exome.bai", 
-        Path.cwd() / "temp_regions.bed"
+        Path.cwd() / f"{sample}.HG19.exome.bai",
+        Path.cwd() / "temp_regions.bed",
     ]
-    
+
     for temp_file in temp_files:
         if temp_file.exists():
             logger.info(f"Cleaning up temporary file: {temp_file}")
@@ -203,7 +203,9 @@ def extract_regions_from_remote_bam(sample, bam_url, bed_file, output_bam, threa
 
 def main():
     """Extract gene regions from remote GIAB HG19 exome BAM files using samtools."""
-    parser = argparse.ArgumentParser(description="Extract gene regions from remote GIAB HG19 exome BAM files")
+    parser = argparse.ArgumentParser(
+        description="Extract gene regions from remote GIAB HG19 exome BAM files"
+    )
     parser.add_argument("--output-dir", type=Path, default=Path("data"), help="Output directory")
     parser.add_argument(
         "--samples",
@@ -245,22 +247,23 @@ def main():
     with ThreadPoolExecutor(max_workers=min(len(samples), args.threads)) as executor:
         # Submit extraction tasks
         for sample in samples:
-            output_bam = args.output_dir / f"{sample}.HG19.exome.bam"
+            output_bam = args.output_dir / f"{sample}.HG19.exome.subset.bam"
 
             # Check if final output already exists and is valid
             if output_bam.exists() and output_bam.with_suffix(".bam.bai").exists():
-                result = subprocess.run(["samtools", "quickcheck", str(output_bam)], capture_output=True)
+                result = subprocess.run(
+                    ["samtools", "quickcheck", str(output_bam)], capture_output=True
+                )
                 if result.returncode == 0:
                     logger.info(f"{output_bam} already exists and is valid, skipping")
                     continue
 
             # Get remote BAM URL
             bam_url = GIAB_EXOME_BAMS[sample]["bam"]
-            
+
             # Submit extraction task
             future = executor.submit(
-                extract_regions_from_remote_bam, 
-                sample, bam_url, bed_file, output_bam, args.threads
+                extract_regions_from_remote_bam, sample, bam_url, bed_file, output_bam, args.threads
             )
             extraction_tasks.append((future, sample))
 
@@ -288,11 +291,13 @@ def main():
             total_size += size_mb
             logger.info(f"  - {bam.name}: {size_mb:.1f} MB")
         logger.info(f"Total size: {total_size:.1f} MB")
-        
+
         # Show total extraction info files
         info_files = list(args.output_dir.glob("*.extraction_info.json"))
         if info_files:
-            logger.info(f"Extraction metadata saved in {len(info_files)} .extraction_info.json files")
+            logger.info(
+                f"Extraction metadata saved in {len(info_files)} .extraction_info.json files"
+            )
     else:
         logger.warning("No BAM files were successfully extracted")
 
@@ -300,14 +305,14 @@ def main():
     logger.info("Performing final cleanup...")
     cleanup_patterns = ["*.bai", "temp_*.bed", "*temp*.bam"]
     cleanup_count = 0
-    
+
     for pattern in cleanup_patterns:
         for temp_file in Path.cwd().glob(pattern):
             if temp_file.is_file() and temp_file.name not in [f.name for f in extracted_bams]:
                 logger.info(f"Removing temporary file: {temp_file}")
                 temp_file.unlink()
                 cleanup_count += 1
-    
+
     if cleanup_count > 0:
         logger.info(f"Cleaned up {cleanup_count} temporary files")
     else:
