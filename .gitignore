@@ -189,6 +189,10 @@ test_*.tsv
 temp_*.py
 tmp_*.py
 
+# Gene burden test data directories
+tests/fixtures/geneburden/temp/
+tests/fixtures/geneburden/output/
+
 # IDE and system files
 .vscode/
 .idea/
