@@ -6,13 +6,14 @@ scoring stages and can filter on computed score columns.
 
 import json
 import tempfile
+from argparse import Namespace
 from pathlib import Path
 from unittest.mock import Mock, patch
+
 import pandas as pd
 import pytest
-from argparse import Namespace
 
-from variantcentrifuge.pipeline_refactored import run_refactored_pipeline, build_pipeline_stages
+from variantcentrifuge.pipeline_refactored import build_pipeline_stages, run_refactored_pipeline
 
 
 class TestFinalFilterWithScoring:

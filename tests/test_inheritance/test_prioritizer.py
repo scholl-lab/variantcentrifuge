@@ -1,16 +1,16 @@
 """Tests for inheritance pattern prioritizer."""
 
 from variantcentrifuge.inheritance.prioritizer import (
-    prioritize_patterns,
+    PATTERN_PRIORITY,
     adjust_pattern_score,
     calculate_confidence,
-    get_pattern_category,
-    group_patterns_by_category,
-    get_pattern_description,
-    resolve_conflicting_patterns,
     filter_compatible_patterns,
+    get_pattern_category,
+    get_pattern_description,
+    group_patterns_by_category,
     is_pattern_compatible,
-    PATTERN_PRIORITY,
+    prioritize_patterns,
+    resolve_conflicting_patterns,
 )
 
 

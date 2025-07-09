@@ -26,7 +26,6 @@ from typing import Any, Dict, Iterator
 import pandas as pd
 
 from . import gene_burden, scoring, stats
-from .inheritance.analyzer import analyze_inheritance
 from .helpers import (
     assign_case_control_counts,
     build_sample_phenotype_map,
@@ -34,6 +33,7 @@ from .helpers import (
     extract_sample_and_genotype,
     genotype_to_allele_count,
 )
+from .inheritance.analyzer import analyze_inheritance
 
 logger = logging.getLogger("variantcentrifuge")
 

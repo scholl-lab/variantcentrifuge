@@ -3,11 +3,12 @@
 
 """Integration tests for IGV report generation in variantcentrifuge."""
 
-import os
 import json
-import pytest
+import os
 import shutil
 import tempfile
+
+import pytest
 
 from variantcentrifuge.generate_igv_report import generate_igv_report
 from variantcentrifuge.utils import generate_igv_safe_filename_base

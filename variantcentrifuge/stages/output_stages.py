@@ -17,17 +17,17 @@ import json
 import logging
 import sys
 import tarfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Set
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 
 from ..converter import (
-    convert_to_excel,
-    produce_report_json,
     append_tsv_as_sheet,
+    convert_to_excel,
     finalize_excel_file,
+    produce_report_json,
 )
 from ..filters import filter_dataframe_with_query
 from ..generate_html_report import generate_html_report

@@ -6,13 +6,13 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.mocks import create_test_context, create_test_phenotype_file, create_test_vcf
 from variantcentrifuge.pipeline_core import PipelineRunner
 from variantcentrifuge.stages import (
     ConfigurationLoadingStage,
     PhenotypeLoadingStage,
     SampleConfigLoadingStage,
 )
-from tests.mocks import create_test_context, create_test_vcf, create_test_phenotype_file
 
 
 class TestBasicPipeline:

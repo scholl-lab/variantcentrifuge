@@ -1,13 +1,14 @@
 """Test parallel inheritance analyzer."""
 
-import pytest
-import pandas as pd
-from unittest.mock import patch, Mock
 import json
+from unittest.mock import Mock, patch
+
+import pandas as pd
+import pytest
 
 from variantcentrifuge.inheritance.parallel_analyzer import (
-    analyze_inheritance_parallel,
     _process_gene_group,
+    analyze_inheritance_parallel,
 )
 
 

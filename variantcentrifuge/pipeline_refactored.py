@@ -11,51 +11,51 @@ from pathlib import Path
 from typing import List
 
 from .config import load_config
+from .gene_bed import normalize_genes
 from .pipeline import compute_base_name
 from .pipeline_core.context import PipelineContext
 from .pipeline_core.runner import PipelineRunner
 from .pipeline_core.workspace import Workspace
-from .gene_bed import normalize_genes
-from .stages.setup_stages import (
-    ConfigurationLoadingStage,
-    PhenotypeLoadingStage,
-    ScoringConfigLoadingStage,
-    PedigreeLoadingStage,
-    AnnotationConfigLoadingStage,
-    SampleConfigLoadingStage,
-)
-from .stages.processing_stages import (
-    GeneBedCreationStage,
-    VariantExtractionStage,
-    ParallelCompleteProcessingStage,
-    MultiAllelicSplitStage,
-    SnpSiftFilterStage,
-    FieldExtractionStage,
-    DataSortingStage,
-    GenotypeReplacementStage,
-    PhenotypeIntegrationStage,
-    ExtraColumnRemovalStage,
-)
 from .stages.analysis_stages import (
-    DataFrameLoadingStage,
     CustomAnnotationStage,
-    InheritanceAnalysisStage,
-    VariantScoringStage,
-    StatisticsGenerationStage,
+    DataFrameLoadingStage,
     GeneBurdenAnalysisStage,
+    InheritanceAnalysisStage,
+    StatisticsGenerationStage,
     VariantAnalysisStage,
+    VariantScoringStage,
 )
 from .stages.output_stages import (
-    VariantIdentifierStage,
-    FinalFilteringStage,
-    PseudonymizationStage,
-    TSVOutputStage,
+    ArchiveCreationStage,
     ExcelReportStage,
+    FinalFilteringStage,
     HTMLReportStage,
     IGVReportStage,
     MetadataGenerationStage,
-    ArchiveCreationStage,
     ParallelReportGenerationStage,
+    PseudonymizationStage,
+    TSVOutputStage,
+    VariantIdentifierStage,
+)
+from .stages.processing_stages import (
+    DataSortingStage,
+    ExtraColumnRemovalStage,
+    FieldExtractionStage,
+    GeneBedCreationStage,
+    GenotypeReplacementStage,
+    MultiAllelicSplitStage,
+    ParallelCompleteProcessingStage,
+    PhenotypeIntegrationStage,
+    SnpSiftFilterStage,
+    VariantExtractionStage,
+)
+from .stages.setup_stages import (
+    AnnotationConfigLoadingStage,
+    ConfigurationLoadingStage,
+    PedigreeLoadingStage,
+    PhenotypeLoadingStage,
+    SampleConfigLoadingStage,
+    ScoringConfigLoadingStage,
 )
 
 logger = logging.getLogger(__name__)

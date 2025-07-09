@@ -7,9 +7,11 @@ from each parent.
 """
 
 import logging
-from typing import Dict, List, Any, Tuple
+from typing import Any, Dict, List, Tuple
+
 import pandas as pd
-from ..genotype_utils import is_het, is_variant, is_ref, is_missing
+
+from ..genotype_utils import is_het, is_missing, is_ref, is_variant
 from ..ped_reader import get_parents, is_affected
 
 logger = logging.getLogger(__name__)

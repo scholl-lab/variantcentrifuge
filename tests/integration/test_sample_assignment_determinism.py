@@ -6,11 +6,13 @@ when run multiple times with the same input, preventing regression of
 the critical sample assignment randomization bug.
 """
 
-import pytest
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
+
 from variantcentrifuge.pipeline_core.context import PipelineContext
 from variantcentrifuge.pipeline_core.workspace import Workspace
 
@@ -76,11 +78,11 @@ class TestPipelineSampleDeterminism:
 
             with patch("pathlib.Path.exists", return_value=True):
                 # Mock the pipeline run to focus on sample assignment
-                from variantcentrifuge.stages.setup_stages import SampleConfigLoadingStage
                 from variantcentrifuge.stages.processing_stages import (
                     FieldExtractionStage,
                     GenotypeReplacementStage,
                 )
+                from variantcentrifuge.stages.setup_stages import SampleConfigLoadingStage
 
                 # Load samples
                 sample_stage = SampleConfigLoadingStage()
@@ -122,8 +124,8 @@ class TestPipelineSampleDeterminism:
 
     def test_sample_order_propagation_through_stages(self, temp_workspace, mock_test_data):
         """Test that sample order is consistently propagated through all pipeline stages."""
-        from variantcentrifuge.stages.setup_stages import SampleConfigLoadingStage
         from variantcentrifuge.stages.analysis_stages import InheritanceAnalysisStage
+        from variantcentrifuge.stages.setup_stages import SampleConfigLoadingStage
 
         test_samples = mock_test_data["vcf_samples"]
 
@@ -153,10 +155,10 @@ class TestPipelineSampleDeterminism:
             # Verify sample order consistency
             original_order = test_samples
             for stage_name, stage_samples in sample_orders.items():
-                assert (
-                    stage_samples == original_order
-                ), f"Sample order changed at {stage_name}: expected {original_order}, " \
-                   f"got {stage_samples}"
+                assert stage_samples == original_order, (
+                    f"Sample order changed at {stage_name}: expected {original_order}, "
+                    f"got {stage_samples}"
+                )
 
     @patch("variantcentrifuge.helpers.get_vcf_names")
     def test_genotype_replacement_determinism(self, mock_get_names, temp_workspace):
@@ -201,8 +203,9 @@ class TestPipelineSampleDeterminism:
 
     def test_inheritance_analysis_determinism_with_real_data(self, temp_workspace):
         """Test inheritance analysis determinism with realistic family data."""
-        from variantcentrifuge.stages.analysis_stages import InheritanceAnalysisStage
         import pandas as pd
+
+        from variantcentrifuge.stages.analysis_stages import InheritanceAnalysisStage
 
         # Family trio data
         test_samples = ["Child", "Father", "Mother"]
@@ -338,5 +341,5 @@ class TestPipelineReproducibility:
             ), f"Run {i} produced different results: {result_context.vcf_samples}"
 
 
-class TestPipelineReproducibility:
+class TestPipelineRegressionPrevention:
     """Test pipeline reproducibility and regression prevention."""

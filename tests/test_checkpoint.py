@@ -4,11 +4,11 @@ import os
 import time
 
 from variantcentrifuge.checkpoint import (
-    FileInfo,
-    StepInfo,
-    PipelineState,
-    checkpoint,
     CheckpointContext,
+    FileInfo,
+    PipelineState,
+    StepInfo,
+    checkpoint,
 )
 
 

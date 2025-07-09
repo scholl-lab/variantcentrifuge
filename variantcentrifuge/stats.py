@@ -14,8 +14,8 @@ All functions return DataFrames suitable for further processing.
 """
 
 import logging
-from typing import Set, Dict, Optional
 import os
+from typing import Dict, Optional, Set
 
 import pandas as pd
 

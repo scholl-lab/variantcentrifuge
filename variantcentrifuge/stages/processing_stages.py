@@ -34,7 +34,7 @@ from ..pipeline_core.error_handling import (
     validate_file_exists,
 )
 from ..replacer import replace_genotypes
-from ..utils import run_command, split_bed_file, ensure_fields_in_extract
+from ..utils import ensure_fields_in_extract, run_command, split_bed_file
 from ..vcf_eff_one_per_line import process_vcf_file as split_snpeff_annotations
 
 logger = logging.getLogger(__name__)
@@ -1624,7 +1624,7 @@ class DataSortingStage(Stage):
         ]
 
         if temp_dir:
-            sort_args.append(f"-T {temp_dir}")
+            sort_args.extend(["-T", temp_dir])
 
         sort_cmd = " ".join(sort_args)
 
@@ -1655,14 +1655,14 @@ class DataSortingStage(Stage):
                 # Input not gzipped, output gzipped
                 cmd = (
                     f'{{ IFS= read -r header < {safe_input}; echo "$header"; '
-                    f'tail -n +2 {safe_input} | sort {sort_cmd} -t$\'\\t\'; }} | '
+                    f"tail -n +2 {safe_input} | sort {sort_cmd} -t$'\\t'; }} | "
                     f"gzip -c > {safe_output}"
                 )
             else:
                 # Neither gzipped
                 cmd = (
                     f'{{ IFS= read -r header < {safe_input}; echo "$header"; '
-                    f'tail -n +2 {safe_input} | sort {sort_cmd} -t$\'\\t\'; }} '
+                    f"tail -n +2 {safe_input} | sort {sort_cmd} -t$'\\t'; }} "
                     f"> {safe_output}"
                 )
 

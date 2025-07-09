@@ -1,6 +1,7 @@
 """Test cases to ensure inheritance analysis matches variant-linker behavior."""
 
 import pandas as pd
+
 from variantcentrifuge.inheritance.analyzer import analyze_inheritance
 
 

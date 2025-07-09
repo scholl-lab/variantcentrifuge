@@ -1,18 +1,20 @@
 """Tests for the main inheritance analyzer."""
 
-import pytest
-import pandas as pd
 import json
+import os
+import tempfile
+
+import pandas as pd
+import pytest
+
 from variantcentrifuge.inheritance.analyzer import (
     analyze_inheritance,
     create_inheritance_details,
-    get_inheritance_summary,
-    filter_by_inheritance_pattern,
     export_inheritance_report,
+    filter_by_inheritance_pattern,
+    get_inheritance_summary,
     process_inheritance_output,
 )
-import tempfile
-import os
 
 
 class TestInheritanceAnalyzer:

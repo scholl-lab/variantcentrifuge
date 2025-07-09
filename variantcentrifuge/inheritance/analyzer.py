@@ -5,12 +5,14 @@ This module coordinates the inheritance pattern analysis by combining
 pattern deduction, compound heterozygous analysis, and pattern prioritization.
 """
 
-import logging
 import json
-from typing import Dict, List, Any, Optional
+import logging
+from typing import Any, Dict, List, Optional
+
 import pandas as pd
-from .deducer import deduce_patterns_for_variant
+
 from .comp_het import analyze_gene_for_compound_het, create_variant_key
+from .deducer import deduce_patterns_for_variant
 
 try:
     from .comp_het_vectorized import analyze_gene_for_compound_het_vectorized
@@ -18,7 +20,7 @@ try:
     VECTORIZED_AVAILABLE = True
 except ImportError:
     VECTORIZED_AVAILABLE = False
-from .prioritizer import prioritize_patterns, get_pattern_description
+from .prioritizer import get_pattern_description, prioritize_patterns
 from .segregation_checker import calculate_segregation_score
 
 logger = logging.getLogger(__name__)

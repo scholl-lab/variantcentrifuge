@@ -1,23 +1,24 @@
 """Unit tests for output stages - simplified version."""
 
 import tempfile
+from concurrent.futures import Future
 from pathlib import Path
 from unittest.mock import Mock, patch
-from concurrent.futures import Future
+
 import pandas as pd
 import pytest
 
-from variantcentrifuge.stages.output_stages import (
-    VariantIdentifierStage,
-    FinalFilteringStage,
-    TSVOutputStage,
-    MetadataGenerationStage,
-    ArchiveCreationStage,
-    ParallelReportGenerationStage,
-    ExcelReportStage,
-    HTMLReportStage,
-)
 from tests.mocks.fixtures import create_test_context
+from variantcentrifuge.stages.output_stages import (
+    ArchiveCreationStage,
+    ExcelReportStage,
+    FinalFilteringStage,
+    HTMLReportStage,
+    MetadataGenerationStage,
+    ParallelReportGenerationStage,
+    TSVOutputStage,
+    VariantIdentifierStage,
+)
 
 
 class TestVariantIdentifierStage:

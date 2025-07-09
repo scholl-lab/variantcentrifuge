@@ -1,9 +1,10 @@
 """Tests for scoring integration."""
 
 import os
-import tempfile
 import shutil
 import subprocess
+import tempfile
+
 import pandas as pd
 import pytest
 

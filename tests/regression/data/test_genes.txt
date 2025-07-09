@@ -1,3 +1,0 @@
-BRCA1
-BRCA2
-TP53

@@ -1,22 +1,23 @@
 """Unit tests for output stages."""
 
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
+
 import pandas as pd
 import pytest
 
+from tests.mocks.fixtures import create_test_context
 from variantcentrifuge.stages.output_stages import (
-    VariantIdentifierStage,
-    FinalFilteringStage,
-    PseudonymizationStage,
-    TSVOutputStage,
+    ArchiveCreationStage,
     ExcelReportStage,
+    FinalFilteringStage,
     HTMLReportStage,
     IGVReportStage,
     MetadataGenerationStage,
-    ArchiveCreationStage,
+    PseudonymizationStage,
+    TSVOutputStage,
+    VariantIdentifierStage,
 )
-from tests.mocks.fixtures import create_test_context
 
 
 class TestVariantIdentifierStage:

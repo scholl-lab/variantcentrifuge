@@ -1,9 +1,11 @@
 """Tests for PED file reader."""
 
-import pytest
-import tempfile
 import os
-from variantcentrifuge.ped_reader import read_pedigree, get_parents, is_affected, get_family_members
+import tempfile
+
+import pytest
+
+from variantcentrifuge.ped_reader import get_family_members, get_parents, is_affected, read_pedigree
 
 
 class TestPedReader:

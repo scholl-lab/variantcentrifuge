@@ -9,15 +9,15 @@ This script downloads the standard reference genome used in variant calling pipe
 The reference includes decoy sequences to improve alignment accuracy.
 """
 
-import sys
-import subprocess
 import argparse
-import logging
-import hashlib
 import gzip
+import hashlib
+import logging
 import shutil
-from pathlib import Path
+import subprocess
+import sys
 from datetime import datetime
+from pathlib import Path
 
 # Configure logging
 log_dir = Path("logs")
@@ -141,7 +141,7 @@ def decompress_gzip(gz_file, output_file, keep_compressed=True):
 
 
 def verify_reference_integrity(fasta_file, fai_file, dict_file):
-    """Basic integrity checks for reference files."""
+    """Perform basic integrity checks for reference files."""
     logger.info("Performing integrity checks...")
 
     # Check FASTA file exists and is not empty
@@ -197,7 +197,7 @@ def verify_reference_integrity(fasta_file, fai_file, dict_file):
     if len(fai_lines) != len(dict_lines):
         logger.warning(f"Sequence count mismatch: FAI={len(fai_lines)}, dict={len(dict_lines)}")
 
-    logger.info(f"Integrity checks passed:")
+    logger.info("Integrity checks passed:")
     logger.info(f"  - FASTA: {fasta_size_gb:.2f} GB")
     logger.info(f"  - Index: {len(fai_lines)} sequences")
     logger.info(f"  - Dictionary: {len(dict_lines)} sequences")

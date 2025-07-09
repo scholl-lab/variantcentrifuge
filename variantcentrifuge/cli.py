@@ -1123,8 +1123,11 @@ def main() -> int:
         if status_args.config:
             try:
                 from .config import load_config
+
                 config = load_config(status_args.config)
-                use_new_pipeline = use_new_pipeline or config.get("use_new_pipeline_architecture", False)
+                use_new_pipeline = use_new_pipeline or config.get(
+                    "use_new_pipeline_architecture", False
+                )
             except Exception as e:
                 logger.warning(f"Could not load config file: {e}")
 

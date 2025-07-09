@@ -31,9 +31,9 @@ import subprocess
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
-from contextlib import nullcontext
 
 import pandas as pd
 
@@ -57,6 +57,9 @@ from .annotator import (
     load_custom_features,
     validate_annotation_config,
 )
+
+# Import checkpoint system
+from .checkpoint import CheckpointContext, PipelineState
 from .converter import (
     append_tsv_as_sheet,
     convert_to_excel,
@@ -90,9 +93,6 @@ from .utils import (
 
 # Import the SNPeff annotation splitting function
 from .vcf_eff_one_per_line import process_vcf_file
-
-# Import checkpoint system
-from .checkpoint import PipelineState, CheckpointContext
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -1295,11 +1295,11 @@ def run_pipeline(
     # Feature flag for new pipeline architecture
     if cfg.get("use_new_pipeline_architecture", False) or getattr(args, "use_new_pipeline", False):
         logger.info("Using new pipeline architecture (Stage-based)")
-        from .pipeline_refactored import run_refactored_pipeline
-
         # Pass the merged config directly to the refactored pipeline
         # Note: We can't modify args.config reliably, so we'll pass it another way
         from types import SimpleNamespace
+
+        from .pipeline_refactored import run_refactored_pipeline
 
         # Create a new args object with the config properly set
         refactored_args = SimpleNamespace(**vars(args))

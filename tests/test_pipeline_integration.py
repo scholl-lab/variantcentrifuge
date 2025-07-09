@@ -6,12 +6,13 @@ These tests verify that the gzip and chunked processing
 features work correctly in the full pipeline context.
 """
 
+import gzip
 import os
 import tempfile
-import gzip
+from unittest.mock import Mock, patch
+
 import pandas as pd
 import pytest
-from unittest.mock import patch, Mock
 
 
 class TestPipelineIntegration:

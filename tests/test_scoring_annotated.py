@@ -1,10 +1,12 @@
 """Tests for scoring with annotated data."""
 
-import os
-import json
 import gzip
+import json
+import os
+
 import pandas as pd
 import pytest
+
 from variantcentrifuge.scoring import apply_scoring, read_scoring_config
 
 # Get the directory where test files are located

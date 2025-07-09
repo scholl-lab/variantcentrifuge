@@ -5,10 +5,12 @@ This tests the scenario where GEN[*].GT is used in field extraction,
 resulting in a single GT column with colon-separated values for all samples.
 """
 
-import pytest
-import pandas as pd
-import tempfile
 import os
+import tempfile
+
+import pandas as pd
+import pytest
+
 from variantcentrifuge.inheritance.analyzer import analyze_inheritance
 from variantcentrifuge.ped_reader import read_pedigree
 

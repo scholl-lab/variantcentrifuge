@@ -6,9 +6,10 @@ with the affected status across family members.
 """
 
 import logging
-from typing import Dict, List, Any, Tuple
-from ..genotype_utils import is_variant, is_hom_alt, is_het, is_missing
-from ..ped_reader import is_affected, get_parents
+from typing import Any, Dict, List, Tuple
+
+from ..genotype_utils import is_het, is_hom_alt, is_missing, is_variant
+from ..ped_reader import get_parents, is_affected
 
 logger = logging.getLogger(__name__)
 

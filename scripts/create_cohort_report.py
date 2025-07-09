@@ -10,13 +10,14 @@ into one comprehensive, interactive cohort-level report.
 Author: VariantCentrifuge Team
 """
 
+import argparse
+import glob
+import json
+import logging
 import os
 import re
 import sys
-import json
-import glob
-import argparse
-import logging
+
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader
 

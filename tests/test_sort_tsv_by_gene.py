@@ -6,11 +6,13 @@ These tests verify the functionality of the memory-efficient
 TSV sorting implementation.
 """
 
+import gzip
 import os
 import tempfile
-import gzip
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import patch, Mock
+
 from variantcentrifuge.pipeline import sort_tsv_by_gene
 
 

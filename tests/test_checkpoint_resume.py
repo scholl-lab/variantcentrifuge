@@ -4,7 +4,7 @@ import os
 import tempfile
 from unittest.mock import MagicMock, patch
 
-from variantcentrifuge.checkpoint import PipelineState, CheckpointContext
+from variantcentrifuge.checkpoint import CheckpointContext, PipelineState
 
 
 class TestCheckpointResume:

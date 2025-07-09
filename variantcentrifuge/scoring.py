@@ -10,8 +10,8 @@ import logging
 import os
 from typing import Any, Dict
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger("variantcentrifuge")
 

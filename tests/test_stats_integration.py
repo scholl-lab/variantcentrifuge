@@ -1,10 +1,11 @@
 """Integration tests for custom statistics with the existing stats module."""
 
-import pytest
-import pandas as pd
-import tempfile
 import json
 import os
+import tempfile
+
+import pandas as pd
+import pytest
 
 from variantcentrifuge import stats
 

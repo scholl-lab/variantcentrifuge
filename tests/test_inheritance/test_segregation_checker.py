@@ -1,13 +1,13 @@
 """Test cases for segregation checker module."""
 
 from variantcentrifuge.inheritance.segregation_checker import (
-    check_pattern_segregation,
     calculate_segregation_score,
     check_de_novo_segregation,
     check_dominant_segregation,
+    check_mitochondrial_segregation,
+    check_pattern_segregation,
     check_recessive_segregation,
     check_x_linked_segregation,
-    check_mitochondrial_segregation,
 )
 
 

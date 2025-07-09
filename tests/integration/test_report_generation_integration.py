@@ -4,11 +4,11 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 import pandas as pd
+import pytest
 
-from variantcentrifuge.stages.output_stages import IGVReportStage, HTMLReportStage
 from tests.mocks.fixtures import create_test_context
+from variantcentrifuge.stages.output_stages import HTMLReportStage, IGVReportStage
 
 
 class TestReportGenerationIntegration:

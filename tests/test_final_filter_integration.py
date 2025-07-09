@@ -5,7 +5,8 @@ Tests the complete pipeline with final filtering applied to ensure
 filters work correctly on computed columns like scores and inheritance patterns.
 """
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 from variantcentrifuge.cli import main
 
 

@@ -1,11 +1,12 @@
 """Test cases for enhanced compound heterozygous analysis."""
 
-import pandas as pd
 import numpy as np
+import pandas as pd
+
 from variantcentrifuge.inheritance.comp_het import (
     analyze_gene_for_compound_het,
-    determine_compound_het_type,
     create_variant_key,
+    determine_compound_het_type,
 )
 from variantcentrifuge.inheritance.comp_het_vectorized import (
     analyze_gene_for_compound_het_vectorized,

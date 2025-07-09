@@ -4,17 +4,18 @@ import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
+
 import pytest
 
-from variantcentrifuge.stages.setup_stages import (
-    ConfigurationLoadingStage,
-    PhenotypeLoadingStage,
-    ScoringConfigLoadingStage,
-    PedigreeLoadingStage,
-    AnnotationConfigLoadingStage,
-    SampleConfigLoadingStage,
-)
 from tests.mocks.fixtures import create_test_context
+from variantcentrifuge.stages.setup_stages import (
+    AnnotationConfigLoadingStage,
+    ConfigurationLoadingStage,
+    PedigreeLoadingStage,
+    PhenotypeLoadingStage,
+    SampleConfigLoadingStage,
+    ScoringConfigLoadingStage,
+)
 
 
 class TestConfigurationLoadingStage:

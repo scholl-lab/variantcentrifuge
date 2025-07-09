@@ -6,13 +6,13 @@ This script uses GATK to call variants in the gene regions from the extracted
 GIAB HG19 exome BAM files using the human_g1k_v37_decoy reference genome.
 """
 
-import sys
-import subprocess
 import argparse
 import logging
+import subprocess
+import sys
 import time
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 # Configure logging
 log_dir = Path("logs")
@@ -182,7 +182,7 @@ def sort_bed_file(bed_file, output_dir):
                 return (1, 25, entry[1])
             else:
                 return (2, chrom, entry[1])
-        except:
+        except Exception:
             return (2, chrom, entry[1])
 
     bed_entries.sort(key=sort_key)

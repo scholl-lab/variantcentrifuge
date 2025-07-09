@@ -8,11 +8,12 @@ Tests the complete pipeline flow including:
 - Deterministic results across multiple runs
 """
 
-import pytest
-import tempfile
 import subprocess
+import tempfile
 from pathlib import Path
+
 import pandas as pd
+import pytest
 
 
 @pytest.fixture
@@ -229,8 +230,9 @@ def test_gene_burden_determinism(test_data_paths):
 @pytest.mark.unit
 def test_assign_case_control_counts_unit():
     """Unit test for the assign_case_control_counts helper function."""
-    from variantcentrifuge.helpers import assign_case_control_counts
     import pandas as pd
+
+    from variantcentrifuge.helpers import assign_case_control_counts
 
     # Create test DataFrame with GT column
     test_data = {
@@ -289,8 +291,9 @@ def test_assign_case_control_counts_unit():
 @pytest.mark.unit
 def test_gene_burden_analysis_unit():
     """Unit test for the perform_gene_burden_analysis function."""
-    from variantcentrifuge.gene_burden import perform_gene_burden_analysis
     import pandas as pd
+
+    from variantcentrifuge.gene_burden import perform_gene_burden_analysis
 
     # Create test data with known counts
     test_data = {

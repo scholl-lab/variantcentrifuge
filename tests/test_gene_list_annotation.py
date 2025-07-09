@@ -4,9 +4,9 @@ import tempfile
 from pathlib import Path
 
 from variantcentrifuge.helpers import (
-    load_gene_list,
     _sanitize_column_name,
     annotate_variants_with_gene_lists,
+    load_gene_list,
 )
 
 

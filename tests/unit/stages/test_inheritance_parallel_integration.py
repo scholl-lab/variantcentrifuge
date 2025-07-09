@@ -1,13 +1,14 @@
 """Test InheritanceAnalysisStage integration with parallel analyzer."""
 
-import pytest
-import pandas as pd
-from unittest.mock import Mock, patch
 import logging
+from unittest.mock import Mock, patch
 
-from variantcentrifuge.stages.analysis_stages import InheritanceAnalysisStage
+import pandas as pd
+import pytest
+
 from variantcentrifuge.pipeline_core import PipelineContext
 from variantcentrifuge.pipeline_core.workspace import Workspace
+from variantcentrifuge.stages.analysis_stages import InheritanceAnalysisStage
 
 
 class TestInheritanceParallelIntegration:

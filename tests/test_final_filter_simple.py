@@ -6,6 +6,7 @@ works correctly when integrated into the pipeline flow.
 """
 
 import pandas as pd
+
 from variantcentrifuge.filters import filter_dataframe_with_query
 
 

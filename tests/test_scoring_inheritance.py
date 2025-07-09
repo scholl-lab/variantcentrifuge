@@ -1,10 +1,12 @@
 """Test the inheritance scoring functionality."""
 
 import json
+import os
+
 import pandas as pd
 import pytest
+
 from variantcentrifuge.scoring import apply_scoring, read_scoring_config
-import os
 
 # Get the project root directory
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))

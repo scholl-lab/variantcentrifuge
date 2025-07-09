@@ -10,9 +10,11 @@ Performance improvements:
 """
 
 import logging
+from typing import Any, Dict, List, Tuple
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Any, Tuple
+
 from ..ped_reader import get_parents, is_affected
 
 logger = logging.getLogger(__name__)

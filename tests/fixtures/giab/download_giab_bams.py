@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Extract specific genomic regions from remote GIAB BAM files using samtools."""
 
-import sys
-import subprocess
 import argparse
-import logging
 import hashlib
 import json
+import logging
+import subprocess
+import sys
 import time
-from pathlib import Path
-from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from pathlib import Path
 
 # Configure logging
 log_dir = Path("logs")
@@ -31,7 +31,7 @@ GIAB_EXOME_BAMS = {
         "bam": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG002_NA24385_son/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG002-EEogPU_v02-KIT-Av5_AGATGTAC_L008.posiSrt.markDup.bam",
         "bai": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG002_NA24385_son/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG002-EEogPU_v02-KIT-Av5_AGATGTAC_L008.posiSrt.markDup.bai",
         "bam_md5": "c80f0cab24bfaa504393457b8f7191fa",
-        "bai_md5": "d4fea426c3e2e9a71bb92e6526b4df6f",
+        "bai_md5": "d4fea426c3e2e9a71bb92e6526b4df6",
     },
     "HG003": {
         "bam": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG003_NA24149_father/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG003-EEogPU_v02-KIT-Av5_TCTTCACA_L008.posiSrt.markDup.bam",
@@ -117,7 +117,7 @@ def extract_regions_from_remote_bam(sample, bam_url, bed_file, output_bam, threa
     logger.info(
         f"Running: samtools view -b -@ {threads} -o {output_bam.name} {bam_url} {' '.join(regions)}"
     )
-    logger.info(f"Streaming extraction from remote BAM - this may take several minutes...")
+    logger.info("Streaming extraction from remote BAM - this may take several minutes...")
 
     start_time = time.time()
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -157,7 +157,7 @@ def extract_regions_from_remote_bam(sample, bam_url, bed_file, output_bam, threa
     if index_result.returncode != 0:
         logger.error(f"Failed to index BAM: {index_result.stderr}")
         return False
-    logger.info(f"Indexing completed successfully")
+    logger.info("Indexing completed successfully")
 
     # Calculate MD5 of extracted BAM
     logger.info(f"Calculating MD5 for {output_bam.name}...")

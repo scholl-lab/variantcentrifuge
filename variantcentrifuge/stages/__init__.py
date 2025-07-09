@@ -8,52 +8,50 @@ This package contains all stage implementations organized by category:
 - output_stages: Report generation and output stages
 """
 
-# Import all stages for convenient access
-from .setup_stages import (
-    ConfigurationLoadingStage,
-    PhenotypeLoadingStage,
-    ScoringConfigLoadingStage,
-    PedigreeLoadingStage,
-    AnnotationConfigLoadingStage,
-    SampleConfigLoadingStage,
-)
-
-from .processing_stages import (
-    GeneBedCreationStage,
-    VariantExtractionStage,
-    ParallelVariantExtractionStage,
-    BCFToolsPrefilterStage,
-    MultiAllelicSplitStage,
-    SnpSiftFilterStage,
-    FieldExtractionStage,
-    GenotypeReplacementStage,
-    PhenotypeIntegrationStage,
-    ExtraColumnRemovalStage,
-    StreamingDataProcessingStage,
-)
-
 from .analysis_stages import (
-    DataFrameLoadingStage,
-    CustomAnnotationStage,
-    InheritanceAnalysisStage,
-    VariantScoringStage,
-    StatisticsGenerationStage,
-    GeneBurdenAnalysisStage,
     ChunkedAnalysisStage,
+    CustomAnnotationStage,
+    DataFrameLoadingStage,
+    GeneBurdenAnalysisStage,
+    InheritanceAnalysisStage,
     ParallelAnalysisOrchestrator,
+    StatisticsGenerationStage,
+    VariantScoringStage,
 )
-
 from .output_stages import (
-    VariantIdentifierStage,
-    FinalFilteringStage,
-    PseudonymizationStage,
-    TSVOutputStage,
+    ArchiveCreationStage,
     ExcelReportStage,
+    FinalFilteringStage,
     HTMLReportStage,
     IGVReportStage,
     MetadataGenerationStage,
-    ArchiveCreationStage,
     ParallelReportGenerationStage,
+    PseudonymizationStage,
+    TSVOutputStage,
+    VariantIdentifierStage,
+)
+from .processing_stages import (
+    BCFToolsPrefilterStage,
+    ExtraColumnRemovalStage,
+    FieldExtractionStage,
+    GeneBedCreationStage,
+    GenotypeReplacementStage,
+    MultiAllelicSplitStage,
+    ParallelVariantExtractionStage,
+    PhenotypeIntegrationStage,
+    SnpSiftFilterStage,
+    StreamingDataProcessingStage,
+    VariantExtractionStage,
+)
+
+# Import all stages for convenient access
+from .setup_stages import (
+    AnnotationConfigLoadingStage,
+    ConfigurationLoadingStage,
+    PedigreeLoadingStage,
+    PhenotypeLoadingStage,
+    SampleConfigLoadingStage,
+    ScoringConfigLoadingStage,
 )
 
 __all__ = [

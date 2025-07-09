@@ -15,8 +15,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import pytest
 import pandas as pd
+import pytest
 
 
 @pytest.fixture(scope="module")

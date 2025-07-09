@@ -6,11 +6,12 @@ randomized between runs is fixed and won't regress.
 """
 
 from unittest.mock import patch
+
 from variantcentrifuge.helpers import get_vcf_samples
-from variantcentrifuge.stages.analysis_stages import InheritanceAnalysisStage
-from variantcentrifuge.stages.setup_stages import SampleConfigLoadingStage
 from variantcentrifuge.pipeline_core.context import PipelineContext
 from variantcentrifuge.pipeline_core.workspace import Workspace
+from variantcentrifuge.stages.analysis_stages import InheritanceAnalysisStage
+from variantcentrifuge.stages.setup_stages import SampleConfigLoadingStage
 
 
 class TestSampleDeterminism:
@@ -51,8 +52,9 @@ class TestSampleDeterminism:
     def test_inheritance_stage_handles_set_with_warning(self):
         """Test that InheritanceAnalysisStage converts sets to sorted lists with warning."""
         # Create a minimal context with enough data to trigger set conversion
-        from pathlib import Path
         from argparse import Namespace
+        from pathlib import Path
+
         import pandas as pd
 
         workspace = Workspace(Path("/tmp/test"), "test")
@@ -117,8 +119,8 @@ class TestSampleDeterminism:
         # Create contexts for multiple runs
         results = []
         for i in range(5):
-            from pathlib import Path
             from argparse import Namespace
+            from pathlib import Path
 
             workspace = Workspace(Path(f"/tmp/test_{i}"), "test")
             context = PipelineContext(Namespace(), {"vcf_file": "/tmp/test.vcf"}, workspace)
@@ -143,8 +145,8 @@ class TestSampleAssignmentRegression:
         test_samples = ["Sample1", "Sample2", "Sample3"]
 
         with patch("variantcentrifuge.helpers.get_vcf_names", return_value=test_samples):
-            from pathlib import Path
             from argparse import Namespace
+            from pathlib import Path
 
             workspace = Workspace(Path("/tmp/test"), "test")
             context = PipelineContext(Namespace(), {"vcf_file": "/tmp/test.vcf"}, workspace)
@@ -158,9 +160,10 @@ class TestSampleAssignmentRegression:
 
     def test_genotype_replacement_sample_order_consistency(self):
         """Test that genotype replacement uses consistent sample ordering."""
-        from variantcentrifuge.stages.processing_stages import GenotypeReplacementStage
-        from pathlib import Path
         import tempfile
+        from pathlib import Path
+
+        from variantcentrifuge.stages.processing_stages import GenotypeReplacementStage
 
         test_samples = ["Sample1", "Sample2", "Sample3"]
         test_tsv_content = "CHROM\tPOS\tREF\tALT\tGT\nchr1\t100\tA\tT\t0/1:1/1:0/0\n"
@@ -174,8 +177,8 @@ class TestSampleAssignmentRegression:
             # Run genotype replacement multiple times
             results = []
             for i in range(3):
-                from pathlib import Path as PathLib
                 from argparse import Namespace
+                from pathlib import Path as PathLib
 
                 workspace = Workspace(PathLib(f"/tmp/test_{i}"), "test")
                 context = PipelineContext(Namespace(), {}, workspace)
@@ -223,8 +226,8 @@ class TestSampleAssignmentRegression:
         # Run inheritance analysis multiple times
         results = []
         for i in range(3):
-            from pathlib import Path
             from argparse import Namespace
+            from pathlib import Path
 
             workspace = Workspace(Path(f"/tmp/test_{i}"), "test")
             context = PipelineContext(

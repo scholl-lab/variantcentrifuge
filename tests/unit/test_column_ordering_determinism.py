@@ -6,6 +6,7 @@ and that the pipeline stage dependencies enforce consistent ordering.
 """
 
 import pandas as pd
+
 from variantcentrifuge.annotator import _add_json_annotations_as_columns
 
 
@@ -140,8 +141,8 @@ class TestPipelineStageOrdering:
         """Test the complete dependency chain for deterministic ordering."""
         from variantcentrifuge.stages.analysis_stages import (
             CustomAnnotationStage,
-            VariantAnalysisStage,
             InheritanceAnalysisStage,
+            VariantAnalysisStage,
         )
 
         custom_stage = CustomAnnotationStage()

@@ -4,16 +4,16 @@ This module provides a robust checkpoint system that tracks pipeline execution s
 allowing resumption from the last successful step in case of interruption or failure.
 """
 
-import json
+import gzip
 import hashlib
+import json
+import logging
 import os
 import time
-import logging
-from typing import Dict, Any, Optional, List, Callable, Union
-from functools import wraps
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-import gzip
+from functools import wraps
+from typing import Any, Callable, Dict, List, Optional, Union
 
 logger = logging.getLogger("variantcentrifuge")
 

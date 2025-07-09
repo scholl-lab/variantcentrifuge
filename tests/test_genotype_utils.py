@@ -1,18 +1,18 @@
 """Tests for genotype utility functions."""
 
 from variantcentrifuge.genotype_utils import (
-    parse_genotype,
+    could_be_de_novo,
+    get_allele_count,
+    get_genotype_type,
     is_het,
     is_hom_alt,
+    is_mendelian_consistent,
+    is_missing,
+    is_phased,
     is_ref,
     is_variant,
-    is_missing,
-    get_allele_count,
-    is_phased,
-    get_genotype_type,
-    is_mendelian_consistent,
-    could_be_de_novo,
     merge_genotypes,
+    parse_genotype,
 )
 
 

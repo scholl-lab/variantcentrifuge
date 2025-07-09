@@ -16,12 +16,13 @@ The module generates semicolon-separated key-value pairs in the format:
 Region=promoter_X;InGeneList=cancer_panel;Panel=HereditaryCancer
 """
 
-import logging
 import json
+import logging
 import os
-import pandas as pd
-from typing import Dict, List, Set, Any, Optional
 import re
+from typing import Any, Dict, List, Optional, Set
+
+import pandas as pd
 
 # Handle optional dependency gracefully
 try:

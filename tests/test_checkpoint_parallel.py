@@ -3,7 +3,7 @@
 import os
 import tempfile
 
-from variantcentrifuge.checkpoint import PipelineState, CheckpointContext
+from variantcentrifuge.checkpoint import CheckpointContext, PipelineState
 
 
 class TestParallelCheckpoint:

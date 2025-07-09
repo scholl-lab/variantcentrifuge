@@ -5,10 +5,11 @@ These tests verify that inheritance analysis works correctly when integrated
 into the full pipeline, especially with different genotype formats.
 """
 
-import pytest
-import tempfile
 import os
+import tempfile
 from unittest.mock import Mock
+
+import pytest
 
 
 class TestPipelineInheritanceIntegration:
@@ -84,6 +85,7 @@ FAM1\tMother\t0\t0\t2\t1"""
         """Test the GT column splitting logic without full pipeline."""
         # This is a simplified test that focuses on the core logic
         import pandas as pd  # noqa: F811
+
         from variantcentrifuge.inheritance.analyzer import analyze_inheritance
         from variantcentrifuge.ped_reader import read_pedigree
 

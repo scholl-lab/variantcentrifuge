@@ -1,12 +1,14 @@
 """Integration tests for the complete 3-pass inheritance analysis workflow."""
 
-import pandas as pd
 import json
+
+import pandas as pd
+
 from variantcentrifuge.inheritance.analyzer import (
     analyze_inheritance,
-    get_inheritance_summary,
-    filter_by_inheritance_pattern,
     create_inheritance_details,
+    filter_by_inheritance_pattern,
+    get_inheritance_summary,
 )
 
 

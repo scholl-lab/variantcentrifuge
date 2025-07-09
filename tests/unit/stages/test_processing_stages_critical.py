@@ -1,17 +1,18 @@
 """Unit tests for critical processing stages - filtering and data transformation."""
 
-import pytest
+from argparse import Namespace
 from pathlib import Path
 from unittest.mock import Mock, patch
-from argparse import Namespace
+
+import pytest
 
 from variantcentrifuge.pipeline_core.context import PipelineContext
 from variantcentrifuge.pipeline_core.workspace import Workspace
 from variantcentrifuge.stages.processing_stages import (
     BCFToolsPrefilterStage,
-    SnpSiftFilterStage,
-    MultiAllelicSplitStage,
     ExtraColumnRemovalStage,
+    MultiAllelicSplitStage,
+    SnpSiftFilterStage,
     StreamingDataProcessingStage,
 )
 

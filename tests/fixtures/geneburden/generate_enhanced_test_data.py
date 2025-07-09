@@ -29,10 +29,10 @@ import random
 import re
 import sys
 from collections import defaultdict, namedtuple
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Set, Tuple, Optional, Union
-from dataclasses import dataclass
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -220,7 +220,7 @@ class AnnotationSampler:
             parts = ann_field.split("|")
             if len(parts) > 3:
                 return parts[3]  # Gene name is in position 3
-        except:
+        except Exception:
             pass
         return None
 
@@ -464,7 +464,7 @@ class EnhancedTestDataGenerator:
                     else (23 if chrom == "X" else 24 if chrom == "Y" else 25)
                 )
                 return (chrom_num, int(pos))
-            except:
+            except Exception:
                 return (999, 0)
 
         variants.sort(key=sort_key)
@@ -571,7 +571,7 @@ class EnhancedTestDataGenerator:
                 cadd_score = float(annotation.dbNSFP_fields["dbNSFP_CADD_phred"])
                 if cadd_score > 20:  # CADD > 20 suggests pathogenic
                     pathogenic_indicators.append(True)
-            except:
+            except Exception:
                 pass
 
         # Moderate impact with multiple pathogenic indicators

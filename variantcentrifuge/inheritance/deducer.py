@@ -6,15 +6,9 @@ based on genotypes in a family.
 """
 
 import logging
-from typing import Dict, List, Any, Optional
-from ..genotype_utils import (
-    is_variant,
-    is_hom_alt,
-    is_het,
-    is_ref,
-    is_missing,
-    could_be_de_novo,
-)
+from typing import Any, Dict, List, Optional
+
+from ..genotype_utils import could_be_de_novo, is_het, is_hom_alt, is_missing, is_ref, is_variant
 from ..ped_reader import get_parents, is_affected
 
 logger = logging.getLogger(__name__)

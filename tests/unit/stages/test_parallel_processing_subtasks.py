@@ -1,12 +1,13 @@
 """Test subtask timing for parallel processing stages."""
 
 import time
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
+
 import pytest
 
-from variantcentrifuge.stages.processing_stages import ParallelCompleteProcessingStage
 from variantcentrifuge.pipeline_core import PipelineContext, PipelineRunner
 from variantcentrifuge.pipeline_core.workspace import Workspace
+from variantcentrifuge.stages.processing_stages import ParallelCompleteProcessingStage
 
 
 class TestParallelProcessingSubtasks:

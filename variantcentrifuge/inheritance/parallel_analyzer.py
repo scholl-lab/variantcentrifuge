@@ -5,17 +5,18 @@ This module provides a parallel implementation of inheritance analysis
 that processes genes concurrently for compound heterozygous detection.
 """
 
-import logging
 import json
-from typing import Dict, List, Any, Optional, Tuple
+import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import Any, Dict, List, Optional, Tuple
+
 import pandas as pd
 
-from .deducer import deduce_patterns_for_variant
+from .analyzer import create_inheritance_details
 from .comp_het import analyze_gene_for_compound_het, create_variant_key
+from .deducer import deduce_patterns_for_variant
 from .prioritizer import prioritize_patterns
 from .segregation_checker import calculate_segregation_score
-from .analyzer import create_inheritance_details
 
 try:
     from .comp_het_vectorized import analyze_gene_for_compound_het_vectorized

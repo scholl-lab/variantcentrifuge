@@ -5,12 +5,13 @@ These tests verify that the --inheritance-mode flag works correctly
 through the full command-line interface.
 """
 
-import pytest
-import tempfile
+import json
 import os
 import subprocess
+import tempfile
+
 import pandas as pd
-import json
+import pytest
 
 
 class TestInheritanceModeIntegration:

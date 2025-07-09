@@ -12,11 +12,10 @@ import argparse
 import json
 import os
 import platform
-import psutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -24,6 +23,7 @@ from typing import Dict, List, Optional
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import psutil
 
 
 @dataclass

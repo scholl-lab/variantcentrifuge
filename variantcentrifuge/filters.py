@@ -540,8 +540,9 @@ def filter_tsv_with_expression(
     pandas_query : bool
         If True, use pandas query syntax. If False, translate from SnpSift syntax.
     """
-    import pandas as pd
     import re
+
+    import pandas as pd
 
     logger.info(f"Applying TSV filter: {filter_expression}")
 

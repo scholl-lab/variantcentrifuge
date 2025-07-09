@@ -8,11 +8,11 @@ scoring configurations, and other setup tasks that can run in parallel.
 import logging
 
 from ..config import load_config
+from ..helpers import get_vcf_samples
 from ..ped_reader import read_pedigree
 from ..phenotype import load_phenotypes
 from ..pipeline_core import PipelineContext, Stage
 from ..scoring import read_scoring_config
-from ..helpers import get_vcf_samples
 
 logger = logging.getLogger(__name__)
 

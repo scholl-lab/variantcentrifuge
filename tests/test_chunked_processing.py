@@ -2,14 +2,15 @@
 
 import os
 import tempfile
-import pandas as pd
-import pytest
 from unittest.mock import Mock, patch
 
+import pandas as pd
+import pytest
+
 from variantcentrifuge.pipeline import (
+    process_chunked_pipeline,
     read_tsv_in_gene_chunks,
     sort_tsv_by_gene,
-    process_chunked_pipeline,
 )
 
 

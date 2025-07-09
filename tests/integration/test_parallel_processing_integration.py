@@ -27,7 +27,6 @@ def create_complete_namespace(**overrides):
         "config": None,
         "log_level": "INFO",
         "reference": "GRCh37",
-        
         # Processing options
         "threads": 1,
         "filter": None,
@@ -38,23 +37,19 @@ def create_complete_namespace(**overrides):
         "xlsx": False,
         "html_report": False,
         "use_new_pipeline": True,
-        
         # Optional file inputs
         "phenotype_file": None,
         "ped_file": None,
         "scoring_config_path": None,
-        
         # Annotation options
         "annotate_bed": None,
         "annotate_gene_list": None,
         "annotate_json_genes": None,
-        
         # Processing flags
         "snpeff_split_by_transcript": False,
         "no_replacement": True,
         "keep_intermediates": True,
         "calculate_inheritance": False,
-        
         # Additional flags that might be expected
         "bcftools_prefilter": None,
         "preset": None,
@@ -74,10 +69,10 @@ def create_complete_namespace(**overrides):
         "resume": False,
         "chunks": None,
     }
-    
+
     # Update with any overrides
     defaults.update(overrides)
-    
+
     return Namespace(**defaults)
 
 
@@ -92,7 +87,7 @@ class TestParallelProcessing:
             tmp_path = Path(tmpdir)
 
             # Create test VCF file with multiple genes
-            vcf_file = tmp_path / "test.vcf"
+            vcf_file = tmp_path / "test.vc"
             vcf_file.write_text(
                 "##fileformat=VCFv4.2\n"
                 "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample1\n"
@@ -113,17 +108,19 @@ class TestParallelProcessing:
             output_dir.mkdir(exist_ok=True)
             (output_dir / "intermediate").mkdir(exist_ok=True)
 
-            yield {"vcf": str(vcf_file), "output_dir": str(output_dir), "tmp_path": tmp_path}
+            yield {"vc": str(vcf_file), "output_dir": str(output_dir), "tmp_path": tmp_path}
 
     @patch("variantcentrifuge.extractor.run_command")
     @patch("variantcentrifuge.utils.run_command")
     @patch("variantcentrifuge.filters.run_command")
+    @patch("variantcentrifuge.stages.processing_stages.subprocess.run")
     @patch("variantcentrifuge.gene_bed.subprocess.run")
     @patch("variantcentrifuge.stages.setup_stages.get_vcf_samples")
     def test_parallel_vs_sequential_results(
         self,
         mock_get_samples,
         mock_snpeff,
+        mock_subprocess_run,
         mock_filters_run_command,
         mock_run_command,
         mock_extractor_run_command,
@@ -149,6 +146,62 @@ class TestParallelProcessing:
 
         mock_snpeff.side_effect = snpeff_side_effect
 
+        # Mock subprocess.run for sort commands in DataSortingStage
+        def subprocess_run_side_effect(cmd, **kwargs):
+            from subprocess import CompletedProcess
+            
+            print(f"DEBUG: subprocess.run called with: {cmd}")
+            
+            # Handle shell commands (sort operations)
+            if isinstance(cmd, str) and ("sort" in cmd or "gzip" in cmd):
+                # Extract output file from shell command
+                import re
+                
+                # Look for output redirection
+                output_match = re.search(r'>\s*([^\s]+)$', cmd)
+                if output_match:
+                    output_file = output_match.group(1).strip("'\"")
+                    print(f"DEBUG: Found output file in shell command: {output_file}")
+                    
+                    # Look for input file
+                    input_match = re.search(r'gzip -cd ([^\s]+)', cmd)
+                    if input_match:
+                        input_file = input_match.group(1).strip("'\"")
+                        print(f"DEBUG: Found input file in shell command: {input_file}")
+                        
+                        if Path(input_file).exists():
+                            # For testing, just copy the compressed file content
+                            import gzip
+                            try:
+                                with gzip.open(input_file, 'rt') as f_in:
+                                    content = f_in.read()
+                                
+                                # Write output based on compression
+                                if output_file.endswith('.gz'):
+                                    with gzip.open(output_file, 'wt') as f_out:
+                                        f_out.write(content)
+                                else:
+                                    with open(output_file, 'w') as f_out:
+                                        f_out.write(content)
+                                        
+                                print(f"DEBUG: Successfully created sorted output: {output_file}")
+                            except Exception as e:
+                                print(f"DEBUG: Error processing sort command: {e}")
+                                # Create empty output file as fallback
+                                Path(output_file).touch()
+                        else:
+                            print(f"DEBUG: Input file not found: {input_file}")
+                            Path(output_file).touch()
+                    else:
+                        print("DEBUG: Could not find input file in command")
+                        Path(output_file).touch()
+                else:
+                    print("DEBUG: Could not find output file in shell command")
+            
+            return CompletedProcess(cmd, 0, stdout="", stderr="")
+        
+        mock_subprocess_run.side_effect = subprocess_run_side_effect
+
         # Track which files were processed
         processed_files = {"sequential": [], "parallel": []}
 
@@ -165,7 +218,7 @@ class TestParallelProcessing:
 
             # Track which mode we're in based on thread count
             mode = "parallel" if "chunk_" in cmd_str else "sequential"
-            
+
             print(f"DEBUG: Mock run_command called with: {cmd_str[:200]}...")
             print(f"DEBUG: Output file: {output_file}")
             print(f"DEBUG: Mode: {mode}")
@@ -176,7 +229,7 @@ class TestParallelProcessing:
                     # Find the output file after -o flag
                     output_file = cmd[cmd.index("-o") + 1]
                     print(f"DEBUG: bcftools output file: {output_file}")
-                
+
                 if output_file:
                     # Extract which region is being processed
                     bed_file = None
@@ -233,10 +286,10 @@ class TestParallelProcessing:
                 if "extractFields" in cmd_str:
                     # Find output file - it's passed as output_file parameter to run_command
                     if not output_file:
-                        print(f"DEBUG: No output file specified for extractFields")
+                        print("DEBUG: No output file specified for extractFields")
                         return result
                     print(f"DEBUG: extractFields output file: {output_file}")
-                    
+
                 if "extractFields" in cmd_str and output_file:
                     # Mock field extraction
                     with open(output_file, "w") as f:
@@ -244,17 +297,29 @@ class TestParallelProcessing:
                         # Parse the input VCF to extract fields
                         input_file = None
                         for arg in cmd:
-                            if (arg.endswith(".vcf.gz") or arg.endswith(".vcf")) and arg != output_file:
+                            if (
+                                arg.endswith(".vcf.gz") or arg.endswith(".vc")
+                            ) and arg != output_file:
                                 input_file = arg
                                 break
 
                         # Debug: print what files we're looking for
                         print(f"DEBUG: extractFields command: {cmd}")
                         print(f"DEBUG: looking for input file, found: {input_file}")
-                        print(f"DEBUG: input file exists: {Path(input_file).exists() if input_file else 'None'}")
-                        
+                        print(
+                            f"DEBUG: input file exists: {Path(input_file).exists() if input_file else 'None'}"
+                        )
+
                         if input_file and Path(input_file).exists():
-                            lines = Path(input_file).read_text().strip().split("\n")
+                            # Handle compressed files
+                            if input_file.endswith('.gz'):
+                                import gzip
+                                with gzip.open(input_file, 'rt') as f:
+                                    content = f.read().strip()
+                            else:
+                                content = Path(input_file).read_text().strip()
+                            
+                            lines = content.split("\n")
                             print(f"DEBUG: read {len(lines)} lines from {input_file}")
                             print(f"DEBUG: lines content: {lines}")
                             rows_written = 0
@@ -291,7 +356,7 @@ class TestParallelProcessing:
                                         rows_written += 1
                             print(f"DEBUG: wrote {rows_written} data rows to {output_file}")
                         else:
-                            print(f"DEBUG: No input file found or doesn't exist")
+                            print("DEBUG: No input file found or doesn't exist")
                         processed_files[mode].append(("extract", output_file))
 
                 elif "filter" in cmd_str:
@@ -304,36 +369,47 @@ class TestParallelProcessing:
                             # Output file might be the last argument
                             output_file = cmd[-1]
                         else:
-                            print(f"DEBUG: No output file found for filter command")
+                            print("DEBUG: No output file found for filter command")
                             return result
                     print(f"DEBUG: filter output file: {output_file}")
-                    
+
                 if "filter" in cmd_str and output_file:
                     # Mock filtering - filter by QUAL >= 80 and AC < 3
                     input_file = None
                     for arg in cmd:
-                        if (arg.endswith(".vcf.gz") or arg.endswith(".vcf")) and arg != output_file:
+                        if (arg.endswith(".vcf.gz") or arg.endswith(".vc")) and arg != output_file:
                             input_file = arg
                             break
 
                     print(f"DEBUG: Filter command: {cmd}")
                     print(f"DEBUG: Input file: {input_file}")
                     print(f"DEBUG: Output file: {output_file}")
-                    print(f"DEBUG: Input file exists: {Path(input_file).exists() if input_file else 'None'}")
+                    print(
+                        f"DEBUG: Input file exists: {Path(input_file).exists() if input_file else 'None'}"
+                    )
 
                     if input_file and Path(input_file).exists():
-                        # Read input and filter
-                        lines = Path(input_file).read_text().strip().split("\n")
+                        # Read input and filter (handle compressed files)
+                        if input_file.endswith('.gz'):
+                            import gzip
+                            with gzip.open(input_file, 'rt') as f:
+                                content = f.read().strip()
+                        else:
+                            content = Path(input_file).read_text().strip()
+                        
+                        lines = content.split("\n")
                         print(f"DEBUG: Read {len(lines)} lines from {input_file}")
                         output_lines = []
                         data_rows_filtered = 0
-                        
+
                         for line in lines:
                             if line.startswith("#"):
                                 output_lines.append(line)
                             elif line.strip():  # Skip empty lines
                                 parts = line.split("\t")
-                                print(f"DEBUG: Processing line with {len(parts)} parts: {line[:100]}...")
+                                print(
+                                    f"DEBUG: Processing line with {len(parts)} parts: {line[:100]}..."
+                                )
                                 if len(parts) > 7:
                                     try:
                                         qual = float(parts[5])
@@ -341,7 +417,9 @@ class TestParallelProcessing:
                                         # Extract AC value
                                         if "AC=" in info:
                                             ac = int(info.split("AC=")[1].split(";")[0])
-                                            print(f"DEBUG: QUAL={qual}, AC={ac}, filter test: {qual >= 80 and ac < 3}")
+                                            print(
+                                                f"DEBUG: QUAL={qual}, AC={ac}, filter test: {qual >= 80 and ac < 3}"
+                                            )
                                             if qual >= 80 and ac < 3:
                                                 output_lines.append(line)
                                                 data_rows_filtered += 1
@@ -350,31 +428,133 @@ class TestParallelProcessing:
                                     except (ValueError, IndexError) as e:
                                         print(f"DEBUG: Error parsing line: {e}")
                                         continue
-                        
-                        print(f"DEBUG: Writing {len(output_lines)} lines ({data_rows_filtered} data rows) to {output_file}")
+
+                        print(
+                            f"DEBUG: Writing {len(output_lines)} lines ({data_rows_filtered} data rows) to {output_file}"
+                        )
                         Path(output_file).write_text("\n".join(output_lines) + "\n")
                         processed_files[mode].append(("filter", output_file))
                     else:
-                        print(f"DEBUG: Creating empty filter output file")
-                        Path(output_file).write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample1\n")
+                        print("DEBUG: Creating empty filter output file")
+                        Path(output_file).write_text(
+                            "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample1\n"
+                        )
 
-            elif "sort" in cmd_str and output_file:
-                # Mock sort command for data sorting
+            elif "bgzip" in cmd_str:
+                # Mock bgzip compression command
+                print(f"DEBUG: bgzip command: {cmd}")
+                print(f"DEBUG: bgzip output_file: {output_file}")
+                
+                # Find input file - it's usually the last argument
                 input_file = None
-                # Find the input file (usually the last argument that's not an option)
                 for arg in reversed(cmd):
-                    if not arg.startswith("-") and arg != output_file and Path(arg).exists():
+                    if not arg.startswith("-") and Path(arg).exists():
                         input_file = arg
                         break
                 
-                if input_file:
-                    # Just copy the input to output for testing
-                    import shutil
-                    shutil.copy(input_file, output_file)
-                    processed_files[mode].append(("sort", output_file))
+                if input_file and output_file:
+                    # Read input and write compressed output
+                    import gzip
+                    with open(input_file, 'rb') as f_in:
+                        with gzip.open(output_file, 'wb') as f_out:
+                            f_out.write(f_in.read())
+                    print(f"DEBUG: bgzip created compressed file: {output_file}")
+                    processed_files[mode].append(("bgzip", output_file))
+                elif input_file:
+                    # If no output_file specified, look for -c flag and stdout redirection
+                    if "-c" in cmd:
+                        # Look for output redirection in the command string
+                        if ">" in cmd_str:
+                            redirect_output = cmd_str.split(">")[-1].strip()
+                            import gzip
+                            with open(input_file, 'rb') as f_in:
+                                with gzip.open(redirect_output, 'wb') as f_out:
+                                    f_out.write(f_in.read())
+                            print(f"DEBUG: bgzip created compressed file via redirection: {redirect_output}")
+                            processed_files[mode].append(("bgzip", redirect_output))
+
+            elif "bcftools" in cmd_str and "index" in cmd_str:
+                # Mock bcftools index command
+                print(f"DEBUG: bcftools index command: {cmd}")
+                # Find the VCF file to index (last .vcf.gz argument)
+                vcf_file = None
+                for arg in cmd:
+                    if arg.endswith(".vcf.gz"):
+                        vcf_file = arg
+                        break
+                
+                if vcf_file:
+                    # Create the index file
+                    index_file = vcf_file + ".csi"
+                    Path(index_file).touch()
+                    print(f"DEBUG: Created index file: {index_file}")
+                    processed_files[mode].append(("index", index_file))
+
+            elif "sort" in cmd_str and output_file:
+                # Mock sort command for data sorting
+                print(f"DEBUG: sort command: {cmd}")
+                print(f"DEBUG: sort output_file: {output_file}")
+                
+                # Handle complex shell commands with pipes
+                if isinstance(cmd, str):
+                    # This is a shell command with pipes, we need to handle it differently
+                    if "gzip -cd" in cmd and "|" in cmd:
+                        # Extract the input file from the gzip -cd part
+                        import re
+                        match = re.search(r'gzip -cd ([^\s]+)', cmd)
+                        if match:
+                            input_file = match.group(1).strip("'\"")
+                            print(f"DEBUG: Extracted input file from shell command: {input_file}")
+                            
+                            if input_file and Path(input_file).exists():
+                                # For testing, just decompress and sort the file
+                                import gzip
+                                with gzip.open(input_file, 'rt') as f_in:
+                                    lines = f_in.readlines()
+                                
+                                # Separate header and data
+                                header = lines[0] if lines else ""
+                                data_lines = lines[1:] if len(lines) > 1 else []
+                                
+                                # Sort data lines (for testing, just keep original order)
+                                sorted_lines = [header] + data_lines
+                                
+                                # Write output based on whether it should be compressed
+                                if output_file.endswith('.gz'):
+                                    with gzip.open(output_file, 'wt') as f_out:
+                                        f_out.writelines(sorted_lines)
+                                else:
+                                    with open(output_file, 'w') as f_out:
+                                        f_out.writelines(sorted_lines)
+                                
+                                print(f"DEBUG: Created sorted file: {output_file}")
+                                processed_files[mode].append(("sort", output_file))
+                            else:
+                                print(f"DEBUG: Input file not found for sort: {input_file}")
+                                Path(output_file).touch()
+                        else:
+                            print("DEBUG: Could not extract input file from sort command")
+                            Path(output_file).touch()
+                    else:
+                        print("DEBUG: Unsupported sort command format")
+                        Path(output_file).touch()
                 else:
-                    # Create empty output file if no input found
-                    Path(output_file).touch()
+                    # Handle list-based commands
+                    input_file = None
+                    # Find the input file (usually the last argument that's not an option)
+                    for arg in reversed(cmd):
+                        if not arg.startswith("-") and arg != output_file and Path(arg).exists():
+                            input_file = arg
+                            break
+
+                    if input_file:
+                        # Just copy the input to output for testing
+                        import shutil
+                        shutil.copy(input_file, output_file)
+                        processed_files[mode].append(("sort", output_file))
+                    else:
+                        # Create empty output file if no input found
+                        Path(output_file).touch()
 
             return result
 
@@ -384,7 +564,7 @@ class TestParallelProcessing:
 
         # Test sequential processing (threads=1)
         sequential_args = create_complete_namespace(
-            vcf_file=setup_files["vcf"],
+            vcf_file=setup_files["vc"],
             gene_name="GENE1,GENE2,GENE3",
             output_dir=setup_files["output_dir"],
             log_level="DEBUG",
@@ -413,7 +593,7 @@ class TestParallelProcessing:
 
         # Test parallel processing (threads=3)
         parallel_args = create_complete_namespace(
-            vcf_file=setup_files["vcf"],
+            vcf_file=setup_files["vc"],
             gene_name="GENE1,GENE2,GENE3",
             output_dir=setup_files["output_dir"],
             log_level="DEBUG",
@@ -470,7 +650,7 @@ class TestParallelProcessing:
     def test_stage_configuration_parallel(self, setup_files):
         """Test that parallel processing uses correct stages."""
         args = create_complete_namespace(
-            vcf_file=setup_files["vcf"],
+            vcf_file=setup_files["vc"],
             gene_name="GENE1",
             output_dir=setup_files["output_dir"],
             threads=4,  # Parallel processing
@@ -492,7 +672,7 @@ class TestParallelProcessing:
     def test_stage_configuration_sequential(self, setup_files):
         """Test that sequential processing uses correct stages."""
         args = create_complete_namespace(
-            vcf_file=setup_files["vcf"],
+            vcf_file=setup_files["vc"],
             gene_name="GENE1",
             output_dir=setup_files["output_dir"],
             threads=1,  # Sequential processing

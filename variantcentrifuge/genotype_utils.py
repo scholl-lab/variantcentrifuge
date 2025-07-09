@@ -5,7 +5,7 @@ This module provides functions to parse and analyze genotype strings
 commonly found in VCF files.
 """
 
-from typing import Optional, Tuple, List
+from typing import List, Optional, Tuple
 
 
 def parse_genotype(gt: str) -> Tuple[Optional[int], Optional[int]]:

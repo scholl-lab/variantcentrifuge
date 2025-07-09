@@ -1,8 +1,9 @@
 """Pytest configuration and fixtures for inheritance tests."""
 
-import pytest
+from typing import Any, Dict
+
 import pandas as pd
-from typing import Dict, Any
+import pytest
 
 
 @pytest.fixture

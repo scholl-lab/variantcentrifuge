@@ -11,14 +11,15 @@ Tests cover:
 - Integration with the full pipeline
 """
 
-import pytest
-import numpy as np
-import pandas as pd
 from unittest.mock import patch
 
+import numpy as np
+import pandas as pd
+import pytest
+
 from variantcentrifuge.gene_burden import (
-    perform_gene_burden_analysis,
     _compute_or_confidence_interval,
+    perform_gene_burden_analysis,
 )
 
 

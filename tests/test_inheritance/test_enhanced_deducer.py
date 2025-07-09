@@ -1,13 +1,14 @@
 """Test cases for enhanced pattern deduction logic."""
 
 import pytest
+
 from variantcentrifuge.inheritance.deducer import (
-    deduce_patterns_for_variant,
-    deduce_single_sample_patterns,
     check_dominant_pattern,
+    check_mitochondrial_pattern,
     check_recessive_pattern,
     check_x_linked_patterns,
-    check_mitochondrial_pattern,
+    deduce_patterns_for_variant,
+    deduce_single_sample_patterns,
 )
 
 # Mark all tests in this module

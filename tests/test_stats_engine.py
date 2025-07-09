@@ -1,10 +1,11 @@
 """Tests for the configurable statistics engine."""
 
-import pytest
-import pandas as pd
 import json
-import tempfile
 import os
+import tempfile
+
+import pandas as pd
+import pytest
 
 from variantcentrifuge.stats_engine import StatsEngine
 

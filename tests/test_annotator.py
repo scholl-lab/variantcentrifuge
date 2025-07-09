@@ -10,26 +10,28 @@ Tests all aspects of the annotation system including:
 - Error handling
 """
 
-import pytest
-import pandas as pd
-import tempfile
-import os
 import json
+import os
+import tempfile
 from unittest.mock import patch
+
+import pandas as pd
+import pytest
+
 from variantcentrifuge.annotator import (
-    load_custom_features,
-    annotate_dataframe_with_features,
-    validate_annotation_config,
-    get_annotation_summary,
-    _sanitize_name,
-    _parse_bed_line,
-    _load_bed_files,
-    _load_gene_lists,
-    _load_json_gene_data,
+    INTERVALTREE_AVAILABLE,
     _extract_genes_from_row,
     _find_gene_list_matches,
     _find_json_gene_matches,
-    INTERVALTREE_AVAILABLE,
+    _load_bed_files,
+    _load_gene_lists,
+    _load_json_gene_data,
+    _parse_bed_line,
+    _sanitize_name,
+    annotate_dataframe_with_features,
+    get_annotation_summary,
+    load_custom_features,
+    validate_annotation_config,
 )
 
 

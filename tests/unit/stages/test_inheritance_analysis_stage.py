@@ -1,11 +1,12 @@
 """Unit tests for InheritanceAnalysisStage."""
 
-import pandas as pd
-import pytest
 from unittest.mock import patch
 
-from variantcentrifuge.stages.analysis_stages import InheritanceAnalysisStage
+import pandas as pd
+import pytest
+
 from tests.mocks.fixtures import create_test_context
+from variantcentrifuge.stages.analysis_stages import InheritanceAnalysisStage
 
 
 class TestInheritanceAnalysisStage:

@@ -2,6 +2,7 @@
 
 import pandas as pd
 import pytest
+
 from variantcentrifuge.scoring import apply_scoring
 
 

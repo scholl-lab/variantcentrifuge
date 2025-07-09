@@ -1,10 +1,11 @@
 """Test the archive_results functionality."""
 
 import os
-import tempfile
 import tarfile
-import pytest
+import tempfile
 from unittest.mock import patch
+
+import pytest
 
 from variantcentrifuge.pipeline import archive_results_directory
 

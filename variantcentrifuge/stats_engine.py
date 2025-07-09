@@ -1,10 +1,11 @@
 """Configurable statistics computation engine."""
 
-import pandas as pd
-import numpy as np
-import logging
-from typing import Dict, Any, List, Union
 import json
+import logging
+from typing import Any, Dict, List, Union
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger("variantcentrifuge")
 

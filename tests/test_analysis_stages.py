@@ -1,18 +1,19 @@
 """Tests for all analysis stages."""
 
 from unittest.mock import Mock, patch
+
 import pandas as pd
 
 from variantcentrifuge.pipeline_core import PipelineContext
 from variantcentrifuge.pipeline_core.workspace import Workspace
 from variantcentrifuge.stages.analysis_stages import (
-    DataFrameLoadingStage,
-    CustomAnnotationStage,
-    InheritanceAnalysisStage,
-    VariantScoringStage,
-    StatisticsGenerationStage,
-    GeneBurdenAnalysisStage,
     ChunkedAnalysisStage,
+    CustomAnnotationStage,
+    DataFrameLoadingStage,
+    GeneBurdenAnalysisStage,
+    InheritanceAnalysisStage,
+    StatisticsGenerationStage,
+    VariantScoringStage,
 )
 
 

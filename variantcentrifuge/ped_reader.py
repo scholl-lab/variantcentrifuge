@@ -6,7 +6,8 @@ used in genetic analysis to define family relationships.
 """
 
 import logging
-from typing import Dict, Any
+from typing import Any, Dict
+
 import pandas as pd
 
 logger = logging.getLogger(__name__)
