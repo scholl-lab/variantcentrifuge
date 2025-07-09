@@ -328,6 +328,15 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
         "html_report",
         "inheritance_mode",  # Add inheritance_mode to config
         "calculate_inheritance",  # Add calculate_inheritance flag
+        # Gene burden analysis arguments
+        "case_samples_file",
+        "control_samples_file",
+        "case_samples",
+        "control_samples",
+        "case_phenotypes",
+        "control_phenotypes",
+        "case_phenotypes_file",
+        "control_phenotypes_file",
         # IGV-related arguments
         "igv",
         "bam_mapping_file",

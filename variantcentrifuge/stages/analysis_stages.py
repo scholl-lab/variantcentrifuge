@@ -598,10 +598,17 @@ class StatisticsGenerationStage(Stage):
 
         context.statistics = stats
 
-        # Write stats if output file specified
+        # Write stats if output file specified or create default path
         stats_output = context.config.get("stats_output_file")
+        if not stats_output and not context.config.get("no_stats"):
+            # Create default stats file path like the old pipeline does
+            stats_output = context.workspace.get_intermediate_path("statistics.tsv")
+            context.config["stats_output_file"] = str(stats_output)
+            logger.debug(f"Created default statistics output path: {stats_output}")
+        
         if stats_output:
             self._write_statistics(stats, stats_output)
+            logger.debug(f"Statistics written to: {stats_output}")
 
         return context
 
@@ -760,8 +767,8 @@ class GeneBurdenAnalysisStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Depends on having a DataFrame with variants
-        return {"dataframe_loading", "custom_annotation"}
+        # Depends on having a DataFrame with variants and case/control samples
+        return {"dataframe_loading", "custom_annotation", "sample_config_loading"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Perform gene burden analysis."""
@@ -797,24 +804,33 @@ class GeneBurdenAnalysisStage(Stage):
             "confidence_interval_alpha": context.config.get("confidence_interval_alpha", 0.05),
         }
 
-        # First analyze variants to get counts
-        analyzed_df = analyze_variants(
+        # Add case/control count columns to DataFrame first
+        from ..helpers import assign_case_control_counts
+        
+        # Prepare DataFrame with case/control counts
+        all_samples = set(case_samples + control_samples) 
+        df_with_counts = assign_case_control_counts(
             df=df,
-            case_samples=case_samples,
-            control_samples=control_samples,
-            gene_column=context.config.get("gene_column", "GENE"),
+            case_samples=set(case_samples),
+            control_samples=set(control_samples),
+            all_samples=all_samples,
         )
-
-        # Then perform gene burden analysis
-        burden_results = perform_gene_burden_analysis(df=analyzed_df, cfg=burden_config)
+        
+        # Perform gene burden analysis on prepared DataFrame
+        burden_results = perform_gene_burden_analysis(df=df_with_counts, cfg=burden_config)
 
         context.gene_burden_results = burden_results
 
-        # Write results if output specified
+        # Write results to output file
         burden_output = context.config.get("gene_burden_output")
-        if burden_output:
-            burden_results.to_csv(burden_output, sep="\t", index=False)
-            logger.info(f"Wrote gene burden results to {burden_output}")
+        if not burden_output:
+            # Create default gene burden output path
+            output_dir = context.config.get("output_dir", "output")
+            base_name = context.config.get("output_file_base", "gene_burden_results")
+            burden_output = str(Path(output_dir) / f"{base_name}.gene_burden.tsv")
+        
+        burden_results.to_csv(burden_output, sep="\t", index=False)
+        logger.info(f"Wrote gene burden results to {burden_output}")
 
         return context
 
