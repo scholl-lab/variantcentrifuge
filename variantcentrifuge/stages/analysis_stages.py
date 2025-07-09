@@ -677,8 +677,9 @@ class VariantAnalysisStage(Stage):
         """Return the set of stage names that should run before if present."""
         # Note: variant_identifier should run AFTER this stage, not before,
         # because analyze_variants creates a new DataFrame
+        # Run after custom_annotation to ensure deterministic column ordering
         # Run after genotype filtering if present
-        return {"genotype_filtering"}
+        return {"custom_annotation", "genotype_filtering"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Run variant analysis."""

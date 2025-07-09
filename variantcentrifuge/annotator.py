@@ -500,7 +500,8 @@ def _add_json_annotations_as_columns(
                 annotations_df[col] = pd.NA
 
         # Concatenate the new columns to the original DataFrame
-        df = pd.concat([df, annotations_df[list(all_new_columns)]], axis=1)
+        # Sort column names for deterministic ordering
+        df = pd.concat([df, annotations_df[sorted(all_new_columns)]], axis=1)
 
     return df
 

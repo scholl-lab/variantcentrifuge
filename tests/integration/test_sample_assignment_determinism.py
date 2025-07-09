@@ -71,6 +71,7 @@ class TestPipelineSampleDeterminism:
             config = mock_test_data["config"].copy()
             workspace = Workspace(str(run_workspace), "test")
             from argparse import Namespace
+
             args = Namespace()
             context = PipelineContext(args, config, workspace)
 
@@ -130,6 +131,7 @@ class TestPipelineSampleDeterminism:
         with patch("variantcentrifuge.helpers.get_vcf_names", return_value=test_samples):
             workspace = Workspace(str(temp_workspace), "test")
             from argparse import Namespace
+
             args = Namespace()
             context = PipelineContext(args, mock_test_data["config"], workspace)
 
@@ -235,6 +237,7 @@ class TestPipelineSampleDeterminism:
         for _ in range(3):
             workspace = Workspace(str(temp_workspace), "test")
             from argparse import Namespace
+
             args = Namespace()
             context = PipelineContext(
                 args, {"inheritance_mode": "simple", "calculate_inheritance": True}, workspace

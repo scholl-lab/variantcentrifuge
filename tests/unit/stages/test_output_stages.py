@@ -555,11 +555,17 @@ class TestExcelReportStage:
     @patch("variantcentrifuge.stages.output_stages.convert_to_excel")
     def test_excel_generation(self, mock_convert, context):
         """Test Excel report generation."""
-        # Mark TSV output as complete since Excel depends on it
+        # Mark dependencies as complete since Excel depends on them
         context.mark_complete("tsv_output")
+        context.mark_complete("metadata_generation")
+        context.mark_complete("statistics_generation")
         # Set final output path which TSV output would have created
         context.final_output_path = context.workspace.output_dir / "output.tsv"
         context.final_output_path.touch()  # Create the file
+        
+        # Configure the mock to return a specific Excel file path
+        expected_excel_path = str(context.workspace.output_dir / "output.xlsx")
+        mock_convert.return_value = expected_excel_path
 
         stage = ExcelReportStage()
         stage(context)

@@ -192,19 +192,22 @@ chr1\t200\t.\tC\tG\t60\tPASS\tAC=1\tGT\t1/1\t0/1\t0/0
         workspace = Workspace("/tmp/test", "test")
         from argparse import Namespace
         import pandas as pd
+
         args = Namespace()
         context = PipelineContext(args, {"inheritance_mode": "simple"}, workspace)
         context.vcf_samples = test_samples_set  # Deliberately pass a set
         context.pedigree_data = {}
         # Add a minimal DataFrame to trigger set conversion check
-        context.current_dataframe = pd.DataFrame({
-            'CHROM': ['chr1'],
-            'POS': [100],
-            'REF': ['A'],
-            'ALT': ['T'],
-            'GENE': ['BRCA1'],
-            'GT': ['Sample1(0/1);Sample2(0/0);Sample3(1/1)']
-        })
+        context.current_dataframe = pd.DataFrame(
+            {
+                "CHROM": ["chr1"],
+                "POS": [100],
+                "REF": ["A"],
+                "ALT": ["T"],
+                "GENE": ["BRCA1"],
+                "GT": ["Sample1(0/1);Sample2(0/0);Sample3(1/1)"],
+            }
+        )
 
         stage = InheritanceAnalysisStage()
 
