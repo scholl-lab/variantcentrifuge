@@ -7,7 +7,7 @@ This directory contains enhanced test data and utilities for comprehensive gene 
 The enhanced gene burden test framework provides complete coverage for all possible ways to specify case/control groups in VariantCentrifuge, using **authentic SnpEff annotations** for maximum realism:
 
 ### ✅ **Key Enhancements**
-- **Real Annotation Sampling**: Authentic SnpEff annotations from `testdata_snpef.txt`
+- **Real Annotation Sampling**: Authentic SnpEff annotations from local anonymized templates
 - **Realistic Pathogenicity**: Actual dbNSFP scores (CADD, SIFT, PolyPhen2, REVEL)
 - **Diverse Variant Effects**: 10 unique effect types from real genomic data
 - **Controlled Test Outcomes**: Maintains probabilistic distributions for reliable testing
@@ -30,24 +30,23 @@ The enhanced gene burden test framework provides complete coverage for all possi
 
 ## Files Generated
 
-### Core Scripts
-- **`generate_enhanced_test_data.py`** - Enhanced test data generator with real annotation sampling
-- **`test_data/`** - Generated test dataset directory with authentic annotations
-
-### Test Data Structure
+### Directory Structure
 ```
-test_data/
-├── enhanced_test_data.vcf.gz      # VCF with real SnpEff annotations
-├── case_samples.txt               # Case sample IDs
-├── control_samples.txt            # Control sample IDs
-├── test_genes.txt                # All test genes
-├── phenotypes_basic.csv          # GCKD-style phenotype file
-├── phenotypes_extended.csv       # Multiple HPO terms per sample
-├── phenotypes_alt_columns.csv    # Alternative column names
-├── case_hpo_terms.txt           # HPO terms for cases
-├── control_hpo_terms.txt        # HPO terms for controls
-├── enhanced_dataset_statistics.json # Detailed annotation statistics
-└── README.md                     # Detailed usage instructions
+geneburden/
+├── generate_enhanced_test_data.py # Enhanced test data generator
+├── README.md                      # This documentation
+├── templates/                     # Core template files
+│   └── annotation_templates.txt   # Anonymized annotation patterns
+├── output/                        # Generated test datasets (gitignored)
+│   ├── enhanced_test_data.vcf.gz  # VCF with real SnpEff annotations
+│   ├── case_samples.txt           # Case sample IDs
+│   ├── control_samples.txt        # Control sample IDs
+│   ├── test_genes.txt            # All test genes
+│   ├── phenotypes_*.csv          # Various phenotype file formats
+│   ├── *_hpo_terms.txt          # HPO term files
+│   ├── enhanced_dataset_statistics.json # Detailed statistics
+│   └── README.md                  # Dataset-specific documentation
+└── temp/                          # Temporary files (gitignored)
 ```
 
 ## Quick Start
@@ -55,12 +54,14 @@ test_data/
 ### 1. Generate Enhanced Test Data
 ```bash
 cd tests/fixtures/geneburden
-python generate_enhanced_test_data.py --output-dir test_data --annotation-source ../../../testdata_snpef.txt
+python generate_enhanced_test_data.py
+# Or specify custom output directory:
+# python generate_enhanced_test_data.py --output-dir custom_output
 ```
 
 ### 2. Run Gene Burden Analysis
 ```bash
-cd test_data
+cd output
 python -m variantcentrifuge.cli \
   --vcf-file enhanced_test_data.vcf.gz \
   --gene-file test_genes.txt \
@@ -188,15 +189,12 @@ The enhanced test dataset uses realistic annotations with controlled probabiliti
 ```bash
 cd tests/fixtures/geneburden
 python generate_enhanced_test_data.py \
-  --output-dir test_data \
-  --annotation-source ../../../testdata_snpef.txt \
   --seed 42
 ```
 
-### Using Different Annotation Sources
+### Using External Annotation Sources (Optional)
 ```bash
 python generate_enhanced_test_data.py \
-  --output-dir test_data \
   --annotation-source /path/to/your/annotated_variants.txt \
   --seed 42
 ```
@@ -205,7 +203,7 @@ python generate_enhanced_test_data.py \
 
 Check the detailed statistics to verify annotation quality:
 ```bash
-cat test_data/enhanced_dataset_statistics.json | jq '.annotation_statistics'
+cat output/enhanced_dataset_statistics.json | jq '.annotation_statistics'
 ```
 
 Expected output shows:
@@ -215,21 +213,22 @@ Expected output shows:
 
 ## Troubleshooting
 
-### Missing Annotation Source
+### Script Dependencies
 ```bash
-# Ensure testdata_snpef.txt exists in project root
-ls -la ../../../testdata_snpef.txt
+# Verify local annotation templates exist
+ls -la templates/annotation_templates.txt
 ```
 
 ### VCF Index Issues
 ```bash
-cd test_data
+cd output
 tabix -p vcf enhanced_test_data.vcf.gz
 ```
 
 ### Annotation Quality Check
 ```bash
 # Verify authentic annotations are present
+cd output
 zcat enhanced_test_data.vcf.gz | grep -v "^#" | head -1 | cut -f8
 ```
 

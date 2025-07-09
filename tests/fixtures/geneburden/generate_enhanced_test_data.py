@@ -61,7 +61,7 @@ class AnnotationSampler:
         # Default to local anonymized annotation templates
         if source_file is None:
             script_dir = Path(__file__).parent
-            source_file = str(script_dir / "test_data" / "annotation_templates.txt")
+            source_file = str(script_dir / "templates" / "annotation_templates.txt")
         
         self.source_file = source_file
         self.templates = defaultdict(list)  # effect_type -> [AnnotationTemplate]
@@ -1097,7 +1097,7 @@ def main():
         epilog=__doc__,
     )
 
-    parser.add_argument("--output-dir", required=True, help="Output directory for enhanced test dataset")
+    parser.add_argument("--output-dir", default="output", help="Output directory for enhanced test dataset (default: output)")
     parser.add_argument(
         "--annotation-source", 
         default=None,
