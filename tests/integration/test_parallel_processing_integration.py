@@ -234,7 +234,7 @@ class TestParallelProcessing:
                     # Check if compression is requested (-Oz flag)
                     use_compression = "-Oz" in cmd or output_file.endswith(".gz")
                     print(f"DEBUG: bcftools compression requested: {use_compression}")
-                    
+
                     # Extract which region is being processed
                     bed_file = None
                     for i, arg in enumerate(cmd):
@@ -284,16 +284,16 @@ class TestParallelProcessing:
                             "chr3\t5000\t.\tC\tG\t110\tPASS\tGENE=GENE3;AC=2\tGT:DP\t0/1:45\n"
                             "chr3\t6000\t.\tT\tA\t75\tPASS\tGENE=GENE3;AC=4\tGT:DP\t1/1:30\n"
                         )
-                    
+
                     # Write the content (compressed or uncompressed)
                     if use_compression:
-                        with gzip.open(output_file, 'wt') as f:
+                        with gzip.open(output_file, "wt") as f:
                             f.write(vcf_content)
                         print(f"DEBUG: Created compressed VCF file: {output_file}")
                     else:
                         Path(output_file).write_text(vcf_content)
                         print(f"DEBUG: Created uncompressed VCF file: {output_file}")
-                    
+
                     processed_files[mode].append(("extract", output_file))
 
             elif "SnpSift" in cmd_str:
@@ -327,8 +327,8 @@ class TestParallelProcessing:
                         if input_file and Path(input_file).exists():
                             # Handle compressed files
                             if input_file.endswith(".gz"):
-                                with gzip.open(input_file, "rt") as f:
-                                    content = f.read().strip()
+                                with gzip.open(input_file, "rt") as input_f:
+                                    content = input_f.read().strip()
                             else:
                                 content = Path(input_file).read_text().strip()
 

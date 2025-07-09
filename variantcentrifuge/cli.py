@@ -6,6 +6,7 @@ import logging
 import sys
 from typing import Any, Dict, Optional
 
+from .config import load_config
 from .pipeline import run_pipeline
 from .validators import validate_mandatory_parameters, validate_phenotype_file, validate_vcf_file
 from .version import __version__
@@ -1122,8 +1123,6 @@ def main() -> int:
         # Also check config file for new pipeline setting
         if status_args.config:
             try:
-                from .config import load_config
-
                 config = load_config(status_args.config)
                 use_new_pipeline = use_new_pipeline or config.get(
                     "use_new_pipeline_architecture", False
