@@ -15,6 +15,72 @@ import pytest
 from variantcentrifuge.pipeline_refactored import build_pipeline_stages, run_refactored_pipeline
 
 
+def create_complete_namespace(**overrides):
+    """Create a complete Namespace with all expected attributes for build_pipeline_stages."""
+    defaults = {
+        # Required basic arguments
+        "vcf_file": None,
+        "gene_name": None,
+        "gene_file": None,
+        "output_file": "output.tsv",
+        "output_dir": None,
+        "config": None,
+        "log_level": "INFO",
+        "reference": "GRCh37",
+        
+        # Processing options
+        "threads": 1,
+        "filter": None,
+        "extract": ["CHROM", "POS", "REF", "ALT"],
+        "late_filtering": False,
+        "final_filter": None,
+        "no_stats": True,
+        "xlsx": False,
+        "html_report": False,
+        "use_new_pipeline": True,
+        
+        # Optional file inputs
+        "phenotype_file": None,
+        "ped_file": None,
+        "scoring_config_path": None,
+        
+        # Annotation options
+        "annotate_bed": None,
+        "annotate_gene_list": None,
+        "annotate_json_genes": None,
+        
+        # Processing flags
+        "snpeff_split_by_transcript": False,
+        "no_replacement": True,
+        "keep_intermediates": True,
+        "calculate_inheritance": False,
+        
+        # Additional flags that might be expected
+        "bcftools_prefilter": None,
+        "preset": None,
+        "fields_to_extract": None,
+        "phenotype_sample_column": None,
+        "phenotype_value_column": None,
+        "remove_sample_substring": None,
+        "add_chr": False,
+        "split_snpeff_lines": False,
+        "igv_enabled": False,
+        "igv_reference": None,
+        "bam_mapping_file": None,
+        "html_report_output": None,
+        "archive_results": False,
+        "gzip_intermediates": False,
+        "enable_checkpoint": False,
+        "resume": False,
+        "chunks": None,
+    }
+    
+    # Update with any overrides
+    defaults.update(overrides)
+    
+    return Namespace(**defaults)
+
+
 @pytest.mark.slow
 class TestParallelProcessing:
     """Test parallel processing in the refactored pipeline."""
@@ -51,12 +117,14 @@ class TestParallelProcessing:
 
     @patch("variantcentrifuge.extractor.run_command")
     @patch("variantcentrifuge.utils.run_command")
+    @patch("variantcentrifuge.filters.run_command")
     @patch("variantcentrifuge.gene_bed.subprocess.run")
     @patch("variantcentrifuge.stages.setup_stages.get_vcf_samples")
     def test_parallel_vs_sequential_results(
         self,
         mock_get_samples,
         mock_snpeff,
+        mock_filters_run_command,
         mock_run_command,
         mock_extractor_run_command,
         setup_files,
@@ -97,9 +165,18 @@ class TestParallelProcessing:
 
             # Track which mode we're in based on thread count
             mode = "parallel" if "chunk_" in cmd_str else "sequential"
+            
+            print(f"DEBUG: Mock run_command called with: {cmd_str[:200]}...")
+            print(f"DEBUG: Output file: {output_file}")
+            print(f"DEBUG: Mode: {mode}")
 
             if "bcftools" in cmd_str and "view" in cmd_str:
                 # Mock variant extraction
+                if "-o" in cmd:
+                    # Find the output file after -o flag
+                    output_file = cmd[cmd.index("-o") + 1]
+                    print(f"DEBUG: bcftools output file: {output_file}")
+                
                 if output_file:
                     # Extract which region is being processed
                     bed_file = None
@@ -153,48 +230,39 @@ class TestParallelProcessing:
                     processed_files[mode].append(("extract", output_file))
 
             elif "SnpSift" in cmd_str:
-                if "filter" in cmd_str and output_file:
-                    # Mock filtering - filter by QUAL >= 80 and AC < 3
-                    input_file = None
-                    for arg in cmd:
-                        if arg.endswith(".vcf.gz") and arg != output_file:
-                            input_file = arg
-                            break
-
-                    if input_file and Path(input_file).exists():
-                        # Read input and filter
-                        lines = Path(input_file).read_text().strip().split("\n")
-                        output_lines = []
-                        for line in lines:
-                            if line.startswith("#"):
-                                output_lines.append(line)
-                            else:
-                                parts = line.split("\t")
-                                if len(parts) > 7:
-                                    qual = float(parts[5])
-                                    info = parts[7]
-                                    ac = int(info.split("AC=")[1].split(";")[0])
-                                    if qual >= 80 and ac < 3:
-                                        output_lines.append(line)
-                        Path(output_file).write_text("\n".join(output_lines) + "\n")
-                        processed_files[mode].append(("filter", output_file))
-
-                elif "extractFields" in cmd_str and output_file:
+                if "extractFields" in cmd_str:
+                    # Find output file - it's passed as output_file parameter to run_command
+                    if not output_file:
+                        print(f"DEBUG: No output file specified for extractFields")
+                        return result
+                    print(f"DEBUG: extractFields output file: {output_file}")
+                    
+                if "extractFields" in cmd_str and output_file:
                     # Mock field extraction
                     with open(output_file, "w") as f:
                         f.write("CHROM\tPOS\tREF\tALT\tQUAL\tGENE\tAC\tGT\n")
                         # Parse the input VCF to extract fields
                         input_file = None
                         for arg in cmd:
-                            if arg.endswith(".vcf.gz") and arg != output_file:
+                            if (arg.endswith(".vcf.gz") or arg.endswith(".vcf")) and arg != output_file:
                                 input_file = arg
                                 break
 
+                        # Debug: print what files we're looking for
+                        print(f"DEBUG: extractFields command: {cmd}")
+                        print(f"DEBUG: looking for input file, found: {input_file}")
+                        print(f"DEBUG: input file exists: {Path(input_file).exists() if input_file else 'None'}")
+                        
                         if input_file and Path(input_file).exists():
                             lines = Path(input_file).read_text().strip().split("\n")
+                            print(f"DEBUG: read {len(lines)} lines from {input_file}")
+                            print(f"DEBUG: lines content: {lines}")
+                            rows_written = 0
                             for line in lines:
                                 if not line.startswith("#"):
                                     parts = line.split("\t")
+                                    print(f"DEBUG: processing line: {line}")
+                                    print(f"DEBUG: parts count: {len(parts)}")
                                     if len(parts) >= 10:
                                         chrom = parts[0]
                                         pos = parts[1]
@@ -220,43 +288,111 @@ class TestParallelProcessing:
                                             f"{chrom}\t{pos}\t{ref}\t{alt}\t{qual}\t{gene}\t"
                                             f"{ac}\tSample1:{gt}\n"
                                         )
+                                        rows_written += 1
+                            print(f"DEBUG: wrote {rows_written} data rows to {output_file}")
+                        else:
+                            print(f"DEBUG: No input file found or doesn't exist")
                         processed_files[mode].append(("extract", output_file))
+
+                elif "filter" in cmd_str:
+                    # SnpSift filter uses different output handling
+                    if not output_file:
+                        # Look for output redirection in the command
+                        if ">" in cmd_str:
+                            output_file = cmd_str.split(">")[-1].strip()
+                        elif len(cmd) > 3:
+                            # Output file might be the last argument
+                            output_file = cmd[-1]
+                        else:
+                            print(f"DEBUG: No output file found for filter command")
+                            return result
+                    print(f"DEBUG: filter output file: {output_file}")
+                    
+                if "filter" in cmd_str and output_file:
+                    # Mock filtering - filter by QUAL >= 80 and AC < 3
+                    input_file = None
+                    for arg in cmd:
+                        if (arg.endswith(".vcf.gz") or arg.endswith(".vcf")) and arg != output_file:
+                            input_file = arg
+                            break
+
+                    print(f"DEBUG: Filter command: {cmd}")
+                    print(f"DEBUG: Input file: {input_file}")
+                    print(f"DEBUG: Output file: {output_file}")
+                    print(f"DEBUG: Input file exists: {Path(input_file).exists() if input_file else 'None'}")
+
+                    if input_file and Path(input_file).exists():
+                        # Read input and filter
+                        lines = Path(input_file).read_text().strip().split("\n")
+                        print(f"DEBUG: Read {len(lines)} lines from {input_file}")
+                        output_lines = []
+                        data_rows_filtered = 0
+                        
+                        for line in lines:
+                            if line.startswith("#"):
+                                output_lines.append(line)
+                            elif line.strip():  # Skip empty lines
+                                parts = line.split("\t")
+                                print(f"DEBUG: Processing line with {len(parts)} parts: {line[:100]}...")
+                                if len(parts) > 7:
+                                    try:
+                                        qual = float(parts[5])
+                                        info = parts[7]
+                                        # Extract AC value
+                                        if "AC=" in info:
+                                            ac = int(info.split("AC=")[1].split(";")[0])
+                                            print(f"DEBUG: QUAL={qual}, AC={ac}, filter test: {qual >= 80 and ac < 3}")
+                                            if qual >= 80 and ac < 3:
+                                                output_lines.append(line)
+                                                data_rows_filtered += 1
+                                        else:
+                                            print(f"DEBUG: No AC field found in INFO: {info}")
+                                    except (ValueError, IndexError) as e:
+                                        print(f"DEBUG: Error parsing line: {e}")
+                                        continue
+                        
+                        print(f"DEBUG: Writing {len(output_lines)} lines ({data_rows_filtered} data rows) to {output_file}")
+                        Path(output_file).write_text("\n".join(output_lines) + "\n")
+                        processed_files[mode].append(("filter", output_file))
+                    else:
+                        print(f"DEBUG: Creating empty filter output file")
+                        Path(output_file).write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample1\n")
+
+            elif "sort" in cmd_str and output_file:
+                # Mock sort command for data sorting
+                input_file = None
+                # Find the input file (usually the last argument that's not an option)
+                for arg in reversed(cmd):
+                    if not arg.startswith("-") and arg != output_file and Path(arg).exists():
+                        input_file = arg
+                        break
+                
+                if input_file:
+                    # Just copy the input to output for testing
+                    import shutil
+                    shutil.copy(input_file, output_file)
+                    processed_files[mode].append(("sort", output_file))
+                else:
+                    # Create empty output file if no input found
+                    Path(output_file).touch()
 
             return result
 
         mock_run_command.side_effect = run_command_side_effect
         mock_extractor_run_command.side_effect = run_command_side_effect
-
-        # Common arguments
-        base_args = {
-            "vcf_file": setup_files["vcf"],
-            "gene_name": "GENE1,GENE2,GENE3",
-            "gene_file": None,
-            "output_file": "output.tsv",
-            "output_dir": setup_files["output_dir"],
-            "config": None,
-            "log_level": "DEBUG",
-            "reference": "GRCh37",
-            "preset": None,
-            "filter": "(QUAL >= 80) & (AC < 3)",  # Filter expression
-            "late_filtering": False,
-            "final_filter": None,
-            "fields_to_extract": "CHROM POS REF ALT QUAL GENE AC GT",
-            "extract": ["CHROM", "POS", "REF", "ALT", "QUAL", "GENE", "AC", "GT"],
-            "no_stats": True,
-            "xlsx": False,
-            "html_report": False,
-            "phenotype_file": None,
-            "scoring_config_path": None,
-            "ped_file": None,
-            "calculate_inheritance": False,
-            "no_replacement": True,
-            "use_new_pipeline": True,
-            "keep_intermediates": True,
-        }
+        mock_filters_run_command.side_effect = run_command_side_effect
 
         # Test sequential processing (threads=1)
-        sequential_args = Namespace(**{**base_args, "threads": 1})
+        sequential_args = create_complete_namespace(
+            vcf_file=setup_files["vcf"],
+            gene_name="GENE1,GENE2,GENE3",
+            output_dir=setup_files["output_dir"],
+            log_level="DEBUG",
+            filter="(QUAL >= 80) & (AC < 3)",
+            fields_to_extract="CHROM POS REF ALT QUAL GENE AC GT",
+            extract=["CHROM", "POS", "REF", "ALT", "QUAL", "GENE", "AC", "GT"],
+            threads=1,
+        )
 
         with patch(
             "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
@@ -276,10 +412,17 @@ class TestParallelProcessing:
         sequential_df = pd.read_csv(sequential_output, sep="\t")
 
         # Test parallel processing (threads=3)
-        parallel_args = Namespace(**{**base_args, "threads": 3})
-
-        # Create new output file
-        parallel_args.output_file = "output_parallel.tsv"
+        parallel_args = create_complete_namespace(
+            vcf_file=setup_files["vcf"],
+            gene_name="GENE1,GENE2,GENE3",
+            output_dir=setup_files["output_dir"],
+            log_level="DEBUG",
+            filter="(QUAL >= 80) & (AC < 3)",
+            fields_to_extract="CHROM POS REF ALT QUAL GENE AC GT",
+            extract=["CHROM", "POS", "REF", "ALT", "QUAL", "GENE", "AC", "GT"],
+            threads=3,
+            output_file="output_parallel.tsv",
+        )
 
         with patch(
             "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
@@ -326,22 +469,13 @@ class TestParallelProcessing:
 
     def test_stage_configuration_parallel(self, setup_files):
         """Test that parallel processing uses correct stages."""
-        args = Namespace(
+        args = create_complete_namespace(
             vcf_file=setup_files["vcf"],
             gene_name="GENE1",
-            gene_file=None,
-            output_file="output.tsv",
             output_dir=setup_files["output_dir"],
-            config=None,
-            log_level="INFO",
-            reference="GRCh37",
             threads=4,  # Parallel processing
             filter="QUAL >= 30",
             extract=["CHROM", "POS", "REF", "ALT"],
-            no_stats=True,
-            xlsx=False,
-            html_report=False,
-            use_new_pipeline=True,
         )
 
         # Build stages
@@ -357,23 +491,13 @@ class TestParallelProcessing:
 
     def test_stage_configuration_sequential(self, setup_files):
         """Test that sequential processing uses correct stages."""
-        args = Namespace(
+        args = create_complete_namespace(
             vcf_file=setup_files["vcf"],
             gene_name="GENE1",
-            gene_file=None,
-            output_file="output.tsv",
             output_dir=setup_files["output_dir"],
-            config=None,
-            log_level="INFO",
-            reference="GRCh37",
             threads=1,  # Sequential processing
             filter="QUAL >= 30",
             extract=["CHROM", "POS", "REF", "ALT"],
-            no_stats=True,
-            xlsx=False,
-            html_report=False,
-            use_new_pipeline=True,
-            late_filtering=False,
         )
 
         # Build stages

@@ -5,7 +5,9 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python Version](https://img.shields.io/badge/python-3.7+-blue.svg)](https://python.org)
 
-**VariantCentrifuge** is a Python-based command-line tool designed to filter, extract, and refine genetic variant data (VCF files) based on genes of interest, rarity criteria, and impact annotations. Built with modularity and extensibility in mind, VariantCentrifuge replaces the complexity of traditional Bash/R pipelines with a cleaner, maintainable Python codebase.
+**VariantCentrifuge** is a production-ready Python-based command-line tool designed to filter, extract, and refine genetic variant data (VCF files) based on genes of interest, rarity criteria, and impact annotations. Built with modularity and extensibility in mind, VariantCentrifuge replaces the complexity of traditional Bash/R pipelines with a cleaner, maintainable Python codebase.
+
+> **🏆 NEW: Stage-Based Pipeline Architecture** - Now featuring a completely refactored modular pipeline with 36 specialized stages for enhanced performance, maintainability, and parallel execution capabilities. Enable with `--use-new-pipeline` flag.
 
 ## ✨ Key Features
 
@@ -14,12 +16,16 @@
   - **bcftools pre-filtering** for performance optimization on large VCFs
   - **SnpSift filtering** for complex variant selection
   - **Final filtering** with pandas query syntax on computed columns (scores, inheritance patterns)
+- **🏗️ Modern Architecture:** Choose between classic monolithic pipeline or new stage-based architecture
+  - **Stage-Based Pipeline** (`--use-new-pipeline`): 36 modular stages with parallel execution
+  - **Classic Pipeline** (default): Battle-tested monolithic implementation
 - **⚙️ Flexible Configuration:** JSON-based configuration with reusable filter presets
 - **📊 Interactive Reports:** Generate HTML reports with sortable tables and IGV.js integration
 - **🧬 Gene Burden Analysis:** Perform statistical analysis with Fisher's exact test
 - **🔗 Clinical Integration:** ClinVar, gnomAD, and external database annotations
 - **👥 Cohort Analysis:** Aggregate results from multiple samples with interactive visualizations
 - **🎨 Custom Scoring:** Apply configurable variant scoring models without code changes
+- **⚡ Performance Optimized:** Parallel processing, memory-efficient streaming, and chunked analysis
 
 ## 🚀 Quick Start
 

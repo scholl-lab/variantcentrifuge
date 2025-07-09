@@ -255,24 +255,28 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.Da
         # Validate that variant counts don't exceed sample counts
         if p_var_count > p_count:
             logger.warning(
-                f"Gene {gene}: proband variant count ({p_var_count}) > proband sample count ({p_count}). Using sample count."
+                f"Gene {gene}: proband variant count ({p_var_count}) > "
+                f"proband sample count ({p_count}). Using sample count."
             )
             p_var_count = p_count
         if c_var_count > c_count:
             logger.warning(
-                f"Gene {gene}: control variant count ({c_var_count}) > control sample count ({c_count}). Using sample count."
+                f"Gene {gene}: control variant count ({c_var_count}) > "
+                f"control sample count ({c_count}). Using sample count."
             )
             c_var_count = c_count
 
         # Validate that allele counts don't exceed 2 * sample counts
         if p_allele_count > p_count * 2:
             logger.warning(
-                f"Gene {gene}: proband allele count ({p_allele_count}) > 2 * proband sample count ({p_count * 2}). Capping at maximum."
+                f"Gene {gene}: proband allele count ({p_allele_count}) > "
+                f"2 * proband sample count ({p_count * 2}). Capping at maximum."
             )
             p_allele_count = p_count * 2
         if c_allele_count > c_count * 2:
             logger.warning(
-                f"Gene {gene}: control allele count ({c_allele_count}) > 2 * control sample count ({c_count * 2}). Capping at maximum."
+                f"Gene {gene}: control allele count ({c_allele_count}) > "
+                f"2 * control sample count ({c_count * 2}). Capping at maximum."
             )
             c_allele_count = c_count * 2
 

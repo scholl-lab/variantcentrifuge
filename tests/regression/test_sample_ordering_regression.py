@@ -6,9 +6,7 @@ consistent with the old pipeline, preventing the critical bug from reoccurring.
 """
 
 import pytest
-import tempfile
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import pandas as pd
 
 
@@ -30,7 +28,9 @@ chr1\t200\t.\tC\tG\t60\tPASS\tAC=1\tGT\t1/1\t0/1\t0/0
             "expected_tsv": "CHROM\tPOS\tREF\tALT\tGT\nchr1\t100\tA\tT\t0/1:1/1:0/0\nchr1\t200\tC\tG\t1/1:0/1:0/0\n",
         }
 
-    def test_old_vs_new_pipeline_sample_order_consistency(self, sample_test_data):
+    def test_old_vs_new_pipeline_sample_order_consistency(
+        self, sample_test_data
+    ):
         """Test that old and new pipelines produce the same sample order."""
         from variantcentrifuge.helpers import get_vcf_samples
 
@@ -44,7 +44,8 @@ chr1\t200\t.\tC\tG\t60\tPASS\tAC=1\tGT\t1/1\t0/1\t0/0
         # New pipeline should return the expected sample order
         assert (
             new_pipeline_samples == sample_test_data["vcf_samples"]
-        ), f"Sample order mismatch: got {new_pipeline_samples}, expected {sample_test_data['vcf_samples']}"
+        ), f"Sample order mismatch: got {new_pipeline_samples}, " \
+           f"expected {sample_test_data['vcf_samples']}"
         assert isinstance(new_pipeline_samples, list), "New pipeline should return list"
 
     def test_genotype_replacement_output_consistency(self, sample_test_data):
@@ -177,7 +178,8 @@ chr1\t200\t.\tC\tG\t60\tPASS\tAC=1\tGT\t1/1\t0/1\t0/0
             # Critical check: Must preserve order from get_vcf_names
             assert (
                 first_result == test_samples
-            ), f"CRITICAL BUG REGRESSION: Order not preserved, got {first_result}, expected {test_samples}"
+            ), f"CRITICAL BUG REGRESSION: Order not preserved, got {first_result}, " \
+           f"expected {test_samples}"
 
     def test_set_conversion_safety_net(self):
         """Test the safety net for set-to-list conversion in analysis stages."""
@@ -187,7 +189,6 @@ chr1\t200\t.\tC\tG\t60\tPASS\tAC=1\tGT\t1/1\t0/1\t0/0
 
         # Test the safety conversion logic
         test_samples_set = {"Sample3", "Sample1", "Sample2"}
-        expected_sorted = ["Sample1", "Sample2", "Sample3"]
 
         workspace = Workspace("/tmp/test", "test")
         from argparse import Namespace
@@ -212,7 +213,7 @@ chr1\t200\t.\tC\tG\t60\tPASS\tAC=1\tGT\t1/1\t0/1\t0/0
         stage = InheritanceAnalysisStage()
 
         with patch("variantcentrifuge.stages.analysis_stages.logger") as mock_logger:
-            result = stage._process(context)
+            stage._process(context)
 
             # Should have logged warning
             warning_calls = [

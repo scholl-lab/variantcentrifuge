@@ -11,7 +11,6 @@ Tests all possible ways to specify case/control groups:
 Uses the comprehensive test dataset generated in tests/fixtures/geneburden/
 """
 
-import os
 import subprocess
 import tempfile
 from pathlib import Path

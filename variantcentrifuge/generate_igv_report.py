@@ -7,7 +7,7 @@ import re
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 from .utils import generate_igv_safe_filename_base
 

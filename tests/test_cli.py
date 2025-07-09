@@ -8,10 +8,8 @@ This file contains tests ensuring the CLI runs and shows help correctly.
 """
 
 import json
-import os
 import subprocess
-import tempfile
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import pytest
 
 

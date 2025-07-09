@@ -13,7 +13,6 @@ import tempfile
 import subprocess
 from pathlib import Path
 import pandas as pd
-import hashlib
 
 
 @pytest.fixture

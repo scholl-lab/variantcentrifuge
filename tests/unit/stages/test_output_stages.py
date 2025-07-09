@@ -1,7 +1,7 @@
 """Unit tests for output stages."""
 
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock, mock_open
+from unittest.mock import Mock, patch, MagicMock
 import pandas as pd
 import pytest
 

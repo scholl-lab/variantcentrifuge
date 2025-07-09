@@ -5,9 +5,7 @@ These tests ensure that column ordering in custom annotations is deterministic
 and that the pipeline stage dependencies enforce consistent ordering.
 """
 
-import pytest
 import pandas as pd
-from unittest.mock import patch
 from variantcentrifuge.annotator import _add_json_annotations_as_columns
 
 
@@ -83,7 +81,8 @@ class TestColumnOrderingDeterminism:
             result_df = _add_json_annotations_as_columns(df.copy(), json_gene_data)
             results.append(result_df)
 
-        # All results should be identical (using pandas.testing.assert_frame_equal which handles NaN properly)
+        # All results should be identical (using pandas.testing.assert_frame_equal
+        # which handles NaN properly)
         first_result = results[0]
         for i, result in enumerate(results[1:], 1):
             pd.testing.assert_frame_equal(

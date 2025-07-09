@@ -11,7 +11,6 @@ import tempfile
 import shutil
 from pathlib import Path
 from unittest.mock import patch
-from variantcentrifuge.pipeline_refactored import run_refactored_pipeline
 from variantcentrifuge.pipeline_core.context import PipelineContext
 from variantcentrifuge.pipeline_core.workspace import Workspace
 
@@ -156,12 +155,12 @@ class TestPipelineSampleDeterminism:
             for stage_name, stage_samples in sample_orders.items():
                 assert (
                     stage_samples == original_order
-                ), f"Sample order changed at {stage_name}: expected {original_order}, got {stage_samples}"
+                ), f"Sample order changed at {stage_name}: expected {original_order}, " \
+                   f"got {stage_samples}"
 
     @patch("variantcentrifuge.helpers.get_vcf_names")
     def test_genotype_replacement_determinism(self, mock_get_names, temp_workspace):
         """Test that genotype replacement produces deterministic output."""
-        from variantcentrifuge.stages.processing_stages import GenotypeReplacementStage
         from variantcentrifuge.replacer import replace_genotypes
 
         test_samples = ["Sample1", "Sample2", "Sample3"]

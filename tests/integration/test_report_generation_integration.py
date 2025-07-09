@@ -1,9 +1,8 @@
 """Simplified integration tests for IGV and HTML report generation."""
 
-import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 import pandas as pd
@@ -70,7 +69,7 @@ Sample2,/path/to/sample2.bam
         with patch("variantcentrifuge.stages.output_stages.generate_igv_report") as mock_igv:
             # Execute stage
             stage = IGVReportStage()
-            result = stage(context)
+            stage(context)
 
             # Verify IGV report generation was called
             mock_igv.assert_called_once()
@@ -189,7 +188,7 @@ Sample2,/path/to/sample2.bam
             html_stage = HTMLReportStage()
 
             igv_result = igv_stage(context)
-            html_result = html_stage(igv_result)
+            html_stage(igv_result)
 
             # Verify both report types were called
             mock_igv.assert_called_once()

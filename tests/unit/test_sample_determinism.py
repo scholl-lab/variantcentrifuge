@@ -5,8 +5,7 @@ These tests ensure that the critical bug where sample assignments were
 randomized between runs is fixed and won't regress.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from variantcentrifuge.helpers import get_vcf_samples
 from variantcentrifuge.stages.analysis_stages import InheritanceAnalysisStage
 from variantcentrifuge.stages.setup_stages import SampleConfigLoadingStage
@@ -80,7 +79,7 @@ class TestSampleDeterminism:
 
         with patch("variantcentrifuge.stages.analysis_stages.logger") as mock_logger:
             # Should not raise an exception and should log warning
-            result = stage._process(context)
+            stage._process(context)
 
             # Check that warning was logged about set conversion
             warning_calls = [
@@ -175,10 +174,10 @@ class TestSampleAssignmentRegression:
             # Run genotype replacement multiple times
             results = []
             for i in range(3):
-                from pathlib import Path
+                from pathlib import Path as PathLib
                 from argparse import Namespace
 
-                workspace = Workspace(Path(f"/tmp/test_{i}"), "test")
+                workspace = Workspace(PathLib(f"/tmp/test_{i}"), "test")
                 context = PipelineContext(Namespace(), {}, workspace)
                 context.data = temp_tsv
                 context.vcf_samples = test_samples.copy()  # Consistent list

@@ -17,7 +17,6 @@ import json
 import logging
 import sys
 import tarfile
-from datetime import datetime
 from pathlib import Path
 from typing import Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -33,7 +32,6 @@ from ..converter import (
 from ..filters import filter_dataframe_with_query
 from ..generate_html_report import generate_html_report
 from ..generate_igv_report import generate_igv_report
-from ..helpers import match_IGV_link_columns
 from ..links import add_links_to_table
 from ..pipeline_core import PipelineContext, Stage
 from ..pseudonymizer import create_pseudonymizer

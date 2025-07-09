@@ -1654,15 +1654,15 @@ class DataSortingStage(Stage):
             if output_file.endswith(".gz"):
                 # Input not gzipped, output gzipped
                 cmd = (
-                    f'{{ IFS= read -r header < {safe_input}; echo "$header"; tail -n +2 {safe_input} | '
-                    f"sort {sort_cmd} -t$'\\t'; }} | "
+                    f'{{ IFS= read -r header < {safe_input}; echo "$header"; '
+                    f'tail -n +2 {safe_input} | sort {sort_cmd} -t$\'\\t\'; }} | '
                     f"gzip -c > {safe_output}"
                 )
             else:
                 # Neither gzipped
                 cmd = (
-                    f'{{ IFS= read -r header < {safe_input}; echo "$header"; tail -n +2 {safe_input} | '
-                    f"sort {sort_cmd} -t$'\\t'; }} "
+                    f'{{ IFS= read -r header < {safe_input}; echo "$header"; '
+                    f'tail -n +2 {safe_input} | sort {sort_cmd} -t$\'\\t\'; }} '
                     f"> {safe_output}"
                 )
 
