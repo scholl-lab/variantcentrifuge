@@ -615,6 +615,29 @@ class TestHTMLReportStage:
         context.final_output_path = context.workspace.output_dir / "output.tsv"
         context.final_output_path.touch()  # Create the file
 
+        # Mock produce_report_json to create the expected JSON files
+        def create_json_files(*args, **kwargs):
+            report_dir = context.workspace.output_dir / "report"
+            report_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create variants.json
+            variants_json = report_dir / "variants.json"
+            variants_json.write_text('[{"chrom": "chr1", "pos": "100"}]')
+            
+            # Create summary.json
+            summary_json = report_dir / "summary.json"
+            summary_json.write_text('{"num_variants": 1, "num_genes": 1}')
+        
+        mock_produce_json.side_effect = create_json_files
+        
+        # Mock generate_html_report to create index.html
+        def create_html_file(*args, **kwargs):
+            report_dir = context.workspace.output_dir / "report"
+            index_html = report_dir / "index.html"
+            index_html.write_text('<html><body>Test Report</body></html>')
+        
+        mock_generate.side_effect = create_html_file
+
         stage = HTMLReportStage()
         stage(context)
 
@@ -623,9 +646,10 @@ class TestHTMLReportStage:
         # Check report generation - implementation uses different parameters
         mock_generate.assert_called_once()
         call_kwargs = mock_generate.call_args[1]
-        assert "json_file" in call_kwargs
-        assert "output_file" in call_kwargs
-        assert "title" in call_kwargs
+        assert "variants_json" in call_kwargs
+        assert "summary_json" in call_kwargs
+        assert "output_dir" in call_kwargs
+        assert "cfg" in call_kwargs
 
     def test_skip_if_disabled(self, context):
         """Test skipping when HTML disabled."""
@@ -653,7 +677,12 @@ class TestIGVReportStage:
     def context(self):
         """Create test context."""
         ctx = create_test_context(
-            vcf_file="/tmp/input.vcf", config_overrides={"igv_report": True, "reference": "hg38"}
+            vcf_file="/tmp/input.vcf", config_overrides={
+                "igv_enabled": True, 
+                "reference": "hg38",
+                "bam_mapping_file": "/tmp/bam_mapping.txt",
+                "igv_reference": "hg19"
+            }
         )
         ctx.config["output_file"] = "/tmp/output.tsv"
         ctx.current_dataframe = pd.DataFrame({"CHROM": ["chr1"], "POS": [100]})
@@ -661,9 +690,7 @@ class TestIGVReportStage:
         return ctx
 
     @patch("variantcentrifuge.stages.output_stages.generate_igv_report")
-    @patch("variantcentrifuge.stages.output_stages.pd.read_csv")
-    @patch("variantcentrifuge.stages.output_stages.match_IGV_link_columns")
-    def test_igv_generation(self, mock_match_igv, mock_read_csv, mock_generate, context):
+    def test_igv_generation(self, mock_generate, context):
         """Test IGV report generation."""
         # Mark TSV output as complete since IGV depends on it
         context.mark_complete("tsv_output")
@@ -671,12 +698,10 @@ class TestIGVReportStage:
         context.final_output_path = context.workspace.output_dir / "output.tsv"
         context.final_output_path.touch()  # Create the file
 
-        # Mock the CSV reading
-        mock_df = pd.DataFrame({"CHROM": ["chr1"], "POS": [100]})
-        mock_read_csv.return_value = mock_df
-
-        # Mock IGV column matching
-        mock_match_igv.return_value = {"chr": "CHROM", "start": "POS", "end": "POS"}
+        # Create a mock BAM mapping file
+        bam_mapping_file = context.workspace.output_dir / "bam_mapping.txt"
+        bam_mapping_file.write_text("Sample1,/path/to/sample1.bam\n")
+        context.config["bam_mapping_file"] = str(bam_mapping_file)
 
         stage = IGVReportStage()
         stage(context)
@@ -684,10 +709,11 @@ class TestIGVReportStage:
         # Check report generation
         mock_generate.assert_called_once()
         call_kwargs = mock_generate.call_args[1]
-        assert call_kwargs["vcf_file"] == "/tmp/input.vcf"
-        assert call_kwargs["tsv_file"] == str(context.final_output_path)
-        assert call_kwargs["reference"] == "hg19"  # Default from implementation
-        assert "chr" in call_kwargs
+        assert call_kwargs["variants_tsv"] == str(context.final_output_path)
+        assert call_kwargs["bam_mapping_file"] == str(bam_mapping_file)
+        assert call_kwargs["igv_reference"] == "hg19"
+        assert call_kwargs["integrate_into_main"] is True
+        assert "max_workers" in call_kwargs
         assert "start" in call_kwargs
         assert "end" in call_kwargs
 
