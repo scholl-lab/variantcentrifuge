@@ -33,7 +33,7 @@ from ..pipeline_core.error_handling import (
     validate_file_exists,
 )
 from ..replacer import replace_genotypes
-from ..utils import run_command, split_bed_file
+from ..utils import run_command, split_bed_file, ensure_fields_in_extract
 from ..vcf_eff_one_per_line import process_vcf_file as split_snpeff_annotations
 
 logger = logging.getLogger(__name__)
@@ -491,6 +491,105 @@ class MultiAllelicSplitStage(Stage):
         return context
 
 
+class TranscriptFilterStage(Stage):
+    """Filter variants by transcript IDs using SnpSift."""
+
+    @property
+    def name(self) -> str:
+        """Return the stage name."""
+        return "transcript_filtering"
+
+    @property
+    def description(self) -> str:
+        """Return a description of what this stage does."""
+        return "Filter variants by transcript IDs"
+
+    @property
+    def dependencies(self) -> Set[str]:
+        """Return the set of stage names this stage depends on."""
+        # Must run after multiallelic split to ensure proper annotation structure
+        return {"multiallelic_split", "variant_extraction"}
+
+    @property
+    def soft_dependencies(self) -> Set[str]:
+        """Return the set of stage names that should run before if present."""
+        # Run after bcftools prefilter if present
+        return {"bcftools_prefilter"}
+
+    @property
+    def parallel_safe(self) -> bool:
+        """Return whether this stage can run in parallel with others."""
+        return True  # Safe - independent transformation, creates new file
+
+    def _process(self, context: PipelineContext) -> PipelineContext:
+        """Apply transcript filtering if requested."""
+        # Parse transcripts from config
+        transcripts = []
+
+        # Get transcript list from config
+        transcript_list = context.config.get("transcript_list")
+        if transcript_list:
+            transcripts.extend([t.strip() for t in transcript_list.split(",") if t.strip()])
+
+        # Get transcript file from config
+        transcript_file = context.config.get("transcript_file")
+        if transcript_file:
+            if not os.path.exists(transcript_file):
+                logger.error(f"Transcript file not found: {transcript_file}")
+                return context
+
+            logger.debug(f"Reading transcript file: {transcript_file}")
+            with open(transcript_file, "r", encoding="utf-8") as tf:
+                for line in tf:
+                    tr = line.strip()
+                    if tr:
+                        transcripts.append(tr)
+
+        # Remove duplicates
+        transcripts = list(set(transcripts))
+
+        # If no transcripts specified, skip filtering
+        if not transcripts:
+            logger.debug("No transcripts specified for filtering")
+            return context
+
+        logger.info(f"Filtering for {len(transcripts)} transcript(s)")
+
+        # Determine input VCF
+        input_vcf = (
+            getattr(context, "split_annotations_vcf", None)
+            or getattr(context, "filtered_vcf", None)
+            or getattr(context, "extracted_vcf", None)
+            or context.data
+        )
+
+        # Create transcript filter expression
+        or_clauses = [f"(EFF[*].TRID = '{tr}')" for tr in transcripts]
+        transcript_filter_expr = " | ".join(or_clauses)
+
+        # Generate output filename
+        output_vcf = context.workspace.get_intermediate_path(
+            f"{context.workspace.base_name}.transcript_filtered.vcf.gz"
+        )
+
+        logger.debug(f"Applying transcript filter: {transcript_filter_expr}")
+
+        # Apply transcript filter using SnpSift
+        apply_snpsift_filter(
+            input_vcf=str(input_vcf),
+            filter_expr=transcript_filter_expr,
+            output_vcf=str(output_vcf),
+            cfg=context.config,
+        )
+
+        # Update context with filtered VCF
+        context.transcript_filtered_vcf = output_vcf
+        context.data = output_vcf
+
+        logger.info(f"Transcript filtering completed: {output_vcf}")
+        return context
+
+
 class SnpSiftFilterStage(Stage):
     """Apply SnpSift filter expressions."""
 
@@ -583,19 +682,29 @@ class FieldExtractionStage(Stage):
     def soft_dependencies(self) -> Set[str]:
         """Return the set of stage names that should run before if present."""
         # Prefer to run after filtering if it exists
-        return {"snpsift_filtering"}
+        return {"snpsift_filtering", "transcript_filtering"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Extract fields to TSV format."""
-        # Use filtered VCF if available, otherwise use the extracted VCF
-        if hasattr(context, "filtered_vcf") and context.filtered_vcf:
-            input_vcf = context.filtered_vcf
-            logger.debug(f"Using filtered VCF: {input_vcf}")
-        else:
-            input_vcf = context.data
-            logger.debug(f"Using unfiltered VCF: {input_vcf}")
+        # Use the most recent VCF in the processing chain
+        input_vcf = (
+            getattr(context, "transcript_filtered_vcf", None)
+            or getattr(context, "filtered_vcf", None)
+            or getattr(context, "split_annotations_vcf", None)
+            or getattr(context, "extracted_vcf", None)
+            or context.data
+        )
+
+        logger.debug(f"Using VCF for field extraction: {input_vcf}")
 
         fields = context.config.get("extract", [])
+
+        # Handle extra sample fields if requested
+        if context.config.get("append_extra_sample_fields", False) and context.config.get(
+            "extra_sample_fields", []
+        ):
+            fields = ensure_fields_in_extract(fields, context.config["extra_sample_fields"])
+            logger.debug(f"Updated fields with extra sample fields: {fields}")
 
         # Debug logging
         logger.debug(f"FieldExtractionStage - config keys: {list(context.config.keys())[:10]}...")
@@ -694,7 +803,9 @@ class GenotypeReplacementStage(Stage):
             "sample_list": ",".join(samples),
             "separator": ";",
             "extract_fields_separator": ",",
-            "append_extra_sample_fields": False,
+            "append_extra_sample_fields": context.config.get("append_extra_sample_fields", False),
+            "extra_sample_fields": context.config.get("extra_sample_fields", []),
+            "extra_sample_field_delimiter": context.config.get("extra_sample_field_delimiter", ":"),
             "genotype_replacement_map": context.config.get("genotype_replacement_map", {}),
         }
 

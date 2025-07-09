@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Enhanced test data generator with real annotation sampling for gene burden analysis.
+Enhanced test data generator with realistic annotation sampling for gene burden analysis.
 
 This script creates realistic test datasets by:
-1. Sampling authentic SnpEff annotations from real data (testdata_snpef.txt)
+1. Sampling authentic SnpEff annotations from anonymized local templates
 2. Mapping limited source genes to diverse target genes
 3. Preserving complex annotation structures while ensuring controlled test outcomes
 4. Maintaining comprehensive test coverage for all gene burden scenarios
@@ -14,6 +14,7 @@ Key Features:
 - Modular annotation sampling classes for reusability
 - Controlled genotype distributions for reliable test outcomes
 - Comprehensive test scenario coverage
+- Self-contained with local anonymized annotation templates
 
 Author: Enhanced by Claude Code
 """
@@ -55,8 +56,13 @@ class AnnotationTemplate:
 class AnnotationSampler:
     """Samples and categorizes real annotation patterns from test data."""
     
-    def __init__(self, source_file: str):
+    def __init__(self, source_file: str = None):
         """Initialize with source annotation file."""
+        # Default to local anonymized annotation templates
+        if source_file is None:
+            script_dir = Path(__file__).parent
+            source_file = str(script_dir / "test_data" / "annotation_templates.txt")
+        
         self.source_file = source_file
         self.templates = defaultdict(list)  # effect_type -> [AnnotationTemplate]
         self.gene_annotations = defaultdict(list)  # source_gene -> [AnnotationTemplate]
@@ -93,11 +99,17 @@ class AnnotationSampler:
                         continue
                     
                     try:
-                        fields = line.strip().split('\t')
-                        if len(fields) < 8:
-                            continue
-                        
-                        chrom, pos, vid, ref, alt, qual, filt, info = fields[:8]
+                        # Handle both VCF format (8+ fields) and INFO-only format
+                        line = line.strip()
+                        if '\t' in line:
+                            fields = line.split('\t')
+                            if len(fields) >= 8:
+                                info = fields[7]  # Standard VCF INFO field
+                            else:
+                                continue
+                        else:
+                            # INFO field only format
+                            info = line
                         
                         # Extract annotation template
                         template = self._extract_annotation_template(info)
@@ -131,8 +143,8 @@ class AnnotationSampler:
     def _extract_annotation_template(self, info_field: str) -> Optional[AnnotationTemplate]:
         """Extract annotation template from INFO field."""
         try:
-            # Extract ANN field
-            ann_match = re.search(r'ANN=([^;]+)', info_field)
+            # Extract ANN field (handle both ANN= and mangled MMLEMLEANN= formats)
+            ann_match = re.search(r'(?:ANN|MMLEMLEANN|[A-Z]*ANN)=([^;]+)', info_field)
             if not ann_match:
                 return None
             
@@ -145,17 +157,25 @@ class AnnotationSampler:
             
             alt, effect, impact, gene, gene_id, feature_type, feature_id, transcript_biotype = ann_parts[:8]
             
-            # Extract dbNSFP fields
+            # Extract ALL annotation fields (dbNSFP, splice, ClinVar, HGMD, etc.)
             dbNSFP_fields = {}
+            other_fields = {}
+            
+            # Extract dbNSFP fields
             for match in re.finditer(r'(dbNSFP_[^=]+)=([^;]+)', info_field):
                 key, value = match.groups()
                 dbNSFP_fields[key] = value
             
-            # Extract other annotation fields
-            other_fields = {}
-            for pattern in [r'(CADD_phred)=([^;]+)', r'(gnomAD_[^=]+)=([^;]+)', 
-                          r'(REVEL_[^=]+)=([^;]+)', r'(SIFT[^=]+)=([^;]+)',
-                          r'(Polyphen2_[^=]+)=([^;]+)', r'(FATHMM_[^=]+)=([^;]+)']:
+            # Extract splice prediction fields
+            for match in re.finditer(r'(splice_[^=]+)=([^;]+)', info_field):
+                key, value = match.groups()
+                other_fields[key] = value
+            
+            # Extract ClinVar and HGMD fields
+            for pattern in [r'(ClinVar_[^=]+)=([^;]+)', r'(hgmd_[^=]+)=([^;]+)',
+                           r'(CADD_phred)=([^;]+)', r'(gnomAD_[^=]+)=([^;]+)', 
+                           r'(REVEL_[^=]+)=([^;]+)', r'(SIFT[^=]+)=([^;]+)',
+                           r'(Polyphen2_[^=]+)=([^;]+)', r'(FATHMM_[^=]+)=([^;]+)']:
                 for match in re.finditer(pattern, info_field):
                     key, value = match.groups()
                     other_fields[key] = value
@@ -309,11 +329,11 @@ class EnhancedTestDataGenerator:
 
     HOMO_PROB = 0.20  # Probability of homozygous when variant is present
 
-    def __init__(self, annotation_source: str, seed: int = 42):
+    def __init__(self, annotation_source: str = None, seed: int = 42):
         """Initialize generator with annotation sampler."""
         random.seed(seed)
         
-        # Initialize annotation sampler
+        # Initialize annotation sampler (defaults to local anonymized templates)
         self.annotation_sampler = AnnotationSampler(annotation_source)
         
         # Generate sample IDs with realistic naming
@@ -414,23 +434,71 @@ class EnhancedTestDataGenerator:
 
         return variants
 
-    def create_info_field(self, annotation: AnnotationTemplate, gene: str) -> str:
+    def create_info_field(self, annotation: AnnotationTemplate, gene: str, genotypes: List[str]) -> str:
         """Create realistic INFO field from annotation template."""
         info_parts = []
         
-        # Add ANN field
-        info_parts.append(f"ANN={annotation.ann_fields}")
+        # Calculate AC (allele count) from genotypes
+        ac = 0
+        for genotype in genotypes:
+            gt = genotype.split(':')[0]  # Extract GT field
+            if gt == "0/1":
+                ac += 1
+            elif gt == "1/1":
+                ac += 2
         
-        # Add SNP/VARTYPE
+        # Add core fields
+        info_parts.append(f"AC={ac}")
+        
+        # Properly escape ANN field content to avoid parsing issues
+        ann_content = annotation.ann_fields.replace(';', '%3B').replace('=', '%3D')
+        info_parts.append(f"ANN={ann_content}")
         info_parts.extend(["SNP", "VARTYPE=SNP"])
         
-        # Add dbNSFP fields
+        # Add dbNSFP fields (skip any that might cause issues)
         for key, value in annotation.dbNSFP_fields.items():
-            info_parts.append(f"{key}={value}")
+            # Skip keys that contain problematic characters or are too long
+            if '|' in key or '&' in key or len(key) > 50:
+                continue
+            clean_key = key.replace('|', '_').replace('&', '_').replace('=', '_')
+            clean_value = str(value).replace(';', ',').replace('=', ':')
+            info_parts.append(f"{clean_key}={clean_value}")
         
-        # Add other annotation fields
+        # Add other annotation fields (also filtered)
         for key, value in annotation.other_fields.items():
-            info_parts.append(f"{key}={value}")
+            # Skip keys that contain problematic characters or are too long
+            if '|' in key or '&' in key or len(key) > 50:
+                continue
+            clean_key = key.replace('|', '_').replace('&', '_').replace('=', '_')
+            clean_value = str(value).replace(';', ',').replace('=', ':')
+            info_parts.append(f"{clean_key}={clean_value}")
+        
+        # Add default values for commonly expected fields if missing
+        expected_fields = {
+            'splice_dbscSNV_rf_score': '0.0',
+            'splice_dbscSNV_ada_score': '0.0',
+            'splice_spidex_dpsi_zscore': '0.0',
+            'dbNSFP_gnomAD_exomes_AC': '0',
+            'dbNSFP_gnomAD_genomes_AC': '0',
+            'dbNSFP_ALFA_Total_AC': '0',
+            'dbNSFP_clinvar_clnsig': 'uncertain',
+            'ClinVar_CLNSIG': 'uncertain',
+            'hgmd_CLASS': 'unknown'
+        }
+        
+        # Get all existing field names
+        existing_fields = set()
+        for key in annotation.dbNSFP_fields.keys():
+            if not ('|' in key or '&' in key or len(key) > 50):
+                existing_fields.add(key.replace('|', '_').replace('&', '_').replace('=', '_'))
+        for key in annotation.other_fields.keys():
+            if not ('|' in key or '&' in key or len(key) > 50):
+                existing_fields.add(key.replace('|', '_').replace('&', '_').replace('=', '_'))
+        
+        # Add missing expected fields with defaults
+        for field, default_value in expected_fields.items():
+            if field not in existing_fields:
+                info_parts.append(f"{field}={default_value}")
         
         return ";".join(info_parts)
 
@@ -552,21 +620,87 @@ class EnhancedTestDataGenerator:
             # INFO field definitions for rich annotations
             info_fields = [
                 '##INFO=<ID=ANN,Number=.,Type=String,Description="Functional annotations: Allele | Annotation | Annotation_Impact | Gene_Name | Gene_ID | Feature_Type | Feature_ID | Transcript_BioType | Rank | HGVS.c | HGVS.p | cDNA.pos / cDNA.length | CDS.pos / CDS.length | AA.pos / AA.length | Distance | ERRORS / WARNINGS / INFO">',
+                '##INFO=<ID=AC,Number=A,Type=Integer,Description="Allele count in genotypes">',
                 '##INFO=<ID=SNP,Number=0,Type=Flag,Description="Variant is a SNP">',
                 '##INFO=<ID=VARTYPE,Number=1,Type=String,Description="Variant type">',
             ]
             
-            # Add dbNSFP field definitions
-            dbNSFP_fields = [
+            # Dynamically generate annotation field definitions from templates
+            annotation_fields = []
+            all_field_names = set()
+            
+            # Collect all field names from templates
+            for templates in self.annotation_sampler.templates.values():
+                for template in templates:
+                    for key in template.dbNSFP_fields.keys():
+                        # Skip problematic keys
+                        if '|' in key or '&' in key or len(key) > 50:
+                            continue
+                        clean_key = key.replace('|', '_').replace('&', '_').replace('=', '_')
+                        all_field_names.add(clean_key)
+                    for key in template.other_fields.keys():
+                        # Skip problematic keys
+                        if '|' in key or '&' in key or len(key) > 50:
+                            continue
+                        clean_key = key.replace('|', '_').replace('&', '_').replace('=', '_')
+                        all_field_names.add(clean_key)
+            
+            # Add commonly expected fields
+            expected_fields = {
+                'splice_dbscSNV_rf_score': 'Float',
+                'splice_dbscSNV_ada_score': 'Float',
+                'splice_spidex_dpsi_zscore': 'Float',
+                'dbNSFP_gnomAD_exomes_AC': 'Integer',
+                'dbNSFP_gnomAD_genomes_AC': 'Integer',
+                'dbNSFP_ALFA_Total_AC': 'Integer',
+                'dbNSFP_clinvar_clnsig': 'String',
+                'ClinVar_CLNSIG': 'String',
+                'hgmd_CLASS': 'String'
+            }
+            
+            all_field_names.update(expected_fields.keys())
+            
+            # Generate field definitions
+            for field in sorted(all_field_names):
+                if field.startswith('dbNSFP_') and ('AC' in field or 'AN' in field):
+                    field_type = 'Integer'
+                elif field.startswith('dbNSFP_') and ('AF' in field or 'score' in field or 'rankscore' in field):
+                    field_type = 'Float'
+                elif field.startswith('splice_') and 'score' in field:
+                    field_type = 'Float'
+                elif field in expected_fields:
+                    field_type = expected_fields[field]
+                else:
+                    field_type = 'String'
+                
+                annotation_fields.append(f'##INFO=<ID={field},Number=.,Type={field_type},Description="{field} annotation">')
+            
+            # Add core dbNSFP fields with proper descriptions
+            core_fields = [
                 '##INFO=<ID=dbNSFP_CADD_phred,Number=.,Type=Float,Description="CADD phred-like score">',
                 '##INFO=<ID=dbNSFP_SIFT_pred,Number=.,Type=String,Description="SIFT prediction">',
                 '##INFO=<ID=dbNSFP_Polyphen2_HDIV_pred,Number=.,Type=String,Description="PolyPhen2 HDIV prediction">',
                 '##INFO=<ID=dbNSFP_REVEL_score,Number=.,Type=Float,Description="REVEL score">',
-                '##INFO=<ID=dbNSFP_gnomAD_genomes_AF,Number=.,Type=Float,Description="gnomAD genomes allele frequency">',
                 '##INFO=<ID=dbNSFP_GERP___RS,Number=.,Type=Float,Description="GERP++ rejection score">',
             ]
             
-            for field in info_fields + dbNSFP_fields:
+            # Replace any duplicate entries from core_fields
+            final_annotation_fields = []
+            core_field_ids = set()
+            for field in core_fields:
+                field_id = field.split('ID=')[1].split(',')[0]
+                core_field_ids.add(field_id)
+                final_annotation_fields.append(field)
+            
+            # Add remaining annotation fields that aren't in core_fields
+            for field in annotation_fields:
+                field_id = field.split('ID=')[1].split(',')[0]
+                if field_id not in core_field_ids:
+                    final_annotation_fields.append(field)
+            
+            annotation_fields = final_annotation_fields
+            
+            for field in info_fields + annotation_fields:
                 f.write(field + "\n")
 
             # FORMAT field definitions
@@ -599,15 +733,15 @@ class EnhancedTestDataGenerator:
                 elif annotation.impact == "MODERATE":
                     stats["moderate_impact_variants"] += 1
 
-                # Create realistic INFO field from annotation
-                info = self.create_info_field(annotation, gene)
-
                 # Generate genotypes for all samples using realistic annotation-based logic
                 genotypes = []
                 for sample in self.all_samples:
                     is_case = sample in self.case_samples
                     genotype = self.generate_genotype(gene, annotation, is_case)
                     genotypes.append(genotype)
+
+                # Create realistic INFO field from annotation (including AC from genotypes)
+                info = self.create_info_field(annotation, gene, genotypes)
 
                 # Write variant line
                 fields = [chrom, pos, ".", ref, alt, "100", "PASS", info, "GT:DP:AD:GQ"]
@@ -966,8 +1100,8 @@ def main():
     parser.add_argument("--output-dir", required=True, help="Output directory for enhanced test dataset")
     parser.add_argument(
         "--annotation-source", 
-        default="testdata_snpef.txt",
-        help="Source file with real annotations (default: testdata_snpef.txt)"
+        default=None,
+        help="Source file with annotations (default: local anonymized templates)"
     )
     parser.add_argument(
         "--seed", type=int, default=42, help="Random seed for reproducibility (default: 42)"
@@ -975,31 +1109,35 @@ def main():
 
     args = parser.parse_args()
 
-    # Resolve annotation source path
-    annotation_source = Path(args.annotation_source)
-    if not annotation_source.is_absolute():
-        # Look in current directory and parent directories
-        script_dir = Path(__file__).parent
-        potential_paths = [
-            Path.cwd() / annotation_source,
-            script_dir / annotation_source,
-            script_dir.parent.parent.parent / annotation_source,
-        ]
-        
-        for path in potential_paths:
-            if path.exists():
-                annotation_source = path
-                break
-        else:
-            print(f"Error: Could not find annotation source file: {args.annotation_source}")
-            print("Searched in:")
+    # Resolve annotation source path (if provided)
+    annotation_source = None
+    if args.annotation_source:
+        annotation_source = Path(args.annotation_source)
+        if not annotation_source.is_absolute():
+            # Look in current directory and parent directories
+            script_dir = Path(__file__).parent
+            potential_paths = [
+                Path.cwd() / annotation_source,
+                script_dir / annotation_source,
+                script_dir.parent.parent.parent / annotation_source,
+            ]
+            
             for path in potential_paths:
-                print(f"  - {path}")
-            sys.exit(1)
+                if path.exists():
+                    annotation_source = path
+                    break
+            else:
+                print(f"Error: Could not find annotation source file: {args.annotation_source}")
+                print("Searched in:")
+                for path in potential_paths:
+                    print(f"  - {path}")
+                sys.exit(1)
+        
+        annotation_source = str(annotation_source)
 
     # Initialize enhanced generator
     try:
-        generator = EnhancedTestDataGenerator(str(annotation_source), seed=args.seed)
+        generator = EnhancedTestDataGenerator(annotation_source, seed=args.seed)
     except Exception as e:
         print(f"Error initializing generator: {e}")
         sys.exit(1)
@@ -1010,7 +1148,7 @@ def main():
 
     print(f"\n🎉 Enhanced gene burden test dataset generated!")
     print(f"📁 Location: {output_dir.absolute()}")
-    print(f"🧬 Real annotations sampled from: {annotation_source}")
+    print(f"🧬 Annotations sampled from: {annotation_source or 'local anonymized templates'}")
     print(f"📊 Effect types available: {len(generator.annotation_sampler.templates)}")
     print(f"📖 See README.md for detailed usage instructions")
 

@@ -19,6 +19,7 @@ import pandas as pd
 
 from ..analyze_variants import analyze_variants
 from ..annotator import annotate_dataframe_with_features, load_custom_features
+from ..filters import filter_final_tsv_by_genotype
 from ..gene_burden import perform_gene_burden_analysis
 from ..inheritance import analyze_inheritance
 from ..pipeline_core import PipelineContext, Stage
@@ -461,6 +462,89 @@ class VariantScoringStage(Stage):
         return context
 
 
+class GenotypeFilterStage(Stage):
+    """Filter variants by genotype patterns."""
+
+    @property
+    def name(self) -> str:
+        """Return the stage name."""
+        return "genotype_filtering"
+
+    @property
+    def description(self) -> str:
+        """Return a description of what this stage does."""
+        return "Filter variants by genotype patterns"
+
+    @property
+    def dependencies(self) -> Set[str]:
+        """Return the set of stage names this stage depends on."""
+        # Must run after dataframe is loaded and scored
+        return {"dataframe_loading", "variant_scoring"}
+
+    def _process(self, context: PipelineContext) -> PipelineContext:
+        """Apply genotype filtering if requested."""
+        # Check if genotype filtering is requested
+        genotype_filter = context.config.get("genotype_filter")
+        gene_genotype_file = context.config.get("gene_genotype_file")
+
+        if not genotype_filter and not gene_genotype_file:
+            logger.debug("No genotype filtering requested")
+            return context
+
+        df = context.current_dataframe
+        if df is None:
+            logger.warning("No DataFrame loaded for genotype filtering")
+            return context
+
+        # Parse genotype modes
+        genotype_modes = set()
+        if genotype_filter:
+            genotype_modes = set(g.strip() for g in genotype_filter.split(",") if g.strip())
+
+        logger.info(f"Applying genotype filtering with modes: {genotype_modes}")
+        if gene_genotype_file:
+            logger.info(f"Using gene-specific genotype file: {gene_genotype_file}")
+
+        # Save DataFrame to temporary file for filtering
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as tmp_input:
+            df.to_csv(tmp_input.name, sep="\t", index=False)
+            tmp_input_path = tmp_input.name
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as tmp_output:
+            tmp_output_path = tmp_output.name
+
+        try:
+            # Apply genotype filtering
+            filter_final_tsv_by_genotype(
+                input_tsv=tmp_input_path,
+                output_tsv=tmp_output_path,
+                global_genotypes=genotype_modes,
+                gene_genotype_file=gene_genotype_file,
+            )
+
+            # Load filtered results back into DataFrame
+            filtered_df = pd.read_csv(tmp_output_path, sep="\t")
+
+            logger.info(f"Genotype filtering: {len(df)} → {len(filtered_df)} variants")
+
+            # Update context with filtered DataFrame
+            context.current_dataframe = filtered_df
+
+        finally:
+            # Clean up temporary files
+            import os
+
+            try:
+                os.unlink(tmp_input_path)
+                os.unlink(tmp_output_path)
+            except OSError:
+                pass
+
+        return context
+
+
 class StatisticsGenerationStage(Stage):
     """Generate summary statistics."""
 
@@ -568,7 +652,8 @@ class VariantAnalysisStage(Stage):
         """Return the set of stage names that should run before if present."""
         # Note: variant_identifier should run AFTER this stage, not before,
         # because analyze_variants creates a new DataFrame
-        return set()
+        # Run after genotype filtering if present
+        return {"genotype_filtering"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Run variant analysis."""
