@@ -300,6 +300,26 @@ class SampleConfigLoadingStage(Stage):
         # Get VCF samples
         logger.info(f"Reading sample names from {vcf_file}")
         vcf_samples = get_vcf_samples(vcf_file)
+
+        # Apply sample substring removal if configured
+        remove_substring = context.config.get("remove_sample_substring")
+        if remove_substring and remove_substring.strip():
+            logger.info(f"Removing substring '{remove_substring}' from sample names")
+            original_samples = vcf_samples[:]  # Create a copy for logging
+            vcf_samples = [s.replace(remove_substring, "") for s in vcf_samples]
+
+            # Log changes for debugging
+            changes = []
+            for orig, new in zip(original_samples, vcf_samples):
+                if orig != new:
+                    changes.append(f"{orig} -> {new}")
+
+            if changes:
+                logger.info(f"Applied substring removal to {len(changes)} samples")
+                logger.debug(f"Sample name changes: {changes[:5]}...")  # Log first 5 changes
+            else:
+                logger.info(f"No samples contained substring '{remove_substring}'")
+
         context.vcf_samples = vcf_samples
         logger.info(f"Found {len(vcf_samples)} samples in VCF")
 

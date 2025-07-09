@@ -381,6 +381,12 @@ class PseudonymizationStage(Stage):
         context.config["pseudonymization_mapping"] = mapping
         context.config["pseudonymizer"] = pseudonymizer
 
+        # Create pseudonymized PED file if requested
+        if context.config.get("pseudonymize_ped") and context.config.get("ped_file"):
+            ped_output = str(mapping_file).replace(".json", "_pedigree.ped")
+            pseudonymizer.pseudonymize_ped_file(context.config["ped_file"], ped_output)
+            logger.info(f"Pseudonymized PED file saved to: {ped_output}")
+
         return context
 
 

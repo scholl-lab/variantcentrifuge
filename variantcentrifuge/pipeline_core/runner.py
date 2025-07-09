@@ -105,6 +105,29 @@ class PipelineRunner:
             stage_names = [s.name for s in level_stages]
             logger.debug(f"Level {level}: {stage_names}")
 
+        # Handle resume logic if checkpoint is enabled
+        if self.enable_checkpoints and context.checkpoint_state:
+            if context.config.get("resume", False):
+                if context.checkpoint_state.load():
+                    if context.checkpoint_state.can_resume(context.config, "refactored_pipeline"):
+                        logger.info("Resume mode: Checking pipeline state...")
+                        logger.info(context.checkpoint_state.get_summary())
+
+                        # Mark completed stages as complete in context
+                        for stage in stages:
+                            if context.checkpoint_state.should_skip_step(stage.name):
+                                logger.info(f"Skipping completed stage: {stage.name}")
+                                context.mark_complete(stage.name)
+
+                        resume_point = context.checkpoint_state.get_resume_point()
+                        if resume_point:
+                            logger.info(f"Resuming from step: {resume_point}")
+                    else:
+                        logger.warning("Cannot resume - configuration or version mismatch")
+                        # Start fresh but don't clear existing state
+                else:
+                    logger.info("No previous checkpoint state found, starting fresh")
+
         # Execute stages level by level
         for level, level_stages in enumerate(execution_plan):
             context = self._execute_level(level_stages, context, level)

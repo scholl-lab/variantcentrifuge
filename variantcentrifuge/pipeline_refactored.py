@@ -31,6 +31,7 @@ from .stages.processing_stages import (
     MultiAllelicSplitStage,
     SnpSiftFilterStage,
     FieldExtractionStage,
+    DataSortingStage,
     GenotypeReplacementStage,
     PhenotypeIntegrationStage,
     ExtraColumnRemovalStage,
@@ -130,6 +131,9 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
 
         # Field extraction
         stages.append(FieldExtractionStage())
+
+        # Data sorting (for efficient chunked processing)
+        stages.append(DataSortingStage())
 
     # Optional transformations
     # Default behavior: do genotype replacement unless --no-replacement is specified
@@ -358,6 +362,15 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
 
     # Create pipeline context
     context = PipelineContext(args=args, config=initial_config, workspace=workspace)
+
+    # Initialize checkpoint system if enabled
+    if initial_config.get("enable_checkpoint", False):
+        from .checkpoint import PipelineState
+
+        context.checkpoint_state = PipelineState(
+            initial_config["output_dir"],
+            enable_checksum=initial_config.get("checkpoint_checksum", False),
+        )
 
     # Build stages based on configuration
     stages = build_pipeline_stages(args)

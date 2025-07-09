@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Dict, List, Set
 
 import pandas as pd
+from smart_open import smart_open
 
 from ..extractor import extract_fields
 from ..filters import apply_snpsift_filter, extract_variants
@@ -1503,3 +1504,201 @@ class ParallelCompleteProcessingStage(Stage):
                 chunk_dir = bed_chunks[0].parent
                 if chunk_dir.exists() and not any(chunk_dir.iterdir()):
                     chunk_dir.rmdir()
+
+
+class DataSortingStage(Stage):
+    """Sort extracted TSV data by gene column for efficient chunked processing."""
+
+    @property
+    def name(self) -> str:
+        """Return the stage name."""
+        return "data_sorting"
+
+    @property
+    def description(self) -> str:
+        """Return a description of what this stage does."""
+        return "Sort TSV data by gene column for efficient processing"
+
+    @property
+    def dependencies(self) -> Set[str]:
+        """Return the set of stage names this stage depends on."""
+        return {"field_extraction"}
+
+    def _process(self, context: PipelineContext) -> PipelineContext:
+        """Sort the extracted TSV by gene column if gene column is present."""
+        if not context.extracted_tsv:
+            logger.warning("No extracted TSV found for sorting")
+            return context
+
+        # Check if sorting is needed and if gene column exists
+        gene_column = context.config.get("gene_column_name", "GENE")
+
+        # First check if gene column exists in the TSV
+        has_gene_column = False
+        try:
+            with smart_open(str(context.extracted_tsv), "r") as f:
+                header = f.readline().strip()
+                if header:
+                    columns = header.split("\t")
+                    has_gene_column = gene_column in columns
+        except Exception as e:
+            logger.warning(f"Could not read header from {context.extracted_tsv}: {e}")
+            return context
+
+        if not has_gene_column:
+            logger.info(f"Gene column '{gene_column}' not found in TSV, skipping sorting")
+            return context
+
+        # Create sorted output file
+        sorted_tsv = context.workspace.get_intermediate_path(
+            f"{context.workspace.base_name}.extracted.sorted.tsv"
+        )
+
+        # Handle gzip compression if requested
+        if context.config.get("gzip_intermediates"):
+            sorted_tsv = Path(str(sorted_tsv) + ".gz")
+
+        logger.info(f"Sorting TSV by gene column '{gene_column}' for efficient processing")
+
+        # Use the sort function from old pipeline
+        self._sort_tsv_by_gene(
+            input_file=str(context.extracted_tsv),
+            output_file=str(sorted_tsv),
+            gene_column=gene_column,
+            temp_dir=str(context.workspace.intermediate_dir),
+            memory_limit=context.config.get("sort_memory_limit", "2G"),
+            parallel=context.config.get("sort_parallel", 4),
+        )
+
+        # Clean up unsorted file if not keeping intermediates
+        if not context.config.get("keep_intermediates", False):
+            try:
+                os.remove(str(context.extracted_tsv))
+            except OSError:
+                pass
+
+        # Update context with sorted file
+        context.extracted_tsv = sorted_tsv
+        context.data = sorted_tsv
+
+        return context
+
+    def _sort_tsv_by_gene(
+        self,
+        input_file: str,
+        output_file: str,
+        gene_column: str = "GENE",
+        temp_dir: str = None,
+        memory_limit: str = "2G",
+        parallel: int = 4,
+    ) -> str:
+        """
+        Sort a TSV file by gene column using external sort command for memory efficiency.
+
+        This is adapted from the original pipeline's sort_tsv_by_gene function.
+        """
+        logger.info(f"Sorting TSV file by gene column: {input_file} -> {output_file}")
+        logger.info(f"Using memory limit: {memory_limit}, parallel threads: {parallel}")
+
+        # First, find the gene column index
+        with smart_open(input_file, "r") as f:
+            header = f.readline().strip()
+            if not header:
+                raise ValueError(f"Input file '{input_file}' is empty or has no header")
+            columns = header.split("\t")
+
+        try:
+            gene_col_idx = columns.index(gene_column) + 1  # sort uses 1-based indexing
+        except ValueError:
+            raise ValueError(f"Gene column '{gene_column}' not found in TSV file")
+
+        logger.info(f"Found gene column '{gene_column}' at position {gene_col_idx}")
+
+        # Build sort arguments with memory efficiency options
+        sort_args = [
+            f"-k{gene_col_idx},{gene_col_idx}",  # Sort by gene column
+            f"--buffer-size={memory_limit}",  # Memory limit
+            f"--parallel={parallel}",  # Parallel threads
+            "--stable",  # Stable sort for consistent results
+            "--compress-program=gzip",  # Use gzip for temp files
+        ]
+
+        if temp_dir:
+            sort_args.append(f"-T {temp_dir}")
+
+        sort_cmd = " ".join(sort_args)
+
+        # Escape file paths to prevent shell injection
+        import shlex
+
+        safe_input = shlex.quote(input_file)
+        safe_output = shlex.quote(output_file)
+
+        # Build the complete command based on compression
+        if input_file.endswith(".gz"):
+            if output_file.endswith(".gz"):
+                # Both gzipped
+                cmd = (
+                    f"gzip -cd {safe_input} | "
+                    f"{{ IFS= read -r header; echo \"$header\"; sort {sort_cmd} -t$'\\t'; }} | "
+                    f"gzip -c > {safe_output}"
+                )
+            else:
+                # Input gzipped, output not
+                cmd = (
+                    f"gzip -cd {safe_input} | "
+                    f"{{ IFS= read -r header; echo \"$header\"; sort {sort_cmd} -t$'\\t'; }} "
+                    f"> {safe_output}"
+                )
+        else:
+            if output_file.endswith(".gz"):
+                # Input not gzipped, output gzipped
+                cmd = (
+                    f'{{ IFS= read -r header < {safe_input}; echo "$header"; tail -n +2 {safe_input} | '
+                    f"sort {sort_cmd} -t$'\\t'; }} | "
+                    f"gzip -c > {safe_output}"
+                )
+            else:
+                # Neither gzipped
+                cmd = (
+                    f'{{ IFS= read -r header < {safe_input}; echo "$header"; tail -n +2 {safe_input} | '
+                    f"sort {sort_cmd} -t$'\\t'; }} "
+                    f"> {safe_output}"
+                )
+
+        # Execute the command
+        logger.debug(f"Running sort command: {cmd}")
+
+        # Find bash executable
+        bash_path = shutil.which("bash") or "/bin/bash"
+        if not os.path.exists(bash_path):
+            logger.warning(f"bash not found at {bash_path}, falling back to shell default")
+            bash_path = None
+
+        # Execute command
+        result = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, executable=bash_path
+        )
+
+        if result.returncode != 0:
+            logger.error(f"Sort command failed: {result.stderr}")
+            raise RuntimeError(f"Failed to sort TSV file: {result.stderr}")
+
+        # Verify output file was created
+        if not os.path.exists(output_file):
+            raise RuntimeError(f"Output file '{output_file}' was not created")
+
+        # Check if output file has content
+        with smart_open(output_file, "r") as f:
+            first_line = f.readline()
+            if not first_line:
+                raise RuntimeError(f"Output file '{output_file}' is empty")
+
+        logger.info("Successfully sorted TSV file by gene column")
+        return output_file
+
+    def get_output_files(self, context: PipelineContext) -> List[Path]:
+        """Return the sorted TSV file."""
+        if context.extracted_tsv:
+            return [context.extracted_tsv]
+        return []

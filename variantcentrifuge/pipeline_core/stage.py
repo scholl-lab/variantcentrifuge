@@ -145,9 +145,26 @@ class Stage(ABC):
             logger.info(f"Stage '{self.name}' already complete, skipping")
             return context
 
+        # Check if checkpoint system should skip this stage
+        if context.checkpoint_state and context.checkpoint_state.should_skip_step(self.name):
+            logger.info(f"Stage '{self.name}' skipped by checkpoint system")
+            context.mark_complete(self.name)
+            return context
+
         # Log execution start
         logger.info(f"Executing {self.description}")
         start_time = time.time()
+
+        # Initialize checkpoint context if enabled
+        checkpoint_context = None
+        if context.checkpoint_state:
+            from ..checkpoint import CheckpointContext
+
+            checkpoint_context = CheckpointContext(
+                context.checkpoint_state,
+                self.name,
+                {"description": self.description, "stage_type": self.__class__.__name__},
+            )
 
         # Execute stage
         try:
@@ -159,6 +176,15 @@ class Stage(ABC):
 
             # Post-execution hook
             self._post_execute(updated_context)
+
+            # Add output files to checkpoint tracking
+            if checkpoint_context:
+                try:
+                    output_files = self.get_output_files(updated_context)
+                    for file_path in output_files:
+                        checkpoint_context.add_output_file(str(file_path))
+                except Exception as e:
+                    logger.debug(f"Could not track output files for checkpoint: {e}")
 
             # Mark complete
             elapsed = time.time() - start_time

@@ -319,3 +319,160 @@ class TestSampleConfigLoadingStage:
         """Test stage dependencies."""
         stage = SampleConfigLoadingStage()
         assert stage.dependencies == {"configuration_loading"}
+
+    @patch("variantcentrifuge.stages.setup_stages.get_vcf_samples")
+    def test_remove_sample_substring_basic(self, mock_get_samples, context):
+        """Test basic sample substring removal functionality."""
+        # Mock sample extraction with suffixes
+        mock_get_samples.return_value = ["Sample1_suffix", "Sample2_suffix", "Sample3_suffix"]
+
+        # Configure substring removal
+        context.config["remove_sample_substring"] = "_suffix"
+
+        stage = SampleConfigLoadingStage()
+        result = stage(context)
+
+        # Check substring was removed
+        expected_samples = ["Sample1", "Sample2", "Sample3"]
+        assert result.vcf_samples == expected_samples
+        mock_get_samples.assert_called_once_with("/tmp/test.vcf")
+
+    @patch("variantcentrifuge.stages.setup_stages.get_vcf_samples")
+    def test_remove_sample_substring_partial_match(self, mock_get_samples, context):
+        """Test substring removal when only some samples contain the substring."""
+        # Mock sample extraction with mixed suffixes
+        mock_get_samples.return_value = ["Sample1_suffix", "Sample2", "Sample3_suffix", "Sample4"]
+
+        # Configure substring removal
+        context.config["remove_sample_substring"] = "_suffix"
+
+        stage = SampleConfigLoadingStage()
+        result = stage(context)
+
+        # Check substring was removed only where present
+        expected_samples = ["Sample1", "Sample2", "Sample3", "Sample4"]
+        assert result.vcf_samples == expected_samples
+
+    @patch("variantcentrifuge.stages.setup_stages.get_vcf_samples")
+    def test_remove_sample_substring_no_match(self, mock_get_samples, context):
+        """Test substring removal when no samples contain the substring."""
+        # Mock sample extraction without target substring
+        mock_get_samples.return_value = ["Sample1", "Sample2", "Sample3"]
+
+        # Configure substring removal
+        context.config["remove_sample_substring"] = "_nonexistent"
+
+        stage = SampleConfigLoadingStage()
+        result = stage(context)
+
+        # Check samples remain unchanged
+        expected_samples = ["Sample1", "Sample2", "Sample3"]
+        assert result.vcf_samples == expected_samples
+
+    @patch("variantcentrifuge.stages.setup_stages.get_vcf_samples")
+    def test_remove_sample_substring_empty_string(self, mock_get_samples, context):
+        """Test substring removal with empty string (should be ignored)."""
+        # Mock sample extraction
+        mock_get_samples.return_value = ["Sample1", "Sample2", "Sample3"]
+
+        # Configure empty substring removal
+        context.config["remove_sample_substring"] = ""
+
+        stage = SampleConfigLoadingStage()
+        result = stage(context)
+
+        # Check samples remain unchanged
+        expected_samples = ["Sample1", "Sample2", "Sample3"]
+        assert result.vcf_samples == expected_samples
+
+    @patch("variantcentrifuge.stages.setup_stages.get_vcf_samples")
+    def test_remove_sample_substring_whitespace_only(self, mock_get_samples, context):
+        """Test substring removal with whitespace-only string (should be ignored)."""
+        # Mock sample extraction
+        mock_get_samples.return_value = ["Sample1", "Sample2", "Sample3"]
+
+        # Configure whitespace-only substring removal
+        context.config["remove_sample_substring"] = "   "
+
+        stage = SampleConfigLoadingStage()
+        result = stage(context)
+
+        # Check samples remain unchanged
+        expected_samples = ["Sample1", "Sample2", "Sample3"]
+        assert result.vcf_samples == expected_samples
+
+    @patch("variantcentrifuge.stages.setup_stages.get_vcf_samples")
+    def test_remove_sample_substring_complex_pattern(self, mock_get_samples, context):
+        """Test substring removal with complex patterns."""
+        # Mock sample extraction with complex patterns
+        mock_get_samples.return_value = [
+            "SAMPLE_001_processed",
+            "SAMPLE_002_processed",
+            "SAMPLE_003_raw",
+        ]
+
+        # Configure substring removal for processing suffix
+        context.config["remove_sample_substring"] = "_processed"
+
+        stage = SampleConfigLoadingStage()
+        result = stage(context)
+
+        # Check substring was removed appropriately
+        expected_samples = ["SAMPLE_001", "SAMPLE_002", "SAMPLE_003_raw"]
+        assert result.vcf_samples == expected_samples
+
+    @patch("variantcentrifuge.stages.setup_stages.get_vcf_samples")
+    def test_remove_sample_substring_multiple_occurrences(self, mock_get_samples, context):
+        """Test substring removal when substring appears multiple times in a sample name."""
+        # Mock sample extraction with repeated substrings
+        mock_get_samples.return_value = ["test_sample_test", "another_test_sample", "final_test"]
+
+        # Configure substring removal
+        context.config["remove_sample_substring"] = "_test"
+
+        stage = SampleConfigLoadingStage()
+        result = stage(context)
+
+        # Check all occurrences were removed (Python's replace removes all)
+        expected_samples = ["test_sample", "another_sample", "final"]
+        assert result.vcf_samples == expected_samples
+
+    @patch("variantcentrifuge.stages.setup_stages.get_vcf_samples")
+    def test_remove_sample_substring_with_case_samples(self, mock_get_samples, context):
+        """Test substring removal works with case/control sample loading."""
+        # Mock sample extraction with suffixes
+        mock_get_samples.return_value = ["Sample1_suffix", "Sample2_suffix", "Sample3_suffix"]
+
+        # Set up case samples file
+        case_file = Path(tempfile.mktemp())
+        case_file.write_text("Sample1_suffix\nSample2_suffix\n")
+        context.config["case_samples_file"] = str(case_file)
+
+        # Configure substring removal
+        context.config["remove_sample_substring"] = "_suffix"
+
+        stage = SampleConfigLoadingStage()
+        result = stage(context)
+
+        # Check VCF samples had substring removed
+        expected_samples = ["Sample1", "Sample2", "Sample3"]
+        assert result.vcf_samples == expected_samples
+
+        # Check case samples were loaded correctly (before substring removal)
+        assert result.config["case_samples"] == ["Sample1_suffix", "Sample2_suffix"]
+
+    @patch("variantcentrifuge.stages.setup_stages.get_vcf_samples")
+    def test_remove_sample_substring_none_config(self, mock_get_samples, context):
+        """Test behavior when remove_sample_substring is None."""
+        # Mock sample extraction
+        mock_get_samples.return_value = ["Sample1", "Sample2", "Sample3"]
+
+        # Configure None substring removal
+        context.config["remove_sample_substring"] = None
+
+        stage = SampleConfigLoadingStage()
+        result = stage(context)
+
+        # Check samples remain unchanged
+        expected_samples = ["Sample1", "Sample2", "Sample3"]
+        assert result.vcf_samples == expected_samples

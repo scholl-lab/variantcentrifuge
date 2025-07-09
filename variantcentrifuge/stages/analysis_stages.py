@@ -128,6 +128,14 @@ class DataFrameLoadingStage(Stage):
 
     def _should_use_chunks(self, context: PipelineContext, file_path: Path) -> bool:
         """Determine if chunked processing should be used."""
+        # Check if chunked processing is explicitly disabled
+        if context.config.get("no_chunked_processing"):
+            return False
+
+        # Check if chunked processing is explicitly forced
+        if context.config.get("force_chunked_processing"):
+            return True
+
         # Check explicit chunking request
         if context.config.get("chunks"):
             return True
@@ -787,7 +795,13 @@ class GeneBurdenAnalysisStage(Stage):
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
         # Depends on having a DataFrame with variants and case/control samples
-        return {"dataframe_loading", "custom_annotation", "sample_config_loading"}
+        return {"dataframe_loading", "sample_config_loading"}
+
+    @property
+    def soft_dependencies(self) -> Set[str]:
+        """Return the set of stage names that should run before if present."""
+        # Prefer to run after custom_annotation if it exists
+        return {"custom_annotation"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Perform gene burden analysis."""
