@@ -156,6 +156,19 @@ class TestGeneBurdenEdgeCases:
                 "or_ci_upper",
             ]
         )
+        
+        # Regression test: validate no negative reference allele counts
+        for _, row in result.iterrows():
+            p_count = row["proband_count"]
+            c_count = row["control_count"]
+            p_alleles = row["proband_allele_count"]
+            c_alleles = row["control_allele_count"]
+            
+            p_ref = p_count * 2 - p_alleles
+            c_ref = c_count * 2 - c_alleles
+            
+            assert p_ref >= 0, f"Negative case reference alleles for {row['GENE']}: {p_ref}"
+            assert c_ref >= 0, f"Negative control reference alleles for {row['GENE']}: {c_ref}"
 
 
 class TestConfidenceIntervalMethods:
