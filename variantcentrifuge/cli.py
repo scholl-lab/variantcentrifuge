@@ -544,7 +544,7 @@ def parse_args(args_list=None):
     return parser.parse_args(args_list)
 
 
-def main() -> None:
+def main() -> int:
     """Run main entry point for variantcentrifuge CLI.
 
     Steps:
@@ -1373,7 +1373,14 @@ def main() -> None:
             f"Current schema: {args.pseudonymize_schema}"
         )
 
-    run_pipeline(args, cfg, start_time)
+    try:
+        run_pipeline(args, cfg, start_time)
+        return 0
+    except SystemExit as e:
+        return e.code if e.code is not None else 1
+    except Exception as e:
+        logger.error(f"Pipeline failed: {e}")
+        return 1
 
 
 if __name__ == "__main__":

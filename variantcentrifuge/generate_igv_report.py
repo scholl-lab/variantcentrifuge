@@ -15,18 +15,18 @@ logger = logging.getLogger("variantcentrifuge")
 
 
 def _generate_single_igv_report(
-    task_data: Tuple[str, str, str, str, str, str, str, str, str, int, str, str]
+    task_data: Tuple[str, str, str, str, str, str, str, str, str, int, str, str],
 ) -> Tuple[bool, str, str, str, str, str, str]:
     """
     Generate a single IGV report for one variant/sample combination.
-    
+
     Parameters
     ----------
     task_data : tuple
         Tuple containing all parameters needed for one IGV report generation:
         (sample_id, chrom, pos, ref_allele, alt_allele, bam_path, variant_tsv_path,
          sample_report_path, igv_flanking, igv_reference, igv_fasta, igv_ideogram)
-    
+
     Returns
     -------
     tuple
@@ -87,7 +87,7 @@ def _generate_single_igv_report(
         logger.debug(
             f"Running create_report for sample {sample_id}, variant {chrom}:{pos} {ref_allele}>{alt_allele}"
         )
-        
+
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode != 0:
@@ -273,7 +273,7 @@ def generate_igv_report(
 
     # Collect all tasks for parallel processing
     tasks = []
-    
+
     # Collect all variant/sample combinations first
     with open(variants_tsv, "r", encoding="utf-8") as f:
         f.readline()  # skip header
@@ -315,12 +315,12 @@ def generate_igv_report(
                                 hash_len=igv_hash_len_filename,
                                 max_variant_part_len=igv_max_variant_part_filename,
                             )
-                            
+
                             variant_tsv_path = os.path.join(
                                 igv_dir,
                                 f"{safe_filename_base}_variant.tsv",
                             )
-                            
+
                             sample_report_path = os.path.join(
                                 igv_dir,
                                 f"{safe_filename_base}_igv_report.html",
@@ -349,7 +349,7 @@ def generate_igv_report(
     # Process tasks in parallel
     processed_variants = 0
     map_lock = threading.Lock()  # Lock for thread-safe map updates
-    
+
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks
         future_to_task = {
@@ -360,20 +360,24 @@ def generate_igv_report(
         for future in as_completed(future_to_task):
             task = future_to_task[future]
             try:
-                success, sample_id, chrom, pos, ref_allele, alt_allele, sample_report_path = future.result()
-                
+                success, sample_id, chrom, pos, ref_allele, alt_allele, sample_report_path = (
+                    future.result()
+                )
+
                 if success:
                     # Add entry to variant report map
                     variant_key = f"{chrom}_{pos}_{ref_allele}_{alt_allele}"
-                    
+
                     # Get the relative path to the report
                     rel_report_path = os.path.relpath(sample_report_path, output_dir)
-                    
+
                     # Thread-safe update of variant map
                     with map_lock:
                         if variant_key in variant_index_map:
                             variant_idx = variant_index_map[variant_key]
-                            variant_report_map[variant_idx]["sample_reports"][sample_id] = rel_report_path
+                            variant_report_map[variant_idx]["sample_reports"][
+                                sample_id
+                            ] = rel_report_path
                         else:
                             # First time seeing this variant, create a new entry
                             new_variant = {
@@ -388,8 +392,10 @@ def generate_igv_report(
 
                 processed_variants += 1
                 if processed_variants % 10 == 0 or processed_variants == len(tasks):
-                    logger.info(f"Progress: {processed_variants}/{len(tasks)} IGV reports completed")
-                    
+                    logger.info(
+                        f"Progress: {processed_variants}/{len(tasks)} IGV reports completed"
+                    )
+
             except Exception as e:
                 logger.error(f"Task failed: {e}")
                 processed_variants += 1

@@ -605,21 +605,24 @@ class HTMLReportStage(Stage):
 
         logger.info(f"Generating HTML report in: {report_dir}")
 
-        # Call generate_html_report with correct signature
-        generate_html_report(
-            variants_json=str(variants_json),
-            summary_json=str(summary_json),
-            output_dir=str(report_dir),
-            cfg=context.config,  # Pass the full configuration
-        )
+        try:
+            # Call generate_html_report with correct signature
+            generate_html_report(
+                variants_json=str(variants_json),
+                summary_json=str(summary_json),
+                output_dir=str(report_dir),
+                cfg=context.config,  # Pass the full configuration
+            )
 
-        # Check if HTML was generated successfully
-        html_file = report_dir / "index.html"
-        if html_file.exists():
-            context.report_paths["html"] = html_file
-            logger.info("HTML report generated successfully.")
-        else:
-            logger.error("HTML report generation failed - index.html not found")
+            # Check if HTML was generated successfully
+            html_file = report_dir / "index.html"
+            if html_file.exists():
+                context.report_paths["html"] = html_file
+                logger.info("HTML report generated successfully.")
+            else:
+                logger.error("HTML report generation failed - index.html not found")
+        except Exception as e:
+            logger.error(f"HTML report generation failed: {e}")
 
         context.report_paths["json"] = variants_json
 
@@ -679,8 +682,10 @@ class IGVReportStage(Stage):
 
         try:
             # Use threads config for parallel IGV generation, defaulting to 4 workers
-            max_workers = min(context.config.get("threads", 4), 8)  # Cap at 8 to avoid overwhelming system
-            
+            max_workers = min(
+                context.config.get("threads", 4), 8
+            )  # Cap at 8 to avoid overwhelming system
+
             generate_igv_report(
                 variants_tsv=str(input_file),
                 output_dir=str(report_dir),
@@ -691,21 +696,23 @@ class IGVReportStage(Stage):
                 igv_ideogram=igv_ideogram,
                 igv_max_allele_len_filename=context.config.get("igv_max_allele_len_filename", 10),
                 igv_hash_len_filename=context.config.get("igv_hash_len_filename", 6),
-                igv_max_variant_part_filename=context.config.get("igv_max_variant_part_filename", 50),
+                igv_max_variant_part_filename=context.config.get(
+                    "igv_max_variant_part_filename", 50
+                ),
                 igv_flanking=context.config.get("igv_flanking", 50),
                 max_workers=max_workers,
             )
-            
+
             logger.info("IGV reports and mapping file generated.")
-            
+
             # Store the IGV reports path
             igv_reports_dir = report_dir / "igv"
             context.report_paths["igv"] = igv_reports_dir
-            
+
         except Exception as e:
             logger.error(f"Failed to generate IGV reports: {e}")
             # Don't fail the pipeline, just skip IGV reports
-            
+
         return context
 
 

@@ -1243,6 +1243,11 @@ class ParallelCompleteProcessingStage(Stage):
         base_name = context.workspace.base_name
         intermediate_dir = context.workspace.intermediate_dir
 
+        # Handle empty bed_chunks case
+        if not bed_chunks:
+            logger.warning("No BED chunks to process - skipping parallel processing")
+            return []
+
         # Each worker gets limited threads
         threads_per_worker = max(2, threads // len(bed_chunks))
 
