@@ -585,26 +585,43 @@ class HTMLReportStage(Stage):
             logger.warning("No input file for HTML generation")
             return context
 
-        # Generate JSON first
-        json_path = context.workspace.get_output_path("", ".json")
-        logger.info(f"Generating JSON data: {json_path}")
+        # Create report directory
+        report_dir = context.workspace.output_dir / "report"
+        report_dir.mkdir(parents=True, exist_ok=True)
 
-        produce_report_json(
-            str(input_file), str(json_path), add_links=context.config.get("add_links", True)
-        )
+        logger.info("Generating JSON data for HTML report")
 
-        # Generate HTML
-        html_path = context.workspace.get_output_path("", ".html")
-        logger.info(f"Generating HTML report: {html_path}")
+        # Call produce_report_json with correct signature (TSV file, output_dir)
+        # This will create variants.json and summary.json in output_dir/report/
+        produce_report_json(str(input_file), str(context.workspace.output_dir))
 
+        # Path to the generated JSON files
+        variants_json = report_dir / "variants.json"
+        summary_json = report_dir / "summary.json"
+
+        if not variants_json.exists() or not summary_json.exists():
+            logger.error(f"Failed to generate JSON files: {variants_json}, {summary_json}")
+            return context
+
+        logger.info(f"Generating HTML report in: {report_dir}")
+
+        # Call generate_html_report with correct signature
         generate_html_report(
-            json_file=str(json_path),
-            output_file=str(html_path),
-            title=context.config.get("html_title", "VariantCentrifuge Report"),
+            variants_json=str(variants_json),
+            summary_json=str(summary_json),
+            output_dir=str(report_dir),
+            cfg=context.config,  # Pass the full configuration
         )
 
-        context.report_paths["html"] = html_path
-        context.report_paths["json"] = json_path
+        # Check if HTML was generated successfully
+        html_file = report_dir / "index.html"
+        if html_file.exists():
+            context.report_paths["html"] = html_file
+            logger.info("HTML report generated successfully.")
+        else:
+            logger.error("HTML report generation failed - index.html not found")
+
+        context.report_paths["json"] = variants_json
 
         return context
 
@@ -634,44 +651,61 @@ class IGVReportStage(Stage):
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Generate IGV report."""
-        if not context.config.get("igv_report"):
+        if not context.config.get("igv_enabled"):
             logger.debug("IGV report not requested")
             return context
 
         # Check required inputs
-        vcf_file = context.config.get("vcf_file")
-        if not vcf_file:
-            logger.warning("No VCF file specified for IGV report")
-            return context
-
         input_file = context.final_output_path
         if not input_file or not input_file.exists():
             logger.warning("No input file for IGV generation")
             return context
 
-        # Match IGV columns
-        df = pd.read_csv(input_file, sep="\t", nrows=5)
-        igv_config = match_IGV_link_columns(df)
-
-        if not all(k in igv_config for k in ["chr", "start", "end"]):
-            logger.warning("Cannot determine genomic coordinates for IGV")
+        bam_mapping_file = context.config.get("bam_mapping_file")
+        if not bam_mapping_file:
+            logger.warning("No BAM mapping file specified for IGV report")
             return context
 
-        output_path = context.workspace.get_output_path("_igv", ".html")
+        # Create IGV reports directory
+        report_dir = context.workspace.output_dir / "report"
+        report_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Generating IGV report: {output_path}")
+        # Get IGV parameters
+        igv_reference = context.config.get("igv_reference")
+        igv_fasta = context.config.get("igv_fasta")
+        igv_ideogram = context.config.get("igv_ideogram")
 
-        generate_igv_report(
-            tsv_file=str(input_file),
-            output_file=str(output_path),
-            vcf_file=vcf_file,
-            reference=context.config.get("igv_reference", "hg19"),
-            flanking=context.config.get("igv_flanking", 100),
-            samples_per_page=context.config.get("igv_samples_per_page", 8),
-            **igv_config,
-        )
+        logger.info("Starting IGV report generation.")
 
-        context.report_paths["igv"] = output_path
+        try:
+            # Use threads config for parallel IGV generation, defaulting to 4 workers
+            max_workers = min(context.config.get("threads", 4), 8)  # Cap at 8 to avoid overwhelming system
+            
+            generate_igv_report(
+                variants_tsv=str(input_file),
+                output_dir=str(report_dir),
+                bam_mapping_file=bam_mapping_file,
+                igv_reference=igv_reference,
+                integrate_into_main=True,  # Always integrate if IGV is enabled
+                igv_fasta=igv_fasta,
+                igv_ideogram=igv_ideogram,
+                igv_max_allele_len_filename=context.config.get("igv_max_allele_len_filename", 10),
+                igv_hash_len_filename=context.config.get("igv_hash_len_filename", 6),
+                igv_max_variant_part_filename=context.config.get("igv_max_variant_part_filename", 50),
+                igv_flanking=context.config.get("igv_flanking", 50),
+                max_workers=max_workers,
+            )
+            
+            logger.info("IGV reports and mapping file generated.")
+            
+            # Store the IGV reports path
+            igv_reports_dir = report_dir / "igv"
+            context.report_paths["igv"] = igv_reports_dir
+            
+        except Exception as e:
+            logger.error(f"Failed to generate IGV reports: {e}")
+            # Don't fail the pipeline, just skip IGV reports
+            
         return context
 
 
@@ -829,7 +863,7 @@ class ParallelReportGenerationStage(Stage):
         if context.config.get("html_report"):
             reports_to_generate.append(("html", HTMLReportStage()))
 
-        if context.config.get("igv_report"):
+        if context.config.get("igv_enabled"):
             reports_to_generate.append(("igv", IGVReportStage()))
 
         if not context.config.get("no_metadata"):

@@ -5,11 +5,101 @@ import logging
 import os
 import re
 import subprocess
-from typing import Dict
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Tuple
 
 from .utils import generate_igv_safe_filename_base
 
 logger = logging.getLogger("variantcentrifuge")
+
+
+def _generate_single_igv_report(
+    task_data: Tuple[str, str, str, str, str, str, str, str, str, int, str, str]
+) -> Tuple[bool, str, str, str, str, str, str]:
+    """
+    Generate a single IGV report for one variant/sample combination.
+    
+    Parameters
+    ----------
+    task_data : tuple
+        Tuple containing all parameters needed for one IGV report generation:
+        (sample_id, chrom, pos, ref_allele, alt_allele, bam_path, variant_tsv_path,
+         sample_report_path, igv_flanking, igv_reference, igv_fasta, igv_ideogram)
+    
+    Returns
+    -------
+    tuple
+        (success, sample_id, chrom, pos, ref_allele, alt_allele, sample_report_path)
+    """
+    (
+        sample_id,
+        chrom,
+        pos,
+        ref_allele,
+        alt_allele,
+        bam_path,
+        variant_tsv_path,
+        sample_report_path,
+        igv_flanking,
+        igv_reference,
+        igv_fasta,
+        igv_ideogram,
+    ) = task_data
+
+    try:
+        # Create variant TSV file for this specific report
+        with open(variant_tsv_path, "w", encoding="utf-8") as sf:
+            sf.write("CHROM\tPOS\tREF\tALT\n")
+            sf.write(f"{chrom}\t{pos}\t{ref_allele}\t{alt_allele}\n")
+
+        # Build create_report command
+        cmd = [
+            "create_report",
+            variant_tsv_path,
+            "--sequence",
+            "1",
+            "--begin",
+            "2",
+            "--end",
+            "2",
+            "--flanking",
+            str(igv_flanking),
+            "--info-columns",
+            "CHROM",
+            "POS",
+            "REF",
+            "ALT",
+            "--tracks",
+            bam_path,
+            "--output",
+            sample_report_path,
+        ]
+
+        # Add genome reference or local FASTA
+        if igv_fasta:
+            cmd.extend(["--fasta", igv_fasta])
+            if igv_ideogram:
+                cmd.extend(["--ideogram", igv_ideogram])
+        elif igv_reference:
+            cmd.extend(["--genome", igv_reference])
+
+        logger.debug(
+            f"Running create_report for sample {sample_id}, variant {chrom}:{pos} {ref_allele}>{alt_allele}"
+        )
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            logger.error(f"create_report failed for {sample_report_path}: {result.stderr}")
+            return False, sample_id, chrom, pos, ref_allele, alt_allele, sample_report_path
+        else:
+            logger.info(f"IGV report generated: {sample_report_path}")
+            return True, sample_id, chrom, pos, ref_allele, alt_allele, sample_report_path
+
+    except Exception as e:
+        logger.error(f"Error generating IGV report for {sample_id} {chrom}:{pos}: {e}")
+        return False, sample_id, chrom, pos, ref_allele, alt_allele, sample_report_path
 
 
 def parse_bam_mapping(bam_mapping_file: str) -> Dict[str, str]:
@@ -56,6 +146,7 @@ def generate_igv_report(
     igv_max_variant_part_filename: int = 50,
     # MODIFIED: Start of IGV flanking feature
     igv_flanking: int = 50,
+    max_workers: int = 4,
 ) -> None:
     # MODIFIED: End of local IGV FASTA feature
     """
@@ -115,6 +206,9 @@ def generate_igv_report(
     igv_flanking : int, optional
         Flanking region size in base pairs for IGV reports.
         Default is 50.
+    max_workers : int, optional
+        Maximum number of parallel workers for IGV report generation.
+        Default is 4. Higher values can speed up generation but may overwhelm the system.
 
     Returns
     -------
@@ -176,9 +270,11 @@ def generate_igv_report(
     variant_report_map = []
     # Dictionary to map variant identifiers (chrom_pos_ref_alt) to their index in variant_report_map
     variant_index_map = {}
-    processed_variants = 0  # Initialize counter for processed variants
 
-    # Now process variants again
+    # Collect all tasks for parallel processing
+    tasks = []
+    
+    # Collect all variant/sample combinations first
     with open(variants_tsv, "r", encoding="utf-8") as f:
         f.readline()  # skip header
         for line in f:
@@ -208,7 +304,7 @@ def generate_igv_report(
                                 logger.warning(f"No BAM found for sample {sample_id}, skipping.")
                                 continue
 
-                            # MODIFIED: Use filename shortening for variant TSV files
+                            # Generate safe filename
                             safe_filename_base = generate_igv_safe_filename_base(
                                 sample_id,
                                 chrom,
@@ -219,100 +315,84 @@ def generate_igv_report(
                                 hash_len=igv_hash_len_filename,
                                 max_variant_part_len=igv_max_variant_part_filename,
                             )
+                            
                             variant_tsv_path = os.path.join(
                                 igv_dir,
                                 f"{safe_filename_base}_variant.tsv",
                             )
-                            with open(variant_tsv_path, "w", encoding="utf-8") as sf:
-                                # Columns: CHROM POS REF ALT
-                                sf.write("CHROM\tPOS\tREF\tALT\n")
-                                # Write the original full REF/ALT alleles to the TSV for proper visualization
-                                sf.write(f"{chrom}\t{pos}\t{ref_allele}\t{alt_allele}\n")
-
+                            
                             sample_report_path = os.path.join(
                                 igv_dir,
                                 f"{safe_filename_base}_igv_report.html",
                             )
 
-                            # MODIFIED: Start of local IGV FASTA feature
-                            cmd = [
-                                "create_report",
-                                variant_tsv_path,
-                                "--sequence",
-                                "1",
-                                "--begin",
-                                "2",
-                                "--end",
-                                "2",
-                                "--flanking",
-                                # MODIFIED: Start of IGV flanking feature - use configurable value
-                                str(igv_flanking),
-                                # MODIFIED: End of IGV flanking feature
-                                "--info-columns",
-                                "CHROM",
-                                "POS",
-                                "REF",
-                                "ALT",
-                                "--tracks",
+                            # Create task tuple for parallel processing
+                            task = (
+                                sample_id,
+                                chrom,
+                                pos,
+                                ref_allele,
+                                alt_allele,
                                 bam_mapping[sample_id],
-                                "--output",
+                                variant_tsv_path,
                                 sample_report_path,
-                            ]
-                            # If local FASTA is provided, use it instead of genome reference
-                            if igv_fasta:
-                                cmd.extend(["--fasta", igv_fasta])
-                                # Optional ideogram file
-                                if igv_ideogram:
-                                    cmd.extend(["--ideogram", igv_ideogram])
-                            else:
-                                # Use genome reference if no local FASTA is provided
-                                cmd.extend(["--genome", igv_reference])
-                            # MODIFIED: End of local IGV FASTA feature
-
-                            logger.debug(
-                                f"Running create_report for sample {sample_id}, variant {chrom}:{pos} {ref_allele}>{alt_allele}"
+                                igv_flanking,
+                                igv_reference,
+                                igv_fasta,
+                                igv_ideogram,
                             )
-                            result = subprocess.run(cmd, capture_output=True, text=True)
+                            tasks.append(task)
 
-                            # Log output from create_report
-                            if result.stdout:
-                                logger.info(f"create_report stdout: {result.stdout.strip()}")
-                            if result.stderr:
-                                logger.warning(f"create_report stderr: {result.stderr.strip()}")
+    logger.info(f"Starting parallel IGV report generation with {max_workers} workers")
+    logger.info(f"Total tasks to process: {len(tasks)}")
 
-                            if result.returncode != 0:
-                                logger.error(f"create_report failed for {sample_report_path}")
-                            else:
-                                logger.info(f"IGV report generated: {sample_report_path}")
-                                # Add entry to variant report map
-                                # Create a unique key for this variant
-                                variant_key = f"{chrom}_{pos}_{ref_allele}_{alt_allele}"
+    # Process tasks in parallel
+    processed_variants = 0
+    map_lock = threading.Lock()  # Lock for thread-safe map updates
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_task = {
+            executor.submit(_generate_single_igv_report, task): task for task in tasks
+        }
 
-                                # Get the relative path to the report
-                                rel_report_path = os.path.relpath(sample_report_path, output_dir)
+        # Process completed tasks
+        for future in as_completed(future_to_task):
+            task = future_to_task[future]
+            try:
+                success, sample_id, chrom, pos, ref_allele, alt_allele, sample_report_path = future.result()
+                
+                if success:
+                    # Add entry to variant report map
+                    variant_key = f"{chrom}_{pos}_{ref_allele}_{alt_allele}"
+                    
+                    # Get the relative path to the report
+                    rel_report_path = os.path.relpath(sample_report_path, output_dir)
+                    
+                    # Thread-safe update of variant map
+                    with map_lock:
+                        if variant_key in variant_index_map:
+                            variant_idx = variant_index_map[variant_key]
+                            variant_report_map[variant_idx]["sample_reports"][sample_id] = rel_report_path
+                        else:
+                            # First time seeing this variant, create a new entry
+                            new_variant = {
+                                "chrom": chrom,
+                                "pos": pos,
+                                "ref": ref_allele,
+                                "alt": alt_allele,
+                                "sample_reports": {sample_id: rel_report_path},
+                            }
+                            variant_report_map.append(new_variant)
+                            variant_index_map[variant_key] = len(variant_report_map) - 1
 
-                                # If this variant is already in our map, add this sample's report
-                                if variant_key in variant_index_map:
-                                    variant_idx = variant_index_map[variant_key]
-                                    variant_report_map[variant_idx]["sample_reports"][
-                                        sample_id
-                                    ] = rel_report_path
-                                else:
-                                    # First time seeing this variant, create a new entry
-                                    new_variant = {
-                                        "chrom": chrom,
-                                        "pos": pos,
-                                        "ref": ref_allele,
-                                        "alt": alt_allele,
-                                        "sample_reports": {sample_id: rel_report_path},
-                                    }
-                                    variant_report_map.append(new_variant)
-                                    variant_index_map[variant_key] = len(variant_report_map) - 1
-
-                            processed_variants += 1
-                            logger.info(
-                                f"Progress: {processed_variants}/{total_variants} variants processed."
-                            )
+                processed_variants += 1
+                if processed_variants % 10 == 0 or processed_variants == len(tasks):
+                    logger.info(f"Progress: {processed_variants}/{len(tasks)} IGV reports completed")
+                    
+            except Exception as e:
+                logger.error(f"Task failed: {e}")
+                processed_variants += 1
 
     # Write JSON mapping
     igv_map_file = os.path.join(igv_dir, "igv_reports_map.json")

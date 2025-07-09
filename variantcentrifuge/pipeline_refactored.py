@@ -209,7 +209,7 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
         [
             getattr(args, "xlsx", False) or getattr(args, "excel", False),
             getattr(args, "html_report", False),
-            getattr(args, "igv_report", False),
+            getattr(args, "igv", False),
             not getattr(args, "no_metadata", False),
         ]
     )
@@ -224,7 +224,7 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
         if getattr(args, "html_report", False):
             stages.append(HTMLReportStage())
 
-        if getattr(args, "igv_report", False):
+        if getattr(args, "igv", False):
             stages.append(IGVReportStage())
 
         if not getattr(args, "no_metadata", False):
@@ -328,10 +328,24 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
         "html_report",
         "inheritance_mode",  # Add inheritance_mode to config
         "calculate_inheritance",  # Add calculate_inheritance flag
+        # IGV-related arguments
+        "igv",
+        "bam_mapping_file",
+        "igv_reference",
+        "igv_fasta",
+        "igv_ideogram",
+        "igv_flanking",
+        "igv_max_allele_len_filename",
+        "igv_hash_len_filename",
+        "igv_max_variant_part_filename",
     ]
     for key in args_to_add:
         if hasattr(args, key) and getattr(args, key) is not None and key not in initial_config:
             initial_config[key] = getattr(args, key)
+
+    # Map igv argument to igv_enabled for consistency with old pipeline
+    if hasattr(args, "igv"):
+        initial_config["igv_enabled"] = args.igv
 
     # Create pipeline context
     context = PipelineContext(args=args, config=initial_config, workspace=workspace)
