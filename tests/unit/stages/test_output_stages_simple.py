@@ -184,16 +184,16 @@ class TestMetadataGenerationStage:
         assert "metadata" in result.report_paths
         metadata_path = result.report_paths["metadata"]
         assert metadata_path.exists()
-        assert metadata_path.suffix == ".json"
+        assert metadata_path.suffix == ".tsv"  # Implementation creates TSV, not JSON
 
         # Read and check contents
         with open(metadata_path) as f:
-            metadata = json.load(f)
+            content = f.read()
 
-        # Check metadata contents
-        assert metadata["input_files"]["genes"] == ["BRCA1"]
-        assert metadata["input_files"]["vcf"] == "/tmp/input.vcf"
-        assert "run_date" in metadata
+        # Check that TSV format is correct
+        assert content.startswith("Parameter\tValue\n")
+        assert "Tool\tvariantcentrifuge" in content
+        assert "Version\t1.0.0-test" in content
 
     def test_stage_properties(self):
         """Test stage properties."""

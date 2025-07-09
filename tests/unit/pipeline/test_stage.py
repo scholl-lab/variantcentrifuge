@@ -65,6 +65,7 @@ class TestStage:
         context = Mock(spec=PipelineContext)
         context.is_complete = Mock(return_value=False)
         context.mark_complete = Mock()
+        context.checkpoint_state = None  # Explicitly set to None to avoid checkpoint skipping
         return context
 
     def test_stage_properties(self):

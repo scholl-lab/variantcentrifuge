@@ -67,6 +67,7 @@ class TestPipelineRunner:
         context.completed_stages = set()
         context.checkpoint_state = None
         context.stage_results = {}
+        context.config = {"resume": False}  # Add config attribute to fix runner test
 
         # Make mark_complete update completed_stages
         def mark_complete_side_effect(name):
@@ -261,6 +262,7 @@ class TestPipelineRunner:
 
         # Mock checkpoint state
         checkpoint_state = Mock()
+        checkpoint_state.should_skip_step = Mock(return_value=False)  # Don't skip any stages
         context.checkpoint_state = checkpoint_state
 
         stages = [

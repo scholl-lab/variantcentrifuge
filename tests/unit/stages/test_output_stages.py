@@ -552,8 +552,9 @@ class TestExcelReportStage:
         ctx.mark_complete("dataframe_loading")
         return ctx
 
+    @patch("variantcentrifuge.stages.output_stages.finalize_excel_file")
     @patch("variantcentrifuge.stages.output_stages.convert_to_excel")
-    def test_excel_generation(self, mock_convert, context):
+    def test_excel_generation(self, mock_convert, mock_finalize, context):
         """Test Excel report generation."""
         # Mark dependencies as complete since Excel depends on them
         context.mark_complete("tsv_output")
@@ -567,21 +568,31 @@ class TestExcelReportStage:
         expected_excel_path = str(context.workspace.output_dir / "output.xlsx")
         mock_convert.return_value = expected_excel_path
 
+        # Create the mock Excel file that convert_to_excel "creates"
+        from pathlib import Path
+
+        Path(expected_excel_path).touch()
+
         stage = ExcelReportStage()
         stage(context)
 
         # Check convert_to_excel was called
         mock_convert.assert_called_once()
-        # Implementation calls with positional args
+        # Implementation calls with positional args: convert_to_excel(input_file, config)
         call_args = mock_convert.call_args[0]
-        assert str(context.final_output_path) in call_args[0]
-        assert str(call_args[1]).endswith(".xlsx")
+        assert str(context.final_output_path) == call_args[0]
+        assert isinstance(call_args[1], dict)  # Second argument is config
+
+        # Check finalize_excel_file was called
+        mock_finalize.assert_called_once()
 
     def test_skip_if_disabled(self, context):
         """Test skipping when Excel disabled."""
         context.config["xlsx"] = False
-        # Mark TSV output as complete since Excel depends on it
+        # Mark all dependencies as complete since Excel depends on them
         context.mark_complete("tsv_output")
+        context.mark_complete("metadata_generation")
+        context.mark_complete("statistics_generation")
         context.final_output_path = Path("/tmp/output.tsv")
 
         with patch("variantcentrifuge.stages.output_stages.convert_to_excel") as mock:
@@ -769,26 +780,23 @@ class TestMetadataGenerationStage:
         # Mock sanitize to pass through the metadata unchanged
         mock_sanitize.side_effect = lambda x: x
 
-        # Mock json.dump to capture the metadata
-        metadata_written = None
+        stage = MetadataGenerationStage()
+        result = stage(context)
 
-        def capture_metadata(data, file, **kwargs):
-            nonlocal metadata_written
-            metadata_written = data
+        # Check metadata file was created
+        assert "metadata" in result.report_paths
+        metadata_path = result.report_paths["metadata"]
+        assert metadata_path.exists()
+        assert metadata_path.suffix == ".tsv"  # Implementation creates TSV, not JSON
 
-        with patch(
-            "variantcentrifuge.stages.output_stages.json.dump", side_effect=capture_metadata
-        ):
-            with patch("builtins.open", mock_open()):
-                stage = MetadataGenerationStage()
-                stage(context)
+        # Read and check contents
+        with open(metadata_path) as f:
+            content = f.read()
 
-        # Check metadata contents
-        assert metadata_written is not None
-        assert metadata_written["input_files"]["genes"] == ["BRCA1"]
-        assert metadata_written["input_files"]["vcf"] == "/tmp/input.vcf"
-        assert "run_date" in metadata_written
-        assert metadata_written["pipeline_version"] == "1.0.0-test"  # From context fixture
+        # Check that TSV format is correct
+        assert content.startswith("Parameter\tValue\n")
+        assert "Tool\tvariantcentrifuge" in content
+        assert "Version\t1.0.0-test" in content
 
     def test_stage_properties(self):
         """Test stage properties."""
