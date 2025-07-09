@@ -17,13 +17,14 @@ import json
 import logging
 import sys
 import tarfile
+from datetime import datetime
 from pathlib import Path
 from typing import Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 
-from ..converter import convert_to_excel, produce_report_json
+from ..converter import convert_to_excel, produce_report_json, append_tsv_as_sheet, finalize_excel_file
 from ..filters import filter_dataframe_with_query
 from ..generate_html_report import generate_html_report
 from ..generate_igv_report import generate_igv_report
@@ -517,7 +518,7 @@ class ExcelReportStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        return {"tsv_output"}
+        return {"tsv_output", "metadata_generation", "statistics_generation"}
 
     @property
     def parallel_safe(self) -> bool:
@@ -539,16 +540,83 @@ class ExcelReportStage(Stage):
 
         logger.info(f"Generating Excel report: {output_path}")
 
-        # Convert TSV to Excel
-        convert_to_excel(
-            str(input_file),
-            str(output_path),
-            add_stats_sheet=not context.config.get("no_stats"),
-            stats_file=context.config.get("stats_output_file"),
-        )
+        # Convert TSV to Excel using the correct API
+        # The convert_to_excel function automatically creates the output path
+        # by changing the .tsv extension to .xlsx
+        xlsx_file = convert_to_excel(str(input_file), context.config)
+
+        # Move the generated file to the desired location if needed
+        if xlsx_file != str(output_path):
+            import shutil
+            shutil.move(xlsx_file, str(output_path))
+            xlsx_file = str(output_path)
+
+        # Add additional sheets like the old pipeline does
+        self._add_additional_sheets(xlsx_file, context)
+
+        # Finalize Excel file with formatting and IGV links
+        finalize_excel_file(xlsx_file, context.config)
+
+        logger.info(f"Excel report generated with all sheets: {xlsx_file}")
 
         context.report_paths["excel"] = output_path
         return context
+
+    def _add_additional_sheets(self, xlsx_file: str, context: PipelineContext) -> None:
+        """Add additional sheets to the Excel file like the old pipeline does."""
+        logger.info("Adding additional sheets to Excel file")
+        
+        # Debug: Print all report paths and config settings
+        logger.info(f"Available report paths: {context.report_paths}")
+        logger.info(f"Stats config - no_stats: {context.config.get('no_stats')}")
+        logger.info(f"Stats config - stats_output_file: {context.config.get('stats_output_file')}")
+        
+        # Add Metadata sheet
+        metadata_file = context.report_paths.get("metadata")
+        logger.info(f"Metadata file path: {metadata_file}")
+        if metadata_file and Path(metadata_file).exists():
+            logger.info(f"Metadata file exists, size: {Path(metadata_file).stat().st_size} bytes")
+            if Path(metadata_file).stat().st_size > 0:
+                try:
+                    append_tsv_as_sheet(xlsx_file, str(metadata_file), sheet_name="Metadata")
+                    logger.info("Successfully added Metadata sheet to Excel file")
+                except Exception as e:
+                    logger.error(f"Failed to add Metadata sheet: {e}")
+            else:
+                logger.warning("Metadata file is empty")
+        else:
+            logger.warning(f"Metadata file not found: {metadata_file}")
+
+        # Add Statistics sheet (if stats are enabled and file exists)
+        if not context.config.get("no_stats"):
+            stats_file = context.config.get("stats_output_file")
+            logger.info(f"Statistics file path: {stats_file}")
+            if stats_file and Path(stats_file).exists():
+                logger.info(f"Statistics file exists, size: {Path(stats_file).stat().st_size} bytes")
+                if Path(stats_file).stat().st_size > 0:
+                    try:
+                        append_tsv_as_sheet(xlsx_file, stats_file, sheet_name="Statistics")
+                        logger.info("Successfully added Statistics sheet to Excel file")
+                    except Exception as e:
+                        logger.error(f"Failed to add Statistics sheet: {e}")
+                else:
+                    logger.warning("Statistics file is empty")
+            else:
+                logger.warning(f"Statistics file not found: {stats_file}")
+        else:
+            logger.info("Statistics disabled (no_stats=True)")
+
+        # Add Gene Burden sheet (if gene burden analysis was performed and file exists)
+        if context.config.get("perform_gene_burden"):
+            gene_burden_file = context.config.get("gene_burden_output")
+            if gene_burden_file and Path(gene_burden_file).exists() and Path(gene_burden_file).stat().st_size > 0:
+                try:
+                    append_tsv_as_sheet(xlsx_file, gene_burden_file, sheet_name="Gene Burden")
+                    logger.info("Successfully added Gene Burden sheet to Excel file")
+                except Exception as e:
+                    logger.error(f"Failed to add Gene Burden sheet: {e}")
+            else:
+                logger.debug("Gene burden file not found or empty, skipping Gene Burden sheet")
 
 
 class HTMLReportStage(Stage):
@@ -745,44 +813,50 @@ class MetadataGenerationStage(Stage):
             logger.debug("Metadata generation disabled")
             return context
 
-        metadata_path = context.workspace.get_output_path("_metadata", ".json")
+        # Create TSV metadata file like the old pipeline
+        metadata_path = context.workspace.get_output_path("_metadata", ".tsv")
 
         logger.info(f"Generating metadata: {metadata_path}")
 
-        # Collect metadata
-        metadata = {
-            "pipeline_version": context.config.get("pipeline_version", "unknown"),
-            "run_date": context.start_time.isoformat(),
-            "execution_time": f"{context.get_execution_time():.1f} seconds",
-            "input_files": {
-                "vcf": context.config.get("vcf_file"),
-                "genes": context.config.get("normalized_genes"),
-                "phenotypes": context.config.get("phenotype_file"),
-                "pedigree": context.config.get("ped_file"),
-            },
-            "parameters": {
-                "reference": context.config.get("reference"),
-                "filter": context.config.get("filter"),
-                "threads": context.config.get("threads"),
-                "inheritance_mode": context.config.get("inheritance_mode"),
-                "scoring_config": context.config.get("scoring_config_path"),
-            },
-            "tool_versions": {
-                "bcftools": get_tool_version("bcftools"),
-                "snpeff": get_tool_version("snpEff"),
-                "snpsift": get_tool_version("SnpSift"),
-                "bedtools": get_tool_version("bedtools"),
-            },
-            "output_files": {name: str(path) for name, path in context.report_paths.items()},
-            "statistics": context.statistics if context.statistics else None,
-        }
-
-        # Sanitize metadata
-        metadata = sanitize_metadata_field(metadata)
-
-        # Write metadata
-        with open(metadata_path, "w") as f:
-            json.dump(metadata, f, indent=2, default=str)
+        # Write metadata in TSV format like the old pipeline
+        with open(metadata_path, "w", encoding="utf-8") as mf:
+            mf.write("Parameter\tValue\n")
+            
+            def meta_write(param, val):
+                p = sanitize_metadata_field(param)
+                v = sanitize_metadata_field(val)
+                mf.write(f"{p}\t{v}\n")
+            
+            # Basic info
+            meta_write("Tool", "variantcentrifuge")
+            meta_write("Version", context.config.get("pipeline_version", "0.5.0"))
+            meta_write("Run_start_time", context.start_time.isoformat())
+            meta_write("Run_duration_seconds", f"{context.get_execution_time():.1f}")
+            
+            # Input files
+            meta_write("VCF_file", context.config.get("vcf_file", ""))
+            meta_write("Gene_name", context.config.get("normalized_genes", ""))
+            meta_write("Gene_file", context.config.get("gene_file", ""))
+            meta_write("Phenotype_file", context.config.get("phenotype_file", ""))
+            meta_write("Pedigree_file", context.config.get("ped_file", ""))
+            
+            # Parameters
+            meta_write("Reference", context.config.get("reference", ""))
+            meta_write("Filter", context.config.get("filter", ""))
+            meta_write("Threads", context.config.get("threads", ""))
+            meta_write("Inheritance_mode", context.config.get("inheritance_mode", ""))
+            meta_write("Scoring_config", context.config.get("scoring_config_path", ""))
+            
+            # Write all config items with prefix
+            for k, v in context.config.items():
+                if v is not None:
+                    meta_write(f"config.{k}", str(v))
+            
+            # Tool versions
+            meta_write("tool.bcftools_version", get_tool_version("bcftools"))
+            meta_write("tool.snpeff_version", get_tool_version("snpEff"))
+            meta_write("tool.snpsift_version", get_tool_version("SnpSift"))
+            meta_write("tool.bedtools_version", get_tool_version("bedtools"))
 
         context.report_paths["metadata"] = metadata_path
         return context

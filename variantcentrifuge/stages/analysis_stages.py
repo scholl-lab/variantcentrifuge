@@ -782,13 +782,8 @@ class GeneBurdenAnalysisStage(Stage):
         case_samples = context.config.get("case_samples", [])
         control_samples = context.config.get("control_samples", [])
 
-        # Debug logging to identify the issue
-        logger.info(f"Case samples from config: {case_samples[:5] if case_samples else 'EMPTY'}")
-        logger.info(f"Control samples from config: {control_samples[:5] if control_samples else 'EMPTY'}")
-        logger.info(f"VCF samples: {context.vcf_samples[:5] if context.vcf_samples else 'EMPTY'}")
-
         if not case_samples or not control_samples:
-            logger.error(f"Case/control samples not defined for gene burden analysis. Cases: {len(case_samples)}, Controls: {len(control_samples)}")
+            logger.warning("Case/control samples not defined for gene burden analysis")
             return context
 
         df = context.current_dataframe

@@ -258,21 +258,11 @@ def assign_case_control_counts(
 
     total_proband = len(case_samples)
     total_control = len(control_samples)
-    logger.info(
+    logger.debug(
         "assign_case_control_counts: Total proband samples: %d, Total control samples: %d",
         total_proband,
         total_control,
     )
-    
-    # Debug: Show sample sets
-    logger.info(f"Case samples (first 5): {list(case_samples)[:5] if case_samples else 'EMPTY'}")
-    logger.info(f"Control samples (first 5): {list(control_samples)[:5] if control_samples else 'EMPTY'}")
-    logger.info(f"All samples (first 5): {list(all_samples)[:5] if all_samples else 'EMPTY'}")
-    
-    # Debug: Check first GT entry to see sample format
-    if len(df) > 0:
-        first_gt = str(df.iloc[0]["GT"]) if "GT" in df.columns else "NO_GT_COLUMN"
-        logger.info(f"First GT entry format: {first_gt[:200]}...")  # Show first 200 chars
 
     proband_variant_count_list = []
     control_variant_count_list = []
@@ -295,9 +285,6 @@ def assign_case_control_counts(
                 sample_name, genotype = extract_sample_and_genotype(s)
                 if sample_name is not None:
                     samples_with_variant[sample_name] = genotype
-                    # Debug logging for first few variants
-                    if idx < 3:
-                        logger.debug(f"Row {idx}: Extracted sample '{sample_name}' with genotype '{genotype}' from '{s}'")
 
         p_variant_count = 0
         c_variant_count = 0
@@ -320,22 +307,12 @@ def assign_case_control_counts(
                     p_allele_count += allele_count
                     if is_hom_variant:
                         p_hom_count += 1
-                # Debug logging for first few variants
-                if idx < 3 and allele_count > 0:
-                    logger.debug(f"Row {idx}: Sample {sample_name} classified as CASE with genotype {genotype} (allele_count={allele_count})")
             elif sample_name in control_samples:
                 if allele_count > 0:
                     c_variant_count += 1
                     c_allele_count += allele_count
                     if is_hom_variant:
                         c_hom_count += 1
-                # Debug logging for first few variants
-                if idx < 3 and allele_count > 0:
-                    logger.debug(f"Row {idx}: Sample {sample_name} classified as CONTROL with genotype {genotype} (allele_count={allele_count})")
-            else:
-                # Sample not in case or control lists
-                if idx < 3 and allele_count > 0:
-                    logger.warning(f"Row {idx}: Sample {sample_name} with genotype {genotype} NOT FOUND in case or control lists!")
 
         proband_variant_count_list.append(p_variant_count)
         control_variant_count_list.append(c_variant_count)
