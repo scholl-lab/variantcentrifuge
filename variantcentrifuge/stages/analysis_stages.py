@@ -257,7 +257,9 @@ class InheritanceAnalysisStage(Stage):
         if isinstance(vcf_samples, set):
             # If somehow still a set, convert to sorted list for deterministic order
             vcf_samples = sorted(list(vcf_samples))
-            logger.warning("VCF samples was a set - converted to sorted list for deterministic order")
+            logger.warning(
+                "VCF samples was a set - converted to sorted list for deterministic order"
+            )
 
         logger.info(
             f"Calculating inheritance patterns ({inheritance_mode} mode) "
@@ -607,7 +609,7 @@ class StatisticsGenerationStage(Stage):
             stats_output = context.workspace.get_intermediate_path("statistics.tsv")
             context.config["stats_output_file"] = str(stats_output)
             logger.debug(f"Created default statistics output path: {stats_output}")
-        
+
         if stats_output:
             self._write_statistics(stats, stats_output)
             logger.debug(f"Statistics written to: {stats_output}")
@@ -628,10 +630,24 @@ class StatisticsGenerationStage(Stage):
                 stats["genes"].to_csv(f, sep="\t", index=False)
 
             # Write any grouped statistics
-            for key, df in stats.items():
-                if key not in ["dataset", "genes"] and not df.empty:
-                    f.write(f"\n## {key.title()} Statistics\n")
-                    df.to_csv(f, sep="\t", index=False)
+            for key, value in stats.items():
+                if key not in ["dataset", "genes"]:
+                    # Handle different data types
+                    if hasattr(value, "empty") and not value.empty:
+                        # DataFrame-like object
+                        f.write(f"\n## {key.title()} Statistics\n")
+                        value.to_csv(f, sep="\t", index=False)
+                    elif isinstance(value, dict) and value:
+                        # Dictionary - write as key-value pairs
+                        f.write(f"\n## {key.title()} Statistics\n")
+                        for k, v in value.items():
+                            f.write(f"{k}\t{v}\n")
+                    elif value is not None and not (
+                        isinstance(value, (list, tuple)) and len(value) == 0
+                    ):
+                        # Simple value - write as single line
+                        f.write(f"\n## {key.title()} Statistics\n")
+                        f.write(f"{key}\t{value}\n")
 
         logger.info(f"Wrote statistics to {output_file}")
 
@@ -808,21 +824,21 @@ class GeneBurdenAnalysisStage(Stage):
 
         # Add case/control count columns to DataFrame first
         from ..helpers import assign_case_control_counts
-        
+
         # Use VCF samples as all_samples - this is critical!
         # The assign_case_control_counts function needs to iterate over ALL samples
         # that appear in the VCF, not just those in case+control lists
         all_vcf_samples = set(context.vcf_samples) if context.vcf_samples else set()
-        
+
         logger.info(f"Using {len(all_vcf_samples)} VCF samples for gene burden analysis")
-        
+
         df_with_counts = assign_case_control_counts(
             df=df,
             case_samples=set(case_samples),
             control_samples=set(control_samples),
             all_samples=all_vcf_samples,  # This should be ALL samples in VCF
         )
-        
+
         # Perform gene burden analysis on prepared DataFrame
         burden_results = perform_gene_burden_analysis(df=df_with_counts, cfg=burden_config)
 
@@ -835,7 +851,7 @@ class GeneBurdenAnalysisStage(Stage):
             output_dir = context.config.get("output_dir", "output")
             base_name = context.config.get("output_file_base", "gene_burden_results")
             burden_output = str(Path(output_dir) / f"{base_name}.gene_burden.tsv")
-        
+
         burden_results.to_csv(burden_output, sep="\t", index=False)
         logger.info(f"Wrote gene burden results to {burden_output}")
 

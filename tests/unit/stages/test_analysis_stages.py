@@ -266,8 +266,8 @@ class TestGeneBurdenAnalysisStage:
         assert result.gene_burden_results is None
 
     @patch("variantcentrifuge.stages.analysis_stages.perform_gene_burden_analysis")
-    @patch("variantcentrifuge.stages.analysis_stages.analyze_variants")
-    def test_gene_burden_analysis(self, mock_analyze, mock_burden, base_context):
+    @patch("variantcentrifuge.helpers.assign_case_control_counts")
+    def test_gene_burden_analysis(self, mock_assign_counts, mock_burden, base_context):
         """Test gene burden calculation."""
         base_context.config = {
             "perform_gene_burden": True,
@@ -275,6 +275,7 @@ class TestGeneBurdenAnalysisStage:
             "control_samples": ["CTRL1", "CTRL2"],
             "gene_column": "Gene",
         }
+        base_context.vcf_samples = ["CASE1", "CASE2", "CTRL1", "CTRL2"]
         base_context.current_dataframe = pd.DataFrame(
             {
                 "Gene": ["BRCA1", "BRCA1", "TP53"],
@@ -285,11 +286,17 @@ class TestGeneBurdenAnalysisStage:
             }
         )
 
-        # Mock analyze_variants to return analyzed dataframe
-        analyzed_df = base_context.current_dataframe.copy()
-        analyzed_df["case_count"] = [2, 1, 1]
-        analyzed_df["control_count"] = [0, 1, 0]
-        mock_analyze.return_value = analyzed_df
+        # Mock assign_case_control_counts to add the necessary columns
+        df_with_counts = base_context.current_dataframe.copy()
+        df_with_counts["proband_count"] = [2, 2, 2]
+        df_with_counts["control_count"] = [2, 2, 2]
+        df_with_counts["proband_variant_count"] = [2, 1, 1]
+        df_with_counts["control_variant_count"] = [0, 1, 0]
+        df_with_counts["proband_allele_count"] = [3, 1, 1]
+        df_with_counts["control_allele_count"] = [0, 1, 0]
+        df_with_counts["proband_homozygous_count"] = [0, 0, 0]
+        df_with_counts["control_homozygous_count"] = [0, 0, 0]
+        mock_assign_counts.return_value = df_with_counts
 
         # Mock the burden calculation
         mock_result = pd.DataFrame(
@@ -305,7 +312,7 @@ class TestGeneBurdenAnalysisStage:
         stage = GeneBurdenAnalysisStage()
         result = stage._process(base_context)
 
-        assert mock_analyze.called
+        assert mock_assign_counts.called
         assert mock_burden.called
         assert result.gene_burden_results is not None
 
