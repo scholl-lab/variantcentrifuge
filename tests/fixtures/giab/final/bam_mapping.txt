@@ -1,0 +1,3 @@
+Sample_Diag-excap51-HG002-EEogPU,tests/fixtures/giab/final/bams/HG002.HG19.exome.subset.bam
+Sample_Diag-excap51-HG003-EEogPU,tests/fixtures/giab/final/bams/HG003.HG19.exome.subset.bam
+Sample_Diag-excap51-HG004-EEogPU,tests/fixtures/giab/final/bams/HG004.HG19.exome.subset.bam

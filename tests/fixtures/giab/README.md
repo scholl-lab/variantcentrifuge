@@ -204,6 +204,7 @@ tests/fixtures/giab/
 │   ├── annotated_vcf/               # Annotated VCF for testing
 │   │   ├── HG002-trio_subset_haplotypecaller.annotated.vcf.gz
 │   │   └── HG002-trio_subset_haplotypecaller.annotated.vcf.gz.tbi
+│   ├── bam_mapping.txt              # Sample ID to BAM path mapping for IGV
 │   └── bams/                        # BAM files for IGV and testing
 │       ├── HG002.HG19.exome.subset.bam
 │       ├── HG002.HG19.exome.subset.bam.bai
@@ -261,6 +262,12 @@ The `final/` directory contains processed, annotated files ready for integration
   - Required for variant validation and visualization
   - Enables end-to-end testing of BAM-dependent features
 
+#### BAM Mapping File (`final/bam_mapping.txt`)
+- **Sample ID to BAM path mapping** - Required for IGV integration:
+  - Maps VCF sample IDs to corresponding BAM file paths
+  - Format: `Sample_ID,/path/to/sample.bam`
+  - Used by VariantCentrifuge for IGV report generation
+
 ### Integration Testing Use Cases
 
 **1. Trio Inheritance Filtering:**
@@ -275,11 +282,11 @@ variantcentrifuge \
 
 **2. IGV Report Generation:**
 ```bash
-# Test IGV functionality with BAM files
+# Test IGV functionality with BAM mapping file
 variantcentrifuge \
   --input tests/fixtures/giab/final/annotated_vcf/HG002-trio_subset_haplotypecaller.annotated.vcf.gz \
   --output test_analysis/ \
-  --igv-bams tests/fixtures/giab/final/bams/ \
+  --bam-mapping tests/fixtures/giab/final/bam_mapping.txt \
   --reference tests/fixtures/giab/reference/human_g1k_v37_decoy.fasta
 ```
 
@@ -288,7 +295,7 @@ variantcentrifuge \
 # Complete end-to-end testing
 pytest tests/integration/ \
   --vcf=tests/fixtures/giab/final/annotated_vcf/HG002-trio_subset_haplotypecaller.annotated.vcf.gz \
-  --bams=tests/fixtures/giab/final/bams/ \
+  --bam-mapping=tests/fixtures/giab/final/bam_mapping.txt \
   --reference=tests/fixtures/giab/reference/
 ```
 
