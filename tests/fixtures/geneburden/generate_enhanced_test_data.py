@@ -61,7 +61,7 @@ class AnnotationSampler:
         # Default to local anonymized annotation templates
         if source_file is None:
             script_dir = Path(__file__).parent
-            source_file = str(script_dir / "templates" / "annotation_templates.txt")
+            source_file = str(script_dir / "test_data" / "annotation_templates.txt")
         
         self.source_file = source_file
         self.templates = defaultdict(list)  # effect_type -> [AnnotationTemplate]

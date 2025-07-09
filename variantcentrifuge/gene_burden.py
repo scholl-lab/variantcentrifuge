@@ -210,6 +210,15 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.Da
         .reset_index()
     )
 
+    # Sort by gene name to ensure deterministic order
+    grouped = grouped.sort_values("GENE").reset_index(drop=True)
+    
+    # Debug logging to track determinism
+    logger.info(f"Gene burden analysis processing {len(grouped)} genes in deterministic order")
+    for i, row in grouped.iterrows():
+        logger.debug(f"Processing gene {row['GENE']}: case_count={row['proband_count']}, control_count={row['control_count']}, "
+                    f"case_alleles={row['proband_allele_count']}, control_alleles={row['control_allele_count']}")
+
     results = []
     for _, row in grouped.iterrows():
         gene = row["GENE"]

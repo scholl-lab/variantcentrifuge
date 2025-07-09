@@ -312,11 +312,13 @@ class SampleConfigLoadingStage(Stage):
                 case_samples = [line.strip() for line in f if line.strip()]
             context.config["case_samples"] = case_samples
             logger.info(f"Loaded {len(case_samples)} case samples")
+            logger.debug(f"Case samples: {case_samples[:10]}...")  # Log first 10 for debugging
 
         if control_samples_file:
             with open(control_samples_file, "r") as f:
                 control_samples = [line.strip() for line in f if line.strip()]
             context.config["control_samples"] = control_samples
             logger.info(f"Loaded {len(control_samples)} control samples")
+            logger.debug(f"Control samples: {control_samples[:10]}...")  # Log first 10 for debugging
 
         return context
