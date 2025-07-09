@@ -1097,6 +1097,12 @@ def main() -> int:
         status_parser.add_argument(
             "--log-level", choices=["DEBUG", "INFO", "WARN", "ERROR"], default="INFO"
         )
+        status_parser.add_argument(
+            "--use-new-pipeline", action="store_true", help="Check new pipeline checkpoint status"
+        )
+        status_parser.add_argument(
+            "-c", "--config", help="Path to configuration file", default=None
+        )
         status_args = status_parser.parse_args()
 
         # Configure logging
@@ -1110,6 +1116,21 @@ def main() -> int:
 
         # Show checkpoint status
         from .checkpoint import PipelineState
+
+        # Check if we should use new pipeline architecture
+        use_new_pipeline = status_args.use_new_pipeline
+        
+        # Also check config file for new pipeline setting
+        if status_args.config:
+            try:
+                from .config import load_config
+                config = load_config(status_args.config)
+                use_new_pipeline = use_new_pipeline or config.get("use_new_pipeline_architecture", False)
+            except Exception as e:
+                logger.warning(f"Could not load config file: {e}")
+
+        pipeline_type = "new stage-based" if use_new_pipeline else "original monolithic"
+        print(f"Checking checkpoint status for {pipeline_type} pipeline...")
 
         pipeline_state = PipelineState(status_args.output_dir)
         if pipeline_state.load():
