@@ -161,7 +161,7 @@ gatk --java-options -Xmx4g HaplotypeCaller \
   -I data/HG003.HG19.exome.subset.bam \
   -I data/HG004.HG19.exome.subset.bam \
   -L variants/gene_regions.interval_list \
-  -O variants/HG002-trio_haplotypecaller.vcf.gz
+  -O variants/HG002-trio_subset_haplotypecaller.vcf.gz
 ```
 
 **Process:**
@@ -174,9 +174,9 @@ gatk --java-options -Xmx4g HaplotypeCaller \
 **Output:**
 ```
 variants/
-├── gene_regions_sorted.bed           # Sorted BED file
-├── gene_regions.interval_list        # GATK interval list
-└── HG002-trio_haplotypecaller.vcf.gz # Multi-sample VCF (~2-10 MB)
+├── gene_regions_sorted.bed              # Sorted BED file
+├── gene_regions.interval_list           # GATK interval list
+└── HG002-trio_subset_haplotypecaller.vcf.gz # Multi-sample VCF (~2-10 MB)
 ```
 
 ## Complete File Structure
@@ -199,7 +199,7 @@ tests/fixtures/giab/
 ├── variants/                         # Variant calling outputs
 │   ├── gene_regions_sorted.bed
 │   ├── gene_regions.interval_list
-│   └── HG002-trio_haplotypecaller.vcf.gz
+│   └── HG002-trio_subset_haplotypecaller.vcf.gz
 ├── logs/                            # Execution logs
 │   ├── giab_download_*.log
 │   ├── reference_download_*.log
@@ -238,7 +238,7 @@ The output VCF is ready for analysis with VariantCentrifuge:
 ```bash
 # Analyze variants with inheritance patterns
 variantcentrifuge \
-  --input tests/fixtures/giab/variants/HG002-trio_haplotypecaller.vcf.gz \
+  --input tests/fixtures/giab/variants/HG002-trio_subset_haplotypecaller.vcf.gz \
   --output giab_analysis/ \
   --ped tests/fixtures/giab/trio.ped
 ```
@@ -323,10 +323,10 @@ python download_giab_bams.py  # Already optimized
 samtools flagstat data/HG002.HG19.exome.subset.bam
 
 # Validate VCF
-gatk ValidateVariants -V variants/HG002-trio_haplotypecaller.vcf.gz -R reference/human_g1k_v37_decoy.fasta
+gatk ValidateVariants -V variants/HG002-trio_subset_haplotypecaller.vcf.gz -R reference/human_g1k_v37_decoy.fasta
 
 # Basic variant stats
-bcftools stats variants/HG002-trio_haplotypecaller.vcf.gz
+bcftools stats variants/HG002-trio_subset_haplotypecaller.vcf.gz
 ```
 
 ## Data Sources and Citations

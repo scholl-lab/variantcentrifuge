@@ -236,7 +236,7 @@ def call_variants_multisample(
     bam_files, reference_fasta, interval_list, output_dir, java_memory="4g"
 ):
     """Call variants for all samples together using GATK HaplotypeCaller."""
-    output_vcf = output_dir / "HG002-trio_haplotypecaller.vcf.gz"
+    output_vcf = output_dir / "HG002-trio_subset_haplotypecaller.vcf.gz"
 
     # Check if output already exists
     if output_vcf.exists():
