@@ -185,7 +185,7 @@ After running all three scripts:
 
 ```
 tests/fixtures/giab/
-├── data/                             # GIAB BAM files
+├── data/                             # GIAB BAM files (raw extracts)
 │   ├── HG002.HG19.exome.subset.bam
 │   ├── HG002.HG19.exome.subset.bam.bai
 │   ├── HG003.HG19.exome.subset.bam
@@ -196,10 +196,21 @@ tests/fixtures/giab/
 │   ├── human_g1k_v37_decoy.fasta
 │   ├── human_g1k_v37_decoy.fasta.fai
 │   └── human_g1k_v37_decoy.dict
-├── variants/                         # Variant calling outputs
+├── variants/                         # Raw variant calling outputs
 │   ├── gene_regions_sorted.bed
 │   ├── gene_regions.interval_list
 │   └── HG002-trio_subset_haplotypecaller.vcf.gz
+├── final/                           # Integration test fixtures
+│   ├── annotated_vcf/               # Annotated VCF for testing
+│   │   ├── HG002-trio_subset_haplotypecaller.annotated.vcf.gz
+│   │   └── HG002-trio_subset_haplotypecaller.annotated.vcf.gz.tbi
+│   └── bams/                        # BAM files for IGV and testing
+│       ├── HG002.HG19.exome.subset.bam
+│       ├── HG002.HG19.exome.subset.bam.bai
+│       ├── HG003.HG19.exome.subset.bam
+│       ├── HG003.HG19.exome.subset.bam.bai
+│       ├── HG004.HG19.exome.subset.bam
+│       └── HG004.HG19.exome.subset.bam.bai
 ├── logs/                            # Execution logs
 │   ├── giab_download_*.log
 │   ├── reference_download_*.log
@@ -231,16 +242,78 @@ tests/fixtures/giab/
 - **Reference download:** <1GB RAM
 - **Variant calling:** 4-8GB RAM (configurable)
 
+## Integration Test Fixtures
+
+### Final Annotated Data (`final/` directory)
+
+The `final/` directory contains processed, annotated files ready for integration testing:
+
+#### Annotated VCF (`final/annotated_vcf/`)
+- **`HG002-trio_subset_haplotypecaller.annotated.vcf.gz`** - Fully annotated VCF with:
+  - Functional annotations (gene names, transcript effects, etc.)
+  - Population frequency data
+  - Pathogenicity predictions
+  - Ready for inheritance analysis and trio filtering
+
+#### Test BAMs (`final/bams/`)
+- **HG002, HG003, HG004 subset BAMs** - Copied for integration testing:
+  - Used for IGV report generation
+  - Required for variant validation and visualization
+  - Enables end-to-end testing of BAM-dependent features
+
+### Integration Testing Use Cases
+
+**1. Trio Inheritance Filtering:**
+```bash
+# Test inheritance analysis with annotated data
+variantcentrifuge \
+  --input tests/fixtures/giab/final/annotated_vcf/HG002-trio_subset_haplotypecaller.annotated.vcf.gz \
+  --output test_analysis/ \
+  --inheritance-mode autosomal_recessive \
+  --ped trio.ped
+```
+
+**2. IGV Report Generation:**
+```bash
+# Test IGV functionality with BAM files
+variantcentrifuge \
+  --input tests/fixtures/giab/final/annotated_vcf/HG002-trio_subset_haplotypecaller.annotated.vcf.gz \
+  --output test_analysis/ \
+  --igv-bams tests/fixtures/giab/final/bams/ \
+  --reference tests/fixtures/giab/reference/human_g1k_v37_decoy.fasta
+```
+
+**3. Integration Test Suite:**
+```bash
+# Complete end-to-end testing
+pytest tests/integration/ \
+  --vcf=tests/fixtures/giab/final/annotated_vcf/HG002-trio_subset_haplotypecaller.annotated.vcf.gz \
+  --bams=tests/fixtures/giab/final/bams/ \
+  --reference=tests/fixtures/giab/reference/
+```
+
 ## Integration with VariantCentrifuge
 
-The output VCF is ready for analysis with VariantCentrifuge:
+### Raw Pipeline Testing
+For testing the complete pipeline from raw VCF:
 
 ```bash
-# Analyze variants with inheritance patterns
+# Analyze raw variants (no annotations)
 variantcentrifuge \
   --input tests/fixtures/giab/variants/HG002-trio_subset_haplotypecaller.vcf.gz \
-  --output giab_analysis/ \
-  --ped tests/fixtures/giab/trio.ped
+  --output raw_analysis/ \
+  --ped trio.ped
+```
+
+### Annotated Data Testing
+For testing with pre-annotated data:
+
+```bash
+# Analyze annotated variants (skip annotation step)
+variantcentrifuge \
+  --input tests/fixtures/giab/final/annotated_vcf/HG002-trio_subset_haplotypecaller.annotated.vcf.gz \
+  --output annotated_analysis/ \
+  --ped trio.ped
 ```
 
 ## Troubleshooting
