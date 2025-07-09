@@ -562,7 +562,7 @@ class TestExcelReportStage:
         # Set final output path which TSV output would have created
         context.final_output_path = context.workspace.output_dir / "output.tsv"
         context.final_output_path.touch()  # Create the file
-        
+
         # Configure the mock to return a specific Excel file path
         expected_excel_path = str(context.workspace.output_dir / "output.xlsx")
         mock_convert.return_value = expected_excel_path

@@ -123,13 +123,6 @@ class TranscriptFilterStage(Stage):
 - `--json-gene-mapping` ✅
 - `--json-genes-as-columns` ✅
 
-#### Reporting & Visualization (5/12)
-- `--html-report` ✅ (Implemented in `HTMLReportStage`)
-- `--igv` ✅ (Implemented in `IGVReportStage`)
-- `--bam-mapping-file` ✅
-- `--igv-reference` ✅
-- `--igv-fasta` ✅
-
 #### Performance & Processing (2/9)
 - `--threads` ✅ (Controls `ParallelCompleteProcessingStage` vs individual stages)
 - `--chunk-size` ✅ (Implemented in `ChunkedAnalysisStage`)
@@ -149,14 +142,6 @@ class TranscriptFilterStage(Stage):
   - **Issue:** Has `MultiAllelicSplitStage` but not the specific snpeff line splitting
   - **Found:** Reference to `split_snpeff_annotations` in `processing_stages.py` (line 37) but no dedicated stage
   - **Status:** Logic exists but not properly integrated as a stage
-
-#### IGV Visualization (7 flags)
-- `--igv-ideogram` ⚠️ (Arguments mapped to config but no stage implementation)
-- `--igv-flanking` ⚠️ (Arguments mapped to config but no stage implementation)
-- `--igv-max-allele-len-filename` ⚠️
-- `--igv-hash-len-filename` ⚠️
-- `--igv-max-variant-part-filename` ⚠️
-  - **Status:** All mapped to config in `pipeline_refactored.py` lines 332-340 but not implemented in `IGVReportStage`
 
 #### Checkpoint & Resume (1/4)
 - `--enable-checkpoint` ✅ (Basic implementation)
@@ -195,15 +180,6 @@ class TranscriptFilterStage(Stage):
    - `--remove-sample-substring` ❌
    - **Status:** Missing in stages
    - **Risk:** LOW - Data formatting functionality limited
-
-#### ~~Advanced IGV Options (5 flags)~~ - Still Missing (Partial Implementation)
-   - `--igv-ideogram` ⚠️ (Arguments mapped to config but no stage implementation)
-   - `--igv-flanking` ⚠️ (Arguments mapped to config but no stage implementation)
-   - `--igv-max-allele-len-filename` ⚠️
-   - `--igv-hash-len-filename` ⚠️
-   - `--igv-max-variant-part-filename` ⚠️
-   - **Status:** Arguments mapped to config but no stage implementation
-   - **Risk:** LOW - Visualization features incomplete
 
 #### ~~Performance/Convenience Features~~ - Still Missing
    - `--resume` ❌ (Checkpoint Features)
@@ -278,7 +254,6 @@ class TranscriptFilterStage(Stage):
 ### LOW RISK (Feature Gaps) - Downgraded from Medium
 - **SnpEff processing** - Annotation workflow incomplete (partial implementation exists)
 - ~~**Extra sample fields** - Data export functionality limited~~ ✅ IMPLEMENTED
-- **Advanced IGV options** - Visualization features incomplete (partial implementation exists)
 
 ### MINIMAL RISK (Performance/Convenience) - Downgraded from Low
 - **Field processing** - Minor data formatting functionality limited (`--add-chr`, `--remove-sample-substring`)
@@ -321,10 +296,6 @@ class TranscriptFilterStage(Stage):
    - Priority: MEDIUM
 
 ### Phase 2 (Enhancement Features)
-1. **Complete IGV configuration**
-   - Implement all IGV parameters in `IGVReportStage`
-   - Add advanced visualization options
-   - Priority: LOW
 
 2. **Add field processing features**
    - Implement `--add-chr` and `--remove-sample-substring`
