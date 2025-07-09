@@ -131,7 +131,8 @@ class TestInheritanceAnalysis:
                 if output_file:
                     Path(output_file).write_text(
                         "##fileformat=VCFv4.2\n"
-                        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tChild\tFather\tMother\n"
+                        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
+                        "Child\tFather\tMother\n"
                         "chr1\t100\t.\tA\tG\t100\tPASS\tGENE=GENE1\tGT:DP\t0/1:30\t0/0:25\t0/0:28\n"
                         "chr2\t200\t.\tC\tT\t90\tPASS\tGENE=GENE2\tGT:DP\t0/1:25\t0/1:30\t0/0:27\n"
                         "chr2\t300\t.\tG\tA\t85\tPASS\tGENE=GENE2\tGT:DP\t0/1:28\t0/0:26\t0/1:29\n"

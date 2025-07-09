@@ -357,9 +357,7 @@ class InheritanceAnalysisStage(Stage):
 
         if threads > 1 and len(df) >= min_variants_for_parallel:
             # Use parallel analyzer for better performance
-            logger.info(
-                f"Using parallel inheritance analyzer with {threads} workers"
-            )
+            logger.info(f"Using parallel inheritance analyzer with {threads} workers")
             from ..inheritance.parallel_analyzer import analyze_inheritance_parallel
 
             # Track detailed timing

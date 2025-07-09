@@ -171,7 +171,7 @@ class TestParallelCompleteProcessingStage:
 
             # Mock shutil.move
             with patch("shutil.move") as mock_move:
-                result = stage._merge_tsv_outputs(context, [single_tsv])
+                stage._merge_tsv_outputs(context, [single_tsv])
 
             # Check that move was called with correct paths
             expected_output = intermediate_dir / "test_output.extracted.tsv"

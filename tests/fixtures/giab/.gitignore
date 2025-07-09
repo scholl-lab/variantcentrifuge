@@ -1,0 +1,5 @@
+# Exclude temporary and downloaded files
+data/temp/
+logs/
+download_status.json
+*.extraction_info.json

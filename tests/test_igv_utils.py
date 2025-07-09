@@ -80,7 +80,6 @@ def test_generate_igv_safe_filename_base_short_alleles():
 #     assert len(parts[4]) == 10  # Truncated ALT should be exactly 10 chars
 #     assert len(parts[4].split("_")[0]) == 3  # First part before underscore is 3 chars
 
-
 # Skipped test - failing and need further investigation
 # def test_generate_igv_safe_filename_base_both_long_alleles():
 #     """Test generation of safe filename with both REF and ALT being long."""
@@ -107,7 +106,6 @@ def test_generate_igv_safe_filename_base_short_alleles():
 #     assert "_" in parts[4]
 #     assert parts[3].split("_")[0].startswith("ACG")
 #     assert parts[4].split("_")[0].startswith("TGC")
-
 
 # Skipped test - failing and need further investigation
 # def test_generate_igv_safe_filename_base_special_characters():

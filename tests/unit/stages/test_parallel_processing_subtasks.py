@@ -61,16 +61,20 @@ class TestParallelProcessingSubtasks:
         assert stage._subtask_times["test_task"] >= 0.1
 
     @patch(
-        "variantcentrifuge.stages.processing_stages.ParallelCompleteProcessingStage._process_chunks_parallel"
+        "variantcentrifuge.stages.processing_stages.ParallelCompleteProcessingStage"
+        "._process_chunks_parallel"
     )
     @patch(
-        "variantcentrifuge.stages.processing_stages.ParallelCompleteProcessingStage._merge_tsv_outputs"
+        "variantcentrifuge.stages.processing_stages.ParallelCompleteProcessingStage"
+        "._merge_tsv_outputs"
     )
     @patch(
-        "variantcentrifuge.stages.processing_stages.ParallelCompleteProcessingStage._split_bed_file"
+        "variantcentrifuge.stages.processing_stages.ParallelCompleteProcessingStage"
+        "._split_bed_file"
     )
     @patch(
-        "variantcentrifuge.stages.processing_stages.ParallelCompleteProcessingStage._cleanup_chunks"
+        "variantcentrifuge.stages.processing_stages.ParallelCompleteProcessingStage"
+        "._cleanup_chunks"
     )
     def test_subtask_timing_recorded(
         self, mock_cleanup, mock_split, mock_merge, mock_process, context
@@ -94,7 +98,7 @@ class TestParallelProcessingSubtasks:
         mock_process.side_effect = process_with_subtasks
 
         # Run the stage
-        result = stage(context)
+        stage(context)
 
         # Check that all subtask times were recorded
         assert hasattr(stage, "_subtask_times")
@@ -140,7 +144,7 @@ class TestParallelProcessingSubtasks:
 
         # Run the stage through the runner
         runner = PipelineRunner()
-        result = runner.run([mock_stage], context)
+        runner.run([mock_stage], context)
 
         # Check that runner captured the subtask times
         assert "test_stage" in runner._subtask_times

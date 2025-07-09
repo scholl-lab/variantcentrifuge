@@ -341,6 +341,9 @@ def main():
     parser.add_argument(
         "--keep-full", action="store_true", help="Keep full BAM files after extraction"
     )
+    parser.add_argument(
+        "--skip-md5", action="store_true", help="Skip MD5 verification for faster processing"
+    )
 
     args = parser.parse_args()
 

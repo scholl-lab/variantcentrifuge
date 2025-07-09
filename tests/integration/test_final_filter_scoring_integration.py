@@ -57,7 +57,9 @@ class TestFinalFilterWithScoring:
                         "formulas": [
                             {"base_score": "CADD_PHRED_value"},
                             {
-                                "nephro_candidate_score": "CADD_PHRED_value * (1 - (AF_value >= 0.01) * 0.5)"
+                                "nephro_candidate_score": (
+                                    "CADD_PHRED_value * (1 - (AF_value >= 0.01) * 0.5)"
+                                )
                             },
                         ]
                     }
@@ -119,9 +121,12 @@ class TestFinalFilterWithScoring:
                     Path(output_file).write_text(
                         "##fileformat=VCFv4.2\n"
                         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample1\n"
-                        "chr17\t43044295\t.\tA\tG\t100\tPASS\tCADD_PHRED=25;AF=0.01\tGT:DP\t0/1:30\n"
-                        "chr17\t43044296\t.\tC\tT\t90\tPASS\tCADD_PHRED=15;AF=0.05\tGT:DP\t0/1:25\n"
-                        "chr17\t43044297\t.\tG\tA\t80\tPASS\tCADD_PHRED=35;AF=0.001\tGT:DP\t1/1:40\n"
+                        "chr17\t43044295\t.\tA\tG\t100\tPASS\t"
+                        "CADD_PHRED=25;AF=0.01\tGT:DP\t0/1:30\n"
+                        "chr17\t43044296\t.\tC\tT\t90\tPASS\t"
+                        "CADD_PHRED=15;AF=0.05\tGT:DP\t0/1:25\n"
+                        "chr17\t43044297\t.\tG\tA\t80\tPASS\t"
+                        "CADD_PHRED=35;AF=0.001\tGT:DP\t1/1:40\n"
                     )
             elif "SnpSift" in cmd_str:
                 if "extractFields" in cmd_str:
@@ -319,6 +324,7 @@ class TestFinalFilterWithScoring:
 
         assert scoring_level is not None, "variant_scoring not in execution plan"
         assert filtering_level is not None, "final_filtering not in execution plan"
-        assert (
-            filtering_level > scoring_level
-        ), f"final_filtering (level {filtering_level}) should run after variant_scoring (level {scoring_level})"
+        assert filtering_level > scoring_level, (
+            f"final_filtering (level {filtering_level}) should run after "
+            f"variant_scoring (level {scoring_level})"
+        )
