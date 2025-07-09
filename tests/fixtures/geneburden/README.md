@@ -1,10 +1,16 @@
-# Gene Burden Test Fixtures
+# Enhanced Gene Burden Analysis Test Data
 
-This directory contains comprehensive test data and infrastructure for testing all aspects of VariantCentrifuge's gene burden analysis functionality.
+This directory contains enhanced test data and utilities for comprehensive gene burden analysis testing in VariantCentrifuge, featuring **realistic annotations sampled from real genomic data**.
 
 ## Overview
 
-The gene burden test framework provides complete coverage for all possible ways to specify case/control groups in VariantCentrifuge:
+The enhanced gene burden test framework provides complete coverage for all possible ways to specify case/control groups in VariantCentrifuge, using **authentic SnpEff annotations** for maximum realism:
+
+### ✅ **Key Enhancements**
+- **Real Annotation Sampling**: Authentic SnpEff annotations from `testdata_snpef.txt`
+- **Realistic Pathogenicity**: Actual dbNSFP scores (CADD, SIFT, PolyPhen2, REVEL)
+- **Diverse Variant Effects**: 10 unique effect types from real genomic data
+- **Controlled Test Outcomes**: Maintains probabilistic distributions for reliable testing
 
 ### ✅ **Direct Sample Specification**
 - `--case-samples` + `--control-samples`
@@ -25,77 +31,77 @@ The gene burden test framework provides complete coverage for all possible ways 
 ## Files Generated
 
 ### Core Scripts
-- **`generate_comprehensive_test_data.py`** - Main test data generator
-- **`verify_test_data.py`** - Verification script for generated data
-- **`comprehensive_test_data/`** - Generated test dataset directory
+- **`generate_enhanced_test_data.py`** - Enhanced test data generator with real annotation sampling
+- **`test_data/`** - Generated test dataset directory with authentic annotations
 
 ### Test Data Structure
 ```
-comprehensive_test_data/
-├── test_data.vcf.gz              # Main VCF with controlled genotypes
-├── case_samples.txt              # Case sample IDs
-├── control_samples.txt           # Control sample IDs
-├── test_genes.txt               # All test genes
-├── phenotypes_basic.csv         # GCKD-style phenotype file
-├── phenotypes_extended.csv      # Multiple HPO terms per sample
-├── phenotypes_alt_columns.csv   # Alternative column names
-├── case_hpo_terms.txt          # HPO terms for cases
-├── control_hpo_terms.txt       # HPO terms for controls
-├── run_comprehensive_tests.sh   # Test runner script
-└── README.md                    # Detailed usage instructions
+test_data/
+├── enhanced_test_data.vcf.gz      # VCF with real SnpEff annotations
+├── case_samples.txt               # Case sample IDs
+├── control_samples.txt            # Control sample IDs
+├── test_genes.txt                # All test genes
+├── phenotypes_basic.csv          # GCKD-style phenotype file
+├── phenotypes_extended.csv       # Multiple HPO terms per sample
+├── phenotypes_alt_columns.csv    # Alternative column names
+├── case_hpo_terms.txt           # HPO terms for cases
+├── control_hpo_terms.txt        # HPO terms for controls
+├── enhanced_dataset_statistics.json # Detailed annotation statistics
+└── README.md                     # Detailed usage instructions
 ```
 
 ## Quick Start
 
-### 1. Generate Test Data
+### 1. Generate Enhanced Test Data
 ```bash
 cd tests/fixtures/geneburden
-python generate_comprehensive_test_data.py --output-dir comprehensive_test_data
+python generate_enhanced_test_data.py --output-dir test_data --annotation-source ../../../testdata_snpef.txt
 ```
 
-### 2. Verify Test Data
+### 2. Run Gene Burden Analysis
 ```bash
-python verify_test_data.py
-```
-
-### 3. Run Tests
-```bash
-# Pytest integration
-pytest tests/test_gene_burden_comprehensive.py -v
-
-# Or manual testing
-cd comprehensive_test_data
-./run_comprehensive_tests.sh
+cd test_data
+python -m variantcentrifuge.cli \
+  --vcf-file enhanced_test_data.vcf.gz \
+  --gene-file test_genes.txt \
+  --case-samples-file case_samples.txt \
+  --control-samples-file control_samples.txt \
+  --perform-gene-burden \
+  --preset high_or_moderate \
+  --output-file results.tsv \
+  --use-new-pipeline
 ```
 
 ## Test Scenarios
 
 ### Scenario 1: Direct Sample Lists
 ```bash
-variantcentrifuge \
-  --vcf-file test_data.vcf.gz \
+python -m variantcentrifuge.cli \
+  --vcf-file enhanced_test_data.vcf.gz \
   --gene-file test_genes.txt \
   --case-samples CASE_001,CASE_002,CASE_003 \
   --control-samples CTRL_001,CTRL_002,CTRL_003 \
   --perform-gene-burden \
+  --preset high_or_moderate \
   --use-new-pipeline
 ```
 
 ### Scenario 2: Sample Files
 ```bash
-variantcentrifuge \
-  --vcf-file test_data.vcf.gz \
+python -m variantcentrifuge.cli \
+  --vcf-file enhanced_test_data.vcf.gz \
   --gene-file test_genes.txt \
   --case-samples-file case_samples.txt \
   --control-samples-file control_samples.txt \
   --perform-gene-burden \
+  --preset high_or_moderate \
   --use-new-pipeline
 ```
 
 ### Scenario 3: HPO-based Classification
 ```bash
-variantcentrifuge \
-  --vcf-file test_data.vcf.gz \
+python -m variantcentrifuge.cli \
+  --vcf-file enhanced_test_data.vcf.gz \
   --gene-file test_genes.txt \
   --phenotype-file phenotypes_basic.csv \
   --phenotype-sample-column SampleID \
@@ -103,13 +109,14 @@ variantcentrifuge \
   --case-phenotypes HP:0000113,HP:0000003,HP:0000107 \
   --control-phenotypes HP:0000001,HP:0032101 \
   --perform-gene-burden \
+  --preset high_or_moderate \
   --use-new-pipeline
 ```
 
 ### Scenario 4: HPO Term Files
 ```bash
-variantcentrifuge \
-  --vcf-file test_data.vcf.gz \
+python -m variantcentrifuge.cli \
+  --vcf-file enhanced_test_data.vcf.gz \
   --gene-file test_genes.txt \
   --phenotype-file phenotypes_basic.csv \
   --phenotype-sample-column SampleID \
@@ -117,30 +124,50 @@ variantcentrifuge \
   --case-phenotypes-file case_hpo_terms.txt \
   --control-phenotypes-file control_hpo_terms.txt \
   --perform-gene-burden \
+  --preset high_or_moderate \
   --use-new-pipeline
 ```
 
 ## Expected Results
 
-The test dataset is designed with controlled probabilities to ensure predictable results:
+The enhanced test dataset uses realistic annotations with controlled probabilities:
 
 ### ✅ **Disease Genes** (should show enrichment)
 - **PKD1, PKD2** - Polycystic kidney disease genes
 - **BRCA1, BRCA2** - Breast cancer genes
-- Expected: OR > 1.0, p-values < 0.05
+- Expected: OR > 1.0, p-values < 0.05 (pathogenic variants enriched in cases)
 
 ### ✅ **Control Genes** (should show no enrichment)
 - **TTN, OBSCN, MUC16** - Large genes with many benign variants
 - Expected: OR ≈ 1.0, p-values > 0.05
 
-## Data Composition
+## Enhanced Data Composition
 
 - **100 samples**: 40 cases + 60 controls
-- **19 variants** across 8 genes
-- **Controlled genotype distributions**:
-  - 75% cases have pathogenic disease gene variants
-  - 10% controls have pathogenic disease gene variants
-  - 40% all samples have control gene variants
+- **25 variants** across 7 genes with **real annotations**
+- **10 effect types**: `missense_variant`, `frameshift_variant`, `disruptive_inframe_deletion`, etc.
+- **Authentic dbNSFP scores**: CADD phred scores, SIFT predictions, PolyPhen2 scores
+- **Pathogenicity-aware genotype distributions**:
+  - High CADD scores (>20) and deleterious predictions drive case enrichment
+  - Moderate/low impact variants distributed more evenly
+
+## Real Annotation Features
+
+### Authentic Variant Effects
+- **High Impact**: `frameshift_variant`, `stop_gained` 
+- **Moderate Impact**: `missense_variant`, `disruptive_inframe_deletion`
+- **Low Impact**: `synonymous_variant`, `splice_region_variant`
+
+### Real Pathogenicity Scores
+- **CADD phred scores**: 15.45, 25.6, 33.0 (from actual variants)
+- **SIFT predictions**: D (deleterious), T (tolerated)
+- **PolyPhen2 predictions**: D (damaging), B (benign)
+- **REVEL scores**: 0.311, 0.659 (machine learning pathogenicity)
+
+### Population Data
+- **gnomAD frequencies**: Real allele frequencies from population data
+- **GERP scores**: Evolutionary conservation scores
+- **Clinical significance**: Actual ClinVar annotations where available
 
 ## HPO Terms Used
 
@@ -155,79 +182,57 @@ The test dataset is designed with controlled probabilities to ensure predictable
 - `HP:0000001` - All (root term)
 - `HP:0032101` - Normal phenotype
 
-## Integration with Test Suite
-
-### Pytest Markers
-```bash
-# Run all gene burden tests
-pytest -m gene_burden
-
-# Run slow integration tests
-pytest -m "gene_burden and slow"
-
-# Run specific test class
-pytest tests/test_gene_burden_comprehensive.py::TestGeneBurdenDirectSamples -v
-```
-
-### Test Classes
-- **`TestGeneBurdenDirectSamples`** - Direct sample specification tests
-- **`TestGeneBurdenPhenotypeBased`** - Phenotype-based classification tests
-- **`TestGeneBurdenValidation`** - Result validation tests
-- **`TestGeneBurdenErrorHandling`** - Error handling and edge cases
-
 ## Maintenance
 
-### Regenerating Test Data
-If you need to update the test data:
-
+### Regenerating Enhanced Test Data
 ```bash
 cd tests/fixtures/geneburden
-python generate_comprehensive_test_data.py --output-dir comprehensive_test_data --seed 42
-```
-
-### Adding New Test Scenarios
-1. Modify `generate_comprehensive_test_data.py` to add new data patterns
-2. Add corresponding test methods in `test_gene_burden_comprehensive.py`
-3. Update this README with new scenarios
-
-### Custom Base VCF
-To use a real VCF file as the base for test data generation:
-
-```bash
-python generate_comprehensive_test_data.py \
-  --output-dir comprehensive_test_data \
-  --base-vcf /path/to/annotated.vcf.gz \
+python generate_enhanced_test_data.py \
+  --output-dir test_data \
+  --annotation-source ../../../testdata_snpef.txt \
   --seed 42
 ```
 
+### Using Different Annotation Sources
+```bash
+python generate_enhanced_test_data.py \
+  --output-dir test_data \
+  --annotation-source /path/to/your/annotated_variants.txt \
+  --seed 42
+```
+
+## Validation
+
+Check the detailed statistics to verify annotation quality:
+```bash
+cat test_data/enhanced_dataset_statistics.json | jq '.annotation_statistics'
+```
+
+Expected output shows:
+- 10 unique effect types from real data
+- High and moderate impact effects available
+- Rich dbNSFP annotation fields preserved
+
 ## Troubleshooting
 
-### Test Data Not Found
+### Missing Annotation Source
 ```bash
-# Generate the test data first
-cd tests/fixtures/geneburden
-python generate_comprehensive_test_data.py --output-dir comprehensive_test_data
+# Ensure testdata_snpef.txt exists in project root
+ls -la ../../../testdata_snpef.txt
 ```
 
 ### VCF Index Issues
 ```bash
-# Recreate the tabix index
-cd comprehensive_test_data
-tabix -p vcf test_data.vcf.gz
+cd test_data
+tabix -p vcf enhanced_test_data.vcf.gz
 ```
 
-### Verification Failures
+### Annotation Quality Check
 ```bash
-# Run verification to identify issues
-python verify_test_data.py comprehensive_test_data
+# Verify authentic annotations are present
+zcat enhanced_test_data.vcf.gz | grep -v "^#" | head -1 | cut -f8
 ```
-
-## Related Files
-
-- **`../../test_gene_burden_comprehensive.py`** - Main pytest test file
-- **`../../../testing/tools/test_data_generators/`** - Original test data generators
-- **`../../../testing/phenotypes/`** - Real phenotype file examples
 
 ---
 
-This comprehensive test framework ensures that all gene burden analysis functionality is thoroughly tested across all supported input methods and edge cases.
+This enhanced test framework provides **realistic genomic annotations** while maintaining controlled statistical properties for reliable gene burden analysis testing.

@@ -1,0 +1,386 @@
+{
+  "generation_info": {
+    "date": "2025-07-09T14:54:52.018753",
+    "generator_version": "enhanced_v2.0",
+    "description": "Enhanced gene burden test dataset with real annotation sampling",
+    "annotation_source": "/mnt/c/development/scholl-lab/variantcentrifuge/tests/fixtures/geneburden/../../../testdata_snpef.txt"
+  },
+  "sample_composition": {
+    "total_samples": 100,
+    "case_samples": 40,
+    "control_samples": 60,
+    "case_sample_ids": [
+      "CASE_001",
+      "CASE_002",
+      "CASE_003",
+      "CASE_004",
+      "CASE_005",
+      "CASE_006",
+      "CASE_007",
+      "CASE_008",
+      "CASE_009",
+      "CASE_010",
+      "CASE_011",
+      "CASE_012",
+      "CASE_013",
+      "CASE_014",
+      "CASE_015",
+      "CASE_016",
+      "CASE_017",
+      "CASE_018",
+      "CASE_019",
+      "CASE_020",
+      "CASE_021",
+      "CASE_022",
+      "CASE_023",
+      "CASE_024",
+      "CASE_025",
+      "CASE_026",
+      "CASE_027",
+      "CASE_028",
+      "CASE_029",
+      "CASE_030",
+      "CASE_031",
+      "CASE_032",
+      "CASE_033",
+      "CASE_034",
+      "CASE_035",
+      "CASE_036",
+      "CASE_037",
+      "CASE_038",
+      "CASE_039",
+      "CASE_040"
+    ],
+    "control_sample_ids": [
+      "CTRL_001",
+      "CTRL_002",
+      "CTRL_003",
+      "CTRL_004",
+      "CTRL_005",
+      "CTRL_006",
+      "CTRL_007",
+      "CTRL_008",
+      "CTRL_009",
+      "CTRL_010",
+      "CTRL_011",
+      "CTRL_012",
+      "CTRL_013",
+      "CTRL_014",
+      "CTRL_015",
+      "CTRL_016",
+      "CTRL_017",
+      "CTRL_018",
+      "CTRL_019",
+      "CTRL_020",
+      "CTRL_021",
+      "CTRL_022",
+      "CTRL_023",
+      "CTRL_024",
+      "CTRL_025",
+      "CTRL_026",
+      "CTRL_027",
+      "CTRL_028",
+      "CTRL_029",
+      "CTRL_030",
+      "CTRL_031",
+      "CTRL_032",
+      "CTRL_033",
+      "CTRL_034",
+      "CTRL_035",
+      "CTRL_036",
+      "CTRL_037",
+      "CTRL_038",
+      "CTRL_039",
+      "CTRL_040",
+      "CTRL_041",
+      "CTRL_042",
+      "CTRL_043",
+      "CTRL_044",
+      "CTRL_045",
+      "CTRL_046",
+      "CTRL_047",
+      "CTRL_048",
+      "CTRL_049",
+      "CTRL_050",
+      "CTRL_051",
+      "CTRL_052",
+      "CTRL_053",
+      "CTRL_054",
+      "CTRL_055",
+      "CTRL_056",
+      "CTRL_057",
+      "CTRL_058",
+      "CTRL_059",
+      "CTRL_060"
+    ]
+  },
+  "variant_statistics": {
+    "total_variants": 25,
+    "disease_variants": 16,
+    "control_variants": 9,
+    "high_impact_variants": 8,
+    "moderate_impact_variants": 17
+  },
+  "annotation_statistics": {
+    "total_effect_types": 10,
+    "available_effects": [
+      "missense_variant",
+      "upstream_gene_variant",
+      "splice_region_variant&intron_variant",
+      "synonymous_variant",
+      "disruptive_inframe_deletion",
+      "frameshift_variant",
+      "intron_variant",
+      "missense_variant&splice_region_variant",
+      "stop_gained",
+      "splice_donor_variant&intron_variant"
+    ],
+    "high_impact_effects": [
+      "frameshift_variant",
+      "stop_gained",
+      "splice_donor_variant&intron_variant"
+    ],
+    "moderate_impact_effects": [
+      "missense_variant",
+      "disruptive_inframe_deletion",
+      "missense_variant&splice_region_variant"
+    ]
+  },
+  "genotype_distribution": {
+    "OBSCN_case_benign": {
+      "total_samples": 80,
+      "ref_only (0/0)": 47,
+      "heterozygous (0/1)": 30,
+      "homozygous (1/1)": 3,
+      "variant_rate": 0.4125
+    },
+    "OBSCN_control_benign": {
+      "total_samples": 120,
+      "ref_only (0/0)": 80,
+      "heterozygous (0/1)": 32,
+      "homozygous (1/1)": 8,
+      "variant_rate": 0.3333333333333333
+    },
+    "OBSCN_case_pathogenic": {
+      "total_samples": 40,
+      "ref_only (0/0)": 22,
+      "heterozygous (0/1)": 14,
+      "homozygous (1/1)": 4,
+      "variant_rate": 0.45
+    },
+    "OBSCN_control_pathogenic": {
+      "total_samples": 60,
+      "ref_only (0/0)": 34,
+      "heterozygous (0/1)": 21,
+      "homozygous (1/1)": 5,
+      "variant_rate": 0.43333333333333335
+    },
+    "TTN_case_pathogenic": {
+      "total_samples": 80,
+      "ref_only (0/0)": 54,
+      "heterozygous (0/1)": 19,
+      "homozygous (1/1)": 7,
+      "variant_rate": 0.325
+    },
+    "TTN_control_pathogenic": {
+      "total_samples": 120,
+      "ref_only (0/0)": 77,
+      "heterozygous (0/1)": 33,
+      "homozygous (1/1)": 10,
+      "variant_rate": 0.35833333333333334
+    },
+    "TTN_case_benign": {
+      "total_samples": 40,
+      "ref_only (0/0)": 29,
+      "heterozygous (0/1)": 10,
+      "homozygous (1/1)": 1,
+      "variant_rate": 0.275
+    },
+    "TTN_control_benign": {
+      "total_samples": 60,
+      "ref_only (0/0)": 39,
+      "heterozygous (0/1)": 19,
+      "homozygous (1/1)": 2,
+      "variant_rate": 0.35
+    },
+    "PKD2_case_pathogenic": {
+      "total_samples": 80,
+      "ref_only (0/0)": 22,
+      "heterozygous (0/1)": 52,
+      "homozygous (1/1)": 6,
+      "variant_rate": 0.725
+    },
+    "PKD2_control_pathogenic": {
+      "total_samples": 120,
+      "ref_only (0/0)": 100,
+      "heterozygous (0/1)": 16,
+      "homozygous (1/1)": 4,
+      "variant_rate": 0.16666666666666666
+    },
+    "PKD2_case_benign": {
+      "total_samples": 80,
+      "ref_only (0/0)": 61,
+      "heterozygous (0/1)": 14,
+      "homozygous (1/1)": 5,
+      "variant_rate": 0.2375
+    },
+    "PKD2_control_benign": {
+      "total_samples": 120,
+      "ref_only (0/0)": 102,
+      "heterozygous (0/1)": 14,
+      "homozygous (1/1)": 4,
+      "variant_rate": 0.15
+    },
+    "BRCA2_case_pathogenic": {
+      "total_samples": 120,
+      "ref_only (0/0)": 32,
+      "heterozygous (0/1)": 73,
+      "homozygous (1/1)": 15,
+      "variant_rate": 0.7333333333333333
+    },
+    "BRCA2_control_pathogenic": {
+      "total_samples": 180,
+      "ref_only (0/0)": 163,
+      "heterozygous (0/1)": 17,
+      "homozygous (1/1)": 0,
+      "variant_rate": 0.09444444444444444
+    },
+    "BRCA2_case_benign": {
+      "total_samples": 40,
+      "ref_only (0/0)": 33,
+      "heterozygous (0/1)": 4,
+      "homozygous (1/1)": 3,
+      "variant_rate": 0.175
+    },
+    "BRCA2_control_benign": {
+      "total_samples": 60,
+      "ref_only (0/0)": 53,
+      "heterozygous (0/1)": 6,
+      "homozygous (1/1)": 1,
+      "variant_rate": 0.11666666666666667
+    },
+    "PKD1_case_pathogenic": {
+      "total_samples": 120,
+      "ref_only (0/0)": 26,
+      "heterozygous (0/1)": 75,
+      "homozygous (1/1)": 19,
+      "variant_rate": 0.7833333333333333
+    },
+    "PKD1_control_pathogenic": {
+      "total_samples": 180,
+      "ref_only (0/0)": 167,
+      "heterozygous (0/1)": 10,
+      "homozygous (1/1)": 3,
+      "variant_rate": 0.07222222222222222
+    },
+    "PKD1_case_benign": {
+      "total_samples": 40,
+      "ref_only (0/0)": 30,
+      "heterozygous (0/1)": 7,
+      "homozygous (1/1)": 3,
+      "variant_rate": 0.25
+    },
+    "PKD1_control_benign": {
+      "total_samples": 60,
+      "ref_only (0/0)": 49,
+      "heterozygous (0/1)": 8,
+      "homozygous (1/1)": 3,
+      "variant_rate": 0.18333333333333332
+    },
+    "BRCA1_case_pathogenic": {
+      "total_samples": 120,
+      "ref_only (0/0)": 38,
+      "heterozygous (0/1)": 64,
+      "homozygous (1/1)": 18,
+      "variant_rate": 0.6833333333333333
+    },
+    "BRCA1_control_pathogenic": {
+      "total_samples": 180,
+      "ref_only (0/0)": 160,
+      "heterozygous (0/1)": 18,
+      "homozygous (1/1)": 2,
+      "variant_rate": 0.1111111111111111
+    },
+    "BRCA1_case_benign": {
+      "total_samples": 40,
+      "ref_only (0/0)": 32,
+      "heterozygous (0/1)": 5,
+      "homozygous (1/1)": 3,
+      "variant_rate": 0.2
+    },
+    "BRCA1_control_benign": {
+      "total_samples": 60,
+      "ref_only (0/0)": 50,
+      "heterozygous (0/1)": 10,
+      "homozygous (1/1)": 0,
+      "variant_rate": 0.16666666666666666
+    },
+    "MUC16_case_pathogenic": {
+      "total_samples": 40,
+      "ref_only (0/0)": 17,
+      "heterozygous (0/1)": 18,
+      "homozygous (1/1)": 5,
+      "variant_rate": 0.575
+    },
+    "MUC16_control_pathogenic": {
+      "total_samples": 60,
+      "ref_only (0/0)": 42,
+      "heterozygous (0/1)": 18,
+      "homozygous (1/1)": 0,
+      "variant_rate": 0.3
+    },
+    "MUC16_case_benign": {
+      "total_samples": 80,
+      "ref_only (0/0)": 46,
+      "heterozygous (0/1)": 29,
+      "homozygous (1/1)": 5,
+      "variant_rate": 0.425
+    },
+    "MUC16_control_benign": {
+      "total_samples": 120,
+      "ref_only (0/0)": 63,
+      "heterozygous (0/1)": 44,
+      "homozygous (1/1)": 13,
+      "variant_rate": 0.475
+    }
+  },
+  "test_genes": {
+    "disease_genes": [
+      "PKD1",
+      "PKD2",
+      "BRCA1",
+      "BRCA2"
+    ],
+    "control_genes": [
+      "MUC16",
+      "OBSCN",
+      "TTN"
+    ],
+    "total_genes": 7
+  },
+  "hpo_terms": {
+    "case_terms": [
+      "HP:0000113",
+      "HP:0000003",
+      "HP:0000107",
+      "HP:0000822",
+      "HP:0003774"
+    ],
+    "control_terms": [
+      "HP:0000001",
+      "HP:0032101"
+    ],
+    "mixed_terms": [
+      "HP:0001626",
+      "HP:0000478",
+      "HP:0001574"
+    ]
+  },
+  "probabilities": {
+    "case_disease_pathogenic": 0.75,
+    "case_disease_benign": 0.25,
+    "control_disease_pathogenic": 0.1,
+    "control_disease_benign": 0.15,
+    "any_control_gene": 0.4
+  }
+}
