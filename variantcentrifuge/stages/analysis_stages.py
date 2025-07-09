@@ -253,9 +253,11 @@ class InheritanceAnalysisStage(Stage):
             logger.warning("No VCF samples available for inheritance analysis")
             return context
 
-        # Convert vcf_samples from set to list if needed
+        # Ensure vcf_samples is a deterministically ordered list
         if isinstance(vcf_samples, set):
-            vcf_samples = list(vcf_samples)
+            # If somehow still a set, convert to sorted list for deterministic order
+            vcf_samples = sorted(list(vcf_samples))
+            logger.warning("VCF samples was a set - converted to sorted list for deterministic order")
 
         logger.info(
             f"Calculating inheritance patterns ({inheritance_mode} mode) "
@@ -780,8 +782,13 @@ class GeneBurdenAnalysisStage(Stage):
         case_samples = context.config.get("case_samples", [])
         control_samples = context.config.get("control_samples", [])
 
+        # Debug logging to identify the issue
+        logger.info(f"Case samples from config: {case_samples[:5] if case_samples else 'EMPTY'}")
+        logger.info(f"Control samples from config: {control_samples[:5] if control_samples else 'EMPTY'}")
+        logger.info(f"VCF samples: {context.vcf_samples[:5] if context.vcf_samples else 'EMPTY'}")
+
         if not case_samples or not control_samples:
-            logger.warning("Case/control samples not defined for gene burden analysis")
+            logger.error(f"Case/control samples not defined for gene burden analysis. Cases: {len(case_samples)}, Controls: {len(control_samples)}")
             return context
 
         df = context.current_dataframe
@@ -807,13 +814,18 @@ class GeneBurdenAnalysisStage(Stage):
         # Add case/control count columns to DataFrame first
         from ..helpers import assign_case_control_counts
         
-        # Prepare DataFrame with case/control counts
-        all_samples = set(case_samples + control_samples) 
+        # Use VCF samples as all_samples - this is critical!
+        # The assign_case_control_counts function needs to iterate over ALL samples
+        # that appear in the VCF, not just those in case+control lists
+        all_vcf_samples = set(context.vcf_samples) if context.vcf_samples else set()
+        
+        logger.info(f"Using {len(all_vcf_samples)} VCF samples for gene burden analysis")
+        
         df_with_counts = assign_case_control_counts(
             df=df,
             case_samples=set(case_samples),
             control_samples=set(control_samples),
-            all_samples=all_samples,
+            all_samples=all_vcf_samples,  # This should be ALL samples in VCF
         )
         
         # Perform gene burden analysis on prepared DataFrame
