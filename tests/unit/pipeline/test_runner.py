@@ -10,6 +10,7 @@ from variantcentrifuge.pipeline_core import PipelineContext, PipelineRunner, Sta
 
 class MockStage(Stage):
     """Mock stage for testing."""
+
     def __init__(
         self, name, dependencies=None, parallel_safe=False, runtime=0.1, should_fail=False
     ):

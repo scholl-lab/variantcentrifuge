@@ -104,7 +104,7 @@ def find_reference_files(reference_dir):
         if not create_sequence_dictionary(fasta_file):
             return None, None
 
-    logger.info(f"Reference files ready:")
+    logger.info("Reference files ready:")
     logger.info(f"  - FASTA: {fasta_file}")
     logger.info(f"  - Index: {fai_file}")
     logger.info(f"  - Dictionary: {dict_file}")
@@ -248,7 +248,7 @@ def call_variants_multisample(
     # Build command with multiple -I inputs
     cmd = [
         "gatk",
-        f"--java-options",
+        "--java-options",
         f"-Xmx{java_memory}",
         "HaplotypeCaller",
         "-R",
@@ -286,7 +286,7 @@ def call_variants_multisample(
     file_size_mb = output_vcf.stat().st_size / (1024 * 1024)
     duration_minutes = (end_time - start_time) / 60
 
-    logger.info(f"Multi-sample variant calling completed:")
+    logger.info("Multi-sample variant calling completed:")
     logger.info(f"  - Output: {output_vcf.name} ({file_size_mb:.1f} MB)")
     logger.info(f"  - Duration: {duration_minutes:.1f} minutes")
 

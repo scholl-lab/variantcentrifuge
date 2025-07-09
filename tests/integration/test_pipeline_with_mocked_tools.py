@@ -154,6 +154,7 @@ class MockedToolsTestCase:
 
 class TestBasicPipelineFlow(MockedToolsTestCase):
     """Test basic pipeline flow with single gene."""
+
     def test_single_gene_extraction(self, tmp_path):
         """Test complete pipeline for single gene extraction."""
         # Create test VCF file
@@ -247,6 +248,7 @@ class TestBasicPipelineFlow(MockedToolsTestCase):
 
 class TestComplexPipelineFlow(MockedToolsTestCase):
     """Test complex pipeline flows with multiple features."""
+
     def test_pipeline_with_inheritance_and_scoring(self, tmp_path):
         """Test pipeline with inheritance analysis and scoring."""
         # Create test files
@@ -422,6 +424,7 @@ class TestComplexPipelineFlow(MockedToolsTestCase):
 
 class TestErrorHandling(MockedToolsTestCase):
     """Test error handling in the pipeline."""
+
     def test_missing_gene_handling(self, tmp_path):
         """Test handling of missing gene in snpEff."""
 

@@ -21,18 +21,17 @@ Author: Enhanced by Claude Code
 
 import argparse
 import csv
-import gzip
 import json
 import logging
 import os
 import random
 import re
 import sys
-from collections import defaultdict, namedtuple
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -1112,13 +1111,13 @@ class EnhancedTestDataGenerator:
 
     def write_enhanced_readme(self, output_dir: Path) -> None:
         """Write comprehensive README for the enhanced dataset."""
-        readme_content = f"""# Enhanced Gene Burden Test Dataset with Real Annotations
+        readme_content = """# Enhanced Gene Burden Test Dataset with Real Annotations
 
 Generated on: {datetime.now().isoformat()}
 
 ## Overview
 
-This enhanced test dataset provides comprehensive coverage for testing gene burden analysis 
+This enhanced test dataset provides comprehensive coverage for testing gene burden analysis
 functionality in VariantCentrifuge, featuring **realistic annotations sampled from real genomic data**.
 
 ### Key Enhancements
@@ -1196,7 +1195,7 @@ Check `enhanced_dataset_statistics.json` for detailed metrics on annotation samp
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Generate enhanced components
-        vcf_stats = self.create_enhanced_vcf_file(output_dir / "enhanced_test_data.vcf")
+        vcf_stats = self.create_enhanced_vcf_file(output_dir / "enhanced_test_data.vc")
         self.create_sample_files(output_dir)
         self.create_phenotype_files(output_dir)
         self.create_hpo_term_files(output_dir)
@@ -1276,11 +1275,11 @@ def main():
     output_dir = Path(args.output_dir)
     generator.generate_enhanced_dataset(output_dir)
 
-    print(f"\n🎉 Enhanced gene burden test dataset generated!")
+    print("\n🎉 Enhanced gene burden test dataset generated!")
     print(f"📁 Location: {output_dir.absolute()}")
     print(f"🧬 Annotations sampled from: {annotation_source or 'local anonymized templates'}")
     print(f"📊 Effect types available: {len(generator.annotation_sampler.templates)}")
-    print(f"📖 See README.md for detailed usage instructions")
+    print("📖 See README.md for detailed usage instructions")
 
 
 if __name__ == "__main__":

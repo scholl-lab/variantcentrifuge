@@ -21,7 +21,7 @@ def test_data_paths():
     """Return paths to test data files."""
     fixtures_dir = Path(__file__).parent / "fixtures" / "geneburden" / "output"
     return {
-        "vcf": fixtures_dir / "enhanced_test_data.vcf.gz",
+        "vc": fixtures_dir / "enhanced_test_data.vcf.gz",
         "case_samples": fixtures_dir / "case_samples.txt",
         "control_samples": fixtures_dir / "control_samples.txt",
         "genes": fixtures_dir / "test_genes.txt",
@@ -44,7 +44,7 @@ def test_gene_burden_sample_assignment(test_data_paths):
         cmd = [
             "variantcentrifuge",
             "--vcf-file",
-            str(test_data_paths["vcf"]),
+            str(test_data_paths["vc"]),
             "--gene-file",
             str(test_data_paths["genes"]),
             "--case-samples-file",
@@ -153,7 +153,7 @@ def test_gene_burden_determinism(test_data_paths):
             cmd = [
                 "variantcentrifuge",
                 "--vcf-file",
-                str(test_data_paths["vcf"]),
+                str(test_data_paths["vc"]),
                 "--gene-file",
                 str(test_data_paths["genes"]),
                 "--case-samples-file",
