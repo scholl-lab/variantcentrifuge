@@ -1,5 +1,6 @@
 # Exclude generated files
 data/
+reference/
 logs/
 extraction_status.json
 *.extraction_info.json
