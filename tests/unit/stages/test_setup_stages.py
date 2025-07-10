@@ -13,6 +13,7 @@ from variantcentrifuge.stages.setup_stages import (
     ConfigurationLoadingStage,
     PedigreeLoadingStage,
     PhenotypeLoadingStage,
+    PhenotypeCaseControlAssignmentStage,
     SampleConfigLoadingStage,
     ScoringConfigLoadingStage,
 )
@@ -477,3 +478,157 @@ class TestSampleConfigLoadingStage:
         # Check samples remain unchanged
         expected_samples = ["Sample1", "Sample2", "Sample3"]
         assert result.vcf_samples == expected_samples
+
+
+class TestPhenotypeCaseControlAssignmentStage:
+    """Test PhenotypeCaseControlAssignmentStage."""
+
+    @pytest.fixture
+    def context(self):
+        """Create test context with phenotype configuration."""
+        context = create_test_context(
+            gene_name="BRCA1",
+            vcf_file="/tmp/test.vcf",
+            config_overrides={
+                "phenotype_file": "/tmp/phenotypes.csv",
+                "phenotype_sample_column": "sample_id",
+                "phenotype_value_column": "phenotype",
+                "case_phenotypes": ["HP:0000001", "HP:0000002"],
+                "control_phenotypes": [],
+            }
+        )
+        # Mock VCF samples
+        context.vcf_samples = ["S001", "S002", "S003", "S004"]
+        return context
+
+    @patch("variantcentrifuge.stages.setup_stages.PhenotypeCaseControlAssignmentStage._compute_samples_from_phenotype_file")
+    def test_phenotype_based_assignment(self, mock_compute, context):
+        """Test phenotype-based case/control assignment."""
+        # Mock the computation result
+        mock_compute.return_value = (["S001", "S002"], ["S003", "S004"])
+        
+        # Mark dependencies as complete
+        context.mark_complete("phenotype_loading")
+        context.mark_complete("sample_config_loading")
+        
+        stage = PhenotypeCaseControlAssignmentStage()
+        result = stage(context)
+        
+        # Check assignment was applied
+        assert result.config["case_samples"] == ["S001", "S002"]
+        assert result.config["control_samples"] == ["S003", "S004"]
+        
+        # Check method was called with correct parameters
+        mock_compute.assert_called_once_with(
+            "/tmp/phenotypes.csv",
+            "sample_id",
+            "phenotype",
+            ["HP:0000001", "HP:0000002"],
+            [],
+            ["S001", "S002", "S003", "S004"],
+            ""
+        )
+
+    def test_skip_if_explicit_assignments_exist(self, context):
+        """Test that assignment is skipped if explicit case/control samples exist."""
+        # Set explicit assignments
+        context.config["case_samples"] = ["S001"]
+        context.config["control_samples"] = ["S002"]
+        
+        # Mark dependencies as complete
+        context.mark_complete("phenotype_loading")
+        context.mark_complete("sample_config_loading")
+        
+        stage = PhenotypeCaseControlAssignmentStage()
+        result = stage(context)
+        
+        # Should remain unchanged
+        assert result.config["case_samples"] == ["S001"]
+        assert result.config["control_samples"] == ["S002"]
+
+    def test_skip_if_no_phenotype_criteria(self, context):
+        """Test that assignment is skipped if no phenotype criteria provided."""
+        # Remove phenotype criteria
+        context.config["case_phenotypes"] = []
+        context.config["control_phenotypes"] = []
+        
+        # Mark dependencies as complete
+        context.mark_complete("phenotype_loading")
+        context.mark_complete("sample_config_loading")
+        
+        stage = PhenotypeCaseControlAssignmentStage()
+        result = stage(context)
+        
+        # Should not have case/control assignments
+        assert "case_samples" not in result.config
+        assert "control_samples" not in result.config
+
+    @patch("pandas.read_csv")
+    def test_compute_samples_from_phenotype_file(self, mock_read_csv, context):
+        """Test the phenotype file processing logic."""
+        import pandas as pd
+        
+        # Mock phenotype data
+        mock_df = pd.DataFrame({
+            'sample_id': [1001, 1002, 1003, 1004],
+            'phenotype': ['HP:0000001', 'HP:0000002', 'HP:0000003', 'HP:0000001']
+        })
+        mock_read_csv.return_value = mock_df
+        
+        # Mock VCF samples as strings
+        vcf_samples = ["1001", "1002", "1003", "1004"]
+        
+        stage = PhenotypeCaseControlAssignmentStage()
+        case_samples, control_samples = stage._compute_samples_from_phenotype_file(
+            "/tmp/phenotypes.csv",
+            "sample_id",
+            "phenotype",
+            ["HP:0000001", "HP:0000002"],
+            [],
+            vcf_samples,
+            ""
+        )
+        
+        # Should find samples with matching phenotypes
+        assert set(case_samples) == {"1001", "1002", "1004"}  # 1001 and 1004 have HP:0000001, 1002 has HP:0000002
+        assert set(control_samples) == {"1003"}  # Only non-case sample
+
+    @patch("pandas.read_csv")
+    def test_compute_samples_with_substring_removal(self, mock_read_csv, context):
+        """Test phenotype assignment with sample substring removal."""
+        import pandas as pd
+        
+        # Mock phenotype data with suffixes
+        mock_df = pd.DataFrame({
+            'sample_id': ["1001_suffix", "1002_suffix", "1003_suffix", "1004_suffix"],
+            'phenotype': ['HP:0000001', 'HP:0000002', 'HP:0000003', 'HP:0000001']
+        })
+        mock_read_csv.return_value = mock_df
+        
+        # Mock VCF samples without suffixes (already processed)
+        vcf_samples = ["1001", "1002", "1003", "1004"]
+        
+        stage = PhenotypeCaseControlAssignmentStage()
+        case_samples, control_samples = stage._compute_samples_from_phenotype_file(
+            "/tmp/phenotypes.csv",
+            "sample_id",
+            "phenotype",
+            ["HP:0000001", "HP:0000002"],
+            [],
+            vcf_samples,
+            "_suffix"
+        )
+        
+        # Should correctly match after substring removal
+        assert set(case_samples) == {"1001", "1002", "1004"}
+        assert set(control_samples) == {"1003"}
+
+    def test_dependencies(self):
+        """Test stage dependencies."""
+        stage = PhenotypeCaseControlAssignmentStage()
+        assert stage.dependencies == {"phenotype_loading", "sample_config_loading"}
+
+    def test_parallel_safe(self):
+        """Test parallel safety."""
+        stage = PhenotypeCaseControlAssignmentStage()
+        assert stage.parallel_safe is True

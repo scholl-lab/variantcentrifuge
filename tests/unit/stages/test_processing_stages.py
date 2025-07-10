@@ -456,9 +456,8 @@ class TestPhenotypeIntegrationStage:
 
         # Verify aggregation
         mock_aggregate.assert_called_once_with(
-            phenotypes=context.phenotype_data,
             samples=["Sample1", "Sample2", "Sample3"],
-            missing_string="",
+            phenotypes=context.phenotype_data,
         )
 
         # Verify phenotype column added
