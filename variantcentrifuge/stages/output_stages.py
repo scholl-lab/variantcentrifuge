@@ -530,6 +530,12 @@ class ExcelReportStage(Stage):
         return {"tsv_output", "metadata_generation", "statistics_generation"}
 
     @property
+    def soft_dependencies(self) -> Set[str]:
+        """Return the set of optional stage names this stage depends on."""
+        # This ensures Excel generation waits for gene burden analysis if it's running.
+        return {"gene_burden_analysis"}
+
+    @property
     def parallel_safe(self) -> bool:
         """Return whether this stage can run in parallel with others."""
         return True

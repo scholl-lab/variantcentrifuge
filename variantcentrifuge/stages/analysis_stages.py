@@ -609,7 +609,7 @@ class StatisticsGenerationStage(Stage):
 
         # Get stats config
         stats_config_path = context.config.get("stats_config")
-        config = stats_config_path if stats_config_path else {}
+        config = stats_config_path if stats_config_path else self._get_default_stats_config()
 
         logger.info("Generating summary statistics")
 
@@ -624,49 +624,110 @@ class StatisticsGenerationStage(Stage):
         if not stats_output and not context.config.get("no_stats"):
             # Create default stats file path like the old pipeline does
             stats_output = context.workspace.get_intermediate_path("statistics.tsv")
-            context.config["stats_output_file"] = str(stats_output)
             logger.debug(f"Created default statistics output path: {stats_output}")
 
         if stats_output:
+            # Always save the stats output path to context for other stages to use
+            context.config["stats_output_file"] = str(stats_output)
             self._write_statistics(stats, stats_output)
             logger.debug(f"Statistics written to: {stats_output}")
 
         return context
 
     def _write_statistics(self, stats: Dict[str, Any], output_file: str) -> None:
-        """Write statistics to file."""
-        with open(output_file, "w") as f:
-            # Write dataset statistics
-            if "dataset" in stats and not stats["dataset"].empty:
-                f.write("## Dataset Statistics\n")
-                stats["dataset"].to_csv(f, sep="\t", index=False, header=False)
+        """Write statistics to file in a consistent format."""
+        all_data = []
 
-            # Write gene statistics if present
-            if "genes" in stats and not stats["genes"].empty:
-                f.write("\n## Gene Statistics\n")
-                stats["genes"].to_csv(f, sep="\t", index=False)
+        # Collect dataset statistics
+        if "dataset" in stats and not stats["dataset"].empty:
+            dataset_df = stats["dataset"].copy()
+            dataset_df["category"] = "dataset"
+            all_data.append(dataset_df)
 
-            # Write any grouped statistics
-            for key, value in stats.items():
-                if key not in ["dataset", "genes"]:
-                    # Handle different data types
-                    if hasattr(value, "empty") and not value.empty:
-                        # DataFrame-like object
-                        f.write(f"\n## {key.title()} Statistics\n")
-                        value.to_csv(f, sep="\t", index=False)
-                    elif isinstance(value, dict) and value:
-                        # Dictionary - write as key-value pairs
-                        f.write(f"\n## {key.title()} Statistics\n")
-                        for k, v in value.items():
-                            f.write(f"{k}\t{v}\n")
-                    elif value is not None and not (
-                        isinstance(value, (list, tuple)) and len(value) == 0
-                    ):
-                        # Simple value - write as single line
-                        f.write(f"\n## {key.title()} Statistics\n")
-                        f.write(f"{key}\t{value}\n")
+        # Collect gene statistics
+        if "genes" in stats and not stats["genes"].empty:
+            genes_df = stats["genes"].copy()
+            genes_df["category"] = "gene"
+            all_data.append(genes_df)
 
-        logger.info(f"Wrote statistics to {output_file}")
+        # Collect any other grouped statistics
+        for key, value in stats.items():
+            if key not in ["dataset", "genes"] and hasattr(value, "empty") and not value.empty:
+                other_df = value.copy()
+                other_df["category"] = key
+                all_data.append(other_df)
+
+        # Combine all data into a single consistent DataFrame
+        if all_data:
+            combined_df = pd.concat(all_data, ignore_index=True, sort=False)
+            combined_df.to_csv(output_file, sep="\t", index=False)
+        else:
+            # Write a minimal file if no data
+            with open(output_file, "w") as f:
+                f.write("statistic\tvalue\tcategory\n")
+                f.write("total_variants\t0\tdataset\n")
+
+    def _get_default_stats_config(self) -> Dict[str, Any]:
+        """Get default statistics configuration using basic columns."""
+        return {
+            "stats_version": "1.0",
+            "description": "Default statistics configuration using basic columns",
+            "dataset_stats": [
+                {
+                    "name": "total_variants",
+                    "expression": "len(df)",
+                    "description": "Total number of variants",
+                },
+                {
+                    "name": "total_samples",
+                    "expression": "len([col for col in df.columns if '_GT' in col])",
+                    "description": "Total number of samples",
+                },
+                {
+                    "name": "unique_genes",
+                    "expression": "df['GENE'].nunique() if 'GENE' in df.columns else 0",
+                    "description": "Number of unique genes",
+                },
+                {
+                    "name": "high_impact_variants",
+                    "expression": "(df['IMPACT'] == 'HIGH').sum() if 'IMPACT' in df.columns else 0",
+                    "description": "Number of HIGH impact variants",
+                },
+                {
+                    "name": "moderate_impact_variants",
+                    "expression": (
+                        "(df['IMPACT'] == 'MODERATE').sum() if 'IMPACT' in df.columns else 0"
+                    ),
+                    "description": "Number of MODERATE impact variants",
+                },
+            ],
+            "gene_stats": [
+                {
+                    "name": "variant_count",
+                    "expression": "len(group_df)",
+                    "groupby": "GENE",
+                    "description": "Number of variants per gene",
+                },
+                {
+                    "name": "high_impact_count",
+                    "expression": (
+                        "(group_df['IMPACT'] == 'HIGH').sum() "
+                        "if 'IMPACT' in group_df.columns else 0"
+                    ),
+                    "groupby": "GENE",
+                    "description": "Number of HIGH impact variants per gene",
+                },
+                {
+                    "name": "moderate_impact_count",
+                    "expression": (
+                        "(group_df['IMPACT'] == 'MODERATE').sum() "
+                        "if 'IMPACT' in group_df.columns else 0"
+                    ),
+                    "groupby": "GENE",
+                    "description": "Number of MODERATE impact variants per gene",
+                },
+            ],
+        }
 
 
 class VariantAnalysisStage(Stage):
@@ -875,6 +936,9 @@ class GeneBurdenAnalysisStage(Stage):
             output_dir = context.config.get("output_dir", "output")
             base_name = context.config.get("output_file_base", "gene_burden_results")
             burden_output = str(Path(output_dir) / f"{base_name}.gene_burden.tsv")
+
+            # Save the generated path back into the context for other stages to use.
+            context.config["gene_burden_output"] = burden_output
 
         burden_results.to_csv(burden_output, sep="\t", index=False)
         logger.info(f"Wrote gene burden results to {burden_output}")

@@ -32,7 +32,6 @@ from .stages.output_stages import (
     HTMLReportStage,
     IGVReportStage,
     MetadataGenerationStage,
-    ParallelReportGenerationStage,
     PseudonymizationStage,
     TSVOutputStage,
     VariantIdentifierStage,
@@ -208,31 +207,19 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
 
     stages.append(TSVOutputStage())
 
-    # Report generation - use parallel stage if multiple reports
-    report_count = sum(
-        [
-            getattr(args, "xlsx", False) or getattr(args, "excel", False),
-            getattr(args, "html_report", False),
-            getattr(args, "igv", False),
-            not getattr(args, "no_metadata", False),
-        ]
-    )
+    # Report generation - add individual stages to main pipeline
+    # The PipelineRunner will handle dependencies and execution order correctly
+    if getattr(args, "xlsx", False) or getattr(args, "excel", False):
+        stages.append(ExcelReportStage())
 
-    if report_count > 1:
-        stages.append(ParallelReportGenerationStage())
-    else:
-        # Add individual report stages
-        if getattr(args, "xlsx", False) or getattr(args, "excel", False):
-            stages.append(ExcelReportStage())
+    if getattr(args, "html_report", False):
+        stages.append(HTMLReportStage())
 
-        if getattr(args, "html_report", False):
-            stages.append(HTMLReportStage())
+    if getattr(args, "igv", False):
+        stages.append(IGVReportStage())
 
-        if getattr(args, "igv", False):
-            stages.append(IGVReportStage())
-
-        if not getattr(args, "no_metadata", False):
-            stages.append(MetadataGenerationStage())
+    if not getattr(args, "no_metadata", False):
+        stages.append(MetadataGenerationStage())
 
     if hasattr(args, "archive_results") and args.archive_results:
         stages.append(ArchiveCreationStage())
