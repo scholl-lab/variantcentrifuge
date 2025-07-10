@@ -192,6 +192,10 @@ def extract_phenotypes_for_gt_row(gt_value: str, phenotypes: Dict[str, Set[str]]
             sample_id = sample_entry.split("(")[0]
             genotype = sample_entry.split("(")[1][:-1]  # Remove closing )
             
+            # Skip entries without sample ID (malformed entries like "(0/1)")
+            if not sample_id or not sample_id.strip():
+                continue
+                
             # Skip samples with no variant (./. or 0/0)
             if genotype in ["./.", "0/0", ""]:
                 continue
