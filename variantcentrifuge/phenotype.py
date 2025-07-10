@@ -115,3 +115,93 @@ def aggregate_phenotypes_for_samples(samples: List[str], phenotypes: Dict[str, S
         sample_phenos.append(p_str)
 
     return ";".join(sample_phenos)
+
+
+def format_phenotypes_like_gt_column(samples: List[str], phenotypes: Dict[str, Set[str]]) -> str:
+    """
+    Format phenotypes in the same style as the GT column with sample IDs.
+
+    Creates a string similar to GT column format:
+    "SampleID(phenotype1,phenotype2);SampleID(phenotype3);..."
+
+    This matches the format used in genotype replacement where each sample's data is
+    prefixed with the sample ID in parentheses.
+
+    Parameters
+    ----------
+    samples : list of str
+        List of sample IDs in the order they appear in the VCF.
+    phenotypes : dict of {str: set of str}
+        Dictionary mapping sample IDs to a set of phenotypes.
+
+    Returns
+    -------
+    str
+        A string with phenotypes formatted like GT column:
+        "Sample1(pheno1,pheno2);Sample2(pheno3);..."
+        Samples without phenotypes get empty parentheses: "Sample3()".
+    """
+    sample_entries = []
+    for sample_id in samples:
+        if sample_id in phenotypes and phenotypes[sample_id]:
+            # Join phenotypes with commas, sort for consistency
+            phenotype_str = ",".join(sorted(phenotypes[sample_id]))
+        else:
+            # Empty phenotypes for samples without data
+            phenotype_str = ""
+
+        # Format like GT column: SampleID(phenotypes)
+        sample_entries.append(f"{sample_id}({phenotype_str})")
+
+    return ";".join(sample_entries)
+
+
+def extract_phenotypes_for_gt_row(gt_value: str, phenotypes: Dict[str, Set[str]]) -> str:
+    """
+    Extract phenotypes for samples that have variants in a specific GT row.
+
+    Parses the GT column value to find which samples have variants, then returns
+    their phenotypes in the same format as the GT column.
+
+    Parameters
+    ----------
+    gt_value : str
+        GT column value like "Sample1(0/1);Sample2(1/1);Sample3(./.)"
+    phenotypes : dict of {str: set of str}
+        Dictionary mapping sample IDs to a set of phenotypes.
+
+    Returns
+    -------
+    str
+        Phenotypes for samples with variants: "Sample1(pheno1,pheno2);Sample2(pheno3)"
+        Samples with no variants (./. or 0/0) are excluded.
+    """
+    if not gt_value or not gt_value.strip():
+        return ""
+    
+    phenotype_entries = []
+    
+    # Parse GT column to extract samples with variants
+    for sample_entry in gt_value.split(";"):
+        sample_entry = sample_entry.strip()
+        if not sample_entry:
+            continue
+            
+        # Extract sample ID and genotype: "Sample1(0/1)" -> "Sample1", "0/1"
+        if "(" in sample_entry and sample_entry.endswith(")"):
+            sample_id = sample_entry.split("(")[0]
+            genotype = sample_entry.split("(")[1][:-1]  # Remove closing )
+            
+            # Skip samples with no variant (./. or 0/0)
+            if genotype in ["./.", "0/0", ""]:
+                continue
+                
+            # Get phenotypes for this sample
+            if sample_id in phenotypes and phenotypes[sample_id]:
+                phenotype_str = ",".join(sorted(phenotypes[sample_id]))
+                phenotype_entries.append(f"{sample_id}({phenotype_str})")
+            else:
+                # Sample has variant but no phenotypes
+                phenotype_entries.append(f"{sample_id}()")
+    
+    return ";".join(phenotype_entries)

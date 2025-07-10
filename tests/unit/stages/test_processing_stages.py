@@ -440,34 +440,76 @@ class TestPhenotypeIntegrationStage:
         ctx.mark_complete("genotype_replacement")
         return ctx
 
-    @patch("variantcentrifuge.stages.processing_stages.aggregate_phenotypes_for_samples")
     @patch("variantcentrifuge.stages.processing_stages.pd.read_csv")
-    def test_phenotype_integration(self, mock_read, mock_aggregate, context):
+    def test_phenotype_integration(self, mock_read, context):
         """Test phenotype integration."""
         # Setup mocks
         mock_df = Mock(spec=pd.DataFrame)
         mock_df.__setitem__ = Mock()  # Support item assignment
         mock_df.to_csv = Mock()  # Add to_csv method
+        mock_df.columns = ["CHROM", "POS", "REF", "ALT", "GT"]  # Include GT column
+        mock_df.__getitem__ = Mock()  # Support item access
+        mock_apply_result = Mock()
+        mock_df.__getitem__.return_value.apply = Mock(return_value=mock_apply_result)
         mock_read.return_value = mock_df
-        mock_aggregate.return_value = ["Affected", "Unaffected", "Affected"]
 
         stage = PhenotypeIntegrationStage()
         stage(context)
 
-        # Verify aggregation
-        mock_aggregate.assert_called_once_with(
-            samples=["Sample1", "Sample2", "Sample3"],
-            phenotypes=context.phenotype_data,
-        )
+        # Verify GT column was accessed
+        mock_df.__getitem__.assert_called_with("GT")
+        
+        # Verify apply was called (phenotype extraction function)
+        mock_df.__getitem__.return_value.apply.assert_called_once()
 
         # Verify phenotype column added
         assert mock_df.__setitem__.called
         call_args = mock_df.__setitem__.call_args[0]
         assert call_args[0] == "Phenotypes"
-        assert call_args[1] == ["Affected", "Unaffected", "Affected"]
 
         # Verify output written
         mock_df.to_csv.assert_called_once()
+
+    def test_extract_phenotypes_for_gt_row(self, context):
+        """Test the GT row-specific phenotype extraction function."""
+        from variantcentrifuge.phenotype import extract_phenotypes_for_gt_row
+
+        # Test data
+        phenotypes = {
+            "Sample1": {"HP:0000001", "HP:0000002"},
+            "Sample2": {"HP:0000003"},
+            "Sample3": set(),  # No phenotypes
+            "Sample4": {"HP:0000004"},
+        }
+
+        # Test with some samples having variants
+        gt_value = "Sample1(0/1);Sample2(1/1);Sample3(0/0);Sample4(./.)"
+        result = extract_phenotypes_for_gt_row(gt_value, phenotypes)
+        
+        # Should only include samples with variants (not 0/0 or ./.)
+        expected = "Sample1(HP:0000001,HP:0000002);Sample2(HP:0000003)"
+        assert result == expected
+
+    def test_extract_phenotypes_empty_gt(self, context):
+        """Test phenotype extraction with empty GT value."""
+        from variantcentrifuge.phenotype import extract_phenotypes_for_gt_row
+
+        phenotypes = {"Sample1": {"HP:0000001"}}
+        
+        # Test empty GT
+        assert extract_phenotypes_for_gt_row("", phenotypes) == ""
+        assert extract_phenotypes_for_gt_row(None, phenotypes) == ""
+
+    def test_extract_phenotypes_no_variants(self, context):
+        """Test phenotype extraction when no samples have variants."""
+        from variantcentrifuge.phenotype import extract_phenotypes_for_gt_row
+
+        phenotypes = {"Sample1": {"HP:0000001"}, "Sample2": {"HP:0000002"}}
+        
+        # All samples have no variants
+        gt_value = "Sample1(0/0);Sample2(./.)"
+        result = extract_phenotypes_for_gt_row(gt_value, phenotypes)
+        assert result == ""
 
     def test_skip_if_no_phenotypes(self, context):
         """Test skipping when no phenotype data."""

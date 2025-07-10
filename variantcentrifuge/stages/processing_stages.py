@@ -24,7 +24,7 @@ from smart_open import smart_open
 from ..extractor import extract_fields
 from ..filters import apply_snpsift_filter, extract_variants
 from ..gene_bed import get_gene_bed, normalize_genes
-from ..phenotype import aggregate_phenotypes_for_samples
+from ..phenotype import extract_phenotypes_for_gt_row
 from ..pipeline_core import PipelineContext, Stage
 from ..pipeline_core.error_handling import (
     FileFormatError,
@@ -906,21 +906,21 @@ class PhenotypeIntegrationStage(Stage):
         if context.config.get("gzip_intermediates"):
             output_tsv = Path(str(output_tsv) + ".gz")
 
-        # Aggregate phenotypes
-        samples = context.vcf_samples
-        aggregated = aggregate_phenotypes_for_samples(
-            samples=samples,
-            phenotypes=context.phenotype_data,
-        )
-
-        logger.info(f"Adding phenotype data for {len(samples)} samples")
+        logger.info(f"Adding phenotype data for {len(context.vcf_samples)} samples")
 
         # Read input TSV
         compression = "gzip" if str(input_tsv).endswith(".gz") else None
         df = pd.read_csv(input_tsv, sep="\t", dtype=str, compression=compression)
 
-        # Add phenotype column
-        df["Phenotypes"] = aggregated
+        # Check if GT column exists
+        if "GT" not in df.columns:
+            logger.warning("No GT column found, cannot add phenotype data")
+            return context
+
+        # Extract phenotypes for each row based on GT column
+        df["Phenotypes"] = df["GT"].apply(
+            lambda gt_val: extract_phenotypes_for_gt_row(gt_val, context.phenotype_data)
+        )
 
         # Write output
         compression = "gzip" if str(output_tsv).endswith(".gz") else None
