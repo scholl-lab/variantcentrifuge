@@ -502,7 +502,8 @@ class TestPhenotypeCaseControlAssignmentStage:
         return context
 
     @patch(
-        "variantcentrifuge.stages.setup_stages.PhenotypeCaseControlAssignmentStage._compute_samples_from_phenotype_file"
+        "variantcentrifuge.stages.setup_stages."
+        "PhenotypeCaseControlAssignmentStage._compute_samples_from_phenotype_file"
     )
     def test_phenotype_based_assignment(self, mock_compute, context):
         """Test phenotype-based case/control assignment."""

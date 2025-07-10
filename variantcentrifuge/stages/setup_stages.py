@@ -105,7 +105,11 @@ class ConfigurationLoadingStage(Stage):
 
             # Ensure phenotype arguments are properly set even if they come as None
             # This fixes the issue where --phenotype-file args don't make it to config
-            phenotype_args = ["phenotype_file", "phenotype_sample_column", "phenotype_value_column"]
+            phenotype_args = [
+                "phenotype_file", 
+                "phenotype_sample_column", 
+                "phenotype_value_column"
+            ]
             for arg in phenotype_args:
                 if hasattr(context.args, arg):
                     config[arg] = getattr(context.args, arg)
@@ -496,7 +500,8 @@ class SampleConfigLoadingStage(Stage):
             auto_control_samples = list(vcf_samples_set - case_samples_set)
             context.config["control_samples"] = auto_control_samples
             logger.info(
-                f"Automatically assigned {len(auto_control_samples)} control samples (all non-case samples)"
+                f"Automatically assigned {len(auto_control_samples)} control samples "
+                f"(all non-case samples)"
             )
             logger.debug(f"Auto control samples: {auto_control_samples[:10]}...")
         elif control_samples and not case_samples:
@@ -506,7 +511,8 @@ class SampleConfigLoadingStage(Stage):
             auto_case_samples = list(vcf_samples_set - control_samples_set)
             context.config["case_samples"] = auto_case_samples
             logger.info(
-                f"Automatically assigned {len(auto_case_samples)} case samples (all non-control samples)"
+                f"Automatically assigned {len(auto_case_samples)} case samples "
+                f"(all non-control samples)"
             )
             logger.debug(f"Auto case samples: {auto_case_samples[:10]}...")
 
@@ -615,7 +621,9 @@ class PhenotypeCaseControlAssignmentStage(Stage):
                 "Missing phenotype file parameters, cannot perform phenotype-based assignment"
             )
             logger.warning(
-                f"phenotype_file={phenotype_file}, sample_column={phenotype_sample_column}, value_column={phenotype_value_column}"
+                f"phenotype_file={phenotype_file}, "
+                f"sample_column={phenotype_sample_column}, "
+                f"value_column={phenotype_value_column}"
             )
             return context
 
@@ -777,7 +785,8 @@ class PhenotypeCaseControlAssignmentStage(Stage):
             final_control_samples = control_samples & vcf_samples_set
 
         logger.info(
-            f"Final assignment: {len(final_case_samples)} cases, {len(final_control_samples)} controls"
+            f"Final assignment: {len(final_case_samples)} cases, "
+            f"{len(final_control_samples)} controls"
         )
 
         return list(final_case_samples), list(final_control_samples)
@@ -787,7 +796,8 @@ class PhenotypeCaseControlAssignmentStage(Stage):
     ):
         """Simple modular function to classify samples based on phenotype data."""
         logger.info(
-            f"Performing phenotype-based case/control assignment for {len(vcf_samples)} VCF samples"
+            f"Performing phenotype-based case/control assignment for "
+            f"{len(vcf_samples)} VCF samples"
         )
         logger.info(
             f"Using {len(case_phenotypes)} case phenotypes and "
