@@ -179,6 +179,7 @@ class TestPipelineRunner:
     @pytest.mark.xfail(reason="ThreadPoolExecutor doesn't support true task cancellation")
     def test_parallel_failure_cancellation(self, runner, context):
         """Test that parallel stages are cancelled on failure."""
+
         # Create a stage that checks cancellation
         class CancellableStage(MockStage):
             def _process(self, context):
