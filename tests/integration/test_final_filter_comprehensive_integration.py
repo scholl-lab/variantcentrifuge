@@ -5,10 +5,8 @@ stage-based pipelines, including scoring integration and various filter scenario
 """
 
 import json
-import tempfile
 from argparse import Namespace
-from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -87,8 +85,8 @@ def mock_external_tools():
 
         elif "bcftools" in cmd_str and "view" in cmd_str:
             # Simulate variant extraction - copy input to output
-            input_file = cmd[cmd.index("-o") + 1]
             # In real scenario, would filter VCF, here we just pass through
+            pass
 
         elif "SnpSift" in cmd_str and "filter" in cmd_str:
             # Pass through filtering (no actual filtering in mock)
@@ -253,7 +251,8 @@ class TestFinalFilterLegacyPipeline:
             "--preset",
             "moderate",
             "--final-filter",
-            '(score > 0.7 and GENE == "BRCA1") or (score > 0.5 and Inheritance_Pattern == "de_novo")',
+            '(score > 0.7 and GENE == "BRCA1") or '
+            '(score > 0.5 and Inheritance_Pattern == "de_novo")',
         ]
 
         with patch("sys.argv", ["variantcentrifuge"] + args):
