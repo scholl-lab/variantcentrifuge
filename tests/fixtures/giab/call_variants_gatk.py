@@ -43,9 +43,8 @@ def check_dependencies():
             if tool == "gatk":
                 # GATK version output goes to stderr
                 version_output = result.stderr.decode() if result.stderr else result.stdout.decode()
-                logger.info(
-                    f"Found GATK: {version_output.split()[0] if version_output else 'Unknown version'}"
-                )
+                version_text = version_output.split()[0] if version_output else 'Unknown version'
+                logger.info(f"Found GATK: {version_text}")
             else:
                 version_output = result.stdout.decode().split("\n")[0]
                 logger.info(f"Found {tool}: {version_output}")
@@ -267,7 +266,8 @@ def call_variants_multisample(
     for bam_file in bam_files:
         logger.info(f"  - {bam_file.name}")
     logger.info(
-        f"Command: gatk --java-options -Xmx{java_memory} HaplotypeCaller -R [ref] -L [intervals] -O {output_vcf.name} [multiple -I inputs]"
+        f"Command: gatk --java-options -Xmx{java_memory} HaplotypeCaller "
+        f"-R [ref] -L [intervals] -O {output_vcf.name} [multiple -I inputs]"
     )
 
     start_time = time.time()
@@ -319,7 +319,8 @@ def main():
 
     logger.info(f"Starting GATK variant calling - Log file: {log_file}")
     logger.info(
-        f"Parameters: data_dir={args.data_dir}, reference_dir={args.reference_dir}, output_dir={args.output_dir}"
+        f"Parameters: data_dir={args.data_dir}, reference_dir={args.reference_dir}, "
+        f"output_dir={args.output_dir}"
     )
 
     # Check dependencies

@@ -468,7 +468,8 @@ class EnhancedTestDataGenerator:
 
         variants.sort(key=sort_key)
         logger.info(
-            f"Generated {len(variants)} variants with real annotations across {len(self.ALL_GENES)} genes"
+            f"Generated {len(variants)} variants with real annotations "
+            f"across {len(self.ALL_GENES)} genes"
         )
 
         return variants
@@ -660,7 +661,11 @@ class EnhancedTestDataGenerator:
 
             # INFO field definitions for rich annotations
             info_fields = [
-                '##INFO=<ID=ANN,Number=.,Type=String,Description="Functional annotations: Allele | Annotation | Annotation_Impact | Gene_Name | Gene_ID | Feature_Type | Feature_ID | Transcript_BioType | Rank | HGVS.c | HGVS.p | cDNA.pos / cDNA.length | CDS.pos / CDS.length | AA.pos / AA.length | Distance | ERRORS / WARNINGS / INFO">',
+                '##INFO=<ID=ANN,Number=.,Type=String,Description="Functional annotations: '
+                'Allele | Annotation | Annotation_Impact | Gene_Name | Gene_ID | Feature_Type | '
+                'Feature_ID | Transcript_BioType | Rank | HGVS.c | HGVS.p | '
+                'cDNA.pos / cDNA.length | '
+                'CDS.pos / CDS.length | AA.pos / AA.length | Distance | ERRORS / WARNINGS / INFO">',
                 '##INFO=<ID=AC,Number=A,Type=Integer,Description="Allele count in genotypes">',
                 '##INFO=<ID=SNP,Number=0,Type=Flag,Description="Variant is a SNP">',
                 '##INFO=<ID=VARTYPE,Number=1,Type=String,Description="Variant type">',
@@ -717,16 +722,24 @@ class EnhancedTestDataGenerator:
                     field_type = "String"
 
                 annotation_fields.append(
-                    f'##INFO=<ID={field},Number=.,Type={field_type},Description="{field} annotation">'
+                    f'##INFO=<ID={field},Number=.,Type={field_type},' +
+                    f'Description="{field} annotation">'
                 )
 
             # Add core dbNSFP fields with proper descriptions
             core_fields = [
-                '##INFO=<ID=dbNSFP_CADD_phred,Number=.,Type=Float,Description="CADD phred-like score">',
-                '##INFO=<ID=dbNSFP_SIFT_pred,Number=.,Type=String,Description="SIFT prediction">',
-                '##INFO=<ID=dbNSFP_Polyphen2_HDIV_pred,Number=.,Type=String,Description="PolyPhen2 HDIV prediction">',
-                '##INFO=<ID=dbNSFP_REVEL_score,Number=.,Type=Float,Description="REVEL score">',
-                '##INFO=<ID=dbNSFP_GERP___RS,Number=.,Type=Float,Description="GERP++ rejection score">',
+                '##INFO=<ID=dbNSFP_CADD_phred,Number=.,Type=Float,' +
+                'Description="CADD phred-like score">',
+                '##INFO=<ID=dbNSFP_SIFT_score,Number=.,Type=Float,' +
+                'Description="SIFT score">',
+                '##INFO=<ID=dbNSFP_SIFT_pred,Number=.,Type=String,' +
+                'Description="SIFT prediction">',
+                '##INFO=<ID=dbNSFP_Polyphen2_HDIV_pred,Number=.,Type=String,' +
+                'Description="PolyPhen2 HDIV prediction">',
+                '##INFO=<ID=dbNSFP_REVEL_score,Number=.,Type=Float,' +
+                'Description="REVEL score">',
+                '##INFO=<ID=dbNSFP_GERP___RS,Number=.,Type=Float,' +
+                'Description="GERP++ rejection score">',
             ]
 
             # Replace any duplicate entries from core_fields
@@ -1117,19 +1130,26 @@ Generated on: {datetime.now().isoformat()}
 
 ## Overview
 
-This enhanced test dataset provides comprehensive coverage for testing gene burden analysis
-functionality in VariantCentrifuge, featuring **realistic annotations sampled from real genomic data**.
+This enhanced test dataset provides comprehensive coverage for testing gene burden
+analysis
+functionality in VariantCentrifuge, featuring **realistic annotations sampled from
+real genomic data**.
 
 ### Key Enhancements
 
-- **Real Annotation Sampling**: Authentic SnpEff annotations extracted from {self.annotation_sampler.source_file}
-- **Realistic Pathogenicity Prediction**: Uses actual dbNSFP scores (CADD, SIFT, PolyPhen2, REVEL)
-- **Diverse Variant Effects**: {len(self.annotation_sampler.templates)} unique effect types from real data
-- **Controlled Test Outcomes**: Maintains probabilistic genotype distributions for reliable testing
+- **Real Annotation Sampling**: Authentic SnpEff annotations extracted from
+  {self.annotation_sampler.source_file}
+- **Realistic Pathogenicity Prediction**: Uses actual dbNSFP scores (CADD, SIFT,
+  PolyPhen2, REVEL)
+- **Diverse Variant Effects**: {len(self.annotation_sampler.templates)} unique
+  effect types from real data
+- **Controlled Test Outcomes**: Maintains probabilistic genotype distributions
+  for reliable testing
 
 ## Dataset Composition
 
-- **Total Samples**: {len(self.all_samples)} ({len(self.case_samples)} cases, {len(self.control_samples)} controls)
+- **Total Samples**: {len(self.all_samples)} ({len(self.case_samples)} cases,
+  {len(self.control_samples)} controls)
 - **Disease Genes**: {', '.join(sorted(self.DISEASE_GENES))}
 - **Control Genes**: {', '.join(sorted(self.CONTROL_GENES))}
 - **Annotation Source**: Real variants from {self.annotation_sampler.source_file}
@@ -1170,7 +1190,7 @@ Genotype probabilities are adjusted based on:
 When running gene burden analysis on this enhanced dataset:
 
 - **Disease genes** should show **significant enrichment** in cases
-- **High-impact variants** in disease genes should have stronger association
+- **High-impact variants** in disease genes should have stronger\n  association
 - **Annotation-based filtering** should work with realistic dbNSFP scores
 - **Effect prioritization** should properly rank variant consequences
 
@@ -1182,14 +1202,17 @@ The enhanced dataset provides:
 - Controlled genotype distributions ensuring reliable statistical results
 - Comprehensive test coverage across all gene burden analysis methods
 
-Check `enhanced_dataset_statistics.json` for detailed metrics on annotation sampling and effect distributions.
+Check `enhanced_dataset_statistics.json` for detailed metrics on annotation sampling
+and effect distributions.
 """
 
         (output_dir / "README.md").write_text(readme_content)
 
     def generate_enhanced_dataset(self, output_dir: Path) -> None:
         """Generate the complete enhanced test dataset."""
-        logger.info(f"Generating enhanced gene burden test dataset in {output_dir}")
+        logger.info(
+            f"Generating enhanced gene burden test dataset in {output_dir}"
+        )
 
         # Create output directory
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -1206,7 +1229,8 @@ Check `enhanced_dataset_statistics.json` for detailed metrics on annotation samp
         # Compress VCF
         logger.info("Compressing enhanced VCF file...")
         os.system(
-            f"cd {output_dir} && bgzip -f enhanced_test_data.vcf && tabix -p vcf enhanced_test_data.vcf.gz"
+            f"cd {output_dir} && bgzip -f enhanced_test_data.vcf && "
+            f"tabix -p vcf enhanced_test_data.vcf.gz"
         )
 
         logger.info(f"✓ Enhanced test dataset generated in {output_dir}")

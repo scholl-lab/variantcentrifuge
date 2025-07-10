@@ -372,7 +372,8 @@ def test_test_data_availability():
 
     if not fixtures_dir.exists():
         pytest.skip(
-            f"Test data not generated. Run: cd {fixtures_dir.parent} && python generate_comprehensive_test_data.py --output-dir comprehensive_test_data"
+            f"Test data not generated. Run: cd {fixtures_dir.parent} && "
+            f"python generate_comprehensive_test_data.py --output-dir comprehensive_test_data"
         )
 
     required_files = [

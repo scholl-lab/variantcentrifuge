@@ -301,8 +301,9 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.Da
     logger.info(f"Gene burden analysis processing {len(grouped)} genes in deterministic order")
     for i, row in grouped.iterrows():
         logger.debug(
-            f"Processing gene {row['GENE']}: case_count={row['proband_count']}, control_count={row['control_count']}, "
-            f"case_alleles={row['proband_allele_count']}, control_alleles={row['control_allele_count']}"
+            f"Processing gene {row['GENE']}: case_count={row['proband_count']}, "
+            f"control_count={row['control_count']}, case_alleles={row['proband_allele_count']}, "
+            f"control_alleles={row['control_allele_count']}"
         )
 
     results = []
@@ -327,7 +328,9 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.Da
             # Debug logging for negative values
             if p_ref < 0 or c_ref < 0:
                 logger.error(
-                    f"Gene {gene} has negative reference counts: p_count={p_count}, p_var={p_var}, p_ref={p_ref}, c_count={c_count}, c_var={c_var}, c_ref={c_ref}"
+                    f"Gene {gene} has negative reference counts: p_count={p_count}, "
+                    f"p_var={p_var}, p_ref={p_ref}, c_count={c_count}, "
+                    f"c_var={c_var}, c_ref={c_ref}"
                 )
                 continue
         else:
@@ -342,7 +345,9 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.Da
             # Debug logging for negative values
             if p_ref < 0 or c_ref < 0:
                 logger.error(
-                    f"Gene {gene} has negative reference allele counts: p_count={p_count}, p_all={p_all}, p_ref={p_ref}, c_count={c_count}, c_all={c_all}, c_ref={c_ref}"
+                    f"Gene {gene} has negative reference allele counts: "
+                    f"p_count={p_count}, p_all={p_all}, p_ref={p_ref}, "
+                    f"c_count={c_count}, c_all={c_all}, c_ref={c_ref}"
                 )
                 continue
 

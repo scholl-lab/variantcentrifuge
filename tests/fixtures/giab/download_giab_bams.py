@@ -28,20 +28,50 @@ logger = logging.getLogger(__name__)
 # GIAB HG19 Exome BAM URLs
 GIAB_EXOME_BAMS = {
     "HG002": {
-        "bam": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG002_NA24385_son/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG002-EEogPU_v02-KIT-Av5_AGATGTAC_L008.posiSrt.markDup.bam",
-        "bai": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG002_NA24385_son/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG002-EEogPU_v02-KIT-Av5_AGATGTAC_L008.posiSrt.markDup.bai",
+        "bam": (
+            "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/"
+            "AshkenazimTrio/HG002_NA24385_son/OsloUniversityHospital_Exome/"
+            "151002_7001448_0359_AC7F6GANXX_Sample_HG002-EEogPU_v02-KIT-Av5_"
+            "AGATGTAC_L008.posiSrt.markDup.bam"
+        ),
+        "bai": (
+            "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/"
+            "AshkenazimTrio/HG002_NA24385_son/OsloUniversityHospital_Exome/"
+            "151002_7001448_0359_AC7F6GANXX_Sample_HG002-EEogPU_v02-KIT-Av5_"
+            "AGATGTAC_L008.posiSrt.markDup.bai"
+        ),
         "bam_md5": "c80f0cab24bfaa504393457b8f7191fa",
         "bai_md5": "d4fea426c3e2e9a71bb92e6526b4df6",
     },
     "HG003": {
-        "bam": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG003_NA24149_father/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG003-EEogPU_v02-KIT-Av5_TCTTCACA_L008.posiSrt.markDup.bam",
-        "bai": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG003_NA24149_father/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG003-EEogPU_v02-KIT-Av5_TCTTCACA_L008.posiSrt.markDup.bai",
+        "bam": (
+            "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/"
+            "AshkenazimTrio/HG003_NA24149_father/OsloUniversityHospital_Exome/"
+            "151002_7001448_0359_AC7F6GANXX_Sample_HG003-EEogPU_v02-KIT-Av5_"
+            "TCTTCACA_L008.posiSrt.markDup.bam"
+        ),
+        "bai": (
+            "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/"
+            "AshkenazimTrio/HG003_NA24149_father/OsloUniversityHospital_Exome/"
+            "151002_7001448_0359_AC7F6GANXX_Sample_HG003-EEogPU_v02-KIT-Av5_"
+            "TCTTCACA_L008.posiSrt.markDup.bai"
+        ),
         "bam_md5": "79ce0edc9363710030e973bd12af5423",
         "bai_md5": "0512b54f2b66f3a04653be9f5975ae7",
     },
     "HG004": {
-        "bam": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG004_NA24143_mother/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG004-EEogPU_v02-KIT-Av5_CCGAAGTA_L008.posiSrt.markDup.bam",
-        "bai": "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG004_NA24143_mother/OsloUniversityHospital_Exome/151002_7001448_0359_AC7F6GANXX_Sample_HG004-EEogPU_v02-KIT-Av5_CCGAAGTA_L008.posiSrt.markDup.bai",
+        "bam": (
+            "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/"
+            "AshkenazimTrio/HG004_NA24143_mother/OsloUniversityHospital_Exome/"
+            "151002_7001448_0359_AC7F6GANXX_Sample_HG004-EEogPU_v02-KIT-Av5_"
+            "CCGAAGTA_L008.posiSrt.markDup.bam"
+        ),
+        "bai": (
+            "ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/"
+            "AshkenazimTrio/HG004_NA24143_mother/OsloUniversityHospital_Exome/"
+            "151002_7001448_0359_AC7F6GANXX_Sample_HG004-EEogPU_v02-KIT-Av5_"
+            "CCGAAGTA_L008.posiSrt.markDup.bai"
+        ),
         "bam_md5": "39e90d925fff5ea7dd6dab255f299581",
         "bai_md5": "8914bfb6fa6bd304192f2c9e13e903f4",
     },
