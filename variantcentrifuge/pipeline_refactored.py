@@ -53,6 +53,7 @@ from .stages.setup_stages import (
     ConfigurationLoadingStage,
     PedigreeLoadingStage,
     PhenotypeLoadingStage,
+    PhenotypeCaseControlAssignmentStage,
     SampleConfigLoadingStage,
     ScoringConfigLoadingStage,
 )
@@ -83,8 +84,8 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
     config = args.config if hasattr(args, "config") and isinstance(args.config, dict) else {}
 
     # Setup stages (can run in parallel)
-    if args.phenotype_file:
-        stages.append(PhenotypeLoadingStage())
+    # Always add phenotype loading stage - it will skip if no phenotype file is provided
+    stages.append(PhenotypeLoadingStage())
 
     # Check for scoring config in merged config or args
     if config.get("scoring_config_path") or (
@@ -106,6 +107,10 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
 
     # Always load samples
     stages.append(SampleConfigLoadingStage())
+
+    # Add phenotype-based case/control assignment stage
+    # This must run after both phenotype loading and sample config loading
+    stages.append(PhenotypeCaseControlAssignmentStage())
 
     # Processing stages
     stages.append(GeneBedCreationStage())
@@ -139,8 +144,8 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
     if not getattr(args, "no_replacement", False):
         stages.append(GenotypeReplacementStage())
 
-    if args.phenotype_file:
-        stages.append(PhenotypeIntegrationStage())
+    # Always add phenotype integration stage - it will skip if no phenotype data is loaded
+    stages.append(PhenotypeIntegrationStage())
 
     if hasattr(args, "extra_columns_to_remove") and args.extra_columns_to_remove:
         stages.append(ExtraColumnRemovalStage())

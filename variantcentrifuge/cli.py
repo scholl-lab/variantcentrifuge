@@ -1310,6 +1310,11 @@ def main() -> int:
     # Scoring configuration
     cfg["scoring_config_path"] = args.scoring_config_path
 
+    # Phenotype configuration - ensure these are always set
+    cfg["phenotype_file"] = args.phenotype_file
+    cfg["phenotype_sample_column"] = args.phenotype_sample_column
+    cfg["phenotype_value_column"] = args.phenotype_value_column
+
     # Unified annotation configuration
     cfg["annotate_bed_files"] = args.annotate_bed
     cfg["annotate_json_genes"] = args.annotate_json_genes

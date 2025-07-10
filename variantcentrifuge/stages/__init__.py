@@ -50,6 +50,7 @@ from .setup_stages import (
     ConfigurationLoadingStage,
     PedigreeLoadingStage,
     PhenotypeLoadingStage,
+    PhenotypeCaseControlAssignmentStage,
     SampleConfigLoadingStage,
     ScoringConfigLoadingStage,
 )
@@ -58,6 +59,7 @@ __all__ = [
     # Setup stages
     "ConfigurationLoadingStage",
     "PhenotypeLoadingStage",
+    "PhenotypeCaseControlAssignmentStage",
     "ScoringConfigLoadingStage",
     "PedigreeLoadingStage",
     "AnnotationConfigLoadingStage",

@@ -909,9 +909,8 @@ class PhenotypeIntegrationStage(Stage):
         # Aggregate phenotypes
         samples = context.vcf_samples
         aggregated = aggregate_phenotypes_for_samples(
-            phenotypes=context.phenotype_data,
             samples=samples,
-            missing_string=context.config.get("missing_string_phenotype", ""),
+            phenotypes=context.phenotype_data,
         )
 
         logger.info(f"Adding phenotype data for {len(samples)} samples")
