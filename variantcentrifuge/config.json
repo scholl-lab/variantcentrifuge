@@ -2,7 +2,7 @@
   "reference": "GRCh37.p13",
   "add_chr": false,
   "filters": "",
-  "fields_to_extract": "CHROM POS REF ALT ID FILTER QUAL AC ANN[0].GENE ANN[0].FEATUREID ANN[0].EFFECT ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P NMD[0].PERC ANN[0].AA_POS ANN[0].AA_LEN dbNSFP_REVEL_score dbNSFP_CADD_phred splice_dbscSNV_rf_score splice_dbscSNV_ada_score splice_spidex_dpsi_zscore dbNSFP_gnomAD_exomes_AC dbNSFP_gnomAD_genomes_AC dbNSFP_ALFA_Total_AC dbNSFP_clinvar_clnsig ClinVar_CLNSIG hgmd_CLASS GEN[*].GT",
+  "fields_to_extract": "CHROM POS REF ALT ID FILTER QUAL AC ANN[0].GENE ANN[0].FEATUREID ANN[0].EFFECT ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P NMD[0].PERC ANN[0].AA_POS ANN[0].AA_LEN dbNSFP_REVEL_score dbNSFP_CADD_phred splice_dbscSNV_rf_score splice_dbscSNV_ada_score splice_spidex_dpsi_zscore dbNSFP_gnomAD_exomes_AC dbNSFP_gnomAD_genomes_AC dbNSFP_gnomAD_exomes_AF dbNSFP_gnomAD_genomes_AF dbNSFP_ALFA_Total_AC dbNSFP_clinvar_clnsig ClinVar_CLNSIG hgmd_CLASS GEN[*].GT",
   "sample_file": "samples.txt",
   "replace_script_options": "--append-genotype",
   "output_file": "variants.tsv",
