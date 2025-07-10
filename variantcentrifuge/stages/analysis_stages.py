@@ -45,16 +45,25 @@ class DataFrameLoadingStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Always depends on field extraction (the TSV file must exist)
-        # We don't add other dependencies here to avoid circular dependencies
-        # Instead, we handle the data flow in _process() method
-        return {"field_extraction"}
+        # In sequential mode, depends on field_extraction
+        # In parallel mode, ParallelCompleteProcessingStage handles field extraction internally
+        # We return an empty set here and check for data availability in _process()
+        # This allows the stage to work in both sequential and parallel modes
+        return set()
 
     @property
     def soft_dependencies(self) -> Set[str]:
         """Return the set of stage names that should run before if present."""
         # Prefer to run after all data transformation stages
-        return {"genotype_replacement", "phenotype_integration", "extra_column_removal"}
+        # In sequential mode: after field_extraction and processing stages
+        # In parallel mode: after parallel_complete_processing
+        return {
+            "field_extraction", 
+            "parallel_complete_processing",
+            "genotype_replacement", 
+            "phenotype_integration", 
+            "extra_column_removal"
+        }
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Load data into DataFrame or prepare chunked processing."""
