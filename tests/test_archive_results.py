@@ -220,7 +220,7 @@ class TestArchiveResults:
                 archive_path = archive_results_directory(output_dir, "test_sample")
                 assert archive_path is None
 
-    @patch("variantcentrifuge.pipeline_core.logger")
+    @patch("variantcentrifuge.utils.logger")
     def test_archive_results_logging(self, mock_logger):
         """Test that appropriate log messages are generated."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -277,8 +277,8 @@ class TestArchiveResults:
 class TestArchiveResultsIntegration:
     """Integration tests for archive_results in the pipeline."""
 
-    @patch("variantcentrifuge.pipeline_core.run_command")
-    @patch("variantcentrifuge.pipeline_core.check_external_tools")
+    @patch("variantcentrifuge.utils.run_command")
+    @patch("variantcentrifuge.utils.check_external_tools")
     def test_pipeline_with_archive_flag(self, mock_check_tools, mock_run_command):
         """Test that pipeline correctly calls archive function when flag is set."""
         # This is a placeholder for integration testing

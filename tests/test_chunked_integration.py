@@ -76,7 +76,7 @@ class TestChunkedIntegration:
             config_regular = base_config.copy()
             config_regular["use_chunked_processing"] = False
 
-            with patch("variantcentrifuge.pipeline_core.smart_open") as mock_open:
+            with patch("variantcentrifuge.stages.processing_stages.smart_open") as mock_open:
                 # Mock to use regular open
                 mock_open.side_effect = lambda f, m, **kwargs: open(f, m)
 

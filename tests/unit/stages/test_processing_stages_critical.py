@@ -77,9 +77,18 @@ class TestSnpSiftFilterStage:
         base_context.config = {"filter": "(GEN[*].DP >= 10)", "threads": 4}
         base_context.data = input_vcf
 
-        # Mock apply_snpsift_filter to create the output file
+        # Mock apply_snpsift_filter to create the output file with VCF content
         def mock_apply_side_effect(input_file, filter_expr, config, output_file):
-            Path(output_file).touch()
+            # Create realistic filtered VCF content
+            vcf_content = """##fileformat=VCFv4.2
+##contig=<ID=chr1,length=249250621>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample1\tSample2
+chr1\t100\t.\tA\tT\t100\tPASS\t.\tGT:DP\t0/1:15\t0/0:20
+chr1\t200\t.\tG\tC\t100\tPASS\t.\tGT:DP\t0/0:12\t0/1:18
+"""
+            Path(output_file).write_text(vcf_content)
 
         mock_apply_filter.side_effect = mock_apply_side_effect
 

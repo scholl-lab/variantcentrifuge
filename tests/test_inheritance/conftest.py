@@ -208,3 +208,130 @@ def mitochondrial_variants() -> pd.DataFrame:
             }
         ]
     )
+
+
+@pytest.fixture
+def trio_ped_content() -> str:
+    """Return standard trio PED content string."""
+    return """#FamilyID\tIndividualID\tPaternalID\tMaternalID\tSex\tAffectedStatus
+FAM1\tchild\tfather\tmother\t1\t2
+FAM1\tfather\t0\t0\t1\t1
+FAM1\tmother\t0\t0\t2\t1"""
+
+
+@pytest.fixture
+def trio_ped_file(tmp_path):
+    """Create a standard trio pedigree file."""
+    ped_file = tmp_path / "trio.ped"
+    ped_content = """#FamilyID\tIndividualID\tPaternalID\tMaternalID\tSex\tAffectedStatus
+FAM1\tchild\tfather\tmother\t1\t2
+FAM1\tfather\t0\t0\t1\t1
+FAM1\tmother\t0\t0\t2\t1"""
+    ped_file.write_text(ped_content)
+    return ped_file
+
+
+@pytest.fixture
+def trio_sample_list() -> list:
+    """Standard trio sample list."""
+    return ["child", "father", "mother"]
+
+
+@pytest.fixture
+def de_novo_variant_row() -> dict:
+    """Standard de novo variant row."""
+    return {"child": "0/1", "father": "0/0", "mother": "0/0"}
+
+
+@pytest.fixture
+def recessive_variant_row() -> dict:
+    """Standard recessive variant row."""
+    return {"child": "1/1", "father": "0/1", "mother": "0/1"}
+
+
+@pytest.fixture
+def dominant_variant_row() -> dict:
+    """Standard dominant variant row."""
+    return {"child": "0/1", "father": "0/1", "mother": "0/0"}
+
+
+@pytest.fixture
+def x_linked_recessive_male_row() -> dict:
+    """X-linked recessive affecting male."""
+    return {"son": "1", "father": "0", "mother": "0/1"}
+
+
+@pytest.fixture
+def x_linked_recessive_female_row() -> dict:
+    """X-linked recessive affecting female."""
+    return {"daughter": "1/1", "father": "1", "mother": "0/1"}
+
+
+@pytest.fixture
+def mitochondrial_variant_row() -> dict:
+    """Standard mitochondrial variant row."""
+    return {"child": "1/1", "father": "0/0", "mother": "1/1"}
+
+
+@pytest.fixture
+def compound_het_trio_variants() -> pd.DataFrame:
+    """Create compound heterozygous variants for trio testing."""
+    return pd.DataFrame(
+        [
+            {
+                "CHROM": "1",
+                "POS": "1000",
+                "REF": "A",
+                "ALT": "T",
+                "GENE": "GENE1",
+                "child": "0/1",
+                "father": "0/1",
+                "mother": "0/0",
+            },
+            {
+                "CHROM": "1",
+                "POS": "2000",
+                "REF": "C",
+                "ALT": "G",
+                "GENE": "GENE1",
+                "child": "0/1",
+                "father": "0/0",
+                "mother": "0/1",
+            },
+        ]
+    )
+
+
+@pytest.fixture
+def x_linked_pedigree_data() -> Dict[str, Dict[str, Any]]:
+    """Pedigree data for X-linked testing with male and female offspring."""
+    return {
+        "son": {
+            "sample_id": "son",
+            "father_id": "father",
+            "mother_id": "mother",
+            "sex": "1",  # Male
+            "affected_status": "2",  # Affected
+        },
+        "daughter": {
+            "sample_id": "daughter",
+            "father_id": "father",
+            "mother_id": "mother",
+            "sex": "2",  # Female
+            "affected_status": "2",  # Affected
+        },
+        "father": {
+            "sample_id": "father",
+            "father_id": "0",
+            "mother_id": "0",
+            "sex": "1",  # Male
+            "affected_status": "1",  # Unaffected
+        },
+        "mother": {
+            "sample_id": "mother",
+            "father_id": "0",
+            "mother_id": "0",
+            "sex": "2",  # Female
+            "affected_status": "1",  # Unaffected (carrier)
+        },
+    }

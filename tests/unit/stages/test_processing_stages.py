@@ -89,12 +89,21 @@ class TestVariantExtractionStage:
     @patch("variantcentrifuge.stages.processing_stages.extract_variants")
     def test_variant_extraction(self, mock_extract, context):
         """Test variant extraction."""
-        # Mock the extract_variants to create output file
+
+        # Mock the extract_variants to create output file with VCF content
         def mock_extract_side_effect(**kwargs):
-            # Create the output file
+            # Create the output file with realistic VCF content
             output_path = Path(kwargs["output_file"])
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.touch()
+            # Create VCF content with variants that include GT field
+            vcf_content = """##fileformat=VCFv4.2
+##contig=<ID=chr17,length=81195210>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample1\tSample2
+chr17\t43044295\t.\tA\tG\t100\tPASS\t.\tGT\t0/1\t0/0
+chr17\t43044300\t.\tC\tT\t100\tPASS\t.\tGT\t0/0\t0/1
+"""
+            output_path.write_text(vcf_content)
 
         mock_extract.side_effect = mock_extract_side_effect
 
