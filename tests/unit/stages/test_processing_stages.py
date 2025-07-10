@@ -89,7 +89,6 @@ class TestVariantExtractionStage:
     @patch("variantcentrifuge.stages.processing_stages.extract_variants")
     def test_variant_extraction(self, mock_extract, context):
         """Test variant extraction."""
-
         # Mock the extract_variants to create output file
         def mock_extract_side_effect(**kwargs):
             # Create the output file

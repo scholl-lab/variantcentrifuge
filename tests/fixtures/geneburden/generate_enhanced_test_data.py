@@ -227,7 +227,6 @@ class AnnotationSampler:
         self, target_gene: str, effect_preference: str = None, impact_preference: str = None
     ) -> Optional[AnnotationTemplate]:
         """Sample an appropriate annotation template."""
-
         # Get candidates based on preferences
         candidates = []
 
@@ -662,9 +661,9 @@ class EnhancedTestDataGenerator:
             # INFO field definitions for rich annotations
             info_fields = [
                 '##INFO=<ID=ANN,Number=.,Type=String,Description="Functional annotations: '
-                'Allele | Annotation | Annotation_Impact | Gene_Name | Gene_ID | Feature_Type | '
-                'Feature_ID | Transcript_BioType | Rank | HGVS.c | HGVS.p | '
-                'cDNA.pos / cDNA.length | '
+                "Allele | Annotation | Annotation_Impact | Gene_Name | Gene_ID | Feature_Type | "
+                "Feature_ID | Transcript_BioType | Rank | HGVS.c | HGVS.p | "
+                "cDNA.pos / cDNA.length | "
                 'CDS.pos / CDS.length | AA.pos / AA.length | Distance | ERRORS / WARNINGS / INFO">',
                 '##INFO=<ID=AC,Number=A,Type=Integer,Description="Allele count in genotypes">',
                 '##INFO=<ID=SNP,Number=0,Type=Flag,Description="Variant is a SNP">',
@@ -722,24 +721,22 @@ class EnhancedTestDataGenerator:
                     field_type = "String"
 
                 annotation_fields.append(
-                    f'##INFO=<ID={field},Number=.,Type={field_type},' +
-                    f'Description="{field} annotation">'
+                    f"##INFO=<ID={field},Number=.,Type={field_type},"
+                    + f'Description="{field} annotation">'
                 )
 
             # Add core dbNSFP fields with proper descriptions
             core_fields = [
-                '##INFO=<ID=dbNSFP_CADD_phred,Number=.,Type=Float,' +
-                'Description="CADD phred-like score">',
-                '##INFO=<ID=dbNSFP_SIFT_score,Number=.,Type=Float,' +
-                'Description="SIFT score">',
-                '##INFO=<ID=dbNSFP_SIFT_pred,Number=.,Type=String,' +
-                'Description="SIFT prediction">',
-                '##INFO=<ID=dbNSFP_Polyphen2_HDIV_pred,Number=.,Type=String,' +
-                'Description="PolyPhen2 HDIV prediction">',
-                '##INFO=<ID=dbNSFP_REVEL_score,Number=.,Type=Float,' +
-                'Description="REVEL score">',
-                '##INFO=<ID=dbNSFP_GERP___RS,Number=.,Type=Float,' +
-                'Description="GERP++ rejection score">',
+                "##INFO=<ID=dbNSFP_CADD_phred,Number=.,Type=Float,"
+                + 'Description="CADD phred-like score">',
+                "##INFO=<ID=dbNSFP_SIFT_score,Number=.,Type=Float," + 'Description="SIFT score">',
+                "##INFO=<ID=dbNSFP_SIFT_pred,Number=.,Type=String,"
+                + 'Description="SIFT prediction">',
+                "##INFO=<ID=dbNSFP_Polyphen2_HDIV_pred,Number=.,Type=String,"
+                + 'Description="PolyPhen2 HDIV prediction">',
+                "##INFO=<ID=dbNSFP_REVEL_score,Number=.,Type=Float," + 'Description="REVEL score">',
+                "##INFO=<ID=dbNSFP_GERP___RS,Number=.,Type=Float,"
+                + 'Description="GERP++ rejection score">',
             ]
 
             # Replace any duplicate entries from core_fields
@@ -1210,9 +1207,7 @@ and effect distributions.
 
     def generate_enhanced_dataset(self, output_dir: Path) -> None:
         """Generate the complete enhanced test dataset."""
-        logger.info(
-            f"Generating enhanced gene burden test dataset in {output_dir}"
-        )
+        logger.info(f"Generating enhanced gene burden test dataset in {output_dir}")
 
         # Create output directory
         output_dir.mkdir(parents=True, exist_ok=True)

@@ -275,14 +275,14 @@ def test_assign_case_control_counts_unit():
     # Cases: 1 homozygous (2 alleles) + 1 heterozygous (1 allele) = 3 alleles,
     # 2 samples with variants
     # Controls: 1 heterozygous (1 allele) = 1 allele, 1 sample with variant
-    assert (
-        result_df["proband_variant_count"].iloc[0] == 2
-    ), (f"Row 0: Expected 2 case samples with variants, "
-        f"got {result_df['proband_variant_count'].iloc[0]}")
-    assert (
-        result_df["control_variant_count"].iloc[0] == 1
-    ), (f"Row 0: Expected 1 control sample with variant, "
-        f"got {result_df['control_variant_count'].iloc[0]}")
+    assert result_df["proband_variant_count"].iloc[0] == 2, (
+        f"Row 0: Expected 2 case samples with variants, "
+        f"got {result_df['proband_variant_count'].iloc[0]}"
+    )
+    assert result_df["control_variant_count"].iloc[0] == 1, (
+        f"Row 0: Expected 1 control sample with variant, "
+        f"got {result_df['control_variant_count'].iloc[0]}"
+    )
     assert (
         result_df["proband_allele_count"].iloc[0] == 3
     ), f"Row 0: Expected 3 case alleles, got {result_df['proband_allele_count'].iloc[0]}"

@@ -137,7 +137,7 @@ class TestParallelProcessing:
 
             print(f"DEBUG: snpeff mock called with cmd: {cmd}")
             print(f"DEBUG: snpeff mock kwargs: {list(kwargs.keys())}")
-            
+
             if isinstance(cmd, list) and "genes2bed" in cmd:
                 stdout_file = kwargs.get("stdout")
                 print(f"DEBUG: snpeff stdout file: {stdout_file}")
@@ -362,7 +362,7 @@ class TestParallelProcessing:
                         # Debug: print what files we're looking for
                         print(f"DEBUG: extractFields command: {cmd}")
                         print(f"DEBUG: looking for input file, found: {input_file}")
-                        exists_status = Path(input_file).exists() if input_file else 'None'
+                        exists_status = Path(input_file).exists() if input_file else "None"
                         print(f"DEBUG: input file exists: {exists_status}")
 
                         if input_file and Path(input_file).exists():
@@ -438,7 +438,7 @@ class TestParallelProcessing:
                     print(f"DEBUG: Filter command: {cmd}")
                     print(f"DEBUG: Input file: {input_file}")
                     print(f"DEBUG: Output file: {output_file}")
-                    exists_status = Path(input_file).exists() if input_file else 'None'
+                    exists_status = Path(input_file).exists() if input_file else "None"
                     print(f"DEBUG: Input file exists: {exists_status}")
 
                     if input_file and Path(input_file).exists():
@@ -663,9 +663,7 @@ class TestParallelProcessing:
             output_file="output_parallel.tsv",
         )
 
-        with patch(
-            "variantcentrifuge.helpers.get_vcf_samples", return_value=["Sample1"]
-        ):
+        with patch("variantcentrifuge.helpers.get_vcf_samples", return_value=["Sample1"]):
 
             # Reset processed files
             processed_files["parallel"] = []
@@ -677,21 +675,21 @@ class TestParallelProcessing:
         parallel_df = pd.read_csv(parallel_output, sep="\t")
 
         # Debug: Check column names and file contents
-        print(f"DEBUG: Sequential columns: {list(sequential_df.columns)}")
-        print(f"DEBUG: Parallel columns: {list(parallel_df.columns)}")
+        print("DEBUG: Sequential columns:", list(sequential_df.columns))
+        print("DEBUG: Parallel columns:", list(parallel_df.columns))
         print(f"DEBUG: Sequential shape: {sequential_df.shape}")
         print(f"DEBUG: Parallel shape: {parallel_df.shape}")
-        
+
         # Debug: Check actual file contents
-        with open(sequential_output, 'r') as f:
+        with open(sequential_output, "r") as f:
             sequential_lines = f.readlines()[:5]  # First 5 lines
-        print(f"DEBUG: Sequential file first 5 lines:")
+        print("DEBUG: Sequential file first 5 lines:")
         for i, line in enumerate(sequential_lines):
             print(f"  {i}: {line.strip()}")
-            
-        with open(parallel_output, 'r') as f:
+
+        with open(parallel_output, "r") as f:
             parallel_lines = f.readlines()[:5]  # First 5 lines
-        print(f"DEBUG: Parallel file first 5 lines:")
+        print("DEBUG: Parallel file first 5 lines:")
         for i, line in enumerate(parallel_lines):
             print(f"  {i}: {line.strip()}")
 

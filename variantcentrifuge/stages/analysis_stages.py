@@ -58,11 +58,11 @@ class DataFrameLoadingStage(Stage):
         # In sequential mode: after field_extraction and processing stages
         # In parallel mode: after parallel_complete_processing
         return {
-            "field_extraction", 
+            "field_extraction",
             "parallel_complete_processing",
-            "genotype_replacement", 
-            "phenotype_integration", 
-            "extra_column_removal"
+            "genotype_replacement",
+            "phenotype_integration",
+            "extra_column_removal",
         }
 
     def _process(self, context: PipelineContext) -> PipelineContext:

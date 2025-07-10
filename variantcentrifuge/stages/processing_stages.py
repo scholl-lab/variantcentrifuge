@@ -288,7 +288,7 @@ class ParallelVariantExtractionStage(Stage):
         """Split BED file into roughly equal chunks."""
         chunk_dir = bed_file.parent / "chunks"
         chunk_dir.mkdir(exist_ok=True)
-        
+
         chunks = split_bed_file(str(bed_file), n_chunks, str(chunk_dir))
         return [Path(chunk) for chunk in chunks]
 
@@ -1235,7 +1235,7 @@ class ParallelCompleteProcessingStage(Stage):
 
         # Split BED file into chunks
         split_start = self._start_subtask("bed_splitting")
-        
+
         bed_chunks = self._split_bed_file(context.gene_bed_file, threads)
         self._end_subtask("bed_splitting", split_start)
         logger.info(f"Split BED file into {len(bed_chunks)} chunks for parallel processing")
@@ -1271,7 +1271,7 @@ class ParallelCompleteProcessingStage(Stage):
         """Split BED file into roughly equal chunks."""
         chunk_dir = bed_file.parent / "chunks"
         chunk_dir.mkdir(exist_ok=True)
-        
+
         chunks = split_bed_file(str(bed_file), n_chunks, str(chunk_dir))
         return [Path(chunk) for chunk in chunks]
 

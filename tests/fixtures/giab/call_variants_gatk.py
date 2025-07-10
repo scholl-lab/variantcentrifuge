@@ -43,7 +43,7 @@ def check_dependencies():
             if tool == "gatk":
                 # GATK version output goes to stderr
                 version_output = result.stderr.decode() if result.stderr else result.stdout.decode()
-                version_text = version_output.split()[0] if version_output else 'Unknown version'
+                version_text = version_output.split()[0] if version_output else "Unknown version"
                 logger.info(f"Found GATK: {version_text}")
             else:
                 version_output = result.stdout.decode().split("\n")[0]
