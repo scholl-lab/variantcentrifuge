@@ -149,13 +149,61 @@ class DataFrameLoadingStage(Stage):
         if context.config.get("chunks"):
             return True
 
-        # Check file size to determine if chunking is needed
+        # Memory-aware chunking decision
         try:
-            size_mb = file_path.stat().st_size / (1024 * 1024)
-            threshold_mb = context.config.get("chunk_threshold_mb", 500)
-            return size_mb > threshold_mb
-        except Exception:
+            # Get sample count for memory estimation
+            sample_count = len(context.vcf_samples) if context.vcf_samples else 0
+
+            # Estimate variant count from file size (rough approximation)
+            file_size_mb = file_path.stat().st_size / (1024 * 1024)
+            estimated_variants = max(1, int(file_size_mb * 1000))  # ~1000 variants per MB
+
+            # Calculate memory footprint estimation
+            if sample_count > 0:
+                # Each genotype cell ~= 8 bytes in memory after processing
+                estimated_memory_mb = (estimated_variants * sample_count * 8) / (1024 * 1024)
+
+                # Use adaptive thresholds based on sample count
+                if sample_count > 1000:
+                    # Large multi-sample VCFs: use chunking for files > 50MB
+                    threshold_mb = context.config.get("chunk_threshold_mb", 50)
+                    memory_threshold_mb = 500  # 500MB memory limit
+                elif sample_count > 100:
+                    # Medium multi-sample VCFs: use chunking for files > 100MB
+                    threshold_mb = context.config.get("chunk_threshold_mb", 100)
+                    memory_threshold_mb = 1000  # 1GB memory limit
+                else:
+                    # Small sample sets: use original threshold
+                    threshold_mb = context.config.get("chunk_threshold_mb", 500)
+                    memory_threshold_mb = 2000  # 2GB memory limit
+
+                # Use chunking if file size OR estimated memory exceeds threshold
+                if file_size_mb > threshold_mb:
+                    logger.info(
+                        f"Using chunked processing: file size {file_size_mb:.1f}MB > "
+                        f"{threshold_mb}MB threshold"
+                    )
+                    return True
+
+                if estimated_memory_mb > memory_threshold_mb:
+                    logger.info(
+                        f"Using chunked processing: estimated memory {estimated_memory_mb:.1f}MB > "
+                        f"{memory_threshold_mb}MB threshold"
+                    )
+                    logger.info(
+                        f"Memory estimation: {estimated_variants} variants × {sample_count} samples"
+                    )
+                    return True
+            else:
+                # Fallback to file size only
+                threshold_mb = context.config.get("chunk_threshold_mb", 500)
+                return file_size_mb > threshold_mb
+
+        except Exception as e:
+            logger.debug(f"Error in chunking decision: {e}")
             return False
+
+        return False
 
 
 class CustomAnnotationStage(Stage):
@@ -260,6 +308,13 @@ class InheritanceAnalysisStage(Stage):
                 f"Inheritance analysis ({inheritance_mode} mode) "
                 "will be applied during chunked processing"
             )
+            # Store inheritance config for chunked processing
+            context.config["inheritance_analysis_config"] = {
+                "inheritance_mode": inheritance_mode,
+                "vcf_samples": context.vcf_samples,
+                "pedigree_data": context.pedigree_data,
+                "use_vectorized_comp_het": not context.config.get("no_vectorized_comp_het", False),
+            }
             return context
 
         # Get samples info
@@ -277,6 +332,30 @@ class InheritanceAnalysisStage(Stage):
             logger.warning(
                 "VCF samples was a set - converted to sorted list for deterministic order"
             )
+
+        # Memory safety check - avoid creating massive matrices
+        estimated_memory_cells = len(df) * len(vcf_samples)
+        max_memory_cells = context.config.get(
+            "max_inheritance_memory_cells", 100_000_000
+        )  # 100M cells
+
+        if estimated_memory_cells > max_memory_cells:
+            logger.warning(
+                f"Dataset too large for in-memory inheritance analysis: "
+                f"{len(df)} variants × {len(vcf_samples)} samples = "
+                f"{estimated_memory_cells:,} cells. "
+                f"Forcing chunked processing (limit: {max_memory_cells:,} cells)"
+            )
+            # Force chunked processing and delegate to chunked analysis
+            context.config["use_chunked_processing"] = True
+            context.config["force_chunked_processing"] = True
+            context.config["inheritance_analysis_config"] = {
+                "inheritance_mode": inheritance_mode,
+                "vcf_samples": vcf_samples,
+                "pedigree_data": pedigree_data,
+                "use_vectorized_comp_het": not context.config.get("no_vectorized_comp_het", False),
+            }
+            return context
 
         logger.info(
             f"Calculating inheritance patterns ({inheritance_mode} mode) "
@@ -962,12 +1041,33 @@ class ChunkedAnalysisStage(Stage):
     @property
     def dependencies(self) -> Set[str]:
         """Return the set of stage names this stage depends on."""
-        # Depends on configuration but not full DataFrame loading
-        deps = {"field_extraction", "phenotype_integration"}
-        if self._has_configs():
-            deps.update({"annotation_config_loading", "scoring_config_loading", "pedigree_loading"})
+        # Depends on configuration and processing stages but not full DataFrame loading
+        # This stage only runs when use_chunked_processing is True
+        deps = set()
+        
+        # Need basic processing to be complete
+        # For parallel processing, we need the complete processing stage
+        # For sequential processing, we need individual stages
+        deps.add("parallel_complete_processing")  # Will be ignored if not present
+        deps.add("field_extraction")  # Fallback for sequential mode
+        deps.add("phenotype_integration")  # Always needed
+        deps.add("genotype_replacement")  # Usually needed
+        
         return deps
 
+    @property
+    def soft_dependencies(self) -> Set[str]:
+        """Return the set of stage names that should run before if present."""
+        # Soft dependencies - these stages will run before if they exist, but are not required
+        return {
+            "extra_column_removal",
+            "dataframe_loading",  # Should run before regular DataFrame analysis
+            "data_sorting",  # Ensure data is sorted for gene-aware chunking
+            "annotation_config_loading",  # Optional annotation config
+            "scoring_config_loading",  # Optional scoring config
+            "pedigree_loading",  # Optional pedigree data
+        }
+    
     def _has_configs(self) -> bool:
         """Check if config stages exist."""
         return True  # Simplified
@@ -997,7 +1097,7 @@ class ChunkedAnalysisStage(Stage):
 
         # Import required modules for chunk processing
         from variantcentrifuge.analyze_variants import analyze_variants
-        from variantcentrifuge.scoring import score_dataframe
+        from variantcentrifuge.scoring import apply_scoring
 
         # Find gene column
         gene_col_name = None
@@ -1022,12 +1122,23 @@ class ChunkedAnalysisStage(Stage):
         for chunk_df in self._read_tsv_in_gene_chunks(sorted_file, gene_col_name, chunk_size):
             logger.info(f"Processing chunk {chunk_num + 1} with {len(chunk_df)} variants")
 
+            # Apply custom annotations if configured
+            if context.annotation_configs:
+                chunk_df = self._apply_chunk_annotations(chunk_df, context)
+
+            # Apply inheritance analysis if configured
+            inheritance_config = context.config.get("inheritance_analysis_config")
+            if inheritance_config and not context.config.get("skip_inheritance", False):
+                logger.debug(f"Applying inheritance analysis to chunk {chunk_num + 1}")
+                chunk_df = self._apply_chunk_inheritance_analysis(chunk_df, inheritance_config)
+
             # Apply scoring if configured
             if context.scoring_config:
-                chunk_df = score_dataframe(chunk_df, context.scoring_config)
+                chunk_df = apply_scoring(chunk_df, context.scoring_config)
 
-            # Apply analysis
+            # Apply analysis using the line-based interface
             if not context.config.get("skip_analysis", False):
+                # Prepare analysis config - inheritance is handled separately above
                 analysis_cfg = {
                     "add_variant_id": context.config.get("add_variant_id", True),
                     "perform_gene_burden": context.config.get("perform_gene_burden", False),
@@ -1038,9 +1149,25 @@ class ChunkedAnalysisStage(Stage):
                     "aggregate_operation": context.config.get("aggregate_operation", "max"),
                     "aggregate_column": context.config.get("aggregate_column"),
                     "sample_values": context.config.get("sample_values", {}),
+                    "skip_inheritance": True,  # Already handled above
+                    "calculate_inheritance": False,  # Explicitly disable since handled above
+                    "pedigree_data": {},  # Empty dict since inheritance handled above
+                    "sample_list": ",".join(context.vcf_samples) if context.vcf_samples else "",
                 }
 
-                chunk_df = analyze_variants(chunk_df, context.pedigree_data or {}, analysis_cfg)
+                # Convert DataFrame to lines for analyze_variants function
+                import io
+                tsv_lines = chunk_df.to_csv(sep="\t", index=False)
+                lines_iter = iter(tsv_lines.strip().split("\n"))
+                
+                # Call analyze_variants and collect results
+                result_lines = list(analyze_variants(lines_iter, analysis_cfg))
+                
+                # Convert back to DataFrame
+                if result_lines:
+                    import io
+                    result_text = "\n".join(result_lines)
+                    chunk_df = pd.read_csv(io.StringIO(result_text), sep="\t", dtype=str)
 
             output_chunks.append(chunk_df)
             chunk_num += 1
@@ -1050,9 +1177,18 @@ class ChunkedAnalysisStage(Stage):
             logger.info(f"Combining {len(output_chunks)} processed chunks")
             context.current_dataframe = pd.concat(output_chunks, ignore_index=True)
             context.config["chunked_processing_complete"] = True
+            
+            # Write chunked analysis results to a new TSV file for other stages
+            chunked_output_path = context.workspace.get_intermediate_path("chunked_analysis_results.tsv")
+            context.current_dataframe.to_csv(chunked_output_path, sep="\t", index=False)
+            
+            # Update context paths for downstream stages
+            context.chunked_analysis_tsv = chunked_output_path
+            
             logger.info(
                 f"Chunked processing completed: {len(context.current_dataframe)} total variants"
             )
+            logger.info(f"Chunked analysis results written to: {chunked_output_path}")
         else:
             logger.warning("No chunks were processed")
 
@@ -1093,38 +1229,66 @@ class ChunkedAnalysisStage(Stage):
                 tmp.write(f.readline())
             tmp_path = tmp.name
 
-        # Sort data (skip header)
-        sort_cmd = [
-            "sort",
-            "-t",
-            "\t",  # Tab delimiter
-            "-k",
-            str(col_idx),  # Sort by gene column
-            "--stable",  # Stable sort
-            "-T",
-            str(context.workspace.temp),  # Use temp directory
-        ]
+        try:
+            # Sort data (skip header)
+            sort_cmd = [
+                "sort",
+                "-t",
+                "\t",  # Tab delimiter
+                "-k",
+                str(col_idx),  # Sort by gene column
+                "--stable",  # Stable sort
+                "-T",
+                str(context.workspace.temp),  # Use temp directory
+            ]
 
-        memory_limit = context.config.get("sort_memory_limit", "1G")
-        if memory_limit:
-            sort_cmd.extend(["-S", memory_limit])
+            # Adaptive memory limit based on file size
+            file_size_mb = input_file.stat().st_size / (1024 * 1024)
+            if file_size_mb > 1000:  # Files > 1GB
+                memory_limit = context.config.get("sort_memory_limit", "2G")
+            elif file_size_mb > 100:  # Files > 100MB
+                memory_limit = context.config.get("sort_memory_limit", "1G")
+            else:
+                memory_limit = context.config.get("sort_memory_limit", "512M")
 
-        # Sort command: tail -n +2 input | sort ... >> tmp_file
-        with open(tmp_path, "a") as out_f:
-            tail_proc = subprocess.Popen(
-                ["tail", "-n", "+2", str(input_file)], stdout=subprocess.PIPE
+            if memory_limit:
+                sort_cmd.extend(["-S", memory_limit])
+
+            logger.info(
+                f"Sorting {input_file} ({file_size_mb:.1f}MB) with {memory_limit} memory limit"
             )
-            sort_proc = subprocess.Popen(sort_cmd, stdin=tail_proc.stdout, stdout=out_f)
-            tail_proc.stdout.close()
-            sort_proc.wait()
 
-        # Move temp file to final location
-        import shutil
+            # Sort command: tail -n +2 input | sort ... >> tmp_file
+            with open(tmp_path, "a") as out_f:
+                tail_proc = subprocess.Popen(
+                    ["tail", "-n", "+2", str(input_file)], stdout=subprocess.PIPE
+                )
+                sort_proc = subprocess.Popen(sort_cmd, stdin=tail_proc.stdout, stdout=out_f)
+                tail_proc.stdout.close()
+                sort_proc.wait()
 
-        shutil.move(tmp_path, sorted_file)
+                if sort_proc.returncode != 0:
+                    raise subprocess.CalledProcessError(sort_proc.returncode, sort_cmd)
 
-        logger.info(f"Sorting complete: {sorted_file}")
-        return sorted_file
+            # Move temp file to final location
+            import shutil
+
+            shutil.move(tmp_path, sorted_file)
+
+            logger.info(f"Sorting complete: {sorted_file}")
+            return sorted_file
+
+        except Exception as e:
+            logger.error(f"Sorting failed: {e}")
+            # Clean up temp file
+            try:
+                import os
+
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+            # Return original file if sorting fails
+            return input_file
 
     def _read_tsv_in_gene_chunks(self, filepath: Path, gene_column: str, chunksize: int):
         """Read TSV file in gene-aware chunks."""
@@ -1145,6 +1309,7 @@ class ChunkedAnalysisStage(Stage):
 
         gene_buffer = pd.DataFrame()
         chunks_yielded = 0
+        max_buffer_size = chunksize * 20  # Increased buffer size for very large genes
 
         for chunk in reader:
             # Combine with buffer
@@ -1153,14 +1318,37 @@ class ChunkedAnalysisStage(Stage):
             else:
                 gene_buffer = pd.concat([gene_buffer, chunk], ignore_index=True)
 
-            # Check buffer size
-            if len(gene_buffer) > chunksize * 10:
+            # Check buffer size and warn about large genes
+            if len(gene_buffer) > max_buffer_size:
                 logger.warning(
                     f"Gene buffer has grown to {len(gene_buffer)} rows. "
-                    f"This may indicate a gene with too many variants or unsorted data."
+                    f"This may indicate a gene with too many variants. "
+                    f"Consider increasing chunk size or checking data sorting."
                 )
+                # Force yield to prevent memory issues
+                if len(gene_buffer) > chunksize * 50:  # Emergency threshold
+                    logger.error(
+                        f"Gene buffer exceeded emergency threshold ({chunksize * 50} rows). "
+                        f"Forcing chunk yield to prevent memory exhaustion."
+                    )
+                    # Find any gene boundary to split at
+                    gene_values = gene_buffer[gene_column].values
+                    for i in range(chunksize, len(gene_values)):
+                        if gene_values[i] != gene_values[i - 1]:
+                            # Found a gene boundary, split here
+                            yield_df = gene_buffer.iloc[:i].copy()
+                            yield yield_df
+                            chunks_yielded += 1
+                            gene_buffer = gene_buffer.iloc[i:].reset_index(drop=True)
+                            break
+                    else:
+                        # No gene boundary found, yield the entire buffer
+                        logger.warning("No gene boundaries found, yielding entire buffer")
+                        yield gene_buffer.copy()
+                        chunks_yielded += 1
+                        gene_buffer = pd.DataFrame()
 
-            # Find gene boundaries
+            # Find gene boundaries for normal processing
             if len(gene_buffer) >= chunksize:
                 # Find where genes change
                 gene_values = gene_buffer[gene_column].values
@@ -1181,11 +1369,19 @@ class ChunkedAnalysisStage(Stage):
 
                 if split_index is None:
                     # All rows belong to same gene or last gene extends beyond chunksize
-                    # Keep accumulating unless we're at the last chunk
+                    # Keep accumulating unless buffer is getting too large
                     continue
                 else:
                     # Yield complete genes
                     yield_df = gene_buffer.iloc[:split_index].copy()
+                    # Log gene distribution in chunk
+                    if logger.isEnabledFor(logging.DEBUG):
+                        genes_in_chunk = yield_df[gene_column].nunique()
+                        logger.debug(
+                            f"Yielding chunk with {len(yield_df)} variants across "
+                            f"{genes_in_chunk} genes"
+                        )
+
                     yield yield_df
                     chunks_yielded += 1
 
@@ -1194,10 +1390,96 @@ class ChunkedAnalysisStage(Stage):
 
         # Yield any remaining data
         if not gene_buffer.empty:
+            if logger.isEnabledFor(logging.DEBUG):
+                genes_in_final_chunk = gene_buffer[gene_column].nunique()
+                logger.debug(
+                    f"Yielding final chunk with {len(gene_buffer)} variants across "
+                    f"{genes_in_final_chunk} genes"
+                )
             yield gene_buffer
             chunks_yielded += 1
 
         logger.info(f"Completed reading {chunks_yielded} gene-aware chunks")
+
+    def _apply_chunk_annotations(
+        self, chunk_df: pd.DataFrame, context: PipelineContext
+    ) -> pd.DataFrame:
+        """Apply custom annotations to a chunk."""
+        try:
+            from ..annotator import annotate_dataframe_with_features, load_custom_features
+
+            # Create config dict for load_custom_features
+            annotation_cfg = {
+                "annotate_bed_files": context.annotation_configs.get("bed_files", []),
+                "annotate_gene_lists": context.annotation_configs.get("gene_lists", []),
+                "annotate_json_genes": context.annotation_configs.get("json_genes", []),
+                "json_gene_mapping": context.annotation_configs.get("json_mapping", ""),
+                "json_genes_as_columns": context.config.get("json_genes_as_columns", False),
+            }
+            features = load_custom_features(annotation_cfg)
+
+            if features:
+                chunk_df = annotate_dataframe_with_features(chunk_df, features)
+                logger.debug(f"Applied {len(features)} annotation features to chunk")
+
+            return chunk_df
+        except Exception as e:
+            logger.error(f"Error applying annotations to chunk: {e}")
+            return chunk_df
+
+    def _apply_chunk_inheritance_analysis(
+        self, chunk_df: pd.DataFrame, inheritance_config: dict
+    ) -> pd.DataFrame:
+        """Apply inheritance analysis to a chunk with gene-aware processing."""
+        try:
+            from ..inheritance.analyzer import analyze_inheritance
+
+            # Extract config parameters
+            vcf_samples = inheritance_config.get("vcf_samples", [])
+            pedigree_data = inheritance_config.get("pedigree_data", {})
+            use_vectorized_comp_het = inheritance_config.get("use_vectorized_comp_het", True)
+
+            if not vcf_samples:
+                logger.warning("No VCF samples available for chunk inheritance analysis")
+                return chunk_df
+
+            # Memory safety check for chunk
+            estimated_memory_cells = len(chunk_df) * len(vcf_samples)
+            max_chunk_memory_cells = 10_000_000  # 10M cells per chunk
+
+            if estimated_memory_cells > max_chunk_memory_cells:
+                logger.warning(
+                    f"Chunk too large for inheritance analysis: "
+                    f"{len(chunk_df)} variants × {len(vcf_samples)} samples = "
+                    f"{estimated_memory_cells:,} cells. "
+                    f"Skipping inheritance analysis for this chunk."
+                )
+                # Add empty inheritance columns to maintain schema
+                chunk_df["Inheritance_Pattern"] = "skipped"
+                chunk_df["Inheritance_Details"] = "{}"
+                return chunk_df
+
+            logger.debug(
+                f"Applying inheritance analysis to chunk: {len(chunk_df)} variants, "
+                f"{len(vcf_samples)} samples"
+            )
+
+            # Apply inheritance analysis
+            chunk_df = analyze_inheritance(
+                df=chunk_df,
+                pedigree_data=pedigree_data,
+                sample_list=vcf_samples,
+                use_vectorized_comp_het=use_vectorized_comp_het,
+            )
+
+            return chunk_df
+
+        except Exception as e:
+            logger.error(f"Error in chunk inheritance analysis: {e}")
+            # Add empty inheritance columns to maintain schema
+            chunk_df["Inheritance_Pattern"] = "error"
+            chunk_df["Inheritance_Details"] = "{}"
+            return chunk_df
 
 
 class ParallelAnalysisOrchestrator(Stage):
@@ -1361,7 +1643,8 @@ class ParallelAnalysisOrchestrator(Stage):
     ) -> pd.DataFrame:
         """Process a single gene's variants (runs in worker process)."""
         from variantcentrifuge.analyze_variants import analyze_variants
-        from variantcentrifuge.scoring import score_dataframe
+        from variantcentrifuge.scoring import apply_scoring
+        import io
 
         # Make a copy to avoid modifying the original
         result_df = gene_df.copy()
@@ -1369,11 +1652,21 @@ class ParallelAnalysisOrchestrator(Stage):
         try:
             # Apply scoring if configured
             if scoring_config:
-                result_df = score_dataframe(result_df, scoring_config)
+                result_df = apply_scoring(result_df, scoring_config)
 
             # Apply analysis if not skipped
             if not skip_analysis:
-                result_df = analyze_variants(result_df, pedigree_data or {}, analysis_cfg)
+                # Convert DataFrame to lines for analyze_variants function
+                tsv_lines = result_df.to_csv(sep="\t", index=False)
+                lines_iter = iter(tsv_lines.strip().split("\n"))
+                
+                # Call analyze_variants and collect results
+                result_lines = list(analyze_variants(lines_iter, analysis_cfg))
+                
+                # Convert back to DataFrame
+                if result_lines:
+                    result_text = "\n".join(result_lines)
+                    result_df = pd.read_csv(io.StringIO(result_text), sep="\t", dtype=str)
 
             return result_df
 

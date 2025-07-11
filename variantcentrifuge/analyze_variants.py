@@ -152,6 +152,7 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
         cfg.get("calculate_inheritance")
         and cfg.get("pedigree_data") is not None
         and not inheritance_already_done
+        and not cfg.get("skip_inheritance", False)
     ):
         logger.info("Performing inheritance pattern analysis...")
         try:

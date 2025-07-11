@@ -17,6 +17,7 @@ from .pipeline_core.context import PipelineContext
 from .pipeline_core.runner import PipelineRunner
 from .pipeline_core.workspace import Workspace
 from .stages.analysis_stages import (
+    ChunkedAnalysisStage,
     CustomAnnotationStage,
     DataFrameLoadingStage,
     GeneBurdenAnalysisStage,
@@ -152,6 +153,10 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
 
     # Analysis stages
     stages.append(DataFrameLoadingStage())
+    
+    # Add chunked analysis stage that will handle all analysis steps if chunked processing is needed
+    # This stage will automatically activate when use_chunked_processing is set to True
+    stages.append(ChunkedAnalysisStage())
 
     if any(
         [

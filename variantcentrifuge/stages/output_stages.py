@@ -435,7 +435,23 @@ class TSVOutputStage(Stage):
 
         # Handle chunked processing
         if context.config.get("use_chunked_processing") and df is None:
-            # Output already written during chunked processing
+            # Check if chunked analysis results are available
+            if hasattr(context, 'chunked_analysis_tsv') and context.chunked_analysis_tsv:
+                logger.info(f"Using chunked analysis results from: {context.chunked_analysis_tsv}")
+                # Copy chunked results to final output location
+                output_file = context.config.get("output_file")
+                if output_file and output_file not in [None, "stdout", "-"]:
+                    final_output_path = Path(output_file)
+                    if not final_output_path.is_absolute():
+                        final_output_path = context.workspace.output_dir / final_output_path
+                    
+                    import shutil
+                    shutil.copy2(context.chunked_analysis_tsv, final_output_path)
+                    context.final_output_path = final_output_path
+                    logger.info(f"Chunked analysis results copied to: {final_output_path}")
+                return context
+            
+            # Fallback: Output already written during chunked processing
             output_file = context.config.get("chunked_output_file")
             if output_file:
                 # Ensure the path is within the output directory

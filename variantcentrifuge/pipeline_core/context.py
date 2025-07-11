@@ -150,6 +150,7 @@ class PipelineContext:
     genotype_replaced_tsv: Optional[Path] = None
     phenotypes_added_tsv: Optional[Path] = None
     extra_columns_removed_tsv: Optional[Path] = None
+    chunked_analysis_tsv: Optional[Path] = None
 
     # Analysis results
     current_dataframe: Optional[pd.DataFrame] = None
