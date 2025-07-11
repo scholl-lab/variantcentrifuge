@@ -89,7 +89,6 @@ class TestVariantExtractionStage:
     @patch("variantcentrifuge.stages.processing_stages.extract_variants")
     def test_variant_extraction(self, mock_extract, context):
         """Test variant extraction."""
-
         # Mock the extract_variants to create output file with VCF content
         def mock_extract_side_effect(**kwargs):
             # Create the output file with realistic VCF content
@@ -458,7 +457,7 @@ class TestPhenotypeIntegrationStage:
 
         # Verify GT column was accessed
         mock_df.__getitem__.assert_called_with("GT")
-        
+
         # Verify apply was called (phenotype extraction function)
         mock_df.__getitem__.return_value.apply.assert_called_once()
 
@@ -485,7 +484,7 @@ class TestPhenotypeIntegrationStage:
         # Test with some samples having variants
         gt_value = "Sample1(0/1);Sample2(1/1);Sample3(0/0);Sample4(./.)"
         result = extract_phenotypes_for_gt_row(gt_value, phenotypes)
-        
+
         # Should only include samples with variants (not 0/0 or ./.)
         expected = "Sample1(HP:0000001,HP:0000002);Sample2(HP:0000003)"
         assert result == expected
@@ -495,7 +494,7 @@ class TestPhenotypeIntegrationStage:
         from variantcentrifuge.phenotype import extract_phenotypes_for_gt_row
 
         phenotypes = {"Sample1": {"HP:0000001"}}
-        
+
         # Test empty GT
         assert extract_phenotypes_for_gt_row("", phenotypes) == ""
         assert extract_phenotypes_for_gt_row(None, phenotypes) == ""
@@ -505,7 +504,7 @@ class TestPhenotypeIntegrationStage:
         from variantcentrifuge.phenotype import extract_phenotypes_for_gt_row
 
         phenotypes = {"Sample1": {"HP:0000001"}, "Sample2": {"HP:0000002"}}
-        
+
         # All samples have no variants
         gt_value = "Sample1(0/0);Sample2(./.)"
         result = extract_phenotypes_for_gt_row(gt_value, phenotypes)
@@ -514,46 +513,48 @@ class TestPhenotypeIntegrationStage:
     def test_phenotype_integration_realistic_scenario(self, context):
         """Test realistic scenario with multiple variants and samples."""
         from variantcentrifuge.phenotype import extract_phenotypes_for_gt_row
-        import pandas as pd
-        
+
         # Setup realistic phenotype data
         phenotypes = {
             "Sample1": {"HP:0000001", "HP:0000002"},  # Multiple phenotypes
-            "Sample2": {"HP:0000003"},                 # Single phenotype
-            "Sample3": set(),                          # No phenotypes
-            "Sample4": {"HP:0000004", "HP:0000005"},   # Multiple phenotypes
-            "Sample5": {"HP:0000006"},                 # Single phenotype
+            "Sample2": {"HP:0000003"},  # Single phenotype
+            "Sample3": set(),  # No phenotypes
+            "Sample4": {"HP:0000004", "HP:0000005"},  # Multiple phenotypes
+            "Sample5": {"HP:0000006"},  # Single phenotype
         }
-        
+
         # Test different GT scenarios that would occur in real data
         test_cases = [
             # Variant 1: Some samples have variants
             {
                 "gt": "Sample1(0/1);Sample2(0/0);Sample3(1/1);Sample4(./.);Sample5(0/1)",
-                "expected": "Sample1(HP:0000001,HP:0000002);Sample3();Sample5(HP:0000006)"
+                "expected": "Sample1(HP:0000001,HP:0000002);Sample3();Sample5(HP:0000006)",
             },
             # Variant 2: Only one sample has variant
             {
                 "gt": "Sample1(0/0);Sample2(1/1);Sample3(0/0);Sample4(./.);Sample5(0/0)",
-                "expected": "Sample2(HP:0000003)"
+                "expected": "Sample2(HP:0000003)",
             },
             # Variant 3: No samples have variants (all reference or missing)
             {
                 "gt": "Sample1(0/0);Sample2(0/0);Sample3(./.);Sample4(./.);Sample5(0/0)",
-                "expected": ""
+                "expected": "",
             },
             # Variant 4: All samples have variants
             {
                 "gt": "Sample1(0/1);Sample2(1/1);Sample3(0/1);Sample4(1/1);Sample5(0/1)",
-                "expected": "Sample1(HP:0000001,HP:0000002);Sample2(HP:0000003);Sample3();Sample4(HP:0000004,HP:0000005);Sample5(HP:0000006)"
+                "expected": (
+                    "Sample1(HP:0000001,HP:0000002);Sample2(HP:0000003);Sample3();"
+                    "Sample4(HP:0000004,HP:0000005);Sample5(HP:0000006)"
+                ),
             },
             # Variant 5: Complex genotypes (homozygous variants)
             {
                 "gt": "Sample1(1/1);Sample2(0/0);Sample3(0/1);Sample4(./.);Sample5(1/1)",
-                "expected": "Sample1(HP:0000001,HP:0000002);Sample3();Sample5(HP:0000006)"
-            }
+                "expected": "Sample1(HP:0000001,HP:0000002);Sample3();Sample5(HP:0000006)",
+            },
         ]
-        
+
         for i, test_case in enumerate(test_cases):
             result = extract_phenotypes_for_gt_row(test_case["gt"], phenotypes)
             assert result == test_case["expected"], (
@@ -567,7 +568,7 @@ class TestPhenotypeIntegrationStage:
         """Test the complete phenotype integration with a realistic DataFrame."""
         import pandas as pd
         from unittest.mock import patch
-        
+
         # Create realistic test data
         test_data = {
             "CHROM": ["chr1", "chr1", "chr2", "chr2"],
@@ -575,72 +576,68 @@ class TestPhenotypeIntegrationStage:
             "REF": ["A", "G", "T", "C"],
             "ALT": ["T", "C", "A", "G"],
             "GT": [
-                "Sample1(0/1);Sample2(0/0);Sample3(1/1)",    # Variant 1: Sample1 and Sample3 have variants
-                "Sample1(0/0);Sample2(1/1);Sample3(0/0)",    # Variant 2: Only Sample2 has variant
-                "Sample1(0/0);Sample2(0/0);Sample3(0/0)",    # Variant 3: No one has variants
-                "Sample1(1/1);Sample2(0/1);Sample3(1/1)"     # Variant 4: All have variants
-            ]
+                "Sample1(0/1);Sample2(0/0);Sample3(1/1)",  # Variant 1
+                "Sample1(0/0);Sample2(1/1);Sample3(0/0)",  # Variant 2: Only Sample2 has variant
+                "Sample1(0/0);Sample2(0/0);Sample3(0/0)",  # Variant 3: No one has variants
+                "Sample1(1/1);Sample2(0/1);Sample3(1/1)",  # Variant 4: All have variants
+            ],
         }
         df = pd.DataFrame(test_data)
-        
+
         # Setup phenotype data
         context.phenotype_data = {
             "Sample1": {"HP:0000001", "HP:0000002"},
             "Sample2": {"HP:0000003"},
-            "Sample3": {"HP:0000004"}
+            "Sample3": {"HP:0000004"},
         }
-        
+
         # Mock file operations
-        with patch('pandas.read_csv', return_value=df), \
-             patch.object(df, 'to_csv') as mock_to_csv:
-            
+        with patch("pandas.read_csv", return_value=df), patch.object(df, "to_csv") as mock_to_csv:
+
             stage = PhenotypeIntegrationStage()
-            result_context = stage(context)
-            
+            stage(context)
+
             # Verify the phenotype column was added correctly
-            expected_phenotypes = [
-                "Sample1(HP:0000001,HP:0000002);Sample3(HP:0000004)",  # Variant 1
-                "Sample2(HP:0000003)",                                  # Variant 2
-                "",                                                     # Variant 3 (no variants)
-                "Sample1(HP:0000001,HP:0000002);Sample2(HP:0000003);Sample3(HP:0000004)"  # Variant 4
-            ]
-            
+
             # Check that apply was called on GT column
             # The actual phenotype values would be set in the real DataFrame
             assert "Phenotypes" in df.columns or mock_to_csv.called
-            
+
             # Verify file was written
             mock_to_csv.assert_called_once()
 
     def test_phenotype_integration_edge_cases(self, context):
         """Test edge cases in phenotype integration."""
         from variantcentrifuge.phenotype import extract_phenotypes_for_gt_row
-        
-        phenotypes = {
-            "Sample1": {"HP:0000001"},
-            "Sample2": {"HP:0000002"}
-        }
-        
+
+        phenotypes = {"Sample1": {"HP:0000001"}, "Sample2": {"HP:0000002"}}
+
         # Test edge cases
         edge_cases = [
             # Malformed GT entries
             {"gt": "Sample1(0/1);Sample2", "expected": "Sample1(HP:0000001)"},
             {"gt": "Sample1;Sample2(0/1)", "expected": "Sample2(HP:0000002)"},
             {"gt": "(0/1);Sample2(1/1)", "expected": "Sample2(HP:0000002)"},
-            
             # Empty or whitespace
             {"gt": "", "expected": ""},
             {"gt": "   ", "expected": ""},
             {"gt": ";;;", "expected": ""},
-            
             # Samples not in phenotype data
-            {"gt": "UnknownSample(0/1);Sample1(1/1)", "expected": "UnknownSample();Sample1(HP:0000001)"},
-            
+            {
+                "gt": "UnknownSample(0/1);Sample1(1/1)",
+                "expected": "UnknownSample();Sample1(HP:0000001)",
+            },
             # Different genotype formats
-            {"gt": "Sample1(0|1);Sample2(1|0)", "expected": "Sample1(HP:0000001);Sample2(HP:0000002)"},
-            {"gt": "Sample1(A/T);Sample2(G/C)", "expected": "Sample1(HP:0000001);Sample2(HP:0000002)"},
+            {
+                "gt": "Sample1(0|1);Sample2(1|0)",
+                "expected": "Sample1(HP:0000001);Sample2(HP:0000002)",
+            },
+            {
+                "gt": "Sample1(A/T);Sample2(G/C)",
+                "expected": "Sample1(HP:0000001);Sample2(HP:0000002)",
+            },
         ]
-        
+
         for i, test_case in enumerate(edge_cases):
             result = extract_phenotypes_for_gt_row(test_case["gt"], phenotypes)
             assert result == test_case["expected"], (

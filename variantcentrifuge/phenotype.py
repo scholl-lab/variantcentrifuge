@@ -178,28 +178,28 @@ def extract_phenotypes_for_gt_row(gt_value: str, phenotypes: Dict[str, Set[str]]
     """
     if not gt_value or not gt_value.strip():
         return ""
-    
+
     phenotype_entries = []
-    
+
     # Parse GT column to extract samples with variants
     for sample_entry in gt_value.split(";"):
         sample_entry = sample_entry.strip()
         if not sample_entry:
             continue
-            
+
         # Extract sample ID and genotype: "Sample1(0/1)" -> "Sample1", "0/1"
         if "(" in sample_entry and sample_entry.endswith(")"):
             sample_id = sample_entry.split("(")[0]
             genotype = sample_entry.split("(")[1][:-1]  # Remove closing )
-            
+
             # Skip entries without sample ID (malformed entries like "(0/1)")
             if not sample_id or not sample_id.strip():
                 continue
-                
+
             # Skip samples with no variant (./. or 0/0)
             if genotype in ["./.", "0/0", ""]:
                 continue
-                
+
             # Get phenotypes for this sample
             if sample_id in phenotypes and phenotypes[sample_id]:
                 phenotype_str = ",".join(sorted(phenotypes[sample_id]))
@@ -207,5 +207,5 @@ def extract_phenotypes_for_gt_row(gt_value: str, phenotypes: Dict[str, Set[str]]
             else:
                 # Sample has variant but no phenotypes
                 phenotype_entries.append(f"{sample_id}()")
-    
+
     return ";".join(phenotype_entries)

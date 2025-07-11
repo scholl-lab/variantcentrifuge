@@ -105,11 +105,7 @@ class ConfigurationLoadingStage(Stage):
 
             # Ensure phenotype arguments are properly set even if they come as None
             # This fixes the issue where --phenotype-file args don't make it to config
-            phenotype_args = [
-                "phenotype_file", 
-                "phenotype_sample_column", 
-                "phenotype_value_column"
-            ]
+            phenotype_args = ["phenotype_file", "phenotype_sample_column", "phenotype_value_column"]
             for arg in phenotype_args:
                 if hasattr(context.args, arg):
                     config[arg] = getattr(context.args, arg)
