@@ -513,9 +513,30 @@ def create_parser() -> argparse.ArgumentParser:
     misc_group.add_argument(
         "--gzip-intermediates",
         action="store_true",
-        default=False,
+        default=True,
         help="Compress intermediate TSV files with gzip to save disk space. "
-        "This may increase processing time but significantly reduces disk usage for large analyses.",
+        "Uses fast compression (level 1) to optimize I/O performance while reducing disk usage. "
+        "Use --no-gzip-intermediates to disable.",
+    )
+    misc_group.add_argument(
+        "--no-gzip-intermediates",
+        dest="gzip_intermediates",
+        action="store_false",
+        help="Disable compression of intermediate TSV files.",
+    )
+    misc_group.add_argument(
+        "--genotype-replacement-chunk-size",
+        type=int,
+        default=10000,
+        help="Chunk size for parallel genotype replacement (default: 10000 variants per chunk). "
+        "Larger chunks use more memory but may be more efficient for very large datasets.",
+    )
+    misc_group.add_argument(
+        "--disable-parallel-genotype-replacement",
+        action="store_true",
+        default=False,
+        help="Force sequential genotype replacement even for large datasets. "
+        "May be useful for debugging or when memory is very limited.",
     )
     misc_group.add_argument(
         "--chunks",

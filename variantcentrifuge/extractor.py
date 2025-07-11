@@ -79,8 +79,13 @@ def extract_fields(variant_file: str, fields: str, cfg: Dict[str, Any], output_f
     run_command(cmd, output_file=temp_output)
 
     # Now fix up the header line and compress
-    open_func = gzip.open if output_file.endswith(".gz") else open
-    mode = "wt" if output_file.endswith(".gz") else "w"
+    # Use fast compression (level 1) for intermediate files to optimize I/O performance
+    if output_file.endswith(".gz"):
+        open_func = lambda f, m, **kwargs: gzip.open(f, m, compresslevel=1, **kwargs)
+        mode = "wt"
+    else:
+        open_func = open
+        mode = "w"
 
     with open(temp_output, "r", encoding="utf-8") as f:
         lines = f.readlines()
@@ -94,7 +99,7 @@ def extract_fields(variant_file: str, fields: str, cfg: Dict[str, Any], output_f
     # Use the utility function to normalize VCF headers, including indexed field renaming
     lines = normalize_vcf_headers(lines)
 
-    # Write the compressed output
+    # Write the compressed output with optimized compression
     with open_func(output_file, mode, encoding="utf-8") as f:
         f.writelines(lines)
 

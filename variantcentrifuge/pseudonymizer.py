@@ -286,7 +286,9 @@ class SamplePseudonymizer:
             family_mapping[family] = f"FAM{i:03d}"
         ped_df["family"] = ped_df["family"].map(family_mapping)
 
-        ped_df.to_csv(output_path, sep="\t", header=False, index=False)
+        # Apply compression if output path ends with .gz
+        compression = "gzip" if str(output_path).endswith(".gz") else None
+        ped_df.to_csv(output_path, sep="\t", header=False, index=False, compression=compression)
         logger.info(f"Pseudonymized PED file saved to {output_path}")
 
     def save_mapping(self, filepath: str, include_metadata: bool = True):
@@ -302,8 +304,9 @@ class SamplePseudonymizer:
         # Create mapping dataframe
         map_df = pd.DataFrame(list(self._mapping.items()), columns=["original_id", "pseudonym_id"])
 
-        # Save primary mapping
-        map_df.to_csv(filepath, sep="\t", index=False)
+        # Save primary mapping with compression if path ends with .gz
+        compression = "gzip" if str(filepath).endswith(".gz") else None
+        map_df.to_csv(filepath, sep="\t", index=False, compression=compression)
 
         # Save metadata if requested
         if include_metadata:

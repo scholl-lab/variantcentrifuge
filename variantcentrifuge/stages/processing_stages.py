@@ -776,28 +776,139 @@ class GenotypeReplacementStage(Stage):
         return {"field_extraction", "sample_config_loading"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
-        """Replace genotypes with sample IDs."""
+        """Replace genotypes with sample IDs using optimized processing."""
         # Default behavior: replace genotypes unless explicitly disabled
         if context.config.get("no_replacement", False):
             logger.debug("Genotype replacement disabled")
             return context
 
         input_tsv = context.data
-        output_tsv = context.workspace.get_intermediate_path(
-            f"{context.workspace.base_name}.genotype_replaced.tsv"
-        )
-
-        # Handle gzip compression
-        if context.config.get("gzip_intermediates"):
-            output_tsv = Path(str(output_tsv) + ".gz")
-
-        # Get sample names
         samples = context.vcf_samples
         if not samples:
             logger.warning("No VCF samples loaded, skipping genotype replacement")
             return context
 
         logger.info(f"Replacing genotypes for {len(samples)} samples")
+
+        # Determine if we should use parallel processing
+        threads = context.config.get("threads", 1)
+        file_size_mb = input_tsv.stat().st_size / (1024 * 1024) if input_tsv.exists() else 0
+        
+        # Use parallel processing for large files with multiple threads
+        use_parallel = (
+            not context.config.get("disable_parallel_genotype_replacement", False) and
+            threads > 1 and 
+            file_size_mb > 100 and  # Files > 100MB
+            len(samples) > 100       # Many samples
+        )
+        
+        if use_parallel:
+            output_tsv = self._process_genotype_replacement_parallel(
+                context, input_tsv, samples, threads
+            )
+        else:
+            output_tsv = self._process_genotype_replacement_sequential(
+                context, input_tsv, samples
+            )
+
+        context.genotype_replaced_tsv = output_tsv
+        context.data = output_tsv
+        return context
+    
+    def _split_tsv_into_chunks(self, input_tsv: Path, chunk_size: int, 
+                              context: PipelineContext) -> List[Path]:
+        """Split TSV file into chunks for parallel processing."""
+        import gzip
+        
+        chunks = []
+        chunk_dir = context.workspace.intermediate_dir / "genotype_chunks"
+        chunk_dir.mkdir(exist_ok=True)
+        
+        # Open input file
+        if str(input_tsv).endswith(".gz"):
+            inp = gzip.open(input_tsv, "rt", encoding="utf-8")
+        else:
+            inp = open(input_tsv, "r", encoding="utf-8")
+        
+        try:
+            # Read header
+            header = inp.readline()
+            if not header:
+                return [input_tsv]  # Empty file, return original
+            
+            chunk_idx = 0
+            current_chunk = None
+            current_chunk_size = 0
+            
+            for line in inp:
+                # Start new chunk if needed
+                if current_chunk is None or current_chunk_size >= chunk_size:
+                    if current_chunk is not None:
+                        current_chunk.close()
+                    
+                    chunk_path = chunk_dir / f"chunk_{chunk_idx}.tsv.gz"
+                    current_chunk = gzip.open(chunk_path, "wt", encoding="utf-8", compresslevel=1)
+                    current_chunk.write(header)  # Write header to each chunk
+                    chunks.append(chunk_path)
+                    chunk_idx += 1
+                    current_chunk_size = 0
+                
+                current_chunk.write(line)
+                current_chunk_size += 1
+            
+            if current_chunk is not None:
+                current_chunk.close()
+                
+        finally:
+            inp.close()
+        
+        return chunks
+    
+    def _process_genotype_chunk(self, chunk_path: Path, replacer_config: dict,
+                               chunk_idx: int, context: PipelineContext) -> Path:
+        """Process a single chunk for genotype replacement."""
+        import gzip
+        from ..replacer import replace_genotypes
+        
+        output_path = chunk_path.parent / f"processed_chunk_{chunk_idx}.tsv.gz"
+        
+        # Process chunk with streaming compression
+        with gzip.open(chunk_path, "rt", encoding="utf-8") as inp:
+            with gzip.open(output_path, "wt", encoding="utf-8", compresslevel=1) as out:
+                for line in replace_genotypes(inp, replacer_config):
+                    out.write(line + "\n")
+        
+        return output_path
+    
+    def _merge_genotype_chunks(self, chunk_paths: List[Path], output_path: Path) -> None:
+        """Merge processed genotype chunks into final output."""
+        import gzip
+        
+        with gzip.open(output_path, "wt", encoding="utf-8", compresslevel=1) as out:
+            first_chunk = True
+            
+            for chunk_path in chunk_paths:
+                with gzip.open(chunk_path, "rt", encoding="utf-8") as inp:
+                    if first_chunk:
+                        # Copy entire first chunk including header
+                        shutil.copyfileobj(inp, out)
+                        first_chunk = False
+                    else:
+                        # Skip header and copy rest
+                        next(inp, None)  # Skip header line
+                        shutil.copyfileobj(inp, out)
+    
+    def _process_genotype_replacement_sequential(self, context: PipelineContext, 
+                                               input_tsv: Path, samples: List[str]) -> Path:
+        """Sequential genotype replacement (original method)."""
+        output_tsv = context.workspace.get_intermediate_path(
+            f"{context.workspace.base_name}.genotype_replaced.tsv"
+        )
+
+        # Always use gzip for intermediate files
+        use_compression = context.config.get("gzip_intermediates", True)
+        if use_compression:
+            output_tsv = Path(str(output_tsv) + ".gz")
 
         # Prepare config for replace_genotypes
         replacer_config = {
@@ -810,17 +921,19 @@ class GenotypeReplacementStage(Stage):
             "genotype_replacement_map": context.config.get("genotype_replacement_map", {}),
         }
 
-        # Run genotype replacement
-        # Handle gzipped input files
+        # Use optimized compression for intermediate files
+        compression_level = 1 if use_compression else None
+        
+        # Handle gzipped input/output files with streaming
         import gzip
-
+        
         if str(input_tsv).endswith(".gz"):
             inp_handle = gzip.open(input_tsv, "rt", encoding="utf-8")
         else:
             inp_handle = open(input_tsv, "r", encoding="utf-8")
 
         if str(output_tsv).endswith(".gz"):
-            out_handle = gzip.open(output_tsv, "wt", encoding="utf-8")
+            out_handle = gzip.open(output_tsv, "wt", encoding="utf-8", compresslevel=compression_level)
         else:
             out_handle = open(output_tsv, "w", encoding="utf-8")
 
@@ -835,8 +948,78 @@ class GenotypeReplacementStage(Stage):
             if hasattr(out_handle, "close"):
                 out_handle.close()
 
-        context.genotype_replaced_tsv = output_tsv
-        context.data = output_tsv
+        return output_tsv
+    
+    def _process_genotype_replacement_parallel(self, context: PipelineContext,
+                                             input_tsv: Path, samples: List[str],
+                                             threads: int) -> Path:
+        """Parallel genotype replacement using chunked processing."""
+        logger.info(f"Using parallel genotype replacement with {threads} threads")
+        
+        # Split input file into chunks for parallel processing
+        chunk_size = context.config.get("genotype_replacement_chunk_size", 10000)
+        chunks = self._split_tsv_into_chunks(input_tsv, chunk_size, context)
+        
+        if len(chunks) <= 1:
+            # Fall back to sequential processing for small files
+            logger.info("File too small for parallel processing, using sequential method")
+            return self._process_genotype_replacement_sequential(context, input_tsv, samples)
+        
+        # Process chunks in parallel
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        # Prepare common config
+        replacer_config = {
+            "sample_list": ",".join(samples),
+            "separator": ";",
+            "extract_fields_separator": ",",
+            "append_extra_sample_fields": context.config.get("append_extra_sample_fields", False),
+            "extra_sample_fields": context.config.get("extra_sample_fields", []),
+            "extra_sample_field_delimiter": context.config.get("extra_sample_field_delimiter", ":"),
+            "genotype_replacement_map": context.config.get("genotype_replacement_map", {}),
+        }
+        
+        processed_chunks = []
+        
+        with ThreadPoolExecutor(max_workers=threads) as executor:
+            # Submit chunk processing tasks
+            futures = {}
+            for i, chunk_path in enumerate(chunks):
+                future = executor.submit(
+                    self._process_genotype_chunk, chunk_path, replacer_config, i, context
+                )
+                futures[future] = i
+            
+            # Collect results
+            for future in as_completed(futures):
+                chunk_idx = futures[future]
+                try:
+                    result_path = future.result()
+                    processed_chunks.append((chunk_idx, result_path))
+                    logger.debug(f"Completed genotype replacement for chunk {chunk_idx}")
+                except Exception as e:
+                    logger.error(f"Error processing genotype chunk {chunk_idx}: {e}")
+                    raise
+        
+        # Sort chunks by index to maintain order
+        processed_chunks.sort(key=lambda x: x[0])
+        chunk_paths = [path for _, path in processed_chunks]
+        
+        # Merge processed chunks
+        output_tsv = context.workspace.get_intermediate_path(
+            f"{context.workspace.base_name}.genotype_replaced.tsv.gz"
+        )
+        
+        self._merge_genotype_chunks(chunk_paths, output_tsv)
+        
+        # Clean up temporary chunks
+        if not context.config.get("keep_intermediates", False):
+            for chunk_path in chunks + chunk_paths:
+                if chunk_path.exists():
+                    chunk_path.unlink()
+        
+        logger.info(f"Parallel genotype replacement completed: {output_tsv}")
+        return output_tsv
         return context
 
 
@@ -1440,55 +1623,128 @@ class ParallelCompleteProcessingStage(Stage):
         return chunk_tsvs
 
     def _merge_tsv_outputs(self, context: PipelineContext, chunk_tsvs: List[Path]) -> Path:
-        """Merge TSV chunks into a single file."""
+        """Merge TSV chunks into a single file with optimized compression handling."""
         output_tsv = context.workspace.get_intermediate_path(
             f"{context.workspace.base_name}.extracted.tsv"
         )
 
-        # Handle gzip compression
-        if context.config.get("gzip_intermediates"):
+        # Always use gzip for intermediate files to save space
+        use_compression = context.config.get("gzip_intermediates", True)
+        if use_compression:
             output_tsv = Path(str(output_tsv) + ".gz")
 
         if len(chunk_tsvs) == 1:
             # Just move the single file
             shutil.move(str(chunk_tsvs[0]), str(output_tsv))
+            logger.info(f"Moved single TSV chunk to {output_tsv}")
         else:
-            # Merge TSV files - need to handle headers
-            import gzip
-
-            # Open output file
-            if str(output_tsv).endswith(".gz"):
-                out_fh = gzip.open(output_tsv, "wt")
+            # Use optimized merging based on compression
+            if use_compression and all(str(chunk).endswith(".gz") for chunk in chunk_tsvs):
+                self._merge_gzipped_tsvs_optimized(chunk_tsvs, output_tsv)
             else:
-                out_fh = open(output_tsv, "w")
-
-            try:
-                first_file = True
-                for chunk_tsv in sorted(chunk_tsvs):  # Sort to ensure consistent order
-                    # Open chunk file
-                    if str(chunk_tsv).endswith(".gz"):
-                        in_fh = gzip.open(chunk_tsv, "rt")
-                    else:
-                        in_fh = open(chunk_tsv, "r")
-
-                    try:
-                        if first_file:
-                            # Copy entire first file including header
-                            shutil.copyfileobj(in_fh, out_fh)
-                            first_file = False
-                        else:
-                            # Skip header line
-                            next(in_fh)
-                            # Copy rest of file
-                            shutil.copyfileobj(in_fh, out_fh)
-                    finally:
-                        in_fh.close()
-
-            finally:
-                out_fh.close()
-
-        logger.info(f"Merged {len(chunk_tsvs)} TSV chunks into {output_tsv}")
+                self._merge_tsvs_traditional(chunk_tsvs, output_tsv)
+            
+            logger.info(f"Merged {len(chunk_tsvs)} TSV chunks into {output_tsv}")
+        
         return output_tsv
+    
+    def _merge_gzipped_tsvs_optimized(self, chunk_tsvs: List[Path], output_tsv: Path) -> None:
+        """Optimized merging of gzipped TSV files using direct concatenation where possible."""
+        import gzip
+        import subprocess
+        
+        # Sort chunks to ensure consistent order
+        sorted_chunks = sorted(chunk_tsvs)
+        
+        # Try to use fast concatenation for identical headers
+        if self._can_use_fast_concatenation(sorted_chunks):
+            logger.info("Using optimized gzipped file concatenation")
+            self._fast_concatenate_gzipped_tsvs(sorted_chunks, output_tsv)
+        else:
+            logger.info("Using traditional merging due to header differences")
+            self._merge_tsvs_traditional(sorted_chunks, output_tsv)
+    
+    def _can_use_fast_concatenation(self, chunk_tsvs: List[Path]) -> bool:
+        """Check if all chunks have identical headers for fast concatenation."""
+        if len(chunk_tsvs) <= 1:
+            return True
+            
+        import gzip
+        
+        try:
+            # Read first header
+            with gzip.open(chunk_tsvs[0], "rt") as f:
+                first_header = f.readline().strip()
+            
+            # Check all other headers
+            for chunk in chunk_tsvs[1:]:
+                with gzip.open(chunk, "rt") as f:
+                    header = f.readline().strip()
+                    if header != first_header:
+                        return False
+            return True
+        except Exception as e:
+            logger.debug(f"Error checking headers for fast concatenation: {e}")
+            return False
+    
+    def _fast_concatenate_gzipped_tsvs(self, chunk_tsvs: List[Path], output_tsv: Path) -> None:
+        """Fast concatenation of gzipped TSVs using streaming compression."""
+        import gzip
+        
+        # Use fastest compression level for intermediate files
+        compression_level = 1  # Fastest compression
+        
+        with gzip.open(output_tsv, "wt", compresslevel=compression_level) as out_fh:
+            first_file = True
+            
+            for chunk_tsv in chunk_tsvs:
+                with gzip.open(chunk_tsv, "rt") as in_fh:
+                    if first_file:
+                        # Copy entire first file including header
+                        shutil.copyfileobj(in_fh, out_fh)
+                        first_file = False
+                    else:
+                        # Skip header line and copy rest
+                        next(in_fh, None)  # Skip header
+                        shutil.copyfileobj(in_fh, out_fh)
+    
+    def _merge_tsvs_traditional(self, chunk_tsvs: List[Path], output_tsv: Path) -> None:
+        """Traditional TSV merging with compression handling."""
+        import gzip
+        
+        # Use fast compression for intermediate files
+        compression_level = 1 if str(output_tsv).endswith(".gz") else None
+        
+        # Open output file
+        if str(output_tsv).endswith(".gz"):
+            out_fh = gzip.open(output_tsv, "wt", compresslevel=compression_level)
+        else:
+            out_fh = open(output_tsv, "w")
+
+        try:
+            first_file = True
+            for chunk_tsv in sorted(chunk_tsvs):  # Sort to ensure consistent order
+                # Open chunk file
+                if str(chunk_tsv).endswith(".gz"):
+                    in_fh = gzip.open(chunk_tsv, "rt")
+                else:
+                    in_fh = open(chunk_tsv, "r")
+
+                try:
+                    if first_file:
+                        # Copy entire first file including header
+                        shutil.copyfileobj(in_fh, out_fh)
+                        first_file = False
+                    else:
+                        # Skip header line
+                        next(in_fh, None)
+                        # Copy rest of file
+                        shutil.copyfileobj(in_fh, out_fh)
+                finally:
+                    in_fh.close()
+
+        finally:
+            out_fh.close()
 
     def _cleanup_chunks(
         self, bed_chunks: List[Path], tsv_chunks: List[Path], context: PipelineContext

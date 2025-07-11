@@ -608,11 +608,24 @@ class GenotypeFilterStage(Stage):
         # Save DataFrame to temporary file for filtering
         import tempfile
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as tmp_input:
-            df.to_csv(tmp_input.name, sep="\t", index=False)
-            tmp_input_path = tmp_input.name
+        # Use compressed temporary files for genotype filtering to save space
+        use_compression = context.config.get("gzip_intermediates", True)
+        suffix = ".tsv.gz" if use_compression else ".tsv"
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as tmp_output:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False) as tmp_input:
+            if use_compression:
+                # For compressed files, write without pandas compression first
+                import gzip
+
+                tmp_input.close()  # Close the file handle
+                with gzip.open(tmp_input.name, "wt", compresslevel=1) as gz_file:
+                    df.to_csv(gz_file, sep="\t", index=False)
+                tmp_input_path = tmp_input.name
+            else:
+                df.to_csv(tmp_input.name, sep="\t", index=False)
+                tmp_input_path = tmp_input.name
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False) as tmp_output:
             tmp_output_path = tmp_output.name
 
         try:
@@ -857,13 +870,34 @@ class VariantAnalysisStage(Stage):
 
         # Create temporary TSV file for analyze_variants
         temp_tsv = context.workspace.get_intermediate_path("temp_for_analysis.tsv")
-        df.to_csv(temp_tsv, sep="\t", index=False)
+
+        # Use compression for temporary analysis files to save space
+        use_compression = context.config.get("gzip_intermediates", True)
+        if use_compression:
+            temp_tsv = Path(str(temp_tsv) + ".gz")
+            compression = "gzip"
+        else:
+            compression = None
+
+        df.to_csv(temp_tsv, sep="\t", index=False, compression=compression)
 
         logger.info("Running variant-level analysis")
 
         # Run analyze_variants and collect results
         analysis_results = []
-        with open(temp_tsv, "r") as inp:
+        # Use appropriate file opener based on compression
+        if use_compression:
+            import gzip
+
+            def open_func(f):
+                return gzip.open(f, "rt")
+
+        else:
+
+            def open_func(f):
+                return open(f, "r")
+
+        with open_func(temp_tsv) as inp:
             for line in analyze_variants(inp, analysis_config):
                 analysis_results.append(line)
 
@@ -1019,7 +1053,16 @@ class GeneBurdenAnalysisStage(Stage):
             # Save the generated path back into the context for other stages to use.
             context.config["gene_burden_output"] = burden_output
 
-        burden_results.to_csv(burden_output, sep="\t", index=False)
+        # Apply compression to gene burden results based on configuration
+        use_compression = context.config.get("gzip_intermediates", True)
+        if use_compression and not str(burden_output).endswith(".gz"):
+            burden_output = str(burden_output) + ".gz"
+            context.config["gene_burden_output"] = burden_output
+            compression = "gzip"
+        else:
+            compression = None
+
+        burden_results.to_csv(burden_output, sep="\t", index=False, compression=compression)
         logger.info(f"Wrote gene burden results to {burden_output}")
 
         return context
@@ -1044,7 +1087,7 @@ class ChunkedAnalysisStage(Stage):
         # Depends on configuration and processing stages but not full DataFrame loading
         # This stage only runs when use_chunked_processing is True
         deps = set()
-        
+
         # Need basic processing to be complete
         # For parallel processing, we need the complete processing stage
         # For sequential processing, we need individual stages
@@ -1052,7 +1095,7 @@ class ChunkedAnalysisStage(Stage):
         deps.add("field_extraction")  # Fallback for sequential mode
         deps.add("phenotype_integration")  # Always needed
         deps.add("genotype_replacement")  # Usually needed
-        
+
         return deps
 
     @property
@@ -1067,7 +1110,7 @@ class ChunkedAnalysisStage(Stage):
             "scoring_config_loading",  # Optional scoring config
             "pedigree_loading",  # Optional pedigree data
         }
-    
+
     def _has_configs(self) -> bool:
         """Check if config stages exist."""
         return True  # Simplified
@@ -1101,7 +1144,19 @@ class ChunkedAnalysisStage(Stage):
 
         # Find gene column
         gene_col_name = None
-        with open(input_file, "r") as f:
+        # Use appropriate file opener based on compression
+        if str(input_file).endswith(".gz"):
+            import gzip
+
+            def open_func(f):
+                return gzip.open(f, "rt")
+
+        else:
+
+            def open_func(f):
+                return open(f, "r")
+
+        with open_func(input_file) as f:
             header = f.readline().strip().split("\t")
             for gene_col in ["GENE", "Gene", "gene", "SYMBOL", "ANN[*].GENE", "EFF[*].GENE"]:
                 if gene_col in header:
@@ -1157,15 +1212,15 @@ class ChunkedAnalysisStage(Stage):
 
                 # Convert DataFrame to lines for analyze_variants function
                 import io
+
                 tsv_lines = chunk_df.to_csv(sep="\t", index=False)
                 lines_iter = iter(tsv_lines.strip().split("\n"))
-                
+
                 # Call analyze_variants and collect results
                 result_lines = list(analyze_variants(lines_iter, analysis_cfg))
-                
+
                 # Convert back to DataFrame
                 if result_lines:
-                    import io
                     result_text = "\n".join(result_lines)
                     chunk_df = pd.read_csv(io.StringIO(result_text), sep="\t", dtype=str)
 
@@ -1177,14 +1232,27 @@ class ChunkedAnalysisStage(Stage):
             logger.info(f"Combining {len(output_chunks)} processed chunks")
             context.current_dataframe = pd.concat(output_chunks, ignore_index=True)
             context.config["chunked_processing_complete"] = True
-            
+
             # Write chunked analysis results to a new TSV file for other stages
-            chunked_output_path = context.workspace.get_intermediate_path("chunked_analysis_results.tsv")
-            context.current_dataframe.to_csv(chunked_output_path, sep="\t", index=False)
-            
+            chunked_output_path = context.workspace.get_intermediate_path(
+                "chunked_analysis_results.tsv"
+            )
+
+            # Always compress chunked analysis results for space efficiency
+            use_compression = context.config.get("gzip_intermediates", True)
+            if use_compression:
+                chunked_output_path = Path(str(chunked_output_path) + ".gz")
+                compression = "gzip"
+            else:
+                compression = None
+
+            context.current_dataframe.to_csv(
+                chunked_output_path, sep="\t", index=False, compression=compression
+            )
+
             # Update context paths for downstream stages
             context.chunked_analysis_tsv = chunked_output_path
-            
+
             logger.info(
                 f"Chunked processing completed: {len(context.current_dataframe)} total variants"
             )
@@ -1214,7 +1282,19 @@ class ChunkedAnalysisStage(Stage):
         logger.info(f"Sorting {input_file} by {gene_col} column")
 
         # Find column index (1-based for sort command)
-        with open(input_file, "r") as f:
+        # Use appropriate file opener based on compression
+        if str(input_file).endswith(".gz"):
+            import gzip
+
+            def open_func(f):
+                return gzip.open(f, "rt")
+
+        else:
+
+            def open_func(f):
+                return open(f, "r")
+
+        with open_func(input_file) as f:
             header = f.readline().strip().split("\t")
             try:
                 col_idx = header.index(gene_col) + 1  # 1-based index
@@ -1225,7 +1305,7 @@ class ChunkedAnalysisStage(Stage):
         # Use system sort for memory efficiency
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as tmp:
             # Write header to temp file
-            with open(input_file, "r") as f:
+            with open_func(input_file) as f:
                 tmp.write(f.readline())
             tmp_path = tmp.name
 
@@ -1258,11 +1338,22 @@ class ChunkedAnalysisStage(Stage):
                 f"Sorting {input_file} ({file_size_mb:.1f}MB) with {memory_limit} memory limit"
             )
 
-            # Sort command: tail -n +2 input | sort ... >> tmp_file
+            # Sort command: handle both compressed and uncompressed files
             with open(tmp_path, "a") as out_f:
-                tail_proc = subprocess.Popen(
-                    ["tail", "-n", "+2", str(input_file)], stdout=subprocess.PIPE
-                )
+                # Use appropriate command for compressed vs uncompressed files
+                if str(input_file).endswith(".gz"):
+                    # For gzipped files: zcat input | tail -n +2 | sort ...
+                    zcat_proc = subprocess.Popen(["zcat", str(input_file)], stdout=subprocess.PIPE)
+                    tail_proc = subprocess.Popen(
+                        ["tail", "-n", "+2"], stdin=zcat_proc.stdout, stdout=subprocess.PIPE
+                    )
+                    zcat_proc.stdout.close()
+                else:
+                    # For uncompressed files: tail -n +2 input | sort ...
+                    tail_proc = subprocess.Popen(
+                        ["tail", "-n", "+2", str(input_file)], stdout=subprocess.PIPE
+                    )
+
                 sort_proc = subprocess.Popen(sort_cmd, stdin=tail_proc.stdout, stdout=out_f)
                 tail_proc.stdout.close()
                 sort_proc.wait()
@@ -1659,10 +1750,10 @@ class ParallelAnalysisOrchestrator(Stage):
                 # Convert DataFrame to lines for analyze_variants function
                 tsv_lines = result_df.to_csv(sep="\t", index=False)
                 lines_iter = iter(tsv_lines.strip().split("\n"))
-                
+
                 # Call analyze_variants and collect results
                 result_lines = list(analyze_variants(lines_iter, analysis_cfg))
-                
+
                 # Convert back to DataFrame
                 if result_lines:
                     result_text = "\n".join(result_lines)
