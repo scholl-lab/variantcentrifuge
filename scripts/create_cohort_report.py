@@ -134,7 +134,8 @@ def aggregate_data(input_files, sample_regex):
     for file_path in input_files:
         logger.info(f"Processing file: {file_path}")  # More prominent log for each file
         try:
-            df = pd.read_csv(file_path, sep="\t")
+            # Use low_memory=False to suppress dtype warnings for variant files
+            df = pd.read_csv(file_path, sep="\t", low_memory=False)
             logger.debug(f"Successfully read {file_path}. Columns: {df.columns.tolist()}")
 
             sample_id = extract_sample_id(

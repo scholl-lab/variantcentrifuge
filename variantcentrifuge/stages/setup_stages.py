@@ -884,9 +884,9 @@ class PhenotypeCaseControlAssignmentStage(Stage):
 
         # Determine delimiter
         if phenotype_file.endswith(".csv"):
-            df = pd.read_csv(phenotype_file)
+            df = pd.read_csv(phenotype_file, low_memory=False)
         else:
-            df = pd.read_csv(phenotype_file, sep="\t")
+            df = pd.read_csv(phenotype_file, sep="\t", low_memory=False)
 
         logger.info(f"Loaded {len(df)} rows from phenotype file")
         logger.debug(f"Columns: {list(df.columns)}")

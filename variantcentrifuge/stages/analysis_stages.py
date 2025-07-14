@@ -742,7 +742,7 @@ class GenotypeFilterStage(Stage):
             )
 
             # Load filtered results back into DataFrame
-            filtered_df = pd.read_csv(tmp_output_path, sep="\t")
+            filtered_df = pd.read_csv(tmp_output_path, sep="\t", low_memory=False)
 
             logger.info(f"Genotype filtering: {len(df)} → {len(filtered_df)} variants")
 

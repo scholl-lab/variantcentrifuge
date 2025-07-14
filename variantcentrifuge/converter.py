@@ -41,7 +41,18 @@ def convert_to_excel(tsv_file: str, cfg: Dict[str, Any]) -> str:
     """
     # MODIFIED: Start of empty report generation
     # Read the TSV, handling the case where it might only have a header
-    df = pd.read_csv(tsv_file, sep="\t", na_values="NA")
+    # Define appropriate dtypes for genomic data to avoid mixed type warnings
+    genomic_dtypes = {
+        'CHROM': 'str',
+        'POS': 'str',  # Use string to handle both numeric positions and special values like "."
+        'REF': 'str',
+        'ALT': 'str',
+        'QUAL': 'str',  # Quality scores can be "." or numeric
+        'FILTER': 'str',
+    }
+
+    # Read with low_memory=False to handle mixed types gracefully and suppress warnings
+    df = pd.read_csv(tsv_file, sep="\t", na_values="NA", dtype=genomic_dtypes, low_memory=False)
 
     # Log whether we have data or just headers
     if len(df) == 0:
@@ -79,7 +90,8 @@ def append_tsv_as_sheet(xlsx_file: str, tsv_file: str, sheet_name: str = "Metada
     -------
     None
     """
-    df = pd.read_csv(tsv_file, sep="\t", header=0)
+    # Read with low_memory=False to suppress dtype warnings for metadata files
+    df = pd.read_csv(tsv_file, sep="\t", header=0, low_memory=False)
     with pd.ExcelWriter(xlsx_file, engine="openpyxl", mode="a", if_sheet_exists="new") as writer:
         df.to_excel(writer, index=False, sheet_name=sheet_name)
 
@@ -318,7 +330,8 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
     # MODIFIED: Start of empty report generation
     # Read the variants TSV, handling the case where it might only have a header
     try:
-        df = pd.read_csv(variant_tsv, sep="\t")
+        # Use low_memory=False to suppress dtype warnings for variant files
+        df = pd.read_csv(variant_tsv, sep="\t", low_memory=False)
     except pd.errors.EmptyDataError:
         logger.warning("Empty TSV file provided. Generating empty JSON files.")
         df = pd.DataFrame()

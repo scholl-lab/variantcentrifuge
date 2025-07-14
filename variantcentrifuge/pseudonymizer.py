@@ -325,7 +325,7 @@ class SamplePseudonymizer:
 
     def load_mapping(self, filepath: str) -> Dict[str, str]:
         """Load a previously saved mapping."""
-        map_df = pd.read_csv(filepath, sep="\t")
+        map_df = pd.read_csv(filepath, sep="\t", low_memory=False)
         self._mapping = dict(zip(map_df["original_id"], map_df["pseudonym_id"]))
         self._reverse_mapping = {v: k for k, v in self._mapping.items()}
         logger.info(f"Loaded {len(self._mapping)} sample mappings")
