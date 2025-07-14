@@ -427,9 +427,7 @@ class PedigreeLoadingStage(Stage):
                     f"(checkpoint skip)"
                 )
             except Exception as e:
-                logger.warning(
-                    f"Failed to restore pedigree file during checkpoint skip: {e}"
-                )
+                logger.warning(f"Failed to restore pedigree file during checkpoint skip: {e}")
         else:
             logger.debug("No pedigree file specified during checkpoint skip")
 
@@ -501,9 +499,7 @@ class AnnotationConfigLoadingStage(Stage):
             if isinstance(bed_files, str):
                 bed_files = [bed_files]
             annotations["bed_files"] = bed_files
-            logger.debug(
-                f"Restored {len(bed_files)} BED file annotations (checkpoint skip)"
-            )
+            logger.debug(f"Restored {len(bed_files)} BED file annotations (checkpoint skip)")
 
         # Restore gene list annotations
         gene_lists = context.config.get("annotate_gene_list", [])
@@ -511,9 +507,7 @@ class AnnotationConfigLoadingStage(Stage):
             if isinstance(gene_lists, str):
                 gene_lists = [gene_lists]
             annotations["gene_lists"] = gene_lists
-            logger.debug(
-                f"Restored {len(gene_lists)} gene list annotations (checkpoint skip)"
-            )
+            logger.debug(f"Restored {len(gene_lists)} gene list annotations (checkpoint skip)")
 
         # Restore JSON gene annotations
         json_genes = context.config.get("annotate_json_genes")
@@ -600,9 +594,7 @@ class SampleConfigLoadingStage(Stage):
         control_samples_file = context.config.get("control_samples_file")
 
         logger.debug(f"Case samples file from config: {case_samples_file}")
-        logger.debug(
-            f"Control samples file from config: {control_samples_file}"
-        )
+        logger.debug(f"Control samples file from config: {control_samples_file}")
 
         if case_samples_file:
             logger.debug(f"Loading case samples from file: {case_samples_file}")
