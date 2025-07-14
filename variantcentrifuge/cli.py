@@ -470,7 +470,8 @@ def create_parser() -> argparse.ArgumentParser:
         "--resume-from",
         type=str,
         metavar="STAGE_NAME",
-        help="Resume pipeline from a specific stage. Use --list-stages to see available stages. "
+        help="Restart pipeline from a specific stage, re-executing that stage and all subsequent stages. "
+        "Stages before the specified stage remain completed. Use --list-stages to see available stages. "
         "Requires --enable-checkpoint",
     )
     checkpoint_group.add_argument(
@@ -1095,7 +1096,8 @@ def main() -> int:
         "--resume-from",
         type=str,
         metavar="STAGE_NAME",
-        help="Resume pipeline from a specific stage. Use --list-stages to see available stages. "
+        help="Restart pipeline from a specific stage, re-executing that stage and all subsequent stages. "
+        "Stages before the specified stage remain completed. Use --list-stages to see available stages. "
         "Requires --enable-checkpoint",
     )
     checkpoint_group.add_argument(

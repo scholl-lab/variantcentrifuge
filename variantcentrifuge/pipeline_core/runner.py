@@ -165,7 +165,11 @@ class PipelineRunner:
     def _handle_selective_resume(
         self, stages: List[Stage], context: PipelineContext
     ) -> List[Stage]:
-        """Handle selective resume from a specific stage.
+        """Handle restart from a specific stage.
+
+        This method implements restart behavior: the specified stage and all 
+        subsequent stages will be re-executed, ignoring their previous completion 
+        status. Only stages that come before the restart point remain marked as complete.
 
         Parameters
         ----------
@@ -177,7 +181,7 @@ class PipelineRunner:
         Returns
         -------
         List[Stage]
-            Filtered list of stages to execute
+            Filtered list of stages to execute (from restart point onwards)
         """
         resume_from = context.config.get("resume_from")
         if not resume_from:
@@ -199,12 +203,31 @@ class PipelineRunner:
         # Validate dependencies and get stages to execute
         stages_to_execute = self._get_stages_to_execute_from(resume_from, stages, context)
 
-        # Mark all completed stages (before resume point) as complete
+        # Restart from specified stage - clear completion status for resume stage and all subsequent stages
         completed_stages = context.checkpoint_state.get_available_resume_points()
         current_stage_names = {stage.name for stage in stages}
         stage_map = {stage.name: stage for stage in stages}
         
-        # Add prerequisite stages that should be considered complete if we're resuming
+        # Get all stages in execution order to determine which come before/after resume point
+        execution_plan = self._create_execution_plan(stages)
+        all_stages_ordered = []
+        for level in execution_plan:
+            all_stages_ordered.extend(level)
+        
+        # Find the index of the resume stage
+        resume_index = None
+        for i, stage in enumerate(all_stages_ordered):
+            if stage.name == resume_from:
+                resume_index = i
+                break
+        
+        if resume_index is None:
+            raise ValueError(f"Could not find resume stage '{resume_from}' in execution plan")
+        
+        # Determine stages that come before the resume point (these can stay complete)
+        stages_before_resume = {stage.name for stage in all_stages_ordered[:resume_index]}
+        
+        # Add prerequisite stages that should be considered complete for restart
         # These are fundamental setup stages that must have completed for pipeline to reach this point
         prerequisite_stages = {
             "configuration_loading",
@@ -216,17 +239,16 @@ class PipelineRunner:
             "annotation_config_loading"
         }
         
-        # Mark prerequisite stages as complete if they exist in the pipeline
+        # Mark prerequisite stages as complete if they exist in the pipeline and come before resume point
         for prereq_stage in prerequisite_stages:
-            if prereq_stage in stage_map and prereq_stage not in completed_stages:
-                logger.debug(f"Marking prerequisite stage as complete for resume: {prereq_stage}")
+            if prereq_stage in stage_map and prereq_stage in stages_before_resume:
+                logger.debug(f"Marking prerequisite stage as complete for restart: {prereq_stage}")
                 context.mark_complete(prereq_stage)
         
+        # Mark only stages that come BEFORE the resume point as complete
         for completed_stage in completed_stages:
-            if completed_stage != resume_from:
-                # Mark stage as complete in context, even if it's not in current pipeline
-                # This handles cases where composite stages (like ParallelCompleteProcessingStage)
-                # marked virtual stages (like field_extraction) as complete
+            if completed_stage in stages_before_resume:
+                # Mark stage as complete in context
                 context.mark_complete(completed_stage)
                 
                 # For stages that are in the original stages list (before filtering),
@@ -241,9 +263,12 @@ class PipelineRunner:
                     logger.info(f"Marking completed stage as done: {completed_stage}")
                 else:
                     logger.debug(f"Marking virtual completed stage as done: {completed_stage}")
+            else:
+                # Stage comes at or after resume point - do not mark as complete (force re-run)
+                logger.debug(f"Stage '{completed_stage}' will be re-run (at or after resume point)")
 
         logger.info(
-            f"Selective resume: Starting from '{resume_from}' with {len(stages_to_execute)} stages"
+            f"Restart mode: Starting from '{resume_from}' with {len(stages_to_execute)} stages to execute"
         )
         return stages_to_execute
 
