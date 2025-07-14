@@ -480,6 +480,31 @@ class PipelineState:
         self.save()
         logger.error(f"Step '{step_name}' failed: {error}")
 
+    def clear_step_completion(self, step_name: str) -> None:
+        """Clear completion status for a step to force re-execution.
+        
+        This method is used for restart functionality where you want to
+        re-run a previously completed step.
+        
+        Parameters
+        ----------
+        step_name : str
+            Name of the step to clear completion status for
+        """
+        if step_name not in self.state["steps"]:
+            logger.debug(f"Step '{step_name}' not in checkpoint state, nothing to clear")
+            return
+            
+        step_info = self.state["steps"][step_name]
+        if step_info.status == "completed":
+            # Reset to a state that will force re-execution
+            step_info.status = "pending"
+            step_info.end_time = None
+            step_info.error = None
+            # Keep output files for potential validation but clear the completion status
+            logger.debug(f"Cleared completion status for step '{step_name}' (restart mode)")
+            self.save()
+
     def get_summary(self) -> str:
         """Get a human-readable summary of the pipeline state."""
         lines = ["Pipeline State Summary:"]

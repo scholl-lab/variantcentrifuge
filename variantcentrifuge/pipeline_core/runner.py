@@ -227,6 +227,13 @@ class PipelineRunner:
         # Determine stages that come before the resume point (these can stay complete)
         stages_before_resume = {stage.name for stage in all_stages_ordered[:resume_index]}
         
+        # Clear completion status in checkpoint for restart stage and all subsequent stages
+        stages_to_clear = {stage.name for stage in all_stages_ordered[resume_index:]}
+        for stage_name in stages_to_clear:
+            context.checkpoint_state.clear_step_completion(stage_name)
+        
+        logger.info(f"Cleared completion status for {len(stages_to_clear)} stages to force restart")
+        
         # Add prerequisite stages that should be considered complete for restart
         # These are fundamental setup stages that must have completed for pipeline to reach this point
         prerequisite_stages = {
