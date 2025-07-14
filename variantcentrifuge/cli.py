@@ -458,7 +458,10 @@ def create_parser() -> argparse.ArgumentParser:
     checkpoint_group.add_argument(
         "--checkpoint-checksum",
         action="store_true",
-        help="Calculate file checksums for checkpoint validation (slower but more reliable). "
+        help="Calculate file checksums for checkpoint validation (RECOMMENDED FOR PRODUCTION). "
+        "This provides the most reliable validation of file integrity when resuming from checkpoints. "
+        "Without this option, interrupted stages will always be re-executed for safety. "
+        "The performance overhead is often worth the reliability gain in critical pipelines. "
         "Default is to use file size and modification time only",
     )
     checkpoint_group.add_argument(
@@ -1084,7 +1087,10 @@ def main() -> int:
     checkpoint_group.add_argument(
         "--checkpoint-checksum",
         action="store_true",
-        help="Calculate file checksums for checkpoint validation (slower but more reliable). "
+        help="Calculate file checksums for checkpoint validation (RECOMMENDED FOR PRODUCTION). "
+        "This provides the most reliable validation of file integrity when resuming from checkpoints. "
+        "Without this option, interrupted stages will always be re-executed for safety. "
+        "The performance overhead is often worth the reliability gain in critical pipelines. "
         "Default is to use file size and modification time only",
     )
     checkpoint_group.add_argument(

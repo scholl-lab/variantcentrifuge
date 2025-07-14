@@ -36,9 +36,9 @@ variantcentrifuge --gene-name PKD1 --vcf-file input.vcf.gz --enable-checkpoint -
 
 The resume system creates a `.variantcentrifuge_state.json` file in your output directory that tracks:
 
-- **Stage completion status** (`completed`, `running`, `failed`)
+- **Stage completion status** (`pending`, `running`, `finalizing`, `completed`, `failed`)
 - **Execution times** for performance monitoring
-- **Input/output files** for validation
+- **Input/output files** with optional checksums for validation
 - **Configuration hash** to detect parameter changes
 - **Pipeline version** to ensure compatibility
 
@@ -47,9 +47,25 @@ The resume system creates a `.variantcentrifuge_state.json` file in your output 
 Each pipeline stage follows this checkpoint lifecycle:
 
 1. **Start**: Stage begins execution, marked as `running`
-2. **Process**: Stage performs its work
-3. **Complete**: Stage finishes, marked as `completed` with output files recorded
-4. **Skip**: On resume, completed stages are skipped and their state is restored
+2. **Process**: Stage performs its main work
+3. **Finalize** (optional): Stage enters `finalizing` state while moving temp files to final locations
+4. **Complete**: Stage finishes, marked as `completed` with output files recorded
+5. **Skip**: On resume, completed stages are skipped and their state is restored
+
+### Atomic File Operations
+
+For reliability, stages use atomic file operations to prevent partial file corruption:
+
+```python
+from variantcentrifuge.checkpoint import AtomicFileOperation
+
+# Safe file creation
+with AtomicFileOperation('/path/to/final/output.tsv') as temp_path:
+    # Write to temporary file
+    with open(temp_path, 'w') as f:
+        f.write("data")
+    # File is atomically moved to final location on success
+```
 
 ## Configuration
 
@@ -59,17 +75,40 @@ Each pipeline stage follows this checkpoint lifecycle:
 # Enable checkpoint system
 variantcentrifuge --enable-checkpoint [other options]
 
+# Enable with checksum validation (RECOMMENDED FOR PRODUCTION)
+variantcentrifuge --enable-checkpoint --checkpoint-checksum [other options]
+
 # Enable with custom output directory
 variantcentrifuge --enable-checkpoint --output-dir /path/to/output [other options]
 ```
+
+### Checksum Validation (Production Recommendation)
+
+For maximum reliability, especially in production environments, enable checksum validation:
+
+```bash
+# Production-grade checkpoint validation
+variantcentrifuge --enable-checkpoint --checkpoint-checksum [other options]
+```
+
+**Benefits of checksum validation:**
+- **File integrity verification**: Detects corrupted or truncated files
+- **Reliable recovery**: Only recovers stages with verified complete outputs
+- **Production safety**: Prevents silent failures from partial files
+
+**Without checksum validation:**
+- Faster checkpoint operations (size/time-based validation only)
+- Interrupted stages are always re-executed for safety
+- Suitable for development or when performance is critical
 
 ### Resume Options
 
 | Option | Description | Example |
 |--------|-------------|---------|
 | `--resume` | Resume from last completed stage | `--resume` |
-| `--resume-from STAGE` | Resume from specific stage | `--resume-from dataframe_loading` |
+| `--resume-from STAGE` | Restart from specific stage (re-execute stage and all subsequent stages) | `--resume-from dataframe_loading` |
 | `--enable-checkpoint` | Enable checkpoint system | `--enable-checkpoint` |
+| `--checkpoint-checksum` | Enable checksum validation (recommended for production) | `--checkpoint-checksum` |
 
 ## Stage Types and Resume Behavior
 
@@ -161,29 +200,65 @@ for step_name, step_info in self.state["steps"].items():
 
 ## Stale State Recovery
 
-The system handles interrupted pipeline runs by detecting and cleaning up stale states:
+The system handles interrupted pipeline runs with robust recovery logic that prioritizes data integrity:
 
-### Stale Running Stages
+### Improved Recovery Strategy
+
+**Safety-First Approach**: For maximum reliability, interrupted stages (`running` or `finalizing`) are always re-executed unless checksum validation confirms complete files.
 
 ```python
-# Cleanup logic for interrupted stages
-if step_info.status == "running":
-    # Check if output files exist
-    if step_info.output_files:
-        all_outputs_exist = all(
-            os.path.exists(file_info.path) 
-            for file_info in step_info.output_files
-        )
-        if all_outputs_exist:
-            # Stage actually completed
+# Enhanced recovery logic
+if step_info.status in ("running", "finalizing"):
+    logger.warning(f"Found stale {step_info.status} stage, marking for re-execution")
+    
+    # Only attempt recovery with checksum validation enabled
+    if self.enable_checksum and step_info.output_files:
+        logger.info("Attempting checksum-based recovery")
+        
+        # Validate all output files with checksums
+        all_valid = True
+        for file_info in step_info.output_files:
+            if not file_info.validate(calculate_checksum=True):
+                all_valid = False
+                break
+                
+        if all_valid:
+            # Files verified - mark as completed
             step_info.status = "completed"
             return True
     
-    # Determine if stage was interrupted
-    if this_was_last_stage_started:
-        step_info.status = "failed"
-        step_info.error = "Pipeline was interrupted"
+    # Mark for re-execution (safe default)
+    step_info.status = "failed"
+    step_info.error = "Pipeline was interrupted - stage will be re-executed for safety"
 ```
+
+### Recovery Modes
+
+**1. Checksum Validation Mode** (`--checkpoint-checksum`):
+- Validates file integrity using SHA256 checksums
+- Recovers stages only when files are verified as complete
+- **Recommended for production pipelines**
+
+**2. Conservative Mode** (default):
+- Always re-executes interrupted stages for safety
+- Faster checkpoint operations (no checksum calculation)
+- Prevents potential issues from partial/corrupt files
+
+### Finalizing State
+
+The new `finalizing` state indicates stages that are moving temporary files to final locations:
+
+```python
+# Stage progression with finalizing state
+context.checkpoint_state.start_step("example_stage")          # running
+context.checkpoint_state.finalize_step("example_stage")       # finalizing  
+context.checkpoint_state.complete_step("example_stage")       # completed
+```
+
+This intermediate state ensures that:
+- Partial files are never considered complete
+- Atomic file operations are properly tracked
+- Recovery logic can distinguish between main processing and file finalization
 
 ## Advanced Usage
 
@@ -229,9 +304,10 @@ Steps:
   ✓ genotype_replacement (2.9s)
   ✓ phenotype_integration (0.1s)
   ✓ dataframe_loading (0.1s)
-  ✓ custom_annotation (0.3s)
-  ✗ inheritance_analysis (19.7s)
-    Error: Pipeline was interrupted
+  ◐ custom_annotation (finalizing)
+  → inheritance_analysis (running)
+  ✗ variant_scoring
+    Error: Pipeline was interrupted - stage will be re-executed for safety
 ```
 
 ## Performance Benefits
@@ -288,32 +364,61 @@ variantcentrifuge --enable-checkpoint --resume --dry-run
 
 ## Best Practices
 
-### 1. Use Checkpoints for Long-Running Analyses
+### 1. Production Environments
 
 ```bash
-# Always enable checkpoints for large datasets
-variantcentrifuge --vcf-file large_cohort.vcf.gz --enable-checkpoint [options]
+# Production-grade configuration with checksum validation
+variantcentrifuge --vcf-file large_cohort.vcf.gz \
+    --enable-checkpoint --checkpoint-checksum \
+    --output-dir /reliable/path [options]
 ```
 
-### 2. Consistent Output Directories
+**Production recommendations:**
+- Always use `--checkpoint-checksum` for file integrity verification
+- Use dedicated output directories with sufficient disk space
+- Monitor checkpoint file sizes (larger with checksums enabled)
+- Consider backup strategies for checkpoint files in critical workflows
+
+### 2. Development Environments
+
+```bash
+# Development configuration optimized for speed
+variantcentrifuge --vcf-file test_data.vcf.gz \
+    --enable-checkpoint \
+    --resume-from analysis_stage [options]
+```
+
+**Development recommendations:**
+- Checksum validation optional (faster iteration)
+- Use `--resume-from` for rapid testing of specific stages
+- Clean checkpoint files when changing major parameters
+
+### 3. Consistent Output Directories
 
 ```bash
 # Use same output directory for resume
 variantcentrifuge --output-dir /consistent/path --enable-checkpoint [options]
 ```
 
-### 3. Parameter Validation
+### 4. Parameter Validation
 
 ```bash
 # Verify parameters before resuming
 variantcentrifuge --resume --dry-run [options]
 ```
 
-### 4. Development Workflow
+### 5. File Safety Best Practices
 
-```bash
-# Enable checkpoints during development
-variantcentrifuge --enable-checkpoint --resume-from analysis_stage [options]
+```python
+# Use atomic file operations in custom stages
+from variantcentrifuge.checkpoint import AtomicFileOperation
+
+def write_output_safely(data, output_path):
+    with AtomicFileOperation(output_path) as temp_path:
+        # Write to temp file
+        with open(temp_path, 'w') as f:
+            f.write(data)
+        # Automatically moved to final location on success
 ```
 
 ## Technical Implementation

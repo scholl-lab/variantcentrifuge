@@ -14,9 +14,77 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from functools import wraps
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
 logger = logging.getLogger("variantcentrifuge")
+
+
+class AtomicFileOperation:
+    """Context manager for atomic file operations with automatic temp file cleanup.
+
+    This ensures that output files are only visible in their final location
+    after being completely written, preventing issues with partial files
+    during pipeline interruption.
+
+    Example:
+        with AtomicFileOperation('/path/to/final/output.tsv') as temp_path:
+            # Write to temp_path
+            with open(temp_path, 'w') as f:
+                f.write("data")
+            # File is automatically moved to final location on successful exit
+    """
+
+    def __init__(self, final_path: str, suffix: str = ".tmp"):
+        """Initialize atomic file operation.
+
+        Parameters
+        ----------
+        final_path : str
+            Final path where the file should end up
+        suffix : str
+            Suffix for temporary file (default: ".tmp")
+        """
+        self.final_path = Path(final_path)
+        self.temp_path = Path(f"{final_path}{suffix}")
+        self.success = False
+
+    def __enter__(self) -> Path:
+        """Enter context and return temporary file path."""
+        # Ensure parent directory exists
+        self.final_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Clean up any existing temp file
+        if self.temp_path.exists():
+            self.temp_path.unlink()
+
+        return self.temp_path
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit context and move temp file to final location if successful."""
+        if exc_type is None:
+            # No exception - move temp file to final location
+            if self.temp_path.exists():
+                # Atomic move operation
+                import shutil
+
+                shutil.move(str(self.temp_path), str(self.final_path))
+                self.success = True
+                logger.debug(f"Atomically created file: {self.final_path}")
+            else:
+                logger.warning(f"Temp file not created: {self.temp_path}")
+        else:
+            # Exception occurred - clean up temp file
+            if self.temp_path.exists():
+                try:
+                    self.temp_path.unlink()
+                    logger.debug(f"Cleaned up temp file after error: {self.temp_path}")
+                except Exception as cleanup_error:
+                    logger.warning(
+                        f"Failed to clean up temp file {self.temp_path}: {cleanup_error}"
+                    )
+
+        return False  # Don't suppress exceptions
 
 
 @dataclass
@@ -87,7 +155,7 @@ class StepInfo:
     """Information about a pipeline step."""
 
     name: str
-    status: str  # "pending", "running", "completed", "failed"
+    status: str  # "pending", "running", "finalizing", "completed", "failed"
     start_time: Optional[float] = None
     end_time: Optional[float] = None
     command_hash: Optional[str] = None
@@ -323,65 +391,48 @@ class PipelineState:
         if step_info.status == "completed":
             return True
 
-        # Handle stale "running" stages - these were started but pipeline was interrupted
-        if step_info.status == "running":
-            # Check if output files exist to determine if stage actually completed
-            if step_info.output_files:
-                # Check if all output files exist
-                all_outputs_exist = all(
-                    os.path.exists(file_info.path) for file_info in step_info.output_files
-                )
-                if all_outputs_exist:
-                    # Stage actually completed, mark it as such
-                    step_info.status = "completed"
-                    step_info.end_time = step_info.start_time + 1.0  # Estimate completion time
-                    logger.info(
-                        f"Recovered completed stage '{step_name}' from stale 'running' state"
-                    )
-                    self.save()
-                    return True
+        # Handle stale "running" or "finalizing" stages - interrupted during execution
+        if step_info.status in ("running", "finalizing"):
+            # For reliability, always re-execute stages that were interrupted during execution
+            # This prevents issues with partial files or incomplete state
+            logger.warning(
+                f"Found stale {step_info.status} stage '{step_name}', marking for re-execution"
+            )
 
-            # Stage has no output files - check if it might have actually completed
-            # For stages that work in memory, we can't verify completion via files
-            if not step_info.output_files:
-                # If this is the very last stage that was running, assume it was interrupted
-                # Otherwise, assume it completed since subsequent stages wouldn't have started
-                all_step_times = [
-                    (s.start_time or 0, name)
-                    for name, s in self.state["steps"].items()
-                    if s.start_time is not None
-                ]
-                all_step_times.sort()
+            # Only attempt recovery if checksums are enabled for maximum reliability
+            if self.enable_checksum and step_info.output_files:
+                logger.info(f"Attempting checksum-based recovery for stage '{step_name}'")
 
-                if all_step_times and all_step_times[-1][1] == step_name:
-                    # This was the last stage started - likely interrupted
-                    logger.warning(
-                        f"Found stale running stage '{step_name}' (last started), will re-execute"
-                    )
-                    step_info.status = "failed"
-                    step_info.error = "Pipeline was interrupted"
-                    step_info.end_time = time.time()
-                    self.save()
-                else:
-                    # Not the last stage - likely completed, just not marked properly
-                    logger.info(
-                        f"Recovered completed stage '{step_name}' from stale 'running' state "
-                        f"(no output files)"
-                    )
+                # Validate all output files exist and have correct checksums
+                all_valid = True
+                for file_info in step_info.output_files:
+                    if not file_info.validate(calculate_checksum=True):
+                        logger.warning(
+                            f"Output file validation failed for '{file_info.path}' "
+                            f"(size/checksum mismatch)"
+                        )
+                        all_valid = False
+                        break
+
+                if all_valid:
+                    # All files validated successfully - mark as completed
                     step_info.status = "completed"
                     step_info.end_time = step_info.start_time + 1.0
+                    logger.info(
+                        f"Successfully recovered stage '{step_name}' via checksum validation"
+                    )
                     self.save()
                     return True
-            else:
-                # Stage has output files but they don't exist - definitely incomplete
-                logger.warning(
-                    f"Found stale running stage '{step_name}', output files missing, "
-                    f"will re-execute"
-                )
-                step_info.status = "failed"
-                step_info.error = "Pipeline was interrupted"
-                step_info.end_time = time.time()
-                self.save()
+                else:
+                    logger.warning(
+                        f"Checksum validation failed for stage '{step_name}', will re-execute"
+                    )
+
+            # Mark stage for re-execution
+            step_info.status = "failed"
+            step_info.error = "Pipeline was interrupted - stage will be re-executed for safety"
+            step_info.end_time = time.time()
+            self.save()
 
         return False
 
@@ -466,6 +517,34 @@ class PipelineState:
         self.save()
         logger.info(f"Completed step '{step_name}' in {step_info.duration:.2f}s")
 
+    def finalize_step(self, step_name: str) -> None:
+        """Mark a step as finalizing (transitioning from running to completed).
+
+        This intermediate state indicates that the step's main work is done
+        and it's in the process of finalizing outputs (e.g., moving temp files
+        to final locations).
+
+        Parameters
+        ----------
+        step_name : str
+            Name of the step to mark as finalizing
+        """
+        with self._state_lock:
+            if step_name not in self.state["steps"]:
+                logger.warning(f"Finalizing unstarted step: {step_name}")
+                return
+
+            step_info = self.state["steps"][step_name]
+            if step_info.status == "running":
+                step_info.status = "finalizing"
+                logger.debug(f"Step '{step_name}' entering finalizing state")
+            else:
+                logger.warning(
+                    f"Attempted to finalize step '{step_name}' with status '{step_info.status}'"
+                )
+
+        self.save()
+
     def fail_step(self, step_name: str, error: str) -> None:
         """Mark a step as failed."""
         if step_name not in self.state["steps"]:
@@ -517,9 +596,13 @@ class PipelineState:
 
         lines.append("\nSteps:")
         for name, info in self.state["steps"].items():
-            status_symbol = {"completed": "✓", "failed": "✗", "running": "→", "pending": "·"}.get(
-                info.status, "?"
-            )
+            status_symbol = {
+                "completed": "✓",
+                "failed": "✗",
+                "running": "→",
+                "finalizing": "◐",
+                "pending": "·",
+            }.get(info.status, "?")
 
             duration_str = ""
             if info.duration:
