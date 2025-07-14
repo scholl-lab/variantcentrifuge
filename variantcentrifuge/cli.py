@@ -465,6 +465,30 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Show checkpoint status for the output directory and exit",
     )
+    checkpoint_group.add_argument(
+        "--resume-from",
+        type=str,
+        metavar="STAGE_NAME",
+        help="Resume pipeline from a specific stage. Use --list-stages to see available stages. "
+        "Requires --enable-checkpoint",
+    )
+    checkpoint_group.add_argument(
+        "--list-stages",
+        action="store_true",
+        help="List all available stages for current configuration and exit",
+    )
+    checkpoint_group.add_argument(
+        "--list-checkpoints",
+        action="store_true",
+        help="List all completed stages from checkpoint file and exit. "
+        "Requires existing checkpoint file in output directory",
+    )
+    checkpoint_group.add_argument(
+        "--interactive-resume",
+        action="store_true",
+        help="Interactive mode to select resume point from completed stages. "
+        "Requires --enable-checkpoint and existing checkpoint file",
+    )
 
     # Data Privacy Options
     privacy_group = parser.add_argument_group("Data Privacy Options")
@@ -1066,6 +1090,30 @@ def main() -> int:
         action="store_true",
         help="Show checkpoint status for the output directory and exit",
     )
+    checkpoint_group.add_argument(
+        "--resume-from",
+        type=str,
+        metavar="STAGE_NAME",
+        help="Resume pipeline from a specific stage. Use --list-stages to see available stages. "
+        "Requires --enable-checkpoint",
+    )
+    checkpoint_group.add_argument(
+        "--list-stages",
+        action="store_true",
+        help="List all available stages for current configuration and exit",
+    )
+    checkpoint_group.add_argument(
+        "--list-checkpoints",
+        action="store_true",
+        help="List all completed stages from checkpoint file and exit. "
+        "Requires existing checkpoint file in output directory",
+    )
+    checkpoint_group.add_argument(
+        "--interactive-resume",
+        action="store_true",
+        help="Interactive mode to select resume point from completed stages. "
+        "Requires --enable-checkpoint and existing checkpoint file",
+    )
 
     # Data Privacy Options
     privacy_group = parser.add_argument_group("Data Privacy Options")
@@ -1389,6 +1437,10 @@ def main() -> int:
     cfg["enable_checkpoint"] = args.enable_checkpoint
     cfg["resume"] = args.resume
     cfg["checkpoint_checksum"] = args.checkpoint_checksum
+    cfg["resume_from"] = args.resume_from
+    cfg["list_stages"] = args.list_stages
+    cfg["list_checkpoints"] = args.list_checkpoints
+    cfg["interactive_resume"] = args.interactive_resume
     cfg["pipeline_version"] = __version__  # Add pipeline version for compatibility checking
 
     # Note: --show-checkpoint-status is handled earlier before argument parsing
@@ -1397,6 +1449,97 @@ def main() -> int:
     if args.resume and not args.enable_checkpoint:
         logger.error("--resume requires --enable-checkpoint to be set")
         sys.exit(1)
+
+    # Validate selective resume arguments
+    if args.resume_from and not args.enable_checkpoint:
+        logger.error("--resume-from requires --enable-checkpoint to be set")
+        sys.exit(1)
+
+    if args.interactive_resume and not args.enable_checkpoint:
+        logger.error("--interactive-resume requires --enable-checkpoint to be set")
+        sys.exit(1)
+
+    # Mutually exclusive resume options
+    resume_options = [args.resume, args.resume_from, args.interactive_resume]
+    if sum(bool(x) for x in resume_options) > 1:
+        logger.error(
+            "Cannot use multiple resume options simultaneously: --resume, --resume-from, --interactive-resume"
+        )
+        sys.exit(1)
+
+    # Handle information and interactive options that exit early
+    if args.list_stages:
+        from .display_utils import display_available_stages
+        from .stages.stage_registry import initialize_registry
+
+        initialize_registry()
+
+        if args.use_new_pipeline:
+            # For new pipeline, show available stages from registry
+            from .pipeline_refactored import create_stages_from_config
+
+            try:
+                stages = create_stages_from_config(cfg)
+                display_available_stages(stages, cfg)
+            except Exception as e:
+                logger.error(f"Failed to create stages: {e}")
+                sys.exit(1)
+        else:
+            logger.info("--list-stages is only supported with --use-new-pipeline")
+            print("To see available stages, use: --use-new-pipeline --list-stages")
+            sys.exit(1)
+
+        sys.exit(0)
+
+    if args.list_checkpoints:
+        from .checkpoint import PipelineState
+        from .display_utils import display_enhanced_status
+
+        pipeline_state = PipelineState(args.output_dir)
+        if pipeline_state.load():
+            # For list checkpoints, show enhanced status instead of basic summary
+            display_enhanced_status(pipeline_state, [])
+        else:
+            print(f"❌ No checkpoint file found in {args.output_dir}")
+            print("   Start a new pipeline run with --enable-checkpoint to create checkpoints.")
+
+        sys.exit(0)
+
+    if args.interactive_resume:
+        from .checkpoint import PipelineState
+        from .interactive_resume import handle_interactive_resume
+        from .stages.stage_registry import initialize_registry
+
+        if not args.use_new_pipeline:
+            logger.error("--interactive-resume requires --use-new-pipeline")
+            sys.exit(1)
+
+        initialize_registry()
+
+        pipeline_state = PipelineState(args.output_dir)
+        if not pipeline_state.load():
+            print(f"❌ No checkpoint file found in {args.output_dir}")
+            print("   Start a new pipeline run with --enable-checkpoint to create checkpoints.")
+            sys.exit(1)
+
+        # Get available stages for current configuration
+        from .pipeline_refactored import create_stages_from_config
+
+        try:
+            stages = create_stages_from_config(cfg)
+            stage_names = [stage.name for stage in stages]
+
+            selected_stage = handle_interactive_resume(args, pipeline_state, stage_names)
+            if selected_stage:
+                # Update config with selected resume point
+                cfg["resume_from"] = selected_stage
+                logger.info(f"Interactive resume: Selected stage '{selected_stage}'")
+            else:
+                print("❌ No stage selected. Exiting.")
+                sys.exit(0)
+        except Exception as e:
+            logger.error(f"Interactive resume failed: {e}")
+            sys.exit(1)
 
     # Pseudonymization configuration
     cfg["pseudonymize"] = args.pseudonymize

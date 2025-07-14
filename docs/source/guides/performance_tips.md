@@ -10,6 +10,39 @@ Tips for optimizing VariantCentrifuge performance with large datasets.
 
 ## Performance Features
 
+### Checkpoint and Resume System
+
+The checkpoint system provides significant performance benefits for long-running analyses:
+
+```bash
+# Enable checkpoints for long-running analyses
+variantcentrifuge \
+  --gene-file large_gene_list.txt \
+  --vcf-file cohort_1000_samples.vcf.gz \
+  --enable-checkpoint \
+  --threads 16 \
+  --preset rare,coding \
+  --output-file results.tsv
+
+# Resume if interrupted
+variantcentrifuge \
+  --gene-file large_gene_list.txt \
+  --vcf-file cohort_1000_samples.vcf.gz \
+  --enable-checkpoint \
+  --resume \
+  --threads 16 \
+  --preset rare,coding \
+  --output-file results.tsv
+```
+
+**Benefits:**
+- Avoid re-running expensive stages after interruptions
+- Develop iteratively by resuming from specific stages
+- Optimize report generation without reprocessing data
+- Reduce computational waste in cluster environments
+
+See the [Resume System](../resume_system.md) documentation for detailed information.
+
 ### bcftools Pre-filtering
 
 The `--bcftools-prefilter` option allows you to apply fast bcftools filters during the initial variant extraction step, significantly reducing the amount of data processed by subsequent steps:

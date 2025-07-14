@@ -56,6 +56,7 @@ variantcentrifuge \
 installation
 usage
 configuration
+resume_system
 guides/index
 faq
 ```

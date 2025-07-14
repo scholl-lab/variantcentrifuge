@@ -181,6 +181,9 @@ class PipelineContext:
             self.completed_stages.add(stage_name)
             if result is not None:
                 self.stage_results[stage_name] = result
+
+            # Note: checkpoint completion is handled by the stage itself with file tracking
+
             logger.debug(f"Stage '{stage_name}' marked as complete")
 
     def is_complete(self, stage_name: str) -> bool:

@@ -12,8 +12,8 @@ from variantcentrifuge.stages.setup_stages import (
     AnnotationConfigLoadingStage,
     ConfigurationLoadingStage,
     PedigreeLoadingStage,
-    PhenotypeLoadingStage,
     PhenotypeCaseControlAssignmentStage,
+    PhenotypeLoadingStage,
     SampleConfigLoadingStage,
     ScoringConfigLoadingStage,
 )

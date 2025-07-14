@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import os
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -138,6 +139,7 @@ class PipelineState:
         self.output_dir = output_dir
         self.state_file = os.path.join(output_dir, self.STATE_FILE_NAME)
         self.enable_checksum = enable_checksum
+        self._state_lock = threading.Lock()  # Thread-safe state operations
 
         self.state = {
             "version": self.STATE_VERSION,
@@ -200,20 +202,34 @@ class PipelineState:
             return False
 
     def save(self) -> None:
-        """Save current state to file."""
-        self.state["last_update"] = time.time()
+        """Save current state to file (thread-safe)."""
+        with self._state_lock:
+            self.state["last_update"] = time.time()
 
-        # Convert to JSON-serializable format
-        save_state = self.state.copy()
-        save_state["steps"] = {name: step.to_dict() for name, step in self.state["steps"].items()}
+            # Convert to JSON-serializable format
+            save_state = self.state.copy()
+            save_state["steps"] = {
+                name: step.to_dict() for name, step in self.state["steps"].items()
+            }
 
-        # Write atomically
-        temp_file = self.state_file + ".tmp"
-        with open(temp_file, "w") as f:
-            json.dump(save_state, f, indent=2)
-        os.replace(temp_file, self.state_file)
+            # Write atomically with unique temp file name to avoid conflicts
+            import uuid
 
-        logger.debug(f"Saved pipeline state to {self.state_file}")
+            temp_file = f"{self.state_file}.tmp.{uuid.uuid4().hex[:8]}"
+            try:
+                with open(temp_file, "w") as f:
+                    json.dump(save_state, f, indent=2)
+                os.replace(temp_file, self.state_file)
+                logger.debug(f"Saved pipeline state to {self.state_file}")
+            except Exception as e:
+                # Clean up temp file if it exists
+                if os.path.exists(temp_file):
+                    try:
+                        os.remove(temp_file)
+                    except Exception:
+                        pass
+                logger.warning(f"Failed to save checkpoint state: {e}")
+                raise
 
     def can_resume(self, configuration: Dict[str, Any], pipeline_version: str) -> bool:
         """Check if pipeline can be resumed with given configuration.
@@ -300,7 +316,74 @@ class PipelineState:
             return False
 
         step_info = self.state["steps"].get(step_name)
-        return step_info is not None and step_info.status == "completed"
+        if step_info is None:
+            return False
+
+        # If already completed, skip
+        if step_info.status == "completed":
+            return True
+
+        # Handle stale "running" stages - these were started but pipeline was interrupted
+        if step_info.status == "running":
+            # Check if output files exist to determine if stage actually completed
+            if step_info.output_files:
+                # Check if all output files exist
+                all_outputs_exist = all(
+                    os.path.exists(file_info.path) for file_info in step_info.output_files
+                )
+                if all_outputs_exist:
+                    # Stage actually completed, mark it as such
+                    step_info.status = "completed"
+                    step_info.end_time = step_info.start_time + 1.0  # Estimate completion time
+                    logger.info(
+                        f"Recovered completed stage '{step_name}' from stale 'running' state"
+                    )
+                    self.save()
+                    return True
+
+            # Stage has no output files - check if it might have actually completed
+            # For stages that work in memory, we can't verify completion via files
+            if not step_info.output_files:
+                # If this is the very last stage that was running, assume it was interrupted
+                # Otherwise, assume it completed since subsequent stages wouldn't have started
+                all_step_times = [
+                    (s.start_time or 0, name)
+                    for name, s in self.state["steps"].items()
+                    if s.start_time is not None
+                ]
+                all_step_times.sort()
+
+                if all_step_times and all_step_times[-1][1] == step_name:
+                    # This was the last stage started - likely interrupted
+                    logger.warning(
+                        f"Found stale running stage '{step_name}' (last started), will re-execute"
+                    )
+                    step_info.status = "failed"
+                    step_info.error = "Pipeline was interrupted"
+                    step_info.end_time = time.time()
+                    self.save()
+                else:
+                    # Not the last stage - likely completed, just not marked properly
+                    logger.info(
+                        f"Recovered completed stage '{step_name}' from stale 'running' state "
+                        f"(no output files)"
+                    )
+                    step_info.status = "completed"
+                    step_info.end_time = step_info.start_time + 1.0
+                    self.save()
+                    return True
+            else:
+                # Stage has output files but they don't exist - definitely incomplete
+                logger.warning(
+                    f"Found stale running stage '{step_name}', output files missing, "
+                    f"will re-execute"
+                )
+                step_info.status = "failed"
+                step_info.error = "Pipeline was interrupted"
+                step_info.end_time = time.time()
+                self.save()
+
+        return False
 
     def start_step(
         self,
@@ -309,17 +392,18 @@ class PipelineState:
         parameters: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Mark a step as started."""
-        self.current_step = step_name
+        with self._state_lock:
+            self.current_step = step_name
 
-        step_info = StepInfo(
-            name=step_name,
-            status="running",
-            start_time=time.time(),
-            command_hash=command_hash,
-            parameters=parameters or {},
-        )
+            step_info = StepInfo(
+                name=step_name,
+                status="running",
+                start_time=time.time(),
+                command_hash=command_hash,
+                parameters=parameters or {},
+            )
 
-        self.state["steps"][step_name] = step_info
+            self.state["steps"][step_name] = step_info
         self.save()
 
     def complete_step(
@@ -329,27 +413,55 @@ class PipelineState:
         output_files: Optional[List[str]] = None,
     ) -> None:
         """Mark a step as completed."""
-        if step_name not in self.state["steps"]:
-            logger.warning(f"Completing unstarted step: {step_name}")
-            self.start_step(step_name)
+        with self._state_lock:
+            if step_name not in self.state["steps"]:
+                logger.warning(f"Completing unstarted step: {step_name}")
+                # Start step without saving yet
+                step_info = StepInfo(
+                    name=step_name,
+                    status="running",
+                    start_time=time.time(),
+                    command_hash=None,
+                    parameters={},
+                )
+                self.state["steps"][step_name] = step_info
 
-        step_info = self.state["steps"][step_name]
-        step_info.status = "completed"
-        step_info.end_time = time.time()
+            step_info = self.state["steps"][step_name]
 
-        # Record input files
-        if input_files:
-            for filepath in input_files:
-                if os.path.exists(filepath):
-                    step_info.input_files.append(FileInfo.from_file(filepath, self.enable_checksum))
-
-        # Record output files
-        if output_files:
-            for filepath in output_files:
-                if os.path.exists(filepath):
-                    step_info.output_files.append(
-                        FileInfo.from_file(filepath, self.enable_checksum)
+            # If already completed, don't overwrite unless we have new file information
+            if step_info.status == "completed":
+                if output_files and not step_info.output_files:
+                    # Add missing file information to completed step
+                    for filepath in output_files:
+                        if os.path.exists(filepath):
+                            step_info.output_files.append(
+                                FileInfo.from_file(filepath, self.enable_checksum)
+                            )
+                    logger.debug(
+                        f"Added {len(output_files)} output files to completed step '{step_name}'"
                     )
+                    self.save()  # Save the file updates
+                return
+
+            # Mark as completed
+            step_info.status = "completed"
+            step_info.end_time = time.time()
+
+            # Record input files
+            if input_files:
+                for filepath in input_files:
+                    if os.path.exists(filepath):
+                        step_info.input_files.append(
+                            FileInfo.from_file(filepath, self.enable_checksum)
+                        )
+
+            # Record output files
+            if output_files:
+                for filepath in output_files:
+                    if os.path.exists(filepath):
+                        step_info.output_files.append(
+                            FileInfo.from_file(filepath, self.enable_checksum)
+                        )
 
         self.save()
         logger.info(f"Completed step '{step_name}' in {step_info.duration:.2f}s")
@@ -395,6 +507,196 @@ class PipelineState:
 
         return "\n".join(lines)
 
+    def get_completed_stages(self) -> List[tuple]:
+        """Get all completed stages sorted by completion time.
+
+        Returns
+        -------
+        List[tuple]
+            List of (stage_name, StepInfo) tuples sorted by completion time
+        """
+        completed_stages = []
+
+        for name, info in self.state["steps"].items():
+            if info.status == "completed":
+                completed_stages.append((name, info))
+
+        # Sort by completion time (end_time)
+        completed_stages.sort(key=lambda x: x[1].end_time or 0)
+        return completed_stages
+
+    def get_available_resume_points(self) -> List[str]:
+        """Get stage names that can be used as resume points.
+
+        Returns
+        -------
+        List[str]
+            List of stage names that are safe resume points
+        """
+        completed_stages = self.get_completed_stages()
+        return [stage_name for stage_name, _ in completed_stages]
+
+    def validate_resume_from_stage(self, stage_name: str, available_stages: List[str]) -> tuple:
+        """Validate that resuming from specific stage is possible.
+
+        Parameters
+        ----------
+        stage_name : str
+            Name of the stage to resume from
+        available_stages : List[str]
+            List of all available stage names in current configuration
+
+        Returns
+        -------
+        tuple
+            (is_valid: bool, error_message: str)
+        """
+        if not self._loaded_from_file:
+            return False, "No checkpoint file loaded"
+
+        # Check if stage name exists in available stages
+        if stage_name not in available_stages:
+            return False, f"Stage '{stage_name}' is not available in current configuration"
+
+        # Check if we have any completed stages
+        completed_stages = self.get_available_resume_points()
+        if not completed_stages:
+            return False, "No completed stages found in checkpoint"
+
+        # If stage is already completed, it's a valid resume point
+        if stage_name in completed_stages:
+            return True, ""
+
+        # If stage is not completed, check if it makes sense to resume from it
+        # This would mean starting the pipeline from this stage without its dependencies
+        return (
+            False,
+            f"Stage '{stage_name}' was not completed in previous run. "
+            f"Cannot resume from an incomplete stage.",
+        )
+
+    def get_stages_to_execute(self, resume_from: str, all_stages: List[str]) -> List[str]:
+        """Get ordered list of stages to execute when resuming from specific stage.
+
+        Parameters
+        ----------
+        resume_from : str
+            Name of the stage to resume from
+        all_stages : List[str]
+            List of all stage names in execution order
+
+        Returns
+        -------
+        List[str]
+            Ordered list of stages to execute starting from resume_from
+        """
+        if resume_from not in all_stages:
+            return []
+
+        # Find the index of the resume stage
+        try:
+            resume_index = all_stages.index(resume_from)
+            # Return all stages from resume_from onwards
+            return all_stages[resume_index:]
+        except ValueError:
+            return []
+
+    def get_detailed_status(self) -> Dict[str, Any]:
+        """Get detailed status information for enhanced display.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Detailed status information including suggestions
+        """
+        if not self._loaded_from_file:
+            return {"has_checkpoint": False, "message": "No checkpoint file found"}
+
+        completed_stages = self.get_completed_stages()
+
+        # Calculate total runtime
+        total_runtime = sum(
+            info.duration for _, info in completed_stages if info.duration is not None
+        )
+
+        # Get the most recent stage
+        last_stage = completed_stages[-1] if completed_stages else None
+
+        # Generate resume suggestions
+        resume_suggestions = []
+        if completed_stages:
+            # Suggest resuming from the last stage for quick continuation
+            last_stage_name = last_stage[0] if last_stage else None
+            if last_stage_name:
+                resume_suggestions.append(
+                    {
+                        "stage": last_stage_name,
+                        "reason": "Continue from last completed stage",
+                        "command": f"--resume-from {last_stage_name}",
+                    }
+                )
+
+            # Suggest common resume points
+            stage_names = [name for name, _ in completed_stages]
+            if "variant_analysis" in stage_names:
+                resume_suggestions.append(
+                    {
+                        "stage": "variant_analysis",
+                        "reason": "Re-run analysis and all reports",
+                        "command": "--resume-from variant_analysis",
+                    }
+                )
+            if "tsv_output" in stage_names:
+                resume_suggestions.append(
+                    {
+                        "stage": "tsv_output",
+                        "reason": "Re-generate only reports (Excel, HTML, IGV)",
+                        "command": "--resume-from tsv_output",
+                    }
+                )
+
+        return {
+            "has_checkpoint": True,
+            "total_stages": len(self.state["steps"]),
+            "completed_stages": len(completed_stages),
+            "total_runtime": total_runtime,
+            "last_stage": last_stage[0] if last_stage else None,
+            "last_completed_time": last_stage[1].end_time if last_stage else None,
+            "pipeline_version": self.state.get("pipeline_version"),
+            "start_time": self.state.get("start_time"),
+            "available_resume_points": [name for name, _ in completed_stages],
+            "resume_suggestions": resume_suggestions,
+            "stages": [
+                {
+                    "name": name,
+                    "status": info.status,
+                    "start_time": info.start_time,
+                    "end_time": info.end_time,
+                    "duration": info.duration,
+                    "error": info.error,
+                }
+                for name, info in self.state["steps"].items()
+            ],
+        }
+
+    def can_resume_from_stage(self, stage_name: str, available_stages: List[str]) -> bool:
+        """Check if resuming from a specific stage is possible.
+
+        Parameters
+        ----------
+        stage_name : str
+            Name of the stage to resume from
+        available_stages : List[str]
+            List of all available stage names
+
+        Returns
+        -------
+        bool
+            True if resume is possible, False otherwise
+        """
+        is_valid, _ = self.validate_resume_from_stage(stage_name, available_stages)
+        return is_valid
+
     def _hash_configuration(self, config: Dict[str, Any]) -> str:
         """Create a hash of the configuration for change detection."""
         # Select relevant configuration keys that affect pipeline behavior
@@ -426,6 +728,51 @@ class PipelineState:
         # Sort for consistent hashing
         config_str = json.dumps(relevant_config, sort_keys=True)
         return hashlib.sha256(config_str.encode()).hexdigest()
+
+    def cleanup_stale_stages(self) -> None:
+        """Clean up stages that were left in 'running' state from previous pipeline runs."""
+        if not self._loaded_from_file:
+            return
+
+        stale_stages = []
+        completed_stages = []
+
+        for step_name, step_info in self.state["steps"].items():
+            if step_info.status == "running":
+                stale_stages.append(step_name)
+            elif step_info.status == "completed":
+                completed_stages.append(step_name)
+
+        if stale_stages:
+            logger.info(
+                f"Found {len(stale_stages)} stale running stages: {', '.join(stale_stages)}"
+            )
+            for step_name in stale_stages:
+                # Trigger the cleanup logic in should_skip_step
+                self.should_skip_step(step_name)
+
+            # If all stages were stale and none are actually completed, warn user
+            if not completed_stages and len(stale_stages) > 5:
+                logger.warning(
+                    "Checkpoint appears corrupted (all stages were stale). "
+                    "Consider removing checkpoint to start fresh."
+                )
+
+        completed_count = len([s for s in self.state["steps"].values() if s.status == "completed"])
+        logger.info(f"After cleanup: {completed_count} completed stages")
+
+    def __getstate__(self):
+        """Custom pickle method - exclude the lock from serialization."""
+        state = self.__dict__.copy()
+        # Remove the unpicklable lock
+        del state["_state_lock"]
+        return state
+
+    def __setstate__(self, state):
+        """Custom unpickle method - recreate the lock."""
+        self.__dict__.update(state)
+        # Recreate the lock
+        self._state_lock = threading.Lock()
 
 
 def checkpoint(

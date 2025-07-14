@@ -107,30 +107,48 @@ class PipelineRunner:
 
         # Handle resume logic if checkpoint is enabled
         if self.enable_checkpoints and context.checkpoint_state:
-            if context.config.get("resume", False):
-                if context.checkpoint_state.load():
-                    if context.checkpoint_state.can_resume(context.config, "refactored_pipeline"):
-                        logger.info("Resume mode: Checking pipeline state...")
-                        logger.info(context.checkpoint_state.get_summary())
+            # Handle selective resume (--resume-from)
+            if context.config.get("resume_from"):
+                stages = self._handle_selective_resume(stages, context)
+            # Handle traditional resume (--resume)
+            elif context.config.get("resume", False):
+                # Checkpoint state should already be loaded during initialization
+                # Clean up any stale running stages first
+                context.checkpoint_state.cleanup_stale_stages()
 
-                        # Mark completed stages as complete in context
-                        for stage in stages:
-                            if context.checkpoint_state.should_skip_step(stage.name):
-                                logger.info(f"Skipping completed stage: {stage.name}")
-                                context.mark_complete(stage.name)
+                pipeline_version = context.config.get("pipeline_version", "refactored_pipeline")
+                if context.checkpoint_state.can_resume(context.config, pipeline_version):
+                    logger.info("Resume mode: Checking pipeline state...")
+                    logger.info(context.checkpoint_state.get_summary())
 
-                        resume_point = context.checkpoint_state.get_resume_point()
-                        if resume_point:
-                            logger.info(f"Resuming from step: {resume_point}")
-                    else:
-                        logger.warning("Cannot resume - configuration or version mismatch")
-                        # Start fresh but don't clear existing state
+                    # Mark completed stages as complete in context
+                    for stage in stages:
+                        if context.checkpoint_state.should_skip_step(stage.name):
+                            logger.info(f"Skipping completed stage: {stage.name}")
+                            context.mark_complete(stage.name)
+
+                            # Handle checkpoint skip logic for composite stages
+                            if hasattr(stage, "_handle_checkpoint_skip"):
+                                context = stage._handle_checkpoint_skip(context)
+
+                    resume_point = context.checkpoint_state.get_resume_point()
+                    if resume_point:
+                        logger.info(f"Resuming from step: {resume_point}")
                 else:
-                    logger.info("No previous checkpoint state found, starting fresh")
+                    logger.warning("Cannot resume - configuration or version mismatch")
+                    # Start fresh but don't clear existing state
 
         # Execute stages level by level
         for level, level_stages in enumerate(execution_plan):
-            context = self._execute_level(level_stages, context, level)
+            # Filter out already completed stages
+            remaining_stages = [
+                stage for stage in level_stages if not context.is_complete(stage.name)
+            ]
+
+            if remaining_stages:
+                context = self._execute_level(remaining_stages, context, level)
+            else:
+                logger.info(f"Level {level}: All stages already complete, skipping")
 
             # Save checkpoint if enabled
             if self.enable_checkpoints and context.checkpoint_state:
@@ -143,6 +161,177 @@ class PipelineRunner:
         self._log_execution_summary()
 
         return context
+
+    def _handle_selective_resume(
+        self, stages: List[Stage], context: PipelineContext
+    ) -> List[Stage]:
+        """Handle selective resume from a specific stage.
+
+        Parameters
+        ----------
+        stages : List[Stage]
+            Original list of stages
+        context : PipelineContext
+            Pipeline context with configuration
+
+        Returns
+        -------
+        List[Stage]
+            Filtered list of stages to execute
+        """
+        resume_from = context.config.get("resume_from")
+        if not resume_from:
+            return stages
+
+        # Load checkpoint state
+        if not context.checkpoint_state.load():
+            raise ValueError("Cannot resume: No checkpoint file found")
+
+        # Validate resume point
+        stage_names = [stage.name for stage in stages]
+        is_valid, error_msg = context.checkpoint_state.validate_resume_from_stage(
+            resume_from, stage_names
+        )
+
+        if not is_valid:
+            raise ValueError(f"Cannot resume from '{resume_from}': {error_msg}")
+
+        # Validate dependencies and get stages to execute
+        stages_to_execute = self._get_stages_to_execute_from(resume_from, stages, context)
+
+        # Mark all completed stages (before resume point) as complete
+        completed_stages = context.checkpoint_state.get_available_resume_points()
+        for stage in stages:
+            if stage.name in completed_stages and stage.name != resume_from:
+                logger.info(f"Marking completed stage as done: {stage.name}")
+                context.mark_complete(stage.name)
+
+        logger.info(
+            f"Selective resume: Starting from '{resume_from}' with {len(stages_to_execute)} stages"
+        )
+        return stages_to_execute
+
+    def _get_stages_to_execute_from(
+        self, resume_from: str, stages: List[Stage], context: PipelineContext
+    ) -> List[Stage]:
+        """Get the filtered list of stages to execute when resuming from a specific stage.
+
+        Parameters
+        ----------
+        resume_from : str
+            Name of the stage to resume from
+        stages : List[Stage]
+            Original list of stages
+        context : PipelineContext
+            Pipeline context
+
+        Returns
+        -------
+        List[Stage]
+            Filtered stages to execute
+        """
+        # Build stage map
+        stage_map = {stage.name: stage for stage in stages}
+
+        # Find the resume stage
+        if resume_from not in stage_map:
+            raise ValueError(f"Resume stage '{resume_from}' not found in pipeline")
+
+        # Get all stages in execution order
+        execution_plan = self._create_execution_plan(stages)
+        all_stages_ordered = []
+        for level in execution_plan:
+            all_stages_ordered.extend(level)
+
+        # Find the index of the resume stage
+        resume_index = None
+        for i, stage in enumerate(all_stages_ordered):
+            if stage.name == resume_from:
+                resume_index = i
+                break
+
+        if resume_index is None:
+            raise ValueError(f"Could not find resume stage '{resume_from}' in execution plan")
+
+        # Return stages from resume point onwards
+        return all_stages_ordered[resume_index:]
+
+    def get_execution_plan(
+        self, stages: List[Stage], resume_from: Optional[str] = None
+    ) -> List[str]:
+        """Get the planned execution order, optionally starting from a specific stage.
+
+        Parameters
+        ----------
+        stages : List[Stage]
+            List of stages
+        resume_from : Optional[str]
+            Stage name to resume from
+
+        Returns
+        -------
+        List[str]
+            Ordered list of stage names that will execute
+        """
+        execution_plan = self._create_execution_plan(stages)
+        all_stages = []
+        for level in execution_plan:
+            all_stages.extend([stage.name for stage in level])
+
+        if resume_from:
+            if resume_from in all_stages:
+                resume_index = all_stages.index(resume_from)
+                return all_stages[resume_index:]
+            else:
+                return []
+
+        return all_stages
+
+    def validate_resume_point(self, stage_name: str, stages: List[Stage]) -> tuple:
+        """Validate that a resume point is valid and return any issues.
+
+        Parameters
+        ----------
+        stage_name : str
+            Name of the stage to resume from
+        stages : List[Stage]
+            List of available stages
+
+        Returns
+        -------
+        tuple
+            (is_valid: bool, error_message: str)
+        """
+        stage_names = [stage.name for stage in stages]
+
+        # Check if stage exists
+        if stage_name not in stage_names:
+            return False, f"Stage '{stage_name}' does not exist in current configuration"
+
+        # Build dependency graph to check for issues
+        try:
+            _ = self._create_execution_plan(stages)
+
+            # Check if stage has dependencies that might be skipped
+            stage_map = {stage.name: stage for stage in stages}
+            target_stage = stage_map[stage_name]
+
+            # Get all stages that will execute from this point
+            planned_stages = self.get_execution_plan(stages, stage_name)
+            planned_set = set(planned_stages)
+
+            # Check dependencies
+            missing_deps = target_stage.dependencies - planned_set
+            if missing_deps:
+                return (
+                    False,
+                    f"Stage '{stage_name}' depends on {missing_deps} which won't be executed",
+                )
+
+            return True, ""
+
+        except Exception as e:
+            return False, f"Error validating resume point: {str(e)}"
 
     def _create_execution_plan(self, stages: List[Stage]) -> List[List[Stage]]:
         """Create execution plan with stages grouped by dependency levels.

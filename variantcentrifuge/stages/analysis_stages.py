@@ -13,7 +13,7 @@ This module contains stages that perform analysis on the extracted data:
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 import pandas as pd
 
@@ -65,18 +65,60 @@ class DataFrameLoadingStage(Stage):
             "extra_column_removal",
         }
 
-    def _process(self, context: PipelineContext) -> PipelineContext:
-        """Load data into DataFrame or prepare chunked processing."""
-        # Use the most recent TSV file in the pipeline
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Handle the case where this stage is skipped by checkpoint system.
+
+        When this stage is skipped, we need to restore the DataFrame
+        from the most recent TSV file so that subsequent stages can proceed.
+        """
+        # Find the most recent TSV file using the same logic as _process
+        input_file = self._find_input_file(context)
+
+        if not input_file:
+            logger.warning("No TSV file found to restore DataFrame during checkpoint skip")
+            return context
+
+        # Check if we should use chunked processing
+        if self._should_use_chunks(context, input_file):
+            logger.info("File too large, will use chunked processing (checkpoint skip)")
+            context.config["use_chunked_processing"] = True
+            # Don't load full DataFrame - chunked stages will handle it
+            return context
+
+        # Load full DataFrame
+        logger.info(f"Restoring DataFrame from {input_file} (checkpoint skip)")
+        compression = "gzip" if str(input_file).endswith(".gz") else None
+
+        # Use quoting=3 (QUOTE_NONE) to handle data with quotes
+        # Use low_memory=False to avoid dtype inference issues
+        df = pd.read_csv(
+            input_file,
+            sep="\t",
+            dtype=str,
+            keep_default_na=False,
+            na_values=[""],
+            compression=compression,
+            quoting=3,  # QUOTE_NONE - don't treat quotes specially
+            low_memory=False,
+            on_bad_lines="warn",  # Warn about problematic lines instead of failing
+        )
+
+        context.current_dataframe = df
+        logger.info(f"Restored {len(df)} variants into DataFrame after checkpoint skip")
+
+        return context
+
+    def _find_input_file(self, context: PipelineContext) -> Path:
+        """Find the most recent TSV file in the pipeline."""
         # Priority: extra_columns_removed > phenotypes_added > genotype_replaced > extracted
         if hasattr(context, "extra_columns_removed_tsv") and context.extra_columns_removed_tsv:
-            input_file = context.extra_columns_removed_tsv
+            return context.extra_columns_removed_tsv
         elif hasattr(context, "phenotypes_added_tsv") and context.phenotypes_added_tsv:
-            input_file = context.phenotypes_added_tsv
+            return context.phenotypes_added_tsv
         elif hasattr(context, "genotype_replaced_tsv") and context.genotype_replaced_tsv:
-            input_file = context.genotype_replaced_tsv
+            return context.genotype_replaced_tsv
         elif hasattr(context, "extracted_tsv") and context.extracted_tsv:
-            input_file = context.extracted_tsv
+            return context.extracted_tsv
         else:
             # Fallback to context.data, but verify it's a TSV file
             input_file = context.data
@@ -97,13 +139,18 @@ class DataFrameLoadingStage(Stage):
                         tsv_file = getattr(context, attr)
                         if tsv_file and tsv_file.exists():
                             logger.info(f"Using {attr} instead: {tsv_file}")
-                            input_file = tsv_file
-                            break
+                            return tsv_file
                 else:
                     raise ValueError(
                         f"DataFrameLoadingStage requires a TSV file, but got VCF: {input_file}. "
                         f"No TSV files found in context."
                     )
+            return input_file
+
+    def _process(self, context: PipelineContext) -> PipelineContext:
+        """Load data into DataFrame or prepare chunked processing."""
+        # Find the input file
+        input_file = self._find_input_file(context)
 
         # Check if we should use chunked processing
         if self._should_use_chunks(context, input_file):
@@ -205,6 +252,29 @@ class DataFrameLoadingStage(Stage):
 
         return False
 
+    def get_input_files(self, context: PipelineContext) -> List[Path]:
+        """Return input files for checkpoint tracking."""
+        # Check in priority order for available TSV files
+        for attr in [
+            "extra_columns_removed_tsv",
+            "phenotypes_added_tsv",
+            "genotype_replaced_tsv",
+            "extracted_tsv",
+        ]:
+            if hasattr(context, attr):
+                tsv_file = getattr(context, attr)
+                if tsv_file and tsv_file.exists():
+                    return [tsv_file]
+        # Fallback to context.data
+        if hasattr(context, "data") and context.data:
+            return [context.data]
+        return []
+
+    def get_output_files(self, context: PipelineContext) -> List[Path]:
+        """Return output files for checkpoint tracking."""
+        # DataFrameLoadingStage doesn't produce file outputs, just loads data into memory
+        return []
+
 
 class CustomAnnotationStage(Stage):
     """Apply custom annotations from BED files, gene lists, and JSON."""
@@ -263,6 +333,27 @@ class CustomAnnotationStage(Stage):
 
         context.current_dataframe = df
         return context
+
+    def get_input_files(self, context: PipelineContext) -> List[Path]:
+        """Return input files for checkpoint tracking."""
+        input_files = []
+        # Add BED files if available
+        if hasattr(context, "annotation_configs") and context.annotation_configs:
+            for bed_file in context.annotation_configs.get("bed_files", []):
+                if Path(bed_file).exists():
+                    input_files.append(Path(bed_file))
+            for gene_list in context.annotation_configs.get("gene_lists", []):
+                if Path(gene_list).exists():
+                    input_files.append(Path(gene_list))
+            for json_file in context.annotation_configs.get("json_genes", []):
+                if Path(json_file).exists():
+                    input_files.append(Path(json_file))
+        return input_files
+
+    def get_output_files(self, context: PipelineContext) -> List[Path]:
+        """Return output files for checkpoint tracking."""
+        # CustomAnnotationStage modifies DataFrame in memory, no file outputs
+        return []
 
 
 class InheritanceAnalysisStage(Stage):
@@ -508,6 +599,19 @@ class InheritanceAnalysisStage(Stage):
 
         context.current_dataframe = df
         return context
+
+    def get_input_files(self, context: PipelineContext) -> List[Path]:
+        """Return input files for checkpoint tracking."""
+        input_files = []
+        # Include PED file if available for inheritance analysis
+        if hasattr(context, "ped_file") and context.ped_file:
+            input_files.append(Path(context.ped_file))
+        return input_files
+
+    def get_output_files(self, context: PipelineContext) -> List[Path]:
+        """Return output files for checkpoint tracking."""
+        # InheritanceAnalysisStage modifies DataFrame in memory, no file outputs
+        return []
 
 
 class VariantScoringStage(Stage):
@@ -960,6 +1064,16 @@ class VariantAnalysisStage(Stage):
 
         return context
 
+    def get_input_files(self, context: PipelineContext) -> List[Path]:
+        """Return input files for checkpoint tracking."""
+        # VariantAnalysisStage works with DataFrame in memory, no specific input files
+        return []
+
+    def get_output_files(self, context: PipelineContext) -> List[Path]:
+        """Return output files for checkpoint tracking."""
+        # VariantAnalysisStage modifies DataFrame in memory, no file outputs
+        return []
+
 
 class GeneBurdenAnalysisStage(Stage):
     """Perform gene burden analysis for case-control studies."""
@@ -1066,6 +1180,20 @@ class GeneBurdenAnalysisStage(Stage):
         logger.info(f"Wrote gene burden results to {burden_output}")
 
         return context
+
+    def get_input_files(self, context: PipelineContext) -> List[Path]:
+        """Return input files for checkpoint tracking."""
+        # GeneBurdenAnalysisStage works with DataFrame in memory, no specific input files
+        return []
+
+    def get_output_files(self, context: PipelineContext) -> List[Path]:
+        """Return output files for checkpoint tracking."""
+        # Return gene burden output file if configured
+        if hasattr(context, "config") and context.config.get("gene_burden_output"):
+            burden_output = context.config["gene_burden_output"]
+            if Path(burden_output).exists():
+                return [Path(burden_output)]
+        return []
 
 
 class ChunkedAnalysisStage(Stage):
@@ -1572,6 +1700,29 @@ class ChunkedAnalysisStage(Stage):
             chunk_df["Inheritance_Details"] = "{}"
             return chunk_df
 
+    def get_input_files(self, context: PipelineContext) -> List[Path]:
+        """Return input files for checkpoint tracking."""
+        # Check in priority order for available TSV files
+        for attr in [
+            "extra_columns_removed_tsv",
+            "phenotypes_added_tsv",
+            "genotype_replaced_tsv",
+            "extracted_tsv",
+        ]:
+            if hasattr(context, attr):
+                tsv_file = getattr(context, attr)
+                if tsv_file and tsv_file.exists():
+                    return [tsv_file]
+        # Fallback to context.data
+        if hasattr(context, "data") and context.data:
+            return [context.data]
+        return []
+
+    def get_output_files(self, context: PipelineContext) -> List[Path]:
+        """Return output files for checkpoint tracking."""
+        # ChunkedAnalysisStage processes data in memory, no direct file outputs
+        return []
+
 
 class ParallelAnalysisOrchestrator(Stage):
     """Orchestrate parallel analysis of independent genes."""
@@ -1733,9 +1884,10 @@ class ParallelAnalysisOrchestrator(Stage):
         skip_analysis: bool,
     ) -> pd.DataFrame:
         """Process a single gene's variants (runs in worker process)."""
+        import io
+
         from variantcentrifuge.analyze_variants import analyze_variants
         from variantcentrifuge.scoring import apply_scoring
-        import io
 
         # Make a copy to avoid modifying the original
         result_df = gene_df.copy()

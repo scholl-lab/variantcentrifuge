@@ -567,8 +567,9 @@ class TestPhenotypeIntegrationStage:
 
     def test_phenotype_integration_end_to_end_with_real_dataframe(self, context):
         """Test the complete phenotype integration with a realistic DataFrame."""
-        import pandas as pd
         from unittest.mock import patch
+
+        import pandas as pd
 
         # Create realistic test data
         test_data = {

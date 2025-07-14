@@ -53,8 +53,8 @@ from .stages.setup_stages import (
     AnnotationConfigLoadingStage,
     ConfigurationLoadingStage,
     PedigreeLoadingStage,
-    PhenotypeLoadingStage,
     PhenotypeCaseControlAssignmentStage,
+    PhenotypeLoadingStage,
     SampleConfigLoadingStage,
     ScoringConfigLoadingStage,
 )
@@ -236,6 +236,46 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
     return stages
 
 
+def create_stages_from_config(config: dict) -> List:
+    """Create pipeline stages from a configuration dictionary.
+
+    This function is used by CLI handlers that need to create stages
+    without full argparse.Namespace objects.
+
+    Parameters
+    ----------
+    config : dict
+        Configuration dictionary with pipeline settings
+
+    Returns
+    -------
+    List[Stage]
+        List of stages for the current configuration
+    """
+    # Convert config dict to a minimal args namespace for compatibility
+    args = argparse.Namespace()
+
+    # Set essential attributes from config
+    args.config = config
+    args.scoring_config_path = config.get("scoring_config_path")
+    args.ped_file = config.get("ped_file")
+    args.annotate_bed = config.get("annotate_bed", [])
+    args.annotate_gene_list = config.get("annotate_gene_list", [])
+    args.annotate_json_genes = config.get("annotate_json_genes", [])
+    args.chunks = config.get("chunks")
+    args.late_filtering = config.get("late_filtering", False)
+    args.genotype_filter = config.get("genotype_filter")
+    args.final_filter = config.get("final_filter")
+    args.pseudonymize = config.get("pseudonymize", False)
+    args.xlsx = config.get("xlsx", False)
+    args.html_report = config.get("html_report", False)
+    args.igv_report = config.get("igv_report", False)
+    args.archive_results = config.get("archive_results", False)
+
+    # Use the existing build_pipeline_stages function
+    return build_pipeline_stages(args)
+
+
 def run_refactored_pipeline(args: argparse.Namespace) -> None:
     """Run the refactored pipeline with the new architecture.
 
@@ -244,6 +284,11 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
     args : argparse.Namespace
         Command-line arguments
     """
+    # Initialize stage registry for selective resume functionality
+    from .stages.stage_registry import initialize_registry
+
+    initialize_registry()
+
     # Setup logging
     log_level = getattr(args, "log_level", "INFO")
     logging.basicConfig(
@@ -367,6 +412,17 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
             initial_config["output_dir"],
             enable_checksum=initial_config.get("checkpoint_checksum", False),
         )
+
+        # Initialize checkpoint with current pipeline version and config
+        pipeline_version = initial_config.get("pipeline_version", "refactored_pipeline")
+
+        # Only initialize new state if we're not resuming from existing checkpoint
+        is_resuming = initial_config.get("resume", False) or initial_config.get("resume_from")
+        if is_resuming and context.checkpoint_state.load():
+            logger.info("Loaded existing checkpoint state for resume")
+        else:
+            # Initialize new checkpoint state
+            context.checkpoint_state.initialize(initial_config, pipeline_version)
 
     # Build stages based on configuration
     stages = build_pipeline_stages(args)

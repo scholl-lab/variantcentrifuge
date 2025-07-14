@@ -775,6 +775,33 @@ class GenotypeReplacementStage(Stage):
         """Return the set of stage names this stage depends on."""
         return {"field_extraction", "sample_config_loading"}
 
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Handle the case where this stage is skipped by checkpoint system.
+
+        When this stage is skipped, we need to restore the context paths
+        so that subsequent stages can find the genotype_replaced_tsv file.
+        """
+        # Reconstruct the expected output path
+        output_tsv = context.workspace.get_intermediate_path(
+            f"{context.workspace.base_name}.genotype_replaced.tsv"
+        )
+
+        # Handle gzip compression
+        if context.config.get("gzip_intermediates", True):
+            output_tsv = Path(str(output_tsv) + ".gz")
+
+        # Check if the file exists and restore context
+        if output_tsv.exists():
+            context.genotype_replaced_tsv = output_tsv
+            context.data = output_tsv
+            logger.info(
+                f"Restored genotype_replaced_tsv path to {output_tsv} after checkpoint skip"
+            )
+        else:
+            logger.warning(f"Expected genotype_replaced_tsv file not found: {output_tsv}")
+
+        return context
+
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Replace genotypes with sample IDs using optimized processing."""
         # Default behavior: replace genotypes unless explicitly disabled
@@ -812,6 +839,18 @@ class GenotypeReplacementStage(Stage):
         context.genotype_replaced_tsv = output_tsv
         context.data = output_tsv
         return context
+
+    def get_input_files(self, context: PipelineContext) -> List[Path]:
+        """Return input files for checkpoint tracking."""
+        if context.data:
+            return [context.data]
+        return []
+
+    def get_output_files(self, context: PipelineContext) -> List[Path]:
+        """Return output files for checkpoint tracking."""
+        if hasattr(context, "genotype_replaced_tsv") and context.genotype_replaced_tsv:
+            return [context.genotype_replaced_tsv]
+        return []
 
     def _split_tsv_into_chunks(
         self, input_tsv: Path, chunk_size: int, context: PipelineContext
@@ -868,6 +907,7 @@ class GenotypeReplacementStage(Stage):
     ) -> Path:
         """Process a single chunk for genotype replacement."""
         import gzip
+
         from ..replacer import replace_genotypes
 
         output_path = chunk_path.parent / f"processed_chunk_{chunk_idx}.tsv.gz"
@@ -1071,6 +1111,31 @@ class PhenotypeIntegrationStage(Stage):
         # Check if phenotypes dict is populated
         return bool(context.phenotype_data)
 
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Handle the case where this stage is skipped by checkpoint system.
+
+        When this stage is skipped, we need to restore the context paths
+        so that subsequent stages can find the phenotypes_added_tsv file.
+        """
+        # Reconstruct the expected output path
+        output_tsv = context.workspace.get_intermediate_path(
+            f"{context.workspace.base_name}.phenotypes_added.tsv"
+        )
+
+        # Handle gzip compression
+        if context.config.get("gzip_intermediates"):
+            output_tsv = Path(str(output_tsv) + ".gz")
+
+        # Check if the file exists and restore context
+        if output_tsv.exists():
+            context.phenotypes_added_tsv = output_tsv
+            context.data = output_tsv
+            logger.info(f"Restored phenotypes_added_tsv path to {output_tsv} after checkpoint skip")
+        else:
+            logger.warning(f"Expected phenotypes_added_tsv file not found: {output_tsv}")
+
+        return context
+
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Add phenotype data to the table."""
         if not context.phenotype_data:
@@ -1115,6 +1180,20 @@ class PhenotypeIntegrationStage(Stage):
         context.phenotypes_added_tsv = output_tsv
         context.data = output_tsv
         return context
+
+    def get_input_files(self, context: PipelineContext) -> List[Path]:
+        """Return input files for checkpoint tracking."""
+        if hasattr(context, "genotype_replaced_tsv") and context.genotype_replaced_tsv:
+            return [context.genotype_replaced_tsv]
+        elif hasattr(context, "extracted_tsv") and context.extracted_tsv:
+            return [context.extracted_tsv]
+        return []
+
+    def get_output_files(self, context: PipelineContext) -> List[Path]:
+        """Return output files for checkpoint tracking."""
+        if hasattr(context, "phenotypes_added_tsv") and context.phenotypes_added_tsv:
+            return [context.phenotypes_added_tsv]
+        return []
 
 
 class ExtraColumnRemovalStage(Stage):
@@ -1409,6 +1488,39 @@ class ParallelCompleteProcessingStage(Stage):
         """Return the estimated runtime in seconds."""
         return 60.0  # Complete pipeline takes longer
 
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Handle the case where this stage is skipped by checkpoint system.
+
+        When this stage is skipped, we need to mark the constituent stages
+        as complete so that dependent stages can proceed.
+        """
+        # Use the workspace base_name to reconstruct the expected output file path
+        base_name = context.workspace.base_name
+        intermediate_dir = context.workspace.intermediate_dir
+
+        # Set the expected merged TSV path
+        merged_tsv = intermediate_dir / f"{base_name}.extracted.tsv"
+
+        # Check if gzipped version exists (which is more likely with compression)
+        if (intermediate_dir / f"{base_name}.extracted.tsv.gz").exists():
+            merged_tsv = intermediate_dir / f"{base_name}.extracted.tsv.gz"
+
+        # Restore context state that would have been set
+        context.extracted_tsv = merged_tsv
+        context.data = merged_tsv
+
+        # Mark all the stages this stage would have completed
+        context.mark_complete("variant_extraction")
+        context.mark_complete("parallel_variant_extraction")
+        context.mark_complete("snpsift_filtering")
+        context.mark_complete("field_extraction")
+
+        logger.info(
+            f"Restored data path to {merged_tsv} and marked constituent stages as complete "
+            f"after checkpoint skip"
+        )
+        return context
+
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Process variants in parallel with complete pipeline per chunk."""
         threads = context.config.get("threads", 1)
@@ -1451,6 +1563,21 @@ class ParallelCompleteProcessingStage(Stage):
         self._end_subtask("cleanup", cleanup_start)
 
         return context
+
+    def get_input_files(self, context: PipelineContext) -> List[Path]:
+        """Return input files for checkpoint tracking."""
+        input_files = []
+        if hasattr(context, "gene_bed_file") and context.gene_bed_file:
+            input_files.append(context.gene_bed_file)
+        if hasattr(context, "vcf_file") and context.vcf_file:
+            input_files.append(Path(context.vcf_file))
+        return input_files
+
+    def get_output_files(self, context: PipelineContext) -> List[Path]:
+        """Return output files for checkpoint tracking."""
+        if hasattr(context, "extracted_tsv") and context.extracted_tsv:
+            return [context.extracted_tsv]
+        return []
 
     def _split_bed_file(self, bed_file: Path, n_chunks: int) -> List[Path]:
         """Split BED file into roughly equal chunks."""

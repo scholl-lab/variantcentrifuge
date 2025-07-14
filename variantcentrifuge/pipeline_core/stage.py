@@ -149,22 +149,30 @@ class Stage(ABC):
         if context.checkpoint_state and context.checkpoint_state.should_skip_step(self.name):
             logger.info(f"Stage '{self.name}' skipped by checkpoint system")
             context.mark_complete(self.name)
+
+            # Give stage a chance to handle checkpoint skip logic
+            if hasattr(self, "_handle_checkpoint_skip"):
+                context = self._handle_checkpoint_skip(context)
+
             return context
 
         # Log execution start
         logger.info(f"Executing {self.description}")
         start_time = time.time()
 
-        # Initialize checkpoint context if enabled
-        checkpoint_context = None
+        # Initialize checkpoint if enabled
         if context.checkpoint_state:
-            from ..checkpoint import CheckpointContext
-
-            checkpoint_context = CheckpointContext(
-                context.checkpoint_state,
-                self.name,
-                {"description": self.description, "stage_type": self.__class__.__name__},
-            )
+            try:
+                context.checkpoint_state.start_step(
+                    self.name,
+                    command_hash=None,
+                    parameters={
+                        "description": self.description,
+                        "stage_type": self.__class__.__name__,
+                    },
+                )
+            except Exception as e:
+                logger.warning(f"Failed to start checkpoint for stage '{self.name}': {e}")
 
         # Execute stage
         try:
@@ -177,18 +185,27 @@ class Stage(ABC):
             # Post-execution hook
             self._post_execute(updated_context)
 
-            # Add output files to checkpoint tracking
-            if checkpoint_context:
-                try:
-                    output_files = self.get_output_files(updated_context)
-                    for file_path in output_files:
-                        checkpoint_context.add_output_file(str(file_path))
-                except Exception as e:
-                    logger.debug(f"Could not track output files for checkpoint: {e}")
-
-            # Mark complete
+            # Mark complete and update checkpoint with file tracking
             elapsed = time.time() - start_time
             updated_context.mark_complete(self.name)
+
+            # Complete checkpoint step with output files
+            if context.checkpoint_state:
+                try:
+                    output_files = self.get_output_files(updated_context)
+                    context.checkpoint_state.complete_step(
+                        self.name,
+                        input_files=[],  # Could add input files if needed
+                        output_files=[str(f) for f in output_files] if output_files else [],
+                    )
+                    output_count = len(output_files) if output_files else 0
+                    logger.debug(
+                        f"Checkpoint completed for '{self.name}' with {output_count} output files"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to complete checkpoint for '{self.name}': {e}")
+                    # Still mark as completed even if file tracking fails
+                    context.checkpoint_state.complete_step(self.name, [], [])
 
             logger.info(f"Stage '{self.name}' completed successfully in {elapsed:.1f}s")
 

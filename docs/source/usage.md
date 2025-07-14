@@ -54,12 +54,15 @@ variantcentrifuge \
 - `--bam-mapping-file` - TSV/CSV file mapping sample IDs to BAM files
 - `--igv-reference` - Genome reference for IGV (e.g., 'hg19', 'hg38')
 
-### Checkpoint Options
+### Checkpoint and Resume Options
 
 - `--enable-checkpoint` - Enable checkpoint tracking for pipeline state
 - `--resume` - Resume pipeline from last successful checkpoint (requires --enable-checkpoint)
+- `--resume-from STAGE` - Resume from a specific pipeline stage (advanced usage)
 - `--checkpoint-checksum` - Calculate file checksums for checkpoint validation (slower but more reliable)
 - `--show-checkpoint-status` - Display checkpoint status for a previous run and exit
+
+**Resume System**: VariantCentrifuge includes a robust checkpoint system that saves pipeline state as stages complete. This allows you to resume interrupted runs without losing progress. See the [Resume System](resume_system.md) documentation for detailed information.
 
 ### Scoring Options
 

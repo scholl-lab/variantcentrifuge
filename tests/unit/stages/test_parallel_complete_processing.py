@@ -174,7 +174,8 @@ class TestParallelCompleteProcessingStage:
                 stage._merge_tsv_outputs(context, [single_tsv])
 
             # Check that move was called with correct paths
-            expected_output = intermediate_dir / "test_output.extracted.tsv"
+            # The output should preserve the .gz extension from the input
+            expected_output = intermediate_dir / "test_output.extracted.tsv.gz"
             mock_move.assert_called_once_with(str(single_tsv), str(expected_output))
 
     def test_merge_tsv_outputs_multiple_files(self, context):

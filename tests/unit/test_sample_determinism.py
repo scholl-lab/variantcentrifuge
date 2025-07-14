@@ -192,9 +192,16 @@ class TestSampleAssignmentRegression:
 
                 # Read the result file to check sample order consistency
                 if result.genotype_replaced_tsv and result.genotype_replaced_tsv.exists():
-                    with open(result.genotype_replaced_tsv, "r") as rf:
-                        content = rf.read()
-                        results.append(content)
+                    import gzip
+
+                    # Check if file is gzipped based on extension
+                    if str(result.genotype_replaced_tsv).endswith(".gz"):
+                        with gzip.open(result.genotype_replaced_tsv, "rt") as rf:
+                            content = rf.read()
+                    else:
+                        with open(result.genotype_replaced_tsv, "r") as rf:
+                            content = rf.read()
+                    results.append(content)
 
             # All results should be identical if sample order is deterministic
             if results:

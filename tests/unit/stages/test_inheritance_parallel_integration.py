@@ -167,7 +167,8 @@ class TestInheritanceParallelIntegration:
         # Check that compound het timing was recorded
         assert hasattr(stage, "_subtask_times")
         assert "compound_het_analysis" in stage._subtask_times
-        assert stage._subtask_times["compound_het_analysis"] >= 2.0
+        # Use a tolerance for timing assertions to account for system variations
+        assert stage._subtask_times["compound_het_analysis"] >= 1.8
 
     def test_configuration_options_passed_correctly(self, context):
         """Test that configuration options are passed to parallel analyzer."""

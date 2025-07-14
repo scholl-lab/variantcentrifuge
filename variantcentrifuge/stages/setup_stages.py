@@ -116,8 +116,10 @@ class ConfigurationLoadingStage(Stage):
                 if key not in config:
                     config[key] = value
 
-        # Set pipeline version
-        config["pipeline_version"] = config.get("pipeline_version", "1.0.0")
+        # Set pipeline version - use actual package version
+        from ..version import __version__
+
+        config["pipeline_version"] = config.get("pipeline_version", __version__)
 
         # Convert fields_to_extract to extract for downstream stages
         if "extract" not in config and "fields_to_extract" in config:
