@@ -10,15 +10,17 @@ This module contains stages that handle the core data processing tasks:
 - Phenotype integration
 """
 
+import gzip
 import logging
 import os
 import shutil
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Tuple
 
 import pandas as pd
+import psutil
 from smart_open import smart_open
 
 from ..extractor import extract_fields
@@ -38,6 +40,204 @@ from ..utils import ensure_fields_in_extract, run_command, split_bed_file
 from ..vcf_eff_one_per_line import process_vcf_file as split_snpeff_annotations
 
 logger = logging.getLogger(__name__)
+
+
+# Memory and compression utilities for intelligent processing method selection
+def get_available_memory_gb() -> float:
+    """Get available system memory in GB."""
+    try:
+        memory = psutil.virtual_memory()
+        available_gb = memory.available / (1024**3)
+        return available_gb
+    except Exception as e:
+        logger.warning(f"Could not detect available memory: {e}. Using default estimate of 8GB")
+        return 8.0  # Conservative fallback
+
+
+def estimate_compression_ratio(file_path: Path, sample_size_mb: float = 5.0) -> float:
+    """
+    Estimate compression ratio for a gzipped file by sampling the beginning.
+
+    Parameters
+    ----------
+    file_path : Path
+        Path to the gzipped file
+    sample_size_mb : float
+        Size in MB to sample for ratio estimation
+
+    Returns
+    -------
+    float
+        Estimated compression ratio (uncompressed_size / compressed_size)
+    """
+    if not str(file_path).endswith(".gz"):
+        return 1.0  # Not compressed
+
+    try:
+        sample_size_bytes = int(sample_size_mb * 1024 * 1024)
+        compressed_sample_size = 0
+        uncompressed_sample_size = 0
+
+        with gzip.open(file_path, "rb") as f:
+            # Read sample data
+            sample_data = f.read(sample_size_bytes)
+            uncompressed_sample_size = len(sample_data)
+
+            if uncompressed_sample_size == 0:
+                return 1.0
+
+        # Get compressed size of this sample by checking file position vs data read
+        with open(file_path, "rb") as f:
+            # Read compressed data until we have enough uncompressed data
+            compressed_data = f.read(sample_size_bytes // 2)  # Start with smaller chunk
+
+            # Try to decompress to see how much we need
+            try:
+                with gzip.open(file_path, "rb") as gz_f:
+                    test_data = gz_f.read(sample_size_bytes)
+                    if len(test_data) > 0:
+                        # Estimate based on file size ratios
+                        compressed_sample_size = len(compressed_data)
+
+                        if compressed_sample_size > 0:
+                            ratio = uncompressed_sample_size / compressed_sample_size
+                            # Apply safety bounds for genomic data
+                            ratio = max(5.0, min(50.0, ratio))  # Reasonable bounds for genomic data
+                            return ratio
+            except Exception:
+                pass
+
+        # Fallback: use typical genomic data compression ratios
+        logger.debug(f"Using fallback compression ratio for {file_path}")
+        return 15.0  # Conservative estimate for genomic variant data
+
+    except Exception as e:
+        logger.warning(f"Could not estimate compression ratio for {file_path}: {e}")
+        return 15.0  # Conservative fallback
+
+
+def estimate_memory_requirements(file_path: Path, num_samples: int) -> Tuple[float, float]:
+    """
+    Estimate memory requirements for processing a file.
+
+    Parameters
+    ----------
+    file_path : Path
+        Path to the file to process
+    num_samples : int
+        Number of samples in the dataset
+
+    Returns
+    -------
+    Tuple[float, float]
+        (estimated_uncompressed_gb, estimated_memory_required_gb)
+    """
+    file_size_mb = file_path.stat().st_size / (1024 * 1024)
+
+    # Estimate uncompressed size
+    compression_ratio = estimate_compression_ratio(file_path)
+    estimated_uncompressed_mb = file_size_mb * compression_ratio
+    estimated_uncompressed_gb = estimated_uncompressed_mb / 1024
+
+    # Estimate memory overhead for pandas processing
+    # Factors: pandas overhead (2-3x), string processing (1.5x), multiple columns (1.2x),
+    # sample processing overhead
+    pandas_overhead = 2.5
+    string_processing_overhead = 1.5
+    # Cap multi-sample overhead to reasonable bounds: max 8x overhead for any sample count
+    multi_sample_overhead = min(8.0, 1 + (num_samples / 500))  # Much more reasonable scaling
+
+    total_overhead = pandas_overhead * string_processing_overhead * multi_sample_overhead
+    estimated_memory_gb = estimated_uncompressed_gb * total_overhead
+
+    logger.debug(
+        f"Memory estimation for {file_path.name}: "
+        f"compressed={file_size_mb:.1f}MB, "
+        f"uncompressed~={estimated_uncompressed_gb:.1f}GB, "
+        f"memory_required~={estimated_memory_gb:.1f}GB "
+        f"(ratio={compression_ratio:.1f}x, overhead={total_overhead:.1f}x)"
+    )
+
+    return estimated_uncompressed_gb, estimated_memory_gb
+
+
+def select_optimal_processing_method(
+    file_path: Path,
+    num_samples: int,
+    threads: int,
+    available_memory_gb: float = None,
+    force_method: str = None,
+) -> str:
+    """
+    Intelligently select the optimal processing method based on file characteristics and
+    system resources.
+
+    Parameters
+    ----------
+    file_path : Path
+        Path to the file to process
+    num_samples : int
+        Number of samples in the dataset
+    threads : int
+        Number of available threads
+    available_memory_gb : float, optional
+        Available memory in GB (auto-detected if None)
+    force_method : str, optional
+        Force specific method for testing/debugging
+
+    Returns
+    -------
+    str
+        Selected processing method: 'sequential', 'vectorized', 'chunked-vectorized', or 'parallel'
+    """
+    if force_method:
+        logger.info(f"Forcing processing method: {force_method}")
+        return force_method
+
+    if available_memory_gb is None:
+        available_memory_gb = get_available_memory_gb()
+
+    file_size_mb = file_path.stat().st_size / (1024 * 1024)
+    uncompressed_gb, memory_required_gb = estimate_memory_requirements(file_path, num_samples)
+
+    # Memory safety thresholds (more realistic for modern systems)
+    memory_safe_threshold = available_memory_gb * 0.75  # Use max 75% of available memory
+    memory_warning_threshold = available_memory_gb * 0.9  # Warning at 90%
+
+    # Method selection logic
+    if memory_required_gb > memory_warning_threshold:
+        method = "chunked-vectorized"  # Safest for very large files
+        reason = (f"memory required ({memory_required_gb:.1f}GB) > 90% of available "
+                  f"({available_memory_gb:.1f}GB)")
+    elif memory_required_gb > memory_safe_threshold:
+        if threads > 1:
+            method = "parallel"
+            reason = (f"memory required ({memory_required_gb:.1f}GB) > safe threshold, "
+                      f"using parallel with {threads} threads")
+        else:
+            method = "chunked-vectorized"
+            reason = f"memory required ({memory_required_gb:.1f}GB) > safe threshold, single thread"
+    elif file_size_mb < 10:  # Very small files
+        method = "sequential"
+        reason = f"small file ({file_size_mb:.1f}MB), sequential is most efficient"
+    elif num_samples > 50 and memory_required_gb < memory_safe_threshold:
+        method = "vectorized"
+        reason = (f"many samples ({num_samples}), memory safe "
+                  f"({memory_required_gb:.1f}GB < {memory_safe_threshold:.1f}GB)")
+    elif file_size_mb > 100 and threads > 1:
+        method = "parallel"
+        reason = f"large file ({file_size_mb:.1f}MB), using {threads} threads"
+    else:
+        method = "sequential"
+        reason = "default fallback for moderate files"
+
+    logger.info(
+        f"Selected {method} processing: {reason} "
+        f"[file={file_size_mb:.1f}MB, samples={num_samples}, "
+        f"est_memory={memory_required_gb:.1f}GB, avail={available_memory_gb:.1f}GB]"
+    )
+
+    return method
 
 
 class GeneBedCreationStage(Stage):
@@ -919,32 +1119,29 @@ class GenotypeReplacementStage(Stage):
 
         logger.info(f"Replacing genotypes for {len(samples)} samples")
 
-        # Determine processing method
+        # Determine processing method using intelligent selection
         processing_method = context.config.get("genotype_replacement_method", "auto")
         threads = context.config.get("threads", 1)
-        file_size_mb = input_tsv.stat().st_size / (1024 * 1024) if input_tsv.exists() else 0
 
-        # Auto-select processing method based on data characteristics
+        # Use intelligent method selection for 'auto' mode
         if processing_method == "auto":
-            # Use vectorized for medium-sized files with many samples (better memory/speed trade-off)
-            if len(samples) > 50 and file_size_mb < 500:  # Many samples, manageable file size
-                processing_method = "vectorized"
-            # Use parallel for very large files
-            elif (
-                file_size_mb > 100
-                and threads > 1
-                and not context.config.get("disable_parallel_genotype_replacement", False)
-            ):
-                processing_method = "parallel"
-            # Use sequential for small files or single thread
-            else:
-                processing_method = "sequential"
-
-        logger.info(f"Using {processing_method} genotype replacement method")
+            processing_method = select_optimal_processing_method(
+                file_path=input_tsv,
+                num_samples=len(samples),
+                threads=threads,
+                available_memory_gb=context.config.get("max_memory_gb"),  # Allow override
+                force_method=context.config.get(
+                    "force_genotype_method"
+                ),  # Allow forcing for debugging
+            )
 
         # Execute based on selected method
         if processing_method == "vectorized":
             output_tsv = self._process_genotype_replacement_vectorized(context, input_tsv, samples)
+        elif processing_method == "chunked-vectorized":
+            output_tsv = self._process_genotype_replacement_chunked_vectorized(
+                context, input_tsv, samples
+            )
         elif processing_method == "parallel":
             output_tsv = self._process_genotype_replacement_parallel(
                 context, input_tsv, samples, threads
@@ -1053,6 +1250,71 @@ class GenotypeReplacementStage(Stage):
                         # Skip header and copy rest
                         next(inp, None)  # Skip header line
                         shutil.copyfileobj(inp, out)
+
+    def _process_genotype_replacement_chunked_vectorized(
+        self, context: PipelineContext, input_tsv: Path, samples: List[str]
+    ) -> Path:
+        """Memory-safe chunked vectorized genotype replacement for large files."""
+        logger.info("Using chunked vectorized genotype replacement for memory safety")
+
+        output_tsv = context.workspace.get_intermediate_path(
+            f"{context.workspace.base_name}.genotype_replaced.tsv"
+        )
+
+        # Always use gzip for intermediate files
+        use_compression = context.config.get("gzip_intermediates", True)
+        if use_compression:
+            output_tsv = Path(str(output_tsv) + ".gz")
+
+        # Calculate intelligent chunk size based on available memory
+        available_memory_gb = get_available_memory_gb()
+        num_samples = len(samples)
+
+        # Estimate memory per row (bytes): base columns + sample data + pandas overhead
+        # Rough estimate: ~200 bytes base + ~50 bytes per sample + 3x pandas overhead
+        estimated_bytes_per_row = (200 + (50 * num_samples)) * 3
+
+        # Target using 50% of available memory for chunk processing (more efficient)
+        target_memory_bytes = available_memory_gb * 0.5 * (1024**3)
+        chunk_size = max(1000, min(50000, int(target_memory_bytes / estimated_bytes_per_row)))
+
+        logger.info(
+            f"Using chunk size of {chunk_size:,} rows "
+            f"(estimated {estimated_bytes_per_row} bytes/row, "
+            f"target memory {target_memory_bytes/(1024**3):.1f}GB)"
+        )
+
+        # Prepare config for vectorized replacer
+        replacer_config = {
+            "sample_list": ",".join(samples),
+            "separator": ";",
+            "extract_fields_separator": ",",
+            "append_extra_sample_fields": context.config.get("append_extra_sample_fields", False),
+            "extra_sample_fields": context.config.get("extra_sample_fields", []),
+            "extra_sample_field_delimiter": context.config.get("extra_sample_field_delimiter", ":"),
+            "genotype_replacement_map": context.config.get("genotype_replacement_map", {}),
+        }
+
+        try:
+            # Use the existing chunked processing function from vectorized_replacer
+            from ..vectorized_replacer import process_chunked_vectorized
+
+            logger.info(f"Processing genotype replacement: {input_tsv} -> {output_tsv}")
+            process_chunked_vectorized(
+                input_path=input_tsv,
+                output_path=output_tsv,
+                config=replacer_config,
+                chunk_size=chunk_size,
+            )
+
+            logger.info("Completed chunked vectorized genotype replacement")
+            return output_tsv
+
+        except Exception as e:
+            logger.error(f"Chunked vectorized processing failed: {e}")
+            logger.info("Falling back to sequential processing for safety")
+            # Fallback to sequential processing
+            return self._process_genotype_replacement_sequential(context, input_tsv, samples)
 
     def _process_genotype_replacement_sequential(
         self, context: PipelineContext, input_tsv: Path, samples: List[str]
@@ -1184,7 +1446,7 @@ class GenotypeReplacementStage(Stage):
         self, context: PipelineContext, input_tsv: Path, samples: List[str]
     ) -> Path:
         """Vectorized genotype replacement using pandas operations."""
-        logger.info(f"Using vectorized genotype replacement with pandas operations")
+        logger.info("Using vectorized genotype replacement with pandas operations")
 
         output_tsv = context.workspace.get_intermediate_path(
             f"{context.workspace.base_name}.genotype_replaced.tsv"
