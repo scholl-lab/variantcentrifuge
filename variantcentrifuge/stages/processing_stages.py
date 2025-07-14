@@ -142,10 +142,16 @@ def estimate_memory_requirements(file_path: Path, num_samples: int) -> Tuple[flo
     # Estimate memory overhead for pandas processing
     # Factors: pandas overhead (2-3x), string processing (1.5x), multiple columns (1.2x),
     # sample processing overhead
-    pandas_overhead = 2.5
-    string_processing_overhead = 1.5
-    # Cap multi-sample overhead to reasonable bounds: max 8x overhead for any sample count
-    multi_sample_overhead = min(8.0, 1 + (num_samples / 500))  # Much more reasonable scaling
+    pandas_overhead = 3.0  # Be more conservative with pandas overhead
+    string_processing_overhead = 2.0  # String operations with many samples are expensive
+    # Multi-sample overhead - vectorized processing scales worse with high sample counts
+    if num_samples < 100:
+        multi_sample_overhead = 1.2
+    elif num_samples < 1000:
+        multi_sample_overhead = 1.5 + (num_samples - 100) / 1000  # Linear scaling to 2.4x
+    else:
+        # For high sample counts, vectorized processing becomes memory intensive
+        multi_sample_overhead = 2.4 + min(6.0, (num_samples - 1000) / 1000)  # Cap at 8.4x total
 
     total_overhead = pandas_overhead * string_processing_overhead * multi_sample_overhead
     estimated_memory_gb = estimated_uncompressed_gb * total_overhead
@@ -220,10 +226,14 @@ def select_optimal_processing_method(
     elif file_size_mb < 10:  # Very small files
         method = "sequential"
         reason = f"small file ({file_size_mb:.1f}MB), sequential is most efficient"
-    elif num_samples > 50 and memory_required_gb < memory_safe_threshold:
+    elif num_samples > 50 and num_samples < 3000 and memory_required_gb < memory_safe_threshold:
         method = "vectorized"
         reason = (f"many samples ({num_samples}), memory safe "
                   f"({memory_required_gb:.1f}GB < {memory_safe_threshold:.1f}GB)")
+    elif num_samples >= 3000:
+        # For very high sample counts, always use chunked processing for safety
+        method = "chunked-vectorized"
+        reason = f"very high sample count ({num_samples}), using chunked processing for safety"
     elif file_size_mb > 100 and threads > 1:
         method = "parallel"
         reason = f"large file ({file_size_mb:.1f}MB), using {threads} threads"
@@ -1271,12 +1281,22 @@ class GenotypeReplacementStage(Stage):
         num_samples = len(samples)
 
         # Estimate memory per row (bytes): base columns + sample data + pandas overhead
-        # Rough estimate: ~200 bytes base + ~50 bytes per sample + 3x pandas overhead
-        estimated_bytes_per_row = (200 + (50 * num_samples)) * 3
+        # More realistic estimate for high sample counts
+        base_bytes = 200
+        bytes_per_sample = 60 if num_samples > 1000 else 50  # More per sample for high counts
+        pandas_overhead_factor = 4 if num_samples > 3000 else 3  # Higher overhead for many samples
+        estimated_bytes_per_row = ((base_bytes + (bytes_per_sample * num_samples))
+                                   * pandas_overhead_factor)
 
-        # Target using 50% of available memory for chunk processing (more efficient)
-        target_memory_bytes = available_memory_gb * 0.5 * (1024**3)
-        chunk_size = max(1000, min(50000, int(target_memory_bytes / estimated_bytes_per_row)))
+        # For high sample counts, be more conservative with memory usage
+        if num_samples > 3000:
+            memory_fraction = 0.3  # Use only 30% for very high sample counts
+        elif num_samples > 1000:
+            memory_fraction = 0.4  # Use 40% for high sample counts
+        else:
+            memory_fraction = 0.5  # Use 50% for moderate sample counts
+        target_memory_bytes = available_memory_gb * memory_fraction * (1024**3)
+        chunk_size = max(500, min(20000, int(target_memory_bytes / estimated_bytes_per_row)))
 
         logger.info(
             f"Using chunk size of {chunk_size:,} rows "
