@@ -202,6 +202,7 @@ class PipelineRunner:
         # Mark all completed stages (before resume point) as complete
         completed_stages = context.checkpoint_state.get_available_resume_points()
         current_stage_names = {stage.name for stage in stages}
+        stage_map = {stage.name: stage for stage in stages}
         
         for completed_stage in completed_stages:
             if completed_stage != resume_from:
@@ -209,6 +210,14 @@ class PipelineRunner:
                 # This handles cases where composite stages (like ParallelCompleteProcessingStage)
                 # marked virtual stages (like field_extraction) as complete
                 context.mark_complete(completed_stage)
+                
+                # For stages that are in the original stages list (before filtering),
+                # call their checkpoint skip logic to restore virtual dependencies
+                if completed_stage in stage_map:
+                    stage_instance = stage_map[completed_stage]
+                    if hasattr(stage_instance, "_handle_checkpoint_skip"):
+                        logger.debug(f"Calling checkpoint skip logic for completed stage: {completed_stage}")
+                        context = stage_instance._handle_checkpoint_skip(context)
                 
                 if completed_stage in current_stage_names:
                     logger.info(f"Marking completed stage as done: {completed_stage}")
