@@ -204,6 +204,24 @@ class PipelineRunner:
         current_stage_names = {stage.name for stage in stages}
         stage_map = {stage.name: stage for stage in stages}
         
+        # Add prerequisite stages that should be considered complete if we're resuming
+        # These are fundamental setup stages that must have completed for pipeline to reach this point
+        prerequisite_stages = {
+            "configuration_loading",
+            "sample_config_loading", 
+            "gene_bed_creation",
+            "pedigree_loading",
+            "phenotype_loading",
+            "scoring_config_loading",
+            "annotation_config_loading"
+        }
+        
+        # Mark prerequisite stages as complete if they exist in the pipeline
+        for prereq_stage in prerequisite_stages:
+            if prereq_stage in stage_map and prereq_stage not in completed_stages:
+                logger.debug(f"Marking prerequisite stage as complete for resume: {prereq_stage}")
+                context.mark_complete(prereq_stage)
+        
         for completed_stage in completed_stages:
             if completed_stage != resume_from:
                 # Mark stage as complete in context, even if it's not in current pipeline
