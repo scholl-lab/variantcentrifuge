@@ -233,31 +233,31 @@ FAM1\tmother\t0\t0\t2\t1"""
 
 @pytest.fixture
 def trio_sample_list() -> list:
-    """Standard trio sample list."""
+    """Provide standard trio sample list."""
     return ["child", "father", "mother"]
 
 
 @pytest.fixture
 def de_novo_variant_row() -> dict:
-    """Standard de novo variant row."""
+    """Provide standard de novo variant row."""
     return {"child": "0/1", "father": "0/0", "mother": "0/0"}
 
 
 @pytest.fixture
 def recessive_variant_row() -> dict:
-    """Standard recessive variant row."""
+    """Provide standard recessive variant row."""
     return {"child": "1/1", "father": "0/1", "mother": "0/1"}
 
 
 @pytest.fixture
 def dominant_variant_row() -> dict:
-    """Standard dominant variant row."""
+    """Provide standard dominant variant row."""
     return {"child": "0/1", "father": "0/1", "mother": "0/0"}
 
 
 @pytest.fixture
 def x_linked_recessive_male_row() -> dict:
-    """X-linked recessive affecting male."""
+    """Provide X-linked recessive affecting male."""
     return {"son": "1", "father": "0", "mother": "0/1"}
 
 
@@ -269,7 +269,7 @@ def x_linked_recessive_female_row() -> dict:
 
 @pytest.fixture
 def mitochondrial_variant_row() -> dict:
-    """Standard mitochondrial variant row."""
+    """Provide standard mitochondrial variant row."""
     return {"child": "1/1", "father": "0/0", "mother": "1/1"}
 
 

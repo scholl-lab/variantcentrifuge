@@ -80,12 +80,17 @@ def extract_fields(variant_file: str, fields: str, cfg: Dict[str, Any], output_f
 
     # Now fix up the header line and compress
     # Use fast compression (level 1) for intermediate files to optimize I/O performance
-    if output_file.endswith(".gz"):
-        open_func = lambda f, m, **kwargs: gzip.open(f, m, compresslevel=1, **kwargs)
-        mode = "wt"
-    else:
-        open_func = open
-        mode = "w"
+    def get_open_func():
+        if output_file.endswith(".gz"):
+
+            def compressed_open(f, m, **kwargs):
+                return gzip.open(f, m, compresslevel=1, **kwargs)
+
+            return compressed_open, "wt"
+        else:
+            return open, "w"
+
+    open_func, mode = get_open_func()
 
     with open(temp_output, "r", encoding="utf-8") as f:
         lines = f.readlines()

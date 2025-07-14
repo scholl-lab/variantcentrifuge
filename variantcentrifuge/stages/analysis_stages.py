@@ -1273,7 +1273,7 @@ class ChunkedAnalysisStage(Stage):
         if context.config.get("assume_sorted", False):
             return input_file
 
-        sorted_file = context.workspace.intermediate / f"{input_file.stem}.sorted.tsv"
+        sorted_file = context.workspace.intermediate_dir / f"{input_file.stem}.sorted.tsv"
 
         if sorted_file.exists():
             logger.info(f"Using existing sorted file: {sorted_file}")

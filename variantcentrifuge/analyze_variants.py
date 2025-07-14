@@ -198,11 +198,13 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
     # Write basic stats if requested
     if stats_output_file:
         logger.debug("Writing basic stats to %s", stats_output_file)
-        
+
         # Apply compression to statistics output for space efficiency
         use_compression = "gzip" if str(stats_output_file).endswith(".gz") else None
         if use_compression:
-            basic_stats_df.to_csv(stats_output_file, sep="\t", index=False, header=True, mode="w", compression="gzip")
+            basic_stats_df.to_csv(
+                stats_output_file, sep="\t", index=False, header=True, mode="w", compression="gzip"
+            )
         else:
             basic_stats_df.to_csv(stats_output_file, sep="\t", index=False, header=True, mode="w")
 
@@ -239,9 +241,18 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
             # Apply compression consistently with the main stats file
             use_compression = "gzip" if str(stats_output_file).endswith(".gz") else None
             if use_compression:
-                comp_stats_df.to_csv(stats_output_file, sep="\t", index=False, header=False, mode="a", compression="gzip")
+                comp_stats_df.to_csv(
+                    stats_output_file,
+                    sep="\t",
+                    index=False,
+                    header=False,
+                    mode="a",
+                    compression="gzip",
+                )
             else:
-                comp_stats_df.to_csv(stats_output_file, sep="\t", index=False, header=False, mode="a")
+                comp_stats_df.to_csv(
+                    stats_output_file, sep="\t", index=False, header=False, mode="a"
+                )
 
             # Write custom stats if available
             if custom_stats:
@@ -296,7 +307,9 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
         logger.info("Writing gene burden results to %s", burden_output_file)
         # Apply compression to gene burden output
         use_compression = "gzip" if str(burden_output_file).endswith(".gz") else None
-        gene_burden_results.to_csv(burden_output_file, sep="\t", index=False, compression=use_compression)
+        gene_burden_results.to_csv(
+            burden_output_file, sep="\t", index=False, compression=use_compression
+        )
 
         # Yield burden results as output
         burden_text = gene_burden_results.to_csv(sep="\t", index=False)

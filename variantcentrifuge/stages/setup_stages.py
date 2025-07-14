@@ -560,7 +560,6 @@ class PhenotypeCaseControlAssignmentStage(Stage):
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Assign case/control samples based on phenotype data if no explicit assignments exist."""
-
         # Check if case/control samples are already explicitly assigned
         existing_case_samples = context.config.get("case_samples", [])
         existing_control_samples = context.config.get("control_samples", [])
@@ -671,7 +670,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         remove_substring="",
     ):
         """
-        Simple function: load CSV, filter by phenotype terms, get sample lists.
+        Load CSV, filter by phenotype terms, get sample lists.
 
         As user requested: filter the phenotype-value-column by the phenotype list,
         get the phenotype-sample-column by group and deduplicate -> sample list.
@@ -790,7 +789,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
     def _classify_samples_by_phenotypes(
         self, vcf_samples, phenotype_data, case_phenotypes, control_phenotypes
     ):
-        """Simple modular function to classify samples based on phenotype data."""
+        """Classify samples based on phenotype data."""
         logger.info(
             f"Performing phenotype-based case/control assignment for "
             f"{len(vcf_samples)} VCF samples"

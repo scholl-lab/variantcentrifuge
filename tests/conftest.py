@@ -9,7 +9,7 @@ import pytest
 
 @pytest.fixture
 def gene_burden_test_config() -> Dict[str, Any]:
-    """Standard gene burden analysis configuration."""
+    """Provide standard gene burden analysis configuration."""
     return {
         "gene_burden_mode": "samples",
         "correction_method": "fdr",
@@ -32,7 +32,7 @@ def gene_burden_alleles_config() -> Dict[str, Any]:
 
 @pytest.fixture
 def gene_burden_edge_case_data() -> pd.DataFrame:
-    """Standard edge case data for gene burden testing."""
+    """Provide standard edge case data for gene burden testing."""
     data = [
         # Gene with zero variants in controls (infinite OR)
         {
@@ -90,7 +90,7 @@ def gene_burden_edge_case_data() -> pd.DataFrame:
 
 @pytest.fixture
 def gene_burden_simple_test_data() -> pd.DataFrame:
-    """Simple gene burden test data for unit testing."""
+    """Provide simple gene burden test data for unit testing."""
     test_data = {
         "GENE": ["GENE1", "GENE1", "GENE2", "GENE2"],
         "proband_count": [10, 10, 10, 10],
@@ -105,7 +105,7 @@ def gene_burden_simple_test_data() -> pd.DataFrame:
 
 @pytest.fixture
 def gene_burden_test_data_paths():
-    """Standard test data file paths for gene burden integration tests."""
+    """Provide standard test data file paths for gene burden integration tests."""
     fixtures_dir = Path(__file__).parent / "fixtures" / "geneburden" / "output"
     return {
         "vcf": fixtures_dir / "enhanced_test_data.vcf.gz",
@@ -178,7 +178,7 @@ def gene_burden_cmd_template():
 
 @pytest.fixture
 def gene_burden_required_columns():
-    """Required columns for gene burden results validation."""
+    """Provide required columns for gene burden results validation."""
     return [
         "GENE",
         "proband_count",
@@ -206,7 +206,7 @@ def case_control_gt_sample_data():
 
 @pytest.fixture
 def case_control_sample_sets():
-    """Standard case and control sample sets."""
+    """Provide standard case and control sample sets."""
     return {
         "case_samples": {"CASE_001", "CASE_002", "CASE_003"},
         "control_samples": {"CTRL_001", "CTRL_002", "CTRL_003"},
