@@ -4,6 +4,7 @@ import argparse
 import datetime
 import logging
 import sys
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .config import load_config
@@ -1222,6 +1223,10 @@ def main() -> int:
 
     # If a log file is specified, add a file handler
     if args.log_file:
+        # Ensure the log file directory exists
+        log_file_path = Path(args.log_file)
+        log_file_path.parent.mkdir(parents=True, exist_ok=True)
+        
         fh = logging.FileHandler(args.log_file)
         fh.setLevel(log_level_map[args.log_level])
         fh.setFormatter(
