@@ -97,14 +97,6 @@ class PipelineRunner:
         if len(stage_map) != len(stages):
             raise ValueError("Duplicate stage names detected")
 
-        # Analyze dependencies and get execution plan
-        execution_plan = self._create_execution_plan(stages)
-
-        logger.info(f"Execution plan has {len(execution_plan)} levels")
-        for level, level_stages in enumerate(execution_plan):
-            stage_names = [s.name for s in level_stages]
-            logger.debug(f"Level {level}: {stage_names}")
-
         # Handle resume logic if checkpoint is enabled
         if self.enable_checkpoints and context.checkpoint_state:
             # Handle selective resume (--resume-from)
@@ -137,6 +129,14 @@ class PipelineRunner:
                 else:
                     logger.warning("Cannot resume - configuration or version mismatch")
                     # Start fresh but don't clear existing state
+
+        # Analyze dependencies and get execution plan (after resume logic)
+        execution_plan = self._create_execution_plan(stages)
+
+        logger.info(f"Execution plan has {len(execution_plan)} levels")
+        for level, level_stages in enumerate(execution_plan):
+            stage_names = [s.name for s in level_stages]
+            logger.debug(f"Level {level}: {stage_names}")
 
         # Execute stages level by level
         for level, level_stages in enumerate(execution_plan):
@@ -201,10 +201,19 @@ class PipelineRunner:
 
         # Mark all completed stages (before resume point) as complete
         completed_stages = context.checkpoint_state.get_available_resume_points()
-        for stage in stages:
-            if stage.name in completed_stages and stage.name != resume_from:
-                logger.info(f"Marking completed stage as done: {stage.name}")
-                context.mark_complete(stage.name)
+        current_stage_names = {stage.name for stage in stages}
+        
+        for completed_stage in completed_stages:
+            if completed_stage != resume_from:
+                # Mark stage as complete in context, even if it's not in current pipeline
+                # This handles cases where composite stages (like ParallelCompleteProcessingStage)
+                # marked virtual stages (like field_extraction) as complete
+                context.mark_complete(completed_stage)
+                
+                if completed_stage in current_stage_names:
+                    logger.info(f"Marking completed stage as done: {completed_stage}")
+                else:
+                    logger.debug(f"Marking virtual completed stage as done: {completed_stage}")
 
         logger.info(
             f"Selective resume: Starting from '{resume_from}' with {len(stages_to_execute)} stages"
