@@ -919,23 +919,37 @@ class GenotypeReplacementStage(Stage):
 
         logger.info(f"Replacing genotypes for {len(samples)} samples")
 
-        # Determine if we should use parallel processing
+        # Determine processing method
+        processing_method = context.config.get("genotype_replacement_method", "auto")
         threads = context.config.get("threads", 1)
         file_size_mb = input_tsv.stat().st_size / (1024 * 1024) if input_tsv.exists() else 0
 
-        # Use parallel processing for large files with multiple threads
-        use_parallel = (
-            not context.config.get("disable_parallel_genotype_replacement", False)
-            and threads > 1
-            and file_size_mb > 100  # Files > 100MB
-            and len(samples) > 100  # Many samples
-        )
+        # Auto-select processing method based on data characteristics
+        if processing_method == "auto":
+            # Use vectorized for medium-sized files with many samples (better memory/speed trade-off)
+            if len(samples) > 50 and file_size_mb < 500:  # Many samples, manageable file size
+                processing_method = "vectorized"
+            # Use parallel for very large files
+            elif (
+                file_size_mb > 100
+                and threads > 1
+                and not context.config.get("disable_parallel_genotype_replacement", False)
+            ):
+                processing_method = "parallel"
+            # Use sequential for small files or single thread
+            else:
+                processing_method = "sequential"
 
-        if use_parallel:
+        logger.info(f"Using {processing_method} genotype replacement method")
+
+        # Execute based on selected method
+        if processing_method == "vectorized":
+            output_tsv = self._process_genotype_replacement_vectorized(context, input_tsv, samples)
+        elif processing_method == "parallel":
             output_tsv = self._process_genotype_replacement_parallel(
                 context, input_tsv, samples, threads
             )
-        else:
+        else:  # sequential
             output_tsv = self._process_genotype_replacement_sequential(context, input_tsv, samples)
 
         context.genotype_replaced_tsv = output_tsv
@@ -1165,7 +1179,63 @@ class GenotypeReplacementStage(Stage):
 
         logger.info(f"Parallel genotype replacement completed: {output_tsv}")
         return output_tsv
-        return context
+
+    def _process_genotype_replacement_vectorized(
+        self, context: PipelineContext, input_tsv: Path, samples: List[str]
+    ) -> Path:
+        """Vectorized genotype replacement using pandas operations."""
+        logger.info(f"Using vectorized genotype replacement with pandas operations")
+
+        output_tsv = context.workspace.get_intermediate_path(
+            f"{context.workspace.base_name}.genotype_replaced.tsv"
+        )
+
+        # Always use gzip for intermediate files
+        use_compression = context.config.get("gzip_intermediates", True)
+        if use_compression:
+            output_tsv = Path(str(output_tsv) + ".gz")
+
+        # Prepare config for vectorized replacer
+        replacer_config = {
+            "sample_list": ",".join(samples),
+            "separator": ";",
+            "extract_fields_separator": ",",
+            "append_extra_sample_fields": context.config.get("append_extra_sample_fields", False),
+            "extra_sample_fields": context.config.get("extra_sample_fields", []),
+            "extra_sample_field_delimiter": context.config.get("extra_sample_field_delimiter", ":"),
+            "genotype_replacement_map": context.config.get("genotype_replacement_map", {}),
+        }
+
+        # Determine if we should use chunked processing for large files
+        file_size_mb = input_tsv.stat().st_size / (1024 * 1024) if input_tsv.exists() else 0
+        use_chunked = file_size_mb > context.config.get("vectorized_chunk_threshold_mb", 200)
+
+        try:
+            if use_chunked:
+                logger.info(
+                    f"Using chunked vectorized processing for large file ({file_size_mb:.1f} MB)"
+                )
+                chunk_size = context.config.get("vectorized_chunk_size", 5000)
+
+                from ..vectorized_replacer import process_chunked_vectorized
+
+                process_chunked_vectorized(input_tsv, output_tsv, replacer_config, chunk_size)
+            else:
+                logger.info(
+                    f"Using in-memory vectorized processing for file ({file_size_mb:.1f} MB)"
+                )
+
+                from ..vectorized_replacer import replace_genotypes_vectorized
+
+                replace_genotypes_vectorized(input_tsv, output_tsv, replacer_config)
+
+        except Exception as e:
+            logger.warning(f"Vectorized genotype replacement failed: {e}")
+            logger.info("Falling back to sequential processing")
+            return self._process_genotype_replacement_sequential(context, input_tsv, samples)
+
+        logger.info(f"Vectorized genotype replacement completed: {output_tsv}")
+        return output_tsv
 
 
 class PhenotypeIntegrationStage(Stage):

@@ -441,6 +441,37 @@ def create_parser() -> argparse.ArgumentParser:
         default=4,
         help="Number of parallel threads for sorting (default: 4)",
     )
+    performance_group.add_argument(
+        "--genotype-replacement-method",
+        choices=["auto", "sequential", "vectorized", "parallel"],
+        default="auto",
+        help="Method for genotype replacement processing. "
+        "auto: automatically select based on data characteristics; "
+        "sequential: line-by-line streaming (memory efficient); "
+        "vectorized: pandas-based vectorized operations (faster for many samples); "
+        "parallel: multi-threaded chunked processing (for very large files). "
+        "Default: auto",
+    )
+    performance_group.add_argument(
+        "--vectorized-chunk-size",
+        type=int,
+        default=5000,
+        help="Number of rows per chunk for vectorized genotype replacement (default: 5000). "
+        "Only used when processing method is vectorized and file is large.",
+    )
+    performance_group.add_argument(
+        "--vectorized-chunk-threshold-mb",
+        type=int,
+        default=200,
+        help="File size threshold in MB for using chunked vectorized processing (default: 200). "
+        "Files larger than this will use chunked processing to manage memory usage.",
+    )
+    performance_group.add_argument(
+        "--disable-parallel-genotype-replacement",
+        action="store_true",
+        help="Disable parallel genotype replacement even when multiple threads are available. "
+        "Forces sequential or vectorized processing.",
+    )
 
     # Checkpoint & Resume Options
     checkpoint_group = parser.add_argument_group("Checkpoint & Resume Options")
@@ -1069,6 +1100,37 @@ def main() -> int:
         type=int,
         default=4,
         help="Number of parallel threads for sorting (default: 4)",
+    )
+    performance_group.add_argument(
+        "--genotype-replacement-method",
+        choices=["auto", "sequential", "vectorized", "parallel"],
+        default="auto",
+        help="Method for genotype replacement processing. "
+        "auto: automatically select based on data characteristics; "
+        "sequential: line-by-line streaming (memory efficient); "
+        "vectorized: pandas-based vectorized operations (faster for many samples); "
+        "parallel: multi-threaded chunked processing (for very large files). "
+        "Default: auto",
+    )
+    performance_group.add_argument(
+        "--vectorized-chunk-size",
+        type=int,
+        default=5000,
+        help="Number of rows per chunk for vectorized genotype replacement (default: 5000). "
+        "Only used when processing method is vectorized and file is large.",
+    )
+    performance_group.add_argument(
+        "--vectorized-chunk-threshold-mb",
+        type=int,
+        default=200,
+        help="File size threshold in MB for using chunked vectorized processing (default: 200). "
+        "Files larger than this will use chunked processing to manage memory usage.",
+    )
+    performance_group.add_argument(
+        "--disable-parallel-genotype-replacement",
+        action="store_true",
+        help="Disable parallel genotype replacement even when multiple threads are available. "
+        "Forces sequential or vectorized processing.",
     )
 
     # Checkpoint & Resume Options
