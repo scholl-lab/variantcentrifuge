@@ -43,12 +43,12 @@ def convert_to_excel(tsv_file: str, cfg: Dict[str, Any]) -> str:
     # Read the TSV, handling the case where it might only have a header
     # Define appropriate dtypes for genomic data to avoid mixed type warnings
     genomic_dtypes = {
-        'CHROM': 'str',
-        'POS': 'str',  # Use string to handle both numeric positions and special values like "."
-        'REF': 'str',
-        'ALT': 'str',
-        'QUAL': 'str',  # Quality scores can be "." or numeric
-        'FILTER': 'str',
+        "CHROM": "str",
+        "POS": "str",  # Use string to handle both numeric positions and special values like "."
+        "REF": "str",
+        "ALT": "str",
+        "QUAL": "str",  # Quality scores can be "." or numeric
+        "FILTER": "str",
     }
 
     # Read with low_memory=False to handle mixed types gracefully and suppress warnings

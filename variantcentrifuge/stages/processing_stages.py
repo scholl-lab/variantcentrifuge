@@ -212,14 +212,27 @@ def select_optimal_processing_method(
 
     # Method selection logic
     if memory_required_gb > memory_warning_threshold:
-        method = "chunked-vectorized"  # Safest for very large files
-        reason = (f"memory required ({memory_required_gb:.1f}GB) > 90% of available "
-                  f"({available_memory_gb:.1f}GB)")
+        if threads > 1 and file_size_mb > 30:
+            method = (
+                "parallel-chunked-vectorized"  # Best for very large files with multiple threads
+            )
+            reason = (
+                f"memory required ({memory_required_gb:.1f}GB) > 90% of available "
+                f"({available_memory_gb:.1f}GB), using parallel chunked with {threads} threads"
+            )
+        else:
+            method = "chunked-vectorized"  # Safest for very large files
+            reason = (
+                f"memory required ({memory_required_gb:.1f}GB) > 90% of available "
+                f"({available_memory_gb:.1f}GB)"
+            )
     elif memory_required_gb > memory_safe_threshold:
         if threads > 1:
             method = "parallel"
-            reason = (f"memory required ({memory_required_gb:.1f}GB) > safe threshold, "
-                      f"using parallel with {threads} threads")
+            reason = (
+                f"memory required ({memory_required_gb:.1f}GB) > safe threshold, "
+                f"using parallel with {threads} threads"
+            )
         else:
             method = "chunked-vectorized"
             reason = f"memory required ({memory_required_gb:.1f}GB) > safe threshold, single thread"
@@ -228,12 +241,21 @@ def select_optimal_processing_method(
         reason = f"small file ({file_size_mb:.1f}MB), sequential is most efficient"
     elif num_samples > 50 and num_samples < 3000 and memory_required_gb < memory_safe_threshold:
         method = "vectorized"
-        reason = (f"many samples ({num_samples}), memory safe "
-                  f"({memory_required_gb:.1f}GB < {memory_safe_threshold:.1f}GB)")
+        reason = (
+            f"many samples ({num_samples}), memory safe "
+            f"({memory_required_gb:.1f}GB < {memory_safe_threshold:.1f}GB)"
+        )
     elif num_samples >= 3000:
-        # For very high sample counts, always use chunked processing for safety
-        method = "chunked-vectorized"
-        reason = f"very high sample count ({num_samples}), using chunked processing for safety"
+        # For very high sample counts, use parallel chunked if threads available
+        if threads > 1 and file_size_mb > 30:
+            method = "parallel-chunked-vectorized"
+            reason = (
+                f"very high sample count ({num_samples}), using parallel chunked "
+                f"with {threads} threads for optimal performance"
+            )
+        else:
+            method = "chunked-vectorized"
+            reason = f"very high sample count ({num_samples}), using chunked processing for safety"
     elif file_size_mb > 100 and threads > 1:
         method = "parallel"
         reason = f"large file ({file_size_mb:.1f}MB), using {threads} threads"
@@ -1152,6 +1174,10 @@ class GenotypeReplacementStage(Stage):
             output_tsv = self._process_genotype_replacement_chunked_vectorized(
                 context, input_tsv, samples
             )
+        elif processing_method == "parallel-chunked-vectorized":
+            output_tsv = self._process_genotype_replacement_parallel_chunked_vectorized(
+                context, input_tsv, samples, threads
+            )
         elif processing_method == "parallel":
             output_tsv = self._process_genotype_replacement_parallel(
                 context, input_tsv, samples, threads
@@ -1285,8 +1311,9 @@ class GenotypeReplacementStage(Stage):
         base_bytes = 200
         bytes_per_sample = 60 if num_samples > 1000 else 50  # More per sample for high counts
         pandas_overhead_factor = 4 if num_samples > 3000 else 3  # Higher overhead for many samples
-        estimated_bytes_per_row = ((base_bytes + (bytes_per_sample * num_samples))
-                                   * pandas_overhead_factor)
+        estimated_bytes_per_row = (
+            base_bytes + (bytes_per_sample * num_samples)
+        ) * pandas_overhead_factor
 
         # For high sample counts, be more conservative with memory usage
         if num_samples > 3000:
@@ -1335,6 +1362,90 @@ class GenotypeReplacementStage(Stage):
             logger.info("Falling back to sequential processing for safety")
             # Fallback to sequential processing
             return self._process_genotype_replacement_sequential(context, input_tsv, samples)
+
+    def _process_genotype_replacement_parallel_chunked_vectorized(
+        self, context: PipelineContext, input_tsv: Path, samples: List[str], threads: int
+    ) -> Path:
+        """Parallel chunked vectorized genotype replacement for optimal performance."""
+        logger.info(
+            f"Using parallel chunked vectorized genotype replacement with {threads} threads"
+        )
+
+        output_tsv = context.workspace.get_intermediate_path(
+            f"{context.workspace.base_name}.genotype_replaced.tsv"
+        )
+
+        # Always use gzip for intermediate files
+        use_compression = context.config.get("gzip_intermediates", True)
+        if use_compression:
+            output_tsv = Path(str(output_tsv) + ".gz")
+
+        # Calculate intelligent chunk size and worker count based on available memory
+        available_memory_gb = get_available_memory_gb()
+        num_samples = len(samples)
+
+        # Estimate memory per row (bytes): base columns + sample data + pandas overhead
+        base_bytes = 200
+        bytes_per_sample = 60 if num_samples > 1000 else 50
+        pandas_overhead_factor = 4 if num_samples > 3000 else 3
+        estimated_bytes_per_row = (
+            base_bytes + (bytes_per_sample * num_samples)
+        ) * pandas_overhead_factor
+
+        # For parallel processing, use more aggressive memory allocation since output is streamed
+        memory_fraction = 0.75  # Use 75% of available memory for all workers combined
+        target_memory_bytes = available_memory_gb * memory_fraction * (1024**3)
+
+        # Calculate chunk size with larger chunks since we have more memory per worker
+        chunk_size = max(
+            2000, min(50000, int(target_memory_bytes / (estimated_bytes_per_row * threads)))
+        )
+        # Use actual thread count provided, with reasonable upper limit
+        max_workers = min(threads, max(8, threads // 2))  # Use more workers, scale with threads
+
+        logger.info(
+            f"Using parallel chunked processing: chunk_size={chunk_size:,} rows, "
+            f"max_workers={max_workers}, estimated {estimated_bytes_per_row} bytes/row, "
+            f"target memory {target_memory_bytes/(1024**3):.1f}GB"
+        )
+
+        # Prepare config for vectorized replacer
+        replacer_config = {
+            "sample_list": ",".join(samples),
+            "separator": ";",
+            "extract_fields_separator": ",",
+            "append_extra_sample_fields": context.config.get("append_extra_sample_fields", False),
+            "extra_sample_fields": context.config.get("extra_sample_fields", []),
+            "extra_sample_field_delimiter": context.config.get("extra_sample_field_delimiter", ":"),
+            "genotype_replacement_map": context.config.get("genotype_replacement_map", {}),
+        }
+
+        try:
+            # Use the new parallel chunked processing function
+            from ..vectorized_replacer import process_parallel_chunked_vectorized
+
+            logger.info(
+                f"Processing parallel chunked genotype replacement: {input_tsv} -> {output_tsv}"
+            )
+            process_parallel_chunked_vectorized(
+                input_path=input_tsv,
+                output_path=output_tsv,
+                config=replacer_config,
+                chunk_size=chunk_size,
+                max_workers=max_workers,
+                available_memory_gb=available_memory_gb,
+            )
+
+            logger.info("Completed parallel chunked vectorized genotype replacement")
+            return output_tsv
+
+        except Exception as e:
+            logger.error(f"Parallel chunked vectorized processing failed: {e}")
+            logger.info("Falling back to chunked vectorized processing for safety")
+            # Fallback to single-threaded chunked processing
+            return self._process_genotype_replacement_chunked_vectorized(
+                context, input_tsv, samples
+            )
 
     def _process_genotype_replacement_sequential(
         self, context: PipelineContext, input_tsv: Path, samples: List[str]

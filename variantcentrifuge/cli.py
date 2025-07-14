@@ -443,12 +443,13 @@ def create_parser() -> argparse.ArgumentParser:
     )
     performance_group.add_argument(
         "--genotype-replacement-method",
-        choices=["auto", "sequential", "vectorized", "parallel"],
+        choices=["auto", "sequential", "vectorized", "chunked-vectorized", "parallel"],
         default="auto",
         help="Method for genotype replacement processing. "
-        "auto: automatically select based on data characteristics; "
+        "auto: automatically select based on data characteristics and memory availability; "
         "sequential: line-by-line streaming (memory efficient); "
         "vectorized: pandas-based vectorized operations (faster for many samples); "
+        "chunked-vectorized: memory-safe vectorized processing for large files; "
         "parallel: multi-threaded chunked processing (for very large files). "
         "Default: auto",
     )
@@ -471,6 +472,18 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable parallel genotype replacement even when multiple threads are available. "
         "Forces sequential or vectorized processing.",
+    )
+    performance_group.add_argument(
+        "--max-memory-gb",
+        type=float,
+        help="Maximum memory in GB to use for genotype processing (auto-detected if not specified). "
+        "Used to intelligently select processing method and chunk sizes.",
+    )
+    performance_group.add_argument(
+        "--force-genotype-method",
+        choices=["sequential", "vectorized", "chunked-vectorized", "parallel-chunked-vectorized", "parallel"],
+        help="Force specific genotype replacement method, bypassing auto-selection. "
+        "Useful for debugging or when you know the optimal method for your data.",
     )
 
     # Checkpoint & Resume Options
@@ -1103,12 +1116,13 @@ def main() -> int:
     )
     performance_group.add_argument(
         "--genotype-replacement-method",
-        choices=["auto", "sequential", "vectorized", "parallel"],
+        choices=["auto", "sequential", "vectorized", "chunked-vectorized", "parallel"],
         default="auto",
         help="Method for genotype replacement processing. "
-        "auto: automatically select based on data characteristics; "
+        "auto: automatically select based on data characteristics and memory availability; "
         "sequential: line-by-line streaming (memory efficient); "
         "vectorized: pandas-based vectorized operations (faster for many samples); "
+        "chunked-vectorized: memory-safe vectorized processing for large files; "
         "parallel: multi-threaded chunked processing (for very large files). "
         "Default: auto",
     )
@@ -1131,6 +1145,18 @@ def main() -> int:
         action="store_true",
         help="Disable parallel genotype replacement even when multiple threads are available. "
         "Forces sequential or vectorized processing.",
+    )
+    performance_group.add_argument(
+        "--max-memory-gb",
+        type=float,
+        help="Maximum memory in GB to use for genotype processing (auto-detected if not specified). "
+        "Used to intelligently select processing method and chunk sizes.",
+    )
+    performance_group.add_argument(
+        "--force-genotype-method",
+        choices=["sequential", "vectorized", "chunked-vectorized", "parallel-chunked-vectorized", "parallel"],
+        help="Force specific genotype replacement method, bypassing auto-selection. "
+        "Useful for debugging or when you know the optimal method for your data.",
     )
 
     # Checkpoint & Resume Options

@@ -20,6 +20,8 @@ Performance considerations:
 
 import logging
 import re
+import tempfile
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Union
 import pandas as pd
@@ -475,3 +477,231 @@ def process_chunked_vectorized(
         logger.debug(f"Processed chunk of {len(chunk_df)} rows")
 
     logger.info(f"Completed chunked vectorized genotype replacement: {input_path} -> {output_path}")
+
+
+def _process_chunk_worker(
+    chunk_data: pd.DataFrame, config: Dict[str, Any], chunk_id: int, temp_dir: str
+) -> str:
+    """
+    Worker function to process a single chunk in parallel.
+
+    Parameters
+    ----------
+    chunk_data : pd.DataFrame
+        Chunk of data to process
+    config : Dict[str, Any]
+        Configuration dictionary
+    chunk_id : int
+        Unique identifier for this chunk
+    temp_dir : str
+        Temporary directory for chunk outputs
+
+    Returns
+    -------
+    str
+        Path to the processed chunk file
+    """
+    try:
+        replacer = VectorizedGenotypeReplacer(config)
+        processed_chunk = replacer.process_dataframe(chunk_data)
+
+        # Write chunk to temporary file
+        chunk_output = Path(temp_dir) / f"chunk_{chunk_id:06d}.tsv"
+        processed_chunk.to_csv(chunk_output, sep="\t", index=False)
+
+        logger.debug(f"Worker completed chunk {chunk_id} with {len(processed_chunk)} rows")
+        return str(chunk_output)
+
+    except Exception as e:
+        logger.error(f"Worker failed processing chunk {chunk_id}: {e}")
+        raise
+
+
+def process_parallel_chunked_vectorized(
+    input_path: Union[str, Path],
+    output_path: Union[str, Path],
+    config: Dict[str, Any],
+    chunk_size: int = 10000,
+    max_workers: int = None,
+    available_memory_gb: float = None,
+) -> None:
+    """
+    Process large files using parallel chunked vectorized replacement.
+
+    This function splits the input file into chunks and processes multiple chunks
+    concurrently using separate processes to maximize CPU utilization while
+    maintaining memory safety.
+
+    Parameters
+    ----------
+    input_path : str or Path
+        Path to input TSV file
+    output_path : str or Path
+        Path to output TSV file
+    config : Dict[str, Any]
+        Configuration dictionary
+    chunk_size : int
+        Number of rows per chunk
+    max_workers : int, optional
+        Maximum number of parallel workers. If None, calculated based on memory.
+    available_memory_gb : float, optional
+        Available system memory in GB. If None, will be detected.
+    """
+    input_path = Path(input_path)
+    output_path = Path(output_path)
+
+    # Import psutil for memory detection if not provided
+    if available_memory_gb is None:
+        try:
+            import psutil
+
+            memory = psutil.virtual_memory()
+            available_memory_gb = memory.available / (1024**3)
+        except ImportError:
+            logger.warning("psutil not available, using default memory estimate")
+            available_memory_gb = 8.0
+
+    # Estimate memory per chunk and calculate safe worker count
+    sample_list_str = config.get("sample_list", "")
+    num_samples = len([s.strip() for s in sample_list_str.split(",") if s.strip()])
+
+    # Conservative estimate: base + (samples * bytes_per_sample) * pandas_overhead * chunk_rows
+    base_bytes_per_row = 200
+    bytes_per_sample = 60 if num_samples > 1000 else 50
+    pandas_overhead = 4 if num_samples > 3000 else 3
+    estimated_bytes_per_row = (
+        base_bytes_per_row + (bytes_per_sample * num_samples)
+    ) * pandas_overhead
+    estimated_chunk_memory_gb = (estimated_bytes_per_row * chunk_size) / (1024**3)
+
+    # Calculate safe number of workers with more aggressive scaling
+    # Since we're streaming output (not loading chunks back), we can use more memory per worker
+    safe_memory_gb = available_memory_gb * 0.8  # Use 80% of available memory
+    if max_workers is None:
+        # Use more threads and higher memory per worker since scaling is favorable
+        memory_based_workers = int(safe_memory_gb / estimated_chunk_memory_gb)
+        # Don't cap at 8 - use actual thread count provided, up to memory limit
+        max_workers = max(1, min(memory_based_workers, 16))  # Cap at 16 for system stability
+
+    logger.info(
+        f"Using parallel chunked processing with {max_workers} workers "
+        f"(estimated {estimated_chunk_memory_gb:.2f}GB per chunk, "
+        f"safe memory limit {safe_memory_gb:.1f}GB)"
+    )
+
+    compression = "gzip" if str(input_path).endswith(".gz") else None
+    output_compression = "gzip" if str(output_path).endswith(".gz") else None
+
+    # Create temporary directory for chunk outputs
+    with tempfile.TemporaryDirectory(prefix="variantcentrifuge_chunks_") as temp_dir:
+        logger.debug(f"Using temporary directory: {temp_dir}")
+
+        # Read file and split into chunks for parallel processing
+        chunk_files = []
+        header = None
+
+        try:
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                # Submit chunk processing jobs
+                future_to_chunk = {}
+                chunk_id = 0
+
+                for chunk_df in pd.read_csv(
+                    input_path, sep="\t", dtype=str, compression=compression, chunksize=chunk_size
+                ):
+                    if header is None:
+                        header = chunk_df.columns.tolist()
+
+                    # Submit chunk for processing
+                    future = executor.submit(
+                        _process_chunk_worker, chunk_df, config, chunk_id, temp_dir
+                    )
+                    future_to_chunk[future] = chunk_id
+                    chunk_id += 1
+
+                total_chunks = chunk_id
+                logger.info(f"Submitted {total_chunks} chunks for parallel processing")
+
+                # Collect results in order with progress logging
+                chunk_results = {}
+                completed_count = 0
+                for future in as_completed(future_to_chunk):
+                    chunk_id = future_to_chunk[future]
+                    try:
+                        chunk_file = future.result()
+                        chunk_results[chunk_id] = chunk_file
+                        completed_count += 1
+
+                        # Progress logging every 10% or minimum every 5 chunks
+                        progress_interval = max(5, total_chunks // 10)
+                        if (
+                            completed_count % progress_interval == 0
+                            or completed_count == total_chunks
+                        ):
+                            progress_pct = (completed_count / total_chunks) * 100
+                            logger.info(
+                                f"Chunk progress: {completed_count}/{total_chunks} ({progress_pct:.1f}%) completed"
+                            )
+                        else:
+                            logger.debug(f"Completed chunk {chunk_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to process chunk {chunk_id}: {e}")
+                        raise
+
+                # Stream combine results in correct order (memory-efficient)
+                logger.info(f"Stream combining {len(chunk_results)} processed chunks")
+
+                # Open output file for writing
+                if output_compression == "gzip":
+                    import gzip
+
+                    output_file = gzip.open(output_path, "wt", encoding="utf-8")
+                else:
+                    output_file = open(output_path, "w", encoding="utf-8")
+
+                try:
+                    first_chunk = True
+                    combined_count = 0
+                    for chunk_id in sorted(chunk_results.keys()):
+                        chunk_file = chunk_results[chunk_id]
+
+                        # Stream copy chunk file to output
+                        with open(chunk_file, "r", encoding="utf-8") as chunk_input:
+                            if first_chunk:
+                                # First chunk: copy everything including header
+                                for line in chunk_input:
+                                    output_file.write(line)
+                                first_chunk = False
+                            else:
+                                # Subsequent chunks: skip header line
+                                next(chunk_input)  # Skip header
+                                for line in chunk_input:
+                                    output_file.write(line)
+
+                        # Clean up chunk file immediately after processing
+                        Path(chunk_file).unlink()
+                        combined_count += 1
+
+                        # Progress logging for combination phase
+                        combine_interval = max(5, total_chunks // 10)
+                        if combined_count % combine_interval == 0 or combined_count == total_chunks:
+                            combine_pct = (combined_count / total_chunks) * 100
+                            logger.info(
+                                f"Combination progress: {combined_count}/{total_chunks} ({combine_pct:.1f}%) combined"
+                            )
+                        else:
+                            logger.debug(f"Stream copied and cleaned chunk {chunk_id}")
+
+                finally:
+                    output_file.close()
+
+        except Exception as e:
+            logger.error(f"Parallel chunked processing failed: {e}")
+            raise
+
+    final_chunk_count = len(chunk_results) if "chunk_results" in locals() else 0
+    logger.info(
+        f"✓ Completed parallel chunked vectorized genotype replacement: "
+        f"{input_path} -> {output_path} "
+        f"({final_chunk_count} chunks processed with {max_workers} workers)"
+    )

@@ -39,6 +39,7 @@ setup(
         "statsmodels",
         "numpy",
         "intervaltree",
+        "psutil",  # For memory monitoring and system resource detection
     ],
     entry_points={"console_scripts": ["variantcentrifuge=variantcentrifuge.cli:main"]},
     include_package_data=True,
