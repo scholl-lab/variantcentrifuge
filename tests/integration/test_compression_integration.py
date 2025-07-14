@@ -54,7 +54,6 @@ class TestCompressionIntegration:
     @patch("variantcentrifuge.stages.processing_stages.extract_fields")
     def test_field_extraction_creates_compressed_files(self, mock_extract, pipeline_context):
         """Test that FieldExtractionStage creates compressed files when gzip_intermediates=True."""
-
         # Mock extract_fields to simulate successful extraction
         def mock_extract_func(variant_file, fields, cfg, output_file):
             # Create the output file to simulate successful extraction

@@ -787,6 +787,29 @@ class StatisticsGenerationStage(Stage):
         """Return whether this stage can run in parallel with others."""
         return True  # Safe - read-only computation on DataFrame
 
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Handle the case where this stage is skipped by checkpoint system.
+
+        When this stage is skipped, we need to restore the statistics file path
+        so that subsequent stages (like Excel generation) can find the statistics.
+        """
+        if context.config.get("no_stats"):
+            return context
+
+        # Try to find existing statistics file
+        stats_output = context.config.get("stats_output_file")
+        if not stats_output:
+            # Check for default statistics file path
+            default_stats_path = context.workspace.get_intermediate_path("statistics.tsv")
+            if default_stats_path.exists():
+                stats_output = str(default_stats_path)
+                context.config["stats_output_file"] = stats_output
+                logger.info(f"Restored statistics file path: {stats_output}")
+            else:
+                logger.warning("Statistics file not found during checkpoint skip")
+
+        return context
+
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Generate statistics."""
         if context.config.get("no_stats"):
@@ -1099,6 +1122,39 @@ class GeneBurdenAnalysisStage(Stage):
         """Return the set of stage names that should run before if present."""
         # Prefer to run after custom_annotation if it exists
         return {"custom_annotation"}
+
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Handle the case where this stage is skipped by checkpoint system.
+
+        When this stage is skipped, we need to restore the gene burden output file path
+        so that subsequent stages (like Excel generation) can find the results.
+        """
+        if not context.config.get("perform_gene_burden"):
+            return context
+
+        # Try to find existing gene burden output file
+        burden_output = context.config.get("gene_burden_output")
+        if not burden_output:
+            # Check for default gene burden output file path
+            output_dir = context.config.get("output_dir", "output")
+            base_name = context.config.get("output_file_base", "gene_burden_results")
+
+            # Try both compressed and uncompressed versions
+            default_path = Path(output_dir) / f"{base_name}.gene_burden.tsv"
+            default_path_gz = Path(str(default_path) + ".gz")
+
+            if default_path_gz.exists():
+                burden_output = str(default_path_gz)
+                context.config["gene_burden_output"] = burden_output
+                logger.info(f"Restored gene burden file path: {burden_output}")
+            elif default_path.exists():
+                burden_output = str(default_path)
+                context.config["gene_burden_output"] = burden_output
+                logger.info(f"Restored gene burden file path: {burden_output}")
+            else:
+                logger.warning("Gene burden output file not found during checkpoint skip")
+
+        return context
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Perform gene burden analysis."""
@@ -1447,7 +1503,7 @@ class ChunkedAnalysisStage(Stage):
                 str(col_idx),  # Sort by gene column
                 "--stable",  # Stable sort
                 "-T",
-                str(context.workspace.temp),  # Use temp directory
+                str(context.workspace.temp_dir),  # Use temp directory
             ]
 
             # Adaptive memory limit based on file size

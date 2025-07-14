@@ -260,6 +260,36 @@ class PhenotypeLoadingStage(Stage):
 
         return context
 
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Handle the case where this stage is skipped by checkpoint system.
+
+        Since this is the phenotype loading stage, we need to restore phenotype data
+        that would have been loaded during normal execution.
+        """
+        phenotype_file = context.config.get("phenotype_file")
+        phenotype_sample_column = context.config.get("phenotype_sample_column")
+        phenotype_value_column = context.config.get("phenotype_value_column")
+
+        if phenotype_file and phenotype_sample_column and phenotype_value_column:
+            logger.debug(f"Restoring phenotypes from {phenotype_file} (checkpoint skip)")
+
+            phenotypes = load_phenotypes(
+                phenotype_file, phenotype_sample_column, phenotype_value_column
+            )
+
+            if phenotypes:
+                context.phenotype_data = phenotypes
+                context.config["phenotypes"] = phenotypes  # For compatibility
+                logger.debug(f"Restored phenotypes for {len(phenotypes)} samples (checkpoint skip)")
+            else:
+                logger.warning(
+                    f"No phenotype data found during checkpoint skip from {phenotype_file}"
+                )
+        else:
+            logger.debug("No phenotype configuration found during checkpoint skip")
+
+        return context
+
 
 class ScoringConfigLoadingStage(Stage):
     """Load variant scoring configuration."""
@@ -297,6 +327,35 @@ class ScoringConfigLoadingStage(Stage):
                 raise ValueError(f"Failed to load scoring configuration: {e}")
         else:
             logger.debug("No scoring configuration specified")
+
+        return context
+
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Handle the case where this stage is skipped by checkpoint system.
+
+        Since this is the scoring config loading stage, we need to restore scoring
+        configuration that would have been loaded during normal execution.
+        """
+        scoring_config_path = context.config.get("scoring_config_path")
+
+        if scoring_config_path:
+            logger.debug(
+                f"Restoring scoring configuration from {scoring_config_path} (checkpoint skip)"
+            )
+
+            try:
+                scoring_config = read_scoring_config(scoring_config_path)
+                context.scoring_config = scoring_config
+                logger.debug(
+                    f"Restored scoring configuration with "
+                    f"{len(scoring_config.get('formulas', {}))} formulas (checkpoint skip)"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to restore scoring configuration during checkpoint skip: {e}"
+                )
+        else:
+            logger.debug("No scoring configuration specified during checkpoint skip")
 
         return context
 
@@ -340,6 +399,39 @@ class PedigreeLoadingStage(Stage):
                 raise ValueError(f"Failed to load pedigree file: {e}")
         else:
             logger.debug("No pedigree file specified")
+
+        return context
+
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Handle the case where this stage is skipped by checkpoint system.
+
+        Since this is the pedigree loading stage, we need to restore pedigree data
+        that would have been loaded during normal execution.
+        """
+        ped_file = context.config.get("ped_file") or context.config.get("ped")
+
+        if ped_file:
+            logger.debug(f"Restoring pedigree from {ped_file} (checkpoint skip)")
+
+            try:
+                pedigree_data = read_pedigree(ped_file)
+                context.pedigree_data = pedigree_data
+
+                # Log pedigree summary
+                n_samples = len(pedigree_data)
+                n_affected = sum(
+                    1 for s in pedigree_data.values() if s.get("affected_status") == "2"
+                )
+                logger.debug(
+                    f"Restored pedigree with {n_samples} samples ({n_affected} affected) "
+                    f"(checkpoint skip)"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to restore pedigree file during checkpoint skip: {e}"
+                )
+        else:
+            logger.debug("No pedigree file specified during checkpoint skip")
 
         return context
 
@@ -392,6 +484,51 @@ class AnnotationConfigLoadingStage(Stage):
 
         if annotations:
             context.annotation_configs = annotations
+
+        return context
+
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Handle the case where this stage is skipped by checkpoint system.
+
+        Since this is the annotation config loading stage, we need to restore annotation
+        configurations that would have been loaded during normal execution.
+        """
+        annotations = {}
+
+        # Restore BED file annotations
+        bed_files = context.config.get("annotate_bed", [])
+        if bed_files:
+            if isinstance(bed_files, str):
+                bed_files = [bed_files]
+            annotations["bed_files"] = bed_files
+            logger.debug(
+                f"Restored {len(bed_files)} BED file annotations (checkpoint skip)"
+            )
+
+        # Restore gene list annotations
+        gene_lists = context.config.get("annotate_gene_list", [])
+        if gene_lists:
+            if isinstance(gene_lists, str):
+                gene_lists = [gene_lists]
+            annotations["gene_lists"] = gene_lists
+            logger.debug(
+                f"Restored {len(gene_lists)} gene list annotations (checkpoint skip)"
+            )
+
+        # Restore JSON gene annotations
+        json_genes = context.config.get("annotate_json_genes")
+        json_mapping = context.config.get("json_gene_mapping")
+        if json_genes and json_mapping:
+            annotations["json_genes"] = json_genes
+            annotations["json_mapping"] = json_mapping
+            logger.debug(f"Restored JSON gene annotations from {json_genes} (checkpoint skip)")
+
+        if annotations:
+            context.annotation_configs = annotations
+            logger.debug(
+                f"Restored annotation configurations with {len(annotations)} types "
+                f"(checkpoint skip)"
+            )
 
         return context
 
@@ -463,7 +600,9 @@ class SampleConfigLoadingStage(Stage):
         control_samples_file = context.config.get("control_samples_file")
 
         logger.debug(f"Case samples file from config: {case_samples_file}")
-        logger.debug(f"Control samples file from config: {control_samples_file}")
+        logger.debug(
+            f"Control samples file from config: {control_samples_file}"
+        )
 
         if case_samples_file:
             logger.debug(f"Loading case samples from file: {case_samples_file}")
@@ -534,6 +673,76 @@ class SampleConfigLoadingStage(Stage):
                     "will use all samples as controls"
                 )
 
+        return context
+
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Handle the case where this stage is skipped by checkpoint system.
+
+        When this stage is skipped, we need to restore VCF samples and case/control
+        assignments that would have been loaded during normal execution.
+        """
+        vcf_file = context.config.get("vcf_file")
+
+        if not vcf_file:
+            logger.warning("No VCF file specified in configuration during checkpoint skip")
+            return context
+
+        # Restore VCF samples
+        logger.debug(f"Restoring VCF samples from {vcf_file} (checkpoint skip)")
+        vcf_samples = get_vcf_samples(vcf_file)
+
+        # Apply sample substring removal if configured
+        remove_substring = context.config.get("remove_sample_substring")
+        if remove_substring and remove_substring.strip():
+            logger.debug(f"Applying substring removal '{remove_substring}' during checkpoint skip")
+            vcf_samples = [s.replace(remove_substring, "") for s in vcf_samples]
+
+        context.vcf_samples = vcf_samples
+
+        # CRITICAL: Set sample_list in config for downstream analysis
+        context.config["sample_list"] = ",".join(vcf_samples)
+
+        # Restore case/control sample lists if provided via files
+        case_samples_file = context.config.get("case_samples_file")
+        control_samples_file = context.config.get("control_samples_file")
+
+        if case_samples_file and os.path.exists(case_samples_file):
+            with open(case_samples_file, "r") as f:
+                case_samples = [line.strip() for line in f if line.strip()]
+            context.config["case_samples"] = case_samples
+            logger.debug(f"Restored {len(case_samples)} case samples from file (checkpoint skip)")
+
+        if control_samples_file and os.path.exists(control_samples_file):
+            with open(control_samples_file, "r") as f:
+                control_samples = [line.strip() for line in f if line.strip()]
+            context.config["control_samples"] = control_samples
+            logger.debug(
+                f"Restored {len(control_samples)} control samples from file (checkpoint skip)"
+            )
+
+        # Handle automatic control assignment
+        case_samples = context.config.get("case_samples", [])
+        control_samples = context.config.get("control_samples", [])
+
+        if case_samples and not control_samples:
+            case_samples_set = set(case_samples)
+            vcf_samples_set = set(vcf_samples)
+            auto_control_samples = list(vcf_samples_set - case_samples_set)
+            context.config["control_samples"] = auto_control_samples
+            logger.debug(
+                f"Auto-assigned {len(auto_control_samples)} control samples (checkpoint skip)"
+            )
+        elif control_samples and not case_samples:
+            control_samples_set = set(control_samples)
+            vcf_samples_set = set(vcf_samples)
+            auto_case_samples = list(vcf_samples_set - control_samples_set)
+            context.config["case_samples"] = auto_case_samples
+            logger.debug(f"Auto-assigned {len(auto_case_samples)} case samples (checkpoint skip)")
+
+        logger.info(
+            f"Restored {len(vcf_samples)} VCF samples and case/control assignments "
+            f"(checkpoint skip)"
+        )
         return context
 
 
@@ -842,3 +1051,85 @@ class PhenotypeCaseControlAssignmentStage(Stage):
                 # Samples matching both or neither are not classified
 
         return classified_cases, classified_controls
+
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Handle the case where this stage is skipped by checkpoint system.
+
+        Since this stage performs phenotype-based case/control assignment, we need to
+        restore or re-compute the assignments that would have been made during normal execution.
+        """
+        # Check if case/control samples are already explicitly assigned in config
+        existing_case_samples = context.config.get("case_samples", [])
+        existing_control_samples = context.config.get("control_samples", [])
+        case_samples_file = context.config.get("case_samples_file")
+        control_samples_file = context.config.get("control_samples_file")
+
+        # If explicit assignments exist, we don't need to do anything
+        if (
+            existing_case_samples
+            or existing_control_samples
+            or case_samples_file
+            or control_samples_file
+        ):
+            logger.debug(
+                "Explicit case/control assignments exist, no restoration needed (checkpoint skip)"
+            )
+            return context
+
+        # Get phenotype criteria - these should already be parsed as lists
+        case_phenotypes = context.config.get("case_phenotypes", [])
+        control_phenotypes = context.config.get("control_phenotypes", [])
+
+        # If no phenotype criteria, no assignment was done
+        if not case_phenotypes and not control_phenotypes:
+            logger.debug("No phenotype criteria specified, no restoration needed (checkpoint skip)")
+            return context
+
+        # Get VCF samples
+        vcf_samples = getattr(context, "vcf_samples", [])
+        if not vcf_samples:
+            logger.warning(
+                "No VCF samples found, cannot restore phenotype-based assignment (checkpoint skip)"
+            )
+            return context
+
+        # Get phenotype file parameters
+        phenotype_file = context.config.get("phenotype_file")
+        phenotype_sample_column = context.config.get("phenotype_sample_column")
+        phenotype_value_column = context.config.get("phenotype_value_column")
+
+        if not phenotype_file or not phenotype_sample_column or not phenotype_value_column:
+            logger.warning(
+                "Missing phenotype file parameters, cannot restore phenotype-based assignment "
+                "(checkpoint skip)"
+            )
+            return context
+
+        # Re-compute phenotype-based assignments
+        try:
+            remove_substring = context.config.get("remove_sample_substring", "")
+            case_samples, control_samples = self._compute_samples_from_phenotype_file(
+                phenotype_file,
+                phenotype_sample_column,
+                phenotype_value_column,
+                case_phenotypes,
+                control_phenotypes,
+                vcf_samples,
+                remove_substring,
+            )
+
+            # Update configuration with classified samples
+            context.config["case_samples"] = case_samples
+            context.config["control_samples"] = control_samples
+
+            logger.debug(
+                f"Restored phenotype-based assignment: {len(case_samples)} cases, "
+                f"{len(control_samples)} controls (checkpoint skip)"
+            )
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to restore phenotype-based assignment during checkpoint skip: {e}"
+            )
+
+        return context

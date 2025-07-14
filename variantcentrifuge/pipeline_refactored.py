@@ -416,13 +416,19 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
         # Initialize checkpoint with current pipeline version and config
         pipeline_version = initial_config.get("pipeline_version", "refactored_pipeline")
 
-        # Only initialize new state if we're not resuming from existing checkpoint
+        # Handle checkpoint state initialization/loading
         is_resuming = initial_config.get("resume", False) or initial_config.get("resume_from")
-        if is_resuming and context.checkpoint_state.load():
-            logger.info("Loaded existing checkpoint state for resume")
+        if is_resuming:
+            # Resume mode: try to load existing checkpoint state
+            if context.checkpoint_state.load():
+                logger.info("Loaded existing checkpoint state for resume")
+            else:
+                logger.error("Cannot resume: No checkpoint file found")
+                raise ValueError("Resume requested but no checkpoint file found")
         else:
-            # Initialize new checkpoint state
+            # Normal mode: initialize fresh checkpoint state (overwrites existing)
             context.checkpoint_state.initialize(initial_config, pipeline_version)
+            logger.info("Initialized fresh checkpoint state")
 
     # Build stages based on configuration
     stages = build_pipeline_stages(args)

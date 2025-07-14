@@ -167,8 +167,8 @@ class PipelineRunner:
     ) -> List[Stage]:
         """Handle restart from a specific stage.
 
-        This method implements restart behavior: the specified stage and all 
-        subsequent stages will be re-executed, ignoring their previous completion 
+        This method implements restart behavior: the specified stage and all
+        subsequent stages will be re-executed, ignoring their previous completion
         status. Only stages that come before the restart point remain marked as complete.
 
         Parameters
@@ -203,69 +203,82 @@ class PipelineRunner:
         # Validate dependencies and get stages to execute
         stages_to_execute = self._get_stages_to_execute_from(resume_from, stages, context)
 
-        # Restart from specified stage - clear completion status for resume stage and all subsequent stages
+        # Restart from specified stage - clear completion status for resume stage and all
+        # subsequent stages
         completed_stages = context.checkpoint_state.get_available_resume_points()
         current_stage_names = {stage.name for stage in stages}
         stage_map = {stage.name: stage for stage in stages}
-        
+
         # Get all stages in execution order to determine which come before/after resume point
         execution_plan = self._create_execution_plan(stages)
         all_stages_ordered = []
         for level in execution_plan:
             all_stages_ordered.extend(level)
-        
+
         # Find the index of the resume stage
         resume_index = None
         for i, stage in enumerate(all_stages_ordered):
             if stage.name == resume_from:
                 resume_index = i
                 break
-        
+
         if resume_index is None:
             raise ValueError(f"Could not find resume stage '{resume_from}' in execution plan")
-        
+
         # Determine stages that come before the resume point (these can stay complete)
         stages_before_resume = {stage.name for stage in all_stages_ordered[:resume_index]}
-        
+
         # Clear completion status in checkpoint for restart stage and all subsequent stages
         stages_to_clear = {stage.name for stage in all_stages_ordered[resume_index:]}
         for stage_name in stages_to_clear:
             context.checkpoint_state.clear_step_completion(stage_name)
-        
+
         logger.info(f"Cleared completion status for {len(stages_to_clear)} stages to force restart")
-        
+
         # Add prerequisite stages that should be considered complete for restart
-        # These are fundamental setup stages that must have completed for pipeline to reach this point
+        # These are fundamental setup stages that must have completed for pipeline to reach
+        # this point
         prerequisite_stages = {
             "configuration_loading",
-            "sample_config_loading", 
+            "sample_config_loading",
             "gene_bed_creation",
             "pedigree_loading",
             "phenotype_loading",
             "scoring_config_loading",
-            "annotation_config_loading"
+            "annotation_config_loading",
         }
-        
-        # Mark prerequisite stages as complete if they exist in the pipeline and come before resume point
+
+        # Mark prerequisite stages as complete if they exist in the pipeline and come before
+        # resume point
         for prereq_stage in prerequisite_stages:
             if prereq_stage in stage_map and prereq_stage in stages_before_resume:
                 logger.debug(f"Marking prerequisite stage as complete for restart: {prereq_stage}")
                 context.mark_complete(prereq_stage)
-        
+
+                # Call checkpoint skip logic to restore context data (VCF samples, configs, etc.)
+                stage_instance = stage_map[prereq_stage]
+                if hasattr(stage_instance, "_handle_checkpoint_skip"):
+                    logger.debug(
+                        f"Calling checkpoint skip logic for prerequisite stage: {prereq_stage}"
+                    )
+                    context = stage_instance._handle_checkpoint_skip(context)
+
         # Mark only stages that come BEFORE the resume point as complete
         for completed_stage in completed_stages:
             if completed_stage in stages_before_resume:
                 # Mark stage as complete in context
                 context.mark_complete(completed_stage)
-                
+
                 # For stages that are in the original stages list (before filtering),
                 # call their checkpoint skip logic to restore virtual dependencies
                 if completed_stage in stage_map:
                     stage_instance = stage_map[completed_stage]
                     if hasattr(stage_instance, "_handle_checkpoint_skip"):
-                        logger.debug(f"Calling checkpoint skip logic for completed stage: {completed_stage}")
+                        logger.debug(
+                            f"Calling checkpoint skip logic for completed stage: {completed_stage}"
+                        )
                         context = stage_instance._handle_checkpoint_skip(context)
-                
+
                 if completed_stage in current_stage_names:
                     logger.info(f"Marking completed stage as done: {completed_stage}")
                 else:
@@ -275,7 +288,8 @@ class PipelineRunner:
                 logger.debug(f"Stage '{completed_stage}' will be re-run (at or after resume point)")
 
         logger.info(
-            f"Restart mode: Starting from '{resume_from}' with {len(stages_to_execute)} stages to execute"
+            f"Restart mode: Starting from '{resume_from}' with {len(stages_to_execute)} "
+            f"stages to execute"
         )
         return stages_to_execute
 

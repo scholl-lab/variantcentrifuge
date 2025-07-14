@@ -253,6 +253,29 @@ class ParallelVariantExtractionStage(Stage):
         """Return the estimated runtime in seconds."""
         return 30.0  # Typically takes longer
 
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Handle the case where this stage is skipped by checkpoint system.
+
+        When this stage is skipped, we need to restore the expected output
+        and mark dependent stages as complete.
+        """
+        # Reconstruct the expected merged VCF file path
+        expected_vcf = context.workspace.get_intermediate_path(
+            f"{context.workspace.base_name}.variants.vcf.gz"
+        )
+
+        if expected_vcf.exists():
+            logger.info(f"Restored parallel variant extraction output: {expected_vcf}")
+            context.extracted_vcf = expected_vcf
+            context.data = expected_vcf
+
+            # Mark variant_extraction as complete for dependent stages
+            context.mark_complete("variant_extraction")
+        else:
+            logger.warning(f"Expected VCF file not found during checkpoint skip: {expected_vcf}")
+
+        return context
+
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Extract variants in parallel by processing BED chunks."""
         threads = context.config.get("threads", 1)
@@ -267,7 +290,7 @@ class ParallelVariantExtractionStage(Stage):
         bed_chunks = self._split_bed_file(context.gene_bed_file, threads)
         logger.info(f"Split BED file into {len(bed_chunks)} chunks for parallel processing")
 
-        # Process chunks in parallel
+        # Process chunks in parallel (with automatic substep detection)
         chunk_outputs = self._process_chunks_parallel(context, bed_chunks)
 
         # Merge results
@@ -292,50 +315,129 @@ class ParallelVariantExtractionStage(Stage):
         chunks = split_bed_file(str(bed_file), n_chunks, str(chunk_dir))
         return [Path(chunk) for chunk in chunks]
 
+    def _validate_existing_chunk(self, chunk_path: Path, fallback_on_error: bool = True) -> bool:
+        """Validate that an existing chunk file is complete and valid.
+
+        Parameters
+        ----------
+        chunk_path : Path
+            Path to the chunk file to validate
+        fallback_on_error : bool
+            If True, validation errors result in False (file will be reprocessed)
+            If False, validation errors raise exceptions
+
+        Returns
+        -------
+        bool
+            True if file is valid, False if invalid or missing
+        """
+        if not chunk_path.exists():
+            logger.debug(f"Chunk {chunk_path} does not exist")
+            return False
+
+        try:
+            # Size check (must be > 0)
+            stat = chunk_path.stat()
+            if stat.st_size == 0:
+                logger.debug(f"Chunk {chunk_path} is empty, invalid")
+                return False
+
+            # For VCF files, try basic validation
+            if chunk_path.suffix == ".gz" and chunk_path.name.endswith(".vcf.gz"):
+                try:
+                    # Quick check - try to read the first few lines
+                    import gzip
+
+                    with gzip.open(chunk_path, "rt") as f:
+                        first_line = f.readline()
+                        if not first_line.startswith("##fileformat=VCF"):
+                            logger.debug(f"Chunk {chunk_path} has invalid VCF header")
+                            return False
+                except Exception as e:
+                    logger.debug(f"Chunk {chunk_path} failed VCF header validation: {e}")
+                    if not fallback_on_error:
+                        raise
+                    return False
+
+            logger.debug(f"Chunk {chunk_path} is valid (size: {stat.st_size} bytes)")
+            return True
+
+        except Exception as e:
+            logger.warning(f"Error validating chunk {chunk_path}: {e}")
+            if not fallback_on_error:
+                raise
+            return False
+
     def _process_chunks_parallel(
         self, context: PipelineContext, bed_chunks: List[Path]
     ) -> List[Path]:
-        """Process BED chunks in parallel."""
+        """Process BED chunks in parallel with automatic substep detection."""
         vcf_file = context.config["vcf_file"]
         threads = context.config.get("threads", 1)
 
-        # Each worker gets limited threads
-        threads_per_worker = max(1, threads // len(bed_chunks))
+        # Phase 1: Check for existing valid chunks
+        chunks_to_process = []
+        existing_outputs = []
 
-        # Prepare config for extract_variants
-        extract_config = {
-            "threads": threads_per_worker,
-            "bcftools_prefilter": context.config.get("bcftools_prefilter"),
-        }
+        for i, chunk_bed in enumerate(bed_chunks):
+            expected_output = context.workspace.get_temp_path(f"chunk_{i}.variants.vcf.gz")
 
-        chunk_outputs = []
-        with ProcessPoolExecutor(max_workers=len(bed_chunks)) as executor:
-            # Submit all jobs
-            future_to_chunk = {}
-            for i, chunk_bed in enumerate(bed_chunks):
-                output_vcf = context.workspace.get_temp_path(f"chunk_{i}.variants.vcf.gz")
+            if self._validate_existing_chunk(expected_output):
+                logger.info(f"Reusing existing chunk {i}: {expected_output.name}")
+                existing_outputs.append(expected_output)
+            else:
+                logger.info(f"Processing missing/invalid chunk {i}")
+                chunks_to_process.append((i, chunk_bed, expected_output))
 
-                future = executor.submit(
-                    extract_variants,
-                    vcf_file=vcf_file,
-                    bed_file=str(chunk_bed),
-                    cfg=extract_config,
-                    output_file=str(output_vcf),
-                )
-                future_to_chunk[future] = (chunk_bed, output_vcf)
+        # Phase 2: Process only missing chunks
+        new_outputs = []
+        if chunks_to_process:
+            # Each worker gets limited threads
+            threads_per_worker = max(1, threads // len(chunks_to_process))
 
-            # Collect results
-            for future in as_completed(future_to_chunk):
-                chunk_bed, output_vcf = future_to_chunk[future]
-                try:
-                    future.result()  # Raises any exceptions
-                    chunk_outputs.append(output_vcf)
-                    logger.debug(f"Completed extraction for chunk: {chunk_bed.name}")
-                except Exception as e:
-                    logger.error(f"Failed to process chunk {chunk_bed}: {e}")
-                    raise
+            # Prepare config for extract_variants
+            extract_config = {
+                "threads": threads_per_worker,
+                "bcftools_prefilter": context.config.get("bcftools_prefilter"),
+            }
 
-        return chunk_outputs
+            logger.info(
+                f"Processing {len(chunks_to_process)} missing chunks out of {len(bed_chunks)} total"
+            )
+
+            with ProcessPoolExecutor(max_workers=len(chunks_to_process)) as executor:
+                # Submit jobs for missing chunks only
+                future_to_chunk = {}
+                for i, chunk_bed, output_vcf in chunks_to_process:
+                    future = executor.submit(
+                        extract_variants,
+                        vcf_file=vcf_file,
+                        bed_file=str(chunk_bed),
+                        cfg=extract_config,
+                        output_file=str(output_vcf),
+                    )
+                    future_to_chunk[future] = (i, chunk_bed, output_vcf)
+
+                # Collect results
+                for future in as_completed(future_to_chunk):
+                    i, chunk_bed, output_vcf = future_to_chunk[future]
+                    try:
+                        future.result()  # Raises any exceptions
+                        new_outputs.append(output_vcf)
+                        logger.debug(f"Completed extraction for chunk {i}: {chunk_bed.name}")
+                    except Exception as e:
+                        logger.error(f"Failed to process chunk {chunk_bed}: {e}")
+                        raise
+        else:
+            logger.info("All chunks already exist and are valid - no processing needed")
+
+        # Phase 3: Combine existing and new outputs, maintaining order
+        all_outputs = []
+        for i in range(len(bed_chunks)):
+            expected_output = context.workspace.get_temp_path(f"chunk_{i}.variants.vcf.gz")
+            all_outputs.append(expected_output)
+
+        return all_outputs
 
     def _merge_chunk_outputs(self, context: PipelineContext, chunk_outputs: List[Path]) -> Path:
         """Merge VCF chunks into a single file."""
@@ -1488,11 +1590,71 @@ class ParallelCompleteProcessingStage(Stage):
         """Return the estimated runtime in seconds."""
         return 60.0  # Complete pipeline takes longer
 
+    def _validate_chunk_tsv(self, chunk_tsv: Path, fallback_on_error: bool = True) -> bool:
+        """Validate that a chunk TSV file is complete and valid.
+
+        Parameters
+        ----------
+        chunk_tsv : Path
+            Path to the TSV chunk file to validate
+        fallback_on_error : bool
+            If True, validation errors result in False (file will be reprocessed)
+            If False, validation errors raise exceptions
+
+        Returns
+        -------
+        bool
+            True if file is valid, False if invalid or missing
+        """
+        if not chunk_tsv.exists():
+            logger.debug(f"Chunk TSV {chunk_tsv} does not exist")
+            return False
+
+        try:
+            # Size check (must be > 0)
+            stat = chunk_tsv.stat()
+            if stat.st_size == 0:
+                logger.debug(f"Chunk TSV {chunk_tsv} is empty, invalid")
+                return False
+
+            # Basic content validation for TSV files
+            try:
+                import gzip
+
+                open_func = gzip.open if chunk_tsv.name.endswith(".gz") else open
+                mode = "rt" if chunk_tsv.name.endswith(".gz") else "r"
+
+                with open_func(chunk_tsv, mode) as f:
+                    first_line = f.readline().strip()
+                    # Check if it looks like a TSV header
+                    if "\t" not in first_line:
+                        logger.debug(f"Chunk TSV {chunk_tsv} has invalid header format")
+                        return False
+                    # Try to read one more line to ensure file is not just header
+                    second_line = f.readline()
+                    if not second_line:
+                        logger.debug(f"Chunk TSV {chunk_tsv} only has header, no data")
+                        return False
+            except Exception as e:
+                logger.debug(f"Chunk TSV {chunk_tsv} failed content validation: {e}")
+                if not fallback_on_error:
+                    raise
+                return False
+
+            logger.debug(f"Chunk TSV {chunk_tsv} is valid (size: {stat.st_size} bytes)")
+            return True
+
+        except Exception as e:
+            logger.warning(f"Error validating chunk TSV {chunk_tsv}: {e}")
+            if not fallback_on_error:
+                raise
+            return False
+
     def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
         """Handle the case where this stage is skipped by checkpoint system.
 
-        When this stage is skipped, we need to mark the constituent stages
-        as complete so that dependent stages can proceed.
+        When this stage is skipped, we need to validate chunk-level outputs
+        and mark the constituent stages as complete so that dependent stages can proceed.
         """
         # Use the workspace base_name to reconstruct the expected output file path
         base_name = context.workspace.base_name
@@ -1504,6 +1666,12 @@ class ParallelCompleteProcessingStage(Stage):
         # Check if gzipped version exists (which is more likely with compression)
         if (intermediate_dir / f"{base_name}.extracted.tsv.gz").exists():
             merged_tsv = intermediate_dir / f"{base_name}.extracted.tsv.gz"
+
+        # Validate the merged TSV exists and is valid
+        if merged_tsv.exists() and self._validate_chunk_tsv(merged_tsv):
+            logger.info(f"Restored valid merged TSV: {merged_tsv}")
+        else:
+            logger.warning(f"Expected merged TSV not found or invalid: {merged_tsv}")
 
         # Restore context state that would have been set
         context.extracted_tsv = merged_tsv
@@ -1665,7 +1833,7 @@ class ParallelCompleteProcessingStage(Stage):
     def _process_chunks_parallel(
         self, context: PipelineContext, bed_chunks: List[Path]
     ) -> List[Path]:
-        """Process BED chunks in parallel with complete pipeline."""
+        """Process BED chunks in parallel with complete pipeline and automatic substep detection."""
         vcf_file = context.config["vcf_file"]
         threads = context.config.get("threads", 1)
         base_name = context.workspace.base_name
@@ -1676,85 +1844,120 @@ class ParallelCompleteProcessingStage(Stage):
             logger.warning("No BED chunks to process - skipping parallel processing")
             return []
 
-        # Each worker gets limited threads
-        threads_per_worker = max(2, threads // len(bed_chunks))
+        # Phase 1: Check for existing valid chunk TSVs
+        chunks_to_process = []
+        existing_chunk_tsvs = []
 
-        # Prepare config for workers
-        worker_config = {
-            "threads_per_chunk": threads_per_worker,
-            "bcftools_prefilter": context.config.get("bcftools_prefilter"),
-            "late_filtering": context.config.get("late_filtering", False),
-            "filter": context.config.get("filter"),
-            "filters": context.config.get("filters"),
-            "extract": context.config.get("extract", []),
-            "extract_fields_separator": context.config.get("extract_fields_separator", ","),
-            "gzip_intermediates": context.config.get("gzip_intermediates", True),
-        }
+        use_compression = context.config.get("gzip_intermediates", True)
+        tsv_suffix = ".extracted.tsv.gz" if use_compression else ".extracted.tsv"
 
-        # Use a manager to share the subtask times dict across processes
-        from multiprocessing import Manager
+        for i, chunk_bed in enumerate(bed_chunks):
+            chunk_base = f"{base_name}.chunk_{i}"
+            expected_tsv = intermediate_dir / f"{chunk_base}{tsv_suffix}"
 
-        manager = Manager()
-        shared_subtask_times = manager.dict()
+            if self._validate_chunk_tsv(expected_tsv):
+                logger.info(f"Reusing existing chunk TSV {i}: {expected_tsv.name}")
+                existing_chunk_tsvs.append(expected_tsv)
+            else:
+                logger.info(f"Processing missing/invalid chunk TSV {i}")
+                chunks_to_process.append((i, chunk_bed, expected_tsv))
 
-        chunk_tsvs = []
-        with ProcessPoolExecutor(max_workers=len(bed_chunks)) as executor:
-            # Submit all jobs
-            future_to_chunk = {}
-            for i, chunk_bed in enumerate(bed_chunks):
-                future = executor.submit(
-                    self._process_single_chunk,
-                    i,
-                    chunk_bed,
-                    vcf_file,
-                    base_name,
-                    intermediate_dir,
-                    worker_config,
-                    shared_subtask_times,
-                )
-                future_to_chunk[future] = (i, chunk_bed)
+        # Phase 2: Process only missing chunks
+        new_chunk_tsvs = []
+        if chunks_to_process:
+            # Each worker gets limited threads
+            threads_per_worker = max(2, threads // len(chunks_to_process))
 
-            # Collect results
-            for future in as_completed(future_to_chunk):
-                chunk_index, chunk_bed = future_to_chunk[future]
-                try:
-                    chunk_tsv = future.result()
-                    chunk_tsvs.append(chunk_tsv)
-                    logger.debug(f"Completed chunk {chunk_index}: {chunk_bed.name}")
-                except Exception as e:
-                    logger.error(f"Failed to process chunk {chunk_bed}: {e}")
-                    raise
+            # Prepare config for workers
+            worker_config = {
+                "threads_per_chunk": threads_per_worker,
+                "bcftools_prefilter": context.config.get("bcftools_prefilter"),
+                "late_filtering": context.config.get("late_filtering", False),
+                "filter": context.config.get("filter"),
+                "filters": context.config.get("filters"),
+                "extract": context.config.get("extract", []),
+                "extract_fields_separator": context.config.get("extract_fields_separator", ","),
+                "gzip_intermediates": use_compression,
+            }
 
-        # Aggregate subtask times
-        if shared_subtask_times:
-            # Group by subtask type
-            extraction_times = []
-            filtering_times = []
-            field_extraction_times = []
+            # Use a manager to share the subtask times dict across processes
+            from multiprocessing import Manager
 
-            for key, value in shared_subtask_times.items():
-                if "_extraction" in key and "_field_" not in key:
-                    extraction_times.append(value)
-                elif "_filtering" in key:
-                    filtering_times.append(value)
-                elif "_field_extraction" in key:
-                    field_extraction_times.append(value)
+            manager = Manager()
+            shared_subtask_times = manager.dict()
 
-            # Record aggregated times
-            if extraction_times:
-                self._subtask_times["variant_extraction"] = sum(extraction_times) / len(
-                    extraction_times
-                )
-            if filtering_times:
-                self._subtask_times["snpsift_filtering"] = sum(filtering_times) / len(
-                    filtering_times
-                )
-            if field_extraction_times:
-                self._subtask_times["field_extraction"] = sum(field_extraction_times) / len(
-                    field_extraction_times
-                )
+            logger.info(
+                f"Processing {len(chunks_to_process)} missing chunks out of {len(bed_chunks)} total"
+            )
 
-        return chunk_tsvs
+            with ProcessPoolExecutor(max_workers=len(chunks_to_process)) as executor:
+                # Submit jobs for missing chunks only
+                future_to_chunk = {}
+                for i, chunk_bed, expected_tsv in chunks_to_process:
+                    future = executor.submit(
+                        self._process_single_chunk,
+                        i,
+                        chunk_bed,
+                        vcf_file,
+                        base_name,
+                        intermediate_dir,
+                        worker_config,
+                        shared_subtask_times,
+                    )
+                    future_to_chunk[future] = (i, chunk_bed, expected_tsv)
+
+                # Collect results
+                for future in as_completed(future_to_chunk):
+                    chunk_index, chunk_bed, expected_tsv = future_to_chunk[future]
+                    try:
+                        chunk_tsv = future.result()
+                        new_chunk_tsvs.append(chunk_tsv)
+                        logger.debug(f"Completed chunk {chunk_index}: {chunk_bed.name}")
+                    except Exception as e:
+                        logger.error(f"Failed to process chunk {chunk_bed}: {e}")
+                        raise
+
+            # Aggregate subtask times from new chunks
+            if shared_subtask_times:
+                self._aggregate_subtask_times(shared_subtask_times)
+        else:
+            logger.info("All chunk TSVs already exist and are valid - no processing needed")
+
+        # Phase 3: Combine existing and new outputs, maintaining order
+        all_chunk_tsvs = []
+        for i in range(len(bed_chunks)):
+            chunk_base = f"{base_name}.chunk_{i}"
+            expected_tsv = intermediate_dir / f"{chunk_base}{tsv_suffix}"
+            all_chunk_tsvs.append(expected_tsv)
+
+        return all_chunk_tsvs
+
+    def _aggregate_subtask_times(self, shared_subtask_times: dict) -> None:
+        """Aggregate subtask times from parallel processing."""
+        # Group by subtask type
+        extraction_times = []
+        filtering_times = []
+        field_extraction_times = []
+
+        for key, value in shared_subtask_times.items():
+            if "_extraction" in key and "_field_" not in key:
+                extraction_times.append(value)
+            elif "_filtering" in key:
+                filtering_times.append(value)
+            elif "_field_extraction" in key:
+                field_extraction_times.append(value)
+
+        # Record aggregated times
+        if extraction_times:
+            self._subtask_times["variant_extraction"] = sum(extraction_times) / len(
+                extraction_times
+            )
+        if filtering_times:
+            self._subtask_times["snpsift_filtering"] = sum(filtering_times) / len(filtering_times)
+        if field_extraction_times:
+            self._subtask_times["field_extraction"] = sum(field_extraction_times) / len(
+                field_extraction_times
+            )
 
     def _merge_tsv_outputs(self, context: PipelineContext, chunk_tsvs: List[Path]) -> Path:
         """Merge TSV chunks into a single file with optimized compression handling."""

@@ -482,10 +482,10 @@ class PipelineState:
 
     def clear_step_completion(self, step_name: str) -> None:
         """Clear completion status for a step to force re-execution.
-        
+
         This method is used for restart functionality where you want to
         re-run a previously completed step.
-        
+
         Parameters
         ----------
         step_name : str
@@ -494,7 +494,7 @@ class PipelineState:
         if step_name not in self.state["steps"]:
             logger.debug(f"Step '{step_name}' not in checkpoint state, nothing to clear")
             return
-            
+
         step_info = self.state["steps"][step_name]
         if step_info.status == "completed":
             # Reset to a state that will force re-execution
@@ -787,14 +787,14 @@ class PipelineState:
         logger.info(f"After cleanup: {completed_count} completed stages")
 
     def __getstate__(self):
-        """Custom pickle method - exclude the lock from serialization."""
+        """Exclude the lock from serialization."""
         state = self.__dict__.copy()
         # Remove the unpicklable lock
         del state["_state_lock"]
         return state
 
     def __setstate__(self, state):
-        """Custom unpickle method - recreate the lock."""
+        """Recreate the lock after unpickling."""
         self.__dict__.update(state)
         # Recreate the lock
         self._state_lock = threading.Lock()
