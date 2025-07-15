@@ -6,7 +6,7 @@ variantcentrifuge.utils module, focusing on header normalization
 for SnpEff and SnpSift output.
 """
 
-from variantcentrifuge.utils import normalize_snpeff_headers, normalize_vcf_headers
+from variantcentrifuge.utils import normalize_vcf_headers
 
 
 class TestHeaderNormalization:
@@ -76,14 +76,3 @@ class TestHeaderNormalization:
         # Verify nothing changed
         assert result[0] == test_header
 
-    def test_alias_function(self):
-        """Test that the deprecated alias function produces the same result."""
-        # Test header with various prefixes
-        test_header = "#CHROM\tPOS\tREF\tALT\tGEN[0].AF\tANN[*].IMPACT"
-
-        # Apply both normalization functions
-        result1 = normalize_vcf_headers([test_header])
-        result2 = normalize_snpeff_headers([test_header])
-
-        # Verify they produce the same result
-        assert result1 == result2, "Alias function should produce the same result"
