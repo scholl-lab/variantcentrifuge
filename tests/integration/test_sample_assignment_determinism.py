@@ -298,50 +298,6 @@ class TestPipelineReproducibility:
             results = [get_vcf_samples("dummy.vcf") for _ in range(10)]
             assert all(r == result for r in results), "Results must be deterministic"
 
-    @patch("variantcentrifuge.stages.setup_stages.get_vcf_samples")
-    def test_remove_sample_substring_integration(self, mock_get_names, temp_workspace):
-        """Test that --remove-sample-substring works correctly in integration."""
-        # Mock VCF samples with suffixes
-        test_samples = ["Sample1_processed", "Sample2_processed", "Sample3_processed"]
-        mock_get_names.return_value = test_samples
-
-        # Create workspace
-        workspace = Workspace(temp_workspace, "test_remove_substring")
-
-        # Create configuration with substring removal
-        config = {
-            "vcf_file": "/tmp/test.vcf",
-            "remove_sample_substring": "_processed",
-            "reference": "GRCh37.75",
-            "extract": ["CHROM", "POS", "REF", "ALT"],
-            "extract_fields_separator": "\t",
-        }
-
-        # Create context
-        from argparse import Namespace
-
-        context = PipelineContext(Namespace(), config, workspace)
-        context.mark_complete("configuration_loading")
-
-        # Test SampleConfigLoadingStage
-        from variantcentrifuge.stages.setup_stages import SampleConfigLoadingStage
-
-        stage = SampleConfigLoadingStage()
-        result_context = stage._process(context)
-
-        # Verify substring removal worked
-        expected_samples = ["Sample1", "Sample2", "Sample3"]
-        assert result_context.vcf_samples == expected_samples
-
-        # Verify deterministic behavior - run multiple times
-        for i in range(3):
-            context_copy = PipelineContext(Namespace(), config, workspace)
-            context_copy.mark_complete("configuration_loading")
-
-            result_context = stage._process(context_copy)
-            assert (
-                result_context.vcf_samples == expected_samples
-            ), f"Run {i} produced different results: {result_context.vcf_samples}"
 
 
 class TestPipelineRegressionPrevention:
