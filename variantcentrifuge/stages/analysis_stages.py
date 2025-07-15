@@ -1592,10 +1592,7 @@ class ChunkedAnalysisStage(Stage):
         # This stage only runs when use_chunked_processing is True
         deps = set()
 
-        # Need basic processing to be complete
-        # For parallel processing, we need the complete processing stage
         # For sequential processing, we need individual stages
-        deps.add("parallel_complete_processing")  # Will be ignored if not present
         deps.add("field_extraction")  # Fallback for sequential mode
         deps.add("phenotype_integration")  # Always needed
         deps.add("genotype_replacement")  # Usually needed
@@ -1607,6 +1604,7 @@ class ChunkedAnalysisStage(Stage):
         """Return the set of stage names that should run before if present."""
         # Soft dependencies - these stages will run before if they exist, but are not required
         return {
+            "parallel_complete_processing",  # For parallel processing mode
             "extra_column_removal",
             "dataframe_loading",  # Should run before regular DataFrame analysis
             "data_sorting",  # Ensure data is sorted for gene-aware chunking

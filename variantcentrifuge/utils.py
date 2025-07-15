@@ -22,6 +22,28 @@ from typing import List, Optional, Union
 logger = logging.getLogger("variantcentrifuge")
 
 
+def check_external_tools(tools: List[str]) -> bool:
+    """
+    Check if external tools are available in PATH.
+    
+    Parameters
+    ----------
+    tools : List[str]
+        List of tool names to check for availability
+        
+    Returns
+    -------
+    bool
+        True if all tools are available, False otherwise
+    """
+    for tool in tools:
+        if not shutil.which(tool):
+            logger.error(f"Required tool not found in PATH: {tool}")
+            return False
+        logger.debug(f"Found tool in PATH: {tool}")
+    return True
+
+
 def smart_open(filename: str, mode: str = "r", encoding: str = "utf-8"):
     """
     Open a file with automatic gzip support based on file extension.

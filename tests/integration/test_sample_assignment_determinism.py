@@ -58,7 +58,9 @@ class TestPipelineSampleDeterminism:
 
         def mock_extract_fields(variant_file, fields, cfg, output_file):
             """Mock extract_fields to write test TSV data."""
-            with open(output_file, "w") as f:
+            from variantcentrifuge.utils import smart_open
+            # Use smart_open to handle both .tsv and .tsv.gz files properly
+            with smart_open(str(output_file), "w") as f:
                 f.write(mock_test_data["test_tsv"])
 
         mock_extract.side_effect = mock_extract_fields
@@ -105,7 +107,8 @@ class TestPipelineSampleDeterminism:
 
                 # Read genotype replacement output if it exists
                 if result_data["genotype_file_exists"]:
-                    with open(context.genotype_replaced_tsv, "r") as f:
+                    from variantcentrifuge.utils import smart_open
+                    with smart_open(str(context.genotype_replaced_tsv), "r") as f:
                         result_data["genotype_content"] = f.read()
 
                 results.append(result_data)
