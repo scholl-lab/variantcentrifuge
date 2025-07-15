@@ -24,8 +24,9 @@ import tempfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Union
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger("variantcentrifuge")
 

@@ -62,6 +62,68 @@ from .stages.setup_stages import (
 logger = logging.getLogger(__name__)
 
 
+def check_scoring_requires_inheritance(args: argparse.Namespace, config: dict) -> bool:
+    """Check if scoring configuration requires inheritance analysis.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Command-line arguments
+    config : dict
+        Configuration dictionary
+
+    Returns
+    -------
+    bool
+        True if inheritance analysis is required for scoring
+    """
+    # Check if there's a scoring config
+    scoring_config_path = config.get("scoring_config_path") or getattr(
+        args, "scoring_config_path", None
+    )
+    if not scoring_config_path:
+        return False
+
+    try:
+        # Import here to avoid circular imports
+        from .scoring import read_scoring_config
+
+        # Load scoring config to check for inheritance dependencies
+        scoring_config = read_scoring_config(scoring_config_path)
+
+        # Check if any scoring formulas reference inheritance variables
+        if scoring_config and "formulas" in scoring_config:
+            for formula_dict in scoring_config["formulas"]:
+                for formula_name, formula_expr in formula_dict.items():
+                    if isinstance(formula_expr, str):
+                        # Check if formula references common inheritance variables
+                        if any(
+                            var in formula_expr
+                            for var in [
+                                "pattern",
+                                "details",
+                                "Inheritance_Pattern",
+                                "Inheritance_Details",
+                            ]
+                        ):
+                            logger.info(
+                                f"Scoring formula '{formula_name}' requires inheritance analysis"
+                            )
+                            return True
+
+        # Check variable assignments for inheritance column dependencies
+        if scoring_config and "variables" in scoring_config:
+            variables = scoring_config["variables"]
+            if any(col in variables for col in ["Inheritance_Pattern", "Inheritance_Details"]):
+                logger.info("Scoring configuration requires inheritance columns")
+                return True
+
+    except Exception as e:
+        logger.warning(f"Could not check scoring config for inheritance dependencies: {e}")
+
+    return False
+
+
 def build_pipeline_stages(args: argparse.Namespace) -> List:
     """Build the list of stages based on configuration.
 
@@ -167,13 +229,32 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
         stages.append(CustomAnnotationStage())
 
     # Check both args and config for inheritance settings
+    # Debug logging to understand the issue
+    has_ped_file_arg = hasattr(args, "ped_file") and args.ped_file
+    has_inheritance_mode_arg = hasattr(args, "inheritance_mode") and args.inheritance_mode
+    has_calculate_inheritance_config = config.get("calculate_inheritance", False)
+    has_ped_file_config = config.get("ped_file")
+    has_inheritance_mode_config = config.get("inheritance_mode")
+    requires_inheritance_for_scoring = check_scoring_requires_inheritance(args, config)
+
+    logger.debug("Inheritance analysis conditions:")
+    logger.debug(f"  has_ped_file_arg: {has_ped_file_arg}")
+    logger.debug(f"  has_inheritance_mode_arg: {has_inheritance_mode_arg}")
+    logger.debug(f"  has_calculate_inheritance_config: {has_calculate_inheritance_config}")
+    logger.debug(f"  has_ped_file_config: {has_ped_file_config}")
+    logger.debug(f"  has_inheritance_mode_config: {has_inheritance_mode_config}")
+    logger.debug(f"  requires_inheritance_for_scoring: {requires_inheritance_for_scoring}")
+
     should_calculate_inheritance = (
-        (hasattr(args, "ped_file") and args.ped_file)
-        or (hasattr(args, "inheritance_mode") and args.inheritance_mode)
-        or config.get("calculate_inheritance", False)
-        or config.get("ped_file")
-        or config.get("inheritance_mode")
+        has_ped_file_arg
+        or has_inheritance_mode_arg
+        or has_calculate_inheritance_config
+        or has_ped_file_config
+        or has_inheritance_mode_config
+        or requires_inheritance_for_scoring
     )
+
+    logger.info(f"Should calculate inheritance: {should_calculate_inheritance}")
 
     if should_calculate_inheritance:
         stages.append(InheritanceAnalysisStage())

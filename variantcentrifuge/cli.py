@@ -481,7 +481,13 @@ def create_parser() -> argparse.ArgumentParser:
     )
     performance_group.add_argument(
         "--force-genotype-method",
-        choices=["sequential", "vectorized", "chunked-vectorized", "parallel-chunked-vectorized", "parallel"],
+        choices=[
+            "sequential",
+            "vectorized",
+            "chunked-vectorized",
+            "parallel-chunked-vectorized",
+            "parallel",
+        ],
         help="Force specific genotype replacement method, bypassing auto-selection. "
         "Useful for debugging or when you know the optimal method for your data.",
     )
@@ -1154,7 +1160,13 @@ def main() -> int:
     )
     performance_group.add_argument(
         "--force-genotype-method",
-        choices=["sequential", "vectorized", "chunked-vectorized", "parallel-chunked-vectorized", "parallel"],
+        choices=[
+            "sequential",
+            "vectorized",
+            "chunked-vectorized",
+            "parallel-chunked-vectorized",
+            "parallel",
+        ],
         help="Force specific genotype replacement method, bypassing auto-selection. "
         "Useful for debugging or when you know the optimal method for your data.",
     )

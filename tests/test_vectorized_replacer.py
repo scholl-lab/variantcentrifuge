@@ -10,14 +10,15 @@ import logging
 import tempfile
 from pathlib import Path
 from typing import Dict, List
+
 import pandas as pd
 import pytest
 
 from variantcentrifuge.vectorized_replacer import (
     VectorizedGenotypeReplacer,
-    replace_genotypes_vectorized,
-    process_chunked_vectorized,
     _normalize_snpeff_column_name,
+    process_chunked_vectorized,
+    replace_genotypes_vectorized,
 )
 
 

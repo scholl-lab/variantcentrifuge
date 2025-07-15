@@ -404,7 +404,9 @@ def export_inheritance_report(
     logger.info(f"Inheritance report saved to {output_path}")
 
 
-def process_inheritance_output(df: pd.DataFrame, mode: str) -> pd.DataFrame:
+def process_inheritance_output(
+    df: pd.DataFrame, mode: str, preserve_details_for_scoring: bool = False
+) -> pd.DataFrame:
     """
     Process inheritance analysis output based on the selected mode.
 
@@ -414,6 +416,8 @@ def process_inheritance_output(df: pd.DataFrame, mode: str) -> pd.DataFrame:
         DataFrame with inheritance analysis results
     mode : str
         Output mode: 'simple', 'columns', or 'full'
+    preserve_details_for_scoring : bool, default False
+        If True, preserve Inheritance_Details even in simple mode for scoring
 
     Returns
     -------
@@ -430,9 +434,12 @@ def process_inheritance_output(df: pd.DataFrame, mode: str) -> pd.DataFrame:
         return df
 
     elif mode == "simple":
-        # Drop the details column
-        if "Inheritance_Details" in df.columns:
+        # Drop the details column unless needed for scoring
+        if "Inheritance_Details" in df.columns and not preserve_details_for_scoring:
+            logger.debug("Dropping Inheritance_Details column in simple mode")
             df = df.drop(columns=["Inheritance_Details"])
+        elif preserve_details_for_scoring:
+            logger.debug("Preserving Inheritance_Details column for scoring configuration")
         return df
 
     elif mode == "columns":
