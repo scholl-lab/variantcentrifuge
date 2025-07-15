@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 import pandas as pd
 import pytest
 
-from variantcentrifuge.pipeline_refactored import build_pipeline_stages, run_refactored_pipeline
+from variantcentrifuge.pipeline import build_pipeline_stages, run_refactored_pipeline
 
 
 class TestInheritanceAnalysis:
@@ -194,7 +194,7 @@ class TestInheritanceAnalysis:
             case_phenotypes_file=None,
             control_phenotypes_file=None,
             pseudonymize=False,
-            use_new_pipeline=True,
+            
             start_time=None,
             keep_intermediates=False,
             enable_checkpoint=False,
@@ -295,7 +295,7 @@ class TestInheritanceAnalysis:
             no_stats=True,
             xlsx=False,
             html_report=False,
-            use_new_pipeline=True,
+            
             phenotype_file=None,
             annotate_bed=None,
             annotate_gene_list=None,

@@ -31,7 +31,7 @@ from typing import Any, Dict, List, Optional, Set
 
 import pandas as pd
 
-from .utils import run_command
+from .utils import run_command, smart_open
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -225,17 +225,6 @@ def apply_snpsift_filter(
     return output_file
 
 
-def smart_open(filename: str, mode: str = "r", encoding: str = "utf-8"):
-    """Open a file with automatic gzip support based on file extension."""
-    if filename.endswith(".gz"):
-        if "t" not in mode and "b" not in mode:
-            mode = mode + "t"
-        return gzip.open(filename, mode, encoding=encoding)
-    else:
-        if "b" not in mode:
-            return open(filename, mode, encoding=encoding)
-        else:
-            return open(filename, mode)
 
 
 def filter_final_tsv_by_genotype(

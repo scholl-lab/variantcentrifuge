@@ -8,6 +8,7 @@ Provides helper functions for logging, running commands, checking tool availabil
 and retrieving tool versions.
 """
 
+import gzip
 import hashlib
 import logging
 import math
@@ -19,6 +20,37 @@ import sys
 from typing import List, Optional, Union
 
 logger = logging.getLogger("variantcentrifuge")
+
+
+def smart_open(filename: str, mode: str = "r", encoding: str = "utf-8"):
+    """
+    Open a file with automatic gzip support based on file extension.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the file
+    mode : str
+        File opening mode ('r', 'w', 'rt', 'wt', etc.)
+    encoding : str
+        Text encoding (for text modes)
+
+    Returns
+    -------
+    file object
+        Opened file handle
+    """
+    if filename.endswith(".gz"):
+        # Ensure text mode for gzip
+        if "t" not in mode and "b" not in mode:
+            mode = mode + "t"
+        return gzip.open(filename, mode, encoding=encoding)
+    else:
+        # For regular files, only add encoding for text mode
+        if "b" not in mode:
+            return open(filename, mode, encoding=encoding)
+        else:
+            return open(filename, mode)
 
 
 def run_command(cmd: list, output_file: Optional[str] = None) -> str:
@@ -110,55 +142,6 @@ def normalize_vcf_headers(lines: List[str]) -> List[str]:
 
 
 # Keep the original function name as an alias for backward compatibility
-def normalize_snpeff_headers(lines: List[str]) -> List[str]:
-    """
-    Alias for normalize_vcf_headers for backward compatibility.
-
-    This function is deprecated, use normalize_vcf_headers instead.
-
-    Parameters
-    ----------
-    lines : List[str]
-        A list of lines (e.g., lines from a file) whose first line may contain
-        SnpEff-generated prefixes in column headers.
-
-    Returns
-    -------
-    List[str]
-        The updated list of lines with normalized headers.
-    """
-    return normalize_vcf_headers(lines)
-
-
-def check_external_tools() -> None:
-    """
-    Check if required external tools are installed and in the PATH.
-
-    Tools checked:
-
-    - bcftools
-    - snpEff
-    - SnpSift
-    - bedtools
-
-    If any are missing, log an error and exit.
-
-    Raises
-    ------
-    SystemExit
-        If any required tool is missing.
-    """
-    required_tools = ["bcftools", "snpEff", "SnpSift", "bedtools"]
-    missing = [tool for tool in required_tools if shutil.which(tool) is None]
-
-    if missing:
-        logger.error(
-            "Missing required external tools: %s. Please ensure they are installed and in PATH.",
-            ", ".join(missing),
-        )
-        sys.exit(1)
-    else:
-        logger.debug("All external tools are available.")
 
 
 def get_tool_version(tool_name: str) -> str:
@@ -480,3 +463,65 @@ def split_bed_file(input_bed: str, num_chunks: int, output_dir: str) -> List[str
 
     logger.info(f"Successfully split BED file into {len(chunk_files)} chunks.")
     return chunk_files
+
+
+def remove_vcf_extensions(filename: str) -> str:
+    """
+    Remove common VCF-related extensions from a filename.
+
+    Parameters
+    ----------
+    filename : str
+        The input filename, possibly ending in .vcf, .vcf.gz, or .gz.
+
+    Returns
+    -------
+    str
+        The filename base without VCF-related extensions.
+    """
+    if filename.endswith(".vcf.gz"):
+        return filename[:-7]
+    elif filename.endswith(".vcf"):
+        return filename[:-4]
+    elif filename.endswith(".gz"):
+        return filename[:-3]
+    return filename
+
+
+def compute_base_name(vcf_path: str, gene_name: str) -> str:
+    """
+    Compute a base name for output files based on the VCF filename and genes.
+
+    If multiple genes are specified, create a hash to represent them.
+    If 'all' is specified, append '.all'.
+    Otherwise, append the gene name if it's not already in the VCF base name.
+
+    Parameters
+    ----------
+    vcf_path : str
+        Path to the VCF file.
+    gene_name : str
+        The normalized gene name string.
+
+    Returns
+    -------
+    str
+        A base name for output files.
+    """
+    genes = gene_name.strip()
+    vcf_base = os.path.basename(vcf_path)
+    vcf_base = remove_vcf_extensions(vcf_base)
+
+    if genes.lower() == "all":
+        return f"{vcf_base}.all"
+    split_genes = genes.split()
+    if len(split_genes) > 1:
+        gene_hash = hashlib.md5(genes.encode("utf-8")).hexdigest()[:8]
+        return f"{vcf_base}.multiple-genes-{gene_hash}"
+    else:
+        if split_genes and split_genes[0].lower() in vcf_base.lower():
+            return vcf_base
+        else:
+            return f"{vcf_base}.{split_genes[0]}" if split_genes else vcf_base
+
+

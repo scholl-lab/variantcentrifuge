@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 
 from variantcentrifuge.cli import main
-from variantcentrifuge.pipeline_refactored import build_pipeline_stages, run_refactored_pipeline
+from variantcentrifuge.pipeline import build_pipeline_stages, run_refactored_pipeline
 
 
 @pytest.fixture
@@ -318,7 +318,7 @@ class TestFinalFilterStagePipeline:
             scoring_config=scoring_config,
             final_filter="combined_score > 0.6",
             preset="rare",
-            use_new_pipeline=True,
+            
             log_level="WARNING",
             add_variant_id=True,
         )
@@ -346,7 +346,7 @@ class TestFinalFilterStagePipeline:
             output_dir=str(tmp_path / "output"),
             scoring_config=scoring_config,
             final_filter="combined_score > 0.5",
-            use_new_pipeline=True,
+            
         )
 
         # Build stages and check dependencies

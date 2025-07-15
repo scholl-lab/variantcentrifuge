@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 import pandas as pd
 import pytest
 
-from variantcentrifuge.pipeline_refactored import build_pipeline_stages, run_refactored_pipeline
+from variantcentrifuge.pipeline import build_pipeline_stages, run_refactored_pipeline
 
 
 def create_complete_namespace(**overrides):
@@ -37,7 +37,7 @@ def create_complete_namespace(**overrides):
         "no_stats": True,
         "xlsx": False,
         "html_report": False,
-        "use_new_pipeline": True,
+        
         # Optional file inputs
         "phenotype_file": None,
         "ped_file": None,

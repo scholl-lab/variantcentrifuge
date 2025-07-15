@@ -50,7 +50,7 @@ class TestShowCheckpointStatus:
                 assert exc_info.value.code == 0
                 # Should print that no checkpoint state was found
                 mock_print.assert_any_call(
-                    "Checking checkpoint status for original monolithic pipeline..."
+                    "Checking checkpoint status for stage-based pipeline..."
                 )
                 mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
@@ -61,7 +61,6 @@ class TestShowCheckpointStatus:
             [
                 "variantcentrifuge",
                 "--show-checkpoint-status",
-                "--use-new-pipeline",
                 "--output-dir",
                 str(tmp_path),
             ],
@@ -73,9 +72,9 @@ class TestShowCheckpointStatus:
                     main()
 
                 assert exc_info.value.code == 0
-                # Should indicate it's checking the new pipeline
+                # Should indicate it's checking the stage-based pipeline
                 mock_print.assert_any_call(
-                    "Checking checkpoint status for new stage-based pipeline..."
+                    "Checking checkpoint status for stage-based pipeline..."
                 )
                 mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
@@ -83,7 +82,7 @@ class TestShowCheckpointStatus:
         """Test --show-checkpoint-status with config file that specifies new pipeline."""
         # Create a config file with new pipeline enabled
         config_file = tmp_path / "config.json"
-        config_data = {"use_new_pipeline_architecture": True, "reference": "GRCh38.99"}
+        config_data = {"reference": "GRCh38.99"}
         config_file.write_text(json.dumps(config_data))
 
         with patch(
@@ -106,7 +105,7 @@ class TestShowCheckpointStatus:
                 assert exc_info.value.code == 0
                 # Should detect new pipeline from config
                 mock_print.assert_any_call(
-                    "Checking checkpoint status for new stage-based pipeline..."
+                    "Checking checkpoint status for stage-based pipeline..."
                 )
                 mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
@@ -133,7 +132,7 @@ class TestShowCheckpointStatus:
                 assert exc_info.value.code == 0
                 # Should print the pipeline status summary
                 mock_print.assert_any_call(
-                    "Checking checkpoint status for original monolithic pipeline..."
+                    "Checking checkpoint status for stage-based pipeline..."
                 )
 
                 # Check that it printed checkpoint information
@@ -167,7 +166,7 @@ class TestShowCheckpointStatus:
                 assert exc_info.value.code == 0
                 # Should fall back to original pipeline when config loading fails
                 mock_print.assert_any_call(
-                    "Checking checkpoint status for original monolithic pipeline..."
+                    "Checking checkpoint status for stage-based pipeline..."
                 )
                 mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
@@ -175,7 +174,7 @@ class TestShowCheckpointStatus:
         """Test that --use-new-pipeline flag takes precedence over config file."""
         # Create a config file with new pipeline disabled
         config_file = tmp_path / "config.json"
-        config_data = {"use_new_pipeline_architecture": False, "reference": "GRCh38.99"}
+        config_data = {"reference": "GRCh38.99"}
         config_file.write_text(json.dumps(config_data))
 
         with patch(
@@ -183,7 +182,6 @@ class TestShowCheckpointStatus:
             [
                 "variantcentrifuge",
                 "--show-checkpoint-status",
-                "--use-new-pipeline",
                 "--config",
                 str(config_file),
                 "--output-dir",
@@ -197,9 +195,9 @@ class TestShowCheckpointStatus:
                     main()
 
                 assert exc_info.value.code == 0
-                # Flag should override config file
+                # Should use stage-based pipeline
                 mock_print.assert_any_call(
-                    "Checking checkpoint status for new stage-based pipeline..."
+                    "Checking checkpoint status for stage-based pipeline..."
                 )
                 mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
@@ -225,7 +223,7 @@ class TestShowCheckpointStatus:
                 assert exc_info.value.code == 0
                 # Should work with different log levels
                 mock_print.assert_any_call(
-                    "Checking checkpoint status for original monolithic pipeline..."
+                    "Checking checkpoint status for stage-based pipeline..."
                 )
                 mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 

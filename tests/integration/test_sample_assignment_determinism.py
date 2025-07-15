@@ -37,7 +37,7 @@ class TestPipelineSampleDeterminism:
                 "gene_name": "BRCA1",
                 "vcf_file": "/tmp/test.vcf",
                 "output_file": "test_output.tsv",
-                "use_new_pipeline": True,
+                
                 "no_stats": True,
                 "no_metadata": True,
                 "extract": ["CHROM", "POS", "REF", "ALT", "GT", "GENE"],

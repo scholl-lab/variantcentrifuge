@@ -101,12 +101,13 @@ class TestPipelineRunner:
 
     def test_parallel_execution(self, runner, context):
         """Test parallel stage execution."""
-        # Create stages that can run in parallel
+        # Create stages that can run in parallel with longer runtimes
+        # to make parallel benefits more apparent
         stages = [
-            MockStage("stage1", parallel_safe=True, runtime=0.1),
-            MockStage("stage2", parallel_safe=True, runtime=0.1),
-            MockStage("stage3", parallel_safe=True, runtime=0.1),
-            MockStage("stage4", dependencies=["stage1", "stage2", "stage3"]),
+            MockStage("stage1", parallel_safe=True, runtime=0.2),
+            MockStage("stage2", parallel_safe=True, runtime=0.2),
+            MockStage("stage3", parallel_safe=True, runtime=0.2),
+            MockStage("stage4", dependencies=["stage1", "stage2", "stage3"], runtime=0.2),
         ]
 
         start_time = time.time()
@@ -117,8 +118,10 @@ class TestPipelineRunner:
         assert result == context
 
         # Parallel execution should be faster than sequential
+        # The first 3 stages should run in parallel (~0.2s), then stage4 runs (~0.2s)
+        # So total should be ~0.4s instead of sequential 0.8s
         sequential_time = sum(s.estimated_runtime for s in stages)
-        assert total_time < sequential_time * 0.8  # Allow some overhead
+        assert total_time < sequential_time * 0.8  # Allow for thread overhead but expect speedup
 
     def test_mixed_parallel_sequential(self, runner, context):
         """Test mixed parallel and sequential execution."""

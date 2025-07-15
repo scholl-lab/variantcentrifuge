@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 import pandas as pd
 import pytest
 
-from variantcentrifuge.pipeline_refactored import build_pipeline_stages, run_refactored_pipeline
+from variantcentrifuge.pipeline import build_pipeline_stages, run_refactored_pipeline
 
 
 class MockedToolsTestCase:
@@ -201,7 +201,7 @@ class TestBasicPipelineFlow(MockedToolsTestCase):
             case_phenotypes_file=None,
             control_phenotypes_file=None,
             pseudonymize=False,
-            use_new_pipeline=True,
+            
             start_time=None,
             keep_intermediates=False,
             enable_checkpoint=False,
@@ -315,7 +315,7 @@ class TestComplexPipelineFlow(MockedToolsTestCase):
             case_phenotypes_file=None,
             control_phenotypes_file=None,
             pseudonymize=False,
-            use_new_pipeline=True,
+            
             start_time=None,
             no_replacement=False,
             perform_gene_burden=False,
@@ -457,7 +457,7 @@ class TestErrorHandling(MockedToolsTestCase):
             config=None,
             log_level="INFO",
             reference="GRCh37",
-            use_new_pipeline=True,
+            
             start_time=None,
             phenotype_file=None,
             fields_to_extract="CHROM POS REF ALT",
@@ -509,7 +509,7 @@ class TestErrorHandling(MockedToolsTestCase):
             config=None,
             log_level="INFO",
             reference="GRCh37",
-            use_new_pipeline=True,
+            
             start_time=None,
             phenotype_file=None,
             fields_to_extract="CHROM POS REF ALT",
@@ -563,7 +563,7 @@ class TestParallelProcessing(MockedToolsTestCase):
             log_level="INFO",
             reference="GRCh37",
             threads=4,  # Enable parallel processing
-            use_new_pipeline=True,
+            
             start_time=None,
             preset=None,
             filter=None,
@@ -746,7 +746,7 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
             case_phenotypes_file=None,
             control_phenotypes_file=None,
             pseudonymize=False,
-            use_new_pipeline=True,
+            
             start_time=None,
         )
 
@@ -871,7 +871,7 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
             case_phenotypes_file=None,
             control_phenotypes_file=None,
             pseudonymize=False,
-            use_new_pipeline=True,
+            
             start_time=None,
         )
 

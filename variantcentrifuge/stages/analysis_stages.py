@@ -1654,7 +1654,7 @@ class ChunkedAnalysisStage(Stage):
 
     def _should_calculate_inheritance(self, context: PipelineContext) -> bool:
         """Check if inheritance analysis should be calculated."""
-        # Use the same logic as pipeline_refactored.py
+        # Use the same logic as pipeline.py
         has_ped_file = context.pedigree_data is not None and len(context.pedigree_data) > 0
         has_inheritance_mode = context.config.get("inheritance_mode")
         has_calculate_inheritance_config = context.config.get("calculate_inheritance", False)

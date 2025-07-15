@@ -279,7 +279,7 @@ class TestGeneBurdenAnalysisStage:
         base_context.vcf_samples = ["CASE1", "CASE2", "CTRL1", "CTRL2"]
         base_context.current_dataframe = pd.DataFrame(
             {
-                "Gene": ["BRCA1", "BRCA1", "TP53"],
+                "GENE": ["BRCA1", "BRCA1", "TP53"],
                 "CASE1": ["0/1", "0/0", "0/1"],
                 "CASE2": ["0/1", "0/1", "0/0"],
                 "CTRL1": ["0/0", "0/0", "0/0"],
@@ -302,7 +302,7 @@ class TestGeneBurdenAnalysisStage:
         # Mock the burden calculation
         mock_result = pd.DataFrame(
             {
-                "Gene": ["BRCA1", "TP53"],
+                "GENE": ["BRCA1", "TP53"],
                 "case_carriers": [2, 1],
                 "control_carriers": [1, 0],
                 "p_value": [0.05, 0.5],

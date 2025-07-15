@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .config import load_config
-from .pipeline import run_pipeline
+from .pipeline import run_refactored_pipeline
 from .validators import validate_mandatory_parameters, validate_phenotype_file, validate_vcf_file
 from .version import __version__
 
@@ -41,12 +41,6 @@ def create_parser() -> argparse.ArgumentParser:
         "--config",
         help="Path to configuration file",
         default=None,
-    )
-    general_group.add_argument(
-        "--use-new-pipeline",
-        action="store_true",
-        default=False,
-        help="Use the new refactored pipeline architecture (experimental)",
     )
 
     # Core Input/Output
@@ -721,12 +715,6 @@ def main() -> int:
         help="Path to configuration file",
         default=None,
     )
-    general_group.add_argument(
-        "--use-new-pipeline",
-        action="store_true",
-        default=False,
-        help="Use the new refactored pipeline architecture (experimental)",
-    )
 
     # Core Input/Output
     io_group = parser.add_argument_group("Core Input/Output")
@@ -1276,9 +1264,6 @@ def main() -> int:
             "--log-level", choices=["DEBUG", "INFO", "WARN", "ERROR"], default="INFO"
         )
         status_parser.add_argument(
-            "--use-new-pipeline", action="store_true", help="Check new pipeline checkpoint status"
-        )
-        status_parser.add_argument(
             "-c", "--config", help="Path to configuration file", default=None
         )
         status_args = status_parser.parse_args()
@@ -1295,21 +1280,7 @@ def main() -> int:
         # Show checkpoint status
         from .checkpoint import PipelineState
 
-        # Check if we should use new pipeline architecture
-        use_new_pipeline = status_args.use_new_pipeline
-
-        # Also check config file for new pipeline setting
-        if status_args.config:
-            try:
-                config = load_config(status_args.config)
-                use_new_pipeline = use_new_pipeline or config.get(
-                    "use_new_pipeline_architecture", False
-                )
-            except Exception as e:
-                logger.warning(f"Could not load config file: {e}")
-
-        pipeline_type = "new stage-based" if use_new_pipeline else "original monolithic"
-        print(f"Checking checkpoint status for {pipeline_type} pipeline...")
+        print("Checking checkpoint status for stage-based pipeline...")
 
         pipeline_state = PipelineState(status_args.output_dir)
         if pipeline_state.load():
@@ -1587,19 +1558,14 @@ def main() -> int:
 
         initialize_registry()
 
-        if args.use_new_pipeline:
-            # For new pipeline, show available stages from registry
-            from .pipeline_refactored import create_stages_from_config
+        # Show available stages from registry
+        from .pipeline import create_stages_from_config
 
-            try:
-                stages = create_stages_from_config(cfg)
-                display_available_stages(stages, cfg)
-            except Exception as e:
-                logger.error(f"Failed to create stages: {e}")
-                sys.exit(1)
-        else:
-            logger.info("--list-stages is only supported with --use-new-pipeline")
-            print("To see available stages, use: --use-new-pipeline --list-stages")
+        try:
+            stages = create_stages_from_config(cfg)
+            display_available_stages(stages, cfg)
+        except Exception as e:
+            logger.error(f"Failed to create stages: {e}")
             sys.exit(1)
 
         sys.exit(0)
@@ -1623,9 +1589,6 @@ def main() -> int:
         from .interactive_resume import handle_interactive_resume
         from .stages.stage_registry import initialize_registry
 
-        if not args.use_new_pipeline:
-            logger.error("--interactive-resume requires --use-new-pipeline")
-            sys.exit(1)
 
         initialize_registry()
 
@@ -1636,7 +1599,7 @@ def main() -> int:
             sys.exit(1)
 
         # Get available stages for current configuration
-        from .pipeline_refactored import create_stages_from_config
+        from .pipeline import create_stages_from_config
 
         try:
             stages = create_stages_from_config(cfg)
@@ -1678,7 +1641,14 @@ def main() -> int:
         )
 
     try:
-        run_pipeline(args, cfg, start_time)
+        # Create a new args object with the config properly set
+        from types import SimpleNamespace
+        refactored_args = SimpleNamespace(**vars(args))
+        refactored_args.config = cfg
+        if not hasattr(refactored_args, "start_time"):
+            refactored_args.start_time = start_time
+        
+        run_refactored_pipeline(refactored_args)
         return 0
     except SystemExit as e:
         return e.code if e.code is not None else 1

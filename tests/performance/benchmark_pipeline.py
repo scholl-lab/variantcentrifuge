@@ -82,10 +82,10 @@ class PerformanceBenchmark:
     def run_benchmark(
         self,
         config: BenchmarkConfig,
-        use_new_pipeline: bool = False,
+        
     ) -> BenchmarkResult:
         """Run a single benchmark test."""
-        pipeline_type = "new" if use_new_pipeline else "old"
+        pipeline_type = "new"
         print(f"Running {pipeline_type} pipeline: {config.name}")
 
         # Prepare output
@@ -105,8 +105,6 @@ class PerformanceBenchmark:
             str(log_file),
         ]
 
-        if use_new_pipeline:
-            cmd.append("--use-new-pipeline")
 
         # Add genes
         if config.gene_file:
