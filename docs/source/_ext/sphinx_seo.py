@@ -55,11 +55,11 @@ def generate_software_application_schema(config: Dict[str, Any]) -> Dict[str, An
             "A Python-based command-line tool for filtering, extracting, and "
             "analyzing genetic variants from VCF files"
         ),
-        "url": config.get("html_baseurl", "https://scholl-lab.github.io/variantcentrifuge/"),
+        "url": getattr(config, "html_baseurl", "https://scholl-lab.github.io/variantcentrifuge/"),
         "applicationCategory": "Bioinformatics",
         "applicationSubCategory": "Genomic Variant Analysis",
         "operatingSystem": ["Linux", "macOS", "Windows WSL"],
-        "softwareVersion": config.get("version", ""),
+        "softwareVersion": getattr(config, "version", ""),
         "softwareRequirements": ["Python 3.7+", "bcftools", "snpEff", "SnpSift", "bedtools"],
         "author": {
             "@type": "Organization",
