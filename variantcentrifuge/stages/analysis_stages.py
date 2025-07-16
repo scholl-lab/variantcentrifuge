@@ -1872,7 +1872,9 @@ class ChunkedAnalysisStage(Stage):
     ) -> List[pd.DataFrame]:
         """Process chunks in parallel using ThreadPoolExecutor."""
         # Pre-load all chunks into memory for parallel processing
-        chunks = list(self._read_tsv_in_gene_chunks(sorted_file, gene_col_name, chunk_size))
+        chunks = list(
+            self._read_tsv_in_gene_chunks(sorted_file, gene_col_name, chunk_size, context)
+        )
         logger.info(f"Loaded {len(chunks)} chunks for parallel processing")
 
         output_chunks = [None] * len(chunks)  # Pre-allocate to maintain order
@@ -2140,6 +2142,43 @@ class ChunkedAnalysisStage(Stage):
             # Return original file if sorting fails
             return input_file
 
+    def _calculate_inheritance_safe_chunk_size(self, sample_count: int) -> int:
+        """Calculate safe chunk size based on sample count to prevent inheritance analysis skipping.
+
+        Uses the same memory limits as inheritance analysis to ensure chunks can be processed.
+        Target ~2,000 variants per chunk for large cohorts (>2500 samples).
+
+        Args:
+            sample_count: Number of samples in the dataset
+
+        Returns:
+            Safe chunk size in number of variants
+        """
+        logger.debug(f"Calculating inheritance-safe chunk size for {sample_count} samples")
+
+        if sample_count <= 100:
+            chunk_size = 10000  # 10K variants × 100 samples = 1M cells (< 100M limit)
+        elif sample_count <= 500:
+            chunk_size = 5000   # 5K variants × 500 samples = 2.5M cells (< 50M limit)
+        elif sample_count <= 1000:
+            chunk_size = 3000   # 3K variants × 1000 samples = 3M cells (< 25M limit)
+        elif sample_count <= 2500:
+            chunk_size = 2500   # 2.5K variants × 2500 samples = 6.25M cells (< 10M limit)
+        else:
+            # For >2500 samples, target 2000 variants as requested
+            # Check if 2000 variants would exceed 12M cell limit
+            target_chunk_size = 2000
+            if target_chunk_size * sample_count > 12_000_000:
+                # Fall back to safe calculation with 80% of limit
+                chunk_size = max(500, 9_600_000 // sample_count)
+            else:
+                chunk_size = target_chunk_size
+
+        logger.info(
+            f"Using inheritance-safe chunk size: {chunk_size} variants for {sample_count} samples"
+        )
+        return chunk_size
+
     def _read_tsv_in_gene_chunks(
         self,
         filepath: Path,
@@ -2149,6 +2188,26 @@ class ChunkedAnalysisStage(Stage):
     ):
         """Read TSV file in gene-aware chunks with configurable gene size limits."""
         import pandas as pd
+
+        # Calculate inheritance-safe chunk size if context and VCF samples are available
+        if context and hasattr(context, 'vcf_samples') and context.vcf_samples:
+            sample_count = len(context.vcf_samples)
+            safe_chunk_size = self._calculate_inheritance_safe_chunk_size(sample_count)
+
+            # Use the smaller of user-specified chunk size or safe chunk size
+            if chunksize > safe_chunk_size:
+                logger.warning(
+                    f"User-specified chunk size ({chunksize}) exceeds inheritance-safe limit "
+                    f"({safe_chunk_size}) for {sample_count} samples. Using safe chunk size."
+                )
+                chunksize = safe_chunk_size
+            else:
+                logger.info(
+                    f"Using user-specified chunk size ({chunksize}) which is within "
+                    f"inheritance-safe limit ({safe_chunk_size}) for {sample_count} samples"
+                )
+        else:
+            logger.debug("No VCF samples available, using original chunk size")
 
         logger.info(
             f"Reading {filepath} in gene-aware chunks (column: {gene_column}, size: {chunksize})"
@@ -2175,10 +2234,13 @@ class ChunkedAnalysisStage(Stage):
             )
         elif hasattr(self, "max_variants_per_gene"):
             max_variants_per_gene = self.max_variants_per_gene
+
+        # Adjust buffer sizes based on inheritance-safe chunk size
+        # For inheritance-safe chunking, we want tighter limits to avoid memory issues
         max_buffer_size = min(
-            chunksize * 20, max_variants_per_gene
-        )  # Use smaller of buffer or gene limit
-        emergency_threshold = min(chunksize * 50, max_variants_per_gene)  # Hard limit
+            chunksize * 5, max_variants_per_gene
+        )  # Reduced from 20x to 5x for better memory control
+        emergency_threshold = min(chunksize * 10, max_variants_per_gene)  # Reduced from 50x to 10x
 
         for chunk in reader:
             # Combine with buffer
@@ -2350,7 +2412,7 @@ class ChunkedAnalysisStage(Stage):
             elif len(vcf_samples) <= 2500:
                 max_chunk_memory_cells = 10_000_000  # 10M cells for very large cohorts
             else:
-                max_chunk_memory_cells = 5_000_000  # 5M cells for massive cohorts (>2500 samples)
+                max_chunk_memory_cells = 12_000_000  # 12M cells for massive cohorts (>2500 samples)
 
             # Additional check: for massive sample counts, also limit based on variants per chunk
             max_variants_per_chunk = max_chunk_memory_cells // len(vcf_samples)
