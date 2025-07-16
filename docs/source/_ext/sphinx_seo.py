@@ -382,7 +382,6 @@ def generate_sitemap(app: Sphinx, exception: Optional[Exception]) -> None:
 
 def setup(app: Sphinx) -> Dict[str, Any]:
     """Set up the SEO extension."""
-    app.add_config_value("html_baseurl", "", "html")
     app.add_config_value("seo_description", "", "html")
     app.add_config_value("seo_keywords", [], "html")
 
