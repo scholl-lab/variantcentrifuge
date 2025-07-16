@@ -82,7 +82,6 @@ class PerformanceBenchmark:
     def run_benchmark(
         self,
         config: BenchmarkConfig,
-        
     ) -> BenchmarkResult:
         """Run a single benchmark test."""
         pipeline_type = "new"
@@ -104,7 +103,6 @@ class PerformanceBenchmark:
             "--log-file",
             str(log_file),
         ]
-
 
         # Add genes
         if config.gene_file:

@@ -82,7 +82,7 @@ changelog
 VariantCentrifuge requires these bioinformatics tools to be installed and available in your PATH:
 
 - **bcftools** - VCF manipulation
-- **snpEff** - Functional annotation and BED file generation  
+- **snpEff** - Functional annotation and BED file generation
 - **SnpSift** - Variant filtering and field extraction
 - **bedtools** - BED file operations
 

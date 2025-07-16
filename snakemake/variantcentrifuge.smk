@@ -44,7 +44,7 @@ def get_vcf_info():
     """
     if not os.path.exists(VCF_LIST_FILE):
         raise FileNotFoundError(f"VCF list file not found: {VCF_LIST_FILE}")
-    
+
     vcf_paths = {}
     with open(VCF_LIST_FILE, 'r') as f:
         for line in f:
@@ -57,10 +57,10 @@ def get_vcf_info():
                 elif sample.endswith(".vcf"):
                     sample = sample[:-4]  # Remove .vcf
                 vcf_paths[sample] = path
-    
+
     if not vcf_paths:
         raise ValueError(f"No valid VCF paths found in {VCF_LIST_FILE}")
-    
+
     return vcf_paths
 
 # Map of sample IDs to their VCF paths
@@ -70,7 +70,7 @@ SAMPLES = list(VCF_PATHS.keys())
 def get_sample_output_dir(wildcards):
     """Define a unique output directory for each sample within the base output folder."""
     return os.path.join(BASE_OUTPUT_FOLDER, wildcards.sample)
-    
+
 def get_final_tsv_output(wildcards):
     """Determine the final TSV output name based on XLSX flag."""
     sample_out_dir = get_sample_output_dir(wildcards)
@@ -107,7 +107,7 @@ rule run_variantcentrifuge:
         # VariantCentrifuge's --output-dir will contain many files.
         # We track the main TSV, and conditionally the XLSX and HTML report.
         final_tsv = os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.vc_analysis.tsv"),
-        final_xlsx = os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.vc_analysis.xlsx") if VC_XLSX else [], # Optional output 
+        final_xlsx = os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.vc_analysis.xlsx") if VC_XLSX else [], # Optional output
         html_report_index = os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "report", "index.html") if VC_HTML_REPORT else []
     params:
         sample_output_dir = get_sample_output_dir,
@@ -145,11 +145,11 @@ rule run_variantcentrifuge:
 
         echo "Starting VariantCentrifuge for sample {wildcards.sample} at: $(date)" > {log}
         echo "Output directory: {params.sample_output_dir}" >> {log}
-        
+
         # Create sample-specific output directory for variantcentrifuge
         # This is where variantcentrifuge will write its 'intermediate', 'report' subdirs etc.
         mkdir -p {params.sample_output_dir}
-        
+
         variantcentrifuge \
             -c {params.vc_config} \
             -g {params.genes} \
@@ -171,6 +171,6 @@ rule run_variantcentrifuge:
             {params.igv_ideogram} \
             {params.igv_flanking} \
             >> {log} 2>&1
-        
+
         echo "Finished VariantCentrifuge for sample {wildcards.sample} at: $(date)" >> {log}
         """

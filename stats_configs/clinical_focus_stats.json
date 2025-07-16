@@ -1,7 +1,7 @@
 {
   "stats_version": "1.0",
   "description": "Statistics configuration focused on clinical interpretation",
-  
+
   "dataset_stats": [
     {
       "name": "pathogenic_or_likely_pathogenic",
@@ -28,7 +28,7 @@
       "description": "Mean CADD score for P/LP variants"
     }
   ],
-  
+
   "gene_stats": [
     {
       "name": "clinvar_variants",
@@ -59,7 +59,7 @@
       "description": "Number of splicing-related variants per gene"
     }
   ],
-  
+
   "grouped_stats": [
     {
       "name": "clinical_significance_by_gene",

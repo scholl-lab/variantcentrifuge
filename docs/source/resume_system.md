@@ -153,12 +153,12 @@ def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
     """Mark constituent stages as complete when composite stage is skipped."""
     # Restore output file
     context.extracted_tsv = merged_tsv
-    
+
     # Mark constituent stages as complete
     context.mark_complete("variant_extraction")
     context.mark_complete("field_extraction")
     context.mark_complete("snpsift_filtering")
-    
+
     return context
 ```
 
@@ -210,23 +210,23 @@ The system handles interrupted pipeline runs with robust recovery logic that pri
 # Enhanced recovery logic
 if step_info.status in ("running", "finalizing"):
     logger.warning(f"Found stale {step_info.status} stage, marking for re-execution")
-    
+
     # Only attempt recovery with checksum validation enabled
     if self.enable_checksum and step_info.output_files:
         logger.info("Attempting checksum-based recovery")
-        
+
         # Validate all output files with checksums
         all_valid = True
         for file_info in step_info.output_files:
             if not file_info.validate(calculate_checksum=True):
                 all_valid = False
                 break
-                
+
         if all_valid:
             # Files verified - mark as completed
             step_info.status = "completed"
             return True
-    
+
     # Mark for re-execution (safe default)
     step_info.status = "failed"
     step_info.error = "Pipeline was interrupted - stage will be re-executed for safety"
@@ -251,7 +251,7 @@ The new `finalizing` state indicates stages that are moving temporary files to f
 ```python
 # Stage progression with finalizing state
 context.checkpoint_state.start_step("example_stage")          # running
-context.checkpoint_state.finalize_step("example_stage")       # finalizing  
+context.checkpoint_state.finalize_step("example_stage")       # finalizing
 context.checkpoint_state.complete_step("example_stage")       # completed
 ```
 
@@ -450,22 +450,22 @@ class Stage(ABC):
         # Check if stage should be skipped
         if context.checkpoint_state.should_skip_step(self.name):
             context.mark_complete(self.name)
-            
+
             # Restore state if needed
             if hasattr(self, '_handle_checkpoint_skip'):
                 context = self._handle_checkpoint_skip(context)
-                
+
             return context
-        
+
         # Execute stage normally
         result = self._process(context)
-        
+
         # Mark complete with output files
         context.checkpoint_state.complete_step(
-            self.name, 
+            self.name,
             output_files=self.get_output_files(context)
         )
-        
+
         return result
 ```
 

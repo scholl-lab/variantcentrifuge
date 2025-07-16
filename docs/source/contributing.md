@@ -118,10 +118,10 @@ def test_extract_variants_success(mock_run_command):
     mock_run_command.return_value = CompletedProcess(
         args=[], returncode=0, stdout="Success"
     )
-    
+
     # Act
     result = extract_variants("input.vcf", "output.vcf", "chr1:1000-2000")
-    
+
     # Assert
     assert result == "output.vcf"
     mock_run_command.assert_called_once()
@@ -140,19 +140,19 @@ Example docstring:
 ```python
 def filter_variants(vcf_file: str, filter_expr: str, output_file: str) -> str:
     """Filter variants using SnpSift filter expression.
-    
+
     Args:
         vcf_file: Path to input VCF file
         filter_expr: SnpSift filter expression
         output_file: Path to output filtered VCF file
-        
+
     Returns:
         Path to the filtered output file
-        
+
     Raises:
         FileNotFoundError: If input VCF file doesn't exist
         RuntimeError: If SnpSift command fails
-        
+
     Example:
         >>> filter_variants("input.vcf", "QUAL >= 30", "filtered.vcf")
         "filtered.vcf"

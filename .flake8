@@ -25,7 +25,7 @@ per-file-ignores =
     */phenotype.py:F401
     */generate_html_report.py:F401
     */gene_burden.py:F841
-    
+
     # Line length exceptions for complex sections (to be fixed incrementally)
     */cli.py:E501
     */filters.py:E501

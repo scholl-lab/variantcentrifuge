@@ -1596,7 +1596,6 @@ def main() -> int:
         from .interactive_resume import handle_interactive_resume
         from .stages.stage_registry import initialize_registry
 
-
         initialize_registry()
 
         pipeline_state = PipelineState(args.output_dir)
@@ -1650,11 +1649,12 @@ def main() -> int:
     try:
         # Create a new args object with the config properly set
         from types import SimpleNamespace
+
         refactored_args = SimpleNamespace(**vars(args))
         refactored_args.config = cfg
         if not hasattr(refactored_args, "start_time"):
             refactored_args.start_time = start_time
-        
+
         run_refactored_pipeline(refactored_args)
         return 0
     except SystemExit as e:

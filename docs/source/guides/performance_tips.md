@@ -254,7 +254,7 @@ The checkpoint system tracks these major steps:
    #!/bin/bash
    #SBATCH --time=24:00:00
    #SBATCH --mem=32G
-   
+
    variantcentrifuge \
      --gene-file all_genes.txt \
      --vcf-file cohort.vcf.gz \

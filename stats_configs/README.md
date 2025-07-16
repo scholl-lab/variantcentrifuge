@@ -18,7 +18,7 @@ VariantCentrifuge automatically generates basic statistics using built-in defaul
 
 **Key Statistics**:
 - Pathogenic/Likely Pathogenic (P/LP) variant counts
-- Variants of Uncertain Significance (VUS) counts  
+- Variants of Uncertain Significance (VUS) counts
 - ACMG classification coverage
 - Mean CADD scores for pathogenic variants
 - ClinVar annotation density per gene
@@ -76,7 +76,7 @@ Statistics configurations use JSON format with three main sections:
 {
   "stats_version": "1.0",
   "description": "Configuration description",
-  
+
   "dataset_stats": [
     {
       "name": "total_variants",
@@ -84,16 +84,16 @@ Statistics configurations use JSON format with three main sections:
       "description": "Total number of variants"
     }
   ],
-  
+
   "gene_stats": [
     {
-      "name": "variant_count", 
+      "name": "variant_count",
       "expression": "len(group_df)",
       "groupby": "GENE",
       "description": "Number of variants per gene"
     }
   ],
-  
+
   "grouped_stats": [
     {
       "name": "impact_by_gene",
@@ -112,7 +112,7 @@ Expressions are evaluated with these available variables:
 - `df`: Full variant DataFrame
 - `group_df`: Current group DataFrame (for gene_stats/grouped_stats)
 - `pd`: Pandas library
-- `np`: NumPy library  
+- `np`: NumPy library
 - `len()`, `size()`: Length/size functions
 
 ### Required Columns

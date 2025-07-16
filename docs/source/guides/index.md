@@ -7,7 +7,7 @@ This section provides practical guides and tutorials for common VariantCentrifug
 Before using VariantCentrifuge, your VCF files should be properly annotated with functional predictions and population frequency data. Our annotation guides help you:
 
 - Choose the right annotation tools
-- Configure annotation pipelines  
+- Configure annotation pipelines
 - Optimize annotation for different analysis types
 - Troubleshoot common annotation issues
 

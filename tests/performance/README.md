@@ -155,7 +155,7 @@ Integrate into CI/CD:
       --config quick \
       --runs 1 \
       --output-dir ci_benchmarks
-    
+
     # Check for regressions
     python -c "
     import json

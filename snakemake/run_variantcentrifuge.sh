@@ -13,7 +13,7 @@
 #
 #   - SNAKEMAKE_FILE:   Path to the Snakemake workflow file
 #                       (default: "variantcentrifuge.smk")
-#   - CONFIG_VC_FILE:   Path to the VariantCentrifuge Snakemake config file 
+#   - CONFIG_VC_FILE:   Path to the VariantCentrifuge Snakemake config file
 #                       (default: "config_vc.yaml")
 #   - MAX_JOBS:         Number of Snakemake jobs (in parallel) to use (default: 20)
 #   - SLURM_PROFILE:    Path to a Snakemake SLURM profile (optional, e.g., "cubi-v1")
@@ -31,7 +31,7 @@ fi
 
 # --- 2) HPC environment setup ---
 # Setup TMPDIR for scratch space if not already set by scheduler
-export TMPDIR=${TMPDIR:-"$HOME/scratch/tmp_vc/$$"} 
+export TMPDIR=${TMPDIR:-"$HOME/scratch/tmp_vc/$$"}
 mkdir -p "$TMPDIR"
 trap "rm -rf $TMPDIR" EXIT # Cleanup trap
 

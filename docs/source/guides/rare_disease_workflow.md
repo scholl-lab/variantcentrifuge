@@ -89,7 +89,7 @@ variantcentrifuge \
 Trio samples file (`trio_samples.txt`):
 ```
 proband_001	Proband
-father_001	Father  
+father_001	Father
 mother_001	Mother
 ```
 

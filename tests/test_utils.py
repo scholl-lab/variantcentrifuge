@@ -75,4 +75,3 @@ class TestHeaderNormalization:
 
         # Verify nothing changed
         assert result[0] == test_header
-

@@ -26,7 +26,7 @@
         margin-bottom: 50px;
     }
     /* Custom styles for compact table appearance */
-    #variants_table { 
+    #variants_table {
         font-size: 13px; /* Reduce from browser default, typically 16px */
         width: 100% !important; /* Ensure the table always takes full width */
     }
@@ -37,7 +37,7 @@
         vertical-align: middle; /* Better vertical alignment for wrapped headers */
         line-height: 1.3; /* Slightly adjust line-height for wrapped headers */
     }
-    
+
     /* Further refine padding for the compact style */
     #variants_table.compact th,
     #variants_table.compact td {
@@ -48,28 +48,28 @@
         vertical-align: top; /* Align content to the top of the cell */
         line-height: 1.3; /* Slightly adjust line-height for cell content */
     }
-    
+
     /* Hover-expand cell styles */
-    .hover-expand-cell { 
+    .hover-expand-cell {
         position: relative; /* Needed for absolute positioning of the expanded content */
     }
-    
-    .hover-expand-content { 
+
+    .hover-expand-content {
         display: inline-block;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         vertical-align: bottom; /* Align with non-truncated content */
     }
-    
+
     .hover-expand-content.can-expand {
         cursor: help; /* Indicates that hovering will reveal more */
     }
-    
+
     .hover-expand-content.expanded {
         position: absolute;
-        top: 0; 
-        left: 0; 
+        top: 0;
+        left: 0;
         width: auto;
         max-width: 400px; /* Maximum width for the expanded pop-up */
         min-width: 100%; /* At least as wide as the original cell */
@@ -196,7 +196,7 @@ $(document).ready(function() {
             hiddenColumnIndices.push(index);
         }
     });
-    
+
     // Setup for Default Hidden Columns
     if (hiddenColumnIndices.length > 0) {
         dtColumnDefs.push({
@@ -204,7 +204,7 @@ $(document).ready(function() {
             "visible": false
         });
     }
-    
+
     // Setup for Hover-Expand and other rendering
     columnData.forEach(function(colInfo, index) {
         if (colInfo.apply_hover_expand && colInfo.max_width_px) {
@@ -217,18 +217,18 @@ $(document).ready(function() {
                     if (type === 'display' && data != null && typeof data === 'string') {
                         // For genetic notation (like HGVS), we need to preserve '>' characters
                         // while still protecting against XSS for other content
-                        if (colInfo.original_name === 'HGVS_C' || colInfo.original_name === 'HGVS_P' || 
+                        if (colInfo.original_name === 'HGVS_C' || colInfo.original_name === 'HGVS_P' ||
                             colInfo.original_name === 'GT' || colInfo.original_name === 'ID') {
                             // Replace < with &lt; but leave > as is for genetic notation
                             var safeData = data.replace(/</g, '&lt;');
-                            return '<span class="hover-expand-content" style="max-width:' + colInfo.max_width_px + 'px;">' + 
-                                   safeData + 
+                            return '<span class="hover-expand-content" style="max-width:' + colInfo.max_width_px + 'px;">' +
+                                   safeData +
                                    '</span>';
                         } else {
                             // Standard HTML escaping for other content
                             var escapedData = $('<div>').text(data).html();
-                            return '<span class="hover-expand-content" style="max-width:' + colInfo.max_width_px + 'px;">' + 
-                                   escapedData + 
+                            return '<span class="hover-expand-content" style="max-width:' + colInfo.max_width_px + 'px;">' +
+                                   escapedData +
                                    '</span>';
                         }
                     }

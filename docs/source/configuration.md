@@ -80,7 +80,7 @@ The default configuration includes many useful presets:
 
 #### Rarity Filters
 - **`super_rare`** - AC ≤ 2 in gnomAD exomes and genomes
-- **`rare`** - AF < 0.0001 in gnomAD exomes and genomes  
+- **`rare`** - AF < 0.0001 in gnomAD exomes and genomes
 - **`1percent`** - AF < 0.001 in gnomAD exomes and genomes
 - **`5percent`** - AF < 0.05 in gnomAD exomes and genomes
 
@@ -131,7 +131,7 @@ The default configuration includes many useful presets:
 
 ```json
 {
-  "reference": "GRCh38.99", 
+  "reference": "GRCh38.99",
   "filters": "(GEN[0].AF < 0.03) & (GEN[1].AF >= 0.05) & (FILTER = 'PASS')",
   "fields_to_extract": "CHROM POS REF ALT ANN[0].GENE ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P GEN[*].GT GEN[*].AF GEN[*].DP",
   "presets": {

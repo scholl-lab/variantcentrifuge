@@ -251,7 +251,7 @@ Tests are organized by functionality in the `tests/` directory:
 #### Test Files Structure
 
 - **`test_cli.py`** - Command-line interface tests
-- **`test_filters.py`** - Variant filtering tests  
+- **`test_filters.py`** - Variant filtering tests
 - **`test_gene_lists.py`** - Gene list processing tests
 - **`test_igv.py`** - IGV integration tests
 - **`test_utils.py`** - Utility function tests
@@ -335,10 +335,10 @@ def test_filter_variants_with_valid_quality_threshold():
     vcf_file = "test_input.vcf"
     filter_expr = "QUAL >= 30"
     expected_variant_count = 5
-    
+
     # Act
     result = apply_filter(vcf_file, filter_expr)
-    
+
     # Assert
     assert result.returncode == 0
     assert "filtered variants" in result.output
@@ -355,10 +355,10 @@ def test_full_pipeline_with_sample_data(sample_vcf, temp_output_dir):
         "filters": ["rare", "coding"],
         "output_format": "tsv"
     }
-    
+
     # Act
     result = run_pipeline(sample_vcf, config, temp_output_dir)
-    
+
     # Assert
     assert result.success
     assert (temp_output_dir / "output.tsv").exists()
@@ -372,7 +372,7 @@ def test_filter_raises_error_with_invalid_expression():
     # Arrange
     vcf_file = "test_input.vcf"
     invalid_filter = "INVALID_FIELD >= 30"
-    
+
     # Act & Assert
     with pytest.raises(ValueError, match="Invalid filter expression"):
         apply_filter(vcf_file, invalid_filter)
@@ -390,7 +390,7 @@ def test_filter_raises_error_with_invalid_expression():
 def test_gene_name_normalization(input_gene, expected_output):
     # Act
     result = normalize_gene_name(input_gene)
-    
+
     # Assert
     assert result == expected_output
 ```
@@ -406,7 +406,7 @@ def test_run_command_handles_tool_failure(mock_subprocess):
     # Arrange
     mock_subprocess.return_value.returncode = 1
     mock_subprocess.return_value.stderr = "Tool error"
-    
+
     # Act & Assert
     with pytest.raises(subprocess.CalledProcessError):
         run_command(["failing_tool", "--option"])
@@ -570,7 +570,7 @@ Versions are managed in `variantcentrifuge/version.py` following semantic versio
 ### Debugging Tools
 
 - **pdb** - Python debugger for interactive debugging
-- **pytest --pdb** - Drop into debugger on test failures  
+- **pytest --pdb** - Drop into debugger on test failures
 - **logging** - Use appropriate log levels for debugging
 - **--keep-intermediates** - Retain intermediate files for inspection
 

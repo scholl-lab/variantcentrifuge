@@ -56,7 +56,6 @@ class TestInheritanceAnalysis:
 
             yield {"vcf": str(vcf_file), "ped": str(ped_file), "output_dir": str(output_dir)}
 
-
     def test_stage_configuration(self, setup_files):
         """Test that inheritance analysis stage is properly configured."""
         args = Namespace(
@@ -76,7 +75,6 @@ class TestInheritanceAnalysis:
             no_stats=True,
             xlsx=False,
             html_report=False,
-            
             phenotype_file=None,
             annotate_bed=None,
             annotate_gene_list=None,

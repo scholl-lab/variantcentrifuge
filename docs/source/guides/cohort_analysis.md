@@ -7,7 +7,7 @@ This guide explains how to perform cohort-level variant analysis using VariantCe
 VariantCentrifuge supports both single-sample and cohort-level analysis workflows. While the main CLI processes individual VCF files, the cohort analysis tools allow you to:
 
 - Aggregate results from multiple single-sample analyses
-- Identify recurrently mutated genes across the cohort  
+- Identify recurrently mutated genes across the cohort
 - Generate interactive HTML reports for cohort-wide visualization
 - Apply dynamic filtering and explore variant patterns
 - Compute cohort-level statistics and gene burden analyses
@@ -68,7 +68,7 @@ The `--sample-regex` parameter uses a Python regular expression with one capturi
 # Regex: 'variantcentrifuge_analysis/([^/]+)/'
 # Captures: APA12_TvsN.filtered.annotated
 
-# For file: results/sample_APA15/variants.tsv  
+# For file: results/sample_APA15/variants.tsv
 # Regex: 'sample_([^/]+)/'
 # Captures: APA15
 ```

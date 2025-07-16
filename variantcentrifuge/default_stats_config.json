@@ -1,7 +1,7 @@
 {
   "stats_version": "1.0",
   "description": "Default statistics configuration for VariantCentrifuge",
-  
+
   "dataset_stats": [
     {
       "name": "total_variants",
@@ -38,7 +38,7 @@
       "description": "Mean allele frequency across all variants"
     }
   ],
-  
+
   "gene_stats": [
     {
       "name": "variant_count",
@@ -63,7 +63,7 @@
     {
       "name": "max_cadd_score",
       "expression": "pd.to_numeric(group_df['dbNSFP_CADD_phred'], errors='coerce').max()",
-      "groupby": "GENE", 
+      "groupby": "GENE",
       "required_columns": ["dbNSFP_CADD_phred"],
       "description": "Maximum CADD score per gene"
     },
@@ -75,7 +75,7 @@
       "description": "Number of unique consequence types per gene"
     }
   ],
-  
+
   "grouped_stats": [
     {
       "name": "variants_by_impact_and_gene",

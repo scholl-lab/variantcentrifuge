@@ -155,7 +155,7 @@ The enhanced test dataset uses realistic annotations with controlled probabiliti
 ## Real Annotation Features
 
 ### Authentic Variant Effects
-- **High Impact**: `frameshift_variant`, `stop_gained` 
+- **High Impact**: `frameshift_variant`, `stop_gained`
 - **Moderate Impact**: `missense_variant`, `disruptive_inframe_deletion`
 - **Low Impact**: `synonymous_variant`, `splice_region_variant`
 

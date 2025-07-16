@@ -227,7 +227,7 @@ java -jar SnpSift.jar annotate gnomad.genomes.vcf.gz cancer_cosmic.vcf > cancer_
 
 ```json
 {
-  "reference": "GRCh38.99", 
+  "reference": "GRCh38.99",
   "fields_to_extract": "CHROM POS REF ALT ID ANN[0].GENE ANN[0].IMPACT gnomAD_exomes_AF gnomAD_exomes_AC gnomAD_genomes_AF gnomAD_genomes_AC GEN[*].GT GEN[*].DP",
   "presets": {
     "coding_variants": "((ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE'))",
@@ -256,8 +256,8 @@ java -jar SnpSift.jar annotate gnomad.genomes.vcf.gz cancer_cosmic.vcf > cancer_
 ```bash
 # Check annotation rates
 bcftools query -f '%CHROM\t%POS\t%INFO/ANN\t%INFO/gnomAD_exomes_AF\n' annotated.vcf | \
-awk 'BEGIN{total=0; ann=0; gnomad=0} 
-     {total++; if($3!="") ann++; if($4!="") gnomad++} 
+awk 'BEGIN{total=0; ann=0; gnomad=0}
+     {total++; if($3!="") ann++; if($4!="") gnomad++}
      END{print "Total variants:", total; print "SnpEff annotated:", ann, "(" ann/total*100 "%)"; print "gnomAD annotated:", gnomad, "(" gnomad/total*100 "%)"}'
 ```
 
@@ -271,24 +271,24 @@ bcftools view -h annotated.vcf | grep "##INFO.*database"
 ### Common Issues and Solutions
 
 #### Issue: Low annotation rates
-**Symptoms:** Many variants lack annotations  
-**Causes:** Reference genome mismatch, outdated databases  
+**Symptoms:** Many variants lack annotations
+**Causes:** Reference genome mismatch, outdated databases
 **Solutions:**
 - Verify genome build consistency (GRCh37 vs GRCh38)
 - Update annotation databases
 - Check chromosome naming (chr1 vs 1)
 
 #### Issue: Inconsistent population frequencies
-**Symptoms:** Unexpected frequency distributions  
-**Causes:** Population stratification, database version differences  
+**Symptoms:** Unexpected frequency distributions
+**Causes:** Population stratification, database version differences
 **Solutions:**
 - Use population-specific frequency data
 - Validate against known common variants
 - Check for ancestry-specific databases
 
 #### Issue: Missing pathogenicity predictions
-**Symptoms:** Empty CADD/REVEL scores  
-**Causes:** Variant type limitations, database coverage  
+**Symptoms:** Empty CADD/REVEL scores
+**Causes:** Variant type limitations, database coverage
 **Solutions:**
 - Use multiple prediction tools
 - Consider variant type-specific predictors

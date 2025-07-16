@@ -1,7 +1,7 @@
 {
   "stats_version": "1.0",
   "description": "Example custom statistics configuration showing various capabilities",
-  
+
   "dataset_stats": [
     {
       "name": "total_samples",
@@ -27,7 +27,7 @@
       "description": "Fraction of variants classified as pathogenic"
     }
   ],
-  
+
   "gene_stats": [
     {
       "name": "variant_count",
@@ -92,7 +92,7 @@
       "description": "Number of pathogenic variants per gene"
     }
   ],
-  
+
   "grouped_stats": [
     {
       "name": "variants_by_impact_consequence",

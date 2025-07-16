@@ -63,13 +63,13 @@ if not pipeline_state.should_skip_step("variant_extraction"):
     with CheckpointContext(pipeline_state, "variant_extraction") as ctx:
         # Add input files
         ctx.add_input_file(input_vcf)
-        
+
         # Perform the step
         output_file = extract_variants(input_vcf, output_path)
-        
+
         # Add output files
         ctx.add_output_file(output_file)
-        
+
         # State is automatically saved on successful completion
 ```
 

@@ -201,7 +201,6 @@ class TestBasicPipelineFlow(MockedToolsTestCase):
             case_phenotypes_file=None,
             control_phenotypes_file=None,
             pseudonymize=False,
-            
             start_time=None,
             keep_intermediates=False,
             enable_checkpoint=False,
@@ -250,7 +249,6 @@ class TestComplexPipelineFlow(MockedToolsTestCase):
     """Test complex pipeline flows with multiple features."""
 
 
-
 class TestErrorHandling(MockedToolsTestCase):
     """Test error handling in the pipeline."""
 
@@ -286,7 +284,6 @@ class TestErrorHandling(MockedToolsTestCase):
             config=None,
             log_level="INFO",
             reference="GRCh37",
-            
             start_time=None,
             phenotype_file=None,
             fields_to_extract="CHROM POS REF ALT",
@@ -338,7 +335,6 @@ class TestErrorHandling(MockedToolsTestCase):
             config=None,
             log_level="INFO",
             reference="GRCh37",
-            
             start_time=None,
             phenotype_file=None,
             fields_to_extract="CHROM POS REF ALT",
@@ -392,7 +388,6 @@ class TestParallelProcessing(MockedToolsTestCase):
             log_level="INFO",
             reference="GRCh37",
             threads=4,  # Enable parallel processing
-            
             start_time=None,
             preset=None,
             filter=None,
@@ -575,7 +570,6 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
             case_phenotypes_file=None,
             control_phenotypes_file=None,
             pseudonymize=False,
-            
             start_time=None,
         )
 
@@ -700,7 +694,6 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
             case_phenotypes_file=None,
             control_phenotypes_file=None,
             pseudonymize=False,
-            
             start_time=None,
         )
 

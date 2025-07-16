@@ -49,9 +49,7 @@ class TestShowCheckpointStatus:
 
                 assert exc_info.value.code == 0
                 # Should print that no checkpoint state was found
-                mock_print.assert_any_call(
-                    "Checking checkpoint status for stage-based pipeline..."
-                )
+                mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
                 mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
     def test_show_checkpoint_status_with_new_pipeline_flag(self, tmp_path):
@@ -73,9 +71,7 @@ class TestShowCheckpointStatus:
 
                 assert exc_info.value.code == 0
                 # Should indicate it's checking the stage-based pipeline
-                mock_print.assert_any_call(
-                    "Checking checkpoint status for stage-based pipeline..."
-                )
+                mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
                 mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
     def test_show_checkpoint_status_with_config_file(self, tmp_path):
@@ -104,9 +100,7 @@ class TestShowCheckpointStatus:
 
                 assert exc_info.value.code == 0
                 # Should detect new pipeline from config
-                mock_print.assert_any_call(
-                    "Checking checkpoint status for stage-based pipeline..."
-                )
+                mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
                 mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
     def test_show_checkpoint_status_with_existing_state(self, tmp_path):
@@ -131,9 +125,7 @@ class TestShowCheckpointStatus:
 
                 assert exc_info.value.code == 0
                 # Should print the pipeline status summary
-                mock_print.assert_any_call(
-                    "Checking checkpoint status for stage-based pipeline..."
-                )
+                mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
 
                 # Check that it printed checkpoint information
                 print_calls = [call.args[0] for call in mock_print.call_args_list]
@@ -165,9 +157,7 @@ class TestShowCheckpointStatus:
 
                 assert exc_info.value.code == 0
                 # Should fall back to original pipeline when config loading fails
-                mock_print.assert_any_call(
-                    "Checking checkpoint status for stage-based pipeline..."
-                )
+                mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
                 mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
     def test_show_checkpoint_status_flag_precedence(self, tmp_path):
@@ -196,9 +186,7 @@ class TestShowCheckpointStatus:
 
                 assert exc_info.value.code == 0
                 # Should use stage-based pipeline
-                mock_print.assert_any_call(
-                    "Checking checkpoint status for stage-based pipeline..."
-                )
+                mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
                 mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
     def test_show_checkpoint_status_logging_level(self, tmp_path):
@@ -222,9 +210,7 @@ class TestShowCheckpointStatus:
 
                 assert exc_info.value.code == 0
                 # Should work with different log levels
-                mock_print.assert_any_call(
-                    "Checking checkpoint status for stage-based pipeline..."
-                )
+                mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
                 mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
     def test_show_checkpoint_status_detailed_summary(self, tmp_path):

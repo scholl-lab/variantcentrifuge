@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.dataTables.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css">
-    
+
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
@@ -86,16 +86,16 @@ $(document).ready(function() {
 
     // Initialize the dashboard with summary statistics
     initializeDashboard(summaryData);
-    
+
     // Create the gene frequency plot
     createGenePlot(summaryData.gene_summary);
-    
+
     // Initialize the data table with variant data
     initializeTable(variantsData);
-    
+
     // Set up filtering capabilities
     initializeFilters(variantsData);
-    
+
     // If any errors occur during parsing, notify the user
     window.addEventListener('error', function(event) {
         console.error("Error loading data:", event.error);
@@ -115,9 +115,9 @@ $(document).ready(function() {
             console.error('No data available for table initialization');
             return;
         }
-        
+
         console.log('Table data sample:', data[0]);  // Debug log to check data structure
-        
+
         // Ensure data is properly formatted as array of objects
         if (typeof data === 'string') {
             try {
@@ -126,28 +126,28 @@ $(document).ready(function() {
                 console.error('Failed to parse data string:', e);
             }
         }
-        
+
         const firstRow = data[0];
         if (!firstRow) {
             console.error('No rows in data');
             return;
         }
-        
+
         // Extract column information from the first row
-        const columns = Object.keys(firstRow).map(key => ({ 
-            title: key, 
+        const columns = Object.keys(firstRow).map(key => ({
+            title: key,
             data: key,
             // Customize column rendering based on content type
             render: (data, type, row) => {
                 if (data === null || data === undefined) return '';
-                
+
                 // Format numeric values with precision for AF columns
                 if (key.includes('AF') && !isNaN(parseFloat(data))) {
                     return parseFloat(data).toFixed(4);
                 }
-                
+
                 return data;
-            } 
+            }
         }));
 
         // Destroy existing DataTable if it exists
@@ -174,7 +174,7 @@ $(document).ready(function() {
             const filteredData = dataTable.rows({ search: 'applied' }).data().toArray();
             updateDashboardAndPlot(filteredData);
         });
-        
+
         // Initial stats update
         updateDashboardAndPlot(data);
     }
@@ -182,16 +182,16 @@ $(document).ready(function() {
     function createGenePlot(geneData) {
         if (!geneData || !Array.isArray(geneData) || geneData.length === 0) {
             console.warn('No gene data available for plot');
-            document.getElementById('gene-plot').innerHTML = 
+            document.getElementById('gene-plot').innerHTML =
                 '<div style="text-align:center;padding:40px;">No gene data available</div>';
             return;
         }
-        
+
         console.log('Gene data for plot:', geneData); // Debug log to check data structure
-        
+
         // Ensure we have the right structure
         const validGeneData = geneData.filter(g => g && g.Gene && g.SampleCount);
-        
+
         if (validGeneData.length === 0) {
             // If no valid gene data, try to build it from the variant data
             try {
@@ -209,15 +209,15 @@ $(document).ready(function() {
                             }
                         }
                     });
-                    
+
                     const reconstructedGeneData = Object.entries(geneCounts)
-                        .map(([Gene, samples]) => ({ 
-                            Gene, 
+                        .map(([Gene, samples]) => ({
+                            Gene,
                             SampleCount: samples.size,
                             VariantCount: 0 // We don't have this info
                         }))
                         .sort((a, b) => b.SampleCount - a.SampleCount);
-                        
+
                     if (reconstructedGeneData.length > 0) {
                         return createGenePlot(reconstructedGeneData);
                     }
@@ -225,12 +225,12 @@ $(document).ready(function() {
             } catch (e) {
                 console.error('Failed to reconstruct gene data:', e);
             }
-            
-            document.getElementById('gene-plot').innerHTML = 
+
+            document.getElementById('gene-plot').innerHTML =
                 '<div style="text-align:center;padding:40px;">No gene data available</div>';
             return;
         }
-        
+
         const topGenes = validGeneData.slice(0, 20); // Top 20 genes
         const plotData = [{
             y: topGenes.map(g => g.Gene).reverse(),
@@ -271,19 +271,19 @@ $(document).ready(function() {
             // We need to ensure there's at least one valid numeric value
             let values = [];
             let isNumeric = false;
-            
+
             if (data.length > 0) {
                 values = data.map(row => {
                     // Handle both direct property access and array access
                     const val = typeof row === 'object' ? (row[colName] || row[colIndex]) : row[colIndex];
                     return val;
                 }).filter(v => v !== null && v !== undefined && !isNaN(parseFloat(v)));
-                
+
                 isNumeric = values.length > 0;
             }
 
             // Special handling for AF-related columns
-            const isAFColumn = colName === 'SampleAF' || colName === 'AF' || 
+            const isAFColumn = colName === 'SampleAF' || colName === 'AF' ||
                              colName.includes('AF_') || colName.includes('_AF');
             if (isAFColumn) {
                 hasAFColumn = true;
@@ -296,7 +296,7 @@ $(document).ready(function() {
                 const numericValues = values.map(v => parseFloat(v));
                 const min = Math.min(...numericValues);
                 const max = Math.max(...numericValues);
-                
+
                 filterControlHtml = `
                     <div class="filter-control">
                         <label for="filter-${colName}">${colName}</label>
@@ -319,12 +319,12 @@ $(document).ready(function() {
                 const slider = document.getElementById(`slider-${colName}`);
                 const minValEl = document.getElementById(`min-val-${colName}`);
                 const maxValEl = document.getElementById(`max-val-${colName}`);
-                
+
                 // Calculate min and max safely
                 const numericValues = values.map(v => parseFloat(v));
                 const min = Math.min(...numericValues);
                 const max = Math.max(...numericValues);
-                
+
                 try {
                     noUiSlider.create(slider, {
                         start: [min, max],
@@ -339,7 +339,7 @@ $(document).ready(function() {
                     slider.noUiSlider.on('update', function (values) {
                         minValEl.textContent = values[0];
                         maxValEl.textContent = values[1];
-                        
+
                         // Create a filter function for this column
                         $.fn.dataTable.ext.search.push(
                             function(settings, data, dataIndex) {
@@ -357,7 +357,7 @@ $(document).ready(function() {
                 }
             }
         });
-        
+
         // If no AF column was found, check if we need to create a special filter for it
         if (!hasAFColumn && data.length > 0 && data[0].hasOwnProperty('SampleAF')) {
             // Implementation for special SampleAF filter if needed
@@ -394,14 +394,14 @@ $(document).ready(function() {
             }
             return;
         }
-        
+
         // Update dashboard cards
         $('#filtered-variants').text(filteredData.length);
-        
+
         // Check for valid gene data before trying to update plot
         let hasGeneData = filteredData.some(row => row && row.Gene);
         let hasSampleIDs = filteredData.some(row => row && row.SampleID);
-        
+
         if (!hasGeneData || !hasSampleIDs) {
             console.warn('Data is missing Gene or SampleID columns');
             return;
@@ -412,15 +412,15 @@ $(document).ready(function() {
             const geneCounts = filteredData.reduce((acc, row) => {
                 const gene = row.Gene;
                 if (!gene || gene === 'Unknown') return acc;
-                
+
                 if (!acc[gene]) {
                     acc[gene] = new Set();
                 }
-                
+
                 if (row.SampleID) {
                     acc[gene].add(row.SampleID);
                 }
-                
+
                 return acc;
             }, {});
 

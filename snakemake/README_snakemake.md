@@ -35,13 +35,13 @@ The workflow processes multiple VCF files (specified in a list file) using `vari
 
 2.  **Input VCFs List File:**
     Create a text file (e.g., `vcf_list.txt`) containing the full paths to your VCF files, with one path per line. For example:
-    
+
     ```text
     /path/to/sample1.vcf.gz
     /path/to/sample2.vcf
     /different/path/sample3.vcf.gz
     ```
-    
+
     The sample names will be extracted from the filenames (without directories or extensions).
 
 ## Running the Workflow
@@ -113,7 +113,7 @@ In your `config_vc.yaml` file, use the `gene_list_files` parameter to specify on
 ```yaml
 # Gene List Annotation
 # Each file will add a column to the output showing if variant's gene is in the list ('yes'/'no')
-gene_list_files: 
+gene_list_files:
   - "/path/to/cancer_genes.txt"
   - "/path/to/cardiac_genes.txt"
   - "/path/to/neurodevelopmental_genes.txt"

@@ -37,7 +37,6 @@ class TestPipelineSampleDeterminism:
                 "gene_name": "BRCA1",
                 "vcf_file": "/tmp/test.vcf",
                 "output_file": "test_output.tsv",
-                
                 "no_stats": True,
                 "no_metadata": True,
                 "extract": ["CHROM", "POS", "REF", "ALT", "GT", "GENE"],
@@ -59,6 +58,7 @@ class TestPipelineSampleDeterminism:
         def mock_extract_fields(variant_file, fields, cfg, output_file):
             """Mock extract_fields to write test TSV data."""
             from variantcentrifuge.utils import smart_open
+
             # Use smart_open to handle both .tsv and .tsv.gz files properly
             with smart_open(str(output_file), "w") as f:
                 f.write(mock_test_data["test_tsv"])
@@ -108,6 +108,7 @@ class TestPipelineSampleDeterminism:
                 # Read genotype replacement output if it exists
                 if result_data["genotype_file_exists"]:
                     from variantcentrifuge.utils import smart_open
+
                     with smart_open(str(context.genotype_replaced_tsv), "r") as f:
                         result_data["genotype_content"] = f.read()
 
@@ -297,7 +298,6 @@ class TestPipelineReproducibility:
             # Multiple calls should return identical results
             results = [get_vcf_samples("dummy.vcf") for _ in range(10)]
             assert all(r == result for r in results), "Results must be deterministic"
-
 
 
 class TestPipelineRegressionPrevention:

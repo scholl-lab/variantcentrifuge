@@ -13,7 +13,6 @@ from typing import List
 from .config import load_config
 from .gene_bed import normalize_genes
 from .pipeline_core.context import PipelineContext
-from .utils import compute_base_name
 from .pipeline_core.runner import PipelineRunner
 from .pipeline_core.workspace import Workspace
 from .stages.analysis_stages import (
@@ -58,6 +57,7 @@ from .stages.setup_stages import (
     SampleConfigLoadingStage,
     ScoringConfigLoadingStage,
 )
+from .utils import compute_base_name
 
 logger = logging.getLogger(__name__)
 
