@@ -8,10 +8,11 @@ This module provides functionality to add new columns containing URL links
 to each variant line in the final output. The URLs and their substitution
 logic are defined in the configuration file (config.json) under "links".
 
-For example, if you have a link defined as:
-"links": {
-    "SpliceAI": "https://spliceailookup.broadinstitute.org/#variant={CHROM}-{POS}-{REF}-{ALT}&hg=38&bc=basic&distance=500&mask=0&ra=0"
-}
+For example, if you have a link defined as::
+
+    "links": {
+        "SpliceAI": "https://spliceailookup.broadinstitute.org/#variant={CHROM}-{POS}-{REF}-{ALT}&hg=38&bc=basic&distance=500&mask=0&ra=0"
+    }
 
 This will create a new column named "SpliceAI" with a URL where {CHROM}, {POS}, {REF}, {ALT}
 are replaced by the corresponding values from each row.

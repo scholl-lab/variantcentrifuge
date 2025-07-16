@@ -310,8 +310,10 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
 
     The TSV file is expected to have columns including GENE, CHROM, POS, REF, ALT, IMPACT.
     Two JSON files are produced:
-      - variants.json: A list of all variants with their annotations.
-      - summary.json: Aggregated counts (num_variants, num_genes, impact_distribution).
+    
+    - variants.json: A list of all variants with their annotations.
+    - summary.json: Aggregated counts (num_variants, num_genes, impact_distribution).
+    
     These files are used by the HTML report generator.
 
     Parameters

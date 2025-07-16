@@ -8,17 +8,20 @@ This module defines functions to extract variants from a VCF file using bcftools
 and apply filters via SnpSift. Each function returns a filename containing the output.
 
 Added:
+
 - A function to filter final TSV rows by genotype (het, hom, comp_het), optionally
   applying different rules per gene based on a separate mapping file.
 - Enhanced to append a reason label (e.g., "(comphet)") to each sample genotype if it
   passed the filter because of 'comp_het' or 'het' or 'hom'.
 
 New changes for preserving extra fields (e.g., DP, AD) in parentheses:
+
 - If a sample's entry is "325879(0/1:53,55:108)", we parse "0/1" as the "main" genotype
   but leave the rest of the substring (":53,55:108") intact. If this sample passes
   'het', we produce "325879(0/1:53,55:108)(het)" in the final output.
 
 TSV-based filtering:
+
 - Added filter_tsv_with_expression() to apply filters on TSV data after scoring
   and annotation steps are complete, allowing filtering on computed columns.
 """
@@ -255,7 +258,8 @@ def filter_final_tsv_by_genotype(
 
     Additionally, if a sample passes because of 'het' or 'hom' or 'comp_het',
     we append a reason marker. For example:
-      325879(0/1:53,55:108) => 325879(0/1:53,55:108)(het) or 325879(0/1:53,55:108)(het,comphet)
+    
+    325879(0/1:53,55:108) => 325879(0/1:53,55:108)(het) or 325879(0/1:53,55:108)(het,comphet)
 
     Parameters
     ----------

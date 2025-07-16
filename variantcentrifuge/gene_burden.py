@@ -4,23 +4,26 @@
 Gene burden analysis module.
 
 Provides:
+
 - perform_gene_burden_analysis: Aggregates per-gene counts (samples or alleles),
   performs Fisher's exact test, calculates confidence intervals, and applies multiple
   testing correction.
 
 New Features (Issue #21):
+
 - Adds confidence intervals to the gene burden metrics (e.g., odds ratio).
 - Confidence interval calculation method and confidence level can be configured.
 
 Updated for Issue #31:
+
 - Improved handling of edge cases (e.g., infinite or zero odds_ratio).
   Now properly detects structural zeros and applies continuity correction
   for zero cells to calculate meaningful confidence intervals.
 - Uses score method as primary CI calculation (more robust for sparse data).
 - Returns NaN for structural zeros where OR cannot be calculated.
 
-Configuration Additions
------------------------
+Configuration Additions:
+
 - "confidence_interval_method": str
     Method for confidence interval calculation. Defaults to "normal_approx".
 - "confidence_interval_alpha": float

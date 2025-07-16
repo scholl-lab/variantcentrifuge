@@ -10,6 +10,7 @@ input TSV and applies configurable genotype replacement logic.
 1. Find the GT column in the TSV header.
 
 2. For each variant row:
+
    - Parse the genotype subfields (split by `cfg["extract_fields_separator"]`, usually ":")
    - Skip non-variant genotypes ("0/0" or "./.").
    - If a `genotype_replacement_map` is provided (e.g. {r"[2-9]": "1"}), apply regex-based replacements
@@ -17,7 +18,8 @@ input TSV and applies configurable genotype replacement logic.
 
 3. If `cfg["append_extra_sample_fields"]` is True, the user-supplied fields in `cfg["extra_sample_fields"]`
    are appended to each genotype. For instance, if extra fields are "GEN[*].DP" and "GEN[*].AD",
-   and the delimiter is ":", then an output entry might look like:
+   and the delimiter is ":", then an output entry might look like::
+
        sampleName(0/1:100:52,48)
 
 4. The sample names come from `cfg["sample_list"]` (comma-separated). We pair each subfield in GT

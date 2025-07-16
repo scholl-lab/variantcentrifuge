@@ -153,6 +153,7 @@ def generate_igv_report(
     Generate per-variant per-sample IGV reports using igv-reports 'create_report'.
 
     For each variant present in one or more samples (genotype not 0/0 or ./.), we:
+    
     - Create a one-line TSV describing that variant with columns: CHROM, POS, REF, ALT.
     - For each sample carrying that variant, run create_report:
       create_report single_variant.tsv
@@ -167,6 +168,7 @@ def generate_igv_report(
     - Produce an HTML report named {sample_id}_{CHROM}_{POS}_{REF}_{ALT}_igv_report.html.
 
     Changes:
+    
     1. Place IGV reports into a subfolder report/igv/ within output_dir.
     2. Create a JSON mapping file (igv_reports_map.json) that maps each generated IGV report
        back to its sample and variant for integration in the interactive HTML report.

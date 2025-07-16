@@ -120,6 +120,7 @@ def normalize_vcf_headers(lines: List[str]) -> List[str]:
     Normalize header lines from tools like SnpEff and SnpSift.
 
     By:
+    
     1. Removing known prefixes (e.g., "ANN[*].", "ANN[0].")
     2. Converting indexed genotype fields from format GEN[index].FIELD to FIELD_index
        (e.g., "GEN[0].AF" -> "AF_0", "GEN[1].DP" -> "DP_1")

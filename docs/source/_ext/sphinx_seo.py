@@ -45,7 +45,7 @@ def get_git_timestamp(filepath: str) -> Optional[str]:
         return None
 
 
-def generate_software_application_schema(config: Dict[str, Any]) -> Dict[str, Any]:
+def generate_software_application_schema(config) -> Dict[str, Any]:
     """Generate SoftwareApplication schema for the main tool."""
     return {
         "@context": "https://schema.org",
