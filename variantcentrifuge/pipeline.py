@@ -473,6 +473,8 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
         "igv_max_allele_len_filename",
         "igv_hash_len_filename",
         "igv_max_variant_part_filename",
+        # Memory management arguments
+        "max_variants_per_gene",
     ]
     for key in args_to_add:
         if hasattr(args, key) and getattr(args, key) is not None and key not in initial_config:

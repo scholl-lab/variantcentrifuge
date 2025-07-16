@@ -617,6 +617,13 @@ def create_parser() -> argparse.ArgumentParser:
         default=None,
         help="Split file processing into this many chunks. Alias for --chunk-size for backward compatibility.",
     )
+    misc_group.add_argument(
+        "--max-variants-per-gene",
+        type=int,
+        default=10000,
+        help="Maximum number of variants allowed per gene before forcing chunk split "
+        "(default: 10000). Lower values prevent memory exhaustion with large genes in big cohorts.",
+    )
 
     return parser
 

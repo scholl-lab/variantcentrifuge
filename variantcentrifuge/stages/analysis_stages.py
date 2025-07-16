@@ -1575,6 +1575,16 @@ class GeneBurdenAnalysisStage(Stage):
 class ChunkedAnalysisStage(Stage):
     """Process large files in chunks with all analysis steps."""
 
+    def __init__(self, max_variants_per_gene: int = 10000):
+        """Initialize chunked analysis stage with configurable gene size limits.
+        
+        Args:
+            max_variants_per_gene: Maximum number of variants allowed per gene 
+                                 before forcing chunk split (default: 10,000)
+        """
+        super().__init__()
+        self.max_variants_per_gene = max_variants_per_gene
+
     @property
     def name(self) -> str:
         """Return the stage name."""
@@ -1848,7 +1858,7 @@ class ChunkedAnalysisStage(Stage):
         output_chunks = []
         chunk_num = 0
 
-        for chunk_df in self._read_tsv_in_gene_chunks(sorted_file, gene_col_name, chunk_size):
+        for chunk_df in self._read_tsv_in_gene_chunks(sorted_file, gene_col_name, chunk_size, context):
             logger.debug(f"Processing chunk {chunk_num + 1} with {len(chunk_df)} variants")
             processed_chunk = self._process_single_chunk(chunk_df, context, chunk_num)
             output_chunks.append(processed_chunk)
@@ -2134,8 +2144,8 @@ class ChunkedAnalysisStage(Stage):
             # Return original file if sorting fails
             return input_file
 
-    def _read_tsv_in_gene_chunks(self, filepath: Path, gene_column: str, chunksize: int):
-        """Read TSV file in gene-aware chunks."""
+    def _read_tsv_in_gene_chunks(self, filepath: Path, gene_column: str, chunksize: int, context: Optional['PipelineContext'] = None):
+        """Read TSV file in gene-aware chunks with configurable gene size limits."""
         import pandas as pd
 
         logger.info(
@@ -2153,7 +2163,16 @@ class ChunkedAnalysisStage(Stage):
 
         gene_buffer = pd.DataFrame()
         chunks_yielded = 0
-        max_buffer_size = chunksize * 20  # Increased buffer size for very large genes
+        
+        # Configurable gene size limits to prevent memory explosion
+        # Get from context config if available, otherwise use instance attribute or default
+        max_variants_per_gene = 10000  # Default
+        if context and hasattr(context, 'config'):
+            max_variants_per_gene = context.config.get('max_variants_per_gene', max_variants_per_gene)
+        elif hasattr(self, 'max_variants_per_gene'):
+            max_variants_per_gene = self.max_variants_per_gene
+        max_buffer_size = min(chunksize * 20, max_variants_per_gene)  # Use smaller of buffer or gene limit
+        emergency_threshold = min(chunksize * 50, max_variants_per_gene)  # Hard limit
 
         for chunk in reader:
             # Combine with buffer
@@ -2170,9 +2189,10 @@ class ChunkedAnalysisStage(Stage):
                     f"Consider increasing chunk size or checking data sorting."
                 )
                 # Force yield to prevent memory issues
-                if len(gene_buffer) > chunksize * 50:  # Emergency threshold
+                if len(gene_buffer) > emergency_threshold:  # Configurable emergency threshold
                     logger.error(
-                        f"Gene buffer exceeded emergency threshold ({chunksize * 50} rows). "
+                        f"Gene buffer exceeded emergency threshold ({emergency_threshold} rows, "
+                        f"max_variants_per_gene={max_variants_per_gene}). "
                         f"Forcing chunk yield to prevent memory exhaustion."
                     )
                     # Find any gene boundary to split at
@@ -2311,9 +2331,30 @@ class ChunkedAnalysisStage(Stage):
                 logger.warning("No VCF samples available for chunk inheritance analysis")
                 return chunk_df
 
-            # Memory safety check for chunk - use more generous limit for chunks
+            # Memory safety check for chunk - scale limit based on sample count
             estimated_memory_cells = len(chunk_df) * len(vcf_samples)
-            max_chunk_memory_cells = 100_000_000  # 100M cells per chunk (increased from 10M)
+            
+            # Dynamic memory limit based on sample count to prevent OOM
+            # For large sample counts (>1000), use more conservative limits
+            if len(vcf_samples) <= 100:
+                max_chunk_memory_cells = 100_000_000  # 100M cells for small cohorts
+            elif len(vcf_samples) <= 500:
+                max_chunk_memory_cells = 50_000_000   # 50M cells for medium cohorts  
+            elif len(vcf_samples) <= 1000:
+                max_chunk_memory_cells = 25_000_000   # 25M cells for large cohorts
+            elif len(vcf_samples) <= 2500:
+                max_chunk_memory_cells = 10_000_000   # 10M cells for very large cohorts
+            else:
+                max_chunk_memory_cells = 5_000_000    # 5M cells for massive cohorts (>2500 samples)
+            
+            # Additional check: for massive sample counts, also limit based on variants per chunk
+            max_variants_per_chunk = max_chunk_memory_cells // len(vcf_samples)
+            
+            logger.debug(
+                f"Memory safety check: {len(chunk_df)} variants × {len(vcf_samples)} samples = "
+                f"{estimated_memory_cells:,} cells (limit: {max_chunk_memory_cells:,}, "
+                f"max variants: {max_variants_per_chunk:,})"
+            )
 
             if estimated_memory_cells > max_chunk_memory_cells:
                 logger.warning(
