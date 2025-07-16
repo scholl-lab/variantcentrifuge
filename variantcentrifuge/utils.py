@@ -16,7 +16,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 from typing import List, Optional, Union
 
 logger = logging.getLogger("variantcentrifuge")
@@ -25,12 +24,12 @@ logger = logging.getLogger("variantcentrifuge")
 def check_external_tools(tools: List[str]) -> bool:
     """
     Check if external tools are available in PATH.
-    
+
     Parameters
     ----------
     tools : List[str]
         List of tool names to check for availability
-        
+
     Returns
     -------
     bool
@@ -545,5 +544,3 @@ def compute_base_name(vcf_path: str, gene_name: str) -> str:
             return vcf_base
         else:
             return f"{vcf_base}.{split_genes[0]}" if split_genes else vcf_base
-
-

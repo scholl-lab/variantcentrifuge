@@ -1328,7 +1328,7 @@ class GenotypeReplacementStage(Stage):
         logger.info(
             f"Using chunk size of {chunk_size:,} rows "
             f"(estimated {estimated_bytes_per_row} bytes/row, "
-            f"target memory {target_memory_bytes/(1024**3):.1f}GB)"
+            f"target memory {target_memory_bytes / (1024**3):.1f}GB)"
         )
 
         # Prepare config for vectorized replacer
@@ -1406,7 +1406,7 @@ class GenotypeReplacementStage(Stage):
         logger.info(
             f"Using parallel chunked processing: chunk_size={chunk_size:,} rows, "
             f"max_workers={max_workers}, estimated {estimated_bytes_per_row} bytes/row, "
-            f"target memory {target_memory_bytes/(1024**3):.1f}GB"
+            f"target memory {target_memory_bytes / (1024**3):.1f}GB"
         )
 
         # Prepare config for vectorized replacer

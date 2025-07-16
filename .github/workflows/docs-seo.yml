@@ -75,7 +75,7 @@ jobs:
             echo "✗ sitemap.xml not found"
             exit 1
           fi
-          
+
           # Check if robots.txt was copied
           if [ -f "docs/build/html/robots.txt" ]; then
             echo "✓ robots.txt copied to output"
@@ -91,19 +91,19 @@ jobs:
             echo "✓ JSON-LD structured data found"
             # Extract and validate JSON-LD
             python -c "
-import re
-import json
-with open('docs/build/html/index.html', 'r') as f:
-    content = f.read()
-    matches = re.findall(r'<script type=\"application/ld\+json\">(.*?)</script>', content, re.DOTALL)
-    for match in matches:
-        try:
-            json.loads(match)
-            print(f'✓ Valid JSON-LD found')
-        except:
-            print(f'✗ Invalid JSON-LD: {match[:100]}...')
-            exit(1)
-"
+              import re
+              import json
+              with open('docs/build/html/index.html', 'r') as f:
+                  content = f.read()
+                  matches = re.findall(r'<script type=\"application/ld\+json\">(.*?)</script>', content, re.DOTALL)
+                  for match in matches:
+                      try:
+                          json.loads(match)
+                          print(f'✓ Valid JSON-LD found')
+                      except:
+                          print(f'✗ Invalid JSON-LD: {match[:100]}...')
+                          exit(1)
+            "
           else
             echo "✗ No structured data found in index.html"
             exit 1
@@ -116,21 +116,21 @@ with open('docs/build/html/index.html', 'r') as f:
 import re
 with open('docs/build/html/index.html', 'r') as f:
     content = f.read()
-    
+
 # Check for meta description
 if re.search(r'<meta name=\"description\"', content):
     print('✓ Meta description found')
 else:
     print('✗ Meta description missing')
     exit(1)
-    
+
 # Check for OpenGraph tags
 if re.search(r'<meta property=\"og:title\"', content):
     print('✓ OpenGraph tags found')
 else:
     print('✗ OpenGraph tags missing')
     exit(1)
-    
+
 # Check for canonical URL
 if re.search(r'<link rel=\"canonical\"', content):
     print('✓ Canonical URL found')
@@ -145,18 +145,18 @@ else:
           echo "## SEO Report" > seo-report.md
           echo "Generated at: $(date)" >> seo-report.md
           echo "" >> seo-report.md
-          
+
           # Count pages in sitemap
           if [ -f "docs/build/html/sitemap.xml" ]; then
             PAGE_COUNT=$(grep -c "<url>" docs/build/html/sitemap.xml || echo "0")
             echo "- Total pages indexed: $PAGE_COUNT" >> seo-report.md
           fi
-          
+
           # Check file sizes
           echo "" >> seo-report.md
           echo "### File Sizes" >> seo-report.md
           find docs/build/html -name "*.html" -type f -exec ls -lh {} \; | head -10 >> seo-report.md
-          
+
           echo "" >> seo-report.md
           echo "### Structured Data Summary" >> seo-report.md
           grep -h "@type" docs/build/html/*.html | sort | uniq -c >> seo-report.md || true
@@ -195,6 +195,6 @@ else:
         run: |
           # Submit sitemap to Google Search Console
           curl -s "https://www.google.com/ping?sitemap=https://scholl-lab.github.io/variantcentrifuge/sitemap.xml" || true
-          
+
           # Submit to Bing
           curl -s "https://www.bing.com/ping?sitemap=https://scholl-lab.github.io/variantcentrifuge/sitemap.xml" || true

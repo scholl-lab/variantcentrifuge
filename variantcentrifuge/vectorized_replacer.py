@@ -641,7 +641,8 @@ def process_parallel_chunked_vectorized(
                         ):
                             progress_pct = (completed_count / total_chunks) * 100
                             logger.info(
-                                f"Chunk progress: {completed_count}/{total_chunks} ({progress_pct:.1f}%) completed"
+                                f"Chunk progress: {completed_count}/{total_chunks} "
+                                f"({progress_pct:.1f}%) completed"
                             )
                         else:
                             logger.debug(f"Completed chunk {chunk_id}")
@@ -688,7 +689,8 @@ def process_parallel_chunked_vectorized(
                         if combined_count % combine_interval == 0 or combined_count == total_chunks:
                             combine_pct = (combined_count / total_chunks) * 100
                             logger.info(
-                                f"Combination progress: {combined_count}/{total_chunks} ({combine_pct:.1f}%) combined"
+                                f"Combination progress: {combined_count}/{total_chunks} "
+                                f"({combine_pct:.1f}%) combined"
                             )
                         else:
                             logger.debug(f"Stream copied and cleaned chunk {chunk_id}")

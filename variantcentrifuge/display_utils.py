@@ -83,7 +83,8 @@ def display_enhanced_status(pipeline_state: PipelineState, available_stages: Lis
         print("\n💻 Usage Examples:")
         print(f"   variantcentrifuge --resume-from {resume_points[-1]} ...")
         if len(resume_points) > 1:
-            print(f"   variantcentrifuge --resume-from {resume_points[len(resume_points)//2]} ...")
+            mid_point = len(resume_points) // 2
+            print(f"   variantcentrifuge --resume-from {resume_points[mid_point]} ...")
         print("   variantcentrifuge --interactive-resume ...")
 
     print("\n" + "=" * 80)

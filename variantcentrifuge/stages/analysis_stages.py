@@ -31,63 +31,58 @@ logger = logging.getLogger(__name__)
 
 
 def create_sample_columns_from_gt(
-    df: pd.DataFrame, 
-    vcf_samples: List[str], 
-    separator: str = ";", 
-    snpsift_sep: str = ","
+    df: pd.DataFrame, vcf_samples: List[str], separator: str = ";", snpsift_sep: str = ","
 ) -> pd.DataFrame:
     """Create individual sample columns from GT column data.
-    
+
     This function extracts genotype information from the GT column and creates
     individual sample columns for inheritance analysis. It handles both replaced
     genotype format (e.g., "Sample1(0/1);Sample2(0/0)") and SnpSift format
     (e.g., "0/1,0/0,1/1").
-    
+
     Args:
         df: DataFrame containing GT column
         vcf_samples: List of sample IDs to create columns for
         separator: Separator used in replaced genotype format (default: ";")
         snpsift_sep: Separator used in SnpSift format (default: ",")
-        
+
     Returns:
         DataFrame with individual sample columns added
-        
+
     Raises:
         ValueError: If GT column is missing or empty
     """
     if "GT" not in df.columns:
         raise ValueError("GT column not found in DataFrame")
-    
+
     if len(df) == 0:
         logger.warning("Empty DataFrame provided to create_sample_columns_from_gt")
         return df
-    
+
     # Check if sample columns already exist
-    sample_columns_exist = any(
-        sample_id in df.columns for sample_id in vcf_samples
-    )
-    
+    sample_columns_exist = any(sample_id in df.columns for sample_id in vcf_samples)
+
     if sample_columns_exist:
         logger.debug("Sample columns already exist, skipping creation")
         return df
-    
+
     # Get the first GT value to determine format
     first_gt = str(df.iloc[0]["GT"]) if len(df) > 0 else ""
-    
+
     # Check if genotype replacement has already been done
     # (format: "Sample1(0/1);Sample2(0/0)")
     if "(" in first_gt and ")" in first_gt:
         logger.debug("GT column contains replaced genotypes, extracting sample genotypes")
-        
+
         # Pre-create all sample columns data
         sample_data = {sample_id: [] for sample_id in vcf_samples}
-        
+
         # Parse replaced genotype format
         for idx, row in df.iterrows():
             gt_value = str(row["GT"])
             # Initialize all samples with missing genotype
             row_genotypes = {sample_id: "./." for sample_id in vcf_samples}
-            
+
             if gt_value and gt_value != "NA" and gt_value != "nan":
                 # Split by separator (usually semicolon) for different samples
                 sample_entries = gt_value.split(separator)
@@ -101,25 +96,23 @@ def create_sample_columns_from_gt(
                         genotype = genotype_info.split(":")[0]
                         if sample_name in row_genotypes:
                             row_genotypes[sample_name] = genotype
-            
+
             # Add genotypes for all samples
             for sample_id in vcf_samples:
                 sample_data[sample_id].append(row_genotypes[sample_id])
-        
+
         # Create DataFrame from sample data and concatenate
         sample_df = pd.DataFrame(sample_data)
         df = pd.concat([df, sample_df], axis=1)
-        
+
         logger.debug(f"Created {len(sample_data)} sample columns from replaced genotypes")
-        
+
     elif snpsift_sep in first_gt:
-        logger.debug(
-            f"Extracting sample genotypes from GT column using separator '{snpsift_sep}'"
-        )
-        
+        logger.debug(f"Extracting sample genotypes from GT column using separator '{snpsift_sep}'")
+
         # Pre-create all sample columns data
         sample_data = {sample_id: [] for sample_id in vcf_samples}
-        
+
         # Extract genotypes for each row
         for idx, row in df.iterrows():
             gt_value = str(row["GT"])
@@ -139,42 +132,42 @@ def create_sample_columns_from_gt(
                 # Missing GT data
                 for sample_id in vcf_samples:
                     sample_data[sample_id].append("./.")
-        
+
         # Create DataFrame from sample data and concatenate
         sample_df = pd.DataFrame(sample_data)
         df = pd.concat([df, sample_df], axis=1)
-        
+
         logger.debug(f"Created {len(sample_data)} sample columns for inheritance analysis")
-        
+
     else:
         logger.warning(
             f"GT column format not recognized: {first_gt[:100]}. "
             f"Inheritance analysis may not work correctly."
         )
-    
+
     return df
 
 
 def handle_inheritance_analysis_error(
-    df: pd.DataFrame, 
-    error: Exception, 
+    df: pd.DataFrame,
+    error: Exception,
     preserve_details_for_scoring: bool = False,
-    context_description: str = "inheritance analysis"
+    context_description: str = "inheritance analysis",
 ) -> pd.DataFrame:
     """Handle errors in inheritance analysis with consistent error recovery.
-    
+
     This function provides unified error handling for both chunked and non-chunked
     processing. It ensures the DataFrame schema is maintained even when errors occur.
-    
+
     Args:
         df: DataFrame that encountered an error
         error: The exception that occurred
         preserve_details_for_scoring: Whether to add Inheritance_Details column
         context_description: Description of the processing context for logging
-        
+
     Returns:
         DataFrame with error-state inheritance columns added
-        
+
     Note:
         - Logs the error for debugging
         - Adds Inheritance_Pattern column with "error" value
@@ -182,37 +175,35 @@ def handle_inheritance_analysis_error(
         - Maintains DataFrame schema consistency
     """
     logger.error(f"Error in {context_description}: {error}")
-    
+
     # Add error-state inheritance columns to maintain schema
     df = df.copy()
     df["Inheritance_Pattern"] = "error"
-    
+
     if preserve_details_for_scoring:
         df["Inheritance_Details"] = "{}"
-    
+
     return df
 
 
 def cleanup_sample_columns(
-    df: pd.DataFrame, 
-    vcf_samples: List[str], 
-    preserve_columns: List[str] = None
+    df: pd.DataFrame, vcf_samples: List[str], preserve_columns: List[str] = None
 ) -> pd.DataFrame:
     """Clean up sample columns after inheritance analysis.
-    
+
     This function removes temporary sample columns that were created for inheritance
     analysis while preserving essential columns. It provides a unified approach
     for both chunked and non-chunked processing.
-    
+
     Args:
         df: DataFrame containing sample columns to clean up
         vcf_samples: List of sample IDs that should be removed
         preserve_columns: List of column names to preserve even if they match sample names
                          (default: ["GT", "Inheritance_Pattern", "Inheritance_Details"])
-        
+
     Returns:
         DataFrame with sample columns cleaned up
-        
+
     Note:
         - Removes columns that match VCF sample names
         - Preserves specified columns even if they match sample names
@@ -220,23 +211,24 @@ def cleanup_sample_columns(
     """
     if not vcf_samples:
         return df
-        
+
     if preserve_columns is None:
         preserve_columns = ["GT", "Inheritance_Pattern", "Inheritance_Details"]
-    
+
     # Find sample columns to remove
     sample_columns_to_remove = [
-        col for col in df.columns 
-        if col in vcf_samples and col not in preserve_columns
+        col for col in df.columns if col in vcf_samples and col not in preserve_columns
     ]
-    
+
     if sample_columns_to_remove:
-        logger.debug(f"Removing {len(sample_columns_to_remove)} sample columns after inheritance analysis")
+        logger.debug(
+            f"Removing {len(sample_columns_to_remove)} sample columns after inheritance analysis"
+        )
         df = df.drop(columns=sample_columns_to_remove)
         logger.debug(f"Columns after cleanup: {len(df.columns)}")
     else:
         logger.debug("No sample columns to remove")
-    
+
     return df
 
 
@@ -688,7 +680,7 @@ class InheritanceAnalysisStage(Stage):
                 df=df,
                 vcf_samples=vcf_samples,
                 separator=context.config.get("separator", ";"),
-                snpsift_sep=context.config.get("extract_fields_separator", ",")
+                snpsift_sep=context.config.get("extract_fields_separator", ","),
             )
 
             self._end_subtask("sample_column_preparation", prep_start)
@@ -699,7 +691,9 @@ class InheritanceAnalysisStage(Stage):
         try:
             # Check if we should use parallel processing
             threads = context.config.get("threads", 1)
-            min_variants_for_parallel = context.config.get("min_variants_for_parallel_inheritance", 100)
+            min_variants_for_parallel = context.config.get(
+                "min_variants_for_parallel_inheritance", 100
+            )
 
             if threads > 1 and len(df) >= min_variants_for_parallel:
                 # Use parallel analyzer for better performance
@@ -737,10 +731,10 @@ class InheritanceAnalysisStage(Stage):
             # Check if scoring configuration requires Inheritance_Details
             preserve_details = self._check_if_scoring_needs_details(context)
             df = handle_inheritance_analysis_error(
-                df, 
-                e, 
+                df,
+                e,
                 preserve_details_for_scoring=preserve_details,
-                context_description="non-chunked inheritance analysis"
+                context_description="non-chunked inheritance analysis",
             )
 
         self._end_subtask("inheritance_calculation", analysis_start)
@@ -1577,9 +1571,9 @@ class ChunkedAnalysisStage(Stage):
 
     def __init__(self, max_variants_per_gene: int = 10000):
         """Initialize chunked analysis stage with configurable gene size limits.
-        
+
         Args:
-            max_variants_per_gene: Maximum number of variants allowed per gene 
+            max_variants_per_gene: Maximum number of variants allowed per gene
                                  before forcing chunk split (default: 10,000)
         """
         super().__init__()
@@ -1801,7 +1795,7 @@ class ChunkedAnalysisStage(Stage):
             logger.info(f"Combining {len(output_chunks)} processed chunks")
             # Debug: Log chunk sizes
             for i, chunk in enumerate(output_chunks):
-                logger.debug(f"Chunk {i+1} size: {len(chunk) if chunk is not None else 'None'}")
+                logger.debug(f"Chunk {i + 1} size: {len(chunk) if chunk is not None else 'None'}")
 
             # Filter out empty chunks
             non_empty_chunks = [
@@ -1858,7 +1852,9 @@ class ChunkedAnalysisStage(Stage):
         output_chunks = []
         chunk_num = 0
 
-        for chunk_df in self._read_tsv_in_gene_chunks(sorted_file, gene_col_name, chunk_size, context):
+        for chunk_df in self._read_tsv_in_gene_chunks(
+            sorted_file, gene_col_name, chunk_size, context
+        ):
             logger.debug(f"Processing chunk {chunk_num + 1} with {len(chunk_df)} variants")
             processed_chunk = self._process_single_chunk(chunk_df, context, chunk_num)
             output_chunks.append(processed_chunk)
@@ -2009,20 +2005,20 @@ class ChunkedAnalysisStage(Stage):
         self, input_file: Path, gene_col: str, context: PipelineContext
     ) -> Path:
         """Ensure the TSV file is sorted by gene column for gene-aware chunking.
-        
+
         This method ensures that the input TSV file is sorted by the specified gene
         column, which is essential for gene-aware chunking. Gene-aware chunking keeps
         variants from the same gene together to enable proper compound heterozygous
         detection during inheritance analysis.
-        
+
         Args:
             input_file: Path to the input TSV file
             gene_col: Name of the gene column to sort by
             context: Pipeline context containing configuration
-            
+
         Returns:
             Path to the sorted TSV file (may be the same as input if already sorted)
-            
+
         Note:
             - Uses system sort for memory efficiency with large files
             - Handles both compressed (.gz) and uncompressed files
@@ -2144,7 +2140,13 @@ class ChunkedAnalysisStage(Stage):
             # Return original file if sorting fails
             return input_file
 
-    def _read_tsv_in_gene_chunks(self, filepath: Path, gene_column: str, chunksize: int, context: Optional['PipelineContext'] = None):
+    def _read_tsv_in_gene_chunks(
+        self,
+        filepath: Path,
+        gene_column: str,
+        chunksize: int,
+        context: Optional["PipelineContext"] = None,
+    ):
         """Read TSV file in gene-aware chunks with configurable gene size limits."""
         import pandas as pd
 
@@ -2163,15 +2165,19 @@ class ChunkedAnalysisStage(Stage):
 
         gene_buffer = pd.DataFrame()
         chunks_yielded = 0
-        
+
         # Configurable gene size limits to prevent memory explosion
         # Get from context config if available, otherwise use instance attribute or default
         max_variants_per_gene = 10000  # Default
-        if context and hasattr(context, 'config'):
-            max_variants_per_gene = context.config.get('max_variants_per_gene', max_variants_per_gene)
-        elif hasattr(self, 'max_variants_per_gene'):
+        if context and hasattr(context, "config"):
+            max_variants_per_gene = context.config.get(
+                "max_variants_per_gene", max_variants_per_gene
+            )
+        elif hasattr(self, "max_variants_per_gene"):
             max_variants_per_gene = self.max_variants_per_gene
-        max_buffer_size = min(chunksize * 20, max_variants_per_gene)  # Use smaller of buffer or gene limit
+        max_buffer_size = min(
+            chunksize * 20, max_variants_per_gene
+        )  # Use smaller of buffer or gene limit
         emergency_threshold = min(chunksize * 50, max_variants_per_gene)  # Hard limit
 
         for chunk in reader:
@@ -2295,18 +2301,18 @@ class ChunkedAnalysisStage(Stage):
         self, chunk_df: pd.DataFrame, context: PipelineContext
     ) -> pd.DataFrame:
         """Apply inheritance analysis to a chunk with gene-aware processing.
-        
+
         This method processes a chunk of variant data and applies inheritance analysis
         to determine inheritance patterns. It handles sample column creation from GT
         data, performs inheritance analysis, and cleans up temporary columns.
-        
+
         Args:
             chunk_df: DataFrame containing variant data for a chunk
             context: Pipeline context containing configuration and samples
-            
+
         Returns:
             DataFrame with inheritance analysis results and cleaned columns
-            
+
         Note:
             - Creates individual sample columns from GT column if needed
             - Applies inheritance analysis using the configured mode
@@ -2314,7 +2320,6 @@ class ChunkedAnalysisStage(Stage):
             - Handles memory safety checks for large datasets
         """
         try:
-            import re
             from ..inheritance.analyzer import analyze_inheritance, process_inheritance_output
 
             # Extract config parameters
@@ -2333,23 +2338,23 @@ class ChunkedAnalysisStage(Stage):
 
             # Memory safety check for chunk - scale limit based on sample count
             estimated_memory_cells = len(chunk_df) * len(vcf_samples)
-            
+
             # Dynamic memory limit based on sample count to prevent OOM
             # For large sample counts (>1000), use more conservative limits
             if len(vcf_samples) <= 100:
                 max_chunk_memory_cells = 100_000_000  # 100M cells for small cohorts
             elif len(vcf_samples) <= 500:
-                max_chunk_memory_cells = 50_000_000   # 50M cells for medium cohorts  
+                max_chunk_memory_cells = 50_000_000  # 50M cells for medium cohorts
             elif len(vcf_samples) <= 1000:
-                max_chunk_memory_cells = 25_000_000   # 25M cells for large cohorts
+                max_chunk_memory_cells = 25_000_000  # 25M cells for large cohorts
             elif len(vcf_samples) <= 2500:
-                max_chunk_memory_cells = 10_000_000   # 10M cells for very large cohorts
+                max_chunk_memory_cells = 10_000_000  # 10M cells for very large cohorts
             else:
-                max_chunk_memory_cells = 5_000_000    # 5M cells for massive cohorts (>2500 samples)
-            
+                max_chunk_memory_cells = 5_000_000  # 5M cells for massive cohorts (>2500 samples)
+
             # Additional check: for massive sample counts, also limit based on variants per chunk
             max_variants_per_chunk = max_chunk_memory_cells // len(vcf_samples)
-            
+
             logger.debug(
                 f"Memory safety check: {len(chunk_df)} variants × {len(vcf_samples)} samples = "
                 f"{estimated_memory_cells:,} cells (limit: {max_chunk_memory_cells:,}, "
@@ -2376,22 +2381,22 @@ class ChunkedAnalysisStage(Stage):
 
             # Track timing for sample column preparation
             import time
-            
+
             # CRITICAL: Create individual sample columns from GT column
             # This is required for inheritance analysis to work correctly
             if "GT" in chunk_df.columns and len(chunk_df) > 0:
                 logger.debug("Creating sample columns from GT column for inheritance analysis")
-                
+
                 prep_start = time.time()
-                
+
                 # Use the unified sample column creation function
                 chunk_df = create_sample_columns_from_gt(
                     df=chunk_df,
                     vcf_samples=vcf_samples,
                     separator=context.config.get("separator", ";"),
-                    snpsift_sep=context.config.get("extract_fields_separator", ",")
+                    snpsift_sep=context.config.get("extract_fields_separator", ","),
                 )
-                
+
                 prep_time = time.time() - prep_start
                 if prep_time > 0.1:  # Only log if significant
                     logger.debug(f"Sample column preparation took {prep_time:.2f}s")
@@ -2403,16 +2408,20 @@ class ChunkedAnalysisStage(Stage):
             # Apply inheritance analysis with parallel processing support
             analysis_start = time.time()
             threads = context.config.get("threads", 1)
-            min_variants_for_parallel = context.config.get("min_variants_for_parallel_inheritance", 100)
-            
+            min_variants_for_parallel = context.config.get(
+                "min_variants_for_parallel_inheritance", 100
+            )
+
             if threads > 1 and len(chunk_df) >= min_variants_for_parallel:
                 # Use parallel analyzer for better performance
-                logger.debug(f"Using parallel inheritance analyzer for chunk with {threads} workers")
-                
+                logger.debug(
+                    f"Using parallel inheritance analyzer for chunk with {threads} workers"
+                )
+
                 from ..inheritance.parallel_analyzer import analyze_inheritance_parallel
-                
+
                 comp_het_start = time.time()
-                
+
                 chunk_df = analyze_inheritance_parallel(
                     df=chunk_df,
                     sample_list=vcf_samples,
@@ -2421,7 +2430,7 @@ class ChunkedAnalysisStage(Stage):
                     n_workers=threads,
                     min_variants_for_parallel=min_variants_for_parallel,
                 )
-                
+
                 # Record compound het timing (this is a major component)
                 comp_het_time = time.time() - comp_het_start
                 if comp_het_time > 1.0:  # Only record if significant
@@ -2449,7 +2458,7 @@ class ChunkedAnalysisStage(Stage):
                 inheritance_mode,
                 preserve_details_for_scoring=preserve_details_for_scoring,
             )
-            
+
             output_time = time.time() - output_start
             if output_time > 0.1:  # Only log if significant
                 logger.debug(f"Output processing took {output_time:.2f}s")
@@ -2460,10 +2469,11 @@ class ChunkedAnalysisStage(Stage):
             # Use unified cleanup function for consistency with non-chunked processing
             cleanup_start = time.time()
             chunk_df = cleanup_sample_columns(
-                chunk_df, vcf_samples, 
-                preserve_columns=["GT", "Inheritance_Pattern", "Inheritance_Details"]
+                chunk_df,
+                vcf_samples,
+                preserve_columns=["GT", "Inheritance_Pattern", "Inheritance_Details"],
             )
-            
+
             cleanup_time = time.time() - cleanup_start
             if cleanup_time > 0.1:  # Only log if significant
                 logger.debug(f"Column cleanup took {cleanup_time:.2f}s")
@@ -2472,10 +2482,12 @@ class ChunkedAnalysisStage(Stage):
 
         except Exception as e:
             return handle_inheritance_analysis_error(
-                chunk_df, 
-                e, 
-                preserve_details_for_scoring=inheritance_config.get("preserve_details_for_scoring", False),
-                context_description="chunk inheritance analysis"
+                chunk_df,
+                e,
+                preserve_details_for_scoring=inheritance_config.get(
+                    "preserve_details_for_scoring", False
+                ),
+                context_description="chunk inheritance analysis",
             )
 
     def get_input_files(self, context: PipelineContext) -> List[Path]:

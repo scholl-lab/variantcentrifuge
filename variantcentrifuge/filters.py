@@ -23,7 +23,6 @@ TSV-based filtering:
   and annotation steps are complete, allowing filtering on computed columns.
 """
 
-import gzip
 import logging
 import os
 import tempfile
@@ -223,8 +222,6 @@ def apply_snpsift_filter(
 
     logger.debug("Filtered output is now available at: %s", output_file)
     return output_file
-
-
 
 
 def filter_final_tsv_by_genotype(
@@ -583,7 +580,7 @@ def filter_tsv_with_expression(
 
         final_count = len(filtered_df)
         logger.info(
-            f"Filter retained {final_count}/{initial_count} variants ({final_count/initial_count*100:.1f}%)"
+            f"Filter retained {final_count}/{initial_count} variants ({final_count / initial_count * 100:.1f}%)"
         )
 
         # Write the filtered data
