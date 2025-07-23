@@ -1,6 +1,4 @@
-"""
-Tests for the unified sample column creation function.
-"""
+"""Tests for the unified sample column creation function."""
 
 import pandas as pd
 import pytest

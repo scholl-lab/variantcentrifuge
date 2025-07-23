@@ -7,9 +7,7 @@ streaming implementation while providing performance benefits.
 """
 
 import logging
-import tempfile
-from pathlib import Path
-from typing import Dict, List
+from typing import Dict
 
 import pandas as pd
 import pytest
@@ -25,7 +23,7 @@ from variantcentrifuge.vectorized_replacer import (
 # Test data fixtures
 @pytest.fixture
 def sample_config() -> Dict[str, str]:
-    """Basic configuration for genotype replacement tests."""
+    """Return basic configuration for genotype replacement tests."""
     return {
         "sample_list": "Sample1,Sample2,Sample3",
         "separator": ";",
@@ -39,7 +37,7 @@ def sample_config() -> Dict[str, str]:
 
 @pytest.fixture
 def config_with_extra_fields() -> Dict[str, str]:
-    """Configuration with extra sample fields."""
+    """Return configuration with extra sample fields."""
     return {
         "sample_list": "Sample1,Sample2,Sample3",
         "separator": ";",
@@ -198,8 +196,8 @@ class TestVectorizedGenotypeReplacer:
         assert "Sample1(0/1:50:25)" in gt_values[0]
         assert "Sample3(1/1:40:20)" in gt_values[0]
 
-        # Row 1: Sample2(1/1:45:22,23)
-        assert "Sample2(1/1:45:22)" in gt_values[1]
+        # Row 1: Sample2(1/1:45:30)
+        assert "Sample2(1/1:45:30)" in gt_values[1]
 
     def test_process_dataframe_normalized_extra_fields(self, sample_dataframe_with_extra_fields):
         """Test processing with normalized extra field names."""

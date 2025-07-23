@@ -27,7 +27,8 @@ class AtomicFileOperation:
     after being completely written, preventing issues with partial files
     during pipeline interruption.
 
-    Example:
+    Example
+    -------
         >>> with AtomicFileOperation('/path/to/final/output.tsv') as temp_path:
         ...     # Write to temp_path
         ...     with open(temp_path, 'w') as f:

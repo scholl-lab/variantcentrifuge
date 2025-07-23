@@ -175,6 +175,8 @@ def select_optimal_processing_method(
     force_method: str = None,
 ) -> str:
     """
+    Select the optimal processing method based on file characteristics.
+
     Intelligently select the optimal processing method based on file characteristics and
     system resources.
 
@@ -194,7 +196,8 @@ def select_optimal_processing_method(
     Returns
     -------
     str
-        Selected processing method: 'sequential', 'vectorized', 'chunked-vectorized', or 'parallel'
+        Selected processing method: 'sequential', 'vectorized', 'chunked-vectorized',
+        'parallel', 'parallel-chunked-vectorized', or 'streaming-parallel'
     """
     if force_method:
         logger.info(f"Forcing processing method: {force_method}")
@@ -213,13 +216,22 @@ def select_optimal_processing_method(
     # Method selection logic
     if memory_required_gb > memory_warning_threshold:
         if threads > 1 and file_size_mb > 30:
-            method = (
-                "parallel-chunked-vectorized"  # Best for very large files with multiple threads
-            )
-            reason = (
-                f"memory required ({memory_required_gb:.1f}GB) > 90% of available "
-                f"({available_memory_gb:.1f}GB), using parallel chunked with {threads} threads"
-            )
+            # For high memory pressure, use streaming-parallel for better resource management
+            if threads >= 8 and available_memory_gb > 100:
+                method = "streaming-parallel"
+                reason = (
+                    f"high memory requirement ({memory_required_gb:.1f}GB) but many threads "
+                    f"({threads}) available, using streaming pipeline for optimal resource "
+                    f"utilization"
+                )
+            else:
+                method = (
+                    "parallel-chunked-vectorized"  # Best for very large files with multiple threads
+                )
+                reason = (
+                    f"memory required ({memory_required_gb:.1f}GB) > 90% of available "
+                    f"({available_memory_gb:.1f}GB), using parallel chunked with {threads} threads"
+                )
         else:
             method = "chunked-vectorized"  # Safest for very large files
             reason = (
@@ -246,19 +258,34 @@ def select_optimal_processing_method(
             f"({memory_required_gb:.1f}GB < {memory_safe_threshold:.1f}GB)"
         )
     elif num_samples >= 3000:
-        # For very high sample counts, use parallel chunked if threads available
+        # For very high sample counts, prefer streaming-parallel for optimal thread utilization
         if threads > 1 and file_size_mb > 30:
-            method = "parallel-chunked-vectorized"
-            reason = (
-                f"very high sample count ({num_samples}), using parallel chunked "
-                f"with {threads} threads for optimal performance"
-            )
+            if threads >= 10:
+                method = "streaming-parallel"
+                reason = (
+                    f"very high sample count ({num_samples}) with many threads ({threads}), "
+                    f"using streaming parallel for maximum CPU utilization"
+                )
+            else:
+                method = "parallel-chunked-vectorized"
+                reason = (
+                    f"very high sample count ({num_samples}), using parallel chunked "
+                    f"with {threads} threads for optimal performance"
+                )
         else:
             method = "chunked-vectorized"
             reason = f"very high sample count ({num_samples}), using chunked processing for safety"
     elif file_size_mb > 100 and threads > 1:
-        method = "parallel"
-        reason = f"large file ({file_size_mb:.1f}MB), using {threads} threads"
+        # For large files with good thread counts, prefer streaming-parallel
+        if threads >= 8:
+            method = "streaming-parallel"
+            reason = (
+                f"large file ({file_size_mb:.1f}MB) with many threads "
+                f"({threads}), using streaming parallel"
+            )
+        else:
+            method = "parallel"
+            reason = f"large file ({file_size_mb:.1f}MB), using {threads} threads"
     else:
         method = "sequential"
         reason = "default fallback for moderate files"
@@ -1178,6 +1205,10 @@ class GenotypeReplacementStage(Stage):
             output_tsv = self._process_genotype_replacement_parallel_chunked_vectorized(
                 context, input_tsv, samples, threads
             )
+        elif processing_method == "streaming-parallel":
+            output_tsv = self._process_genotype_replacement_streaming_parallel(
+                context, input_tsv, samples, threads
+            )
         elif processing_method == "parallel":
             output_tsv = self._process_genotype_replacement_parallel(
                 context, input_tsv, samples, threads
@@ -1445,6 +1476,67 @@ class GenotypeReplacementStage(Stage):
             # Fallback to single-threaded chunked processing
             return self._process_genotype_replacement_chunked_vectorized(
                 context, input_tsv, samples
+            )
+
+    def _process_genotype_replacement_streaming_parallel(
+        self, context: PipelineContext, input_tsv: Path, samples: List[str], threads: int
+    ) -> Path:
+        """
+        Enhanced streaming parallel genotype replacement with intelligent chunking.
+
+        This method uses the new streaming pipeline architecture that provides:
+        - Thread-aware chunking for optimal CPU utilization
+        - Overlapped I/O and computation for better performance
+        - Adaptive memory management based on real usage
+        - Producer-consumer pipeline for consistent throughput
+        """
+        logger.info(
+            f"Using enhanced streaming parallel genotype replacement with {threads} threads"
+        )
+
+        output_tsv = context.workspace.get_intermediate_path(
+            f"{context.workspace.base_name}.genotype_replaced.tsv"
+        )
+
+        # Always use gzip for intermediate files
+        use_compression = context.config.get("gzip_intermediates", True)
+        if use_compression:
+            output_tsv = Path(str(output_tsv) + ".gz")
+
+        # Prepare config for streaming processor (compatible with vectorized_replacer)
+        replacer_config = {
+            "sample_list": ",".join(samples),
+            "separator": ";",
+            "extract_fields_separator": ",",
+            "append_extra_sample_fields": context.config.get("append_extra_sample_fields", False),
+            "extra_sample_fields": context.config.get("extra_sample_fields", []),
+            "extra_sample_field_delimiter": context.config.get("extra_sample_field_delimiter", ":"),
+            "genotype_replacement_map": context.config.get("genotype_replacement_map", {}),
+        }
+
+        try:
+            from ..parallel_genotype_processor import process_streaming_parallel
+
+            logger.info(
+                f"Processing enhanced streaming genotype replacement: {input_tsv} -> {output_tsv}"
+            )
+
+            process_streaming_parallel(
+                input_path=input_tsv,
+                output_path=output_tsv,
+                config=replacer_config,
+                threads=threads,
+            )
+
+            logger.info("Completed enhanced streaming parallel genotype replacement")
+            return output_tsv
+
+        except Exception as e:
+            logger.error(f"Enhanced streaming parallel processing failed: {e}")
+            logger.info("Falling back to standard parallel chunked processing")
+            # Fallback to existing parallel method
+            return self._process_genotype_replacement_parallel_chunked_vectorized(
+                context, input_tsv, samples, threads
             )
 
     def _process_genotype_replacement_sequential(

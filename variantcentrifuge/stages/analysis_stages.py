@@ -40,16 +40,19 @@ def create_sample_columns_from_gt(
     genotype format (e.g., "Sample1(0/1);Sample2(0/0)") and SnpSift format
     (e.g., "0/1,0/0,1/1").
 
-    Args:
+    Args
+    ----
         df: DataFrame containing GT column
         vcf_samples: List of sample IDs to create columns for
         separator: Separator used in replaced genotype format (default: ";")
         snpsift_sep: Separator used in SnpSift format (default: ",")
 
-    Returns:
+    Returns
+    -------
         DataFrame with individual sample columns added
 
-    Raises:
+    Raises
+    ------
         ValueError: If GT column is missing or empty
     """
     if "GT" not in df.columns:
@@ -159,16 +162,19 @@ def handle_inheritance_analysis_error(
     This function provides unified error handling for both chunked and non-chunked
     processing. It ensures the DataFrame schema is maintained even when errors occur.
 
-    Args:
+    Args
+    ----
         df: DataFrame that encountered an error
         error: The exception that occurred
         preserve_details_for_scoring: Whether to add Inheritance_Details column
         context_description: Description of the processing context for logging
 
-    Returns:
+    Returns
+    -------
         DataFrame with error-state inheritance columns added
 
-    Note:
+    Note
+    ----
         - Logs the error for debugging
         - Adds Inheritance_Pattern column with "error" value
         - Optionally adds Inheritance_Details column if needed for scoring
@@ -195,16 +201,19 @@ def cleanup_sample_columns(
     analysis while preserving essential columns. It provides a unified approach
     for both chunked and non-chunked processing.
 
-    Args:
+    Args
+    ----
         df: DataFrame containing sample columns to clean up
         vcf_samples: List of sample IDs that should be removed
         preserve_columns: List of column names to preserve even if they match sample names
                          (default: ["GT", "Inheritance_Pattern", "Inheritance_Details"])
 
-    Returns:
+    Returns
+    -------
         DataFrame with sample columns cleaned up
 
-    Note:
+    Note
+    ----
         - Removes columns that match VCF sample names
         - Preserves specified columns even if they match sample names
         - Logs cleanup statistics for debugging
@@ -1572,7 +1581,8 @@ class ChunkedAnalysisStage(Stage):
     def __init__(self, max_variants_per_gene: int = 10000):
         """Initialize chunked analysis stage with configurable gene size limits.
 
-        Args:
+        Args
+        ----
             max_variants_per_gene: Maximum number of variants allowed per gene
                                  before forcing chunk split (default: 10,000)
         """
@@ -2013,15 +2023,18 @@ class ChunkedAnalysisStage(Stage):
         variants from the same gene together to enable proper compound heterozygous
         detection during inheritance analysis.
 
-        Args:
+        Args
+        ----
             input_file: Path to the input TSV file
             gene_col: Name of the gene column to sort by
             context: Pipeline context containing configuration
 
-        Returns:
+        Returns
+        -------
             Path to the sorted TSV file (may be the same as input if already sorted)
 
-        Note:
+        Note
+        ----
             - Uses system sort for memory efficiency with large files
             - Handles both compressed (.gz) and uncompressed files
             - Creates cached sorted file to avoid repeated sorting
@@ -2148,10 +2161,12 @@ class ChunkedAnalysisStage(Stage):
         Uses the same memory limits as inheritance analysis to ensure chunks can be processed.
         Target ~2,000 variants per chunk for large cohorts (>2500 samples).
 
-        Args:
+        Args
+        ----
             sample_count: Number of samples in the dataset
 
-        Returns:
+        Returns
+        -------
             Safe chunk size in number of variants
         """
         logger.debug(f"Calculating inheritance-safe chunk size for {sample_count} samples")
@@ -2159,11 +2174,11 @@ class ChunkedAnalysisStage(Stage):
         if sample_count <= 100:
             chunk_size = 10000  # 10K variants × 100 samples = 1M cells (< 100M limit)
         elif sample_count <= 500:
-            chunk_size = 5000   # 5K variants × 500 samples = 2.5M cells (< 50M limit)
+            chunk_size = 5000  # 5K variants × 500 samples = 2.5M cells (< 50M limit)
         elif sample_count <= 1000:
-            chunk_size = 3000   # 3K variants × 1000 samples = 3M cells (< 25M limit)
+            chunk_size = 3000  # 3K variants × 1000 samples = 3M cells (< 25M limit)
         elif sample_count <= 2500:
-            chunk_size = 2500   # 2.5K variants × 2500 samples = 6.25M cells (< 10M limit)
+            chunk_size = 2500  # 2.5K variants × 2500 samples = 6.25M cells (< 10M limit)
         else:
             # For >2500 samples, target 2000 variants as requested
             # Check if 2000 variants would exceed 12M cell limit
@@ -2190,7 +2205,7 @@ class ChunkedAnalysisStage(Stage):
         import pandas as pd
 
         # Calculate inheritance-safe chunk size if context and VCF samples are available
-        if context and hasattr(context, 'vcf_samples') and context.vcf_samples:
+        if context and hasattr(context, "vcf_samples") and context.vcf_samples:
             sample_count = len(context.vcf_samples)
             safe_chunk_size = self._calculate_inheritance_safe_chunk_size(sample_count)
 
@@ -2368,14 +2383,17 @@ class ChunkedAnalysisStage(Stage):
         to determine inheritance patterns. It handles sample column creation from GT
         data, performs inheritance analysis, and cleans up temporary columns.
 
-        Args:
+        Args
+        ----
             chunk_df: DataFrame containing variant data for a chunk
             context: Pipeline context containing configuration and samples
 
-        Returns:
+        Returns
+        -------
             DataFrame with inheritance analysis results and cleaned columns
 
-        Note:
+        Note
+        ----
             - Creates individual sample columns from GT column if needed
             - Applies inheritance analysis using the configured mode
             - Removes temporary sample columns after analysis to prevent huge files

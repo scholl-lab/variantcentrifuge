@@ -437,14 +437,22 @@ def create_parser() -> argparse.ArgumentParser:
     )
     performance_group.add_argument(
         "--genotype-replacement-method",
-        choices=["auto", "sequential", "vectorized", "chunked-vectorized", "parallel"],
+        choices=[
+            "auto",
+            "sequential",
+            "vectorized",
+            "chunked-vectorized",
+            "parallel",
+            "streaming-parallel",
+        ],
         default="auto",
         help="Method for genotype replacement processing. "
         "auto: automatically select based on data characteristics and memory availability; "
         "sequential: line-by-line streaming (memory efficient); "
         "vectorized: pandas-based vectorized operations (faster for many samples); "
         "chunked-vectorized: memory-safe vectorized processing for large files; "
-        "parallel: multi-threaded chunked processing (for very large files). "
+        "parallel: multi-threaded chunked processing (for very large files); "
+        "streaming-parallel: enhanced streaming pipeline with optimal thread utilization. "
         "Default: auto",
     )
     performance_group.add_argument(
@@ -481,6 +489,7 @@ def create_parser() -> argparse.ArgumentParser:
             "chunked-vectorized",
             "parallel-chunked-vectorized",
             "parallel",
+            "streaming-parallel",
         ],
         help="Force specific genotype replacement method, bypassing auto-selection. "
         "Useful for debugging or when you know the optimal method for your data.",
@@ -1117,14 +1126,22 @@ def main() -> int:
     )
     performance_group.add_argument(
         "--genotype-replacement-method",
-        choices=["auto", "sequential", "vectorized", "chunked-vectorized", "parallel"],
+        choices=[
+            "auto",
+            "sequential",
+            "vectorized",
+            "chunked-vectorized",
+            "parallel",
+            "streaming-parallel",
+        ],
         default="auto",
         help="Method for genotype replacement processing. "
         "auto: automatically select based on data characteristics and memory availability; "
         "sequential: line-by-line streaming (memory efficient); "
         "vectorized: pandas-based vectorized operations (faster for many samples); "
         "chunked-vectorized: memory-safe vectorized processing for large files; "
-        "parallel: multi-threaded chunked processing (for very large files). "
+        "parallel: multi-threaded chunked processing (for very large files); "
+        "streaming-parallel: enhanced streaming pipeline with optimal thread utilization. "
         "Default: auto",
     )
     performance_group.add_argument(
@@ -1161,6 +1178,7 @@ def main() -> int:
             "chunked-vectorized",
             "parallel-chunked-vectorized",
             "parallel",
+            "streaming-parallel",
         ],
         help="Force specific genotype replacement method, bypassing auto-selection. "
         "Useful for debugging or when you know the optimal method for your data.",

@@ -3,13 +3,11 @@
 These tests verify the complete pipeline flow without requiring actual bioinformatics tools.
 """
 
-import json
 import tempfile
 from argparse import Namespace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import pandas as pd
 import pytest
 
 from variantcentrifuge.pipeline import build_pipeline_stages, run_refactored_pipeline

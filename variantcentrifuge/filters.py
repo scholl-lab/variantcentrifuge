@@ -258,7 +258,7 @@ def filter_final_tsv_by_genotype(
 
     Additionally, if a sample passes because of 'het' or 'hom' or 'comp_het',
     we append a reason marker. For example:
-    
+
     325879(0/1:53,55:108) => 325879(0/1:53,55:108)(het) or 325879(0/1:53,55:108)(het,comphet)
 
     Parameters

@@ -7,12 +7,9 @@ sample column creation, and configuration consistency.
 """
 
 import argparse
-import json
 import logging
-import tempfile
-from pathlib import Path
-from typing import Dict, List, Tuple
-from unittest.mock import Mock, patch
+from typing import Dict
+from unittest.mock import Mock
 
 import pandas as pd
 import pytest
@@ -20,7 +17,7 @@ import pytest
 from variantcentrifuge.inheritance.analyzer import analyze_inheritance
 from variantcentrifuge.pipeline_core.context import PipelineContext
 from variantcentrifuge.pipeline_core.workspace import Workspace
-from variantcentrifuge.stages.analysis_stages import ChunkedAnalysisStage, DataFrameLoadingStage
+from variantcentrifuge.stages.analysis_stages import ChunkedAnalysisStage
 
 logger = logging.getLogger(__name__)
 
@@ -191,9 +188,6 @@ class TestChunkedVsNonChunkedEquivalence:
             chunked_result = chunked_stage._apply_chunk_inheritance_analysis(test_df, context)
 
             # Test non-chunked processing
-            # Create individual sample columns for comparison
-            non_chunked_df = test_df.copy()
-
             # Both should have created sample columns
             sample_columns = [
                 col for col in chunked_result.columns if col in sample_config["vcf_samples"]

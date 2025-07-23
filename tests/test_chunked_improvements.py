@@ -1,13 +1,11 @@
-"""
+"""Tests for the chunked processing improvements.
+
 Tests for the chunked processing improvements including parallel processing,
 error handling, timing tracking, and unified cleanup.
 """
 
 import argparse
 import logging
-import tempfile
-import time
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pandas as pd
@@ -139,7 +137,7 @@ class TestChunkedProcessingImprovements:
             mock_parallel.return_value["Inheritance_Pattern"] = "autosomal_dominant"
 
             chunked_stage = ChunkedAnalysisStage()
-            result = chunked_stage._apply_chunk_inheritance_analysis(sample_dataframe, context)
+            chunked_stage._apply_chunk_inheritance_analysis(sample_dataframe, context)
 
             # Verify parallel analyzer was called (not sequential)
             mock_parallel.assert_called_once()
@@ -232,17 +230,18 @@ class TestChunkedProcessingImprovements:
         vcf_samples = ["Sample1", "Sample2", "Sample3"]
 
         # Test default behavior (preserve GT, Inheritance_Pattern, Inheritance_Details)
-        result = cleanup_sample_columns(df, vcf_samples)
+        result_df = cleanup_sample_columns(df, vcf_samples)
 
-        # Should remove Sample1, Sample2, Sample3 but keep GT, Inheritance_Pattern, Inheritance_Details
-        assert "Sample1" not in result.columns
-        assert "Sample2" not in result.columns
-        assert "Sample3" not in result.columns
-        assert "GT" in result.columns
-        assert "Inheritance_Pattern" in result.columns
-        assert "Inheritance_Details" in result.columns
-        assert "CHROM" in result.columns
-        assert "POS" in result.columns
+        # Should remove Sample1, Sample2, Sample3 but keep GT, Inheritance_Pattern,
+        # Inheritance_Details
+        assert "Sample1" not in result_df.columns
+        assert "Sample2" not in result_df.columns
+        assert "Sample3" not in result_df.columns
+        assert "GT" in result_df.columns
+        assert "Inheritance_Pattern" in result_df.columns
+        assert "Inheritance_Details" in result_df.columns
+        assert "CHROM" in result_df.columns
+        assert "POS" in result_df.columns
 
         # Test with empty preserve_columns (remove all sample columns)
         result_empty = cleanup_sample_columns(df, vcf_samples, preserve_columns=[])
@@ -330,7 +329,7 @@ class TestChunkedProcessingImprovements:
             mock_sequential.return_value["Inheritance_Pattern"] = "autosomal_dominant"
 
             chunked_stage = ChunkedAnalysisStage()
-            result = chunked_stage._apply_chunk_inheritance_analysis(sample_dataframe, context)
+            chunked_stage._apply_chunk_inheritance_analysis(sample_dataframe, context)
 
             # Verify sequential analyzer was called (not parallel)
             mock_sequential.assert_called_once()

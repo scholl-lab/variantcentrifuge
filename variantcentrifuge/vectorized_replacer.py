@@ -122,7 +122,7 @@ class VectorizedGenotypeReplacer:
 
     def process_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Process a DataFrame with vectorized genotype replacement.
+        Apply vectorized genotype replacement to a DataFrame.
 
         Parameters
         ----------
@@ -138,7 +138,7 @@ class VectorizedGenotypeReplacer:
 
     def _process_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Internal method to process DataFrame with vectorized operations.
+        Process DataFrame with vectorized operations.
 
         Parameters
         ----------

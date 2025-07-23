@@ -7,12 +7,10 @@ including compound heterozygous variants.
 import tempfile
 from argparse import Namespace
 from pathlib import Path
-from unittest.mock import Mock, patch
 
-import pandas as pd
 import pytest
 
-from variantcentrifuge.pipeline import build_pipeline_stages, run_refactored_pipeline
+from variantcentrifuge.pipeline import build_pipeline_stages
 
 
 class TestInheritanceAnalysis:
