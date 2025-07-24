@@ -648,28 +648,34 @@ class InheritanceAnalysisStage(Stage):
                 "VCF samples was a set - converted to sorted list for deterministic order"
             )
 
-        # Memory safety check - avoid creating massive matrices
-        estimated_memory_cells = len(df) * len(vcf_samples)
-        max_memory_cells = context.config.get(
-            "max_inheritance_memory_cells", 100_000_000
-        )  # 100M cells
+        # Use intelligent memory manager to decide processing strategy
+        from ..memory import InheritanceMemoryManager
 
-        if estimated_memory_cells > max_memory_cells:
-            logger.warning(
-                f"Dataset too large for in-memory inheritance analysis: "
-                f"{len(df)} variants × {len(vcf_samples)} samples = "
-                f"{estimated_memory_cells:,} cells. "
-                f"Forcing chunked processing (limit: {max_memory_cells:,} cells)"
+        memory_manager = InheritanceMemoryManager(context.config)
+        memory_strategy = memory_manager.get_memory_strategy(len(df), len(vcf_samples))
+
+        logger.info(
+            f"Inheritance memory strategy: {memory_strategy['approach']} - {memory_strategy['reason']}"
+        )
+        memory_manager.log_memory_status()
+
+        if memory_strategy["approach"] == "chunked":
+            logger.info(
+                f"Using chunked processing: {memory_strategy['chunks']} chunks, "
+                f"max {memory_strategy['max_workers']} parallel workers, "
+                f"~{memory_strategy['estimated_memory_per_chunk_gb']:.1f}GB per chunk"
             )
             # Force chunked processing and delegate to chunked analysis
             context.config["use_chunked_processing"] = True
             context.config["force_chunked_processing"] = True
+
+            # Store memory strategy for chunked processing
+            context.config["inheritance_memory_strategy"] = memory_strategy
+
             # Check if scoring configuration requires Inheritance_Details
             preserve_details = self._check_if_scoring_needs_details(context)
             if preserve_details:
-                logger.info(
-                    "Preserving Inheritance_Details for large dataset chunked processing scoring"
-                )
+                logger.info("Preserving Inheritance_Details for chunked processing scoring")
 
             context.config["inheritance_analysis_config"] = {
                 "inheritance_mode": inheritance_mode,
@@ -2447,47 +2453,36 @@ class ChunkedAnalysisStage(Stage):
                 logger.warning("No VCF samples available for chunk inheritance analysis")
                 return chunk_df
 
-            # Memory safety check for chunk - scale limit based on sample count
-            estimated_memory_cells = len(chunk_df) * len(vcf_samples)
+            # Use intelligent memory manager for chunk processing decision
+            from ...memory import InheritanceMemoryManager
 
-            # Dynamic memory limit based on sample count to prevent OOM
-            # For large sample counts (>1000), use more conservative limits
-            if len(vcf_samples) <= 100:
-                max_chunk_memory_cells = 100_000_000  # 100M cells for small cohorts
-            elif len(vcf_samples) <= 500:
-                max_chunk_memory_cells = 50_000_000  # 50M cells for medium cohorts
-            elif len(vcf_samples) <= 1000:
-                max_chunk_memory_cells = 25_000_000  # 25M cells for large cohorts
-            elif len(vcf_samples) <= 2500:
-                max_chunk_memory_cells = 10_000_000  # 10M cells for very large cohorts
-            else:
-                max_chunk_memory_cells = 12_000_000  # 12M cells for massive cohorts (>2500 samples)
+            memory_manager = InheritanceMemoryManager(context.config)
+            memory_manager.log_memory_status()
 
-            # Additional check: for massive sample counts, also limit based on variants per chunk
-            max_variants_per_chunk = max_chunk_memory_cells // len(vcf_samples)
-
-            logger.debug(
-                f"Memory safety check: {len(chunk_df)} variants × {len(vcf_samples)} samples = "
-                f"{estimated_memory_cells:,} cells (limit: {max_chunk_memory_cells:,}, "
-                f"max variants: {max_variants_per_chunk:,})"
+            # Check if this chunk should be processed
+            should_process, reason = memory_manager.should_process_chunk(
+                len(chunk_df),
+                len(vcf_samples),
+                force_processing=context.config.get("force_inheritance_processing", False),
             )
 
-            if estimated_memory_cells > max_chunk_memory_cells:
-                logger.warning(
-                    f"Chunk too large for inheritance analysis: "
-                    f"{len(chunk_df)} variants × {len(vcf_samples)} samples = "
-                    f"{estimated_memory_cells:,} cells. "
-                    f"Skipping inheritance analysis for this chunk."
+            logger.info(f"Memory decision for chunk: {reason}")
+
+            if not should_process:
+                logger.error(
+                    f"MEMORY LIMIT: Skipping inheritance analysis for chunk with "
+                    f"{len(chunk_df)} variants × {len(vcf_samples)} samples. {reason}. "
+                    f"Consider increasing --max-memory-gb or using --force-inheritance-processing."
                 )
-                # Add empty inheritance columns to maintain schema
-                chunk_df["Inheritance_Pattern"] = "skipped"
+                # Add placeholder inheritance columns to maintain schema
+                chunk_df["Inheritance_Pattern"] = "memory_limit_exceeded"
                 if preserve_details_for_scoring:
-                    chunk_df["Inheritance_Details"] = "{}"
+                    chunk_df["Inheritance_Details"] = '{"error": "memory_limit_exceeded"}'
                 return chunk_df
 
-            logger.debug(
-                f"Applying inheritance analysis to chunk: {len(chunk_df)} variants, "
-                f"{len(vcf_samples)} samples"
+            logger.info(
+                f"Starting inheritance analysis for chunk: {len(chunk_df)} variants, "
+                f"{len(vcf_samples)} samples, inheritance mode: {inheritance_mode}"
             )
 
             # Track timing for sample column preparation
@@ -2525,9 +2520,7 @@ class ChunkedAnalysisStage(Stage):
 
             if threads > 1 and len(chunk_df) >= min_variants_for_parallel:
                 # Use parallel analyzer for better performance
-                logger.debug(
-                    f"Using parallel inheritance analyzer for chunk with {threads} workers"
-                )
+                logger.info(f"Using parallel inheritance analyzer for chunk with {threads} workers")
 
                 from ..inheritance.parallel_analyzer import analyze_inheritance_parallel
 
@@ -2556,8 +2549,9 @@ class ChunkedAnalysisStage(Stage):
                 )
 
             analysis_time = time.time() - analysis_start
-            if analysis_time > 0.5:  # Only log if significant
-                logger.debug(f"Inheritance analysis took {analysis_time:.2f}s")
+            logger.info(
+                f"Inheritance analysis completed in {analysis_time:.2f}s for {len(chunk_df)} variants"
+            )
 
             # Process inheritance output based on mode and scoring requirements
             output_start = time.time()
@@ -2588,6 +2582,13 @@ class ChunkedAnalysisStage(Stage):
             cleanup_time = time.time() - cleanup_start
             if cleanup_time > 0.1:  # Only log if significant
                 logger.debug(f"Column cleanup took {cleanup_time:.2f}s")
+
+            # Log successful completion with inheritance pattern summary
+            inheritance_patterns = chunk_df["Inheritance_Pattern"].value_counts()
+            logger.info(
+                f"Chunk inheritance analysis SUCCESS: {len(chunk_df)} variants processed. "
+                f"Patterns: {dict(inheritance_patterns)}"
+            )
 
             return chunk_df
 
