@@ -190,14 +190,14 @@ def test_gene_burden_determinism(test_data_paths):
         # Check same number of genes
         assert len(base_df) == len(
             df
-        ), f"Run 1 and run {i+1} have different number of genes: {len(base_df)} vs {len(df)}"
+        ), f"Run 1 and run {i + 1} have different number of genes: {len(base_df)} vs {len(df)}"
 
         # Check identical gene order
         pd.testing.assert_series_equal(
             base_df["GENE"],
             df["GENE"],
             check_names=False,
-            obj=f"Gene order differs between run 1 and run {i+1}",
+            obj=f"Gene order differs between run 1 and run {i + 1}",
         )
 
         # Check identical statistical results
@@ -213,7 +213,7 @@ def test_gene_burden_determinism(test_data_paths):
                 base_df[col],
                 df[col],
                 check_names=False,
-                obj=f"Column {col} differs between run 1 and run {i+1}",
+                obj=f"Column {col} differs between run 1 and run {i + 1}",
             )
 
         # Check odds ratios (may have floating point differences)
@@ -223,7 +223,7 @@ def test_gene_burden_determinism(test_data_paths):
             check_names=False,
             check_exact=False,
             rtol=1e-10,  # Very tight tolerance
-            obj=f"Odds ratios differ between run 1 and run {i+1}",
+            obj=f"Odds ratios differ between run 1 and run {i + 1}",
         )
 
 

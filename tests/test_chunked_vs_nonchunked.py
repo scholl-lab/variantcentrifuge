@@ -170,7 +170,7 @@ class TestChunkedVsNonChunkedEquivalence:
         for i, gt_value in enumerate(test_cases):
             test_df = pd.DataFrame(
                 {
-                    "CHROM": [f"chr{i+1}"],
+                    "CHROM": [f"chr{i + 1}"],
                     "POS": [100 + i * 100],
                     "GENE": ["TEST_GENE"],
                     "GT": [gt_value],

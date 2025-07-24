@@ -655,7 +655,8 @@ class InheritanceAnalysisStage(Stage):
         memory_strategy = memory_manager.get_memory_strategy(len(df), len(vcf_samples))
 
         logger.info(
-            f"Inheritance memory strategy: {memory_strategy['approach']} - {memory_strategy['reason']}"
+            f"Inheritance memory strategy: {memory_strategy['approach']} - "
+            f"{memory_strategy['reason']}"
         )
         memory_manager.log_memory_status()
 
@@ -2192,15 +2193,18 @@ class ChunkedAnalysisStage(Stage):
             # Return original file if sorting fails
             return input_file
 
-    def _calculate_inheritance_safe_chunk_size(self, sample_count: int) -> int:
-        """Calculate safe chunk size based on sample count to prevent inheritance analysis skipping.
+    def _calculate_inheritance_safe_chunk_size(
+        self, sample_count: int, context: "PipelineContext" = None
+    ) -> int:
+        """Calculate safe chunk size based on available memory to prevent inheritance skipping.
 
-        Uses the same memory limits as inheritance analysis to ensure chunks can be processed.
-        Target ~2,000 variants per chunk for large cohorts (>2500 samples).
+        Uses intelligent memory management to determine optimal chunk size based on system memory.
+        Ensures chunks can be processed by inheritance analysis without being skipped.
 
         Args
         ----
             sample_count: Number of samples in the dataset
+            context: Pipeline context containing memory configuration (optional)
 
         Returns
         -------
@@ -2208,26 +2212,44 @@ class ChunkedAnalysisStage(Stage):
         """
         logger.debug(f"Calculating inheritance-safe chunk size for {sample_count} samples")
 
+        try:
+            # Use intelligent memory manager if context available
+            if context and hasattr(context, "config"):
+                from ..memory import InheritanceMemoryManager
+
+                memory_manager = InheritanceMemoryManager(context.config)
+                chunk_size = memory_manager.calculate_max_chunk_size(sample_count)
+                logger.info(
+                    f"Using memory-aware chunk size: {chunk_size} variants "
+                    f"for {sample_count} samples"
+                )
+                return chunk_size
+        except Exception as e:
+            logger.debug(f"Could not use memory manager: {e}. Falling back to improved defaults.")
+
+        # Improved fallback defaults - much more aggressive than before
         if sample_count <= 100:
-            chunk_size = 10000  # 10K variants × 100 samples = 1M cells (< 100M limit)
+            chunk_size = 50000  # 50K variants (was 10K) - high-memory systems can handle this
         elif sample_count <= 500:
-            chunk_size = 5000  # 5K variants × 500 samples = 2.5M cells (< 50M limit)
+            chunk_size = 25000  # 25K variants (was 5K) - 12.5M cells, reasonable for modern systems
         elif sample_count <= 1000:
-            chunk_size = 3000  # 3K variants × 1000 samples = 3M cells (< 25M limit)
+            chunk_size = 15000  # 15K variants (was 3K) - 15M cells, good balance
         elif sample_count <= 2500:
-            chunk_size = 2500  # 2.5K variants × 2500 samples = 6.25M cells (< 10M limit)
+            chunk_size = 8000  # 8K variants (was 2.5K) - 20M cells, within modern limits
+        elif sample_count <= 5000:
+            chunk_size = 6000  # 6K variants - 30M cells, optimized for large cohorts
         else:
-            # For >2500 samples, target 2000 variants as requested
-            # Check if 2000 variants would exceed 12M cell limit
-            target_chunk_size = 2000
-            if target_chunk_size * sample_count > 12_000_000:
-                # Fall back to safe calculation with 80% of limit
-                chunk_size = max(500, 9_600_000 // sample_count)
-            else:
-                chunk_size = target_chunk_size
+            # For very large cohorts (>5000 samples), use memory-based calculation
+            # Target ~50M cells per chunk (reasonable for 256GB+ systems)
+            target_cells = 50_000_000
+            chunk_size = max(1000, target_cells // sample_count)
+
+        # Apply reasonable bounds
+        chunk_size = max(1000, min(chunk_size, 100000))  # Between 1K and 100K variants
 
         logger.info(
-            f"Using inheritance-safe chunk size: {chunk_size} variants for {sample_count} samples"
+            f"Using inheritance-safe chunk size: {chunk_size} variants for {sample_count} samples "
+            f"(~{chunk_size * sample_count / 1_000_000:.1f}M cells)"
         )
         return chunk_size
 
@@ -2244,7 +2266,7 @@ class ChunkedAnalysisStage(Stage):
         # Calculate inheritance-safe chunk size if context and VCF samples are available
         if context and hasattr(context, "vcf_samples") and context.vcf_samples:
             sample_count = len(context.vcf_samples)
-            safe_chunk_size = self._calculate_inheritance_safe_chunk_size(sample_count)
+            safe_chunk_size = self._calculate_inheritance_safe_chunk_size(sample_count, context)
 
             # Use the smaller of user-specified chunk size or safe chunk size
             if chunksize > safe_chunk_size:
@@ -2550,7 +2572,8 @@ class ChunkedAnalysisStage(Stage):
 
             analysis_time = time.time() - analysis_start
             logger.info(
-                f"Inheritance analysis completed in {analysis_time:.2f}s for {len(chunk_df)} variants"
+                f"Inheritance analysis completed in {analysis_time:.2f}s "
+                f"for {len(chunk_df)} variants"
             )
 
             # Process inheritance output based on mode and scoring requirements

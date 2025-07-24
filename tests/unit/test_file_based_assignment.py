@@ -2,7 +2,7 @@
 
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+# from unittest.mock import patch  # Unused import
 
 import pytest
 

@@ -559,7 +559,7 @@ class TestPhenotypeIntegrationStage:
         for i, test_case in enumerate(test_cases):
             result = extract_phenotypes_for_gt_row(test_case["gt"], phenotypes)
             assert result == test_case["expected"], (
-                f"Variant {i+1} failed:\n"
+                f"Variant {i + 1} failed:\n"
                 f"GT: {test_case['gt']}\n"
                 f"Expected: {test_case['expected']}\n"
                 f"Got: {result}"
@@ -643,7 +643,7 @@ class TestPhenotypeIntegrationStage:
         for i, test_case in enumerate(edge_cases):
             result = extract_phenotypes_for_gt_row(test_case["gt"], phenotypes)
             assert result == test_case["expected"], (
-                f"Edge case {i+1} failed:\n"
+                f"Edge case {i + 1} failed:\n"
                 f"GT: {test_case['gt']}\n"
                 f"Expected: {test_case['expected']}\n"
                 f"Got: {result}"

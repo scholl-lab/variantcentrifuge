@@ -102,7 +102,7 @@ class TestStreamingParallelPerformance:
             print("Small file performance:")
             print(f"  Streaming parallel: {streaming_time:.2f}s")
             print(f"  Chunked vectorized: {chunked_time:.2f}s")
-            print(f"  Speedup ratio: {chunked_time/streaming_time:.2f}x")
+            print(f"  Speedup ratio: {chunked_time / streaming_time:.2f}x")
 
         except ImportError:
             print(f"Small file - Streaming parallel: {streaming_time:.2f}s")
@@ -135,7 +135,7 @@ class TestStreamingParallelPerformance:
             print("Medium file performance:")
             print(f"  Streaming parallel: {streaming_time:.2f}s")
             print(f"  Chunked vectorized: {chunked_time:.2f}s")
-            print(f"  Speedup ratio: {chunked_time/streaming_time:.2f}x")
+            print(f"  Speedup ratio: {chunked_time / streaming_time:.2f}x")
 
         except ImportError:
             print(f"Medium file - Streaming parallel: {streaming_time:.2f}s")

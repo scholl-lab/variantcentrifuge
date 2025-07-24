@@ -15,6 +15,34 @@ from .version import __version__
 logger = logging.getLogger("variantcentrifuge")
 
 
+def _calculate_sort_memory_limit(sort_limit: str, max_memory_gb: Optional[float] = None) -> str:
+    """Calculate intelligent sort memory limit based on available memory."""
+    if sort_limit != "auto":
+        return sort_limit
+
+    try:
+        import psutil
+
+        # Use provided max memory or detect available
+        if max_memory_gb:
+            available_gb = max_memory_gb
+        else:
+            memory_info = psutil.virtual_memory()
+            available_gb = memory_info.available / (1024**3)
+
+        # Use 10% of available memory for sorting, with reasonable bounds
+        sort_memory_gb = max(1, min(available_gb * 0.10, 50))  # Between 1GB and 50GB
+
+        if sort_memory_gb >= 1:
+            return f"{int(sort_memory_gb)}G"
+        else:
+            return f"{int(sort_memory_gb * 1024)}M"
+
+    except Exception as e:
+        logger.debug(f"Could not calculate sort memory limit: {e}. Using default 4G")
+        return "4G"  # Better default than 2G for modern systems
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create and return the argument parser for variantcentrifuge CLI."""
     parser = argparse.ArgumentParser(description="variantcentrifuge: Filter and process VCF files.")
@@ -421,8 +449,9 @@ def create_parser() -> argparse.ArgumentParser:
     performance_group.add_argument(
         "--sort-memory-limit",
         type=str,
-        default="2G",
-        help="Memory limit for external sort command (default: 2G). " "Examples: 500M, 4G, 8G",
+        default="auto",
+        help="Memory limit for external sort command (default: auto - scales with available memory). "
+        "Examples: 500M, 4G, 8G, auto. When 'auto', uses ~10%% of available memory.",
     )
     performance_group.add_argument(
         "--sort-parallel",
@@ -453,15 +482,15 @@ def create_parser() -> argparse.ArgumentParser:
     performance_group.add_argument(
         "--vectorized-chunk-size",
         type=int,
-        default=5000,
-        help="Number of rows per chunk for vectorized genotype replacement (default: 5000). "
+        default=25000,
+        help="Number of rows per chunk for vectorized genotype replacement (default: 25000, optimized for high-memory systems). "
         "Only used when processing method is vectorized and file is large.",
     )
     performance_group.add_argument(
         "--vectorized-chunk-threshold-mb",
         type=int,
-        default=200,
-        help="File size threshold in MB for using chunked vectorized processing (default: 200). "
+        default=500,
+        help="File size threshold in MB for using chunked vectorized processing (default: 500MB, increased for high-memory systems). "
         "Files larger than this will use chunked processing to manage memory usage.",
     )
     performance_group.add_argument(
@@ -605,8 +634,8 @@ def create_parser() -> argparse.ArgumentParser:
     misc_group.add_argument(
         "--genotype-replacement-chunk-size",
         type=int,
-        default=10000,
-        help="Chunk size for parallel genotype replacement (default: 10000 variants per chunk). "
+        default=50000,
+        help="Chunk size for parallel genotype replacement (default: 50000 variants per chunk, optimized for high-memory systems). "
         "Larger chunks use more memory but may be more efficient for very large datasets.",
     )
     misc_group.add_argument(
@@ -1099,8 +1128,9 @@ def main() -> int:
     performance_group.add_argument(
         "--sort-memory-limit",
         type=str,
-        default="2G",
-        help="Memory limit for external sort command (default: 2G). " "Examples: 500M, 4G, 8G",
+        default="auto",
+        help="Memory limit for external sort command (default: auto - scales with available memory). "
+        "Examples: 500M, 4G, 8G, auto. When 'auto', uses ~10%% of available memory.",
     )
     performance_group.add_argument(
         "--sort-parallel",
@@ -1131,15 +1161,15 @@ def main() -> int:
     performance_group.add_argument(
         "--vectorized-chunk-size",
         type=int,
-        default=5000,
-        help="Number of rows per chunk for vectorized genotype replacement (default: 5000). "
+        default=25000,
+        help="Number of rows per chunk for vectorized genotype replacement (default: 25000, optimized for high-memory systems). "
         "Only used when processing method is vectorized and file is large.",
     )
     performance_group.add_argument(
         "--vectorized-chunk-threshold-mb",
         type=int,
-        default=200,
-        help="File size threshold in MB for using chunked vectorized processing (default: 200). "
+        default=500,
+        help="File size threshold in MB for using chunked vectorized processing (default: 500MB, increased for high-memory systems). "
         "Files larger than this will use chunked processing to manage memory usage.",
     )
     performance_group.add_argument(
@@ -1520,7 +1550,9 @@ def main() -> int:
     # Chunked processing configuration
     cfg["no_chunked_processing"] = args.no_chunked_processing
     cfg["force_chunked_processing"] = args.force_chunked_processing
-    cfg["sort_memory_limit"] = args.sort_memory_limit
+    cfg["sort_memory_limit"] = _calculate_sort_memory_limit(
+        args.sort_memory_limit, cfg.get("max_memory_gb")
+    )
     cfg["sort_parallel"] = args.sort_parallel
 
     # Inheritance memory configuration

@@ -577,12 +577,15 @@ def process_parallel_chunked_vectorized(
 
     # Calculate safe number of workers with more aggressive scaling
     # Since we're streaming output (not loading chunks back), we can use more memory per worker
-    safe_memory_gb = available_memory_gb * 0.8  # Use 80% of available memory
+    safe_memory_gb = available_memory_gb * 0.85  # Use 85% of available memory (increased from 80%)
     if max_workers is None:
         # Use more threads and higher memory per worker since scaling is favorable
         memory_based_workers = int(safe_memory_gb / estimated_chunk_memory_gb)
-        # Don't cap at 8 - use actual thread count provided, up to memory limit
-        max_workers = max(1, min(memory_based_workers, 16))  # Cap at 16 for system stability
+        # Use optimal worker count based on memory and CPU cores (no artificial cap)
+        import psutil
+
+        cpu_cores = psutil.cpu_count(logical=False) or 4
+        max_workers = max(1, min(memory_based_workers, cpu_cores))  # Scale with available cores
 
     logger.info(
         f"Using parallel chunked processing with {max_workers} workers "

@@ -10,7 +10,7 @@ import os
 from typing import List, Optional
 
 from ..config import load_config
-from ..helpers import get_vcf_samples, compute_phenotype_based_case_control_assignment
+from ..helpers import get_vcf_samples
 from ..ped_reader import read_pedigree
 from ..phenotype import load_phenotypes
 from ..pipeline_core import PipelineContext, Stage
@@ -908,7 +908,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         case_phenotype_set = set(case_phenotypes) if case_phenotypes else set()
         control_phenotype_set = set(control_phenotypes) if control_phenotypes else set()
         # Convert VCF samples to strings for consistent comparison
-        vcf_samples_set = set(str(s) for s in vcf_samples)
+        # vcf_samples_set = set(str(s) for s in vcf_samples)  # Currently unused
 
         logger.info(f"Looking for case phenotypes: {case_phenotype_set}")
         logger.info(f"Looking for control phenotypes: {control_phenotype_set}")
@@ -921,7 +921,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         # VCF samples are strings, but phenotype file samples might be integers
         vcf_samples_str = set(str(s) for s in vcf_samples)
 
-        # CRITICAL FIX: Apply the same substring removal to VCF samples as will be applied to case/control samples
+        # CRITICAL FIX: Apply same substring removal to VCF samples as case/control samples
         if remove_substring and remove_substring.strip():
             vcf_samples_str = set(s.replace(remove_substring, "") for s in vcf_samples_str)
             logger.debug(f"Applied substring removal '{remove_substring}' to VCF samples")
@@ -982,7 +982,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
             logger.info(f"Found {len(control_samples)} samples matching control phenotypes")
 
         # DEBUG: Show the actual sample formats to diagnose mismatch
-        logger.debug(f"DEBUGGING SAMPLE ASSIGNMENT:")
+        logger.debug("DEBUGGING SAMPLE ASSIGNMENT:")
         logger.debug(f"Case samples format: {list(case_samples)[:3] if case_samples else 'None'}")
         logger.debug(f"VCF samples format: {list(vcf_samples_str)[:3]}")
         logger.debug(f"Configured remove_substring: '{remove_substring}'")
@@ -1237,7 +1237,8 @@ class PhenotypeCaseControlAssignmentStage(Stage):
             )
         if missing_controls:
             logger.warning(
-                f"{len(missing_controls)} control samples not found in VCF: {list(missing_controls)[:10]}"
+                f"{len(missing_controls)} control samples not found in VCF: "
+                f"{list(missing_controls)[:10]}"
             )
 
         # Assignment logic: if only one type is specified, others become the opposite
@@ -1259,7 +1260,8 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         context.config["control_samples"] = list(final_control_samples)
 
         logger.info(
-            f"File-based assignment complete: {len(final_case_samples)} cases, {len(final_control_samples)} controls"
+            f"File-based assignment complete: {len(final_case_samples)} cases, "
+            f"{len(final_control_samples)} controls"
         )
 
         # Log sample assignment summary

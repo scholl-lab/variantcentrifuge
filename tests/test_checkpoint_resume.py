@@ -39,7 +39,7 @@ class TestCheckpointResume:
                 for i in range(3):  # Only 3 chunks created, not 8
                     chunk_file = os.path.join(intermediate_dir, f"chunk_{i}.bed")
                     with open(chunk_file, "w") as f:
-                        f.write(f"chr1\t{1000+i*100}\t{1100+i*100}\tTEST_chunk{i}\n")
+                        f.write(f"chr1\t{1000 + i * 100}\t{1100 + i * 100}\tTEST_chunk{i}\n")
                     chunk_files.append(chunk_file)
                     ctx.add_output_file(chunk_file)
 

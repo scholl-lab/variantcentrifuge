@@ -285,12 +285,14 @@ class InheritanceMemoryManager:
             if estimated_memory <= self._allocated_memory_gb:
                 return (
                     True,
-                    f"Risky but forced: {estimated_memory:.2f}GB <= {self._allocated_memory_gb:.2f}GB",
+                    f"Risky but forced: {estimated_memory:.2f}GB <= "
+                    f"{self._allocated_memory_gb:.2f}GB",
                 )
             else:
                 return (
                     False,
-                    f"Cannot process: {estimated_memory:.2f}GB > {self._allocated_memory_gb:.2f}GB allocated",
+                    f"Cannot process: {estimated_memory:.2f}GB > "
+                    f"{self._allocated_memory_gb:.2f}GB allocated",
                 )
         else:
             return False, f"Unsafe: {estimated_memory:.2f}GB > {safe_memory:.2f}GB safe limit"
@@ -319,7 +321,8 @@ class InheritanceMemoryManager:
                 "estimated_memory_gb": full_memory,
                 "chunks": 1,
                 "max_workers": 1,
-                "reason": f"Full dataset fits in memory ({full_memory:.2f}GB <= {safe_memory:.2f}GB)",
+                "reason": f"Full dataset fits in memory "
+                f"({full_memory:.2f}GB <= {safe_memory:.2f}GB)",
             }
         else:
             # Calculate chunking strategy
@@ -349,7 +352,8 @@ class InheritanceMemoryManager:
                 ),
                 "total_memory_budget_gb": safe_memory * self.inheritance_memory_fraction,
                 "memory_info": memory_info,
-                "reason": f"Dataset too large for memory ({full_memory:.2f}GB > {safe_memory:.2f}GB)",
+                "reason": f"Dataset too large for memory "
+                f"({full_memory:.2f}GB > {safe_memory:.2f}GB)",
             }
 
         logger.info(
@@ -363,12 +367,17 @@ class InheritanceMemoryManager:
         """Log current memory status for debugging."""
         try:
             memory = psutil.virtual_memory()
+            inheritance_budget = (
+                self._allocated_memory_gb
+                * self.memory_safety_factor
+                * self.inheritance_memory_fraction
+            )
             logger.info(
-                f"Memory Status - System: {memory.total/(1024**3):.1f}GB, "
-                f"System Available: {memory.available/(1024**3):.1f}GB, "
+                f"Memory Status - System: {memory.total / (1024**3):.1f}GB, "
+                f"System Available: {memory.available / (1024**3):.1f}GB, "
                 f"Allocated: {self._allocated_memory_gb:.1f}GB, "
                 f"Safe limit: {self._allocated_memory_gb * self.memory_safety_factor:.1f}GB, "
-                f"Inheritance budget: {self._allocated_memory_gb * self.memory_safety_factor * self.inheritance_memory_fraction:.1f}GB"
+                f"Inheritance budget: {inheritance_budget:.1f}GB"
             )
         except Exception as e:
             logger.warning(f"Could not log memory status: {e}")

@@ -1,6 +1,6 @@
 """Unit tests for VariantAnalysisStage case/control configuration passing."""
 
-import tempfile
+# import tempfile  # Unused import
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -65,7 +65,7 @@ class TestVariantAnalysisConfig:
         context.mark_complete("dataframe_loading")
 
         stage = VariantAnalysisStage()
-        result = stage(context)
+        _ = stage(context)  # Execute stage, result not needed
 
         # Verify analyze_variants was called
         assert mock_analyze_variants.call_count == 1
@@ -103,7 +103,7 @@ class TestVariantAnalysisConfig:
         context.mark_complete("dataframe_loading")
 
         stage = VariantAnalysisStage()
-        result = stage(context)
+        _ = stage(context)  # Execute stage, result not needed
 
         # Get the analysis_config that was passed
         call_args = mock_analyze_variants.call_args
@@ -132,7 +132,7 @@ class TestVariantAnalysisConfig:
         context.mark_complete("dataframe_loading")
 
         stage = VariantAnalysisStage()
-        result = stage(context)
+        _ = stage(context)  # Execute stage, result not needed
 
         # Get the analysis_config that was passed
         call_args = mock_analyze_variants.call_args
@@ -152,7 +152,7 @@ class TestVariantAnalysisConfig:
         context.mark_complete("dataframe_loading")
 
         stage = VariantAnalysisStage()
-        result = stage(context)
+        _ = stage(context)  # Execute stage, result not needed
 
         # Get the analysis_config that was passed
         call_args = mock_analyze_variants.call_args

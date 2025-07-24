@@ -128,7 +128,7 @@ class TestParallelCheckpoint:
                 for i in range(4):
                     chunk_file = os.path.join(output_dir, f"chunk_{i}.bed")
                     with open(chunk_file, "w") as f:
-                        f.write(f"chr1\t{1000+i*100}\t{1100+i*100}\tGENE1_chunk{i}\n")
+                        f.write(f"chr1\t{1000 + i * 100}\t{1100 + i * 100}\tGENE1_chunk{i}\n")
                     chunk_files.append(chunk_file)
                     ctx.add_output_file(chunk_file)
 

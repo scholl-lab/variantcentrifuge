@@ -208,9 +208,11 @@ class AdaptiveMemoryManager:
         # Parallelization-based target
         parallel_chunk_target = max(1000, file_rows_estimate // target_chunks)
 
-        # Performance-based limits
-        min_chunk_size = 500  # Minimum for efficiency
-        max_chunk_size = 25000  # Maximum for responsiveness
+        # Performance-based limits - optimized for high-memory systems
+        min_chunk_size = 1000  # Minimum for efficiency (increased from 500)
+        max_chunk_size = (
+            100000  # Maximum for responsiveness (increased from 25K for 256GB+ systems)
+        )
 
         # Choose optimal size
         optimal_size = min(memory_chunk_limit, parallel_chunk_target)
@@ -267,10 +269,12 @@ class IntelligentChunkCalculator:
         else:
             # Fallback calculation without profiling
             estimated_bytes_per_row = 500 + sample_count * 60
-            memory_bytes = memory_gb * 0.5 * (1024**3)  # Use 50% of memory
+            memory_bytes = memory_gb * 0.75 * (1024**3)  # Use 75% of memory (increased from 50%)
             memory_chunk_limit = int(memory_bytes / estimated_bytes_per_row)
             parallel_chunk_target = max(1000, total_rows // target_chunks)
-            chunk_size = max(500, min(memory_chunk_limit, parallel_chunk_target, 20000))
+            chunk_size = max(
+                1000, min(memory_chunk_limit, parallel_chunk_target, 100000)
+            )  # Increased limits
 
         expected_chunks = math.ceil(total_rows / chunk_size)
 
