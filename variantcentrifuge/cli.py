@@ -476,6 +476,20 @@ def create_parser() -> argparse.ArgumentParser:
         help="Force inheritance analysis even if it exceeds safe memory limits. "
         "Use with caution on systems with limited memory.",
     )
+    performance_group.add_argument(
+        "--memory-safety-factor",
+        type=float,
+        default=0.92,
+        help="Fraction of allocated memory to use safely (default: 0.92 = 92%%). "
+        "Lower values are more conservative, higher values use more memory.",
+    )
+    performance_group.add_argument(
+        "--inheritance-memory-fraction",
+        type=float,
+        default=0.85,
+        help="Fraction of safe memory to allocate for inheritance analysis (default: 0.85 = 85%%). "
+        "Remainder is reserved for other pipeline stages.",
+    )
 
     # Checkpoint & Resume Options
     checkpoint_group = parser.add_argument_group("Checkpoint & Resume Options")
@@ -1140,6 +1154,20 @@ def main() -> int:
         help="Force inheritance analysis even if it exceeds safe memory limits. "
         "Use with caution on systems with limited memory.",
     )
+    performance_group.add_argument(
+        "--memory-safety-factor",
+        type=float,
+        default=0.92,
+        help="Fraction of allocated memory to use safely (default: 0.92 = 92%%). "
+        "Lower values are more conservative, higher values use more memory.",
+    )
+    performance_group.add_argument(
+        "--inheritance-memory-fraction",
+        type=float,
+        default=0.85,
+        help="Fraction of safe memory to allocate for inheritance analysis (default: 0.85 = 85%%). "
+        "Remainder is reserved for other pipeline stages.",
+    )
 
     # Checkpoint & Resume Options
     checkpoint_group = parser.add_argument_group("Checkpoint & Resume Options")
@@ -1494,9 +1522,11 @@ def main() -> int:
     cfg["force_chunked_processing"] = args.force_chunked_processing
     cfg["sort_memory_limit"] = args.sort_memory_limit
     cfg["sort_parallel"] = args.sort_parallel
-    
+
     # Inheritance memory configuration
     cfg["force_inheritance_processing"] = args.force_inheritance_processing
+    cfg["memory_safety_factor"] = args.memory_safety_factor
+    cfg["inheritance_memory_fraction"] = args.inheritance_memory_fraction
 
     # Statistics configuration
     cfg["stats_config"] = args.stats_config

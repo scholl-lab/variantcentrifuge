@@ -36,13 +36,13 @@ class InheritanceMemoryManager:
         self._allocated_memory_gb = self._get_allocated_memory()
         self._current_available_gb = self._get_current_available_memory()
 
-        # Memory safety factors
+        # Memory safety factors - optimized for modern HPC/high-memory systems
         self.memory_safety_factor = self.config.get(
-            "memory_safety_factor", 0.80
-        )  # Use max 80% of allocated
+            "memory_safety_factor", 0.92
+        )  # Use max 92% of allocated (optimized for dedicated systems)
         self.inheritance_memory_fraction = self.config.get(
-            "inheritance_memory_fraction", 0.70
-        )  # 70% of safe memory for inheritance
+            "inheritance_memory_fraction", 0.85
+        )  # 85% of safe memory for inheritance (optimized for large cohorts)
 
         # Memory estimation constants (calibrated from actual usage)
         self.bytes_per_sample_column = 8  # float64 for genotype values
