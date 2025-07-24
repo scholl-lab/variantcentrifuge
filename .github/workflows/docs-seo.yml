@@ -112,32 +112,32 @@ jobs:
       - name: Validate meta tags
         run: |
           # Check for essential meta tags in index.html
-          python -c '
-import re
-with open("docs/build/html/index.html", "r") as f:
-    content = f.read()
-
-# Check for meta description
-if re.search(r"<meta name=\"description\"", content):
-    print("✓ Meta description found")
-else:
-    print("✗ Meta description missing")
-    exit(1)
-
-# Check for OpenGraph tags
-if re.search(r"<meta property=\"og:title\"", content):
-    print("✓ OpenGraph tags found")
-else:
-    print("✗ OpenGraph tags missing")
-    exit(1)
-
-# Check for canonical URL
-if re.search(r"<link rel=\"canonical\"", content):
-    print("✓ Canonical URL found")
-else:
-    print("✗ Canonical URL missing")
-    exit(1)
-'
+          python -c "
+          import re
+          with open('docs/build/html/index.html', 'r') as f:
+              content = f.read()
+          
+          # Check for meta description
+          if re.search(r'<meta name=\"description\"', content):
+              print('✓ Meta description found')
+          else:
+              print('✗ Meta description missing')
+              exit(1)
+          
+          # Check for OpenGraph tags
+          if re.search(r'<meta property=\"og:title\"', content):
+              print('✓ OpenGraph tags found')
+          else:
+              print('✗ OpenGraph tags missing')
+              exit(1)
+          
+          # Check for canonical URL
+          if re.search(r'<link rel=\"canonical\"', content):
+              print('✓ Canonical URL found')
+          else:
+              print('✗ Canonical URL missing')
+              exit(1)
+          "
 
       - name: Generate SEO report
         if: always()
