@@ -407,13 +407,6 @@ def create_parser() -> argparse.ArgumentParser:
         "Set to 1 to disable parallelization (default: 1).",
     )
     performance_group.add_argument(
-        "--chunk-size",
-        type=int,
-        default=10000,
-        help="Number of variants per chunk for memory-efficient processing (default: 10000). "
-        "Automatically adjusts to keep genes together.",
-    )
-    performance_group.add_argument(
         "--no-chunked-processing",
         action="store_true",
         help="Disable chunked processing even for large files. "
@@ -472,16 +465,16 @@ def create_parser() -> argparse.ArgumentParser:
         "Files larger than this will use chunked processing to manage memory usage.",
     )
     performance_group.add_argument(
-        "--disable-parallel-genotype-replacement",
-        action="store_true",
-        help="Disable parallel genotype replacement even when multiple threads are available. "
-        "Forces sequential or vectorized processing.",
-    )
-    performance_group.add_argument(
         "--max-memory-gb",
         type=float,
         help="Maximum memory in GB to use for genotype processing (auto-detected if not specified). "
         "Used to intelligently select processing method and chunk sizes.",
+    )
+    performance_group.add_argument(
+        "--force-inheritance-processing",
+        action="store_true",
+        help="Force inheritance analysis even if it exceeds safe memory limits. "
+        "Use with caution on systems with limited memory.",
     )
 
     # Checkpoint & Resume Options
@@ -601,13 +594,6 @@ def create_parser() -> argparse.ArgumentParser:
         default=10000,
         help="Chunk size for parallel genotype replacement (default: 10000 variants per chunk). "
         "Larger chunks use more memory but may be more efficient for very large datasets.",
-    )
-    misc_group.add_argument(
-        "--disable-parallel-genotype-replacement",
-        action="store_true",
-        default=False,
-        help="Force sequential genotype replacement even for large datasets. "
-        "May be useful for debugging or when memory is very limited.",
     )
     misc_group.add_argument(
         "--chunks",
@@ -1085,13 +1071,6 @@ def main() -> int:
         "Set to 1 to disable parallelization (default: 1).",
     )
     performance_group.add_argument(
-        "--chunk-size",
-        type=int,
-        default=10000,
-        help="Number of variants per chunk for memory-efficient processing (default: 10000). "
-        "Automatically adjusts to keep genes together.",
-    )
-    performance_group.add_argument(
         "--no-chunked-processing",
         action="store_true",
         help="Disable chunked processing even for large files. "
@@ -1150,16 +1129,16 @@ def main() -> int:
         "Files larger than this will use chunked processing to manage memory usage.",
     )
     performance_group.add_argument(
-        "--disable-parallel-genotype-replacement",
-        action="store_true",
-        help="Disable parallel genotype replacement even when multiple threads are available. "
-        "Forces sequential or vectorized processing.",
-    )
-    performance_group.add_argument(
         "--max-memory-gb",
         type=float,
         help="Maximum memory in GB to use for genotype processing (auto-detected if not specified). "
         "Used to intelligently select processing method and chunk sizes.",
+    )
+    performance_group.add_argument(
+        "--force-inheritance-processing",
+        action="store_true",
+        help="Force inheritance analysis even if it exceeds safe memory limits. "
+        "Use with caution on systems with limited memory.",
     )
 
     # Checkpoint & Resume Options
@@ -1511,11 +1490,13 @@ def main() -> int:
     cfg["final_filter"] = args.final_filter
 
     # Chunked processing configuration
-    cfg["chunk_size"] = args.chunk_size
     cfg["no_chunked_processing"] = args.no_chunked_processing
     cfg["force_chunked_processing"] = args.force_chunked_processing
     cfg["sort_memory_limit"] = args.sort_memory_limit
     cfg["sort_parallel"] = args.sort_parallel
+    
+    # Inheritance memory configuration
+    cfg["force_inheritance_processing"] = args.force_inheritance_processing
 
     # Statistics configuration
     cfg["stats_config"] = args.stats_config
