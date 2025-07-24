@@ -6,4 +6,4 @@ To update the version, change __version__ below. All other references to the ver
 throughout the codebase should import it from here.
 """
 
-__version__ = "0.6.1"
+__version__ = "0.6.2"
