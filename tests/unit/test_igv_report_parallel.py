@@ -202,7 +202,6 @@ class TestIGVReportParallel:
         self, mock_single_report, sample_tsv, bam_mapping_file, temp_dir
     ):
         """Test thread safety of variant map updates."""
-
         # Setup - simulate multiple successful reports for the same variant
         def mock_report_generator(*args):
             task = args[0]

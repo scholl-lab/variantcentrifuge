@@ -290,8 +290,10 @@ class DataFrameLoadingStage(Stage):
             logger.warning("No TSV file found to restore DataFrame during checkpoint skip")
             return context
 
-        # Check if we should use chunked processing
-        if self._should_use_chunks(context, input_file):
+        # Check if we should use chunked processing - skip if parallel processing done
+        if self._should_use_chunks(context, input_file) and not context.config.get(
+            "chunked_processing_complete"
+        ):
             logger.info("File too large, will use chunked processing (checkpoint skip)")
             context.config["use_chunked_processing"] = True
             # Don't load full DataFrame - chunked stages will handle it
@@ -364,8 +366,10 @@ class DataFrameLoadingStage(Stage):
         # Find the input file
         input_file = self._find_input_file(context)
 
-        # Check if we should use chunked processing
-        if self._should_use_chunks(context, input_file):
+        # Check if we should use chunked processing - skip if parallel processing done
+        if self._should_use_chunks(context, input_file) and not context.config.get(
+            "chunked_processing_complete"
+        ):
             logger.info("File too large, will use chunked processing")
             context.config["use_chunked_processing"] = True
             # Don't load full DataFrame - chunked stages will handle it
@@ -605,8 +609,10 @@ class InheritanceAnalysisStage(Stage):
         # Determine inheritance mode
         inheritance_mode = context.config.get("inheritance_mode", "simple")
 
-        # Check if using chunked processing
-        if context.config.get("use_chunked_processing"):
+        # Check if using chunked processing - only defer if chunked processing is not complete
+        if context.config.get("use_chunked_processing") and not context.config.get(
+            "chunked_processing_complete"
+        ):
             logger.info(
                 f"Inheritance analysis ({inheritance_mode} mode) "
                 "will be applied during chunked processing"
@@ -846,8 +852,10 @@ class VariantScoringStage(Stage):
             logger.debug("No scoring configuration loaded")
             return context
 
-        # Check if using chunked processing
-        if context.config.get("use_chunked_processing"):
+        # Check if using chunked processing - only defer if chunked processing is not complete
+        if context.config.get("use_chunked_processing") and not context.config.get(
+            "chunked_processing_complete"
+        ):
             logger.info("Scoring will be applied during chunked processing")
             return context
 

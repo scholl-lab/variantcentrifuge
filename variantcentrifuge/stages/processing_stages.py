@@ -2280,6 +2280,9 @@ class ParallelCompleteProcessingStage(Stage):
         context.mark_complete("snpsift_filtering")
         context.mark_complete("field_extraction")
 
+        # Mark chunked processing as complete so analysis stages can run
+        context.config["chunked_processing_complete"] = True
+
         # Cleanup chunks
         cleanup_start = self._start_subtask("cleanup")
         self._cleanup_chunks(bed_chunks, chunk_tsvs, context)
