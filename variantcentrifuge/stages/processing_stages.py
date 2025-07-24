@@ -172,7 +172,6 @@ def select_optimal_processing_method(
     num_samples: int,
     threads: int,
     available_memory_gb: float = None,
-    force_method: str = None,
 ) -> str:
     """
     Select the optimal processing method based on file characteristics.
@@ -190,8 +189,6 @@ def select_optimal_processing_method(
         Number of available threads
     available_memory_gb : float, optional
         Available memory in GB (auto-detected if None)
-    force_method : str, optional
-        Force specific method for testing/debugging
 
     Returns
     -------
@@ -199,10 +196,6 @@ def select_optimal_processing_method(
         Selected processing method: 'sequential', 'vectorized', 'chunked-vectorized',
         'parallel', 'parallel-chunked-vectorized', or 'streaming-parallel'
     """
-    if force_method:
-        logger.info(f"Forcing processing method: {force_method}")
-        return force_method
-
     if available_memory_gb is None:
         available_memory_gb = get_available_memory_gb()
 
@@ -1189,9 +1182,6 @@ class GenotypeReplacementStage(Stage):
                 num_samples=len(samples),
                 threads=threads,
                 available_memory_gb=context.config.get("max_memory_gb"),  # Allow override
-                force_method=context.config.get(
-                    "force_genotype_method"
-                ),  # Allow forcing for debugging
             )
 
         # Execute based on selected method

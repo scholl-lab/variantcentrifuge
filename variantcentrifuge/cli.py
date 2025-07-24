@@ -483,19 +483,6 @@ def create_parser() -> argparse.ArgumentParser:
         help="Maximum memory in GB to use for genotype processing (auto-detected if not specified). "
         "Used to intelligently select processing method and chunk sizes.",
     )
-    performance_group.add_argument(
-        "--force-genotype-method",
-        choices=[
-            "sequential",
-            "vectorized",
-            "chunked-vectorized",
-            "parallel-chunked-vectorized",
-            "parallel",
-            "streaming-parallel",
-        ],
-        help="Force specific genotype replacement method, bypassing auto-selection. "
-        "Useful for debugging or when you know the optimal method for your data.",
-    )
 
     # Checkpoint & Resume Options
     checkpoint_group = parser.add_argument_group("Checkpoint & Resume Options")
@@ -1173,19 +1160,6 @@ def main() -> int:
         type=float,
         help="Maximum memory in GB to use for genotype processing (auto-detected if not specified). "
         "Used to intelligently select processing method and chunk sizes.",
-    )
-    performance_group.add_argument(
-        "--force-genotype-method",
-        choices=[
-            "sequential",
-            "vectorized",
-            "chunked-vectorized",
-            "parallel-chunked-vectorized",
-            "parallel",
-            "streaming-parallel",
-        ],
-        help="Force specific genotype replacement method, bypassing auto-selection. "
-        "Useful for debugging or when you know the optimal method for your data.",
     )
 
     # Checkpoint & Resume Options
