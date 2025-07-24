@@ -1224,6 +1224,12 @@ class VariantAnalysisStage(Stage):
             "no_db_links": context.config.get("no_db_links", False),
             "base_name": context.workspace.base_name,
             "reference": context.config.get("reference", "GRCh37"),
+            # CRITICAL: Pass through case/control samples from phenotype assignment
+            "case_samples": context.config.get("case_samples", []),
+            "control_samples": context.config.get("control_samples", []),
+            # Pass through phenotype terms for legacy compatibility
+            "case_phenotypes": context.config.get("case_phenotypes", []),
+            "control_phenotypes": context.config.get("control_phenotypes", []),
         }
 
         # Create temporary TSV file for analyze_variants
@@ -1491,8 +1497,25 @@ class GeneBurdenAnalysisStage(Stage):
         case_samples = context.config.get("case_samples", [])
         control_samples = context.config.get("control_samples", [])
 
+        # Debug logging to understand what's available
+        logger.debug(
+            f"Gene burden analysis context check: "
+            f"case_samples={len(case_samples) if case_samples else 0}, "
+            f"control_samples={len(control_samples) if control_samples else 0}"
+        )
+
+        # Debug all context config keys to understand what's available
+        config_keys = list(context.config.keys())
+        sample_related_keys = [k for k in config_keys if "sample" in k.lower()]
+        logger.debug(f"All sample-related config keys: {sample_related_keys}")
+
         if not case_samples or not control_samples:
-            logger.warning("Case/control samples not defined for gene burden analysis")
+            logger.warning(
+                f"Case/control samples not defined for gene burden analysis: "
+                f"case_samples={len(case_samples) if case_samples else 0}, "
+                f"control_samples={len(control_samples) if control_samples else 0}"
+            )
+            logger.debug(f"Available config keys with 'sample': {sample_related_keys}")
             return context
 
         df = context.current_dataframe

@@ -173,6 +173,8 @@ def create_parser() -> argparse.ArgumentParser:
     )
     format_group.add_argument(
         "--remove-sample-substring",
+        type=str,
+        default=None,
         help="If provided, this substring will be removed from all sample names found in the VCF.",
     )
     # Genotype Analysis
@@ -862,6 +864,8 @@ def main() -> int:
     )
     format_group.add_argument(
         "--remove-sample-substring",
+        type=str,
+        default=None,
         help="If provided, this substring will be removed from all sample names found in the VCF.",
     )
     # Genotype Analysis
@@ -1444,7 +1448,7 @@ def main() -> int:
     cfg["fields_to_extract"] = fields
 
     # Remove sample substring (optional)
-    cfg["remove_sample_substring"] = args.remove_sample_substring or None
+    cfg["remove_sample_substring"] = args.remove_sample_substring
 
     # Toggle link columns
     cfg["no_links"] = args.no_links

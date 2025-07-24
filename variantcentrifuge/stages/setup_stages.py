@@ -10,7 +10,7 @@ import os
 from typing import List, Optional
 
 from ..config import load_config
-from ..helpers import get_vcf_samples
+from ..helpers import get_vcf_samples, compute_phenotype_based_case_control_assignment
 from ..ped_reader import read_pedigree
 from ..phenotype import load_phenotypes
 from ..pipeline_core import PipelineContext, Stage
@@ -769,15 +769,10 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         case_samples_file = context.config.get("case_samples_file")
         control_samples_file = context.config.get("control_samples_file")
 
-        # Skip if explicit assignments exist
-        if (
-            existing_case_samples
-            or existing_control_samples
-            or case_samples_file
-            or control_samples_file
-        ):
+        # Skip if explicit case/control samples are already assigned (not files)
+        if existing_case_samples or existing_control_samples:
             logger.debug(
-                "Explicit case/control assignments exist, skipping phenotype-based assignment"
+                "Explicit case/control assignments exist, skipping case/control assignment"
             )
             return context
 
@@ -791,9 +786,19 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         if isinstance(control_phenotypes, str):
             control_phenotypes = [t.strip() for t in control_phenotypes.split(",") if t.strip()]
 
+        # Check for file-based case/control assignment first
+        case_samples_file = context.config.get("case_samples_file")
+        control_samples_file = context.config.get("control_samples_file")
+
+        if case_samples_file or control_samples_file:
+            logger.info("File-based case/control assignment detected")
+            return self._handle_file_based_assignment(
+                context, case_samples_file, control_samples_file
+            )
+
         # Skip if no phenotype criteria
         if not case_phenotypes and not control_phenotypes:
-            logger.debug("No phenotype criteria specified, skipping phenotype-based assignment")
+            logger.debug("No phenotype criteria specified, skipping case/control assignment")
             return context
 
         # Get VCF samples
@@ -836,6 +841,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
                 control_phenotypes,
                 vcf_samples,
                 remove_substring,
+                context,
             )
 
             # Update configuration with classified samples
@@ -871,6 +877,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         control_phenotypes,
         vcf_samples,
         remove_substring="",
+        context=None,
     ):
         """
         Load CSV, filter by phenotype terms, get sample lists.
@@ -913,6 +920,12 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         # Convert sample IDs to strings for consistent comparison
         # VCF samples are strings, but phenotype file samples might be integers
         vcf_samples_str = set(str(s) for s in vcf_samples)
+
+        # CRITICAL FIX: Apply the same substring removal to VCF samples as will be applied to case/control samples
+        if remove_substring and remove_substring.strip():
+            vcf_samples_str = set(s.replace(remove_substring, "") for s in vcf_samples_str)
+            logger.debug(f"Applied substring removal '{remove_substring}' to VCF samples")
+
         pheno_samples_raw = set(str(s) for s in df[sample_column].unique())
 
         # Apply sample substring removal to phenotype samples if configured
@@ -968,19 +981,50 @@ class PhenotypeCaseControlAssignmentStage(Stage):
                 control_samples = control_samples_raw
             logger.info(f"Found {len(control_samples)} samples matching control phenotypes")
 
-        # Apply assignment logic
+        # DEBUG: Show the actual sample formats to diagnose mismatch
+        logger.debug(f"DEBUGGING SAMPLE ASSIGNMENT:")
+        logger.debug(f"Case samples format: {list(case_samples)[:3] if case_samples else 'None'}")
+        logger.debug(f"VCF samples format: {list(vcf_samples_str)[:3]}")
+        logger.debug(f"Configured remove_substring: '{remove_substring}'")
+        if context:
+            direct_config = context.config.get("remove_sample_substring")
+            logger.debug(f"Direct config remove_sample_substring: '{direct_config}'")
+        else:
+            direct_config = None
+            logger.debug("No context available to check direct config")
+
+        # Debug: show what we're intersecting
+        logger.debug(f"VCF samples (processed): {len(vcf_samples_str)} samples")
+        logger.debug(f"Case samples from phenotypes: {len(case_samples)} samples")
+        logger.debug(f"First 5 VCF samples: {list(vcf_samples_str)[:5]}")
+        logger.debug(f"First 5 case samples: {list(case_samples)[:5]}")
+
+        # Debug intersection issue
+        intersection = case_samples & vcf_samples_str
+        logger.debug(f"Intersection of case samples with VCF samples: {len(intersection)} samples")
+        if len(intersection) > 0:
+            logger.debug(f"First 5 intersecting samples: {list(intersection)[:5]}")
+        else:
+            logger.warning("NO INTERSECTION between case samples and VCF samples!")
+            # Show sample name comparison
+            case_sample_list = list(case_samples)[:10]
+            vcf_sample_list = list(vcf_samples_str)[:10]
+            logger.warning(f"Example case samples: {case_sample_list}")
+            logger.warning(f"Example VCF samples: {vcf_sample_list}")
+
+        # Apply assignment logic using the correct VCF samples set (with substring removal applied)
         if case_phenotype_set and not control_phenotype_set:
             # Only case phenotypes specified - all non-matching VCF samples are controls
-            final_case_samples = case_samples & vcf_samples_set
-            final_control_samples = vcf_samples_set - final_case_samples
+            final_case_samples = case_samples & vcf_samples_str
+            final_control_samples = vcf_samples_str - final_case_samples
         elif control_phenotype_set and not case_phenotype_set:
             # Only control phenotypes specified - all non-matching VCF samples are cases
-            final_control_samples = control_samples & vcf_samples_set
-            final_case_samples = vcf_samples_set - final_control_samples
+            final_control_samples = control_samples & vcf_samples_str
+            final_case_samples = vcf_samples_str - final_control_samples
         else:
             # Both specified - exact matching only
-            final_case_samples = case_samples & vcf_samples_set
-            final_control_samples = control_samples & vcf_samples_set
+            final_case_samples = case_samples & vcf_samples_str
+            final_control_samples = control_samples & vcf_samples_str
 
         logger.info(
             f"Final assignment: {len(final_case_samples)} cases, "
@@ -1108,6 +1152,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
                 control_phenotypes,
                 vcf_samples,
                 remove_substring,
+                context,
             )
 
             # Update configuration with classified samples
@@ -1123,5 +1168,102 @@ class PhenotypeCaseControlAssignmentStage(Stage):
             logger.warning(
                 f"Failed to restore phenotype-based assignment during checkpoint skip: {e}"
             )
+
+        return context
+
+    def _handle_file_based_assignment(self, context, case_samples_file, control_samples_file):
+        """Handle file-based case/control assignment."""
+        logger.info("Processing file-based case/control assignment")
+
+        # Get VCF samples
+        vcf_samples = getattr(context, "vcf_samples", [])
+        if not vcf_samples:
+            logger.warning("No VCF samples found, cannot perform file-based assignment")
+            return context
+
+        vcf_samples_set = set(vcf_samples)
+        case_samples = set()
+        control_samples = set()
+
+        # Load case samples from file
+        if case_samples_file:
+            logger.info(f"Loading case samples from: {case_samples_file}")
+            try:
+                with open(case_samples_file, "r") as f:
+                    for line in f:
+                        sample = line.strip()
+                        if sample:
+                            case_samples.add(sample)
+                logger.info(f"Loaded {len(case_samples)} case samples from file")
+            except Exception as e:
+                logger.error(f"Failed to load case samples from {case_samples_file}: {e}")
+                return context
+
+        # Load control samples from file
+        if control_samples_file:
+            logger.info(f"Loading control samples from: {control_samples_file}")
+            try:
+                with open(control_samples_file, "r") as f:
+                    for line in f:
+                        sample = line.strip()
+                        if sample:
+                            control_samples.add(sample)
+                logger.info(f"Loaded {len(control_samples)} control samples from file")
+            except Exception as e:
+                logger.error(f"Failed to load control samples from {control_samples_file}: {e}")
+                return context
+
+        # Apply substring removal if configured (same as VCF samples)
+        remove_substring = context.config.get("remove_sample_substring", "")
+        if remove_substring and remove_substring.strip():
+            logger.info(f"Applying substring removal '{remove_substring}' to case/control samples")
+            case_samples = set(s.replace(remove_substring, "") for s in case_samples)
+            control_samples = set(s.replace(remove_substring, "") for s in control_samples)
+
+        # Find intersection with VCF samples
+        case_in_vcf = case_samples & vcf_samples_set
+        control_in_vcf = control_samples & vcf_samples_set
+
+        logger.info(f"Case samples in VCF: {len(case_in_vcf)} out of {len(case_samples)}")
+        logger.info(f"Control samples in VCF: {len(control_in_vcf)} out of {len(control_samples)}")
+
+        # Warn about samples not found in VCF
+        missing_cases = case_samples - vcf_samples_set
+        missing_controls = control_samples - vcf_samples_set
+
+        if missing_cases:
+            logger.warning(
+                f"{len(missing_cases)} case samples not found in VCF: {list(missing_cases)[:10]}"
+            )
+        if missing_controls:
+            logger.warning(
+                f"{len(missing_controls)} control samples not found in VCF: {list(missing_controls)[:10]}"
+            )
+
+        # Assignment logic: if only one type is specified, others become the opposite
+        if case_samples_file and not control_samples_file:
+            # Only case file provided - all non-case VCF samples become controls
+            final_case_samples = case_in_vcf
+            final_control_samples = vcf_samples_set - final_case_samples
+        elif control_samples_file and not case_samples_file:
+            # Only control file provided - all non-control VCF samples become cases
+            final_control_samples = control_in_vcf
+            final_case_samples = vcf_samples_set - final_control_samples
+        else:
+            # Both files provided - use intersection
+            final_case_samples = case_in_vcf
+            final_control_samples = control_in_vcf
+
+        # Update configuration with classified samples
+        context.config["case_samples"] = list(final_case_samples)
+        context.config["control_samples"] = list(final_control_samples)
+
+        logger.info(
+            f"File-based assignment complete: {len(final_case_samples)} cases, {len(final_control_samples)} controls"
+        )
+
+        # Log sample assignment summary
+        logger.debug(f"Case samples (first 10): {list(final_case_samples)[:10]}")
+        logger.debug(f"Control samples (first 10): {list(final_control_samples)[:10]}")
 
         return context

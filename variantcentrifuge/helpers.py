@@ -60,6 +60,93 @@ def check_file(file_path: str, exit_on_error: bool = True) -> bool:
     return True
 
 
+def compute_phenotype_based_case_control_assignment(
+    vcf_samples: List[str],
+    phenotype_map: Dict[str, Set[str]],
+    case_phenotypes: List[str],
+    control_phenotypes: List[str] = None,
+    remove_substring: str = "",
+) -> Tuple[Set[str], Set[str]]:
+    """
+    Unified function for phenotype-based case/control assignment.
+
+    This function handles the core logic for matching phenotype data to VCF samples
+    and assigning case/control status based on phenotype criteria.
+
+    Parameters
+    ----------
+    vcf_samples : List[str]
+        List of sample names from VCF file
+    phenotype_map : Dict[str, Set[str]]
+        Map of sample_name -> set_of_phenotypes
+    case_phenotypes : List[str]
+        List of phenotype terms that define cases
+    control_phenotypes : List[str], optional
+        List of phenotype terms that define controls
+    remove_substring : str, optional
+        Substring to remove from sample names for matching
+
+    Returns
+    -------
+    Tuple[Set[str], Set[str]]
+        Tuple of (case_samples, control_samples)
+    """
+    if not case_phenotypes and not control_phenotypes:
+        logger.debug("No phenotype criteria provided")
+        return set(), set(vcf_samples)
+
+    case_terms = set(case_phenotypes) if case_phenotypes else set()
+    control_terms = set(control_phenotypes) if control_phenotypes else set()
+
+    # Apply substring removal to VCF samples for consistent matching
+    vcf_samples_processed = set(vcf_samples)
+    if remove_substring and remove_substring.strip():
+        vcf_samples_processed = set(s.replace(remove_substring, "") for s in vcf_samples_processed)
+        logger.debug(f"Applied substring removal '{remove_substring}' to VCF samples")
+
+    classified_cases = set()
+    classified_controls = set()
+
+    for s in vcf_samples_processed:
+        # Try to get phenotypes using current sample name
+        phenos = phenotype_map.get(s, set())
+
+        # If not found and substring removal was applied, try original name
+        if not phenos and remove_substring:
+            original_sample_name = s + remove_substring
+            phenos = phenotype_map.get(original_sample_name, set())
+            if phenos:
+                logger.debug(f"Found phenotypes for {s} using original name {original_sample_name}")
+
+        match_case = any(p in phenos for p in case_terms) if case_terms else False
+        match_control = any(p in phenos for p in control_terms) if control_terms else False
+
+        if case_terms and not control_terms:
+            # Only case terms
+            if match_case:
+                classified_cases.add(s)
+            else:
+                classified_controls.add(s)
+        elif control_terms and not case_terms:
+            # Only control terms
+            if match_control:
+                classified_controls.add(s)
+            else:
+                classified_cases.add(s)
+        else:
+            # Both sets of terms
+            if match_case and not match_control:
+                classified_cases.add(s)
+            elif match_control and not match_case:
+                classified_controls.add(s)
+            # If matches both or none, sample is not classified
+
+    logger.debug(
+        f"Phenotype-based assignment: {len(classified_cases)} cases, {len(classified_controls)} controls"
+    )
+    return classified_cases, classified_controls
+
+
 def determine_case_control_sets(
     all_samples: Set[str], cfg: Dict[str, Any], df: pd.DataFrame
 ) -> Tuple[Set[str], Set[str]]:
@@ -123,33 +210,15 @@ def determine_case_control_sets(
     sample_phenotype_map = cfg.get("phenotypes", {})
     logger.debug("Phenotype map has %d samples (from phenotype file).", len(sample_phenotype_map))
 
-    classified_cases = set()
-    classified_controls = set()
-
-    for s in all_samples:
-        phenos = sample_phenotype_map.get(s, set())
-        match_case = any(p in phenos for p in case_terms) if case_terms else False
-        match_control = any(p in phenos for p in control_terms) if control_terms else False
-
-        if case_terms and not control_terms:
-            # Only case terms
-            if match_case:
-                classified_cases.add(s)
-            else:
-                classified_controls.add(s)
-        elif control_terms and not case_terms:
-            # Only control terms
-            if match_control:
-                classified_controls.add(s)
-            else:
-                classified_cases.add(s)
-        else:
-            # Both sets of terms
-            if match_case and not match_control:
-                classified_cases.add(s)
-            elif match_control and not match_case:
-                classified_controls.add(s)
-            # If matches both or none, sample is not classified
+    # Use the unified phenotype-based assignment function
+    remove_substring = cfg.get("remove_sample_substring", "")
+    classified_cases, classified_controls = compute_phenotype_based_case_control_assignment(
+        vcf_samples=list(all_samples),
+        phenotype_map=sample_phenotype_map,
+        case_phenotypes=case_terms,
+        control_phenotypes=control_terms,
+        remove_substring=remove_substring,
+    )
 
     if case_terms and len(classified_cases) == 0:
         logger.warning("No samples match the case phenotype terms.")
