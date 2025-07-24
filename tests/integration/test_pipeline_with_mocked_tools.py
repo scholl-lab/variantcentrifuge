@@ -42,6 +42,7 @@ class MockedToolsTestCase:
 
     def _configure_tool_mocks(self):
         """Configure default behaviors for mocked tools."""
+
         # Mock utils run_command for SnpSift extractFields
         def utils_side_effect(cmd, output_file=None, *args, **kwargs):
             if "SnpSift" in cmd and "extractFields" in cmd:
@@ -251,6 +252,7 @@ class TestErrorHandling(MockedToolsTestCase):
 
     def test_missing_gene_handling(self, tmp_path):
         """Test handling of missing gene in snpEff."""
+
         # Configure snpEff to return error for missing gene
         def snpeff_error_side_effect(cmd, *args, **kwargs):
             from subprocess import CalledProcessError, CompletedProcess
@@ -308,6 +310,7 @@ class TestErrorHandling(MockedToolsTestCase):
 
     def test_vcf_processing_error(self, tmp_path):
         """Test handling of VCF processing errors."""
+
         # Configure bcftools to return error
         def bcftools_error_side_effect(cmd, *args, **kwargs):
             from variantcentrifuge.utils import CommandError

@@ -522,15 +522,16 @@ class TestPhenotypeCaseControlAssignmentStage:
         assert result.config["control_samples"] == ["S003", "S004"]
 
         # Check method was called with correct parameters
-        mock_compute.assert_called_once_with(
-            "/tmp/phenotypes.csv",
-            "sample_id",
-            "phenotype",
-            ["HP:0000001", "HP:0000002"],
-            [],
-            ["S001", "S002", "S003", "S004"],
-            "",
-        )
+        assert mock_compute.call_count == 1
+        call_args = mock_compute.call_args[0]
+        assert call_args[0] == "/tmp/phenotypes.csv"
+        assert call_args[1] == "sample_id"
+        assert call_args[2] == "phenotype"
+        assert call_args[3] == ["HP:0000001", "HP:0000002"]
+        assert call_args[4] == []
+        assert call_args[5] == ["S001", "S002", "S003", "S004"]
+        assert call_args[6] == ""
+        # context parameter is passed as well
 
     def test_skip_if_explicit_assignments_exist(self, context):
         """Test that assignment is skipped if explicit case/control samples exist."""
@@ -592,6 +593,7 @@ class TestPhenotypeCaseControlAssignmentStage:
             [],
             vcf_samples,
             "",
+            None,
         )
 
         # Should find samples with matching phenotypes
@@ -628,6 +630,7 @@ class TestPhenotypeCaseControlAssignmentStage:
             [],
             vcf_samples,
             "_suffix",
+            None,
         )
 
         # Should correctly match after substring removal
