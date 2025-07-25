@@ -487,13 +487,6 @@ def create_parser() -> argparse.ArgumentParser:
         "Only used when processing method is vectorized and file is large.",
     )
     performance_group.add_argument(
-        "--vectorized-chunk-threshold-mb",
-        type=int,
-        default=500,
-        help="File size threshold in MB for using chunked vectorized processing (default: 500MB, increased for high-memory systems). "
-        "Files larger than this will use chunked processing to manage memory usage.",
-    )
-    performance_group.add_argument(
         "--max-memory-gb",
         type=float,
         help="Maximum memory in GB to use for genotype processing (auto-detected if not specified). "
@@ -643,13 +636,6 @@ def create_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Split file processing into this many chunks. Alias for --chunk-size for backward compatibility.",
-    )
-    misc_group.add_argument(
-        "--max-variants-per-gene",
-        type=int,
-        default=10000,
-        help="Maximum number of variants allowed per gene before forcing chunk split "
-        "(default: 10000). Lower values prevent memory exhaustion with large genes in big cohorts.",
     )
 
     return parser
@@ -1099,6 +1085,80 @@ def main() -> int:
     cfg["genotype_replacement_method"] = args.genotype_replacement_method
     cfg["vectorized_chunk_size"] = args.vectorized_chunk_size
     cfg["genotype_replacement_chunk_size"] = args.genotype_replacement_chunk_size
+    cfg["chunks"] = args.chunks
+
+    # Debug logging for performance parameters
+    logger.debug(f"Performance config mapping: max_memory_gb={args.max_memory_gb}")
+    logger.debug(
+        f"Performance config mapping: genotype_replacement_method={args.genotype_replacement_method}"
+    )
+    logger.debug(f"Performance config mapping: vectorized_chunk_size={args.vectorized_chunk_size}")
+    logger.debug(
+        f"Performance config mapping: genotype_replacement_chunk_size={args.genotype_replacement_chunk_size}"
+    )
+    logger.debug(f"Performance config mapping: chunks={args.chunks}")
+
+    # Core I/O configuration
+    cfg["xlsx"] = args.xlsx
+    cfg["keep_intermediates"] = args.keep_intermediates
+    cfg["archive_results"] = args.archive_results
+    cfg["gzip_intermediates"] = args.gzip_intermediates
+
+    # Debug logging for I/O parameters
+    logger.debug(f"I/O config mapping: xlsx={args.xlsx}")
+    logger.debug(f"I/O config mapping: keep_intermediates={args.keep_intermediates}")
+    logger.debug(f"I/O config mapping: archive_results={args.archive_results}")
+    logger.debug(f"I/O config mapping: gzip_intermediates={args.gzip_intermediates}")
+
+    # Gene selection configuration
+    cfg["gene_name"] = args.gene_name
+    cfg["gene_file"] = args.gene_file
+
+    # Debug logging for gene selection parameters
+    logger.debug(f"Gene config mapping: gene_name={args.gene_name}")
+    logger.debug(f"Gene config mapping: gene_file={args.gene_file}")
+
+    # Field extraction configuration
+    cfg["add_column"] = args.add_column
+    cfg["no_replacement"] = args.no_replacement
+
+    # Debug logging for field extraction parameters
+    logger.debug(f"Field config mapping: add_column={args.add_column}")
+    logger.debug(f"Field config mapping: no_replacement={args.no_replacement}")
+
+    # Phenotype and sample group configuration
+    cfg["case_phenotypes"] = args.case_phenotypes
+    cfg["case_phenotypes_file"] = args.case_phenotypes_file
+    cfg["case_samples"] = args.case_samples
+    cfg["case_samples_file"] = args.case_samples_file
+    cfg["control_phenotypes"] = args.control_phenotypes
+    cfg["control_phenotypes_file"] = args.control_phenotypes_file
+    cfg["control_samples"] = args.control_samples
+    cfg["control_samples_file"] = args.control_samples_file
+
+    # Debug logging for phenotype and sample group parameters
+    logger.debug(f"Phenotype config mapping: case_phenotypes={args.case_phenotypes}")
+    logger.debug(f"Phenotype config mapping: case_phenotypes_file={args.case_phenotypes_file}")
+    logger.debug(f"Phenotype config mapping: case_samples={args.case_samples}")
+    logger.debug(f"Phenotype config mapping: case_samples_file={args.case_samples_file}")
+    logger.debug(f"Phenotype config mapping: control_phenotypes={args.control_phenotypes}")
+    logger.debug(
+        f"Phenotype config mapping: control_phenotypes_file={args.control_phenotypes_file}"
+    )
+    logger.debug(f"Phenotype config mapping: control_samples={args.control_samples}")
+    logger.debug(f"Phenotype config mapping: control_samples_file={args.control_samples_file}")
+
+    # Statistical analysis configuration
+    cfg["stats_output_file"] = args.stats_output_file
+
+    # Debug logging for statistical analysis parameters
+    logger.debug(f"Stats config mapping: stats_output_file={args.stats_output_file}")
+
+    # Reporting configuration
+    cfg["html_report"] = args.html_report
+
+    # Debug logging for reporting parameters
+    logger.debug(f"Reporting config mapping: html_report={args.html_report}")
 
     # Pseudonymization configuration
     cfg["pseudonymize"] = args.pseudonymize

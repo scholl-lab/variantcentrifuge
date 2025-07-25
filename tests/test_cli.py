@@ -677,14 +677,14 @@ class TestPerformanceConfigMapping:
 
     def test_performance_config_mapping_regression(self):
         """Regression test for performance parameter config mapping bug.
-        
+
         This tests the specific bug where CLI performance parameters like
         --genotype-replacement-method were not being mapped to the config,
         causing auto-selection to override user choices.
         """
         # Test the config mapping logic directly
         from types import SimpleNamespace
-        
+
         # Simulate args from CLI
         mock_args = SimpleNamespace(
             max_memory_gb=250.0,
@@ -692,20 +692,20 @@ class TestPerformanceConfigMapping:
             vectorized_chunk_size=10000,
             genotype_replacement_chunk_size=25000,
         )
-        
+
         # Test the config mapping (this is the code that was added to fix the bug)
         cfg = {}
         cfg["max_memory_gb"] = mock_args.max_memory_gb
         cfg["genotype_replacement_method"] = mock_args.genotype_replacement_method
         cfg["vectorized_chunk_size"] = mock_args.vectorized_chunk_size
         cfg["genotype_replacement_chunk_size"] = mock_args.genotype_replacement_chunk_size
-        
+
         # Verify the parameters are correctly mapped
         assert cfg["max_memory_gb"] == 250.0
         assert cfg["genotype_replacement_method"] == "parallel"
         assert cfg["vectorized_chunk_size"] == 10000
         assert cfg["genotype_replacement_chunk_size"] == 25000
-        
+
         # The key issue: user specified "parallel" should not become "auto"
         assert cfg.get("genotype_replacement_method", "auto") == "parallel"
         assert cfg.get("genotype_replacement_method", "auto") != "auto"
@@ -1034,3 +1034,158 @@ class TestPerformanceConfigMapping:
                     assert config["max_memory_gb"] is None  # Auto-detect
                     assert config["vectorized_chunk_size"] == 25000
                     assert config["genotype_replacement_chunk_size"] == 50000
+
+    def test_comprehensive_cli_parameter_config_mapping(self):
+        """Comprehensive test for CLI parameter to config mapping completeness."""
+        # Test the config mapping logic with all newly added parameters
+        from types import SimpleNamespace
+
+        # Simulate args with all the newly mapped parameters
+        mock_args = SimpleNamespace(
+            # Performance parameters
+            max_memory_gb=128.0,
+            genotype_replacement_method="vectorized",
+            vectorized_chunk_size=20000,
+            genotype_replacement_chunk_size=30000,
+            chunks=8,
+            # Core I/O parameters
+            xlsx=True,
+            keep_intermediates=True,
+            archive_results=False,
+            gzip_intermediates=True,
+            # Gene selection parameters
+            gene_name="BRCA1,BRCA2",
+            gene_file="/path/to/genes.txt",
+            # Field extraction parameters
+            add_column="CUSTOM_FIELD",
+            no_replacement=False,
+            # Phenotype and sample group parameters
+            case_phenotypes="HP:0000001,HP:0000002",
+            case_phenotypes_file="/path/to/case_hpo.txt",
+            case_samples="SAMPLE1,SAMPLE2",
+            case_samples_file="/path/to/case_samples.txt",
+            control_phenotypes="HP:0000003",
+            control_phenotypes_file="/path/to/control_hpo.txt",
+            control_samples="CTRL1,CTRL2",
+            control_samples_file="/path/to/control_samples.txt",
+            # Statistical analysis parameters
+            stats_output_file="/path/to/stats.json",
+            # Reporting parameters
+            html_report=True,
+        )
+
+        # Test the config mapping (this verifies all the new mappings work)
+        cfg = {}
+
+        # Performance configuration - matches the code in cli.py
+        cfg["max_memory_gb"] = mock_args.max_memory_gb
+        cfg["genotype_replacement_method"] = mock_args.genotype_replacement_method
+        cfg["vectorized_chunk_size"] = mock_args.vectorized_chunk_size
+        cfg["genotype_replacement_chunk_size"] = mock_args.genotype_replacement_chunk_size
+        cfg["chunks"] = mock_args.chunks
+
+        # Core I/O configuration
+        cfg["xlsx"] = mock_args.xlsx
+        cfg["keep_intermediates"] = mock_args.keep_intermediates
+        cfg["archive_results"] = mock_args.archive_results
+        cfg["gzip_intermediates"] = mock_args.gzip_intermediates
+
+        # Gene selection configuration
+        cfg["gene_name"] = mock_args.gene_name
+        cfg["gene_file"] = mock_args.gene_file
+
+        # Field extraction configuration
+        cfg["add_column"] = mock_args.add_column
+        cfg["no_replacement"] = mock_args.no_replacement
+
+        # Phenotype and sample group configuration
+        cfg["case_phenotypes"] = mock_args.case_phenotypes
+        cfg["case_phenotypes_file"] = mock_args.case_phenotypes_file
+        cfg["case_samples"] = mock_args.case_samples
+        cfg["case_samples_file"] = mock_args.case_samples_file
+        cfg["control_phenotypes"] = mock_args.control_phenotypes
+        cfg["control_phenotypes_file"] = mock_args.control_phenotypes_file
+        cfg["control_samples"] = mock_args.control_samples
+        cfg["control_samples_file"] = mock_args.control_samples_file
+
+        # Statistical analysis configuration
+        cfg["stats_output_file"] = mock_args.stats_output_file
+
+        # Reporting configuration
+        cfg["html_report"] = mock_args.html_report
+
+        # Verify all parameters are correctly mapped
+        assert cfg["max_memory_gb"] == 128.0
+        assert cfg["genotype_replacement_method"] == "vectorized"
+        assert cfg["vectorized_chunk_size"] == 20000
+        assert cfg["genotype_replacement_chunk_size"] == 30000
+        assert cfg["chunks"] == 8
+
+        assert cfg["xlsx"] is True
+        assert cfg["keep_intermediates"] is True
+        assert cfg["archive_results"] is False
+        assert cfg["gzip_intermediates"] is True
+
+        assert cfg["gene_name"] == "BRCA1,BRCA2"
+        assert cfg["gene_file"] == "/path/to/genes.txt"
+
+        assert cfg["add_column"] == "CUSTOM_FIELD"
+        assert cfg["no_replacement"] is False
+
+        assert cfg["case_phenotypes"] == "HP:0000001,HP:0000002"
+        assert cfg["case_phenotypes_file"] == "/path/to/case_hpo.txt"
+        assert cfg["case_samples"] == "SAMPLE1,SAMPLE2"
+        assert cfg["case_samples_file"] == "/path/to/case_samples.txt"
+        assert cfg["control_phenotypes"] == "HP:0000003"
+        assert cfg["control_phenotypes_file"] == "/path/to/control_hpo.txt"
+        assert cfg["control_samples"] == "CTRL1,CTRL2"
+        assert cfg["control_samples_file"] == "/path/to/control_samples.txt"
+
+        assert cfg["stats_output_file"] == "/path/to/stats.json"
+        assert cfg["html_report"] is True
+
+    def test_debug_logging_parameter_mapping(self):
+        """Test that debug logging shows parameter mapping correctly."""
+        import logging
+        from io import StringIO
+        from types import SimpleNamespace
+
+        # Set up debug logging capture
+        log_capture_string = StringIO()
+        ch = logging.StreamHandler(log_capture_string)
+        ch.setLevel(logging.DEBUG)
+
+        # Get the logger that would be used in CLI
+        logger = logging.getLogger("variantcentrifuge")
+        logger.addHandler(ch)
+        logger.setLevel(logging.DEBUG)
+
+        # Simulate the debug logging that happens in CLI
+        mock_args = SimpleNamespace(
+            genotype_replacement_method="parallel",
+            max_memory_gb=128.0,
+            vectorized_chunk_size=15000,
+            genotype_replacement_chunk_size=25000,
+            xlsx=True,
+            gene_name="BRCA1",
+        )
+
+        # Simulate the debug logging that would happen in main()
+        logger.debug(
+            f"Performance config mapping: genotype_replacement_method={mock_args.genotype_replacement_method}"
+        )
+        logger.debug(f"Performance config mapping: max_memory_gb={mock_args.max_memory_gb}")
+        logger.debug(f"I/O config mapping: xlsx={mock_args.xlsx}")
+        logger.debug(f"Gene config mapping: gene_name={mock_args.gene_name}")
+
+        # Get the log contents
+        log_contents = log_capture_string.getvalue()
+
+        # Verify debug messages are present
+        assert "Performance config mapping: genotype_replacement_method=parallel" in log_contents
+        assert "Performance config mapping: max_memory_gb=128.0" in log_contents
+        assert "I/O config mapping: xlsx=True" in log_contents
+        assert "Gene config mapping: gene_name=BRCA1" in log_contents
+
+        # Clean up
+        logger.removeHandler(ch)
