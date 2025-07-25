@@ -91,18 +91,18 @@ jobs:
             echo "✓ JSON-LD structured data found"
             # Extract and validate JSON-LD
             python -c "
-              import re
-              import json
-              with open('docs/build/html/index.html', 'r') as f:
-                  content = f.read()
-                  matches = re.findall(r'<script type=\"application/ld\+json\">(.*?)</script>', content, re.DOTALL)
-                  for match in matches:
-                      try:
-                          json.loads(match)
-                          print(f'✓ Valid JSON-LD found')
-                      except:
-                          print(f'✗ Invalid JSON-LD: {match[:100]}...')
-                          exit(1)
+import re
+import json
+with open('docs/build/html/index.html', 'r') as f:
+    content = f.read()
+    matches = re.findall(r'<script type=\"application/ld\+json\">(.*?)</script>', content, re.DOTALL)
+    for match in matches:
+        try:
+            json.loads(match)
+            print('✓ Valid JSON-LD found')
+        except:
+            print('✗ Invalid JSON-LD: ' + match[:100] + '...')
+            exit(1)
             "
           else
             echo "✗ No structured data found in index.html"
