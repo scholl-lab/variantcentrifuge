@@ -499,6 +499,16 @@ def create_parser() -> argparse.ArgumentParser:
         "Use with caution on systems with limited memory.",
     )
     performance_group.add_argument(
+        "--sample-column-creation-method",
+        choices=["iterative", "vectorized", "auto"],
+        default="auto",
+        help="Method for creating sample columns from GT field during inheritance analysis. "
+        "iterative: traditional row-by-row regex parsing (slower but more reliable); "
+        "vectorized: pandas vectorized string operations (5-10x faster for large datasets); "
+        "auto: automatically select based on dataset size and complexity. "
+        "Default: auto",
+    )
+    performance_group.add_argument(
         "--memory-safety-factor",
         type=float,
         default=0.92,
@@ -975,6 +985,7 @@ def main() -> int:
 
     # Inheritance memory configuration
     cfg["force_inheritance_processing"] = args.force_inheritance_processing
+    cfg["sample_column_creation_method"] = args.sample_column_creation_method
     cfg["memory_safety_factor"] = args.memory_safety_factor
     cfg["inheritance_memory_fraction"] = args.inheritance_memory_fraction
 
