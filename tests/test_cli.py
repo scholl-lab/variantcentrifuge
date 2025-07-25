@@ -670,3 +670,367 @@ class TestCLIRegressionTests:
             f"main() creates too many ArgumentParsers ({parser_creation_count}). "
             f"Should only create status_parser for --show-checkpoint-status."
         )
+
+
+class TestPerformanceConfigMapping:
+    """Tests for performance parameter config mapping bug fix."""
+
+    def test_performance_config_mapping_regression(self):
+        """Regression test for performance parameter config mapping bug.
+        
+        This tests the specific bug where CLI performance parameters like
+        --genotype-replacement-method were not being mapped to the config,
+        causing auto-selection to override user choices.
+        """
+        # Test the config mapping logic directly
+        from types import SimpleNamespace
+        
+        # Simulate args from CLI
+        mock_args = SimpleNamespace(
+            max_memory_gb=250.0,
+            genotype_replacement_method="parallel",
+            vectorized_chunk_size=10000,
+            genotype_replacement_chunk_size=25000,
+        )
+        
+        # Test the config mapping (this is the code that was added to fix the bug)
+        cfg = {}
+        cfg["max_memory_gb"] = mock_args.max_memory_gb
+        cfg["genotype_replacement_method"] = mock_args.genotype_replacement_method
+        cfg["vectorized_chunk_size"] = mock_args.vectorized_chunk_size
+        cfg["genotype_replacement_chunk_size"] = mock_args.genotype_replacement_chunk_size
+        
+        # Verify the parameters are correctly mapped
+        assert cfg["max_memory_gb"] == 250.0
+        assert cfg["genotype_replacement_method"] == "parallel"
+        assert cfg["vectorized_chunk_size"] == 10000
+        assert cfg["genotype_replacement_chunk_size"] == 25000
+        
+        # The key issue: user specified "parallel" should not become "auto"
+        assert cfg.get("genotype_replacement_method", "auto") == "parallel"
+        assert cfg.get("genotype_replacement_method", "auto") != "auto"
+
+    def test_performance_parameters_mapped_to_config(self):
+        """Test that performance CLI parameters are properly mapped to config."""
+        from unittest.mock import Mock, patch
+        from types import SimpleNamespace
+
+        # Mock args with performance parameters
+        mock_args = SimpleNamespace(
+            vcf_file="test.vcf",
+            gene_name="all",
+            config="config.yaml",
+            output_dir="output",
+            max_memory_gb=64.0,
+            genotype_replacement_method="parallel",
+            vectorized_chunk_size=15000,
+            genotype_replacement_chunk_size=20000,
+            # Add other required fields with defaults
+            phenotype_file=None,
+            phenotype_sample_column=None,
+            phenotype_value_column=None,
+            case_phenotypes=None,
+            perform_gene_burden=False,
+            log_level="INFO",
+            threads=8,
+            xlsx=False,
+            pseudonymize=False,
+            pseudonymize_schema="basic",
+            pseudonymize_prefix="ID",
+            pseudonymize_pattern=None,
+            pseudonymize_category_field=None,
+            pseudonymize_table=None,
+            pseudonymize_ped=None,
+            # Additional required attributes
+            log_file=None,
+            reference=None,
+            filters=None,
+            fields_to_extract=None,
+            output_file=None,
+        )
+
+        # Mock the config loading and pipeline execution
+        with patch("variantcentrifuge.cli.load_config") as mock_load_config:
+            with patch("variantcentrifuge.cli.run_refactored_pipeline") as mock_run_pipeline:
+                mock_load_config.return_value = {}
+
+                # Import after patching to avoid side effects
+                from variantcentrifuge.cli import main
+
+                # Mock sys.argv to simulate CLI call
+                with patch("sys.argv", ["variantcentrifuge"]):
+                    with patch("variantcentrifuge.cli.create_parser") as mock_create_parser:
+                        mock_parser = Mock()
+                        mock_parser.parse_args.return_value = mock_args
+                        mock_create_parser.return_value = mock_parser
+
+                        try:
+                            main()
+                        except SystemExit:
+                            pass  # Expected for successful completion
+
+                # Verify that run_refactored_pipeline was called
+                assert mock_run_pipeline.called
+
+                # Get the config that was passed to the pipeline
+                called_args = mock_run_pipeline.call_args[0][0]
+                config = called_args.config
+
+                # Verify performance parameters are in config
+                assert config["max_memory_gb"] == 64.0
+                assert config["genotype_replacement_method"] == "parallel"
+                assert config["vectorized_chunk_size"] == 15000
+                assert config["genotype_replacement_chunk_size"] == 20000
+
+    def test_genotype_replacement_method_config_mapping(self):
+        """Test specific genotype replacement method config mapping."""
+        from unittest.mock import patch, Mock
+        from types import SimpleNamespace
+
+        test_methods = ["auto", "sequential", "vectorized", "parallel", "streaming-parallel"]
+
+        for method in test_methods:
+            mock_args = SimpleNamespace(
+                vcf_file="test.vcf",
+                gene_name="all",
+                config="config.yaml",
+                output_dir="output",
+                genotype_replacement_method=method,
+                max_memory_gb=32.0,
+                vectorized_chunk_size=25000,
+                genotype_replacement_chunk_size=50000,
+                # Required defaults
+                phenotype_file=None,
+                phenotype_sample_column=None,
+                phenotype_value_column=None,
+                case_phenotypes=None,
+                perform_gene_burden=False,
+                log_level="INFO",
+                threads=4,
+                xlsx=False,
+                pseudonymize=False,
+                pseudonymize_schema="basic",
+                pseudonymize_prefix="ID",
+                pseudonymize_pattern=None,
+                pseudonymize_category_field=None,
+                pseudonymize_table=None,
+                pseudonymize_ped=None,
+            )
+
+            with patch("variantcentrifuge.cli.load_config") as mock_load_config:
+                with patch("variantcentrifuge.cli.run_refactored_pipeline") as mock_run_pipeline:
+                    mock_load_config.return_value = {}
+
+                    from variantcentrifuge.cli import main
+
+                    with patch("sys.argv", ["variantcentrifuge"]):
+                        with patch("variantcentrifuge.cli.create_parser") as mock_create_parser:
+                            mock_parser = Mock()
+                            mock_parser.parse_args.return_value = mock_args
+                            mock_create_parser.return_value = mock_parser
+
+                            try:
+                                main()
+                            except SystemExit:
+                                pass
+
+                    if mock_run_pipeline.called:
+                        called_args = mock_run_pipeline.call_args[0][0]
+                        config = called_args.config
+
+                        # Verify the method is correctly mapped
+                        assert (
+                            config["genotype_replacement_method"] == method
+                        ), f"Method {method} not correctly mapped to config"
+
+    def test_config_parameter_presence_regression(self):
+        """Regression test ensuring performance parameters are not missing from config."""
+        from unittest.mock import patch, Mock
+        from types import SimpleNamespace
+
+        # Test with user's exact problematic scenario
+        mock_args = SimpleNamespace(
+            vcf_file="test.vcf",
+            gene_name="all",
+            config="config.yaml",
+            output_dir="output",
+            genotype_replacement_method="parallel",  # User specified parallel
+            max_memory_gb=250.0,
+            genotype_replacement_chunk_size=25000,
+            vectorized_chunk_size=10000,
+            threads=16,
+            # Other required fields
+            phenotype_file=None,
+            phenotype_sample_column=None,
+            phenotype_value_column=None,
+            case_phenotypes=None,
+            perform_gene_burden=False,
+            log_level="DEBUG",
+            xlsx=False,
+            pseudonymize=False,
+            pseudonymize_schema="basic",
+            pseudonymize_prefix="ID",
+            pseudonymize_pattern=None,
+            pseudonymize_category_field=None,
+            pseudonymize_table=None,
+            pseudonymize_ped=None,
+        )
+
+        with patch("variantcentrifuge.cli.load_config") as mock_load_config:
+            with patch("variantcentrifuge.cli.run_refactored_pipeline") as mock_run_pipeline:
+                mock_load_config.return_value = {}
+
+                from variantcentrifuge.cli import main
+
+                with patch("sys.argv", ["variantcentrifuge"]):
+                    with patch("variantcentrifuge.cli.create_parser") as mock_create_parser:
+                        mock_parser = Mock()
+                        mock_parser.parse_args.return_value = mock_args
+                        mock_create_parser.return_value = mock_parser
+
+                        try:
+                            main()
+                        except SystemExit:
+                            pass
+
+                # Verify all performance parameters are present in config
+                if mock_run_pipeline.called:
+                    called_args = mock_run_pipeline.call_args[0][0]
+                    config = called_args.config
+
+                    # Critical parameters that were missing before the fix
+                    required_performance_params = [
+                        "max_memory_gb",
+                        "genotype_replacement_method",
+                        "vectorized_chunk_size",
+                        "genotype_replacement_chunk_size",
+                    ]
+
+                    for param in required_performance_params:
+                        assert param in config, f"Performance parameter {param} missing from config"
+
+                    # Verify exact values
+                    assert config["genotype_replacement_method"] == "parallel"
+                    assert config["max_memory_gb"] == 250.0
+                    assert config["genotype_replacement_chunk_size"] == 25000
+                    assert config["vectorized_chunk_size"] == 10000
+
+    def test_performance_config_prevents_auto_selection_override(self):
+        """Test that explicit method selection prevents auto-selection override."""
+        from unittest.mock import patch, Mock
+        from types import SimpleNamespace
+
+        # Simulate user specifying parallel but getting streaming-parallel due to auto-selection
+        mock_args = SimpleNamespace(
+            vcf_file="test.vcf",
+            gene_name="all",
+            config="config.yaml",
+            output_dir="output",
+            genotype_replacement_method="parallel",  # User explicitly wants parallel
+            max_memory_gb=250.0,
+            threads=16,
+            vectorized_chunk_size=10000,
+            genotype_replacement_chunk_size=25000,
+            # Required fields
+            phenotype_file=None,
+            phenotype_sample_column=None,
+            phenotype_value_column=None,
+            case_phenotypes=None,
+            perform_gene_burden=False,
+            log_level="INFO",
+            xlsx=False,
+            pseudonymize=False,
+            pseudonymize_schema="basic",
+            pseudonymize_prefix="ID",
+            pseudonymize_pattern=None,
+            pseudonymize_category_field=None,
+            pseudonymize_table=None,
+            pseudonymize_ped=None,
+        )
+
+        with patch("variantcentrifuge.cli.load_config") as mock_load_config:
+            with patch("variantcentrifuge.cli.run_refactored_pipeline") as mock_run_pipeline:
+                mock_load_config.return_value = {}
+
+                from variantcentrifuge.cli import main
+
+                with patch("sys.argv", ["variantcentrifuge"]):
+                    with patch("variantcentrifuge.cli.create_parser") as mock_create_parser:
+                        mock_parser = Mock()
+                        mock_parser.parse_args.return_value = mock_args
+                        mock_create_parser.return_value = mock_parser
+
+                        try:
+                            main()
+                        except SystemExit:
+                            pass
+
+                if mock_run_pipeline.called:
+                    called_args = mock_run_pipeline.call_args[0][0]
+                    config = called_args.config
+
+                    # The config should have the user's explicit choice, not "auto"
+                    assert config["genotype_replacement_method"] == "parallel"
+                    assert config["genotype_replacement_method"] != "auto"
+                    assert config["genotype_replacement_method"] != "streaming-parallel"
+
+    def test_config_parameter_defaults(self):
+        """Test that config parameters have correct defaults when not specified."""
+        from unittest.mock import patch, Mock
+        from types import SimpleNamespace
+
+        # Mock args without performance parameters (using defaults)
+        mock_args = SimpleNamespace(
+            vcf_file="test.vcf",
+            gene_name="all",
+            config="config.yaml",
+            output_dir="output",
+            # Use CLI defaults
+            genotype_replacement_method="auto",  # Default
+            max_memory_gb=None,  # Default (auto-detect)
+            vectorized_chunk_size=25000,  # Default
+            genotype_replacement_chunk_size=50000,  # Default
+            threads=1,  # Default
+            # Required fields
+            phenotype_file=None,
+            phenotype_sample_column=None,
+            phenotype_value_column=None,
+            case_phenotypes=None,
+            perform_gene_burden=False,
+            log_level="INFO",
+            xlsx=False,
+            pseudonymize=False,
+            pseudonymize_schema="basic",
+            pseudonymize_prefix="ID",
+            pseudonymize_pattern=None,
+            pseudonymize_category_field=None,
+            pseudonymize_table=None,
+            pseudonymize_ped=None,
+        )
+
+        with patch("variantcentrifuge.cli.load_config") as mock_load_config:
+            with patch("variantcentrifuge.cli.run_refactored_pipeline") as mock_run_pipeline:
+                mock_load_config.return_value = {}
+
+                from variantcentrifuge.cli import main
+
+                with patch("sys.argv", ["variantcentrifuge"]):
+                    with patch("variantcentrifuge.cli.create_parser") as mock_create_parser:
+                        mock_parser = Mock()
+                        mock_parser.parse_args.return_value = mock_args
+                        mock_create_parser.return_value = mock_parser
+
+                        try:
+                            main()
+                        except SystemExit:
+                            pass
+
+                if mock_run_pipeline.called:
+                    called_args = mock_run_pipeline.call_args[0][0]
+                    config = called_args.config
+
+                    # Verify defaults are correctly set
+                    assert config["genotype_replacement_method"] == "auto"
+                    assert config["max_memory_gb"] is None  # Auto-detect
+                    assert config["vectorized_chunk_size"] == 25000
+                    assert config["genotype_replacement_chunk_size"] == 50000

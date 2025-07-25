@@ -401,7 +401,7 @@ class TestStreamingParallelDeadlockFixes:
 
         # Test the monitor pipeline progress directly with mocked futures
         producer_future = hanging_future
-        consumer_futures = [hanging_future]  
+        consumer_futures = [hanging_future]
         writer_future = MagicMock()
         writer_future.result.return_value = None
         result_queue = MagicMock()
@@ -558,22 +558,22 @@ class TestDeadlockPreventionIntegration:
         """Test that the pipeline prevents worker starvation scenarios."""
         # This test validates that the queue sizing and worker allocation
         # logic prevents deadlock scenarios without actually running the pipeline
-        
+
         processor = StreamingGenotypeProcessor(threads=8)
-        
+
         # Test the allocation logic that prevents starvation
         io_threads = max(1, min(3, 8 // 5))  # Should be 1
         cpu_workers = max(1, 8 - io_threads - 1)  # Should be 6
-        
+
         # Verify proper allocation
         assert io_threads == 1, "Should allocate 1 I/O thread for 8 total threads"
         assert cpu_workers == 6, "Should allocate 6 CPU workers for 8 total threads"
-        
+
         # Verify queue sizing prevents deadlock
         # Queue size should be proportional to workers to prevent blocking
         expected_queue_size = cpu_workers * 2  # Buffer size per implementation
         assert expected_queue_size == 12, "Queue should be sized to prevent worker starvation"
-        
+
         # The key fix: stop signals match worker count
         # Previously: stop_signals = range(queue.maxsize) [WRONG - could be different from workers]
         # Now: stop_signals = range(cpu_workers) [CORRECT - matches actual workers]

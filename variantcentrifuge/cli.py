@@ -1094,6 +1094,12 @@ def main() -> int:
             logger.error(f"Interactive resume failed: {e}")
             sys.exit(1)
 
+    # Performance configuration
+    cfg["max_memory_gb"] = args.max_memory_gb
+    cfg["genotype_replacement_method"] = args.genotype_replacement_method
+    cfg["vectorized_chunk_size"] = args.vectorized_chunk_size
+    cfg["genotype_replacement_chunk_size"] = args.genotype_replacement_chunk_size
+
     # Pseudonymization configuration
     cfg["pseudonymize"] = args.pseudonymize
     cfg["pseudonymize_schema"] = args.pseudonymize_schema
