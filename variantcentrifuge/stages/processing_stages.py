@@ -244,13 +244,13 @@ def select_optimal_processing_method(
     elif file_size_mb < 10:  # Very small files
         method = "sequential"
         reason = f"small file ({file_size_mb:.1f}MB), sequential is most efficient"
-    elif num_samples > 50 and num_samples < 3000 and memory_required_gb < memory_safe_threshold:
+    elif num_samples > 50 and num_samples < 5000 and memory_required_gb < memory_safe_threshold:
         method = "vectorized"
         reason = (
             f"many samples ({num_samples}), memory safe "
             f"({memory_required_gb:.1f}GB < {memory_safe_threshold:.1f}GB)"
         )
-    elif num_samples >= 3000:
+    elif num_samples >= 5000:
         # For very high sample counts, prefer streaming-parallel for optimal thread utilization
         if threads > 1 and file_size_mb > 30:
             if threads >= 10:

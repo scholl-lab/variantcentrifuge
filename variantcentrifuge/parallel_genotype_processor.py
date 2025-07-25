@@ -421,7 +421,12 @@ class StreamingGenotypeProcessor:
 
                 # Start producer (chunk reader)
                 producer_future = io_pool.submit(
-                    self._chunk_producer, input_path, chunk_queue, chunk_size, compression
+                    self._chunk_producer,
+                    input_path,
+                    chunk_queue,
+                    chunk_size,
+                    compression,
+                    cpu_workers,
                 )
 
                 # Start consumers (chunk processors)
@@ -447,7 +452,12 @@ class StreamingGenotypeProcessor:
             raise
 
     def _chunk_producer(
-        self, input_path: Path, chunk_queue: Queue, chunk_size: int, compression: Optional[str]
+        self,
+        input_path: Path,
+        chunk_queue: Queue,
+        chunk_size: int,
+        compression: Optional[str],
+        cpu_workers: int,
     ) -> None:
         """Read file and create chunks for processing."""
         try:
@@ -466,8 +476,8 @@ class StreamingGenotypeProcessor:
                 chunk_queue.put((chunk_id, chunk_df))
                 chunk_id += 1
 
-            # Signal completion
-            for _ in range(chunk_queue.maxsize):  # Send stop signals to all workers
+            # Signal completion - send exactly one stop signal per worker
+            for _ in range(cpu_workers):  # Send stop signals to all workers
                 chunk_queue.put((None, None))
 
             logger.info(f"Producer completed: {chunk_id} chunks queued")
@@ -521,15 +531,16 @@ class StreamingGenotypeProcessor:
         self, producer_future, consumer_futures, writer_future, result_queue
     ):
         """Monitor pipeline execution and handle errors."""
+        timeout_seconds = 1800  # 30 minutes timeout
         try:
             # Wait for producer to complete
-            producer_future.result()
+            producer_future.result(timeout=timeout_seconds)
             logger.debug("Producer completed")
 
-            # Wait for all consumers
+            # Wait for all consumers with timeout
             completed_consumers = 0
-            for future in as_completed(consumer_futures):
-                future.result()
+            for future in as_completed(consumer_futures, timeout=timeout_seconds):
+                future.result(timeout=60)  # 1 minute per individual consumer
                 completed_consumers += 1
                 logger.debug(f"Consumer {completed_consumers}/{len(consumer_futures)} completed")
 
@@ -537,14 +548,23 @@ class StreamingGenotypeProcessor:
             result_queue.put((None, None))  # Stop signal for writer
 
             # Wait for writer
-            writer_future.result()
+            writer_future.result(timeout=60)  # 1 minute for writer to finish
             logger.debug("Writer completed")
 
             logger.info("Streaming pipeline completed successfully")
 
         except Exception as e:
-            logger.error(f"Pipeline monitoring failed: {e}")
-            # Cancel remaining futures
+            import concurrent.futures
+
+            if isinstance(e, concurrent.futures.TimeoutError):
+                logger.error(
+                    f"Pipeline timeout after {timeout_seconds}s - possible deadlock detected"
+                )
+                logger.error("Consider using --genotype-replacement-method parallel as workaround")
+            else:
+                logger.error(f"Pipeline monitoring failed: {e}")
+
+            # Cancel remaining futures and cleanup
             producer_future.cancel()
             for future in consumer_futures:
                 future.cancel()
