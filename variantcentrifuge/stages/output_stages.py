@@ -366,14 +366,20 @@ class PseudonymizationStage(Stage):
         # Apply to DataFrame
         df = pseudonymizer.pseudonymize_dataframe(df)
 
-        # Save mapping
-        mapping_file = (
-            context.workspace.output_dir.parent
-            / f"pseudonymization_mapping_{context.workspace.timestamp}.json"
-        )
-        with open(mapping_file, "w") as f:
-            json.dump(mapping, f, indent=2)
-        logger.info(f"Saved pseudonymization mapping to {mapping_file}")
+        # Save mapping to user-specified table path
+        mapping_file = context.config.get("pseudonymize_table")
+        if mapping_file:
+            # Use the pseudonymizer's save_mapping method for proper TSV format
+            pseudonymizer.save_mapping(mapping_file, include_metadata=True)
+            logger.info(f"Saved pseudonymization mapping to {mapping_file}")
+        else:
+            # Fallback (shouldn't happen due to CLI validation)
+            mapping_file = (
+                context.workspace.output_dir.parent
+                / f"pseudonymization_mapping_{context.workspace.timestamp}.tsv"
+            )
+            pseudonymizer.save_mapping(mapping_file, include_metadata=True)
+            logger.warning(f"No pseudonymize_table specified, saved to {mapping_file}")
 
         context.current_dataframe = df
         context.config["pseudonymization_mapping"] = mapping
@@ -381,8 +387,10 @@ class PseudonymizationStage(Stage):
 
         # Create pseudonymized PED file if requested
         if context.config.get("pseudonymize_ped") and context.config.get("ped_file"):
-            ped_output = str(mapping_file).replace(".json", "_pedigree.ped")
-            pseudonymizer.pseudonymize_ped_file(context.config["ped_file"], ped_output)
+            # Create PED filename based on mapping file path
+            mapping_path = Path(mapping_file)
+            ped_output = mapping_path.parent / (mapping_path.stem + "_pedigree.ped")
+            pseudonymizer.pseudonymize_ped_file(context.config["ped_file"], str(ped_output))
             logger.info(f"Pseudonymized PED file saved to: {ped_output}")
 
         return context

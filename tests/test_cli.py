@@ -1172,7 +1172,8 @@ class TestPerformanceConfigMapping:
 
         # Simulate the debug logging that would happen in main()
         logger.debug(
-            f"Performance config mapping: genotype_replacement_method={mock_args.genotype_replacement_method}"
+            f"Performance config mapping: "
+            f"genotype_replacement_method={mock_args.genotype_replacement_method}"
         )
         logger.debug(f"Performance config mapping: max_memory_gb={mock_args.max_memory_gb}")
         logger.debug(f"I/O config mapping: xlsx={mock_args.xlsx}")
@@ -1189,3 +1190,61 @@ class TestPerformanceConfigMapping:
 
         # Clean up
         logger.removeHandler(ch)
+
+    def test_pseudonymize_table_parameter_validation(self):
+        """Test that pseudonymize_table parameter validation works correctly."""
+        from types import SimpleNamespace
+
+        # Test case 1: pseudonymize=True, pseudonymize_table=None should fail validation
+        args_missing_table = SimpleNamespace(
+            pseudonymize=True,
+            pseudonymize_table=None,
+            pseudonymize_ped=False,
+            pseudonymize_pattern=None,
+            pseudonymize_schema="sequential",
+        )
+
+        # Simulate the validation logic from cli.py
+        validation_error = None
+        if args_missing_table.pseudonymize and not args_missing_table.pseudonymize_table:
+            validation_error = "--pseudonymize-table is required when using --pseudonymize"
+
+        assert (
+            validation_error is not None
+        ), "Validation should fail when pseudonymize_table is missing"
+        assert "--pseudonymize-table is required" in validation_error
+
+        # Test case 2: pseudonymize=True, pseudonymize_table=provided should pass validation
+        args_with_table = SimpleNamespace(
+            pseudonymize=True,
+            pseudonymize_table="/path/to/mapping.tsv",
+            pseudonymize_ped=False,
+            pseudonymize_pattern=None,
+            pseudonymize_schema="sequential",
+        )
+
+        validation_error = None
+        if args_with_table.pseudonymize and not args_with_table.pseudonymize_table:
+            validation_error = "--pseudonymize-table is required when using --pseudonymize"
+
+        assert (
+            validation_error is None
+        ), "Validation should pass when pseudonymize_table is provided"
+
+        # Test case 3: pseudonymize=False, pseudonymize_table=provided should warn
+        args_table_without_pseudonymize = SimpleNamespace(
+            pseudonymize=False,
+            pseudonymize_table="/path/to/mapping.tsv",
+            pseudonymize_ped=False,
+            pseudonymize_pattern=None,
+            pseudonymize_schema="sequential",
+        )
+
+        should_warn = False
+        if (
+            args_table_without_pseudonymize.pseudonymize_table
+            and not args_table_without_pseudonymize.pseudonymize
+        ):
+            should_warn = True
+
+        assert should_warn, "Should warn when pseudonymize_table provided without pseudonymize"

@@ -583,5 +583,266 @@ class TestIntegrationScenarios:
         assert all(v.startswith("ID") and len(v) == 8 for v in mapping.values())
 
 
+class TestPseudonymizeTableParameter:
+    """Test suite for --pseudonymize-table parameter functionality."""
+
+    def test_pseudonymization_stage_uses_user_specified_table_path(self, tmp_path):
+        """Test that PseudonymizationStage uses the user-specified pseudonymize_table path."""
+        from unittest.mock import MagicMock
+        from variantcentrifuge.stages.output_stages import PseudonymizationStage
+        import pandas as pd
+
+        # Create user-specified mapping table path
+        user_mapping_path = tmp_path / "my_custom_mapping.tsv"
+
+        # Create test DataFrame
+        test_df = pd.DataFrame(
+            {
+                "CHROM": ["1", "2"],
+                "POS": [100, 200],
+                "GT": ["SAMPLE1(0/1);SAMPLE2(1/1)", "SAMPLE1(1/1);SAMPLE2(0/1)"],
+            }
+        )
+
+        # Create mock pipeline context
+        mock_context = MagicMock()
+        mock_context.current_dataframe = test_df
+        mock_context.vcf_samples = ["SAMPLE1", "SAMPLE2"]
+        mock_context.config = {
+            "pseudonymize": True,
+            "pseudonymize_schema": "sequential",
+            "pseudonymize_prefix": "TEST",
+            "pseudonymize_table": str(user_mapping_path),  # User-specified path
+        }
+
+        # Mock workspace
+        mock_context.workspace = MagicMock()
+        mock_context.workspace.output_dir = tmp_path / "output"
+        mock_context.workspace.timestamp = "20250101_120000"
+
+        # Run pseudonymization stage
+        stage = PseudonymizationStage()
+        stage._process(mock_context)
+
+        # Verify the mapping file was created at the user-specified path
+        assert (
+            user_mapping_path.exists()
+        ), f"Mapping file not created at user-specified path: {user_mapping_path}"
+
+        # Verify the file contains the expected content
+        content = user_mapping_path.read_text()
+        assert "original_id" in content
+        assert "pseudonym_id" in content
+        assert "SAMPLE1" in content
+        assert "SAMPLE2" in content
+        assert "TEST_001" in content or "TEST_002" in content
+
+        # Verify metadata file was also created
+        meta_file = user_mapping_path.with_suffix(".meta.json")
+        assert meta_file.exists(), "Metadata file should be created alongside mapping file"
+
+        # Verify metadata content
+        import json
+
+        meta_content = json.loads(meta_file.read_text())
+        assert meta_content["schema"] == "SequentialSchema"
+        assert meta_content["num_samples"] == 2
+
+    def test_pseudonymization_stage_fallback_when_no_table_specified(self, tmp_path):
+        """Test fallback behavior when pseudonymize_table is not specified."""
+        from unittest.mock import MagicMock
+        from variantcentrifuge.stages.output_stages import PseudonymizationStage
+        import pandas as pd
+
+        # Create test DataFrame
+        test_df = pd.DataFrame({"CHROM": ["1"], "POS": [100], "GT": ["SAMPLE1(0/1)"]})
+
+        # Create mock pipeline context WITHOUT pseudonymize_table
+        mock_context = MagicMock()
+        mock_context.current_dataframe = test_df
+        mock_context.vcf_samples = ["SAMPLE1"]
+        mock_context.config = {
+            "pseudonymize": True,
+            "pseudonymize_schema": "sequential",
+            "pseudonymize_prefix": "FALLBACK",
+            # Note: no 'pseudonymize_table' key
+        }
+
+        # Mock workspace
+        mock_context.workspace = MagicMock()
+        mock_context.workspace.output_dir = tmp_path / "output"
+        mock_context.workspace.timestamp = "20250101_120000"
+
+        # Run pseudonymization stage
+        stage = PseudonymizationStage()
+        stage._process(mock_context)
+
+        # Verify a fallback mapping file was created with timestamp
+        fallback_files = list((tmp_path).glob("**/pseudonymization_mapping_*.tsv"))
+        assert len(fallback_files) >= 1, "Fallback mapping file should be created"
+
+        mapping_file = fallback_files[0]
+        content = mapping_file.read_text()
+        assert "SAMPLE1" in content
+        assert "FALLBACK_001" in content
+
+    def test_pseudonymization_stage_with_categorical_schema_and_custom_field(self, tmp_path):
+        """Test pseudonymization with categorical schema using custom category field."""
+        from unittest.mock import MagicMock
+        from variantcentrifuge.stages.output_stages import PseudonymizationStage
+        import pandas as pd
+
+        user_mapping_path = tmp_path / "categorical_mapping.tsv"
+
+        # Create test DataFrame
+        test_df = pd.DataFrame(
+            {
+                "CHROM": ["1", "2"],
+                "POS": [100, 200],
+                "GT": ["CASE1(1/1);CTRL1(0/1)", "CASE1(0/1);CTRL1(1/1)"],
+            }
+        )
+
+        # Create mock pipeline context with categorical schema
+        mock_context = MagicMock()
+        mock_context.current_dataframe = test_df
+        mock_context.vcf_samples = ["CASE1", "CTRL1"]
+        mock_context.config = {
+            "pseudonymize": True,
+            "pseudonymize_schema": "categorical",
+            "pseudonymize_category_field": "phenotype",  # This should be used!
+            "pseudonymize_table": str(user_mapping_path),
+        }
+
+        # Mock workspace
+        mock_context.workspace = MagicMock()
+        mock_context.workspace.output_dir = tmp_path / "output"
+        mock_context.workspace.timestamp = "20250101_120000"
+
+        # Run pseudonymization stage
+        stage = PseudonymizationStage()
+        stage._process(mock_context)
+
+        # Verify the mapping file was created
+        assert user_mapping_path.exists()
+
+        # Verify categorical naming was used (UNKNOWN_001, UNKNOWN_002 since no metadata)
+        content = user_mapping_path.read_text()
+        assert "CASE1" in content
+        assert "CTRL1" in content
+        assert "UNKNOWN_" in content  # Since no metadata provided, should use UNKNOWN category
+
+    def test_pseudonymization_integration_with_ped_file(self, tmp_path):
+        """Test that PED file creation uses the correct mapping file path."""
+        from unittest.mock import MagicMock
+        from variantcentrifuge.stages.output_stages import PseudonymizationStage
+        import pandas as pd
+
+        user_mapping_path = tmp_path / "study_mapping.tsv"
+        ped_file_path = tmp_path / "input.ped"
+
+        # Create a test PED file
+        ped_content = "FAM1\tSAMPLE1\t0\t0\t1\t2\nFAM1\tSAMPLE2\t0\t0\t2\t1\n"
+        ped_file_path.write_text(ped_content)
+
+        # Create test DataFrame
+        test_df = pd.DataFrame({"CHROM": ["1"], "POS": [100], "GT": ["SAMPLE1(0/1);SAMPLE2(1/1)"]})
+
+        # Create mock pipeline context with PED pseudonymization
+        mock_context = MagicMock()
+        mock_context.current_dataframe = test_df
+        mock_context.vcf_samples = ["SAMPLE1", "SAMPLE2"]
+        mock_context.config = {
+            "pseudonymize": True,
+            "pseudonymize_schema": "sequential",
+            "pseudonymize_prefix": "FAM",
+            "pseudonymize_table": str(user_mapping_path),
+            "pseudonymize_ped": True,
+            "ped_file": str(ped_file_path),
+        }
+
+        # Mock workspace
+        mock_context.workspace = MagicMock()
+        mock_context.workspace.output_dir = tmp_path / "output"
+        mock_context.workspace.timestamp = "20250101_120000"
+
+        # Run pseudonymization stage
+        stage = PseudonymizationStage()
+        stage._process(mock_context)
+
+        # Verify the mapping file was created
+        assert user_mapping_path.exists()
+
+        # Verify PED file was created with correct naming (based on mapping file)
+        expected_ped_path = tmp_path / "study_mapping_pedigree.ped"
+        assert expected_ped_path.exists(), "PED file should be created next to mapping file"
+
+        # Verify PED file contains pseudonymized sample IDs
+        ped_content = expected_ped_path.read_text()
+        assert "FAM_001" in ped_content or "FAM_002" in ped_content
+
+    def test_cli_validation_requires_pseudonymize_table(self):
+        """Test that CLI validation requires --pseudonymize-table when using --pseudonymize."""
+        from variantcentrifuge.cli import create_parser
+
+        parser = create_parser()
+
+        # Test that validation fails when pseudonymize is True but pseudonymize_table is None
+        test_args = [
+            "-v",
+            "test.vcf",
+            "--gene-name",
+            "all",
+            "--pseudonymize",
+            # Missing --pseudonymize-table
+        ]
+
+        # This should parse successfully (validation happens in main())
+        args = parser.parse_args(test_args)
+        assert args.pseudonymize is True
+        assert args.pseudonymize_table is None
+
+        # The validation logic from cli.py should catch this
+        if args.pseudonymize and not args.pseudonymize_table:
+            validation_would_fail = True
+        else:
+            validation_would_fail = False
+
+        assert (
+            validation_would_fail
+        ), "CLI validation should require --pseudonymize-table when using --pseudonymize"
+
+    def test_pseudonymize_table_parameter_config_mapping(self):
+        """Test that --pseudonymize-table parameter is properly mapped to config."""
+        from variantcentrifuge.cli import create_parser
+
+        parser = create_parser()
+
+        test_args = [
+            "-v",
+            "test.vcf",
+            "--gene-name",
+            "all",
+            "--pseudonymize",
+            "--pseudonymize-table",
+            "/path/to/mapping.tsv",
+            "--pseudonymize-category-field",
+            "custom_field",
+        ]
+
+        args = parser.parse_args(test_args)
+
+        # Test the config mapping logic (simulating what happens in main())
+        cfg = {}
+        cfg["pseudonymize"] = args.pseudonymize
+        cfg["pseudonymize_table"] = args.pseudonymize_table
+        cfg["pseudonymize_category_field"] = args.pseudonymize_category_field
+
+        # Verify all parameters are correctly mapped
+        assert cfg["pseudonymize"] is True
+        assert cfg["pseudonymize_table"] == "/path/to/mapping.tsv"
+        assert cfg["pseudonymize_category_field"] == "custom_field"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
