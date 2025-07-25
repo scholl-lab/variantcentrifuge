@@ -1175,14 +1175,26 @@ class GenotypeReplacementStage(Stage):
         processing_method = context.config.get("genotype_replacement_method", "auto")
         threads = context.config.get("threads", 1)
 
+        # Debug logging for method selection
+        logger.debug(f"Config genotype_replacement_method: {processing_method}")
+        logger.debug(f"Config threads: {threads}")
+        logger.debug(f"Config max_memory_gb: {context.config.get('max_memory_gb')}")
+
         # Use intelligent method selection for 'auto' mode
         if processing_method == "auto":
+            logger.debug("Using auto-selection for genotype replacement method")
             processing_method = select_optimal_processing_method(
                 file_path=input_tsv,
                 num_samples=len(samples),
                 threads=threads,
                 available_memory_gb=context.config.get("max_memory_gb"),  # Allow override
             )
+            logger.debug(f"Auto-selected method: {processing_method}")
+        else:
+            logger.debug(f"Using user-specified method: {processing_method}")
+
+        # Final method confirmation
+        logger.info(f"Final genotype replacement method: {processing_method}")
 
         # Execute based on selected method
         if processing_method == "vectorized":
