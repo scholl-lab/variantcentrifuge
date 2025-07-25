@@ -5,11 +5,12 @@ These tests compare the performance of the new streaming parallel processor
 against the existing chunked vectorized approach.
 """
 
-import time
 import tempfile
+import time
+from pathlib import Path
+
 import pandas as pd
 import pytest
-from pathlib import Path
 
 from variantcentrifuge.parallel_genotype_processor import process_streaming_parallel
 from variantcentrifuge.vectorized_replacer import process_parallel_chunked_vectorized
@@ -199,8 +200,9 @@ class TestStreamingParallelPerformance:
 
     def test_resource_utilization_metrics(self):
         """Test resource utilization during processing."""
-        import psutil
         import threading
+
+        import psutil
 
         # Monitor resource usage during processing
         cpu_samples = []

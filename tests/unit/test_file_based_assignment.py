@@ -2,12 +2,13 @@
 
 import tempfile
 from pathlib import Path
-# from unittest.mock import patch  # Unused import
 
 import pytest
 
 from tests.mocks.fixtures import create_test_context
 from variantcentrifuge.stages.setup_stages import PhenotypeCaseControlAssignmentStage
+
+# from unittest.mock import patch  # Unused import
 
 
 class TestFileBasedAssignment:

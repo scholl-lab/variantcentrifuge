@@ -7,9 +7,10 @@ and parallel processing limits.
 """
 
 import logging
-import psutil
-from typing import Tuple, Optional, Dict, Any
 from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
+
+import psutil
 
 logger = logging.getLogger(__name__)
 

@@ -5,12 +5,13 @@ Tests cover the new streaming pipeline architecture, adaptive memory management,
 and intelligent chunking strategies.
 """
 
+import tempfile
+from pathlib import Path
+from unittest.mock import Mock, patch
+
 import numpy as np
 import pandas as pd
 import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch
-import tempfile
 
 from variantcentrifuge.parallel_genotype_processor import (
     AdaptiveMemoryManager,

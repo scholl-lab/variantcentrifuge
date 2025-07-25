@@ -271,9 +271,9 @@ class TestPipelineSampleDeterminism:
         if results:
             first_result = results[0]
             for i, result in enumerate(results[1:], 1):
-                assert result == first_result, (
-                    f"Inheritance analysis run {i + 1} differs from run 1"
-                )
+                assert (
+                    result == first_result
+                ), f"Inheritance analysis run {i + 1} differs from run 1"
 
 
 @pytest.mark.integration
