@@ -90,12 +90,12 @@ jobs:
           if grep -q 'application/ld+json' docs/build/html/index.html; then
             echo "✓ JSON-LD structured data found"
             # Extract and validate JSON-LD
-            python -c "
+            python3 << 'EOF'
 import re
 import json
 with open('docs/build/html/index.html', 'r') as f:
     content = f.read()
-    matches = re.findall(r'<script type=\"application/ld\+json\">(.*?)</script>', content, re.DOTALL)
+    matches = re.findall(r'<script type="application/ld\+json">(.*?)</script>', content, re.DOTALL)
     for match in matches:
         try:
             json.loads(match)
@@ -103,7 +103,7 @@ with open('docs/build/html/index.html', 'r') as f:
         except:
             print('✗ Invalid JSON-LD: ' + match[:100] + '...')
             exit(1)
-            "
+EOF
           else
             echo "✗ No structured data found in index.html"
             exit 1
