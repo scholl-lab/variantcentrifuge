@@ -685,6 +685,13 @@ class HTMLReportStage(Stage):
         return {"tsv_output"}
 
     @property
+    def soft_dependencies(self) -> Set[str]:
+        """Return the set of stage names that should run before if present."""
+        # HTML report should wait for IGV reports if they're being generated
+        # so that IGV links can be included in the HTML report
+        return {"igv_report"}
+
+    @property
     def parallel_safe(self) -> bool:
         """Return whether this stage can run in parallel with others."""
         return True
