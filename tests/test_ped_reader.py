@@ -5,7 +5,12 @@ import tempfile
 
 import pytest
 
-from variantcentrifuge.ped_reader import get_family_members, get_parents, is_affected, read_pedigree
+from variantcentrifuge.ped_reader import (
+    get_family_members,
+    get_parents,
+    is_affected,
+    read_pedigree,
+)
 
 
 class TestPedReader:

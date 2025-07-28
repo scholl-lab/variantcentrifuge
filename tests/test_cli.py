@@ -712,8 +712,8 @@ class TestPerformanceConfigMapping:
 
     def test_performance_parameters_mapped_to_config(self):
         """Test that performance CLI parameters are properly mapped to config."""
-        from unittest.mock import Mock, patch
         from types import SimpleNamespace
+        from unittest.mock import Mock, patch
 
         # Mock args with performance parameters
         mock_args = SimpleNamespace(
@@ -784,8 +784,8 @@ class TestPerformanceConfigMapping:
 
     def test_genotype_replacement_method_config_mapping(self):
         """Test specific genotype replacement method config mapping."""
-        from unittest.mock import patch, Mock
         from types import SimpleNamespace
+        from unittest.mock import Mock, patch
 
         test_methods = ["auto", "sequential", "vectorized", "parallel", "streaming-parallel"]
 
@@ -845,8 +845,8 @@ class TestPerformanceConfigMapping:
 
     def test_config_parameter_presence_regression(self):
         """Regression test ensuring performance parameters are not missing from config."""
-        from unittest.mock import patch, Mock
         from types import SimpleNamespace
+        from unittest.mock import Mock, patch
 
         # Test with user's exact problematic scenario
         mock_args = SimpleNamespace(
@@ -917,8 +917,8 @@ class TestPerformanceConfigMapping:
 
     def test_performance_config_prevents_auto_selection_override(self):
         """Test that explicit method selection prevents auto-selection override."""
-        from unittest.mock import patch, Mock
         from types import SimpleNamespace
+        from unittest.mock import Mock, patch
 
         # Simulate user specifying parallel but getting streaming-parallel due to auto-selection
         mock_args = SimpleNamespace(
@@ -976,8 +976,8 @@ class TestPerformanceConfigMapping:
 
     def test_config_parameter_defaults(self):
         """Test that config parameters have correct defaults when not specified."""
-        from unittest.mock import patch, Mock
         from types import SimpleNamespace
+        from unittest.mock import Mock, patch
 
         # Mock args without performance parameters (using defaults)
         mock_args = SimpleNamespace(

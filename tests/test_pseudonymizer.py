@@ -589,8 +589,10 @@ class TestPseudonymizeTableParameter:
     def test_pseudonymization_stage_uses_user_specified_table_path(self, tmp_path):
         """Test that PseudonymizationStage uses the user-specified pseudonymize_table path."""
         from unittest.mock import MagicMock
-        from variantcentrifuge.stages.output_stages import PseudonymizationStage
+
         import pandas as pd
+
+        from variantcentrifuge.stages.output_stages import PseudonymizationStage
 
         # Create user-specified mapping table path
         user_mapping_path = tmp_path / "my_custom_mapping.tsv"
@@ -651,8 +653,10 @@ class TestPseudonymizeTableParameter:
     def test_pseudonymization_stage_fallback_when_no_table_specified(self, tmp_path):
         """Test fallback behavior when pseudonymize_table is not specified."""
         from unittest.mock import MagicMock
-        from variantcentrifuge.stages.output_stages import PseudonymizationStage
+
         import pandas as pd
+
+        from variantcentrifuge.stages.output_stages import PseudonymizationStage
 
         # Create test DataFrame
         test_df = pd.DataFrame({"CHROM": ["1"], "POS": [100], "GT": ["SAMPLE1(0/1)"]})
@@ -689,8 +693,10 @@ class TestPseudonymizeTableParameter:
     def test_pseudonymization_stage_with_categorical_schema_and_custom_field(self, tmp_path):
         """Test pseudonymization with categorical schema using custom category field."""
         from unittest.mock import MagicMock
-        from variantcentrifuge.stages.output_stages import PseudonymizationStage
+
         import pandas as pd
+
+        from variantcentrifuge.stages.output_stages import PseudonymizationStage
 
         user_mapping_path = tmp_path / "categorical_mapping.tsv"
 
@@ -735,8 +741,10 @@ class TestPseudonymizeTableParameter:
     def test_pseudonymization_integration_with_ped_file(self, tmp_path):
         """Test that PED file creation uses the correct mapping file path."""
         from unittest.mock import MagicMock
-        from variantcentrifuge.stages.output_stages import PseudonymizationStage
+
         import pandas as pd
+
+        from variantcentrifuge.stages.output_stages import PseudonymizationStage
 
         user_mapping_path = tmp_path / "study_mapping.tsv"
         ped_file_path = tmp_path / "input.ped"

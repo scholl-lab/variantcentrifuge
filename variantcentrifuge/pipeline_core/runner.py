@@ -9,7 +9,12 @@ import logging
 import multiprocessing
 import time
 from collections import defaultdict, deque
-from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import (
+    Future,
+    ProcessPoolExecutor,
+    ThreadPoolExecutor,
+    as_completed,
+)
 from typing import Dict, List, Literal, Optional
 
 from .context import PipelineContext

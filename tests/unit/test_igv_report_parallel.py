@@ -8,7 +8,10 @@ from unittest.mock import patch
 
 import pytest
 
-from variantcentrifuge.generate_igv_report import _generate_single_igv_report, generate_igv_report
+from variantcentrifuge.generate_igv_report import (
+    _generate_single_igv_report,
+    generate_igv_report,
+)
 
 
 class TestIGVReportParallel:

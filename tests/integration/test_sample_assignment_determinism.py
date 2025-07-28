@@ -84,7 +84,9 @@ class TestPipelineSampleDeterminism:
                     FieldExtractionStage,
                     GenotypeReplacementStage,
                 )
-                from variantcentrifuge.stages.setup_stages import SampleConfigLoadingStage
+                from variantcentrifuge.stages.setup_stages import (
+                    SampleConfigLoadingStage,
+                )
 
                 # Load samples
                 sample_stage = SampleConfigLoadingStage()

@@ -180,8 +180,8 @@ def determine_case_control_sets(
     """
     logger.debug("Determining case/control sets...")
 
-    case_samples = set(cfg.get("case_samples", []))
-    control_samples = set(cfg.get("control_samples", []))
+    case_samples = set(cfg.get("case_samples") or [])
+    control_samples = set(cfg.get("control_samples") or [])
 
     # Step 1: If explicit sets are provided
     if case_samples or control_samples:
@@ -197,8 +197,8 @@ def determine_case_control_sets(
         return case_samples, control_samples
 
     # Step 2: Phenotype-based logic
-    case_terms = cfg.get("case_phenotypes", [])
-    control_terms = cfg.get("control_phenotypes", [])
+    case_terms = cfg.get("case_phenotypes") or []
+    control_terms = cfg.get("control_phenotypes") or []
 
     # If no phenotype terms are given, default to all controls
     if not case_terms and not control_terms:

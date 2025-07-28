@@ -559,7 +559,7 @@ class TestDeadlockPreventionIntegration:
         # This test validates that the queue sizing and worker allocation
         # logic prevents deadlock scenarios without actually running the pipeline
 
-        processor = StreamingGenotypeProcessor(threads=8)
+        StreamingGenotypeProcessor(threads=8)
 
         # Test the allocation logic that prevents starvation
         io_threads = max(1, min(3, 8 // 5))  # Should be 1

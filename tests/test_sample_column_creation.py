@@ -5,8 +5,8 @@ import pytest
 
 from variantcentrifuge.stages.analysis_stages import (
     create_sample_columns_from_gt,
-    create_sample_columns_from_gt_vectorized,
     create_sample_columns_from_gt_intelligent,
+    create_sample_columns_from_gt_vectorized,
 )
 
 

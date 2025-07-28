@@ -1443,6 +1443,9 @@ class VariantAnalysisStage(Stage):
 
         df = context.current_dataframe
 
+        # Check if inheritance analysis was requested
+        should_have_inheritance = self._should_calculate_inheritance(context)
+
         # Check if inheritance columns exist in the input DataFrame
         inheritance_cols_present = [
             col for col in df.columns if col in ["Inheritance_Pattern", "Inheritance_Details"]
@@ -1453,10 +1456,15 @@ class VariantAnalysisStage(Stage):
                 non_null_count = df[col].notna().sum()
                 logger.debug(f"Column '{col}' has {non_null_count} non-null values")
         else:
-            logger.warning(
-                "No inheritance columns found in input DataFrame - "
-                "they were lost before VariantAnalysisStage"
-            )
+            if should_have_inheritance:
+                logger.warning(
+                    "No inheritance columns found in input DataFrame - "
+                    "they were lost before VariantAnalysisStage"
+                )
+            else:
+                logger.debug(
+                    "No inheritance columns found - inheritance analysis was not requested"
+                )
 
         # Prepare config for analyze_variants
         analysis_config = {
@@ -1466,11 +1474,11 @@ class VariantAnalysisStage(Stage):
             "base_name": context.workspace.base_name,
             "reference": context.config.get("reference", "GRCh37"),
             # CRITICAL: Pass through case/control samples from phenotype assignment
-            "case_samples": context.config.get("case_samples", []),
-            "control_samples": context.config.get("control_samples", []),
+            "case_samples": context.config.get("case_samples") or [],
+            "control_samples": context.config.get("control_samples") or [],
             # Pass through phenotype terms for legacy compatibility
-            "case_phenotypes": context.config.get("case_phenotypes", []),
-            "control_phenotypes": context.config.get("control_phenotypes", []),
+            "case_phenotypes": context.config.get("case_phenotypes") or [],
+            "control_phenotypes": context.config.get("control_phenotypes") or [],
         }
 
         # Create temporary TSV file for analyze_variants
@@ -1576,9 +1584,14 @@ class VariantAnalysisStage(Stage):
                                         f"Column '{col}' has {non_null_count} non-null values"
                                     )
                             else:
-                                logger.error(
-                                    f"Failed to preserve inheritance columns: {inheritance_cols}"
-                                )
+                                if should_have_inheritance:
+                                    logger.error(
+                                        f"Failed to preserve inheritance columns: {inheritance_cols}"
+                                    )
+                                else:
+                                    logger.debug(
+                                        f"No inheritance columns to preserve: {inheritance_cols}"
+                                    )
                     except Exception as e:
                         logger.error(f"Error merging columns: {e}")
                         logger.warning("Inheritance columns may be lost due to merge failure")
@@ -1609,7 +1622,7 @@ class VariantAnalysisStage(Stage):
                     for col in df.columns
                     if col in ["Inheritance_Pattern", "Inheritance_Details"]
                 ]
-                if inheritance_cols:
+                if inheritance_cols and should_have_inheritance:
                     logger.error(
                         f"CRITICAL: Inheritance columns {inheritance_cols} will be lost "
                         f"due to missing key columns for merge"
@@ -1630,9 +1643,12 @@ class VariantAnalysisStage(Stage):
                     non_null_count = analysis_df[col].notna().sum()
                     logger.debug(f"Final column '{col}' has {non_null_count} non-null values")
             else:
-                logger.error(
-                    "INHERITANCE COLUMNS LOST - Final DataFrame missing inheritance columns!"
-                )
+                if should_have_inheritance:
+                    logger.error(
+                        "INHERITANCE COLUMNS LOST - Final DataFrame missing inheritance columns!"
+                    )
+                else:
+                    logger.debug("Final DataFrame has no inheritance columns - none were expected")
         else:
             logger.warning("No analysis results generated - DataFrame unchanged")
             # Check if inheritance columns exist in the unchanged DataFrame
@@ -1644,13 +1660,55 @@ class VariantAnalysisStage(Stage):
                     f"Unchanged DataFrame still has inheritance columns: {inheritance_cols_present}"
                 )
             else:
-                logger.warning("Unchanged DataFrame also missing inheritance columns")
+                if should_have_inheritance:
+                    logger.warning("Unchanged DataFrame also missing inheritance columns")
+                else:
+                    logger.debug(
+                        "Unchanged DataFrame has no inheritance columns - none were expected"
+                    )
 
         # Clean up temp file
         if temp_tsv.exists():
             temp_tsv.unlink()
 
         return context
+
+    def _should_calculate_inheritance(self, context: PipelineContext) -> bool:
+        """Check if inheritance analysis should be calculated."""
+        # Use the same logic as pipeline.py
+        has_ped_file = context.pedigree_data is not None and len(context.pedigree_data) > 0
+        has_inheritance_mode = context.config.get("inheritance_mode")
+        has_calculate_inheritance_config = context.config.get("calculate_inheritance", False)
+        requires_inheritance_for_scoring = self._check_if_scoring_needs_details(context)
+
+        should_calculate = (
+            has_ped_file
+            or has_inheritance_mode
+            or has_calculate_inheritance_config
+            or requires_inheritance_for_scoring
+        )
+
+        logger.debug(
+            f"Should calculate inheritance: {should_calculate} (ped={has_ped_file}, "
+            f"mode={has_inheritance_mode}, config={has_calculate_inheritance_config}, "
+            f"scoring={requires_inheritance_for_scoring})"
+        )
+        return should_calculate
+
+    def _check_if_scoring_needs_details(self, context: PipelineContext) -> bool:
+        """Check if scoring configuration requires Inheritance_Details."""
+        if not context.scoring_config:
+            return False
+
+        # Check if any scoring formula references Inheritance_Details
+        scoring_formulas = context.scoring_config.get("scoring_formulas", {})
+        for formula_name, formula_data in scoring_formulas.items():
+            formula_str = formula_data.get("formula", "")
+            if "Inheritance_Details" in formula_str:
+                logger.debug(f"Scoring formula '{formula_name}' requires Inheritance_Details")
+                return True
+
+        return False
 
     def get_input_files(self, context: PipelineContext) -> List[Path]:
         """Return input files for checkpoint tracking."""
@@ -2646,7 +2704,10 @@ class ChunkedAnalysisStage(Stage):
     ) -> pd.DataFrame:
         """Apply custom annotations to a chunk."""
         try:
-            from ..annotator import annotate_dataframe_with_features, load_custom_features
+            from ..annotator import (
+                annotate_dataframe_with_features,
+                load_custom_features,
+            )
 
             # Create config dict for load_custom_features
             annotation_cfg = {
@@ -2693,7 +2754,10 @@ class ChunkedAnalysisStage(Stage):
             - Handles memory safety checks for large datasets
         """
         try:
-            from ..inheritance.analyzer import analyze_inheritance, process_inheritance_output
+            from ..inheritance.analyzer import (
+                analyze_inheritance,
+                process_inheritance_output,
+            )
 
             # Extract config parameters
             inheritance_config = context.config.get("inheritance_analysis_config", {})

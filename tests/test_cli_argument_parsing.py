@@ -87,6 +87,7 @@ class TestCriticalArgumentParsing:
     def test_no_duplicate_parser_indicators(self):
         """Test that ensures no signs of duplicate argument parser architecture."""
         import inspect
+
         import variantcentrifuge.cli as cli_module
 
         # Get main function source to check for architectural issues
@@ -157,6 +158,7 @@ class TestArgumentParserArchitecture:
     def test_main_function_architecture(self):
         """Test that main() function has correct architecture."""
         import inspect
+
         import variantcentrifuge.cli as cli_module
 
         # Get main function source
@@ -178,6 +180,7 @@ class TestArgumentParserArchitecture:
     def test_argument_groups_only_in_create_parser(self):
         """Test that argument groups are only defined in create_parser()."""
         import inspect
+
         import variantcentrifuge.cli as cli_module
 
         # Get both function sources
