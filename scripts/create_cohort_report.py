@@ -381,23 +381,48 @@ def prepare_column_metadata(df):
     """Prepare column metadata for template rendering."""
     link_columns = detect_link_columns(df)
 
-    # Define columns that should be hidden by default (similar to individual reports)
+    # Use the same default hidden columns as individual reports from config.json
     default_hidden_columns = [
+        "QUAL",
+        "AC",
         "FEATUREID",
-        "NMD_PERC",
         "AA_POS",
         "AA_LEN",
-        "ERRORS",
-        "WARNINGS",
-        "AF_EXAC",
-        "AF_GNOMAD",
-        "AF_1000G",
-        "CADD_PHRED",
-        "IMPACT_SEVERITY",
+        "NMD_PERC",
+        "dbNSFP_ALFA_Total_AC",
+        "dbNSFP_REVEL_score",
+        "splice_dbscSNV_rf_score",
+        "splice_dbscSNV_ada_score",
+        "splice_spidex_dpsi_zscore",
+        "dbNSFP_clinvar_clnsig",
+        "dbNSFP_gnomAD_exomes_AC",
+        "dbNSFP_gnomAD_genomes_AC",
+        "hgmd_CLASS",
+        "proband_count",
+        "control_count",
+        "proband_variant_count",
+        "control_variant_count",
+        "proband_allele_count",
+        "control_allele_count",
+        "proband_homozygous_count",
+        "control_homozygous_count",
     ]
 
-    # Define columns that should have hover-expand functionality
-    truncate_columns = ["HGVS_C", "HGVS_P", "Effect", "AAChange", "ID"]
+    # Use the same hover-expand columns as individual reports from config.json
+    truncate_columns = [
+        "VAR_ID",
+        "HGVS_P",
+        "HGVS_C",
+        "ID",
+        "REF",
+        "ALT",
+        "EFFECT",
+        "IMPACT",
+        "FEATUREID",
+        "dbNSFP_clinvar_clnsig",
+        "ClinVar_CLNSIG",
+        "GT",
+    ]
 
     column_metadata = []
     for col in df.columns:
@@ -412,7 +437,7 @@ def prepare_column_metadata(df):
             "link_info": link_columns.get(col, {}),
             "is_hidden_default": is_hidden,
             "needs_truncation": needs_truncation,
-            "max_width": 150 if needs_truncation else None,
+            "max_width": 250 if col == "GT" else (120 if needs_truncation else None),
         }
         column_metadata.append(metadata)
 
