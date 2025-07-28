@@ -464,7 +464,7 @@ def create_excel_report(df, output_dir):
 
 
 def finalize_cohort_excel(xlsx_file, df):
-    """Apply same Excel link conversion as main pipeline converter.py."""
+    """Apply basic Excel formatting without creating hyperlinks to avoid corruption."""
     wb = load_workbook(xlsx_file)
     ws = wb.active
 
@@ -475,49 +475,38 @@ def finalize_cohort_excel(xlsx_file, df):
     max_col_letter = get_column_letter(ws.max_column)
     ws.auto_filter.ref = f"A1:{max_col_letter}1"
 
-    logger.info("Converting URL columns to clickable hyperlinks (same as main pipeline)...")
+    logger.info("Finalizing Excel file with basic formatting (no hyperlinks to prevent corruption)...")
 
-    # Get header row and find URL columns (same logic as main pipeline)
+    # Just leave URLs as plain text - Excel will auto-detect them as clickable
+    # This prevents any XML corruption issues from malformed hyperlinks
+    
+    # Log the columns for verification
     header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
     url_columns = []
-
-    for idx, col_name in enumerate(header_row, 1):  # 1-indexed for openpyxl
-        # Check if this column contains URLs by examining the first few data rows
+    
+    for idx, col_name in enumerate(header_row, 1):
         if col_name and ws.max_row > 1:
+            # Check if this looks like a URL column
             sample_values = []
-            for row_idx in range(2, min(6, ws.max_row + 1)):  # Check first 4 data rows
+            for row_idx in range(2, min(6, ws.max_row + 1)):
                 cell_value = ws.cell(row=row_idx, column=idx).value
                 if cell_value and str(cell_value).strip():
                     sample_values.append(str(cell_value).strip())
-
-            # If most sample values start with http, consider this a URL column
+            
             if sample_values:
                 url_count = sum(1 for val in sample_values if val.startswith(('http://', 'https://')))
-                if url_count >= len(sample_values) * 0.7:  # 70% threshold
-                    url_columns.append(idx)
-                    logger.debug(f"Detected URL column: {col_name} (column {idx})")
-
-    # Convert URL text columns to clickable hyperlinks (same as main pipeline)
+                if url_count >= len(sample_values) * 0.7:
+                    url_columns.append(col_name)
+    
     if url_columns:
-        logger.info(f"Converting {len(url_columns)} URL columns to clickable hyperlinks")
-        for row_idx in range(2, ws.max_row + 1):  # Skip header row
-            for col_idx in url_columns:
-                cell = ws.cell(row=row_idx, column=col_idx)
-                if cell.value and str(cell.value).strip():
-                    url = str(cell.value).strip()
-                    if url.startswith(('http://', 'https://')):
-                        # Get the column name for display
-                        col_name = header_row[col_idx - 1]  # Convert to 0-indexed
-                        # Set hyperlink and style (same as main pipeline)
-                        cell.hyperlink = url
-                        cell.value = col_name  # Use column name as display text
-                        cell.style = "Hyperlink"
+        logger.info(f"Found {len(url_columns)} URL columns: {url_columns}")
+        logger.info("URLs left as plain text - Excel will auto-detect as clickable links")
     else:
-        logger.info("No URL columns detected for hyperlink conversion")
+        logger.info("No URL columns detected")
 
     # Save the workbook
     wb.save(xlsx_file)
-    logger.info(f"Excel file finalized with {len(url_columns)} URL columns converted to hyperlinks")
+    logger.info("Excel file finalized successfully")
 
 
 def create_report(output_dir, report_name, df, summary):
