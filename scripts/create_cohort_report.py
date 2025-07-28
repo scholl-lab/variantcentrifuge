@@ -464,7 +464,7 @@ def create_excel_report(df, output_dir):
 
 
 def finalize_cohort_excel(xlsx_file, df):
-    """Apply formatting and create clickable links in the Excel file."""
+    """Apply same Excel link conversion as main pipeline converter.py."""
     wb = load_workbook(xlsx_file)
     ws = wb.active
 
@@ -475,134 +475,49 @@ def finalize_cohort_excel(xlsx_file, df):
     max_col_letter = get_column_letter(ws.max_column)
     ws.auto_filter.ref = f"A1:{max_col_letter}1"
 
-    logger.info("Adding clickable links to Excel file...")
+    logger.info("Converting URL columns to clickable hyperlinks (same as main pipeline)...")
 
-    # Define link templates (same as main pipeline config.json)
-    link_templates = {
-        "SpliceAI": (
-            "https://spliceailookup.broadinstitute.org/"
-            "#variant={CHROM}-{POS}-{REF}-{ALT}&hg=19&bc=basic&distance=500&mask=0&ra=0"
-        ),
-        "Franklin": (
-            "https://franklin.genoox.com/clinical-db/variant/snp/{CHROM}-{POS}-{REF}-{ALT}-hg19"
-        ),
-        "Varsome": "https://varsome.com/variant/hg19/{CHROM}-{POS}-{REF}-{ALT}",
-        "gnomAD_2": (
-            "https://gnomad.broadinstitute.org/variant/"
-            "{CHROM}-{POS}-{REF}-{ALT}?dataset=gnomad_r2_1"
-        ),
-        "autopvs1": "https://autopvs1.bgi.com/variant/hg19/{CHROM}-{POS}-{REF}-{ALT}",
-        "ClinVar": "https://www.ncbi.nlm.nih.gov/clinvar/?term={CHROM}-{POS}-{REF}-{ALT}",
-    }
-
-    # Get header row for column mapping
-    header_row = [cell.value for cell in ws[1]]
-    header_indices = {}
+    # Get header row and find URL columns (same logic as main pipeline)
+    header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+    url_columns = []
 
     for idx, col_name in enumerate(header_row, 1):  # 1-indexed for openpyxl
-        if col_name:
-            header_indices[col_name] = idx
-
-    # Find existing URL columns (same logic as main pipeline)
-    url_columns = []
-    for idx, col_name in enumerate(header_row, 1):
+        # Check if this column contains URLs by examining the first few data rows
         if col_name and ws.max_row > 1:
-            # Sample first few data rows to check for URLs
             sample_values = []
-            for row_idx in range(2, min(6, ws.max_row + 1)):
+            for row_idx in range(2, min(6, ws.max_row + 1)):  # Check first 4 data rows
                 cell_value = ws.cell(row=row_idx, column=idx).value
                 if cell_value and str(cell_value).strip():
                     sample_values.append(str(cell_value).strip())
 
-            # If 70% of samples are URLs, treat as URL column
+            # If most sample values start with http, consider this a URL column
             if sample_values:
-                url_count = sum(
-                    1 for val in sample_values if val.startswith(("http://", "https://"))
-                )
-                if url_count >= len(sample_values) * 0.7:
+                url_count = sum(1 for val in sample_values if val.startswith(('http://', 'https://')))
+                if url_count >= len(sample_values) * 0.7:  # 70% threshold
                     url_columns.append(idx)
                     logger.debug(f"Detected URL column: {col_name} (column {idx})")
 
-    # Convert existing URL columns to clickable hyperlinks (same as main pipeline)
+    # Convert URL text columns to clickable hyperlinks (same as main pipeline)
     if url_columns:
         logger.info(f"Converting {len(url_columns)} URL columns to clickable hyperlinks")
-        for row_idx in range(2, ws.max_row + 1):
+        for row_idx in range(2, ws.max_row + 1):  # Skip header row
             for col_idx in url_columns:
                 cell = ws.cell(row=row_idx, column=col_idx)
                 if cell.value and str(cell.value).strip():
                     url = str(cell.value).strip()
-                    if url.startswith(("http://", "https://")):
-                        try:
-                            # Get the column name for display (same as main pipeline)
-                            col_name = header_row[col_idx - 1]  # Convert to 0-indexed
-                            # Set hyperlink and use Excel's built-in Hyperlink style
-                            cell.hyperlink = url
-                            cell.value = col_name  # Use column name as display text
-                            cell.style = "Hyperlink"  # Use Excel's built-in hyperlink style
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to create hyperlink in {col_idx},{row_idx}: {e}"
-                            )
-
-    # Add genomic link columns if we have coordinates
-    has_genomic_coords = all(col in header_indices for col in ["CHROM", "POS", "REF", "ALT"])
-
-    if has_genomic_coords:
-        logger.info("Adding genomic link columns...")
-        start_col = ws.max_column + 1
-
-        # Add headers for link columns
-        for i, link_name in enumerate(link_templates.keys()):
-            col_letter = get_column_letter(start_col + i)
-            ws[f"{col_letter}1"] = link_name
-
-        # Add links for each data row
-        for row_idx in range(2, ws.max_row + 1):
-            # Get genomic coordinates
-            chrom = ws.cell(row=row_idx, column=header_indices["CHROM"]).value
-            pos = ws.cell(row=row_idx, column=header_indices["POS"]).value
-            ref = ws.cell(row=row_idx, column=header_indices["REF"]).value
-            alt = ws.cell(row=row_idx, column=header_indices["ALT"]).value
-
-            # Generate links for each template
-            for i, (link_name, template) in enumerate(link_templates.items()):
-                col_letter = get_column_letter(start_col + i)
-                cell = ws[f"{col_letter}{row_idx}"]
-
-                if all(x is not None and str(x).strip() != "" for x in [chrom, pos, ref, alt]):
-                    try:
-                        # Generate URL
-                        url = template.format(
-                            CHROM=str(chrom).strip(),
-                            POS=str(pos).strip(),
-                            REF=str(ref).strip(),
-                            ALT=str(alt).strip(),
-                        )
-
-                        if url.startswith(("http://", "https://")):
-                            # Set hyperlink with link name as display text (consistent with main pipeline)
-                            cell.hyperlink = url
-                            cell.value = link_name
-                            cell.style = "Hyperlink"
-                        else:
-                            cell.value = "N/A"
-                    except Exception as e:
-                        logger.warning(f"Failed to generate {link_name} URL for row {row_idx}: {e}")
-                        cell.value = "N/A"
-                else:
-                    cell.value = "N/A"
-
-    # Update auto-filter to include new columns
-    max_col_letter = get_column_letter(ws.max_column)
-    ws.auto_filter.ref = f"A1:{max_col_letter}1"
+                    if url.startswith(('http://', 'https://')):
+                        # Get the column name for display
+                        col_name = header_row[col_idx - 1]  # Convert to 0-indexed
+                        # Set hyperlink and style (same as main pipeline)
+                        cell.hyperlink = url
+                        cell.value = col_name  # Use column name as display text
+                        cell.style = "Hyperlink"
+    else:
+        logger.info("No URL columns detected for hyperlink conversion")
 
     # Save the workbook
     wb.save(xlsx_file)
-    genomic_links_count = len(link_templates) if has_genomic_coords else 0
-    logger.info(
-        f"Excel file finalized with {len(url_columns)} existing URL columns "
-        f"and {genomic_links_count} genomic link columns"
-    )
+    logger.info(f"Excel file finalized with {len(url_columns)} URL columns converted to hyperlinks")
 
 
 def create_report(output_dir, report_name, df, summary):
