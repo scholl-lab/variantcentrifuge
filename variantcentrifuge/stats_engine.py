@@ -186,16 +186,35 @@ class StatsEngine:
 
         # Combine all stats into a single DataFrame
         if gene_stats:
-            # Check if all values are scalars (not Series/arrays)
-            all_scalars = all(not hasattr(v, 'index') for v in gene_stats.values())
-            if all_scalars:
-                # If all values are scalars, wrap in list for single row DataFrame
-                stats_df = pd.DataFrame([gene_stats])
-            else:
-                # If values are Series/arrays, create DataFrame normally
+            try:
+                # Try to create DataFrame directly first
                 stats_df = pd.DataFrame(gene_stats)
-            stats_df = stats_df.reset_index()
-            return stats_df
+                stats_df = stats_df.reset_index()
+                return stats_df
+            except ValueError as e:
+                if "If using all scalar values, you must pass an index" in str(e):
+                    # Handle case where all values are scalars
+                    logger.debug("All gene stats are scalar values, creating single-row DataFrame")
+                    stats_df = pd.DataFrame([gene_stats])
+                    return stats_df
+                elif "All arrays must be of the same length" in str(e):
+                    # Handle mixed scalar/Series case by converting scalars to single-element Series
+                    logger.debug("Mixed scalar/Series gene stats detected, normalizing to Series")
+                    normalized_stats = {}
+                    for key, value in gene_stats.items():
+                        if hasattr(value, 'index'):
+                            # Already a Series
+                            normalized_stats[key] = value
+                        else:
+                            # Convert scalar to Series with single unnamed index
+                            normalized_stats[key] = pd.Series([value], index=['total'])
+                    
+                    stats_df = pd.DataFrame(normalized_stats)
+                    stats_df = stats_df.reset_index()
+                    return stats_df
+                else:
+                    # Re-raise other ValueError types
+                    raise
         else:
             return pd.DataFrame()
 
