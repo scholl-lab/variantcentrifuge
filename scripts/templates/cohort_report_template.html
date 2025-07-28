@@ -39,9 +39,27 @@
         .noUi-connect { background: #007bff; }
         .btn-reset { background-color: #6c757d; color: white; border: none; border-radius: 4px; padding: 10px 18px; cursor: pointer; margin-top: 15px; font-weight: 600; }
         .btn-reset:hover { background-color: #5a6268; }
-        table.dataTable { width: 100% !important; border-collapse: collapse !important; }
-        table.dataTable thead th { background-color: #e9ecef; border-bottom: 2px solid #dee2e6; }
+        table.dataTable { width: 100% !important; border-collapse: collapse !important; font-size: 13px; }
+        table.dataTable thead th { background-color: #e9ecef; border-bottom: 2px solid #dee2e6; white-space: normal !important; word-wrap: break-word; text-align: left; vertical-align: middle; line-height: 1.3; }
+        table.dataTable.compact th, table.dataTable.compact td { padding: 4px 6px; }
+        table.dataTable td { text-align: left; vertical-align: top; line-height: 1.3; }
         footer { text-align: center; margin-top: 30px; padding: 20px; font-size: 12px; color: #777; }
+        
+        /* Link styling from individual reports */
+        .link-icon { text-decoration: none; margin-right: 3px; color: #007bff; font-size: 0.9em; }
+        .standard-link { text-decoration: underline; color: #007bff; display: inline-block; }
+        .standard-link:hover { color: #0056b3; }
+        
+        /* Hover-expand functionality from individual reports */
+        .hover-expand-cell { position: relative; }
+        .hover-expand-content { display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+        .hover-expand-content.can-expand { cursor: help; }
+        .hover-expand-content.expanded { 
+            position: absolute; top: 0; left: 0; width: auto; max-width: 400px; min-width: 100%; 
+            white-space: normal; word-wrap: break-word; overflow: visible; 
+            background-color: #FFFFE0; border: 1px solid #666; padding: 5px; z-index: 1000; 
+            box-shadow: 3px 3px 8px rgba(0,0,0,0.2); border-radius: 3px; 
+        }
     </style>
 </head>
 <body>
@@ -82,6 +100,7 @@ $(document).ready(function() {
     // Parse embedded JSON data directly from the template
     const variantsData = JSON.parse('{{ variants_json | safe }}');
     const summaryData = JSON.parse('{{ summary_json | safe }}');
+    const columnMetadata = JSON.parse('{{ column_metadata_json | safe }}');
     let dataTable;
 
     // Initialize the dashboard with summary statistics
@@ -117,6 +136,7 @@ $(document).ready(function() {
         }
 
         console.log('Table data sample:', data[0]);  // Debug log to check data structure
+        console.log('Column metadata:', columnMetadata);
 
         // Ensure data is properly formatted as array of objects
         if (typeof data === 'string') {
@@ -133,22 +153,69 @@ $(document).ready(function() {
             return;
         }
 
-        // Extract column information from the first row
-        const columns = Object.keys(firstRow).map(key => ({
-            title: key,
-            data: key,
-            // Customize column rendering based on content type
-            render: (data, type, row) => {
-                if (data === null || data === undefined) return '';
+        // Build column definitions from metadata
+        const columns = [];
+        const columnDefs = [];
+        const hiddenColumns = [];
+        
+        columnMetadata.forEach((colMeta, index) => {
+            const colName = colMeta.name;
+            
+            // Basic column definition
+            const columnDef = {
+                title: colMeta.display_name,
+                data: colName,
+                render: function(data, type, row) {
+                    if (data === null || data === undefined || data === '') return '';
+                    
+                    // Handle link columns
+                    if (colMeta.is_link && data) {
+                        const linkText = colMeta.link_info.display_text || colMeta.display_name;
+                        return `<a href="${data}" target="_blank" class="standard-link" title="${data}">
+                                  <span class="link-icon">🔗</span>${linkText}
+                                </a>`;
+                    }
+                    
+                    // Handle hover-expand columns
+                    if (colMeta.needs_truncation) {
+                        const escapedData = $('<div>').text(data).html(); // HTML escape
+                        return `<span class="hover-expand-content" style="max-width:${colMeta.max_width}px;">${escapedData}</span>`;
+                    }
+                    
+                    // Format numeric values with precision for AF columns
+                    if (colName.includes('AF') && !isNaN(parseFloat(data))) {
+                        return parseFloat(data).toFixed(4);
+                    }
 
-                // Format numeric values with precision for AF columns
-                if (key.includes('AF') && !isNaN(parseFloat(data))) {
-                    return parseFloat(data).toFixed(4);
+                    return data;
                 }
-
-                return data;
+            };
+            
+            columns.push(columnDef);
+            
+            // Track hidden columns
+            if (colMeta.is_hidden_default) {
+                hiddenColumns.push(index);
             }
-        }));
+            
+            // Add hover-expand cell creation
+            if (colMeta.needs_truncation) {
+                columnDefs.push({
+                    targets: index,
+                    createdCell: function (td, cellData, rowData, row, col) {
+                        $(td).addClass('hover-expand-cell');
+                    }
+                });
+            }
+        });
+        
+        // Add column visibility definition for hidden columns
+        if (hiddenColumns.length > 0) {
+            columnDefs.push({
+                targets: hiddenColumns,
+                visible: false
+            });
+        }
 
         // Destroy existing DataTable if it exists
         if ($.fn.DataTable.isDataTable('#variants-table')) {
@@ -160,13 +227,47 @@ $(document).ready(function() {
         dataTable = $('#variants-table').DataTable({
             data: data,
             columns: columns,
+            columnDefs: columnDefs,
             dom: 'Blfrtip',
-            buttons: ['colvis', 'csvHtml5', 'excelHtml5'],
+            buttons: [
+                {
+                    extend: 'colvis',
+                    text: 'Show/Hide Columns',
+                    className: 'ml-2'
+                },
+                'csvHtml5', 
+                'excelHtml5'
+            ],
             scrollX: true,
             deferRender: true,
             pageLength: 25,
             lengthMenu: [ [10, 25, 50, -1], [10, 25, 50, "All"] ],
-            order: []
+            order: [],
+            drawCallback: function(settings) {
+                // Force column width adjustment
+                this.api().columns.adjust();
+                
+                // Check which cells need hover-expand functionality
+                $('.hover-expand-content', this.api().table().body()).each(function() {
+                    var $this = $(this);
+                    if (this.offsetWidth < this.scrollWidth || this.offsetHeight < this.scrollHeight) {
+                        $this.addClass('can-expand');
+                        $this.attr('title', 'Hover to see full content');
+                    } else {
+                        $this.removeClass('can-expand');
+                        $this.removeAttr('title');
+                    }
+                });
+            }
+        });
+
+        // Event delegation for hover-expand functionality
+        $('#variants-table tbody')
+        .on('mouseenter', 'td.hover-expand-cell span.hover-expand-content.can-expand', function() {
+            $(this).addClass('expanded');
+        })
+        .on('mouseleave', 'td.hover-expand-cell span.hover-expand-content.expanded', function() {
+            $(this).removeClass('expanded');
         });
 
         // This is the key event listener for dynamic updates

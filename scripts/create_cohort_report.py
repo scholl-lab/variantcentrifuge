@@ -256,6 +256,15 @@ def clean_data(df):
     """Clean and prepare the aggregated data."""
     logger.info("Cleaning and preparing data...")
 
+    # Ensure SampleID is the first column
+    if "SampleID" in df.columns:
+        # Get all columns except SampleID
+        other_columns = [col for col in df.columns if col != "SampleID"]
+        # Reorder columns with SampleID first
+        column_order = ["SampleID"] + other_columns
+        df = df[column_order]
+        logger.info("Reordered columns with SampleID as first column")
+
     # Ensure all relevant numeric columns are properly typed
     numeric_cols = [
         "SampleAF",
@@ -342,6 +351,74 @@ def save_data(df, summary, output_dir):
     logger.info(f"Data saved to {data_dir}")
 
 
+def detect_link_columns(df):
+    """Detect columns that contain URLs or should be treated as links."""
+    link_columns = {}
+
+    if df.empty:
+        return link_columns
+
+    for col in df.columns:
+        if col.lower() in ["url", "link", "href"]:
+            link_columns[col] = {"type": "standard", "display_text": "Link"}
+            continue
+
+        # Check if column contains URLs
+        sample_values = df[col].dropna().astype(str).head(10)
+        url_count = sum(
+            1 for val in sample_values if val.startswith(("http://", "https://", "ftp://"))
+        )
+
+        # If more than 50% of non-null values are URLs, treat as link column
+        if len(sample_values) > 0 and url_count / len(sample_values) > 0.5:
+            link_columns[col] = {"type": "standard", "display_text": col.replace("_", " ")}
+
+    logger.info(f"Detected link columns: {list(link_columns.keys())}")
+    return link_columns
+
+
+def prepare_column_metadata(df):
+    """Prepare column metadata for template rendering."""
+    link_columns = detect_link_columns(df)
+
+    # Define columns that should be hidden by default (similar to individual reports)
+    default_hidden_columns = [
+        "FEATUREID",
+        "NMD_PERC",
+        "AA_POS",
+        "AA_LEN",
+        "ERRORS",
+        "WARNINGS",
+        "AF_EXAC",
+        "AF_GNOMAD",
+        "AF_1000G",
+        "CADD_PHRED",
+        "IMPACT_SEVERITY",
+    ]
+
+    # Define columns that should have hover-expand functionality
+    truncate_columns = ["HGVS_C", "HGVS_P", "Effect", "AAChange", "ID"]
+
+    column_metadata = []
+    for col in df.columns:
+        is_link = col in link_columns
+        is_hidden = col in default_hidden_columns
+        needs_truncation = col in truncate_columns
+
+        metadata = {
+            "name": col,
+            "display_name": col.replace("_", " "),
+            "is_link": is_link,
+            "link_info": link_columns.get(col, {}),
+            "is_hidden_default": is_hidden,
+            "needs_truncation": needs_truncation,
+            "max_width": 150 if needs_truncation else None,
+        }
+        column_metadata.append(metadata)
+
+    return column_metadata
+
+
 def create_report(output_dir, report_name, df, summary):
     """Create the HTML report using the template and data."""
     logger.info("Creating HTML report...")
@@ -353,9 +430,13 @@ def create_report(output_dir, report_name, df, summary):
     env = Environment(loader=FileSystemLoader(os.path.join(script_dir, "templates")))
     template = env.get_template("cohort_report_template.html")
 
+    # Prepare column metadata for template
+    column_metadata = prepare_column_metadata(df)
+
     # Convert DataFrame and summary to JSON strings for embedding in HTML
     variants_json = df.to_json(orient="records", date_format="iso")
     summary_json = json.dumps(summary)
+    column_metadata_json = json.dumps(column_metadata)
 
     # Render the template with embedded JSON data
     html_content = template.render(
@@ -363,6 +444,7 @@ def create_report(output_dir, report_name, df, summary):
         generation_date=pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
         variants_json=variants_json,
         summary_json=summary_json,
+        column_metadata_json=column_metadata_json,
     )
 
     # Write the HTML to a file
