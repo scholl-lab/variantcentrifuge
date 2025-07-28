@@ -16,6 +16,7 @@ from variantcentrifuge.stages.analysis_stages import (
     InheritanceAnalysisStage,
     ParallelAnalysisOrchestrator,
     StatisticsGenerationStage,
+    VariantAnalysisStage,
     VariantScoringStage,
 )
 
@@ -29,6 +30,7 @@ def mock_workspace(tmp_path):
     workspace.intermediate_dir.mkdir()
     workspace.get_intermediate_path = lambda x: workspace.intermediate_dir / x
     workspace.get_output_path = lambda x, ext=".tsv": workspace.output_dir / f"{x}{ext}"
+    workspace.base_name = "test"  # Add base_name attribute
     return workspace
 
 
@@ -389,3 +391,173 @@ class TestParallelAnalysisOrchestrator:
 
         # Should process without error (simplified implementation)
         assert result == base_context
+
+
+class TestVariantAnalysisStage:
+    """Test the VariantAnalysisStage with focus on inheritance column warning fixes."""
+
+    def test_inheritance_warnings_when_inheritance_not_requested(self, base_context, caplog):
+        """Test that no inheritance warnings are logged when inheritance is not requested."""
+        # Setup: No inheritance mode, no pedigree data, no scoring that needs inheritance
+        base_context.config = {
+            "inheritance_mode": None,
+            "no_stats": True,  # Disable stats to avoid complexity
+        }
+        base_context.pedigree_data = None
+        base_context.scoring_config = None
+        base_context.vcf_samples = ["SAMPLE1", "SAMPLE2"]
+        
+        # DataFrame without inheritance columns (this would previously cause warnings)
+        base_context.current_dataframe = pd.DataFrame({
+            "CHROM": ["chr1", "chr2"],
+            "POS": [100, 200],
+            "Gene": ["BRCA1", "TP53"],
+            "SAMPLE1": ["0/1", "0/0"],
+            "SAMPLE2": ["0/0", "1/1"]
+        })
+
+        stage = VariantAnalysisStage()
+        result = stage._process(base_context)
+
+        # Check that no inheritance warnings were logged
+        inheritance_warning_logs = [
+            record for record in caplog.records 
+            if "inheritance" in record.message.lower() and record.levelname == "WARNING"
+        ]
+        
+        assert len(inheritance_warning_logs) == 0, "Should not log inheritance warnings when inheritance not requested"
+        assert result.current_dataframe is not None
+
+    def test_inheritance_warnings_when_inheritance_requested_but_missing(self, base_context, caplog):
+        """Test that inheritance warnings ARE logged when inheritance is requested but columns are missing."""
+        # Setup: Inheritance mode is specified, indicating inheritance analysis was requested
+        base_context.config = {
+            "inheritance_mode": "simple",
+            "no_stats": True,
+        }
+        # Add pedigree data to indicate inheritance was requested
+        base_context.pedigree_data = {"FAM1": {"proband": "SAMPLE1"}}
+        base_context.scoring_config = None
+        base_context.vcf_samples = ["SAMPLE1", "SAMPLE2"]
+        
+        # DataFrame without inheritance columns - this should trigger warnings
+        base_context.current_dataframe = pd.DataFrame({
+            "CHROM": ["chr1", "chr2"],
+            "POS": [100, 200],
+            "Gene": ["BRCA1", "TP53"],
+            "SAMPLE1": ["0/1", "0/0"],
+            "SAMPLE2": ["0/0", "1/1"]
+        })
+
+        stage = VariantAnalysisStage()
+        result = stage._process(base_context)
+
+        # Check that inheritance warnings WERE logged
+        inheritance_warning_logs = [
+            record for record in caplog.records 
+            if "inheritance" in record.message.lower() and record.levelname == "WARNING"
+        ]
+        
+        assert len(inheritance_warning_logs) > 0, "Should log inheritance warnings when inheritance was requested but columns missing"
+        assert result.current_dataframe is not None
+
+    def test_inheritance_debug_when_inheritance_not_requested(self, base_context, caplog):
+        """Test that debug messages are logged when inheritance is not requested."""
+        import logging
+        caplog.set_level(logging.DEBUG)
+        
+        # Setup: No inheritance requested
+        base_context.config = {
+            "inheritance_mode": None,
+            "no_stats": True,
+        }
+        base_context.pedigree_data = None
+        base_context.scoring_config = None
+        base_context.vcf_samples = ["SAMPLE1", "SAMPLE2"]
+        
+        # DataFrame without inheritance columns
+        base_context.current_dataframe = pd.DataFrame({
+            "CHROM": ["chr1", "chr2"],
+            "POS": [100, 200],
+            "Gene": ["BRCA1", "TP53"],
+            "SAMPLE1": ["0/1", "0/0"],
+            "SAMPLE2": ["0/0", "1/1"]
+        })
+
+        stage = VariantAnalysisStage()
+        result = stage._process(base_context)
+
+        # Check for the specific debug message when inheritance not requested
+        debug_logs = [
+            record for record in caplog.records 
+            if "inheritance analysis was not requested" in record.message.lower() and record.levelname == "DEBUG"
+        ]
+        
+        assert len(debug_logs) > 0, "Should log debug message when inheritance not requested"
+
+    def test_inheritance_columns_present_no_warnings(self, base_context, caplog):
+        """Test that no warnings are logged when inheritance columns are present."""
+        # Setup: Inheritance mode specified
+        base_context.config = {
+            "inheritance_mode": "simple", 
+            "no_stats": True,
+        }
+        base_context.pedigree_data = {"FAM1": {"proband": "SAMPLE1"}}
+        base_context.scoring_config = None
+        base_context.vcf_samples = ["SAMPLE1", "SAMPLE2"]
+        
+        # DataFrame WITH inheritance columns - should not trigger warnings
+        base_context.current_dataframe = pd.DataFrame({
+            "CHROM": ["chr1", "chr2"],
+            "POS": [100, 200],
+            "Gene": ["BRCA1", "TP53"],
+            "SAMPLE1": ["0/1", "0/0"],
+            "SAMPLE2": ["0/0", "1/1"],
+            "Inheritance_Pattern": ["de_novo", "unknown"],
+            "Inheritance_Confidence": ["0.9", "0.1"]
+        })
+
+        stage = VariantAnalysisStage()
+        result = stage._process(base_context)
+
+        # Should not log inheritance warnings when columns are present
+        inheritance_warning_logs = [
+            record for record in caplog.records 
+            if "inheritance" in record.message.lower() and record.levelname == "WARNING"
+        ]
+        
+        assert len(inheritance_warning_logs) == 0, "Should not log warnings when inheritance columns are present"
+
+    def test_should_calculate_inheritance_method(self, base_context):
+        """Test the _should_calculate_inheritance method logic."""
+        stage = VariantAnalysisStage()
+        
+        # Test 1: No inheritance mode, no pedigree, no scoring -> False
+        base_context.config = {"inheritance_mode": None}
+        base_context.pedigree_data = None
+        base_context.scoring_config = None
+        assert stage._should_calculate_inheritance(base_context) is False
+        
+        # Test 2: Inheritance mode specified -> True
+        base_context.config = {"inheritance_mode": "simple"}
+        assert stage._should_calculate_inheritance(base_context) is True
+        
+        # Test 3: Pedigree data present -> True
+        base_context.config = {"inheritance_mode": None}
+        base_context.pedigree_data = {"FAM1": {"proband": "SAMPLE1"}}
+        assert stage._should_calculate_inheritance(base_context) is True
+
+    def test_check_if_scoring_needs_details_method(self, base_context):
+        """Test the _check_if_scoring_needs_details method logic."""
+        stage = VariantAnalysisStage()
+        
+        # Test 1: No scoring config -> False
+        base_context.scoring_config = None
+        assert stage._check_if_scoring_needs_details(base_context) is False
+        
+        # Test 2: Scoring config without inheritance details -> False
+        base_context.scoring_config = {
+            "formulas": [{"Score": "1 - AF"}],
+            "variables": {"AF": "allele_frequency"}
+        }
+        assert stage._check_if_scoring_needs_details(base_context) is False

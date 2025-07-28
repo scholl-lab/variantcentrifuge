@@ -1693,7 +1693,7 @@ class VariantAnalysisStage(Stage):
             f"mode={has_inheritance_mode}, config={has_calculate_inheritance_config}, "
             f"scoring={requires_inheritance_for_scoring})"
         )
-        return should_calculate
+        return bool(should_calculate)
 
     def _check_if_scoring_needs_details(self, context: PipelineContext) -> bool:
         """Check if scoring configuration requires Inheritance_Details."""
@@ -2014,7 +2014,7 @@ class ChunkedAnalysisStage(Stage):
             f"mode={has_inheritance_mode}, config={has_calculate_inheritance_config}, "
             f"scoring={requires_inheritance_for_scoring})"
         )
-        return should_calculate
+        return bool(should_calculate)
 
     def _check_if_scoring_needs_details(self, context: PipelineContext) -> bool:
         """Check if scoring configuration requires Inheritance_Details."""

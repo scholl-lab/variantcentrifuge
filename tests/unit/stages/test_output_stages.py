@@ -430,9 +430,8 @@ class TestPseudonymizationStage:
         # Check context updated
         assert result.config["pseudonymization_mapping"] == mock_mapping
 
-    @patch("variantcentrifuge.stages.output_stages.json.dump")
     @patch("variantcentrifuge.stages.output_stages.create_pseudonymizer")
-    def test_mapping_file_creation(self, mock_create_pseudonymizer, mock_json_dump, context):
+    def test_mapping_file_creation(self, mock_create_pseudonymizer, context):
         """Test pseudonymization mapping file creation."""
         # Mock the pseudonymizer object
         mock_pseudonymizer = Mock()
@@ -444,10 +443,12 @@ class TestPseudonymizationStage:
         stage = PseudonymizationStage()
         stage(context)
 
-        # Check JSON was written
-        assert mock_json_dump.called
-        call_args = mock_json_dump.call_args[0]
-        assert call_args[0] == mock_mapping
+        # Check save_mapping was called (saves TSV format, not JSON)
+        assert mock_pseudonymizer.save_mapping.called
+        call_args = mock_pseudonymizer.save_mapping.call_args
+        # Should be called with a path and include_metadata=True
+        assert len(call_args[0]) == 1  # One positional argument (filepath)
+        assert call_args[1]["include_metadata"] is True
 
     def test_skip_if_disabled(self, context):
         """Test skipping when pseudonymization disabled."""
