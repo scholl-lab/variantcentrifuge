@@ -461,7 +461,7 @@ def prepare_column_metadata(df):
     return column_metadata
 
 
-def discover_igv_maps(input_files):
+def discover_igv_maps(input_files, output_dir):
     """Discover IGV report maps from individual sample directories."""
     logger.info("Discovering IGV report maps from sample directories...")
     
@@ -481,9 +481,12 @@ def discover_igv_maps(input_files):
             ]
             
             igv_map_path = None
+            igv_base_dir = None
             for path in possible_igv_paths:
                 if os.path.exists(path):
                     igv_map_path = path
+                    # Store the base directory where IGV reports are located
+                    igv_base_dir = os.path.dirname(os.path.dirname(path))  # Remove /igv/igv_reports_map.json
                     break
             
             if igv_map_path:
@@ -511,12 +514,19 @@ def discover_igv_maps(input_files):
                     if "sample_reports" in entry:
                         for sample_id, report_path in entry["sample_reports"].items():
                             key = (chrom, pos, ref, alt, sample_id)
-                            # Store relative path from the sample directory
-                            igv_lookup[key] = report_path
+                            # Create absolute path to the IGV report
+                            absolute_igv_path = os.path.join(igv_base_dir, report_path)
+                            # Calculate relative path from cohort output directory to IGV report
+                            relative_path = os.path.relpath(absolute_igv_path, output_dir)
+                            igv_lookup[key] = relative_path
                     # Handle old format with flat sample_id and report_path
                     elif "sample_id" in entry and "report_path" in entry:
                         key = (chrom, pos, ref, alt, entry["sample_id"])
-                        igv_lookup[key] = entry["report_path"]
+                        # Create absolute path to the IGV report
+                        absolute_igv_path = os.path.join(igv_base_dir, entry["report_path"])
+                        # Calculate relative path from cohort output directory to IGV report
+                        relative_path = os.path.relpath(absolute_igv_path, output_dir)
+                        igv_lookup[key] = relative_path
                         
         except Exception as e:
             logger.debug(f"No IGV map found or error loading from {file_path}: {e}")
@@ -524,6 +534,7 @@ def discover_igv_maps(input_files):
     
     if igv_maps:
         logger.info(f"Loaded {len(igv_maps)} IGV map entries from {len(igv_lookup)} sample reports")
+        logger.info("IGV paths resolved relative to cohort output directory")
     else:
         logger.info("No IGV maps found - cohort report will not include IGV links")
     
@@ -706,11 +717,15 @@ def finalize_cohort_excel(xlsx_file, df, igv_lookup=None):
             # Update the IGV links cell
             igv_cell = ws.cell(row=row_idx, column=igv_col)
             if len(igv_reports) == 1:
-                # Single report - show sample ID as text (Excel will need manual hyperlinking)
+                # Single report - create a hyperlink like the main pipeline
                 sample_id, report_path = igv_reports[0]
-                igv_cell.value = f"{sample_id} ({report_path})"
+                # Make sure the cell value is sortable (sample ID only)
+                igv_cell.value = sample_id
+                # Create hyperlink to the IGV report
+                igv_cell.hyperlink = report_path
+                igv_cell.style = "Hyperlink"
             elif len(igv_reports) > 1:
-                # Multiple reports - show first sample ID and count
+                # Multiple reports - use first sample ID as sortable value
                 first_sample = igv_reports[0][0]
                 num_others = len(igv_reports) - 1
                 igv_cell.value = f"{first_sample} (+{num_others} others)"
@@ -782,7 +797,7 @@ def main():
     input_files = find_input_files(args.input_pattern)
 
     # Discover IGV maps from sample directories
-    igv_lookup = discover_igv_maps(input_files)
+    igv_lookup = discover_igv_maps(input_files, args.output_dir)
 
     # Aggregate data from input files
     df = aggregate_data(input_files, args.sample_regex)
@@ -799,8 +814,13 @@ def main():
     # Create HTML report with embedded data (no need to save external JSON files)
     report_file = create_report(args.output_dir, args.report_name, df, summary)
 
+    # Remove igv_links column from DataFrame for Excel export (IGV links added separately in Excel)
+    df_for_excel = df.copy()
+    if 'igv_links' in df_for_excel.columns:
+        df_for_excel = df_for_excel.drop(columns=['igv_links'])
+
     # Create Excel report with all variants and clickable links
-    excel_file = create_excel_report(df, args.output_dir, igv_lookup)
+    excel_file = create_excel_report(df_for_excel, args.output_dir, igv_lookup)
 
     logger.info("Cohort report creation complete!")
     logger.info(f"HTML report available at: {report_file}")
