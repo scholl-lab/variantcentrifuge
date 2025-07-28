@@ -431,22 +431,165 @@ def prepare_column_metadata(df):
         is_link = col in link_columns
         is_hidden = col in default_hidden_columns
         needs_truncation = col in truncate_columns
+        is_igv_column = col == "igv_links"
 
-        metadata = {
-            "name": col,
-            "display_name": col.replace("_", " "),
-            "is_link": is_link,
-            "link_info": link_columns.get(col, {}),
-            "is_hidden_default": is_hidden,
-            "needs_truncation": needs_truncation,
-            "max_width": 250 if col == "GT" else (120 if needs_truncation else None),
-        }
+        # Special handling for IGV links column
+        if is_igv_column:
+            metadata = {
+                "name": col,
+                "display_name": "IGV Report Links",
+                "is_link": False,  # Special IGV rendering, not standard link
+                "is_igv_link_column": True,
+                "link_info": {},
+                "is_hidden_default": False,  # Show IGV links by default
+                "needs_truncation": False,
+                "max_width": None,
+            }
+        else:
+            metadata = {
+                "name": col,
+                "display_name": col.replace("_", " "),
+                "is_link": is_link,
+                "is_igv_link_column": False,
+                "link_info": link_columns.get(col, {}),
+                "is_hidden_default": is_hidden,
+                "needs_truncation": needs_truncation,
+                "max_width": 250 if col == "GT" else (120 if needs_truncation else None),
+            }
         column_metadata.append(metadata)
 
     return column_metadata
 
 
-def create_excel_report(df, output_dir):
+def discover_igv_maps(input_files):
+    """Discover IGV report maps from individual sample directories."""
+    logger.info("Discovering IGV report maps from sample directories...")
+    
+    igv_maps = []
+    igv_lookup = {}
+    
+    for file_path in input_files:
+        try:
+            # Try to find IGV map in the same directory structure as the sample
+            sample_dir = os.path.dirname(file_path)
+            
+            # Look for IGV map in common locations
+            possible_igv_paths = [
+                os.path.join(sample_dir, "report", "igv", "igv_reports_map.json"),
+                os.path.join(sample_dir, "output", "report", "igv", "igv_reports_map.json"),
+                os.path.join(os.path.dirname(sample_dir), "report", "igv", "igv_reports_map.json"),
+            ]
+            
+            igv_map_path = None
+            for path in possible_igv_paths:
+                if os.path.exists(path):
+                    igv_map_path = path
+                    break
+            
+            if igv_map_path:
+                logger.info(f"Found IGV map: {igv_map_path}")
+                
+                with open(igv_map_path, "r", encoding="utf-8") as f:
+                    igv_map_data = json.load(f)
+                
+                # Handle both old and new IGV map format
+                if "variants" in igv_map_data:
+                    igv_map = igv_map_data["variants"]
+                else:
+                    igv_map = igv_map_data
+                
+                igv_maps.extend(igv_map)
+                
+                # Populate lookup dictionary for quick access
+                for entry in igv_map:
+                    chrom = entry.get("chrom", "")
+                    pos = str(entry.get("pos", ""))
+                    ref = entry.get("ref", "")
+                    alt = entry.get("alt", "")
+                    
+                    # Handle new format with sample_reports nested dictionary
+                    if "sample_reports" in entry:
+                        for sample_id, report_path in entry["sample_reports"].items():
+                            key = (chrom, pos, ref, alt, sample_id)
+                            # Store relative path from the sample directory
+                            igv_lookup[key] = report_path
+                    # Handle old format with flat sample_id and report_path
+                    elif "sample_id" in entry and "report_path" in entry:
+                        key = (chrom, pos, ref, alt, entry["sample_id"])
+                        igv_lookup[key] = entry["report_path"]
+                        
+        except Exception as e:
+            logger.debug(f"No IGV map found or error loading from {file_path}: {e}")
+            continue
+    
+    if igv_maps:
+        logger.info(f"Loaded {len(igv_maps)} IGV map entries from {len(igv_lookup)} sample reports")
+    else:
+        logger.info("No IGV maps found - cohort report will not include IGV links")
+    
+    return igv_lookup
+
+
+def enrich_variants_with_igv(df, igv_lookup):
+    """Enrich variants DataFrame with IGV links using the same logic as individual reports."""
+    if not igv_lookup:
+        logger.info("No IGV lookup available - skipping IGV enrichment")
+        df["igv_links"] = [[] for _ in range(len(df))]
+        return df
+    
+    logger.info("Enriching variants with IGV report links...")
+    
+    # Pattern to extract (SampleID, GenotypeString) tuples from GT column
+    pattern = re.compile(r"([^()]+)\(([^)]+)\)")
+    
+    igv_links_list = []
+    
+    for _, row in df.iterrows():
+        igv_links = []
+        
+        # Extract variant identifiers
+        chrom = str(row.get("CHROM", ""))
+        pos = str(row.get("POS", ""))
+        ref = str(row.get("REF", ""))
+        alt = str(row.get("ALT", ""))
+        
+        # Extract sample IDs with non-reference genotypes from GT column
+        gt_value = row.get("GT", "")
+        if gt_value:
+            sample_entries = str(gt_value).split(";")
+            for entry in sample_entries:
+                entry = entry.strip()
+                if not entry:
+                    continue
+                
+                m = pattern.match(entry)
+                if m:
+                    sample_id = m.group(1).strip()
+                    genotype = m.group(2).strip()
+                    
+                    # Skip reference genotypes
+                    if genotype in ["0/0", "./."]:
+                        continue
+                    
+                    # Look up the IGV report path
+                    lookup_key = (chrom, pos, ref, alt, sample_id)
+                    if lookup_key in igv_lookup:
+                        igv_links.append({
+                            "sample_id": sample_id,
+                            "report_path": igv_lookup[lookup_key]
+                        })
+        
+        igv_links_list.append(igv_links)
+    
+    df["igv_links"] = igv_links_list
+    
+    variants_with_igv = sum(1 for links in igv_links_list if links)
+    logger.info(f"Added IGV links to {variants_with_igv} variants")
+    
+    return df
+
+
+def create_excel_report(df, output_dir, igv_lookup=None):
     """Create an Excel report with clickable links."""
     logger.info("Creating Excel report...")
 
@@ -457,14 +600,14 @@ def create_excel_report(df, output_dir):
     df.to_excel(excel_file, index=False, sheet_name="Cohort_Variants")
 
     # Add formatting and clickable links
-    finalize_cohort_excel(excel_file, df)
+    finalize_cohort_excel(excel_file, df, igv_lookup)
 
     logger.info(f"Excel report created: {excel_file}")
     return excel_file
 
 
-def finalize_cohort_excel(xlsx_file, df):
-    """Apply basic Excel formatting without creating hyperlinks to avoid corruption."""
+def finalize_cohort_excel(xlsx_file, df, igv_lookup=None):
+    """Apply basic Excel formatting and add IGV Report Links column if available."""
     wb = load_workbook(xlsx_file)
     ws = wb.active
 
@@ -475,18 +618,19 @@ def finalize_cohort_excel(xlsx_file, df):
     max_col_letter = get_column_letter(ws.max_column)
     ws.auto_filter.ref = f"A1:{max_col_letter}1"
 
-    logger.info("Finalizing Excel file with basic formatting (no hyperlinks to prevent corruption)...")
+    logger.info("Finalizing Excel file with basic formatting...")
 
-    # Just leave URLs as plain text - Excel will auto-detect them as clickable
-    # This prevents any XML corruption issues from malformed hyperlinks
-    
-    # Log the columns for verification
+    # Get header information
     header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+    header_indices = {}
     url_columns = []
     
-    for idx, col_name in enumerate(header_row, 1):
+    for idx, col_name in enumerate(header_row, 1):  # 1-indexed for openpyxl
+        if col_name in ["CHROM", "POS", "REF", "ALT", "GT"]:
+            header_indices[col_name] = idx
+        
+        # Check if this looks like a URL column
         if col_name and ws.max_row > 1:
-            # Check if this looks like a URL column
             sample_values = []
             for row_idx in range(2, min(6, ws.max_row + 1)):
                 cell_value = ws.cell(row=row_idx, column=idx).value
@@ -503,6 +647,86 @@ def finalize_cohort_excel(xlsx_file, df):
         logger.info("URLs left as plain text - Excel will auto-detect as clickable links")
     else:
         logger.info("No URL columns detected")
+
+    # Add IGV Report Links column if IGV data is available
+    igv_col = None
+    if igv_lookup and all(col in header_indices for col in ["CHROM", "POS", "REF", "ALT", "GT"]):
+        logger.info("Adding IGV Report Links column to Excel...")
+        
+        # Add the IGV Report Links column header
+        igv_col = ws.max_column + 1
+        igv_col_letter = get_column_letter(igv_col)
+        igv_header_cell = ws[f"{igv_col_letter}1"]
+        igv_header_cell.value = "IGV Report Links"
+        
+        # Pattern to extract sample IDs and genotypes from GT column
+        pattern = re.compile(r"([^()]+)\(([^)]+)\)")
+        
+        # Process data rows to add IGV links
+        for row_idx in range(2, ws.max_row + 1):  # Skip header
+            # Extract variant identifiers from the row
+            chrom = str(ws.cell(row=row_idx, column=header_indices["CHROM"]).value or "")
+            pos = str(ws.cell(row=row_idx, column=header_indices["POS"]).value or "")
+            ref = str(ws.cell(row=row_idx, column=header_indices["REF"]).value or "")
+            alt = str(ws.cell(row=row_idx, column=header_indices["ALT"]).value or "")
+            
+            # Get the GT value for this row
+            gt_cell = ws.cell(row=row_idx, column=header_indices["GT"])
+            gt_value = gt_cell.value or ""
+            gt_value = str(gt_value) if gt_value is not None else ""
+            
+            if not gt_value:
+                # No GT value, set N/A
+                igv_cell = ws.cell(row=row_idx, column=igv_col)
+                igv_cell.value = "N/A"
+                continue
+            
+            # Find all related IGV reports for this variant
+            igv_reports = []
+            sample_entries = gt_value.split(";")
+            for entry in sample_entries:
+                entry = entry.strip()
+                if not entry:
+                    continue
+                
+                m = pattern.match(entry)
+                if m:
+                    sample_id = m.group(1).strip()
+                    genotype = m.group(2).strip()
+                    
+                    # Skip reference genotypes
+                    if genotype in ["0/0", "./."]:
+                        continue
+                    
+                    # Look up the IGV report path
+                    lookup_key = (chrom, pos, ref, alt, sample_id)
+                    if lookup_key in igv_lookup:
+                        igv_reports.append((sample_id, igv_lookup[lookup_key]))
+            
+            # Update the IGV links cell
+            igv_cell = ws.cell(row=row_idx, column=igv_col)
+            if len(igv_reports) == 1:
+                # Single report - show sample ID as text (Excel will need manual hyperlinking)
+                sample_id, report_path = igv_reports[0]
+                igv_cell.value = f"{sample_id} ({report_path})"
+            elif len(igv_reports) > 1:
+                # Multiple reports - show first sample ID and count
+                first_sample = igv_reports[0][0]
+                num_others = len(igv_reports) - 1
+                igv_cell.value = f"{first_sample} (+{num_others} others)"
+                
+                # Add comment with full details for all reports
+                from openpyxl.comments import Comment
+                link_details = [f"{sid}: {rpath}" for sid, rpath in igv_reports]
+                igv_cell.comment = Comment("; ".join(link_details), "IGV Reports")
+            else:
+                igv_cell.value = "N/A"
+        
+        # Update auto-filter to include the new IGV column
+        new_max_col_letter = get_column_letter(ws.max_column)
+        ws.auto_filter.ref = f"A1:{new_max_col_letter}1"
+        
+        logger.info(f"Added IGV Report Links column with {sum(1 for lookup_key in igv_lookup)} potential links")
 
     # Save the workbook
     wb.save(xlsx_file)
@@ -557,11 +781,17 @@ def main():
     # Find input files
     input_files = find_input_files(args.input_pattern)
 
+    # Discover IGV maps from sample directories
+    igv_lookup = discover_igv_maps(input_files)
+
     # Aggregate data from input files
     df = aggregate_data(input_files, args.sample_regex)
 
     # Clean and prepare data
     df = clean_data(df)
+
+    # Enrich variants with IGV links if available
+    df = enrich_variants_with_igv(df, igv_lookup)
 
     # Compute statistics
     summary = compute_statistics(df)
@@ -570,11 +800,13 @@ def main():
     report_file = create_report(args.output_dir, args.report_name, df, summary)
 
     # Create Excel report with all variants and clickable links
-    excel_file = create_excel_report(df, args.output_dir)
+    excel_file = create_excel_report(df, args.output_dir, igv_lookup)
 
     logger.info("Cohort report creation complete!")
     logger.info(f"HTML report available at: {report_file}")
     logger.info(f"Excel report available at: {excel_file}")
+    if igv_lookup:
+        logger.info(f"IGV links integrated for {len(igv_lookup)} sample-variant combinations")
 
 
 if __name__ == "__main__":

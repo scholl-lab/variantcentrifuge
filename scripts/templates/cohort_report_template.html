@@ -50,6 +50,18 @@
         .standard-link { text-decoration: underline; color: #007bff; display: inline-block; }
         .standard-link:hover { color: #0056b3; }
         
+        /* IGV link styling */
+        .igv-individual-link {
+            margin-right: 5px;
+            text-decoration: underline;
+            color: #0066cc;
+            display: inline-block;
+            white-space: nowrap;
+        }
+        .igv-individual-link .link-icon {
+            color: #5cb85c; /* Green color for IGV links */
+        }
+        
         /* Hover-expand functionality from individual reports */
         .hover-expand-cell { position: relative; }
         .hover-expand-content { display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
@@ -168,7 +180,23 @@ $(document).ready(function() {
                 render: function(data, type, row) {
                     if (data === null || data === undefined || data === '') return '';
                     
-                    // Handle link columns
+                    // Handle IGV link columns
+                    if (colMeta.is_igv_link_column && data && Array.isArray(data)) {
+                        if (data.length === 0) {
+                            return 'N/A';
+                        }
+                        
+                        let igvLinksHtml = '';
+                        data.forEach((igvLinkDetail, idx) => {
+                            if (idx > 0) igvLinksHtml += ' ';
+                            igvLinksHtml += `<a href="${igvLinkDetail.report_path}" target="_blank" class="igv-individual-link" title="IGV report for ${igvLinkDetail.sample_id}">
+                                               <span class="link-icon">🔗</span>${igvLinkDetail.sample_id}
+                                             </a>`;
+                        });
+                        return igvLinksHtml;
+                    }
+                    
+                    // Handle standard link columns
                     if (colMeta.is_link && data) {
                         const linkText = colMeta.link_info.display_text || colMeta.display_name;
                         return `<a href="${data}" target="_blank" class="standard-link" title="${data}">
