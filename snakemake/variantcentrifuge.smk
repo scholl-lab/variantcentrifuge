@@ -83,7 +83,8 @@ def get_final_tsv_output(wildcards):
 def get_final_xlsx_output(wildcards):
     """Define the final XLSX output name if requested."""
     sample_out_dir = get_sample_output_dir(wildcards)
-    return os.path.join(sample_out_dir, f"{wildcards.sample}.vc_analysis.xlsx")
+    # Excel file is generated with .all suffix since genes="all" in config
+    return os.path.join(sample_out_dir, f"{wildcards.sample}.all.xlsx")
 
 def get_html_report_output(wildcards):
     """Define the HTML report index file as a target if requested."""
@@ -94,7 +95,7 @@ def get_html_report_output(wildcards):
 rule all:
     input:
         expand(os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.vc_analysis.tsv"), sample=SAMPLES),
-        expand(os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.vc_analysis.xlsx"), sample=SAMPLES) if VC_XLSX else [],
+        expand(os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.all.xlsx"), sample=SAMPLES) if VC_XLSX else [],
         expand(os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "report", "index.html"), sample=SAMPLES) if VC_HTML_REPORT else []
 
 # --- Main VariantCentrifuge Rule ---
@@ -107,7 +108,7 @@ rule run_variantcentrifuge:
         # VariantCentrifuge's --output-dir will contain many files.
         # We track the main TSV, and conditionally the XLSX and HTML report.
         final_tsv = os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.vc_analysis.tsv"),
-        final_xlsx = os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.vc_analysis.xlsx") if VC_XLSX else [], # Optional output
+        final_xlsx = os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.all.xlsx") if VC_XLSX else [], # Optional output
         html_report_index = os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "report", "index.html") if VC_HTML_REPORT else []
     params:
         sample_output_dir = get_sample_output_dir,

@@ -186,7 +186,14 @@ class StatsEngine:
 
         # Combine all stats into a single DataFrame
         if gene_stats:
-            stats_df = pd.DataFrame(gene_stats)
+            # Check if all values are scalars (not Series/arrays)
+            all_scalars = all(not hasattr(v, 'index') for v in gene_stats.values())
+            if all_scalars:
+                # If all values are scalars, wrap in list for single row DataFrame
+                stats_df = pd.DataFrame([gene_stats])
+            else:
+                # If values are Series/arrays, create DataFrame normally
+                stats_df = pd.DataFrame(gene_stats)
             stats_df = stats_df.reset_index()
             return stats_df
         else:
