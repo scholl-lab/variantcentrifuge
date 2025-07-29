@@ -147,36 +147,6 @@ def aggregate_data(input_files, sample_regex):
             collected_sample_ids.append(sample_id)
             logger.info(f"Assigned SampleID '{sample_id}' to data from {file_path}")
 
-            # Look for sample-specific allele frequency column (may be named differently)
-            af_col = None
-            for col in df.columns:
-                # Ensure 'AF' is part of the column name, and it's not one of the
-                # standard population AF columns
-                if "AF" in col and col not in [
-                    "AF_EXAC",
-                    "AF_GNOMAD",
-                    "AF_1000G",
-                    "SampleAF",  # Added SampleAF to avoid re-processing
-                ]:
-                    af_col = col
-                    break
-
-            if af_col:  # If a suitable AF column is found
-                if "SampleAF" not in df.columns:  # And SampleAF doesn't already exist
-                    df.rename(columns={af_col: "SampleAF"}, inplace=True)
-                    msg = (
-                        f"Renamed sample-specific AF column '{af_col}' to 'SampleAF' "
-                        f"for sample '{sample_id}' from '{file_path}'"
-                    )
-                    logger.debug(msg)
-                elif (
-                    af_col != "SampleAF"
-                ):  # If SampleAF exists but we found another candidate (e.g. TUMOR_AF)
-                    logger.debug(
-                        f"Column 'SampleAF' already exists. Did not rename '{af_col}' "
-                        f"for sample '{sample_id}' from '{file_path}'"
-                    )
-
             # Ensure the Gene column exists (case-insensitive check and rename)
             if "Gene" not in df.columns:
                 found_gene_col_original_case = None
@@ -267,21 +237,30 @@ def clean_data(df):
         df = df[column_order]
         logger.info("Reordered columns with SampleID as first column")
 
-    # Ensure all relevant numeric columns are properly typed
-    numeric_cols = [
-        "SampleAF",
-        "QUAL",
-        "DP",
-        "AF_EXAC",
-        "AF_GNOMAD",
-        "AF_1000G",
-        "IMPACT_SEVERITY",
-        "CADD_PHRED",
-    ]
+    # Ensure all relevant numeric columns are properly typed using pattern-based detection
+    logger.info("Converting numeric columns to proper data types...")
 
-    for col in numeric_cols:
-        if col in df.columns:
+    for col in df.columns:
+        # Pattern-based detection for columns that should be numeric
+        should_convert = False
+
+        # AF columns (allele frequency): AF_1, AF_EXAC, AF_GNOMAD, etc.
+        if col.startswith("AF_") or col == "AF":
+            should_convert = True
+        # AD columns (allelic depth): AD_1, AD_2, etc.
+        elif col.startswith("AD_") or col == "AD":
+            should_convert = True
+        # Common numeric columns
+        elif col in ["QUAL", "DP", "IMPACT_SEVERITY", "CADD_PHRED"]:
+            should_convert = True
+        # Other common numeric patterns
+        elif any(col.endswith(suffix) for suffix in ["_score", "_SCORE", "_phred", "_PHRED"]):
+            should_convert = True
+
+        if should_convert:
+            original_dtype = df[col].dtype
             df[col] = pd.to_numeric(df[col], errors="coerce")
+            logger.debug(f"Converted column '{col}' from {original_dtype} to numeric")
 
     # Clean up any NaN values in string columns
     string_cols = ["Gene", "GeneID", "IMPACT", "Effect", "AAChange", "SampleID"]
