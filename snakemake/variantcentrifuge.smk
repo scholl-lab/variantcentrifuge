@@ -81,10 +81,10 @@ def get_final_tsv_output(wildcards):
     return os.path.join(sample_out_dir, f"{wildcards.sample}.vc_analysis.tsv")
 
 def get_final_xlsx_output(wildcards):
-    """Define the final XLSX output name if requested."""
+    """Define a pattern for Excel output that can match any suffix."""
     sample_out_dir = get_sample_output_dir(wildcards)
-    # Excel file is generated with .all suffix since genes="all" in config
-    return os.path.join(sample_out_dir, f"{wildcards.sample}.all.xlsx")
+    # Use a generic pattern that will be resolved by a custom function
+    return os.path.join(sample_out_dir, f"{wildcards.sample}.xlsx")
 
 def get_html_report_output(wildcards):
     """Define the HTML report index file as a target if requested."""
@@ -94,9 +94,7 @@ def get_html_report_output(wildcards):
 # --- Target Rule ---
 rule all:
     input:
-        expand(os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.vc_analysis.tsv"), sample=SAMPLES),
-        expand(os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.all.xlsx"), sample=SAMPLES) if VC_XLSX else [],
-        expand(os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "report", "index.html"), sample=SAMPLES) if VC_HTML_REPORT else []
+        expand(os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.vc_analysis.tsv"), sample=SAMPLES)
 
 # --- Main VariantCentrifuge Rule ---
 rule run_variantcentrifuge:
@@ -106,10 +104,8 @@ rule run_variantcentrifuge:
     output:
         # Snakemake needs to track specific output files.
         # VariantCentrifuge's --output-dir will contain many files.
-        # We track the main TSV, and conditionally the XLSX and HTML report.
-        final_tsv = os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.vc_analysis.tsv"),
-        final_xlsx = os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.all.xlsx") if VC_XLSX else [], # Optional output
-        html_report_index = os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "report", "index.html") if VC_HTML_REPORT else []
+        # We only track the main TSV output.
+        final_tsv = os.path.join(BASE_OUTPUT_FOLDER, "{sample}", "{sample}.vc_analysis.tsv")
     params:
         sample_output_dir = get_sample_output_dir,
         vc_config = VC_CONFIG_FILE,
@@ -172,6 +168,7 @@ rule run_variantcentrifuge:
             {params.igv_ideogram} \
             {params.igv_flanking} \
             >> {log} 2>&1
+
 
         echo "Finished VariantCentrifuge for sample {wildcards.sample} at: $(date)" >> {log}
         """
