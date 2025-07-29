@@ -658,8 +658,20 @@ $(document).ready(function() {
                 
                 // Get all raw values for this column
                 const allValues = data.map(row => {
-                    const val = typeof row === 'object' ? row[colName] : row[colIndex];
-                    return val;
+                    if (typeof row === 'object') {
+                        // First try the exact column name
+                        let val = row[colName];
+                        
+                        // If undefined, try the underscore version (space -> underscore)
+                        if (val === undefined && colName.includes(' ')) {
+                            const underscoreKey = colName.replace(/ /g, '_');
+                            val = row[underscoreKey];
+                        }
+                        
+                        return val;
+                    } else {
+                        return row[colIndex];
+                    }
                 });
                 
                 // Sample first 5 values for debugging
