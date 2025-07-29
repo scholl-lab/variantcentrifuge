@@ -103,6 +103,9 @@ def generate_html_report(
     env = Environment(loader=FileSystemLoader(str(templates_dir)))
     template = env.get_template("index.html")
 
+    # Import version for template
+    from variantcentrifuge.version import __version__
+
     # Render template with the new column structure
     html_content = template.render(
         variants=variants_data,
@@ -110,6 +113,7 @@ def generate_html_report(
         column_data=column_data_for_template,
         default_hidden_columns=default_hidden_columns,
         generation_date=pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+        version=__version__,
     )
 
     output_path = Path(output_dir) / "index.html"
