@@ -32,7 +32,7 @@ class TestCompressionIntegration:
         context = PipelineContext(
             args=None,
             config={
-                "extract": ["CHROM", "POS", "REF", "ALT", "GENE"],
+                "fields_to_extract": "CHROM POS REF ALT GENE",
                 "extract_fields_separator": ",",
                 "log_level": "INFO",
                 "gzip_intermediates": True,  # Enable compression
@@ -179,7 +179,7 @@ class TestParallelProcessingCompressionIntegration:
         # Test that worker config properly includes compression setting
         test_config = {
             "threads_per_chunk": 2,
-            "extract": ["CHROM", "POS", "REF", "ALT"],
+            "fields_to_extract": "CHROM POS REF ALT",
             "gzip_intermediates": True,  # Enable compression
         }
 

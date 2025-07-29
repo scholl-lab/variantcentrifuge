@@ -202,13 +202,13 @@ class StatsEngine:
                     logger.debug("Mixed scalar/Series gene stats detected, normalizing to Series")
                     normalized_stats = {}
                     for key, value in gene_stats.items():
-                        if hasattr(value, 'index'):
+                        if hasattr(value, "index"):
                             # Already a Series
                             normalized_stats[key] = value
                         else:
                             # Convert scalar to Series with single unnamed index
-                            normalized_stats[key] = pd.Series([value], index=['total'])
-                    
+                            normalized_stats[key] = pd.Series([value], index=["total"])
+
                     stats_df = pd.DataFrame(normalized_stats)
                     stats_df = stats_df.reset_index()
                     return stats_df

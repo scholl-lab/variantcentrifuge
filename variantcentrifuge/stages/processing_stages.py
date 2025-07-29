@@ -1052,14 +1052,18 @@ class FieldExtractionStage(Stage):
 
         logger.debug(f"Using VCF for field extraction: {input_vcf}")
 
-        fields = context.config.get("extract", [])
+        # Get fields_to_extract as string from config (not "extract")
+        fields_str = context.config.get("fields_to_extract", "")
 
-        # Handle extra sample fields if requested
+        # Handle extra sample fields if requested - append to the fields string
         if context.config.get("append_extra_sample_fields", False) and context.config.get(
             "extra_sample_fields", []
         ):
-            fields = ensure_fields_in_extract(fields, context.config["extra_sample_fields"])
-            logger.debug(f"Updated fields with extra sample fields: {fields}")
+            fields_str = ensure_fields_in_extract(fields_str, context.config["extra_sample_fields"])
+            logger.debug(f"Updated fields with extra sample fields: {fields_str}")
+
+        # Convert string to list for processing
+        fields = fields_str.split() if fields_str else []
 
         # Debug logging
         logger.debug(f"FieldExtractionStage - config keys: {list(context.config.keys())[:10]}...")
@@ -1220,6 +1224,19 @@ class GenotypeReplacementStage(Stage):
 
         context.genotype_replaced_tsv = output_tsv
         context.data = output_tsv
+
+        # If extra sample fields were used only for genotype formatting,
+        # mark them for removal from the final output
+        if context.config.get("append_extra_sample_fields", False):
+            extra_fields = context.config.get("extra_sample_fields", [])
+            if extra_fields:
+                # Get the normalized column names that would appear in the TSV
+                from ..replacer import _normalize_snpeff_column_name
+
+                columns_to_remove = [_normalize_snpeff_column_name(field) for field in extra_fields]
+                context.config["extra_columns_to_remove"] = columns_to_remove
+                logger.info(f"Marked extra sample field columns for removal: {columns_to_remove}")
+
         return context
 
     def get_input_files(self, context: PipelineContext) -> List[Path]:
@@ -2369,7 +2386,19 @@ class ParallelCompleteProcessingStage(Stage):
         use_compression = config.get("gzip_intermediates", True)
         tsv_suffix = ".extracted.tsv.gz" if use_compression else ".extracted.tsv"
         chunk_tsv = intermediate_dir / f"{chunk_base}{tsv_suffix}"
-        fields = config.get("extract", [])
+
+        # Get fields_to_extract as string from config (not "extract")
+        fields_str = config.get("fields_to_extract", "")
+
+        # Handle extra sample fields if requested - append to the fields string
+        if config.get("append_extra_sample_fields", False) and config.get(
+            "extra_sample_fields", []
+        ):
+            fields_str = ensure_fields_in_extract(fields_str, config["extra_sample_fields"])
+            logger.debug(f"Updated fields with extra sample fields: {fields_str}")
+
+        # Convert string to list for processing
+        fields = fields_str.split() if fields_str else []
         if not fields:
             raise ValueError("No fields specified for extraction")
 
@@ -2428,14 +2457,18 @@ class ParallelCompleteProcessingStage(Stage):
             # Each worker gets limited threads
             threads_per_worker = max(2, threads // len(chunks_to_process))
 
-            # Prepare config for workers
+            # Prepare config for workers - ensure field extraction works correctly
             worker_config = {
                 "threads_per_chunk": threads_per_worker,
                 "bcftools_prefilter": context.config.get("bcftools_prefilter"),
                 "late_filtering": context.config.get("late_filtering", False),
                 "filter": context.config.get("filter"),
                 "filters": context.config.get("filters"),
-                "extract": context.config.get("extract", []),
+                "fields_to_extract": context.config.get("fields_to_extract", ""),
+                "append_extra_sample_fields": context.config.get(
+                    "append_extra_sample_fields", False
+                ),
+                "extra_sample_fields": context.config.get("extra_sample_fields", []),
                 "extract_fields_separator": context.config.get("extract_fields_separator", ","),
                 "gzip_intermediates": use_compression,
             }

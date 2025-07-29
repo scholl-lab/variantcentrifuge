@@ -275,11 +275,12 @@ class TestColumnRemovalIntegration:
 
     def test_extra_sample_field_columns_marked_for_removal(self, basic_config):
         """Test that extra sample field columns are marked for removal in config."""
-        from variantcentrifuge.pipeline_core import PipelineContext
-        from variantcentrifuge.stages.processing_stages import GenotypeReplacementStage
-        from variantcentrifuge.pipeline_core.workspace import Workspace
-        from pathlib import Path
         import tempfile
+        from pathlib import Path
+
+        from variantcentrifuge.pipeline_core import PipelineContext
+        from variantcentrifuge.pipeline_core.workspace import Workspace
+        from variantcentrifuge.stages.processing_stages import GenotypeReplacementStage
 
         # Set up a minimal pipeline context
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -307,12 +308,14 @@ class TestColumnRemovalIntegration:
 
     def test_extra_column_removal_stage_functionality(self, basic_config):
         """Test that ExtraColumnRemovalStage actually removes the specified columns."""
-        from variantcentrifuge.pipeline_core import PipelineContext
-        from variantcentrifuge.stages.processing_stages import ExtraColumnRemovalStage
-        from variantcentrifuge.pipeline_core.workspace import Workspace
-        from pathlib import Path
         import tempfile
+        from pathlib import Path
+
         import pandas as pd
+
+        from variantcentrifuge.pipeline_core import PipelineContext
+        from variantcentrifuge.pipeline_core.workspace import Workspace
+        from variantcentrifuge.stages.processing_stages import ExtraColumnRemovalStage
 
         # Set up test data with extra columns
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -364,12 +367,14 @@ class TestColumnRemovalIntegration:
 
     def test_custom_annotation_column_not_added_when_not_requested(self):
         """Test that Custom_Annotation column is not added when no custom annotations requested."""
-        from variantcentrifuge.pipeline_core import PipelineContext
-        from variantcentrifuge.stages.output_stages import VariantIdentifierStage
-        from variantcentrifuge.pipeline_core.workspace import Workspace
-        from pathlib import Path
         import tempfile
+        from pathlib import Path
+
         import pandas as pd
+
+        from variantcentrifuge.pipeline_core import PipelineContext
+        from variantcentrifuge.pipeline_core.workspace import Workspace
+        from variantcentrifuge.stages.output_stages import VariantIdentifierStage
 
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Workspace(output_dir=Path(tmpdir) / "output", base_name="test")
@@ -402,12 +407,14 @@ class TestColumnRemovalIntegration:
 
     def test_custom_annotation_column_added_when_requested(self):
         """Test that Custom_Annotation column is added when custom annotations are requested."""
-        from variantcentrifuge.pipeline_core import PipelineContext
-        from variantcentrifuge.stages.output_stages import VariantIdentifierStage
-        from variantcentrifuge.pipeline_core.workspace import Workspace
-        from pathlib import Path
         import tempfile
+        from pathlib import Path
+
         import pandas as pd
+
+        from variantcentrifuge.pipeline_core import PipelineContext
+        from variantcentrifuge.pipeline_core.workspace import Workspace
+        from variantcentrifuge.stages.output_stages import VariantIdentifierStage
 
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Workspace(output_dir=Path(tmpdir) / "output", base_name="test")

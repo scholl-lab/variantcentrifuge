@@ -212,12 +212,38 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
         # If we have extra fields, build a dictionary of field_name => [list of subfield values]
         extra_values_per_field = {}
         if append_extra_fields and extra_field_indices:
+            # First, determine the number of samples from GT column
+            sample_count = len(genotypes) if genotypes else 0
+
             for raw_field, col_idx in extra_field_indices.items():
                 if col_idx < len(cols):
                     raw_val = cols[col_idx].strip()
-                    extra_values_per_field[raw_field] = (
-                        raw_val.split(snpsift_sep) if raw_val else []
-                    )
+                    if raw_val:
+                        # Special handling for AD (Allelic Depth) field
+                        # AD contains ref,alt counts per sample, so needs grouping
+                        normalized_field = _normalize_snpeff_column_name(raw_field)
+                        if normalized_field == "AD" and sample_count > 0:
+                            # AD has 2 values per sample (ref_count,alt_count)
+                            ad_values = raw_val.split(snpsift_sep)
+                            if len(ad_values) == sample_count * 2:
+                                # Group AD values: [ref0,alt0,ref1,alt1] -> ["ref0,alt0", "ref1,alt1"]
+                                grouped_ad = []
+                                for i in range(sample_count):
+                                    ref_count = ad_values[i * 2]
+                                    alt_count = ad_values[i * 2 + 1]
+                                    grouped_ad.append(f"{ref_count},{alt_count}")
+                                extra_values_per_field[raw_field] = grouped_ad
+                            else:
+                                logger.warning(
+                                    f"AD field has {len(ad_values)} values, expected {sample_count * 2} "
+                                    f"for {sample_count} samples. Using raw split."
+                                )
+                                extra_values_per_field[raw_field] = ad_values
+                        else:
+                            # Standard splitting for DP, AF, and other fields
+                            extra_values_per_field[raw_field] = raw_val.split(snpsift_sep)
+                    else:
+                        extra_values_per_field[raw_field] = []
                 else:
                     extra_values_per_field[raw_field] = []
 
@@ -298,12 +324,14 @@ def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str
             # Build the genotype output
             sample_name = samples[i]
             if append_extra_fields and extra_field_indices:
-                # Gather the i-th entry from each extra field
+                # Gather the i-th entry from each extra field in the original order
                 bits = []
-                for raw_field in extra_field_indices.keys():
-                    ev_list = extra_values_per_field.get(raw_field, [])
-                    val = ev_list[i] if i < len(ev_list) else ""
-                    bits.append(val)
+                # Use extra_sample_fields to preserve the CLI-specified order
+                for raw_field in extra_sample_fields:
+                    if raw_field in extra_field_indices:
+                        ev_list = extra_values_per_field.get(raw_field, [])
+                        val = ev_list[i] if i < len(ev_list) else ""
+                        bits.append(val)
 
                 if bits:
                     # e.g. "0/1:100:52,48"

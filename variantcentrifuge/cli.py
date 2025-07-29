@@ -775,6 +775,7 @@ def main() -> int:
     # Print the actual command line that was used to run the program in debug mode
     if args.log_level == "DEBUG":
         import shlex
+
         # Reconstruct the command line that was used
         command_line = " ".join(shlex.quote(arg) for arg in sys.argv)
         logger.debug(f"Command line invocation: {command_line}")

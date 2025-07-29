@@ -130,7 +130,7 @@ class TestParallelCompleteProcessingStage:
                 "bcftools_prefilter": "QUAL > 20",
                 "late_filtering": False,
                 "filters": "QUAL >= 30",
-                "extract": ["CHROM", "POS", "REF", "ALT"],
+                "fields_to_extract": "CHROM POS REF ALT",
                 "extract_fields_separator": ",",
             }
 

@@ -30,7 +30,7 @@ class TestParallelProcessingSubtasks:
             "threads": 4,
             "vcf_file": "test.vcf",
             "filter": "QUAL > 30",
-            "extract": ["CHROM", "POS", "REF", "ALT"],
+            "fields_to_extract": "CHROM POS REF ALT",
             "bcftools_prefilter": "QUAL > 20",
             "extract_fields_separator": ",",
             "gzip_intermediates": False,  # Don't gzip for testing

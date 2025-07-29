@@ -286,7 +286,7 @@ class TestFieldExtractionStage:
         """Create test context with extracted VCF."""
         ctx = create_test_context(
             config_overrides={
-                "extract": ["CHROM", "POS", "REF", "ALT", "QUAL"],
+                "fields_to_extract": "CHROM POS REF ALT QUAL",
                 "gzip_intermediates": False,
             }
         )
@@ -338,7 +338,7 @@ class TestFieldExtractionStage:
 
     def test_no_fields_error(self, context):
         """Test error when no fields specified."""
-        context.config["extract"] = []
+        context.config["fields_to_extract"] = []
 
         stage = FieldExtractionStage()
         with pytest.raises(ValueError, match="No fields specified"):

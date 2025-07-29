@@ -206,11 +206,11 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
         header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
         header_indices = {}
         url_columns = []
-        
+
         for idx, col_name in enumerate(header_row, 1):  # 1-indexed for openpyxl
             if col_name in ["CHROM", "POS", "REF", "ALT", "GT"]:
                 header_indices[col_name] = idx
-            
+
             # Check if this column contains URLs by examining the first few data rows
             if col_name and ws.max_row > 1:
                 sample_values = []
@@ -218,10 +218,12 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
                     cell_value = ws.cell(row=row_idx, column=idx).value
                     if cell_value and str(cell_value).strip():
                         sample_values.append(str(cell_value).strip())
-                
+
                 # If most sample values start with http, consider this a URL column
                 if sample_values:
-                    url_count = sum(1 for val in sample_values if val.startswith(('http://', 'https://')))
+                    url_count = sum(
+                        1 for val in sample_values if val.startswith(("http://", "https://"))
+                    )
                     if url_count >= len(sample_values) * 0.7:  # 70% threshold
                         url_columns.append(idx)
                         logger.debug(f"Detected URL column: {col_name} (column {idx})")
@@ -234,7 +236,7 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
                     cell = ws.cell(row=row_idx, column=col_idx)
                     if cell.value and str(cell.value).strip():
                         url = str(cell.value).strip()
-                        if url.startswith(('http://', 'https://')):
+                        if url.startswith(("http://", "https://")):
                             # Get the column name for display
                             col_name = header_row[col_idx - 1]  # Convert to 0-indexed
                             # Set hyperlink and style

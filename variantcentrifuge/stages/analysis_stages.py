@@ -1586,7 +1586,8 @@ class VariantAnalysisStage(Stage):
                             else:
                                 if should_have_inheritance:
                                     logger.error(
-                                        f"Failed to preserve inheritance columns: {inheritance_cols}"
+                                        f"Failed to preserve inheritance columns: "
+                                        f"{inheritance_cols}"
                                     )
                                 else:
                                     logger.debug(

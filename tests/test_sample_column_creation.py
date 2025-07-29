@@ -156,7 +156,7 @@ class TestVectorizedSampleColumnCreation:
     """Test the vectorized sample column creation function."""
 
     def test_vectorized_vs_iterative_equivalence_replaced_format(self):
-        """Test that vectorized and iterative methods produce identical results for replaced format."""
+        """Test vectorized and iterative methods produce identical results."""
         # Test data with replaced genotype format
         df = pd.DataFrame(
             {
@@ -187,7 +187,7 @@ class TestVectorizedSampleColumnCreation:
             )
 
     def test_vectorized_vs_iterative_equivalence_snpsift_format(self):
-        """Test that vectorized and iterative methods produce identical results for SnpSift format."""
+        """Test vectorized and iterative methods produce identical results."""
         df = pd.DataFrame(
             {
                 "CHROM": ["chr1", "chr2"],
@@ -256,7 +256,8 @@ class TestVectorizedSampleColumnCreation:
         assert result_vectorized.iloc[1]["Sample1"] == "0/1"  # Second variant, first sample
 
         print(
-            f"Vectorized method processed {num_variants:,} variants × {num_samples:,} samples in {vectorized_time:.3f}s"
+            f"Vectorized method processed {num_variants:,} variants × "
+            f"{num_samples:,} samples in {vectorized_time:.3f}s"
         )
 
         # Should be reasonably fast (this is a performance indicator, not a strict requirement)

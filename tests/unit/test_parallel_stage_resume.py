@@ -195,7 +195,7 @@ class TestParallelCompleteProcessingStage:
             "vcf_file": "/tmp/test.vcf.gz",
             "threads": 4,
             "gzip_intermediates": True,
-            "extract": ["CHROM", "POS", "REF", "ALT"],
+            "fields_to_extract": "CHROM POS REF ALT",
         }
         context.workspace = Mock()
         context.workspace.base_name = "test"
@@ -245,7 +245,7 @@ class TestParallelCompleteProcessingStage:
             "vcf_file": "/tmp/test.vcf.gz",
             "threads": 4,
             "gzip_intermediates": True,
-            "extract": ["CHROM", "POS", "REF", "ALT"],
+            "fields_to_extract": "CHROM POS REF ALT",
         }
         context.workspace = Mock()
         context.workspace.base_name = "test"

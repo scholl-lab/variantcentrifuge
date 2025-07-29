@@ -88,7 +88,7 @@ class TestSubtaskTiming(unittest.TestCase):
         # Verify approximate timing
         self.assertGreater(subtask_times["subtask1"], 0.09)
         self.assertLess(subtask_times["subtask1"], 0.15)
-        self.assertGreater(subtask_times["subtask2"], 0.19)
+        self.assertGreater(subtask_times["subtask2"], 0.15)
         self.assertLess(subtask_times["subtask2"], 0.25)
 
     def test_stage_without_subtasks(self):

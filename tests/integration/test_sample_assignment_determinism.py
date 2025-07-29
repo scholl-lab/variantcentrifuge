@@ -39,7 +39,7 @@ class TestPipelineSampleDeterminism:
                 "output_file": "test_output.tsv",
                 "no_stats": True,
                 "no_metadata": True,
-                "extract": ["CHROM", "POS", "REF", "ALT", "GT", "GENE"],
+                "fields_to_extract": "CHROM POS REF ALT GT GENE",
                 "extract_fields_separator": ":",
             },
         }

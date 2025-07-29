@@ -36,7 +36,7 @@ class TestFieldExtractionStageCompression:
         context.workspace = mock_workspace
         context.data = Path("/tmp/input.vcf.gz")
         context.config = {
-            "extract": ["CHROM", "POS", "REF", "ALT"],
+            "fields_to_extract": "CHROM POS REF ALT",
             "extract_fields_separator": ",",
             "log_level": "INFO",
         }
@@ -120,7 +120,7 @@ class TestParallelProcessingCompression:
             context.config = {
                 "vcf_file": "/tmp/test.vcf.gz",
                 "threads": 4,
-                "extract": ["CHROM", "POS", "REF", "ALT"],
+                "fields_to_extract": "CHROM POS REF ALT",
                 "extract_fields_separator": ",",
             }
             context.workspace = Mock()
@@ -139,7 +139,7 @@ class TestParallelProcessingCompression:
 
             config = {
                 "threads_per_chunk": 2,
-                "extract": ["CHROM", "POS", "REF", "ALT"],
+                "fields_to_extract": "CHROM POS REF ALT",
                 "extract_fields_separator": ",",
                 "gzip_intermediates": True,  # Enable compression
             }
@@ -176,7 +176,7 @@ class TestParallelProcessingCompression:
 
             config = {
                 "threads_per_chunk": 2,
-                "extract": ["CHROM", "POS", "REF", "ALT"],
+                "fields_to_extract": "CHROM POS REF ALT",
                 "extract_fields_separator": ",",
                 "gzip_intermediates": False,  # Disable compression
             }
@@ -226,7 +226,7 @@ class TestParallelProcessingCompression:
 
             config = {
                 "threads_per_chunk": 2,
-                "extract": ["CHROM", "POS", "REF", "ALT"],
+                "fields_to_extract": "CHROM POS REF ALT",
                 "extract_fields_separator": ",",
                 # gzip_intermediates not set - should default to True
             }
@@ -319,7 +319,7 @@ class TestCompressionEndToEnd:
             context.workspace = workspace
             context.data = Path("/tmp/input.vcf.gz")
             context.config = {
-                "extract": ["CHROM", "POS", "REF", "ALT"],
+                "fields_to_extract": "CHROM POS REF ALT",
                 "extract_fields_separator": ",",
                 "log_level": "INFO",
             }

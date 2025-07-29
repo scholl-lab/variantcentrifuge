@@ -464,52 +464,54 @@ def prepare_column_metadata(df):
 def discover_igv_maps(input_files, output_dir):
     """Discover IGV report maps from individual sample directories."""
     logger.info("Discovering IGV report maps from sample directories...")
-    
+
     igv_maps = []
     igv_lookup = {}
-    
+
     for file_path in input_files:
         try:
             # Try to find IGV map in the same directory structure as the sample
             sample_dir = os.path.dirname(file_path)
-            
+
             # Look for IGV map in common locations
             possible_igv_paths = [
                 os.path.join(sample_dir, "report", "igv", "igv_reports_map.json"),
                 os.path.join(sample_dir, "output", "report", "igv", "igv_reports_map.json"),
                 os.path.join(os.path.dirname(sample_dir), "report", "igv", "igv_reports_map.json"),
             ]
-            
+
             igv_map_path = None
             igv_base_dir = None
             for path in possible_igv_paths:
                 if os.path.exists(path):
                     igv_map_path = path
                     # Store the base directory where IGV reports are located
-                    igv_base_dir = os.path.dirname(os.path.dirname(path))  # Remove /igv/igv_reports_map.json
+                    igv_base_dir = os.path.dirname(
+                        os.path.dirname(path)
+                    )  # Remove /igv/igv_reports_map.json
                     break
-            
+
             if igv_map_path:
                 logger.info(f"Found IGV map: {igv_map_path}")
-                
+
                 with open(igv_map_path, "r", encoding="utf-8") as f:
                     igv_map_data = json.load(f)
-                
+
                 # Handle both old and new IGV map format
                 if "variants" in igv_map_data:
                     igv_map = igv_map_data["variants"]
                 else:
                     igv_map = igv_map_data
-                
+
                 igv_maps.extend(igv_map)
-                
+
                 # Populate lookup dictionary for quick access
                 for entry in igv_map:
                     chrom = entry.get("chrom", "")
                     pos = str(entry.get("pos", ""))
                     ref = entry.get("ref", "")
                     alt = entry.get("alt", "")
-                    
+
                     # Handle new format with sample_reports nested dictionary
                     if "sample_reports" in entry:
                         for sample_id, report_path in entry["sample_reports"].items():
@@ -527,17 +529,17 @@ def discover_igv_maps(input_files, output_dir):
                         # Calculate relative path from cohort output directory to IGV report
                         relative_path = os.path.relpath(absolute_igv_path, output_dir)
                         igv_lookup[key] = relative_path
-                        
+
         except Exception as e:
             logger.debug(f"No IGV map found or error loading from {file_path}: {e}")
             continue
-    
+
     if igv_maps:
         logger.info(f"Loaded {len(igv_maps)} IGV map entries from {len(igv_lookup)} sample reports")
         logger.info("IGV paths resolved relative to cohort output directory")
     else:
         logger.info("No IGV maps found - cohort report will not include IGV links")
-    
+
     return igv_lookup
 
 
@@ -547,23 +549,23 @@ def enrich_variants_with_igv(df, igv_lookup):
         logger.info("No IGV lookup available - skipping IGV enrichment")
         df["igv_links"] = [[] for _ in range(len(df))]
         return df
-    
+
     logger.info("Enriching variants with IGV report links...")
-    
+
     # Pattern to extract (SampleID, GenotypeString) tuples from GT column
     pattern = re.compile(r"([^()]+)\(([^)]+)\)")
-    
+
     igv_links_list = []
-    
+
     for _, row in df.iterrows():
         igv_links = []
-        
+
         # Extract variant identifiers
         chrom = str(row.get("CHROM", ""))
         pos = str(row.get("POS", ""))
         ref = str(row.get("REF", ""))
         alt = str(row.get("ALT", ""))
-        
+
         # Extract sample IDs with non-reference genotypes from GT column
         gt_value = row.get("GT", "")
         if gt_value:
@@ -572,31 +574,30 @@ def enrich_variants_with_igv(df, igv_lookup):
                 entry = entry.strip()
                 if not entry:
                     continue
-                
+
                 m = pattern.match(entry)
                 if m:
                     sample_id = m.group(1).strip()
                     genotype = m.group(2).strip()
-                    
+
                     # Skip reference genotypes
                     if genotype in ["0/0", "./."]:
                         continue
-                    
+
                     # Look up the IGV report path
                     lookup_key = (chrom, pos, ref, alt, sample_id)
                     if lookup_key in igv_lookup:
-                        igv_links.append({
-                            "sample_id": sample_id,
-                            "report_path": igv_lookup[lookup_key]
-                        })
-        
+                        igv_links.append(
+                            {"sample_id": sample_id, "report_path": igv_lookup[lookup_key]}
+                        )
+
         igv_links_list.append(igv_links)
-    
+
     df["igv_links"] = igv_links_list
-    
+
     variants_with_igv = sum(1 for links in igv_links_list if links)
     logger.info(f"Added IGV links to {variants_with_igv} variants")
-    
+
     return df
 
 
@@ -635,11 +636,11 @@ def finalize_cohort_excel(xlsx_file, df, igv_lookup=None):
     header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
     header_indices = {}
     url_columns = []
-    
+
     for idx, col_name in enumerate(header_row, 1):  # 1-indexed for openpyxl
         if col_name in ["CHROM", "POS", "REF", "ALT", "GT"]:
             header_indices[col_name] = idx
-        
+
         # Check if this looks like a URL column
         if col_name and ws.max_row > 1:
             sample_values = []
@@ -647,12 +648,14 @@ def finalize_cohort_excel(xlsx_file, df, igv_lookup=None):
                 cell_value = ws.cell(row=row_idx, column=idx).value
                 if cell_value and str(cell_value).strip():
                     sample_values.append(str(cell_value).strip())
-            
+
             if sample_values:
-                url_count = sum(1 for val in sample_values if val.startswith(('http://', 'https://')))
+                url_count = sum(
+                    1 for val in sample_values if val.startswith(("http://", "https://"))
+                )
                 if url_count >= len(sample_values) * 0.7:
                     url_columns.append(col_name)
-    
+
     if url_columns:
         logger.info(f"Found {len(url_columns)} URL columns: {url_columns}")
         logger.info("URLs left as plain text - Excel will auto-detect as clickable links")
@@ -663,16 +666,16 @@ def finalize_cohort_excel(xlsx_file, df, igv_lookup=None):
     igv_col = None
     if igv_lookup and all(col in header_indices for col in ["CHROM", "POS", "REF", "ALT", "GT"]):
         logger.info("Adding IGV Report Links column to Excel...")
-        
+
         # Add the IGV Report Links column header
         igv_col = ws.max_column + 1
         igv_col_letter = get_column_letter(igv_col)
         igv_header_cell = ws[f"{igv_col_letter}1"]
         igv_header_cell.value = "IGV Report Links"
-        
+
         # Pattern to extract sample IDs and genotypes from GT column
         pattern = re.compile(r"([^()]+)\(([^)]+)\)")
-        
+
         # Process data rows to add IGV links
         for row_idx in range(2, ws.max_row + 1):  # Skip header
             # Extract variant identifiers from the row
@@ -680,18 +683,18 @@ def finalize_cohort_excel(xlsx_file, df, igv_lookup=None):
             pos = str(ws.cell(row=row_idx, column=header_indices["POS"]).value or "")
             ref = str(ws.cell(row=row_idx, column=header_indices["REF"]).value or "")
             alt = str(ws.cell(row=row_idx, column=header_indices["ALT"]).value or "")
-            
+
             # Get the GT value for this row
             gt_cell = ws.cell(row=row_idx, column=header_indices["GT"])
             gt_value = gt_cell.value or ""
             gt_value = str(gt_value) if gt_value is not None else ""
-            
+
             if not gt_value:
                 # No GT value, set N/A
                 igv_cell = ws.cell(row=row_idx, column=igv_col)
                 igv_cell.value = "N/A"
                 continue
-            
+
             # Find all related IGV reports for this variant
             igv_reports = []
             sample_entries = gt_value.split(";")
@@ -699,21 +702,21 @@ def finalize_cohort_excel(xlsx_file, df, igv_lookup=None):
                 entry = entry.strip()
                 if not entry:
                     continue
-                
+
                 m = pattern.match(entry)
                 if m:
                     sample_id = m.group(1).strip()
                     genotype = m.group(2).strip()
-                    
+
                     # Skip reference genotypes
                     if genotype in ["0/0", "./."]:
                         continue
-                    
+
                     # Look up the IGV report path
                     lookup_key = (chrom, pos, ref, alt, sample_id)
                     if lookup_key in igv_lookup:
                         igv_reports.append((sample_id, igv_lookup[lookup_key]))
-            
+
             # Update the IGV links cell
             igv_cell = ws.cell(row=row_idx, column=igv_col)
             if len(igv_reports) == 1:
@@ -729,19 +732,23 @@ def finalize_cohort_excel(xlsx_file, df, igv_lookup=None):
                 first_sample = igv_reports[0][0]
                 num_others = len(igv_reports) - 1
                 igv_cell.value = f"{first_sample} (+{num_others} others)"
-                
+
                 # Add comment with full details for all reports
                 from openpyxl.comments import Comment
+
                 link_details = [f"{sid}: {rpath}" for sid, rpath in igv_reports]
                 igv_cell.comment = Comment("; ".join(link_details), "IGV Reports")
             else:
                 igv_cell.value = "N/A"
-        
+
         # Update auto-filter to include the new IGV column
         new_max_col_letter = get_column_letter(ws.max_column)
         ws.auto_filter.ref = f"A1:{new_max_col_letter}1"
-        
-        logger.info(f"Added IGV Report Links column with {sum(1 for lookup_key in igv_lookup)} potential links")
+
+        logger.info(
+            f"Added IGV Report Links column with "
+            f"{sum(1 for lookup_key in igv_lookup)} potential links"
+        )
 
     # Save the workbook
     wb.save(xlsx_file)
@@ -816,8 +823,8 @@ def main():
 
     # Remove igv_links column from DataFrame for Excel export (IGV links added separately in Excel)
     df_for_excel = df.copy()
-    if 'igv_links' in df_for_excel.columns:
-        df_for_excel = df_for_excel.drop(columns=['igv_links'])
+    if "igv_links" in df_for_excel.columns:
+        df_for_excel = df_for_excel.drop(columns=["igv_links"])
 
     # Create Excel report with all variants and clickable links
     excel_file = create_excel_report(df_for_excel, args.output_dir, igv_lookup)
