@@ -486,52 +486,94 @@ $(document).ready(function() {
             const name = colName.toUpperCase();
             
             // Force numeric columns based on comprehensive genomic patterns
-            // AF columns (allele frequency): AF_1, AF_EXAC, AF_GNOMAD, etc.
-            if (name.startsWith('AF_') || name === 'AF') {
+            // Handle both underscore and space separators
+            
+            // AF columns (allele frequency): "AF 1", "AF_1", "AF EXAC", etc.
+            if (name.startsWith('AF ') || name.startsWith('AF_') || name === 'AF') {
                 return 'numeric';
             }
-            // AD columns (allelic depth): AD_1, AD_2, etc.
-            if (name.startsWith('AD_') || name === 'AD') {
+            // AD columns (allelic depth): "AD 1", "AD_1", "AD 2", etc.
+            if (name.startsWith('AD ') || name.startsWith('AD_') || name === 'AD') {
                 return 'numeric';
             }
-            // AC columns (allele count): AC_1, AC_EXAC, etc.
-            if (name.startsWith('AC_') || name === 'AC' || name.endsWith('_AC')) {
+            // AC columns (allele count): "AC 1", "AC_1", "*_AC", "* AC", etc.
+            if (name.startsWith('AC ') || name.startsWith('AC_') || name === 'AC' || 
+                name.endsWith(' AC') || name.endsWith('_AC')) {
                 return 'numeric';
             }
+            
             // Score columns with various patterns
-            if (name.includes('_SCORE') || name.includes('SCORE') || 
-                name.endsWith('_SCORE') || name.endsWith('SCORE')) {
+            if (name.includes(' SCORE') || name.includes('_SCORE') || name.includes('SCORE') || 
+                name.endsWith(' SCORE') || name.endsWith('_SCORE') || name.endsWith('SCORE')) {
                 return 'numeric';
             }
-            // PHRED score columns: CADD_PHRED, QUAL_PHRED, etc.
-            if (name.includes('_PHRED') || name.endsWith('_PHRED') || name.includes('PHRED')) {
+            
+            // PHRED score columns: "CADD PHRED", "CADD_PHRED", "QUAL PHRED", etc.
+            if (name.includes(' PHRED') || name.includes('_PHRED') || name.includes('PHRED')) {
                 return 'numeric';
             }
-            // Database score columns: dbNSFP_*, CADD, REVEL, etc.
-            if (name.startsWith('DBNSFP_') || name.includes('CADD') || 
-                name.includes('REVEL') || name.includes('SIFT') || name.includes('POLYPHEN')) {
+            
+            // Database score columns: "dbNSFP *", "dbNSFP_*", CADD, REVEL, etc.
+            // But exclude clnsig columns which contain text classifications
+            if ((name.startsWith('DBNSFP ') || name.startsWith('DBNSFP_')) && 
+                !name.includes('CLNSIG')) {
                 return 'numeric';
             }
-            // Splice score columns: splice_*, spidex_*, etc.
-            if (name.startsWith('SPLICE_') || name.includes('SPIDEX') || 
-                name.includes('DBSCSNV') || name.includes('_ADA_') || name.includes('_RF_')) {
+            if (name.includes('CADD') || name.includes('REVEL') || 
+                name.includes('SIFT') || name.includes('POLYPHEN')) {
                 return 'numeric';
             }
-            // Count columns: *_count, *_COUNT, proband_count, etc.
-            if (name.includes('_COUNT') || name.includes('COUNT') || name.endsWith('_COUNT')) {
+            
+            // Splice score columns: "splice *", "splice_*", "spidex *", etc.
+            if (name.startsWith('SPLICE ') || name.startsWith('SPLICE_') || 
+                name.includes('SPIDEX') || name.includes('DBSCSNV') || 
+                name.includes(' ADA ') || name.includes('_ADA_') ||
+                name.includes(' RF ') || name.includes('_RF_') ||
+                name.includes(' ZSCORE') || name.includes('_ZSCORE')) {
                 return 'numeric';
             }
+            
+            // Count columns: "* count", "*_count", "*COUNT", etc.
+            if (name.includes(' COUNT') || name.includes('_COUNT') || name.includes('COUNT') ||
+                name.endsWith(' COUNT') || name.endsWith('_COUNT')) {
+                return 'numeric';
+            }
+            
             // Position and quality columns
-            if (name === 'POS' || name.includes('_POS') || name.includes('POS_') ||
-                name === 'QUAL' || name.includes('_QUAL') || name.includes('QUAL_')) {
+            if (name === 'POS' || name.includes(' POS') || name.includes('_POS') || name.includes('POS ') ||
+                name === 'QUAL' || name.includes(' QUAL') || name.includes('_QUAL') || name.includes('QUAL ')) {
                 return 'numeric';
             }
-            // Depth columns: DP, *_DP
-            if (name === 'DP' || name.includes('_DP') || name.endsWith('_DP')) {
+            
+            // Depth columns: DP, "* DP", "*_DP"
+            if (name === 'DP' || name.includes(' DP') || name.includes('_DP') || 
+                name.endsWith(' DP') || name.endsWith('_DP')) {
                 return 'numeric';
             }
-            // Impact severity (numeric scoring)
-            if (name === 'IMPACT_SEVERITY') {
+            
+            // Impact severity and other numeric columns
+            if (name === 'IMPACT_SEVERITY' || name === 'IMPACT SEVERITY') {
+                return 'numeric';
+            }
+            
+            // gnomAD and population frequency columns
+            if (name.includes('GNOMAD') || name.includes('EXAC') || name.includes('1000G')) {
+                return 'numeric';
+            }
+            
+            // Percentage columns
+            if (name.includes(' PERC') || name.includes('_PERC') || name.includes('PERC')) {
+                return 'numeric';
+            }
+            
+            // Position columns (AA POS, etc.)
+            if ((name.includes(' POS') || name.includes('_POS')) && 
+                !name.includes('ID') && !name.includes('CHROM')) {
+                return 'numeric';
+            }
+            
+            // Length columns (AA LEN, etc.)
+            if (name.includes(' LEN') || name.includes('_LEN') || name.endsWith('LEN')) {
                 return 'numeric';
             }
             
@@ -539,7 +581,8 @@ $(document).ready(function() {
             if (name.includes('ID') || name === 'CHROM' || name === 'REF' || name === 'ALT' ||
                 name.includes('CLASS') || name.includes('CLNSIG') || name.includes('EFFECT') ||
                 name.includes('GENE') || name.includes('FEATURE') || name.includes('HGVS') ||
-                name === 'GT' || name.includes('GENOTYPE')) {
+                name === 'GT' || name.includes('GENOTYPE') || name.includes('ANNOTATION') ||
+                name === 'FILTER' || name === 'IMPACT') {
                 return 'text';
             }
             
