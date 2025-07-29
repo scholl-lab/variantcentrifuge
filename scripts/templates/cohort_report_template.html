@@ -274,7 +274,8 @@ $(document).ready(function() {
                         if (colName === 'HGVS_C' || colName === 'HGVS_P' ||
                             colName === 'GT' || colName === 'ID') {
                             // Replace < with &lt; but leave > as is for genetic notation
-                            const safeData = data.replace(/</g, '&lt;');
+                            // Convert to string first to ensure replace method is available
+                            const safeData = String(data).replace(/</g, '&lt;');
                             return `<span class="hover-expand-content" style="max-width:${colMeta.max_width}px;">${safeData}</span>`;
                         } else {
                             // Standard HTML escaping for other content
