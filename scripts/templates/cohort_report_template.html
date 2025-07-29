@@ -631,13 +631,21 @@ $(document).ready(function() {
         }
 
         columns.forEach((colName, colIndex) => {
+            // Skip filter creation for link columns (IGV links, URLs, etc.)
+            if (shouldSkipColumnFilter(colName, data)) {
+                debugLog(`❌ SKIPPED - Link column detected`);
+                console.log(`Skipping filter creation for link column: ${colName}`);
+                return;
+            }
+            
+            // Declare variables in the correct scope
+            let filterType = 'text'; // Default fallback
+            let numericValues = [];
+            let nonMissingValues = [];
+            let missingCount = 0;
+            let numericCount = 0;
+            
             debugGroup(`Processing Column: "${colName}" (index ${colIndex})`, () => {
-                // Skip filter creation for link columns (IGV links, URLs, etc.)
-                if (shouldSkipColumnFilter(colName, data)) {
-                    debugLog(`❌ SKIPPED - Link column detected`);
-                    console.log(`Skipping filter creation for link column: ${colName}`);
-                    return;
-                }
                 
                 // Get all raw values for this column
                 const allValues = data.map(row => {
@@ -650,13 +658,13 @@ $(document).ready(function() {
                 debugLog(`Data sample (first 5 values):`, sampleValues);
 
                 // Separate missing and valid values
-                const nonMissingValues = allValues.filter(v => 
+                nonMissingValues = allValues.filter(v => 
                     v !== null && v !== undefined && !MISSING_VALUES.has(String(v).trim())
                 );
                 
-                const numericValues = nonMissingValues.filter(v => !isNaN(parseFloat(v)) && isFinite(parseFloat(v)));
-                const missingCount = allValues.length - nonMissingValues.length;
-                const numericCount = numericValues.length;
+                numericValues = nonMissingValues.filter(v => !isNaN(parseFloat(v)) && isFinite(parseFloat(v)));
+                missingCount = allValues.length - nonMissingValues.length;
+                numericCount = numericValues.length;
                 const totalCount = allValues.length;
                 
                 debugLog(`Data analysis:`, {
@@ -669,7 +677,6 @@ $(document).ready(function() {
 
                 // Determine column type
                 const columnType = getColumnType(colName);
-                let filterType = 'text'; // Default fallback
                 
                 debugLog(`Pattern result: "${columnType}"`);
 
@@ -698,6 +705,7 @@ $(document).ready(function() {
                         }
                     }
                 }
+            }); // End debugGroup
 
             // For categorical, prepare unique values for dropdown
             let uniqueValues = [];
@@ -705,9 +713,9 @@ $(document).ready(function() {
                 uniqueValues = [...new Set(nonMissingValues.map(v => String(v).trim()))].sort();
             }
 
-                let filterControlHtml;
-                if (filterType === 'numeric' && numericCount > 0) {
-                    debugLog(`✅ Creating NUMERIC slider filter (${numericCount} numeric values found)`);
+            let filterControlHtml;
+            if (filterType === 'numeric' && numericCount > 0) {
+                debugLog(`✅ Creating NUMERIC slider filter (${numericCount} numeric values found)`);
                 // Calculate min and max from numeric values only
                 const numericFloats = numericValues.map(v => parseFloat(v));
                 const min = Math.min(...numericFloats);
@@ -726,20 +734,16 @@ $(document).ready(function() {
                             <span id="min-val-${colName}">${min.toFixed(4)}</span>
                             <span id="max-val-${colName}">${max.toFixed(4)}</span>
                         </div>
-                        ${missingCount > 0 ? `
-                        <div class="missing-values-control">
+                        <input type="hidden" id="filter-${colName}" data-column="${colIndex}" data-min="${min}" data-max="${max}">
+                        ${missingCount > 0 ? `<div class="missing-values-control">
                             <label>
                                 <input type="checkbox" id="include-missing-${colName}" data-column="${colIndex}" checked>
                                 Include missing values (N/A, ., etc.)
                             </label>
                         </div>` : ''}
                     </div>`;
-                } else if (filterType === 'numeric' && numericCount === 0) {
-                    debugLog(`❌ NUMERIC filter skipped - no numeric values found, falling back to text`);
-                    filterType = 'text'; // Fallback to text if no numeric values
-                } else if (filterType === 'categorical' && uniqueValues.length > 0) {
-                    debugLog(`✅ Creating CATEGORICAL dropdown filter (${uniqueValues.length} unique values)`);
-                    // Create dropdown with unique values
+            } else if (filterType === 'categorical') {
+                debugLog(`✅ Creating CATEGORICAL dropdown filter (${uniqueValues.length} unique values)`);
                 const categoryInfo = missingCount > 0 ? 
                     `${colName} (${uniqueValues.length} categories, ${missingCount} missing)` : 
                     `${colName} (${uniqueValues.length} categories)`;
@@ -755,29 +759,27 @@ $(document).ready(function() {
                             <option value="">All</option>
                             ${optionsHtml}
                         </select>
-                        ${missingCount > 0 ? `
-                        <div class="missing-values-control">
+                        ${missingCount > 0 ? `<div class="missing-values-control">
                             <label>
                                 <input type="checkbox" id="include-missing-${colName}" data-column="${colIndex}" checked>
                                 Include missing values (N/A, ., etc.)
                             </label>
                         </div>` : ''}
                     </div>`;
-                } else {
-                    debugLog(`✅ Creating TEXT input filter (fallback)`);
-                    // Default text input
-                    filterControlHtml = `
-                        <div class="filter-control">
-                            <label for="filter-${colName}">${colName}</label>
-                            <input type="text" id="filter-${colName}" placeholder="Filter ${colName}..." data-column="${colIndex}">
-                        </div>`;
-                }
-                
-                debugLog(`📄 Appending filter HTML to container`);
-                filtersContainer.append(filterControlHtml);
-                
-                debugLog(`🎯 FINAL RESULT: ${filterType.toUpperCase()} filter created for "${colName}"`);
-            }); // End debugGroup
+            } else {
+                debugLog(`✅ Creating TEXT input filter (fallback)`);
+                // Default text input
+                filterControlHtml = `
+                    <div class="filter-control">
+                        <label for="filter-${colName}">${colName}</label>
+                        <input type="text" id="filter-${colName}" placeholder="Filter ${colName}..." data-column="${colIndex}">
+                    </div>`;
+            }
+            
+            debugLog(`📄 Appending filter HTML to container`);
+            filtersContainer.append(filterControlHtml);
+            
+            debugLog(`🎯 FINAL RESULT: ${filterType.toUpperCase()} filter created for "${colName}"`);
 
             if (filterType === 'numeric' && numericCount > 0) {
                 const slider = document.getElementById(`slider-${colName}`);
