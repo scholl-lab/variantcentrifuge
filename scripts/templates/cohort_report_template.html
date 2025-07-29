@@ -156,6 +156,9 @@ $(document).ready(function() {
             console.group(`[FILTER-DEBUG] ${title}`);
             callback();
             console.groupEnd();
+        } else {
+            // Always execute the callback, just don't log the grouping
+            callback();
         }
     }
     
