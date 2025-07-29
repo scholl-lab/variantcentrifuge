@@ -137,11 +137,43 @@
 
 <script>
 $(document).ready(function() {
+    // Debug logging infrastructure
+    const urlParams = new URLSearchParams(window.location.search);
+    window.COHORT_DEBUG = urlParams.get('debug') === '1' || window.COHORT_DEBUG === true;
+    
+    function debugLog(message, data = null) {
+        if (window.COHORT_DEBUG) {
+            if (data !== null) {
+                console.log(`[FILTER-DEBUG] ${message}`, data);
+            } else {
+                console.log(`[FILTER-DEBUG] ${message}`);
+            }
+        }
+    }
+    
+    function debugGroup(title, callback) {
+        if (window.COHORT_DEBUG) {
+            console.group(`[FILTER-DEBUG] ${title}`);
+            callback();
+            console.groupEnd();
+        }
+    }
+    
+    debugLog('=== COHORT REPORT FILTER DEBUGGING ENABLED ===');
+    debugLog('To disable: window.COHORT_DEBUG = false; or remove ?debug=1 from URL');
+    debugLog('');
+
     // Parse embedded JSON data directly from the template
     const variantsData = JSON.parse('{{ variants_json | safe }}');
     const summaryData = JSON.parse('{{ summary_json | safe }}');
     const columnMetadata = JSON.parse('{{ column_metadata_json | safe }}');
     let dataTable;
+    
+    debugLog('Data loaded:', {
+        'variants': variantsData?.length || 0,
+        'columns': columnMetadata?.length || 0,
+        'summary': Object.keys(summaryData || {}).length
+    });
 
     // Initialize the dashboard with summary statistics
     initializeDashboard(summaryData);
@@ -484,32 +516,38 @@ $(document).ready(function() {
         // Smart column pattern detection for genomic data
         function getColumnType(colName) {
             const name = colName.toUpperCase();
+            debugLog(`Pattern matching for column: "${colName}" (uppercase: "${name}")`);
             
             // Force numeric columns based on comprehensive genomic patterns
             // Handle both underscore and space separators
             
             // AF columns (allele frequency): "AF 1", "AF_1", "AF EXAC", etc.
             if (name.startsWith('AF ') || name.startsWith('AF_') || name === 'AF') {
+                debugLog(`✓ AF pattern matched → NUMERIC`);
                 return 'numeric';
             }
             // AD columns (allelic depth): "AD 1", "AD_1", "AD 2", etc.
             if (name.startsWith('AD ') || name.startsWith('AD_') || name === 'AD') {
+                debugLog(`✓ AD pattern matched → NUMERIC`);
                 return 'numeric';
             }
             // AC columns (allele count): "AC 1", "AC_1", "*_AC", "* AC", etc.
             if (name.startsWith('AC ') || name.startsWith('AC_') || name === 'AC' || 
                 name.endsWith(' AC') || name.endsWith('_AC')) {
+                debugLog(`✓ AC pattern matched → NUMERIC`);
                 return 'numeric';
             }
             
             // Score columns with various patterns
             if (name.includes(' SCORE') || name.includes('_SCORE') || name.includes('SCORE') || 
                 name.endsWith(' SCORE') || name.endsWith('_SCORE') || name.endsWith('SCORE')) {
+                debugLog(`✓ SCORE pattern matched → NUMERIC`);
                 return 'numeric';
             }
             
             // PHRED score columns: "CADD PHRED", "CADD_PHRED", "QUAL PHRED", etc.
             if (name.includes(' PHRED') || name.includes('_PHRED') || name.includes('PHRED')) {
+                debugLog(`✓ PHRED pattern matched → NUMERIC`);
                 return 'numeric';
             }
             
@@ -536,6 +574,7 @@ $(document).ready(function() {
             // Count columns: "* count", "*_count", "*COUNT", etc.
             if (name.includes(' COUNT') || name.includes('_COUNT') || name.includes('COUNT') ||
                 name.endsWith(' COUNT') || name.endsWith('_COUNT')) {
+                debugLog(`✓ COUNT pattern matched → NUMERIC`);
                 return 'numeric';
             }
             
@@ -583,59 +622,82 @@ $(document).ready(function() {
                 name.includes('GENE') || name.includes('FEATURE') || name.includes('HGVS') ||
                 name === 'GT' || name.includes('GENOTYPE') || name.includes('ANNOTATION') ||
                 name === 'FILTER' || name === 'IMPACT') {
+                debugLog(`✓ TEXT pattern matched → TEXT`);
                 return 'text';
             }
             
+            debugLog(`✗ No pattern matched → AUTO (will analyze data)`);
             return 'auto'; // Let data analysis decide
         }
 
         columns.forEach((colName, colIndex) => {
-            // Skip filter creation for link columns (IGV links, URLs, etc.)
-            if (shouldSkipColumnFilter(colName, data)) {
-                console.log(`Skipping filter creation for link column: ${colName}`);
-                return;
-            }
-            
-            // Get all raw values for this column
-            const allValues = data.map(row => {
-                const val = typeof row === 'object' ? row[colName] : row[colIndex];
-                return val;
-            });
+            debugGroup(`Processing Column: "${colName}" (index ${colIndex})`, () => {
+                // Skip filter creation for link columns (IGV links, URLs, etc.)
+                if (shouldSkipColumnFilter(colName, data)) {
+                    debugLog(`❌ SKIPPED - Link column detected`);
+                    console.log(`Skipping filter creation for link column: ${colName}`);
+                    return;
+                }
+                
+                // Get all raw values for this column
+                const allValues = data.map(row => {
+                    const val = typeof row === 'object' ? row[colName] : row[colIndex];
+                    return val;
+                });
+                
+                // Sample first 5 values for debugging
+                const sampleValues = allValues.slice(0, 5);
+                debugLog(`Data sample (first 5 values):`, sampleValues);
 
-            // Separate missing and valid values
-            const nonMissingValues = allValues.filter(v => 
-                v !== null && v !== undefined && !MISSING_VALUES.has(String(v).trim())
-            );
-            
-            const numericValues = nonMissingValues.filter(v => !isNaN(parseFloat(v)) && isFinite(parseFloat(v)));
-            const missingCount = allValues.length - nonMissingValues.length;
-            const numericCount = numericValues.length;
-            const totalCount = allValues.length;
+                // Separate missing and valid values
+                const nonMissingValues = allValues.filter(v => 
+                    v !== null && v !== undefined && !MISSING_VALUES.has(String(v).trim())
+                );
+                
+                const numericValues = nonMissingValues.filter(v => !isNaN(parseFloat(v)) && isFinite(parseFloat(v)));
+                const missingCount = allValues.length - nonMissingValues.length;
+                const numericCount = numericValues.length;
+                const totalCount = allValues.length;
+                
+                debugLog(`Data analysis:`, {
+                    'total_values': totalCount,
+                    'non_missing': nonMissingValues.length,
+                    'numeric_values': numericCount,
+                    'missing_values': missingCount,
+                    'numeric_percentage': nonMissingValues.length > 0 ? Math.round((numericCount / nonMissingValues.length) * 100) : 0
+                });
 
-            // Determine column type
-            const columnType = getColumnType(colName);
-            let filterType = 'text'; // Default fallback
+                // Determine column type
+                const columnType = getColumnType(colName);
+                let filterType = 'text'; // Default fallback
+                
+                debugLog(`Pattern result: "${columnType}"`);
 
-            if (columnType === 'numeric') {
-                filterType = 'numeric'; // Force numeric based on column name
-            } else if (columnType === 'text') {
-                filterType = 'text'; // Force text based on column name
-            } else if (columnType === 'auto') {
-                // Auto-detect: require 70% of non-missing values to be numeric
-                if (nonMissingValues.length > 0 && 
-                    (numericCount / nonMissingValues.length) >= 0.7 &&
-                    numericCount >= 3) {
-                    filterType = 'numeric';
-                } else {
-                    // Check if suitable for categorical dropdown (≤25 unique values)
-                    const uniqueValues = [...new Set(nonMissingValues.map(v => String(v).trim()))];
-                    if (uniqueValues.length > 0 && uniqueValues.length <= 25) {
-                        filterType = 'categorical';
+                if (columnType === 'numeric') {
+                    filterType = 'numeric'; // Force numeric based on column name
+                    debugLog(`→ Filter type: NUMERIC (forced by pattern)`);
+                } else if (columnType === 'text') {
+                    filterType = 'text'; // Force text based on column name
+                    debugLog(`→ Filter type: TEXT (forced by pattern)`);
+                } else if (columnType === 'auto') {
+                    // Auto-detect: require 70% of non-missing values to be numeric
+                    if (nonMissingValues.length > 0 && 
+                        (numericCount / nonMissingValues.length) >= 0.7 &&
+                        numericCount >= 3) {
+                        filterType = 'numeric';
+                        debugLog(`→ Filter type: NUMERIC (auto-detected: ${numericCount}/${nonMissingValues.length} values are numeric)`);
                     } else {
-                        filterType = 'text';
+                        // Check if suitable for categorical dropdown (≤25 unique values)
+                        const uniqueValues = [...new Set(nonMissingValues.map(v => String(v).trim()))];
+                        if (uniqueValues.length > 0 && uniqueValues.length <= 25) {
+                            filterType = 'categorical';
+                            debugLog(`→ Filter type: CATEGORICAL (${uniqueValues.length} unique values)`);
+                        } else {
+                            filterType = 'text';
+                            debugLog(`→ Filter type: TEXT (too many unique values: ${uniqueValues.length})`);
+                        }
                     }
                 }
-            }
 
             // For categorical, prepare unique values for dropdown
             let uniqueValues = [];
@@ -643,8 +705,9 @@ $(document).ready(function() {
                 uniqueValues = [...new Set(nonMissingValues.map(v => String(v).trim()))].sort();
             }
 
-            let filterControlHtml;
-            if (filterType === 'numeric' && numericCount > 0) {
+                let filterControlHtml;
+                if (filterType === 'numeric' && numericCount > 0) {
+                    debugLog(`✅ Creating NUMERIC slider filter (${numericCount} numeric values found)`);
                 // Calculate min and max from numeric values only
                 const numericFloats = numericValues.map(v => parseFloat(v));
                 const min = Math.min(...numericFloats);
@@ -671,8 +734,12 @@ $(document).ready(function() {
                             </label>
                         </div>` : ''}
                     </div>`;
-            } else if (filterType === 'categorical' && uniqueValues.length > 0) {
-                // Create dropdown with unique values
+                } else if (filterType === 'numeric' && numericCount === 0) {
+                    debugLog(`❌ NUMERIC filter skipped - no numeric values found, falling back to text`);
+                    filterType = 'text'; // Fallback to text if no numeric values
+                } else if (filterType === 'categorical' && uniqueValues.length > 0) {
+                    debugLog(`✅ Creating CATEGORICAL dropdown filter (${uniqueValues.length} unique values)`);
+                    // Create dropdown with unique values
                 const categoryInfo = missingCount > 0 ? 
                     `${colName} (${uniqueValues.length} categories, ${missingCount} missing)` : 
                     `${colName} (${uniqueValues.length} categories)`;
@@ -696,15 +763,21 @@ $(document).ready(function() {
                             </label>
                         </div>` : ''}
                     </div>`;
-            } else {
-                // Default text input
-                filterControlHtml = `
-                    <div class="filter-control">
-                        <label for="filter-${colName}">${colName}</label>
-                        <input type="text" id="filter-${colName}" placeholder="Filter ${colName}..." data-column="${colIndex}">
-                    </div>`;
-            }
-            filtersContainer.append(filterControlHtml);
+                } else {
+                    debugLog(`✅ Creating TEXT input filter (fallback)`);
+                    // Default text input
+                    filterControlHtml = `
+                        <div class="filter-control">
+                            <label for="filter-${colName}">${colName}</label>
+                            <input type="text" id="filter-${colName}" placeholder="Filter ${colName}..." data-column="${colIndex}">
+                        </div>`;
+                }
+                
+                debugLog(`📄 Appending filter HTML to container`);
+                filtersContainer.append(filterControlHtml);
+                
+                debugLog(`🎯 FINAL RESULT: ${filterType.toUpperCase()} filter created for "${colName}"`);
+            }); // End debugGroup
 
             if (filterType === 'numeric' && numericCount > 0) {
                 const slider = document.getElementById(`slider-${colName}`);
