@@ -42,6 +42,11 @@
         font-size: 28px; 
         font-weight: 600; 
     }
+    header p { 
+        margin: 5px 0 0; 
+        opacity: 0.9; 
+        font-size: 14px; 
+    }
     .summary-section, .chart-section, .table-section {
         background-color: white; 
         border-radius: 8px; 
@@ -168,6 +173,7 @@
 <div class="container">
     <header>
         <h1>VariantCentrifuge Interactive Report</h1>
+        <p>Generated on {{ generation_date }}</p>
     </header>
 
     <div class="table-section">

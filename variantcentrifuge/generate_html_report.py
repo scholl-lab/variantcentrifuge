@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
 from jinja2 import Environment, FileSystemLoader
 
 
@@ -108,6 +109,7 @@ def generate_html_report(
         summary=summary,
         column_data=column_data_for_template,
         default_hidden_columns=default_hidden_columns,
+        generation_date=pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
     )
 
     output_path = Path(output_dir) / "index.html"
