@@ -210,7 +210,9 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
     # Always add phenotype integration stage - it will skip if no phenotype data is loaded
     stages.append(PhenotypeIntegrationStage())
 
-    if hasattr(args, "extra_columns_to_remove") and args.extra_columns_to_remove:
+    # Add column removal stage if extra sample fields are used
+    # This will remove the extra columns after they've been used for genotype replacement
+    if hasattr(args, "append_extra_sample_fields") and args.append_extra_sample_fields is not None:
         stages.append(ExtraColumnRemovalStage())
 
     # Analysis stages

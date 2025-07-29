@@ -124,8 +124,16 @@ class VariantIdentifierStage(Stage):
             # Fallback to simple index
             df.insert(0, id_column, [f"var_{i:04d}_0000" for i in range(1, len(df) + 1)])
 
-        # Also ensure Custom_Annotation column exists (even if empty)
-        if "Custom_Annotation" not in df.columns:
+        # Only add Custom_Annotation column if custom annotations are actually requested
+        custom_annotations_requested = any(
+            [
+                context.config.get("annotate_bed", []),
+                context.config.get("annotate_gene_list", []),
+                context.config.get("annotate_json_genes", []),
+            ]
+        )
+
+        if custom_annotations_requested and "Custom_Annotation" not in df.columns:
             # Find a good position for it - after GT column if it exists
             if "GT" in df.columns:
                 gt_pos = df.columns.get_loc("GT") + 1
