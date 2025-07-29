@@ -714,34 +714,57 @@ $(document).ready(function() {
             }
 
             let filterControlHtml;
-            if (filterType === 'numeric' && numericCount > 0) {
-                debugLog(`✅ Creating NUMERIC slider filter (${numericCount} numeric values found)`);
-                // Calculate min and max from numeric values only
-                const numericFloats = numericValues.map(v => parseFloat(v));
-                const min = Math.min(...numericFloats);
-                const max = Math.max(...numericFloats);
+            if (filterType === 'numeric') {
+                if (numericCount > 0) {
+                    debugLog(`✅ Creating NUMERIC slider filter (${numericCount} numeric values found)`);
+                    // Calculate min and max from numeric values only
+                    const numericFloats = numericValues.map(v => parseFloat(v));
+                    const min = Math.min(...numericFloats);
+                    const max = Math.max(...numericFloats);
 
-                // Create label with value counts
-                const valueInfo = missingCount > 0 ? 
-                    `${colName} (${numericCount} values, ${missingCount} missing)` : 
-                    `${colName} (${numericCount} values)`;
+                    // Create label with value counts
+                    const valueInfo = missingCount > 0 ? 
+                        `${colName} (${numericCount} values, ${missingCount} missing)` : 
+                        `${colName} (${numericCount} values)`;
 
-                filterControlHtml = `
-                    <div class="filter-control">
-                        <label for="filter-${colName}">${valueInfo}</label>
-                        <div id="slider-${colName}" class="slider-container"></div>
-                        <div class="slider-values">
-                            <span id="min-val-${colName}">${min.toFixed(4)}</span>
-                            <span id="max-val-${colName}">${max.toFixed(4)}</span>
-                        </div>
-                        <input type="hidden" id="filter-${colName}" data-column="${colIndex}" data-min="${min}" data-max="${max}">
-                        ${missingCount > 0 ? `<div class="missing-values-control">
-                            <label>
-                                <input type="checkbox" id="include-missing-${colName}" data-column="${colIndex}" checked>
-                                Include missing values (N/A, ., etc.)
-                            </label>
-                        </div>` : ''}
-                    </div>`;
+                    filterControlHtml = `
+                        <div class="filter-control">
+                            <label for="filter-${colName}">${valueInfo}</label>
+                            <div id="slider-${colName}" class="slider-container"></div>
+                            <div class="slider-values">
+                                <span id="min-val-${colName}">${min.toFixed(4)}</span>
+                                <span id="max-val-${colName}">${max.toFixed(4)}</span>
+                            </div>
+                            <input type="hidden" id="filter-${colName}" data-column="${colIndex}" data-min="${min}" data-max="${max}">
+                            ${missingCount > 0 ? `<div class="missing-values-control">
+                                <label>
+                                    <input type="checkbox" id="include-missing-${colName}" data-column="${colIndex}" checked>
+                                    Include missing values (N/A, ., etc.)
+                                </label>
+                            </div>` : ''}
+                        </div>`;
+                } else {
+                    debugLog(`✅ Creating NUMERIC slider filter (no data - using default range 0-1)`);
+                    // Create slider with default range for empty numeric columns
+                    const valueInfo = `${colName} (no data)`;
+
+                    filterControlHtml = `
+                        <div class="filter-control">
+                            <label for="filter-${colName}">${valueInfo}</label>
+                            <div id="slider-${colName}" class="slider-container"></div>
+                            <div class="slider-values">
+                                <span id="min-val-${colName}">0.0000</span>
+                                <span id="max-val-${colName}">1.0000</span>
+                            </div>
+                            <input type="hidden" id="filter-${colName}" data-column="${colIndex}" data-min="0" data-max="1">
+                            <div class="missing-values-control">
+                                <label>
+                                    <input type="checkbox" id="include-missing-${colName}" data-column="${colIndex}" checked>
+                                    Include missing values (N/A, ., etc.)
+                                </label>
+                            </div>
+                        </div>`;
+                }
             } else if (filterType === 'categorical') {
                 debugLog(`✅ Creating CATEGORICAL dropdown filter (${uniqueValues.length} unique values)`);
                 const categoryInfo = missingCount > 0 ? 
@@ -781,16 +804,24 @@ $(document).ready(function() {
             
             debugLog(`🎯 FINAL RESULT: ${filterType.toUpperCase()} filter created for "${colName}"`);
 
-            if (filterType === 'numeric' && numericCount > 0) {
+            if (filterType === 'numeric') {
                 const slider = document.getElementById(`slider-${colName}`);
                 const minValEl = document.getElementById(`min-val-${colName}`);
                 const maxValEl = document.getElementById(`max-val-${colName}`);
                 const includeMissingCheckbox = document.getElementById(`include-missing-${colName}`);
 
-                // Use the pre-calculated min and max
-                const numericFloats = numericValues.map(v => parseFloat(v));
-                const min = Math.min(...numericFloats);
-                const max = Math.max(...numericFloats);
+                // Determine min and max values
+                let min, max;
+                if (numericCount > 0) {
+                    // Use actual data range
+                    const numericFloats = numericValues.map(v => parseFloat(v));
+                    min = Math.min(...numericFloats);
+                    max = Math.max(...numericFloats);
+                } else {
+                    // Use default range for empty columns
+                    min = 0;
+                    max = 1;
+                }
 
                 try {
                     noUiSlider.create(slider, {
