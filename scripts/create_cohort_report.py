@@ -251,7 +251,7 @@ def clean_data(df):
         elif col.startswith("AD_") or col == "AD":
             should_convert = True
         # Common numeric columns
-        elif col in ["QUAL", "DP", "IMPACT_SEVERITY", "CADD_PHRED"]:
+        elif col in ["QUAL", "DP", "IMPACT_SEVERITY", "CADD_PHRED", "Variant_Count"]:
             should_convert = True
         # Other common numeric patterns
         elif any(col.endswith(suffix) for suffix in ["_score", "_SCORE", "_phred", "_PHRED"]):
@@ -272,6 +272,41 @@ def clean_data(df):
     if "Gene" in df.columns:
         df = df.sort_values(by=["Gene", "SampleID"])
 
+    return df
+
+
+def add_variant_count(df):
+    """Add variant count based on CHROM:POS:REF:ALT combination."""
+    logger.info("Adding variant count information...")
+    
+    # Create temporary signature for counting
+    variant_key = (df['CHROM'].astype(str) + ':' + 
+                   df['POS'].astype(str) + ':' + 
+                   df['REF'].astype(str) + ':' + 
+                   df['ALT'].astype(str))
+    
+    # Count occurrences and map back to dataframe
+    counts = variant_key.value_counts()
+    df['Variant_Count'] = variant_key.map(counts)
+    
+    # Move Variant_Count to be the 3rd column (after SampleID and VAR_ID)
+    if 'VAR_ID' in df.columns:
+        # Get column order with Variant_Count as 3rd column
+        cols = df.columns.tolist()
+        cols.remove('Variant_Count')
+        
+        # Find insertion point (after VAR_ID if it exists, otherwise after SampleID)
+        if 'VAR_ID' in cols:
+            insert_idx = cols.index('VAR_ID') + 1
+        else:
+            insert_idx = cols.index('SampleID') + 1
+            
+        # Insert Variant_Count at the desired position
+        cols.insert(insert_idx, 'Variant_Count')
+        df = df[cols]
+    
+    logger.info(f"Added Variant_Count column. Unique variant count range: {df['Variant_Count'].min()}-{df['Variant_Count'].max()}")
+    
     return df
 
 
@@ -790,6 +825,9 @@ def main():
 
     # Clean and prepare data
     df = clean_data(df)
+
+    # Add variant count information
+    df = add_variant_count(df)
 
     # Enrich variants with IGV links if available
     df = enrich_variants_with_igv(df, igv_lookup)
