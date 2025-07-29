@@ -647,6 +647,15 @@ $(document).ready(function() {
             
             debugGroup(`Processing Column: "${colName}" (index ${colIndex})`, () => {
                 
+                // Debug data structure for first few columns
+                if (colIndex < 5) {
+                    debugLog(`Sample data object keys:`, Object.keys(data[0] || {}));
+                    debugLog(`Sample data object:`, data[0]);
+                    debugLog(`Looking for column "${colName}" in data object`);
+                    debugLog(`Direct access row[colName]:`, data[0] ? data[0][colName] : 'no data');
+                    debugLog(`Index access row[colIndex]:`, data[0] ? data[0][colIndex] : 'no data');
+                }
+                
                 // Get all raw values for this column
                 const allValues = data.map(row => {
                     const val = typeof row === 'object' ? row[colName] : row[colIndex];
@@ -656,6 +665,21 @@ $(document).ready(function() {
                 // Sample first 5 values for debugging
                 const sampleValues = allValues.slice(0, 5);
                 debugLog(`Data sample (first 5 values):`, sampleValues);
+                
+                // Additional debugging for columns that should have data
+                if (['AF 1', 'AF 0', 'dbNSFP CADD phred', 'POS', 'QUAL'].includes(colName)) {
+                    debugLog(`🔍 DETAILED DEBUG for "${colName}":`);
+                    debugLog(`  - Column index: ${colIndex}`);
+                    debugLog(`  - Sample row object:`, data[0]);
+                    debugLog(`  - Available keys:`, Object.keys(data[0] || {}));
+                    debugLog(`  - Direct property access [colName]:`, data[0] ? data[0][colName] : 'undefined');
+                    debugLog(`  - Index access [colIndex]:`, data[0] ? data[0][colIndex] : 'undefined');
+                    debugLog(`  - Alternative key checks:`);
+                    const altKeys = [colName.replace(/ /g, '_'), colName.replace(/ /g, ''), colName.toLowerCase(), colName.toUpperCase()];
+                    altKeys.forEach(key => {
+                        debugLog(`    - "${key}":`, data[0] ? data[0][key] : 'undefined');
+                    });
+                }
 
                 // Separate missing and valid values
                 nonMissingValues = allValues.filter(v => 
