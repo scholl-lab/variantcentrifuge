@@ -174,19 +174,30 @@ def get_gene_bed(
         subprocess.run(sort_cmd, stdout=out_f, check=True, text=True)
     logger.debug("BED sorting completed, sorted file at %s", sorted_bed)
 
-    final_bed = sorted_bed
+    # Merge overlapping intervals to prevent duplicate variant extraction
+    merged_bed = sorted_bed + ".merged"
+    merge_cmd = ["bedtools", "merge", "-i", sorted_bed]
+    logger.debug("Merging overlapping intervals with: %s", " ".join(merge_cmd))
+    with open(merged_bed, "w", encoding="utf-8") as out_f:
+        subprocess.run(merge_cmd, stdout=out_f, check=True, text=True)
+    logger.debug("BED merging completed, merged file at %s", merged_bed)
+
+    # Clean up intermediate files
+    os.remove(sorted_bed)
+
+    final_bed = merged_bed
     if add_chr:
-        chr_bed = sorted_bed + ".chr"
-        logger.debug("Adding 'chr' prefix to BED file %s", sorted_bed)
+        chr_bed = merged_bed + ".chr"
+        logger.debug("Adding 'chr' prefix to BED file %s", merged_bed)
         with open(chr_bed, "w", encoding="utf-8") as out_f, open(
-            sorted_bed, "r", encoding="utf-8"
+            merged_bed, "r", encoding="utf-8"
         ) as in_f:
             for line in in_f:
                 if not line.startswith("chr"):
                     out_f.write("chr" + line)
                 else:
                     out_f.write(line)
-        os.remove(sorted_bed)
+        os.remove(merged_bed)
         final_bed = chr_bed
         logger.debug("Final BED file with 'chr': %s", final_bed)
 
