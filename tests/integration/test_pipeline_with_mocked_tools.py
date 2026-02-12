@@ -10,6 +10,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+pytestmark = pytest.mark.integration
+
 from variantcentrifuge.pipeline import build_pipeline_stages, run_refactored_pipeline
 
 

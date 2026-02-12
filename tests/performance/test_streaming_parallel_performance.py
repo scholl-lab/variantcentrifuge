@@ -17,6 +17,7 @@ from variantcentrifuge.vectorized_replacer import process_parallel_chunked_vecto
 
 
 @pytest.mark.performance
+@pytest.mark.slow
 class TestStreamingParallelPerformance:
     """Performance comparison tests."""
 
@@ -243,6 +244,7 @@ class TestStreamingParallelPerformance:
 
 
 @pytest.mark.performance
+@pytest.mark.slow
 class TestMemoryEfficiency:
     """Test memory efficiency of the new implementation."""
 

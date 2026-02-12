@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.integration
+
 from variantcentrifuge.pipeline_core import PipelineContext, Workspace
 from variantcentrifuge.stages.processing_stages import FieldExtractionStage
 

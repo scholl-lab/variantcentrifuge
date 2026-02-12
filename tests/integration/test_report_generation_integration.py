@@ -7,6 +7,8 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
+pytestmark = pytest.mark.integration
+
 from tests.mocks.fixtures import create_test_context
 from variantcentrifuge.stages.output_stages import HTMLReportStage, IGVReportStage
 

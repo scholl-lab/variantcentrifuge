@@ -13,6 +13,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.integration
+
 from variantcentrifuge.pipeline_core.context import PipelineContext
 from variantcentrifuge.pipeline_core.workspace import Workspace
 

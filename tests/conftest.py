@@ -7,6 +7,21 @@ import pandas as pd
 import pytest
 
 
+def pytest_collection_modifyitems(items):
+    """Auto-assign markers based on test file location."""
+    for item in items:
+        path = str(item.fspath)
+        if "/integration/" in path or "\\integration\\" in path:
+            item.add_marker(pytest.mark.integration)
+        elif "/performance/" in path or "\\performance\\" in path:
+            item.add_marker(pytest.mark.slow)
+            item.add_marker(pytest.mark.performance)
+        elif "/unit/" in path or "\\unit\\" in path:
+            item.add_marker(pytest.mark.unit)
+        elif "/test_inheritance/" in path or "\\test_inheritance\\" in path:
+            item.add_marker(pytest.mark.inheritance)
+
+
 @pytest.fixture
 def gene_burden_test_config() -> Dict[str, Any]:
     """Provide standard gene burden analysis configuration."""
