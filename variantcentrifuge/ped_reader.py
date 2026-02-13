@@ -36,8 +36,8 @@ def read_pedigree(file_path: str) -> dict[str, dict[str, Any]]:
         # First, read without column names to check format
         try:
             raw_df = pd.read_csv(file_path, sep=r"\s+", header=None, dtype=str, comment="#")
-        except pd.errors.EmptyDataError:
-            raise ValueError("PED file is empty")
+        except pd.errors.EmptyDataError as e:
+            raise ValueError("PED file is empty") from e
 
         if raw_df.empty:
             raise ValueError("PED file is empty")
@@ -92,7 +92,7 @@ def read_pedigree(file_path: str) -> dict[str, dict[str, Any]]:
         return pedigree_data
 
     except Exception as e:
-        raise ValueError(f"Failed to parse PED file: {e}")
+        raise ValueError(f"Failed to parse PED file: {e}") from e
 
 
 def get_parents(sample_id: str, pedigree_data: dict[str, dict[str, Any]]) -> tuple:
@@ -141,7 +141,7 @@ def is_affected(sample_id: str, pedigree_data: dict[str, dict[str, Any]]) -> boo
         return False
 
     status = pedigree_data[sample_id].get("affected_status", "0")
-    return status == "2"
+    return bool(status == "2")
 
 
 def get_family_members(sample_id: str, pedigree_data: dict[str, dict[str, Any]]) -> list:

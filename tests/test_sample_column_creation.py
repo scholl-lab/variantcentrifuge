@@ -256,7 +256,7 @@ class TestVectorizedSampleColumnCreation:
         assert result_vectorized.iloc[1]["Sample1"] == "0/1"  # Second variant, first sample
 
         print(
-            f"Vectorized method processed {num_variants:,} variants × "
+            f"Vectorized method processed {num_variants:,} variants x "
             f"{num_samples:,} samples in {vectorized_time:.3f}s"
         )
 

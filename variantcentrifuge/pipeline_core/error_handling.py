@@ -188,17 +188,17 @@ def graceful_error_handling(
     except FileNotFoundError as e:
         _logger.error(f"File not found in {stage_name}: {e}")
         if reraise:
-            raise PipelineError(f"Required file not found: {e}", stage=stage_name)
+            raise PipelineError(f"Required file not found: {e}", stage=stage_name) from e
         return fallback_value
     except PermissionError as e:
         _logger.error(f"Permission denied in {stage_name}: {e}")
         if reraise:
-            raise PipelineError(f"Permission denied: {e}", stage=stage_name)
+            raise PipelineError(f"Permission denied: {e}", stage=stage_name) from e
         return fallback_value
     except Exception as e:
         _logger.error(f"Unexpected error in {stage_name}: {e}", exc_info=True)
         if reraise:
-            raise StageExecutionError(stage_name, e)
+            raise StageExecutionError(stage_name, e) from e
         return fallback_value
 
 
@@ -439,8 +439,8 @@ def validate_file_exists(file_path: str | Path, stage_name: str) -> Path:
     try:
         with open(path):
             pass
-    except PermissionError:
-        raise PermissionError(f"Cannot read file: {path}")
+    except PermissionError as e:
+        raise PermissionError(f"Cannot read file: {path}") from e
 
     return path
 
@@ -475,8 +475,8 @@ def validate_output_directory(output_dir: str | Path, stage_name: str, create: b
     elif create:
         try:
             path.mkdir(parents=True, exist_ok=True)
-        except PermissionError:
-            raise PermissionError(f"Cannot create directory: {path}")
+        except PermissionError as e:
+            raise PermissionError(f"Cannot create directory: {path}") from e
     else:
         raise FileNotFoundError(f"Output directory does not exist: {path}")
 
@@ -485,7 +485,7 @@ def validate_output_directory(output_dir: str | Path, stage_name: str, create: b
     try:
         test_file.touch()
         test_file.unlink()
-    except PermissionError:
-        raise PermissionError(f"Cannot write to directory: {path}")
+    except PermissionError as e:
+        raise PermissionError(f"Cannot write to directory: {path}") from e
 
     return path

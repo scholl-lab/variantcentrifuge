@@ -327,8 +327,8 @@ def filter_final_tsv_by_genotype(
             all_lines = gfile.readlines()
 
         logger.debug("First lines from gene_genotype_file:")
-        for i, l in enumerate(all_lines[:3]):
-            logger.debug("Line %d: %s", i + 1, l.rstrip("\n"))
+        for i, line in enumerate(all_lines[:3]):
+            logger.debug("Line %d: %s", i + 1, line.rstrip("\n"))
 
         if not all_lines:
             logger.debug("Gene genotype file is empty, skipping parsing.")
@@ -388,12 +388,16 @@ def filter_final_tsv_by_genotype(
         # Identify gene and GT columns
         try:
             gene_idx: int = header_cols.index(gene_column_name)
-        except ValueError:
-            raise ValueError(f"Could not find gene column '{gene_column_name}' in TSV header.")
+        except ValueError as e:
+            raise ValueError(
+                f"Could not find gene column '{gene_column_name}' in TSV header."
+            ) from e
         try:
             gt_idx: int = header_cols.index(gt_column_name)
-        except ValueError:
-            raise ValueError(f"Could not find genotype column '{gt_column_name}' in TSV header.")
+        except ValueError as e:
+            raise ValueError(
+                f"Could not find genotype column '{gt_column_name}' in TSV header."
+            ) from e
 
         for line in inp:
             line = line.rstrip("\n")
@@ -410,16 +414,16 @@ def filter_final_tsv_by_genotype(
             sample_genotypes = {}
             if gt_val:
                 entries = gt_val.split(";")
-                for e in entries:
-                    e = e.strip()
-                    if not e:
+                for entry in entries:
+                    entry = entry.strip()
+                    if not entry:
                         continue
                     # example: "325879(0/1:53,55:108)"
                     # We'll store the entire substring "0/1:53,55:108"
                     # but also parse out the "main genotype" before a colon if present
-                    if "(" in e and ")" in e:
-                        sample_name = e.split("(")[0].strip()
-                        inside_paren = e.split("(")[1].strip(")")
+                    if "(" in entry and ")" in entry:
+                        sample_name = entry.split("(")[0].strip()
+                        inside_paren = entry.split("(")[1].strip(")")
                         sample_genotypes[sample_name] = inside_paren
 
             if gene_val not in lines_by_gene:
@@ -439,7 +443,7 @@ def filter_final_tsv_by_genotype(
     # For each gene that uses comp_het, gather samples that have >=2 het variants
     for g in relevant_for_comp_het:
         sample_het_count: dict[str, int] = {}
-        for line_str, sample_gt_dict in lines_by_gene[g]:
+        for _line_str, sample_gt_dict in lines_by_gene[g]:
             for sample_name, genotype_substring in sample_gt_dict.items():
                 # e.g. genotype_substring = "0/1:53,55:108"
                 # parse the main genotype by splitting on the first colon

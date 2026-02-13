@@ -17,7 +17,6 @@ to aggregate phenotypes for a given list of samples.
 
 import logging
 import os
-from typing import Dict, List, Set
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -108,10 +107,7 @@ def aggregate_phenotypes_for_samples(samples: list[str], phenotypes: dict[str, s
     """
     sample_phenos = []
     for s in samples:
-        if phenotypes.get(s):
-            p_str = ",".join(sorted(phenotypes[s]))
-        else:
-            p_str = ""
+        p_str = ",".join(sorted(phenotypes[s])) if phenotypes.get(s) else ""
         sample_phenos.append(p_str)
 
     return ";".join(sample_phenos)
@@ -143,12 +139,7 @@ def format_phenotypes_like_gt_column(samples: list[str], phenotypes: dict[str, s
     """
     sample_entries = []
     for sample_id in samples:
-        if phenotypes.get(sample_id):
-            # Join phenotypes with commas, sort for consistency
-            phenotype_str = ",".join(sorted(phenotypes[sample_id]))
-        else:
-            # Empty phenotypes for samples without data
-            phenotype_str = ""
+        phenotype_str = ",".join(sorted(phenotypes[sample_id])) if phenotypes.get(sample_id) else ""
 
         # Format like GT column: SampleID(phenotypes)
         sample_entries.append(f"{sample_id}({phenotype_str})")

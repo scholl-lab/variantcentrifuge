@@ -116,7 +116,7 @@ class InheritanceMemoryManager:
             memory_info = psutil.virtual_memory()
             available_gb = memory_info.available / (1024**3)
             logger.info(f"Using detected available memory: {available_gb:.1f}GB")
-            return available_gb
+            return float(available_gb)
         except Exception as e:
             logger.warning(f"Could not detect memory: {e}. Using conservative 8GB")
             return 8.0
@@ -147,7 +147,7 @@ class InheritanceMemoryManager:
             memory_info = psutil.virtual_memory()
             available_gb = memory_info.available / (1024**3)
             # Don't exceed our allocated limit
-            return min(available_gb, self._allocated_memory_gb)
+            return float(min(available_gb, self._allocated_memory_gb))
         except Exception as e:
             logger.warning(f"Could not get current memory: {e}. Using allocated limit")
             return self._allocated_memory_gb
@@ -163,7 +163,7 @@ class InheritanceMemoryManager:
         Returns:
             Estimated memory requirement in GB
         """
-        # Base memory for sample columns (variants × samples × bytes_per_cell)
+        # Base memory for sample columns (variants x samples x bytes_per_cell)
         sample_columns_memory = num_variants * num_samples * self.bytes_per_sample_column
 
         # Apply overhead factors
@@ -174,7 +174,7 @@ class InheritanceMemoryManager:
         memory_gb = with_analysis_overhead / (1024**3)
 
         logger.debug(
-            f"Memory estimate for {num_variants} variants × {num_samples} samples: "
+            f"Memory estimate for {num_variants} variants x {num_samples} samples: "
             f"{memory_gb:.2f}GB"
         )
 

@@ -161,32 +161,28 @@ class TestGracefulErrorHandling:
 
     def test_pipeline_error_passthrough(self):
         """Test PipelineError passes through."""
-        with pytest.raises(PipelineError):
-            with graceful_error_handling("test_stage"):
-                raise PipelineError("Test error")
+        with pytest.raises(PipelineError), graceful_error_handling("test_stage"):
+            raise PipelineError("Test error")
 
     def test_file_not_found_conversion(self):
         """Test FileNotFoundError conversion."""
-        with pytest.raises(PipelineError) as exc_info:
-            with graceful_error_handling("test_stage"):
-                raise FileNotFoundError("missing.txt")
+        with pytest.raises(PipelineError) as exc_info, graceful_error_handling("test_stage"):
+            raise FileNotFoundError("missing.txt")
 
         assert "Required file not found" in str(exc_info.value)
         assert exc_info.value.stage == "test_stage"
 
     def test_permission_error_conversion(self):
         """Test PermissionError conversion."""
-        with pytest.raises(PipelineError) as exc_info:
-            with graceful_error_handling("test_stage"):
-                raise PermissionError("Cannot write")
+        with pytest.raises(PipelineError) as exc_info, graceful_error_handling("test_stage"):
+            raise PermissionError("Cannot write")
 
         assert "Permission denied" in str(exc_info.value)
 
     def test_generic_error_conversion(self):
         """Test generic error conversion."""
-        with pytest.raises(StageExecutionError) as exc_info:
-            with graceful_error_handling("test_stage"):
-                raise RuntimeError("Unexpected")
+        with pytest.raises(StageExecutionError) as exc_info, graceful_error_handling("test_stage"):
+            raise RuntimeError("Unexpected")
 
         assert exc_info.value.stage == "test_stage"
         assert isinstance(exc_info.value.original_error, RuntimeError)

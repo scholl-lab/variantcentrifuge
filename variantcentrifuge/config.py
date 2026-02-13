@@ -54,6 +54,6 @@ def load_config(config_file: str | None = None) -> dict[str, Any]:
         try:
             config = json.load(f)
         except json.JSONDecodeError as e:
-            raise ValueError(f"Error parsing JSON configuration: {e}")
+            raise ValueError(f"Error parsing JSON configuration: {e}") from e
 
-    return config
+    return dict(config)

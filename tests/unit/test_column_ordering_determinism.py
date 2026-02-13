@@ -85,7 +85,7 @@ class TestColumnOrderingDeterminism:
         # All results should be identical (using pandas.testing.assert_frame_equal
         # which handles NaN properly)
         first_result = results[0]
-        for i, result in enumerate(results[1:], 1):
+        for _i, result in enumerate(results[1:], 1):
             pd.testing.assert_frame_equal(
                 result, first_result, check_dtype=False, check_like=True
             )  # Allow different column order

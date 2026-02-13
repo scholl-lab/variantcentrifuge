@@ -10,12 +10,12 @@ This module contains stages that handle the core data processing tasks:
 - Phenotype integration
 """
 
+import contextlib
 import gzip
 import logging
 import os
 import shutil
 import subprocess
-import typing
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -48,7 +48,7 @@ def get_available_memory_gb() -> float:
     """Get available system memory in GB."""
     try:
         memory = psutil.virtual_memory()
-        available_gb = memory.available / (1024**3)
+        available_gb: float = memory.available / (1024**3)
         return available_gb
     except Exception as e:
         logger.warning(f"Could not detect available memory: {e}. Using default estimate of 8GB")
@@ -331,23 +331,23 @@ class GeneBedCreationStage(Stage):
             try:
                 normalized_genes = normalize_genes(gene_name, gene_file, logger)
                 context.config["normalized_genes"] = normalized_genes
-            except SystemExit:
+            except SystemExit as e:
                 # Convert SystemExit to proper exception
                 # Check the specific error condition
                 if not gene_name and not gene_file:
                     raise ValueError(
                         "No gene name provided. Use --gene-name or --gene-file to specify genes."
-                    )
+                    ) from e
                 elif gene_file and not os.path.exists(gene_file):
-                    raise FileNotFoundError(f"Gene file not found: {gene_file}")
+                    raise FileNotFoundError(f"Gene file not found: {gene_file}") from e
                 elif gene_name and os.path.exists(gene_name):
                     raise ValueError(
                         f"File path '{gene_name}' provided to --gene-name. "
                         f"Use --gene-file for gene list files."
-                    )
+                    ) from e
                 else:
                     # Generic error for other SystemExit cases
-                    raise ValueError("Invalid gene specification")
+                    raise ValueError("Invalid gene specification") from e
 
             # Generate BED file
             reference = context.config.get("reference", "GRCh37.75")
@@ -374,12 +374,12 @@ class GeneBedCreationStage(Stage):
             except subprocess.CalledProcessError as e:
                 # Check if it's a tool not found error
                 if "snpEff" in str(e) and ("not found" in str(e) or "No such file" in str(e)):
-                    raise ToolNotFoundError("snpEff", self.name)
+                    raise ToolNotFoundError("snpEff", self.name) from e
                 # Check if it's a gene not found error
                 if "not found in database" in str(e):
                     raise FileFormatError(
                         normalized_genes, f"valid gene names for {reference}", self.name
-                    )
+                    ) from e
                 raise
 
             context.gene_bed_file = Path(bed_file)
@@ -456,9 +456,9 @@ class VariantExtractionStage(Stage):
             except subprocess.CalledProcessError as e:
                 # Check for specific error conditions
                 if "bcftools" in str(e) and ("not found" in str(e) or "No such file" in str(e)):
-                    raise ToolNotFoundError("bcftools", self.name)
+                    raise ToolNotFoundError("bcftools", self.name) from e
                 if "invalid" in str(e).lower() and "vcf" in str(e).lower():
-                    raise FileFormatError(str(vcf_path), "valid VCF format", self.name)
+                    raise FileFormatError(str(vcf_path), "valid VCF format", self.name) from e
                 raise
 
             # Verify output was created
@@ -978,7 +978,7 @@ class SnpSiftFilterStage(Stage):
         """Check if we should split before filtering."""
         # Check if snpeff_splitting_mode is set to "before_filters"
         splitting_mode = context.config.get("snpeff_splitting_mode", None)
-        return splitting_mode == "before_filters"
+        return bool(splitting_mode == "before_filters")
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply SnpSift filters."""
@@ -1265,12 +1265,11 @@ class GenotypeReplacementStage(Stage):
         chunk_dir.mkdir(exist_ok=True)
 
         # Open input file
-        if str(input_tsv).endswith(".gz"):
-            inp = gzip.open(input_tsv, "rt", encoding="utf-8")
-        else:
-            inp = open(input_tsv, encoding="utf-8")
-
-        try:
+        with (
+            gzip.open(input_tsv, "rt", encoding="utf-8")
+            if str(input_tsv).endswith(".gz")
+            else open(input_tsv, encoding="utf-8")
+        ) as inp:
             # Read header
             header = inp.readline()
             if not header:
@@ -1287,7 +1286,7 @@ class GenotypeReplacementStage(Stage):
                         current_chunk.close()
 
                     chunk_path = chunk_dir / f"chunk_{chunk_idx}.tsv.gz"
-                    current_chunk = gzip.open(chunk_path, "wt", encoding="utf-8", compresslevel=1)
+                    current_chunk = gzip.open(chunk_path, "wt", encoding="utf-8", compresslevel=1)  # noqa: SIM115 - chunk lifetime spans loop iterations
                     current_chunk.write(header)  # Write header to each chunk
                     chunks.append(chunk_path)
                     chunk_idx += 1
@@ -1298,9 +1297,6 @@ class GenotypeReplacementStage(Stage):
 
             if current_chunk is not None:
                 current_chunk.close()
-
-        finally:
-            inp.close()
 
         return chunks
 
@@ -1315,10 +1311,12 @@ class GenotypeReplacementStage(Stage):
         output_path = chunk_path.parent / f"processed_chunk_{chunk_idx}.tsv.gz"
 
         # Process chunk with streaming compression
-        with gzip.open(chunk_path, "rt", encoding="utf-8") as inp:
-            with gzip.open(output_path, "wt", encoding="utf-8", compresslevel=1) as out:
-                for line in replace_genotypes(inp, replacer_config):
-                    out.write(line + "\n")
+        with (
+            gzip.open(chunk_path, "rt", encoding="utf-8") as inp,
+            gzip.open(output_path, "wt", encoding="utf-8", compresslevel=1) as out,
+        ):
+            for line in replace_genotypes(inp, replacer_config):
+                out.write(line + "\n")
 
         return output_path
 
@@ -1588,30 +1586,20 @@ class GenotypeReplacementStage(Stage):
         # Handle gzipped input/output files with streaming
         import gzip
 
-        inp_handle: typing.IO[str]
-        out_handle: typing.IO[str]
-        if str(input_tsv).endswith(".gz"):
-            inp_handle = gzip.open(input_tsv, "rt", encoding="utf-8")  # type: ignore[assignment]
-        else:
-            inp_handle = open(input_tsv, encoding="utf-8")
-
-        if str(output_tsv).endswith(".gz"):
-            out_handle = gzip.open(  # type: ignore[assignment]
-                output_tsv, "wt", encoding="utf-8", compresslevel=1
-            )
-        else:
-            out_handle = open(output_tsv, "w", encoding="utf-8")
-
-        try:
-            with inp_handle as inp, out_handle as out:
-                for line in replace_genotypes(inp, replacer_config):
-                    out.write(line + "\n")
-        finally:
-            # Ensure files are closed
-            if hasattr(inp_handle, "close"):
-                inp_handle.close()
-            if hasattr(out_handle, "close"):
-                out_handle.close()
+        with (
+            (
+                gzip.open(input_tsv, "rt", encoding="utf-8")
+                if str(input_tsv).endswith(".gz")
+                else open(input_tsv, encoding="utf-8")
+            ) as inp,
+            (
+                gzip.open(output_tsv, "wt", encoding="utf-8", compresslevel=1)
+                if str(output_tsv).endswith(".gz")
+                else open(output_tsv, "w", encoding="utf-8")
+            ) as out,
+        ):
+            for line in replace_genotypes(inp, replacer_config):
+                out.write(line + "\n")
 
         return output_tsv
 
@@ -2018,116 +2006,99 @@ class StreamingDataProcessingStage(Stage):
         in_compressed = str(input_file).endswith(".gz")
         out_compressed = str(output_file).endswith(".gz")
 
-        in_fh = None
-        out_fh = None
-
         try:
             # Open files with proper error handling
             try:
-                if in_compressed:
-                    in_fh = gzip.open(input_file, "rt")
-                else:
-                    in_fh = open(input_file)
+                in_fh_obj = gzip.open(input_file, "rt") if in_compressed else open(input_file)  # noqa: SIM115 - used in `with` below, try/except needed for error mapping
             except OSError as e:
                 raise FileFormatError(str(input_file), "readable TSV file", self.name) from e
 
             try:
-                if out_compressed:
-                    out_fh = gzip.open(output_file, "wt")
-                else:
-                    out_fh = open(output_file, "w")
+                out_fh_obj = (
+                    gzip.open(output_file, "wt") if out_compressed else open(output_file, "w")  # noqa: SIM115 - used in `with` below
+                )
             except OSError as e:
+                in_fh_obj.close()
                 raise PermissionError(f"Cannot write to output file: {output_file}") from e
 
-            # Process header
-            header = in_fh.readline().strip()
-            if not header:
-                raise FileFormatError(str(input_file), "TSV file with header", self.name)
+            with in_fh_obj as in_fh, out_fh_obj as out_fh:
+                # Process header
+                header = in_fh.readline().strip()
+                if not header:
+                    raise FileFormatError(str(input_file), "TSV file with header", self.name)
 
-            columns = header.split("\t")
+                columns = header.split("\t")
 
-            # Find columns to process
-            gt_columns = [i for i, col in enumerate(columns) if col.endswith(".GT")]
-            columns_to_remove_idx = [i for i, col in enumerate(columns) if col in columns_to_remove]
+                # Find columns to process
+                gt_columns = [i for i, col in enumerate(columns) if col.endswith(".GT")]
+                columns_to_remove_idx = [
+                    i for i, col in enumerate(columns) if col in columns_to_remove
+                ]
 
-            # Update header
-            new_columns = []
-            for i, col in enumerate(columns):
-                if i in columns_to_remove_idx:
-                    continue
-                if samples and i < len(columns) and columns[i].endswith(".GT"):
-                    # Replace with sample name
-                    sample_idx = gt_columns.index(i)
-                    if sample_idx < len(samples):
-                        new_columns.append(samples[sample_idx])
-                    else:
-                        new_columns.append(col)
-                else:
-                    new_columns.append(col)
-
-            # Add phenotype column if needed
-            if phenotypes:
-                new_columns.append("Phenotypes")
-
-            # Write header
-            out_fh.write("\t".join(new_columns) + "\n")
-
-            # Process data lines
-            for line in in_fh:
-                fields = line.strip().split("\t")
-
-                # Build new row
-                new_fields = []
-                for i, field in enumerate(fields):
+                # Update header
+                new_columns = []
+                for i, col in enumerate(columns):
                     if i in columns_to_remove_idx:
                         continue
+                    if samples and i < len(columns) and columns[i].endswith(".GT"):
+                        # Replace with sample name
+                        sample_idx = gt_columns.index(i)
+                        if sample_idx < len(samples):
+                            new_columns.append(samples[sample_idx])
+                        else:
+                            new_columns.append(col)
+                    else:
+                        new_columns.append(col)
 
-                    if samples and i in gt_columns:
-                        # Replace genotype encoding
-                        if field in ["0/1", "1/0", "0 < /dev/null | 1", "1|0"]:
-                            new_fields.append("het")
-                        elif field in ["1/1", "1|1"]:
-                            new_fields.append("hom")
-                        elif field in ["0/0", "0|0"]:
-                            new_fields.append("ref")
-                        elif field == missing_string:
-                            new_fields.append("missing")
+                # Add phenotype column if needed
+                if phenotypes:
+                    new_columns.append("Phenotypes")
+
+                # Write header
+                out_fh.write("\t".join(new_columns) + "\n")
+
+                # Process data lines
+                for line in in_fh:
+                    fields = line.strip().split("\t")
+
+                    # Build new row
+                    new_fields = []
+                    for i, field in enumerate(fields):
+                        if i in columns_to_remove_idx:
+                            continue
+
+                        if samples and i in gt_columns:
+                            # Replace genotype encoding
+                            if field in ["0/1", "1/0", "0 < /dev/null | 1", "1|0"]:
+                                new_fields.append("het")
+                            elif field in ["1/1", "1|1"]:
+                                new_fields.append("hom")
+                            elif field in ["0/0", "0|0"]:
+                                new_fields.append("ref")
+                            elif field == missing_string:
+                                new_fields.append("missing")
+                            else:
+                                new_fields.append(field)
                         else:
                             new_fields.append(field)
-                    else:
-                        new_fields.append(field)
 
-                # Add phenotypes if needed
-                if phenotypes:
-                    pheno_values = []
-                    for sample in samples:
-                        pheno_values.append(phenotypes.get(sample, ""))
-                    new_fields.append(";".join(pheno_values))
+                    # Add phenotypes if needed
+                    if phenotypes:
+                        pheno_values = []
+                        for sample in samples:
+                            pheno_values.append(phenotypes.get(sample, ""))
+                        new_fields.append(";".join(pheno_values))
 
-                # Write line
-                out_fh.write("\t".join(new_fields) + "\n")
+                    # Write line
+                    out_fh.write("\t".join(new_fields) + "\n")
 
         except Exception as e:
             logger.error(f"Error during streaming processing: {e}")
             # Clean up partial output file
             if output_file.exists():
-                try:
+                with contextlib.suppress(Exception):
                     output_file.unlink()
-                except Exception:
-                    pass
             raise
-        finally:
-            # Safely close file handles
-            if in_fh is not None:
-                try:
-                    in_fh.close()
-                except Exception:
-                    pass
-            if out_fh is not None:
-                try:
-                    out_fh.close()
-                except Exception:
-                    pass
 
         logger.info(f"Streaming processing complete: {output_file}")
 
@@ -2644,23 +2615,19 @@ class ParallelCompleteProcessingStage(Stage):
         import gzip
 
         # Open output file
-        out_fh: typing.IO[str]
-        if str(output_tsv).endswith(".gz"):
-            out_fh = gzip.open(output_tsv, "wt", compresslevel=1)  # type: ignore[assignment]
-        else:
-            out_fh = open(output_tsv, "w")
-
-        try:
+        with (
+            gzip.open(output_tsv, "wt", compresslevel=1)
+            if str(output_tsv).endswith(".gz")
+            else open(output_tsv, "w")
+        ) as out_fh:
             first_file = True
             for chunk_tsv in sorted(chunk_tsvs):  # Sort to ensure consistent order
                 # Open chunk file
-                in_fh: typing.IO[str]
-                if str(chunk_tsv).endswith(".gz"):
-                    in_fh = gzip.open(chunk_tsv, "rt")  # type: ignore[assignment]
-                else:
-                    in_fh = open(chunk_tsv)
-
-                try:
+                with (
+                    gzip.open(chunk_tsv, "rt")
+                    if str(chunk_tsv).endswith(".gz")
+                    else open(chunk_tsv)
+                ) as in_fh:
                     if first_file:
                         # Copy entire first file including header
                         shutil.copyfileobj(in_fh, out_fh)
@@ -2670,11 +2637,6 @@ class ParallelCompleteProcessingStage(Stage):
                         next(in_fh, None)
                         # Copy rest of file
                         shutil.copyfileobj(in_fh, out_fh)
-                finally:
-                    in_fh.close()
-
-        finally:
-            out_fh.close()
 
     def _cleanup_chunks(
         self, bed_chunks: list[Path], tsv_chunks: list[Path], context: PipelineContext
@@ -2758,10 +2720,8 @@ class DataSortingStage(Stage):
 
         # Clean up unsorted file if not keeping intermediates
         if not context.config.get("keep_intermediates", False):
-            try:
+            with contextlib.suppress(OSError):
                 os.remove(str(context.extracted_tsv))
-            except OSError:
-                pass
 
         # Update context with sorted file
         context.extracted_tsv = sorted_tsv
@@ -2795,8 +2755,8 @@ class DataSortingStage(Stage):
 
         try:
             gene_col_idx = columns.index(gene_column) + 1  # sort uses 1-based indexing
-        except ValueError:
-            raise ValueError(f"Gene column '{gene_column}' not found in TSV file")
+        except ValueError as e:
+            raise ValueError(f"Gene column '{gene_column}' not found in TSV file") from e
 
         logger.info(f"Found gene column '{gene_column}' at position {gene_col_idx}")
 

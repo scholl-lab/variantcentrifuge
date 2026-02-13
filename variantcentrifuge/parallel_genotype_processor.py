@@ -26,7 +26,7 @@ def get_available_memory_gb() -> float:
     """Get available system memory in GB."""
     try:
         memory = psutil.virtual_memory()
-        available_gb = memory.available / (1024**3)
+        available_gb: float = memory.available / (1024**3)
         return available_gb
     except Exception as e:
         logger.warning(f"Could not detect available memory: {e}. Using default estimate of 8GB")
@@ -536,10 +536,10 @@ class StreamingGenotypeProcessor:
             logger.debug("Producer completed")
 
             # Wait for all consumers with timeout
-            completed_consumers = 0
-            for future in as_completed(consumer_futures, timeout=timeout_seconds):
+            for completed_consumers, future in enumerate(
+                as_completed(consumer_futures, timeout=timeout_seconds), 1
+            ):
                 future.result(timeout=60)  # 1 minute per individual consumer
-                completed_consumers += 1
                 logger.debug(f"Consumer {completed_consumers}/{len(consumer_futures)} completed")
 
             # Signal writer completion

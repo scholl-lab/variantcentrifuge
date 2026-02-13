@@ -7,7 +7,7 @@ import re
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Optional
+from typing import Any
 
 from .utils import generate_igv_safe_filename_base
 
@@ -15,7 +15,9 @@ logger = logging.getLogger("variantcentrifuge")
 
 
 def _generate_single_igv_report(
-    task_data: tuple[str, str, str, str, str, str, str, str, int, Optional[str], Optional[str], Optional[str]],
+    task_data: tuple[
+        str, str, str, str, str, str, str, str, int, str | None, str | None, str | None
+    ],
 ) -> tuple[bool, str, str, str, str, str, str]:
     """
     Generate a single IGV report for one variant/sample combination.
@@ -137,10 +139,10 @@ def generate_igv_report(
     variants_tsv: str,
     output_dir: str,
     bam_mapping_file: str,
-    igv_reference: Optional[str] = None,
+    igv_reference: str | None = None,
     integrate_into_main: bool = False,
-    igv_fasta: Optional[str] = None,
-    igv_ideogram: Optional[str] = None,
+    igv_fasta: str | None = None,
+    igv_ideogram: str | None = None,
     igv_max_allele_len_filename: int = 10,
     igv_hash_len_filename: int = 6,
     igv_max_variant_part_filename: int = 50,

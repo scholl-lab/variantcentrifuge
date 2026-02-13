@@ -320,7 +320,7 @@ class VectorizedGenotypeReplacer:
             # Build extra field strings for each variant
             extra_parts = []
 
-            for raw_field, col_name in extra_field_indices.items():
+            for _raw_field, col_name in extra_field_indices.items():
                 if col_name in df.columns:
                     # Split extra field column by separator and get sample_idx
                     extra_split = df[col_name].str.split(self.snpsift_sep, expand=True)
@@ -660,14 +660,13 @@ def process_parallel_chunked_vectorized(
                 if output_compression == "gzip":
                     import gzip
 
-                    output_file = gzip.open(output_path, "wt", encoding="utf-8")
-                else:
-                    output_file = open(output_path, "w", encoding="utf-8")
-
-                try:
+                with (
+                    gzip.open(output_path, "wt", encoding="utf-8")
+                    if output_compression == "gzip"
+                    else open(output_path, "w", encoding="utf-8")
+                ) as output_file:
                     first_chunk = True
-                    combined_count = 0
-                    for chunk_id in sorted(chunk_results.keys()):
+                    for combined_count, chunk_id in enumerate(sorted(chunk_results.keys()), 1):
                         chunk_file = chunk_results[chunk_id]
 
                         # Stream copy chunk file to output
@@ -685,7 +684,6 @@ def process_parallel_chunked_vectorized(
 
                         # Clean up chunk file immediately after processing
                         Path(chunk_file).unlink()
-                        combined_count += 1
 
                         # Progress logging for combination phase
                         combine_interval = max(5, total_chunks // 10)
@@ -697,9 +695,6 @@ def process_parallel_chunked_vectorized(
                             )
                         else:
                             logger.debug(f"Stream copied and cleaned chunk {chunk_id}")
-
-                finally:
-                    output_file.close()
 
         except Exception as e:
             logger.error(f"Parallel chunked processing failed: {e}")

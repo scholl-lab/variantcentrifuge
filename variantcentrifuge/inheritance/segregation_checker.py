@@ -85,9 +85,8 @@ def check_de_novo_segregation(
                 checks += 1
 
                 # De novo: child has variant, parents don't
-                if is_variant(sample_gt):
-                    if is_variant(father_gt) or is_variant(mother_gt):
-                        violations += 1
+                if is_variant(sample_gt) and (is_variant(father_gt) or is_variant(mother_gt)):
+                    violations += 1
 
     if checks == 0:
         return (True, 0.5)  # No data to check
@@ -274,15 +273,13 @@ def check_x_linked_segregation(
                 # Affected males must have variant (hemizygous)
                 if (affected and not has_variant) or (not affected and has_variant):
                     violations += 1
-            elif sex == "2":  # Female
+            elif sex == "2" and affected and not is_hom_alt(gt):
                 # Affected females must be homozygous
-                if affected and not is_hom_alt(gt):
-                    violations += 1
-
-        elif pattern == "x_linked_dominant":
-            # Both males and females can be affected with one copy
-            if affected and not has_variant:
                 violations += 1
+
+        elif pattern == "x_linked_dominant" and affected and not has_variant:
+            # Both males and females can be affected with one copy
+            violations += 1
 
     if checks == 0:
         return (True, 0.5)
@@ -327,13 +324,16 @@ def check_mitochondrial_segregation(
             if not is_missing(sample_gt) and not is_missing(father_gt):
                 checks += 1
                 # If father has variant, child should NOT have it (unless from mother)
-                if is_variant(father_gt) and is_variant(sample_gt):
-                    if not (
+                if (
+                    is_variant(father_gt)
+                    and is_variant(sample_gt)
+                    and not (
                         mother_id
                         and mother_id in sample_list
                         and is_variant(variant_row.get(mother_id, "./."))
-                    ):
-                        violations += 1
+                    )
+                ):
+                    violations += 1
 
     if checks == 0:
         return (True, 0.5)

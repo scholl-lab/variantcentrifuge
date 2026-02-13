@@ -480,7 +480,7 @@ def _add_json_annotations_as_columns(
 
     # Prepare a list of dictionaries, one for each row in the DataFrame
     annotations_for_df = []
-    for index, row in df.iterrows():
+    for _index, row in df.iterrows():
         variant_genes = _extract_genes_from_row(row)
         row_annotations = {}
         # Find the first gene in the list that has an entry in our JSON data
@@ -548,7 +548,7 @@ def annotate_dataframe_with_features(df: pd.DataFrame, features: dict[str, Any])
         if not features.get("json_genes_as_columns"):
             annotations.extend(_find_json_gene_matches(variant_genes, features["json_gene_data"]))
 
-        return ";".join(sorted(list(set(annotations)))) if annotations else ""
+        return ";".join(sorted(set(annotations))) if annotations else ""
 
     df["Custom_Annotation"] = df.apply(annotate_variant, axis=1)
 

@@ -1,8 +1,6 @@
 """Tests for the main inheritance analyzer."""
 
 import json
-import os
-import tempfile
 
 import pandas as pd
 import pytest
@@ -227,23 +225,20 @@ class TestInheritanceAnalyzer:
         assert len(recessive_df) == 1
         assert recessive_df.iloc[0]["POS"] == 2000
 
-    def test_export_inheritance_report(self, de_novo_variants_df, trio_pedigree):
+    def test_export_inheritance_report(self, de_novo_variants_df, trio_pedigree, tmp_path):
         """Test report export."""
         sample_list = ["father", "mother", "child"]
         result_df = analyze_inheritance(de_novo_variants_df, trio_pedigree, sample_list)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            export_inheritance_report(result_df, f.name)
+        report_file = tmp_path / "inheritance_report.json"
+        export_inheritance_report(result_df, str(report_file))
 
-            # Read back and verify
-            with open(f.name) as rf:
-                report_data = json.load(rf)
+        # Read back and verify
+        with open(str(report_file)) as rf:
+            report_data = json.load(rf)
 
-            assert len(report_data) == 2
-            assert all(item["inheritance_pattern"] == "de_novo" for item in report_data)
-
-            # Clean up
-            os.unlink(f.name)
+        assert len(report_data) == 2
+        assert all(item["inheritance_pattern"] == "de_novo" for item in report_data)
 
     def test_missing_gene_column(self, trio_pedigree):
         """Test handling of missing GENE column."""
@@ -318,7 +313,7 @@ class TestInheritanceAnalyzer:
         assert "Inheritance_Samples" in processed_df.columns
 
         # Check values
-        for idx, row in processed_df.iterrows():
+        for _idx, row in processed_df.iterrows():
             assert row["Inheritance_Pattern"] == "de_novo"
             assert float(row["Inheritance_Confidence"]) > 0
             assert "new mutation" in row["Inheritance_Description"].lower()
@@ -335,7 +330,7 @@ class TestInheritanceAnalyzer:
         processed_df = process_inheritance_output(result_df, "columns")
 
         # Check that compound het partner info is included
-        for idx, row in processed_df.iterrows():
+        for _idx, row in processed_df.iterrows():
             if "partner:" in row["Inheritance_Samples"]:
                 # This is a compound het variant
                 assert "two different mutations" in row["Inheritance_Description"].lower()

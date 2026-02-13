@@ -396,7 +396,7 @@ class TestEdgeCases:
         }
 
         # Should raise an error during regex compilation
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 - intentionally broad, any error is acceptable
             VectorizedGenotypeReplacer(config)
 
 

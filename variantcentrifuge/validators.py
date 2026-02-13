@@ -88,10 +88,7 @@ def validate_phenotype_file(
             sys.exit(1)
 
         # Determine delimiter by checking for tabs or commas
-        if "\t" in header:
-            columns = header.split("\t")
-        else:
-            columns = header.split(",")
+        columns = header.split("\t") if "\t" in header else header.split(",")
 
         if sample_col not in columns:
             logger.error(

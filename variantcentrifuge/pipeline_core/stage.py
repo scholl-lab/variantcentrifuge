@@ -231,7 +231,7 @@ class Stage(ABC):
         """
         pass
 
-    def _pre_execute(self, context: PipelineContext) -> None:
+    def _pre_execute(self, context: PipelineContext) -> None:  # noqa: B027 - intentional extension point for subclasses
         """Execute hook called before stage execution.
 
         Override in subclasses to perform setup tasks.
@@ -243,7 +243,7 @@ class Stage(ABC):
         """
         pass
 
-    def _post_execute(self, context: PipelineContext) -> None:
+    def _post_execute(self, context: PipelineContext) -> None:  # noqa: B027 - intentional extension point for subclasses
         """Execute hook called after successful stage execution.
 
         Override in subclasses to perform cleanup tasks.
@@ -289,7 +289,7 @@ class Stage(ABC):
         """
         return []
 
-    def validate_prerequisites(self, context: PipelineContext) -> None:
+    def validate_prerequisites(self, context: PipelineContext) -> None:  # noqa: B027 - intentional extension point for subclasses
         """Validate stage-specific prerequisites beyond dependencies.
 
         Override in subclasses to add custom validation.

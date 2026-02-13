@@ -113,7 +113,7 @@ FAM1\tMother\t0\t0\t2\t1"""
             if snpsift_sep in first_gt:
                 sample_data = {sample_id: [] for sample_id in sample_list}
 
-                for idx, row in df.iterrows():
+                for _idx, row in df.iterrows():
                     gt_value = str(row["GT"])
                     if gt_value and gt_value != "NA" and gt_value != "nan":
                         genotypes = gt_value.split(snpsift_sep)
@@ -182,7 +182,7 @@ FAM1\tMother\t0\t0\t2\t1"""
             if snpsift_sep in first_gt:
                 sample_data = {sample_id: [] for sample_id in original_samples}
 
-                for idx, row in df.iterrows():
+                for _idx, row in df.iterrows():
                     gt_value = str(row["GT"])
                     if gt_value and gt_value != "NA" and gt_value != "nan":
                         genotypes = gt_value.split(snpsift_sep)

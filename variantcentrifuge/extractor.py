@@ -67,7 +67,8 @@ def extract_fields(variant_file: str, fields: str, cfg: dict[str, Any], output_f
         "-e",
         "NA",  # Replace missing values with "NA"
         variant_file,
-    ] + field_list
+        *field_list,
+    ]
 
     logger.debug("Running SnpSift with command: %s", " ".join(cmd))
 

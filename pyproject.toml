@@ -87,24 +87,11 @@ target-version = "py310"
 select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF"]
 # Migrated from .flake8 per-file-ignores
 per-file-ignores = { "__init__.py" = ["F401"], "cli.py" = ["E501"], "helpers.py" = ["F401", "F811", "E501"], "pipeline.py" = ["F401", "F811", "E501"], "converter.py" = ["F401", "F841"], "phenotype.py" = ["F401"], "generate_html_report.py" = ["F401"], "gene_burden.py" = ["F841"], "filters.py" = ["E501"], "generate_igv_report.py" = ["E501"], "links.py" = ["E501"], "replacer.py" = ["E501"], "stats.py" = ["E501"], "vcf_eff_one_per_line.py" = ["E501"], "analyze_variants.py" = ["F401"] }
-# E203: whitespace before ':' (conflicts with black-style formatting)
-# Rules below are disabled for gradual adoption — enable incrementally:
-# B007: unused loop variable, B904: raise from, B023: function binding loop var
-# SIM102/105/108/113/115/117/118: simplify suggestions
-# RUF005/012/013: ruff-specific (implicit Optional, mutable ClassVar, concat)
-# UP035: deprecated typing imports, C401: unnecessary generator, N806/802/815: naming
-# B017: assertRaises, B027: empty method, E741: ambiguous var name
+# E203: whitespace before ':' (conflicts with ruff formatter)
+# E402: module-level import not at top (needed for conditional imports)
 extend-ignore = [
     "E203",
-    "E402",   # module-level import not at top (conditional imports)
-    "E741",   # ambiguous variable name
-    "A001",   # shadowing builtin
-    "B007", "B017", "B023", "B027", "B904",
-    "C401", "C414",
-    "N802", "N806", "N815",
-    "SIM102", "SIM103", "SIM105", "SIM108", "SIM113", "SIM115", "SIM117", "SIM118",
-    "UP022", "UP035",
-    "RUF001", "RUF003", "RUF005", "RUF012", "RUF013", "RUF022", "RUF034",
+    "E402",
 ]
 
 [tool.ruff.lint.pydocstyle]
@@ -116,9 +103,10 @@ known-first-party = ["variantcentrifuge"]
 [tool.mypy]
 python_version = "3.10"
 warn_unused_configs = true
-# Gradual adoption: not strict, ignore missing imports and errors
+warn_return_any = true
+check_untyped_defs = true
+# Gradual adoption: not strict yet on requiring type annotations
 ignore_missing_imports = true
-check_untyped_defs = false
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 

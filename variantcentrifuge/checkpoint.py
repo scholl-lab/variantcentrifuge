@@ -4,6 +4,7 @@ This module provides a robust checkpoint system that tracks pipeline execution s
 allowing resumption from the last successful step in case of interruption or failure.
 """
 
+import contextlib
 import gzip
 import hashlib
 import json
@@ -289,10 +290,8 @@ class PipelineState:
             except Exception as e:
                 # Clean up temp file if it exists
                 if os.path.exists(temp_file):
-                    try:
+                    with contextlib.suppress(Exception):
                         os.remove(temp_file)
-                    except Exception:
-                        pass
                 logger.warning(f"Failed to save checkpoint state: {e}")
                 raise
 
@@ -362,7 +361,7 @@ class PipelineState:
 
         # Return the most recently completed step
         completed_steps.sort(reverse=True)
-        return completed_steps[0][1]
+        return str(completed_steps[0][1])
 
     def should_skip_step(self, step_name: str) -> bool:
         """Check if a step should be skipped (already completed).
@@ -800,7 +799,7 @@ class PipelineState:
             True if resume is possible, False otherwise
         """
         is_valid, _ = self.validate_resume_from_stage(stage_name, available_stages)
-        return is_valid
+        return bool(is_valid)
 
     def _hash_configuration(self, config: dict[str, Any]) -> str:
         """Create a hash of the configuration for change detection."""
@@ -923,14 +922,10 @@ def checkpoint(
                 return None
 
             # Prepare file lists
-            input_list = []
+            input_list: list[str] = []
             if input_files:
-                if callable(input_files):
-                    # Dynamic input files
-                    files = input_files(*args, **kwargs)
-                else:
-                    files = input_files
-                input_list = [files] if isinstance(files, str) else files
+                in_files = input_files(*args, **kwargs) if callable(input_files) else input_files
+                input_list = [in_files] if isinstance(in_files, str) else list(in_files)
 
             # Start the step
             command_hash = None
@@ -945,14 +940,14 @@ def checkpoint(
                 result = func(*args, **kwargs)
 
                 # Prepare output file list
-                output_list = []
+                output_list: list[str] = []
                 if output_files:
                     if callable(output_files):
                         # Dynamic output files
-                        files = output_files(*args, **kwargs, _result=result)
+                        out_files = output_files(*args, **kwargs, _result=result)
                     else:
-                        files = output_files
-                    output_list = [files] if isinstance(files, str) else files
+                        out_files = output_files
+                    output_list = [out_files] if isinstance(out_files, str) else list(out_files)
 
                 # Mark step as completed
                 pipeline_state.complete_step(step_name, input_list, output_list)
@@ -983,8 +978,9 @@ class CheckpointContext:
         self.step_name = step_name
         self.command_hash = command_hash
         self.parameters = parameters
-        self.input_files: list[str | None] = []
-        self.output_files: list[str | None] = []
+        self.input_files: list[str] = []
+        self.output_files: list[str] = []
+        self.skip: bool = False
 
     def __enter__(self):
         """Enter the checkpoint context."""

@@ -14,7 +14,7 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 from openpyxl import load_workbook
@@ -254,7 +254,7 @@ def finalize_excel_file(xlsx_file: str, cfg: dict[str, Any]) -> None:
             igv_header_cell.value = "IGV Report Links"
 
         # Process data rows for both regular links and IGV links
-        for row_idx, row in enumerate(ws.iter_rows(min_row=2), 2):  # Skip header
+        for row_idx, _row in enumerate(ws.iter_rows(min_row=2), 2):  # Skip header
             # Extract variant identifiers from the row
             if all(col in header_indices for col in ["CHROM", "POS", "REF", "ALT"]):
                 chrom = str(ws.cell(row=row_idx, column=header_indices["CHROM"]).value or "")
@@ -393,12 +393,7 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
                 igv_map_data = json.load(f)
 
             # Handle both old and new IGV map format
-            if "variants" in igv_map_data:
-                # New format - variant-centric with nested sample reports
-                igv_map = igv_map_data["variants"]
-            else:
-                # Old format - flat list of entries
-                igv_map = igv_map_data
+            igv_map = igv_map_data.get("variants", igv_map_data)
 
             # Create an efficient lookup dictionary
             # Key: (chrom, pos, ref, alt, sample_id), Value: report_path

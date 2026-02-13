@@ -261,7 +261,7 @@ class TestPerformanceCharacteristics:
 
         # Add more than 10 samples through the proper method
         test_chunk = pd.DataFrame({"GT": ["0/1"] * 10})
-        for i in range(15):
+        for _i in range(15):
             # This will trigger the limiting logic
             manager.profile_chunk_memory(test_chunk, sample_count=5)
 
@@ -424,7 +424,7 @@ class TestStreamingParallelDeadlockFixes:
             (32, 3, 28, 1),  # 32 threads: 3 I/O (capped), 28 CPU, 1 writer
         ]
 
-        for total_threads, expected_io, expected_cpu, expected_writer in test_cases:
+        for total_threads, expected_io, expected_cpu, _expected_writer in test_cases:
             # Calculate allocation using the same logic as the implementation
             io_threads = max(1, min(3, total_threads // 5))
             cpu_workers = max(1, total_threads - io_threads - 1)

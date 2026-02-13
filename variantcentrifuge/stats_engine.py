@@ -165,7 +165,7 @@ class StatsEngine:
                     try:
                         # Try with include_groups for newer pandas versions
                         result = grouped.apply(
-                            lambda group_df: self._safe_eval(
+                            lambda group_df, expression=expression, name=name: self._safe_eval(
                                 group_df, expression, f"gene stat '{name}'"
                             ),
                             include_groups=False,
@@ -173,7 +173,7 @@ class StatsEngine:
                     except TypeError:
                         # Fall back for older pandas versions
                         result = grouped.apply(
-                            lambda group_df: self._safe_eval(
+                            lambda group_df, expression=expression, name=name: self._safe_eval(
                                 group_df, expression, f"gene stat '{name}'"
                             )
                         )
@@ -246,7 +246,7 @@ class StatsEngine:
                     try:
                         # Try with include_groups for newer pandas versions
                         result = grouped.apply(
-                            lambda group_df: self._safe_eval(
+                            lambda group_df, expression=expression, name=name: self._safe_eval(
                                 group_df, expression, f"grouped stat '{name}'"
                             ),
                             include_groups=False,
@@ -254,7 +254,7 @@ class StatsEngine:
                     except TypeError:
                         # Fall back for older pandas versions
                         result = grouped.apply(
-                            lambda group_df: self._safe_eval(
+                            lambda group_df, expression=expression, name=name: self._safe_eval(
                                 group_df, expression, f"grouped stat '{name}'"
                             )
                         )

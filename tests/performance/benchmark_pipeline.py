@@ -477,7 +477,7 @@ class PerformanceBenchmark:
             bars = ax.bar(speedup_df["test"], speedup_df["speedup"])
 
             # Color bars based on speedup
-            for i, (bar, speedup) in enumerate(zip(bars, speedup_df["speedup"], strict=False)):
+            for _i, (bar, speedup) in enumerate(zip(bars, speedup_df["speedup"], strict=False)):
                 if speedup > 1.2:
                     bar.set_color("green")
                 elif speedup > 0.9:
@@ -623,7 +623,8 @@ def main():
         configs = [c for c in all_configs if "single_gene" in c.name]
     elif args.config == "extensive":
         # All tests plus additional large ones
-        configs = all_configs + [
+        configs = [
+            *all_configs,
             BenchmarkConfig(
                 name="large_geneset",
                 n_genes=200,

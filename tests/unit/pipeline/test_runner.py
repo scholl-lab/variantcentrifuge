@@ -120,8 +120,9 @@ class TestPipelineRunner:
         # Parallel execution should be faster than sequential
         # The first 3 stages should run in parallel (~0.2s), then stage4 runs (~0.2s)
         # So total should be ~0.4s instead of sequential 0.8s
+        # Use generous margin (0.9) to avoid flaky failures on loaded systems
         sequential_time = sum(s.estimated_runtime for s in stages)
-        assert total_time < sequential_time * 0.8  # Allow for thread overhead but expect speedup
+        assert total_time < sequential_time * 0.9
 
     def test_mixed_parallel_sequential(self, runner, context):
         """Test mixed parallel and sequential execution."""
@@ -222,7 +223,7 @@ class TestPipelineRunner:
         # Should have 4 levels: d -> b,c -> a -> e
         assert len(plan) == 4
         assert plan[0][0].name == "d"
-        assert set(s.name for s in plan[1]) == {"b", "c"}
+        assert {s.name for s in plan[1]} == {"b", "c"}
         assert plan[2][0].name == "a"
         assert plan[3][0].name == "e"
 

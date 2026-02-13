@@ -121,9 +121,8 @@ def decompress_gzip(gz_file, output_file, keep_compressed=True):
         return True
 
     try:
-        with gzip.open(gz_file, "rb") as f_in:
-            with open(output_file, "wb") as f_out:
-                shutil.copyfileobj(f_in, f_out)
+        with gzip.open(gz_file, "rb") as f_in, open(output_file, "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
 
         size_mb = output_file.stat().st_size / (1024 * 1024)
         logger.info(f"Decompressed to {output_file.name} ({size_mb:.1f} MB)")

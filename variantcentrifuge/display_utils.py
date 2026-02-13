@@ -7,7 +7,7 @@ stage information, execution timelines, and resume recommendations.
 
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from .checkpoint import PipelineState, StepInfo
 from .pipeline_core.stage import Stage
@@ -109,7 +109,7 @@ def display_available_stages(stages: list[Stage], config: dict[str, Any]) -> Non
     print(f"📋 Configuration: {len(stages)} stages active")
 
     # Group stages by category
-    categories: dict[str, list[tuple[Stage, Optional[StageInfo]]]] = {}
+    categories: dict[str, list[tuple[Stage, StageInfo | None]]] = {}
     for stage in stages:
         stage_info = registry.get_stage_info(stage.name)
         category = stage_info.category if stage_info else "unknown"

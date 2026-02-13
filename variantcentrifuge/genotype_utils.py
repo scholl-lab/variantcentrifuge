@@ -198,10 +198,7 @@ def could_be_de_novo(child_gt: str, father_gt: str, mother_gt: str) -> bool:
         return False
 
     # Both parents must be reference
-    if not is_ref(father_gt) or not is_ref(mother_gt):
-        return False
-
-    return True
+    return not (not is_ref(father_gt) or not is_ref(mother_gt))
 
 
 def merge_genotypes(genotypes: list[str]) -> str:

@@ -89,7 +89,7 @@ class TestProcessingStagesThresholdChanges:
             (5001, "streaming-parallel", "Just above streaming threshold"),
         ]
 
-        for sample_count, expected_method_type, description in boundaries:
+        for sample_count, _expected_method_type, description in boundaries:
             # Simulate the method selection logic from processing_stages.py
             if sample_count >= 5000:
                 # Conditions for streaming-parallel

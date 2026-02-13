@@ -333,11 +333,10 @@ class StageRegistry:
         while changed:
             changed = False
             for stage_name, deps in dependency_graph.items():
-                if stage_name not in stages_to_execute:
+                if stage_name not in stages_to_execute and deps & stages_to_execute:
                     # If any dependency is in our execution set, this stage should execute too
-                    if deps & stages_to_execute:
-                        stages_to_execute.add(stage_name)
-                        changed = True
+                    stages_to_execute.add(stage_name)
+                    changed = True
 
         return stages_to_execute
 

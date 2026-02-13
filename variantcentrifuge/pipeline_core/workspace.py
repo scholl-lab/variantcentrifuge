@@ -173,11 +173,13 @@ class Workspace:
                 logger.debug(f"Cleaned up temporary directory: {self.temp_dir}")
 
             # Optionally clean intermediate directory
-            if not keep_intermediates and self.intermediate_dir.exists():
-                # Only remove if it's actually in our output directory
-                if self.intermediate_dir.parent == self.output_dir:
-                    shutil.rmtree(self.intermediate_dir)
-                    logger.debug(f"Cleaned up intermediate directory: {self.intermediate_dir}")
+            if (
+                not keep_intermediates
+                and self.intermediate_dir.exists()
+                and self.intermediate_dir.parent == self.output_dir
+            ):
+                shutil.rmtree(self.intermediate_dir)
+                logger.debug(f"Cleaned up intermediate directory: {self.intermediate_dir}")
 
         except Exception as e:
             logger.warning(f"Error during cleanup: {e}")

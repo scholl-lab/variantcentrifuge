@@ -189,7 +189,9 @@ class PipelineRunner:
         List[Stage]
             Filtered list of stages to execute (from restart point onwards)
         """
-        assert context.checkpoint_state is not None, "checkpoint_state required for selective resume"
+        assert context.checkpoint_state is not None, (
+            "checkpoint_state required for selective resume"
+        )
 
         resume_from = context.config.get("resume_from")
         if not resume_from:
@@ -638,11 +640,9 @@ class PipelineRunner:
                 future_to_stage[future] = stage
 
             # Wait for all to complete and collect results
-            completed_count = 0
             updated_contexts = []
-            for future in as_completed(future_to_stage):
+            for completed_count, future in enumerate(as_completed(future_to_stage), 1):
                 stage = future_to_stage[future]
-                completed_count += 1
                 try:
                     # Get the updated context from the stage execution
                     updated_context = future.result()
@@ -659,7 +659,7 @@ class PipelineRunner:
                     raise
 
         # Merge all updates back into the main context
-        for i, updated_context in enumerate(updated_contexts):
+        for _i, updated_context in enumerate(updated_contexts):
             # Log completed stages and important state from each context
             logger.debug(
                 f"Merging context updates: {len(updated_context.completed_stages)} "

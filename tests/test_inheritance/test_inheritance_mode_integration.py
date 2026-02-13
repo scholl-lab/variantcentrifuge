@@ -67,7 +67,7 @@ chr3\t3900\t4100\tGENE3
 
     def run_variantcentrifuge(self, args):
         """Run variantcentrifuge with given arguments."""
-        cmd = ["python", "-m", "variantcentrifuge"] + args
+        cmd = ["python", "-m", "variantcentrifuge", *args]
         result = subprocess.run(cmd, capture_output=True, text=True)
         return result
 
@@ -159,7 +159,7 @@ chr3\t3900\t4100\tGENE3
             assert "Inheritance_Details" in df.columns
 
             # Check that details are valid JSON
-            for idx, row in df.iterrows():
+            for _idx, row in df.iterrows():
                 if pd.notna(row["Inheritance_Details"]):
                     details = json.loads(row["Inheritance_Details"])
                     assert "primary_pattern" in details
@@ -210,7 +210,7 @@ chr3\t3900\t4100\tGENE3
             assert "Inheritance_Samples" in df.columns
 
             # Check that new columns have values
-            for idx, row in df.iterrows():
+            for _idx, row in df.iterrows():
                 if row["Inheritance_Pattern"] != "none":
                     assert pd.notna(row["Inheritance_Confidence"])
                     assert pd.notna(row["Inheritance_Description"])

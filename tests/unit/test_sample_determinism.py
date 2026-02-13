@@ -100,7 +100,7 @@ class TestSampleDeterminism:
         conversions = []
         for _ in range(10):
             if isinstance(test_samples_set, set):
-                converted = sorted(list(test_samples_set))
+                converted = sorted(test_samples_set)
             else:
                 converted = test_samples_set
             conversions.append(converted)

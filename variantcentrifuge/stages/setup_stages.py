@@ -323,7 +323,7 @@ class ScoringConfigLoadingStage(Stage):
                     f"{len(scoring_config.get('formulas', {}))} formulas"
                 )
             except Exception as e:
-                raise ValueError(f"Failed to load scoring configuration: {e}")
+                raise ValueError(f"Failed to load scoring configuration: {e}") from e
         else:
             logger.debug("No scoring configuration specified")
 
@@ -395,7 +395,7 @@ class PedigreeLoadingStage(Stage):
                 )
                 logger.info(f"Loaded pedigree with {n_samples} samples ({n_affected} affected)")
             except Exception as e:
-                raise ValueError(f"Failed to load pedigree file: {e}")
+                raise ValueError(f"Failed to load pedigree file: {e}") from e
         else:
             logger.debug("No pedigree file specified")
 
@@ -791,9 +791,10 @@ class PhenotypeCaseControlAssignmentStage(Stage):
 
         if case_samples_file or control_samples_file:
             logger.info("File-based case/control assignment detected")
-            return self._handle_file_based_assignment(
+            result = self._handle_file_based_assignment(
                 context, case_samples_file, control_samples_file
             )
+            return result  # type: ignore[no-any-return]
 
         # Skip if no phenotype criteria
         if not case_phenotypes and not control_phenotypes:
@@ -918,14 +919,14 @@ class PhenotypeCaseControlAssignmentStage(Stage):
 
         # Convert sample IDs to strings for consistent comparison
         # VCF samples are strings, but phenotype file samples might be integers
-        vcf_samples_str = set(str(s) for s in vcf_samples)
+        vcf_samples_str = {str(s) for s in vcf_samples}
 
         # CRITICAL FIX: Apply same substring removal to VCF samples as case/control samples
         if remove_substring and remove_substring.strip():
-            vcf_samples_str = set(s.replace(remove_substring, "") for s in vcf_samples_str)
+            vcf_samples_str = {s.replace(remove_substring, "") for s in vcf_samples_str}
             logger.debug(f"Applied substring removal '{remove_substring}' to VCF samples")
 
-        pheno_samples_raw = set(str(s) for s in df[sample_column].unique())
+        pheno_samples_raw = {str(s) for s in df[sample_column].unique()}
 
         # Apply sample substring removal to phenotype samples if configured
         # This is necessary because VCF samples have already been processed
@@ -933,7 +934,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
             logger.debug(
                 f"Applying substring removal '{remove_substring}' to phenotype samples for matching"
             )
-            pheno_samples_str = set(s.replace(remove_substring, "") for s in pheno_samples_raw)
+            pheno_samples_str = {s.replace(remove_substring, "") for s in pheno_samples_raw}
         else:
             pheno_samples_str = pheno_samples_raw
 
@@ -958,10 +959,10 @@ class PhenotypeCaseControlAssignmentStage(Stage):
             case_mask = df[value_column].isin(case_phenotype_set)
             case_rows = df[case_mask]
             # Convert to strings for consistent comparison
-            case_samples_raw = set(str(s) for s in case_rows[sample_column].unique())
+            case_samples_raw = {str(s) for s in case_rows[sample_column].unique()}
             # Apply substring removal if configured
             if remove_substring and remove_substring.strip():
-                case_samples = set(s.replace(remove_substring, "") for s in case_samples_raw)
+                case_samples = {s.replace(remove_substring, "") for s in case_samples_raw}
             else:
                 case_samples = case_samples_raw
             logger.info(f"Found {len(case_samples)} samples matching case phenotypes")
@@ -972,10 +973,10 @@ class PhenotypeCaseControlAssignmentStage(Stage):
             control_mask = df[value_column].isin(control_phenotype_set)
             control_rows = df[control_mask]
             # Convert to strings for consistent comparison
-            control_samples_raw = set(str(s) for s in control_rows[sample_column].unique())
+            control_samples_raw = {str(s) for s in control_rows[sample_column].unique()}
             # Apply substring removal if configured
             if remove_substring and remove_substring.strip():
-                control_samples = set(s.replace(remove_substring, "") for s in control_samples_raw)
+                control_samples = {s.replace(remove_substring, "") for s in control_samples_raw}
             else:
                 control_samples = control_samples_raw
             logger.info(f"Found {len(control_samples)} samples matching control phenotypes")
@@ -1215,8 +1216,8 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         remove_substring = context.config.get("remove_sample_substring", "")
         if remove_substring and remove_substring.strip():
             logger.info(f"Applying substring removal '{remove_substring}' to case/control samples")
-            case_samples = set(s.replace(remove_substring, "") for s in case_samples)
-            control_samples = set(s.replace(remove_substring, "") for s in control_samples)
+            case_samples = {s.replace(remove_substring, "") for s in case_samples}
+            control_samples = {s.replace(remove_substring, "") for s in control_samples}
 
         # Find intersection with VCF samples
         case_in_vcf = case_samples & vcf_samples_set

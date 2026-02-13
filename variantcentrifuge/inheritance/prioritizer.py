@@ -375,11 +375,11 @@ def is_pattern_compatible(pattern: str, family_structure: dict[str, Any]) -> boo
     """
     # De novo requires parents
     if pattern == "de_novo":
-        return family_structure.get("has_parents", False)
+        return bool(family_structure.get("has_parents", False))
 
     # X-linked patterns require known sex
     if pattern in ["x_linked_recessive", "x_linked_dominant"]:
-        return family_structure.get("has_sex_info", False)
+        return bool(family_structure.get("has_sex_info", False))
 
     # Compound het benefits from parent data
     if pattern == "compound_heterozygous":

@@ -302,7 +302,7 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: dict[str, Any]) -> pd.Da
 
     # Debug logging to track determinism
     logger.info(f"Gene burden analysis processing {len(grouped)} genes in deterministic order")
-    for i, row in grouped.iterrows():
+    for _i, row in grouped.iterrows():
         logger.debug(
             f"Processing gene {row['GENE']}: case_count={row['proband_count']}, "
             f"control_count={row['control_count']}, case_alleles={row['proband_allele_count']}, "
@@ -394,7 +394,7 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: dict[str, Any]) -> pd.Da
         if correction_method == "bonferroni":
             corrected_pvals = smm.multipletests(pvals, method="bonferroni")[1]
         else:
-            # Default to FDR (Benjamini–Hochberg)
+            # Default to FDR (Benjamini-Hochberg)
             corrected_pvals = smm.multipletests(pvals, method="fdr_bh")[1]
 
     results_df["corrected_p_value"] = corrected_pvals

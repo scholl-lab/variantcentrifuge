@@ -10,7 +10,7 @@ from variantcentrifuge.checkpoint import CheckpointContext, PipelineState
 class TestCheckpointResume:
     """Test checkpoint resume functionality in the pipeline."""
 
-    @patch("variantcentrifuge.utils.get_gene_bed")
+    @patch("variantcentrifuge.gene_bed.get_gene_bed")
     @patch("variantcentrifuge.utils.split_bed_file")
     def test_parallel_pipeline_resume_from_checkpoint(self, mock_split_bed, mock_get_gene_bed):
         """Test that parallel pipeline correctly resumes from checkpoint state."""
@@ -70,42 +70,22 @@ class TestCheckpointResume:
                 "split_bed_file should not be called during resume!"
             )
 
-            # Mock the chunk processing to avoid actual work
-            with patch("variantcentrifuge.utils._process_bed_chunk") as mock_process:
-                mock_process.return_value = "/fake/output.tsv"
+            # This should successfully skip the completed steps
+            # Note: We can't run the full pipeline due to external dependencies,
+            # but we can verify the checkpoint loading works
 
-                # Mock file operations
-                with patch("os.path.exists") as mock_exists:
-                    with patch("os.path.getsize") as mock_getsize:
-                        # Make the mocked files appear to exist
-                        def exists_side_effect(path):
-                            if path == bed_file:
-                                return True
-                            if "chunk_" in path and ".bed" in path:
-                                # Check if it's one of our actual chunk files
-                                return path in chunk_files
-                            # Let other files use real os.path.exists
-                            return os.path.exists(path)
+            # Check that the state correctly identifies completed steps
+            assert resume_state.should_skip_step("parallel_gene_bed_creation")
+            assert resume_state.should_skip_step("parallel_bed_splitting")
 
-                        mock_exists.side_effect = exists_side_effect
-                        mock_getsize.return_value = 100
+            # Verify the correct files are retrieved from state
+            gene_step = resume_state.state["steps"]["parallel_gene_bed_creation"]
+            assert gene_step.output_files[0].path == bed_file
 
-                        # This should successfully skip the completed steps
-                        # Note: We can't run the full pipeline due to external dependencies,
-                        # but we can verify the checkpoint loading works
-
-                        # Check that the state correctly identifies completed steps
-                        assert resume_state.should_skip_step("parallel_gene_bed_creation")
-                        assert resume_state.should_skip_step("parallel_bed_splitting")
-
-                        # Verify the correct files are retrieved from state
-                        gene_step = resume_state.state["steps"]["parallel_gene_bed_creation"]
-                        assert gene_step.output_files[0].path == bed_file
-
-                        split_step = resume_state.state["steps"]["parallel_bed_splitting"]
-                        retrieved_chunks = [f.path for f in split_step.output_files]
-                        assert len(retrieved_chunks) == 3  # Not 8!
-                        assert retrieved_chunks == chunk_files
+            split_step = resume_state.state["steps"]["parallel_bed_splitting"]
+            retrieved_chunks = [f.path for f in split_step.output_files]
+            assert len(retrieved_chunks) == 3  # Not 8!
+            assert retrieved_chunks == chunk_files
 
     def test_checkpoint_file_path_retrieval(self):
         """Test that file paths are correctly retrieved from checkpoint state."""

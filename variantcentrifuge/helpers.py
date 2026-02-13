@@ -17,7 +17,7 @@ import re
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any
 
 import pandas as pd
 
@@ -101,7 +101,7 @@ def compute_phenotype_based_case_control_assignment(
     # Apply substring removal to VCF samples for consistent matching
     vcf_samples_processed = set(vcf_samples)
     if remove_substring and remove_substring.strip():
-        vcf_samples_processed = set(s.replace(remove_substring, "") for s in vcf_samples_processed)
+        vcf_samples_processed = {s.replace(remove_substring, "") for s in vcf_samples_processed}
         logger.debug(f"Applied substring removal '{remove_substring}' to VCF samples")
 
     classified_cases = set()
@@ -376,12 +376,11 @@ def assign_case_control_counts(
                     p_allele_count += allele_count
                     if is_hom_variant:
                         p_hom_count += 1
-            elif sample_name in control_samples:
-                if allele_count > 0:
-                    c_variant_count += 1
-                    c_allele_count += allele_count
-                    if is_hom_variant:
-                        c_hom_count += 1
+            elif sample_name in control_samples and allele_count > 0:
+                c_variant_count += 1
+                c_allele_count += allele_count
+                if is_hom_variant:
+                    c_hom_count += 1
 
         proband_variant_count_list.append(p_variant_count)
         control_variant_count_list.append(c_variant_count)
@@ -450,10 +449,7 @@ def extract_sample_and_genotype(sample_field: str) -> tuple[str, str]:
         genotype_str = sample_field[start_idx + 1 : end_idx].strip()
 
         # Split on the first colon to separate e.g. '0/1' from '172:110,62'
-        if ":" in genotype_str:
-            genotype = genotype_str.split(":", 1)[0]
-        else:
-            genotype = genotype_str
+        genotype = genotype_str.split(":", 1)[0] if ":" in genotype_str else genotype_str
 
     return sample_name, genotype
 
@@ -669,19 +665,20 @@ def annotate_variants_with_gene_lists(lines: list[str], gene_list_files: list[st
 
         # Handle if GENE column contains multiple genes (e.g., comma-separated or other delimiters)
         if variant_gene_field_value:
-            variant_genes_in_record = set(
+            variant_genes_in_record = {
                 g.strip() for g in re.split(r"[,; ]+", variant_gene_field_value) if g.strip()
-            )
+            }
         else:
             variant_genes_in_record = set()
 
         for col_name in ordered_new_column_names:
             gene_set_for_current_list = loaded_gene_sets[col_name]
             is_member = "no"
-            if variant_genes_in_record:  # Only check if variant_genes_in_record is not empty
-                # Check for intersection between variant genes and gene list
-                if not variant_genes_in_record.isdisjoint(gene_set_for_current_list):
-                    is_member = "yes"
+            # Check for intersection between variant genes and gene list
+            if variant_genes_in_record and not variant_genes_in_record.isdisjoint(
+                gene_set_for_current_list
+            ):
+                is_member = "yes"
             fields.append(is_member)
 
         modified_lines.append("\t".join(fields))
@@ -870,7 +867,7 @@ def get_vcf_size(vcf_file: str) -> int:
         return 0
 
 
-def match_IGV_link_columns(header_fields: list[str]) -> dict[str, int]:
+def match_igv_link_columns(header_fields: list[str]) -> dict[str, int]:
     """
     Find columns in a TSV header that should contain IGV links.
 

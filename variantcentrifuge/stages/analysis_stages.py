@@ -216,17 +216,17 @@ def create_sample_columns_from_gt_intelligent(
         total_operations = num_variants * num_samples
 
         # Use vectorized method for large datasets (significant performance gain)
-        # Threshold: > 1M operations (e.g., 1000 variants × 1000 samples)
+        # Threshold: > 1M operations (e.g., 1000 variants x 1000 samples)
         if total_operations > 1_000_000:
             selected_method = "vectorized"
             logger.info(
-                f"Auto-selected vectorized sample column creation for {num_variants:,} variants × "
+                f"Auto-selected vectorized sample column creation for {num_variants:,} variants x "
                 f"{num_samples:,} samples ({total_operations:,} operations)"
             )
         else:
             selected_method = "iterative"
             logger.debug(
-                f"Auto-selected iterative sample column creation for {num_variants:,} variants × "
+                f"Auto-selected iterative sample column creation for {num_variants:,} variants x "
                 f"{num_samples:,} samples ({total_operations:,} operations)"
             )
     else:
@@ -255,7 +255,7 @@ def create_sample_columns_from_gt_intelligent(
         )
         logger.info(
             f"Sample column creation ({selected_method}): {processing_time:.2f}s "
-            f"for {num_variants:,} variants × {num_samples:,} samples "
+            f"for {num_variants:,} variants x {num_samples:,} samples "
             f"({ops_per_second:,.0f} ops/sec)"
         )
 
@@ -313,7 +313,7 @@ def create_sample_columns_from_gt(
         sample_data: dict[str, list[str]] = {sample_id: [] for sample_id in vcf_samples}
 
         # Parse replaced genotype format
-        for idx, row in df.iterrows():
+        for _idx, row in df.iterrows():
             gt_value = str(row["GT"])
             # Initialize all samples with missing genotype
             row_genotypes = dict.fromkeys(vcf_samples, "./.")
@@ -585,13 +585,13 @@ class DataFrameLoadingStage(Stage):
                         tsv_file = getattr(context, attr)
                         if tsv_file and tsv_file.exists():
                             logger.info(f"Using {attr} instead: {tsv_file}")
-                            return tsv_file
+                            return Path(tsv_file)
                 else:
                     raise ValueError(
                         f"DataFrameLoadingStage requires a TSV file, but got VCF: {input_file}. "
                         f"No TSV files found in context."
                     )
-            return input_file
+            return Path(input_file)
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Load data into DataFrame or prepare chunked processing."""
@@ -686,13 +686,13 @@ class DataFrameLoadingStage(Stage):
                         f"{memory_threshold_mb}MB threshold"
                     )
                     logger.info(
-                        f"Memory estimation: {estimated_variants} variants × {sample_count} samples"
+                        f"Memory estimation: {estimated_variants} variants x {sample_count} samples"
                     )
                     return True
             else:
                 # Fallback to file size only
                 threshold_mb = context.config.get("chunk_threshold_mb", 500)
-                return file_size_mb > threshold_mb
+                return bool(file_size_mb > threshold_mb)
 
         except Exception as e:
             logger.debug(f"Error in chunking decision: {e}")
@@ -875,7 +875,7 @@ class InheritanceAnalysisStage(Stage):
         # Ensure vcf_samples is a deterministically ordered list
         if isinstance(vcf_samples, set):
             # If somehow still a set, convert to sorted list for deterministic order
-            vcf_samples = sorted(list(vcf_samples))
+            vcf_samples = sorted(vcf_samples)
             logger.warning(
                 "VCF samples was a set - converted to sorted list for deterministic order"
             )
@@ -1032,13 +1032,13 @@ class InheritanceAnalysisStage(Stage):
         if "formulas" in context.scoring_config:
             for formula_dict in context.scoring_config["formulas"]:
                 for formula_name, formula_expr in formula_dict.items():
-                    if isinstance(formula_expr, str):
-                        # Check if formula references details or extracted fields from details
-                        if any(var in formula_expr for var in ["details", "segregation_p_value"]):
-                            logger.info(
-                                f"Scoring formula '{formula_name}' requires Inheritance_Details"
-                            )
-                            return True
+                    if isinstance(formula_expr, str) and any(
+                        var in formula_expr for var in ["details", "segregation_p_value"]
+                    ):
+                        logger.info(
+                            f"Scoring formula '{formula_name}' requires Inheritance_Details"
+                        )
+                        return True
 
         # Check variable assignments for Inheritance_Details column dependency
         if "variables" in context.scoring_config:
@@ -1154,7 +1154,7 @@ class GenotypeFilterStage(Stage):
         # Parse genotype modes
         genotype_modes = set()
         if genotype_filter:
-            genotype_modes = set(g.strip() for g in genotype_filter.split(",") if g.strip())
+            genotype_modes = {g.strip() for g in genotype_filter.split(",") if g.strip()}
 
         logger.info(f"Applying genotype filtering with modes: {genotype_modes}")
         if gene_genotype_file:
@@ -1604,7 +1604,7 @@ class VariantAnalysisStage(Stage):
                     if "VAR_ID" in analysis_df.columns:
                         cols = analysis_df.columns.tolist()
                         cols.remove("VAR_ID")
-                        cols = ["VAR_ID"] + cols
+                        cols = ["VAR_ID", *cols]
                         analysis_df = analysis_df[cols]
 
                     # Put Custom_Annotation after GT if both exist
@@ -2029,21 +2029,19 @@ class ChunkedAnalysisStage(Stage):
         if "formulas" in context.scoring_config:
             for formula_dict in context.scoring_config["formulas"]:
                 for formula_name, formula_expr in formula_dict.items():
-                    if isinstance(formula_expr, str):
-                        # Check if formula references common inheritance variables
-                        if any(
-                            var in formula_expr
-                            for var in [
-                                "pattern",
-                                "details",
-                                "Inheritance_Pattern",
-                                "Inheritance_Details",
-                            ]
-                        ):
-                            logger.debug(
-                                f"Scoring formula '{formula_name}' requires inheritance analysis"
-                            )
-                            return True
+                    if isinstance(formula_expr, str) and any(
+                        var in formula_expr
+                        for var in [
+                            "pattern",
+                            "details",
+                            "Inheritance_Pattern",
+                            "Inheritance_Details",
+                        ]
+                    ):
+                        logger.debug(
+                            f"Scoring formula '{formula_name}' requires inheritance analysis"
+                        )
+                        return True
 
         # Check variable assignments for inheritance column dependencies
         if "variables" in context.scoring_config:
@@ -2194,15 +2192,13 @@ class ChunkedAnalysisStage(Stage):
     ) -> list[pd.DataFrame]:
         """Process chunks sequentially (original implementation)."""
         output_chunks = []
-        chunk_num = 0
 
-        for chunk_df in self._read_tsv_in_gene_chunks(
-            sorted_file, gene_col_name, chunk_size, context
+        for chunk_num, chunk_df in enumerate(
+            self._read_tsv_in_gene_chunks(sorted_file, gene_col_name, chunk_size, context)
         ):
             logger.debug(f"Processing chunk {chunk_num + 1} with {len(chunk_df)} variants")
             processed_chunk = self._process_single_chunk(chunk_df, context, chunk_num)
             output_chunks.append(processed_chunk)
-            chunk_num += 1
 
         return output_chunks
 
@@ -2780,7 +2776,7 @@ class ChunkedAnalysisStage(Stage):
                 return chunk_df
 
             # Use intelligent memory manager for chunk processing decision
-            from ...memory import InheritanceMemoryManager
+            from ..memory import InheritanceMemoryManager
 
             memory_manager = InheritanceMemoryManager(context.config)
             memory_manager.log_memory_status()
@@ -2797,7 +2793,7 @@ class ChunkedAnalysisStage(Stage):
             if not should_process:
                 logger.error(
                     f"MEMORY LIMIT: Skipping inheritance analysis for chunk with "
-                    f"{len(chunk_df)} variants × {len(vcf_samples)} samples. {reason}. "
+                    f"{len(chunk_df)} variants x {len(vcf_samples)} samples. {reason}. "
                     f"Consider increasing --max-memory-gb or using --force-inheritance-processing."
                 )
                 # Add placeholder inheritance columns to maintain schema

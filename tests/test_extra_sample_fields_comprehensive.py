@@ -147,14 +147,16 @@ class TestColumnNormalization:
     def test_gen_star_prefix_normalization(self, basic_config):
         """Test that GEN[*].DP columns are found as DP in header."""
         # Header has normalized column names (as produced by SnpSift)
+        # Note: SnpSift uses ":" as the multi-sample separator for all fields
         header = "CHROM\tPOS\tREF\tALT\tGT\tDP\tAD\tAF"
-        data = "chr1\t100\tA\tT\t0/1:0/0\t100:80\t50,50:40,40\t0.5,0.5"
+        data = "chr1\t100\tA\tT\t0/1:0/0\t100:80\t50:50:40:40\t0.5:0.5"
 
         lines = iter([header, data])
         result = list(replace_genotypes(lines, basic_config))
 
         # Should find the fields and append them correctly
-        expected = "chr1\t100\tA\tT\tSample1(0/1:100:50,50:0.5)\t100:80\t50,50:40,40\t0.5,0.5"
+        # AD values grouped: 4 colon-separated values -> 2 samples * 2 values
+        expected = "chr1\t100\tA\tT\tSample1(0/1:100:50,50:0.5)\t100:80\t50:50:40:40\t0.5:0.5"
         assert result[1] == expected
 
     def test_missing_field_graceful_handling(self, basic_config):
@@ -163,16 +165,19 @@ class TestColumnNormalization:
         basic_config["extra_sample_fields"] = ["GEN[*].DP", "GEN[*].MISSING", "GEN[*].AF"]
 
         header = "CHROM\tPOS\tREF\tALT\tGT\tDP\tAF"  # No AD or MISSING column
-        data = "chr1\t100\tA\tT\t0/1:0/0\t100:80\t0.5,0.5"
+        # Note: AF uses ":" as multi-sample separator (same as extract_fields_separator)
+        data = "chr1\t100\tA\tT\t0/1:0/0\t100:80\t0.5:0.5"
 
         lines = iter([header, data])
         result = list(replace_genotypes(lines, basic_config))
 
         # Should include available fields and skip missing ones
+        # MISSING field is not found in header, so it is omitted entirely from the output
+        # Only DP and AF are included (2 available fields out of 3 requested)
         expected = (
             "chr1\t100\tA\tT\t"
-            "Sample1(0/1:100::0.5)\t"  # Empty value for missing field
-            "100:80\t0.5,0.5"
+            "Sample1(0/1:100:0.5)\t"  # DP and AF only, MISSING skipped
+            "100:80\t0.5:0.5"
         )
         assert result[1] == expected
 
@@ -186,11 +191,13 @@ class TestIntegrationScenarios:
         basic_config["sample_list"] = "Normal,Tumor"
 
         header = "CHROM\tPOS\tREF\tALT\tGT\tDP\tAD\tAF"
-        data = "chr3\t53730470\tC\tG\t0/0:0/1\t465:291\t464,1,215,76\t0.00563,0.282"
+        # Note: multi-sample fields use ":" as separator (extract_fields_separator)
+        # AD has 2 values per sample (ref,alt): 464:1:215:76 -> Normal(464,1) Tumor(215,76)
+        data = "chr3\t53730470\tC\tG\t0/0:0/1\t465:291\t464:1:215:76\t0.00563:0.282"
         expected = (
             "chr3\t53730470\tC\tG\t"
             "Tumor(0/1:291:215,76:0.282)\t"  # Normal (0/0) filtered out
-            "465:291\t464,1,215,76\t0.00563,0.282"
+            "465:291\t464:1:215:76\t0.00563:0.282"
         )
 
         lines = iter([header, data])
@@ -233,6 +240,8 @@ class TestPerformanceScenarios:
         }
 
         # Create AD values for 10 samples (20 values total)
+        # AD uses ":" as the multi-sample separator (extract_fields_separator)
+        # Each sample has 2 values (ref,alt), so 20 colon-separated values total
         ad_values = []
         for i in range(10):
             ref_count = 50 + i
@@ -243,7 +252,7 @@ class TestPerformanceScenarios:
         gt_values = ["0/1", "0/0", "0/1", "1/1", "0/0", "0/1", "0/0", "0/1", "1/1", "0/0"]
 
         header = "CHROM\tPOS\tREF\tALT\tGT\tAD"
-        data = f"chr1\t100\tA\tT\t{':'.join(gt_values)}\t{','.join(ad_values)}"
+        data = f"chr1\t100\tA\tT\t{':'.join(gt_values)}\t{':'.join(ad_values)}"
 
         lines = iter([header, data])
         result = list(replace_genotypes(lines, config))

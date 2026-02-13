@@ -102,7 +102,7 @@ def run_command(cmd: list, output_file: str | None = None) -> str:
         with open(output_file, "w", encoding="utf-8") as out_f:
             result = subprocess.run(cmd, stdout=out_f, stderr=subprocess.PIPE, text=True)
     else:
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
         logger.error("Command failed: %s\nError: %s", " ".join(cmd), result.stderr)
@@ -236,9 +236,7 @@ def get_tool_version(tool_name: str) -> str:
     parse_func = tool_map[tool_name]["parse_func"]
 
     try:
-        result = subprocess.run(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
         version: str = parse_func(result.stdout, result.stderr)  # type: ignore[operator]
         if version == "N/A":
             logger.warning("Could not parse version for %s. Returning 'N/A'.", tool_name)
@@ -277,10 +275,7 @@ def ensure_fields_in_extract(base_fields_str: str, extra_fields: list[str]) -> s
     We no longer normalize extra_fields here, so that raw columns like "GEN[*].DP"
     remain unmodified.
     """
-    if not base_fields_str:
-        base_list = []
-    else:
-        base_list = base_fields_str.split()
+    base_list = [] if not base_fields_str else base_fields_str.split()
 
     # Just deduplicate:
     for raw_field in extra_fields:

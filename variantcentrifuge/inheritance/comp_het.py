@@ -133,7 +133,7 @@ def find_compound_het_pairs(
 
     # Get indices of heterozygous variants for this sample
     het_indices = []
-    for pos_idx, (idx, row) in enumerate(gene_df.iterrows()):
+    for pos_idx, (_idx, row) in enumerate(gene_df.iterrows()):
         if sample_id in row and is_het(str(row[sample_id])):
             het_indices.append(pos_idx)
 
@@ -364,7 +364,11 @@ def get_compound_het_summary(
     Dict[str, Any]
         Summary dictionary
     """
-    summary: dict[str, Any] = {"total_comp_het_variants": 0, "comp_het_pairs": [], "genes_with_comp_het": set()}
+    summary: dict[str, Any] = {
+        "total_comp_het_variants": 0,
+        "comp_het_pairs": [],
+        "genes_with_comp_het": set(),
+    }
 
     processed_pairs = set()
 

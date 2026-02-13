@@ -96,21 +96,19 @@ def check_scoring_requires_inheritance(args: argparse.Namespace, config: dict) -
         if scoring_config and "formulas" in scoring_config:
             for formula_dict in scoring_config["formulas"]:
                 for formula_name, formula_expr in formula_dict.items():
-                    if isinstance(formula_expr, str):
-                        # Check if formula references common inheritance variables
-                        if any(
-                            var in formula_expr
-                            for var in [
-                                "pattern",
-                                "details",
-                                "Inheritance_Pattern",
-                                "Inheritance_Details",
-                            ]
-                        ):
-                            logger.info(
-                                f"Scoring formula '{formula_name}' requires inheritance analysis"
-                            )
-                            return True
+                    if isinstance(formula_expr, str) and any(
+                        var in formula_expr
+                        for var in [
+                            "pattern",
+                            "details",
+                            "Inheritance_Pattern",
+                            "Inheritance_Details",
+                        ]
+                    ):
+                        logger.info(
+                            f"Scoring formula '{formula_name}' requires inheritance analysis"
+                        )
+                        return True
 
         # Check variable assignments for inheritance column dependencies
         if scoring_config and "variables" in scoring_config:

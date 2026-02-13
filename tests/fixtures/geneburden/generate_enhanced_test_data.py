@@ -31,6 +31,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import ClassVar
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -46,7 +47,7 @@ class AnnotationTemplate:
     gene_biotype: str  # protein_coding, pseudogene, etc.
     transcript_biotype: str  # protein_coding, etc.
     ann_fields: str  # Full ANN field content
-    dbNSFP_fields: dict[str, str]  # All dbNSFP prediction scores
+    dbnsfp_fields: dict[str, str]  # All dbNSFP prediction scores
     other_fields: dict[str, str]  # Other INFO fields
     consequence_rank: int  # Ranking of consequence severity
 
@@ -54,7 +55,7 @@ class AnnotationTemplate:
 class AnnotationSampler:
     """Samples and categorizes real annotation patterns from test data."""
 
-    def __init__(self, source_file: str = None):
+    def __init__(self, source_file: str | None = None):
         """Initialize with source annotation file."""
         # Default to local anonymized annotation templates
         if source_file is None:
@@ -164,13 +165,13 @@ class AnnotationSampler:
             )
 
             # Extract ALL annotation fields (dbNSFP, splice, ClinVar, HGMD, etc.)
-            dbNSFP_fields = {}
+            dbnsfp_fields = {}
             other_fields = {}
 
             # Extract dbNSFP fields
             for match in re.finditer(r"(dbNSFP_[^=]+)=([^;]+)", info_field):
                 key, value = match.groups()
-                dbNSFP_fields[key] = value
+                dbnsfp_fields[key] = value
 
             # Extract splice prediction fields
             for match in re.finditer(r"(splice_[^=]+)=([^;]+)", info_field):
@@ -201,7 +202,7 @@ class AnnotationSampler:
                 gene_biotype=feature_type,
                 transcript_biotype=transcript_biotype,
                 ann_fields=ann_value,
-                dbNSFP_fields=dbNSFP_fields,
+                dbnsfp_fields=dbnsfp_fields,
                 other_fields=other_fields,
                 consequence_rank=consequence_rank,
             )
@@ -223,7 +224,10 @@ class AnnotationSampler:
         return None
 
     def sample_annotation(
-        self, target_gene: str, effect_preference: str = None, impact_preference: str = None
+        self,
+        target_gene: str,
+        effect_preference: str | None = None,
+        impact_preference: str | None = None,
     ) -> AnnotationTemplate | None:
         """Sample an appropriate annotation template."""
         # Get candidates based on preferences
@@ -233,7 +237,7 @@ class AnnotationSampler:
             candidates = self.templates[effect_preference]
         elif impact_preference:
             # Find templates with matching impact
-            for effect, templates in self.templates.items():
+            for _effect, templates in self.templates.items():
                 candidates.extend([t for t in templates if t.impact == impact_preference])
         else:
             # Use all available templates
@@ -256,7 +260,7 @@ class AnnotationSampler:
             gene_biotype=template.gene_biotype,
             transcript_biotype=template.transcript_biotype,
             ann_fields=adapted_ann,
-            dbNSFP_fields=template.dbNSFP_fields.copy(),
+            dbnsfp_fields=template.dbnsfp_fields.copy(),
             other_fields=template.other_fields.copy(),
             consequence_rank=template.consequence_rank,
         )
@@ -296,12 +300,12 @@ class EnhancedTestDataGenerator:
     """Enhanced test data generator using real annotation sampling."""
 
     # Test genes with real hg19 coordinates
-    DISEASE_GENES = {"PKD1", "PKD2", "BRCA1", "BRCA2"}
-    CONTROL_GENES = {"TTN", "OBSCN", "MUC16"}
+    DISEASE_GENES: ClassVar[set[str]] = {"PKD1", "PKD2", "BRCA1", "BRCA2"}
+    CONTROL_GENES: ClassVar[set[str]] = {"TTN", "OBSCN", "MUC16"}
     ALL_GENES = DISEASE_GENES | CONTROL_GENES
 
     # Real hg19 gene coordinates (chrom, start, end, strand)
-    GENE_COORDINATES = {
+    GENE_COORDINATES: ClassVar[dict[str, tuple[str, int, int, str]]] = {
         "OBSCN": ("1", 228395830, 228566577, "+"),
         "BRCA2": ("13", 32889610, 32973805, "+"),
         "PKD1": ("16", 2138710, 2185899, "-"),
@@ -317,7 +321,7 @@ class EnhancedTestDataGenerator:
     TOTAL_SAMPLES = NUM_CASES + NUM_CONTROLS
 
     # HPO terms for test scenarios
-    HPO_TERMS = {
+    HPO_TERMS: ClassVar[dict[str, list[str]]] = {
         "case_terms": [
             "HP:0000113",  # Polycystic kidney dysplasia
             "HP:0000003",  # Multicystic kidney dysplasia
@@ -337,7 +341,7 @@ class EnhancedTestDataGenerator:
     }
 
     # Genotype probabilities for controlled distributions
-    PROBABILITIES = {
+    PROBABILITIES: ClassVar[dict[str, float]] = {
         "case_disease_pathogenic": 0.75,  # 75% cases have pathogenic disease gene variants
         "case_disease_benign": 0.25,  # 25% cases have benign disease gene variants
         "control_disease_pathogenic": 0.10,  # 10% controls have pathogenic disease variants
@@ -347,7 +351,7 @@ class EnhancedTestDataGenerator:
 
     HOMO_PROB = 0.20  # Probability of homozygous when variant is present
 
-    def __init__(self, annotation_source: str = None, seed: int = 42):
+    def __init__(self, annotation_source: str | None = None, seed: int = 42):
         """Initialize generator with annotation sampler."""
         random.seed(seed)
 
@@ -496,7 +500,7 @@ class EnhancedTestDataGenerator:
         info_parts.extend(["SNP", "VARTYPE=SNP"])
 
         # Add dbNSFP fields (skip any that might cause issues)
-        for key, value in annotation.dbNSFP_fields.items():
+        for key, value in annotation.dbnsfp_fields.items():
             # Skip keys that contain problematic characters or are too long
             if "|" in key or "&" in key or len(key) > 50:
                 continue
@@ -528,10 +532,10 @@ class EnhancedTestDataGenerator:
 
         # Get all existing field names
         existing_fields = set()
-        for key in annotation.dbNSFP_fields.keys():
+        for key in annotation.dbnsfp_fields:
             if not ("|" in key or "&" in key or len(key) > 50):
                 existing_fields.add(key.replace("|", "_").replace("&", "_").replace("=", "_"))
-        for key in annotation.other_fields.keys():
+        for key in annotation.other_fields:
             if not ("|" in key or "&" in key or len(key) > 50):
                 existing_fields.add(key.replace("|", "_").replace("&", "_").replace("=", "_"))
 
@@ -552,31 +556,28 @@ class EnhancedTestDataGenerator:
         pathogenic_indicators = []
 
         # Check SIFT (low scores = deleterious)
-        if "dbNSFP_SIFT_pred" in annotation.dbNSFP_fields:
-            sift_pred = annotation.dbNSFP_fields["dbNSFP_SIFT_pred"]
+        if "dbNSFP_SIFT_pred" in annotation.dbnsfp_fields:
+            sift_pred = annotation.dbnsfp_fields["dbNSFP_SIFT_pred"]
             if "D" in sift_pred:  # Deleterious
                 pathogenic_indicators.append(True)
 
         # Check PolyPhen (high scores = damaging)
-        if "dbNSFP_Polyphen2_HDIV_pred" in annotation.dbNSFP_fields:
-            poly_pred = annotation.dbNSFP_fields["dbNSFP_Polyphen2_HDIV_pred"]
+        if "dbNSFP_Polyphen2_HDIV_pred" in annotation.dbnsfp_fields:
+            poly_pred = annotation.dbnsfp_fields["dbNSFP_Polyphen2_HDIV_pred"]
             if "D" in poly_pred:  # Damaging
                 pathogenic_indicators.append(True)
 
         # Check CADD score (high scores = pathogenic)
-        if "dbNSFP_CADD_phred" in annotation.dbNSFP_fields:
+        if "dbNSFP_CADD_phred" in annotation.dbnsfp_fields:
             try:
-                cadd_score = float(annotation.dbNSFP_fields["dbNSFP_CADD_phred"])
+                cadd_score = float(annotation.dbnsfp_fields["dbNSFP_CADD_phred"])
                 if cadd_score > 20:  # CADD > 20 suggests pathogenic
                     pathogenic_indicators.append(True)
             except Exception:
                 pass
 
         # Moderate impact with multiple pathogenic indicators
-        if annotation.impact == "MODERATE" and len(pathogenic_indicators) >= 2:
-            return True
-
-        return False
+        return bool(annotation.impact == "MODERATE" and len(pathogenic_indicators) >= 2)
 
     def generate_genotype(self, gene: str, annotation: AnnotationTemplate, is_case: bool) -> str:
         """Generate realistic genotype based on gene, annotation, and sample type."""
@@ -609,10 +610,7 @@ class EnhancedTestDataGenerator:
 
         # Generate genotype if variant present
         if should_have_variant:
-            if random.random() < self.HOMO_PROB:
-                genotype = "1/1"
-            else:
-                genotype = "0/1"
+            genotype = "1/1" if random.random() < self.HOMO_PROB else "0/1"
 
         # Update statistics
         sample_type = "case" if is_case else "control"
@@ -651,7 +649,7 @@ class EnhancedTestDataGenerator:
 
             # Add contig lines
             chromosomes = set()
-            for gene, (chrom, start, end, strand) in self.GENE_COORDINATES.items():
+            for _gene, (chrom, _start, _end, _strand) in self.GENE_COORDINATES.items():
                 chromosomes.add(chrom)
 
             for chrom in sorted(chromosomes, key=lambda x: int(x) if x.isdigit() else ord(x[0])):
@@ -676,13 +674,13 @@ class EnhancedTestDataGenerator:
             # Collect all field names from templates
             for templates in self.annotation_sampler.templates.values():
                 for template in templates:
-                    for key in template.dbNSFP_fields.keys():
+                    for key in template.dbnsfp_fields:
                         # Skip problematic keys
                         if "|" in key or "&" in key or len(key) > 50:
                             continue
                         clean_key = key.replace("|", "_").replace("&", "_").replace("=", "_")
                         all_field_names.add(clean_key)
-                    for key in template.other_fields.keys():
+                    for key in template.other_fields:
                         # Skip problematic keys
                         if "|" in key or "&" in key or len(key) > 50:
                             continue

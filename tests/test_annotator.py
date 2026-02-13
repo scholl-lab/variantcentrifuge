@@ -243,17 +243,17 @@ class TestFeatureLoading:
         """Create comprehensive test configuration with all annotation types."""
         # Create temporary files
         bed_content = "chr1\t1000\t2000\tpromoter\n"
-        bed_file = tempfile.NamedTemporaryFile(mode="w", suffix=".bed", delete=False)
+        bed_file = tempfile.NamedTemporaryFile(mode="w", suffix=".bed", delete=False)  # noqa: SIM115
         bed_file.write(bed_content)
         bed_file.close()
 
         gene_content = "BRCA1\nTP53\n"
-        gene_file = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
+        gene_file = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)  # noqa: SIM115
         gene_file.write(gene_content)
         gene_file.close()
 
         json_content = [{"gene_symbol": "EGFR", "panel": "Cancer"}]
-        json_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        json_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)  # noqa: SIM115
         json.dump(json_content, json_file)
         json_file.close()
 
@@ -442,28 +442,25 @@ class TestDataFrameAnnotation:
 class TestConfigValidation:
     """Test configuration validation functionality."""
 
-    def test_validate_annotation_config_valid(self):
+    def test_validate_annotation_config_valid(self, tmp_path):
         """Test validation of valid configuration."""
-        # Create temporary files
-        bed_file = tempfile.NamedTemporaryFile(delete=False)
-        gene_file = tempfile.NamedTemporaryFile(delete=False)
-        json_file = tempfile.NamedTemporaryFile(delete=False)
+        # Create temporary files using tmp_path (avoids Windows PermissionError)
+        bed_file = tmp_path / "test.bed"
+        bed_file.write_text("")
+        gene_file = tmp_path / "test_genes.txt"
+        gene_file.write_text("")
+        json_file = tmp_path / "test_data.json"
+        json_file.write_text("")
 
-        try:
-            config = {
-                "annotate_bed_files": [bed_file.name],
-                "annotate_gene_lists": [gene_file.name],
-                "annotate_json_genes": [json_file.name],
-                "json_gene_mapping": '{"identifier":"gene_symbol","dataFields":["panel"]}',
-            }
+        config = {
+            "annotate_bed_files": [str(bed_file)],
+            "annotate_gene_lists": [str(gene_file)],
+            "annotate_json_genes": [str(json_file)],
+            "json_gene_mapping": '{"identifier":"gene_symbol","dataFields":["panel"]}',
+        }
 
-            errors = validate_annotation_config(config)
-            assert errors == []
-
-        finally:
-            os.unlink(bed_file.name)
-            os.unlink(gene_file.name)
-            os.unlink(json_file.name)
+        errors = validate_annotation_config(config)
+        assert errors == []
 
     def test_validate_annotation_config_missing_files(self):
         """Test validation with missing files."""

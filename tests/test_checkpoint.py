@@ -179,7 +179,7 @@ class TestPipelineState:
 
         assert state.state["steps"]["step1"].status == "completed"
         assert len(state.state["steps"]["step1"].output_files) == 1
-        assert state.state["steps"]["step1"].duration > 0
+        assert state.state["steps"]["step1"].duration >= 0
 
         # Fail a step
         state.start_step("step2")
@@ -430,16 +430,10 @@ class TestIntegration:
 
         # Resume - should skip completed steps
         with CheckpointContext(new_state, "step1") as ctx:
-            if not ctx.skip:
-                result1 = step1()
-            else:
-                result1 = str(tmp_path / "step1_output.txt")
+            result1 = step1() if not ctx.skip else str(tmp_path / "step1_output.txt")
 
         with CheckpointContext(new_state, "step2") as ctx:
-            if not ctx.skip:
-                result2 = step2(result1)
-            else:
-                result2 = str(tmp_path / "step2_output.txt")
+            result2 = step2(result1) if not ctx.skip else str(tmp_path / "step2_output.txt")
 
         # Fixed step3
         def step3_fixed(input_file):

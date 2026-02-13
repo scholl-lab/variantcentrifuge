@@ -239,7 +239,7 @@ class TestParallelInheritanceAnalyzer:
         assert any("compound" in pattern for pattern in patterns)
 
         # Check details contain compound het info
-        for idx, row in result.iterrows():
+        for _idx, row in result.iterrows():
             details = json.loads(row["Inheritance_Details"])
             if "compound" in row["Inheritance_Pattern"]:
                 samples = details.get("samples_with_pattern", [])

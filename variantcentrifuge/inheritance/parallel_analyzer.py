@@ -259,7 +259,7 @@ def analyze_inheritance_parallel(
         comp_het_info = row["_comp_het_info"]
         comp_het_patterns = []
         if comp_het_info:
-            for sample_id, info in comp_het_info.items():
+            for _sample_id, info in comp_het_info.items():
                 if info.get("is_compound_het"):
                     comp_het_type = info.get("comp_het_type", "compound_heterozygous")
                     if comp_het_type != "not_compound_heterozygous":

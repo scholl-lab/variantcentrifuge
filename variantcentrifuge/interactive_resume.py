@@ -7,7 +7,6 @@ displaying checkpoint status, and guiding users through safe resume operations.
 
 import logging
 from datetime import datetime
-from typing import Optional
 
 from .checkpoint import PipelineState
 from .stages.stage_registry import StageInfo, get_registry

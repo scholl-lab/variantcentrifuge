@@ -9,7 +9,7 @@ from variantcentrifuge.pipeline_core import PipelineContext, Workspace
 
 def create_test_context(
     vcf_file: str = "test.vcf",
-    output_dir: str = None,
+    output_dir: str | None = None,
     gene_name: str = "BRCA1",
     config_overrides: dict | None = None,
     **kwargs,
@@ -78,7 +78,7 @@ def create_test_context(
 
 
 def create_test_vcf(
-    output_path: Path, samples: list[str] = None, variants: list[dict] = None
+    output_path: Path, samples: list[str] | None = None, variants: list[dict] | None = None
 ) -> Path:
     """Create a test VCF file.
 
@@ -155,7 +155,7 @@ def create_test_vcf(
     return output_path
 
 
-def create_test_bed(output_path: Path, regions: list[dict] = None) -> Path:
+def create_test_bed(output_path: Path, regions: list[dict] | None = None) -> Path:
     """Create a test BED file.
 
     Parameters
@@ -192,7 +192,7 @@ def create_test_bed(output_path: Path, regions: list[dict] = None) -> Path:
     return output_path
 
 
-def create_test_phenotype_file(output_path: Path, phenotypes: dict[str, str] = None) -> Path:
+def create_test_phenotype_file(output_path: Path, phenotypes: dict[str, str] | None = None) -> Path:
     """Create a test phenotype file.
 
     Parameters
@@ -222,7 +222,7 @@ def create_test_phenotype_file(output_path: Path, phenotypes: dict[str, str] = N
     return output_path
 
 
-def create_test_pedigree_file(output_path: Path, families: list[dict] = None) -> Path:
+def create_test_pedigree_file(output_path: Path, families: list[dict] | None = None) -> Path:
     """Create a test PED file.
 
     Parameters

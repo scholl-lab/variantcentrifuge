@@ -95,18 +95,20 @@ def test_pipeline_with_gene_list_annotation(sample_vcf_file, gene_lists, test_da
 
         # Run pipeline with mock data
         config["final_output"] = final_output
-        with open(final_output, "w", encoding="utf-8") as out:
-            with open(tsv_file, encoding="utf-8") as inp:
-                lines = inp.readlines()
+        with (
+            open(final_output, "w", encoding="utf-8") as out,
+            open(tsv_file, encoding="utf-8") as inp,
+        ):
+            lines = inp.readlines()
 
-                # Manually run the gene list annotation part
-                from variantcentrifuge.helpers import annotate_variants_with_gene_lists
+            # Manually run the gene list annotation part
+            from variantcentrifuge.helpers import annotate_variants_with_gene_lists
 
-                lines = annotate_variants_with_gene_lists(lines, config["annotate_gene_list_files"])
+            lines = annotate_variants_with_gene_lists(lines, config["annotate_gene_list_files"])
 
-                # Write the output
-                for line in lines:
-                    out.write(line.rstrip("\n") + "\n")
+            # Write the output
+            for line in lines:
+                out.write(line.rstrip("\n") + "\n")
 
         # Check the results
         with open(final_output, encoding="utf-8") as f:
@@ -135,16 +137,19 @@ def test_cli_with_gene_list_annotation(sample_vcf_file, gene_lists, test_data_di
     output_dir = os.path.join(test_data_dir, "cli_output")
     os.makedirs(output_dir, exist_ok=True)
 
-    # Mock run_pipeline to avoid actual execution but verify args are passed correctly
+    # Mock run_refactored_pipeline to avoid actual execution but verify args are passed correctly
     run_pipeline_calls = []
 
-    def mock_run_pipeline(args, cfg, start_time):
-        """Mock run_pipeline that just records the call."""
-        run_pipeline_calls.append(cfg.copy())
+    def mock_run_refactored_pipeline(args):
+        """Mock run_refactored_pipeline that just records the call."""
+        run_pipeline_calls.append(args.config.copy())
         return 0
 
-    # Apply the mock
-    monkeypatch.setattr("variantcentrifuge.cli.run_pipeline", mock_run_pipeline)
+    # Apply the mock - cli.py imports run_refactored_pipeline from .pipeline
+    monkeypatch.setattr(
+        "variantcentrifuge.cli.run_refactored_pipeline",
+        mock_run_refactored_pipeline,
+    )
 
     # Simulate CLI arguments
     import sys
