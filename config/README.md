@@ -43,6 +43,48 @@ variantcentrifuge Snakemake workflow.
 | `igv` | `reference` | IGV genome reference |
 | `container` | `image` | Singularity/Apptainer image URI (empty string to disable) |
 
+## Installing variantcentrifuge into the Snakemake conda env
+
+The Snakemake conda environment (`workflow/envs/variantcentrifuge.yml`) provides
+all external tool dependencies but does **not** install variantcentrifuge itself
+(it is not published on PyPI). After Snakemake creates the conda env you must
+install variantcentrifuge manually:
+
+```bash
+# Option A: install from a local checkout
+conda run -n snakemake--<hash> pip install /path/to/variantcentrifuge
+
+# Option B: install directly from GitHub
+conda run -n snakemake--<hash> pip install git+https://github.com/scholl-lab/variantcentrifuge.git@v0.12.0
+```
+
+Replace `snakemake--<hash>` with the actual env name shown by
+`snakemake --list-conda-envs`.
+
+## snpEff reference name
+
+The `"reference"` field in `config.json` must exactly match the name of the
+local snpEff database. Common names include `GRCh37.p13`, `GRCh38.p14`,
+`hg19`, and `hg38`. To check which databases are available:
+
+```bash
+snpEff databases | grep -i grch38
+```
+
+## Somatic / tumor-normal presets
+
+The **legacy** `mutect2_TvsN` and `mutect2_TvsN_pass` presets assume the
+standard Mutect2 sample order: **GEN[0] = tumor, GEN[1] = normal**. Verify
+with:
+
+```bash
+bcftools query -l your.vcf.gz
+```
+
+If your VCF has a different sample order, use the parameterized `somatic` /
+`somatic_pass` presets together with `--tumor-sample-index` and
+`--normal-sample-index` on the command line.
+
 ## samples.tsv columns
 
 | Column | Type | Description |

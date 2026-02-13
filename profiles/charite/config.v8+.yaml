@@ -5,6 +5,9 @@ executor: slurm
 jobs: 50
 latency-wait: 60
 
+software-deployment-method:
+  - conda
+
 default-resources:
   slurm_partition: compute
   slurm_account: sc-users

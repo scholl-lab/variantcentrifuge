@@ -41,4 +41,4 @@ igv:
 # Container image (Singularity / Apptainer)
 # ---------------------------------------------------------------------------
 container:
-  image: "docker://ghcr.io/scholl-lab/variantcentrifuge:0.10.0"
+  image: "docker://ghcr.io/scholl-lab/variantcentrifuge:0.12.0"

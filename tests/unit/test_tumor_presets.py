@@ -126,6 +126,25 @@ class TestPresetExpansion:
             assert "{tumor_idx}" not in expr
             assert "{normal_idx}" not in expr
 
+    def test_legacy_mutect2_tvsn_gen_indices(self, config: dict) -> None:
+        """mutect2_TvsN presets must use GEN[0]=tumor, GEN[1]=normal.
+
+        Standard Mutect2 output has GEN[0]=tumor, GEN[1]=normal.
+        The tumor sample should have AF >= 0.05 and the normal should
+        have AF < 0.03.  See issue #72.
+        """
+        for name in ("mutect2_TvsN_pass", "mutect2_TvsN"):
+            expr = config["presets"][name]
+            # Tumor (GEN[0]) must pass the minimum AF threshold
+            assert "GEN[0].AF >= 0.05" in expr, f"{name}: expected tumor AF check on GEN[0]"
+            # Normal (GEN[1]) must be below the max AF threshold
+            assert "GEN[1].AF < 0.03" in expr, f"{name}: expected normal AF check on GEN[1]"
+
+    def test_legacy_mutect2_tvsn_pass_dp_on_tumor(self, config: dict) -> None:
+        """mutect2_TvsN_pass DP check should be on tumor (GEN[0])."""
+        expr = config["presets"]["mutect2_TvsN_pass"]
+        assert "GEN[0].DP >= 50" in expr
+
 
 # ---------------------------------------------------------------------------
 # CLI argument parsing
