@@ -1,6 +1,7 @@
 """Command-line interface for VariantCentrifuge."""
 
 import argparse
+import contextlib
 import datetime
 import logging
 import sys
@@ -167,6 +168,82 @@ def create_parser() -> argparse.ArgumentParser:
         default=False,
         help="List available field profiles and exit.",
     )
+    # Tumor-Normal Filtering
+    tumor_group = parser.add_argument_group("Tumor-Normal Filtering")
+    tumor_group.add_argument(
+        "--tumor-sample-index",
+        type=int,
+        default=None,
+        help="0-based index of the tumor sample in the VCF. "
+        "Used to expand {tumor_idx} in somatic/LOH presets. Default: 1",
+    )
+    tumor_group.add_argument(
+        "--normal-sample-index",
+        type=int,
+        default=None,
+        help="0-based index of the normal sample in the VCF. "
+        "Used to expand {normal_idx} in somatic/LOH presets. Default: 0",
+    )
+    tumor_group.add_argument(
+        "--tumor-dp-min",
+        type=int,
+        default=None,
+        help="Minimum read depth for tumor sample (default: 20).",
+    )
+    tumor_group.add_argument(
+        "--normal-dp-min",
+        type=int,
+        default=None,
+        help="Minimum read depth for normal sample (default: 20).",
+    )
+    tumor_group.add_argument(
+        "--tumor-af-min",
+        type=float,
+        default=None,
+        help="Minimum allele frequency for tumor sample (default: 0.05).",
+    )
+    tumor_group.add_argument(
+        "--normal-af-max",
+        type=float,
+        default=None,
+        help="Maximum allele frequency for normal sample (default: 0.03).",
+    )
+
+    filter_group.add_argument(
+        "--show-vcf-annotations",
+        action="store_true",
+        default=False,
+        help="Show available INFO and FORMAT fields from the VCF header and exit. "
+        "Useful for discovering field names before configuring extraction. "
+        "Requires -v/--vcf-file.",
+    )
+    filter_group.add_argument(
+        "--annotation-filter",
+        type=str,
+        default=None,
+        help="Filter --show-vcf-annotations output to fields matching this substring "
+        "(case-insensitive). Example: --annotation-filter gnomAD",
+    )
+    filter_group.add_argument(
+        "--annotation-format",
+        choices=["table", "json"],
+        default="table",
+        help="Output format for --show-vcf-annotations (default: table).",
+    )
+    ann_source_group = filter_group.add_mutually_exclusive_group()
+    ann_source_group.add_argument(
+        "--info-only",
+        action="store_true",
+        default=False,
+        help="With --show-vcf-annotations, show only INFO fields.",
+    )
+    ann_source_group.add_argument(
+        "--format-only",
+        action="store_true",
+        default=False,
+        help="With --show-vcf-annotations, show only FORMAT fields.",
+    )
+
     filter_group.add_argument(
         "--late-filtering",
         action="store_true",
@@ -348,6 +425,16 @@ def create_parser() -> argparse.ArgumentParser:
         "--no-vectorized-comp-het",
         action="store_true",
         help="Disable vectorized compound heterozygous analysis (use original implementation).",
+    )
+
+    # ClinVar PM5 Annotation
+    pm5_group = parser.add_argument_group("ClinVar PM5 Annotation")
+    pm5_group.add_argument(
+        "--clinvar-pm5-lookup",
+        type=str,
+        default=None,
+        help="Path to a pre-built PM5 lookup table (from variantcentrifuge-build-pm5). "
+        "When provided, adds PM5, PM5_evidence_count, and PM5_known_variants columns.",
     )
 
     # Scoring & Custom Annotations
@@ -765,6 +852,41 @@ def main() -> int:
             print("No field profiles defined in configuration.")
         sys.exit(0)
 
+    # For --show-vcf-annotations, we only need the VCF file
+    if "--show-vcf-annotations" in sys.argv:
+        from .vcf_header_parser import (
+            format_fields_json,
+            format_fields_table,
+            parse_vcf_header,
+        )
+
+        ann_parser = argparse.ArgumentParser(description="Show VCF annotations")
+        ann_parser.add_argument("--show-vcf-annotations", action="store_true")
+        ann_parser.add_argument("-v", "--vcf-file", required=True)
+        ann_parser.add_argument("--annotation-filter", type=str, default=None)
+        ann_parser.add_argument("--annotation-format", choices=["table", "json"], default="table")
+        ann_parser.add_argument("--info-only", action="store_true", default=False)
+        ann_parser.add_argument("--format-only", action="store_true", default=False)
+        ann_args, _ = ann_parser.parse_known_args()
+
+        ann_fields = parse_vcf_header(ann_args.vcf_file)
+        if ann_args.annotation_format == "json":
+            output = format_fields_json(
+                ann_fields,
+                pattern=ann_args.annotation_filter,
+                info_only=ann_args.info_only,
+                format_only=ann_args.format_only,
+            )
+        else:
+            output = format_fields_table(
+                ann_fields,
+                pattern=ann_args.annotation_filter,
+                info_only=ann_args.info_only,
+                format_only=ann_args.format_only,
+            )
+        print(output)
+        sys.exit(0)
+
     # For --show-checkpoint-status, we don't need other required arguments
     if "--show-checkpoint-status" in sys.argv:
         # Create a minimal parser just for checkpoint status
@@ -855,6 +977,16 @@ def main() -> int:
     filters: str | None = args.filters or cfg.get("filters")
     fields: str | None = args.fields or cfg.get("fields_to_extract")
 
+    # Build tumor-normal template variables for preset expansion
+    tumor_normal_vars = {
+        "tumor_idx": str(args.tumor_sample_index if args.tumor_sample_index is not None else 1),
+        "normal_idx": str(args.normal_sample_index if args.normal_sample_index is not None else 0),
+        "tumor_dp_min": str(args.tumor_dp_min if args.tumor_dp_min is not None else 20),
+        "normal_dp_min": str(args.normal_dp_min if args.normal_dp_min is not None else 20),
+        "tumor_af_min": str(args.tumor_af_min if args.tumor_af_min is not None else 0.05),
+        "normal_af_max": str(args.normal_af_max if args.normal_af_max is not None else 0.03),
+    }
+
     # Handle presets
     preset_dict = cfg.get("presets", {})
     if args.preset:
@@ -862,7 +994,11 @@ def main() -> int:
         for p in args.preset:
             p_str = p.strip()
             if p_str in preset_dict:
-                chosen_presets.append(f"({preset_dict[p_str]})")
+                expr = preset_dict[p_str]
+                # Expand tumor-normal template variables ({tumor_idx}, etc.)
+                with contextlib.suppress(KeyError):
+                    expr = expr.format_map(tumor_normal_vars)
+                chosen_presets.append(f"({expr})")
             else:
                 logger.error(f"Preset '{p_str}' not found in config.")
                 sys.exit(1)
@@ -902,6 +1038,10 @@ def main() -> int:
     if args.add_chr:
         cfg["add_chr"] = True
     # If flag is not provided, use the value from config file (already loaded)
+
+    # Tumor-normal parameters (store resolved values for downstream use)
+    cfg["tumor_sample_index"] = tumor_normal_vars["tumor_idx"]
+    cfg["normal_sample_index"] = tumor_normal_vars["normal_idx"]
 
     # IGV parameters
     cfg["igv_enabled"] = args.igv
@@ -988,6 +1128,9 @@ def main() -> int:
     cfg["snpeff_splitting_mode"] = (
         args.split_snpeff_lines
     )  # None, 'before_filters', or 'after_filters'
+
+    # ClinVar PM5 configuration
+    cfg["clinvar_pm5_lookup"] = args.clinvar_pm5_lookup
 
     # Scoring configuration
     cfg["scoring_config_path"] = args.scoring_config_path

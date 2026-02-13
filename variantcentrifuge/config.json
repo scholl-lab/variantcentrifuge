@@ -25,7 +25,7 @@
   "field_profiles": {
     "dbnsfp4": {
       "description": "dbNSFP v4.x (gnomAD v3/v4.0, separate exome+genome)",
-      "fields_to_extract": "dbNSFP_gnomAD_exomes_AC dbNSFP_gnomAD_genomes_AC dbNSFP_gnomAD_exomes_AF dbNSFP_gnomAD_genomes_AF",
+      "fields_to_extract": "dbNSFP_gnomAD_exomes_AC dbNSFP_gnomAD_genomes_AC dbNSFP_gnomAD_exomes_AF dbNSFP_gnomAD_genomes_AF dbNSFP_hg19_chr dbNSFP_hg19_pos_1_based_",
       "hidden_columns": ["dbNSFP_gnomAD_exomes_AC", "dbNSFP_gnomAD_genomes_AC"],
       "fragments": {
         "gnomad_af_below": "((dbNSFP_gnomAD_exomes_AF[0] < {0}) | (na dbNSFP_gnomAD_exomes_AC[0])) & ((dbNSFP_gnomAD_genomes_AF[0] < {0}) | (na dbNSFP_gnomAD_genomes_AC[0]))",
@@ -35,7 +35,7 @@
     },
     "dbnsfp5": {
       "description": "dbNSFP v5.x (gnomAD v4.1, joint exome+genome)",
-      "fields_to_extract": "dbNSFP_gnomAD4.1_joint_AC dbNSFP_gnomAD4.1_joint_AF",
+      "fields_to_extract": "dbNSFP_gnomAD4.1_joint_AC dbNSFP_gnomAD4.1_joint_AF dbNSFP_hg19_chr dbNSFP_hg19_pos_1_based_",
       "hidden_columns": ["dbNSFP_gnomAD4.1_joint_AC"],
       "fragments": {
         "gnomad_af_below": "((dbNSFP_gnomAD4.1_joint_AF[0] < {0}) | (na dbNSFP_gnomAD4.1_joint_AC[0]))",
@@ -71,7 +71,14 @@
     "aif": "((({{gnomad_af_below_or:0.05}}) | (((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & !(dbNSFP_clinvar_clnsig =~ '[Cc]onflicting')) | ((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting')))) & ((((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & !(dbNSFP_clinvar_clnsig =~ '[Cc]onflicting')) | ((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting'))) | (({{gnomad_af_below_or:0.01}}) & ((splice_spidex_dpsi_zscore <= -2.0 ) & (( splice_dbscSNV_ada_score >= 0.6 ) | ( splice_dbscSNV_rf_score >= 0.6 )))) | (({{gnomad_af_below_or:0.01}}) & ((ANN[ANY].IMPACT has 'MODERATE') & ((dbNSFP_REVEL_score >= 0.9) | (dbNSFP_CADD_phred >= 30)))) | (({{gnomad_af_below_or:0.01}}) & (((exists LOF[*].PERC) & (LOF[*].PERC > 0.9)) | ((exists NMD[*].PERC) & (NMD[*].PERC > 0.9)) | (ANN[ANY].IMPACT has 'HIGH')))))",
     "mutect2_TvsN_pass": "((({{gnomad_ac_atmost:2}}) | ((exists ID) & ( ID =~ 'COS' ))) & (( na FILTER ) | (FILTER = 'PASS')) & ( GEN[1].DP >= 50 ) & ((GEN[0].AF < 0.03) | (na GEN[0].AF)) & ( GEN[1].AF >= 0.05 ))",
     "mutect2_TvsN": "((({{gnomad_ac_atmost:2}}) | ((exists ID) & ( ID =~ 'COS' ))) & ( GEN[*].DP >= 50 ) & ((GEN[0].AF < 0.03) | (na GEN[0].AF)) & ( GEN[1].AF >= 0.05 ))",
-    "mutect2_To_pass": "((({{gnomad_ac_atmost:2}}) | ((exists ID) & ( ID =~ 'COS' ))) & (( na FILTER ) | (FILTER = 'PASS')) & ( GEN[*].DP >= 50 ) & ( GEN[0].AF >= 0.05 ))"
+    "mutect2_To_pass": "((({{gnomad_ac_atmost:2}}) | ((exists ID) & ( ID =~ 'COS' ))) & (( na FILTER ) | (FILTER = 'PASS')) & ( GEN[*].DP >= 50 ) & ( GEN[0].AF >= 0.05 ))",
+
+    "somatic": "({{gnomad_ac_atmost:2}}) & (GEN[{normal_idx}].DP >= {normal_dp_min}) & (GEN[{tumor_idx}].DP >= {tumor_dp_min}) & ((GEN[{normal_idx}].AF < {normal_af_max}) | (na GEN[{normal_idx}].AF)) & (GEN[{tumor_idx}].AF >= {tumor_af_min})",
+    "somatic_pass": "({{gnomad_ac_atmost:2}}) & ((na FILTER) | (FILTER = 'PASS')) & (GEN[{normal_idx}].DP >= {normal_dp_min}) & (GEN[{tumor_idx}].DP >= {tumor_dp_min}) & ((GEN[{normal_idx}].AF < {normal_af_max}) | (na GEN[{normal_idx}].AF)) & (GEN[{tumor_idx}].AF >= {tumor_af_min})",
+    "somatic_strict": "({{gnomad_ac_atmost:2}}) & ((na FILTER) | (FILTER = 'PASS')) & (GEN[{normal_idx}].DP >= 50) & (GEN[{tumor_idx}].DP >= 50) & ((GEN[{normal_idx}].AF < 0.01) | (na GEN[{normal_idx}].AF)) & (GEN[{tumor_idx}].AF >= 0.05)",
+    "loh": "(GEN[{normal_idx}].GT = '0/1') & ((GEN[{tumor_idx}].GT = '1/1') | (GEN[{tumor_idx}].AF >= 0.85)) & (GEN[{tumor_idx}].DP >= {tumor_dp_min}) & (GEN[{normal_idx}].DP >= {normal_dp_min})",
+    "germline_shared": "((GEN[{normal_idx}].AF >= 0.20) & (GEN[{tumor_idx}].AF >= 0.20)) & (GEN[{normal_idx}].DP >= {normal_dp_min}) & (GEN[{tumor_idx}].DP >= {tumor_dp_min})",
+    "tumor_only": "({{gnomad_ac_atmost:2}}) & ((na FILTER) | (FILTER = 'PASS')) & (GEN[{tumor_idx}].DP >= {tumor_dp_min}) & (GEN[{tumor_idx}].AF >= {tumor_af_min})"
   },
   "links": {
     "SpliceAI": "https://spliceailookup.broadinstitute.org/#variant={CHROM}-{POS}-{REF}-{ALT}&hg=19&bc=basic&distance=500&mask=0&ra=0",

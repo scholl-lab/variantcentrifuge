@@ -41,6 +41,7 @@ dev = [
 
 [project.scripts]
 variantcentrifuge = "variantcentrifuge.cli:main"
+variantcentrifuge-build-pm5 = "variantcentrifuge.build_pm5_lookup:main"
 
 [tool.hatch.version]
 path = "variantcentrifuge/version.py"

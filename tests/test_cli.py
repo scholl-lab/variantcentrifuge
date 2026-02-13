@@ -656,9 +656,10 @@ class TestCLIRegressionTests:
         # main() creates mini-parsers for early-exit flags:
         # - status_parser for --show-checkpoint-status
         # - profile_parser for --list-field-profiles
-        assert parser_creation_count <= 2, (
+        # - ann_parser for --show-vcf-annotations
+        assert parser_creation_count <= 3, (
             f"main() creates too many ArgumentParsers ({parser_creation_count}). "
-            f"Expected at most 2 (status_parser + profile_parser)."
+            f"Expected at most 3 (status_parser + profile_parser + ann_parser)."
         )
 
 
