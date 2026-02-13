@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Docker image** on GHCR (`ghcr.io/scholl-lab/variantcentrifuge`) with all bioinformatics tools pre-installed:
+  - Multi-stage build using micromamba for minimal image size
+  - CI/CD pipeline with automated builds, Trivy security scanning, and cosign image signing
+  - `docker-compose.yml` with volume mount patterns for data, snpEff databases, and custom scoring configs
+  - Non-root container for security best practices
+- **Field profiles** for annotation database version compatibility (`--field-profile`):
+  - Built-in `dbnsfp4` and `dbnsfp5` profiles for seamless gnomAD field switching
+  - Template syntax `{{fragment:param}}` for parameterized filter presets
+  - `--list-field-profiles` to show available profiles
+  - Custom profiles configurable in `config.json` without code changes
 - Comprehensive Sphinx documentation with modern Furo theme
 - GitHub Actions workflow for automated documentation deployment
 - API reference documentation with autodoc

@@ -35,6 +35,8 @@ variantcentrifuge \
 - `--bcftools-prefilter "EXPRESSION"` - Apply bcftools pre-filter during variant extraction for performance
 - `--late-filtering` - Apply SnpSift filters after scoring and annotation (allows filtering on computed columns)
 - `--final-filter "EXPRESSION"` - Apply pandas query expression on final results (filter on any column including scores)
+- `--field-profile PROFILE` - Select field profile for annotation database compatibility (e.g., `dbnsfp4`, `dbnsfp5`). See [Field Profiles](configuration.md#field-profiles)
+- `--list-field-profiles` - List available field profiles and exit
 
 ### Input/Output Options
 
@@ -236,6 +238,22 @@ variantcentrifuge \
   --show-checkpoint-status \
   --output-dir previous_analysis/
 ```
+
+### Docker
+
+All examples above work inside the Docker container by mounting your data directory:
+
+```bash
+docker run --rm -v ./data:/data \
+  ghcr.io/scholl-lab/variantcentrifuge:latest \
+  --gene-name BRCA1 \
+  --vcf-file /data/input.vcf.gz \
+  --preset rare,coding \
+  --html-report \
+  --output-file /data/output.tsv
+```
+
+See the [Installation Guide](installation.md#method-4-docker-recommended-for-quick-setup) for setup details.
 
 ## Input File Formats
 

@@ -37,7 +37,15 @@ Yes, VariantCentrifuge includes features specifically designed for clinical vari
 
 ### How do I install VariantCentrifuge?
 
-The recommended installation method uses conda/mamba:
+The quickest method is Docker, which includes all external tools:
+
+```bash
+docker pull ghcr.io/scholl-lab/variantcentrifuge:latest
+docker run --rm -v ./data:/data ghcr.io/scholl-lab/variantcentrifuge:latest \
+  --gene-name BRCA1 --vcf-file /data/input.vcf.gz --output-file /data/output.tsv
+```
+
+For a native installation, use conda/mamba:
 
 ```bash
 # Create environment with dependencies
@@ -252,3 +260,29 @@ variantcentrifuge \
 ```
 
 This performs Fisher's exact test with multiple testing correction.
+
+### How do I switch between dbNSFP versions?
+
+Use the `--field-profile` option. The default profile (`dbnsfp4`) uses separate gnomAD exomes/genomes fields. For dbNSFP v5.x with joint gnomAD 4.1 fields, use `dbnsfp5`:
+
+```bash
+variantcentrifuge --field-profile dbnsfp5 --preset rare,coding ...
+```
+
+List available profiles:
+```bash
+variantcentrifuge --list-field-profiles
+```
+
+See the [Field Profiles](configuration.md#field-profiles) documentation for details on adding custom profiles.
+
+### Can I run VariantCentrifuge without installing bioinformatics tools locally?
+
+Yes, the Docker image includes bcftools, snpEff, SnpSift, bedtools, and all Python dependencies. Mount your data directory and run:
+
+```bash
+docker run --rm -v ./data:/data ghcr.io/scholl-lab/variantcentrifuge:latest \
+  --gene-name BRCA1 --vcf-file /data/input.vcf.gz --output-file /data/output.tsv
+```
+
+See the [Docker installation guide](installation.md#method-4-docker-recommended-for-quick-setup) for complete setup instructions.
