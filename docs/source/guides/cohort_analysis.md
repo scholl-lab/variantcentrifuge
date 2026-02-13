@@ -135,14 +135,19 @@ Create cohort-specific configuration files:
 
 ### Batch Processing with Snakemake
 
-For large cohorts, use the included Snakemake workflow:
+For large cohorts, use the included Snakemake 8+ workflow:
 
 ```bash
-# Configure analysis in snakemake/config_vc.yaml
-# Then run the workflow
-cd snakemake
-snakemake --cores 8 --use-conda
+# 1. Edit config/config_vc.yaml and config/samples.tsv
+# 2. Run locally
+bash scripts/run_snakemake.sh config/config_vc.yaml
+
+# Or submit to SLURM (cluster auto-detected)
+sbatch scripts/run_snakemake.sh config/config_vc.yaml
 ```
+
+See `config/README.md` for configuration details and
+`scripts/run_snakemake.sh` for the auto-detecting launcher.
 
 ## Example Workflows
 

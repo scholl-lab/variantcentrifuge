@@ -208,3 +208,7 @@ node_modules/
 
 # Docker local overrides
 docker-compose.override.yml
+
+# Snakemake runtime artifacts
+.snakemake/
+slurm_logs/

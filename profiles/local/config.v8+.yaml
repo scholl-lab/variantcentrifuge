@@ -1,0 +1,4 @@
+# Local execution (no cluster).
+jobs: 4
+software-deployment-method:
+  - conda

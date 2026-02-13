@@ -1,0 +1,44 @@
+# variantcentrifuge Snakemake workflow configuration
+# Copy this file and edit the EDIT_ME placeholders before running.
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+paths:
+  samples: "config/samples.tsv"           # TSV sample sheet (sample + vcf_basename)
+  vcf_folder: "EDIT_ME:/path/to/vcfs"     # Directory containing .vcf.gz files
+  output_folder: "results/variantcentrifuge"
+  log_subdir: "logs"
+
+# ---------------------------------------------------------------------------
+# VariantCentrifuge parameters
+# ---------------------------------------------------------------------------
+variantcentrifuge:
+  config_file: "EDIT_ME:/path/to/config.json"  # Main JSON config for variantcentrifuge
+  genes: "all"                    # Gene(s) to analyse ("all", gene name, or gene-list file)
+  log_level: "INFO"               # DEBUG, INFO, WARN, ERROR
+  threads: 8
+  add_chr: false                  # Prepend "chr" to chromosome names
+  generate_xlsx: true
+  generate_html_report: true
+  field_profile: null             # null = use default profile (dbnsfp4)
+  presets: []                     # List of preset names, e.g. ["rare", "coding"]
+  append_genotype_fields: []      # e.g. ["GEN[*].DP", "GEN[*].AD", "GEN[*].AF"]
+  gene_list_files: []             # Paths to gene-list files for annotation
+
+# ---------------------------------------------------------------------------
+# IGV report settings
+# ---------------------------------------------------------------------------
+igv:
+  enabled: false
+  reference: "hg38_1kg"           # e.g. hg19, hg38_1kg
+  bam_mapping_file: ""            # Required when igv.enabled is true
+  fasta: null                     # Local FASTA (overrides reference)
+  ideogram: null                  # Local ideogram file
+  flanking: 50                    # Flanking region in bp
+
+# ---------------------------------------------------------------------------
+# Container image (Singularity / Apptainer)
+# ---------------------------------------------------------------------------
+container:
+  image: "docker://ghcr.io/scholl-lab/variantcentrifuge:0.10.0"

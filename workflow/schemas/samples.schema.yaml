@@ -1,0 +1,18 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+description: Schema for variantcentrifuge sample sheet entries.
+
+type: object
+
+properties:
+  sample:
+    type: string
+    description: Unique sample identifier.
+  vcf_basename:
+    type: string
+    description: >
+      Basename of the VCF file (without .vcf.gz extension).
+      The workflow resolves the full path as {vcf_folder}/{vcf_basename}.vcf.gz.
+
+required:
+  - sample
+  - vcf_basename
