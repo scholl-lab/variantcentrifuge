@@ -89,38 +89,48 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BENCH-01 | — | Pending |
-| BENCH-02 | — | Pending |
-| BENCH-03 | — | Pending |
-| BENCH-04 | — | Pending |
-| BENCH-05 | — | Pending |
-| BENCH-06 | — | Pending |
-| QWIN-01 | — | Pending |
-| QWIN-02 | — | Pending |
-| QWIN-03 | — | Pending |
-| QWIN-04 | — | Pending |
-| DFOPT-01 | — | Pending |
-| DFOPT-02 | — | Pending |
-| DFOPT-03 | — | Pending |
-| DFOPT-04 | — | Pending |
-| INHER-01 | — | Pending |
-| INHER-02 | — | Pending |
-| INHER-03 | — | Pending |
-| INHER-04 | — | Pending |
-| OUTPT-01 | — | Pending |
-| OUTPT-02 | — | Pending |
-| PIPLN-01 | — | Pending |
-| PIPLN-02 | — | Pending |
-| PARLZ-01 | — | Pending |
-| PARLZ-02 | — | Pending |
-| PARLZ-03 | — | Pending |
-| PARLZ-04 | — | Pending |
+| BENCH-01 | Phase 6 | Pending |
+| BENCH-02 | Phase 6 | Pending |
+| BENCH-03 | Phase 6 | Pending |
+| BENCH-04 | Phase 6 | Pending |
+| BENCH-05 | Phase 6 | Pending |
+| BENCH-06 | Phase 6 | Pending |
+| QWIN-01 | Phase 7 | Pending |
+| QWIN-02 | Phase 7 | Pending |
+| QWIN-03 | Phase 7 | Pending |
+| QWIN-04 | Phase 7 | Pending |
+| DFOPT-01 | Phase 8 | Pending |
+| DFOPT-02 | Phase 8 | Pending |
+| DFOPT-03 | Phase 8 | Pending |
+| DFOPT-04 | Phase 8 | Pending |
+| INHER-01 | Phase 9 | Pending |
+| INHER-02 | Phase 9 | Pending |
+| INHER-03 | Phase 9 | Pending |
+| INHER-04 | Phase 9 | Pending |
+| OUTPT-01 | Phase 10 | Pending |
+| OUTPT-02 | Phase 10 | Pending |
+| PIPLN-01 | Phase 11 | Pending |
+| PIPLN-02 | Phase 11 | Pending |
+| PARLZ-01 | Phase 12 | Pending |
+| PARLZ-02 | Phase 12 | Pending |
+| PARLZ-03 | Phase 12 | Pending |
+| PARLZ-04 | Phase 12 | Pending |
 
 **Coverage:**
 - v1 requirements: 26 total
-- Mapped to phases: 0
-- Unmapped: 26 (roadmap pending)
+- Mapped to phases: 26
+- Unmapped: 0 (100% coverage)
+
+**Coverage Validation:**
+- Phase 6: 6 requirements (BENCH-01 through BENCH-06)
+- Phase 7: 4 requirements (QWIN-01 through QWIN-04)
+- Phase 8: 4 requirements (DFOPT-01 through DFOPT-04)
+- Phase 9: 4 requirements (INHER-01 through INHER-04)
+- Phase 10: 2 requirements (OUTPT-01, OUTPT-02)
+- Phase 11: 2 requirements (PIPLN-01, PIPLN-02)
+- Phase 12: 4 requirements (PARLZ-01 through PARLZ-04)
+- **Total: 26/26 requirements mapped (100%)**
 
 ---
 *Requirements defined: 2026-02-14*
-*Last updated: 2026-02-14 after initial definition*
+*Last updated: 2026-02-14 after roadmap creation*
