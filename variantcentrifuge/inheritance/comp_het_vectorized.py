@@ -94,17 +94,23 @@ def analyze_gene_for_compound_het_vectorized(
     if len(gene_df) < 2:
         return comp_het_results
 
-    # Get gene name
-    gene_name = gene_df.iloc[0].get("GENE", "Unknown")
+    # Deduplicate by genomic position to prevent false positives from
+    # split-snpeff-lines creating multiple rows per variant (one per transcript)
+    gene_df_unique = gene_df.drop_duplicates(subset=["CHROM", "POS", "REF", "ALT"])
+    if len(gene_df_unique) < 2:
+        return comp_het_results
 
-    # Pre-encode all genotypes for all samples at once
+    # Get gene name
+    gene_name = gene_df_unique.iloc[0].get("GENE", "Unknown")
+
+    # Pre-encode all genotypes for all samples at once (using deduplicated DataFrame)
     genotype_matrix = {}
     for sample_id in sample_list:
-        if sample_id in gene_df.columns:
-            genotype_matrix[sample_id] = encode_genotypes(gene_df[sample_id])
+        if sample_id in gene_df_unique.columns:
+            genotype_matrix[sample_id] = encode_genotypes(gene_df_unique[sample_id])
         else:
             # Sample not in data, use missing values
-            genotype_matrix[sample_id] = np.full(len(gene_df), -1, dtype=np.int8)
+            genotype_matrix[sample_id] = np.full(len(gene_df_unique), -1, dtype=np.int8)
 
     # Analyze each sample
     for sample_id in sample_list:
@@ -182,10 +188,12 @@ def analyze_gene_for_compound_het_vectorized(
 
         # Store results based on the new partner structure
         for var_idx, partner_indices in partners_by_variant_idx.items():
-            var_key = create_variant_key_fast(gene_df, var_idx)
+            var_key = create_variant_key_fast(gene_df_unique, var_idx)
 
             # Create list of partner variant keys
-            partner_keys = [create_variant_key_fast(gene_df, pidx) for pidx in partner_indices]
+            partner_keys = [
+                create_variant_key_fast(gene_df_unique, pidx) for pidx in partner_indices
+            ]
 
             # Determine compound het type based on data availability
             if has_father and has_mother:

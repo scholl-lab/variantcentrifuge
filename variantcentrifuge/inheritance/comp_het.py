@@ -43,10 +43,16 @@ def analyze_gene_for_compound_het(
     if len(gene_df) < 2:
         return comp_het_results
 
-    # Get gene name
-    gene_name = gene_df.iloc[0].get("GENE", "Unknown")
+    # Deduplicate by genomic position to prevent false positives from
+    # split-snpeff-lines creating multiple rows per variant (one per transcript)
+    gene_df_unique = gene_df.drop_duplicates(subset=["CHROM", "POS", "REF", "ALT"])
+    if len(gene_df_unique) < 2:
+        return comp_het_results
 
-    # Analyze each sample
+    # Get gene name
+    gene_name = gene_df_unique.iloc[0].get("GENE", "Unknown")
+
+    # Analyze each sample using deduplicated variants
     for sample_id in sample_list:
         # For samples without pedigree data, still check if affected
         if sample_id not in pedigree_data:
@@ -58,17 +64,19 @@ def analyze_gene_for_compound_het(
                 "affected_status": "2",  # Assume affected if no pedigree
             }
 
-        # Find compound het pairs for this sample
-        comp_het_pairs = find_compound_het_pairs(sample_id, gene_df, pedigree_data, sample_list)
+        # Find compound het pairs for this sample (using deduplicated DataFrame)
+        comp_het_pairs = find_compound_het_pairs(
+            sample_id, gene_df_unique, pedigree_data, sample_list
+        )
 
         # Store results for each variant in a pair
         for var1_idx, var2_idx in comp_het_pairs:
-            var1_key = create_variant_key(gene_df.iloc[var1_idx])
-            var2_key = create_variant_key(gene_df.iloc[var2_idx])
+            var1_key = create_variant_key(gene_df_unique.iloc[var1_idx])
+            var2_key = create_variant_key(gene_df_unique.iloc[var2_idx])
 
             # Determine compound het type
             trans_config, comp_het_type = determine_compound_het_type(
-                sample_id, var1_idx, var2_idx, gene_df, pedigree_data, sample_list
+                sample_id, var1_idx, var2_idx, gene_df_unique, pedigree_data, sample_list
             )
 
             # Store compound het info for both variants
