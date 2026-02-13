@@ -205,3 +205,6 @@ nul
 
 # Node.js dependencies
 node_modules/
+
+# Docker local overrides
+docker-compose.override.yml
