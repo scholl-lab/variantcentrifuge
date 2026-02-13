@@ -1,0 +1,36 @@
+"""variantcentrifuge — batch variant analysis pipeline.
+
+Requires Snakemake 8.0+.  See ``config/config_vc.yaml`` for a documented
+configuration template and ``config/samples.tsv`` for the sample sheet format.
+"""
+
+from snakemake.utils import min_version, validate
+
+min_version("8.0")
+
+import pandas as pd  # noqa: E402 (must follow min_version)
+
+# ── Configuration ────────────────────────────────────────────────────────────
+configfile: "config/config_vc.yaml"
+
+validate(config, "schemas/config.schema.yaml")
+
+samples_df = (
+    pd.read_table(config["paths"]["samples"])
+    .set_index("sample", drop=False)
+)
+validate(samples_df, "schemas/samples.schema.yaml")
+
+# ── Wildcard constraints ─────────────────────────────────────────────────────
+wildcard_constraints:
+    sample="[A-Za-z0-9_.-]+",
+
+# ── Rule includes ────────────────────────────────────────────────────────────
+include: "rules/common.smk"
+include: "rules/variantcentrifuge.smk"
+
+# ── Default target ───────────────────────────────────────────────────────────
+rule all:
+    localrule: True
+    input:
+        get_final_outputs(),

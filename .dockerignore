@@ -6,9 +6,13 @@
 tests/
 docs/
 scripts/
-snakemake/
 testing/
 baseline_outputs/
+
+# Snakemake workflow (not needed in Docker image)
+workflow/
+profiles/
+config/
 
 # Build artifacts
 __pycache__/

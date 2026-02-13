@@ -1,0 +1,119 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+description: Configuration for the variantcentrifuge Snakemake workflow.
+
+type: object
+
+properties:
+  paths:
+    type: object
+    properties:
+      samples:
+        type: string
+        description: Path to the samples TSV file.
+      vcf_folder:
+        type: string
+        description: Directory containing .vcf.gz input files.
+      output_folder:
+        type: string
+        description: Root output directory (subdirs per sample).
+      log_subdir:
+        type: string
+        default: "logs"
+        description: Subdirectory for rule log files.
+    required:
+      - samples
+      - vcf_folder
+      - output_folder
+
+  variantcentrifuge:
+    type: object
+    properties:
+      config_file:
+        type: string
+        description: Path to the main variantcentrifuge JSON config.
+      genes:
+        type: string
+        default: "all"
+        description: Gene filter (gene name, "all", or path to gene-list file).
+      log_level:
+        type: string
+        enum: ["DEBUG", "INFO", "WARN", "ERROR"]
+        default: "INFO"
+      threads:
+        type: integer
+        minimum: 1
+        default: 8
+      add_chr:
+        type: boolean
+        default: false
+      generate_xlsx:
+        type: boolean
+        default: true
+      generate_html_report:
+        type: boolean
+        default: true
+      field_profile:
+        type:
+          - "string"
+          - "null"
+        default: null
+        description: Field profile name (null uses the default profile).
+      presets:
+        type: array
+        items:
+          type: string
+        default: []
+      append_genotype_fields:
+        type: array
+        items:
+          type: string
+        default: []
+      gene_list_files:
+        type: array
+        items:
+          type: string
+        default: []
+    required:
+      - config_file
+
+  igv:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+      reference:
+        type: string
+        default: ""
+      bam_mapping_file:
+        type: string
+        default: ""
+      fasta:
+        type:
+          - "string"
+          - "null"
+        default: null
+      ideogram:
+        type:
+          - "string"
+          - "null"
+        default: null
+      flanking:
+        type: integer
+        minimum: 0
+        default: 50
+
+  container:
+    type: object
+    properties:
+      image:
+        type: string
+        default: ""
+        description: >
+          Singularity / Apptainer image URI
+          (e.g. "docker://ghcr.io/scholl-lab/variantcentrifuge:0.10.0").
+          Empty string disables container execution.
+
+required:
+  - paths
+  - variantcentrifuge

@@ -1,0 +1,12 @@
+# Charite HPC — SLURM executor plugin.
+# Max walltime: 2 days (2880 min) on all partitions.
+# Requires: pip install snakemake-executor-plugin-slurm
+executor: slurm
+jobs: 50
+latency-wait: 60
+
+default-resources:
+  slurm_partition: compute
+  slurm_account: sc-users
+  mem_mb_per_cpu: 4400
+  runtime: 120

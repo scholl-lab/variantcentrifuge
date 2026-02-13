@@ -1,153 +1,101 @@
 # VariantCentrifuge
 
-[![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://scholl-lab.github.io/variantcentrifuge/)
-[![GitHub Issues](https://img.shields.io/github/issues/scholl-lab/variantcentrifuge)](https://github.com/scholl-lab/variantcentrifuge/issues)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Python Version](https://img.shields.io/badge/python-3.7+-blue.svg)](https://python.org)
+[![CI](https://img.shields.io/github/actions/workflow/status/scholl-lab/variantcentrifuge/test.yml?branch=main&label=CI)](https://github.com/scholl-lab/variantcentrifuge/actions/workflows/test.yml)
+[![Docker](https://img.shields.io/github/actions/workflow/status/scholl-lab/variantcentrifuge/docker.yml?branch=main&label=Docker)](https://github.com/scholl-lab/variantcentrifuge/actions/workflows/docker.yml)
+[![Docs](https://img.shields.io/github/actions/workflow/status/scholl-lab/variantcentrifuge/docs.yml?branch=main&label=Docs)](https://github.com/scholl-lab/variantcentrifuge/actions/workflows/docs.yml)
+[![Release](https://img.shields.io/github/v/release/scholl-lab/variantcentrifuge)](https://github.com/scholl-lab/variantcentrifuge/releases)
+[![Python](https://img.shields.io/badge/python-%E2%89%A53.10-blue)](https://python.org)
+[![License](https://img.shields.io/github/license/scholl-lab/variantcentrifuge)](LICENSE)
 
-**VariantCentrifuge** is a production-ready Python-based command-line tool designed to filter, extract, and refine genetic variant data (VCF files) based on genes of interest, rarity criteria, and impact annotations. Built with modularity and extensibility in mind, VariantCentrifuge replaces the complexity of traditional Bash/R pipelines with a cleaner, maintainable Python codebase.
+A command-line tool for filtering, extracting, and prioritizing genetic variants from VCF files.
+VariantCentrifuge combines gene-centric region extraction, multi-tier filtering (bcftools, SnpSift, pandas), inheritance analysis, and configurable scoring into a single reproducible pipeline.
 
-> **🏆 NEW: Stage-Based Pipeline Architecture** - Now featuring a completely refactored modular pipeline with 36 specialized stages for enhanced performance, maintainability, and parallel execution capabilities. Enable with `--use-new-pipeline` flag.
+## Features
 
-## ✨ Key Features
+- Gene-centric variant extraction using gene names or BED regions
+- Three-tier filtering: bcftools prefilter, SnpSift expressions, pandas final filter
+- Inheritance pattern analysis (de novo, AD, AR, X-linked, compound het)
+- Configurable variant scoring models
+- Gene burden analysis with Fisher's exact test
+- Interactive HTML reports with sortable tables and IGV.js integration
+- ClinVar, gnomAD, and SpliceAI annotation links
+- Cohort aggregation across multiple samples
+- Field profiles for switching annotation database versions (e.g., dbNSFP v4/v5)
+- Docker image with all bioinformatics dependencies included
+- Stage-based pipeline architecture with parallel execution (`--use-new-pipeline`)
 
-- **🎯 Gene-Centric Filtering:** Extract variants from regions defined by genes of interest
-- **🔍 Advanced Filtering Pipeline:**
-  - **bcftools pre-filtering** for performance optimization on large VCFs
-  - **SnpSift filtering** for complex variant selection
-  - **Final filtering** with pandas query syntax on computed columns (scores, inheritance patterns)
-- **🏗️ Modern Architecture:** Choose between classic monolithic pipeline or new stage-based architecture
-  - **Stage-Based Pipeline** (`--use-new-pipeline`): 36 modular stages with parallel execution
-  - **Classic Pipeline** (default): Battle-tested monolithic implementation
-- **⚙️ Flexible Configuration:** JSON-based configuration with reusable filter presets
-- **📊 Interactive Reports:** Generate HTML reports with sortable tables and IGV.js integration
-- **🧬 Gene Burden Analysis:** Perform statistical analysis with Fisher's exact test
-- **🔗 Clinical Integration:** ClinVar, gnomAD, and external database annotations
-- **👥 Cohort Analysis:** Aggregate results from multiple samples with interactive visualizations
-- **🎨 Custom Scoring:** Apply configurable variant scoring models without code changes
-- **⚡ Performance Optimized:** Parallel processing, memory-efficient streaming, and chunked analysis
-- **🐳 Docker Support:** Pre-built image on GHCR with all bioinformatics tools — zero local setup
-- **🔄 Field Profiles:** Seamless switching between annotation database versions (dbNSFP v4/v5) without config changes
+## Installation
 
-## 🚀 Quick Start
-
-### Installation
+**Docker** (recommended -- all tools included):
 
 ```bash
-# Docker (quickest — all tools included)
 docker pull ghcr.io/scholl-lab/variantcentrifuge:latest
+```
 
-# Install from PyPI
+**pip:**
+
+```bash
 pip install variantcentrifuge
+```
 
-# Or install from source
+**From source:**
+
+```bash
 git clone https://github.com/scholl-lab/variantcentrifuge.git
-cd variantcentrifuge
-pip install .
+cd variantcentrifuge && pip install .
 ```
 
-### Basic Usage
+External tools (bcftools, snpEff, SnpSift, bedtools) must be in PATH when not using Docker.
+Install via conda: `mamba create -y -n vc bcftools snpsift snpeff bedtools`
+
+## Quick Start
 
 ```bash
-# Analyze variants in a single gene
-variantcentrifuge \\\n  --gene-name BRCA1 \\\n  --vcf-file input.vcf.gz \\\n  --output-file brca1_variants.tsv
+# Filter rare coding variants in a gene list
+variantcentrifuge \
+  --gene-file genes.txt \
+  --vcf-file input.vcf.gz \
+  --preset rare,coding \
+  --html-report \
+  --xlsx
 
-# Use predefined filters for rare, coding variants
-variantcentrifuge \\\n  --gene-file cancer_genes.txt \\\n  --vcf-file input.vcf.gz \\\n  --preset rare,coding \\\n  --html-report \\\n  --xlsx
-
-# Apply custom variant scoring
-variantcentrifuge \\\n  --gene-name GENE \\\n  --vcf-file input.vcf.gz \\\n  --scoring-config-path scoring/nephro_variant_score \\\n  --output-file scored_variants.tsv
-
-# Performance-optimized filtering with final filter on scores
-variantcentrifuge \\\n  --gene-file genes.txt \\\n  --vcf-file large_cohort.vcf.gz \\\n  --bcftools-prefilter 'FILTER="PASS" && INFO/AC<10' \\\n  --preset rare,coding \\\n  --scoring-config-path scoring/my_model \\\n  --final-filter 'score > 0.8 and IMPACT == "HIGH"' \\\n  --output-file high_priority_variants.tsv
+# Score and filter with a custom model
+variantcentrifuge \
+  --gene-file genes.txt \
+  --vcf-file input.vcf.gz \
+  --preset rare,coding \
+  --scoring-config-path scoring/nephro_variant_score \
+  --final-filter 'score > 0.8 and IMPACT == "HIGH"' \
+  --output-file results.tsv
 ```
 
-## 📋 Prerequisites
+## Snakemake Workflow
 
-**External Tools** (must be in PATH):
-- `bcftools` - VCF manipulation
-- `snpEff` - Functional annotation
-- `SnpSift` - Variant filtering and field extraction
-- `bedtools` - BED file operations
+A Snakemake 8+ workflow for batch-processing multiple VCFs on HPC clusters (SLURM, PBS) is included under `workflow/`, with cluster profiles in `profiles/` and sample configuration in `config/`.
+See `scripts/run_snakemake.sh` for the auto-detecting launcher.
 
-**Install via conda:**
-```bash
-mamba create -y -n variantcentrifuge bcftools snpsift snpeff bedtools
-mamba activate variantcentrifuge
-```
+## Documentation
 
-## 📖 Documentation
+Full documentation: [scholl-lab.github.io/variantcentrifuge](https://scholl-lab.github.io/variantcentrifuge/)
 
-**📚 [Complete Documentation](https://scholl-lab.github.io/variantcentrifuge/)**
+- [Installation Guide](https://scholl-lab.github.io/variantcentrifuge/installation.html)
+- [Usage Guide](https://scholl-lab.github.io/variantcentrifuge/usage.html)
+- [Configuration](https://scholl-lab.github.io/variantcentrifuge/configuration.html)
+- [API Reference](https://scholl-lab.github.io/variantcentrifuge/api/)
 
-### Quick Links
+## Contributing
 
-- **[Installation Guide](https://scholl-lab.github.io/variantcentrifuge/installation.html)** - Detailed setup instructions
-- **[Usage Guide](https://scholl-lab.github.io/variantcentrifuge/usage.html)** - Command-line options and examples
-- **[Configuration](https://scholl-lab.github.io/variantcentrifuge/configuration.html)** - Filter presets and customization
-- **[API Reference](https://scholl-lab.github.io/variantcentrifuge/api/)** - Developer documentation
+Contributions are welcome. Please see the [Contributing Guide](https://scholl-lab.github.io/variantcentrifuge/contributing.html) for details.
 
-### Practical Guides
+- [Bug Reports and Feature Requests](https://github.com/scholl-lab/variantcentrifuge/issues)
+- [Discussions](https://github.com/scholl-lab/variantcentrifuge/discussions)
 
-- **[Annotation Strategies](https://scholl-lab.github.io/variantcentrifuge/guides/annotation_strategies.html)** - VCF annotation best practices
-- **[Cohort Analysis](https://scholl-lab.github.io/variantcentrifuge/guides/cohort_analysis.html)** - Multi-sample analysis workflows
-- **[Rare Disease Workflow](https://scholl-lab.github.io/variantcentrifuge/guides/rare_disease_workflow.html)** - Clinical variant analysis
-- **[Cancer Analysis](https://scholl-lab.github.io/variantcentrifuge/guides/cancer_analysis.html)** - Somatic variant workflows
+## Citation
 
-## 🎯 Use Cases
+If you use VariantCentrifuge in your research, please cite:
 
-### Rare Disease Analysis
-```bash
-variantcentrifuge \\\n  --gene-file disease_genes.txt \\\n  --vcf-file patient.vcf.gz \\\n  --preset rare_pathogenic,high_confidence \\\n  --phenotype-file patient_data.tsv \\\n  --html-report \\\n  --output-file rare_disease_analysis.tsv
-```
+> Citation information will be added upon publication.
 
-### Cancer Genomics
-```bash
-variantcentrifuge \\\n  --gene-file oncogenes_tsg.txt \\\n  --vcf-file tumor_normal.vcf.gz \\\n  --preset mutect2_TvsN,coding \\\n  --igv \\\n  --bam-mapping-file bam_files.tsv \\\n  --html-report
-```
-
-### Population Genetics
-```bash
-variantcentrifuge \\\n  --gene-file population_genes.txt \\\n  --vcf-file cohort.vcf.gz \\\n  --preset 5percent,coding \\\n  --perform-gene-burden \\\n  --html-report
-```
-
-### Variant Scoring
-```bash
-variantcentrifuge \\\n  --gene-file kidney_genes.txt \\\n  --vcf-file patient.vcf.gz \\\n  --preset rare,coding \\\n  --scoring-config-path scoring/nephro_variant_score \\\n  --html-report \\\n  --output-file scored_kidney_variants.tsv
-```
-
-## 🏗️ Example Configuration
-
-```json
-{
-  "reference": "GRCh38.99",
-  "filters": "",
-  "fields_to_extract": "CHROM POS REF ALT ANN[0].GENE ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P gnomAD_exomes_AF ClinVar_CLNSIG GEN[*].GT",
-  "presets": {
-    "rare": "(((gnomAD_exomes_AF < 0.0001) | (na gnomAD_exomes_AF)) & ((gnomAD_genomes_AF < 0.0001) | (na gnomAD_genomes_AF)))",
-    "coding": "((ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE'))",
-    "pathogenic": "((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting'))"
-  }
-}
-```
-
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guide](https://scholl-lab.github.io/variantcentrifuge/contributing.html) for details.
-
-- **🐛 Bug Reports:** [GitHub Issues](https://github.com/scholl-lab/variantcentrifuge/issues)
-- **💡 Feature Requests:** [GitHub Issues](https://github.com/scholl-lab/variantcentrifuge/issues)
-- **💬 Discussions:** [GitHub Discussions](https://github.com/scholl-lab/variantcentrifuge/discussions)
-
-## 📄 License
+## License
 
 This project is licensed under the [MIT License](LICENSE).
-
-## 🙏 Acknowledgments
-
-- Built upon the rich ecosystem of bioinformatics tools (snpEff, SnpSift, bcftools, bedtools)
-- Inspired by prior Bash/R pipelines for variant filtering
-
----
-
-**📖 [View Full Documentation](https://scholl-lab.github.io/variantcentrifuge/) | 🚀 [Get Started](https://scholl-lab.github.io/variantcentrifuge/installation.html) | 💬 [Join Discussion](https://github.com/scholl-lab/variantcentrifuge/discussions)**

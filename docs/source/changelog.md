@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Restructured Snakemake workflow** matching lab pipeline conventions (Issue #68):
+  - Snakemake 8+ with `min_version("8.0")` and executor plugins
+  - Schema-validated config (`config/config_vc.yaml`) and sample sheet (`config/samples.tsv`)
+  - Profile layering: `profiles/default/` (resources) + `profiles/{bih,charite,local}/` (executor)
+  - Auto-detecting launcher script (`scripts/run_snakemake.sh`) for BIH, Charite, and local
+  - Singularity/Apptainer container support via `container:` directive with conda fallback
+  - Legacy `snakemake/` directory removed (replaced entirely by new layout)
 - **Docker image** on GHCR (`ghcr.io/scholl-lab/variantcentrifuge`) with all bioinformatics tools pre-installed:
   - Multi-stage build using micromamba for minimal image size
   - CI/CD pipeline with automated builds, Trivy security scanning, and cosign image signing
