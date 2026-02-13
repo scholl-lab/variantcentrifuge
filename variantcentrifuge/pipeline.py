@@ -18,6 +18,7 @@ from .pipeline_core.stage import Stage
 from .pipeline_core.workspace import Workspace
 from .stages.analysis_stages import (
     ChunkedAnalysisStage,
+    ClinVarPM5Stage,
     CustomAnnotationStage,
     DataFrameLoadingStage,
     GeneBurdenAnalysisStage,
@@ -279,6 +280,10 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
 
     if hasattr(args, "perform_gene_burden") and args.perform_gene_burden:
         stages.append(GeneBurdenAnalysisStage())
+
+    # ClinVar PM5 annotation (when lookup table is provided)
+    if config.get("clinvar_pm5_lookup") or getattr(args, "clinvar_pm5_lookup", None):
+        stages.append(ClinVarPM5Stage())
 
     # Check for final filtering - need to check both args attributes and config
     late_filtering = getattr(args, "late_filtering", False) or config.get("late_filtering", False)

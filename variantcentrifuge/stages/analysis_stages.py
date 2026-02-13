@@ -1909,6 +1909,58 @@ class GeneBurdenAnalysisStage(Stage):
         return []
 
 
+class ClinVarPM5Stage(Stage):
+    """Annotate variants with ACMG PM5 criterion from ClinVar lookup."""
+
+    @property
+    def name(self) -> str:
+        return "clinvar_pm5"
+
+    @property
+    def description(self) -> str:
+        return "Annotate variants with ClinVar PM5 criterion"
+
+    @property
+    def dependencies(self) -> set[str]:
+        return {"dataframe_loading"}
+
+    @property
+    def soft_dependencies(self) -> set[str]:
+        return {"variant_analysis"}
+
+    def _process(self, context: PipelineContext) -> PipelineContext:
+        lookup_path = context.config.get("clinvar_pm5_lookup")
+        if not lookup_path:
+            logger.debug("No --clinvar-pm5-lookup provided, skipping PM5 annotation")
+            return context
+
+        if context.current_dataframe is None:
+            logger.warning("No DataFrame available for PM5 annotation")
+            return context
+
+        from ..clinvar_pm5 import annotate_pm5, load_pm5_lookup
+
+        lookup = load_pm5_lookup(lookup_path)
+
+        # Resolve gene and HGVS_P column names
+        df = context.current_dataframe
+        gene_col = "GENE" if "GENE" in df.columns else "ANN[0].GENE"
+        hgvs_col = "HGVS_P" if "HGVS_P" in df.columns else "ANN[0].HGVS_P"
+
+        if gene_col not in df.columns:
+            logger.warning("Gene column not found in DataFrame, skipping PM5")
+            return context
+
+        if hgvs_col not in df.columns:
+            logger.warning("HGVS_P column not found in DataFrame, skipping PM5")
+            return context
+
+        logger.info("Running PM5 annotation on %d variants", len(df))
+        context.current_dataframe = annotate_pm5(df, lookup, gene_col=gene_col, hgvs_col=hgvs_col)
+        logger.info("PM5 annotation complete")
+        return context
+
+
 class ChunkedAnalysisStage(Stage):
     """Process large files in chunks with all analysis steps."""
 
