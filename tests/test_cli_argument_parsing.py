@@ -170,11 +170,13 @@ class TestArgumentParserArchitecture:
             f"main() should call create_parser() exactly once, found {create_parser_calls}"
         )
 
-        # main() should create minimal additional parsers (only status_parser)
+        # main() should create minimal additional parsers for early-exit flags:
+        # - status_parser for --show-checkpoint-status
+        # - profile_parser for --list-field-profiles
         parser_creations = main_source.count("ArgumentParser")
-        assert parser_creations <= 1, (
-            f"main() should create at most 1 ArgumentParser (status_parser), "
-            f"found {parser_creations}"
+        assert parser_creations <= 2, (
+            f"main() should create at most 2 ArgumentParsers "
+            f"(status_parser + profile_parser), found {parser_creations}"
         )
 
     def test_argument_groups_only_in_create_parser(self):

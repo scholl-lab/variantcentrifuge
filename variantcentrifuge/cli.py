@@ -151,6 +151,23 @@ def create_parser() -> argparse.ArgumentParser:
         ),
     )
     filter_group.add_argument(
+        "--field-profile",
+        help=(
+            "Field profile for annotation-version-specific field names "
+            "(e.g., 'dbnsfp4', 'dbnsfp5'). Controls which gnomAD field names "
+            "are used in filter presets and field extraction. "
+            "Default: value of 'default_field_profile' in config (usually 'dbnsfp4'). "
+            "Use --list-field-profiles to see available profiles."
+        ),
+        default=None,
+    )
+    filter_group.add_argument(
+        "--list-field-profiles",
+        action="store_true",
+        default=False,
+        help="List available field profiles and exit.",
+    )
+    filter_group.add_argument(
         "--late-filtering",
         action="store_true",
         help="Apply filters after scoring and annotation (allows filtering on computed columns like scores). "
@@ -726,6 +743,28 @@ def main() -> int:
 
     parser = create_parser()
 
+    # For --list-field-profiles, we don't need other required arguments
+    if "--list-field-profiles" in sys.argv:
+        from .field_profile import list_profiles
+
+        # Parse only the config argument (optional)
+        profile_parser = argparse.ArgumentParser(description="List field profiles")
+        profile_parser.add_argument("--list-field-profiles", action="store_true")
+        profile_parser.add_argument(
+            "-c", "--config", help="Path to configuration file", default=None
+        )
+        profile_args = profile_parser.parse_args()
+
+        profile_cfg = load_config(profile_args.config)
+        profiles = list_profiles(profile_cfg)
+        if profiles:
+            print("Available field profiles:")
+            for prof in profiles:
+                print(f"  {prof['name']:12s}  {prof['description']}")
+        else:
+            print("No field profiles defined in configuration.")
+        sys.exit(0)
+
     # For --show-checkpoint-status, we don't need other required arguments
     if "--show-checkpoint-status" in sys.argv:
         # Create a minimal parser just for checkpoint status
@@ -803,6 +842,14 @@ def main() -> int:
     # Load configuration
     cfg: dict[str, Any] = load_config(args.config)
     logger.debug(f"Configuration loaded: {cfg}")
+
+    # Resolve field profile (expands {{fragment:param}} templates in presets,
+    # merges profile-specific fields and hidden columns into config)
+    from .field_profile import resolve_profile
+
+    if args.field_profile:
+        cfg["field_profile"] = args.field_profile
+    resolve_profile(cfg)
 
     reference: str | None = args.reference or cfg.get("reference")
     filters: str | None = args.filters or cfg.get("filters")

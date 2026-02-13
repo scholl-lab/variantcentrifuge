@@ -653,10 +653,12 @@ class TestCLIRegressionTests:
 
         # Verify main() has minimal parser-related code
         parser_creation_count = main_source.count("ArgumentParser")
-        # main() should only create the status_parser for --show-checkpoint-status
-        assert parser_creation_count <= 1, (
+        # main() creates mini-parsers for early-exit flags:
+        # - status_parser for --show-checkpoint-status
+        # - profile_parser for --list-field-profiles
+        assert parser_creation_count <= 2, (
             f"main() creates too many ArgumentParsers ({parser_creation_count}). "
-            f"Should only create status_parser for --show-checkpoint-status."
+            f"Expected at most 2 (status_parser + profile_parser)."
         )
 
 
@@ -1010,3 +1012,91 @@ class TestPerformanceConfigMapping:
             should_warn = True
 
         assert should_warn, "Should warn when pseudonymize_table provided without pseudonymize"
+
+
+class TestFieldProfileCLI:
+    """Tests for --field-profile and --list-field-profiles CLI arguments."""
+
+    def test_field_profile_arg_in_help(self):
+        """Test that --field-profile appears in help text."""
+        from variantcentrifuge.cli import create_parser
+
+        parser = create_parser()
+        help_text = parser.format_help()
+        assert "--field-profile" in help_text
+
+    def test_list_field_profiles_arg_in_help(self):
+        """Test that --list-field-profiles appears in help text."""
+        from variantcentrifuge.cli import create_parser
+
+        parser = create_parser()
+        help_text = parser.format_help()
+        assert "--list-field-profiles" in help_text
+
+    def test_field_profile_parses(self):
+        """Test that --field-profile parses correctly."""
+        from variantcentrifuge.cli import create_parser
+
+        parser = create_parser()
+        args = parser.parse_args(["--vcf-file", "test.vcf", "--field-profile", "dbnsfp5"])
+        assert args.field_profile == "dbnsfp5"
+
+    def test_field_profile_default_none(self):
+        """Test that --field-profile defaults to None."""
+        from variantcentrifuge.cli import create_parser
+
+        parser = create_parser()
+        args = parser.parse_args(["--vcf-file", "test.vcf"])
+        assert args.field_profile is None
+
+    def test_list_field_profiles_default_false(self):
+        """Test that --list-field-profiles defaults to False."""
+        from variantcentrifuge.cli import create_parser
+
+        parser = create_parser()
+        args = parser.parse_args(["--vcf-file", "test.vcf"])
+        assert args.list_field_profiles is False
+
+    def test_list_field_profiles_flag(self):
+        """Test that --list-field-profiles sets the flag."""
+        from variantcentrifuge.cli import create_parser
+
+        parser = create_parser()
+        args = parser.parse_args(["--vcf-file", "test.vcf", "--list-field-profiles"])
+        assert args.list_field_profiles is True
+
+    def test_list_field_profiles_early_exit(self):
+        """Test that --list-field-profiles exits without requiring --vcf-file."""
+        from unittest.mock import patch
+
+        with (
+            patch("sys.argv", ["variantcentrifuge", "--list-field-profiles"]),
+            patch("builtins.print") as mock_print,
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                from variantcentrifuge.cli import main
+
+                main()
+
+            assert exc_info.value.code == 0
+            print_calls = [str(call) for call in mock_print.call_args_list]
+            full_output = " ".join(print_calls)
+            assert "dbnsfp4" in full_output
+            assert "dbnsfp5" in full_output
+
+    def test_field_profile_in_filtering_group(self):
+        """Test that --field-profile is in the Filtering & Annotation group."""
+        from variantcentrifuge.cli import create_parser
+
+        parser = create_parser()
+        # Find the Filtering & Annotation group
+        filter_group = None
+        for group in parser._action_groups:
+            if group.title == "Filtering & Annotation":
+                filter_group = group
+                break
+        assert filter_group is not None
+        action_names = [a.option_strings for a in filter_group._group_actions]
+        flat_names = [name for names in action_names for name in names]
+        assert "--field-profile" in flat_names
+        assert "--list-field-profiles" in flat_names
