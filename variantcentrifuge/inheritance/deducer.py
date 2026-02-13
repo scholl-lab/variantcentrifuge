@@ -128,7 +128,7 @@ def deduce_patterns_for_sample(
     List[str]
         List of possible patterns for this sample
     """
-    patterns = []
+    patterns: list[str] = []
 
     # Get sample genotype
     sample_gt = variant_row.get(sample_id, "./.")
@@ -320,7 +320,7 @@ def check_x_linked_patterns(
 
     Returns list of possible X-linked patterns.
     """
-    patterns = []
+    patterns: list[str] = []
     sample_gt = variant_row.get(sample_id, "./.")
     sex = pedigree_data[sample_id].get("sex", "0")
     affected = is_affected(sample_id, pedigree_data)

@@ -7,9 +7,10 @@ displaying checkpoint status, and guiding users through safe resume operations.
 
 import logging
 from datetime import datetime
+from typing import Optional
 
 from .checkpoint import PipelineState
-from .stages.stage_registry import get_registry
+from .stages.stage_registry import StageInfo, get_registry
 
 logger = logging.getLogger(__name__)
 
@@ -191,7 +192,7 @@ def _display_all_available_stages(available_stages: list[str]) -> None:
     print("-" * 50)
 
     # Group by category
-    categories = {}
+    categories: dict[str, list[tuple[str, StageInfo]]] = {}
     for stage_name in available_stages:
         stage_info = registry.get_stage_info(stage_name)
         if stage_info:

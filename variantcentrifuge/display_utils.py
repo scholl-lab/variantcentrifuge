@@ -7,11 +7,11 @@ stage information, execution timelines, and resume recommendations.
 
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from .checkpoint import PipelineState, StepInfo
 from .pipeline_core.stage import Stage
-from .stages.stage_registry import get_registry
+from .stages.stage_registry import StageInfo, get_registry
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,7 @@ def display_available_stages(stages: list[Stage], config: dict[str, Any]) -> Non
     print(f"📋 Configuration: {len(stages)} stages active")
 
     # Group stages by category
-    categories = {}
+    categories: dict[str, list[tuple[Stage, Optional[StageInfo]]]] = {}
     for stage in stages:
         stage_info = registry.get_stage_info(stage.name)
         category = stage_info.category if stage_info else "unknown"
@@ -135,7 +135,7 @@ def display_available_stages(stages: list[Stage], config: dict[str, Any]) -> Non
 
             # Dependencies
             deps = stage.dependencies
-            soft_deps = getattr(stage, "soft_dependencies", set())
+            soft_deps: set[str] = getattr(stage, "soft_dependencies", set())
 
             print(f"   📌 {name}{aliases_str}")
             print(f"      {description}")
@@ -169,7 +169,7 @@ def display_stage_timeline(completed_stages: list[tuple[str, StepInfo]]) -> None
     print(f"{'#':<3} {'Stage':<25} {'Duration':<12} {'Start Time':<15} {'Status'}")
     print("-" * 70)
 
-    total_duration = 0
+    total_duration: float = 0
     for i, (stage_name, step_info) in enumerate(completed_stages, 1):
         # Duration
         duration = step_info.duration or 0
@@ -218,7 +218,7 @@ def display_performance_summary(completed_stages: list[tuple[str, StepInfo]]) ->
     # Sort by duration for top performers
     stages_by_duration = sorted(
         [(name, info) for name, info in completed_stages if info.duration],
-        key=lambda x: x[1].duration,
+        key=lambda x: x[1].duration or 0.0,
         reverse=True,
     )
 
@@ -234,8 +234,9 @@ def display_performance_summary(completed_stages: list[tuple[str, StepInfo]]) ->
     # Show top 3 time consumers
     print("\n   🐌 Top Time Consumers:")
     for i, (stage_name, step_info) in enumerate(stages_by_duration[:3], 1):
-        percentage = (step_info.duration / total_time) * 100
-        print(f"      {i}. {stage_name}: {step_info.duration:.1f}s ({percentage:.1f}%)")
+        dur = step_info.duration or 0.0
+        percentage = (dur / total_time) * 100
+        print(f"      {i}. {stage_name}: {dur:.1f}s ({percentage:.1f}%)")
 
 
 def display_dependency_graph(stages: list[Stage]) -> None:
@@ -258,7 +259,7 @@ def display_dependency_graph(stages: list[Stage]) -> None:
 
     for stage in sorted(stages, key=lambda s: s.name):
         deps = stage.dependencies
-        soft_deps = getattr(stage, "soft_dependencies", set())
+        soft_deps: set[str] = getattr(stage, "soft_dependencies", set())
 
         # Filter to only show dependencies that exist in current pipeline
         active_deps = deps & set(stage_map.keys())

@@ -225,7 +225,7 @@ def create_inheritance_details(
     Dict[str, Any]
         Dictionary with detailed inheritance information
     """
-    details = {
+    details: dict[str, Any] = {
         "primary_pattern": best_pattern,
         "all_patterns": list(set(all_patterns)),
         "confidence": confidence,

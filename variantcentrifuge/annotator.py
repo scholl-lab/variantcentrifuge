@@ -298,7 +298,7 @@ def load_custom_features(cfg: dict[str, Any]) -> dict[str, Any]:
     """
     logger.info("Loading custom annotation features...")
 
-    features = {"regions_by_chrom": {}, "gene_lists": {}, "json_gene_data": {}}
+    features: dict[str, Any] = {"regions_by_chrom": {}, "gene_lists": {}, "json_gene_data": {}}
     features["json_genes_as_columns"] = cfg.get("json_genes_as_columns", False)
 
     # Load BED files
@@ -348,7 +348,7 @@ def _extract_genes_from_row(row: pd.Series) -> set[str]:
     Set[str]
         Set of uppercase gene symbols
     """
-    genes = set()
+    genes: set[str] = set()
 
     # Check common gene annotation columns
     gene_columns = ["GENE", "Gene", "gene_symbol", "symbol"]
@@ -386,7 +386,7 @@ def _find_region_overlaps(row: pd.Series, regions_by_chrom: dict[str, Any]) -> l
     List[str]
         List of region annotation strings
     """
-    annotations = []
+    annotations: list[str] = []
 
     if not regions_by_chrom or not INTERVALTREE_AVAILABLE:
         return annotations
@@ -471,7 +471,7 @@ def _add_json_annotations_as_columns(
         return df
 
     # Identify all possible new column names from the JSON data
-    all_new_columns = set()
+    all_new_columns: set[str] = set()
     for data in json_gene_data.values():
         all_new_columns.update(data.keys())
 
@@ -582,7 +582,7 @@ def get_annotation_summary(df: pd.DataFrame) -> dict[str, Any]:
     annotated_variants = (df["Custom_Annotation"] != "").sum()
 
     # Count annotation types
-    annotation_types = {}
+    annotation_types: dict[str, int] = {}
     for annotations in df["Custom_Annotation"]:
         if annotations:
             for annotation in annotations.split(";"):

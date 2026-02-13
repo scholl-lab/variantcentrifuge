@@ -211,8 +211,8 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: dict[str, Any]) -> pd.Da
 
         # For gene burden analysis, we need to identify which samples have ANY variant in this gene
         # This requires parsing the GT column to find unique samples with variants
-        case_samples_with_variants = set()
-        control_samples_with_variants = set()
+        case_samples_with_variants: set[str] = set()
+        control_samples_with_variants: set[str] = set()
         case_total_alleles = 0
         control_total_alleles = 0
 

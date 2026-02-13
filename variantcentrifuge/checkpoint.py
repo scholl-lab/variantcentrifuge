@@ -118,16 +118,11 @@ class FileInfo:
         sha256 = hashlib.sha256()
 
         # Handle both gzipped and regular files
-        if filepath.endswith(".gz"):
-            open_func = gzip.open
-            mode = "rb"
-        else:
-            open_func = open
-            mode = "rb"
+        open_func: Callable[..., Any] = gzip.open if filepath.endswith(".gz") else open
 
-        with open_func(filepath, mode) as f:
+        with open_func(filepath, "rb") as f:
             while chunk := f.read(chunk_size):
-                sha256.update(chunk)
+                sha256.update(chunk)  # type: ignore[arg-type]
 
         return sha256.hexdigest()
 
@@ -211,7 +206,7 @@ class PipelineState:
         self.enable_checksum = enable_checksum
         self._state_lock = threading.Lock()  # Thread-safe state operations
 
-        self.state = {
+        self.state: dict[str, Any] = {
             "version": self.STATE_VERSION,
             "pipeline_version": None,  # Set by pipeline
             "start_time": None,
@@ -988,8 +983,8 @@ class CheckpointContext:
         self.step_name = step_name
         self.command_hash = command_hash
         self.parameters = parameters
-        self.input_files = []
-        self.output_files = []
+        self.input_files: list[str | None] = []
+        self.output_files: list[str | None] = []
 
     def __enter__(self):
         """Enter the checkpoint context."""

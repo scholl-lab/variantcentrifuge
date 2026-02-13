@@ -15,8 +15,10 @@ import logging
 import os
 import shutil
 import subprocess
+import typing
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import psutil
@@ -170,7 +172,7 @@ def select_optimal_processing_method(
     file_path: Path,
     num_samples: int,
     threads: int,
-    available_memory_gb: float = None,
+    available_memory_gb: float | None = None,
 ) -> str:
     """
     Select the optimal processing method based on file characteristics.
@@ -538,6 +540,8 @@ class ParallelVariantExtractionStage(Stage):
             return extractor._process(context)
 
         # Split BED file into chunks
+        if context.gene_bed_file is None:
+            raise ValueError("gene_bed_file is required for parallel variant extraction")
         bed_chunks = self._split_bed_file(context.gene_bed_file, threads)
         logger.info(f"Split BED file into {len(bed_chunks)} chunks for parallel processing")
 
@@ -785,7 +789,7 @@ class BCFToolsPrefilterStage(Stage):
         run_command(cmd)
         run_command(["bcftools", "index", str(output_vcf)])
 
-        context.bcftools_filtered_vcf = output_vcf
+        context.bcftools_filtered_vcf = output_vcf  # type: ignore[attr-defined]
         context.filtered_vcf = output_vcf
         # Only update context.data if we haven't extracted to TSV yet
         if not hasattr(context, "extracted_tsv"):
@@ -838,7 +842,7 @@ class MultiAllelicSplitStage(Stage):
         logger.info("Splitting SNPeff annotations by transcript")
         split_snpeff_annotations(str(input_vcf), str(output_vcf))
 
-        context.split_annotations_vcf = output_vcf
+        context.split_annotations_vcf = output_vcf  # type: ignore[attr-defined]
         # Only update context.data if we haven't extracted to TSV yet
         if not hasattr(context, "extracted_tsv"):
             context.data = output_vcf
@@ -930,14 +934,14 @@ class TranscriptFilterStage(Stage):
 
         # Apply transcript filter using SnpSift
         apply_snpsift_filter(
-            input_vcf=str(input_vcf),
-            filter_expr=transcript_filter_expr,
-            output_vcf=str(output_vcf),
+            variant_file=str(input_vcf),
+            filter_string=transcript_filter_expr,
+            output_file=str(output_vcf),
             cfg=context.config,
         )
 
         # Update context with filtered VCF
-        context.transcript_filtered_vcf = output_vcf
+        context.transcript_filtered_vcf = output_vcf  # type: ignore[attr-defined]
         context.data = output_vcf
 
         logger.info(f"Transcript filtering completed: {output_vcf}")
@@ -1581,20 +1585,19 @@ class GenotypeReplacementStage(Stage):
             "genotype_replacement_map": context.config.get("genotype_replacement_map", {}),
         }
 
-        # Use optimized compression for intermediate files
-        compression_level = 1 if use_compression else None
-
         # Handle gzipped input/output files with streaming
         import gzip
 
+        inp_handle: typing.IO[str]
+        out_handle: typing.IO[str]
         if str(input_tsv).endswith(".gz"):
-            inp_handle = gzip.open(input_tsv, "rt", encoding="utf-8")
+            inp_handle = gzip.open(input_tsv, "rt", encoding="utf-8")  # type: ignore[assignment]
         else:
             inp_handle = open(input_tsv, encoding="utf-8")
 
         if str(output_tsv).endswith(".gz"):
-            out_handle = gzip.open(
-                output_tsv, "wt", encoding="utf-8", compresslevel=compression_level
+            out_handle = gzip.open(  # type: ignore[assignment]
+                output_tsv, "wt", encoding="utf-8", compresslevel=1
             )
         else:
             out_handle = open(output_tsv, "w", encoding="utf-8")
@@ -2272,6 +2275,8 @@ class ParallelCompleteProcessingStage(Stage):
             return context
 
         # Split BED file into chunks
+        if context.gene_bed_file is None:
+            raise ValueError("gene_bed_file is required for parallel complete processing")
         split_start = self._start_subtask("bed_splitting")
 
         bed_chunks = self._split_bed_file(context.gene_bed_file, threads)
@@ -2338,8 +2343,8 @@ class ParallelCompleteProcessingStage(Stage):
         vcf_file: str,
         base_name: str,
         intermediate_dir: Path,
-        config: dict,
-        subtask_times: dict[str, float] = None,
+        config: dict[str, Any],
+        subtask_times: Any = None,
     ) -> Path:
         """Process a single BED chunk through complete pipeline."""
         import time
@@ -2524,7 +2529,7 @@ class ParallelCompleteProcessingStage(Stage):
 
         return all_chunk_tsvs
 
-    def _aggregate_subtask_times(self, shared_subtask_times: dict) -> None:
+    def _aggregate_subtask_times(self, shared_subtask_times: Any) -> None:
         """Aggregate subtask times from parallel processing."""
         # Group by subtask type
         extraction_times = []
@@ -2638,12 +2643,10 @@ class ParallelCompleteProcessingStage(Stage):
         """Traditional TSV merging with compression handling."""
         import gzip
 
-        # Use fast compression for intermediate files
-        compression_level = 1 if str(output_tsv).endswith(".gz") else None
-
         # Open output file
+        out_fh: typing.IO[str]
         if str(output_tsv).endswith(".gz"):
-            out_fh = gzip.open(output_tsv, "wt", compresslevel=compression_level)
+            out_fh = gzip.open(output_tsv, "wt", compresslevel=1)  # type: ignore[assignment]
         else:
             out_fh = open(output_tsv, "w")
 
@@ -2651,8 +2654,9 @@ class ParallelCompleteProcessingStage(Stage):
             first_file = True
             for chunk_tsv in sorted(chunk_tsvs):  # Sort to ensure consistent order
                 # Open chunk file
+                in_fh: typing.IO[str]
                 if str(chunk_tsv).endswith(".gz"):
-                    in_fh = gzip.open(chunk_tsv, "rt")
+                    in_fh = gzip.open(chunk_tsv, "rt")  # type: ignore[assignment]
                 else:
                     in_fh = open(chunk_tsv)
 
@@ -2770,7 +2774,7 @@ class DataSortingStage(Stage):
         input_file: str,
         output_file: str,
         gene_column: str = "GENE",
-        temp_dir: str = None,
+        temp_dir: str | None = None,
         memory_limit: str = "2G",
         parallel: int = 4,
     ) -> str:
@@ -2852,10 +2856,10 @@ class DataSortingStage(Stage):
         logger.debug(f"Running sort command: {cmd}")
 
         # Find bash executable
-        bash_path = shutil.which("bash") or "/bin/bash"
-        if not os.path.exists(bash_path):
-            logger.warning(f"bash not found at {bash_path}, falling back to shell default")
-            bash_path = None
+        bash_candidate = shutil.which("bash") or "/bin/bash"
+        bash_path: str | None = bash_candidate if os.path.exists(bash_candidate) else None
+        if bash_path is None:
+            logger.warning(f"bash not found at {bash_candidate}, falling back to shell default")
 
         # Execute command
         result = subprocess.run(

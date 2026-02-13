@@ -37,7 +37,7 @@ def analyze_gene_for_compound_het(
     Dict[str, Dict[str, Any]]
         Dictionary mapping variant keys to compound het details
     """
-    comp_het_results = {}
+    comp_het_results: dict[str, dict[str, Any]] = {}
 
     # Skip if too few variants
     if len(gene_df) < 2:
@@ -129,7 +129,7 @@ def find_compound_het_pairs(
     List[Tuple[int, int]]
         List of tuples (variant1_index, variant2_index) representing comp het pairs
     """
-    pairs = []
+    pairs: list[tuple[int, int]] = []
 
     # Get indices of heterozygous variants for this sample
     het_indices = []
@@ -364,7 +364,7 @@ def get_compound_het_summary(
     Dict[str, Any]
         Summary dictionary
     """
-    summary = {"total_comp_het_variants": 0, "comp_het_pairs": [], "genes_with_comp_het": set()}
+    summary: dict[str, Any] = {"total_comp_het_variants": 0, "comp_het_pairs": [], "genes_with_comp_het": set()}
 
     processed_pairs = set()
 

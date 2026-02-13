@@ -47,6 +47,7 @@ import io
 import re
 import subprocess
 import sys
+from typing import Optional
 
 
 def split_vcf_effects(line: str) -> list[str]:
@@ -75,7 +76,7 @@ def split_vcf_effects(line: str) -> list[str]:
     infos = info_str.split(";")
 
     # We look for EFF= or ANN= in the INFO field
-    effs = []
+    effs: list[str] = []
     field_name = None
     other_info_parts = []
 
@@ -118,7 +119,7 @@ def split_vcf_effects(line: str) -> list[str]:
     return split_lines
 
 
-def process_vcf_file(input_file: str, output_file: str = None) -> None:
+def process_vcf_file(input_file: str, output_file: Optional[str] = None) -> None:
     """
     Process a VCF file, split multiple EFF/ANN annotations into separate lines, and write the output.
 
@@ -182,6 +183,7 @@ def process_vcf_file(input_file: str, output_file: str = None) -> None:
         if use_bgzip and bgzip_proc is not None:
             bgzip_proc.wait()
             if bgzip_proc.returncode == 0:
+                assert output_file is not None
                 subprocess.run(["tabix", "-p", "vcf", output_file], check=True)
 
 

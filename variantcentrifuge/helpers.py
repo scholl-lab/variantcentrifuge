@@ -64,7 +64,7 @@ def compute_phenotype_based_case_control_assignment(
     vcf_samples: list[str],
     phenotype_map: dict[str, set[str]],
     case_phenotypes: list[str],
-    control_phenotypes: list[str] = None,
+    control_phenotypes: list[str] | None = None,
     remove_substring: str = "",
 ) -> tuple[set[str], set[str]]:
     """
@@ -497,7 +497,7 @@ def load_gene_list(file_path: str) -> set[str]:
     Set[str]
         A set of gene names in uppercase for case-insensitive matching
     """
-    genes = set()
+    genes: set[str] = set()
     if not os.path.exists(file_path):
         logger.warning(f"Gene list file not found: {file_path}. Skipping this list.")
         return genes
@@ -911,7 +911,7 @@ def read_sequencing_manifest(file_path: str) -> dict[str, dict[str, str]]:
     Dict[str, Dict[str, str]]
         Mapping of sample IDs to metadata dictionaries
     """
-    result = {}
+    result: dict[str, dict[str, str]] = {}
     if not os.path.exists(file_path):
         logger.warning(f"Manifest file not found: {file_path}")
         return result

@@ -88,7 +88,7 @@ def analyze_gene_for_compound_het_vectorized(
     Dict[str, Dict[str, Any]]
         Dictionary mapping variant keys to compound het details
     """
-    comp_het_results = {}
+    comp_het_results: dict[str, dict[str, Any]] = {}
 
     # Skip if too few variants
     if len(gene_df) < 2:
@@ -139,7 +139,7 @@ def analyze_gene_for_compound_het_vectorized(
         has_father = father_id and father_id in sample_list
         has_mother = mother_id and mother_id in sample_list
 
-        partners_by_variant_idx = {}  # This will store the results
+        partners_by_variant_idx: dict[int, list[int]] = {}  # This will store the results
 
         if has_father and has_mother:
             # Case 1: Both parents present
@@ -175,7 +175,7 @@ def analyze_gene_for_compound_het_vectorized(
                 # Get partner indices
                 partner_positions = np.where(partner_mask)[0]
                 if len(partner_positions) > 0:
-                    partners_by_variant_idx[int(var_idx)] = het_indices[partner_positions].tolist()
+                    partners_by_variant_idx[int(var_idx)] = het_indices[partner_positions].tolist()  # type: ignore[assignment]
 
         else:
             # Case 3: No parental data
@@ -184,11 +184,11 @@ def analyze_gene_for_compound_het_vectorized(
                 for i, var_idx in enumerate(het_indices):
                     partners = np.delete(het_indices, i)
                     if len(partners) > 0:
-                        partners_by_variant_idx[int(var_idx)] = partners.tolist()
+                        partners_by_variant_idx[int(var_idx)] = partners.tolist()  # type: ignore[assignment]
 
         # Store results based on the new partner structure
-        for var_idx, partner_indices in partners_by_variant_idx.items():
-            var_key = create_variant_key_fast(gene_df_unique, var_idx)
+        for result_var_idx, partner_indices in partners_by_variant_idx.items():
+            var_key = create_variant_key_fast(gene_df_unique, result_var_idx)
 
             # Create list of partner variant keys
             partner_keys = [
@@ -266,7 +266,7 @@ def find_potential_partners_vectorized(
 
     # For each variant, find its potential partners
     for i, var_idx in enumerate(het_indices):
-        potential_partners = []
+        potential_partners: list[int] = []
 
         # Determine this variant's origin
         if from_father_only[i]:
@@ -288,7 +288,7 @@ def find_potential_partners_vectorized(
 
         # Get the partner indices
         partner_positions = np.where(partner_mask)[0]
-        potential_partners = het_indices[partner_positions].tolist()
+        potential_partners = het_indices[partner_positions].tolist()  # type: ignore[assignment]
 
         if potential_partners:
             partners_by_variant[int(var_idx)] = potential_partners

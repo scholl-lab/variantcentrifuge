@@ -406,8 +406,8 @@ class StreamingGenotypeProcessor:
     ) -> None:
         """Execute the streaming pipeline with overlapped I/O and processing."""
         # Queues for pipeline stages
-        chunk_queue = Queue(maxsize=cpu_workers * 2)  # Buffer chunks
-        result_queue = PriorityQueue()  # Ordered results
+        chunk_queue: Queue[Any] = Queue(maxsize=cpu_workers * 2)  # Buffer chunks
+        result_queue: PriorityQueue[Any] = PriorityQueue()  # Ordered results
 
         compression = "gzip" if str(input_path).endswith(".gz") else None
         output_compression = "gzip" if str(output_path).endswith(".gz") else None

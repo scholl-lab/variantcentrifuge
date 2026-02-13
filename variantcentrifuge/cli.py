@@ -1217,10 +1217,10 @@ def main() -> int:
         if not hasattr(refactored_args, "start_time"):
             refactored_args.start_time = start_time
 
-        run_refactored_pipeline(refactored_args)
+        run_refactored_pipeline(refactored_args)  # type: ignore[arg-type]
         return 0
     except SystemExit as e:
-        return e.code if e.code is not None else 1
+        return int(e.code) if e.code is not None else 1
     except Exception as e:
         logger.error(f"Pipeline failed: {e}")
         return 1

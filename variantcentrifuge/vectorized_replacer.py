@@ -523,8 +523,8 @@ def process_parallel_chunked_vectorized(
     output_path: str | Path,
     config: dict[str, Any],
     chunk_size: int = 10000,
-    max_workers: int = None,
-    available_memory_gb: float = None,
+    max_workers: int | None = None,
+    available_memory_gb: float | None = None,
 ) -> None:
     """
     Process large files using parallel chunked vectorized replacement.
@@ -601,7 +601,7 @@ def process_parallel_chunked_vectorized(
         logger.debug(f"Using temporary directory: {temp_dir}")
 
         # Read file and split into chunks for parallel processing
-        chunk_files = []
+        chunk_files: list[str] = []
         header = None
 
         try:

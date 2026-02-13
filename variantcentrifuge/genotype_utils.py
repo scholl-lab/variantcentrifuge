@@ -225,7 +225,7 @@ def merge_genotypes(genotypes: list[str]) -> str:
         return "./."
 
     # Count alleles
-    allele_counts = {}
+    allele_counts: dict[int, int] = {}
     for gt in valid_gts:
         allele1, allele2 = parse_genotype(gt)
         if allele1 is not None:

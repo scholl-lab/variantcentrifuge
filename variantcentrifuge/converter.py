@@ -124,7 +124,7 @@ def finalize_excel_file(xlsx_file: str, cfg: dict[str, Any]) -> None:
     # Check for IGV reports map
     igv_enabled = cfg.get("igv_enabled", False)
     igv_map = None
-    igv_lookup = {}
+    igv_lookup: dict[tuple[Any, ...], str] = {}
 
     if igv_enabled:
         # Log that we're looking for the IGV mapping file

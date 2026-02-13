@@ -28,7 +28,7 @@ class StatsEngine:
         else:
             self.config = config
 
-        self.results = {}
+        self.results: dict[str, Any] = {}
 
     def compute(self, df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         """

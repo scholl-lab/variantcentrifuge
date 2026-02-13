@@ -7,6 +7,7 @@ import re
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Optional
 
 from .utils import generate_igv_safe_filename_base
 
@@ -14,7 +15,7 @@ logger = logging.getLogger("variantcentrifuge")
 
 
 def _generate_single_igv_report(
-    task_data: tuple[str, str, str, str, str, str, str, str, str, int, str, str],
+    task_data: tuple[str, str, str, str, str, str, str, str, int, Optional[str], Optional[str], Optional[str]],
 ) -> tuple[bool, str, str, str, str, str, str]:
     """
     Generate a single IGV report for one variant/sample combination.
@@ -136,10 +137,10 @@ def generate_igv_report(
     variants_tsv: str,
     output_dir: str,
     bam_mapping_file: str,
-    igv_reference: str = None,
+    igv_reference: Optional[str] = None,
     integrate_into_main: bool = False,
-    igv_fasta: str = None,
-    igv_ideogram: str = None,
+    igv_fasta: Optional[str] = None,
+    igv_ideogram: Optional[str] = None,
     igv_max_allele_len_filename: int = 10,
     igv_hash_len_filename: int = 6,
     igv_max_variant_part_filename: int = 50,
@@ -268,9 +269,9 @@ def generate_igv_report(
 
     # Initialize list to store mapping of variants to reports
     # The structure will be: [{ chrom, pos, ref, alt, sample_reports: {sample_id: report_path, ...} }, ...]
-    variant_report_map = []
+    variant_report_map: list[dict[str, Any]] = []
     # Dictionary to map variant identifiers (chrom_pos_ref_alt) to their index in variant_report_map
-    variant_index_map = {}
+    variant_index_map: dict[str, int] = {}
 
     # Collect all tasks for parallel processing
     tasks = []

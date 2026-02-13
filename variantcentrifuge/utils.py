@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import subprocess
+from typing import Any
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -231,14 +232,14 @@ def get_tool_version(tool_name: str) -> str:
         logger.warning("No version retrieval logic for %s. Returning 'N/A'.", tool_name)
         return "N/A"
 
-    cmd = tool_map[tool_name]["command"]
+    cmd: list[str] = tool_map[tool_name]["command"]  # type: ignore[assignment]
     parse_func = tool_map[tool_name]["parse_func"]
 
     try:
         result = subprocess.run(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False
         )
-        version = parse_func(result.stdout, result.stderr)
+        version: str = parse_func(result.stdout, result.stderr)  # type: ignore[operator]
         if version == "N/A":
             logger.warning("Could not parse version for %s. Returning 'N/A'.", tool_name)
         return version
@@ -418,7 +419,7 @@ def split_bed_file(input_bed: str, num_chunks: int, output_dir: str) -> list[str
     List[str]
         A list of file paths to the created chunked BED files.
     """
-    regions = []
+    regions: list[dict[str, Any]] = []
     total_bases = 0
     with open(input_bed, encoding="utf-8") as f:
         for line in f:

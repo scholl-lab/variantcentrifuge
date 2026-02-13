@@ -64,7 +64,7 @@ class CategoricalSchema(PseudonymSchema):
         """
         self.category_field = category_field
         self.padding = padding
-        self._category_counters = {}
+        self._category_counters: dict[str, int] = {}
 
     def generate(self, sample_id: str, index: int, metadata: dict | None = None) -> str:
         """Generate category-based pseudonym."""
@@ -158,8 +158,8 @@ class SamplePseudonymizer:
         """
         self.schema = schema
         self.deterministic = deterministic
-        self._mapping = {}
-        self._reverse_mapping = {}
+        self._mapping: dict[str, str] = {}
+        self._reverse_mapping: dict[str, str] = {}
 
     def create_mapping(
         self, sample_list: list[str], metadata: dict[str, dict] | None = None

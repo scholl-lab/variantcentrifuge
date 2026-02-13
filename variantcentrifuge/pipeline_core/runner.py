@@ -128,6 +128,7 @@ class PipelineRunner:
                             if hasattr(stage, "_handle_checkpoint_skip"):
                                 context = stage._handle_checkpoint_skip(context)
 
+                    assert context.checkpoint_state is not None
                     resume_point = context.checkpoint_state.get_resume_point()
                     if resume_point:
                         logger.info(f"Resuming from step: {resume_point}")
@@ -188,6 +189,8 @@ class PipelineRunner:
         List[Stage]
             Filtered list of stages to execute (from restart point onwards)
         """
+        assert context.checkpoint_state is not None, "checkpoint_state required for selective resume"
+
         resume_from = context.config.get("resume_from")
         if not resume_from:
             return stages
@@ -474,7 +477,7 @@ class PipelineRunner:
         queue = deque([name for name, degree in in_degree.items() if degree == 0])
 
         # Group stages by level for parallel execution
-        execution_plan = []
+        execution_plan: list[list[Stage]] = []
         processed = set()
 
         while queue:

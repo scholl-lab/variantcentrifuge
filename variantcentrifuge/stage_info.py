@@ -6,6 +6,7 @@ safety indicators, and other metadata useful for understanding pipeline structur
 """
 
 import logging
+from typing import Any
 
 from .checkpoint import PipelineState
 from .pipeline_core.stage import Stage
@@ -203,7 +204,7 @@ def display_dependency_tree(stage_name: str, all_stages: list[Stage], max_depth:
     print(f"\n🌳 Dependency Tree: {stage_name}")
     print("-" * 50)
 
-    visited = set()
+    visited: set[str] = set()
     _display_dependencies_recursive(stage_name, stage_map, visited, 0, max_depth, "")
 
 
@@ -236,7 +237,7 @@ def _display_dependencies_recursive(
 
     # Get dependencies
     deps = stage.dependencies
-    soft_deps = getattr(stage, "soft_dependencies", set())
+    soft_deps: set[str] = getattr(stage, "soft_dependencies", set())
 
     # Filter to only existing stages
     active_deps = deps & set(stage_map.keys())
@@ -329,7 +330,7 @@ def display_stage_categories_detailed() -> None:
     print("\n" + "=" * 80)
 
 
-def analyze_stage_impact(stage_name: str, all_stages: list[Stage]) -> dict[str, any]:
+def analyze_stage_impact(stage_name: str, all_stages: list[Stage]) -> dict[str, Any]:
     """Analyze the impact of running or skipping a specific stage.
 
     Parameters
@@ -341,7 +342,7 @@ def analyze_stage_impact(stage_name: str, all_stages: list[Stage]) -> dict[str, 
 
     Returns
     -------
-    Dict[str, any]
+    Dict[str, Any]
         Analysis results including dependencies and dependents
     """
     stage_map = {stage.name: stage for stage in all_stages}
@@ -353,7 +354,7 @@ def analyze_stage_impact(stage_name: str, all_stages: list[Stage]) -> dict[str, 
 
     # Find what this stage depends on
     dependencies = target_stage.dependencies
-    soft_dependencies = getattr(target_stage, "soft_dependencies", set())
+    soft_dependencies: set[str] = getattr(target_stage, "soft_dependencies", set())
 
     # Find what depends on this stage
     dependents = set()

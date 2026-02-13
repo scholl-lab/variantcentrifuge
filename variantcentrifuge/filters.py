@@ -336,17 +336,17 @@ def filter_final_tsv_by_genotype(
             from io import StringIO
 
             gfile_replay = StringIO("".join(all_lines))
-            header = next(gfile_replay).strip().split("\t")
+            gg_header_cols = next(gfile_replay).strip().split("\t")
 
             # Expect at least columns: GENE, GENOTYPES
-            gene_idx = None
-            geno_idx = None
-            for i, col in enumerate(header):
+            gg_gene_idx: int | None = None
+            geno_idx: int | None = None
+            for i, col in enumerate(gg_header_cols):
                 if col.upper() == "GENE":
-                    gene_idx = i
+                    gg_gene_idx = i
                 elif col.upper() == "GENOTYPES":
                     geno_idx = i
-            if gene_idx is None or geno_idx is None:
+            if gg_gene_idx is None or geno_idx is None:
                 raise ValueError(
                     "gene_genotype_file must have columns named 'GENE' and 'GENOTYPES'."
                 )
@@ -356,9 +356,9 @@ def filter_final_tsv_by_genotype(
                 if not line:
                     continue
                 parts = line.split("\t")
-                if len(parts) <= max(gene_idx, geno_idx):
+                if len(parts) <= max(gg_gene_idx, geno_idx):
                     continue
-                gname = parts[gene_idx].strip()
+                gname = parts[gg_gene_idx].strip()
                 genos = parts[geno_idx].replace(" ", "").split(",")
                 if gname:
                     if gname not in gene_to_genotypes:
@@ -380,18 +380,18 @@ def filter_final_tsv_by_genotype(
         return gt_string == "1/1"
 
     # We'll parse the lines grouped by gene, so we can do 'comp_het' logic.
-    lines_by_gene = {}
+    lines_by_gene: dict[str, list[tuple[str, dict[str, str]]]] = {}
 
     with smart_open(input_tsv, "r") as inp:
-        header = next(inp).rstrip("\n")
+        header: str = next(inp).rstrip("\n")
         header_cols = header.split("\t")
         # Identify gene and GT columns
         try:
-            gene_idx = header_cols.index(gene_column_name)
+            gene_idx: int = header_cols.index(gene_column_name)
         except ValueError:
             raise ValueError(f"Could not find gene column '{gene_column_name}' in TSV header.")
         try:
-            gt_idx = header_cols.index(gt_column_name)
+            gt_idx: int = header_cols.index(gt_column_name)
         except ValueError:
             raise ValueError(f"Could not find genotype column '{gt_column_name}' in TSV header.")
 
@@ -438,7 +438,7 @@ def filter_final_tsv_by_genotype(
 
     # For each gene that uses comp_het, gather samples that have >=2 het variants
     for g in relevant_for_comp_het:
-        sample_het_count = {}
+        sample_het_count: dict[str, int] = {}
         for line_str, sample_gt_dict in lines_by_gene[g]:
             for sample_name, genotype_substring in sample_gt_dict.items():
                 # e.g. genotype_substring = "0/1:53,55:108"

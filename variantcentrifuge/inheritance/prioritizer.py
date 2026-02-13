@@ -6,6 +6,7 @@ based on clinical significance and pattern reliability.
 """
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -154,7 +155,7 @@ def adjust_pattern_score(
     return base_score
 
 
-def calculate_confidence(pattern_scores: dict[str, float], best_pattern: str) -> float:
+def calculate_confidence(pattern_scores: Mapping[str, int | float], best_pattern: str) -> float:
     """
     Calculate confidence score based on pattern score distribution.
 
@@ -225,7 +226,7 @@ def group_patterns_by_category(patterns: list[str]) -> dict[str, list[str]]:
     Dict[str, List[str]]
         Dictionary mapping categories to patterns
     """
-    grouped = {}
+    grouped: dict[str, list[str]] = {}
     for pattern in patterns:
         category = get_pattern_category(pattern)
         if category not in grouped:
@@ -313,7 +314,7 @@ def resolve_conflicting_patterns(
         return "none"
 
     # Count pattern occurrences
-    pattern_counts = {}
+    pattern_counts: dict[str, int] = {}
     for pattern in all_patterns:
         pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
 

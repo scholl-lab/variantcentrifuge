@@ -385,7 +385,7 @@ class PseudonymizationStage(Stage):
                 context.workspace.output_dir.parent
                 / f"pseudonymization_mapping_{context.workspace.timestamp}.tsv"
             )
-            pseudonymizer.save_mapping(mapping_file, include_metadata=True)
+            pseudonymizer.save_mapping(str(mapping_file), include_metadata=True)
             logger.warning(f"No pseudonymize_table specified, saved to {mapping_file}")
 
         context.current_dataframe = df
@@ -997,7 +997,7 @@ class ParallelReportGenerationStage(Stage):
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Generate all requested reports in parallel."""
         # Check which reports are requested
-        reports_to_generate = []
+        reports_to_generate: list[tuple[str, Stage]] = []
 
         if context.config.get("xlsx") or context.config.get("excel"):
             reports_to_generate.append(("excel", ExcelReportStage()))

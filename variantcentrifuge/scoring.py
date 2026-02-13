@@ -127,7 +127,7 @@ def apply_scoring(df: pd.DataFrame, scoring_config: dict[str, Any]) -> pd.DataFr
                 parts[1].split(":")[1] if len(parts) > 1 and "default" in parts[1] else "0"
             )
         elif isinstance(var_config, dict):  # New object format
-            target_name = var_config.get("target")
+            target_name = str(var_config.get("target", ""))
             default_val_str = str(var_config.get("default", "0"))
         else:
             continue

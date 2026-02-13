@@ -310,7 +310,7 @@ def create_sample_columns_from_gt(
         logger.debug("GT column contains replaced genotypes, extracting sample genotypes")
 
         # Pre-create all sample columns data
-        sample_data = {sample_id: [] for sample_id in vcf_samples}
+        sample_data: dict[str, list[str]] = {sample_id: [] for sample_id in vcf_samples}
 
         # Parse replaced genotype format
         for idx, row in df.iterrows():
@@ -425,7 +425,7 @@ def handle_inheritance_analysis_error(
 
 
 def cleanup_sample_columns(
-    df: pd.DataFrame, vcf_samples: list[str], preserve_columns: list[str] = None
+    df: pd.DataFrame, vcf_samples: list[str], preserve_columns: list[str] | None = None
 ) -> pd.DataFrame:
     """Clean up sample columns after inheritance analysis.
 
@@ -866,7 +866,7 @@ class InheritanceAnalysisStage(Stage):
 
         # Get samples info
         vcf_samples = context.vcf_samples or []
-        pedigree_data = context.pedigree_data
+        pedigree_data: dict[str, Any] | None = context.pedigree_data
 
         if not vcf_samples:
             logger.warning("No VCF samples available for inheritance analysis")
@@ -879,6 +879,9 @@ class InheritanceAnalysisStage(Stage):
             logger.warning(
                 "VCF samples was a set - converted to sorted list for deterministic order"
             )
+
+        # At this point df must be a DataFrame (None case handled above)
+        assert df is not None, "DataFrame must not be None for inheritance analysis"
 
         # Use intelligent memory manager to decide processing strategy
         from ..memory import InheritanceMemoryManager
@@ -964,7 +967,7 @@ class InheritanceAnalysisStage(Stage):
                 df = analyze_inheritance_parallel(
                     df=df,
                     sample_list=vcf_samples,
-                    pedigree_data=pedigree_data,
+                    pedigree_data=pedigree_data or {},
                     use_vectorized_comp_het=not context.config.get("no_vectorized_comp_het", False),
                     n_workers=threads,
                     min_variants_for_parallel=min_variants_for_parallel,
@@ -979,7 +982,7 @@ class InheritanceAnalysisStage(Stage):
                 df = analyze_inheritance(
                     df=df,
                     sample_list=vcf_samples,
-                    pedigree_data=pedigree_data,
+                    pedigree_data=pedigree_data or {},
                     use_vectorized_comp_het=not context.config.get("no_vectorized_comp_het", False),
                 )
 
@@ -2452,6 +2455,7 @@ class ChunkedAnalysisStage(Stage):
                     tail_proc = subprocess.Popen(
                         ["tail", "-n", "+2"], stdin=zcat_proc.stdout, stdout=subprocess.PIPE
                     )
+                    assert zcat_proc.stdout is not None
                     zcat_proc.stdout.close()
                 else:
                     # For uncompressed files: tail -n +2 input | sort ...
@@ -2459,6 +2463,7 @@ class ChunkedAnalysisStage(Stage):
                         ["tail", "-n", "+2", str(input_file)], stdout=subprocess.PIPE
                     )
 
+                assert tail_proc.stdout is not None
                 sort_proc = subprocess.Popen(sort_cmd, stdin=tail_proc.stdout, stdout=out_f)
                 tail_proc.stdout.close()
                 sort_proc.wait()
@@ -2487,7 +2492,7 @@ class ChunkedAnalysisStage(Stage):
             return input_file
 
     def _calculate_inheritance_safe_chunk_size(
-        self, sample_count: int, context: "PipelineContext" = None
+        self, sample_count: int, context: Optional["PipelineContext"] = None
     ) -> int:
         """Calculate safe chunk size based on available memory to prevent inheritance skipping.
 
