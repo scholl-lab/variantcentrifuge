@@ -180,7 +180,6 @@ class TestPipelineRunner:
         assert stages[1].executed
         assert not stages[2].executed  # Should not execute after failure
 
-
     def test_execution_plan_creation(self, runner):
         """Test execution plan creation."""
         stages = [
