@@ -53,7 +53,6 @@ chr20	12345000	12347000	OTHER_GENE
                         outf.write(inf.read())
             elif "bedtools" in cmd and "merge" in cmd:
                 # Mock bedtools merge - create merged output
-                input_file = cmd[cmd.index("-i") + 1]
                 output_file = kwargs.get("stdout")
                 if hasattr(output_file, "name"):
                     # Simulate merging: chr19 intervals should be merged
@@ -113,7 +112,6 @@ chr20	12345000	12347000
                     with open(input_file) as inf, open(output_file.name, "w") as outf:
                         outf.write(inf.read())
             elif "bedtools" in cmd and "merge" in cmd:
-                input_file = cmd[cmd.index("-i") + 1]
                 output_file = kwargs.get("stdout")
                 if hasattr(output_file, "name"):
                     # Merged interval without chr prefix

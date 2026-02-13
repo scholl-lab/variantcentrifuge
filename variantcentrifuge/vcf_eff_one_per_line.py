@@ -178,9 +178,10 @@ def process_vcf_file(input_file: str, output_file: str | None = None) -> None:
         if out_handle not in (sys.stdout, sys.stdin):
             out_handle.close()
 
-        # If we used bgzip, wait for it and do tabix
+        # If we used bgzip, wait for it and close the output file handle
         if use_bgzip and bgzip_proc is not None:
             bgzip_proc.wait()
+            out_fh.close()
             if bgzip_proc.returncode == 0:
                 assert output_file is not None
                 subprocess.run(["tabix", "-p", "vcf", output_file], check=True)
