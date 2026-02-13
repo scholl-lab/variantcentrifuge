@@ -51,14 +51,18 @@ all external tool dependencies but does **not** install variantcentrifuge itself
 install variantcentrifuge manually:
 
 ```bash
+# Find the conda env prefix created by Snakemake:
+snakemake --list-conda-envs
+# Example output: .snakemake/conda/a1b2c3d4
+
 # Option A: install from a local checkout
-conda run -n snakemake--<hash> pip install /path/to/variantcentrifuge
+conda run -p .snakemake/conda/<hash> pip install /path/to/variantcentrifuge
 
 # Option B: install directly from GitHub
-conda run -n snakemake--<hash> pip install git+https://github.com/scholl-lab/variantcentrifuge.git@v0.12.0
+conda run -p .snakemake/conda/<hash> pip install git+https://github.com/scholl-lab/variantcentrifuge.git@v0.12.0
 ```
 
-Replace `snakemake--<hash>` with the actual env name shown by
+Replace `.snakemake/conda/<hash>` with the env prefix path shown by
 `snakemake --list-conda-envs`.
 
 ## snpEff reference name
@@ -81,9 +85,14 @@ with:
 bcftools query -l your.vcf.gz
 ```
 
-If your VCF has a different sample order, use the parameterized `somatic` /
-`somatic_pass` presets together with `--tumor-sample-index` and
-`--normal-sample-index` on the command line.
+The parameterized `somatic` / `somatic_pass` presets accept explicit sample
+indices via `--tumor-sample-index` and `--normal-sample-index`. The CLI
+defaults are `normal_idx=0` and `tumor_idx=1` (the opposite of Mutect2's
+convention). For standard Mutect2 VCFs, pass:
+
+```bash
+variantcentrifuge ... --presets somatic_pass --tumor-sample-index 0 --normal-sample-index 1
+```
 
 ## samples.tsv columns
 
