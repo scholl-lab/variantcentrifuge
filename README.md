@@ -26,13 +26,18 @@
 - **👥 Cohort Analysis:** Aggregate results from multiple samples with interactive visualizations
 - **🎨 Custom Scoring:** Apply configurable variant scoring models without code changes
 - **⚡ Performance Optimized:** Parallel processing, memory-efficient streaming, and chunked analysis
+- **🐳 Docker Support:** Pre-built image on GHCR with all bioinformatics tools — zero local setup
+- **🔄 Field Profiles:** Seamless switching between annotation database versions (dbNSFP v4/v5) without config changes
 
 ## 🚀 Quick Start
 
 ### Installation
 
 ```bash
-# Install from PyPI (recommended)
+# Docker (quickest — all tools included)
+docker pull ghcr.io/scholl-lab/variantcentrifuge:latest
+
+# Install from PyPI
 pip install variantcentrifuge
 
 # Or install from source

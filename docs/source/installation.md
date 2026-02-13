@@ -77,6 +77,49 @@ mamba activate annotation
 pip install -e .
 ```
 
+### Method 4: Docker (Recommended for Quick Setup)
+
+The Docker image bundles all external tools (bcftools, snpEff, SnpSift, bedtools) and Python dependencies into a single container. No local installation of bioinformatics tools is required.
+
+```bash
+# Pull the latest image from GitHub Container Registry
+docker pull ghcr.io/scholl-lab/variantcentrifuge:latest
+
+# Verify the installation
+docker run --rm ghcr.io/scholl-lab/variantcentrifuge:latest --version
+```
+
+Place your VCF files in a local directory and mount it into the container:
+
+```bash
+docker run --rm -v ./data:/data \
+  ghcr.io/scholl-lab/variantcentrifuge:latest \
+  --gene-name BRCA1 \
+  --vcf-file /data/input.vcf.gz \
+  --output-file /data/output.tsv
+```
+
+A `docker-compose.yml` is included in the repository for convenience:
+
+```yaml
+services:
+  variantcentrifuge:
+    image: ghcr.io/scholl-lab/variantcentrifuge:latest
+    volumes:
+      - ./data:/data
+      # Mount snpEff databases (download once, reuse)
+      # - /path/to/snpeff_data:/snpeff_data:ro
+      # Override built-in scoring configs
+      # - ./my_scoring:/app/scoring:ro
+```
+
+```bash
+docker compose run --rm variantcentrifuge \
+  --gene-name BRCA1 --vcf-file /data/input.vcf.gz --output-file /data/output.tsv
+```
+
+The image runs as a non-root user, includes built-in scoring models at `/app/scoring/`, and is signed with cosign for supply chain security.
+
 ## Verification
 
 Verify your installation by running:

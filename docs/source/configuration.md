@@ -99,6 +99,82 @@ The default configuration includes many useful presets:
 - **`not_artefact`** - Quality-based artifact filtering
 - **`mutect2_TvsN_pass`** - Tumor vs Normal Mutect2 filters with PASS only
 
+## Field Profiles
+
+Field profiles handle differences between annotation database versions — for example, dbNSFP v4.x and v5.x use different gnomAD field names. Instead of maintaining separate config files, you define profiles once and switch between them at runtime.
+
+### How It Works
+
+Presets can contain parameterized templates using `{{fragment_name:param}}` syntax. At resolution time, the fragment is looked up in the active profile and expanded with the parameter value.
+
+For example, the `rare` preset:
+
+```json
+"rare": "({{gnomad_af_below:0.0001}})"
+```
+
+expands to different SnpSift expressions depending on the active profile:
+
+- **dbnsfp4**: `(((dbNSFP_gnomAD_exomes_AF[0] < 0.0001) | ...) & ((dbNSFP_gnomAD_genomes_AF[0] < 0.0001) | ...))`
+- **dbnsfp5**: `(((dbNSFP_gnomAD4.1_joint_AF[0] < 0.0001) | (na dbNSFP_gnomAD4.1_joint_AC[0])))`
+
+Presets without `{{...}}` patterns pass through unchanged (fully backward compatible).
+
+### Selecting a Profile
+
+Use the `--field-profile` CLI option:
+
+```bash
+# Use dbNSFP v5.x field names
+variantcentrifuge --field-profile dbnsfp5 --preset rare,coding ...
+
+# List available profiles
+variantcentrifuge --list-field-profiles
+```
+
+The default profile is set by `default_field_profile` in `config.json` (ships as `dbnsfp4`).
+
+### Profile Configuration Structure
+
+Profiles are defined in the `field_profiles` section of `config.json`:
+
+```json
+{
+  "default_field_profile": "dbnsfp4",
+  "field_profiles": {
+    "dbnsfp4": {
+      "description": "dbNSFP 4.x (separate gnomAD exomes/genomes fields)",
+      "fragments": {
+        "gnomad_af_below": "((dbNSFP_gnomAD_exomes_AF[0] < {0}) | (na dbNSFP_gnomAD_exomes_AC[0])) & ((dbNSFP_gnomAD_genomes_AF[0] < {0}) | (na dbNSFP_gnomAD_genomes_AC[0]))",
+        "gnomad_af_below_or": "((dbNSFP_gnomAD_exomes_AF[0] < {0}) | (na dbNSFP_gnomAD_exomes_AC[0])) | ((dbNSFP_gnomAD_genomes_AF[0] < {0}) | (na dbNSFP_gnomAD_genomes_AC[0]))",
+        "gnomad_ac_atmost": "((dbNSFP_gnomAD_exomes_AC[0] <= {0}) | (na dbNSFP_gnomAD_exomes_AC[0])) & ((dbNSFP_gnomAD_genomes_AC[0] <= {0}) | (na dbNSFP_gnomAD_genomes_AC[0]))"
+      },
+      "fields_to_extract": "dbNSFP_gnomAD_exomes_AF dbNSFP_gnomAD_genomes_AF dbNSFP_gnomAD_exomes_AC dbNSFP_gnomAD_genomes_AC",
+      "hidden_columns": ["dbNSFP_gnomAD_exomes_AC", "dbNSFP_gnomAD_genomes_AC"]
+    },
+    "dbnsfp5": {
+      "description": "dbNSFP 5.x (joint gnomAD 4.1 fields)",
+      "fragments": {
+        "gnomad_af_below": "((dbNSFP_gnomAD4.1_joint_AF[0] < {0}) | (na dbNSFP_gnomAD4.1_joint_AC[0]))",
+        "gnomad_af_below_or": "((dbNSFP_gnomAD4.1_joint_AF[0] < {0}) | (na dbNSFP_gnomAD4.1_joint_AC[0]))",
+        "gnomad_ac_atmost": "((dbNSFP_gnomAD4.1_joint_AC[0] <= {0}) | (na dbNSFP_gnomAD4.1_joint_AC[0]))"
+      },
+      "fields_to_extract": "dbNSFP_gnomAD4.1_joint_AF dbNSFP_gnomAD4.1_joint_AC",
+      "hidden_columns": ["dbNSFP_gnomAD4.1_joint_AC"]
+    }
+  }
+}
+```
+
+Each profile can define:
+- **`fragments`** — Named templates with `{0}` placeholders for parameter substitution
+- **`fields_to_extract`** — Profile-specific fields appended to the base field list
+- **`hidden_columns`** — Columns hidden by default in HTML reports
+
+### Adding Custom Profiles
+
+To support a new annotation version, add a new profile to `field_profiles` in your config file with appropriate fragments. No code changes are needed — just define the fragment templates for your field naming convention.
+
 ## Example Configurations
 
 ### Basic Research Configuration

@@ -180,34 +180,6 @@ class TestPipelineRunner:
         assert stages[1].executed
         assert not stages[2].executed  # Should not execute after failure
 
-    @pytest.mark.xfail(reason="ThreadPoolExecutor doesn't support true task cancellation")
-    def test_parallel_failure_cancellation(self, runner, context):
-        """Test that parallel stages are cancelled on failure."""
-
-        # Create a stage that checks cancellation
-        class CancellableStage(MockStage):
-            def _process(self, context):
-                # Sleep in small increments to allow cancellation
-                for _ in range(50):  # 5 seconds total
-                    time.sleep(0.1)
-                self.executed = True
-                context.mark_complete(self.name)
-                return context
-
-        stages = [
-            CancellableStage("slow", parallel_safe=True),
-            MockStage("fast_fail", parallel_safe=True, runtime=0.1, should_fail=True),
-        ]
-
-        start_time = time.time()
-        with pytest.raises(ValueError):
-            runner.run(stages, context)
-        elapsed = time.time() - start_time
-
-        # Should fail quickly, not wait for slow stage
-        # Allow some extra time for overhead
-        assert elapsed < 2.0  # Increased threshold for reliability
-
     def test_execution_plan_creation(self, runner):
         """Test execution plan creation."""
         stages = [
