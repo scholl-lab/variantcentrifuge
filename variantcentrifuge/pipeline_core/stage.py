@@ -9,7 +9,6 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, List, Set
 
 from .context import PipelineContext
 
@@ -29,7 +28,7 @@ class Stage(ABC):
 
     def __init__(self):
         """Initialize the stage with subtask tracking."""
-        self._subtask_times: Dict[str, float] = {}
+        self._subtask_times: dict[str, float] = {}
 
     @property
     @abstractmethod
@@ -44,7 +43,7 @@ class Stage(ABC):
         pass
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Stage names that must complete before this stage.
 
         Returns
@@ -55,7 +54,7 @@ class Stage(ABC):
         return set()
 
     @property
-    def soft_dependencies(self) -> Set[str]:
+    def soft_dependencies(self) -> set[str]:
         """Stage names that should run before this stage if present.
 
         These are optional dependencies - if the stage is in the pipeline,
@@ -232,7 +231,7 @@ class Stage(ABC):
         """
         pass
 
-    def _pre_execute(self, context: PipelineContext) -> None:
+    def _pre_execute(self, context: PipelineContext) -> None:  # noqa: B027 - intentional extension point for subclasses
         """Execute hook called before stage execution.
 
         Override in subclasses to perform setup tasks.
@@ -244,7 +243,7 @@ class Stage(ABC):
         """
         pass
 
-    def _post_execute(self, context: PipelineContext) -> None:
+    def _post_execute(self, context: PipelineContext) -> None:  # noqa: B027 - intentional extension point for subclasses
         """Execute hook called after successful stage execution.
 
         Override in subclasses to perform cleanup tasks.
@@ -256,7 +255,7 @@ class Stage(ABC):
         """
         pass
 
-    def get_input_files(self, context: PipelineContext) -> List[Path]:
+    def get_input_files(self, context: PipelineContext) -> list[Path]:
         """Return input files for checkpoint tracking.
 
         Override in subclasses to specify input files.
@@ -273,7 +272,7 @@ class Stage(ABC):
         """
         return []
 
-    def get_output_files(self, context: PipelineContext) -> List[Path]:
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return output files for checkpoint tracking.
 
         Override in subclasses to specify output files.
@@ -290,7 +289,7 @@ class Stage(ABC):
         """
         return []
 
-    def validate_prerequisites(self, context: PipelineContext) -> None:
+    def validate_prerequisites(self, context: PipelineContext) -> None:  # noqa: B027 - intentional extension point for subclasses
         """Validate stage-specific prerequisites beyond dependencies.
 
         Override in subclasses to add custom validation.
@@ -345,7 +344,7 @@ class Stage(ABC):
         logger.debug(f"Stage '{self.name}': Completed subtask '{subtask_name}' in {elapsed:.1f}s")
 
     @property
-    def subtask_times(self) -> Dict[str, float]:
+    def subtask_times(self) -> dict[str, float]:
         """Get recorded subtask durations.
 
         Returns

@@ -18,7 +18,6 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -39,7 +38,7 @@ class BenchmarkResult:
     n_genes: int
     threads: int
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
     @property
     def variants_per_second(self) -> float:
@@ -54,11 +53,11 @@ class BenchmarkConfig:
     """Configuration for a benchmark test."""
 
     name: str
-    gene_file: Optional[Path] = None
-    gene_names: Optional[List[str]] = None
+    gene_file: Path | None = None
+    gene_names: list[str] | None = None
     n_genes: int = 1
-    preset: Optional[str] = None
-    extra_args: Optional[List[str]] = None
+    preset: str | None = None
+    extra_args: list[str] | None = None
     threads: int = 1
     description: str = ""
 
@@ -159,7 +158,7 @@ class PerformanceBenchmark:
                 time.sleep(0.1)
 
             # Get final status
-            stdout, stderr = proc.communicate()
+            _stdout, stderr = proc.communicate()
             execution_time = time.time() - start_time
 
             if proc.returncode != 0:
@@ -223,7 +222,7 @@ class PerformanceBenchmark:
 
     def run_comparison(
         self,
-        configs: List[BenchmarkConfig],
+        configs: list[BenchmarkConfig],
         runs: int = 3,
     ) -> pd.DataFrame:
         """Run benchmarks for both pipelines and compare.
@@ -271,7 +270,7 @@ class PerformanceBenchmark:
 
         return df
 
-    def generate_report(self, df: pd.DataFrame) -> Dict:
+    def generate_report(self, df: pd.DataFrame) -> dict:
         """Generate performance comparison report."""
         report = {
             "timestamp": datetime.now().isoformat(),
@@ -370,7 +369,7 @@ class PerformanceBenchmark:
             plt.style.use("ggplot")
 
         # 1. Execution time comparison
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+        _fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
 
         # Bar plot of average execution times
         summary = (
@@ -427,7 +426,7 @@ class PerformanceBenchmark:
         # 2. Scalability plot (if we have different thread counts)
         thread_tests = df[df["threads"] > 1]
         if len(thread_tests) > 0:
-            fig, ax = plt.subplots(figsize=(10, 6))
+            _fig, ax = plt.subplots(figsize=(10, 6))
 
             for pipeline in ["old", "new"]:
                 pipeline_df = thread_tests[thread_tests["pipeline_type"] == pipeline]
@@ -474,11 +473,11 @@ class PerformanceBenchmark:
         if speedup_data:
             speedup_df = pd.DataFrame(speedup_data)
 
-            fig, ax = plt.subplots(figsize=(10, 6))
+            _fig, ax = plt.subplots(figsize=(10, 6))
             bars = ax.bar(speedup_df["test"], speedup_df["speedup"])
 
             # Color bars based on speedup
-            for i, (bar, speedup) in enumerate(zip(bars, speedup_df["speedup"])):
+            for _i, (bar, speedup) in enumerate(zip(bars, speedup_df["speedup"], strict=False)):
                 if speedup > 1.2:
                     bar.set_color("green")
                 elif speedup > 0.9:
@@ -493,7 +492,7 @@ class PerformanceBenchmark:
             ax.set_xticklabels(speedup_df["test"], rotation=45, ha="right")
 
             # Add value labels on bars
-            for bar, speedup in zip(bars, speedup_df["speedup"]):
+            for bar, speedup in zip(bars, speedup_df["speedup"], strict=False):
                 height = bar.get_height()
                 ax.text(
                     bar.get_x() + bar.get_width() / 2.0,
@@ -508,7 +507,7 @@ class PerformanceBenchmark:
             plt.close()
 
 
-def create_benchmark_configs() -> List[BenchmarkConfig]:
+def create_benchmark_configs() -> list[BenchmarkConfig]:
     """Create standard benchmark configurations."""
     configs = [
         # Single gene tests
@@ -624,7 +623,8 @@ def main():
         configs = [c for c in all_configs if "single_gene" in c.name]
     elif args.config == "extensive":
         # All tests plus additional large ones
-        configs = all_configs + [
+        configs = [
+            *all_configs,
             BenchmarkConfig(
                 name="large_geneset",
                 n_genes=200,

@@ -17,14 +17,13 @@ to aggregate phenotypes for a given list of samples.
 
 import logging
 import os
-from typing import Dict, List, Set
 
 logger = logging.getLogger("variantcentrifuge")
 
 
 def load_phenotypes(
     phenotype_file: str, sample_column: str, phenotype_column: str
-) -> Dict[str, Set[str]]:
+) -> dict[str, set[str]]:
     """
     Load phenotypes from a .csv or .tsv file into a dictionary.
 
@@ -54,8 +53,8 @@ def load_phenotypes(
     else:
         raise ValueError("Phenotype file must be .csv or .tsv")
 
-    phenotypes: Dict[str, Set[str]] = {}
-    with open(phenotype_file, "r", encoding="utf-8") as f:
+    phenotypes: dict[str, set[str]] = {}
+    with open(phenotype_file, encoding="utf-8") as f:
         header_line = f.readline().rstrip("\n")
         header = header_line.split(delim)
 
@@ -84,7 +83,7 @@ def load_phenotypes(
     return phenotypes
 
 
-def aggregate_phenotypes_for_samples(samples: List[str], phenotypes: Dict[str, Set[str]]) -> str:
+def aggregate_phenotypes_for_samples(samples: list[str], phenotypes: dict[str, set[str]]) -> str:
     """
     Aggregate phenotypes for a given list of samples into a single string.
 
@@ -108,16 +107,13 @@ def aggregate_phenotypes_for_samples(samples: List[str], phenotypes: Dict[str, S
     """
     sample_phenos = []
     for s in samples:
-        if s in phenotypes and phenotypes[s]:
-            p_str = ",".join(sorted(phenotypes[s]))
-        else:
-            p_str = ""
+        p_str = ",".join(sorted(phenotypes[s])) if phenotypes.get(s) else ""
         sample_phenos.append(p_str)
 
     return ";".join(sample_phenos)
 
 
-def format_phenotypes_like_gt_column(samples: List[str], phenotypes: Dict[str, Set[str]]) -> str:
+def format_phenotypes_like_gt_column(samples: list[str], phenotypes: dict[str, set[str]]) -> str:
     """
     Format phenotypes in the same style as the GT column with sample IDs.
 
@@ -143,12 +139,7 @@ def format_phenotypes_like_gt_column(samples: List[str], phenotypes: Dict[str, S
     """
     sample_entries = []
     for sample_id in samples:
-        if sample_id in phenotypes and phenotypes[sample_id]:
-            # Join phenotypes with commas, sort for consistency
-            phenotype_str = ",".join(sorted(phenotypes[sample_id]))
-        else:
-            # Empty phenotypes for samples without data
-            phenotype_str = ""
+        phenotype_str = ",".join(sorted(phenotypes[sample_id])) if phenotypes.get(sample_id) else ""
 
         # Format like GT column: SampleID(phenotypes)
         sample_entries.append(f"{sample_id}({phenotype_str})")
@@ -156,7 +147,7 @@ def format_phenotypes_like_gt_column(samples: List[str], phenotypes: Dict[str, S
     return ";".join(sample_entries)
 
 
-def extract_phenotypes_for_gt_row(gt_value: str, phenotypes: Dict[str, Set[str]]) -> str:
+def extract_phenotypes_for_gt_row(gt_value: str, phenotypes: dict[str, set[str]]) -> str:
     """
     Extract phenotypes for samples that have variants in a specific GT row.
 
@@ -201,7 +192,7 @@ def extract_phenotypes_for_gt_row(gt_value: str, phenotypes: Dict[str, Set[str]]
                 continue
 
             # Get phenotypes for this sample
-            if sample_id in phenotypes and phenotypes[sample_id]:
+            if phenotypes.get(sample_id):
                 phenotype_str = ",".join(sorted(phenotypes[sample_id]))
                 phenotype_entries.append(f"{sample_id}({phenotype_str})")
             else:

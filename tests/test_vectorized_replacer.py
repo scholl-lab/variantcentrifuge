@@ -7,7 +7,6 @@ streaming implementation while providing performance benefits.
 """
 
 import logging
-from typing import Dict
 
 import pandas as pd
 import pytest
@@ -22,7 +21,7 @@ from variantcentrifuge.vectorized_replacer import (
 
 # Test data fixtures
 @pytest.fixture
-def sample_config() -> Dict[str, str]:
+def sample_config() -> dict[str, str]:
     """Return basic configuration for genotype replacement tests."""
     return {
         "sample_list": "Sample1,Sample2,Sample3",
@@ -36,7 +35,7 @@ def sample_config() -> Dict[str, str]:
 
 
 @pytest.fixture
-def config_with_extra_fields() -> Dict[str, str]:
+def config_with_extra_fields() -> dict[str, str]:
     """Return configuration with extra sample fields."""
     return {
         "sample_list": "Sample1,Sample2,Sample3",
@@ -397,7 +396,7 @@ class TestEdgeCases:
         }
 
         # Should raise an error during regex compilation
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 - intentionally broad, any error is acceptable
             VectorizedGenotypeReplacer(config)
 
 

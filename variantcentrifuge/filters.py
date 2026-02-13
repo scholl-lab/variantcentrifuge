@@ -29,7 +29,7 @@ TSV-based filtering:
 import logging
 import os
 import tempfile
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 import pandas as pd
 
@@ -39,7 +39,7 @@ logger = logging.getLogger("variantcentrifuge")
 
 
 def apply_bcftools_prefilter(
-    input_vcf: str, output_vcf: str, filter_expression: str, cfg: Dict[str, Any]
+    input_vcf: str, output_vcf: str, filter_expression: str, cfg: dict[str, Any]
 ) -> str:
     """
     Apply a bcftools filter expression to a VCF file.
@@ -100,7 +100,7 @@ def apply_bcftools_prefilter(
     return output_vcf
 
 
-def extract_variants(vcf_file: str, bed_file: str, cfg: Dict[str, Any], output_file: str) -> str:
+def extract_variants(vcf_file: str, bed_file: str, cfg: dict[str, Any], output_file: str) -> str:
     """
     Extract variants from a VCF using bcftools and a BED file.
 
@@ -166,7 +166,7 @@ def extract_variants(vcf_file: str, bed_file: str, cfg: Dict[str, Any], output_f
 
 
 def apply_snpsift_filter(
-    variant_file: str, filter_string: str, cfg: Dict[str, Any], output_file: str
+    variant_file: str, filter_string: str, cfg: dict[str, Any], output_file: str
 ) -> str:
     """
     Apply a SnpSift filter to a variant file, then compress and index the output.
@@ -230,8 +230,8 @@ def apply_snpsift_filter(
 def filter_final_tsv_by_genotype(
     input_tsv: str,
     output_tsv: str,
-    global_genotypes: Optional[Set[str]] = None,
-    gene_genotype_file: Optional[str] = None,
+    global_genotypes: set[str] | None = None,
+    gene_genotype_file: str | None = None,
     gene_column_name: str = "GENE",
     gt_column_name: str = "GT",
 ) -> None:
@@ -308,7 +308,7 @@ def filter_final_tsv_by_genotype(
 
     # Show the first few lines of the input_tsv (if available)
     try:
-        with open(input_tsv, "r", encoding="utf-8") as inp_debug:
+        with open(input_tsv, encoding="utf-8") as inp_debug:
             logger.debug("First lines from input_tsv:")
             for i in range(3):
                 line = inp_debug.readline()
@@ -320,15 +320,15 @@ def filter_final_tsv_by_genotype(
         raise
 
     # Read the gene -> genotype(s) mapping if provided
-    gene_to_genotypes: Dict[str, Set[str]] = {}
+    gene_to_genotypes: dict[str, set[str]] = {}
     if gene_genotype_file and os.path.exists(gene_genotype_file):
         logger.debug("Attempting to read gene -> genotype rules from: %s", gene_genotype_file)
-        with open(gene_genotype_file, "r", encoding="utf-8") as gfile:
+        with open(gene_genotype_file, encoding="utf-8") as gfile:
             all_lines = gfile.readlines()
 
         logger.debug("First lines from gene_genotype_file:")
-        for i, l in enumerate(all_lines[:3]):
-            logger.debug("Line %d: %s", i + 1, l.rstrip("\n"))
+        for i, line in enumerate(all_lines[:3]):
+            logger.debug("Line %d: %s", i + 1, line.rstrip("\n"))
 
         if not all_lines:
             logger.debug("Gene genotype file is empty, skipping parsing.")
@@ -336,17 +336,17 @@ def filter_final_tsv_by_genotype(
             from io import StringIO
 
             gfile_replay = StringIO("".join(all_lines))
-            header = next(gfile_replay).strip().split("\t")
+            gg_header_cols = next(gfile_replay).strip().split("\t")
 
             # Expect at least columns: GENE, GENOTYPES
-            gene_idx = None
-            geno_idx = None
-            for i, col in enumerate(header):
+            gg_gene_idx: int | None = None
+            geno_idx: int | None = None
+            for i, col in enumerate(gg_header_cols):
                 if col.upper() == "GENE":
-                    gene_idx = i
+                    gg_gene_idx = i
                 elif col.upper() == "GENOTYPES":
                     geno_idx = i
-            if gene_idx is None or geno_idx is None:
+            if gg_gene_idx is None or geno_idx is None:
                 raise ValueError(
                     "gene_genotype_file must have columns named 'GENE' and 'GENOTYPES'."
                 )
@@ -356,9 +356,9 @@ def filter_final_tsv_by_genotype(
                 if not line:
                     continue
                 parts = line.split("\t")
-                if len(parts) <= max(gene_idx, geno_idx):
+                if len(parts) <= max(gg_gene_idx, geno_idx):
                     continue
-                gname = parts[gene_idx].strip()
+                gname = parts[gg_gene_idx].strip()
                 genos = parts[geno_idx].replace(" ", "").split(",")
                 if gname:
                     if gname not in gene_to_genotypes:
@@ -380,20 +380,24 @@ def filter_final_tsv_by_genotype(
         return gt_string == "1/1"
 
     # We'll parse the lines grouped by gene, so we can do 'comp_het' logic.
-    lines_by_gene = {}
+    lines_by_gene: dict[str, list[tuple[str, dict[str, str]]]] = {}
 
     with smart_open(input_tsv, "r") as inp:
-        header = next(inp).rstrip("\n")
+        header: str = next(inp).rstrip("\n")
         header_cols = header.split("\t")
         # Identify gene and GT columns
         try:
-            gene_idx = header_cols.index(gene_column_name)
-        except ValueError:
-            raise ValueError(f"Could not find gene column '{gene_column_name}' in TSV header.")
+            gene_idx: int = header_cols.index(gene_column_name)
+        except ValueError as e:
+            raise ValueError(
+                f"Could not find gene column '{gene_column_name}' in TSV header."
+            ) from e
         try:
-            gt_idx = header_cols.index(gt_column_name)
-        except ValueError:
-            raise ValueError(f"Could not find genotype column '{gt_column_name}' in TSV header.")
+            gt_idx: int = header_cols.index(gt_column_name)
+        except ValueError as e:
+            raise ValueError(
+                f"Could not find genotype column '{gt_column_name}' in TSV header."
+            ) from e
 
         for line in inp:
             line = line.rstrip("\n")
@@ -410,16 +414,16 @@ def filter_final_tsv_by_genotype(
             sample_genotypes = {}
             if gt_val:
                 entries = gt_val.split(";")
-                for e in entries:
-                    e = e.strip()
-                    if not e:
+                for entry in entries:
+                    entry = entry.strip()
+                    if not entry:
                         continue
                     # example: "325879(0/1:53,55:108)"
                     # We'll store the entire substring "0/1:53,55:108"
                     # but also parse out the "main genotype" before a colon if present
-                    if "(" in e and ")" in e:
-                        sample_name = e.split("(")[0].strip()
-                        inside_paren = e.split("(")[1].strip(")")
+                    if "(" in entry and ")" in entry:
+                        sample_name = entry.split("(")[0].strip()
+                        inside_paren = entry.split("(")[1].strip(")")
                         sample_genotypes[sample_name] = inside_paren
 
             if gene_val not in lines_by_gene:
@@ -427,19 +431,19 @@ def filter_final_tsv_by_genotype(
             lines_by_gene[gene_val].append((line, sample_genotypes))
 
     # Identify which genes require 'comp_het'
-    def gene_filters(g: str) -> Set[str]:
+    def gene_filters(g: str) -> set[str]:
         if g in gene_to_genotypes:
             return gene_to_genotypes[g]
         return global_genotypes
 
-    comp_het_qualified: Dict[str, Set[str]] = {}
+    comp_het_qualified: dict[str, set[str]] = {}
     all_genes = set(lines_by_gene.keys())
     relevant_for_comp_het = {g for g in all_genes if "comp_het" in gene_filters(g)}
 
     # For each gene that uses comp_het, gather samples that have >=2 het variants
     for g in relevant_for_comp_het:
-        sample_het_count = {}
-        for line_str, sample_gt_dict in lines_by_gene[g]:
+        sample_het_count: dict[str, int] = {}
+        for _line_str, sample_gt_dict in lines_by_gene[g]:
             for sample_name, genotype_substring in sample_gt_dict.items():
                 # e.g. genotype_substring = "0/1:53,55:108"
                 # parse the main genotype by splitting on the first colon
@@ -455,7 +459,7 @@ def filter_final_tsv_by_genotype(
         logger.debug("Gene '%s' => comp_het_qualified samples: %s", g, qualified_samples)
 
     # We'll build our filtered lines
-    filtered_lines: List[str] = [header]  # keep original header as is
+    filtered_lines: list[str] = [header]  # keep original header as is
 
     # Now go through each gene's lines
     for g, items in lines_by_gene.items():
@@ -625,14 +629,11 @@ def filter_dataframe_with_query(df: pd.DataFrame, filter_expression: str) -> pd.
         # Create a copy to avoid modifying the original DataFrame
         df_copy = df.copy()
 
-        # Convert numeric columns to numeric types to allow for comparisons like > or <
-        # This should be done carefully to avoid converting string columns by mistake.
+        # Convert string/object columns to numeric types for comparisons like > or <.
+        # In pandas 3.0+, string columns use "str" dtype instead of "object".
         for col in df_copy.columns:
-            if df_copy[col].dtype == "object":
-                # Attempt to convert columns that look numeric
-                # Use coerce to convert 'NA' and other non-numeric strings to NaN
+            if pd.api.types.is_string_dtype(df_copy[col]) or df_copy[col].dtype == object:
                 converted = pd.to_numeric(df_copy[col], errors="coerce")
-                # Only update if some values were successfully converted
                 if converted.notna().any():
                     df_copy[col] = converted
 

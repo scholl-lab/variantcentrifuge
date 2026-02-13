@@ -121,9 +121,8 @@ def decompress_gzip(gz_file, output_file, keep_compressed=True):
         return True
 
     try:
-        with gzip.open(gz_file, "rb") as f_in:
-            with open(output_file, "wb") as f_out:
-                shutil.copyfileobj(f_in, f_out)
+        with gzip.open(gz_file, "rb") as f_in, open(output_file, "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
 
         size_mb = output_file.stat().st_size / (1024 * 1024)
         logger.info(f"Decompressed to {output_file.name} ({size_mb:.1f} MB)")
@@ -180,14 +179,14 @@ def verify_reference_integrity(fasta_file, fai_file, dict_file):
         logger.warning(f"FASTA file seems small ({fasta_size_gb:.1f} GB), expected ~3GB")
 
     # Check FAI has reasonable number of sequences
-    with open(fai_file, "r") as f:
+    with open(fai_file) as f:
         fai_lines = f.readlines()
 
     if len(fai_lines) < 20:  # Should have 25+ chromosomes/contigs including decoys
         logger.warning(f"Index file has only {len(fai_lines)} sequences, expected 25+")
 
     # Check dictionary has reasonable number of sequences
-    with open(dict_file, "r") as f:
+    with open(dict_file) as f:
         dict_lines = [line for line in f if line.startswith("@SQ")]
 
     if len(dict_lines) < 20:  # Should have 25+ @SQ lines

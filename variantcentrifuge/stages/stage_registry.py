@@ -9,7 +9,6 @@ dependency analysis for the selective resume system.
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple, Type
 
 from ..pipeline_core.stage import Stage
 
@@ -21,9 +20,9 @@ class StageInfo:
     """Information about a pipeline stage."""
 
     name: str
-    class_ref: Type[Stage]
+    class_ref: type[Stage]
     category: str
-    aliases: List[str]
+    aliases: list[str]
     description: str
     estimated_runtime: float = 0.0
 
@@ -42,16 +41,16 @@ class StageRegistry:
 
     def __init__(self):
         """Initialize the stage registry."""
-        self._stages: Dict[str, StageInfo] = {}
-        self._categories: Dict[str, List[str]] = defaultdict(list)
-        self._aliases: Dict[str, str] = {}
+        self._stages: dict[str, StageInfo] = {}
+        self._categories: dict[str, list[str]] = defaultdict(list)
+        self._aliases: dict[str, str] = {}
         self._initialized = False
 
     def register_stage(
         self,
-        stage_class: Type[Stage],
+        stage_class: type[Stage],
         category: str,
-        aliases: Optional[List[str]] = None,
+        aliases: list[str] | None = None,
         estimated_runtime: float = 0.0,
     ) -> None:
         """Register a stage with the registry.
@@ -117,7 +116,7 @@ class StageRegistry:
             f"Registered stage '{stage_name}' in category '{category}' with aliases {aliases}"
         )
 
-    def get_stage_info(self, stage_name: str) -> Optional[StageInfo]:
+    def get_stage_info(self, stage_name: str) -> StageInfo | None:
         """Get information about a stage.
 
         Parameters
@@ -141,7 +140,7 @@ class StageRegistry:
 
         return None
 
-    def get_stage_class(self, stage_name: str) -> Optional[Type[Stage]]:
+    def get_stage_class(self, stage_name: str) -> type[Stage] | None:
         """Get the class for a stage.
 
         Parameters
@@ -157,7 +156,7 @@ class StageRegistry:
         stage_info = self.get_stage_info(stage_name)
         return stage_info.class_ref if stage_info else None
 
-    def resolve_stage_name(self, stage_name: str) -> Optional[str]:
+    def resolve_stage_name(self, stage_name: str) -> str | None:
         """Resolve an alias to the canonical stage name.
 
         Parameters
@@ -176,7 +175,7 @@ class StageRegistry:
             return self._aliases[stage_name]
         return None
 
-    def get_all_stages(self) -> Dict[str, StageInfo]:
+    def get_all_stages(self) -> dict[str, StageInfo]:
         """Get all registered stages.
 
         Returns
@@ -186,7 +185,7 @@ class StageRegistry:
         """
         return self._stages.copy()
 
-    def get_stages_by_category(self, category: str) -> Dict[str, StageInfo]:
+    def get_stages_by_category(self, category: str) -> dict[str, StageInfo]:
         """Get all stages in a specific category.
 
         Parameters
@@ -202,7 +201,7 @@ class StageRegistry:
         stage_names = self._categories.get(category, [])
         return {name: self._stages[name] for name in stage_names}
 
-    def get_categories(self) -> List[str]:
+    def get_categories(self) -> list[str]:
         """Get all available categories.
 
         Returns
@@ -227,7 +226,7 @@ class StageRegistry:
         """
         return self.get_stage_info(stage_name) is not None
 
-    def build_dependency_graph(self, active_stages: List[Stage]) -> Dict[str, Set[str]]:
+    def build_dependency_graph(self, active_stages: list[Stage]) -> dict[str, set[str]]:
         """Build dependency graph for active stages.
 
         Parameters
@@ -257,8 +256,8 @@ class StageRegistry:
         return dependency_graph
 
     def validate_stage_chain(
-        self, start_stage: str, active_stages: List[Stage]
-    ) -> Tuple[bool, List[str]]:
+        self, start_stage: str, active_stages: list[Stage]
+    ) -> tuple[bool, list[str]]:
         """Validate that a stage chain is valid for execution.
 
         Parameters
@@ -311,8 +310,8 @@ class StageRegistry:
         return len(errors) == 0, errors
 
     def _find_stages_from(
-        self, start_stage: str, dependency_graph: Dict[str, Set[str]]
-    ) -> Set[str]:
+        self, start_stage: str, dependency_graph: dict[str, set[str]]
+    ) -> set[str]:
         """Find all stages that should execute from a given start stage.
 
         Parameters
@@ -334,11 +333,10 @@ class StageRegistry:
         while changed:
             changed = False
             for stage_name, deps in dependency_graph.items():
-                if stage_name not in stages_to_execute:
+                if stage_name not in stages_to_execute and deps & stages_to_execute:
                     # If any dependency is in our execution set, this stage should execute too
-                    if deps & stages_to_execute:
-                        stages_to_execute.add(stage_name)
-                        changed = True
+                    stages_to_execute.add(stage_name)
+                    changed = True
 
         return stages_to_execute
 
@@ -383,9 +381,9 @@ def get_registry() -> StageRegistry:
 
 
 def register_stage(
-    stage_class: Type[Stage],
+    stage_class: type[Stage],
     category: str,
-    aliases: Optional[List[str]] = None,
+    aliases: list[str] | None = None,
     estimated_runtime: float = 0.0,
 ) -> None:
     """Register a stage with the global registry.

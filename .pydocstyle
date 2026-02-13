@@ -1,4 +1,0 @@
-[pydocstyle]
-convention = numpy
-add-ignore = D100,D104,D105,D107
-match-dir = variantcentrifuge

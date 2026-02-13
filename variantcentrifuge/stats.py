@@ -15,7 +15,6 @@ All functions return DataFrames suitable for further processing.
 
 import logging
 import os
-from typing import Dict, Optional, Set
 
 import pandas as pd
 
@@ -25,7 +24,7 @@ from .stats_engine import StatsEngine
 logger = logging.getLogger("variantcentrifuge")
 
 
-def compute_basic_stats(df: pd.DataFrame, all_samples: Set[str]) -> pd.DataFrame:
+def compute_basic_stats(df: pd.DataFrame, all_samples: set[str]) -> pd.DataFrame:
     """
     Compute basic statistics about the dataset.
 
@@ -185,8 +184,8 @@ def compute_variant_type_summary(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def compute_custom_stats(
-    df: pd.DataFrame, stats_config: Optional[str] = None
-) -> Dict[str, pd.DataFrame]:
+    df: pd.DataFrame, stats_config: str | None = None
+) -> dict[str, pd.DataFrame]:
     """
     Compute custom statistics based on configuration.
 
@@ -222,7 +221,7 @@ def merge_and_format_stats(
     gene_stats: pd.DataFrame,
     impact_summary: pd.DataFrame,
     variant_type_summary: pd.DataFrame,
-    custom_stats: Optional[Dict[str, pd.DataFrame]] = None,
+    custom_stats: dict[str, pd.DataFrame] | None = None,
 ) -> pd.DataFrame:
     """
     Merge gene_stats with impact_summary and variant_type_summary into a single DataFrame.

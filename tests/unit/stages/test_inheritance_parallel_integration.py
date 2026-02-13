@@ -72,26 +72,27 @@ class TestInheritanceParallelIntegration:
         """Test that parallel analyzer is used with multiple threads and large dataset."""
         stage = InheritanceAnalysisStage()
 
-        with caplog.at_level(logging.INFO):
-            # Mock the parallel analyzer to verify it's called
-            with patch(
-                "variantcentrifuge.inheritance.parallel_analyzer" ".analyze_inheritance_parallel"
-            ) as mock_parallel:
-                # Make it return a valid DataFrame
-                mock_parallel.return_value = context.current_dataframe.copy()
-                mock_parallel.return_value["Inheritance_Pattern"] = "autosomal_dominant"
-                mock_parallel.return_value["Inheritance_Details"] = "{}"
+        with (
+            caplog.at_level(logging.INFO),
+            patch(
+                "variantcentrifuge.inheritance.parallel_analyzer.analyze_inheritance_parallel"
+            ) as mock_parallel,
+        ):
+            # Make it return a valid DataFrame
+            mock_parallel.return_value = context.current_dataframe.copy()
+            mock_parallel.return_value["Inheritance_Pattern"] = "autosomal_dominant"
+            mock_parallel.return_value["Inheritance_Details"] = "{}"
 
-                stage(context)
+            stage(context)
 
-                # Verify parallel analyzer was called
-                mock_parallel.assert_called_once()
-                call_args = mock_parallel.call_args
+            # Verify parallel analyzer was called
+            mock_parallel.assert_called_once()
+            call_args = mock_parallel.call_args
 
-                # Check arguments
-                assert call_args.kwargs["n_workers"] == 4
-                assert call_args.kwargs["min_variants_for_parallel"] == 50
-                assert call_args.kwargs["use_vectorized_comp_het"] is True  # Default is True
+            # Check arguments
+            assert call_args.kwargs["n_workers"] == 4
+            assert call_args.kwargs["min_variants_for_parallel"] == 50
+            assert call_args.kwargs["use_vectorized_comp_het"] is True  # Default is True
 
         # Check logs
         assert "Using parallel inheritance analyzer with 4 workers" in caplog.text
@@ -103,18 +104,19 @@ class TestInheritanceParallelIntegration:
 
         stage = InheritanceAnalysisStage()
 
-        with caplog.at_level(logging.INFO):
-            # Mock the sequential analyzer where it's imported
-            with patch("variantcentrifuge.stages.analysis_stages.analyze_inheritance") as mock_seq:
-                # Make it return a valid DataFrame
-                mock_seq.return_value = context.current_dataframe.copy()
-                mock_seq.return_value["Inheritance_Pattern"] = "autosomal_dominant"
-                mock_seq.return_value["Inheritance_Details"] = "{}"
+        with (
+            caplog.at_level(logging.INFO),
+            patch("variantcentrifuge.stages.analysis_stages.analyze_inheritance") as mock_seq,
+        ):
+            # Make it return a valid DataFrame
+            mock_seq.return_value = context.current_dataframe.copy()
+            mock_seq.return_value["Inheritance_Pattern"] = "autosomal_dominant"
+            mock_seq.return_value["Inheritance_Details"] = "{}"
 
-                stage(context)
+            stage(context)
 
-                # Verify sequential analyzer was called
-                mock_seq.assert_called_once()
+            # Verify sequential analyzer was called
+            mock_seq.assert_called_once()
 
         # Should not mention parallel analyzer in logs
         assert "Using parallel inheritance analyzer" not in caplog.text
@@ -126,18 +128,19 @@ class TestInheritanceParallelIntegration:
 
         stage = InheritanceAnalysisStage()
 
-        with caplog.at_level(logging.INFO):
-            # Mock the sequential analyzer where it's imported
-            with patch("variantcentrifuge.stages.analysis_stages.analyze_inheritance") as mock_seq:
-                # Make it return a valid DataFrame
-                mock_seq.return_value = context.current_dataframe.copy()
-                mock_seq.return_value["Inheritance_Pattern"] = "autosomal_dominant"
-                mock_seq.return_value["Inheritance_Details"] = "{}"
+        with (
+            caplog.at_level(logging.INFO),
+            patch("variantcentrifuge.stages.analysis_stages.analyze_inheritance") as mock_seq,
+        ):
+            # Make it return a valid DataFrame
+            mock_seq.return_value = context.current_dataframe.copy()
+            mock_seq.return_value["Inheritance_Pattern"] = "autosomal_dominant"
+            mock_seq.return_value["Inheritance_Details"] = "{}"
 
-                stage(context)
+            stage(context)
 
-                # Verify sequential analyzer was called
-                mock_seq.assert_called_once()
+            # Verify sequential analyzer was called
+            mock_seq.assert_called_once()
 
         # Should not mention parallel analyzer in logs
         assert "Using parallel inheritance analyzer" not in caplog.text
@@ -148,7 +151,7 @@ class TestInheritanceParallelIntegration:
 
         # Mock the parallel analyzer to simulate slow compound het analysis
         with patch(
-            "variantcentrifuge.inheritance.parallel_analyzer" ".analyze_inheritance_parallel"
+            "variantcentrifuge.inheritance.parallel_analyzer.analyze_inheritance_parallel"
         ) as mock_parallel:
             import time
 
@@ -179,7 +182,7 @@ class TestInheritanceParallelIntegration:
         stage = InheritanceAnalysisStage()
 
         with patch(
-            "variantcentrifuge.inheritance.parallel_analyzer" ".analyze_inheritance_parallel"
+            "variantcentrifuge.inheritance.parallel_analyzer.analyze_inheritance_parallel"
         ) as mock_parallel:
             mock_parallel.return_value = context.current_dataframe.copy()
             mock_parallel.return_value["Inheritance_Pattern"] = "autosomal_dominant"
@@ -199,7 +202,7 @@ class TestInheritanceParallelIntegration:
         stage = InheritanceAnalysisStage()
 
         with patch(
-            "variantcentrifuge.inheritance.parallel_analyzer" ".analyze_inheritance_parallel"
+            "variantcentrifuge.inheritance.parallel_analyzer.analyze_inheritance_parallel"
         ) as mock_parallel:
             mock_parallel.return_value = context.current_dataframe.copy()
             mock_parallel.return_value["Inheritance_Pattern"] = "autosomal_dominant"

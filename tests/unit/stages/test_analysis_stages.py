@@ -270,13 +270,14 @@ class TestGeneBurdenAnalysisStage:
 
     @patch("variantcentrifuge.stages.analysis_stages.perform_gene_burden_analysis")
     @patch("variantcentrifuge.helpers.assign_case_control_counts")
-    def test_gene_burden_analysis(self, mock_assign_counts, mock_burden, base_context):
+    def test_gene_burden_analysis(self, mock_assign_counts, mock_burden, base_context, tmp_path):
         """Test gene burden calculation."""
         base_context.config = {
             "perform_gene_burden": True,
             "case_samples": ["CASE1", "CASE2"],
             "control_samples": ["CTRL1", "CTRL2"],
             "gene_column": "Gene",
+            "output_dir": str(tmp_path),
         }
         base_context.vcf_samples = ["CASE1", "CASE2", "CTRL1", "CTRL2"]
         base_context.current_dataframe = pd.DataFrame(
@@ -428,9 +429,9 @@ class TestVariantAnalysisStage:
             if "inheritance" in record.message.lower() and record.levelname == "WARNING"
         ]
 
-        assert (
-            len(inheritance_warning_logs) == 0
-        ), "Should not log inheritance warnings when inheritance not requested"
+        assert len(inheritance_warning_logs) == 0, (
+            "Should not log inheritance warnings when inheritance not requested"
+        )
         assert result.current_dataframe is not None
 
     def test_inheritance_warnings_when_inheritance_requested_but_missing(
@@ -468,9 +469,9 @@ class TestVariantAnalysisStage:
             if "inheritance" in record.message.lower() and record.levelname == "WARNING"
         ]
 
-        assert (
-            len(inheritance_warning_logs) > 0
-        ), "Should log inheritance warnings when inheritance was requested but columns missing"
+        assert len(inheritance_warning_logs) > 0, (
+            "Should log inheritance warnings when inheritance was requested but columns missing"
+        )
         assert result.current_dataframe is not None
 
     def test_inheritance_debug_when_inheritance_not_requested(self, base_context, caplog):
@@ -546,9 +547,9 @@ class TestVariantAnalysisStage:
             if "inheritance" in record.message.lower() and record.levelname == "WARNING"
         ]
 
-        assert (
-            len(inheritance_warning_logs) == 0
-        ), "Should not log warnings when inheritance columns are present"
+        assert len(inheritance_warning_logs) == 0, (
+            "Should not log warnings when inheritance columns are present"
+        )
 
     def test_should_calculate_inheritance_method(self, base_context):
         """Test the _should_calculate_inheritance method logic."""

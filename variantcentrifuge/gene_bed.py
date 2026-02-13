@@ -16,13 +16,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import List, Optional
 
 logger = logging.getLogger("variantcentrifuge")
 
 
 def normalize_genes(
-    gene_name_str: Optional[str], gene_file_str: Optional[str], logger: logging.Logger
+    gene_name_str: str | None, gene_file_str: str | None, logger: logging.Logger
 ) -> str:
     """
     Normalize genes from either a single gene name, a list of genes, or a file.
@@ -52,8 +51,8 @@ def normalize_genes(
         if not os.path.exists(gene_file_str):
             logger.error(f"Gene file {gene_file_str} not found.")
             sys.exit(1)
-        genes_from_file: List[str] = []
-        with open(gene_file_str, "r", encoding="utf-8") as gf:
+        genes_from_file: list[str] = []
+        with open(gene_file_str, encoding="utf-8") as gf:
             for line in gf:
                 line = line.strip()
                 if line:
@@ -64,12 +63,9 @@ def normalize_genes(
             logger.error("No gene name provided and no gene file provided.")
             sys.exit(1)
         if os.path.exists(gene_name_str):
+            logger.error(f"It looks like you provided a file '{gene_name_str}' to -g/--gene-name.")
             logger.error(
-                f"It looks like you provided a file '{gene_name_str}' to " f"-g/--gene-name."
-            )
-            logger.error(
-                "If you meant to provide a file of gene names, please use "
-                "-G/--gene-file instead."
+                "If you meant to provide a file of gene names, please use -G/--gene-file instead."
             )
             sys.exit(1)
 
@@ -135,7 +131,7 @@ def get_gene_bed(
 
     if gene_name.lower().strip() == "all":
         gene_key = "all"
-        gene_args: List[str] = []
+        gene_args: list[str] = []
     else:
         genes = gene_name.split()
         genes = sorted(genes)
@@ -157,7 +153,7 @@ def get_gene_bed(
     bed_fd, bed_path = tempfile.mkstemp(suffix=".bed")
     os.close(bed_fd)
 
-    cmd = ["snpEff", "-Xmx8g", "genes2bed", reference] + gene_args
+    cmd = ["snpEff", "-Xmx8g", "genes2bed", reference, *gene_args]
     if interval_expand > 0:
         cmd.extend(["-ud", str(interval_expand)])
 
@@ -189,9 +185,10 @@ def get_gene_bed(
     if add_chr:
         chr_bed = merged_bed + ".chr"
         logger.debug("Adding 'chr' prefix to BED file %s", merged_bed)
-        with open(chr_bed, "w", encoding="utf-8") as out_f, open(
-            merged_bed, "r", encoding="utf-8"
-        ) as in_f:
+        with (
+            open(chr_bed, "w", encoding="utf-8") as out_f,
+            open(merged_bed, encoding="utf-8") as in_f,
+        ):
             for line in in_f:
                 if not line.startswith("chr"):
                     out_f.write("chr" + line)

@@ -16,12 +16,12 @@ import os
 import re
 import shutil
 import subprocess
-from typing import List, Optional, Union
+from typing import Any
 
 logger = logging.getLogger("variantcentrifuge")
 
 
-def check_external_tools(tools: List[str]) -> bool:
+def check_external_tools(tools: list[str]) -> bool:
     """
     Check if external tools are available in PATH.
 
@@ -74,7 +74,7 @@ def smart_open(filename: str, mode: str = "r", encoding: str = "utf-8"):
             return open(filename, mode)
 
 
-def run_command(cmd: list, output_file: Optional[str] = None) -> str:
+def run_command(cmd: list, output_file: str | None = None) -> str:
     """
     Run a shell command and write stdout to output_file if provided, else return stdout.
 
@@ -102,7 +102,7 @@ def run_command(cmd: list, output_file: Optional[str] = None) -> str:
         with open(output_file, "w", encoding="utf-8") as out_f:
             result = subprocess.run(cmd, stdout=out_f, stderr=subprocess.PIPE, text=True)
     else:
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
         logger.error("Command failed: %s\nError: %s", " ".join(cmd), result.stderr)
@@ -115,7 +115,7 @@ def run_command(cmd: list, output_file: Optional[str] = None) -> str:
             return result.stdout
 
 
-def normalize_vcf_headers(lines: List[str]) -> List[str]:
+def normalize_vcf_headers(lines: list[str]) -> list[str]:
     """
     Normalize header lines from tools like SnpEff and SnpSift.
 
@@ -232,14 +232,12 @@ def get_tool_version(tool_name: str) -> str:
         logger.warning("No version retrieval logic for %s. Returning 'N/A'.", tool_name)
         return "N/A"
 
-    cmd = tool_map[tool_name]["command"]
+    cmd: list[str] = tool_map[tool_name]["command"]  # type: ignore[assignment]
     parse_func = tool_map[tool_name]["parse_func"]
 
     try:
-        result = subprocess.run(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False
-        )
-        version = parse_func(result.stdout, result.stderr)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        version: str = parse_func(result.stdout, result.stderr)  # type: ignore[operator]
         if version == "N/A":
             logger.warning("Could not parse version for %s. Returning 'N/A'.", tool_name)
         return version
@@ -268,7 +266,7 @@ def sanitize_metadata_field(value: str) -> str:
     return value.replace("\t", " ").replace("\n", " ").strip()
 
 
-def ensure_fields_in_extract(base_fields_str: str, extra_fields: List[str]) -> str:
+def ensure_fields_in_extract(base_fields_str: str, extra_fields: list[str]) -> str:
     """
     Ensure each item in extra_fields is present in the space-delimited base_fields_str.
 
@@ -277,10 +275,7 @@ def ensure_fields_in_extract(base_fields_str: str, extra_fields: List[str]) -> s
     We no longer normalize extra_fields here, so that raw columns like "GEN[*].DP"
     remain unmodified.
     """
-    if not base_fields_str:
-        base_list = []
-    else:
-        base_list = base_fields_str.split()
+    base_list = [] if not base_fields_str else base_fields_str.split()
 
     # Just deduplicate:
     for raw_field in extra_fields:
@@ -294,7 +289,7 @@ def ensure_fields_in_extract(base_fields_str: str, extra_fields: List[str]) -> s
 def generate_igv_safe_filename_base(
     sample_id: str,
     chrom: str,
-    pos: Union[str, int],
+    pos: str | int,
     ref: str,
     alt: str,
     max_allele_len: int = 10,
@@ -401,7 +396,7 @@ def generate_igv_safe_filename_base(
 # MODIFIED: End of IGV filename shortening feature
 
 
-def split_bed_file(input_bed: str, num_chunks: int, output_dir: str) -> List[str]:
+def split_bed_file(input_bed: str, num_chunks: int, output_dir: str) -> list[str]:
     """
     Split a BED file into a specified number of chunks with roughly equal total base pairs.
 
@@ -419,9 +414,9 @@ def split_bed_file(input_bed: str, num_chunks: int, output_dir: str) -> List[str
     List[str]
         A list of file paths to the created chunked BED files.
     """
-    regions = []
+    regions: list[dict[str, Any]] = []
     total_bases = 0
-    with open(input_bed, "r", encoding="utf-8") as f:
+    with open(input_bed, encoding="utf-8") as f:
         for line in f:
             if line.startswith(("#", "track", "browser")):
                 continue

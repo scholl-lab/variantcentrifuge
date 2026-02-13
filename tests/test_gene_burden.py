@@ -230,7 +230,7 @@ class TestIntegrationEdgeCases:
         data = []
 
         # GENE1: Multiple variants, but no controls have any
-        for i in range(5):
+        for _i in range(5):
             data.append(
                 {
                     "GENE": "GENE1",

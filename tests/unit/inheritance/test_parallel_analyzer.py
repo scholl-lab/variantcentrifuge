@@ -239,7 +239,7 @@ class TestParallelInheritanceAnalyzer:
         assert any("compound" in pattern for pattern in patterns)
 
         # Check details contain compound het info
-        for idx, row in result.iterrows():
+        for _idx, row in result.iterrows():
             details = json.loads(row["Inheritance_Details"])
             if "compound" in row["Inheritance_Pattern"]:
                 samples = details.get("samples_with_pattern", [])
@@ -255,7 +255,7 @@ class TestParallelInheritanceAnalyzer:
         sample_list = ["proband", "mother", "father"]
 
         with patch(
-            "variantcentrifuge.inheritance.parallel_analyzer" ".analyze_gene_for_compound_het"
+            "variantcentrifuge.inheritance.parallel_analyzer.analyze_gene_for_compound_het"
         ) as mock_analyze:
             # Make the function raise an error
             mock_analyze.side_effect = Exception("Test error")

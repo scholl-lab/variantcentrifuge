@@ -35,9 +35,9 @@ class TestCriticalArgumentParsing:
 
             # Must succeed without "unrecognized arguments" error
             assert result.returncode == 0, f"Failed with chunk size {value}"
-            assert (
-                "unrecognized arguments" not in result.stderr
-            ), f"Parameter not recognized with value {value}"
+            assert "unrecognized arguments" not in result.stderr, (
+                f"Parameter not recognized with value {value}"
+            )
             assert "--genotype-replacement-chunk-size" in result.stdout
 
     def test_performance_parameters_work(self):
@@ -55,9 +55,9 @@ class TestCriticalArgumentParsing:
             result = subprocess.run(cmd, capture_output=True, text=True)
 
             assert result.returncode == 0, f"Parameter {param} failed"
-            assert (
-                "unrecognized arguments" not in result.stderr
-            ), f"Parameter {param} not recognized"
+            assert "unrecognized arguments" not in result.stderr, (
+                f"Parameter {param} not recognized"
+            )
 
     def test_genotype_replacement_methods_work(self):
         """Test that all genotype replacement methods are recognized."""
@@ -102,9 +102,9 @@ class TestCriticalArgumentParsing:
         ]
 
         for pattern in forbidden_patterns:
-            assert (
-                pattern not in main_source
-            ), f"main() contains duplicate parser pattern: {pattern}"
+            assert pattern not in main_source, (
+                f"main() contains duplicate parser pattern: {pattern}"
+            )
 
         # main() should call create_parser()
         assert "create_parser()" in main_source, "main() should call create_parser()"
@@ -166,9 +166,9 @@ class TestArgumentParserArchitecture:
 
         # main() should call create_parser() exactly once
         create_parser_calls = main_source.count("create_parser()")
-        assert (
-            create_parser_calls == 1
-        ), f"main() should call create_parser() exactly once, found {create_parser_calls}"
+        assert create_parser_calls == 1, (
+            f"main() should call create_parser() exactly once, found {create_parser_calls}"
+        )
 
         # main() should create minimal additional parsers (only status_parser)
         parser_creations = main_source.count("ArgumentParser")
@@ -191,12 +191,12 @@ class TestArgumentParserArchitecture:
         expected_groups = ["General Options", "Performance & Processing", "Miscellaneous Options"]
 
         for group in expected_groups:
-            assert (
-                f'"{group}"' in create_parser_source
-            ), f"Argument group '{group}' should be in create_parser()"
+            assert f'"{group}"' in create_parser_source, (
+                f"Argument group '{group}' should be in create_parser()"
+            )
 
             # But NOT in main() (except for status_parser which is different)
             if group != "General Options":  # status_parser might have general options
-                assert (
-                    f'add_argument_group("{group}")' not in main_source
-                ), f"Argument group '{group}' should NOT be duplicated in main()"
+                assert f'add_argument_group("{group}")' not in main_source, (
+                    f"Argument group '{group}' should NOT be duplicated in main()"
+                )

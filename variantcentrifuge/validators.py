@@ -17,12 +17,11 @@ are provided correctly before proceeding with the analysis.
 import logging
 import os
 import sys
-from typing import Optional
 
 logger = logging.getLogger("variantcentrifuge")
 
 
-def validate_vcf_file(vcf_path: Optional[str], logger: logging.Logger) -> None:
+def validate_vcf_file(vcf_path: str | None, logger: logging.Logger) -> None:
     """
     Validate that the input VCF file exists, is non-empty, and is readable.
 
@@ -47,7 +46,7 @@ def validate_vcf_file(vcf_path: Optional[str], logger: logging.Logger) -> None:
 
 
 def validate_phenotype_file(
-    phenotype_file: Optional[str],
+    phenotype_file: str | None,
     sample_col: str,
     value_col: str,
     logger: logging.Logger,
@@ -82,17 +81,14 @@ def validate_phenotype_file(
         logger.error("Phenotype file %s is empty.", phenotype_file)
         sys.exit(1)
 
-    with open(phenotype_file, "r", encoding="utf-8") as pf:
+    with open(phenotype_file, encoding="utf-8") as pf:
         header = pf.readline().strip()
         if not header:
             logger.error("Phenotype file %s has no header.", phenotype_file)
             sys.exit(1)
 
         # Determine delimiter by checking for tabs or commas
-        if "\t" in header:
-            columns = header.split("\t")
-        else:
-            columns = header.split(",")
+        columns = header.split("\t") if "\t" in header else header.split(",")
 
         if sample_col not in columns:
             logger.error(
@@ -116,7 +112,7 @@ def validate_phenotype_file(
 
 
 def validate_mandatory_parameters(
-    reference: Optional[str], filters: Optional[str], fields: Optional[str]
+    reference: str | None, filters: str | None, fields: str | None
 ) -> None:
     """
     Validate that mandatory parameters (reference, filters, fields) are provided.
@@ -152,7 +148,7 @@ def validate_mandatory_parameters(
 
 
 # MODIFIED: Start of local IGV FASTA feature
-def validate_igv_files(local_fasta: Optional[str], ideogram: Optional[str]) -> None:
+def validate_igv_files(local_fasta: str | None, ideogram: str | None) -> None:
     """Validate the existence and readability of files for IGV integration.
 
     Parameters

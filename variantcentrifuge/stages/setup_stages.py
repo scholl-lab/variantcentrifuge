@@ -7,7 +7,6 @@ scoring configurations, and other setup tasks that can run in parallel.
 
 import logging
 import os
-from typing import List, Optional
 
 from ..config import load_config
 from ..helpers import get_vcf_samples
@@ -19,7 +18,7 @@ from ..scoring import read_scoring_config
 logger = logging.getLogger(__name__)
 
 
-def load_terms_from_file(file_path: Optional[str], logger: logging.Logger) -> List[str]:
+def load_terms_from_file(file_path: str | None, logger: logging.Logger) -> list[str]:
     """
     Load terms (HPO terms, sample IDs, etc.) from a file, one per line.
 
@@ -40,12 +39,12 @@ def load_terms_from_file(file_path: Optional[str], logger: logging.Logger) -> Li
     SystemExit
         If the file is missing or empty and a file_path was specified.
     """
-    terms: List[str] = []
+    terms: list[str] = []
     if file_path:
         if not os.path.exists(file_path):
             logger.error(f"Required file not found: {file_path}")
             raise FileNotFoundError(f"Required file not found: {file_path}")
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             found_any = False
             for line in f:
                 t = line.strip()
@@ -324,7 +323,7 @@ class ScoringConfigLoadingStage(Stage):
                     f"{len(scoring_config.get('formulas', {}))} formulas"
                 )
             except Exception as e:
-                raise ValueError(f"Failed to load scoring configuration: {e}")
+                raise ValueError(f"Failed to load scoring configuration: {e}") from e
         else:
             logger.debug("No scoring configuration specified")
 
@@ -396,7 +395,7 @@ class PedigreeLoadingStage(Stage):
                 )
                 logger.info(f"Loaded pedigree with {n_samples} samples ({n_affected} affected)")
             except Exception as e:
-                raise ValueError(f"Failed to load pedigree file: {e}")
+                raise ValueError(f"Failed to load pedigree file: {e}") from e
         else:
             logger.debug("No pedigree file specified")
 
@@ -571,7 +570,7 @@ class SampleConfigLoadingStage(Stage):
 
             # Log changes for debugging
             changes = []
-            for orig, new in zip(original_samples, vcf_samples):
+            for orig, new in zip(original_samples, vcf_samples, strict=False):
                 if orig != new:
                     changes.append(f"{orig} -> {new}")
 
@@ -598,7 +597,7 @@ class SampleConfigLoadingStage(Stage):
 
         if case_samples_file:
             logger.debug(f"Loading case samples from file: {case_samples_file}")
-            with open(case_samples_file, "r") as f:
+            with open(case_samples_file) as f:
                 case_samples = [line.strip() for line in f if line.strip()]
             context.config["case_samples"] = case_samples
             logger.info(f"Loaded {len(case_samples)} case samples from file")
@@ -608,7 +607,7 @@ class SampleConfigLoadingStage(Stage):
 
         if control_samples_file:
             logger.debug(f"Loading control samples from file: {control_samples_file}")
-            with open(control_samples_file, "r") as f:
+            with open(control_samples_file) as f:
                 control_samples = [line.strip() for line in f if line.strip()]
             context.config["control_samples"] = control_samples
             logger.info(f"Loaded {len(control_samples)} control samples from file")
@@ -699,13 +698,13 @@ class SampleConfigLoadingStage(Stage):
         control_samples_file = context.config.get("control_samples_file")
 
         if case_samples_file and os.path.exists(case_samples_file):
-            with open(case_samples_file, "r") as f:
+            with open(case_samples_file) as f:
                 case_samples = [line.strip() for line in f if line.strip()]
             context.config["case_samples"] = case_samples
             logger.debug(f"Restored {len(case_samples)} case samples from file (checkpoint skip)")
 
         if control_samples_file and os.path.exists(control_samples_file):
-            with open(control_samples_file, "r") as f:
+            with open(control_samples_file) as f:
                 control_samples = [line.strip() for line in f if line.strip()]
             context.config["control_samples"] = control_samples
             logger.debug(
@@ -792,9 +791,10 @@ class PhenotypeCaseControlAssignmentStage(Stage):
 
         if case_samples_file or control_samples_file:
             logger.info("File-based case/control assignment detected")
-            return self._handle_file_based_assignment(
+            result = self._handle_file_based_assignment(
                 context, case_samples_file, control_samples_file
             )
+            return result  # type: ignore[no-any-return]
 
         # Skip if no phenotype criteria
         if not case_phenotypes and not control_phenotypes:
@@ -919,14 +919,14 @@ class PhenotypeCaseControlAssignmentStage(Stage):
 
         # Convert sample IDs to strings for consistent comparison
         # VCF samples are strings, but phenotype file samples might be integers
-        vcf_samples_str = set(str(s) for s in vcf_samples)
+        vcf_samples_str = {str(s) for s in vcf_samples}
 
         # CRITICAL FIX: Apply same substring removal to VCF samples as case/control samples
         if remove_substring and remove_substring.strip():
-            vcf_samples_str = set(s.replace(remove_substring, "") for s in vcf_samples_str)
+            vcf_samples_str = {s.replace(remove_substring, "") for s in vcf_samples_str}
             logger.debug(f"Applied substring removal '{remove_substring}' to VCF samples")
 
-        pheno_samples_raw = set(str(s) for s in df[sample_column].unique())
+        pheno_samples_raw = {str(s) for s in df[sample_column].unique()}
 
         # Apply sample substring removal to phenotype samples if configured
         # This is necessary because VCF samples have already been processed
@@ -934,7 +934,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
             logger.debug(
                 f"Applying substring removal '{remove_substring}' to phenotype samples for matching"
             )
-            pheno_samples_str = set(s.replace(remove_substring, "") for s in pheno_samples_raw)
+            pheno_samples_str = {s.replace(remove_substring, "") for s in pheno_samples_raw}
         else:
             pheno_samples_str = pheno_samples_raw
 
@@ -959,10 +959,10 @@ class PhenotypeCaseControlAssignmentStage(Stage):
             case_mask = df[value_column].isin(case_phenotype_set)
             case_rows = df[case_mask]
             # Convert to strings for consistent comparison
-            case_samples_raw = set(str(s) for s in case_rows[sample_column].unique())
+            case_samples_raw = {str(s) for s in case_rows[sample_column].unique()}
             # Apply substring removal if configured
             if remove_substring and remove_substring.strip():
-                case_samples = set(s.replace(remove_substring, "") for s in case_samples_raw)
+                case_samples = {s.replace(remove_substring, "") for s in case_samples_raw}
             else:
                 case_samples = case_samples_raw
             logger.info(f"Found {len(case_samples)} samples matching case phenotypes")
@@ -973,10 +973,10 @@ class PhenotypeCaseControlAssignmentStage(Stage):
             control_mask = df[value_column].isin(control_phenotype_set)
             control_rows = df[control_mask]
             # Convert to strings for consistent comparison
-            control_samples_raw = set(str(s) for s in control_rows[sample_column].unique())
+            control_samples_raw = {str(s) for s in control_rows[sample_column].unique()}
             # Apply substring removal if configured
             if remove_substring and remove_substring.strip():
-                control_samples = set(s.replace(remove_substring, "") for s in control_samples_raw)
+                control_samples = {s.replace(remove_substring, "") for s in control_samples_raw}
             else:
                 control_samples = control_samples_raw
             logger.info(f"Found {len(control_samples)} samples matching control phenotypes")
@@ -1038,8 +1038,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
     ):
         """Classify samples based on phenotype data."""
         logger.info(
-            f"Performing phenotype-based case/control assignment for "
-            f"{len(vcf_samples)} VCF samples"
+            f"Performing phenotype-based case/control assignment for {len(vcf_samples)} VCF samples"
         )
         logger.info(
             f"Using {len(case_phenotypes)} case phenotypes and "
@@ -1189,7 +1188,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         if case_samples_file:
             logger.info(f"Loading case samples from: {case_samples_file}")
             try:
-                with open(case_samples_file, "r") as f:
+                with open(case_samples_file) as f:
                     for line in f:
                         sample = line.strip()
                         if sample:
@@ -1203,7 +1202,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         if control_samples_file:
             logger.info(f"Loading control samples from: {control_samples_file}")
             try:
-                with open(control_samples_file, "r") as f:
+                with open(control_samples_file) as f:
                     for line in f:
                         sample = line.strip()
                         if sample:
@@ -1217,8 +1216,8 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         remove_substring = context.config.get("remove_sample_substring", "")
         if remove_substring and remove_substring.strip():
             logger.info(f"Applying substring removal '{remove_substring}' to case/control samples")
-            case_samples = set(s.replace(remove_substring, "") for s in case_samples)
-            control_samples = set(s.replace(remove_substring, "") for s in control_samples)
+            case_samples = {s.replace(remove_substring, "") for s in case_samples}
+            control_samples = {s.replace(remove_substring, "") for s in control_samples}
 
         # Find intersection with VCF samples
         case_in_vcf = case_samples & vcf_samples_set

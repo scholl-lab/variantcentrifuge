@@ -117,7 +117,7 @@ class TestVariantAnnotation:
             "chr4\t5000\tA\tG\tunknown\tLOW",
             "chr5\t6000\tG\tC\t\tLOW",  # Empty GENE
         ]
-        self.tsv_lines = [self.header] + self.variants
+        self.tsv_lines = [self.header, *self.variants]
 
     def create_gene_list_file(self, tmp_path, name, genes):
         """Create a gene list file."""
@@ -188,7 +188,7 @@ class TestVariantAnnotation:
             "chr1\t1000\tA\tG\ttp53\tHIGH",  # lowercase
             "chr1\t2000\tG\tT\tBrCa1\tMODERATE",  # mixed case
         ]
-        tsv_lines = [self.header] + variants_with_case
+        tsv_lines = [self.header, *variants_with_case]
 
         # Create gene list with uppercase genes
         cancer_genes = ["TP53", "BRCA1"]
@@ -209,7 +209,7 @@ class TestVariantAnnotation:
             "chr2\t3000\tC\tA\tTP53 BRCA2\tLOW",  # space
             "chr3\t4000\tT\tC\tAPC, TP53; BRCA1\tLOW",  # mixed
         ]
-        tsv_lines = [self.header] + variants_with_separators
+        tsv_lines = [self.header, *variants_with_separators]
 
         # Create gene lists
         cancer_genes = ["TP53", "BRCA1"]
@@ -254,7 +254,7 @@ class TestVariantAnnotation:
             "chr1\t1000\tA\tG\tHIGH",
             "chr1\t2000\tG\tT\tMODERATE",
         ]
-        tsv_lines = [header] + variants
+        tsv_lines = [header, *variants]
 
         cancer_genes = ["TP53", "BRCA1"]
         cancer_gene_file = self.create_gene_list_file(tmp_path, "cancer_genes", cancer_genes)

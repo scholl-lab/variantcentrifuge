@@ -1,14 +1,29 @@
 """Shared pytest fixtures for all test modules."""
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import pandas as pd
 import pytest
 
 
+def pytest_collection_modifyitems(items):
+    """Auto-assign markers based on test file location."""
+    for item in items:
+        path = str(item.fspath)
+        if "/integration/" in path or "\\integration\\" in path:
+            item.add_marker(pytest.mark.integration)
+        elif "/performance/" in path or "\\performance\\" in path:
+            item.add_marker(pytest.mark.slow)
+            item.add_marker(pytest.mark.performance)
+        elif "/unit/" in path or "\\unit\\" in path:
+            item.add_marker(pytest.mark.unit)
+        elif "/test_inheritance/" in path or "\\test_inheritance\\" in path:
+            item.add_marker(pytest.mark.inheritance)
+
+
 @pytest.fixture
-def gene_burden_test_config() -> Dict[str, Any]:
+def gene_burden_test_config() -> dict[str, Any]:
     """Provide standard gene burden analysis configuration."""
     return {
         "gene_burden_mode": "samples",
@@ -20,7 +35,7 @@ def gene_burden_test_config() -> Dict[str, Any]:
 
 
 @pytest.fixture
-def gene_burden_alleles_config() -> Dict[str, Any]:
+def gene_burden_alleles_config() -> dict[str, Any]:
     """Gene burden configuration for alleles mode."""
     return {
         "gene_burden_mode": "alleles",

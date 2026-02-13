@@ -144,10 +144,10 @@ class TestParallelProcessingCompression:
                 "gzip_intermediates": True,  # Enable compression
             }
 
-            with patch("variantcentrifuge.stages.processing_stages.extract_variants"), patch(
-                "variantcentrifuge.stages.processing_stages.extract_fields"
-            ) as mock_extract:
-
+            with (
+                patch("variantcentrifuge.stages.processing_stages.extract_variants"),
+                patch("variantcentrifuge.stages.processing_stages.extract_fields") as mock_extract,
+            ):
                 result_path = stage._process_single_chunk(
                     chunk_index=0,
                     chunk_bed=chunk_bed,
@@ -181,10 +181,10 @@ class TestParallelProcessingCompression:
                 "gzip_intermediates": False,  # Disable compression
             }
 
-            with patch("variantcentrifuge.stages.processing_stages.extract_variants"), patch(
-                "variantcentrifuge.stages.processing_stages.extract_fields"
-            ) as mock_extract:
-
+            with (
+                patch("variantcentrifuge.stages.processing_stages.extract_variants"),
+                patch("variantcentrifuge.stages.processing_stages.extract_fields") as mock_extract,
+            ):
                 result_path = stage._process_single_chunk(
                     chunk_index=0,
                     chunk_bed=chunk_bed,
@@ -231,10 +231,10 @@ class TestParallelProcessingCompression:
                 # gzip_intermediates not set - should default to True
             }
 
-            with patch("variantcentrifuge.stages.processing_stages.extract_variants"), patch(
-                "variantcentrifuge.stages.processing_stages.extract_fields"
+            with (
+                patch("variantcentrifuge.stages.processing_stages.extract_variants"),
+                patch("variantcentrifuge.stages.processing_stages.extract_fields"),
             ):
-
                 result_path = stage._process_single_chunk(
                     chunk_index=0,
                     chunk_bed=chunk_bed,
@@ -274,7 +274,7 @@ class TestExtractFieldsCompressionIntegration:
                 # Mock SnpSift to create the temporary uncompressed file
                 def mock_snpsift_run(cmd, output_file=None):
                     if output_file:
-                        Path(output_file).write_text("CHROM\tPOS\tREF\tALT\n" "chr1\t100\tA\tT\n")
+                        Path(output_file).write_text("CHROM\tPOS\tREF\tALT\nchr1\t100\tA\tT\n")
 
                 mock_run.side_effect = mock_snpsift_run
 
@@ -355,8 +355,8 @@ class TestCompressionEndToEnd:
             # Check extract_fields call
             call_args = mock_extract.call_args
             output_file = call_args.kwargs["output_file"]
-            assert output_file.endswith(
-                expected_suffix
-            ), f"extract_fields called with wrong filename: {output_file}"
+            assert output_file.endswith(expected_suffix), (
+                f"extract_fields called with wrong filename: {output_file}"
+            )
 
             mock_extract.reset_mock()

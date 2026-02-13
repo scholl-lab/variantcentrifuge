@@ -21,7 +21,8 @@ Maintains previous functionality, CLI interface, and output format.
 
 import io
 import logging
-from typing import Any, Dict, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 import pandas as pd
 
@@ -38,7 +39,7 @@ from .inheritance.analyzer import analyze_inheritance
 logger = logging.getLogger("variantcentrifuge")
 
 
-def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]:
+def analyze_variants(lines: Iterator[str], cfg: dict[str, Any]) -> Iterator[str]:
     """
     Analyze variants and optionally perform gene burden analysis.
 
@@ -274,11 +275,7 @@ def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]
                             if isinstance(row, pd.Series):
                                 for col in stat_df.columns:
                                     if col not in stat_df.index.names:
-                                        metric_name = (
-                                            f"{stat_name}_{idx}_{col}"
-                                            if isinstance(idx, tuple)
-                                            else f"{stat_name}_{idx}_{col}"
-                                        )
+                                        metric_name = f"{stat_name}_{idx}_{col}"
                                         comp_stats_list.append([metric_name, str(row[col])])
 
                     if comp_stats_list:

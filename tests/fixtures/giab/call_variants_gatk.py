@@ -155,7 +155,7 @@ def sort_bed_file(bed_file, output_dir):
 
     # Read BED file and sort entries
     bed_entries = []
-    with open(bed_file, "r") as f:
+    with open(bed_file) as f:
         for line in f:
             line = line.strip()
             if line and not line.startswith("#"):
@@ -332,7 +332,7 @@ def main():
     if not bam_files:
         sys.exit(1)
 
-    reference_fasta, reference_fai = find_reference_files(args.reference_dir)
+    reference_fasta, _reference_fai = find_reference_files(args.reference_dir)
     if not reference_fasta:
         sys.exit(1)
 

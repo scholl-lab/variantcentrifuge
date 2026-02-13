@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -13,7 +13,7 @@ logger = logging.getLogger("variantcentrifuge")
 class StatsEngine:
     """Computes statistics based on JSON configuration."""
 
-    def __init__(self, config: Union[Dict[str, Any], str]):
+    def __init__(self, config: dict[str, Any] | str):
         """
         Initialize the stats engine with configuration.
 
@@ -23,14 +23,14 @@ class StatsEngine:
             Either a configuration dictionary or path to JSON config file
         """
         if isinstance(config, str):
-            with open(config, "r") as f:
+            with open(config) as f:
                 self.config = json.load(f)
         else:
             self.config = config
 
-        self.results = {}
+        self.results: dict[str, Any] = {}
 
-    def compute(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+    def compute(self, df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         """
         Compute all configured statistics.
 
@@ -58,7 +58,7 @@ class StatsEngine:
 
         return self.results
 
-    def _check_required_columns(self, df: pd.DataFrame, required: List[str]) -> bool:
+    def _check_required_columns(self, df: pd.DataFrame, required: list[str]) -> bool:
         """Check if required columns exist in DataFrame."""
         missing = [col for col in required if col not in df.columns]
         if missing:
@@ -165,7 +165,7 @@ class StatsEngine:
                     try:
                         # Try with include_groups for newer pandas versions
                         result = grouped.apply(
-                            lambda group_df: self._safe_eval(
+                            lambda group_df, expression=expression, name=name: self._safe_eval(
                                 group_df, expression, f"gene stat '{name}'"
                             ),
                             include_groups=False,
@@ -173,7 +173,7 @@ class StatsEngine:
                     except TypeError:
                         # Fall back for older pandas versions
                         result = grouped.apply(
-                            lambda group_df: self._safe_eval(
+                            lambda group_df, expression=expression, name=name: self._safe_eval(
                                 group_df, expression, f"gene stat '{name}'"
                             )
                         )
@@ -218,7 +218,7 @@ class StatsEngine:
         else:
             return pd.DataFrame()
 
-    def _compute_grouped_stats(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+    def _compute_grouped_stats(self, df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         """Compute statistics with custom groupings."""
         grouped_results = {}
 
@@ -246,7 +246,7 @@ class StatsEngine:
                     try:
                         # Try with include_groups for newer pandas versions
                         result = grouped.apply(
-                            lambda group_df: self._safe_eval(
+                            lambda group_df, expression=expression, name=name: self._safe_eval(
                                 group_df, expression, f"grouped stat '{name}'"
                             ),
                             include_groups=False,
@@ -254,7 +254,7 @@ class StatsEngine:
                     except TypeError:
                         # Fall back for older pandas versions
                         result = grouped.apply(
-                            lambda group_df: self._safe_eval(
+                            lambda group_df, expression=expression, name=name: self._safe_eval(
                                 group_df, expression, f"grouped stat '{name}'"
                             )
                         )

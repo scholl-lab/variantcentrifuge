@@ -7,7 +7,7 @@ pattern deduction, compound heterozygous analysis, and pattern prioritization.
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 
 def analyze_inheritance(
     df: pd.DataFrame,
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
     use_vectorized_comp_het: bool = True,
 ) -> pd.DataFrame:
     """
@@ -143,7 +143,7 @@ def analyze_inheritance(
         comp_het_info = row["_comp_het_info"]
         comp_het_patterns = []
         if comp_het_info:
-            for sample_id, info in comp_het_info.items():
+            for _sample_id, info in comp_het_info.items():
                 if info.get("is_compound_het"):
                     comp_het_type = info.get("comp_het_type", "compound_heterozygous")
                     if comp_het_type != "not_compound_heterozygous":
@@ -193,13 +193,13 @@ def analyze_inheritance(
 def create_inheritance_details(
     row: pd.Series,
     best_pattern: str,
-    all_patterns: List[str],
+    all_patterns: list[str],
     confidence: float,
-    comp_het_info: Optional[Dict[str, Any]],
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
-    segregation_results: Optional[Dict[str, tuple]] = None,
-) -> Dict[str, Any]:
+    comp_het_info: dict[str, Any] | None,
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+    segregation_results: dict[str, tuple] | None = None,
+) -> dict[str, Any]:
     """
     Create detailed inheritance information dictionary.
 
@@ -225,7 +225,7 @@ def create_inheritance_details(
     Dict[str, Any]
         Dictionary with detailed inheritance information
     """
-    details = {
+    details: dict[str, Any] = {
         "primary_pattern": best_pattern,
         "all_patterns": list(set(all_patterns)),
         "confidence": confidence,
@@ -279,7 +279,7 @@ def create_inheritance_details(
     return details
 
 
-def get_inheritance_summary(df: pd.DataFrame) -> Dict[str, Any]:
+def get_inheritance_summary(df: pd.DataFrame) -> dict[str, Any]:
     """
     Generate a summary of inheritance analysis results.
 
@@ -329,7 +329,7 @@ def get_inheritance_summary(df: pd.DataFrame) -> Dict[str, Any]:
 
 
 def filter_by_inheritance_pattern(
-    df: pd.DataFrame, patterns: List[str], min_confidence: Optional[float] = None
+    df: pd.DataFrame, patterns: list[str], min_confidence: float | None = None
 ) -> pd.DataFrame:
     """
     Filter DataFrame by inheritance patterns.
@@ -362,7 +362,7 @@ def filter_by_inheritance_pattern(
 
 
 def export_inheritance_report(
-    df: pd.DataFrame, output_path: str, sample_list: Optional[List[str]] = None
+    df: pd.DataFrame, output_path: str, sample_list: list[str] | None = None
 ) -> None:
     """
     Export a detailed inheritance report.

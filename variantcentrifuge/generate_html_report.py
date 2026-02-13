@@ -2,14 +2,14 @@
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader
 
 
 def generate_html_report(
-    variants_json: str, summary_json: str, output_dir: str, cfg: Dict[str, Any]
+    variants_json: str, summary_json: str, output_dir: str, cfg: dict[str, Any]
 ) -> None:
     """
     Generate an interactive HTML report of variants and summary statistics.
@@ -30,9 +30,9 @@ def generate_html_report(
     None
     """
     # Load data
-    with open(variants_json, "r", encoding="utf-8") as vf:
+    with open(variants_json, encoding="utf-8") as vf:
         variants_data = json.load(vf)
-    with open(summary_json, "r", encoding="utf-8") as sf:
+    with open(summary_json, encoding="utf-8") as sf:
         summary = json.load(sf)
 
     default_hidden_columns = cfg.get("html_report_default_hidden_columns", [])

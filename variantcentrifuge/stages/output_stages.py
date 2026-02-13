@@ -19,7 +19,6 @@ import sys
 import tarfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Set
 
 import pandas as pd
 
@@ -54,7 +53,7 @@ class VariantIdentifierStage(Stage):
         return "Generate variant identifiers"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Always depends on dataframe_loading
         deps = {"dataframe_loading"}
@@ -64,7 +63,7 @@ class VariantIdentifierStage(Stage):
         return deps
 
     @property
-    def soft_dependencies(self) -> Set[str]:
+    def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Should run after variant_analysis because it creates a new DataFrame
         return {"variant_analysis"}
@@ -234,7 +233,7 @@ class FinalFilteringStage(Stage):
         return "Apply final filters on all columns"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Only depends on dataframe_loading since filtering can work on any columns
         return {"dataframe_loading"}
@@ -245,7 +244,7 @@ class FinalFilteringStage(Stage):
         return True  # Safe - only filters DataFrame, no external I/O
 
     @property
-    def soft_dependencies(self) -> Set[str]:
+    def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Final filtering often filters on computed columns from these stages
         return {"variant_scoring", "inheritance_analysis", "custom_annotation"}
@@ -281,7 +280,7 @@ class FinalFilteringStage(Stage):
             # Show some sample values
             sample_values = df["nephro_candidate_score"].head(10).tolist()
             logger.debug(
-                f"FinalFilteringStage - Sample nephro_candidate_score values: " f"{sample_values}"
+                f"FinalFilteringStage - Sample nephro_candidate_score values: {sample_values}"
             )
         else:
             logger.debug("FinalFilteringStage - nephro_candidate_score column NOT found")
@@ -321,7 +320,7 @@ class PseudonymizationStage(Stage):
         return "Apply sample pseudonymization"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Only depend on dataframe_loading as minimum requirement
         # Other stages (filtering, variant_id) are optional
@@ -366,7 +365,7 @@ class PseudonymizationStage(Stage):
         # Create mapping for samples
         metadata_dict = {}
         if metadata_file:
-            with open(metadata_file, "r") as f:
+            with open(metadata_file) as f:
                 metadata_dict = json.load(f)
 
         mapping = pseudonymizer.create_mapping(samples, metadata_dict)
@@ -386,7 +385,7 @@ class PseudonymizationStage(Stage):
                 context.workspace.output_dir.parent
                 / f"pseudonymization_mapping_{context.workspace.timestamp}.tsv"
             )
-            pseudonymizer.save_mapping(mapping_file, include_metadata=True)
+            pseudonymizer.save_mapping(str(mapping_file), include_metadata=True)
             logger.warning(f"No pseudonymize_table specified, saved to {mapping_file}")
 
         context.current_dataframe = df
@@ -418,7 +417,7 @@ class TSVOutputStage(Stage):
         return "Write final TSV output"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # TSV output should run after all processing and analysis stages
         # We depend on dataframe_loading as the base requirement
@@ -439,7 +438,7 @@ class TSVOutputStage(Stage):
         return deps
 
     @property
-    def soft_dependencies(self) -> Set[str]:
+    def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Soft dependencies are optional - if these stages exist, we should run after them
         # This includes all stages that might modify the DataFrame
@@ -558,12 +557,12 @@ class ExcelReportStage(Stage):
         return "Generate Excel report"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         return {"tsv_output", "metadata_generation", "statistics_generation"}
 
     @property
-    def soft_dependencies(self) -> Set[str]:
+    def soft_dependencies(self) -> set[str]:
         """Return the set of optional stage names this stage depends on."""
         # This ensures Excel generation waits for gene burden analysis if it's running.
         return {"gene_burden_analysis"}
@@ -688,12 +687,12 @@ class HTMLReportStage(Stage):
         return "Generate HTML report"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         return {"tsv_output"}
 
     @property
-    def soft_dependencies(self) -> Set[str]:
+    def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # HTML report should wait for IGV reports if they're being generated
         # so that IGV links can be included in the HTML report
@@ -773,7 +772,7 @@ class IGVReportStage(Stage):
         return "Generate IGV.js report"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         return {"tsv_output"}
 
@@ -860,7 +859,7 @@ class MetadataGenerationStage(Stage):
         return "Generate metadata file"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         return {"tsv_output"}
 
@@ -938,7 +937,7 @@ class ArchiveCreationStage(Stage):
         return "Create results archive"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Archive should run after all outputs
         # Just depend on TSV output as minimum
@@ -986,7 +985,7 @@ class ParallelReportGenerationStage(Stage):
         return "Generate all reports in parallel"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         return {"tsv_output"}
 
@@ -998,7 +997,7 @@ class ParallelReportGenerationStage(Stage):
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Generate all requested reports in parallel."""
         # Check which reports are requested
-        reports_to_generate = []
+        reports_to_generate: list[tuple[str, Stage]] = []
 
         if context.config.get("xlsx") or context.config.get("excel"):
             reports_to_generate.append(("excel", ExcelReportStage()))

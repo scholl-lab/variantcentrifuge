@@ -8,7 +8,6 @@ sample column creation, and configuration consistency.
 
 import argparse
 import logging
-from typing import Dict
 from unittest.mock import Mock
 
 import pandas as pd
@@ -48,7 +47,7 @@ class TestChunkedVsNonChunkedEquivalence:
         return workspace
 
     @pytest.fixture
-    def sample_config(self) -> Dict:
+    def sample_config(self) -> dict:
         """Sample configuration for testing."""
         return {
             "separator": ";",
@@ -84,7 +83,7 @@ class TestChunkedVsNonChunkedEquivalence:
         )
 
     @pytest.fixture
-    def sample_pedigree(self) -> Dict:
+    def sample_pedigree(self) -> dict:
         """Sample pedigree data for inheritance analysis."""
         return {
             "Sample1": {
@@ -277,9 +276,9 @@ class TestChunkedVsNonChunkedEquivalence:
 
         # This is the critical test - chunked should find non-unknown patterns
         if non_chunked_non_unknown > 0:
-            assert (
-                chunked_non_unknown > 0
-            ), "Chunked processing should find non-unknown inheritance patterns"
+            assert chunked_non_unknown > 0, (
+                "Chunked processing should find non-unknown inheritance patterns"
+            )
 
     def test_error_handling_equivalence(self, sample_config, mock_args, mock_workspace):
         """Test that error handling is equivalent in both modes."""
@@ -483,9 +482,9 @@ class TestChunkedVsNonChunkedEquivalence:
         ]
 
         # Should have no sample columns in the final result
-        assert (
-            len(sample_columns_in_result) == 0
-        ), f"Found sample columns in result: {sample_columns_in_result}"
+        assert len(sample_columns_in_result) == 0, (
+            f"Found sample columns in result: {sample_columns_in_result}"
+        )
 
         # Should have inheritance columns
         assert "Inheritance_Pattern" in chunked_result.columns
@@ -521,7 +520,7 @@ class TestChunkedProcessingSpecific:
         return workspace
 
     @pytest.fixture
-    def sample_config(self) -> Dict:
+    def sample_config(self) -> dict:
         """Sample configuration for testing."""
         return {
             "separator": ";",
@@ -609,9 +608,9 @@ class TestChunkedProcessingSpecific:
         # All results should be equivalent regardless of chunk size
         base_result = results[0]
         for i, result in enumerate(results[1:], 1):
-            assert len(result) == len(
-                base_result
-            ), f"Chunk size {chunk_sizes[i]} gave different row count"
+            assert len(result) == len(base_result), (
+                f"Chunk size {chunk_sizes[i]} gave different row count"
+            )
             # Compare key columns
             pd.testing.assert_series_equal(
                 result["CHROM"], base_result["CHROM"], check_names=False, check_dtype=False

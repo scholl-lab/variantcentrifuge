@@ -78,7 +78,7 @@ class TestChunkedIntegration:
 
             with patch("variantcentrifuge.stages.processing_stages.smart_open") as mock_open:
                 # Mock to use regular open
-                mock_open.side_effect = lambda f, m, **kwargs: open(f, m)
+                mock_open.side_effect = lambda f, m, **kwargs: open(f, m)  # noqa: SIM115
 
                 # Simplified pipeline simulation for regular processing
                 df = pd.read_csv(input_tsv, sep="\t", dtype=str)

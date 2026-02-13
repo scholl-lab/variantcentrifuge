@@ -123,7 +123,7 @@ class TestIGVReportParallel:
             result = _generate_single_igv_report(task_data)
 
         # Verify failure result
-        success, sample_id, chrom, pos, ref, alt, report_path = result
+        success, sample_id, _chrom, _pos, _ref, _alt, _report_path = result
         assert success is False
         assert sample_id == "Sample_HG002"
 

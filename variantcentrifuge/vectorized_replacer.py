@@ -23,7 +23,7 @@ import re
 import tempfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -57,7 +57,7 @@ class VectorizedGenotypeReplacer:
     approach, optimizing for speed through vectorized string operations.
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         """
         Initialize the vectorized genotype replacer.
 
@@ -91,7 +91,7 @@ class VectorizedGenotypeReplacer:
 
         logger.debug(f"Initialized vectorized replacer for {len(self.samples)} samples")
 
-    def process_file(self, input_path: Union[str, Path], output_path: Union[str, Path]) -> None:
+    def process_file(self, input_path: str | Path, output_path: str | Path) -> None:
         """
         Process an entire TSV file with vectorized genotype replacement.
 
@@ -281,7 +281,7 @@ class VectorizedGenotypeReplacer:
         sample_name: str,
         sample_idx: int,
         df: pd.DataFrame,
-        extra_field_indices: Dict[str, str],
+        extra_field_indices: dict[str, str],
         variant_mask: pd.Series,
     ) -> pd.Series:
         """
@@ -320,7 +320,7 @@ class VectorizedGenotypeReplacer:
             # Build extra field strings for each variant
             extra_parts = []
 
-            for raw_field, col_name in extra_field_indices.items():
+            for _raw_field, col_name in extra_field_indices.items():
                 if col_name in df.columns:
                     # Split extra field column by separator and get sample_idx
                     extra_split = df[col_name].str.split(self.snpsift_sep, expand=True)
@@ -366,7 +366,7 @@ class VectorizedGenotypeReplacer:
 
         return result
 
-    def _combine_sample_genotypes(self, sample_genotype_lists: List[pd.Series]) -> pd.Series:
+    def _combine_sample_genotypes(self, sample_genotype_lists: list[pd.Series]) -> pd.Series:
         """
         Combine sample genotype strings into final GT column.
 
@@ -406,7 +406,7 @@ class VectorizedGenotypeReplacer:
 
 
 def replace_genotypes_vectorized(
-    input_path: Union[str, Path], output_path: Union[str, Path], config: Dict[str, Any]
+    input_path: str | Path, output_path: str | Path, config: dict[str, Any]
 ) -> None:
     """
     High-level function for vectorized genotype replacement.
@@ -425,9 +425,9 @@ def replace_genotypes_vectorized(
 
 
 def process_chunked_vectorized(
-    input_path: Union[str, Path],
-    output_path: Union[str, Path],
-    config: Dict[str, Any],
+    input_path: str | Path,
+    output_path: str | Path,
+    config: dict[str, Any],
     chunk_size: int = 10000,
 ) -> None:
     """
@@ -481,7 +481,7 @@ def process_chunked_vectorized(
 
 
 def _process_chunk_worker(
-    chunk_data: pd.DataFrame, config: Dict[str, Any], chunk_id: int, temp_dir: str
+    chunk_data: pd.DataFrame, config: dict[str, Any], chunk_id: int, temp_dir: str
 ) -> str:
     """
     Worker function to process a single chunk in parallel.
@@ -519,12 +519,12 @@ def _process_chunk_worker(
 
 
 def process_parallel_chunked_vectorized(
-    input_path: Union[str, Path],
-    output_path: Union[str, Path],
-    config: Dict[str, Any],
+    input_path: str | Path,
+    output_path: str | Path,
+    config: dict[str, Any],
     chunk_size: int = 10000,
-    max_workers: int = None,
-    available_memory_gb: float = None,
+    max_workers: int | None = None,
+    available_memory_gb: float | None = None,
 ) -> None:
     """
     Process large files using parallel chunked vectorized replacement.
@@ -601,7 +601,7 @@ def process_parallel_chunked_vectorized(
         logger.debug(f"Using temporary directory: {temp_dir}")
 
         # Read file and split into chunks for parallel processing
-        chunk_files = []
+        chunk_files: list[str] = []
         header = None
 
         try:
@@ -660,18 +660,17 @@ def process_parallel_chunked_vectorized(
                 if output_compression == "gzip":
                     import gzip
 
-                    output_file = gzip.open(output_path, "wt", encoding="utf-8")
-                else:
-                    output_file = open(output_path, "w", encoding="utf-8")
-
-                try:
+                with (
+                    gzip.open(output_path, "wt", encoding="utf-8")
+                    if output_compression == "gzip"
+                    else open(output_path, "w", encoding="utf-8")
+                ) as output_file:
                     first_chunk = True
-                    combined_count = 0
-                    for chunk_id in sorted(chunk_results.keys()):
+                    for combined_count, chunk_id in enumerate(sorted(chunk_results.keys()), 1):
                         chunk_file = chunk_results[chunk_id]
 
                         # Stream copy chunk file to output
-                        with open(chunk_file, "r", encoding="utf-8") as chunk_input:
+                        with open(chunk_file, encoding="utf-8") as chunk_input:
                             if first_chunk:
                                 # First chunk: copy everything including header
                                 for line in chunk_input:
@@ -685,7 +684,6 @@ def process_parallel_chunked_vectorized(
 
                         # Clean up chunk file immediately after processing
                         Path(chunk_file).unlink()
-                        combined_count += 1
 
                         # Progress logging for combination phase
                         combine_interval = max(5, total_chunks // 10)
@@ -697,9 +695,6 @@ def process_parallel_chunked_vectorized(
                             )
                         else:
                             logger.debug(f"Stream copied and cleaned chunk {chunk_id}")
-
-                finally:
-                    output_file.close()
 
         except Exception as e:
             logger.error(f"Parallel chunked processing failed: {e}")

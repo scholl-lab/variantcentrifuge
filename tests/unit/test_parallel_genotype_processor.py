@@ -197,7 +197,7 @@ class TestStreamingGenotypeProcessor:
             processor.process_file_streaming(self.input_file, self.output_file, self.config)
 
             mock_execute.assert_called_once()
-            args, kwargs = mock_execute.call_args
+            args, _kwargs = mock_execute.call_args
             assert args[3] == 100  # chunk_size
 
     @patch("variantcentrifuge.parallel_genotype_processor._process_chunks_worker")
@@ -261,7 +261,7 @@ class TestPerformanceCharacteristics:
 
         # Add more than 10 samples through the proper method
         test_chunk = pd.DataFrame({"GT": ["0/1"] * 10})
-        for i in range(15):
+        for _i in range(15):
             # This will trigger the limiting logic
             manager.profile_chunk_memory(test_chunk, sample_count=5)
 
@@ -377,7 +377,7 @@ class TestStreamingParallelDeadlockFixes:
             data_chunks = 0
 
             while not chunk_queue.empty():
-                chunk_id, chunk_df = chunk_queue.get_nowait()
+                _chunk_id, chunk_df = chunk_queue.get_nowait()
                 if chunk_df is None:
                     stop_signals += 1
                 else:
@@ -424,7 +424,7 @@ class TestStreamingParallelDeadlockFixes:
             (32, 3, 28, 1),  # 32 threads: 3 I/O (capped), 28 CPU, 1 writer
         ]
 
-        for total_threads, expected_io, expected_cpu, expected_writer in test_cases:
+        for total_threads, expected_io, expected_cpu, _expected_writer in test_cases:
             # Calculate allocation using the same logic as the implementation
             io_threads = max(1, min(3, total_threads // 5))
             cpu_workers = max(1, total_threads - io_threads - 1)
@@ -463,7 +463,7 @@ class TestStreamingParallelDeadlockFixes:
 
         # Should have processed the work item
         assert not result_queue.empty()
-        chunk_id, result = result_queue.get()
+        chunk_id, _result = result_queue.get()
         assert chunk_id == 0
 
 

@@ -1,26 +1,130 @@
-# File: pyproject.toml
-# Location: variantcentrifuge/pyproject.toml
-
 [build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.black]
+[project]
+name = "variantcentrifuge"
+dynamic = ["version"]
+description = "A tool to filter, extract, and analyze variants from VCF files."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    { name = "Bernt Popp", email = "bernt.popp.md@gmail.com" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+]
+dependencies = [
+    "pandas",
+    "jinja2",
+    "scipy",
+    "statsmodels",
+    "numpy",
+    "intervaltree",
+    "psutil",
+    "smart-open",
+    "openpyxl",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.10",
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-mock>=3.14",
+    "ruff>=0.11",
+    "pre-commit",
+]
+
+[project.scripts]
+variantcentrifuge = "variantcentrifuge.cli:main"
+
+[tool.hatch.version]
+path = "variantcentrifuge/version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["variantcentrifuge"]
+
+[tool.hatch.build.targets.sdist]
+include = ["variantcentrifuge/"]
+
+[tool.pytest.ini_options]
+# Test file patterns
+python_files = ["test_*.py", "*_test.py"]
+# Default options: summary of non-passing tests, short tracebacks, strict markers
+addopts = "-ra --tb=short --strict-markers --color=yes"
+# Focus test collection on the tests directory
+testpaths = ["tests"]
+# Registered markers
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Tests that take a long time to run",
+    "helpers: Tests for helper functions",
+    "replacer: Tests for replacer.py",
+    "analyze: Tests for analyze_variants.py",
+    "phenotype: Tests for phenotype data integration",
+    "inheritance: Tests for inheritance analysis",
+    "deducer: Tests for pattern deduction",
+    "comp_het: Tests for compound heterozygous analysis",
+    "segregation: Tests for segregation analysis",
+    "prioritizer: Tests for pattern prioritization",
+    "gene_burden: Tests for gene burden analysis",
+    "performance: Performance benchmark tests",
+]
+# Live console logging disabled by default for performance.
+# Enable when needed: pytest --log-cli-level=INFO
+log_cli = false
+
+[tool.ruff]
 line-length = 100
-target-version = ['py37']
-include = '\.pyi?$'
-exclude = '''
-/(
-    \.git
-    | \.hg
-    | \.mypy_cache
-    | \.tox
-    | \.venv
-    | _build
-    | buck-out
-    | build
-    | dist
-    | conda
-    | output
-    | temp_bed_files
-)/'''
+target-version = "py310"
+required-version = ">=0.11,<0.16"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF"]
+# Migrated from .flake8 per-file-ignores
+per-file-ignores = { "__init__.py" = ["F401"], "cli.py" = ["E501"], "helpers.py" = ["F401", "F811", "E501"], "pipeline.py" = ["F401", "F811", "E501"], "converter.py" = ["F401", "F841"], "phenotype.py" = ["F401"], "generate_html_report.py" = ["F401"], "gene_burden.py" = ["F841"], "filters.py" = ["E501"], "generate_igv_report.py" = ["E501"], "links.py" = ["E501"], "replacer.py" = ["E501"], "stats.py" = ["E501"], "vcf_eff_one_per_line.py" = ["E501"], "analyze_variants.py" = ["F401"] }
+# E203: whitespace before ':' (conflicts with ruff formatter)
+# E402: module-level import not at top (needed for conditional imports)
+extend-ignore = [
+    "E203",
+    "E402",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.isort]
+known-first-party = ["variantcentrifuge"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+warn_return_any = true
+check_untyped_defs = true
+# Gradual adoption: not strict yet on requiring type annotations
+ignore_missing_imports = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[tool.coverage.run]
+source = ["variantcentrifuge"]
+omit = ["*/tests/*", "*/__pycache__/*", "*/.venv/*"]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]

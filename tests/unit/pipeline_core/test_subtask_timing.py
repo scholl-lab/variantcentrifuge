@@ -3,7 +3,6 @@
 import time
 import unittest
 from pathlib import Path
-from typing import Set
 
 from variantcentrifuge.pipeline_core.context import PipelineContext
 from variantcentrifuge.pipeline_core.runner import PipelineRunner
@@ -53,7 +52,7 @@ class SimpleStage(Stage):
         return "Simple stage"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the stage dependencies."""
         return {"test_stage_with_subtasks"}
 

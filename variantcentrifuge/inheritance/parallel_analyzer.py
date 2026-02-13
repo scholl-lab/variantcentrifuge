@@ -8,7 +8,7 @@ that processes genes concurrently for compound heterozygous detection.
 import json
 import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import pandas as pd
 
@@ -31,10 +31,10 @@ logger = logging.getLogger(__name__)
 def _process_gene_group(
     gene: str,
     gene_df: pd.DataFrame,
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
     use_vectorized: bool = True,
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     """
     Process a single gene's variants for compound heterozygous patterns.
 
@@ -77,10 +77,10 @@ def _process_gene_group(
 
 def analyze_inheritance_parallel(
     df: pd.DataFrame,
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
     use_vectorized_comp_het: bool = True,
-    n_workers: Optional[int] = None,
+    n_workers: int | None = None,
     min_variants_for_parallel: int = 100,
 ) -> pd.DataFrame:
     """
@@ -259,7 +259,7 @@ def analyze_inheritance_parallel(
         comp_het_info = row["_comp_het_info"]
         comp_het_patterns = []
         if comp_het_info:
-            for sample_id, info in comp_het_info.items():
+            for _sample_id, info in comp_het_info.items():
                 if info.get("is_compound_het"):
                     comp_het_type = info.get("comp_het_type", "compound_heterozygous")
                     if comp_het_type != "not_compound_heterozygous":

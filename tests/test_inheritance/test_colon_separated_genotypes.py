@@ -71,7 +71,7 @@ FAM1\tMother\t0\t0\t2\t1"""
 
         # Split GT column (simulating pipeline behavior)
         sample_data = {sample_id: [] for sample_id in sample_list}
-        for idx, row in df.iterrows():
+        for _idx, row in df.iterrows():
             gt_value = str(row["GT"])
             if gt_value and gt_value != "NA":
                 genotypes = gt_value.split(":")
@@ -109,7 +109,7 @@ FAM1\tMother\t0\t0\t2\t1"""
 
         # Split GT column
         sample_data = {sample_id: [] for sample_id in sample_list}
-        for idx, row in df.iterrows():
+        for _idx, row in df.iterrows():
             genotypes = str(row["GT"]).split(":")
             for i, sample_id in enumerate(sample_list):
                 sample_data[sample_id].append(genotypes[i] if i < len(genotypes) else "./.")
@@ -140,7 +140,7 @@ FAM1\tMother\t0\t0\t2\t1"""
 
         # Split GT column
         sample_data = {sample_id: [] for sample_id in sample_list}
-        for idx, row in df.iterrows():
+        for _idx, row in df.iterrows():
             genotypes = str(row["GT"]).split(":")
             for i, sample_id in enumerate(sample_list):
                 sample_data[sample_id].append(genotypes[i] if i < len(genotypes) else "./.")
@@ -170,7 +170,7 @@ FAM1\tMother\t0\t0\t2\t1"""
 
         # Split GT column
         sample_data = {sample_id: [] for sample_id in sample_list}
-        for idx, row in df.iterrows():
+        for _idx, row in df.iterrows():
             genotypes = str(row["GT"]).split(":")
             for i, sample_id in enumerate(sample_list):
                 sample_data[sample_id].append(genotypes[i] if i < len(genotypes) else "./.")
@@ -209,7 +209,7 @@ FAM1\tMother\t0\t0\t2\t1"""
 
         # Split GT column
         sample_data = {sample_id: [] for sample_id in sample_list}
-        for idx, row in df.iterrows():
+        for _idx, row in df.iterrows():
             genotypes = str(row["GT"]).split(":")
             for i, sample_id in enumerate(sample_list):
                 sample_data[sample_id].append(genotypes[i] if i < len(genotypes) else "./.")
@@ -251,7 +251,7 @@ FAM1\tMother\t0\t0\t2\t1"""
 
         # Split with comma
         sample_data = {sample_id: [] for sample_id in sample_list}
-        for idx, row in df.iterrows():
+        for _idx, row in df.iterrows():
             genotypes = str(row["GT"]).split(",")
             for i, sample_id in enumerate(sample_list):
                 sample_data[sample_id].append(genotypes[i] if i < len(genotypes) else "./.")
@@ -281,7 +281,7 @@ FAM1\tMother\t0\t0\t2\t1"""
 
         # Split GT column with proper handling of NA/empty
         sample_data = {sample_id: [] for sample_id in sample_list}
-        for idx, row in df.iterrows():
+        for _idx, row in df.iterrows():
             gt_value = str(row["GT"])
             if gt_value and gt_value != "NA" and gt_value != "nan" and gt_value != "":
                 genotypes = gt_value.split(":")

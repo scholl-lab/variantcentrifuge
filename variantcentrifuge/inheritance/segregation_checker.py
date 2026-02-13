@@ -6,7 +6,7 @@ with the affected status across family members.
 """
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from ..genotype_utils import is_het, is_hom_alt, is_missing, is_variant
 from ..ped_reader import get_parents, is_affected
@@ -16,10 +16,10 @@ logger = logging.getLogger(__name__)
 
 def check_pattern_segregation(
     pattern: str,
-    variant_row: Dict[str, Any],
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
-) -> Tuple[bool, float]:
+    variant_row: dict[str, Any],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+) -> tuple[bool, float]:
     """
     Check if a variant segregates according to a specific inheritance pattern.
 
@@ -57,10 +57,10 @@ def check_pattern_segregation(
 
 
 def check_de_novo_segregation(
-    variant_row: Dict[str, Any],
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
-) -> Tuple[bool, float]:
+    variant_row: dict[str, Any],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+) -> tuple[bool, float]:
     """Check de novo segregation: variant in child but not in parents."""
     violations = 0
     checks = 0
@@ -85,9 +85,8 @@ def check_de_novo_segregation(
                 checks += 1
 
                 # De novo: child has variant, parents don't
-                if is_variant(sample_gt):
-                    if is_variant(father_gt) or is_variant(mother_gt):
-                        violations += 1
+                if is_variant(sample_gt) and (is_variant(father_gt) or is_variant(mother_gt)):
+                    violations += 1
 
     if checks == 0:
         return (True, 0.5)  # No data to check
@@ -99,10 +98,10 @@ def check_de_novo_segregation(
 
 
 def check_dominant_segregation(
-    variant_row: Dict[str, Any],
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
-) -> Tuple[bool, float]:
+    variant_row: dict[str, Any],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+) -> tuple[bool, float]:
     """
     Check autosomal dominant segregation.
 
@@ -157,10 +156,10 @@ def check_dominant_segregation(
 
 
 def check_recessive_segregation(
-    variant_row: Dict[str, Any],
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
-) -> Tuple[bool, float]:
+    variant_row: dict[str, Any],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+) -> tuple[bool, float]:
     """
     Check autosomal recessive segregation.
 
@@ -209,10 +208,10 @@ def check_recessive_segregation(
 
 
 def check_compound_het_segregation(
-    variant_row: Dict[str, Any],
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
-) -> Tuple[bool, float]:
+    variant_row: dict[str, Any],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+) -> tuple[bool, float]:
     """
     Check compound heterozygous segregation.
 
@@ -247,10 +246,10 @@ def check_compound_het_segregation(
 
 def check_x_linked_segregation(
     pattern: str,
-    variant_row: Dict[str, Any],
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
-) -> Tuple[bool, float]:
+    variant_row: dict[str, Any],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+) -> tuple[bool, float]:
     """Check X-linked segregation patterns."""
     violations = 0
     checks = 0
@@ -272,20 +271,15 @@ def check_x_linked_segregation(
         if pattern == "x_linked_recessive":
             if sex == "1":  # Male
                 # Affected males must have variant (hemizygous)
-                if affected and not has_variant:
+                if (affected and not has_variant) or (not affected and has_variant):
                     violations += 1
-                # Unaffected males should not have variant
-                elif not affected and has_variant:
-                    violations += 1
-            elif sex == "2":  # Female
+            elif sex == "2" and affected and not is_hom_alt(gt):
                 # Affected females must be homozygous
-                if affected and not is_hom_alt(gt):
-                    violations += 1
-
-        elif pattern == "x_linked_dominant":
-            # Both males and females can be affected with one copy
-            if affected and not has_variant:
                 violations += 1
+
+        elif pattern == "x_linked_dominant" and affected and not has_variant:
+            # Both males and females can be affected with one copy
+            violations += 1
 
     if checks == 0:
         return (True, 0.5)
@@ -297,10 +291,10 @@ def check_x_linked_segregation(
 
 
 def check_mitochondrial_segregation(
-    variant_row: Dict[str, Any],
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
-) -> Tuple[bool, float]:
+    variant_row: dict[str, Any],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+) -> tuple[bool, float]:
     """Check mitochondrial inheritance: maternal transmission only."""
     violations = 0
     checks = 0
@@ -330,13 +324,16 @@ def check_mitochondrial_segregation(
             if not is_missing(sample_gt) and not is_missing(father_gt):
                 checks += 1
                 # If father has variant, child should NOT have it (unless from mother)
-                if is_variant(father_gt) and is_variant(sample_gt):
-                    if not (
+                if (
+                    is_variant(father_gt)
+                    and is_variant(sample_gt)
+                    and not (
                         mother_id
                         and mother_id in sample_list
                         and is_variant(variant_row.get(mother_id, "./."))
-                    ):
-                        violations += 1
+                    )
+                ):
+                    violations += 1
 
     if checks == 0:
         return (True, 0.5)
@@ -348,11 +345,11 @@ def check_mitochondrial_segregation(
 
 
 def calculate_segregation_score(
-    patterns: List[str],
-    variant_row: Dict[str, Any],
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
-) -> Dict[str, Tuple[bool, float]]:
+    patterns: list[str],
+    variant_row: dict[str, Any],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+) -> dict[str, tuple[bool, float]]:
     """
     Calculate segregation scores for multiple patterns.
 

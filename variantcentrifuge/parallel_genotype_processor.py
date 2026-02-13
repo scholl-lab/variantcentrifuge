@@ -13,7 +13,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from queue import Empty, PriorityQueue, Queue
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -26,16 +26,14 @@ def get_available_memory_gb() -> float:
     """Get available system memory in GB."""
     try:
         memory = psutil.virtual_memory()
-        available_gb = memory.available / (1024**3)
+        available_gb: float = memory.available / (1024**3)
         return available_gb
     except Exception as e:
         logger.warning(f"Could not detect available memory: {e}. Using default estimate of 8GB")
         return 8.0
 
 
-def open_file(
-    file_path: Union[str, Path], mode: str = "rt", compression: Optional[str] = None
-) -> Any:
+def open_file(file_path: str | Path, mode: str = "rt", compression: str | None = None) -> Any:
     """
     Open a file with optional compression support.
 
@@ -82,7 +80,7 @@ class AdaptiveMemoryManager:
         self.processing_stats = {}
         self.baseline_memory = None
 
-    def profile_chunk_memory(self, chunk_df: pd.DataFrame, sample_count: int) -> Dict[str, float]:
+    def profile_chunk_memory(self, chunk_df: pd.DataFrame, sample_count: int) -> dict[str, float]:
         """
         Profile actual memory usage during chunk processing.
 
@@ -140,7 +138,7 @@ class AdaptiveMemoryManager:
 
         return stats
 
-    def get_realistic_memory_estimate(self, sample_count: int) -> Dict[str, float]:
+    def get_realistic_memory_estimate(self, sample_count: int) -> dict[str, float]:
         """
         Get realistic memory estimates based on profiling history.
 
@@ -237,8 +235,8 @@ class IntelligentChunkCalculator:
         threads: int,
         memory_gb: float,
         sample_count: int,
-        memory_manager: Optional[AdaptiveMemoryManager] = None,
-    ) -> Tuple[int, int]:
+        memory_manager: AdaptiveMemoryManager | None = None,
+    ) -> tuple[int, int]:
         """
         Calculate optimal chunk size and count for maximum parallelization.
 
@@ -287,7 +285,7 @@ class IntelligentChunkCalculator:
         return chunk_size, expected_chunks
 
     @staticmethod
-    def estimate_file_rows(file_path: Union[str, Path]) -> int:
+    def estimate_file_rows(file_path: str | Path) -> int:
         """
         Fast estimation of file row count for chunking calculations.
 
@@ -351,10 +349,10 @@ class StreamingGenotypeProcessor:
 
     def process_file_streaming(
         self,
-        input_path: Union[str, Path],
-        output_path: Union[str, Path],
-        config: Dict[str, Any],
-        chunk_size: Optional[int] = None,
+        input_path: str | Path,
+        output_path: str | Path,
+        config: dict[str, Any],
+        chunk_size: int | None = None,
     ) -> None:
         """
         Process genotype replacement with streaming pipeline architecture.
@@ -379,7 +377,7 @@ class StreamingGenotypeProcessor:
             sample_count = len(config.get("sample_list", "").split(","))
             available_memory = get_available_memory_gb()
 
-            chunk_size, expected_chunks = IntelligentChunkCalculator.calculate_optimal_chunks(
+            chunk_size, _expected_chunks = IntelligentChunkCalculator.calculate_optimal_chunks(
                 total_rows, self.threads, available_memory, sample_count, self.memory_manager
             )
 
@@ -401,24 +399,24 @@ class StreamingGenotypeProcessor:
         self,
         input_path: Path,
         output_path: Path,
-        config: Dict[str, Any],
+        config: dict[str, Any],
         chunk_size: int,
         io_threads: int,
         cpu_workers: int,
     ) -> None:
         """Execute the streaming pipeline with overlapped I/O and processing."""
         # Queues for pipeline stages
-        chunk_queue = Queue(maxsize=cpu_workers * 2)  # Buffer chunks
-        result_queue = PriorityQueue()  # Ordered results
+        chunk_queue: Queue[Any] = Queue(maxsize=cpu_workers * 2)  # Buffer chunks
+        result_queue: PriorityQueue[Any] = PriorityQueue()  # Ordered results
 
         compression = "gzip" if str(input_path).endswith(".gz") else None
         output_compression = "gzip" if str(output_path).endswith(".gz") else None
 
         try:
-            with ThreadPoolExecutor(io_threads + 1) as io_pool, ProcessPoolExecutor(
-                cpu_workers
-            ) as cpu_pool:
-
+            with (
+                ThreadPoolExecutor(io_threads + 1) as io_pool,
+                ProcessPoolExecutor(cpu_workers) as cpu_pool,
+            ):
                 # Start producer (chunk reader)
                 producer_future = io_pool.submit(
                     self._chunk_producer,
@@ -456,7 +454,7 @@ class StreamingGenotypeProcessor:
         input_path: Path,
         chunk_queue: Queue,
         chunk_size: int,
-        compression: Optional[str],
+        compression: str | None,
         cpu_workers: int,
     ) -> None:
         """Read file and create chunks for processing."""
@@ -487,7 +485,7 @@ class StreamingGenotypeProcessor:
             raise
 
     def _result_writer(
-        self, result_queue: PriorityQueue, output_path: Path, compression: Optional[str]
+        self, result_queue: PriorityQueue, output_path: Path, compression: str | None
     ) -> None:
         """Consumer thread: write results in order."""
         try:
@@ -538,10 +536,10 @@ class StreamingGenotypeProcessor:
             logger.debug("Producer completed")
 
             # Wait for all consumers with timeout
-            completed_consumers = 0
-            for future in as_completed(consumer_futures, timeout=timeout_seconds):
+            for completed_consumers, future in enumerate(
+                as_completed(consumer_futures, timeout=timeout_seconds), 1
+            ):
                 future.result(timeout=60)  # 1 minute per individual consumer
-                completed_consumers += 1
                 logger.debug(f"Consumer {completed_consumers}/{len(consumer_futures)} completed")
 
             # Signal writer completion
@@ -573,7 +571,7 @@ class StreamingGenotypeProcessor:
 
 
 def _process_chunks_worker(
-    chunk_queue: Queue, result_queue: PriorityQueue, config: Dict[str, Any], worker_id: int
+    chunk_queue: Queue, result_queue: PriorityQueue, config: dict[str, Any], worker_id: int
 ) -> None:
     """
     Worker process for chunk processing.
@@ -620,9 +618,9 @@ def _process_chunks_worker(
 
 
 def process_streaming_parallel(
-    input_path: Union[str, Path],
-    output_path: Union[str, Path],
-    config: Dict[str, Any],
+    input_path: str | Path,
+    output_path: str | Path,
+    config: dict[str, Any],
     threads: int = 1,
 ) -> None:
     """

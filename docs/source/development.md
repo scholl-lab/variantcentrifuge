@@ -6,8 +6,9 @@ This guide provides information for developers who want to contribute to Variant
 
 ### Prerequisites
 
-- Python 3.7+
+- Python 3.10+
 - Git
+- [uv](https://docs.astral.sh/uv/) (recommended) or pip
 - External bioinformatics tools (bcftools, snpEff, SnpSift, bedtools)
 
 ### Setting Up Development Environment
@@ -24,15 +25,15 @@ This guide provides information for developers who want to contribute to Variant
    mamba env create -f conda/environment.yml
    mamba activate annotation
 
-   # Or using pip with virtual environment
+   # Or using uv with virtual environment
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
-   pip install -r docs/requirements.txt
+   uv pip install -e ".[dev]"
    ```
 
 3. **Install in development mode:**
    ```bash
-   pip install -e .
+   uv pip install -e ".[dev]"
    ```
 
 4. **Install pre-commit hooks:**
@@ -46,26 +47,31 @@ VariantCentrifuge maintains high code quality standards using automated tools:
 
 ### Formatting and Linting
 
-VariantCentrifuge uses a comprehensive linting setup to maintain code quality:
+VariantCentrifuge uses [Ruff](https://docs.astral.sh/ruff/) for linting and formatting, and [mypy](https://mypy-lang.org/) for type checking:
 
 #### Tools Used
 
-- **Black**: Code formatting with 100-character line length
-- **isort**: Import statement organization (compatible with Black)
-- **flake8**: Style checking and error detection with docstring requirements
+- **Ruff**: Linting and formatting (replaces black, isort, flake8 — 10-100x faster)
+- **mypy**: Static type checking (gradual adoption mode)
 - **pre-commit**: Automated quality checks before commits
 
-#### Running Linting Tools
+#### Running Code Quality Tools
 
 ```bash
-# Format code with Black (100 character line length)
-black .
+# Run all CI checks locally (recommended)
+make ci-check
 
-# Sort imports with isort (compatible with Black)
-isort .
+# Lint with ruff
+make lint
 
-# Check code style with flake8
-flake8 .
+# Format code with ruff (auto-fix)
+make format
+
+# Check formatting without modifying files
+make format-check
+
+# Run mypy type checker
+make typecheck
 
 # Run all pre-commit hooks on all files
 pre-commit run --all-files
@@ -76,34 +82,33 @@ pre-commit install
 
 #### Automated Quality Assurance
 
-Pre-commit hooks automatically run Black, isort, and flake8 on every commit to maintain code quality. The hooks will:
+Pre-commit hooks automatically run Ruff on every commit to maintain code quality. The hooks will:
 
-1. **Format code** automatically with Black
-2. **Sort imports** according to isort configuration
-3. **Check style** and fail commit if flake8 finds issues
-4. **Require docstrings** for all functions and classes
+1. **Lint and auto-fix** issues with `ruff check --fix`
+2. **Format code** with `ruff format`
+3. **Check YAML/JSON/TOML** for syntax errors
 
 #### Linting Configuration
 
-Linting behavior is configured in:
+All linting behavior is configured in `pyproject.toml`:
 
-- **pyproject.toml**: Black configuration (line length, target versions)
-- **setup.cfg**: flake8 and isort configuration
-- **.pre-commit-config.yaml**: Pre-commit hook definitions and versions
+- **`[tool.ruff]`**: Line length, target Python version
+- **`[tool.ruff.lint]`**: Rule selection, per-file ignores
+- **`[tool.mypy]`**: Type checking options
 
 #### Common Linting Issues and Solutions
 
 | Issue | Solution |
 |-------|----------|
-| Line too long | Black will auto-fix, or break long lines manually |
-| Missing docstring | Add Google-style docstring to function/class |
-| Import order | Run `isort .` to automatically fix |
+| Line too long | `make format` will auto-fix, or break long lines manually |
+| Missing docstring | Add numpy-style docstring to function/class |
+| Import order | `make format` will automatically fix |
 | Unused imports | Remove unused imports or add `# noqa` comment |
 | Trailing whitespace | Pre-commit will automatically remove |
 
 #### Docstring Requirements
 
-All functions and classes must have docstrings following Google style:
+All functions and classes must have docstrings following numpy style:
 
 ```python
 def example_function(param1: str, param2: int = 10) -> bool:
@@ -143,9 +148,8 @@ def example_function(param1: str, param2: int = 10) -> bool:
 
 Code quality settings are configured in:
 
-- `pyproject.toml` - Black configuration
+- `pyproject.toml` - Ruff, mypy, pytest, and coverage configuration
 - `.pre-commit-config.yaml` - Pre-commit hook definitions
-- `setup.cfg` or `pyproject.toml` - flake8 and isort settings
 
 ## Testing
 
@@ -256,7 +260,6 @@ Tests are organized by functionality in the `tests/` directory:
 - **`test_igv.py`** - IGV integration tests
 - **`test_utils.py`** - Utility function tests
 - **`conftest.py`** - Pytest configuration and shared fixtures
-- **`pytest.ini`** - Pytest configuration file
 
 #### Test Data
 
@@ -275,21 +278,9 @@ Test data is organized in subdirectories:
 | `@pytest.mark.slow` | Tests that take significant time | Large file processing, external tools |
 | `@pytest.mark.external_tools` | Tests requiring external tools | bcftools, snpEff integration tests |
 
-#### Configuration Files
+#### Configuration
 
-- **`pytest.ini`**: Main pytest configuration
-  ```ini
-  [tool:pytest]
-  markers =
-      unit: Unit tests (fast, isolated)
-      integration: Integration tests
-      slow: Slow tests that may take significant time
-      external_tools: Tests requiring external tools
-  testpaths = tests
-  python_files = test_*.py
-  python_classes = Test*
-  python_functions = test_*
-  ```
+Pytest is configured in `pyproject.toml` under `[tool.pytest.ini_options]`.
 
 ### Writing Tests
 

@@ -99,7 +99,7 @@ chr1\t200\t.\tG\tC\t100\tPASS\t.\tGT:DP\t0/0:12\t0/1:18
         mock_apply_filter.assert_called_once()
         call_args = mock_apply_filter.call_args[0]
         assert str(input_vcf) == call_args[0]
-        assert "(GEN[*].DP >= 10)" == call_args[1]
+        assert call_args[1] == "(GEN[*].DP >= 10)"
         assert call_args[2]["threads"] == 4
 
         # Verify output paths updated
@@ -142,9 +142,7 @@ chr1\t200\t.\tG\tC\t100\tPASS\t.\tGT:DP\t0/0:12\t0/1:18
 
         # Simulate filter from preset combination
         preset_filter = (
-            "(ANN[*].IMPACT has 'HIGH') & "
-            "(dbNSFP_SIFT_pred has 'D') & "
-            "((AF < 0.001) | (AF = '.'))"
+            "(ANN[*].IMPACT has 'HIGH') & (dbNSFP_SIFT_pred has 'D') & ((AF < 0.001) | (AF = '.'))"
         )
 
         base_context.config = {"filter": preset_filter}

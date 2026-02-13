@@ -13,6 +13,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.integration
+
 from variantcentrifuge.pipeline_core.context import PipelineContext
 from variantcentrifuge.pipeline_core.workspace import Workspace
 
@@ -119,14 +121,14 @@ class TestPipelineSampleDeterminism:
         # Verify all runs produced identical results
         first_result = results[0]
         for i, result in enumerate(results[1:], 1):
-            assert (
-                result["vcf_samples"] == first_result["vcf_samples"]
-            ), f"Run {i + 1} sample order differs from run 1"
+            assert result["vcf_samples"] == first_result["vcf_samples"], (
+                f"Run {i + 1} sample order differs from run 1"
+            )
 
             if first_result["genotype_file_exists"] and result["genotype_file_exists"]:
-                assert (
-                    result["genotype_content"] == first_result["genotype_content"]
-                ), f"Run {i + 1} genotype replacement output differs from run 1"
+                assert result["genotype_content"] == first_result["genotype_content"], (
+                    f"Run {i + 1} genotype replacement output differs from run 1"
+                )
 
     def test_sample_order_propagation_through_stages(self, temp_workspace, mock_test_data):
         """Test that sample order is consistently propagated through all pipeline stages."""
@@ -273,9 +275,9 @@ class TestPipelineSampleDeterminism:
         if results:
             first_result = results[0]
             for i, result in enumerate(results[1:], 1):
-                assert (
-                    result == first_result
-                ), f"Inheritance analysis run {i + 1} differs from run 1"
+                assert result == first_result, (
+                    f"Inheritance analysis run {i + 1} differs from run 1"
+                )
 
 
 @pytest.mark.integration

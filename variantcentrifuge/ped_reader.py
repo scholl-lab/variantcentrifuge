@@ -6,14 +6,14 @@ used in genetic analysis to define family relationships.
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 
-def read_pedigree(file_path: str) -> Dict[str, Dict[str, Any]]:
+def read_pedigree(file_path: str) -> dict[str, dict[str, Any]]:
     """
     Parse a PED file into a dictionary keyed by sample ID.
 
@@ -36,8 +36,8 @@ def read_pedigree(file_path: str) -> Dict[str, Dict[str, Any]]:
         # First, read without column names to check format
         try:
             raw_df = pd.read_csv(file_path, sep=r"\s+", header=None, dtype=str, comment="#")
-        except pd.errors.EmptyDataError:
-            raise ValueError("PED file is empty")
+        except pd.errors.EmptyDataError as e:
+            raise ValueError("PED file is empty") from e
 
         if raw_df.empty:
             raise ValueError("PED file is empty")
@@ -92,10 +92,10 @@ def read_pedigree(file_path: str) -> Dict[str, Dict[str, Any]]:
         return pedigree_data
 
     except Exception as e:
-        raise ValueError(f"Failed to parse PED file: {e}")
+        raise ValueError(f"Failed to parse PED file: {e}") from e
 
 
-def get_parents(sample_id: str, pedigree_data: Dict[str, Dict[str, Any]]) -> tuple:
+def get_parents(sample_id: str, pedigree_data: dict[str, dict[str, Any]]) -> tuple:
     """
     Get the parent IDs for a given sample.
 
@@ -121,7 +121,7 @@ def get_parents(sample_id: str, pedigree_data: Dict[str, Dict[str, Any]]) -> tup
     return (father_id if father_id != "0" else None, mother_id if mother_id != "0" else None)
 
 
-def is_affected(sample_id: str, pedigree_data: Dict[str, Dict[str, Any]]) -> bool:
+def is_affected(sample_id: str, pedigree_data: dict[str, dict[str, Any]]) -> bool:
     """
     Check if a sample is affected according to the pedigree.
 
@@ -141,10 +141,10 @@ def is_affected(sample_id: str, pedigree_data: Dict[str, Dict[str, Any]]) -> boo
         return False
 
     status = pedigree_data[sample_id].get("affected_status", "0")
-    return status == "2"
+    return bool(status == "2")
 
 
-def get_family_members(sample_id: str, pedigree_data: Dict[str, Dict[str, Any]]) -> list:
+def get_family_members(sample_id: str, pedigree_data: dict[str, dict[str, Any]]) -> list:
     """
     Get all family members for a given sample.
 

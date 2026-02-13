@@ -5,7 +5,7 @@ import datetime
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from .config import load_config
 from .pipeline import run_refactored_pipeline
@@ -19,7 +19,7 @@ from .version import __version__
 logger = logging.getLogger("variantcentrifuge")
 
 
-def _calculate_sort_memory_limit(sort_limit: str, max_memory_gb: Optional[float] = None) -> str:
+def _calculate_sort_memory_limit(sort_limit: str, max_memory_gb: float | None = None) -> str:
     """Calculate intelligent sort memory limit based on available memory."""
     if sort_limit != "auto":
         return sort_limit
@@ -801,12 +801,12 @@ def main() -> int:
     logger.debug(f"CLI arguments: {args}")
 
     # Load configuration
-    cfg: Dict[str, Any] = load_config(args.config)
+    cfg: dict[str, Any] = load_config(args.config)
     logger.debug(f"Configuration loaded: {cfg}")
 
-    reference: Optional[str] = args.reference or cfg.get("reference")
-    filters: Optional[str] = args.filters or cfg.get("filters")
-    fields: Optional[str] = args.fields or cfg.get("fields_to_extract")
+    reference: str | None = args.reference or cfg.get("reference")
+    filters: str | None = args.filters or cfg.get("filters")
+    fields: str | None = args.fields or cfg.get("fields_to_extract")
 
     # Handle presets
     preset_dict = cfg.get("presets", {})
@@ -976,9 +976,9 @@ def main() -> int:
     cfg["inheritance_mode"] = args.inheritance_mode or (
         "simple" if cfg["calculate_inheritance"] else None
     )
-    cfg["use_vectorized_comp_het"] = (
-        not args.no_vectorized_comp_het
-    )  # Default to True unless disabled
+    cfg[
+        "use_vectorized_comp_het"
+    ] = not args.no_vectorized_comp_het  # Default to True unless disabled
 
     # Late filtering configuration
     cfg["late_filtering"] = args.late_filtering
@@ -1217,10 +1217,10 @@ def main() -> int:
         if not hasattr(refactored_args, "start_time"):
             refactored_args.start_time = start_time
 
-        run_refactored_pipeline(refactored_args)
+        run_refactored_pipeline(refactored_args)  # type: ignore[arg-type]
         return 0
     except SystemExit as e:
-        return e.code if e.code is not None else 1
+        return int(e.code) if e.code is not None else 1
     except Exception as e:
         logger.error(f"Pipeline failed: {e}")
         return 1

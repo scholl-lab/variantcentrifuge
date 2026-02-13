@@ -8,12 +8,13 @@ to replace the monolithic pipeline.py functionality.
 import argparse
 import logging
 from pathlib import Path
-from typing import List
+from typing import Literal
 
 from .config import load_config
 from .gene_bed import normalize_genes
 from .pipeline_core.context import PipelineContext
 from .pipeline_core.runner import PipelineRunner
+from .pipeline_core.stage import Stage
 from .pipeline_core.workspace import Workspace
 from .stages.analysis_stages import (
     ChunkedAnalysisStage,
@@ -95,21 +96,19 @@ def check_scoring_requires_inheritance(args: argparse.Namespace, config: dict) -
         if scoring_config and "formulas" in scoring_config:
             for formula_dict in scoring_config["formulas"]:
                 for formula_name, formula_expr in formula_dict.items():
-                    if isinstance(formula_expr, str):
-                        # Check if formula references common inheritance variables
-                        if any(
-                            var in formula_expr
-                            for var in [
-                                "pattern",
-                                "details",
-                                "Inheritance_Pattern",
-                                "Inheritance_Details",
-                            ]
-                        ):
-                            logger.info(
-                                f"Scoring formula '{formula_name}' requires inheritance analysis"
-                            )
-                            return True
+                    if isinstance(formula_expr, str) and any(
+                        var in formula_expr
+                        for var in [
+                            "pattern",
+                            "details",
+                            "Inheritance_Pattern",
+                            "Inheritance_Details",
+                        ]
+                    ):
+                        logger.info(
+                            f"Scoring formula '{formula_name}' requires inheritance analysis"
+                        )
+                        return True
 
         # Check variable assignments for inheritance column dependencies
         if scoring_config and "variables" in scoring_config:
@@ -124,7 +123,7 @@ def check_scoring_requires_inheritance(args: argparse.Namespace, config: dict) -
     return False
 
 
-def build_pipeline_stages(args: argparse.Namespace) -> List:
+def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     """Build the list of stages based on configuration.
 
     Parameters
@@ -137,7 +136,7 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
     List[Stage]
         List of stages to execute
     """
-    stages = []
+    stages: list[Stage] = []
 
     # Always load configuration
     stages.append(ConfigurationLoadingStage())
@@ -319,7 +318,7 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
     return stages
 
 
-def create_stages_from_config(config: dict) -> List:
+def create_stages_from_config(config: dict) -> list[Stage]:
     """Create pipeline stages from a configuration dictionary.
 
     This function is used by CLI handlers that need to create stages
@@ -524,7 +523,9 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
     enable_checkpoints = getattr(args, "enable_checkpoint", False)
     max_workers = getattr(args, "threads", None)
     # Use process executor for better CPU-bound performance when multiple threads requested
-    executor_type = "process" if max_workers and max_workers > 1 else "thread"
+    executor_type: Literal["thread", "process"] = (
+        "process" if max_workers and max_workers > 1 else "thread"
+    )
     runner = PipelineRunner(
         enable_checkpoints=enable_checkpoints,
         max_workers=max_workers,

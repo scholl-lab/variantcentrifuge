@@ -11,7 +11,7 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
@@ -123,7 +123,7 @@ class PipelineContext:
 
     # --- Immutable Configuration ---
     args: argparse.Namespace
-    config: Dict[str, Any]
+    config: dict[str, Any]
     workspace: "Workspace"  # Forward reference, will be imported
     start_time: datetime = field(default_factory=datetime.now)
 
@@ -132,37 +132,37 @@ class PipelineContext:
     data: Any = None  # Can be file path or DataFrame
 
     # Stage tracking
-    completed_stages: Set[str] = field(default_factory=set)
-    stage_results: Dict[str, Any] = field(default_factory=dict)
+    completed_stages: set[str] = field(default_factory=set)
+    stage_results: dict[str, Any] = field(default_factory=dict)
 
     # Loaded configurations
-    vcf_samples: List[str] = field(default_factory=list)
-    pedigree_data: Optional[Dict] = None
-    phenotype_data: Optional[Dict] = None
-    scoring_config: Optional[Dict] = None
-    annotation_configs: Dict[str, Any] = field(default_factory=dict)
+    vcf_samples: list[str] = field(default_factory=list)
+    pedigree_data: dict | None = None
+    phenotype_data: dict | None = None
+    scoring_config: dict | None = None
+    annotation_configs: dict[str, Any] = field(default_factory=dict)
 
     # Processing artifacts
-    gene_bed_file: Optional[Path] = None
-    extracted_vcf: Optional[Path] = None
-    filtered_vcf: Optional[Path] = None
-    extracted_tsv: Optional[Path] = None
-    genotype_replaced_tsv: Optional[Path] = None
-    phenotypes_added_tsv: Optional[Path] = None
-    extra_columns_removed_tsv: Optional[Path] = None
-    chunked_analysis_tsv: Optional[Path] = None
+    gene_bed_file: Path | None = None
+    extracted_vcf: Path | None = None
+    filtered_vcf: Path | None = None
+    extracted_tsv: Path | None = None
+    genotype_replaced_tsv: Path | None = None
+    phenotypes_added_tsv: Path | None = None
+    extra_columns_removed_tsv: Path | None = None
+    chunked_analysis_tsv: Path | None = None
 
     # Analysis results
-    current_dataframe: Optional[pd.DataFrame] = None
-    statistics: Dict[str, Any] = field(default_factory=dict)
-    gene_burden_results: Optional[pd.DataFrame] = None
+    current_dataframe: pd.DataFrame | None = None
+    statistics: dict[str, Any] = field(default_factory=dict)
+    gene_burden_results: pd.DataFrame | None = None
 
     # Output paths
-    final_output_path: Optional[Path] = None
-    report_paths: Dict[str, Path] = field(default_factory=dict)
+    final_output_path: Path | None = None
+    report_paths: dict[str, Path] = field(default_factory=dict)
 
     # Checkpoint state (if enabled)
-    checkpoint_state: Optional[Any] = None
+    checkpoint_state: Any | None = None
 
     # Thread safety lock for parallel stages
     _lock: PicklableLock = field(default_factory=PicklableLock, init=False, repr=False)
@@ -202,7 +202,7 @@ class PipelineContext:
         with self._lock:
             return stage_name in self.completed_stages
 
-    def get_result(self, stage_name: str) -> Optional[Any]:
+    def get_result(self, stage_name: str) -> Any | None:
         """Get the stored result for a completed stage.
 
         Parameters

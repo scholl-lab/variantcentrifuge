@@ -89,7 +89,7 @@ class TestProcessingStagesThresholdChanges:
             (5001, "streaming-parallel", "Just above streaming threshold"),
         ]
 
-        for sample_count, expected_method_type, description in boundaries:
+        for sample_count, _expected_method_type, description in boundaries:
             # Simulate the method selection logic from processing_stages.py
             if sample_count >= 5000:
                 # Conditions for streaming-parallel
@@ -159,14 +159,14 @@ class TestProcessingStagesThresholdChanges:
             # Verify the categorization logic
             if sample_count == 3000:
                 # This is the key test - 3000 should now be in vectorized range
-                assert (
-                    expected_category == "vectorized_range"
-                ), "Sample count 3000 should be in vectorized range with new threshold"
+                assert expected_category == "vectorized_range", (
+                    "Sample count 3000 should be in vectorized range with new threshold"
+                )
             elif sample_count == 5000:
                 # This should be the start of streaming range
-                assert (
-                    expected_category == "streaming_range"
-                ), "Sample count 5000 should be start of streaming range"
+                assert expected_category == "streaming_range", (
+                    "Sample count 5000 should be start of streaming range"
+                )
 
             # All sample counts should have a clear category
             assert expected_category in [
@@ -234,9 +234,9 @@ class TestThresholdChangeDocumentation:
         new_threshold = 5000
 
         # Key change: streaming-parallel threshold increased
-        assert (
-            new_threshold > old_threshold
-        ), f"New threshold ({new_threshold}) should be higher than old ({old_threshold})"
+        assert new_threshold > old_threshold, (
+            f"New threshold ({new_threshold}) should be higher than old ({old_threshold})"
+        )
 
         # Impact: more samples will use vectorized method
         impact_range = new_threshold - old_threshold
@@ -244,9 +244,9 @@ class TestThresholdChangeDocumentation:
 
         # Rationale: streaming-parallel was causing deadlocks, so make it less aggressive
         samples_in_transition_range = list(range(old_threshold, new_threshold))
-        assert (
-            len(samples_in_transition_range) == 2000
-        ), "2000 sample counts (3000-4999) moved from streaming to vectorized method"
+        assert len(samples_in_transition_range) == 2000, (
+            "2000 sample counts (3000-4999) moved from streaming to vectorized method"
+        )
 
     def test_threshold_change_preserves_performance_for_large_cohorts(self):
         """Verify that very large cohorts still get streaming-parallel."""
@@ -255,14 +255,14 @@ class TestThresholdChangeDocumentation:
         for sample_count in very_large_cohorts:
             # These should still trigger streaming-parallel
             triggers_streaming = sample_count >= 5000
-            assert (
-                triggers_streaming
-            ), f"Very large cohort ({sample_count} samples) should still use streaming-parallel"
+            assert triggers_streaming, (
+                f"Very large cohort ({sample_count} samples) should still use streaming-parallel"
+            )
 
         # The change only affects the 3000-4999 range
         affected_range = range(3000, 5000)
         for sample_count in affected_range:
             triggers_streaming = sample_count >= 5000
-            assert (
-                not triggers_streaming
-            ), f"Sample count {sample_count} no longer triggers streaming-parallel"
+            assert not triggers_streaming, (
+                f"Sample count {sample_count} no longer triggers streaming-parallel"
+            )

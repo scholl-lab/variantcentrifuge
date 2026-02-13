@@ -14,7 +14,6 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -24,7 +23,7 @@ logger = logging.getLogger(__name__)
 class PseudonymSchema:
     """Base class for pseudonymization schemas."""
 
-    def generate(self, sample_id: str, index: int, metadata: Optional[Dict] = None) -> str:
+    def generate(self, sample_id: str, index: int, metadata: dict | None = None) -> str:
         """Generate a pseudonym for a sample."""
         raise NotImplementedError
 
@@ -45,7 +44,7 @@ class SequentialSchema(PseudonymSchema):
         self.prefix = prefix
         self.padding = padding
 
-    def generate(self, sample_id: str, index: int, metadata: Optional[Dict] = None) -> str:
+    def generate(self, sample_id: str, index: int, metadata: dict | None = None) -> str:
         """Generate sequential pseudonym."""
         return f"{self.prefix}_{str(index).zfill(self.padding)}"
 
@@ -65,9 +64,9 @@ class CategoricalSchema(PseudonymSchema):
         """
         self.category_field = category_field
         self.padding = padding
-        self._category_counters = {}
+        self._category_counters: dict[str, int] = {}
 
-    def generate(self, sample_id: str, index: int, metadata: Optional[Dict] = None) -> str:
+    def generate(self, sample_id: str, index: int, metadata: dict | None = None) -> str:
         """Generate category-based pseudonym."""
         category = "UNKNOWN"
         if metadata and self.category_field in metadata:
@@ -95,7 +94,7 @@ class AnonymousSchema(PseudonymSchema):
         """
         self.use_hash = use_hash
 
-    def generate(self, sample_id: str, index: int, metadata: Optional[Dict] = None) -> str:
+    def generate(self, sample_id: str, index: int, metadata: dict | None = None) -> str:
         """Generate anonymous pseudonym."""
         if self.use_hash:
             # Generate deterministic hash-based ID
@@ -127,7 +126,7 @@ class CustomSchema(PseudonymSchema):
         """
         self.pattern = pattern
 
-    def generate(self, sample_id: str, index: int, metadata: Optional[Dict] = None) -> str:
+    def generate(self, sample_id: str, index: int, metadata: dict | None = None) -> str:
         """Generate custom pattern pseudonym."""
         replacements = {
             "index": index,
@@ -159,12 +158,12 @@ class SamplePseudonymizer:
         """
         self.schema = schema
         self.deterministic = deterministic
-        self._mapping = {}
-        self._reverse_mapping = {}
+        self._mapping: dict[str, str] = {}
+        self._reverse_mapping: dict[str, str] = {}
 
     def create_mapping(
-        self, sample_list: List[str], metadata: Optional[Dict[str, Dict]] = None
-    ) -> Dict[str, str]:
+        self, sample_list: list[str], metadata: dict[str, dict] | None = None
+    ) -> dict[str, str]:
         """Create pseudonym mapping for samples.
 
         Parameters
@@ -323,10 +322,10 @@ class SamplePseudonymizer:
 
         logger.info(f"Pseudonymization mapping saved to {filepath}")
 
-    def load_mapping(self, filepath: str) -> Dict[str, str]:
+    def load_mapping(self, filepath: str) -> dict[str, str]:
         """Load a previously saved mapping."""
         map_df = pd.read_csv(filepath, sep="\t", low_memory=False)
-        self._mapping = dict(zip(map_df["original_id"], map_df["pseudonym_id"]))
+        self._mapping = dict(zip(map_df["original_id"], map_df["pseudonym_id"], strict=False))
         self._reverse_mapping = {v: k for k, v in self._mapping.items()}
         logger.info(f"Loaded {len(self._mapping)} sample mappings")
         return self._mapping
@@ -364,11 +363,11 @@ def create_pseudonymizer(schema_type: str, **kwargs) -> SamplePseudonymizer:
 
 
 def apply_pseudonymization(
-    buffer: List[str],
-    sample_list: List[str],
-    cfg: Dict,
-    ped_data: Optional[pd.DataFrame] = None,
-) -> Tuple[List[str], Optional[SamplePseudonymizer]]:
+    buffer: list[str],
+    sample_list: list[str],
+    cfg: dict,
+    ped_data: pd.DataFrame | None = None,
+) -> tuple[list[str], SamplePseudonymizer | None]:
     """Apply pseudonymization to the output buffer if configured.
 
     Parameters

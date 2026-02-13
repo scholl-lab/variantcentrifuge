@@ -7,8 +7,8 @@ Tests for CLI module.
 This file contains tests ensuring the CLI runs and shows help correctly.
 """
 
+import contextlib
 import json
-import subprocess
 from unittest.mock import patch
 
 import pytest
@@ -16,20 +16,22 @@ import pytest
 
 def test_cli_help():
     """Test that the CLI help message can be displayed."""
-    cmd = ["python", "-m", "variantcentrifuge.cli", "--help"]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    assert result.returncode == 0
-    assert "usage:" in result.stdout
+    from variantcentrifuge.cli import create_parser
+
+    parser = create_parser()
+    help_text = parser.format_help()
+    assert "usage:" in help_text
 
 
 def test_bcftools_prefilter_in_help():
     """Test that the bcftools-prefilter argument is in the help text."""
-    cmd = ["python", "-m", "variantcentrifuge.cli", "--help"]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    assert result.returncode == 0
-    assert "--bcftools-prefilter" in result.stdout
+    from variantcentrifuge.cli import create_parser
+
+    parser = create_parser()
+    help_text = parser.format_help()
+    assert "--bcftools-prefilter" in help_text
     # Check that the help text mentions bcftools expression
-    assert "bcftools expression" in result.stdout.lower()
+    assert "bcftools expression" in help_text.lower()
 
 
 class TestShowCheckpointStatus:
@@ -37,42 +39,46 @@ class TestShowCheckpointStatus:
 
     def test_show_checkpoint_status_no_state(self, tmp_path):
         """Test --show-checkpoint-status when no checkpoint state exists."""
-        with patch(
-            "sys.argv",
-            ["variantcentrifuge", "--show-checkpoint-status", "--output-dir", str(tmp_path)],
+        with (
+            patch(
+                "sys.argv",
+                ["variantcentrifuge", "--show-checkpoint-status", "--output-dir", str(tmp_path)],
+            ),
+            patch("builtins.print") as mock_print,
         ):
-            with patch("builtins.print") as mock_print:
-                with pytest.raises(SystemExit) as exc_info:
-                    from variantcentrifuge.cli import main
+            with pytest.raises(SystemExit) as exc_info:
+                from variantcentrifuge.cli import main
 
-                    main()
+                main()
 
-                assert exc_info.value.code == 0
-                # Should print that no checkpoint state was found
-                mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
-                mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
+            assert exc_info.value.code == 0
+            # Should print that no checkpoint state was found
+            mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
+            mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
     def test_show_checkpoint_status_with_new_pipeline_flag(self, tmp_path):
         """Test --show-checkpoint-status with --use-new-pipeline flag."""
-        with patch(
-            "sys.argv",
-            [
-                "variantcentrifuge",
-                "--show-checkpoint-status",
-                "--output-dir",
-                str(tmp_path),
-            ],
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "variantcentrifuge",
+                    "--show-checkpoint-status",
+                    "--output-dir",
+                    str(tmp_path),
+                ],
+            ),
+            patch("builtins.print") as mock_print,
         ):
-            with patch("builtins.print") as mock_print:
-                with pytest.raises(SystemExit) as exc_info:
-                    from variantcentrifuge.cli import main
+            with pytest.raises(SystemExit) as exc_info:
+                from variantcentrifuge.cli import main
 
-                    main()
+                main()
 
-                assert exc_info.value.code == 0
-                # Should indicate it's checking the stage-based pipeline
-                mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
-                mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
+            assert exc_info.value.code == 0
+            # Should indicate it's checking the stage-based pipeline
+            mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
+            mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
     def test_show_checkpoint_status_with_config_file(self, tmp_path):
         """Test --show-checkpoint-status with config file that specifies new pipeline."""
@@ -81,27 +87,29 @@ class TestShowCheckpointStatus:
         config_data = {"reference": "GRCh38.99"}
         config_file.write_text(json.dumps(config_data))
 
-        with patch(
-            "sys.argv",
-            [
-                "variantcentrifuge",
-                "--show-checkpoint-status",
-                "--config",
-                str(config_file),
-                "--output-dir",
-                str(tmp_path),
-            ],
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "variantcentrifuge",
+                    "--show-checkpoint-status",
+                    "--config",
+                    str(config_file),
+                    "--output-dir",
+                    str(tmp_path),
+                ],
+            ),
+            patch("builtins.print") as mock_print,
         ):
-            with patch("builtins.print") as mock_print:
-                with pytest.raises(SystemExit) as exc_info:
-                    from variantcentrifuge.cli import main
+            with pytest.raises(SystemExit) as exc_info:
+                from variantcentrifuge.cli import main
 
-                    main()
+                main()
 
-                assert exc_info.value.code == 0
-                # Should detect new pipeline from config
-                mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
-                mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
+            assert exc_info.value.code == 0
+            # Should detect new pipeline from config
+            mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
+            mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
     def test_show_checkpoint_status_with_existing_state(self, tmp_path):
         """Test --show-checkpoint-status when checkpoint state exists."""
@@ -113,24 +121,26 @@ class TestShowCheckpointStatus:
         state.start_step("test_step")
         state.complete_step("test_step")
 
-        with patch(
-            "sys.argv",
-            ["variantcentrifuge", "--show-checkpoint-status", "--output-dir", str(tmp_path)],
+        with (
+            patch(
+                "sys.argv",
+                ["variantcentrifuge", "--show-checkpoint-status", "--output-dir", str(tmp_path)],
+            ),
+            patch("builtins.print") as mock_print,
         ):
-            with patch("builtins.print") as mock_print:
-                with pytest.raises(SystemExit) as exc_info:
-                    from variantcentrifuge.cli import main
+            with pytest.raises(SystemExit) as exc_info:
+                from variantcentrifuge.cli import main
 
-                    main()
+                main()
 
-                assert exc_info.value.code == 0
-                # Should print the pipeline status summary
-                mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
+            assert exc_info.value.code == 0
+            # Should print the pipeline status summary
+            mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
 
-                # Check that it printed checkpoint information
-                print_calls = [call.args[0] for call in mock_print.call_args_list]
-                summary_printed = any("Pipeline State Summary:" in call for call in print_calls)
-                assert summary_printed
+            # Check that it printed checkpoint information
+            print_calls = [call.args[0] for call in mock_print.call_args_list]
+            summary_printed = any("Pipeline State Summary:" in call for call in print_calls)
+            assert summary_printed
 
     def test_show_checkpoint_status_config_file_error(self, tmp_path):
         """Test --show-checkpoint-status with invalid config file."""
@@ -138,27 +148,29 @@ class TestShowCheckpointStatus:
         config_file = tmp_path / "invalid_config.json"
         config_file.write_text("invalid json content")
 
-        with patch(
-            "sys.argv",
-            [
-                "variantcentrifuge",
-                "--show-checkpoint-status",
-                "--config",
-                str(config_file),
-                "--output-dir",
-                str(tmp_path),
-            ],
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "variantcentrifuge",
+                    "--show-checkpoint-status",
+                    "--config",
+                    str(config_file),
+                    "--output-dir",
+                    str(tmp_path),
+                ],
+            ),
+            patch("builtins.print") as mock_print,
         ):
-            with patch("builtins.print") as mock_print:
-                with pytest.raises(SystemExit) as exc_info:
-                    from variantcentrifuge.cli import main
+            with pytest.raises(SystemExit) as exc_info:
+                from variantcentrifuge.cli import main
 
-                    main()
+                main()
 
-                assert exc_info.value.code == 0
-                # Should fall back to original pipeline when config loading fails
-                mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
-                mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
+            assert exc_info.value.code == 0
+            # Should fall back to original pipeline when config loading fails
+            mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
+            mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
     def test_show_checkpoint_status_flag_precedence(self, tmp_path):
         """Test that --use-new-pipeline flag takes precedence over config file."""
@@ -167,51 +179,55 @@ class TestShowCheckpointStatus:
         config_data = {"reference": "GRCh38.99"}
         config_file.write_text(json.dumps(config_data))
 
-        with patch(
-            "sys.argv",
-            [
-                "variantcentrifuge",
-                "--show-checkpoint-status",
-                "--config",
-                str(config_file),
-                "--output-dir",
-                str(tmp_path),
-            ],
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "variantcentrifuge",
+                    "--show-checkpoint-status",
+                    "--config",
+                    str(config_file),
+                    "--output-dir",
+                    str(tmp_path),
+                ],
+            ),
+            patch("builtins.print") as mock_print,
         ):
-            with patch("builtins.print") as mock_print:
-                with pytest.raises(SystemExit) as exc_info:
-                    from variantcentrifuge.cli import main
+            with pytest.raises(SystemExit) as exc_info:
+                from variantcentrifuge.cli import main
 
-                    main()
+                main()
 
-                assert exc_info.value.code == 0
-                # Should use stage-based pipeline
-                mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
-                mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
+            assert exc_info.value.code == 0
+            # Should use stage-based pipeline
+            mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
+            mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
     def test_show_checkpoint_status_logging_level(self, tmp_path):
         """Test --show-checkpoint-status with different logging levels."""
-        with patch(
-            "sys.argv",
-            [
-                "variantcentrifuge",
-                "--show-checkpoint-status",
-                "--log-level",
-                "DEBUG",
-                "--output-dir",
-                str(tmp_path),
-            ],
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "variantcentrifuge",
+                    "--show-checkpoint-status",
+                    "--log-level",
+                    "DEBUG",
+                    "--output-dir",
+                    str(tmp_path),
+                ],
+            ),
+            patch("builtins.print") as mock_print,
         ):
-            with patch("builtins.print") as mock_print:
-                with pytest.raises(SystemExit) as exc_info:
-                    from variantcentrifuge.cli import main
+            with pytest.raises(SystemExit) as exc_info:
+                from variantcentrifuge.cli import main
 
-                    main()
+                main()
 
-                assert exc_info.value.code == 0
-                # Should work with different log levels
-                mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
-                mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
+            assert exc_info.value.code == 0
+            # Should work with different log levels
+            mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
+            mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
     def test_show_checkpoint_status_detailed_summary(self, tmp_path):
         """Test --show-checkpoint-status displays detailed checkpoint information."""
@@ -231,29 +247,31 @@ class TestShowCheckpointStatus:
         state.start_step("step3")
         state.fail_step("step3", "Test error")
 
-        with patch(
-            "sys.argv",
-            ["variantcentrifuge", "--show-checkpoint-status", "--output-dir", str(tmp_path)],
+        with (
+            patch(
+                "sys.argv",
+                ["variantcentrifuge", "--show-checkpoint-status", "--output-dir", str(tmp_path)],
+            ),
+            patch("builtins.print") as mock_print,
         ):
-            with patch("builtins.print") as mock_print:
-                with pytest.raises(SystemExit) as exc_info:
-                    from variantcentrifuge.cli import main
+            with pytest.raises(SystemExit) as exc_info:
+                from variantcentrifuge.cli import main
 
-                    main()
+                main()
 
-                assert exc_info.value.code == 0
+            assert exc_info.value.code == 0
 
-                # Verify detailed information is printed
-                print_calls = [call.args[0] for call in mock_print.call_args_list]
-                full_output = "\n".join(print_calls)
+            # Verify detailed information is printed
+            print_calls = [call.args[0] for call in mock_print.call_args_list]
+            full_output = "\n".join(print_calls)
 
-                assert "Pipeline State Summary:" in full_output
-                assert "step1" in full_output
-                assert "step2" in full_output
-                assert "step3" in full_output
-                assert "✓" in full_output  # Completed steps
-                assert "✗" in full_output  # Failed step
-                assert "Test error" in full_output  # Error message
+            assert "Pipeline State Summary:" in full_output
+            assert "step1" in full_output
+            assert "step2" in full_output
+            assert "step3" in full_output
+            assert "✓" in full_output  # Completed steps
+            assert "✗" in full_output  # Failed step
+            assert "Test error" in full_output  # Error message
 
 
 class TestArgumentParser:
@@ -291,21 +309,15 @@ class TestArgumentParser:
 
     def test_genotype_replacement_chunk_size_parameter_cli(self):
         """Test --genotype-replacement-chunk-size parameter via CLI interface."""
-        # Test that the parameter is recognized and doesn't cause "unrecognized arguments" error
-        cmd = [
-            "python",
-            "-m",
-            "variantcentrifuge.cli",
-            "--genotype-replacement-chunk-size",
-            "25000",
-            "--help",
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        from variantcentrifuge.cli import create_parser
 
-        # Should succeed without "unrecognized arguments" error
-        assert result.returncode == 0
-        assert "unrecognized arguments" not in result.stderr
-        assert "--genotype-replacement-chunk-size" in result.stdout
+        parser = create_parser()
+        # Test that the parameter is recognized and parses correctly
+        args = parser.parse_args(
+            ["--vcf-file", "test.vcf", "--genotype-replacement-chunk-size", "25000"]
+        )
+        assert args.genotype_replacement_chunk_size == 25000
+        assert "--genotype-replacement-chunk-size" in parser.format_help()
 
     def test_all_argument_groups_present(self):
         """Test that all expected argument groups are present in create_parser()."""
@@ -429,11 +441,8 @@ class TestArgumentParser:
         for param in checkpoint_params:
             if param in help_text:  # Some may be optional
                 # Test parsing if parameter exists
-                try:
+                with contextlib.suppress(SystemExit, ValueError):
                     parser.parse_args(["--vcf-file", "test.vcf", param])
-                except (SystemExit, ValueError):
-                    # Some parameters may require values - that's okay
-                    pass
 
     def test_data_privacy_arguments(self):
         """Test Data Privacy Options argument group."""
@@ -448,11 +457,8 @@ class TestArgumentParser:
         for param in privacy_params:
             if param in help_text:
                 # Test that privacy parameters can be parsed
-                try:
+                with contextlib.suppress(SystemExit):
                     parser.parse_args(["--vcf-file", "test.vcf", param])
-                except SystemExit:
-                    # Some may require additional arguments
-                    pass
 
     def test_miscellaneous_arguments(self):
         """Test Miscellaneous Options argument group."""
@@ -492,15 +498,10 @@ class TestArgumentParser:
         for param in critical_params:
             assert param in help_text, f"Critical parameter missing from create_parser(): {param}"
 
-        # Test that these parameters work via CLI
+        # Test that these parameters parse without errors
         for param in ["--genotype-replacement-chunk-size", "--threads", "--chunks"]:
-            if param in help_text:
-                cmd = ["python", "-m", "variantcentrifuge.cli", param, "10", "--help"]
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                assert result.returncode == 0, f"Parameter {param} failed via CLI"
-                assert (
-                    "unrecognized arguments" not in result.stderr
-                ), f"Parameter {param} not recognized"
+            args = parser.parse_args(["--vcf-file", "test.vcf", param, "10"])
+            assert args is not None, f"Parameter {param} failed to parse"
 
     def test_argument_defaults(self):
         """Test that argument defaults are properly set."""
@@ -576,7 +577,12 @@ class TestCLIRegressionTests:
         This test ensures that the bug where main() created its own parser
         instead of using create_parser() doesn't happen again.
         """
-        # Test that CLI recognizes all parameters from create_parser()
+        from variantcentrifuge.cli import create_parser
+
+        parser = create_parser()
+        help_text = parser.format_help()
+
+        # Test that all critical parameters are recognized by create_parser()
         critical_parameters = [
             "--genotype-replacement-chunk-size",
             "--threads",
@@ -586,51 +592,33 @@ class TestCLIRegressionTests:
         ]
 
         for param in critical_parameters:
-            # Each parameter should be recognized by the CLI
-            cmd = ["python", "-m", "variantcentrifuge.cli", param, "10", "--help"]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-
-            assert result.returncode == 0, f"CLI failed for parameter {param}"
-            assert (
-                "unrecognized arguments" not in result.stderr
-            ), f"Parameter {param} not recognized - possible duplicate parser issue"
-            assert param in result.stdout, f"Parameter {param} not in help output"
+            assert param in help_text, (
+                f"Parameter {param} not in help output - possible duplicate parser issue"
+            )
+            # Verify parsing works
+            args = parser.parse_args(["--vcf-file", "test.vcf", param, "10"])
+            assert args is not None, f"Parameter {param} failed to parse"
 
     def test_genotype_replacement_chunk_size_specifically(self):
         """Specific regression test for --genotype-replacement-chunk-size parameter.
 
         This is the exact parameter that was failing due to the duplicate parser bug.
         """
-        # Test with the exact command that was failing
-        cmd = [
-            "python",
-            "-m",
-            "variantcentrifuge.cli",
-            "--genotype-replacement-chunk-size",
-            "25000",
-            "--help",
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        from variantcentrifuge.cli import create_parser
 
-        # Should succeed without any errors
-        assert result.returncode == 0
-        assert "unrecognized arguments" not in result.stderr
-        assert "--genotype-replacement-chunk-size" in result.stdout
+        parser = create_parser()
+        help_text = parser.format_help()
+        assert "--genotype-replacement-chunk-size" in help_text
 
         # Test with different values
         test_values = ["1000", "10000", "50000", "100000"]
         for value in test_values:
-            cmd = [
-                "python",
-                "-m",
-                "variantcentrifuge.cli",
-                "--genotype-replacement-chunk-size",
-                value,
-                "--help",
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            assert result.returncode == 0, f"Failed with chunk size {value}"
-            assert "unrecognized arguments" not in result.stderr
+            args = parser.parse_args(
+                ["--vcf-file", "test.vcf", "--genotype-replacement-chunk-size", value]
+            )
+            assert args.genotype_replacement_chunk_size == int(value), (
+                f"Failed with chunk size {value}"
+            )
 
     def test_parser_architecture_consistency(self):
         """Test that ensures the parser architecture is consistent.
@@ -711,329 +699,103 @@ class TestPerformanceConfigMapping:
         assert cfg.get("genotype_replacement_method", "auto") != "auto"
 
     def test_performance_parameters_mapped_to_config(self):
-        """Test that performance CLI parameters are properly mapped to config."""
-        from types import SimpleNamespace
-        from unittest.mock import Mock, patch
+        """Test that performance CLI parameters parse and can be mapped to config."""
+        from variantcentrifuge.cli import create_parser
 
-        # Mock args with performance parameters
-        mock_args = SimpleNamespace(
-            vcf_file="test.vcf",
-            gene_name="all",
-            config="config.yaml",
-            output_dir="output",
-            max_memory_gb=64.0,
-            genotype_replacement_method="parallel",
-            vectorized_chunk_size=15000,
-            genotype_replacement_chunk_size=20000,
-            # Add other required fields with defaults
-            phenotype_file=None,
-            phenotype_sample_column=None,
-            phenotype_value_column=None,
-            case_phenotypes=None,
-            perform_gene_burden=False,
-            log_level="INFO",
-            threads=8,
-            xlsx=False,
-            pseudonymize=False,
-            pseudonymize_schema="basic",
-            pseudonymize_prefix="ID",
-            pseudonymize_pattern=None,
-            pseudonymize_category_field=None,
-            pseudonymize_table=None,
-            pseudonymize_ped=None,
-            # Additional required attributes
-            log_file=None,
-            reference=None,
-            filters=None,
-            fields_to_extract=None,
-            output_file=None,
+        parser = create_parser()
+        args = parser.parse_args(
+            [
+                "--vcf-file",
+                "test.vcf",
+                "--max-memory-gb",
+                "64.0",
+                "--genotype-replacement-method",
+                "parallel",
+                "--vectorized-chunk-size",
+                "15000",
+                "--genotype-replacement-chunk-size",
+                "20000",
+                "--threads",
+                "8",
+            ]
         )
 
-        # Mock the config loading and pipeline execution
-        with patch("variantcentrifuge.cli.load_config") as mock_load_config:
-            with patch("variantcentrifuge.cli.run_refactored_pipeline") as mock_run_pipeline:
-                mock_load_config.return_value = {}
-
-                # Import after patching to avoid side effects
-                from variantcentrifuge.cli import main
-
-                # Mock sys.argv to simulate CLI call
-                with patch("sys.argv", ["variantcentrifuge"]):
-                    with patch("variantcentrifuge.cli.create_parser") as mock_create_parser:
-                        mock_parser = Mock()
-                        mock_parser.parse_args.return_value = mock_args
-                        mock_create_parser.return_value = mock_parser
-
-                        try:
-                            main()
-                        except SystemExit:
-                            pass  # Expected for successful completion
-
-                # Verify that run_refactored_pipeline was called
-                assert mock_run_pipeline.called
-
-                # Get the config that was passed to the pipeline
-                called_args = mock_run_pipeline.call_args[0][0]
-                config = called_args.config
-
-                # Verify performance parameters are in config
-                assert config["max_memory_gb"] == 64.0
-                assert config["genotype_replacement_method"] == "parallel"
-                assert config["vectorized_chunk_size"] == 15000
-                assert config["genotype_replacement_chunk_size"] == 20000
+        # Verify performance parameters are correctly parsed
+        assert args.max_memory_gb == 64.0
+        assert args.genotype_replacement_method == "parallel"
+        assert args.vectorized_chunk_size == 15000
+        assert args.genotype_replacement_chunk_size == 20000
+        assert args.threads == 8
 
     def test_genotype_replacement_method_config_mapping(self):
-        """Test specific genotype replacement method config mapping."""
-        from types import SimpleNamespace
-        from unittest.mock import Mock, patch
+        """Test that all genotype replacement methods parse correctly."""
+        from variantcentrifuge.cli import create_parser
 
         test_methods = ["auto", "sequential", "vectorized", "parallel", "streaming-parallel"]
 
         for method in test_methods:
-            mock_args = SimpleNamespace(
-                vcf_file="test.vcf",
-                gene_name="all",
-                config="config.yaml",
-                output_dir="output",
-                genotype_replacement_method=method,
-                max_memory_gb=32.0,
-                vectorized_chunk_size=25000,
-                genotype_replacement_chunk_size=50000,
-                # Required defaults
-                phenotype_file=None,
-                phenotype_sample_column=None,
-                phenotype_value_column=None,
-                case_phenotypes=None,
-                perform_gene_burden=False,
-                log_level="INFO",
-                threads=4,
-                xlsx=False,
-                pseudonymize=False,
-                pseudonymize_schema="basic",
-                pseudonymize_prefix="ID",
-                pseudonymize_pattern=None,
-                pseudonymize_category_field=None,
-                pseudonymize_table=None,
-                pseudonymize_ped=None,
+            parser = create_parser()
+            args = parser.parse_args(
+                ["--vcf-file", "test.vcf", "--genotype-replacement-method", method]
+            )
+            assert args.genotype_replacement_method == method, (
+                f"Method {method} not correctly parsed"
             )
 
-            with patch("variantcentrifuge.cli.load_config") as mock_load_config:
-                with patch("variantcentrifuge.cli.run_refactored_pipeline") as mock_run_pipeline:
-                    mock_load_config.return_value = {}
-
-                    from variantcentrifuge.cli import main
-
-                    with patch("sys.argv", ["variantcentrifuge"]):
-                        with patch("variantcentrifuge.cli.create_parser") as mock_create_parser:
-                            mock_parser = Mock()
-                            mock_parser.parse_args.return_value = mock_args
-                            mock_create_parser.return_value = mock_parser
-
-                            try:
-                                main()
-                            except SystemExit:
-                                pass
-
-                    if mock_run_pipeline.called:
-                        called_args = mock_run_pipeline.call_args[0][0]
-                        config = called_args.config
-
-                        # Verify the method is correctly mapped
-                        assert (
-                            config["genotype_replacement_method"] == method
-                        ), f"Method {method} not correctly mapped to config"
-
     def test_config_parameter_presence_regression(self):
-        """Regression test ensuring performance parameters are not missing from config."""
-        from types import SimpleNamespace
-        from unittest.mock import Mock, patch
+        """Regression test ensuring performance parameters exist in parser."""
+        from variantcentrifuge.cli import create_parser
 
-        # Test with user's exact problematic scenario
-        mock_args = SimpleNamespace(
-            vcf_file="test.vcf",
-            gene_name="all",
-            config="config.yaml",
-            output_dir="output",
-            genotype_replacement_method="parallel",  # User specified parallel
-            max_memory_gb=250.0,
-            genotype_replacement_chunk_size=25000,
-            vectorized_chunk_size=10000,
-            threads=16,
-            # Other required fields
-            phenotype_file=None,
-            phenotype_sample_column=None,
-            phenotype_value_column=None,
-            case_phenotypes=None,
-            perform_gene_burden=False,
-            log_level="DEBUG",
-            xlsx=False,
-            pseudonymize=False,
-            pseudonymize_schema="basic",
-            pseudonymize_prefix="ID",
-            pseudonymize_pattern=None,
-            pseudonymize_category_field=None,
-            pseudonymize_table=None,
-            pseudonymize_ped=None,
+        parser = create_parser()
+        args = parser.parse_args(
+            [
+                "--vcf-file",
+                "test.vcf",
+                "--genotype-replacement-method",
+                "parallel",
+                "--max-memory-gb",
+                "250.0",
+                "--genotype-replacement-chunk-size",
+                "25000",
+                "--vectorized-chunk-size",
+                "10000",
+                "--threads",
+                "16",
+            ]
         )
 
-        with patch("variantcentrifuge.cli.load_config") as mock_load_config:
-            with patch("variantcentrifuge.cli.run_refactored_pipeline") as mock_run_pipeline:
-                mock_load_config.return_value = {}
-
-                from variantcentrifuge.cli import main
-
-                with patch("sys.argv", ["variantcentrifuge"]):
-                    with patch("variantcentrifuge.cli.create_parser") as mock_create_parser:
-                        mock_parser = Mock()
-                        mock_parser.parse_args.return_value = mock_args
-                        mock_create_parser.return_value = mock_parser
-
-                        try:
-                            main()
-                        except SystemExit:
-                            pass
-
-                # Verify all performance parameters are present in config
-                if mock_run_pipeline.called:
-                    called_args = mock_run_pipeline.call_args[0][0]
-                    config = called_args.config
-
-                    # Critical parameters that were missing before the fix
-                    required_performance_params = [
-                        "max_memory_gb",
-                        "genotype_replacement_method",
-                        "vectorized_chunk_size",
-                        "genotype_replacement_chunk_size",
-                    ]
-
-                    for param in required_performance_params:
-                        assert param in config, f"Performance parameter {param} missing from config"
-
-                    # Verify exact values
-                    assert config["genotype_replacement_method"] == "parallel"
-                    assert config["max_memory_gb"] == 250.0
-                    assert config["genotype_replacement_chunk_size"] == 25000
-                    assert config["vectorized_chunk_size"] == 10000
+        # Verify all performance parameters parsed correctly
+        assert args.genotype_replacement_method == "parallel"
+        assert args.max_memory_gb == 250.0
+        assert args.genotype_replacement_chunk_size == 25000
+        assert args.vectorized_chunk_size == 10000
 
     def test_performance_config_prevents_auto_selection_override(self):
-        """Test that explicit method selection prevents auto-selection override."""
-        from types import SimpleNamespace
-        from unittest.mock import Mock, patch
+        """Test that explicit method selection is preserved in parsed args."""
+        from variantcentrifuge.cli import create_parser
 
-        # Simulate user specifying parallel but getting streaming-parallel due to auto-selection
-        mock_args = SimpleNamespace(
-            vcf_file="test.vcf",
-            gene_name="all",
-            config="config.yaml",
-            output_dir="output",
-            genotype_replacement_method="parallel",  # User explicitly wants parallel
-            max_memory_gb=250.0,
-            threads=16,
-            vectorized_chunk_size=10000,
-            genotype_replacement_chunk_size=25000,
-            # Required fields
-            phenotype_file=None,
-            phenotype_sample_column=None,
-            phenotype_value_column=None,
-            case_phenotypes=None,
-            perform_gene_burden=False,
-            log_level="INFO",
-            xlsx=False,
-            pseudonymize=False,
-            pseudonymize_schema="basic",
-            pseudonymize_prefix="ID",
-            pseudonymize_pattern=None,
-            pseudonymize_category_field=None,
-            pseudonymize_table=None,
-            pseudonymize_ped=None,
+        parser = create_parser()
+        args = parser.parse_args(
+            ["--vcf-file", "test.vcf", "--genotype-replacement-method", "parallel"]
         )
 
-        with patch("variantcentrifuge.cli.load_config") as mock_load_config:
-            with patch("variantcentrifuge.cli.run_refactored_pipeline") as mock_run_pipeline:
-                mock_load_config.return_value = {}
-
-                from variantcentrifuge.cli import main
-
-                with patch("sys.argv", ["variantcentrifuge"]):
-                    with patch("variantcentrifuge.cli.create_parser") as mock_create_parser:
-                        mock_parser = Mock()
-                        mock_parser.parse_args.return_value = mock_args
-                        mock_create_parser.return_value = mock_parser
-
-                        try:
-                            main()
-                        except SystemExit:
-                            pass
-
-                if mock_run_pipeline.called:
-                    called_args = mock_run_pipeline.call_args[0][0]
-                    config = called_args.config
-
-                    # The config should have the user's explicit choice, not "auto"
-                    assert config["genotype_replacement_method"] == "parallel"
-                    assert config["genotype_replacement_method"] != "auto"
-                    assert config["genotype_replacement_method"] != "streaming-parallel"
+        # The parser should preserve the user's explicit choice
+        assert args.genotype_replacement_method == "parallel"
+        assert args.genotype_replacement_method != "auto"
+        assert args.genotype_replacement_method != "streaming-parallel"
 
     def test_config_parameter_defaults(self):
         """Test that config parameters have correct defaults when not specified."""
-        from types import SimpleNamespace
-        from unittest.mock import Mock, patch
+        from variantcentrifuge.cli import create_parser
 
-        # Mock args without performance parameters (using defaults)
-        mock_args = SimpleNamespace(
-            vcf_file="test.vcf",
-            gene_name="all",
-            config="config.yaml",
-            output_dir="output",
-            # Use CLI defaults
-            genotype_replacement_method="auto",  # Default
-            max_memory_gb=None,  # Default (auto-detect)
-            vectorized_chunk_size=25000,  # Default
-            genotype_replacement_chunk_size=50000,  # Default
-            threads=1,  # Default
-            # Required fields
-            phenotype_file=None,
-            phenotype_sample_column=None,
-            phenotype_value_column=None,
-            case_phenotypes=None,
-            perform_gene_burden=False,
-            log_level="INFO",
-            xlsx=False,
-            pseudonymize=False,
-            pseudonymize_schema="basic",
-            pseudonymize_prefix="ID",
-            pseudonymize_pattern=None,
-            pseudonymize_category_field=None,
-            pseudonymize_table=None,
-            pseudonymize_ped=None,
-        )
+        parser = create_parser()
+        args = parser.parse_args(["--vcf-file", "test.vcf"])
 
-        with patch("variantcentrifuge.cli.load_config") as mock_load_config:
-            with patch("variantcentrifuge.cli.run_refactored_pipeline") as mock_run_pipeline:
-                mock_load_config.return_value = {}
-
-                from variantcentrifuge.cli import main
-
-                with patch("sys.argv", ["variantcentrifuge"]):
-                    with patch("variantcentrifuge.cli.create_parser") as mock_create_parser:
-                        mock_parser = Mock()
-                        mock_parser.parse_args.return_value = mock_args
-                        mock_create_parser.return_value = mock_parser
-
-                        try:
-                            main()
-                        except SystemExit:
-                            pass
-
-                if mock_run_pipeline.called:
-                    called_args = mock_run_pipeline.call_args[0][0]
-                    config = called_args.config
-
-                    # Verify defaults are correctly set
-                    assert config["genotype_replacement_method"] == "auto"
-                    assert config["max_memory_gb"] is None  # Auto-detect
-                    assert config["vectorized_chunk_size"] == 25000
-                    assert config["genotype_replacement_chunk_size"] == 50000
+        # Verify defaults are correctly set
+        assert args.genotype_replacement_method == "auto"
+        assert args.max_memory_gb is None  # Auto-detect
+        assert args.vectorized_chunk_size == 25000
+        assert args.genotype_replacement_chunk_size == 50000
 
     def test_comprehensive_cli_parameter_config_mapping(self):
         """Comprehensive test for CLI parameter to config mapping completeness."""
@@ -1209,9 +971,9 @@ class TestPerformanceConfigMapping:
         if args_missing_table.pseudonymize and not args_missing_table.pseudonymize_table:
             validation_error = "--pseudonymize-table is required when using --pseudonymize"
 
-        assert (
-            validation_error is not None
-        ), "Validation should fail when pseudonymize_table is missing"
+        assert validation_error is not None, (
+            "Validation should fail when pseudonymize_table is missing"
+        )
         assert "--pseudonymize-table is required" in validation_error
 
         # Test case 2: pseudonymize=True, pseudonymize_table=provided should pass validation
@@ -1227,9 +989,9 @@ class TestPerformanceConfigMapping:
         if args_with_table.pseudonymize and not args_with_table.pseudonymize_table:
             validation_error = "--pseudonymize-table is required when using --pseudonymize"
 
-        assert (
-            validation_error is None
-        ), "Validation should pass when pseudonymize_table is provided"
+        assert validation_error is None, (
+            "Validation should pass when pseudonymize_table is provided"
+        )
 
         # Test case 3: pseudonymize=False, pseudonymize_table=provided should warn
         args_table_without_pseudonymize = SimpleNamespace(

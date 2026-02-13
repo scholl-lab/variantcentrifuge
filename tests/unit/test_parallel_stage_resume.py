@@ -1,7 +1,6 @@
 """Tests for parallel stage resume functionality."""
 
 import gzip
-import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -17,35 +16,26 @@ from variantcentrifuge.stages.processing_stages import (
 class TestParallelVariantExtractionStage:
     """Test parallel variant extraction stage resume functionality."""
 
-    def test_validate_existing_chunk_valid_vcf(self):
+    def test_validate_existing_chunk_valid_vcf(self, tmp_path):
         """Test validation of valid VCF chunk."""
         stage = ParallelVariantExtractionStage()
 
-        with tempfile.NamedTemporaryFile(suffix=".vcf.gz", delete=False) as tmp:
-            # Create a valid VCF file
-            with gzip.open(tmp.name, "wt") as f:
-                f.write("##fileformat=VCFv4.2\n")
-                f.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
-                f.write("chr1\t1000\t.\tA\tT\t30\tPASS\t.\n")
+        chunk_path = tmp_path / "valid.vcf.gz"
+        with gzip.open(str(chunk_path), "wt") as f:
+            f.write("##fileformat=VCFv4.2\n")
+            f.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+            f.write("chr1\t1000\t.\tA\tT\t30\tPASS\t.\n")
 
-            chunk_path = Path(tmp.name)
-            assert stage._validate_existing_chunk(chunk_path) is True
+        assert stage._validate_existing_chunk(chunk_path) is True
 
-            # Cleanup
-            chunk_path.unlink()
-
-    def test_validate_existing_chunk_empty_file(self):
+    def test_validate_existing_chunk_empty_file(self, tmp_path):
         """Test validation rejects empty files."""
         stage = ParallelVariantExtractionStage()
 
-        with tempfile.NamedTemporaryFile(suffix=".vcf.gz", delete=False) as tmp:
-            pass  # Empty file
+        chunk_path = tmp_path / "empty.vcf.gz"
+        chunk_path.write_bytes(b"")
 
-            chunk_path = Path(tmp.name)
-            assert stage._validate_existing_chunk(chunk_path) is False
-
-            # Cleanup
-            chunk_path.unlink()
+        assert stage._validate_existing_chunk(chunk_path) is False
 
     def test_validate_existing_chunk_nonexistent(self):
         """Test validation rejects nonexistent files."""
@@ -53,21 +43,16 @@ class TestParallelVariantExtractionStage:
         chunk_path = Path("/tmp/nonexistent_file.vcf.gz")
         assert stage._validate_existing_chunk(chunk_path) is False
 
-    def test_validate_existing_chunk_invalid_header(self):
+    def test_validate_existing_chunk_invalid_header(self, tmp_path):
         """Test validation rejects files with invalid VCF headers."""
         stage = ParallelVariantExtractionStage()
 
-        with tempfile.NamedTemporaryFile(suffix=".vcf.gz", delete=False) as tmp:
-            # Create file with invalid header
-            with gzip.open(tmp.name, "wt") as f:
-                f.write("This is not a VCF file\n")
-                f.write("Invalid content\n")
+        chunk_path = tmp_path / "invalid.vcf.gz"
+        with gzip.open(str(chunk_path), "wt") as f:
+            f.write("This is not a VCF file\n")
+            f.write("Invalid content\n")
 
-            chunk_path = Path(tmp.name)
-            assert stage._validate_existing_chunk(chunk_path) is False
-
-            # Cleanup
-            chunk_path.unlink()
+        assert stage._validate_existing_chunk(chunk_path) is False
 
     def test_handle_checkpoint_skip(self):
         """Test checkpoint skip handler restores context correctly."""
@@ -96,53 +81,36 @@ class TestParallelVariantExtractionStage:
 class TestParallelCompleteProcessingStage:
     """Test parallel complete processing stage resume functionality."""
 
-    def test_validate_chunk_tsv_valid_file(self):
+    def test_validate_chunk_tsv_valid_file(self, tmp_path):
         """Test validation of valid TSV chunk."""
         stage = ParallelCompleteProcessingStage()
 
-        with tempfile.NamedTemporaryFile(suffix=".tsv.gz", delete=False) as tmp:
-            # Create a valid TSV file
-            with gzip.open(tmp.name, "wt") as f:
-                f.write("CHROM\tPOS\tREF\tALT\tSAMPLE1\n")
-                f.write("chr1\t1000\tA\tT\thet\n")
-                f.write("chr1\t2000\tG\tC\tref\n")
+        chunk_path = tmp_path / "valid.tsv.gz"
+        with gzip.open(str(chunk_path), "wt") as f:
+            f.write("CHROM\tPOS\tREF\tALT\tSAMPLE1\n")
+            f.write("chr1\t1000\tA\tT\thet\n")
+            f.write("chr1\t2000\tG\tC\tref\n")
 
-            chunk_path = Path(tmp.name)
-            assert stage._validate_chunk_tsv(chunk_path) is True
+        assert stage._validate_chunk_tsv(chunk_path) is True
 
-            # Cleanup
-            chunk_path.unlink()
-
-    def test_validate_chunk_tsv_header_only(self):
+    def test_validate_chunk_tsv_header_only(self, tmp_path):
         """Test validation rejects files with only header."""
         stage = ParallelCompleteProcessingStage()
 
-        with tempfile.NamedTemporaryFile(suffix=".tsv.gz", delete=False) as tmp:
-            # Create file with only header
-            with gzip.open(tmp.name, "wt") as f:
-                f.write("CHROM\tPOS\tREF\tALT\n")
+        chunk_path = tmp_path / "header_only.tsv.gz"
+        with gzip.open(str(chunk_path), "wt") as f:
+            f.write("CHROM\tPOS\tREF\tALT\n")
 
-            chunk_path = Path(tmp.name)
-            assert stage._validate_chunk_tsv(chunk_path) is False
+        assert stage._validate_chunk_tsv(chunk_path) is False
 
-            # Cleanup
-            chunk_path.unlink()
-
-    def test_validate_chunk_tsv_invalid_format(self):
+    def test_validate_chunk_tsv_invalid_format(self, tmp_path):
         """Test validation rejects files without tab separators."""
         stage = ParallelCompleteProcessingStage()
 
-        with tempfile.NamedTemporaryFile(suffix=".tsv", delete=False) as tmp:
-            # Create file without tabs
-            with open(tmp.name, "w") as f:
-                f.write("This is not a TSV file\n")
-                f.write("No tabs here either\n")
+        chunk_path = tmp_path / "invalid.tsv"
+        chunk_path.write_text("This is not a TSV file\nNo tabs here either\n")
 
-            chunk_path = Path(tmp.name)
-            assert stage._validate_chunk_tsv(chunk_path) is False
-
-            # Cleanup
-            chunk_path.unlink()
+        assert stage._validate_chunk_tsv(chunk_path) is False
 
     @patch(
         "variantcentrifuge.stages.processing_stages.ParallelCompleteProcessingStage"
@@ -255,9 +223,11 @@ class TestParallelCompleteProcessingStage:
         bed_chunks = [Path("/tmp/chunk_0.bed"), Path("/tmp/chunk_1.bed")]
 
         # Mock that all chunks exist
-        with patch.object(stage, "_validate_chunk_tsv", return_value=True):
-            with patch.object(stage, "_process_single_chunk") as mock_process:
-                result = stage._process_chunks_parallel(context, bed_chunks)
+        with (
+            patch.object(stage, "_validate_chunk_tsv", return_value=True),
+            patch.object(stage, "_process_single_chunk") as mock_process,
+        ):
+            result = stage._process_chunks_parallel(context, bed_chunks)
 
         # Verify no chunks were processed
         assert mock_process.call_count == 0

@@ -1,5 +1,6 @@
 """Tests for CLI debug logging functionality."""
 
+import contextlib
 import sys
 from unittest.mock import patch
 
@@ -40,11 +41,8 @@ class TestCLIDebugLogging:
         mock_validate_vcf.return_value = True
         mock_validate_params.return_value = True
 
-        with patch.object(sys, "argv", test_args):
-            try:
-                main()
-            except SystemExit:
-                pass  # main() calls sys.exit, which we expect
+        with patch.object(sys, "argv", test_args), contextlib.suppress(SystemExit):
+            main()
 
         # Check that debug messages were logged
         debug_messages = [
@@ -102,11 +100,8 @@ class TestCLIDebugLogging:
         mock_validate_vcf.return_value = True
         mock_validate_params.return_value = True
 
-        with patch.object(sys, "argv", test_args):
-            try:
-                main()
-            except SystemExit:
-                pass  # main() calls sys.exit, which we expect
+        with patch.object(sys, "argv", test_args), contextlib.suppress(SystemExit):
+            main()
 
         # Check that debug messages were NOT logged
         debug_messages = [

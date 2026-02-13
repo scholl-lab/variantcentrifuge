@@ -6,7 +6,8 @@ based on clinical significance and pattern reliability.
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from collections.abc import Mapping
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +71,9 @@ PATTERN_CATEGORIES = {
 
 
 def prioritize_patterns(
-    patterns: List[str],
-    segregation_results: Optional[Dict[str, Tuple[bool, float]]] = None,
-) -> Tuple[str, float]:
+    patterns: list[str],
+    segregation_results: dict[str, tuple[bool, float]] | None = None,
+) -> tuple[str, float]:
     """
     Prioritize inheritance patterns and return the highest priority pattern.
 
@@ -154,7 +155,7 @@ def adjust_pattern_score(
     return base_score
 
 
-def calculate_confidence(pattern_scores: Dict[str, float], best_pattern: str) -> float:
+def calculate_confidence(pattern_scores: Mapping[str, int | float], best_pattern: str) -> float:
     """
     Calculate confidence score based on pattern score distribution.
 
@@ -211,7 +212,7 @@ def get_pattern_category(pattern: str) -> str:
     return PATTERN_CATEGORIES.get(pattern, "unclear")
 
 
-def group_patterns_by_category(patterns: List[str]) -> Dict[str, List[str]]:
+def group_patterns_by_category(patterns: list[str]) -> dict[str, list[str]]:
     """
     Group patterns by their categories.
 
@@ -225,7 +226,7 @@ def group_patterns_by_category(patterns: List[str]) -> Dict[str, List[str]]:
     Dict[str, List[str]]
         Dictionary mapping categories to patterns
     """
-    grouped = {}
+    grouped: dict[str, list[str]] = {}
     for pattern in patterns:
         category = get_pattern_category(pattern)
         if category not in grouped:
@@ -287,7 +288,7 @@ def get_pattern_description(pattern: str) -> str:
 
 
 def resolve_conflicting_patterns(
-    patterns_by_sample: Dict[str, List[str]], variant_info: Optional[Dict[str, Any]] = None
+    patterns_by_sample: dict[str, list[str]], variant_info: dict[str, Any] | None = None
 ) -> str:
     """
     Resolve conflicting inheritance patterns across samples.
@@ -313,7 +314,7 @@ def resolve_conflicting_patterns(
         return "none"
 
     # Count pattern occurrences
-    pattern_counts = {}
+    pattern_counts: dict[str, int] = {}
     for pattern in all_patterns:
         pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
 
@@ -330,7 +331,7 @@ def resolve_conflicting_patterns(
     return best_pattern
 
 
-def filter_compatible_patterns(patterns: List[str], family_structure: Dict[str, Any]) -> List[str]:
+def filter_compatible_patterns(patterns: list[str], family_structure: dict[str, Any]) -> list[str]:
     """
     Filter patterns based on family structure compatibility.
 
@@ -356,7 +357,7 @@ def filter_compatible_patterns(patterns: List[str], family_structure: Dict[str, 
     return compatible if compatible else patterns
 
 
-def is_pattern_compatible(pattern: str, family_structure: Dict[str, Any]) -> bool:
+def is_pattern_compatible(pattern: str, family_structure: dict[str, Any]) -> bool:
     """
     Check if a pattern is compatible with family structure.
 
@@ -374,11 +375,11 @@ def is_pattern_compatible(pattern: str, family_structure: Dict[str, Any]) -> boo
     """
     # De novo requires parents
     if pattern == "de_novo":
-        return family_structure.get("has_parents", False)
+        return bool(family_structure.get("has_parents", False))
 
     # X-linked patterns require known sex
     if pattern in ["x_linked_recessive", "x_linked_dominant"]:
-        return family_structure.get("has_sex_info", False)
+        return bool(family_structure.get("has_sex_info", False))
 
     # Compound het benefits from parent data
     if pattern == "compound_heterozygous":

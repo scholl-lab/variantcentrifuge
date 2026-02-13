@@ -77,7 +77,7 @@ class TestVariantExtractionStage:
         # Create a temp VCF file that actually exists
         import tempfile
 
-        vcf_file = tempfile.NamedTemporaryFile(suffix=".vcf", delete=False)
+        vcf_file = tempfile.NamedTemporaryFile(suffix=".vcf", delete=False)  # noqa: SIM115
         vcf_file.write(b"##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
         vcf_file.close()
 
@@ -114,7 +114,7 @@ chr17\t43044300\t.\tC\tT\t100\tPASS\t.\tGT\t0/0\t0/1
         mock_extract.assert_called_once()
         kwargs = mock_extract.call_args[1]
         assert kwargs["vcf_file"] == context.config["vcf_file"]
-        assert kwargs["bed_file"] == "/tmp/genes.bed"
+        assert kwargs["bed_file"] == str(Path("/tmp/genes.bed"))
         assert kwargs["cfg"]["threads"] == 2
         assert ".variants.vcf.gz" in kwargs["output_file"]
 
@@ -154,7 +154,7 @@ class TestParallelVariantExtractionStage:
         # Create a temp VCF file that actually exists
         import tempfile
 
-        vcf_file = tempfile.NamedTemporaryFile(suffix=".vcf", delete=False)
+        vcf_file = tempfile.NamedTemporaryFile(suffix=".vcf", delete=False)  # noqa: SIM115
         vcf_file.write(b"##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
         vcf_file.close()
 
@@ -204,13 +204,15 @@ class TestParallelVariantExtractionStage:
         future2.result.return_value = None
         mock_executor_instance.submit.side_effect = [future1, future2]
 
-        with patch("variantcentrifuge.stages.processing_stages.shutil.move"):
-            with patch(
+        with (
+            patch("variantcentrifuge.stages.processing_stages.shutil.move"),
+            patch(
                 "variantcentrifuge.stages.processing_stages.as_completed",
                 return_value=[future1, future2],
-            ):
-                stage = ParallelVariantExtractionStage()
-                result = stage(context)
+            ),
+        ):
+            stage = ParallelVariantExtractionStage()
+            result = stage(context)
 
         # Verify BED splitting
         mock_split.assert_called_once()
@@ -254,13 +256,15 @@ class TestParallelVariantExtractionStage:
         future2.result.return_value = None
         mock_executor_instance.submit.side_effect = [future1, future2]
 
-        with patch("variantcentrifuge.stages.processing_stages.shutil.move"):
-            with patch(
+        with (
+            patch("variantcentrifuge.stages.processing_stages.shutil.move"),
+            patch(
                 "variantcentrifuge.stages.processing_stages.as_completed",
                 return_value=[future1, future2],
-            ):
-                stage = ParallelVariantExtractionStage()
-                stage(context)
+            ),
+        ):
+            stage = ParallelVariantExtractionStage()
+            stage(context)
 
         # Verify extract_variants was called with bcftools_prefilter
         assert mock_executor_instance.submit.call_count == 2
@@ -312,7 +316,7 @@ class TestFieldExtractionStage:
         # Verify extraction - extract_fields uses keyword arguments
         mock_extract.assert_called_once()
         kwargs = mock_extract.call_args[1]
-        assert kwargs["variant_file"] == "/tmp/variants.vcf.gz"  # variant_file
+        assert kwargs["variant_file"] == str(Path("/tmp/variants.vcf.gz"))  # variant_file
         assert kwargs["fields"] == "CHROM POS REF ALT QUAL"  # fields as string
         assert isinstance(kwargs["cfg"], dict)  # cfg
         assert ".extracted.tsv" in kwargs["output_file"]  # output_file
@@ -354,7 +358,7 @@ class TestGenotypeReplacementStage:
         import tempfile
 
         # Create a temp TSV file that actually exists
-        tsv_file = tempfile.NamedTemporaryFile(suffix=".tsv", delete=False)
+        tsv_file = tempfile.NamedTemporaryFile(suffix=".tsv", delete=False)  # noqa: SIM115
         tsv_file.write(b"CHROM\tPOS\tREF\tALT\tSample1\tSample2\tSample3\n")
         tsv_file.write(b"chr1\t100\tA\tG\t0/1\t0/0\t1/1\n")
         tsv_file.close()
@@ -422,7 +426,7 @@ class TestPhenotypeIntegrationStage:
         import tempfile
 
         # Create a temp TSV file that actually exists
-        tsv_file = tempfile.NamedTemporaryFile(suffix=".tsv", delete=False)
+        tsv_file = tempfile.NamedTemporaryFile(suffix=".tsv", delete=False)  # noqa: SIM115
         tsv_file.write(b"CHROM\tPOS\tREF\tALT\tSample1\tSample2\tSample3\n")
         tsv_file.write(b"chr1\t100\tA\tG\t0/1\t0/0\t1/1\n")
         tsv_file.close()
@@ -595,7 +599,6 @@ class TestPhenotypeIntegrationStage:
 
         # Mock file operations
         with patch("pandas.read_csv", return_value=df), patch.object(df, "to_csv") as mock_to_csv:
-
             stage = PhenotypeIntegrationStage()
             stage(context)
 

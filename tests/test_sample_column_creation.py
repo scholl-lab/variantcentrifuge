@@ -228,7 +228,7 @@ class TestVectorizedSampleColumnCreation:
             for s in range(num_samples):
                 genotypes = ["0/0", "0/1", "1/1", "./."]
                 gt = genotypes[v % len(genotypes)]  # Cycle through genotypes
-                sample_entries.append(f"Sample{s+1}({gt})")
+                sample_entries.append(f"Sample{s + 1}({gt})")
             gt_data.append(";".join(sample_entries))
 
         df = pd.DataFrame(
@@ -256,7 +256,7 @@ class TestVectorizedSampleColumnCreation:
         assert result_vectorized.iloc[1]["Sample1"] == "0/1"  # Second variant, first sample
 
         print(
-            f"Vectorized method processed {num_variants:,} variants × "
+            f"Vectorized method processed {num_variants:,} variants x "
             f"{num_samples:,} samples in {vectorized_time:.3f}s"
         )
 

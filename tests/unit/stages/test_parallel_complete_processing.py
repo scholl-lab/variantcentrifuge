@@ -95,12 +95,11 @@ class TestParallelCompleteProcessingStage:
                     tsv_path.write_text("CHROM\tPOS\tREF\tALT\nchr1\t100\tA\tG\n")
 
                 # Patch cleanup to avoid deleting our test files
-                with patch.object(stage, "_cleanup_chunks"):
-                    # Patch merge to return a result
-                    with patch.object(
-                        stage, "_merge_tsv_outputs", return_value=tmppath / "merged.tsv"
-                    ):
-                        result = stage(context)
+                with (
+                    patch.object(stage, "_cleanup_chunks"),
+                    patch.object(stage, "_merge_tsv_outputs", return_value=tmppath / "merged.tsv"),
+                ):
+                    result = stage(context)
 
         # Verify results
         assert result is context
@@ -142,10 +141,11 @@ class TestParallelCompleteProcessingStage:
             chunk_tsv = tmppath / "test_output.chunk_0.extracted.tsv.gz"
             chunk_tsv.touch()
 
-            with patch("variantcentrifuge.stages.processing_stages.extract_variants"), patch(
-                "variantcentrifuge.stages.processing_stages.apply_snpsift_filter"
-            ), patch("variantcentrifuge.stages.processing_stages.extract_fields"):
-
+            with (
+                patch("variantcentrifuge.stages.processing_stages.extract_variants"),
+                patch("variantcentrifuge.stages.processing_stages.apply_snpsift_filter"),
+                patch("variantcentrifuge.stages.processing_stages.extract_fields"),
+            ):
                 result = stage._process_single_chunk(
                     0, chunk_bed, "/path/to/test.vcf", "test_output", tmppath, config
                 )

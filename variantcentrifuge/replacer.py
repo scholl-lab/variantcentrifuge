@@ -42,7 +42,8 @@ internally.
 
 import logging
 import re
-from typing import Any, Dict, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -66,7 +67,7 @@ def _normalize_snpeff_column_name(col_name: str) -> str:
     )
 
 
-def replace_genotypes(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]:
+def replace_genotypes(lines: Iterator[str], cfg: dict[str, Any]) -> Iterator[str]:
     """
     Replace and optionally append extra sample fields to genotypes in a TSV file.
 

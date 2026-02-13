@@ -8,7 +8,7 @@ of annotated variants to generate custom scores.
 import json
 import logging
 import os
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -16,7 +16,7 @@ import pandas as pd
 logger = logging.getLogger("variantcentrifuge")
 
 
-def read_scoring_config(config_path: str) -> Dict[str, Any]:
+def read_scoring_config(config_path: str) -> dict[str, Any]:
     """
     Read and parse the scoring configuration files from a directory.
 
@@ -40,10 +40,10 @@ def read_scoring_config(config_path: str) -> Dict[str, Any]:
 
         logger.debug(f"Reading scoring config from: {config_path}")
 
-        with open(var_assign_path, "r", encoding="utf-8") as f:
+        with open(var_assign_path, encoding="utf-8") as f:
             variable_assignment = json.load(f)
 
-        with open(formula_path, "r", encoding="utf-8") as f:
+        with open(formula_path, encoding="utf-8") as f:
             formula_config = json.load(f)
 
         return {
@@ -80,7 +80,7 @@ def convert_to_numeric(series: pd.Series, default: float = 0.0) -> pd.Series:
     return pd.to_numeric(series, errors="coerce").fillna(default)
 
 
-def apply_scoring(df: pd.DataFrame, scoring_config: Dict[str, Any]) -> pd.DataFrame:
+def apply_scoring(df: pd.DataFrame, scoring_config: dict[str, Any]) -> pd.DataFrame:
     """
     Apply scoring formulas to the DataFrame of variants.
 
@@ -127,7 +127,7 @@ def apply_scoring(df: pd.DataFrame, scoring_config: Dict[str, Any]) -> pd.DataFr
                 parts[1].split(":")[1] if len(parts) > 1 and "default" in parts[1] else "0"
             )
         elif isinstance(var_config, dict):  # New object format
-            target_name = var_config.get("target")
+            target_name = str(var_config.get("target", ""))
             default_val_str = str(var_config.get("default", "0"))
         else:
             continue

@@ -1,13 +1,13 @@
 """Pytest configuration and fixtures for inheritance tests."""
 
-from typing import Any, Dict
+from typing import Any
 
 import pandas as pd
 import pytest
 
 
 @pytest.fixture
-def sample_pedigree_data() -> Dict[str, Dict[str, Any]]:
+def sample_pedigree_data() -> dict[str, dict[str, Any]]:
     """Provide sample pedigree data for testing."""
     return {
         "child": {
@@ -35,7 +35,7 @@ def sample_pedigree_data() -> Dict[str, Dict[str, Any]]:
 
 
 @pytest.fixture
-def single_sample_pedigree() -> Dict[str, Dict[str, Any]]:
+def single_sample_pedigree() -> dict[str, dict[str, Any]]:
     """Provide single sample pedigree data."""
     return {
         "Sample1": {
@@ -49,7 +49,7 @@ def single_sample_pedigree() -> Dict[str, Dict[str, Any]]:
 
 
 @pytest.fixture
-def multi_generation_pedigree() -> Dict[str, Dict[str, Any]]:
+def multi_generation_pedigree() -> dict[str, dict[str, Any]]:
     """Provide multi-generation pedigree data."""
     return {
         "grandparent": {
@@ -303,7 +303,7 @@ def compound_het_trio_variants() -> pd.DataFrame:
 
 
 @pytest.fixture
-def x_linked_pedigree_data() -> Dict[str, Dict[str, Any]]:
+def x_linked_pedigree_data() -> dict[str, dict[str, Any]]:
     """Pedigree data for X-linked testing with male and female offspring."""
     return {
         "son": {

@@ -312,7 +312,7 @@ class TestSamplePseudonymizer:
             assert os.path.exists(meta_path)
 
             # Verify metadata content
-            with open(meta_path, "r") as f:
+            with open(meta_path) as f:
                 metadata = json.load(f)
             assert metadata["schema"] == "SequentialSchema"
             assert metadata["deterministic"] is True
@@ -505,8 +505,8 @@ class TestIntegrationScenarios:
         case_ids = [v for k, v in mapping.items() if k.startswith("CASE")]
         ctrl_ids = [v for k, v in mapping.items() if k.startswith("CTRL")]
 
-        assert all(id.startswith("CASE_") for id in case_ids)
-        assert all(id.startswith("CONTROL_") for id in ctrl_ids)
+        assert all(pid.startswith("CASE_") for pid in case_ids)
+        assert all(pid.startswith("CONTROL_") for pid in ctrl_ids)
         assert len(case_ids) == 5
         assert len(ctrl_ids) == 5
 
@@ -627,9 +627,9 @@ class TestPseudonymizeTableParameter:
         stage._process(mock_context)
 
         # Verify the mapping file was created at the user-specified path
-        assert (
-            user_mapping_path.exists()
-        ), f"Mapping file not created at user-specified path: {user_mapping_path}"
+        assert user_mapping_path.exists(), (
+            f"Mapping file not created at user-specified path: {user_mapping_path}"
+        )
 
         # Verify the file contains the expected content
         content = user_mapping_path.read_text()
@@ -811,14 +811,11 @@ class TestPseudonymizeTableParameter:
         assert args.pseudonymize_table is None
 
         # The validation logic from cli.py should catch this
-        if args.pseudonymize and not args.pseudonymize_table:
-            validation_would_fail = True
-        else:
-            validation_would_fail = False
+        validation_would_fail = bool(args.pseudonymize and not args.pseudonymize_table)
 
-        assert (
-            validation_would_fail
-        ), "CLI validation should require --pseudonymize-table when using --pseudonymize"
+        assert validation_would_fail, (
+            "CLI validation should require --pseudonymize-table when using --pseudonymize"
+        )
 
     def test_pseudonymize_table_parameter_config_mapping(self):
         """Test that --pseudonymize-table parameter is properly mapped to config."""

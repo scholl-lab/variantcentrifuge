@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # File: variantcentrifuge/vcf_eff_one_per_line.py
 # Location: variantcentrifuge/variantcentrifuge/vcf_eff_one_per_line.py
@@ -66,17 +65,17 @@ def split_vcf_effects(line: str) -> list[str]:
     columns = line.strip().split("\t")
     # VCF columns: CHROM (0), POS (1), ID (2), REF (3), ALT (4),
     #              QUAL (5), FILTER (6), INFO (7), FORMAT (8), ...
-    INFO_FIELD_NUM = 7
+    info_field_num = 7
 
     # Guard: If the line doesn't have enough columns, return it as is
-    if len(columns) <= INFO_FIELD_NUM:
+    if len(columns) <= info_field_num:
         return [line]
 
-    info_str = columns[INFO_FIELD_NUM]
+    info_str = columns[info_field_num]
     infos = info_str.split(";")
 
     # We look for EFF= or ANN= in the INFO field
-    effs = []
+    effs: list[str] = []
     field_name = None
     other_info_parts = []
 
@@ -97,8 +96,8 @@ def split_vcf_effects(line: str) -> list[str]:
         return [line]
 
     # Otherwise, replicate line for each EFF/ANN
-    pre_cols = columns[:INFO_FIELD_NUM]  # columns before INFO
-    post_cols = columns[INFO_FIELD_NUM + 1 :]  # columns after INFO
+    pre_cols = columns[:info_field_num]  # columns before INFO
+    post_cols = columns[info_field_num + 1 :]  # columns after INFO
 
     split_lines = []
     pre_string = "\t".join(pre_cols)
@@ -119,7 +118,7 @@ def split_vcf_effects(line: str) -> list[str]:
     return split_lines
 
 
-def process_vcf_file(input_file: str, output_file: str = None) -> None:
+def process_vcf_file(input_file: str, output_file: str | None = None) -> None:
     """
     Process a VCF file, split multiple EFF/ANN annotations into separate lines, and write the output.
 
@@ -146,7 +145,7 @@ def process_vcf_file(input_file: str, output_file: str = None) -> None:
             # We create a subprocess that writes to 'bgzip -c'
             # so we can write text data that ends up BGZipped
             # then we pipe that directly to our final .gz file
-            out_fh = open(output_file, "wb")
+            out_fh = open(output_file, "wb")  # noqa: SIM115 - subprocess pipe stdout
             bgzip_proc = subprocess.Popen(
                 ["bgzip", "-c"],
                 stdin=subprocess.PIPE,
@@ -156,15 +155,15 @@ def process_vcf_file(input_file: str, output_file: str = None) -> None:
             out_handle = io.TextIOWrapper(bgzip_proc.stdin, encoding="utf-8")
         else:
             # Plain text
-            out_handle = open(output_file, "w", encoding="utf-8")
+            out_handle = open(output_file, "w", encoding="utf-8")  # noqa: SIM115 - conditional handle, closed in finally
 
     # Open the input handle
     if input_file == "-":
         in_handle = sys.stdin
     elif input_file.endswith(".gz"):
-        in_handle = gzip.open(input_file, mode="rt", encoding="utf-8")
+        in_handle = gzip.open(input_file, mode="rt", encoding="utf-8")  # noqa: SIM115 - used in `with in_handle:` below
     else:
-        in_handle = open(input_file, "r", encoding="utf-8")
+        in_handle = open(input_file, encoding="utf-8")  # noqa: SIM115 - used in `with in_handle:` below
 
     # Read from in_handle, write to out_handle
     try:
@@ -179,10 +178,12 @@ def process_vcf_file(input_file: str, output_file: str = None) -> None:
         if out_handle not in (sys.stdout, sys.stdin):
             out_handle.close()
 
-        # If we used bgzip, wait for it and do tabix
+        # If we used bgzip, wait for it and close the output file handle
         if use_bgzip and bgzip_proc is not None:
             bgzip_proc.wait()
+            out_fh.close()
             if bgzip_proc.returncode == 0:
+                assert output_file is not None
                 subprocess.run(["tabix", "-p", "vcf", output_file], check=True)
 
 

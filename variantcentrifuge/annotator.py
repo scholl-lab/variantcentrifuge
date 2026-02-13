@@ -20,7 +20,7 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 import pandas as pd
 
@@ -61,7 +61,7 @@ def _sanitize_name(name: str) -> str:
     return sanitized if sanitized else "unnamed"
 
 
-def _parse_bed_line(line: str) -> Optional[tuple]:
+def _parse_bed_line(line: str) -> tuple | None:
     """
     Parse a single BED file line.
 
@@ -93,7 +93,7 @@ def _parse_bed_line(line: str) -> Optional[tuple]:
         return None
 
 
-def _load_bed_files(bed_files: List[str]) -> Dict[str, Any]:
+def _load_bed_files(bed_files: list[str]) -> dict[str, Any]:
     """
     Load BED files into interval trees for efficient overlap detection.
 
@@ -122,7 +122,7 @@ def _load_bed_files(bed_files: List[str]) -> Dict[str, Any]:
         regions_loaded = 0
 
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 for line_num, line in enumerate(f, 1):
                     parsed = _parse_bed_line(line)
                     if parsed is None:
@@ -151,7 +151,7 @@ def _load_bed_files(bed_files: List[str]) -> Dict[str, Any]:
     return regions_by_chrom
 
 
-def _load_gene_lists(gene_list_files: List[str]) -> Dict[str, Set[str]]:
+def _load_gene_lists(gene_list_files: list[str]) -> dict[str, set[str]]:
     """
     Load gene lists from text files.
 
@@ -176,7 +176,7 @@ def _load_gene_lists(gene_list_files: List[str]) -> Dict[str, Set[str]]:
         genes_loaded = 0
 
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 genes = set()
                 for line in f:
                     line = line.strip()
@@ -198,7 +198,7 @@ def _load_gene_lists(gene_list_files: List[str]) -> Dict[str, Set[str]]:
     return gene_lists
 
 
-def _load_json_gene_data(json_files: List[str], mapping_config: str) -> Dict[str, Dict[str, Any]]:
+def _load_json_gene_data(json_files: list[str], mapping_config: str) -> dict[str, dict[str, Any]]:
     """
     Load structured gene data from JSON files.
 
@@ -241,7 +241,7 @@ def _load_json_gene_data(json_files: List[str], mapping_config: str) -> Dict[str
         genes_loaded = 0
 
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 data = json.load(f)
 
             # Handle both list and dict formats
@@ -282,7 +282,7 @@ def _load_json_gene_data(json_files: List[str], mapping_config: str) -> Dict[str
     return json_gene_data
 
 
-def load_custom_features(cfg: Dict[str, Any]) -> Dict[str, Any]:
+def load_custom_features(cfg: dict[str, Any]) -> dict[str, Any]:
     """
     Load all custom annotation features from configuration.
 
@@ -298,7 +298,7 @@ def load_custom_features(cfg: Dict[str, Any]) -> Dict[str, Any]:
     """
     logger.info("Loading custom annotation features...")
 
-    features = {"regions_by_chrom": {}, "gene_lists": {}, "json_gene_data": {}}
+    features: dict[str, Any] = {"regions_by_chrom": {}, "gene_lists": {}, "json_gene_data": {}}
     features["json_genes_as_columns"] = cfg.get("json_genes_as_columns", False)
 
     # Load BED files
@@ -334,7 +334,7 @@ def load_custom_features(cfg: Dict[str, Any]) -> Dict[str, Any]:
     return features
 
 
-def _extract_genes_from_row(row: pd.Series) -> Set[str]:
+def _extract_genes_from_row(row: pd.Series) -> set[str]:
     """
     Extract gene symbols from a variant row.
 
@@ -348,7 +348,7 @@ def _extract_genes_from_row(row: pd.Series) -> Set[str]:
     Set[str]
         Set of uppercase gene symbols
     """
-    genes = set()
+    genes: set[str] = set()
 
     # Check common gene annotation columns
     gene_columns = ["GENE", "Gene", "gene_symbol", "symbol"]
@@ -370,7 +370,7 @@ def _extract_genes_from_row(row: pd.Series) -> Set[str]:
     return genes
 
 
-def _find_region_overlaps(row: pd.Series, regions_by_chrom: Dict[str, Any]) -> List[str]:
+def _find_region_overlaps(row: pd.Series, regions_by_chrom: dict[str, Any]) -> list[str]:
     """
     Find overlapping regions for a variant.
 
@@ -386,7 +386,7 @@ def _find_region_overlaps(row: pd.Series, regions_by_chrom: Dict[str, Any]) -> L
     List[str]
         List of region annotation strings
     """
-    annotations = []
+    annotations: list[str] = []
 
     if not regions_by_chrom or not INTERVALTREE_AVAILABLE:
         return annotations
@@ -410,7 +410,7 @@ def _find_region_overlaps(row: pd.Series, regions_by_chrom: Dict[str, Any]) -> L
     return annotations
 
 
-def _find_gene_list_matches(genes: Set[str], gene_lists: Dict[str, Set[str]]) -> List[str]:
+def _find_gene_list_matches(genes: set[str], gene_lists: dict[str, set[str]]) -> list[str]:
     """
     Find gene list matches for a set of genes.
 
@@ -436,8 +436,8 @@ def _find_gene_list_matches(genes: Set[str], gene_lists: Dict[str, Set[str]]) ->
 
 
 def _find_json_gene_matches(
-    genes: Set[str], json_gene_data: Dict[str, Dict[str, Any]]
-) -> List[str]:
+    genes: set[str], json_gene_data: dict[str, dict[str, Any]]
+) -> list[str]:
     """
     Find JSON gene data matches for a set of genes.
 
@@ -464,14 +464,14 @@ def _find_json_gene_matches(
 
 
 def _add_json_annotations_as_columns(
-    df: pd.DataFrame, json_gene_data: Dict[str, Dict[str, Any]]
+    df: pd.DataFrame, json_gene_data: dict[str, dict[str, Any]]
 ) -> pd.DataFrame:
     """Add annotations from JSON data as separate columns to the DataFrame."""
     if not json_gene_data:
         return df
 
     # Identify all possible new column names from the JSON data
-    all_new_columns = set()
+    all_new_columns: set[str] = set()
     for data in json_gene_data.values():
         all_new_columns.update(data.keys())
 
@@ -480,7 +480,7 @@ def _add_json_annotations_as_columns(
 
     # Prepare a list of dictionaries, one for each row in the DataFrame
     annotations_for_df = []
-    for index, row in df.iterrows():
+    for _index, row in df.iterrows():
         variant_genes = _extract_genes_from_row(row)
         row_annotations = {}
         # Find the first gene in the list that has an entry in our JSON data
@@ -507,7 +507,7 @@ def _add_json_annotations_as_columns(
     return df
 
 
-def annotate_dataframe_with_features(df: pd.DataFrame, features: Dict[str, Any]) -> pd.DataFrame:
+def annotate_dataframe_with_features(df: pd.DataFrame, features: dict[str, Any]) -> pd.DataFrame:
     """
     Add Custom_Annotation column to DataFrame with unified annotation data.
 
@@ -548,7 +548,7 @@ def annotate_dataframe_with_features(df: pd.DataFrame, features: Dict[str, Any])
         if not features.get("json_genes_as_columns"):
             annotations.extend(_find_json_gene_matches(variant_genes, features["json_gene_data"]))
 
-        return ";".join(sorted(list(set(annotations)))) if annotations else ""
+        return ";".join(sorted(set(annotations))) if annotations else ""
 
     df["Custom_Annotation"] = df.apply(annotate_variant, axis=1)
 
@@ -561,7 +561,7 @@ def annotate_dataframe_with_features(df: pd.DataFrame, features: Dict[str, Any])
     return df
 
 
-def get_annotation_summary(df: pd.DataFrame) -> Dict[str, Any]:
+def get_annotation_summary(df: pd.DataFrame) -> dict[str, Any]:
     """
     Generate a summary of annotation results.
 
@@ -582,7 +582,7 @@ def get_annotation_summary(df: pd.DataFrame) -> Dict[str, Any]:
     annotated_variants = (df["Custom_Annotation"] != "").sum()
 
     # Count annotation types
-    annotation_types = {}
+    annotation_types: dict[str, int] = {}
     for annotations in df["Custom_Annotation"]:
         if annotations:
             for annotation in annotations.split(";"):
@@ -598,7 +598,7 @@ def get_annotation_summary(df: pd.DataFrame) -> Dict[str, Any]:
     }
 
 
-def validate_annotation_config(cfg: Dict[str, Any]) -> List[str]:
+def validate_annotation_config(cfg: dict[str, Any]) -> list[str]:
     """
     Validate annotation configuration and return any errors.
 

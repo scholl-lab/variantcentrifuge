@@ -14,7 +14,7 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 from openpyxl import load_workbook
@@ -23,7 +23,7 @@ from openpyxl.utils import get_column_letter
 logger = logging.getLogger("variantcentrifuge")
 
 
-def convert_to_excel(tsv_file: str, cfg: Dict[str, Any]) -> str:
+def convert_to_excel(tsv_file: str, cfg: dict[str, Any]) -> str:
     """
     Convert a TSV file to XLSX format with a single "Results" sheet.
 
@@ -96,7 +96,7 @@ def append_tsv_as_sheet(xlsx_file: str, tsv_file: str, sheet_name: str = "Metada
         df.to_excel(writer, index=False, sheet_name=sheet_name)
 
 
-def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
+def finalize_excel_file(xlsx_file: str, cfg: dict[str, Any]) -> None:
     """
     Apply final formatting to all sheets in xlsx_file.
 
@@ -124,7 +124,7 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
     # Check for IGV reports map
     igv_enabled = cfg.get("igv_enabled", False)
     igv_map = None
-    igv_lookup = {}
+    igv_lookup: dict[tuple[Any, ...], str] = {}
 
     if igv_enabled:
         # Log that we're looking for the IGV mapping file
@@ -142,7 +142,7 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
             logger.info(f"Found IGV reports mapping file: {igv_map_path}")
             try:
                 # Load IGV reports mapping
-                with open(igv_map_path, "r", encoding="utf-8") as f:
+                with open(igv_map_path, encoding="utf-8") as f:
                     igv_map_data = json.load(f)
 
                 # Handle both old and new IGV map format
@@ -254,7 +254,7 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
             igv_header_cell.value = "IGV Report Links"
 
         # Process data rows for both regular links and IGV links
-        for row_idx, row in enumerate(ws.iter_rows(min_row=2), 2):  # Skip header
+        for row_idx, _row in enumerate(ws.iter_rows(min_row=2), 2):  # Skip header
             # Extract variant identifiers from the row
             if all(col in header_indices for col in ["CHROM", "POS", "REF", "ALT"]):
                 chrom = str(ws.cell(row=row_idx, column=header_indices["CHROM"]).value or "")
@@ -389,16 +389,11 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
         logger.info(f"Found IGV reports mapping file: {igv_map_path}")
         try:
             # Load IGV reports mapping
-            with open(igv_map_path, "r", encoding="utf-8") as f:
+            with open(igv_map_path, encoding="utf-8") as f:
                 igv_map_data = json.load(f)
 
             # Handle both old and new IGV map format
-            if "variants" in igv_map_data:
-                # New format - variant-centric with nested sample reports
-                igv_map = igv_map_data["variants"]
-            else:
-                # Old format - flat list of entries
-                igv_map = igv_map_data
+            igv_map = igv_map_data.get("variants", igv_map_data)
 
             # Create an efficient lookup dictionary
             # Key: (chrom, pos, ref, alt, sample_id), Value: report_path
@@ -460,7 +455,7 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
 
             logger.info("Enriched variants with IGV report links")
         except Exception as e:
-            logger.error(f"Failed to process IGV reports map: {str(e)}")
+            logger.error(f"Failed to process IGV reports map: {e!s}")
             # Continue with regular JSON generation without IGV links
 
     # MODIFIED: Start of empty report generation

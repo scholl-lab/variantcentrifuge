@@ -18,10 +18,8 @@ This will create a new column named "SpliceAI" with a URL where {CHROM}, {POS}, 
 are replaced by the corresponding values from each row.
 """
 
-from typing import Dict, List
 
-
-def add_links_to_table(lines: List[str], link_configs: Dict[str, str]) -> List[str]:
+def add_links_to_table(lines: list[str], link_configs: dict[str, str]) -> list[str]:
     """
     Add link columns to the table lines based on provided link configurations.
 

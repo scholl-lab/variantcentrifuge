@@ -91,7 +91,7 @@ def load_extraction_status():
     """Load extraction status from JSON file."""
     status_file = Path("extraction_status.json")
     if status_file.exists():
-        with open(status_file, "r") as f:
+        with open(status_file) as f:
             return json.load(f)
     return {}
 
@@ -122,7 +122,7 @@ def extract_regions_from_remote_bam(sample, bam_url, bed_file, output_bam, threa
 
     # Count regions for logging
     regions = []
-    with open(bed_file, "r") as f:
+    with open(bed_file) as f:
         for line in f:
             if line.strip() and not line.startswith("#"):
                 parts = line.strip().split("\t")

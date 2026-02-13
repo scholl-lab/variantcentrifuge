@@ -10,7 +10,7 @@ Performance improvements:
 """
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -66,8 +66,8 @@ def encode_genotypes(genotype_series: pd.Series) -> np.ndarray:
 
 
 def analyze_gene_for_compound_het_vectorized(
-    gene_df: pd.DataFrame, pedigree_data: Dict[str, Dict[str, Any]], sample_list: List[str]
-) -> Dict[str, Dict[str, Any]]:
+    gene_df: pd.DataFrame, pedigree_data: dict[str, dict[str, Any]], sample_list: list[str]
+) -> dict[str, dict[str, Any]]:
     """
     Vectorized analysis of compound heterozygous patterns in a gene.
 
@@ -88,23 +88,29 @@ def analyze_gene_for_compound_het_vectorized(
     Dict[str, Dict[str, Any]]
         Dictionary mapping variant keys to compound het details
     """
-    comp_het_results = {}
+    comp_het_results: dict[str, dict[str, Any]] = {}
 
     # Skip if too few variants
     if len(gene_df) < 2:
         return comp_het_results
 
-    # Get gene name
-    gene_name = gene_df.iloc[0].get("GENE", "Unknown")
+    # Deduplicate by genomic position to prevent false positives from
+    # split-snpeff-lines creating multiple rows per variant (one per transcript)
+    gene_df_unique = gene_df.drop_duplicates(subset=["CHROM", "POS", "REF", "ALT"])
+    if len(gene_df_unique) < 2:
+        return comp_het_results
 
-    # Pre-encode all genotypes for all samples at once
+    # Get gene name
+    gene_name = gene_df_unique.iloc[0].get("GENE", "Unknown")
+
+    # Pre-encode all genotypes for all samples at once (using deduplicated DataFrame)
     genotype_matrix = {}
     for sample_id in sample_list:
-        if sample_id in gene_df.columns:
-            genotype_matrix[sample_id] = encode_genotypes(gene_df[sample_id])
+        if sample_id in gene_df_unique.columns:
+            genotype_matrix[sample_id] = encode_genotypes(gene_df_unique[sample_id])
         else:
             # Sample not in data, use missing values
-            genotype_matrix[sample_id] = np.full(len(gene_df), -1, dtype=np.int8)
+            genotype_matrix[sample_id] = np.full(len(gene_df_unique), -1, dtype=np.int8)
 
     # Analyze each sample
     for sample_id in sample_list:
@@ -133,7 +139,7 @@ def analyze_gene_for_compound_het_vectorized(
         has_father = father_id and father_id in sample_list
         has_mother = mother_id and mother_id in sample_list
 
-        partners_by_variant_idx = {}  # This will store the results
+        partners_by_variant_idx: dict[int, list[int]] = {}  # This will store the results
 
         if has_father and has_mother:
             # Case 1: Both parents present
@@ -169,7 +175,7 @@ def analyze_gene_for_compound_het_vectorized(
                 # Get partner indices
                 partner_positions = np.where(partner_mask)[0]
                 if len(partner_positions) > 0:
-                    partners_by_variant_idx[int(var_idx)] = het_indices[partner_positions].tolist()
+                    partners_by_variant_idx[int(var_idx)] = het_indices[partner_positions].tolist()  # type: ignore[assignment]
 
         else:
             # Case 3: No parental data
@@ -178,14 +184,16 @@ def analyze_gene_for_compound_het_vectorized(
                 for i, var_idx in enumerate(het_indices):
                     partners = np.delete(het_indices, i)
                     if len(partners) > 0:
-                        partners_by_variant_idx[int(var_idx)] = partners.tolist()
+                        partners_by_variant_idx[int(var_idx)] = partners.tolist()  # type: ignore[assignment]
 
         # Store results based on the new partner structure
-        for var_idx, partner_indices in partners_by_variant_idx.items():
-            var_key = create_variant_key_fast(gene_df, var_idx)
+        for result_var_idx, partner_indices in partners_by_variant_idx.items():
+            var_key = create_variant_key_fast(gene_df_unique, result_var_idx)
 
             # Create list of partner variant keys
-            partner_keys = [create_variant_key_fast(gene_df, pidx) for pidx in partner_indices]
+            partner_keys = [
+                create_variant_key_fast(gene_df_unique, pidx) for pidx in partner_indices
+            ]
 
             # Determine compound het type based on data availability
             if has_father and has_mother:
@@ -217,7 +225,7 @@ def analyze_gene_for_compound_het_vectorized(
 
 def find_potential_partners_vectorized(
     het_indices: np.ndarray, father_genotypes: np.ndarray, mother_genotypes: np.ndarray
-) -> Dict[int, List[int]]:
+) -> dict[int, list[int]]:
     """
     Find potential trans-configured partners for each heterozygous variant.
 
@@ -258,7 +266,7 @@ def find_potential_partners_vectorized(
 
     # For each variant, find its potential partners
     for i, var_idx in enumerate(het_indices):
-        potential_partners = []
+        potential_partners: list[int] = []
 
         # Determine this variant's origin
         if from_father_only[i]:
@@ -280,7 +288,7 @@ def find_potential_partners_vectorized(
 
         # Get the partner indices
         partner_positions = np.where(partner_mask)[0]
-        potential_partners = het_indices[partner_positions].tolist()
+        potential_partners = het_indices[partner_positions].tolist()  # type: ignore[assignment]
 
         if potential_partners:
             partners_by_variant[int(var_idx)] = potential_partners
@@ -341,8 +349,8 @@ def determine_compound_het_type_vectorized(
     mother_genotypes: np.ndarray,
     gene_df: pd.DataFrame,
     sample_id: str,
-    pedigree_data: Dict[str, Dict[str, Any]],
-) -> Tuple[str, str]:
+    pedigree_data: dict[str, dict[str, Any]],
+) -> tuple[str, str]:
     """
     Determine compound het type using pre-encoded genotypes.
 
@@ -408,10 +416,10 @@ def determine_compound_het_type_vectorized(
 # Compatibility wrapper to use vectorized version with existing code
 def analyze_gene_for_compound_het(
     gene_df: pd.DataFrame,
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
     use_vectorized: bool = True,
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """
     Use either vectorized or original implementation for compound het analysis.
 

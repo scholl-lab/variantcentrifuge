@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.integration
+
 from tests.mocks import create_test_context, create_test_phenotype_file, create_test_vcf
 from variantcentrifuge.pipeline_core import PipelineRunner
 from variantcentrifuge.stages import (

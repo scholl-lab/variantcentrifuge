@@ -17,6 +17,7 @@ from variantcentrifuge.vectorized_replacer import process_parallel_chunked_vecto
 
 
 @pytest.mark.performance
+@pytest.mark.slow
 class TestStreamingParallelPerformance:
     """Performance comparison tests."""
 
@@ -161,7 +162,7 @@ class TestStreamingParallelPerformance:
         # Calculate scaling efficiency
         base_time = times[0]  # Single thread time
         print("\nScaling efficiency:")
-        for i, (threads, time_taken) in enumerate(zip(thread_counts, times)):
+        for i, (threads, time_taken) in enumerate(zip(thread_counts, times, strict=False)):
             if i == 0:
                 efficiency = 100.0
             else:
@@ -243,6 +244,7 @@ class TestStreamingParallelPerformance:
 
 
 @pytest.mark.performance
+@pytest.mark.slow
 class TestMemoryEfficiency:
     """Test memory efficiency of the new implementation."""
 

@@ -11,14 +11,14 @@ from VCF records and save the result to the specified output file.
 import gzip
 import logging
 import os
-from typing import Any, Dict
+from typing import Any
 
 from .utils import normalize_vcf_headers, run_command
 
 logger = logging.getLogger("variantcentrifuge")
 
 
-def extract_fields(variant_file: str, fields: str, cfg: Dict[str, Any], output_file: str) -> str:
+def extract_fields(variant_file: str, fields: str, cfg: dict[str, Any], output_file: str) -> str:
     """
     Extract specified fields from variant records.
 
@@ -67,7 +67,8 @@ def extract_fields(variant_file: str, fields: str, cfg: Dict[str, Any], output_f
         "-e",
         "NA",  # Replace missing values with "NA"
         variant_file,
-    ] + field_list
+        *field_list,
+    ]
 
     logger.debug("Running SnpSift with command: %s", " ".join(cmd))
 
@@ -92,7 +93,7 @@ def extract_fields(variant_file: str, fields: str, cfg: Dict[str, Any], output_f
 
     open_func, mode = get_open_func()
 
-    with open(temp_output, "r", encoding="utf-8") as f:
+    with open(temp_output, encoding="utf-8") as f:
         lines = f.readlines()
 
     if not lines:

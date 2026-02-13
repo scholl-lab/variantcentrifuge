@@ -4,6 +4,7 @@ This module provides a robust checkpoint system that tracks pipeline execution s
 allowing resumption from the last successful step in case of interruption or failure.
 """
 
+import contextlib
 import gzip
 import hashlib
 import json
@@ -11,11 +12,12 @@ import logging
 import os
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -95,7 +97,7 @@ class FileInfo:
     path: str
     size: int
     mtime: float
-    checksum: Optional[str] = None  # Optional for performance
+    checksum: str | None = None  # Optional for performance
 
     @classmethod
     def from_file(cls, filepath: str, calculate_checksum: bool = False) -> "FileInfo":
@@ -117,16 +119,11 @@ class FileInfo:
         sha256 = hashlib.sha256()
 
         # Handle both gzipped and regular files
-        if filepath.endswith(".gz"):
-            open_func = gzip.open
-            mode = "rb"
-        else:
-            open_func = open
-            mode = "rb"
+        open_func: Callable[..., Any] = gzip.open if filepath.endswith(".gz") else open
 
-        with open_func(filepath, mode) as f:
+        with open_func(filepath, "rb") as f:
             while chunk := f.read(chunk_size):
-                sha256.update(chunk)
+                sha256.update(chunk)  # type: ignore[arg-type]
 
         return sha256.hexdigest()
 
@@ -157,22 +154,22 @@ class StepInfo:
 
     name: str
     status: str  # "pending", "running", "finalizing", "completed", "failed"
-    start_time: Optional[float] = None
-    end_time: Optional[float] = None
-    command_hash: Optional[str] = None
-    input_files: List[FileInfo] = field(default_factory=list)
-    output_files: List[FileInfo] = field(default_factory=list)
-    parameters: Dict[str, Any] = field(default_factory=dict)
-    error: Optional[str] = None
+    start_time: float | None = None
+    end_time: float | None = None
+    command_hash: str | None = None
+    input_files: list[FileInfo] = field(default_factory=list)
+    output_files: list[FileInfo] = field(default_factory=list)
+    parameters: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
 
     @property
-    def duration(self) -> Optional[float]:
+    def duration(self) -> float | None:
         """Calculate step duration in seconds."""
         if self.start_time and self.end_time:
             return self.end_time - self.start_time
         return None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         data = asdict(self)
         # Convert FileInfo objects to dicts
@@ -181,7 +178,7 @@ class StepInfo:
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "StepInfo":
+    def from_dict(cls, data: dict[str, Any]) -> "StepInfo":
         """Create StepInfo from dictionary."""
         # Convert file dicts back to FileInfo objects
         data["input_files"] = [FileInfo(**f) for f in data.get("input_files", [])]
@@ -210,7 +207,7 @@ class PipelineState:
         self.enable_checksum = enable_checksum
         self._state_lock = threading.Lock()  # Thread-safe state operations
 
-        self.state = {
+        self.state: dict[str, Any] = {
             "version": self.STATE_VERSION,
             "pipeline_version": None,  # Set by pipeline
             "start_time": None,
@@ -220,10 +217,10 @@ class PipelineState:
             "metadata": {},
         }
 
-        self.current_step: Optional[str] = None
+        self.current_step: str | None = None
         self._loaded_from_file = False
 
-    def initialize(self, configuration: Dict[str, Any], pipeline_version: str) -> None:
+    def initialize(self, configuration: dict[str, Any], pipeline_version: str) -> None:
         """Initialize a new pipeline run."""
         self.state["pipeline_version"] = pipeline_version
         self.state["start_time"] = time.time()
@@ -244,7 +241,7 @@ class PipelineState:
             return False
 
         try:
-            with open(self.state_file, "r") as f:
+            with open(self.state_file) as f:
                 loaded_state = json.load(f)
 
             # Validate version compatibility
@@ -293,14 +290,12 @@ class PipelineState:
             except Exception as e:
                 # Clean up temp file if it exists
                 if os.path.exists(temp_file):
-                    try:
+                    with contextlib.suppress(Exception):
                         os.remove(temp_file)
-                    except Exception:
-                        pass
                 logger.warning(f"Failed to save checkpoint state: {e}")
                 raise
 
-    def can_resume(self, configuration: Dict[str, Any], pipeline_version: str) -> bool:
+    def can_resume(self, configuration: dict[str, Any], pipeline_version: str) -> bool:
         """Check if pipeline can be resumed with given configuration.
 
         Parameters
@@ -347,7 +342,7 @@ class PipelineState:
 
         return True
 
-    def get_resume_point(self) -> Optional[str]:
+    def get_resume_point(self) -> str | None:
         """Get the name of the last successfully completed step.
 
         Returns
@@ -366,7 +361,7 @@ class PipelineState:
 
         # Return the most recently completed step
         completed_steps.sort(reverse=True)
-        return completed_steps[0][1]
+        return str(completed_steps[0][1])
 
     def should_skip_step(self, step_name: str) -> bool:
         """Check if a step should be skipped (already completed).
@@ -440,8 +435,8 @@ class PipelineState:
     def start_step(
         self,
         step_name: str,
-        command_hash: Optional[str] = None,
-        parameters: Optional[Dict[str, Any]] = None,
+        command_hash: str | None = None,
+        parameters: dict[str, Any] | None = None,
     ) -> None:
         """Mark a step as started."""
         with self._state_lock:
@@ -461,8 +456,8 @@ class PipelineState:
     def complete_step(
         self,
         step_name: str,
-        input_files: Optional[List[str]] = None,
-        output_files: Optional[List[str]] = None,
+        input_files: list[str] | None = None,
+        output_files: list[str] | None = None,
     ) -> None:
         """Mark a step as completed."""
         with self._state_lock:
@@ -616,7 +611,7 @@ class PipelineState:
 
         return "\n".join(lines)
 
-    def get_completed_stages(self) -> List[tuple]:
+    def get_completed_stages(self) -> list[tuple]:
         """Get all completed stages sorted by completion time.
 
         Returns
@@ -634,7 +629,7 @@ class PipelineState:
         completed_stages.sort(key=lambda x: x[1].end_time or 0)
         return completed_stages
 
-    def get_available_resume_points(self) -> List[str]:
+    def get_available_resume_points(self) -> list[str]:
         """Get stage names that can be used as resume points.
 
         Returns
@@ -645,7 +640,7 @@ class PipelineState:
         completed_stages = self.get_completed_stages()
         return [stage_name for stage_name, _ in completed_stages]
 
-    def validate_resume_from_stage(self, stage_name: str, available_stages: List[str]) -> tuple:
+    def validate_resume_from_stage(self, stage_name: str, available_stages: list[str]) -> tuple:
         """Validate that resuming from specific stage is possible.
 
         Parameters
@@ -684,7 +679,7 @@ class PipelineState:
             f"Cannot resume from an incomplete stage.",
         )
 
-    def get_stages_to_execute(self, resume_from: str, all_stages: List[str]) -> List[str]:
+    def get_stages_to_execute(self, resume_from: str, all_stages: list[str]) -> list[str]:
         """Get ordered list of stages to execute when resuming from specific stage.
 
         Parameters
@@ -710,7 +705,7 @@ class PipelineState:
         except ValueError:
             return []
 
-    def get_detailed_status(self) -> Dict[str, Any]:
+    def get_detailed_status(self) -> dict[str, Any]:
         """Get detailed status information for enhanced display.
 
         Returns
@@ -788,7 +783,7 @@ class PipelineState:
             ],
         }
 
-    def can_resume_from_stage(self, stage_name: str, available_stages: List[str]) -> bool:
+    def can_resume_from_stage(self, stage_name: str, available_stages: list[str]) -> bool:
         """Check if resuming from a specific stage is possible.
 
         Parameters
@@ -804,9 +799,9 @@ class PipelineState:
             True if resume is possible, False otherwise
         """
         is_valid, _ = self.validate_resume_from_stage(stage_name, available_stages)
-        return is_valid
+        return bool(is_valid)
 
-    def _hash_configuration(self, config: Dict[str, Any]) -> str:
+    def _hash_configuration(self, config: dict[str, Any]) -> str:
         """Create a hash of the configuration for change detection."""
         # Select relevant configuration keys that affect pipeline behavior
         relevant_keys = [
@@ -886,9 +881,9 @@ class PipelineState:
 
 def checkpoint(
     step_name: str,
-    input_files: Optional[Union[str, List[str]]] = None,
-    output_files: Optional[Union[str, List[str]]] = None,
-    parameters: Optional[Dict[str, Any]] = None,
+    input_files: str | list[str] | None = None,
+    output_files: str | list[str] | None = None,
+    parameters: dict[str, Any] | None = None,
 ):
     """Add checkpoint functionality to pipeline steps.
 
@@ -908,7 +903,7 @@ def checkpoint(
         @wraps(func)
         def wrapper(*args, **kwargs):
             # Get pipeline state from kwargs or create a dummy one
-            pipeline_state: Optional[PipelineState] = kwargs.pop("_pipeline_state", None)
+            pipeline_state: PipelineState | None = kwargs.pop("_pipeline_state", None)
 
             if pipeline_state is None:
                 # No checkpoint system active, run normally
@@ -927,14 +922,10 @@ def checkpoint(
                 return None
 
             # Prepare file lists
-            input_list = []
+            input_list: list[str] = []
             if input_files:
-                if callable(input_files):
-                    # Dynamic input files
-                    files = input_files(*args, **kwargs)
-                else:
-                    files = input_files
-                input_list = [files] if isinstance(files, str) else files
+                in_files = input_files(*args, **kwargs) if callable(input_files) else input_files
+                input_list = [in_files] if isinstance(in_files, str) else list(in_files)
 
             # Start the step
             command_hash = None
@@ -949,14 +940,14 @@ def checkpoint(
                 result = func(*args, **kwargs)
 
                 # Prepare output file list
-                output_list = []
+                output_list: list[str] = []
                 if output_files:
                     if callable(output_files):
                         # Dynamic output files
-                        files = output_files(*args, **kwargs, _result=result)
+                        out_files = output_files(*args, **kwargs, _result=result)
                     else:
-                        files = output_files
-                    output_list = [files] if isinstance(files, str) else files
+                        out_files = output_files
+                    output_list = [out_files] if isinstance(out_files, str) else list(out_files)
 
                 # Mark step as completed
                 pipeline_state.complete_step(step_name, input_list, output_list)
@@ -980,15 +971,16 @@ class CheckpointContext:
         self,
         pipeline_state: PipelineState,
         step_name: str,
-        command_hash: Optional[str] = None,
-        parameters: Optional[Dict[str, Any]] = None,
+        command_hash: str | None = None,
+        parameters: dict[str, Any] | None = None,
     ):
         self.pipeline_state = pipeline_state
         self.step_name = step_name
         self.command_hash = command_hash
         self.parameters = parameters
-        self.input_files = []
-        self.output_files = []
+        self.input_files: list[str] = []
+        self.output_files: list[str] = []
+        self.skip: bool = False
 
     def __enter__(self):
         """Enter the checkpoint context."""
