@@ -58,7 +58,7 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
   - No `observed=True` on any groupby: risk of 3500x slowdown with categoricals
   - `dtype=str` everywhere prevents numeric ops and PyArrow optimizations
   - Write-then-read temp files in analysis and output stages
-- Expected pipeline speedup: ~3-4x for large cohorts (GCKD 22 GB, 5125 samples)
+- Expected pipeline speedup: ~3-4x for large cohorts (22 GB multi-sample VCF, 5000+ samples)
 - Existing test infrastructure: 1035 tests, pytest markers (unit/integration/slow), ~3 min fast suite
 
 ## Constraints
