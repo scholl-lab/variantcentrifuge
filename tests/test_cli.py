@@ -960,9 +960,9 @@ class TestPerformanceConfigMapping:
         if args_missing_table.pseudonymize and not args_missing_table.pseudonymize_table:
             validation_error = "--pseudonymize-table is required when using --pseudonymize"
 
-        assert (
-            validation_error is not None
-        ), "Validation should fail when pseudonymize_table is missing"
+        assert validation_error is not None, (
+            "Validation should fail when pseudonymize_table is missing"
+        )
         assert "--pseudonymize-table is required" in validation_error
 
         # Test case 2: pseudonymize=True, pseudonymize_table=provided should pass validation
@@ -978,9 +978,9 @@ class TestPerformanceConfigMapping:
         if args_with_table.pseudonymize and not args_with_table.pseudonymize_table:
             validation_error = "--pseudonymize-table is required when using --pseudonymize"
 
-        assert (
-            validation_error is None
-        ), "Validation should pass when pseudonymize_table is provided"
+        assert validation_error is None, (
+            "Validation should pass when pseudonymize_table is provided"
+        )
 
         # Test case 3: pseudonymize=False, pseudonymize_table=provided should warn
         args_table_without_pseudonymize = SimpleNamespace(

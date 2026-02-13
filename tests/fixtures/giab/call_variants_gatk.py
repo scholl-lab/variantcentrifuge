@@ -155,7 +155,7 @@ def sort_bed_file(bed_file, output_dir):
 
     # Read BED file and sort entries
     bed_entries = []
-    with open(bed_file, "r") as f:
+    with open(bed_file) as f:
         for line in f:
             line = line.strip()
             if line and not line.startswith("#"):

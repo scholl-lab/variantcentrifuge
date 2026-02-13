@@ -15,7 +15,7 @@ from concurrent.futures import (
     ThreadPoolExecutor,
     as_completed,
 )
-from typing import Dict, List, Literal, Optional
+from typing import Literal
 
 from .context import PipelineContext
 from .stage import Stage
@@ -45,7 +45,7 @@ class PipelineRunner:
     def __init__(
         self,
         enable_checkpoints: bool = False,
-        max_workers: Optional[int] = None,
+        max_workers: int | None = None,
         executor_type: Literal["thread", "process"] = "thread",
         enable_stage_batching: bool = True,
     ):
@@ -66,11 +66,11 @@ class PipelineRunner:
         self.max_workers = max_workers or multiprocessing.cpu_count()
         self.executor_type = executor_type
         self.enable_stage_batching = enable_stage_batching
-        self._execution_times: Dict[str, float] = {}
-        self._stage_metrics: Dict[str, Dict[str, float]] = {}
-        self._subtask_times: Dict[str, Dict[str, float]] = {}
+        self._execution_times: dict[str, float] = {}
+        self._stage_metrics: dict[str, dict[str, float]] = {}
+        self._subtask_times: dict[str, dict[str, float]] = {}
 
-    def run(self, stages: List[Stage], context: PipelineContext) -> PipelineContext:
+    def run(self, stages: list[Stage], context: PipelineContext) -> PipelineContext:
         """Execute all stages in dependency order with parallelization.
 
         Parameters
@@ -168,8 +168,8 @@ class PipelineRunner:
         return context
 
     def _handle_selective_resume(
-        self, stages: List[Stage], context: PipelineContext
-    ) -> List[Stage]:
+        self, stages: list[Stage], context: PipelineContext
+    ) -> list[Stage]:
         """Handle restart from a specific stage.
 
         This method implements restart behavior: the specified stage and all
@@ -299,8 +299,8 @@ class PipelineRunner:
         return stages_to_execute
 
     def _get_stages_to_execute_from(
-        self, resume_from: str, stages: List[Stage], context: PipelineContext
-    ) -> List[Stage]:
+        self, resume_from: str, stages: list[Stage], context: PipelineContext
+    ) -> list[Stage]:
         """Get the filtered list of stages to execute when resuming from a specific stage.
 
         Parameters
@@ -343,9 +343,7 @@ class PipelineRunner:
         # Return stages from resume point onwards
         return all_stages_ordered[resume_index:]
 
-    def get_execution_plan(
-        self, stages: List[Stage], resume_from: Optional[str] = None
-    ) -> List[str]:
+    def get_execution_plan(self, stages: list[Stage], resume_from: str | None = None) -> list[str]:
         """Get the planned execution order, optionally starting from a specific stage.
 
         Parameters
@@ -374,7 +372,7 @@ class PipelineRunner:
 
         return all_stages
 
-    def validate_resume_point(self, stage_name: str, stages: List[Stage]) -> tuple:
+    def validate_resume_point(self, stage_name: str, stages: list[Stage]) -> tuple:
         """Validate that a resume point is valid and return any issues.
 
         Parameters
@@ -418,9 +416,9 @@ class PipelineRunner:
             return True, ""
 
         except Exception as e:
-            return False, f"Error validating resume point: {str(e)}"
+            return False, f"Error validating resume point: {e!s}"
 
-    def _create_execution_plan(self, stages: List[Stage]) -> List[List[Stage]]:
+    def _create_execution_plan(self, stages: list[Stage]) -> list[list[Stage]]:
         """Create execution plan with stages grouped by dependency levels.
 
         Stages at the same level can run in parallel.
@@ -521,7 +519,7 @@ class PipelineRunner:
         return execution_plan
 
     def _execute_level(
-        self, stages: List[Stage], context: PipelineContext, level: int
+        self, stages: list[Stage], context: PipelineContext, level: int
     ) -> PipelineContext:
         """Execute all stages at a given dependency level.
 
@@ -595,7 +593,7 @@ class PipelineRunner:
         return result
 
     def _execute_parallel_stages(
-        self, stages: List[Stage], context: PipelineContext
+        self, stages: list[Stage], context: PipelineContext
     ) -> PipelineContext:
         """Execute multiple stages in parallel.
 
@@ -629,7 +627,7 @@ class PipelineRunner:
 
         with executor_class(max_workers=effective_workers) as executor:
             # Submit all stages
-            future_to_stage: Dict[Future, Stage] = {}
+            future_to_stage: dict[Future, Stage] = {}
             for stage in stages:
                 # Each parallel stage gets a copy of context to avoid conflicts
                 # The context has thread-safe methods for updating shared state
@@ -647,8 +645,7 @@ class PipelineRunner:
                     updated_context = future.result()
                     updated_contexts.append(updated_context)
                     logger.debug(
-                        f"Parallel stage '{stage.name}' completed "
-                        f"({completed_count}/{len(stages)})"
+                        f"Parallel stage '{stage.name}' completed ({completed_count}/{len(stages)})"
                     )
                 except Exception as e:
                     logger.error(f"Parallel stage '{stage.name}' failed: {e}")
@@ -671,7 +668,7 @@ class PipelineRunner:
 
         return context
 
-    def _batch_lightweight_stages(self, stages: List[Stage]) -> List[Stage]:
+    def _batch_lightweight_stages(self, stages: list[Stage]) -> list[Stage]:
         """Batch lightweight stages together for more efficient execution.
 
         Parameters
@@ -756,7 +753,7 @@ class PipelineRunner:
         logger.info(f"{'Total stage time:':30s} {total_time:6.1f}s")
         logger.info("=" * 60)
 
-    def dry_run(self, stages: List[Stage]) -> List[List[str]]:
+    def dry_run(self, stages: list[Stage]) -> list[list[str]]:
         """Perform a dry run to show execution plan without running stages.
 
         Parameters

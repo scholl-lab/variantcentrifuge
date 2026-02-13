@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # File: variantcentrifuge/vcf_eff_one_per_line.py
 # Location: variantcentrifuge/variantcentrifuge/vcf_eff_one_per_line.py
@@ -164,7 +163,7 @@ def process_vcf_file(input_file: str, output_file: str = None) -> None:
     elif input_file.endswith(".gz"):
         in_handle = gzip.open(input_file, mode="rt", encoding="utf-8")
     else:
-        in_handle = open(input_file, "r", encoding="utf-8")
+        in_handle = open(input_file, encoding="utf-8")
 
     # Read from in_handle, write to out_handle
     try:

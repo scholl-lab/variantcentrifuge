@@ -7,7 +7,6 @@ import re
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, Tuple
 
 from .utils import generate_igv_safe_filename_base
 
@@ -15,8 +14,8 @@ logger = logging.getLogger("variantcentrifuge")
 
 
 def _generate_single_igv_report(
-    task_data: Tuple[str, str, str, str, str, str, str, str, str, int, str, str],
-) -> Tuple[bool, str, str, str, str, str, str]:
+    task_data: tuple[str, str, str, str, str, str, str, str, str, int, str, str],
+) -> tuple[bool, str, str, str, str, str, str]:
     """
     Generate a single IGV report for one variant/sample combination.
 
@@ -102,7 +101,7 @@ def _generate_single_igv_report(
         return False, sample_id, chrom, pos, ref_allele, alt_allele, sample_report_path
 
 
-def parse_bam_mapping(bam_mapping_file: str) -> Dict[str, str]:
+def parse_bam_mapping(bam_mapping_file: str) -> dict[str, str]:
     """
     Parse a BAM mapping file (TSV or CSV) that maps sample_id to BAM file paths.
 
@@ -117,7 +116,7 @@ def parse_bam_mapping(bam_mapping_file: str) -> Dict[str, str]:
         Dictionary mapping sample IDs to BAM file paths.
     """
     mapping = {}
-    with open(bam_mapping_file, "r", encoding="utf-8") as f:
+    with open(bam_mapping_file, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("#"):
@@ -225,7 +224,7 @@ def generate_igv_report(
     logger.debug(f"BAM mapping loaded: {len(bam_mapping)} entries.")
 
     # Identify columns
-    with open(variants_tsv, "r", encoding="utf-8") as f:
+    with open(variants_tsv, encoding="utf-8") as f:
         header_line = f.readline().strip()
     header = header_line.split("\t")
 
@@ -246,7 +245,7 @@ def generate_igv_report(
 
     # Count total variants that will be processed
     total_variants = 0
-    with open(variants_tsv, "r", encoding="utf-8") as f:
+    with open(variants_tsv, encoding="utf-8") as f:
         f.readline()  # skip header
         for line in f:
             line = line.strip()
@@ -277,7 +276,7 @@ def generate_igv_report(
     tasks = []
 
     # Collect all variant/sample combinations first
-    with open(variants_tsv, "r", encoding="utf-8") as f:
+    with open(variants_tsv, encoding="utf-8") as f:
         f.readline()  # skip header
         for line in f:
             line = line.strip()
@@ -377,9 +376,9 @@ def generate_igv_report(
                     with map_lock:
                         if variant_key in variant_index_map:
                             variant_idx = variant_index_map[variant_key]
-                            variant_report_map[variant_idx]["sample_reports"][
-                                sample_id
-                            ] = rel_report_path
+                            variant_report_map[variant_idx]["sample_reports"][sample_id] = (
+                                rel_report_path
+                            )
                         else:
                             # First time seeing this variant, create a new entry
                             new_variant = {

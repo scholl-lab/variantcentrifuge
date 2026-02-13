@@ -296,9 +296,9 @@ class TestGeneBurdenValidation:
                 if gene_col:
                     result_genes = set(df[gene_col].astype(str))
                     found_disease_genes = disease_genes & result_genes
-                    assert (
-                        len(found_disease_genes) > 0
-                    ), f"No disease genes found in results: {result_genes}"
+                    assert len(found_disease_genes) > 0, (
+                        f"No disease genes found in results: {result_genes}"
+                    )
                     print(f"Found disease genes: {found_disease_genes}")
 
 

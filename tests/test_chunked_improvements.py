@@ -126,12 +126,12 @@ class TestChunkedProcessingImprovements:
         }
 
         # Mock the parallel analyzer to verify it's called
-        with patch(
-            "variantcentrifuge.inheritance.parallel_analyzer.analyze_inheritance_parallel"
-        ) as mock_parallel, patch(
-            "variantcentrifuge.inheritance.analyzer.analyze_inheritance"
-        ) as mock_sequential:
-
+        with (
+            patch(
+                "variantcentrifuge.inheritance.parallel_analyzer.analyze_inheritance_parallel"
+            ) as mock_parallel,
+            patch("variantcentrifuge.inheritance.analyzer.analyze_inheritance") as mock_sequential,
+        ):
             # Make the parallel analyzer return the DataFrame with inheritance patterns
             mock_parallel.return_value = sample_dataframe.copy()
             mock_parallel.return_value["Inheritance_Pattern"] = "autosomal_dominant"
@@ -318,12 +318,12 @@ class TestChunkedProcessingImprovements:
         }
 
         # Mock the analyzers to verify which one is called
-        with patch(
-            "variantcentrifuge.inheritance.parallel_analyzer.analyze_inheritance_parallel"
-        ) as mock_parallel, patch(
-            "variantcentrifuge.inheritance.analyzer.analyze_inheritance"
-        ) as mock_sequential:
-
+        with (
+            patch(
+                "variantcentrifuge.inheritance.parallel_analyzer.analyze_inheritance_parallel"
+            ) as mock_parallel,
+            patch("variantcentrifuge.inheritance.analyzer.analyze_inheritance") as mock_sequential,
+        ):
             # Make the sequential analyzer return the DataFrame with inheritance patterns
             mock_sequential.return_value = sample_dataframe.copy()
             mock_sequential.return_value["Inheritance_Pattern"] = "autosomal_dominant"

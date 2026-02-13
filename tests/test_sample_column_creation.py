@@ -228,7 +228,7 @@ class TestVectorizedSampleColumnCreation:
             for s in range(num_samples):
                 genotypes = ["0/0", "0/1", "1/1", "./."]
                 gt = genotypes[v % len(genotypes)]  # Cycle through genotypes
-                sample_entries.append(f"Sample{s+1}({gt})")
+                sample_entries.append(f"Sample{s + 1}({gt})")
             gt_data.append(";".join(sample_entries))
 
         df = pd.DataFrame(

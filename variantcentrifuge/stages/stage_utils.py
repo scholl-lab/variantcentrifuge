@@ -6,15 +6,15 @@ between stages, allowing stages to declare optional dependencies that
 are only enforced when the dependent stages are actually in the pipeline.
 """
 
-from typing import TYPE_CHECKING, List, Set
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from variantcentrifuge.pipeline_core import Stage
 
 
 def filter_active_dependencies(
-    declared_dependencies: Set[str], active_stages: List["Stage"]
-) -> Set[str]:
+    declared_dependencies: set[str], active_stages: list["Stage"]
+) -> set[str]:
     """Filter dependencies to only include stages that are active in the pipeline.
 
     This allows stages to declare dependencies on optional stages without
@@ -37,8 +37,8 @@ def filter_active_dependencies(
 
 
 def get_conditional_dependencies(
-    required: Set[str], optional: Set[str], active_stages: List["Stage"]
-) -> Set[str]:
+    required: set[str], optional: set[str], active_stages: list["Stage"]
+) -> set[str]:
     """Get dependencies considering both required and optional dependencies.
 
     Parameters
@@ -76,16 +76,16 @@ class ConditionalDependencyMixin:
     """
 
     @property
-    def required_dependencies(self) -> Set[str]:
+    def required_dependencies(self) -> set[str]:
         """Dependencies that must always be present."""
         return set()
 
     @property
-    def optional_dependencies(self) -> Set[str]:
+    def optional_dependencies(self) -> set[str]:
         """Dependencies that are only used if present in pipeline."""
         return set()
 
-    def get_active_dependencies(self, active_stages: List["Stage"]) -> Set[str]:
+    def get_active_dependencies(self, active_stages: list["Stage"]) -> set[str]:
         """Get the actual dependencies based on active stages.
 
         Parameters

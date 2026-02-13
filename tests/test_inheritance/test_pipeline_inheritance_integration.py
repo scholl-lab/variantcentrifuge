@@ -84,7 +84,7 @@ FAM1\tMother\t0\t0\t2\t1"""
         """Test that inheritance analysis works with colon-separated GT format."""
         """Test the GT column splitting logic without full pipeline."""
         # This is a simplified test that focuses on the core logic
-        import pandas as pd  # noqa: F811
+        import pandas as pd
 
         from variantcentrifuge.inheritance.analyzer import analyze_inheritance
         from variantcentrifuge.ped_reader import read_pedigree
@@ -159,7 +159,7 @@ FAM1\tMother\t0\t0\t2\t1"""
 
     def test_gt_column_splitting_logic(self):
         """Test the GT column splitting logic in isolation."""
-        import pandas as pd  # noqa: F811
+        import pandas as pd
 
         # Create test DataFrame with colon-separated GT
         df = pd.DataFrame(

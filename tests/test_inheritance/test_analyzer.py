@@ -236,7 +236,7 @@ class TestInheritanceAnalyzer:
             export_inheritance_report(result_df, f.name)
 
             # Read back and verify
-            with open(f.name, "r") as rf:
+            with open(f.name) as rf:
                 report_data = json.load(rf)
 
             assert len(report_data) == 2

@@ -70,12 +70,10 @@ class TestParallelProcessingSubtasks:
         "._merge_tsv_outputs"
     )
     @patch(
-        "variantcentrifuge.stages.processing_stages.ParallelCompleteProcessingStage"
-        "._split_bed_file"
+        "variantcentrifuge.stages.processing_stages.ParallelCompleteProcessingStage._split_bed_file"
     )
     @patch(
-        "variantcentrifuge.stages.processing_stages.ParallelCompleteProcessingStage"
-        "._cleanup_chunks"
+        "variantcentrifuge.stages.processing_stages.ParallelCompleteProcessingStage._cleanup_chunks"
     )
     def test_subtask_timing_recorded(
         self, mock_cleanup, mock_split, mock_merge, mock_process, context

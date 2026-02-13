@@ -17,7 +17,6 @@ import shutil
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
 
 import pandas as pd
 import psutil
@@ -116,7 +115,7 @@ def estimate_compression_ratio(file_path: Path, sample_size_mb: float = 5.0) -> 
         return 15.0  # Conservative fallback
 
 
-def estimate_memory_requirements(file_path: Path, num_samples: int) -> Tuple[float, float]:
+def estimate_memory_requirements(file_path: Path, num_samples: int) -> tuple[float, float]:
     """
     Estimate memory requirements for processing a file.
 
@@ -306,7 +305,7 @@ class GeneBedCreationStage(Stage):
         return "Create BED file from gene names"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         return {"configuration_loading"}
 
@@ -386,7 +385,7 @@ class GeneBedCreationStage(Stage):
 
             return context
 
-    def get_output_files(self, context: PipelineContext) -> List[Path]:
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return the generated BED file."""
         if context.gene_bed_file:
             return [context.gene_bed_file]
@@ -407,7 +406,7 @@ class VariantExtractionStage(Stage):
         return "Extract variants from VCF by genomic regions"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         return {"gene_bed_creation"}
 
@@ -469,7 +468,7 @@ class VariantExtractionStage(Stage):
 
             return context
 
-    def get_output_files(self, context: PipelineContext) -> List[Path]:
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return the extracted VCF file."""
         if context.extracted_vcf:
             return [context.extracted_vcf]
@@ -490,7 +489,7 @@ class ParallelVariantExtractionStage(Stage):
         return "Extract variants in parallel using multiple genomic regions"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         return {"gene_bed_creation"}
 
@@ -559,7 +558,7 @@ class ParallelVariantExtractionStage(Stage):
 
         return context
 
-    def _split_bed_file(self, bed_file: Path, n_chunks: int) -> List[Path]:
+    def _split_bed_file(self, bed_file: Path, n_chunks: int) -> list[Path]:
         """Split BED file into roughly equal chunks."""
         chunk_dir = bed_file.parent / "chunks"
         chunk_dir.mkdir(exist_ok=True)
@@ -621,8 +620,8 @@ class ParallelVariantExtractionStage(Stage):
             return False
 
     def _process_chunks_parallel(
-        self, context: PipelineContext, bed_chunks: List[Path]
-    ) -> List[Path]:
+        self, context: PipelineContext, bed_chunks: list[Path]
+    ) -> list[Path]:
         """Process BED chunks in parallel with automatic substep detection."""
         vcf_file = context.config["vcf_file"]
         threads = context.config.get("threads", 1)
@@ -691,7 +690,7 @@ class ParallelVariantExtractionStage(Stage):
 
         return all_outputs
 
-    def _merge_chunk_outputs(self, context: PipelineContext, chunk_outputs: List[Path]) -> Path:
+    def _merge_chunk_outputs(self, context: PipelineContext, chunk_outputs: list[Path]) -> Path:
         """Merge VCF chunks into a single file."""
         output_vcf = context.workspace.get_intermediate_path(
             f"{context.workspace.base_name}.variants.vcf.gz"
@@ -719,7 +718,7 @@ class ParallelVariantExtractionStage(Stage):
         logger.info(f"Merged {len(chunk_outputs)} chunks into {output_vcf}")
         return output_vcf
 
-    def _cleanup_chunks(self, bed_chunks: List[Path], vcf_chunks: List[Path]) -> None:
+    def _cleanup_chunks(self, bed_chunks: list[Path], vcf_chunks: list[Path]) -> None:
         """Clean up temporary chunk files."""
         for chunk in bed_chunks + vcf_chunks:
             if chunk.exists():
@@ -751,7 +750,7 @@ class BCFToolsPrefilterStage(Stage):
         return "Apply bcftools filter expression"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         return {"variant_extraction", "parallel_variant_extraction"}
 
@@ -809,7 +808,7 @@ class MultiAllelicSplitStage(Stage):
         return "Split multi-allelic SNPeff annotations"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Must run after variant extraction but before field extraction
         return {"variant_extraction"}
@@ -860,13 +859,13 @@ class TranscriptFilterStage(Stage):
         return "Filter variants by transcript IDs"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Must run after multiallelic split to ensure proper annotation structure
         return {"multiallelic_split", "variant_extraction"}
 
     @property
-    def soft_dependencies(self) -> Set[str]:
+    def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Run after bcftools prefilter if present
         return {"bcftools_prefilter"}
@@ -894,7 +893,7 @@ class TranscriptFilterStage(Stage):
                 return context
 
             logger.debug(f"Reading transcript file: {transcript_file}")
-            with open(transcript_file, "r", encoding="utf-8") as tf:
+            with open(transcript_file, encoding="utf-8") as tf:
                 for line in tf:
                     tr = line.strip()
                     if tr:
@@ -959,14 +958,14 @@ class SnpSiftFilterStage(Stage):
         return "Apply SnpSift filter expressions"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Must run after configuration and at least one extraction stage
         # We check for variant extraction explicitly in _process
         return {"configuration_loading"}
 
     @property
-    def soft_dependencies(self) -> Set[str]:
+    def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Run after either extraction stage
         return {"variant_extraction", "parallel_variant_extraction"}
@@ -1027,14 +1026,14 @@ class FieldExtractionStage(Stage):
         return "Extract fields from VCF to TSV format"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Must have gene bed and config, and variant extraction
         deps = {"gene_bed_creation", "configuration_loading", "variant_extraction"}
         return deps
 
     @property
-    def soft_dependencies(self) -> Set[str]:
+    def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Prefer to run after filtering if it exists
         return {"snpsift_filtering", "transcript_filtering"}
@@ -1108,7 +1107,7 @@ class FieldExtractionStage(Stage):
 
         return context
 
-    def get_output_files(self, context: PipelineContext) -> List[Path]:
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return the extracted TSV file."""
         if context.extracted_tsv:
             return [context.extracted_tsv]
@@ -1129,7 +1128,7 @@ class GenotypeReplacementStage(Stage):
         return "Replace genotype values with sample IDs"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         return {"field_extraction", "sample_config_loading"}
 
@@ -1239,13 +1238,13 @@ class GenotypeReplacementStage(Stage):
 
         return context
 
-    def get_input_files(self, context: PipelineContext) -> List[Path]:
+    def get_input_files(self, context: PipelineContext) -> list[Path]:
         """Return input files for checkpoint tracking."""
         if context.data:
             return [context.data]
         return []
 
-    def get_output_files(self, context: PipelineContext) -> List[Path]:
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return output files for checkpoint tracking."""
         if hasattr(context, "genotype_replaced_tsv") and context.genotype_replaced_tsv:
             return [context.genotype_replaced_tsv]
@@ -1253,7 +1252,7 @@ class GenotypeReplacementStage(Stage):
 
     def _split_tsv_into_chunks(
         self, input_tsv: Path, chunk_size: int, context: PipelineContext
-    ) -> List[Path]:
+    ) -> list[Path]:
         """Split TSV file into chunks for parallel processing."""
         import gzip
 
@@ -1265,7 +1264,7 @@ class GenotypeReplacementStage(Stage):
         if str(input_tsv).endswith(".gz"):
             inp = gzip.open(input_tsv, "rt", encoding="utf-8")
         else:
-            inp = open(input_tsv, "r", encoding="utf-8")
+            inp = open(input_tsv, encoding="utf-8")
 
         try:
             # Read header
@@ -1319,7 +1318,7 @@ class GenotypeReplacementStage(Stage):
 
         return output_path
 
-    def _merge_genotype_chunks(self, chunk_paths: List[Path], output_path: Path) -> None:
+    def _merge_genotype_chunks(self, chunk_paths: list[Path], output_path: Path) -> None:
         """Merge processed genotype chunks into final output."""
         import gzip
 
@@ -1338,7 +1337,7 @@ class GenotypeReplacementStage(Stage):
                         shutil.copyfileobj(inp, out)
 
     def _process_genotype_replacement_chunked_vectorized(
-        self, context: PipelineContext, input_tsv: Path, samples: List[str]
+        self, context: PipelineContext, input_tsv: Path, samples: list[str]
     ) -> Path:
         """Memory-safe chunked vectorized genotype replacement for large files."""
         logger.info("Using chunked vectorized genotype replacement for memory safety")
@@ -1414,7 +1413,7 @@ class GenotypeReplacementStage(Stage):
             return self._process_genotype_replacement_sequential(context, input_tsv, samples)
 
     def _process_genotype_replacement_parallel_chunked_vectorized(
-        self, context: PipelineContext, input_tsv: Path, samples: List[str], threads: int
+        self, context: PipelineContext, input_tsv: Path, samples: list[str], threads: int
     ) -> Path:
         """Parallel chunked vectorized genotype replacement for optimal performance."""
         logger.info(
@@ -1498,7 +1497,7 @@ class GenotypeReplacementStage(Stage):
             )
 
     def _process_genotype_replacement_streaming_parallel(
-        self, context: PipelineContext, input_tsv: Path, samples: List[str], threads: int
+        self, context: PipelineContext, input_tsv: Path, samples: list[str], threads: int
     ) -> Path:
         """
         Enhanced streaming parallel genotype replacement with intelligent chunking.
@@ -1559,7 +1558,7 @@ class GenotypeReplacementStage(Stage):
             )
 
     def _process_genotype_replacement_sequential(
-        self, context: PipelineContext, input_tsv: Path, samples: List[str]
+        self, context: PipelineContext, input_tsv: Path, samples: list[str]
     ) -> Path:
         """Sequential genotype replacement (original method)."""
         output_tsv = context.workspace.get_intermediate_path(
@@ -1591,7 +1590,7 @@ class GenotypeReplacementStage(Stage):
         if str(input_tsv).endswith(".gz"):
             inp_handle = gzip.open(input_tsv, "rt", encoding="utf-8")
         else:
-            inp_handle = open(input_tsv, "r", encoding="utf-8")
+            inp_handle = open(input_tsv, encoding="utf-8")
 
         if str(output_tsv).endswith(".gz"):
             out_handle = gzip.open(
@@ -1614,7 +1613,7 @@ class GenotypeReplacementStage(Stage):
         return output_tsv
 
     def _process_genotype_replacement_parallel(
-        self, context: PipelineContext, input_tsv: Path, samples: List[str], threads: int
+        self, context: PipelineContext, input_tsv: Path, samples: list[str], threads: int
     ) -> Path:
         """Parallel genotype replacement using chunked processing."""
         logger.info(f"Using parallel genotype replacement with {threads} threads")
@@ -1685,7 +1684,7 @@ class GenotypeReplacementStage(Stage):
         return output_tsv
 
     def _process_genotype_replacement_vectorized(
-        self, context: PipelineContext, input_tsv: Path, samples: List[str]
+        self, context: PipelineContext, input_tsv: Path, samples: list[str]
     ) -> Path:
         """Vectorized genotype replacement using pandas operations."""
         logger.info("Using vectorized genotype replacement with pandas operations")
@@ -1756,13 +1755,13 @@ class PhenotypeIntegrationStage(Stage):
         return "Add phenotype data to variant table"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Only declare the hard requirement - field extraction must be complete
         return {"field_extraction"}
 
     @property
-    def soft_dependencies(self) -> Set[str]:
+    def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # These stages should run before if they exist in the pipeline
         return {"genotype_replacement", "phenotype_loading"}
@@ -1857,7 +1856,7 @@ class PhenotypeIntegrationStage(Stage):
         context.data = output_tsv
         return context
 
-    def get_input_files(self, context: PipelineContext) -> List[Path]:
+    def get_input_files(self, context: PipelineContext) -> list[Path]:
         """Return input files for checkpoint tracking."""
         if hasattr(context, "genotype_replaced_tsv") and context.genotype_replaced_tsv:
             return [context.genotype_replaced_tsv]
@@ -1865,7 +1864,7 @@ class PhenotypeIntegrationStage(Stage):
             return [context.extracted_tsv]
         return []
 
-    def get_output_files(self, context: PipelineContext) -> List[Path]:
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return output files for checkpoint tracking."""
         if hasattr(context, "phenotypes_added_tsv") and context.phenotypes_added_tsv:
             return [context.phenotypes_added_tsv]
@@ -1886,7 +1885,7 @@ class ExtraColumnRemovalStage(Stage):
         return "Remove specified columns from TSV"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         return {"phenotype_integration", "genotype_replacement", "field_extraction"}
 
@@ -1942,7 +1941,7 @@ class StreamingDataProcessingStage(Stage):
         return "Stream process large files in a single pass"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Can replace the separate genotype/phenotype/column stages
         return {"field_extraction"}
@@ -1998,9 +1997,9 @@ class StreamingDataProcessingStage(Stage):
         self,
         input_file: Path,
         output_file: Path,
-        samples: List[str],
-        phenotypes: Dict[str, str],
-        columns_to_remove: List[str],
+        samples: list[str],
+        phenotypes: dict[str, str],
+        columns_to_remove: list[str],
         missing_string: str,
     ) -> None:
         """Stream process file line by line."""
@@ -2025,8 +2024,8 @@ class StreamingDataProcessingStage(Stage):
                 if in_compressed:
                     in_fh = gzip.open(input_file, "rt")
                 else:
-                    in_fh = open(input_file, "r")
-            except (IOError, OSError) as e:
+                    in_fh = open(input_file)
+            except OSError as e:
                 raise FileFormatError(str(input_file), "readable TSV file", self.name) from e
 
             try:
@@ -2034,7 +2033,7 @@ class StreamingDataProcessingStage(Stage):
                     out_fh = gzip.open(output_file, "wt")
                 else:
                     out_fh = open(output_file, "w")
-            except (IOError, OSError) as e:
+            except OSError as e:
                 raise PermissionError(f"Cannot write to output file: {output_file}") from e
 
             # Process header
@@ -2149,7 +2148,7 @@ class ParallelCompleteProcessingStage(Stage):
         return "Process variants in parallel with complete pipeline per chunk"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         return {"gene_bed_creation", "configuration_loading"}
 
@@ -2309,7 +2308,7 @@ class ParallelCompleteProcessingStage(Stage):
 
         return context
 
-    def get_input_files(self, context: PipelineContext) -> List[Path]:
+    def get_input_files(self, context: PipelineContext) -> list[Path]:
         """Return input files for checkpoint tracking."""
         input_files = []
         if hasattr(context, "gene_bed_file") and context.gene_bed_file:
@@ -2318,13 +2317,13 @@ class ParallelCompleteProcessingStage(Stage):
             input_files.append(Path(context.vcf_file))
         return input_files
 
-    def get_output_files(self, context: PipelineContext) -> List[Path]:
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return output files for checkpoint tracking."""
         if hasattr(context, "extracted_tsv") and context.extracted_tsv:
             return [context.extracted_tsv]
         return []
 
-    def _split_bed_file(self, bed_file: Path, n_chunks: int) -> List[Path]:
+    def _split_bed_file(self, bed_file: Path, n_chunks: int) -> list[Path]:
         """Split BED file into roughly equal chunks."""
         chunk_dir = bed_file.parent / "chunks"
         chunk_dir.mkdir(exist_ok=True)
@@ -2339,8 +2338,8 @@ class ParallelCompleteProcessingStage(Stage):
         vcf_file: str,
         base_name: str,
         intermediate_dir: Path,
-        config: Dict,
-        subtask_times: Dict[str, float] = None,
+        config: dict,
+        subtask_times: dict[str, float] = None,
     ) -> Path:
         """Process a single BED chunk through complete pipeline."""
         import time
@@ -2420,8 +2419,8 @@ class ParallelCompleteProcessingStage(Stage):
         return chunk_tsv
 
     def _process_chunks_parallel(
-        self, context: PipelineContext, bed_chunks: List[Path]
-    ) -> List[Path]:
+        self, context: PipelineContext, bed_chunks: list[Path]
+    ) -> list[Path]:
         """Process BED chunks in parallel with complete pipeline and automatic substep detection."""
         vcf_file = context.config["vcf_file"]
         threads = context.config.get("threads", 1)
@@ -2552,7 +2551,7 @@ class ParallelCompleteProcessingStage(Stage):
                 field_extraction_times
             )
 
-    def _merge_tsv_outputs(self, context: PipelineContext, chunk_tsvs: List[Path]) -> Path:
+    def _merge_tsv_outputs(self, context: PipelineContext, chunk_tsvs: list[Path]) -> Path:
         """Merge TSV chunks into a single file with optimized compression handling."""
         output_tsv = context.workspace.get_intermediate_path(
             f"{context.workspace.base_name}.extracted.tsv"
@@ -2578,7 +2577,7 @@ class ParallelCompleteProcessingStage(Stage):
 
         return output_tsv
 
-    def _merge_gzipped_tsvs_optimized(self, chunk_tsvs: List[Path], output_tsv: Path) -> None:
+    def _merge_gzipped_tsvs_optimized(self, chunk_tsvs: list[Path], output_tsv: Path) -> None:
         """Optimized merging of gzipped TSV files using direct concatenation where possible."""
         # Sort chunks to ensure consistent order
         sorted_chunks = sorted(chunk_tsvs)
@@ -2591,7 +2590,7 @@ class ParallelCompleteProcessingStage(Stage):
             logger.info("Using traditional merging due to header differences")
             self._merge_tsvs_traditional(sorted_chunks, output_tsv)
 
-    def _can_use_fast_concatenation(self, chunk_tsvs: List[Path]) -> bool:
+    def _can_use_fast_concatenation(self, chunk_tsvs: list[Path]) -> bool:
         """Check if all chunks have identical headers for fast concatenation."""
         if len(chunk_tsvs) <= 1:
             return True
@@ -2614,7 +2613,7 @@ class ParallelCompleteProcessingStage(Stage):
             logger.debug(f"Error checking headers for fast concatenation: {e}")
             return False
 
-    def _fast_concatenate_gzipped_tsvs(self, chunk_tsvs: List[Path], output_tsv: Path) -> None:
+    def _fast_concatenate_gzipped_tsvs(self, chunk_tsvs: list[Path], output_tsv: Path) -> None:
         """Fast concatenation of gzipped TSVs using streaming compression."""
         import gzip
 
@@ -2635,7 +2634,7 @@ class ParallelCompleteProcessingStage(Stage):
                         next(in_fh, None)  # Skip header
                         shutil.copyfileobj(in_fh, out_fh)
 
-    def _merge_tsvs_traditional(self, chunk_tsvs: List[Path], output_tsv: Path) -> None:
+    def _merge_tsvs_traditional(self, chunk_tsvs: list[Path], output_tsv: Path) -> None:
         """Traditional TSV merging with compression handling."""
         import gzip
 
@@ -2655,7 +2654,7 @@ class ParallelCompleteProcessingStage(Stage):
                 if str(chunk_tsv).endswith(".gz"):
                     in_fh = gzip.open(chunk_tsv, "rt")
                 else:
-                    in_fh = open(chunk_tsv, "r")
+                    in_fh = open(chunk_tsv)
 
                 try:
                     if first_file:
@@ -2674,7 +2673,7 @@ class ParallelCompleteProcessingStage(Stage):
             out_fh.close()
 
     def _cleanup_chunks(
-        self, bed_chunks: List[Path], tsv_chunks: List[Path], context: PipelineContext
+        self, bed_chunks: list[Path], tsv_chunks: list[Path], context: PipelineContext
     ) -> None:
         """Clean up temporary chunk files."""
         if not context.config.get("keep_intermediates", False):
@@ -2703,7 +2702,7 @@ class DataSortingStage(Stage):
         return "Sort TSV data by gene column for efficient processing"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         return {"field_extraction"}
 
@@ -2880,7 +2879,7 @@ class DataSortingStage(Stage):
         logger.info("Successfully sorted TSV file by gene column")
         return output_file
 
-    def get_output_files(self, context: PipelineContext) -> List[Path]:
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return the sorted TSV file."""
         if context.extracted_tsv:
             return [context.extracted_tsv]

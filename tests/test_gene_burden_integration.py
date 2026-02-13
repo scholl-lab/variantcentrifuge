@@ -92,20 +92,20 @@ def test_gene_burden_sample_assignment(test_data_paths):
 
         # Validate sample counts are non-zero
         assert df["proband_count"].iloc[0] > 0, "Proband count is zero - case samples not assigned"
-        assert (
-            df["control_count"].iloc[0] > 0
-        ), "Control count is zero - control samples not assigned"
+        assert df["control_count"].iloc[0] > 0, (
+            "Control count is zero - control samples not assigned"
+        )
 
         # Validate reasonable sample counts (based on test data)
         expected_case_count = 40  # From test data
         expected_control_count = 60  # From test data
 
-        assert (
-            df["proband_count"].iloc[0] == expected_case_count
-        ), f"Expected {expected_case_count} cases, got {df['proband_count'].iloc[0]}"
-        assert (
-            df["control_count"].iloc[0] == expected_control_count
-        ), f"Expected {expected_control_count} controls, got {df['control_count'].iloc[0]}"
+        assert df["proband_count"].iloc[0] == expected_case_count, (
+            f"Expected {expected_case_count} cases, got {df['proband_count'].iloc[0]}"
+        )
+        assert df["control_count"].iloc[0] == expected_control_count, (
+            f"Expected {expected_control_count} controls, got {df['control_count'].iloc[0]}"
+        )
 
         # Validate no negative values in contingency tables
         for _, row in df.iterrows():
@@ -116,22 +116,22 @@ def test_gene_burden_sample_assignment(test_data_paths):
             c_alleles = row["control_allele_count"]
 
             # Check allele counts don't exceed theoretical maximum
-            assert (
-                p_alleles <= p_count * 2
-            ), f"Gene {gene}: proband alleles ({p_alleles}) > 2 * proband count ({p_count})"
-            assert (
-                c_alleles <= c_count * 2
-            ), f"Gene {gene}: control alleles ({c_alleles}) > 2 * control count ({c_count})"
+            assert p_alleles <= p_count * 2, (
+                f"Gene {gene}: proband alleles ({p_alleles}) > 2 * proband count ({p_count})"
+            )
+            assert c_alleles <= c_count * 2, (
+                f"Gene {gene}: control alleles ({c_alleles}) > 2 * control count ({c_count})"
+            )
 
             # Check reference allele counts would be non-negative
             p_ref_alleles = p_count * 2 - p_alleles
             c_ref_alleles = c_count * 2 - c_alleles
-            assert (
-                p_ref_alleles >= 0
-            ), f"Gene {gene}: negative proband reference alleles ({p_ref_alleles})"
-            assert (
-                c_ref_alleles >= 0
-            ), f"Gene {gene}: negative control reference alleles ({c_ref_alleles})"
+            assert p_ref_alleles >= 0, (
+                f"Gene {gene}: negative proband reference alleles ({p_ref_alleles})"
+            )
+            assert c_ref_alleles >= 0, (
+                f"Gene {gene}: negative control reference alleles ({c_ref_alleles})"
+            )
 
 
 @pytest.mark.integration
@@ -188,9 +188,9 @@ def test_gene_burden_determinism(test_data_paths):
 
     for i, df in enumerate(results[1:], 1):
         # Check same number of genes
-        assert len(base_df) == len(
-            df
-        ), f"Run 1 and run {i + 1} have different number of genes: {len(base_df)} vs {len(df)}"
+        assert len(base_df) == len(df), (
+            f"Run 1 and run {i + 1} have different number of genes: {len(base_df)} vs {len(df)}"
+        )
 
         # Check identical gene order
         pd.testing.assert_series_equal(
@@ -283,12 +283,12 @@ def test_assign_case_control_counts_unit():
         f"Row 0: Expected 1 control sample with variant, "
         f"got {result_df['control_variant_count'].iloc[0]}"
     )
-    assert (
-        result_df["proband_allele_count"].iloc[0] == 3
-    ), f"Row 0: Expected 3 case alleles, got {result_df['proband_allele_count'].iloc[0]}"
-    assert (
-        result_df["control_allele_count"].iloc[0] == 1
-    ), f"Row 0: Expected 1 control allele, got {result_df['control_allele_count'].iloc[0]}"
+    assert result_df["proband_allele_count"].iloc[0] == 3, (
+        f"Row 0: Expected 3 case alleles, got {result_df['proband_allele_count'].iloc[0]}"
+    )
+    assert result_df["control_allele_count"].iloc[0] == 1, (
+        f"Row 0: Expected 1 control allele, got {result_df['control_allele_count'].iloc[0]}"
+    )
 
 
 @pytest.mark.unit
@@ -328,20 +328,20 @@ def test_gene_burden_analysis_unit():
     gene2_row = result[result["GENE"] == "GENE2"].iloc[0]
 
     # GENE1: sum of variants = 3+1=4 case alleles, 1+0=1 control allele
-    assert (
-        gene1_row["proband_allele_count"] == 4
-    ), f"GENE1: Expected 4 case alleles, got {gene1_row['proband_allele_count']}"
-    assert (
-        gene1_row["control_allele_count"] == 1
-    ), f"GENE1: Expected 1 control allele, got {gene1_row['control_allele_count']}"
+    assert gene1_row["proband_allele_count"] == 4, (
+        f"GENE1: Expected 4 case alleles, got {gene1_row['proband_allele_count']}"
+    )
+    assert gene1_row["control_allele_count"] == 1, (
+        f"GENE1: Expected 1 control allele, got {gene1_row['control_allele_count']}"
+    )
 
     # GENE2: sum of variants = 4+3=7 case alleles, 2+1=3 control alleles
-    assert (
-        gene2_row["proband_allele_count"] == 7
-    ), f"GENE2: Expected 7 case alleles, got {gene2_row['proband_allele_count']}"
-    assert (
-        gene2_row["control_allele_count"] == 3
-    ), f"GENE2: Expected 3 control alleles, got {gene2_row['control_allele_count']}"
+    assert gene2_row["proband_allele_count"] == 7, (
+        f"GENE2: Expected 7 case alleles, got {gene2_row['proband_allele_count']}"
+    )
+    assert gene2_row["control_allele_count"] == 3, (
+        f"GENE2: Expected 3 control alleles, got {gene2_row['control_allele_count']}"
+    )
 
     # Validate no negative reference allele counts
     for _, row in result.iterrows():

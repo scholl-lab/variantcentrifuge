@@ -8,7 +8,7 @@ We welcome contributions to VariantCentrifuge! This document provides guidelines
 
 Before contributing, ensure you have:
 
-- Python 3.7+ installed
+- Python 3.10+ installed
 - Git configured with your GitHub account
 - External bioinformatics tools (bcftools, snpEff, SnpSift, bedtools) installed
 - Familiarity with the VariantCentrifuge codebase and documentation
@@ -29,7 +29,7 @@ Before contributing, ensure you have:
    ```bash
    mamba env create -f conda/environment.yml
    mamba activate annotation
-   pip install -e .
+   uv pip install -e ".[dev]"
    pre-commit install
    ```
 
@@ -80,12 +80,9 @@ Use the [feature request template](https://github.com/scholl-lab/variantcentrifu
 3. **Make your changes** following the coding standards
 4. **Add tests** for new functionality
 5. **Update documentation** as needed
-6. **Run the test suite:**
+6. **Run the test suite and quality checks:**
    ```bash
-   pytest
-   black .
-   isort .
-   flake8 .
+   make ci-check
    ```
 7. **Commit your changes** with clear messages
 8. **Push to your fork** and create a pull request
@@ -165,8 +162,8 @@ def filter_variants(vcf_file: str, filter_expr: str, output_file: str) -> str:
 
 - [ ] Code follows project style guidelines
 - [ ] Tests pass locally (`pytest`)
-- [ ] Code is properly formatted (`black .` and `isort .`)
-- [ ] Linting passes (`flake8 .`)
+- [ ] Code is properly formatted (`make format-check`)
+- [ ] Linting passes (`make lint`)
 - [ ] Documentation builds successfully
 - [ ] Commit messages are clear and descriptive
 - [ ] Changes are focused and atomic

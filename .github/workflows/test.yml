@@ -1,34 +1,131 @@
-name: Tests
+name: CI
+
 on:
   push:
-    branches: [main]
+    branches: [main, feat/*, fix/*]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+# Cancel in-progress runs for the same workflow + branch/PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint:
+    name: Lint with Ruff
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-          cache: pip
-      - run: pip install -e ".[dev]"
-      - run: black --check .
-      - run: isort --check .
-      - run: flake8 .
+          python-version: "3.10"
+
+      - name: Install Ruff
+        run: pipx install ruff
+
+      - name: Run Ruff linter
+        run: ruff check --output-format=github variantcentrifuge/ tests/
+
+      - name: Check code formatting with Ruff
+        run: ruff format --check --diff variantcentrifuge/ tests/
+
+  type-check:
+    name: Type Check with mypy
+    runs-on: ubuntu-latest
+    # Informational only during gradual adoption — remove continue-on-error once clean
+    continue-on-error: true
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Create mypy cache directory
+        run: mkdir -p .mypy_cache
+
+      - name: Cache mypy
+        uses: actions/cache@v4
+        with:
+          path: .mypy_cache
+          key: mypy-${{ runner.os }}-py3.10-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            mypy-${{ runner.os }}-py3.10-
+
+      - name: Run mypy type checker
+        run: python -m mypy variantcentrifuge/
 
   test:
+    name: Test on Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-      - run: pip install -e ".[dev]"
-      - run: pytest -m "not slow and not integration" --tb=short -q
+          cache: "pip"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Run tests with pytest
+        run: |
+          python -m pytest -m "not slow and not integration" tests/ \
+            --verbose \
+            --cov=variantcentrifuge \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --junitxml=junit/test-results-${{ matrix.python-version }}.xml \
+            --tb=short
+
+      - name: Upload pytest results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pytest-results-${{ matrix.python-version }}
+          path: junit/test-results-${{ matrix.python-version }}.xml
+          retention-days: 7
+
+  # Summary gate job for branch protection rules
+  ci-success:
+    name: CI Success
+    runs-on: ubuntu-latest
+    needs: [lint, type-check, test]
+    if: always()
+    steps:
+      - name: Check all jobs status
+        run: |
+          if [[ "${{ needs.lint.result }}" != "success" ]] || \
+             [[ "${{ needs.test.result }}" != "success" ]]; then
+            echo "One or more required jobs failed"
+            exit 1
+          fi
+          # type-check is informational during gradual adoption
+          if [[ "${{ needs.type-check.result }}" != "success" ]]; then
+            echo "Note: mypy type-check had issues (non-blocking during gradual adoption)"
+          fi
+          echo "All required jobs succeeded!"

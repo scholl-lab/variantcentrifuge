@@ -21,7 +21,8 @@ Maintains previous functionality, CLI interface, and output format.
 
 import io
 import logging
-from typing import Any, Dict, Iterator
+from collections.abc import Iterator
+from typing import Any, Dict
 
 import pandas as pd
 
@@ -38,7 +39,7 @@ from .inheritance.analyzer import analyze_inheritance
 logger = logging.getLogger("variantcentrifuge")
 
 
-def analyze_variants(lines: Iterator[str], cfg: Dict[str, Any]) -> Iterator[str]:
+def analyze_variants(lines: Iterator[str], cfg: dict[str, Any]) -> Iterator[str]:
     """
     Analyze variants and optionally perform gene burden analysis.
 

@@ -31,7 +31,6 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -47,8 +46,8 @@ class AnnotationTemplate:
     gene_biotype: str  # protein_coding, pseudogene, etc.
     transcript_biotype: str  # protein_coding, etc.
     ann_fields: str  # Full ANN field content
-    dbNSFP_fields: Dict[str, str]  # All dbNSFP prediction scores
-    other_fields: Dict[str, str]  # Other INFO fields
+    dbNSFP_fields: dict[str, str]  # All dbNSFP prediction scores
+    other_fields: dict[str, str]  # Other INFO fields
     consequence_rank: int  # Ranking of consequence severity
 
 
@@ -98,7 +97,7 @@ class AnnotationSampler:
         parsed_count = 0
 
         try:
-            with open(self.source_file, "r") as f:
+            with open(self.source_file) as f:
                 for line_num, line in enumerate(f, 1):
                     if line.startswith("#") or not line.strip():
                         continue
@@ -145,7 +144,7 @@ class AnnotationSampler:
         for effect, templates in self.templates.items():
             logger.debug(f"  {effect}: {len(templates)} templates")
 
-    def _extract_annotation_template(self, info_field: str) -> Optional[AnnotationTemplate]:
+    def _extract_annotation_template(self, info_field: str) -> AnnotationTemplate | None:
         """Extract annotation template from INFO field."""
         try:
             # Extract ANN field (handle both ANN= and mangled MMLEMLEANN= formats)
@@ -213,7 +212,7 @@ class AnnotationSampler:
             logger.debug(f"Error extracting annotation template: {e}")
             return None
 
-    def _extract_gene_from_ann(self, ann_field: str) -> Optional[str]:
+    def _extract_gene_from_ann(self, ann_field: str) -> str | None:
         """Extract gene name from ANN field."""
         try:
             parts = ann_field.split("|")
@@ -225,7 +224,7 @@ class AnnotationSampler:
 
     def sample_annotation(
         self, target_gene: str, effect_preference: str = None, impact_preference: str = None
-    ) -> Optional[AnnotationTemplate]:
+    ) -> AnnotationTemplate | None:
         """Sample an appropriate annotation template."""
         # Get candidates based on preferences
         candidates = []
@@ -272,11 +271,11 @@ class AnnotationSampler:
             parts[4] = target_gene  # Replace gene ID
         return "|".join(parts)
 
-    def get_effect_types(self) -> List[str]:
+    def get_effect_types(self) -> list[str]:
         """Get all available effect types."""
         return list(self.templates.keys())
 
-    def get_high_impact_effects(self) -> List[str]:
+    def get_high_impact_effects(self) -> list[str]:
         """Get high impact effect types."""
         return [
             effect
@@ -284,7 +283,7 @@ class AnnotationSampler:
             if templates and templates[0].impact == "HIGH"
         ]
 
-    def get_moderate_impact_effects(self) -> List[str]:
+    def get_moderate_impact_effects(self) -> list[str]:
         """Get moderate impact effect types."""
         return [
             effect
@@ -371,7 +370,7 @@ class EnhancedTestDataGenerator:
 
     def generate_realistic_variants_with_annotations(
         self,
-    ) -> List[Tuple[str, str, str, str, str, str]]:
+    ) -> list[tuple[str, str, str, str, str, str]]:
         """Generate variants with realistic annotations sampled from real data."""
         variants = []
 
@@ -474,7 +473,7 @@ class EnhancedTestDataGenerator:
         return variants
 
     def create_info_field(
-        self, annotation: AnnotationTemplate, gene: str, genotypes: List[str]
+        self, annotation: AnnotationTemplate, gene: str, genotypes: list[str]
     ) -> str:
         """Create realistic INFO field from annotation template."""
         info_parts = []
@@ -628,7 +627,7 @@ class EnhancedTestDataGenerator:
         else:  # 1/1
             return f"{genotype}:45:0,45:99"
 
-    def create_enhanced_vcf_file(self, output_path: Path) -> Dict[str, int]:
+    def create_enhanced_vcf_file(self, output_path: Path) -> dict[str, int]:
         """Create VCF with realistic annotations from sampled data."""
         logger.info(f"Creating enhanced VCF with real annotations: {output_path}")
 
@@ -709,11 +708,10 @@ class EnhancedTestDataGenerator:
             for field in sorted(all_field_names):
                 if field.startswith("dbNSFP_") and ("AC" in field or "AN" in field):
                     field_type = "Integer"
-                elif field.startswith("dbNSFP_") and (
-                    "AF" in field or "score" in field or "rankscore" in field
-                ):
-                    field_type = "Float"
-                elif field.startswith("splice_") and "score" in field:
+                elif (
+                    field.startswith("dbNSFP_")
+                    and ("AF" in field or "score" in field or "rankscore" in field)
+                ) or (field.startswith("splice_") and "score" in field):
                     field_type = "Float"
                 elif field in expected_fields:
                     field_type = expected_fields[field]
@@ -1067,7 +1065,7 @@ class EnhancedTestDataGenerator:
         (output_dir / "disease_genes.txt").write_text("\n".join(sorted(self.DISEASE_GENES)) + "\n")
         (output_dir / "control_genes.txt").write_text("\n".join(sorted(self.CONTROL_GENES)) + "\n")
 
-    def write_enhanced_statistics(self, output_dir: Path, vcf_stats: Dict[str, int]) -> None:
+    def write_enhanced_statistics(self, output_dir: Path, vcf_stats: dict[str, int]) -> None:
         """Write comprehensive statistics about the enhanced dataset."""
         logger.info("Writing enhanced dataset statistics")
 

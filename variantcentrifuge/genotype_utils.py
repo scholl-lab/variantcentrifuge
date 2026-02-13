@@ -5,10 +5,8 @@ This module provides functions to parse and analyze genotype strings
 commonly found in VCF files.
 """
 
-from typing import List, Optional, Tuple
 
-
-def parse_genotype(gt: str) -> Tuple[Optional[int], Optional[int]]:
+def parse_genotype(gt: str) -> tuple[int | None, int | None]:
     """
     Parse a genotype string into allele indices.
 
@@ -91,9 +89,7 @@ def get_allele_count(gt: str) -> int:
     int
         Number of alternate alleles (0, 1, or 2)
     """
-    if is_missing(gt):
-        return 0
-    elif is_ref(gt):
+    if is_missing(gt) or is_ref(gt):
         return 0
     elif is_het(gt):
         return 1
@@ -208,7 +204,7 @@ def could_be_de_novo(child_gt: str, father_gt: str, mother_gt: str) -> bool:
     return True
 
 
-def merge_genotypes(genotypes: List[str]) -> str:
+def merge_genotypes(genotypes: list[str]) -> str:
     """
     Merge multiple genotypes into a consensus genotype.
 

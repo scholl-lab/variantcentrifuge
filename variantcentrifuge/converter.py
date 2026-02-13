@@ -23,7 +23,7 @@ from openpyxl.utils import get_column_letter
 logger = logging.getLogger("variantcentrifuge")
 
 
-def convert_to_excel(tsv_file: str, cfg: Dict[str, Any]) -> str:
+def convert_to_excel(tsv_file: str, cfg: dict[str, Any]) -> str:
     """
     Convert a TSV file to XLSX format with a single "Results" sheet.
 
@@ -96,7 +96,7 @@ def append_tsv_as_sheet(xlsx_file: str, tsv_file: str, sheet_name: str = "Metada
         df.to_excel(writer, index=False, sheet_name=sheet_name)
 
 
-def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
+def finalize_excel_file(xlsx_file: str, cfg: dict[str, Any]) -> None:
     """
     Apply final formatting to all sheets in xlsx_file.
 
@@ -142,7 +142,7 @@ def finalize_excel_file(xlsx_file: str, cfg: Dict[str, Any]) -> None:
             logger.info(f"Found IGV reports mapping file: {igv_map_path}")
             try:
                 # Load IGV reports mapping
-                with open(igv_map_path, "r", encoding="utf-8") as f:
+                with open(igv_map_path, encoding="utf-8") as f:
                     igv_map_data = json.load(f)
 
                 # Handle both old and new IGV map format
@@ -389,7 +389,7 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
         logger.info(f"Found IGV reports mapping file: {igv_map_path}")
         try:
             # Load IGV reports mapping
-            with open(igv_map_path, "r", encoding="utf-8") as f:
+            with open(igv_map_path, encoding="utf-8") as f:
                 igv_map_data = json.load(f)
 
             # Handle both old and new IGV map format
@@ -460,7 +460,7 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
 
             logger.info("Enriched variants with IGV report links")
         except Exception as e:
-            logger.error(f"Failed to process IGV reports map: {str(e)}")
+            logger.error(f"Failed to process IGV reports map: {e!s}")
             # Continue with regular JSON generation without IGV links
 
     # MODIFIED: Start of empty report generation

@@ -162,7 +162,7 @@ class TestStreamingParallelPerformance:
         # Calculate scaling efficiency
         base_time = times[0]  # Single thread time
         print("\nScaling efficiency:")
-        for i, (threads, time_taken) in enumerate(zip(thread_counts, times)):
+        for i, (threads, time_taken) in enumerate(zip(thread_counts, times, strict=False)):
             if i == 0:
                 efficiency = 100.0
             else:

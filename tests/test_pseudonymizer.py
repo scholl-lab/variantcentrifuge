@@ -312,7 +312,7 @@ class TestSamplePseudonymizer:
             assert os.path.exists(meta_path)
 
             # Verify metadata content
-            with open(meta_path, "r") as f:
+            with open(meta_path) as f:
                 metadata = json.load(f)
             assert metadata["schema"] == "SequentialSchema"
             assert metadata["deterministic"] is True
@@ -627,9 +627,9 @@ class TestPseudonymizeTableParameter:
         stage._process(mock_context)
 
         # Verify the mapping file was created at the user-specified path
-        assert (
-            user_mapping_path.exists()
-        ), f"Mapping file not created at user-specified path: {user_mapping_path}"
+        assert user_mapping_path.exists(), (
+            f"Mapping file not created at user-specified path: {user_mapping_path}"
+        )
 
         # Verify the file contains the expected content
         content = user_mapping_path.read_text()
@@ -816,9 +816,9 @@ class TestPseudonymizeTableParameter:
         else:
             validation_would_fail = False
 
-        assert (
-            validation_would_fail
-        ), "CLI validation should require --pseudonymize-table when using --pseudonymize"
+        assert validation_would_fail, (
+            "CLI validation should require --pseudonymize-table when using --pseudonymize"
+        )
 
     def test_pseudonymize_table_parameter_config_mapping(self):
         """Test that --pseudonymize-table parameter is properly mapped to config."""

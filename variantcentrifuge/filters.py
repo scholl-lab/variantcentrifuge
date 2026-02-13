@@ -29,7 +29,7 @@ TSV-based filtering:
 import logging
 import os
 import tempfile
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 import pandas as pd
 
@@ -39,7 +39,7 @@ logger = logging.getLogger("variantcentrifuge")
 
 
 def apply_bcftools_prefilter(
-    input_vcf: str, output_vcf: str, filter_expression: str, cfg: Dict[str, Any]
+    input_vcf: str, output_vcf: str, filter_expression: str, cfg: dict[str, Any]
 ) -> str:
     """
     Apply a bcftools filter expression to a VCF file.
@@ -100,7 +100,7 @@ def apply_bcftools_prefilter(
     return output_vcf
 
 
-def extract_variants(vcf_file: str, bed_file: str, cfg: Dict[str, Any], output_file: str) -> str:
+def extract_variants(vcf_file: str, bed_file: str, cfg: dict[str, Any], output_file: str) -> str:
     """
     Extract variants from a VCF using bcftools and a BED file.
 
@@ -166,7 +166,7 @@ def extract_variants(vcf_file: str, bed_file: str, cfg: Dict[str, Any], output_f
 
 
 def apply_snpsift_filter(
-    variant_file: str, filter_string: str, cfg: Dict[str, Any], output_file: str
+    variant_file: str, filter_string: str, cfg: dict[str, Any], output_file: str
 ) -> str:
     """
     Apply a SnpSift filter to a variant file, then compress and index the output.
@@ -230,8 +230,8 @@ def apply_snpsift_filter(
 def filter_final_tsv_by_genotype(
     input_tsv: str,
     output_tsv: str,
-    global_genotypes: Optional[Set[str]] = None,
-    gene_genotype_file: Optional[str] = None,
+    global_genotypes: set[str] | None = None,
+    gene_genotype_file: str | None = None,
     gene_column_name: str = "GENE",
     gt_column_name: str = "GT",
 ) -> None:
@@ -308,7 +308,7 @@ def filter_final_tsv_by_genotype(
 
     # Show the first few lines of the input_tsv (if available)
     try:
-        with open(input_tsv, "r", encoding="utf-8") as inp_debug:
+        with open(input_tsv, encoding="utf-8") as inp_debug:
             logger.debug("First lines from input_tsv:")
             for i in range(3):
                 line = inp_debug.readline()
@@ -320,10 +320,10 @@ def filter_final_tsv_by_genotype(
         raise
 
     # Read the gene -> genotype(s) mapping if provided
-    gene_to_genotypes: Dict[str, Set[str]] = {}
+    gene_to_genotypes: dict[str, set[str]] = {}
     if gene_genotype_file and os.path.exists(gene_genotype_file):
         logger.debug("Attempting to read gene -> genotype rules from: %s", gene_genotype_file)
-        with open(gene_genotype_file, "r", encoding="utf-8") as gfile:
+        with open(gene_genotype_file, encoding="utf-8") as gfile:
             all_lines = gfile.readlines()
 
         logger.debug("First lines from gene_genotype_file:")
@@ -427,12 +427,12 @@ def filter_final_tsv_by_genotype(
             lines_by_gene[gene_val].append((line, sample_genotypes))
 
     # Identify which genes require 'comp_het'
-    def gene_filters(g: str) -> Set[str]:
+    def gene_filters(g: str) -> set[str]:
         if g in gene_to_genotypes:
             return gene_to_genotypes[g]
         return global_genotypes
 
-    comp_het_qualified: Dict[str, Set[str]] = {}
+    comp_het_qualified: dict[str, set[str]] = {}
     all_genes = set(lines_by_gene.keys())
     relevant_for_comp_het = {g for g in all_genes if "comp_het" in gene_filters(g)}
 
@@ -455,7 +455,7 @@ def filter_final_tsv_by_genotype(
         logger.debug("Gene '%s' => comp_het_qualified samples: %s", g, qualified_samples)
 
     # We'll build our filtered lines
-    filtered_lines: List[str] = [header]  # keep original header as is
+    filtered_lines: list[str] = [header]  # keep original header as is
 
     # Now go through each gene's lines
     for g, items in lines_by_gene.items():

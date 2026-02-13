@@ -255,7 +255,7 @@ class TestParallelInheritanceAnalyzer:
         sample_list = ["proband", "mother", "father"]
 
         with patch(
-            "variantcentrifuge.inheritance.parallel_analyzer" ".analyze_gene_for_compound_het"
+            "variantcentrifuge.inheritance.parallel_analyzer.analyze_gene_for_compound_het"
         ) as mock_analyze:
             # Make the function raise an error
             mock_analyze.side_effect = Exception("Test error")

@@ -6,7 +6,6 @@ safety indicators, and other metadata useful for understanding pipeline structur
 """
 
 import logging
-from typing import Dict, List, Optional, Set
 
 from .checkpoint import PipelineState
 from .pipeline_core.stage import Stage
@@ -15,7 +14,7 @@ from .stages.stage_registry import StageInfo, get_registry
 logger = logging.getLogger(__name__)
 
 
-def display_stage_details(stage_name: str, pipeline_state: Optional[PipelineState] = None) -> None:
+def display_stage_details(stage_name: str, pipeline_state: PipelineState | None = None) -> None:
     """Display comprehensive information about a specific stage.
 
     Parameters
@@ -183,7 +182,7 @@ def _suggest_similar_stages(stage_name: str) -> None:
         print("\n💡 Use 'variantcentrifuge --list-stages' to see all available stages.")
 
 
-def display_dependency_tree(stage_name: str, all_stages: List[Stage], max_depth: int = 3) -> None:
+def display_dependency_tree(stage_name: str, all_stages: list[Stage], max_depth: int = 3) -> None:
     """Display dependency tree for a specific stage.
 
     Parameters
@@ -210,8 +209,8 @@ def display_dependency_tree(stage_name: str, all_stages: List[Stage], max_depth:
 
 def _display_dependencies_recursive(
     stage_name: str,
-    stage_map: Dict[str, Stage],
-    visited: Set[str],
+    stage_map: dict[str, Stage],
+    visited: set[str],
     depth: int,
     max_depth: int,
     prefix: str,
@@ -330,7 +329,7 @@ def display_stage_categories_detailed() -> None:
     print("\n" + "=" * 80)
 
 
-def analyze_stage_impact(stage_name: str, all_stages: List[Stage]) -> Dict[str, any]:
+def analyze_stage_impact(stage_name: str, all_stages: list[Stage]) -> dict[str, any]:
     """Analyze the impact of running or skipping a specific stage.
 
     Parameters
@@ -378,7 +377,7 @@ def analyze_stage_impact(stage_name: str, all_stages: List[Stage]) -> Dict[str, 
     }
 
 
-def display_stage_impact_analysis(stage_name: str, all_stages: List[Stage]) -> None:
+def display_stage_impact_analysis(stage_name: str, all_stages: list[Stage]) -> None:
     """Display comprehensive impact analysis for a stage."""
     analysis = analyze_stage_impact(stage_name, all_stages)
 
@@ -426,7 +425,7 @@ def display_stage_impact_analysis(stage_name: str, all_stages: List[Stage]) -> N
 
 
 def get_stage_safety_indicator(
-    stage_name: str, category: str, pipeline_state: Optional[PipelineState] = None
+    stage_name: str, category: str, pipeline_state: PipelineState | None = None
 ) -> str:
     """Get a safety indicator for resuming from a stage.
 
@@ -460,7 +459,7 @@ def get_stage_safety_indicator(
 
 
 def format_stage_summary(
-    stage_name: str, stage_info: StageInfo, pipeline_state: Optional[PipelineState] = None
+    stage_name: str, stage_info: StageInfo, pipeline_state: PipelineState | None = None
 ) -> str:
     """Format a one-line summary of a stage.
 

@@ -10,7 +10,6 @@ import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +111,7 @@ class Workspace:
         """
         return self.temp_dir / name
 
-    def get_timestamped_path(self, name: str, directory: Optional[Path] = None) -> Path:
+    def get_timestamped_path(self, name: str, directory: Path | None = None) -> Path:
         """Generate a timestamped file path.
 
         Parameters
@@ -218,7 +217,7 @@ class Workspace:
 
     def __repr__(self) -> str:
         """Return string representation of the workspace."""
-        return f"Workspace(output_dir='{self.output_dir}', " f"base_name='{self.base_name}')"
+        return f"Workspace(output_dir='{self.output_dir}', base_name='{self.base_name}')"
 
     def __enter__(self):
         """Context manager entry."""

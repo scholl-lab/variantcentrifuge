@@ -124,7 +124,7 @@ def check_scoring_requires_inheritance(args: argparse.Namespace, config: dict) -
     return False
 
 
-def build_pipeline_stages(args: argparse.Namespace) -> List:
+def build_pipeline_stages(args: argparse.Namespace) -> list:
     """Build the list of stages based on configuration.
 
     Parameters
@@ -319,7 +319,7 @@ def build_pipeline_stages(args: argparse.Namespace) -> List:
     return stages
 
 
-def create_stages_from_config(config: dict) -> List:
+def create_stages_from_config(config: dict) -> list:
     """Create pipeline stages from a configuration dictionary.
 
     This function is used by CLI handlers that need to create stages

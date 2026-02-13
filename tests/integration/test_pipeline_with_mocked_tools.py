@@ -224,13 +224,14 @@ class TestBasicPipelineFlow(MockedToolsTestCase):
                 yield line.strip()
 
         # Mock file operations
-        with patch(
-            "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
-        ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
-            "variantcentrifuge.stages.analysis_stages.analyze_variants",
-            side_effect=mock_analyze_variants,
+        with (
+            patch("variantcentrifuge.stages.processing_stages.Path.exists", return_value=True),
+            patch("variantcentrifuge.stages.processing_stages.Path.touch"),
+            patch(
+                "variantcentrifuge.stages.analysis_stages.analyze_variants",
+                side_effect=mock_analyze_variants,
+            ),
         ):
-
             # Run pipeline
             run_refactored_pipeline(args)
 
@@ -271,9 +272,7 @@ class TestErrorHandling(MockedToolsTestCase):
 
         # Create test VCF
         vcf_file = tmp_path / "test.vcf"
-        vcf_file.write_text(
-            "##fileformat=VCFv4.2\n" "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-        )
+        vcf_file.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
 
         args = Namespace(
             vcf_file=str(vcf_file),
@@ -370,9 +369,7 @@ class TestParallelProcessing(MockedToolsTestCase):
         """Test parallel extraction with multiple genes."""
         # Create test VCF
         vcf_file = tmp_path / "test.vcf"
-        vcf_file.write_text(
-            "##fileformat=VCFv4.2\n" "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-        )
+        vcf_file.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
 
         # Multiple genes for parallel processing
         gene_file = tmp_path / "genes.txt"
@@ -478,8 +475,7 @@ class TestParallelProcessing(MockedToolsTestCase):
                             f.write(content)
                     else:
                         Path(output_file).write_text(
-                            "##fileformat=VCFv4.2\n"
-                            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+                            "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
                         )
 
             # Call original if it exists
@@ -493,13 +489,14 @@ class TestParallelProcessing(MockedToolsTestCase):
 
         self.mock_bcftools.side_effect = bcftools_chunk_side_effect
 
-        with patch(
-            "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
-        ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
-            "variantcentrifuge.stages.analysis_stages.analyze_variants",
-            side_effect=mock_analyze_variants,
+        with (
+            patch("variantcentrifuge.stages.processing_stages.Path.exists", return_value=True),
+            patch("variantcentrifuge.stages.processing_stages.Path.touch"),
+            patch(
+                "variantcentrifuge.stages.analysis_stages.analyze_variants",
+                side_effect=mock_analyze_variants,
+            ),
         ):
-
             # Run pipeline
             run_refactored_pipeline(args)
 
@@ -625,13 +622,14 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
                 yield line.strip()
 
         # Set up other mocks
-        with patch(
-            "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
-        ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
-            "variantcentrifuge.helpers.get_vcf_samples", return_value=set()
-        ), patch(
-            "variantcentrifuge.stages.analysis_stages.analyze_variants",
-            side_effect=mock_analyze_variants,
+        with (
+            patch("variantcentrifuge.stages.processing_stages.Path.exists", return_value=True),
+            patch("variantcentrifuge.stages.processing_stages.Path.touch"),
+            patch("variantcentrifuge.helpers.get_vcf_samples", return_value=set()),
+            patch(
+                "variantcentrifuge.stages.analysis_stages.analyze_variants",
+                side_effect=mock_analyze_variants,
+            ),
         ):
             # Run pipeline
             run_refactored_pipeline(args)
@@ -748,13 +746,14 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
             for line in lines:
                 yield line.strip()
 
-        with patch(
-            "variantcentrifuge.stages.processing_stages.Path.exists", return_value=True
-        ), patch("variantcentrifuge.stages.processing_stages.Path.touch"), patch(
-            "variantcentrifuge.helpers.get_vcf_samples", return_value=set()
-        ), patch(
-            "variantcentrifuge.stages.analysis_stages.analyze_variants",
-            side_effect=mock_analyze_variants,
+        with (
+            patch("variantcentrifuge.stages.processing_stages.Path.exists", return_value=True),
+            patch("variantcentrifuge.stages.processing_stages.Path.touch"),
+            patch("variantcentrifuge.helpers.get_vcf_samples", return_value=set()),
+            patch(
+                "variantcentrifuge.stages.analysis_stages.analyze_variants",
+                side_effect=mock_analyze_variants,
+            ),
         ):
             # Run pipeline
             run_refactored_pipeline(args)

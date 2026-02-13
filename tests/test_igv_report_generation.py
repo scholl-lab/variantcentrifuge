@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 
 """Integration tests for IGV report generation in variantcentrifuge."""
 
@@ -93,7 +92,7 @@ def test_igv_report_generation_with_long_alleles(monkeypatch, create_test_data):
     assert os.path.exists(mapping_file)
 
     # Read the mapping file to verify structure
-    with open(mapping_file, "r", encoding="utf-8") as f:
+    with open(mapping_file, encoding="utf-8") as f:
         mapping = json.load(f)
 
     # Verify that the mapping contains the expected keys

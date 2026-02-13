@@ -1,9 +1,55 @@
-# File: pyproject.toml
-# Location: variantcentrifuge/pyproject.toml
-
 [build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "variantcentrifuge"
+dynamic = ["version"]
+description = "A tool to filter, extract, and analyze variants from VCF files."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    { name = "Bernt Popp", email = "bernt.popp.md@gmail.com" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+]
+dependencies = [
+    "pandas",
+    "jinja2",
+    "scipy",
+    "statsmodels",
+    "numpy",
+    "intervaltree",
+    "psutil",
+    "smart-open",
+    "openpyxl",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.10",
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-mock>=3.14",
+    "ruff>=0.11",
+    "pre-commit",
+]
+
+[project.scripts]
+variantcentrifuge = "variantcentrifuge.cli:main"
+
+[tool.hatch.version]
+path = "variantcentrifuge/version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["variantcentrifuge"]
+
+[tool.hatch.build.targets.sdist]
+include = ["variantcentrifuge/"]
 
 [tool.pytest.ini_options]
 # Test file patterns
@@ -33,22 +79,63 @@ markers = [
 # Enable when needed: pytest --log-cli-level=INFO
 log_cli = false
 
-[tool.black]
+[tool.ruff]
 line-length = 100
-target-version = ['py310']
-include = '\.pyi?$'
-exclude = '''
-/(
-    \.git
-    | \.hg
-    | \.mypy_cache
-    | \.tox
-    | \.venv
-    | _build
-    | buck-out
-    | build
-    | dist
-    | conda
-    | output
-    | temp_bed_files
-)/'''
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF"]
+# Migrated from .flake8 per-file-ignores
+per-file-ignores = { "__init__.py" = ["F401"], "cli.py" = ["E501"], "helpers.py" = ["F401", "F811", "E501"], "pipeline.py" = ["F401", "F811", "E501"], "converter.py" = ["F401", "F841"], "phenotype.py" = ["F401"], "generate_html_report.py" = ["F401"], "gene_burden.py" = ["F841"], "filters.py" = ["E501"], "generate_igv_report.py" = ["E501"], "links.py" = ["E501"], "replacer.py" = ["E501"], "stats.py" = ["E501"], "vcf_eff_one_per_line.py" = ["E501"], "analyze_variants.py" = ["F401"] }
+# E203: whitespace before ':' (conflicts with black-style formatting)
+# Rules below are disabled for gradual adoption — enable incrementally:
+# B007: unused loop variable, B904: raise from, B023: function binding loop var
+# SIM102/105/108/113/115/117/118: simplify suggestions
+# RUF005/012/013: ruff-specific (implicit Optional, mutable ClassVar, concat)
+# UP035: deprecated typing imports, C401: unnecessary generator, N806/802/815: naming
+# B017: assertRaises, B027: empty method, E741: ambiguous var name
+extend-ignore = [
+    "E203",
+    "E402",   # module-level import not at top (conditional imports)
+    "E741",   # ambiguous variable name
+    "A001",   # shadowing builtin
+    "B007", "B017", "B023", "B027", "B904",
+    "C401", "C414",
+    "N802", "N806", "N815",
+    "SIM102", "SIM103", "SIM105", "SIM108", "SIM113", "SIM115", "SIM117", "SIM118",
+    "UP022", "UP035",
+    "RUF001", "RUF003", "RUF005", "RUF012", "RUF013", "RUF022", "RUF034",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.isort]
+known-first-party = ["variantcentrifuge"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+# Gradual adoption: not strict, ignore missing imports and errors
+ignore_missing_imports = true
+check_untyped_defs = false
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[tool.coverage.run]
+source = ["variantcentrifuge"]
+omit = ["*/tests/*", "*/__pycache__/*", "*/.venv/*"]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]

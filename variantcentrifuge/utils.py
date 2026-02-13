@@ -16,12 +16,11 @@ import os
 import re
 import shutil
 import subprocess
-from typing import List, Optional, Union
 
 logger = logging.getLogger("variantcentrifuge")
 
 
-def check_external_tools(tools: List[str]) -> bool:
+def check_external_tools(tools: list[str]) -> bool:
     """
     Check if external tools are available in PATH.
 
@@ -74,7 +73,7 @@ def smart_open(filename: str, mode: str = "r", encoding: str = "utf-8"):
             return open(filename, mode)
 
 
-def run_command(cmd: list, output_file: Optional[str] = None) -> str:
+def run_command(cmd: list, output_file: str | None = None) -> str:
     """
     Run a shell command and write stdout to output_file if provided, else return stdout.
 
@@ -115,7 +114,7 @@ def run_command(cmd: list, output_file: Optional[str] = None) -> str:
             return result.stdout
 
 
-def normalize_vcf_headers(lines: List[str]) -> List[str]:
+def normalize_vcf_headers(lines: list[str]) -> list[str]:
     """
     Normalize header lines from tools like SnpEff and SnpSift.
 
@@ -268,7 +267,7 @@ def sanitize_metadata_field(value: str) -> str:
     return value.replace("\t", " ").replace("\n", " ").strip()
 
 
-def ensure_fields_in_extract(base_fields_str: str, extra_fields: List[str]) -> str:
+def ensure_fields_in_extract(base_fields_str: str, extra_fields: list[str]) -> str:
     """
     Ensure each item in extra_fields is present in the space-delimited base_fields_str.
 
@@ -294,7 +293,7 @@ def ensure_fields_in_extract(base_fields_str: str, extra_fields: List[str]) -> s
 def generate_igv_safe_filename_base(
     sample_id: str,
     chrom: str,
-    pos: Union[str, int],
+    pos: str | int,
     ref: str,
     alt: str,
     max_allele_len: int = 10,
@@ -401,7 +400,7 @@ def generate_igv_safe_filename_base(
 # MODIFIED: End of IGV filename shortening feature
 
 
-def split_bed_file(input_bed: str, num_chunks: int, output_dir: str) -> List[str]:
+def split_bed_file(input_bed: str, num_chunks: int, output_dir: str) -> list[str]:
     """
     Split a BED file into a specified number of chunks with roughly equal total base pairs.
 
@@ -421,7 +420,7 @@ def split_bed_file(input_bed: str, num_chunks: int, output_dir: str) -> List[str
     """
     regions = []
     total_bases = 0
-    with open(input_bed, "r", encoding="utf-8") as f:
+    with open(input_bed, encoding="utf-8") as f:
         for line in f:
             if line.startswith(("#", "track", "browser")):
                 continue

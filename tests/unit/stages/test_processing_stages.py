@@ -595,7 +595,6 @@ class TestPhenotypeIntegrationStage:
 
         # Mock file operations
         with patch("pandas.read_csv", return_value=df), patch.object(df, "to_csv") as mock_to_csv:
-
             stage = PhenotypeIntegrationStage()
             stage(context)
 

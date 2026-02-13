@@ -95,12 +95,10 @@ Sample2,/path/to/sample2.bam
         context.final_output_path = tsv_file
 
         # Mock the report generation functions
-        with patch(
-            "variantcentrifuge.stages.output_stages.produce_report_json"
-        ) as mock_json, patch(
-            "variantcentrifuge.stages.output_stages.generate_html_report"
-        ) as mock_html:
-
+        with (
+            patch("variantcentrifuge.stages.output_stages.produce_report_json") as mock_json,
+            patch("variantcentrifuge.stages.output_stages.generate_html_report") as mock_html,
+        ):
             # Mock produce_report_json to create the expected JSON files
             def create_json_files(*args, **kwargs):
                 report_dir = temp_output_dir / "report"
@@ -158,12 +156,11 @@ Sample2,/path/to/sample2.bam
         context.final_output_path = tsv_file
 
         # Mock both report generation functions
-        with patch("variantcentrifuge.stages.output_stages.generate_igv_report") as mock_igv, patch(
-            "variantcentrifuge.stages.output_stages.produce_report_json"
-        ) as mock_json, patch(
-            "variantcentrifuge.stages.output_stages.generate_html_report"
-        ) as mock_html:
-
+        with (
+            patch("variantcentrifuge.stages.output_stages.generate_igv_report") as mock_igv,
+            patch("variantcentrifuge.stages.output_stages.produce_report_json") as mock_json,
+            patch("variantcentrifuge.stages.output_stages.generate_html_report") as mock_html,
+        ):
             # Mock JSON creation for HTML report
             def create_json_files(*args, **kwargs):
                 report_dir = temp_output_dir / "report"

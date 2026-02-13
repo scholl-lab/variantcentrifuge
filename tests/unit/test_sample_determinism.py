@@ -45,9 +45,9 @@ class TestSampleDeterminism:
 
             # All results should be identical
             first_result = results[0]
-            assert all(
-                result == first_result for result in results
-            ), "get_vcf_samples should return identical results across multiple calls"
+            assert all(result == first_result for result in results), (
+                "get_vcf_samples should return identical results across multiple calls"
+            )
 
     def test_inheritance_stage_handles_set_with_warning(self):
         """Test that InheritanceAnalysisStage converts sets to sorted lists with warning."""
@@ -106,9 +106,9 @@ class TestSampleDeterminism:
             conversions.append(converted)
 
         # All conversions should be identical and sorted
-        assert all(
-            result == expected_sorted for result in conversions
-        ), "Set-to-list conversions should be deterministic and sorted"
+        assert all(result == expected_sorted for result in conversions), (
+            "Set-to-list conversions should be deterministic and sorted"
+        )
 
     @patch("variantcentrifuge.helpers.get_vcf_names")
     def test_sample_config_loading_stage_determinism(self, mock_get_names):
@@ -131,9 +131,9 @@ class TestSampleDeterminism:
 
         # All results should be identical
         first_result = results[0]
-        assert all(
-            result == first_result for result in results
-        ), "SampleConfigLoadingStage should produce deterministic sample lists"
+        assert all(result == first_result for result in results), (
+            "SampleConfigLoadingStage should produce deterministic sample lists"
+        )
         assert first_result == test_samples, "Should preserve original VCF header order"
 
 
@@ -199,16 +199,16 @@ class TestSampleAssignmentRegression:
                         with gzip.open(result.genotype_replaced_tsv, "rt") as rf:
                             content = rf.read()
                     else:
-                        with open(result.genotype_replaced_tsv, "r") as rf:
+                        with open(result.genotype_replaced_tsv) as rf:
                             content = rf.read()
                     results.append(content)
 
             # All results should be identical if sample order is deterministic
             if results:
                 first_result = results[0]
-                assert all(
-                    result == first_result for result in results
-                ), "Genotype replacement should produce identical results with same sample order"
+                assert all(result == first_result for result in results), (
+                    "Genotype replacement should produce identical results with same sample order"
+                )
 
         finally:
             # Cleanup
@@ -266,6 +266,6 @@ class TestSampleAssignmentRegression:
         # All results should be identical if sample order is deterministic
         if results:
             first_result = results[0]
-            assert all(
-                result == first_result for result in results
-            ), "Inheritance analysis should produce identical results with same sample order"
+            assert all(result == first_result for result in results), (
+                "Inheritance analysis should produce identical results with same sample order"
+            )

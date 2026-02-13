@@ -98,18 +98,18 @@ def test_scoring_integration_with_annotated_vcf(annotated_vcf, scoring_config_di
     df = pd.read_csv(output_file, sep="\t")
 
     # Check that the scoring column exists
-    assert (
-        "test_simple_score" in df.columns
-    ), "Scoring column 'test_simple_score' not found in output"
+    assert "test_simple_score" in df.columns, (
+        "Scoring column 'test_simple_score' not found in output"
+    )
 
     # Check that scores were calculated (not all NaN)
     assert not df["test_simple_score"].isna().all(), "All scores are NaN"
 
     # Check that scores are in expected range (0 to 1 for our simple model)
     valid_scores = df["test_simple_score"].dropna()
-    assert (valid_scores >= 0).all() and (
-        valid_scores <= 1
-    ).all(), "Scores outside expected range [0, 1]"
+    assert (valid_scores >= 0).all() and (valid_scores <= 1).all(), (
+        "Scores outside expected range [0, 1]"
+    )
 
     # Verify that the formula used the expected columns
     # After extraction, ANN[0].GENE becomes GENE, ANN[0].IMPACT becomes IMPACT, etc.
@@ -258,9 +258,9 @@ def test_scoring_with_different_filters(
 
     # Verify filtering worked and scoring was applied
     df = pd.read_csv(output_file, sep="\t")
-    assert (
-        len(df) >= expected_min_variants
-    ), f"Expected at least {expected_min_variants} variants, got {len(df)}"
+    assert len(df) >= expected_min_variants, (
+        f"Expected at least {expected_min_variants} variants, got {len(df)}"
+    )
     assert "test_simple_score" in df.columns, "Scoring column not found"
 
     # Verify scores are calculated

@@ -96,7 +96,7 @@ def test_pipeline_with_gene_list_annotation(sample_vcf_file, gene_lists, test_da
         # Run pipeline with mock data
         config["final_output"] = final_output
         with open(final_output, "w", encoding="utf-8") as out:
-            with open(tsv_file, "r", encoding="utf-8") as inp:
+            with open(tsv_file, encoding="utf-8") as inp:
                 lines = inp.readlines()
 
                 # Manually run the gene list annotation part
@@ -109,7 +109,7 @@ def test_pipeline_with_gene_list_annotation(sample_vcf_file, gene_lists, test_da
                     out.write(line.rstrip("\n") + "\n")
 
         # Check the results
-        with open(final_output, "r", encoding="utf-8") as f:
+        with open(final_output, encoding="utf-8") as f:
             content = f.read()
 
         # Verify header contains gene list columns

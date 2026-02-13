@@ -1,4 +1,0 @@
-# File: MANIFEST.in
-
-include variantcentrifuge/config.json
-recursive-include variantcentrifuge/templates *.html

@@ -7,7 +7,6 @@ scoring configurations, and other setup tasks that can run in parallel.
 
 import logging
 import os
-from typing import List, Optional
 
 from ..config import load_config
 from ..helpers import get_vcf_samples
@@ -19,7 +18,7 @@ from ..scoring import read_scoring_config
 logger = logging.getLogger(__name__)
 
 
-def load_terms_from_file(file_path: Optional[str], logger: logging.Logger) -> List[str]:
+def load_terms_from_file(file_path: str | None, logger: logging.Logger) -> list[str]:
     """
     Load terms (HPO terms, sample IDs, etc.) from a file, one per line.
 
@@ -40,12 +39,12 @@ def load_terms_from_file(file_path: Optional[str], logger: logging.Logger) -> Li
     SystemExit
         If the file is missing or empty and a file_path was specified.
     """
-    terms: List[str] = []
+    terms: list[str] = []
     if file_path:
         if not os.path.exists(file_path):
             logger.error(f"Required file not found: {file_path}")
             raise FileNotFoundError(f"Required file not found: {file_path}")
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             found_any = False
             for line in f:
                 t = line.strip()
@@ -571,7 +570,7 @@ class SampleConfigLoadingStage(Stage):
 
             # Log changes for debugging
             changes = []
-            for orig, new in zip(original_samples, vcf_samples):
+            for orig, new in zip(original_samples, vcf_samples, strict=False):
                 if orig != new:
                     changes.append(f"{orig} -> {new}")
 
@@ -598,7 +597,7 @@ class SampleConfigLoadingStage(Stage):
 
         if case_samples_file:
             logger.debug(f"Loading case samples from file: {case_samples_file}")
-            with open(case_samples_file, "r") as f:
+            with open(case_samples_file) as f:
                 case_samples = [line.strip() for line in f if line.strip()]
             context.config["case_samples"] = case_samples
             logger.info(f"Loaded {len(case_samples)} case samples from file")
@@ -608,7 +607,7 @@ class SampleConfigLoadingStage(Stage):
 
         if control_samples_file:
             logger.debug(f"Loading control samples from file: {control_samples_file}")
-            with open(control_samples_file, "r") as f:
+            with open(control_samples_file) as f:
                 control_samples = [line.strip() for line in f if line.strip()]
             context.config["control_samples"] = control_samples
             logger.info(f"Loaded {len(control_samples)} control samples from file")
@@ -699,13 +698,13 @@ class SampleConfigLoadingStage(Stage):
         control_samples_file = context.config.get("control_samples_file")
 
         if case_samples_file and os.path.exists(case_samples_file):
-            with open(case_samples_file, "r") as f:
+            with open(case_samples_file) as f:
                 case_samples = [line.strip() for line in f if line.strip()]
             context.config["case_samples"] = case_samples
             logger.debug(f"Restored {len(case_samples)} case samples from file (checkpoint skip)")
 
         if control_samples_file and os.path.exists(control_samples_file):
-            with open(control_samples_file, "r") as f:
+            with open(control_samples_file) as f:
                 control_samples = [line.strip() for line in f if line.strip()]
             context.config["control_samples"] = control_samples
             logger.debug(
@@ -1038,8 +1037,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
     ):
         """Classify samples based on phenotype data."""
         logger.info(
-            f"Performing phenotype-based case/control assignment for "
-            f"{len(vcf_samples)} VCF samples"
+            f"Performing phenotype-based case/control assignment for {len(vcf_samples)} VCF samples"
         )
         logger.info(
             f"Using {len(case_phenotypes)} case phenotypes and "
@@ -1189,7 +1187,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         if case_samples_file:
             logger.info(f"Loading case samples from: {case_samples_file}")
             try:
-                with open(case_samples_file, "r") as f:
+                with open(case_samples_file) as f:
                     for line in f:
                         sample = line.strip()
                         if sample:
@@ -1203,7 +1201,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         if control_samples_file:
             logger.info(f"Loading control samples from: {control_samples_file}")
             try:
-                with open(control_samples_file, "r") as f:
+                with open(control_samples_file) as f:
                     for line in f:
                         sample = line.strip()
                         if sample:

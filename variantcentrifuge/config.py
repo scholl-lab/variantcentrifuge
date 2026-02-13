@@ -14,10 +14,10 @@ config.json from the package installation directory.
 
 import json
 import os
-from typing import Any, Dict, Optional
+from typing import Any
 
 
-def load_config(config_file: Optional[str] = None) -> Dict[str, Any]:
+def load_config(config_file: str | None = None) -> dict[str, Any]:
     """
     Load configuration from a JSON file.
 
@@ -50,7 +50,7 @@ def load_config(config_file: Optional[str] = None) -> Dict[str, Any]:
     if not os.path.exists(config_file):
         raise FileNotFoundError(f"Configuration file '{config_file}' not found.")
 
-    with open(config_file, "r", encoding="utf-8") as f:
+    with open(config_file, encoding="utf-8") as f:
         try:
             config = json.load(f)
         except json.JSONDecodeError as e:

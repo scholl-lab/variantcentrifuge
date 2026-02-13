@@ -6,7 +6,7 @@ based on clinical significance and pattern reliability.
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +70,9 @@ PATTERN_CATEGORIES = {
 
 
 def prioritize_patterns(
-    patterns: List[str],
-    segregation_results: Optional[Dict[str, Tuple[bool, float]]] = None,
-) -> Tuple[str, float]:
+    patterns: list[str],
+    segregation_results: dict[str, tuple[bool, float]] | None = None,
+) -> tuple[str, float]:
     """
     Prioritize inheritance patterns and return the highest priority pattern.
 
@@ -154,7 +154,7 @@ def adjust_pattern_score(
     return base_score
 
 
-def calculate_confidence(pattern_scores: Dict[str, float], best_pattern: str) -> float:
+def calculate_confidence(pattern_scores: dict[str, float], best_pattern: str) -> float:
     """
     Calculate confidence score based on pattern score distribution.
 
@@ -211,7 +211,7 @@ def get_pattern_category(pattern: str) -> str:
     return PATTERN_CATEGORIES.get(pattern, "unclear")
 
 
-def group_patterns_by_category(patterns: List[str]) -> Dict[str, List[str]]:
+def group_patterns_by_category(patterns: list[str]) -> dict[str, list[str]]:
     """
     Group patterns by their categories.
 
@@ -287,7 +287,7 @@ def get_pattern_description(pattern: str) -> str:
 
 
 def resolve_conflicting_patterns(
-    patterns_by_sample: Dict[str, List[str]], variant_info: Optional[Dict[str, Any]] = None
+    patterns_by_sample: dict[str, list[str]], variant_info: dict[str, Any] | None = None
 ) -> str:
     """
     Resolve conflicting inheritance patterns across samples.
@@ -330,7 +330,7 @@ def resolve_conflicting_patterns(
     return best_pattern
 
 
-def filter_compatible_patterns(patterns: List[str], family_structure: Dict[str, Any]) -> List[str]:
+def filter_compatible_patterns(patterns: list[str], family_structure: dict[str, Any]) -> list[str]:
     """
     Filter patterns based on family structure compatibility.
 
@@ -356,7 +356,7 @@ def filter_compatible_patterns(patterns: List[str], family_structure: Dict[str, 
     return compatible if compatible else patterns
 
 
-def is_pattern_compatible(pattern: str, family_structure: Dict[str, Any]) -> bool:
+def is_pattern_compatible(pattern: str, family_structure: dict[str, Any]) -> bool:
     """
     Check if a pattern is compatible with family structure.
 

@@ -1,7 +1,7 @@
 """Shared pytest fixtures for all test modules."""
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import pandas as pd
 import pytest
@@ -23,7 +23,7 @@ def pytest_collection_modifyitems(items):
 
 
 @pytest.fixture
-def gene_burden_test_config() -> Dict[str, Any]:
+def gene_burden_test_config() -> dict[str, Any]:
     """Provide standard gene burden analysis configuration."""
     return {
         "gene_burden_mode": "samples",
@@ -35,7 +35,7 @@ def gene_burden_test_config() -> Dict[str, Any]:
 
 
 @pytest.fixture
-def gene_burden_alleles_config() -> Dict[str, Any]:
+def gene_burden_alleles_config() -> dict[str, Any]:
     """Gene burden configuration for alleles mode."""
     return {
         "gene_burden_mode": "alleles",

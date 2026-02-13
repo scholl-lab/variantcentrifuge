@@ -18,7 +18,6 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -39,7 +38,7 @@ class BenchmarkResult:
     n_genes: int
     threads: int
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
     @property
     def variants_per_second(self) -> float:
@@ -54,11 +53,11 @@ class BenchmarkConfig:
     """Configuration for a benchmark test."""
 
     name: str
-    gene_file: Optional[Path] = None
-    gene_names: Optional[List[str]] = None
+    gene_file: Path | None = None
+    gene_names: list[str] | None = None
     n_genes: int = 1
-    preset: Optional[str] = None
-    extra_args: Optional[List[str]] = None
+    preset: str | None = None
+    extra_args: list[str] | None = None
     threads: int = 1
     description: str = ""
 
@@ -223,7 +222,7 @@ class PerformanceBenchmark:
 
     def run_comparison(
         self,
-        configs: List[BenchmarkConfig],
+        configs: list[BenchmarkConfig],
         runs: int = 3,
     ) -> pd.DataFrame:
         """Run benchmarks for both pipelines and compare.
@@ -271,7 +270,7 @@ class PerformanceBenchmark:
 
         return df
 
-    def generate_report(self, df: pd.DataFrame) -> Dict:
+    def generate_report(self, df: pd.DataFrame) -> dict:
         """Generate performance comparison report."""
         report = {
             "timestamp": datetime.now().isoformat(),
@@ -478,7 +477,7 @@ class PerformanceBenchmark:
             bars = ax.bar(speedup_df["test"], speedup_df["speedup"])
 
             # Color bars based on speedup
-            for i, (bar, speedup) in enumerate(zip(bars, speedup_df["speedup"])):
+            for i, (bar, speedup) in enumerate(zip(bars, speedup_df["speedup"], strict=False)):
                 if speedup > 1.2:
                     bar.set_color("green")
                 elif speedup > 0.9:
@@ -493,7 +492,7 @@ class PerformanceBenchmark:
             ax.set_xticklabels(speedup_df["test"], rotation=45, ha="right")
 
             # Add value labels on bars
-            for bar, speedup in zip(bars, speedup_df["speedup"]):
+            for bar, speedup in zip(bars, speedup_df["speedup"], strict=False):
                 height = bar.get_height()
                 ax.text(
                     bar.get_x() + bar.get_width() / 2.0,
@@ -508,7 +507,7 @@ class PerformanceBenchmark:
             plt.close()
 
 
-def create_benchmark_configs() -> List[BenchmarkConfig]:
+def create_benchmark_configs() -> list[BenchmarkConfig]:
     """Create standard benchmark configurations."""
     configs = [
         # Single gene tests

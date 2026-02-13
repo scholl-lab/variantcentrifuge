@@ -154,7 +154,7 @@ class TestColumnNormalization:
         result = list(replace_genotypes(lines, basic_config))
 
         # Should find the fields and append them correctly
-        expected = "chr1\t100\tA\tT\t" "Sample1(0/1:100:50,50:0.5)\t" "100:80\t50,50:40,40\t0.5,0.5"
+        expected = "chr1\t100\tA\tT\tSample1(0/1:100:50,50:0.5)\t100:80\t50,50:40,40\t0.5,0.5"
         assert result[1] == expected
 
     def test_missing_field_graceful_handling(self, basic_config):
@@ -392,7 +392,9 @@ class TestColumnRemovalIntegration:
 
             # Set up context WITHOUT custom annotation requests
             context = PipelineContext(
-                args=None, config={}, workspace=workspace  # No annotation configs
+                args=None,
+                config={},
+                workspace=workspace,  # No annotation configs
             )
             context.current_dataframe = df
 

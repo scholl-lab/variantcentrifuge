@@ -23,7 +23,7 @@ import re
 import tempfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -57,7 +57,7 @@ class VectorizedGenotypeReplacer:
     approach, optimizing for speed through vectorized string operations.
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         """
         Initialize the vectorized genotype replacer.
 
@@ -91,7 +91,7 @@ class VectorizedGenotypeReplacer:
 
         logger.debug(f"Initialized vectorized replacer for {len(self.samples)} samples")
 
-    def process_file(self, input_path: Union[str, Path], output_path: Union[str, Path]) -> None:
+    def process_file(self, input_path: str | Path, output_path: str | Path) -> None:
         """
         Process an entire TSV file with vectorized genotype replacement.
 
@@ -281,7 +281,7 @@ class VectorizedGenotypeReplacer:
         sample_name: str,
         sample_idx: int,
         df: pd.DataFrame,
-        extra_field_indices: Dict[str, str],
+        extra_field_indices: dict[str, str],
         variant_mask: pd.Series,
     ) -> pd.Series:
         """
@@ -366,7 +366,7 @@ class VectorizedGenotypeReplacer:
 
         return result
 
-    def _combine_sample_genotypes(self, sample_genotype_lists: List[pd.Series]) -> pd.Series:
+    def _combine_sample_genotypes(self, sample_genotype_lists: list[pd.Series]) -> pd.Series:
         """
         Combine sample genotype strings into final GT column.
 
@@ -406,7 +406,7 @@ class VectorizedGenotypeReplacer:
 
 
 def replace_genotypes_vectorized(
-    input_path: Union[str, Path], output_path: Union[str, Path], config: Dict[str, Any]
+    input_path: str | Path, output_path: str | Path, config: dict[str, Any]
 ) -> None:
     """
     High-level function for vectorized genotype replacement.
@@ -425,9 +425,9 @@ def replace_genotypes_vectorized(
 
 
 def process_chunked_vectorized(
-    input_path: Union[str, Path],
-    output_path: Union[str, Path],
-    config: Dict[str, Any],
+    input_path: str | Path,
+    output_path: str | Path,
+    config: dict[str, Any],
     chunk_size: int = 10000,
 ) -> None:
     """
@@ -481,7 +481,7 @@ def process_chunked_vectorized(
 
 
 def _process_chunk_worker(
-    chunk_data: pd.DataFrame, config: Dict[str, Any], chunk_id: int, temp_dir: str
+    chunk_data: pd.DataFrame, config: dict[str, Any], chunk_id: int, temp_dir: str
 ) -> str:
     """
     Worker function to process a single chunk in parallel.
@@ -519,9 +519,9 @@ def _process_chunk_worker(
 
 
 def process_parallel_chunked_vectorized(
-    input_path: Union[str, Path],
-    output_path: Union[str, Path],
-    config: Dict[str, Any],
+    input_path: str | Path,
+    output_path: str | Path,
+    config: dict[str, Any],
     chunk_size: int = 10000,
     max_workers: int = None,
     available_memory_gb: float = None,
@@ -671,7 +671,7 @@ def process_parallel_chunked_vectorized(
                         chunk_file = chunk_results[chunk_id]
 
                         # Stream copy chunk file to output
-                        with open(chunk_file, "r", encoding="utf-8") as chunk_input:
+                        with open(chunk_file, encoding="utf-8") as chunk_input:
                             if first_chunk:
                                 # First chunk: copy everything including header
                                 for line in chunk_input:

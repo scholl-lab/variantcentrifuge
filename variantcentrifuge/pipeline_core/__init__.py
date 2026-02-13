@@ -15,9 +15,9 @@ from .workspace import Workspace
 
 __all__ = [
     "PipelineContext",
+    "PipelineRunner",
     "Stage",
     "Workspace",
-    "PipelineRunner",
 ]
 
 # Version of the pipeline infrastructure

@@ -8,7 +8,7 @@ and parallel processing limits.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import psutil
 
@@ -24,7 +24,7 @@ class InheritanceMemoryManager:
     4. Adapts to different sample counts and system capabilities
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         Initialize the memory manager.
 
@@ -121,7 +121,7 @@ class InheritanceMemoryManager:
             logger.warning(f"Could not detect memory: {e}. Using conservative 8GB")
             return 8.0
 
-    def _get_cgroup_memory_limit(self) -> Optional[float]:
+    def _get_cgroup_memory_limit(self) -> float | None:
         """Get memory limit from cgroup (containers/HPC)."""
         cgroup_paths = [
             "/sys/fs/cgroup/memory/memory.limit_in_bytes",  # cgroup v1
@@ -131,7 +131,7 @@ class InheritanceMemoryManager:
         for path in cgroup_paths:
             try:
                 if Path(path).exists():
-                    with open(path, "r") as f:
+                    with open(path) as f:
                         limit_bytes = int(f.read().strip())
                         # Check if it's a real limit (not max value)
                         if limit_bytes < (1 << 62):  # Less than ~4 exabytes
@@ -181,7 +181,7 @@ class InheritanceMemoryManager:
         return memory_gb
 
     def calculate_max_chunk_size(
-        self, num_samples: int, target_memory_gb: Optional[float] = None
+        self, num_samples: int, target_memory_gb: float | None = None
     ) -> int:
         """
         Calculate maximum chunk size (variants) for given sample count.
@@ -220,7 +220,7 @@ class InheritanceMemoryManager:
 
     def calculate_optimal_parallelism(
         self, chunk_sizes: list, num_samples: int
-    ) -> Tuple[int, Dict[str, Any]]:
+    ) -> tuple[int, dict[str, Any]]:
         """
         Calculate optimal number of parallel workers based on memory constraints.
 
@@ -265,7 +265,7 @@ class InheritanceMemoryManager:
 
     def should_process_chunk(
         self, num_variants: int, num_samples: int, force_processing: bool = False
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """
         Determine if a chunk should be processed based on memory constraints.
 
@@ -298,7 +298,7 @@ class InheritanceMemoryManager:
         else:
             return False, f"Unsafe: {estimated_memory:.2f}GB > {safe_memory:.2f}GB safe limit"
 
-    def get_memory_strategy(self, total_variants: int, num_samples: int) -> Dict[str, Any]:
+    def get_memory_strategy(self, total_variants: int, num_samples: int) -> dict[str, Any]:
         """
         Get comprehensive memory strategy for inheritance analysis.
 

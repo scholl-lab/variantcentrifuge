@@ -40,7 +40,7 @@ In addition to existing columns (p-values, odds ratio), the result now includes:
 
 import logging
 from math import isnan
-from typing import Any, Dict
+from typing import Any
 
 import pandas as pd
 
@@ -137,7 +137,7 @@ def _compute_or_confidence_interval(
         return np.nan, np.nan
 
 
-def perform_gene_burden_analysis(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
+def perform_gene_burden_analysis(df: pd.DataFrame, cfg: dict[str, Any]) -> pd.DataFrame:
     """
     Perform gene burden analysis for each gene.
 

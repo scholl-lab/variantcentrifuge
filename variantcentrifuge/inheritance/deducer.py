@@ -6,7 +6,7 @@ based on genotypes in a family.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..genotype_utils import (
     could_be_de_novo,
@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 def deduce_patterns_for_variant(
-    variant_row: Dict[str, Any], pedigree_data: Dict[str, Dict[str, Any]], sample_list: List[str]
-) -> List[str]:
+    variant_row: dict[str, Any], pedigree_data: dict[str, dict[str, Any]], sample_list: list[str]
+) -> list[str]:
     """
     Deduce all possible inheritance patterns for a variant.
 
@@ -68,7 +68,7 @@ def deduce_patterns_for_variant(
     return unique_patterns
 
 
-def deduce_single_sample_patterns(variant_row: Dict[str, Any], sample_list: List[str]) -> List[str]:
+def deduce_single_sample_patterns(variant_row: dict[str, Any], sample_list: list[str]) -> list[str]:
     """
     Deduce patterns for single sample analysis (no family data).
 
@@ -105,10 +105,10 @@ def deduce_single_sample_patterns(variant_row: Dict[str, Any], sample_list: List
 
 def deduce_patterns_for_sample(
     sample_id: str,
-    variant_row: Dict[str, Any],
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
-) -> List[str]:
+    variant_row: dict[str, Any],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+) -> list[str]:
     """
     Deduce inheritance patterns for a specific sample.
 
@@ -185,10 +185,10 @@ def deduce_patterns_for_sample(
 
 def check_dominant_pattern(
     sample_id: str,
-    variant_row: Dict[str, Any],
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
-) -> Optional[str]:
+    variant_row: dict[str, Any],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+) -> str | None:
     """
     Check if variant follows autosomal dominant pattern.
 
@@ -244,10 +244,10 @@ def check_dominant_pattern(
 
 def check_recessive_pattern(
     sample_id: str,
-    variant_row: Dict[str, Any],
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
-) -> Optional[str]:
+    variant_row: dict[str, Any],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+) -> str | None:
     """
     Check if variant follows autosomal recessive pattern.
 
@@ -311,10 +311,10 @@ def check_recessive_pattern(
 
 def check_x_linked_patterns(
     sample_id: str,
-    variant_row: Dict[str, Any],
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
-) -> List[str]:
+    variant_row: dict[str, Any],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+) -> list[str]:
     """
     Check if variant follows X-linked patterns.
 
@@ -357,10 +357,10 @@ def check_x_linked_patterns(
 
 def check_x_linked_recessive(
     sample_id: str,
-    variant_row: Dict[str, Any],
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
-) -> Optional[str]:
+    variant_row: dict[str, Any],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+) -> str | None:
     """Check for X-linked recessive pattern with sophisticated logic."""
     sample_gt = variant_row.get(sample_id, "./.")
     sex = pedigree_data[sample_id].get("sex", "0")
@@ -415,10 +415,10 @@ def check_x_linked_recessive(
 
 def check_x_linked_dominant(
     sample_id: str,
-    variant_row: Dict[str, Any],
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
-) -> Optional[str]:
+    variant_row: dict[str, Any],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+) -> str | None:
     """Check for X-linked dominant pattern."""
     sample_gt = variant_row.get(sample_id, "./.")
     sex = pedigree_data[sample_id].get("sex", "0")
@@ -455,9 +455,9 @@ def check_x_linked_dominant(
 
 def check_mitochondrial_pattern(
     sample_id: str,
-    variant_row: Dict[str, Any],
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
+    variant_row: dict[str, Any],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
 ) -> bool:
     """Check for mitochondrial inheritance pattern."""
     sample_gt = variant_row.get(sample_id, "./.")
@@ -479,9 +479,9 @@ def check_mitochondrial_pattern(
 
 
 def check_segregation(
-    variant_row: Dict[str, Any],
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
+    variant_row: dict[str, Any],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
     pattern: str,
 ) -> bool:
     """
@@ -540,10 +540,10 @@ def check_segregation(
 
 def get_inheritance_info(
     sample_id: str,
-    patterns: List[str],
-    variant_row: Dict[str, Any],
-    pedigree_data: Dict[str, Dict[str, Any]],
-) -> Dict[str, Any]:
+    patterns: list[str],
+    variant_row: dict[str, Any],
+    pedigree_data: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
     """
     Get detailed inheritance information for a sample.
 

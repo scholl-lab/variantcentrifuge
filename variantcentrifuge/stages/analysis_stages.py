@@ -14,7 +14,7 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_sample_columns_from_gt_vectorized(
-    df: pd.DataFrame, vcf_samples: List[str], separator: str = ";", snpsift_sep: str = ","
+    df: pd.DataFrame, vcf_samples: list[str], separator: str = ";", snpsift_sep: str = ","
 ) -> pd.DataFrame:
     """Create individual sample columns from GT column data using vectorized operations.
 
@@ -84,7 +84,7 @@ def create_sample_columns_from_gt_vectorized(
 
         # Initialize all sample columns with missing genotypes efficiently
         # Create all sample columns at once to avoid DataFrame fragmentation
-        sample_data = {sample_id: "./." for sample_id in vcf_samples}
+        sample_data = dict.fromkeys(vcf_samples, "./.")
         sample_columns = pd.DataFrame(sample_data, index=df_copy.index)
         df_copy = pd.concat([df_copy, sample_columns], axis=1)
 
@@ -144,7 +144,7 @@ def create_sample_columns_from_gt_vectorized(
 
         # Initialize all sample columns with missing genotypes efficiently
         # Create all sample columns at once to avoid DataFrame fragmentation
-        sample_data = {sample_id: "./." for sample_id in vcf_samples}
+        sample_data = dict.fromkeys(vcf_samples, "./.")
         sample_columns = pd.DataFrame(sample_data, index=df_copy.index)
         df_copy = pd.concat([df_copy, sample_columns], axis=1)
 
@@ -185,7 +185,7 @@ def create_sample_columns_from_gt_vectorized(
 
 def create_sample_columns_from_gt_intelligent(
     df: pd.DataFrame,
-    vcf_samples: List[str],
+    vcf_samples: list[str],
     separator: str = ";",
     snpsift_sep: str = ",",
     method: str = "auto",
@@ -263,7 +263,7 @@ def create_sample_columns_from_gt_intelligent(
 
 
 def create_sample_columns_from_gt(
-    df: pd.DataFrame, vcf_samples: List[str], separator: str = ";", snpsift_sep: str = ","
+    df: pd.DataFrame, vcf_samples: list[str], separator: str = ";", snpsift_sep: str = ","
 ) -> pd.DataFrame:
     """Create individual sample columns from GT column data.
 
@@ -316,7 +316,7 @@ def create_sample_columns_from_gt(
         for idx, row in df.iterrows():
             gt_value = str(row["GT"])
             # Initialize all samples with missing genotype
-            row_genotypes = {sample_id: "./." for sample_id in vcf_samples}
+            row_genotypes = dict.fromkeys(vcf_samples, "./.")
 
             if gt_value and gt_value != "NA" and gt_value != "nan":
                 # Split by separator (usually semicolon) for different samples
@@ -425,7 +425,7 @@ def handle_inheritance_analysis_error(
 
 
 def cleanup_sample_columns(
-    df: pd.DataFrame, vcf_samples: List[str], preserve_columns: List[str] = None
+    df: pd.DataFrame, vcf_samples: list[str], preserve_columns: list[str] = None
 ) -> pd.DataFrame:
     """Clean up sample columns after inheritance analysis.
 
@@ -487,7 +487,7 @@ class DataFrameLoadingStage(Stage):
         return "Load data into DataFrame for analysis"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # In sequential mode, depends on field_extraction
         # In parallel mode, ParallelCompleteProcessingStage handles field extraction internally
@@ -496,7 +496,7 @@ class DataFrameLoadingStage(Stage):
         return set()
 
     @property
-    def soft_dependencies(self) -> Set[str]:
+    def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Prefer to run after all data transformation stages
         # In sequential mode: after field_extraction and processing stages
@@ -700,7 +700,7 @@ class DataFrameLoadingStage(Stage):
 
         return False
 
-    def get_input_files(self, context: PipelineContext) -> List[Path]:
+    def get_input_files(self, context: PipelineContext) -> list[Path]:
         """Return input files for checkpoint tracking."""
         # Check in priority order for available TSV files
         for attr in [
@@ -718,7 +718,7 @@ class DataFrameLoadingStage(Stage):
             return [context.data]
         return []
 
-    def get_output_files(self, context: PipelineContext) -> List[Path]:
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return output files for checkpoint tracking."""
         # DataFrameLoadingStage doesn't produce file outputs, just loads data into memory
         return []
@@ -738,7 +738,7 @@ class CustomAnnotationStage(Stage):
         return "Apply custom annotations to variants"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Always depends on dataframe being loaded
         # Annotation config is handled in setup stages if needed
@@ -782,7 +782,7 @@ class CustomAnnotationStage(Stage):
         context.current_dataframe = df
         return context
 
-    def get_input_files(self, context: PipelineContext) -> List[Path]:
+    def get_input_files(self, context: PipelineContext) -> list[Path]:
         """Return input files for checkpoint tracking."""
         input_files = []
         # Add BED files if available
@@ -798,7 +798,7 @@ class CustomAnnotationStage(Stage):
                     input_files.append(Path(json_file))
         return input_files
 
-    def get_output_files(self, context: PipelineContext) -> List[Path]:
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return output files for checkpoint tracking."""
         # CustomAnnotationStage modifies DataFrame in memory, no file outputs
         return []
@@ -818,14 +818,14 @@ class InheritanceAnalysisStage(Stage):
         return "Calculate inheritance patterns"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Only depend on dataframe_loading as a hard requirement
         # custom_annotation is optional and will run before if present
         return {"dataframe_loading"}
 
     @property
-    def soft_dependencies(self) -> Set[str]:
+    def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Prefer to run after custom_annotation if it exists
         return {"custom_annotation"}
@@ -1046,7 +1046,7 @@ class InheritanceAnalysisStage(Stage):
 
         return False
 
-    def get_input_files(self, context: PipelineContext) -> List[Path]:
+    def get_input_files(self, context: PipelineContext) -> list[Path]:
         """Return input files for checkpoint tracking."""
         input_files = []
         # Include PED file if available for inheritance analysis
@@ -1054,7 +1054,7 @@ class InheritanceAnalysisStage(Stage):
             input_files.append(Path(context.ped_file))
         return input_files
 
-    def get_output_files(self, context: PipelineContext) -> List[Path]:
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return output files for checkpoint tracking."""
         # InheritanceAnalysisStage modifies DataFrame in memory, no file outputs
         return []
@@ -1074,7 +1074,7 @@ class VariantScoringStage(Stage):
         return "Calculate variant scores"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Only depend on dataframe_loading as a hard requirement
         # Other stages (custom_annotation, inheritance_analysis) are optional
@@ -1082,7 +1082,7 @@ class VariantScoringStage(Stage):
         return {"dataframe_loading"}
 
     @property
-    def soft_dependencies(self) -> Set[str]:
+    def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Prefer to run after annotations and inheritance if they exist
         return {"custom_annotation", "inheritance_analysis"}
@@ -1128,7 +1128,7 @@ class GenotypeFilterStage(Stage):
         return "Filter variants by genotype patterns"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Must run after dataframe is loaded and scored
         return {"dataframe_loading", "variant_scoring"}
@@ -1224,14 +1224,14 @@ class StatisticsGenerationStage(Stage):
         return "Generate summary statistics"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Only depends on dataframe being loaded
         # Statistics can be run on whatever columns are available
         return {"dataframe_loading"}
 
     @property
-    def soft_dependencies(self) -> Set[str]:
+    def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Should run after chunked analysis if it's present
         return {"chunked_analysis"}
@@ -1309,7 +1309,7 @@ class StatisticsGenerationStage(Stage):
 
         return context
 
-    def _write_statistics(self, stats: Dict[str, Any], output_file: str) -> None:
+    def _write_statistics(self, stats: dict[str, Any], output_file: str) -> None:
         """Write statistics to file in a consistent format."""
         all_data = []
 
@@ -1342,7 +1342,7 @@ class StatisticsGenerationStage(Stage):
                 f.write("statistic\tvalue\tcategory\n")
                 f.write("total_variants\t0\tdataset\n")
 
-    def _get_default_stats_config(self) -> Dict[str, Any]:
+    def _get_default_stats_config(self) -> dict[str, Any]:
         """Get default statistics configuration using basic columns."""
         return {
             "stats_version": "1.0",
@@ -1419,14 +1419,14 @@ class VariantAnalysisStage(Stage):
         return "Perform variant-level analysis"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Depends on having a DataFrame with variants
         deps = {"dataframe_loading"}
         return deps
 
     @property
-    def soft_dependencies(self) -> Set[str]:
+    def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Note: variant_identifier should run AFTER this stage, not before,
         # because analyze_variants creates a new DataFrame
@@ -1508,7 +1508,7 @@ class VariantAnalysisStage(Stage):
         else:
 
             def open_func(f):
-                return open(f, "r")
+                return open(f)
 
         with open_func(temp_tsv) as inp:
             for line in analyze_variants(inp, analysis_config):
@@ -1711,12 +1711,12 @@ class VariantAnalysisStage(Stage):
 
         return False
 
-    def get_input_files(self, context: PipelineContext) -> List[Path]:
+    def get_input_files(self, context: PipelineContext) -> list[Path]:
         """Return input files for checkpoint tracking."""
         # VariantAnalysisStage works with DataFrame in memory, no specific input files
         return []
 
-    def get_output_files(self, context: PipelineContext) -> List[Path]:
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return output files for checkpoint tracking."""
         # VariantAnalysisStage modifies DataFrame in memory, no file outputs
         return []
@@ -1736,13 +1736,13 @@ class GeneBurdenAnalysisStage(Stage):
         return "Perform gene burden analysis"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Depends on having a DataFrame with variants and case/control samples
         return {"dataframe_loading", "sample_config_loading"}
 
     @property
-    def soft_dependencies(self) -> Set[str]:
+    def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Prefer to run after custom_annotation if it exists
         return {"custom_annotation"}
@@ -1891,12 +1891,12 @@ class GeneBurdenAnalysisStage(Stage):
 
         return context
 
-    def get_input_files(self, context: PipelineContext) -> List[Path]:
+    def get_input_files(self, context: PipelineContext) -> list[Path]:
         """Return input files for checkpoint tracking."""
         # GeneBurdenAnalysisStage works with DataFrame in memory, no specific input files
         return []
 
-    def get_output_files(self, context: PipelineContext) -> List[Path]:
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return output files for checkpoint tracking."""
         # Return gene burden output file if configured
         if hasattr(context, "config") and context.config.get("gene_burden_output"):
@@ -1931,7 +1931,7 @@ class ChunkedAnalysisStage(Stage):
         return "Process large files in memory-efficient chunks"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Depends on configuration and processing stages but not full DataFrame loading
         # This stage only runs when use_chunked_processing is True
@@ -1945,7 +1945,7 @@ class ChunkedAnalysisStage(Stage):
         return deps
 
     @property
-    def soft_dependencies(self) -> Set[str]:
+    def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Soft dependencies - these stages will run before if they exist, but are not required
         return {
@@ -2091,7 +2091,7 @@ class ChunkedAnalysisStage(Stage):
         else:
 
             def open_func(f):
-                return open(f, "r")
+                return open(f)
 
         with open_func(input_file) as f:
             header = f.readline().strip().split("\t")
@@ -2188,7 +2188,7 @@ class ChunkedAnalysisStage(Stage):
 
     def _process_chunks_sequential(
         self, sorted_file: Path, gene_col_name: str, chunk_size: int, context: PipelineContext
-    ) -> List[pd.DataFrame]:
+    ) -> list[pd.DataFrame]:
         """Process chunks sequentially (original implementation)."""
         output_chunks = []
         chunk_num = 0
@@ -2210,7 +2210,7 @@ class ChunkedAnalysisStage(Stage):
         chunk_size: int,
         context: PipelineContext,
         max_workers: int,
-    ) -> List[pd.DataFrame]:
+    ) -> list[pd.DataFrame]:
         """Process chunks in parallel using ThreadPoolExecutor."""
         # Pre-load all chunks into memory for parallel processing
         chunks = list(
@@ -2397,7 +2397,7 @@ class ChunkedAnalysisStage(Stage):
         else:
 
             def open_func(f):
-                return open(f, "r")
+                return open(f)
 
         with open_func(input_file) as f:
             header = f.readline().strip().split("\t")
@@ -2926,7 +2926,7 @@ class ChunkedAnalysisStage(Stage):
                 context_description="chunk inheritance analysis",
             )
 
-    def get_input_files(self, context: PipelineContext) -> List[Path]:
+    def get_input_files(self, context: PipelineContext) -> list[Path]:
         """Return input files for checkpoint tracking."""
         # Check in priority order for available TSV files
         for attr in [
@@ -2944,7 +2944,7 @@ class ChunkedAnalysisStage(Stage):
             return [context.data]
         return []
 
-    def get_output_files(self, context: PipelineContext) -> List[Path]:
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return output files for checkpoint tracking."""
         # ChunkedAnalysisStage processes data in memory, no direct file outputs
         return []
@@ -2964,7 +2964,7 @@ class ParallelAnalysisOrchestrator(Stage):
         return "Run analysis in parallel by gene"
 
     @property
-    def dependencies(self) -> Set[str]:
+    def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
         # Can run after basic data loading
         return {"dataframe_loading", "custom_annotation"}
@@ -3057,7 +3057,7 @@ class ParallelAnalysisOrchestrator(Stage):
                             successful_results.append(result_df)
                             logger.debug(f"Successfully processed gene: {gene_name}")
                     except Exception as e:
-                        logger.error(f"Failed to process gene {gene_name}: {str(e)}")
+                        logger.error(f"Failed to process gene {gene_name}: {e!s}")
                         failed_genes.append(gene_name)
                         # Don't cancel other tasks, continue processing
 
@@ -3104,9 +3104,9 @@ class ParallelAnalysisOrchestrator(Stage):
     def _process_gene_group(
         gene_name: str,
         gene_df: pd.DataFrame,
-        pedigree_data: Optional[Dict],
-        scoring_config: Optional[Dict],
-        analysis_cfg: Dict,
+        pedigree_data: dict | None,
+        scoring_config: dict | None,
+        analysis_cfg: dict,
         skip_analysis: bool,
     ) -> pd.DataFrame:
         """Process a single gene's variants (runs in worker process)."""
@@ -3144,5 +3144,5 @@ class ParallelAnalysisOrchestrator(Stage):
             import logging
 
             logger = logging.getLogger(__name__)
-            logger.error(f"Error processing gene {gene_name}: {str(e)}")
+            logger.error(f"Error processing gene {gene_name}: {e!s}")
             raise

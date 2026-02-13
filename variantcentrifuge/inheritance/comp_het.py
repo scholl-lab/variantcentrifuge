@@ -7,7 +7,7 @@ from each parent.
 """
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import pandas as pd
 
@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 def analyze_gene_for_compound_het(
-    gene_df: pd.DataFrame, pedigree_data: Dict[str, Dict[str, Any]], sample_list: List[str]
-) -> Dict[str, Dict[str, Any]]:
+    gene_df: pd.DataFrame, pedigree_data: dict[str, dict[str, Any]], sample_list: list[str]
+) -> dict[str, dict[str, Any]]:
     """
     Analyze a gene for compound heterozygous patterns.
 
@@ -107,9 +107,9 @@ def analyze_gene_for_compound_het(
 def find_compound_het_pairs(
     sample_id: str,
     gene_df: pd.DataFrame,
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
-) -> List[Tuple[int, int]]:
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+) -> list[tuple[int, int]]:
     """
     Find all compound heterozygous variant pairs for a sample in a gene.
 
@@ -160,8 +160,8 @@ def is_potential_compound_het(
     var1_idx: int,
     var2_idx: int,
     gene_df: pd.DataFrame,
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
 ) -> bool:
     """
     Check if two variants could form a compound heterozygous pair.
@@ -198,7 +198,6 @@ def is_potential_compound_het(
 
     # If we have parent data, check for trans configuration
     if father_id and mother_id and father_id in sample_list and mother_id in sample_list:
-
         # Check if variants come from different parents (trans)
         father_var1_gt = str(var1.get(father_id, "./."))
         mother_var1_gt = str(var1.get(mother_id, "./."))
@@ -233,9 +232,9 @@ def determine_compound_het_type(
     var1_idx: int,
     var2_idx: int,
     gene_df: pd.DataFrame,
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
-) -> Tuple[str, str]:
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+) -> tuple[str, str]:
     """
     Determine the type of compound heterozygous pattern.
 
@@ -348,8 +347,8 @@ def create_variant_key(variant_row: pd.Series) -> str:
 
 
 def get_compound_het_summary(
-    comp_het_results: Dict[str, Dict[str, Any]], sample_id: str
-) -> Dict[str, Any]:
+    comp_het_results: dict[str, dict[str, Any]], sample_id: str
+) -> dict[str, Any]:
     """
     Get a summary of compound heterozygous findings for a sample.
 
@@ -394,8 +393,8 @@ def get_compound_het_summary(
 
 
 def filter_high_confidence_compound_hets(
-    comp_het_results: Dict[str, Dict[str, Any]], min_quality: float = 30.0
-) -> Dict[str, Dict[str, Any]]:
+    comp_het_results: dict[str, dict[str, Any]], min_quality: float = 30.0
+) -> dict[str, dict[str, Any]]:
     """
     Filter compound het results to keep only high-confidence calls.
 

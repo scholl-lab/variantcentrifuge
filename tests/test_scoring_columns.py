@@ -96,9 +96,9 @@ class TestScoringColumns:
             "impact_variant",
         ]
         for col in temp_var_cols:
-            assert (
-                col not in result_df.columns
-            ), f"Temporary variable column {col} should be removed"
+            assert col not in result_df.columns, (
+                f"Temporary variable column {col} should be removed"
+            )
 
         # Verify the score was calculated correctly
         # Score = gnomade_variant * 1000 + gnomadg_variant * 100 + cadd_phred_variant

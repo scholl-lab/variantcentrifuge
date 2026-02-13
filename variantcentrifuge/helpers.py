@@ -61,12 +61,12 @@ def check_file(file_path: str, exit_on_error: bool = True) -> bool:
 
 
 def compute_phenotype_based_case_control_assignment(
-    vcf_samples: List[str],
-    phenotype_map: Dict[str, Set[str]],
-    case_phenotypes: List[str],
-    control_phenotypes: List[str] = None,
+    vcf_samples: list[str],
+    phenotype_map: dict[str, set[str]],
+    case_phenotypes: list[str],
+    control_phenotypes: list[str] = None,
     remove_substring: str = "",
-) -> Tuple[Set[str], Set[str]]:
+) -> tuple[set[str], set[str]]:
     """
     Unified function for phenotype-based case/control assignment.
 
@@ -148,8 +148,8 @@ def compute_phenotype_based_case_control_assignment(
 
 
 def determine_case_control_sets(
-    all_samples: Set[str], cfg: Dict[str, Any], df: pd.DataFrame
-) -> Tuple[Set[str], Set[str]]:
+    all_samples: set[str], cfg: dict[str, Any], df: pd.DataFrame
+) -> tuple[set[str], set[str]]:
     """
     Determine case/control sample sets based on configuration.
 
@@ -233,7 +233,7 @@ def determine_case_control_sets(
     return classified_cases, classified_controls
 
 
-def build_sample_phenotype_map(df: pd.DataFrame) -> Dict[str, Set[str]]:
+def build_sample_phenotype_map(df: pd.DataFrame) -> dict[str, set[str]]:
     """
     Build a map of sample -> set_of_phenotypes from the 'phenotypes' column if present.
 
@@ -270,7 +270,7 @@ def build_sample_phenotype_map(df: pd.DataFrame) -> Dict[str, Set[str]]:
             # Multiple phenotype groups
             if len(pheno_groups) == len(sample_names):
                 # Perfect alignment
-                for sname, pgroup in zip(sample_names, pheno_groups):
+                for sname, pgroup in zip(sample_names, pheno_groups, strict=False):
                     phenos = {p.strip() for p in pgroup.split(",") if p.strip()}
                     sample_phenos[sname].update(phenos)
             else:
@@ -294,9 +294,9 @@ def build_sample_phenotype_map(df: pd.DataFrame) -> Dict[str, Set[str]]:
 
 def assign_case_control_counts(
     df: pd.DataFrame,
-    case_samples: Set[str],
-    control_samples: Set[str],
-    all_samples: Set[str],
+    case_samples: set[str],
+    control_samples: set[str],
+    all_samples: set[str],
 ) -> pd.DataFrame:
     """
     Assign case/control counts, allele counts, and homozygous variant counts per variant.
@@ -420,7 +420,7 @@ def assign_case_control_counts(
     return df
 
 
-def extract_sample_and_genotype(sample_field: str) -> Tuple[str, str]:
+def extract_sample_and_genotype(sample_field: str) -> tuple[str, str]:
     """
     Extract sample name and genotype from a field like 'sample(0/1:172:110,62)' or 'sample(0/1)'.
 
@@ -483,7 +483,7 @@ def genotype_to_allele_count(genotype: str) -> int:
     return 0
 
 
-def load_gene_list(file_path: str) -> Set[str]:
+def load_gene_list(file_path: str) -> set[str]:
     """
     Load genes from a file (one gene per line) into a set of uppercase gene names.
 
@@ -503,7 +503,7 @@ def load_gene_list(file_path: str) -> Set[str]:
         return genes
 
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             for line_num, line_content in enumerate(f, 1):
                 gene = line_content.strip()
                 if gene:  # Avoid empty lines
@@ -575,7 +575,7 @@ def _sanitize_column_name(file_path: str) -> str:
     return sanitized_name
 
 
-def annotate_variants_with_gene_lists(lines: List[str], gene_list_files: List[str]) -> List[str]:
+def annotate_variants_with_gene_lists(lines: list[str], gene_list_files: list[str]) -> list[str]:
     """
     Add new columns to variant data lines indicating membership in provided gene lists.
 
@@ -605,8 +605,8 @@ def annotate_variants_with_gene_lists(lines: List[str], gene_list_files: List[st
     if not gene_list_files or not lines or len(lines) < 2:
         return lines
 
-    loaded_gene_sets: Dict[str, Set[str]] = {}
-    ordered_new_column_names: List[str] = []
+    loaded_gene_sets: dict[str, set[str]] = {}
+    ordered_new_column_names: list[str] = []
 
     for file_path in gene_list_files:
         genes = load_gene_list(file_path)
@@ -693,7 +693,7 @@ def annotate_variants_with_gene_lists(lines: List[str], gene_list_files: List[st
 
 
 def dump_df_to_xlsx(
-    df: pd.DataFrame, output_path: Union[str, Path], sheet_name: str = "Sheet1", index: bool = False
+    df: pd.DataFrame, output_path: str | Path, sheet_name: str = "Sheet1", index: bool = False
 ) -> None:
     """
     Export a pandas DataFrame to an Excel (xlsx) file.
@@ -741,7 +741,7 @@ def extract_gencode_id(gene_name: str) -> str:
     return match.group(1) if match else ""
 
 
-def get_vcf_names(vcf_file: str) -> List[str]:
+def get_vcf_names(vcf_file: str) -> list[str]:
     """
     Get sample names from a VCF file header.
 
@@ -772,7 +772,7 @@ def get_vcf_names(vcf_file: str) -> List[str]:
         return []
 
 
-def get_vcf_regions(vcf_file: str) -> List[str]:
+def get_vcf_regions(vcf_file: str) -> list[str]:
     """
     Get the chromosomal regions covered in a VCF file.
 
@@ -816,7 +816,7 @@ def get_vcf_regions(vcf_file: str) -> List[str]:
         return []
 
 
-def get_vcf_samples(vcf_file: str) -> List[str]:
+def get_vcf_samples(vcf_file: str) -> list[str]:
     """
     Get an ordered list of sample names from a VCF file.
 
@@ -850,7 +850,7 @@ def get_vcf_size(vcf_file: str) -> int:
     try:
         from subprocess import PIPE, Popen
 
-        cmd = ["bcftools", "view", "-H", vcf_file, "|" "wc", "-l"]
+        cmd = ["bcftools", "view", "-H", vcf_file, "|wc", "-l"]
         process = Popen(
             " ".join(cmd), shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True
         )
@@ -870,7 +870,7 @@ def get_vcf_size(vcf_file: str) -> int:
         return 0
 
 
-def match_IGV_link_columns(header_fields: List[str]) -> Dict[str, int]:
+def match_IGV_link_columns(header_fields: list[str]) -> dict[str, int]:
     """
     Find columns in a TSV header that should contain IGV links.
 
@@ -895,7 +895,7 @@ def match_IGV_link_columns(header_fields: List[str]) -> Dict[str, int]:
     return result
 
 
-def read_sequencing_manifest(file_path: str) -> Dict[str, Dict[str, str]]:
+def read_sequencing_manifest(file_path: str) -> dict[str, dict[str, str]]:
     """
     Read a sequencing manifest file containing sample metadata.
 

@@ -37,15 +37,15 @@ class TestColumnOrderingDeterminism:
 
         # All results should be identical
         first_result = results[0]
-        assert all(
-            result == first_result for result in results
-        ), "JSON annotation columns should be added in deterministic order"
+        assert all(result == first_result for result in results), (
+            "JSON annotation columns should be added in deterministic order"
+        )
 
         # Verify columns are in sorted order
         expected_cols = ["category", "evidence", "score"]  # Alphabetical order
-        assert (
-            first_result == expected_cols
-        ), f"Expected columns {expected_cols}, got {first_result}"
+        assert first_result == expected_cols, (
+            f"Expected columns {expected_cols}, got {first_result}"
+        )
 
     def test_empty_json_data_handling(self):
         """Test handling of empty JSON data."""
@@ -112,15 +112,15 @@ class TestColumnOrderingDeterminism:
 
         # All results should be identical and sorted
         first_result = results[0]
-        assert all(
-            result == first_result for result in results
-        ), "Large number of columns should be deterministic"
+        assert all(result == first_result for result in results), (
+            "Large number of columns should be deterministic"
+        )
 
         # Verify sorted order
         expected_sorted = sorted(many_columns.keys())
-        assert (
-            first_result == expected_sorted
-        ), f"Expected sorted columns {expected_sorted[:5]}..., got {first_result[:5]}..."
+        assert first_result == expected_sorted, (
+            f"Expected sorted columns {expected_sorted[:5]}..., got {first_result[:5]}..."
+        )
 
 
 class TestPipelineStageOrdering:
@@ -133,9 +133,9 @@ class TestPipelineStageOrdering:
         stage = VariantAnalysisStage()
         soft_deps = stage.soft_dependencies
 
-        assert (
-            "custom_annotation" in soft_deps
-        ), "VariantAnalysisStage should have custom_annotation in soft dependencies"
+        assert "custom_annotation" in soft_deps, (
+            "VariantAnalysisStage should have custom_annotation in soft dependencies"
+        )
 
     def test_stage_dependency_chain(self):
         """Test the complete dependency chain for deterministic ordering."""

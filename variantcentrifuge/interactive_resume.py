@@ -7,7 +7,6 @@ displaying checkpoint status, and guiding users through safe resume operations.
 
 import logging
 from datetime import datetime
-from typing import List, Optional, Tuple
 
 from .checkpoint import PipelineState
 from .stages.stage_registry import get_registry
@@ -16,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 def interactive_resume_selection(
-    pipeline_state: PipelineState, available_stages: List[str]
-) -> Optional[str]:
+    pipeline_state: PipelineState, available_stages: list[str]
+) -> str | None:
     """Interactive CLI for selecting resume point.
 
     Parameters
@@ -137,8 +136,8 @@ def interactive_resume_selection(
 
 
 def _resolve_user_input(
-    user_input: str, resume_points: List[str], completed_stages: List[Tuple[str, object]]
-) -> Optional[str]:
+    user_input: str, resume_points: list[str], completed_stages: list[tuple[str, object]]
+) -> str | None:
     """Resolve user input to a stage name.
 
     Parameters
@@ -184,7 +183,7 @@ def _resolve_user_input(
     return None
 
 
-def _display_all_available_stages(available_stages: List[str]) -> None:
+def _display_all_available_stages(available_stages: list[str]) -> None:
     """Display all available stages in current configuration."""
     registry = get_registry()
 
@@ -211,7 +210,7 @@ def _display_all_available_stages(available_stages: List[str]) -> None:
 
 
 def _display_stage_info(
-    stage_name: str, available_stages: List[str], pipeline_state: PipelineState
+    stage_name: str, available_stages: list[str], pipeline_state: PipelineState
 ) -> None:
     """Display detailed information about a specific stage."""
     registry = get_registry()
@@ -267,7 +266,7 @@ def _display_stage_info(
 
 
 def _confirm_resume_selection(
-    selected_stage: str, available_stages: List[str], pipeline_state: PipelineState
+    selected_stage: str, available_stages: list[str], pipeline_state: PipelineState
 ) -> bool:
     """Show confirmation dialog with impact summary."""
     print(f"\n🎯 Resume Point Selected: {selected_stage}")
@@ -325,8 +324,8 @@ def _confirm_resume_selection(
 
 
 def handle_interactive_resume(
-    args, pipeline_state: PipelineState, available_stages: List[str]
-) -> Optional[str]:
+    args, pipeline_state: PipelineState, available_stages: list[str]
+) -> str | None:
     """Handle the --interactive-resume CLI option.
 
     Parameters

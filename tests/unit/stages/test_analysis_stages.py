@@ -428,9 +428,9 @@ class TestVariantAnalysisStage:
             if "inheritance" in record.message.lower() and record.levelname == "WARNING"
         ]
 
-        assert (
-            len(inheritance_warning_logs) == 0
-        ), "Should not log inheritance warnings when inheritance not requested"
+        assert len(inheritance_warning_logs) == 0, (
+            "Should not log inheritance warnings when inheritance not requested"
+        )
         assert result.current_dataframe is not None
 
     def test_inheritance_warnings_when_inheritance_requested_but_missing(
@@ -468,9 +468,9 @@ class TestVariantAnalysisStage:
             if "inheritance" in record.message.lower() and record.levelname == "WARNING"
         ]
 
-        assert (
-            len(inheritance_warning_logs) > 0
-        ), "Should log inheritance warnings when inheritance was requested but columns missing"
+        assert len(inheritance_warning_logs) > 0, (
+            "Should log inheritance warnings when inheritance was requested but columns missing"
+        )
         assert result.current_dataframe is not None
 
     def test_inheritance_debug_when_inheritance_not_requested(self, base_context, caplog):
@@ -546,9 +546,9 @@ class TestVariantAnalysisStage:
             if "inheritance" in record.message.lower() and record.levelname == "WARNING"
         ]
 
-        assert (
-            len(inheritance_warning_logs) == 0
-        ), "Should not log warnings when inheritance columns are present"
+        assert len(inheritance_warning_logs) == 0, (
+            "Should not log warnings when inheritance columns are present"
+        )
 
     def test_should_calculate_inheritance_method(self, base_context):
         """Test the _should_calculate_inheritance method logic."""

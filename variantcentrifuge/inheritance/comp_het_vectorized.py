@@ -10,7 +10,7 @@ Performance improvements:
 """
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -66,8 +66,8 @@ def encode_genotypes(genotype_series: pd.Series) -> np.ndarray:
 
 
 def analyze_gene_for_compound_het_vectorized(
-    gene_df: pd.DataFrame, pedigree_data: Dict[str, Dict[str, Any]], sample_list: List[str]
-) -> Dict[str, Dict[str, Any]]:
+    gene_df: pd.DataFrame, pedigree_data: dict[str, dict[str, Any]], sample_list: list[str]
+) -> dict[str, dict[str, Any]]:
     """
     Vectorized analysis of compound heterozygous patterns in a gene.
 
@@ -225,7 +225,7 @@ def analyze_gene_for_compound_het_vectorized(
 
 def find_potential_partners_vectorized(
     het_indices: np.ndarray, father_genotypes: np.ndarray, mother_genotypes: np.ndarray
-) -> Dict[int, List[int]]:
+) -> dict[int, list[int]]:
     """
     Find potential trans-configured partners for each heterozygous variant.
 
@@ -349,8 +349,8 @@ def determine_compound_het_type_vectorized(
     mother_genotypes: np.ndarray,
     gene_df: pd.DataFrame,
     sample_id: str,
-    pedigree_data: Dict[str, Dict[str, Any]],
-) -> Tuple[str, str]:
+    pedigree_data: dict[str, dict[str, Any]],
+) -> tuple[str, str]:
     """
     Determine compound het type using pre-encoded genotypes.
 
@@ -416,10 +416,10 @@ def determine_compound_het_type_vectorized(
 # Compatibility wrapper to use vectorized version with existing code
 def analyze_gene_for_compound_het(
     gene_df: pd.DataFrame,
-    pedigree_data: Dict[str, Dict[str, Any]],
-    sample_list: List[str],
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
     use_vectorized: bool = True,
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """
     Use either vectorized or original implementation for compound het analysis.
 

@@ -1,7 +1,5 @@
 """Mock implementations of external bioinformatics tools."""
 
-from typing import List, Optional
-
 
 class MockBCFTools:
     """Mock bcftools for testing without dependencies."""
@@ -9,7 +7,7 @@ class MockBCFTools:
     def __init__(self):
         self.commands_executed = []
 
-    def run(self, args: List[str], output_file: Optional[str] = None) -> str:
+    def run(self, args: list[str], output_file: str | None = None) -> str:
         """Mock bcftools execution."""
         self.commands_executed.append(args)
 
@@ -42,7 +40,7 @@ class MockBCFTools:
         ]
         return header + "\n".join(variants)
 
-    def _mock_query_output(self, args: List[str]) -> str:
+    def _mock_query_output(self, args: list[str]) -> str:
         """Return mock query output."""
         if "-l" in args:  # List samples
             return "Sample1\nSample2\nSample3\n"
@@ -55,7 +53,7 @@ class MockSnpEff:
     def __init__(self):
         self.commands_executed = []
 
-    def run(self, args: List[str], output_file: Optional[str] = None) -> str:
+    def run(self, args: list[str], output_file: str | None = None) -> str:
         """Mock snpEff execution."""
         self.commands_executed.append(args)
 
@@ -66,7 +64,7 @@ class MockSnpEff:
         else:
             return ""
 
-    def _mock_genes2bed(self, args: List[str]) -> str:
+    def _mock_genes2bed(self, args: list[str]) -> str:
         """Return mock BED output for genes."""
         # Find the gene names in args
         genes = []
@@ -99,7 +97,7 @@ class MockSnpSift:
     def __init__(self):
         self.commands_executed = []
 
-    def run(self, args: List[str], output_file: Optional[str] = None) -> str:
+    def run(self, args: list[str], output_file: str | None = None) -> str:
         """Mock SnpSift execution."""
         self.commands_executed.append(args)
 
@@ -119,7 +117,7 @@ class MockSnpSift:
 chr1\t100\t.\tA\tT\t100\tPASS\tAF=0.01
 """
 
-    def _mock_extract_fields(self, args: List[str]) -> str:
+    def _mock_extract_fields(self, args: list[str]) -> str:
         """Return mock extracted fields TSV."""
         # Find fields in args
         fields = []
@@ -158,7 +156,7 @@ class MockBedTools:
     def __init__(self):
         self.commands_executed = []
 
-    def run(self, args: List[str], output_file: Optional[str] = None) -> str:
+    def run(self, args: list[str], output_file: str | None = None) -> str:
         """Mock bedtools execution."""
         self.commands_executed.append(args)
 

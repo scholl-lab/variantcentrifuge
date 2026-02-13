@@ -142,10 +142,11 @@ class TestParallelCompleteProcessingStage:
             chunk_tsv = tmppath / "test_output.chunk_0.extracted.tsv.gz"
             chunk_tsv.touch()
 
-            with patch("variantcentrifuge.stages.processing_stages.extract_variants"), patch(
-                "variantcentrifuge.stages.processing_stages.apply_snpsift_filter"
-            ), patch("variantcentrifuge.stages.processing_stages.extract_fields"):
-
+            with (
+                patch("variantcentrifuge.stages.processing_stages.extract_variants"),
+                patch("variantcentrifuge.stages.processing_stages.apply_snpsift_filter"),
+                patch("variantcentrifuge.stages.processing_stages.extract_fields"),
+            ):
                 result = stage._process_single_chunk(
                     0, chunk_bed, "/path/to/test.vcf", "test_output", tmppath, config
                 )

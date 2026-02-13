@@ -10,11 +10,11 @@ from .fixtures import (
 
 __all__ = [
     "MockBCFTools",
+    "MockBedTools",
     "MockSnpEff",
     "MockSnpSift",
-    "MockBedTools",
-    "create_test_context",
-    "create_test_vcf",
     "create_test_bed",
+    "create_test_context",
     "create_test_phenotype_file",
+    "create_test_vcf",
 ]

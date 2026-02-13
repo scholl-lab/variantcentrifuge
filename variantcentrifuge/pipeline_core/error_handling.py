@@ -10,10 +10,11 @@ This module provides error handling utilities including:
 
 import logging
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Union
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 class PipelineError(Exception):
     """Base exception for all pipeline errors."""
 
-    def __init__(self, message: str, stage: Optional[str] = None, details: Optional[Dict] = None):
+    def __init__(self, message: str, stage: str | None = None, details: dict | None = None):
         """Initialize pipeline error.
 
         Parameters
@@ -41,7 +42,7 @@ class PipelineError(Exception):
 class ToolNotFoundError(PipelineError):
     """Raised when a required external tool is not found."""
 
-    def __init__(self, tool: str, stage: Optional[str] = None):
+    def __init__(self, tool: str, stage: str | None = None):
         """Initialize tool not found error."""
         message = f"Required tool '{tool}' not found in PATH"
         super().__init__(message, stage, {"tool": tool})
@@ -50,7 +51,7 @@ class ToolNotFoundError(PipelineError):
 class FileFormatError(PipelineError):
     """Raised when a file has an invalid format."""
 
-    def __init__(self, file_path: str, expected_format: str, stage: Optional[str] = None):
+    def __init__(self, file_path: str, expected_format: str, stage: str | None = None):
         """Initialize file format error."""
         message = f"Invalid file format for {file_path}. Expected: {expected_format}"
         super().__init__(message, stage, {"file": file_path, "expected_format": expected_format})
@@ -59,7 +60,7 @@ class FileFormatError(PipelineError):
 class DataValidationError(PipelineError):
     """Raised when data validation fails."""
 
-    def __init__(self, message: str, field: str, stage: Optional[str] = None):
+    def __init__(self, message: str, field: str, stage: str | None = None):
         """Initialize data validation error."""
         super().__init__(message, stage, {"field": field})
 
@@ -71,7 +72,7 @@ class StageExecutionError(PipelineError):
         self, stage_name: str, original_error: Exception, recovery_attempted: bool = False
     ):
         """Initialize stage execution error."""
-        message = f"Stage '{stage_name}' failed: {str(original_error)}"
+        message = f"Stage '{stage_name}' failed: {original_error!s}"
         super().__init__(
             message,
             stage_name,
@@ -98,7 +99,7 @@ def retry_on_failure(
     delay: float = 1.0,
     backoff: float = 2.0,
     exceptions: tuple = (Exception,),
-    logger: Optional[logging.Logger] = None,
+    logger: logging.Logger | None = None,
 ) -> Callable:
     """Create decorator to retry function on failure with exponential backoff.
 
@@ -152,7 +153,7 @@ def graceful_error_handling(
     stage_name: str,
     reraise: bool = True,
     fallback_value=None,
-    logger: Optional[logging.Logger] = None,
+    logger: logging.Logger | None = None,
 ):
     """Context manager for graceful error handling in stages.
 
@@ -204,7 +205,7 @@ def graceful_error_handling(
 class ErrorRecoveryStrategy:
     """Base class for error recovery strategies."""
 
-    def can_recover(self, error: Exception, context: Dict) -> bool:
+    def can_recover(self, error: Exception, context: dict) -> bool:
         """Check if recovery is possible for this error.
 
         Parameters
@@ -221,7 +222,7 @@ class ErrorRecoveryStrategy:
         """
         return False
 
-    def recover(self, error: Exception, context: Dict) -> any:
+    def recover(self, error: Exception, context: dict) -> Any:
         """Attempt to recover from the error.
 
         Parameters
@@ -242,7 +243,7 @@ class ErrorRecoveryStrategy:
 class FileRecoveryStrategy(ErrorRecoveryStrategy):
     """Recovery strategy for file-related errors."""
 
-    def can_recover(self, error: Exception, context: Dict) -> bool:
+    def can_recover(self, error: Exception, context: dict) -> bool:
         """Check if file error can be recovered."""
         if isinstance(error, FileNotFoundError):
             # Can try alternative paths or create file
@@ -252,7 +253,7 @@ class FileRecoveryStrategy(ErrorRecoveryStrategy):
             return "alternative_location" in context
         return False
 
-    def recover(self, error: Exception, context: Dict) -> any:
+    def recover(self, error: Exception, context: dict) -> Any:
         """Attempt file error recovery."""
         if isinstance(error, FileNotFoundError):
             if "alternative_paths" in context:
@@ -279,7 +280,7 @@ class FileRecoveryStrategy(ErrorRecoveryStrategy):
 class ToolRecoveryStrategy(ErrorRecoveryStrategy):
     """Recovery strategy for external tool errors."""
 
-    def can_recover(self, error: Exception, context: Dict) -> bool:
+    def can_recover(self, error: Exception, context: dict) -> bool:
         """Check if tool error can be recovered."""
         if isinstance(error, ToolNotFoundError):
             return "alternative_tools" in context
@@ -287,7 +288,7 @@ class ToolRecoveryStrategy(ErrorRecoveryStrategy):
             return "retry_with_different_params" in context
         return False
 
-    def recover(self, error: Exception, context: Dict) -> any:
+    def recover(self, error: Exception, context: dict) -> Any:
         """Attempt tool error recovery."""
         if isinstance(error, ToolNotFoundError) and "alternative_tools" in context:
             for alt_tool in context["alternative_tools"]:
@@ -310,7 +311,7 @@ class ErrorRecoveryManager:
 
     def __init__(self):
         """Initialize error recovery manager."""
-        self.strategies: List[ErrorRecoveryStrategy] = [
+        self.strategies: list[ErrorRecoveryStrategy] = [
             FileRecoveryStrategy(),
             ToolRecoveryStrategy(),
         ]
@@ -325,7 +326,7 @@ class ErrorRecoveryManager:
         """
         self.strategies.append(strategy)
 
-    def attempt_recovery(self, error: Exception, context: Dict) -> Optional[any]:
+    def attempt_recovery(self, error: Exception, context: dict) -> Any | None:
         """Attempt to recover from an error.
 
         Parameters
@@ -359,9 +360,9 @@ error_recovery_manager = ErrorRecoveryManager()
 def handle_stage_error(
     stage_name: str,
     error: Exception,
-    context: Optional[Dict] = None,
+    context: dict | None = None,
     reraise: bool = True,
-) -> Optional[any]:
+) -> Any | None:
     """Handle errors that occur during stage execution.
 
     Parameters
@@ -404,7 +405,7 @@ def handle_stage_error(
     return None
 
 
-def validate_file_exists(file_path: Union[str, Path], stage_name: str) -> Path:
+def validate_file_exists(file_path: str | Path, stage_name: str) -> Path:
     """Validate that a file exists and is readable.
 
     Parameters
@@ -436,7 +437,7 @@ def validate_file_exists(file_path: Union[str, Path], stage_name: str) -> Path:
 
     # Check if readable
     try:
-        with open(path, "r"):
+        with open(path):
             pass
     except PermissionError:
         raise PermissionError(f"Cannot read file: {path}")
@@ -444,9 +445,7 @@ def validate_file_exists(file_path: Union[str, Path], stage_name: str) -> Path:
     return path
 
 
-def validate_output_directory(
-    output_dir: Union[str, Path], stage_name: str, create: bool = True
-) -> Path:
+def validate_output_directory(output_dir: str | Path, stage_name: str, create: bool = True) -> Path:
     """Validate output directory.
 
     Parameters
