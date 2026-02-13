@@ -333,8 +333,8 @@ def check_x_linked_patterns(
     if not is_variant(sample_gt):
         return patterns
 
-    # Get parent information
-    father_id, mother_id = get_parents(sample_id, pedigree_data)
+    # Get parent information (used by sub-functions via pedigree_data)
+    _father_id, _mother_id = get_parents(sample_id, pedigree_data)
 
     # Check X-linked recessive
     xlr_consistent = check_x_linked_recessive(sample_id, variant_row, pedigree_data, sample_list)
@@ -468,7 +468,7 @@ def check_mitochondrial_pattern(
     if not is_variant(sample_gt):
         return False
 
-    father_id, mother_id = get_parents(sample_id, pedigree_data)
+    _father_id, mother_id = get_parents(sample_id, pedigree_data)
 
     # Check maternal transmission
     if mother_id and mother_id in sample_list:

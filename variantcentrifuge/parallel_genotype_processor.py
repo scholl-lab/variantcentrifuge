@@ -377,7 +377,7 @@ class StreamingGenotypeProcessor:
             sample_count = len(config.get("sample_list", "").split(","))
             available_memory = get_available_memory_gb()
 
-            chunk_size, expected_chunks = IntelligentChunkCalculator.calculate_optimal_chunks(
+            chunk_size, _expected_chunks = IntelligentChunkCalculator.calculate_optimal_chunks(
                 total_rows, self.threads, available_memory, sample_count, self.memory_manager
             )
 

@@ -201,7 +201,7 @@ def select_optimal_processing_method(
         available_memory_gb = get_available_memory_gb()
 
     file_size_mb = file_path.stat().st_size / (1024 * 1024)
-    uncompressed_gb, memory_required_gb = estimate_memory_requirements(file_path, num_samples)
+    _uncompressed_gb, memory_required_gb = estimate_memory_requirements(file_path, num_samples)
 
     # Memory safety thresholds (more realistic for modern systems)
     memory_safe_threshold = available_memory_gb * 0.75  # Use max 75% of available memory

@@ -629,14 +629,11 @@ def filter_dataframe_with_query(df: pd.DataFrame, filter_expression: str) -> pd.
         # Create a copy to avoid modifying the original DataFrame
         df_copy = df.copy()
 
-        # Convert numeric columns to numeric types to allow for comparisons like > or <
-        # This should be done carefully to avoid converting string columns by mistake.
+        # Convert string/object columns to numeric types for comparisons like > or <.
+        # In pandas 3.0+, string columns use "str" dtype instead of "object".
         for col in df_copy.columns:
-            if df_copy[col].dtype == "object":
-                # Attempt to convert columns that look numeric
-                # Use coerce to convert 'NA' and other non-numeric strings to NaN
+            if pd.api.types.is_string_dtype(df_copy[col]) or df_copy[col].dtype == object:
                 converted = pd.to_numeric(df_copy[col], errors="coerce")
-                # Only update if some values were successfully converted
                 if converted.notna().any():
                     df_copy[col] = converted
 

@@ -20,25 +20,21 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install Ruff
-        run: pipx install ruff
-
       - name: Run Ruff linter
-        run: ruff check --output-format=github variantcentrifuge/ tests/
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: "check --output-format=github"
+          src: "variantcentrifuge/ tests/"
 
       - name: Check code formatting with Ruff
-        run: ruff format --check --diff variantcentrifuge/ tests/
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: "format --check --diff"
+          src: "variantcentrifuge/ tests/"
 
   type-check:
     name: Type Check with mypy
     runs-on: ubuntu-latest
-    # Informational only during gradual adoption — remove continue-on-error once clean
-    continue-on-error: true
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -47,10 +43,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-          cache: "pip"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
       - name: Install dependencies
         run: uv pip install --system -e ".[dev]"
@@ -84,10 +81,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: "pip"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
       - name: Install dependencies
         run: uv pip install --system -e ".[dev]"
@@ -120,12 +118,9 @@ jobs:
       - name: Check all jobs status
         run: |
           if [[ "${{ needs.lint.result }}" != "success" ]] || \
+             [[ "${{ needs.type-check.result }}" != "success" ]] || \
              [[ "${{ needs.test.result }}" != "success" ]]; then
             echo "One or more required jobs failed"
             exit 1
-          fi
-          # type-check is informational during gradual adoption
-          if [[ "${{ needs.type-check.result }}" != "success" ]]; then
-            echo "Note: mypy type-check had issues (non-blocking during gradual adoption)"
           fi
           echo "All required jobs succeeded!"
