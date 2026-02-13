@@ -1,0 +1,24 @@
+# Runtime-only conda environment for Docker builds.
+# Mirrors conda/environment.yml but excludes dev/doc dependencies.
+name: vc
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - bcftools=1.21
+  - bedtools=2.31.1
+  - igv-reports=1.14.1
+  - python=3.12
+  - snpeff=5.2
+  - snpsift=5.2
+  - pandas=2.2
+  - scipy=1.14
+  - statsmodels=0.14
+  - openpyxl=3.1
+  - jinja2
+  - psutil
+  - numpy
+  - pip:
+    - intervaltree
+    - smart-open

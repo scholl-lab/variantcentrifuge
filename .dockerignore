@@ -1,0 +1,71 @@
+# Version control
+.git
+.gitignore
+
+# Tests and development
+tests/
+docs/
+scripts/
+snakemake/
+testing/
+baseline_outputs/
+
+# Build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+*.egg
+
+# Caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.cache/
+.hypothesis/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*~
+
+# CI/CD
+.github/
+
+# Documentation and meta
+CLAUDE.md
+.claude/
+.planning/
+.windsurfrules
+CHANGELOG.md
+Makefile
+
+# Environment files (not needed in image)
+conda/environment.yml
+environment_local.yml
+
+# Output and data files
+output/
+temp_bed_files/
+*.tsv
+*.xlsx
+*.vcf
+*.vcf.gz
+*.bam
+*.bai
+*.bed
+*.gz
+*.log
+
+# OS files
+.DS_Store
+nul
+Thumbs.db
+
+# Docker override
+docker-compose.override.yml
+
+# Node
+node_modules/

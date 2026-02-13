@@ -1,0 +1,13 @@
+services:
+  variantcentrifuge:
+    build: .
+    image: ghcr.io/scholl-lab/variantcentrifuge:latest
+    volumes:
+      # Working directory — place your VCF files here
+      - ./data:/data
+
+      # snpEff genome databases (download once, mount read-only)
+      # - /path/to/snpeff_data:/snpeff_data:ro
+
+      # Custom scoring configurations (override built-in models)
+      # - ./my_scoring:/app/scoring:ro
