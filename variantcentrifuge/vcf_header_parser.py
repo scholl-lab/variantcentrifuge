@@ -218,7 +218,7 @@ def validate_requested_fields(
     format_ids = {f.id for f in available if f.source == "FORMAT"}
 
     # Standard VCF fixed columns are always valid
-    fixed_cols = {"CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "AC", "AF"}
+    fixed_cols = {"CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER"}
 
     missing: list[str] = []
     for raw_field in requested_fields.strip().split():

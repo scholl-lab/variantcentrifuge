@@ -217,9 +217,10 @@ def annotate_pm5(
     """
     results: list[dict[str, Any]] = []
 
-    for _, row in df.iterrows():
-        gene = str(row.get(gene_col, ""))
-        hgvs_p = str(row.get(hgvs_col, ""))
+    genes = df[gene_col].astype(str).tolist() if gene_col in df.columns else [""] * len(df)
+    hgvs_vals = df[hgvs_col].astype(str).tolist() if hgvs_col in df.columns else [""] * len(df)
+
+    for gene, hgvs_p in zip(genes, hgvs_vals, strict=True):
         parsed = parse_hgvs_p(hgvs_p)
 
         if not parsed or not gene:

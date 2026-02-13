@@ -293,15 +293,9 @@ def create_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--include-lp",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=True,
-        help="Include Likely_pathogenic entries (default: True)",
-    )
-    parser.add_argument(
-        "--no-include-lp",
-        dest="include_lp",
-        action="store_false",
-        help="Exclude Likely_pathogenic entries",
+        help="Include Likely_pathogenic entries (default: True).",
     )
     parser.add_argument(
         "--stats",

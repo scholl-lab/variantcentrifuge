@@ -230,13 +230,14 @@ def create_parser() -> argparse.ArgumentParser:
         default="table",
         help="Output format for --show-vcf-annotations (default: table).",
     )
-    filter_group.add_argument(
+    ann_source_group = filter_group.add_mutually_exclusive_group()
+    ann_source_group.add_argument(
         "--info-only",
         action="store_true",
         default=False,
         help="With --show-vcf-annotations, show only INFO fields.",
     )
-    filter_group.add_argument(
+    ann_source_group.add_argument(
         "--format-only",
         action="store_true",
         default=False,
@@ -866,7 +867,7 @@ def main() -> int:
         ann_parser.add_argument("--annotation-format", choices=["table", "json"], default="table")
         ann_parser.add_argument("--info-only", action="store_true", default=False)
         ann_parser.add_argument("--format-only", action="store_true", default=False)
-        ann_args = ann_parser.parse_args()
+        ann_args, _ = ann_parser.parse_known_args()
 
         ann_fields = parse_vcf_header(ann_args.vcf_file)
         if ann_args.annotation_format == "json":
