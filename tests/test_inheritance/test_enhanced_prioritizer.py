@@ -46,7 +46,7 @@ class TestPatternPrioritization:
         """Test prioritization of single sample patterns."""
         patterns = ["unknown", "homozygous"]
 
-        best_pattern, confidence = prioritize_patterns(patterns)
+        best_pattern, _confidence = prioritize_patterns(patterns)
 
         # Homozygous has higher priority than unknown
         assert best_pattern == "homozygous"
@@ -55,7 +55,7 @@ class TestPatternPrioritization:
         """Test compound het patterns have high priority."""
         patterns = ["unknown", "compound_heterozygous_possible_no_pedigree"]
 
-        best_pattern, confidence = prioritize_patterns(patterns)
+        best_pattern, _confidence = prioritize_patterns(patterns)
 
         # Compound het should win over unknown
         assert best_pattern == "compound_heterozygous_possible_no_pedigree"

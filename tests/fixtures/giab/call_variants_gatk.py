@@ -332,7 +332,7 @@ def main():
     if not bam_files:
         sys.exit(1)
 
-    reference_fasta, reference_fai = find_reference_files(args.reference_dir)
+    reference_fasta, _reference_fai = find_reference_files(args.reference_dir)
     if not reference_fasta:
         sys.exit(1)
 

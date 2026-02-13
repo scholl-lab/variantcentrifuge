@@ -158,7 +158,7 @@ class PerformanceBenchmark:
                 time.sleep(0.1)
 
             # Get final status
-            stdout, stderr = proc.communicate()
+            _stdout, stderr = proc.communicate()
             execution_time = time.time() - start_time
 
             if proc.returncode != 0:
@@ -369,7 +369,7 @@ class PerformanceBenchmark:
             plt.style.use("ggplot")
 
         # 1. Execution time comparison
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+        _fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
 
         # Bar plot of average execution times
         summary = (
@@ -426,7 +426,7 @@ class PerformanceBenchmark:
         # 2. Scalability plot (if we have different thread counts)
         thread_tests = df[df["threads"] > 1]
         if len(thread_tests) > 0:
-            fig, ax = plt.subplots(figsize=(10, 6))
+            _fig, ax = plt.subplots(figsize=(10, 6))
 
             for pipeline in ["old", "new"]:
                 pipeline_df = thread_tests[thread_tests["pipeline_type"] == pipeline]
@@ -473,7 +473,7 @@ class PerformanceBenchmark:
         if speedup_data:
             speedup_df = pd.DataFrame(speedup_data)
 
-            fig, ax = plt.subplots(figsize=(10, 6))
+            _fig, ax = plt.subplots(figsize=(10, 6))
             bars = ax.bar(speedup_df["test"], speedup_df["speedup"])
 
             # Color bars based on speedup

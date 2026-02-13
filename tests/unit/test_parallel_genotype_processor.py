@@ -197,7 +197,7 @@ class TestStreamingGenotypeProcessor:
             processor.process_file_streaming(self.input_file, self.output_file, self.config)
 
             mock_execute.assert_called_once()
-            args, kwargs = mock_execute.call_args
+            args, _kwargs = mock_execute.call_args
             assert args[3] == 100  # chunk_size
 
     @patch("variantcentrifuge.parallel_genotype_processor._process_chunks_worker")
@@ -377,7 +377,7 @@ class TestStreamingParallelDeadlockFixes:
             data_chunks = 0
 
             while not chunk_queue.empty():
-                chunk_id, chunk_df = chunk_queue.get_nowait()
+                _chunk_id, chunk_df = chunk_queue.get_nowait()
                 if chunk_df is None:
                     stop_signals += 1
                 else:
@@ -463,7 +463,7 @@ class TestStreamingParallelDeadlockFixes:
 
         # Should have processed the work item
         assert not result_queue.empty()
-        chunk_id, result = result_queue.get()
+        chunk_id, _result = result_queue.get()
         assert chunk_id == 0
 
 

@@ -160,7 +160,7 @@ class AnnotationSampler:
             if len(ann_parts) < 10:
                 return None
 
-            alt, effect, impact, gene, gene_id, feature_type, feature_id, transcript_biotype = (
+            _alt, effect, impact, _gene, _gene_id, feature_type, _feature_id, transcript_biotype = (
                 ann_parts[:8]
             )
 
@@ -386,7 +386,7 @@ class EnhancedTestDataGenerator:
                 logger.warning(f"No coordinates found for gene {gene}, skipping")
                 continue
 
-            chrom, start, end, strand = self.GENE_COORDINATES[gene]
+            chrom, start, end, _strand = self.GENE_COORDINATES[gene]
             gene_length = end - start
 
             # Determine variant characteristics based on gene type
@@ -457,7 +457,7 @@ class EnhancedTestDataGenerator:
 
         # Sort variants by chromosome and position
         def sort_key(variant):
-            chrom, pos, ref, alt, gene, annotation = variant
+            chrom, pos, _ref, _alt, _gene, _annotation = variant
             try:
                 chrom_num = (
                     int(chrom)

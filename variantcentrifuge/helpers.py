@@ -538,7 +538,7 @@ def _sanitize_column_name(file_path: str) -> str:
         A sanitized column name derived from the file's basename
     """
     base_name = os.path.basename(file_path)
-    name_part, ext = os.path.splitext(base_name)
+    name_part, _ext = os.path.splitext(base_name)
 
     # Iteratively remove common extensions
     common_extensions = [".txt", ".list", ".tsv", ".csv", ".genes", ".gene"]
