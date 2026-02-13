@@ -5,9 +5,37 @@
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.pytest.ini_options]
+# Test file patterns
+python_files = ["test_*.py", "*_test.py"]
+# Default options: summary of non-passing tests, short tracebacks, strict markers
+addopts = "-ra --tb=short --strict-markers --color=yes"
+# Focus test collection on the tests directory
+testpaths = ["tests"]
+# Registered markers
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Tests that take a long time to run",
+    "helpers: Tests for helper functions",
+    "replacer: Tests for replacer.py",
+    "analyze: Tests for analyze_variants.py",
+    "phenotype: Tests for phenotype data integration",
+    "inheritance: Tests for inheritance analysis",
+    "deducer: Tests for pattern deduction",
+    "comp_het: Tests for compound heterozygous analysis",
+    "segregation: Tests for segregation analysis",
+    "prioritizer: Tests for pattern prioritization",
+    "gene_burden: Tests for gene burden analysis",
+    "performance: Performance benchmark tests",
+]
+# Live console logging disabled by default for performance.
+# Enable when needed: pytest --log-cli-level=INFO
+log_cli = false
+
 [tool.black]
 line-length = 100
-target-version = ['py37']
+target-version = ['py310']
 include = '\.pyi?$'
 exclude = '''
 /(

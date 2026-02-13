@@ -1,4 +1,4 @@
-name: annotation
+name: variantcentrifuge
 channels:
   - conda-forge
   - bioconda
@@ -14,6 +14,9 @@ dependencies:
   - scipy=1.14.1=py312h62794b6_2
   - statsmodels=0.14.4=py312hc0a28a1_0
   - openpyxl=3.1.5=py312h710cb58_1
+  - jinja2
+  - psutil
+  - numpy
   # Development dependencies
   - black=24.4.0
   - flake8=7.0.0
@@ -27,3 +30,7 @@ dependencies:
   - furo
   - myst-parser
   - sphinx-autodoc-typehints
+  - pip:
+    - intervaltree
+    - smart-open
+    - -e .

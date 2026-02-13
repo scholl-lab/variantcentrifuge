@@ -31,7 +31,7 @@ setup(
     author_email="bernt.popp.md@gmail.com",
     url="https://github.com/scholl-lab/variantcentrifuge",
     packages=find_packages(),
-    python_requires=">=3.7",
+    python_requires=">=3.10",
     install_requires=[
         "pandas",
         "jinja2",
@@ -39,8 +39,22 @@ setup(
         "statsmodels",
         "numpy",
         "intervaltree",
-        "psutil",  # For memory monitoring and system resource detection
+        "psutil",
+        "smart-open",
+        "openpyxl",
     ],
+    extras_require={
+        "dev": [
+            "pytest",
+            "pytest-cov",
+            "pytest-mock",
+            "black==24.4.0",
+            "flake8==7.0.0",
+            "flake8-docstrings",
+            "isort==5.13.2",
+            "pre-commit",
+        ],
+    },
     entry_points={"console_scripts": ["variantcentrifuge=variantcentrifuge.cli:main"]},
     include_package_data=True,
     package_data={"variantcentrifuge": ["config.json"]},
