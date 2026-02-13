@@ -36,6 +36,9 @@ LABEL org.opencontainers.image.title="variantcentrifuge" \
 # Copy the fully built conda environment from the build stage
 COPY --from=build /opt/conda /opt/conda
 
+# Include LICENSE for compliance
+COPY --chown=$MAMBA_USER:$MAMBA_USER LICENSE /app/LICENSE
+
 # Copy scoring models and stats configs into the image
 COPY --chown=$MAMBA_USER:$MAMBA_USER scoring/ /app/scoring/
 COPY --chown=$MAMBA_USER:$MAMBA_USER stats_configs/ /app/stats_configs/

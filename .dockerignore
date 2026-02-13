@@ -40,7 +40,6 @@ CLAUDE.md
 .planning/
 .windsurfrules
 CHANGELOG.md
-LICENSE
 Makefile
 
 # Environment files (not needed in image)
