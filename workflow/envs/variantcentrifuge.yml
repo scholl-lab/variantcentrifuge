@@ -22,4 +22,4 @@ dependencies:
   - pip:
     - intervaltree
     - smart-open
-    - variantcentrifuge
+    - variantcentrifuge==0.11.0

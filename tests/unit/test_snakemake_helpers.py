@@ -124,7 +124,7 @@ class TestBuildVcFlags:
         assert "--field-profile dbnsfp5" in flags
         assert "--preset rare" in flags
         assert "--preset coding" in flags
-        assert "--append-extra-sample-fields GEN[*].DP GEN[*].AD" in flags
+        assert "--append-extra-sample-fields 'GEN[*].DP' 'GEN[*].AD'" in flags
         assert "--annotate-gene-list /lists/cardiac.txt" in flags
         assert "--annotate-gene-list /lists/cancer.txt" in flags
 

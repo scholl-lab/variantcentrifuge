@@ -8,5 +8,5 @@ latency-wait: 60
 default-resources:
   slurm_partition: compute
   slurm_account: sc-users
-  mem_mb_per_cpu: 4400
+  mem_mb: 4400
   runtime: 120

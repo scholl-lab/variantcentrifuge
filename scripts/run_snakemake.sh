@@ -43,26 +43,33 @@ fi
 conda activate snakemake 2>/dev/null || true
 
 # ── TMPDIR setup ─────────────────────────────────────────────────────────────
+# Create a Snakemake-specific temp directory without overwriting TMPDIR if
+# already set (e.g. by SLURM).
 if [[ "${CLUSTER}" == "bih" ]]; then
     BASE_TMPDIR="${HOME}/scratch/tmp"
 else
     BASE_TMPDIR="${TMPDIR:-/tmp}/snakemake"
 fi
 mkdir -p "${BASE_TMPDIR}"
-TMPDIR=$(mktemp -d "${BASE_TMPDIR}/sm.XXXXXX")
-export TMPDIR
-trap 'rm -rf "${TMPDIR}"' EXIT
+SNAKEMAKE_TMPDIR=$(mktemp -d "${BASE_TMPDIR}/sm.XXXXXX")
+export SNAKEMAKE_TMPDIR
+if [[ -z "${TMPDIR:-}" ]]; then
+    TMPDIR="${SNAKEMAKE_TMPDIR}"
+    export TMPDIR
+fi
+trap 'rm -rf "${SNAKEMAKE_TMPDIR}"' EXIT
 
 mkdir -p slurm_logs
 
 # ── Launch ───────────────────────────────────────────────────────────────────
 echo "=== variantcentrifuge Snakemake Launch ==="
-echo "  Cluster:    ${CLUSTER}"
-echo "  Config:     ${CONFIG_FILE}"
-echo "  Profile:    profiles/${CLUSTER}"
-echo "  TMPDIR:     ${TMPDIR}"
-echo "  Extra args: $*"
-echo "  Start:      $(date)"
+echo "  Cluster:           ${CLUSTER}"
+echo "  Config:            ${CONFIG_FILE}"
+echo "  Profile:           profiles/${CLUSTER}"
+echo "  TMPDIR:            ${TMPDIR:-<unset>}"
+echo "  SNAKEMAKE_TMPDIR:  ${SNAKEMAKE_TMPDIR}"
+echo "  Extra args:        $*"
+echo "  Start:             $(date)"
 echo "==========================================="
 
 snakemake \
