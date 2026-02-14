@@ -20,6 +20,7 @@ import pandas as pd
 
 from ..analyze_variants import analyze_variants
 from ..annotator import annotate_dataframe_with_features, load_custom_features
+from ..dataframe_optimizer import load_optimized_dataframe, should_use_memory_passthrough
 from ..filters import filter_final_tsv_by_genotype
 from ..gene_burden import perform_gene_burden_analysis
 from ..inheritance import analyze_inheritance
@@ -531,26 +532,25 @@ class DataFrameLoadingStage(Stage):
             # Don't load full DataFrame - chunked stages will handle it
             return context
 
-        # Load full DataFrame
+        # Load full DataFrame with optimizations
         logger.info(f"Restoring DataFrame from {input_file} (checkpoint skip)")
         compression = "gzip" if str(input_file).endswith(".gz") else None
 
-        # Use quoting=3 (QUOTE_NONE) to handle data with quotes
-        # Use low_memory=False to avoid dtype inference issues
-        df = pd.read_csv(
-            input_file,
+        df, rename_map = load_optimized_dataframe(
+            str(input_file),
             sep="\t",
-            dtype=str,
-            keep_default_na=False,
-            na_values=[""],
             compression=compression,
-            quoting=3,  # QUOTE_NONE - don't treat quotes specially
-            low_memory=False,
             on_bad_lines="warn",  # Warn about problematic lines instead of failing
         )
 
         context.current_dataframe = df
+        context.column_rename_map = rename_map
         logger.info(f"Restored {len(df)} variants into DataFrame after checkpoint skip")
+
+        # Check if DataFrame is small enough for in-memory pass-through
+        if should_use_memory_passthrough(df):
+            context.variants_df = df
+            logger.info("DataFrame stored for in-memory pass-through (checkpoint skip)")
 
         return context
 
@@ -607,26 +607,25 @@ class DataFrameLoadingStage(Stage):
             # Don't load full DataFrame - chunked stages will handle it
             return context
 
-        # Load full DataFrame
+        # Load full DataFrame with optimizations
         logger.info(f"Loading data from {input_file}")
         compression = "gzip" if str(input_file).endswith(".gz") else None
 
-        # Use quoting=3 (QUOTE_NONE) to handle data with quotes
-        # Use low_memory=False to avoid dtype inference issues
-        df = pd.read_csv(
-            input_file,
+        df, rename_map = load_optimized_dataframe(
+            str(input_file),
             sep="\t",
-            dtype=str,
-            keep_default_na=False,
-            na_values=[""],
             compression=compression,
-            quoting=3,  # QUOTE_NONE - don't treat quotes specially
-            low_memory=False,
             on_bad_lines="warn",  # Warn about problematic lines instead of failing
         )
 
         context.current_dataframe = df
+        context.column_rename_map = rename_map
         logger.info(f"Loaded {len(df)} variants into DataFrame")
+
+        # Check if DataFrame is small enough for in-memory pass-through
+        if should_use_memory_passthrough(df):
+            context.variants_df = df
+            logger.info("DataFrame stored for in-memory pass-through")
 
         return context
 
