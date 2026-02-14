@@ -69,6 +69,10 @@ Deferred to later milestones. Tracked but not in current roadmap.
 - **PROF-01**: pytest-memray integration for Linux CI (C-extension-aware memory tracking)
 - **PROF-02**: Scalene line-level profiling integration for development-time analysis
 
+### Architecture Cleanup
+
+- **DEPR-01**: Deprecate classic pipeline mode (`pipeline.py`) — stage-based pipeline (`pipeline_core/`) should become the sole architecture. Classic mode adds maintenance burden, duplicates code paths, and prevents unified optimization. Migration: add deprecation warning when `--use-new-pipeline` is absent, then remove classic mode in a future milestone.
+
 ## Out of Scope
 
 Explicitly excluded. Documented to prevent scope creep.

@@ -50,14 +50,37 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-None yet.
+- **DEPR-01** (backlog): Deprecate classic pipeline mode (`pipeline.py`) in favor of stage-based pipeline (`pipeline_core/`). See REQUIREMENTS.md Future Requirements.
 
 ### Blockers/Concerns
 
 **Phase 6 (Benchmark Framework): COMPLETE**
 - 60 benchmark tests across 8 files, all passing
-- Synthetic data generators, ratio assertions, memory budgets, macro benchmarks, result diff helper
+- Baseline saved: `.benchmarks/Windows-CPython-3.10-64bit/0001_baseline_v0.12.1.json`
 - Framework ready for Phase 7+ optimization work
+
+**Baseline Performance (v0.12.1, Windows, CPython 3.10, 2026-02-14):**
+
+| Component | Scale | Mean | Notes |
+|-----------|-------|------|-------|
+| Single variant deduce | 1 variant | 7.7 us | Inner loop function |
+| Inheritance analysis | 100 variants | 49 ms | Full orchestrator |
+| Inheritance analysis | 1K variants | 431 ms | |
+| Inheritance analysis | 10K variants | 4.8 s | Main optimization target |
+| Full inheritance cohort | 5K×100 samples | 2.3 s | Macro benchmark |
+| Comp het vectorized | 1K variants | 2.1 ms | Per-gene |
+| Comp het original | 1K variants | 1.6 ms | Vectorized NOT faster at small scale |
+| Gene burden | 100 variants | 62 ms | |
+| Gene burden | 1K variants | 150 ms | |
+| Gene burden | 10K variants | 1.0 s | |
+| Gene burden full | 5K×200 samples | 745 ms | Macro benchmark |
+| Genotype replacement vec | 100 variants | 297 ms | File-based, includes I/O |
+| Genotype replacement vec | 1K variants | 2.7 s | |
+| Genotype replacement vec | 10K variants | 21.9 s | Very slow — optimization target |
+| Genotype replacement seq | 1K variants | 11.5 ms | Line-based iterator |
+| CSV read | 50K variants | 57 ms | pandas default engine |
+| PyArrow read | 50K variants | 35 ms | 1.6x faster than default |
+| CSV write | 50K variants | 156 ms | |
 
 **Phase 8 (DataFrame Optimization):**
 - PyArrow engine + pandas 3.0 string dtype changes require careful testing to avoid `pd.NA` comparison breakage
