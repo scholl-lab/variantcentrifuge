@@ -262,18 +262,18 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: dict[str, Any]) -> pd.Da
 
     # Debug logging to track determinism
     logger.info(f"Gene burden analysis processing {len(grouped)} genes in deterministic order")
-    for _i, row in grouped.iterrows():
+    for row in grouped.itertuples(index=False):
         logger.debug(
-            f"Processing gene {row['GENE']}: case_count={row['proband_count']}, "
-            f"control_count={row['control_count']}, case_alleles={row['proband_allele_count']}, "
-            f"control_alleles={row['control_allele_count']}"
+            f"Processing gene {getattr(row, 'GENE', '')}: case_count={getattr(row, 'proband_count', 0)}, "
+            f"control_count={getattr(row, 'control_count', 0)}, case_alleles={getattr(row, 'proband_allele_count', 0)}, "
+            f"control_alleles={getattr(row, 'control_allele_count', 0)}"
         )
 
     results = []
-    for _, row in grouped.iterrows():
-        gene = row["GENE"]
-        p_count = int(row["proband_count"])
-        c_count = int(row["control_count"])
+    for row in grouped.itertuples(index=False):
+        gene = getattr(row, "GENE", "")
+        p_count = int(getattr(row, "proband_count", 0))
+        c_count = int(getattr(row, "control_count", 0))
 
         # Skip if no samples in either group
         if p_count == 0 and c_count == 0:
@@ -281,8 +281,8 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: dict[str, Any]) -> pd.Da
 
         if mode == "samples":
             # Per-sample variant counts
-            p_var = int(row["proband_variant_count"])
-            c_var = int(row["control_variant_count"])
+            p_var = int(getattr(row, "proband_variant_count", 0))
+            c_var = int(getattr(row, "control_variant_count", 0))
             p_ref = p_count - p_var
             c_ref = c_count - c_var
             table = [[p_var, c_var], [p_ref, c_ref]]
@@ -298,8 +298,8 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: dict[str, Any]) -> pd.Da
                 continue
         else:
             # Per-allele counts
-            p_all = int(row["proband_allele_count"])
-            c_all = int(row["control_allele_count"])
+            p_all = int(getattr(row, "proband_allele_count", 0))
+            c_all = int(getattr(row, "control_allele_count", 0))
             p_ref = p_count * 2 - p_all
             c_ref = c_count * 2 - c_all
             table = [[p_all, c_all], [p_ref, c_ref]]

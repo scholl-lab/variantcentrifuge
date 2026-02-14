@@ -324,24 +324,32 @@ def determine_compound_het_type(
     return ("unknown", "compound_heterozygous_possible")
 
 
-def create_variant_key(variant_row: pd.Series) -> str:
+def create_variant_key(variant_row) -> str:
     """
     Create a unique key for a variant.
 
     Parameters
     ----------
-    variant_row : pd.Series
-        Series containing variant information
+    variant_row : pd.Series or namedtuple
+        Series or namedtuple containing variant information
 
     Returns
     -------
     str
         Unique variant identifier
     """
-    chrom = variant_row.get("CHROM", "chr?")
-    pos = variant_row.get("POS", "0")
-    ref = variant_row.get("REF", "N")
-    alt = variant_row.get("ALT", "N")
+    # Handle both Series (with .get()) and namedtuples (with getattr)
+    if isinstance(variant_row, pd.Series):
+        chrom = variant_row.get("CHROM", "chr?")
+        pos = variant_row.get("POS", "0")
+        ref = variant_row.get("REF", "N")
+        alt = variant_row.get("ALT", "N")
+    else:
+        # namedtuple from itertuples
+        chrom = getattr(variant_row, "CHROM", "chr?")
+        pos = getattr(variant_row, "POS", "0")
+        ref = getattr(variant_row, "REF", "N")
+        alt = getattr(variant_row, "ALT", "N")
 
     return f"{chrom}:{pos}:{ref}>{alt}"
 

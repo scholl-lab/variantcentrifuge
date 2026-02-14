@@ -125,22 +125,24 @@ def analyze_inheritance(
                 )
 
     # Apply compound het results to DataFrame
-    for idx, row in df.iterrows():
+    for row in df.itertuples(index=True):
         variant_key = create_variant_key(row)
-        gene = row.get("GENE", "")
+        gene = getattr(row, "GENE", "")
 
         if gene in comp_het_results_by_gene and variant_key in comp_het_results_by_gene[gene]:
-            df.at[idx, "_comp_het_info"] = comp_het_results_by_gene[gene][variant_key]
+            df.at[row.Index, "_comp_het_info"] = comp_het_results_by_gene[gene][variant_key]
 
     # Pass 3: Prioritize and Finalize
     logger.info("Pass 3: Prioritizing patterns and creating final output")
 
-    for idx, row in df.iterrows():
+    for row in df.itertuples(index=True):
         # Get all patterns including compound het
-        all_patterns = list(row["_inheritance_patterns"] or [])
+        # Note: itertuples renames columns starting with _ (e.g., _patterns -> _2)
+        # So we access them via df.loc instead
+        all_patterns = list(df.at[row.Index, "_inheritance_patterns"] or [])
 
         # Add compound het pattern if applicable
-        comp_het_info = row["_comp_het_info"]
+        comp_het_info = df.at[row.Index, "_comp_het_info"]
         comp_het_patterns = []
         if comp_het_info:
             for _sample_id, info in comp_het_info.items():
@@ -157,16 +159,19 @@ def analyze_inheritance(
         # Calculate segregation scores for all patterns if we have family data
         segregation_results = None
         if pedigree_data and len(pedigree_data) > 1:
+            # For segregation check, we need full row dict
+            row_dict = df.loc[row.Index].to_dict()
             segregation_results = calculate_segregation_score(
-                all_patterns, row.to_dict(), pedigree_data, sample_list
+                all_patterns, row_dict, pedigree_data, sample_list
             )
 
         # Get the best pattern with segregation consideration
         best_pattern, confidence = prioritize_patterns(all_patterns, segregation_results)
 
-        # Create detailed inheritance information
+        # Create detailed inheritance information - needs Series access
+        row_series = df.loc[row.Index]
         details = create_inheritance_details(
-            row,
+            row_series,
             best_pattern,
             all_patterns,
             confidence,
@@ -177,8 +182,8 @@ def analyze_inheritance(
         )
 
         # Set final values
-        df.at[idx, "Inheritance_Pattern"] = best_pattern
-        df.at[idx, "Inheritance_Details"] = json.dumps(details)
+        df.at[row.Index, "Inheritance_Pattern"] = best_pattern
+        df.at[row.Index, "Inheritance_Details"] = json.dumps(details)
 
     # Clean up temporary columns
     df = df.drop(columns=["_inheritance_patterns", "_comp_het_info"])
@@ -302,9 +307,9 @@ def get_inheritance_summary(df: pd.DataFrame) -> dict[str, Any]:
     }
 
     # Analyze details
-    for _, row in df.iterrows():
+    for row in df.itertuples(index=False):
         try:
-            details = json.loads(row["Inheritance_Details"])
+            details = json.loads(getattr(row, "Inheritance_Details", "{}"))
 
             # Count high confidence patterns
             if details.get("confidence", 0) > 0.8:
@@ -316,10 +321,10 @@ def get_inheritance_summary(df: pd.DataFrame) -> dict[str, Any]:
                     summary["compound_het_genes"].add(sample["compound_het_gene"])
 
             # Count de novo
-            if row["Inheritance_Pattern"] == "de_novo":
+            if getattr(row, "Inheritance_Pattern", "") == "de_novo":
                 summary["de_novo_variants"] += 1
 
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, AttributeError):
             continue
 
     summary["compound_het_genes"] = list(summary["compound_het_genes"])
@@ -378,21 +383,21 @@ def export_inheritance_report(
     """
     report_data = []
 
-    for _, row in df.iterrows():
+    for row in df.itertuples(index=False):
         variant_info = {
-            "chromosome": row.get("CHROM", ""),
-            "position": row.get("POS", ""),
-            "reference": row.get("REF", ""),
-            "alternate": row.get("ALT", ""),
-            "gene": row.get("GENE", ""),
-            "impact": row.get("IMPACT", ""),
-            "inheritance_pattern": row["Inheritance_Pattern"],
+            "chromosome": getattr(row, "CHROM", ""),
+            "position": getattr(row, "POS", ""),
+            "reference": getattr(row, "REF", ""),
+            "alternate": getattr(row, "ALT", ""),
+            "gene": getattr(row, "GENE", ""),
+            "impact": getattr(row, "IMPACT", ""),
+            "inheritance_pattern": getattr(row, "Inheritance_Pattern", ""),
         }
 
         try:
-            details = json.loads(row["Inheritance_Details"])
+            details = json.loads(getattr(row, "Inheritance_Details", "{}"))
             variant_info.update(details)
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, AttributeError):
             pass
 
         report_data.append(variant_info)
@@ -444,9 +449,9 @@ def process_inheritance_output(
 
     elif mode == "columns":
         # Create new columns from the JSON details
-        for idx, row in df.iterrows():
+        for row in df.itertuples(index=True):
             try:
-                details = json.loads(row["Inheritance_Details"])
+                details = json.loads(getattr(row, "Inheritance_Details", "{}"))
 
                 # Extract key information
                 confidence = details.get("confidence", 0)
@@ -480,16 +485,16 @@ def process_inheritance_output(
                     sample_strings.append(sample_str)
 
                 # Set the values
-                df.at[idx, "Inheritance_Confidence"] = f"{confidence:.2f}"
-                df.at[idx, "Inheritance_Description"] = pattern_desc
-                df.at[idx, "Inheritance_Samples"] = "; ".join(sample_strings)
+                df.at[row.Index, "Inheritance_Confidence"] = f"{confidence:.2f}"
+                df.at[row.Index, "Inheritance_Description"] = pattern_desc
+                df.at[row.Index, "Inheritance_Samples"] = "; ".join(sample_strings)
 
-            except (json.JSONDecodeError, KeyError, TypeError) as e:
-                logger.debug(f"Error parsing inheritance details for row {idx}: {e}")
+            except (json.JSONDecodeError, KeyError, TypeError, AttributeError) as e:
+                logger.debug(f"Error parsing inheritance details for row {row.Index}: {e}")
                 # Set empty values for this row
-                df.at[idx, "Inheritance_Confidence"] = ""
-                df.at[idx, "Inheritance_Description"] = ""
-                df.at[idx, "Inheritance_Samples"] = ""
+                df.at[row.Index, "Inheritance_Confidence"] = ""
+                df.at[row.Index, "Inheritance_Description"] = ""
+                df.at[row.Index, "Inheritance_Samples"] = ""
 
         # Drop the original details column
         if "Inheritance_Details" in df.columns:

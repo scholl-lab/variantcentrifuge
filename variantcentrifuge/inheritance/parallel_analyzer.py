@@ -239,24 +239,26 @@ def analyze_inheritance_parallel(
 
     # Apply compound het results to DataFrame
     apply_start = time.time()
-    for idx, row in df.iterrows():
+    for row in df.itertuples(index=True):
         variant_key = create_variant_key(row)
-        gene = row.get("GENE", "")
+        gene = getattr(row, "GENE", "")
 
         if gene in comp_het_results_by_gene and variant_key in comp_het_results_by_gene[gene]:
-            df.at[idx, "_comp_het_info"] = comp_het_results_by_gene[gene][variant_key]
+            df.at[row.Index, "_comp_het_info"] = comp_het_results_by_gene[gene][variant_key]
     pass_times["apply_comp_het_results"] = time.time() - apply_start
 
     # Pass 3: Prioritize and Finalize
     pass3_start = time.time()
     logger.info("Pass 3: Prioritizing patterns and creating final output")
 
-    for idx, row in df.iterrows():
+    for row in df.itertuples(index=True):
         # Get all patterns including compound het
-        all_patterns = list(row["_inheritance_patterns"] or [])
+        # Note: itertuples renames columns starting with _ (e.g., _patterns -> _2)
+        # So we access them via df.at instead
+        all_patterns = list(df.at[row.Index, "_inheritance_patterns"] or [])
 
         # Add compound het pattern if applicable
-        comp_het_info = row["_comp_het_info"]
+        comp_het_info = df.at[row.Index, "_comp_het_info"]
         comp_het_patterns = []
         if comp_het_info:
             for _sample_id, info in comp_het_info.items():
@@ -273,16 +275,19 @@ def analyze_inheritance_parallel(
         # Calculate segregation scores for all patterns if we have family data
         segregation_results = None
         if pedigree_data and len(pedigree_data) > 1:
+            # For segregation check, we need full row dict
+            row_dict = df.loc[row.Index].to_dict()
             segregation_results = calculate_segregation_score(
-                all_patterns, row.to_dict(), pedigree_data, sample_list
+                all_patterns, row_dict, pedigree_data, sample_list
             )
 
         # Get the best pattern with segregation consideration
         best_pattern, confidence = prioritize_patterns(all_patterns, segregation_results)
 
-        # Create detailed inheritance information
+        # Create detailed inheritance information - needs Series access
+        row_series = df.loc[row.Index]
         details = create_inheritance_details(
-            row,
+            row_series,
             best_pattern,
             all_patterns,
             confidence,
@@ -293,8 +298,8 @@ def analyze_inheritance_parallel(
         )
 
         # Set final values
-        df.at[idx, "Inheritance_Pattern"] = best_pattern
-        df.at[idx, "Inheritance_Details"] = json.dumps(details)
+        df.at[row.Index, "Inheritance_Pattern"] = best_pattern
+        df.at[row.Index, "Inheritance_Details"] = json.dumps(details)
 
     pass_times["prioritization"] = time.time() - pass3_start
 
