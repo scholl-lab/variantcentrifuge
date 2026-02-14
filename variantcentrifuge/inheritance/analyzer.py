@@ -122,13 +122,39 @@ def analyze_inheritance(
                     f"Found compound het patterns in gene {gene}: {len(comp_het_results)} variants"
                 )
 
-    # Apply compound het results to DataFrame
-    for row in df.itertuples(index=True):
-        variant_key = create_variant_key(row)
-        gene = getattr(row, "GENE", "")
+    # Apply compound het results to DataFrame (vectorized)
+    if comp_het_results_by_gene:
+        # Build variant keys for all rows at once
+        variant_keys = (
+            df['CHROM'].astype(str) + ':' +
+            df['POS'].astype(str) + ':' +
+            df['REF'].astype(str) + '>' +
+            df['ALT'].astype(str)
+        )
 
-        if gene in comp_het_results_by_gene and variant_key in comp_het_results_by_gene[gene]:
-            df.at[row.Index, "_comp_het_info"] = comp_het_results_by_gene[gene][variant_key]
+        # Get genes array - handle categorical dtype
+        if isinstance(df['GENE'].dtype, pd.CategoricalDtype):
+            genes = df['GENE'].astype(str).values
+        else:
+            genes = df['GENE'].values.astype(str)
+
+        # Apply comp het results per gene
+        for gene, gene_results in comp_het_results_by_gene.items():
+            gene_mask = genes == gene
+            if not gene_mask.any():
+                continue
+
+            # Get variant keys for this gene
+            gene_variant_keys = variant_keys[gene_mask]
+
+            # For each variant in gene_results, find matching rows
+            for vk, info in gene_results.items():
+                vk_mask = gene_variant_keys == vk
+                if vk_mask.any():
+                    # Get matching indices in the original DataFrame
+                    matching_indices = df.index[gene_mask][vk_mask]
+                    for idx in matching_indices:
+                        df.at[idx, '_comp_het_info'] = info
 
     # Pass 3: Prioritize and Finalize
     logger.info("Pass 3: Prioritizing patterns and creating final output")
