@@ -323,10 +323,10 @@ def compute_statistics(df):
     gene_summary = None
     if "Gene" in df.columns:
         # Count variants per gene
-        gene_variants = df.groupby("Gene").size().reset_index(name="VariantCount")
+        gene_variants = df.groupby("Gene", observed=True).size().reset_index(name="VariantCount")
 
         # Count unique samples per gene
-        gene_samples = df.groupby("Gene")["SampleID"].nunique().reset_index(name="SampleCount")
+        gene_samples = df.groupby("Gene", observed=True)["SampleID"].nunique().reset_index(name="SampleCount")
 
         # Merge the two statistics
         gene_summary = pd.merge(gene_variants, gene_samples, on="Gene")

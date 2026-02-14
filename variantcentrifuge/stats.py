@@ -114,7 +114,7 @@ def compute_gene_stats(df: pd.DataFrame) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = 0
     grouped = (
-        df.groupby("GENE")
+        df.groupby("GENE", observed=True)
         .agg(
             {
                 "proband_count": "sum",
@@ -148,7 +148,7 @@ def compute_impact_summary(df: pd.DataFrame) -> pd.DataFrame:
     if "GENE" not in df.columns or "IMPACT" not in df.columns:
         logger.debug("No IMPACT or GENE column, returning empty impact summary.")
         return pd.DataFrame()
-    impact_counts = df.groupby(["GENE", "IMPACT"]).size().reset_index(name="count")
+    impact_counts = df.groupby(["GENE", "IMPACT"], observed=True).size().reset_index(name="count")
     pivot_impact = (
         impact_counts.pivot(index="GENE", columns="IMPACT", values="count").fillna(0).reset_index()
     )
@@ -175,7 +175,7 @@ def compute_variant_type_summary(df: pd.DataFrame) -> pd.DataFrame:
     if "GENE" not in df.columns or "EFFECT" not in df.columns:
         logger.debug("No EFFECT or GENE column, returning empty variant type summary.")
         return pd.DataFrame()
-    type_counts = df.groupby(["GENE", "EFFECT"]).size().reset_index(name="count")
+    type_counts = df.groupby(["GENE", "EFFECT"], observed=True).size().reset_index(name="count")
     pivot_types = (
         type_counts.pivot(index="GENE", columns="EFFECT", values="count").fillna(0).reset_index()
     )

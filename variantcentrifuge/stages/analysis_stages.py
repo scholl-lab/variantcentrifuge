@@ -3065,7 +3065,7 @@ class ParallelAnalysisOrchestrator(Stage):
         from concurrent.futures import ProcessPoolExecutor, as_completed
 
         # Split DataFrame by gene
-        gene_groups = df.groupby(gene_column)
+        gene_groups = df.groupby(gene_column, observed=True)
 
         # Prepare analysis configuration
         analysis_cfg = {

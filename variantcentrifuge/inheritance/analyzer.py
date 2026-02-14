@@ -98,10 +98,10 @@ def analyze_inheritance(
     # Group by gene and analyze
     comp_het_results_by_gene = {}
     if "GENE" in df.columns:
-        gene_counts = df.groupby("GENE").size()
+        gene_counts = df.groupby("GENE", observed=True).size()
         logger.debug(f"Genes with multiple variants: {gene_counts[gene_counts > 1].to_dict()}")
 
-        for gene, gene_df in df.groupby("GENE"):
+        for gene, gene_df in df.groupby("GENE", observed=True):
             if pd.isna(gene) or gene == "":
                 continue
 

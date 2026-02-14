@@ -204,7 +204,7 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: dict[str, Any]) -> pd.Da
     logger.debug("Aggregating variant data by gene for burden analysis...")
 
     gene_burden_data = []
-    for gene, gene_df in df.groupby("GENE"):
+    for gene, gene_df in df.groupby("GENE", observed=True):
         # Get sample counts (should be consistent across all variants)
         p_count = gene_df["proband_count"].iloc[0]
         c_count = gene_df["control_count"].iloc[0]

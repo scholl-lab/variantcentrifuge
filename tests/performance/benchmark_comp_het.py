@@ -141,7 +141,7 @@ def test_comp_het_multi_gene(benchmark, synthetic_variants, synthetic_pedigree, 
     # Benchmark per-gene compound het analysis
     def run_analysis():
         results = {}
-        for gene, gene_df in df.groupby("GENE"):
+        for gene, gene_df in df.groupby("GENE", observed=True):
             gene_results = analyze_gene_for_compound_het_vectorized(
                 gene_df, pedigree, sample_list
             )

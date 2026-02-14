@@ -154,7 +154,7 @@ class StatsEngine:
 
             try:
                 # Group by specified columns
-                grouped = df.groupby(groupby_cols)
+                grouped = df.groupby(groupby_cols, observed=True)
 
                 # Apply the expression to each group
                 if "size()" in expression:
@@ -237,7 +237,7 @@ class StatsEngine:
 
             try:
                 # Group by specified columns
-                grouped = df.groupby(groupby_cols)
+                grouped = df.groupby(groupby_cols, observed=True)
 
                 # Apply the expression
                 if "size()" in expression:

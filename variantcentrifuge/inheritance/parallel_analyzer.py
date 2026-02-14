@@ -164,7 +164,7 @@ def analyze_inheritance_parallel(
 
     if use_parallel and "GENE" in df.columns:
         # Group by gene
-        gene_groups = df.groupby("GENE")
+        gene_groups = df.groupby("GENE", observed=True)
         genes_with_multiple_variants = [
             (gene, group_df)
             for gene, group_df in gene_groups
@@ -218,7 +218,7 @@ def analyze_inheritance_parallel(
         )
 
         if "GENE" in df.columns:
-            for gene, gene_df in df.groupby("GENE"):
+            for gene, gene_df in df.groupby("GENE", observed=True):
                 if pd.isna(gene) or gene == "" or len(gene_df) <= 1:
                     continue
 
