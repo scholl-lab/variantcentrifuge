@@ -30,10 +30,13 @@
   3. Ratio assertions compare vectorized vs sequential implementations within same run with zero CI flakiness
   4. Performance canary assertions detect 20%+ regressions and fail tests when exceeded
   5. Memory budget assertions enforce per-function limits via tracemalloc
-**Plans**: TBD
+**Plans:** 4 plans
 
 Plans:
-- [ ] 06-01: [TBD during planning]
+- [ ] 06-01-PLAN.md -- Foundation: pytest-benchmark dep, synthetic data generators, memory helpers, conftest fixtures
+- [ ] 06-02-PLAN.md -- Component benchmarks: inheritance, comp_het, genotype replacement, gene burden, scoring, DataFrame I/O
+- [ ] 06-03-PLAN.md -- Ratio assertions (vectorized vs sequential) and memory budget enforcement via tracemalloc
+- [ ] 06-04-PLAN.md -- Macro pipeline benchmarks, result diff helper, end-to-end suite verification
 
 #### Phase 7: Quick Wins - Tier 1
 **Goal**: Immediate 30-40% speedup through zero-risk standard optimizations
@@ -132,7 +135,7 @@ Plans:
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-5. Baseline | v0.12.1 | N/A | Complete | 2026-02-14 |
-| 6. Benchmark Framework | v0.13.0 | 0/TBD | Not started | - |
+| 6. Benchmark Framework | v0.13.0 | 0/4 | Planned | - |
 | 7. Quick Wins - Tier 1 | v0.13.0 | 0/TBD | Not started | - |
 | 8. DataFrame Optimization | v0.13.0 | 0/TBD | Not started | - |
 | 9. Inheritance Analysis Optimization | v0.13.0 | 0/TBD | Not started | - |
