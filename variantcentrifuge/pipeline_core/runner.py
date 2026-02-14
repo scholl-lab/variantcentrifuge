@@ -5,6 +5,7 @@ This module provides the PipelineRunner class that orchestrates stage execution,
 handling dependencies, parallel execution, and error recovery.
 """
 
+import gc
 import logging
 import multiprocessing
 import time
@@ -16,6 +17,8 @@ from concurrent.futures import (
     as_completed,
 )
 from typing import Literal
+
+import psutil
 
 from .context import PipelineContext
 from .stage import Stage
@@ -587,6 +590,13 @@ class PipelineRunner:
             Updated context
         """
         start_time = time.time()
+
+        mem_before_mb = None
+        if logger.isEnabledFor(logging.DEBUG):
+            process = psutil.Process()
+            mem_before_mb = process.memory_info().rss / 1024 / 1024
+            logger.debug(f"[{stage.name}] Starting - Memory: {mem_before_mb:.1f} MB")
+
         result = stage(context)
         elapsed = time.time() - start_time
         self._execution_times[stage.name] = elapsed
@@ -594,6 +604,17 @@ class PipelineRunner:
         # Capture subtask times if any were recorded
         if hasattr(stage, "subtask_times") and stage.subtask_times:
             self._subtask_times[stage.name] = stage.subtask_times
+
+        gc.collect()
+
+        if mem_before_mb is not None:
+            process = psutil.Process()
+            mem_after_mb = process.memory_info().rss / 1024 / 1024
+            freed_mb = mem_before_mb - mem_after_mb
+            logger.debug(
+                f"[{stage.name}] Complete in {elapsed:.1f}s - "
+                f"Memory: {mem_after_mb:.1f} MB (freed {freed_mb:.1f} MB)"
+            )
 
         return result
 

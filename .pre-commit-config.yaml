@@ -14,3 +14,12 @@ repos:
     -   id: ruff
         args: [--fix]
     -   id: ruff-format
+
+-   repo: local
+    hooks:
+    -   id: pandas-groupby-observed
+        name: Enforce observed=True in groupby
+        entry: bash -c 'if grep -rn "\.groupby(" --include="*.py" variantcentrifuge/ scripts/ | grep -v "observed=True" | grep -v "^Binary"; then echo "ERROR - groupby() calls must include observed=True"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        types: [python]
