@@ -3,43 +3,167 @@ Integration tests for inheritance mode functionality.
 
 These tests verify that the --inheritance-mode flag works correctly
 through the full command-line interface.
+
+Requires external tools: bcftools, SnpSift, bedtools, snpEff, bgzip, tabix.
+Requires snpEff with a GRCh38 genome database installed locally.
 """
 
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 
 import pandas as pd
 import pytest
 
+# These CLI integration tests require external genomic tools AND configured databases.
+# snpEff needs a GRCh38 genome database installed locally.
+_REQUIRED_TOOLS = ["bcftools", "SnpSift", "bedtools", "snpEff", "bgzip", "tabix"]
+_MISSING_TOOLS = [t for t in _REQUIRED_TOOLS if shutil.which(t) is None]
+
+# snpEff genome names vary by installation (GRCh38, GRCh38.p14, GRCh38.105, etc.)
+# Auto-detect the installed GRCh38 variant.
+_SNPEFF_GRCH38_NAMES = ["GRCh38.p14", "GRCh38.105", "GRCh38.99", "GRCh38.86", "GRCh38"]
+
+
+def _detect_snpeff_grch38() -> str | None:
+    """Find which GRCh38 genome name is locally installed in snpEff."""
+    if shutil.which("snpEff") is None:
+        return None
+    snpeff_path = shutil.which("snpEff")
+    if snpeff_path is None:
+        return None
+    import pathlib
+
+    snpeff_bin = pathlib.Path(snpeff_path).resolve()
+    # Conda layout: snpEff resolves to .../share/snpeff-X.Y-Z/snpEff
+    # Data dir is a sibling: .../share/snpeff-X.Y-Z/data/
+    share_dirs = []
+    # Check sibling data/ directory (resolved symlink location)
+    sibling_data = snpeff_bin.parent / "data"
+    if sibling_data.is_dir():
+        share_dirs.append(sibling_data)
+    # Also check conda prefix layout
+    for ancestor in snpeff_bin.parents:
+        candidate = list(ancestor.glob("share/snpeff-*/data"))
+        if candidate:
+            share_dirs.extend(candidate)
+            break
+    for share_dir in share_dirs:
+        for name in _SNPEFF_GRCH38_NAMES:
+            if (share_dir / name).is_dir():
+                return name
+    # Fallback: try running snpEff to check
+    for name in _SNPEFF_GRCH38_NAMES:
+        try:
+            result = subprocess.run(
+                ["snpEff", "dump", "-v", name],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if result.returncode == 0:
+                return name
+        except (subprocess.TimeoutExpired, OSError):
+            continue
+    return None
+
+
+_SNPEFF_GENOME = _detect_snpeff_grch38() if len(_MISSING_TOOLS) == 0 else None
+
+pytestmark = [
+    pytest.mark.slow,
+    pytest.mark.skipif(
+        len(_MISSING_TOOLS) > 0,
+        reason=f"Requires external tools: {', '.join(_MISSING_TOOLS)}",
+    ),
+    pytest.mark.skipif(
+        _SNPEFF_GENOME is None,
+        reason="Requires snpEff with a GRCh38 genome database installed",
+    ),
+]
+
+# GRCh38 exonic coordinates in well-known genes.
+# TP53 coding exons: chr17:7,673,700-7,676,600 (reverse strand)
+# BRCA2 exon 11: chr13:32,325,000-32,357,000
+# These positions are within coding exons and will receive missense/synonymous
+# annotations from snpEff, ensuring they survive pipeline field extraction.
+_TEST_VCF_CONTENT = """\
+##fileformat=VCFv4.2
+##INFO=<ID=AF,Number=A,Type=Float,Description="Allele Frequency">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##contig=<ID=chr13>
+##contig=<ID=chr17>
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tchild\tfather\tmother
+chr17\t7674220\t.\tC\tT\t50\tPASS\tAF=0.0001\tGT\t0/1\t0/0\t0/0
+chr13\t32340300\t.\tA\tG\t50\tPASS\tAF=0.0005\tGT\t0/1\t0/1\t0/0
+chr13\t32341000\t.\tC\tT\t50\tPASS\tAF=0.0003\tGT\t0/1\t0/0\t0/1
+chr17\t7675088\t.\tC\tT\t50\tPASS\tAF=0.001\tGT\t1/1\t0/1\t0/1
+"""
+
+# Genes matching the VCF coordinates
+_TEST_GENES = "TP53 BRCA2"
+
+# Minimum SnpSift extractFields needed for inheritance analysis.
+# Must include ANN fields for gene/impact and GEN[*].GT for genotype data.
+_TEST_FIELDS = (
+    "CHROM POS REF ALT "
+    "ANN[0].GENE ANN[0].EFFECT ANN[0].IMPACT "
+    "GEN[*].GT"
+)
+
 
 class TestInheritanceModeIntegration:
     """Test inheritance mode functionality through the CLI."""
 
-    @pytest.fixture
-    def sample_vcf_file(self):
-        """Create a sample VCF file with de novo and compound het variants."""
-        vcf_content = """##fileformat=VCFv4.2
-##INFO=<ID=AF,Number=A,Type=Float,Description="Allele Frequency">
-##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
-#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tchild\tfather\tmother
-chr1\t1000\t.\tA\tT\t.\tPASS\tAF=0.0001\tGT\t0/1\t0/0\t0/0
-chr2\t2000\t.\tG\tC\t.\tPASS\tAF=0.0005\tGT\t0/1\t0/1\t0/0
-chr2\t3000\t.\tC\tT\t.\tPASS\tAF=0.0003\tGT\t0/1\t0/0\t0/1
-chr3\t4000\t.\tT\tG\t.\tPASS\tAF=0.001\tGT\t1/1\t0/1\t0/1
-"""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".vcf", delete=False) as f:
-            f.write(vcf_content)
-            vcf_file = f.name
+    @pytest.fixture(scope="class")
+    def annotated_vcf_file(self, tmp_path_factory):
+        """Create a snpEff-annotated, bgzipped, and indexed VCF file.
 
-        yield vcf_file
-        os.unlink(vcf_file)
+        Uses real GRCh38 exonic coordinates so snpEff assigns gene/impact
+        annotations. The pipeline expects pre-annotated VCFs.
+        """
+        tmpdir = tmp_path_factory.mktemp("vcf")
+        plain_vcf = str(tmpdir / "test.vcf")
+        annotated_vcf = str(tmpdir / "test.ann.vcf")
+        gz_vcf = annotated_vcf + ".gz"
+
+        # Write the raw VCF
+        with open(plain_vcf, "w") as f:
+            f.write(_TEST_VCF_CONTENT)
+
+        # Annotate with snpEff to add ANN fields.
+        # GRCh38 database requires >1 GB heap; default snpEff wrapper uses -Xmx1g
+        # which is insufficient. Pass -Xmx4G to snpEff (forwarded to JVM).
+        with open(annotated_vcf, "w") as out:
+            result = subprocess.run(
+                ["snpEff", "-Xmx4G", "ann", "-noStats", _SNPEFF_GENOME, plain_vcf],
+                stdout=out,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=120,
+            )
+        assert result.returncode == 0, f"snpEff annotation failed: {result.stderr}"
+
+        # Sort, bgzip, and index for bcftools compatibility.
+        # snpEff may reorder variants; bcftools sort ensures valid tabix indexing.
+        sorted_vcf = str(tmpdir / "test.sorted.vcf.gz")
+        subprocess.run(
+            ["bcftools", "sort", "-Oz", "-o", sorted_vcf, annotated_vcf],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(["tabix", "-p", "vcf", sorted_vcf], check=True)
+        gz_vcf = sorted_vcf
+
+        return gz_vcf
 
     @pytest.fixture
     def trio_ped_file(self):
         """Create a trio pedigree file."""
-        ped_content = """#FamilyID\tIndividualID\tPaternalID\tMaternalID\tSex\tAffectedStatus
+        ped_content = """\
+#FamilyID\tIndividualID\tPaternalID\tMaternalID\tSex\tAffectedStatus
 FAM1\tchild\tfather\tmother\t1\t2
 FAM1\tfather\t0\t0\t1\t1
 FAM1\tmother\t0\t0\t2\t1
@@ -51,38 +175,32 @@ FAM1\tmother\t0\t0\t2\t1
         yield ped_file
         os.unlink(ped_file)
 
-    @pytest.fixture
-    def gene_bed_file(self):
-        """Create a BED file for gene regions."""
-        bed_content = """chr1\t900\t1100\tGENE1
-chr2\t1900\t3100\tGENE2
-chr3\t3900\t4100\tGENE3
-"""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".bed", delete=False) as f:
-            f.write(bed_content)
-            bed_file = f.name
-
-        yield bed_file
-        os.unlink(bed_file)
-
     def run_variantcentrifuge(self, args):
-        """Run variantcentrifuge with given arguments."""
-        cmd = ["python", "-m", "variantcentrifuge", *args]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        """Run variantcentrifuge with given arguments.
+
+        Explicitly passes PATH to the subprocess to ensure system utilities
+        (gzip, sort) are available in the child process's shell commands.
+        """
+        cmd = ["variantcentrifuge", *args]
+        env = os.environ.copy()
+        # Ensure /usr/bin and /usr/local/bin are on PATH for system utilities
+        # needed by shell-based stages (DataSortingStage uses gzip, sort).
+        for p in ["/usr/bin", "/usr/local/bin", "/bin"]:
+            if p not in env.get("PATH", ""):
+                env["PATH"] = env.get("PATH", "") + os.pathsep + p
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
         return result
 
-    @pytest.mark.slow
-    def test_inheritance_mode_simple(self, sample_vcf_file, trio_ped_file, gene_bed_file):
+    def test_inheritance_mode_simple(self, annotated_vcf_file, trio_ped_file):
         """Test inheritance analysis with simple mode."""
         with tempfile.TemporaryDirectory() as tmpdir:
             output_file = os.path.join(tmpdir, "output.tsv")
 
-            # Run with simple mode (default)
             args = [
                 "--vcf-file",
-                sample_vcf_file,
+                annotated_vcf_file,
                 "--gene-name",
-                "all",
+                _TEST_GENES,
                 "--output-file",
                 output_file,
                 "--output-dir",
@@ -92,21 +210,20 @@ chr3\t3900\t4100\tGENE3
                 "--inheritance-mode",
                 "simple",
                 "--reference",
-                "GRCh38",
+                _SNPEFF_GENOME,
+                "--add-chr",
                 "--filters",
                 "FILTER='PASS'",
                 "--fields",
-                "CHROM POS REF ALT GENE IMPACT AF",
+                _TEST_FIELDS,
             ]
 
             result = self.run_variantcentrifuge(args)
-
-            # Check that the command succeeded
             assert result.returncode == 0, f"Command failed: {result.stderr}"
 
-            # Check output file
             assert os.path.exists(output_file)
             df = pd.read_csv(output_file, sep="\t")
+            assert len(df) > 0, f"No variants in output. stderr: {result.stderr}"
 
             # Should have Inheritance_Pattern but not Inheritance_Details
             assert "Inheritance_Pattern" in df.columns
@@ -117,18 +234,16 @@ chr3\t3900\t4100\tGENE3
             assert len(patterns) > 0
             assert "none" not in patterns or len(patterns) > 1
 
-    @pytest.mark.slow
-    def test_inheritance_mode_full(self, sample_vcf_file, trio_ped_file, gene_bed_file):
+    def test_inheritance_mode_full(self, annotated_vcf_file, trio_ped_file):
         """Test inheritance analysis with full mode."""
         with tempfile.TemporaryDirectory() as tmpdir:
             output_file = os.path.join(tmpdir, "output.tsv")
 
-            # Run with full mode
             args = [
                 "--vcf-file",
-                sample_vcf_file,
+                annotated_vcf_file,
                 "--gene-name",
-                "all",
+                _TEST_GENES,
                 "--output-file",
                 output_file,
                 "--output-dir",
@@ -138,21 +253,20 @@ chr3\t3900\t4100\tGENE3
                 "--inheritance-mode",
                 "full",
                 "--reference",
-                "GRCh38",
+                _SNPEFF_GENOME,
+                "--add-chr",
                 "--filters",
                 "FILTER='PASS'",
                 "--fields",
-                "CHROM POS REF ALT GENE IMPACT AF",
+                _TEST_FIELDS,
             ]
 
             result = self.run_variantcentrifuge(args)
-
-            # Check that the command succeeded
             assert result.returncode == 0, f"Command failed: {result.stderr}"
 
-            # Check output file
             assert os.path.exists(output_file)
             df = pd.read_csv(output_file, sep="\t")
+            assert len(df) > 0, f"No variants in output. stderr: {result.stderr}"
 
             # Should have both columns
             assert "Inheritance_Pattern" in df.columns
@@ -165,18 +279,16 @@ chr3\t3900\t4100\tGENE3
                     assert "primary_pattern" in details
                     assert "confidence" in details
 
-    @pytest.mark.slow
-    def test_inheritance_mode_columns(self, sample_vcf_file, trio_ped_file, gene_bed_file):
+    def test_inheritance_mode_columns(self, annotated_vcf_file, trio_ped_file):
         """Test inheritance analysis with columns mode."""
         with tempfile.TemporaryDirectory() as tmpdir:
             output_file = os.path.join(tmpdir, "output.tsv")
 
-            # Run with columns mode
             args = [
                 "--vcf-file",
-                sample_vcf_file,
+                annotated_vcf_file,
                 "--gene-name",
-                "all",
+                _TEST_GENES,
                 "--output-file",
                 output_file,
                 "--output-dir",
@@ -186,21 +298,20 @@ chr3\t3900\t4100\tGENE3
                 "--inheritance-mode",
                 "columns",
                 "--reference",
-                "GRCh38",
+                _SNPEFF_GENOME,
+                "--add-chr",
                 "--filters",
                 "FILTER='PASS'",
                 "--fields",
-                "CHROM POS REF ALT GENE IMPACT AF",
+                _TEST_FIELDS,
             ]
 
             result = self.run_variantcentrifuge(args)
-
-            # Check that the command succeeded
             assert result.returncode == 0, f"Command failed: {result.stderr}"
 
-            # Check output file
             assert os.path.exists(output_file)
             df = pd.read_csv(output_file, sep="\t")
+            assert len(df) > 0, f"No variants in output. stderr: {result.stderr}"
 
             # Should have pattern and new columns but not details
             assert "Inheritance_Pattern" in df.columns
@@ -216,36 +327,32 @@ chr3\t3900\t4100\tGENE3
                     assert pd.notna(row["Inheritance_Description"])
                     assert pd.notna(row["Inheritance_Samples"])
 
-    @pytest.mark.slow
-    def test_no_ped_no_inheritance(self, sample_vcf_file, gene_bed_file):
+    def test_no_ped_no_inheritance(self, annotated_vcf_file):
         """Test that without PED file, no inheritance analysis is performed."""
         with tempfile.TemporaryDirectory() as tmpdir:
             output_file = os.path.join(tmpdir, "output.tsv")
 
-            # Run without PED file
             args = [
                 "--vcf-file",
-                sample_vcf_file,
+                annotated_vcf_file,
                 "--gene-name",
-                "all",
+                _TEST_GENES,
                 "--output-file",
                 output_file,
                 "--output-dir",
                 tmpdir,
                 "--reference",
-                "GRCh38",
+                _SNPEFF_GENOME,
+                "--add-chr",
                 "--filters",
                 "FILTER='PASS'",
                 "--fields",
-                "CHROM POS REF ALT GENE IMPACT AF",
+                _TEST_FIELDS,
             ]
 
             result = self.run_variantcentrifuge(args)
-
-            # Check that the command succeeded
             assert result.returncode == 0, f"Command failed: {result.stderr}"
 
-            # Check output file
             assert os.path.exists(output_file)
             df = pd.read_csv(output_file, sep="\t")
 

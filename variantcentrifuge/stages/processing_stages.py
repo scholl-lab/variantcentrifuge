@@ -2760,22 +2760,27 @@ class DataSortingStage(Stage):
 
         logger.info(f"Found gene column '{gene_column}' at position {gene_col_idx}")
 
+        # Resolve full paths for shell utilities to avoid PATH issues in
+        # subprocess shells (e.g., WSL, conda envs, non-interactive bash).
+        import shlex
+
+        gzip_bin = shutil.which("gzip") or "gzip"
+        sort_bin = shutil.which("sort") or "sort"
+        tail_bin = shutil.which("tail") or "tail"
+
         # Build sort arguments with memory efficiency options
         sort_args = [
             f"-k{gene_col_idx},{gene_col_idx}",  # Sort by gene column
             f"--buffer-size={memory_limit}",  # Memory limit
             f"--parallel={parallel}",  # Parallel threads
             "--stable",  # Stable sort for consistent results
-            "--compress-program=gzip",  # Use gzip for temp files
+            f"--compress-program={shlex.quote(gzip_bin)}",  # Use gzip for temp files
         ]
 
         if temp_dir:
             sort_args.extend(["-T", temp_dir])
 
         sort_cmd = " ".join(sort_args)
-
-        # Escape file paths to prevent shell injection
-        import shlex
 
         safe_input = shlex.quote(input_file)
         safe_output = shlex.quote(output_file)
@@ -2785,15 +2790,15 @@ class DataSortingStage(Stage):
             if output_file.endswith(".gz"):
                 # Both gzipped
                 cmd = (
-                    f"gzip -cd {safe_input} | "
-                    f"{{ IFS= read -r header; echo \"$header\"; sort {sort_cmd} -t$'\\t'; }} | "
-                    f"gzip -c > {safe_output}"
+                    f"{gzip_bin} -cd {safe_input} | "
+                    f"{{ IFS= read -r header; echo \"$header\"; {sort_bin} {sort_cmd} -t$'\\t'; }} | "
+                    f"{gzip_bin} -c > {safe_output}"
                 )
             else:
                 # Input gzipped, output not
                 cmd = (
-                    f"gzip -cd {safe_input} | "
-                    f"{{ IFS= read -r header; echo \"$header\"; sort {sort_cmd} -t$'\\t'; }} "
+                    f"{gzip_bin} -cd {safe_input} | "
+                    f"{{ IFS= read -r header; echo \"$header\"; {sort_bin} {sort_cmd} -t$'\\t'; }} "
                     f"> {safe_output}"
                 )
         else:
@@ -2801,14 +2806,14 @@ class DataSortingStage(Stage):
                 # Input not gzipped, output gzipped
                 cmd = (
                     f'{{ IFS= read -r header < {safe_input}; echo "$header"; '
-                    f"tail -n +2 {safe_input} | sort {sort_cmd} -t$'\\t'; }} | "
-                    f"gzip -c > {safe_output}"
+                    f"{tail_bin} -n +2 {safe_input} | {sort_bin} {sort_cmd} -t$'\\t'; }} | "
+                    f"{gzip_bin} -c > {safe_output}"
                 )
             else:
                 # Neither gzipped
                 cmd = (
                     f'{{ IFS= read -r header < {safe_input}; echo "$header"; '
-                    f"tail -n +2 {safe_input} | sort {sort_cmd} -t$'\\t'; }} "
+                    f"{tail_bin} -n +2 {safe_input} | {sort_bin} {sort_cmd} -t$'\\t'; }} "
                     f"> {safe_output}"
                 )
 
