@@ -11,7 +11,7 @@ from typing import Any
 
 import pandas as pd
 
-from .comp_het import analyze_gene_for_compound_het, create_variant_key
+from .comp_het import analyze_gene_for_compound_het
 from .prioritizer import get_pattern_description, prioritize_patterns
 from .segregation_checker import calculate_segregation_score
 from .vectorized_deducer import vectorized_deduce_patterns
@@ -126,17 +126,20 @@ def analyze_inheritance(
     if comp_het_results_by_gene:
         # Build variant keys for all rows at once
         variant_keys = (
-            df['CHROM'].astype(str) + ':' +
-            df['POS'].astype(str) + ':' +
-            df['REF'].astype(str) + '>' +
-            df['ALT'].astype(str)
+            df["CHROM"].astype(str)
+            + ":"
+            + df["POS"].astype(str)
+            + ":"
+            + df["REF"].astype(str)
+            + ">"
+            + df["ALT"].astype(str)
         )
 
         # Get genes array - handle categorical dtype
-        if isinstance(df['GENE'].dtype, pd.CategoricalDtype):
-            genes = df['GENE'].astype(str).values
+        if isinstance(df["GENE"].dtype, pd.CategoricalDtype):
+            genes = df["GENE"].astype(str).values
         else:
-            genes = df['GENE'].values.astype(str)
+            genes = df["GENE"].values.astype(str)
 
         # Apply comp het results per gene
         for gene, gene_results in comp_het_results_by_gene.items():
@@ -154,60 +157,67 @@ def analyze_inheritance(
                     # Get matching indices in the original DataFrame
                     matching_indices = df.index[gene_mask][vk_mask]
                     for idx in matching_indices:
-                        df.at[idx, '_comp_het_info'] = info
+                        df.at[idx, "_comp_het_info"] = info
 
-    # Pass 3: Prioritize and Finalize
+    # Pass 3: Prioritize and Finalize (optimized)
     logger.info("Pass 3: Prioritizing patterns and creating final output")
 
-    for row in df.itertuples(index=True):
-        # Get all patterns including compound het
-        # Note: itertuples renames columns starting with _ (e.g., _patterns -> _2)
-        # So we access them via df.loc instead
-        all_patterns = list(df.at[row.Index, "_inheritance_patterns"] or [])
+    # Pre-extract column data to avoid repeated df.at[] lookups
+    all_inheritance_patterns = df["_inheritance_patterns"].tolist()
+    all_comp_het_info = df["_comp_het_info"].tolist()
 
-        # Add compound het pattern if applicable
-        comp_het_info = df.at[row.Index, "_comp_het_info"]
-        comp_het_patterns = []
-        if comp_het_info:
-            for _sample_id, info in comp_het_info.items():
+    # Pre-compute whether segregation is needed
+    needs_segregation = bool(pedigree_data and len(pedigree_data) > 1)
+
+    # Accumulate results in lists for bulk assignment
+    inheritance_patterns_result = []
+    inheritance_details_result = []
+
+    # Use iterrows since we need Series for create_inheritance_details
+    for idx_pos, (_df_idx, row_series) in enumerate(df.iterrows()):
+        # Get patterns from pre-extracted list
+        patterns_list = list(all_inheritance_patterns[idx_pos] or [])
+        comp_info = all_comp_het_info[idx_pos]
+
+        # Add compound het patterns if applicable
+        if comp_info:
+            for _sample_id, info in comp_info.items():
                 if info.get("is_compound_het"):
                     comp_het_type = info.get("comp_het_type", "compound_heterozygous")
-                    if comp_het_type != "not_compound_heterozygous":
-                        comp_het_patterns.append(comp_het_type)
+                    is_not_negative = comp_het_type != "not_compound_heterozygous"
+                    if is_not_negative and comp_het_type not in patterns_list:
+                        patterns_list.append(comp_het_type)
 
-        # Add unique compound het patterns
-        for pattern in comp_het_patterns:
-            if pattern not in all_patterns:
-                all_patterns.append(pattern)
-
-        # Calculate segregation scores for all patterns if we have family data
+        # Calculate segregation scores if needed
         segregation_results = None
-        if pedigree_data and len(pedigree_data) > 1:
-            # For segregation check, we need full row dict
-            row_dict = df.loc[row.Index].to_dict()
+        if needs_segregation:
+            row_dict = row_series.to_dict()
             segregation_results = calculate_segregation_score(
-                all_patterns, row_dict, pedigree_data, sample_list
+                patterns_list, row_dict, pedigree_data, sample_list
             )
 
-        # Get the best pattern with segregation consideration
-        best_pattern, confidence = prioritize_patterns(all_patterns, segregation_results)
+        # Prioritize patterns
+        best_pattern, confidence = prioritize_patterns(patterns_list, segregation_results)
 
-        # Create detailed inheritance information - needs Series access
-        row_series = df.loc[row.Index]
+        # Create detailed inheritance information
         details = create_inheritance_details(
             row_series,
             best_pattern,
-            all_patterns,
+            patterns_list,
             confidence,
-            comp_het_info,
+            comp_info,
             pedigree_data,
             sample_list,
             segregation_results,
         )
 
-        # Set final values
-        df.at[row.Index, "Inheritance_Pattern"] = best_pattern
-        df.at[row.Index, "Inheritance_Details"] = json.dumps(details)
+        # Accumulate results
+        inheritance_patterns_result.append(best_pattern)
+        inheritance_details_result.append(json.dumps(details))
+
+    # Assign results in bulk (avoids per-row df.at[] overhead)
+    df["Inheritance_Pattern"] = inheritance_patterns_result
+    df["Inheritance_Details"] = inheritance_details_result
 
     # Clean up temporary columns
     df = df.drop(columns=["_inheritance_patterns", "_comp_het_info"])
