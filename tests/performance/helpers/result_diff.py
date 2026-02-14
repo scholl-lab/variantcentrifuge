@@ -13,7 +13,6 @@ import json
 import sys
 from pathlib import Path
 
-
 # ANSI color codes
 GREEN = "\033[92m"
 RED = "\033[91m"
@@ -51,7 +50,7 @@ def load_benchmark_json(path: str) -> dict:
             f"  pytest tests/performance/ --benchmark-save=baseline"
         )
 
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         data = json.load(f)
 
     if "benchmarks" not in data:
@@ -94,9 +93,7 @@ def compare_benchmark_results(baseline_path: str, current_path: str) -> None:
     print("\n" + "=" * 100)
     print("BENCHMARK COMPARISON")
     print("=" * 100)
-    print(
-        f"{'Benchmark':<50} {'Baseline':>12} {'Current':>12} {'Change':>10} {'Status':>10}"
-    )
+    print(f"{'Benchmark':<50} {'Baseline':>12} {'Current':>12} {'Change':>10} {'Status':>10}")
     print("-" * 100)
 
     # Track statistics

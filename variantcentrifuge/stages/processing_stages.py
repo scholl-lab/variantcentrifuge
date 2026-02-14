@@ -2791,7 +2791,8 @@ class DataSortingStage(Stage):
                 # Both gzipped
                 cmd = (
                     f"{gzip_bin} -cd {safe_input} | "
-                    f"{{ IFS= read -r header; echo \"$header\"; {sort_bin} {sort_cmd} -t$'\\t'; }} | "
+                    f'{{ IFS= read -r header; echo "$header"; '
+                    f"{sort_bin} {sort_cmd} -t$'\\t'; }} | "
                     f"{gzip_bin} -c > {safe_output}"
                 )
             else:

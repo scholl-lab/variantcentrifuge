@@ -107,11 +107,7 @@ _TEST_GENES = "TP53 BRCA2"
 
 # Minimum SnpSift extractFields needed for inheritance analysis.
 # Must include ANN fields for gene/impact and GEN[*].GT for genotype data.
-_TEST_FIELDS = (
-    "CHROM POS REF ALT "
-    "ANN[0].GENE ANN[0].EFFECT ANN[0].IMPACT "
-    "GEN[*].GT"
-)
+_TEST_FIELDS = "CHROM POS REF ALT ANN[0].GENE ANN[0].EFFECT ANN[0].IMPACT GEN[*].GT"
 
 
 class TestInheritanceModeIntegration:

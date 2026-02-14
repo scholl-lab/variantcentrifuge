@@ -60,9 +60,7 @@ def generate_synthetic_variants(n_variants: int, n_samples: int, seed: int = 42)
     # Generate REF/ALT nucleotides (ensure REF != ALT)
     bases = ["A", "C", "G", "T"]
     refs = rng.choice(bases, size=n_variants)
-    alts = np.array(
-        [rng.choice([b for b in bases if b != ref]) for ref in refs]
-    )
+    alts = np.array([rng.choice([b for b in bases if b != ref]) for ref in refs])
 
     # Generate genes (~n_variants/10 unique genes so avg ~10 variants per gene)
     n_genes = max(1, n_variants // 10)
@@ -199,7 +197,7 @@ def generate_synthetic_pedigree(n_samples: int = 3, seed: int = 42) -> dict:
 
     # Additional samples as unrelated individuals
     for i in range(4, n_samples + 1):
-        sample_id = f"SAMPLE_{i-3:04d}"  # SAMPLE_0001, SAMPLE_0002, etc.
+        sample_id = f"SAMPLE_{i - 3:04d}"  # SAMPLE_0001, SAMPLE_0002, etc.
         pedigree[sample_id] = {
             "sample_id": sample_id,
             "father_id": "0",
@@ -318,7 +316,7 @@ def generate_synthetic_gene_burden_data(
         # Combine into gene_burden GT format
         all_samples = list(case_samples) + list(control_samples)
         all_gts = list(case_gts) + list(control_gts)
-        gt_str = ";".join(f"{s}({gt})" for s, gt in zip(all_samples, all_gts))
+        gt_str = ";".join(f"{s}({gt})" for s, gt in zip(all_samples, all_gts, strict=False))
         genotypes_list.append(gt_str)
 
     # Create DataFrame with required columns for gene burden analysis
@@ -328,11 +326,13 @@ def generate_synthetic_gene_burden_data(
     # - proband_count: total number of case samples
     # - control_count: total number of control samples
     # Note: The function will parse GT and aggregate per gene internally
-    df = pd.DataFrame({
-        "GENE": genes,
-        "GT": genotypes_list,
-        "proband_count": n_cases,
-        "control_count": n_controls,
-    })
+    df = pd.DataFrame(
+        {
+            "GENE": genes,
+            "GT": genotypes_list,
+            "proband_count": n_cases,
+            "control_count": n_controls,
+        }
+    )
 
     return df, case_samples, control_samples

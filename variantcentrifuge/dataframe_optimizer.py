@@ -212,7 +212,7 @@ def should_use_memory_passthrough(
         df_memory = df.memory_usage(deep=True).sum()
 
         threshold_memory = available_memory * threshold_ratio
-        use_passthrough = df_memory <= threshold_memory
+        use_passthrough = bool(df_memory <= threshold_memory)
 
         logger.info(
             f"DataFrame memory: {df_memory / 1024**2:.1f} MB, "
@@ -334,7 +334,7 @@ def load_optimized_dataframe(
     mem_delta = mem_after - mem_before
 
     logger.info(
-        f"Loaded {len(df)} rows × {len(df.columns)} columns "
+        f"Loaded {len(df)} rows x {len(df.columns)} columns "
         f"(Memory: {df.memory_usage(deep=True).sum() / 1024**2:.1f} MB, "
         f"Process RSS delta: {mem_delta:+.1f} MB)"
     )

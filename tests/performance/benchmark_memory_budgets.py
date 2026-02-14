@@ -163,7 +163,12 @@ def test_scoring_memory_budget(synthetic_variants):
         },
         "formulas": [
             {"impact_score": "((impact_val == 'HIGH') * 10) + ((impact_val == 'MODERATE') * 5)"},
-            {"effect_score": "((effect_val == 'stop_gained') * 10) + ((effect_val == 'missense_variant') * 5)"},
+            {
+                "effect_score": (
+                    "((effect_val == 'stop_gained') * 10) + "
+                    "((effect_val == 'missense_variant') * 5)"
+                )
+            },
         ],
     }
 
@@ -207,7 +212,7 @@ def test_dataframe_read_memory_budget(synthetic_variants, tmp_path):
     # Record peak for visibility
     peak_mb = tracker.peak_mb
     print(f"\nDataFrame read peak memory: {peak_mb:.1f} MB (50K variants)")
-    print(f"File size: {tsv_path.stat().st_size / (1024*1024):.1f} MB")
+    print(f"File size: {tsv_path.stat().st_size / (1024 * 1024):.1f} MB")
 
     # Correctness check only (no budget for I/O — this is baseline measurement)
     assert loaded_df is not None, "DataFrame should load successfully"

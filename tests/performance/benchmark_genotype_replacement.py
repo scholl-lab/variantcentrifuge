@@ -5,9 +5,6 @@ Tests both vectorized and sequential genotype replacement implementations
 at multiple scales with realistic sample counts.
 """
 
-from io import StringIO
-from pathlib import Path
-
 import pytest
 
 from variantcentrifuge.replacer import replace_genotypes
@@ -104,7 +101,6 @@ def test_sequential_replacement_scaling(benchmark, synthetic_variants, n_variant
 
     # Convert DataFrame to TSV lines iterator
     tsv_string = df.to_csv(sep="\t", index=False)
-    lines = iter(tsv_string.splitlines(keepends=True))
 
     # Build config
     cfg = _build_replacer_config(sample_list)

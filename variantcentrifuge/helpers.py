@@ -248,7 +248,7 @@ def build_sample_phenotype_map(df: pd.DataFrame) -> dict[str, set[str]]:
 
     sample_phenos = defaultdict(set)
 
-    for row in df.itertuples(index=False):
+    for row in df.itertuples(index=True):
         pheno_str = getattr(row, "phenotypes", "")
         if not isinstance(pheno_str, str) or not pheno_str.strip():
             continue
@@ -280,7 +280,7 @@ def build_sample_phenotype_map(df: pd.DataFrame) -> dict[str, set[str]]:
                     "Skipping phenotype assignment for this row.",
                     len(pheno_groups),
                     len(sample_names),
-                    idx,
+                    row.Index,
                 )
                 # No assignment here to prevent incorrect inflation
         else:

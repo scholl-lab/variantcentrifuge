@@ -251,7 +251,9 @@ def test_categorical_memory_reduction(benchmark, synthetic_variants, tmp_path, n
     optimized_memory = df_optimized.memory_usage(deep=True).sum()
 
     # Calculate reduction
-    memory_reduction_pct = (1 - optimized_memory / baseline_memory) * 100 if baseline_memory > 0 else 0
+    memory_reduction_pct = (
+        (1 - optimized_memory / baseline_memory) * 100 if baseline_memory > 0 else 0
+    )
 
     # Benchmark the detection + load process
     def load_with_categorical():
@@ -272,7 +274,9 @@ def test_categorical_memory_reduction(benchmark, synthetic_variants, tmp_path, n
     # Verify
     assert len(result) == n_variants
     # Conservative assertion: at least 20% reduction (target is 50-70%)
-    assert memory_reduction_pct >= 20.0, f"Expected >= 20% memory reduction, got {memory_reduction_pct:.1f}%"
+    assert memory_reduction_pct >= 20.0, (
+        f"Expected >= 20% memory reduction, got {memory_reduction_pct:.1f}%"
+    )
 
 
 @pytest.mark.performance

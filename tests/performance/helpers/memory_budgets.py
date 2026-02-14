@@ -8,7 +8,6 @@ budget enforcement (never raises exceptions).
 import tracemalloc
 import warnings
 
-
 # Default memory budgets (MB) at 2x expected peak for 10K variants x 100 samples
 # These will be refined once actual profiling data exists
 INHERITANCE_BUDGET_MB = 512

@@ -48,7 +48,7 @@ def _transform_to_postprocessed_gt(df: pd.DataFrame, sample_list: list[str]) -> 
         """Convert comma-separated GT to sample(genotype) format."""
         genotypes = row["GT"].split(",")
         formatted = []
-        for sample_id, gt in zip(sample_list, genotypes):
+        for sample_id, gt in zip(sample_list, genotypes, strict=False):
             formatted.append(f"{sample_id}({gt})")
         return ";".join(formatted)
 
@@ -107,9 +107,7 @@ def test_full_inheritance_analysis_cohort(benchmark, synthetic_variants, synthet
 
 @pytest.mark.performance
 @pytest.mark.slow
-def test_full_inheritance_analysis_large_cohort(
-    benchmark, synthetic_variants, synthetic_pedigree
-):
+def test_full_inheritance_analysis_large_cohort(benchmark, synthetic_variants, synthetic_pedigree):
     """
     Benchmark full inheritance analysis on large cohort.
 
@@ -155,9 +153,7 @@ def test_full_inheritance_analysis_large_cohort(
 
 
 @pytest.mark.performance
-def test_gene_burden_full_pipeline(
-    benchmark, synthetic_gene_burden_data, gene_burden_test_config
-):
+def test_gene_burden_full_pipeline(benchmark, synthetic_gene_burden_data, gene_burden_test_config):
     """
     Benchmark gene burden analysis full pipeline.
 

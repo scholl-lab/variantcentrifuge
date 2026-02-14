@@ -399,7 +399,9 @@ class PerformanceBenchmark:
 
         # Memory usage comparison
         memory_summary = (
-            df.groupby(["test_name", "pipeline_type"], observed=True)["peak_memory_mb"].mean().reset_index()
+            df.groupby(["test_name", "pipeline_type"], observed=True)["peak_memory_mb"]
+            .mean()
+            .reset_index()
         )
 
         old_memory = memory_summary[memory_summary["pipeline_type"] == "old"][
@@ -430,7 +432,9 @@ class PerformanceBenchmark:
 
             for pipeline in ["old", "new"]:
                 pipeline_df = thread_tests[thread_tests["pipeline_type"] == pipeline]
-                thread_summary = pipeline_df.groupby("threads", observed=True)["execution_time"].mean()
+                thread_summary = pipeline_df.groupby("threads", observed=True)[
+                    "execution_time"
+                ].mean()
 
                 ax.plot(
                     thread_summary.index,

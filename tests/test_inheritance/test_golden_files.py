@@ -17,9 +17,8 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "scripts"))
 
-from scripts.validate_inheritance import get_all_scenarios  # noqa: E402
-
-from variantcentrifuge.inheritance.analyzer import analyze_inheritance  # noqa: E402
+from scripts.validate_inheritance import get_all_scenarios
+from variantcentrifuge.inheritance.analyzer import analyze_inheritance
 
 GOLDEN_DIR = project_root / "tests" / "fixtures" / "golden"
 
@@ -72,9 +71,9 @@ def test_golden_file_match(scenario_name, check_golden_files_exist):
     result_sorted = result_df.sort_values(sort_cols).reset_index(drop=True)
 
     # Assert row count matches
-    assert len(golden_sorted) == len(
-        result_sorted
-    ), f"Row count mismatch: golden={len(golden_sorted)}, result={len(result_sorted)}"
+    assert len(golden_sorted) == len(result_sorted), (
+        f"Row count mismatch: golden={len(golden_sorted)}, result={len(result_sorted)}"
+    )
 
     # Assert Inheritance_Pattern matches exactly
     assert "Inheritance_Pattern" in golden_sorted.columns, "Golden file missing Inheritance_Pattern"
@@ -89,14 +88,12 @@ def test_golden_file_match(scenario_name, check_golden_files_exist):
             f":{golden_sorted.loc[idx, 'REF']}>{golden_sorted.loc[idx, 'ALT']}"
         )
 
-        assert (
-            golden_pattern == result_pattern
-        ), f"Pattern mismatch at {variant_key}: golden={golden_pattern}, result={result_pattern}"
+        assert golden_pattern == result_pattern, (
+            f"Pattern mismatch at {variant_key}: golden={golden_pattern}, result={result_pattern}"
+        )
 
     # Assert Inheritance_Details matches (parse JSON and compare key fields)
-    assert (
-        "Inheritance_Details" in golden_sorted.columns
-    ), "Golden file missing Inheritance_Details"
+    assert "Inheritance_Details" in golden_sorted.columns, "Golden file missing Inheritance_Details"
     assert "Inheritance_Details" in result_sorted.columns, "Result missing Inheritance_Details"
 
     for idx in range(len(golden_sorted)):
@@ -109,30 +106,33 @@ def test_golden_file_match(scenario_name, check_golden_files_exist):
         )
 
         # Compare primary_pattern
-        assert golden_details.get("primary_pattern") == result_details.get(
-            "primary_pattern"
-        ), f"primary_pattern mismatch at {variant_key}"
+        assert golden_details.get("primary_pattern") == result_details.get("primary_pattern"), (
+            f"primary_pattern mismatch at {variant_key}"
+        )
 
         # Compare all_patterns (as sets for order-independence)
         golden_patterns = set(golden_details.get("all_patterns", []))
         result_patterns = set(result_details.get("all_patterns", []))
-        assert (
-            golden_patterns == result_patterns
-        ), f"all_patterns mismatch at {variant_key}: golden={golden_patterns}, result={result_patterns}"
+        assert golden_patterns == result_patterns, (
+            f"all_patterns mismatch at {variant_key}: "
+            f"golden={golden_patterns}, result={result_patterns}"
+        )
 
         # Compare confidence (within epsilon=0.001)
         golden_conf = golden_details.get("confidence", 0.0)
         result_conf = result_details.get("confidence", 0.0)
-        assert (
-            abs(golden_conf - result_conf) <= 0.001
-        ), f"confidence mismatch at {variant_key}: golden={golden_conf:.3f}, result={result_conf:.3f}"
+        assert abs(golden_conf - result_conf) <= 0.001, (
+            f"confidence mismatch at {variant_key}: "
+            f"golden={golden_conf:.3f}, result={result_conf:.3f}"
+        )
 
         # Compare samples_with_pattern (sample IDs should match)
-        golden_samples = set(s["sample_id"] for s in golden_details.get("samples_with_pattern", []))
-        result_samples = set(s["sample_id"] for s in result_details.get("samples_with_pattern", []))
-        assert (
-            golden_samples == result_samples
-        ), f"samples_with_pattern mismatch at {variant_key}: golden={golden_samples}, result={result_samples}"
+        golden_samples = {s["sample_id"] for s in golden_details.get("samples_with_pattern", [])}
+        result_samples = {s["sample_id"] for s in result_details.get("samples_with_pattern", [])}
+        assert golden_samples == result_samples, (
+            f"samples_with_pattern mismatch at {variant_key}: "
+            f"golden={golden_samples}, result={result_samples}"
+        )
 
 
 @pytest.mark.unit
@@ -160,15 +160,16 @@ def test_scenario_determinism():
             details2 = json.loads(result2_sorted.loc[idx, "Inheritance_Details"])
 
             # Compare key fields (not full JSON string due to possible key ordering)
-            assert details1.get("primary_pattern") == details2.get(
-                "primary_pattern"
-            ), f"primary_pattern not deterministic for {scenario_name} row {idx}"
+            assert details1.get("primary_pattern") == details2.get("primary_pattern"), (
+                f"primary_pattern not deterministic for {scenario_name} row {idx}"
+            )
 
-            assert set(details1.get("all_patterns", [])) == set(
-                details2.get("all_patterns", [])
-            ), f"all_patterns not deterministic for {scenario_name} row {idx}"
+            assert set(details1.get("all_patterns", [])) == set(details2.get("all_patterns", [])), (
+                f"all_patterns not deterministic for {scenario_name} row {idx}"
+            )
 
-            assert abs(details1.get("confidence", 0.0) - details2.get("confidence", 0.0)) <= 0.001, (
+            confidence_diff = abs(details1.get("confidence", 0.0) - details2.get("confidence", 0.0))
+            assert confidence_diff <= 0.001, (
                 f"confidence not deterministic for {scenario_name} row {idx}"
             )
 
@@ -181,10 +182,12 @@ def test_scenario_data_types():
         result = analyze_inheritance(df, pedigree_data, sample_list)
 
         # Check required columns exist
-        assert "Inheritance_Pattern" in result.columns, f"Missing Inheritance_Pattern in {scenario_name}"
-        assert (
-            "Inheritance_Details" in result.columns
-        ), f"Missing Inheritance_Details in {scenario_name}"
+        assert "Inheritance_Pattern" in result.columns, (
+            f"Missing Inheritance_Pattern in {scenario_name}"
+        )
+        assert "Inheritance_Details" in result.columns, (
+            f"Missing Inheritance_Details in {scenario_name}"
+        )
 
         # Check Inheritance_Pattern is string type
         assert result["Inheritance_Pattern"].dtype == object, (
@@ -195,7 +198,9 @@ def test_scenario_data_types():
         for idx, details_str in enumerate(result["Inheritance_Details"]):
             try:
                 details = json.loads(details_str)
-                assert isinstance(details, dict), f"Inheritance_Details should be dict in {scenario_name}"
+                assert isinstance(details, dict), (
+                    f"Inheritance_Details should be dict in {scenario_name}"
+                )
                 assert "primary_pattern" in details, (
                     f"Missing primary_pattern in Inheritance_Details for {scenario_name} row {idx}"
                 )
@@ -253,8 +258,12 @@ def test_golden_files_readable():
         assert "POS" in df.columns, f"Missing POS in {scenario_name}"
         assert "REF" in df.columns, f"Missing REF in {scenario_name}"
         assert "ALT" in df.columns, f"Missing ALT in {scenario_name}"
-        assert "Inheritance_Pattern" in df.columns, f"Missing Inheritance_Pattern in {scenario_name}"
-        assert "Inheritance_Details" in df.columns, f"Missing Inheritance_Details in {scenario_name}"
+        assert "Inheritance_Pattern" in df.columns, (
+            f"Missing Inheritance_Pattern in {scenario_name}"
+        )
+        assert "Inheritance_Details" in df.columns, (
+            f"Missing Inheritance_Details in {scenario_name}"
+        )
 
         # Should have at least one row
         assert len(df) > 0, f"Golden file is empty: {scenario_name}"

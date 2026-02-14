@@ -15,7 +15,6 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
@@ -656,12 +655,12 @@ def compare_dataframes(
                 )
 
             # Compare samples_with_pattern (sample IDs should match)
-            golden_samples = set(
+            golden_samples = {
                 s["sample_id"] for s in golden_details.get("samples_with_pattern", [])
-            )
-            new_samples = set(
+            }
+            new_samples = {
                 s["sample_id"] for s in new_details.get("samples_with_pattern", [])
-            )
+            }
             if golden_samples != new_samples:
                 details_mismatches += 1
                 errors.append(
@@ -676,7 +675,8 @@ def compare_dataframes(
     if pattern_mismatches > 0 or details_mismatches > 0:
         errors.insert(
             0,
-            f"Found {pattern_mismatches} pattern mismatches and {details_mismatches} detail mismatches",
+            f"Found {pattern_mismatches} pattern mismatches and "
+            f"{details_mismatches} detail mismatches",
         )
         return False, errors
 

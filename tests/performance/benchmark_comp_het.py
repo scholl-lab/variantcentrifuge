@@ -30,9 +30,7 @@ def _expand_gt_column_to_samples(df: pd.DataFrame, sample_list: list[str]) -> pd
 
 @pytest.mark.performance
 @pytest.mark.parametrize("n_variants", [100, 1000, 10000])
-def test_comp_het_vectorized_scaling(
-    benchmark, synthetic_variants, synthetic_pedigree, n_variants
-):
+def test_comp_het_vectorized_scaling(benchmark, synthetic_variants, synthetic_pedigree, n_variants):
     """
     Benchmark vectorized compound het detection at per-gene level.
 
@@ -142,9 +140,7 @@ def test_comp_het_multi_gene(benchmark, synthetic_variants, synthetic_pedigree, 
     def run_analysis():
         results = {}
         for gene, gene_df in df.groupby("GENE", observed=True):
-            gene_results = analyze_gene_for_compound_het_vectorized(
-                gene_df, pedigree, sample_list
-            )
+            gene_results = analyze_gene_for_compound_het_vectorized(gene_df, pedigree, sample_list)
             results[gene] = gene_results
         return results
 

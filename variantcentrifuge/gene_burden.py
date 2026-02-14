@@ -264,8 +264,10 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: dict[str, Any]) -> pd.Da
     logger.info(f"Gene burden analysis processing {len(grouped)} genes in deterministic order")
     for row in grouped.itertuples(index=False):
         logger.debug(
-            f"Processing gene {getattr(row, 'GENE', '')}: case_count={getattr(row, 'proband_count', 0)}, "
-            f"control_count={getattr(row, 'control_count', 0)}, case_alleles={getattr(row, 'proband_allele_count', 0)}, "
+            f"Processing gene {getattr(row, 'GENE', '')}: "
+            f"case_count={getattr(row, 'proband_count', 0)}, "
+            f"control_count={getattr(row, 'control_count', 0)}, "
+            f"case_alleles={getattr(row, 'proband_allele_count', 0)}, "
             f"control_alleles={getattr(row, 'control_allele_count', 0)}"
         )
 

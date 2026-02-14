@@ -50,7 +50,7 @@ def test_scoring_apply_scaling(benchmark, synthetic_variants, synthetic_scoring_
     assert result is not None
     # formulas is a list of dicts, extract all score names
     for formula_dict in scoring_config["formulas"]:
-        for score_name in formula_dict.keys():
+        for score_name in formula_dict:
             assert score_name in result.columns
 
 

@@ -144,13 +144,13 @@ def test_rename_invalid_identifiers_keywords():
         }
     )
 
-    renamed_df, rename_map = rename_invalid_identifiers(df)
+    _renamed_df, rename_map = rename_invalid_identifiers(df)
 
     # Keywords should be renamed
     assert "class" in rename_map
     assert "return" in rename_map
     assert "if" in rename_map
-    assert all(keyword.iskeyword(col) or not col.isidentifier() for col in rename_map.keys())
+    assert all(keyword.iskeyword(col) or not col.isidentifier() for col in rename_map)
 
 
 @pytest.mark.unit
@@ -164,7 +164,7 @@ def test_rename_invalid_identifiers_duplicates():
         }
     )
 
-    renamed_df, rename_map = rename_invalid_identifiers(df)
+    _renamed_df, rename_map = rename_invalid_identifiers(df)
 
     # All would sanitize to 'foo_bar', so should get _1, _2 suffixes
     new_names = list(rename_map.values())
@@ -203,7 +203,7 @@ def test_should_use_memory_passthrough_under_threshold(mock_memory):
 
     # With threshold=0.25, 1MB < 1GB -> should use pass-through
     result = should_use_memory_passthrough(df, threshold_ratio=0.25)
-    assert result == True
+    assert result is True
 
 
 @pytest.mark.unit
@@ -218,7 +218,7 @@ def test_should_use_memory_passthrough_over_threshold(mock_memory):
 
     # With threshold=0.25, 500MB > 250MB -> should NOT use pass-through
     result = should_use_memory_passthrough(df, threshold_ratio=0.25)
-    assert result == False
+    assert result is False
 
 
 @pytest.mark.unit
@@ -231,7 +231,7 @@ def test_should_use_memory_passthrough_exception_handling(mock_memory):
     df = pd.DataFrame({"col": [1, 2, 3]})
 
     result = should_use_memory_passthrough(df)
-    assert result == False
+    assert result is False
 
 
 @pytest.mark.unit
@@ -240,7 +240,7 @@ def test_load_optimized_dataframe_basic():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
         f.write("CHROM\tPOS\tGEN[0].GT\n")
         for i in range(10):
-            f.write(f"chr1\t{1000+i}\t0/1\n")
+            f.write(f"chr1\t{1000 + i}\t0/1\n")
         temp_path = f.name
 
     try:
@@ -274,7 +274,7 @@ def test_load_optimized_dataframe_pyarrow_engine():
         with patch("variantcentrifuge.dataframe_optimizer.pd.read_csv") as mock_read_csv:
             mock_read_csv.return_value = pd.DataFrame({"CHROM": ["chr1"], "POS": ["1000"]})
 
-            df, rename_map = load_optimized_dataframe(temp_path, use_pyarrow=True)
+            _df, _rename_map = load_optimized_dataframe(temp_path, use_pyarrow=True)
 
             # Verify PyArrow engine was used
             call_kwargs = mock_read_csv.call_args[1]
@@ -297,7 +297,7 @@ def test_load_optimized_dataframe_pyarrow_fallback():
             mock_read_csv.return_value = pd.DataFrame({"CHROM": ["chr1"], "POS": ["1000"]})
 
             # Pass unsupported param
-            df, rename_map = load_optimized_dataframe(
+            _df, _rename_map = load_optimized_dataframe(
                 temp_path, use_pyarrow=True, on_bad_lines="warn"
             )
 
@@ -346,7 +346,7 @@ def test_load_optimized_dataframe_compression():
         temp_path = f.name
 
     try:
-        df, rename_map = load_optimized_dataframe(temp_path, compression="gzip")
+        df, _rename_map = load_optimized_dataframe(temp_path, compression="gzip")
 
         assert len(df) == 1
         assert df["CHROM"].iloc[0] == "chr1"
@@ -385,7 +385,7 @@ def test_rename_invalid_identifiers_empty_after_sanitization():
         }
     )
 
-    renamed_df, rename_map = rename_invalid_identifiers(df)
+    renamed_df, _rename_map = rename_invalid_identifiers(df)
 
     # Should create valid names
     assert all(col.isidentifier() and not keyword.iskeyword(col) for col in renamed_df.columns)
@@ -404,10 +404,10 @@ def test_load_optimized_dataframe_preserves_data():
 
     try:
         # Load with optimizations
-        df_opt, _ = load_optimized_dataframe(temp_path)
+        df_opt, _rename_map_opt = load_optimized_dataframe(temp_path)
 
         # Load without optimizations
-        df_plain, _ = load_optimized_dataframe(
+        df_plain, _rename_map_plain = load_optimized_dataframe(
             temp_path,
             use_pyarrow=False,
             optimize_dtypes=False,

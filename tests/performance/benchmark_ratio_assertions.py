@@ -42,7 +42,10 @@ def _filter_to_single_gene(df, min_variants=5):
 
     # Verify sufficient variants
     if len(gene_df) < min_variants:
-        pytest.skip(f"Generated data has insufficient variants in largest gene ({len(gene_df)} < {min_variants})")
+        pytest.skip(
+            f"Generated data has insufficient variants in largest gene "
+            f"({len(gene_df)} < {min_variants})"
+        )
 
     return gene_df
 
@@ -103,7 +106,7 @@ def test_comp_het_vectorized_vs_original_ratio(synthetic_variants, synthetic_ped
         sample_list,
         iterations=5,
     )
-    print(f"Sequential (original): {sequential_mean*1000:.2f} ms (mean of 5 iterations)")
+    print(f"Sequential (original): {sequential_mean * 1000:.2f} ms (mean of 5 iterations)")
 
     # Time vectorized implementation
     vectorized_mean = _time_function_iterations(
@@ -113,7 +116,7 @@ def test_comp_het_vectorized_vs_original_ratio(synthetic_variants, synthetic_ped
         sample_list,
         iterations=5,
     )
-    print(f"Vectorized: {vectorized_mean*1000:.2f} ms (mean of 5 iterations)")
+    print(f"Vectorized: {vectorized_mean * 1000:.2f} ms (mean of 5 iterations)")
 
     # Compute speedup
     speedup = sequential_mean / vectorized_mean
@@ -140,7 +143,9 @@ def test_comp_het_ratio_at_scale(synthetic_variants, synthetic_pedigree, n_varia
     # Filter to single gene
     gene_df = _filter_to_single_gene(df, min_variants=5)
 
-    print(f"\nTesting compound het ratio on {n_variants} variants (gene has {len(gene_df)} variants)")
+    print(
+        f"\nTesting compound het ratio on {n_variants} variants (gene has {len(gene_df)} variants)"
+    )
 
     # Time both implementations
     sequential_mean = _time_function_iterations(
@@ -161,7 +166,9 @@ def test_comp_het_ratio_at_scale(synthetic_variants, synthetic_pedigree, n_varia
 
     # Compute and display speedup
     speedup = sequential_mean / vectorized_mean
-    print(f"Sequential: {sequential_mean*1000:.2f} ms, Vectorized: {vectorized_mean*1000:.2f} ms")
+    print(
+        f"Sequential: {sequential_mean * 1000:.2f} ms, Vectorized: {vectorized_mean * 1000:.2f} ms"
+    )
     print(f"Speedup: {speedup:.2f}x")
 
     # Assert vectorized is faster
