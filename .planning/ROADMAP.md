@@ -57,27 +57,28 @@ Plans:
 - [x] 07-02-PLAN.md -- Add observed=True to all 17 groupby call sites + gc.collect() with memory logging in runner.py + pre-commit hook
 - [x] 07-03-PLAN.md -- Run full benchmark suite, compare against baseline, update performance analysis report
 
-#### Phase 8: DataFrame Optimization
+#### ✅ Phase 8: DataFrame Optimization (Complete)
 **Goal**: 50-70% memory reduction and 2-3x I/O speedup through optimal DataFrame loading
 **Depends on**: Phase 7 (observed=True must exist before categorical dtypes)
 **Requirements**: DFOPT-01, DFOPT-02, DFOPT-03, DFOPT-04
 **Success Criteria** (what must be TRUE):
-  1. PyArrow engine used for hot-path CSV reads with `engine="pyarrow"`
-  2. Categorical dtypes applied to low-cardinality columns (CHROM, IMPACT, FILTER, EFFECT, GENE) without breaking comparisons
-  3. iterrows replaced with itertuples in inheritance Pass 2-3 achieving 10-13x speedup
-  4. DataFrame passed directly from pipeline context to Excel stage without redundant disk read
-  5. Memory profiling shows 50-70% reduction, benchmarks show 2-3x I/O speedup
-**Plans:** 4 plans
+  1. ✅ PyArrow engine used for hot-path CSV reads with `engine="pyarrow"`
+  2. ✅ Categorical dtypes applied to low-cardinality columns (CHROM, IMPACT, FILTER, EFFECT, GENE) without breaking comparisons
+  3. ✅ iterrows replaced with itertuples in inheritance Pass 2-3 achieving 30.9x speedup (exceeding 10-13x target)
+  4. ✅ DataFrame passed directly from pipeline context to Excel stage without redundant disk read
+  5. ✅ Memory profiling shows 82-84% reduction (exceeding 50-70% target), benchmarks show 3.0x I/O speedup (meeting 2-3x target)
+**Plans:** 4 plans (4/4 complete)
+**Verified:** 5/5 must-haves passed
 
 Plans:
-- [ ] 08-01-PLAN.md -- DataFrame optimizer utility module (PyArrow engine, categorical auto-detection, column sanitization) + DataFrameLoadingStage integration
-- [ ] 08-02-PLAN.md -- Replace iterrows with itertuples across 14 hot-path sites in 8 files + pd.NA-safe comparisons
-- [ ] 08-03-PLAN.md -- DataFrame pass-through for Excel stage (eliminate redundant TSV re-read) + column name restoration
-- [ ] 08-04-PLAN.md -- Benchmark verification: measure memory reduction, I/O speedup, iteration speedup
+- [x] 08-01-PLAN.md -- DataFrame optimizer utility module (PyArrow engine, categorical auto-detection, column sanitization) + DataFrameLoadingStage integration
+- [x] 08-02-PLAN.md -- Replace iterrows with itertuples across 14 hot-path sites in 9 files + pd.NA-safe comparisons
+- [x] 08-03-PLAN.md -- DataFrame pass-through for Excel stage (eliminate redundant TSV re-read) + column name restoration
+- [x] 08-04-PLAN.md -- Benchmark verification: measure memory reduction, I/O speedup, iteration speedup
 
 #### Phase 9: Inheritance Analysis Optimization
 **Goal**: 10-100x speedup on inheritance analysis through full NumPy vectorization of the three-pass analysis
-**Depends on**: Phase 8 (categorical dtypes enable vectorization)
+**Depends on**: Phase 8 (categorical dtypes enable vectorization, itertuples established)
 **Requirements**: INHER-01, INHER-02, INHER-03, INHER-04
 **Success Criteria** (what must be TRUE):
   1. `df.apply(axis=1)` in Pass 1 replaced with vectorized NumPy boolean mask operations achieving 10-100x speedup
@@ -148,7 +149,7 @@ Plans:
 | 1-5. Baseline | v0.12.1 | N/A | Complete | 2026-02-14 |
 | 6. Benchmark Framework | v0.13.0 | 4/4 | Complete | 2026-02-14 |
 | 7. Quick Wins - Tier 1 | v0.13.0 | 3/3 | Complete | 2026-02-14 |
-| 8. DataFrame Optimization | v0.13.0 | 0/4 | Not started | - |
+| 8. DataFrame Optimization | v0.13.0 | 4/4 | Complete | 2026-02-14 |
 | 9. Inheritance Analysis Optimization | v0.13.0 | 0/5 | Not started | - |
 | 10. Output Optimization | v0.13.0 | 0/TBD | Not started | - |
 | 11. Pipeline & Cython Optimization | v0.13.0 | 0/TBD | Not started | - |

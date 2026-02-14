@@ -25,10 +25,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### DataFrame Optimization (DFOPT)
 
-- [ ] **DFOPT-01**: PyArrow engine used for hot-path `pd.read_csv()` calls with `engine="pyarrow"`
-- [ ] **DFOPT-02**: Categorical dtypes applied to low-cardinality columns (CHROM, IMPACT, FILTER, EFFECT, GENE) via optimization utility
-- [ ] **DFOPT-03**: iterrows() replaced with itertuples() in inheritance analysis Pass 2-3 (analyzer.py lines 128, 138)
-- [ ] **DFOPT-04**: DataFrame passed directly from pipeline context to Excel stage, eliminating redundant TSV re-read from disk
+- [x] **DFOPT-01**: PyArrow engine used for hot-path `pd.read_csv()` calls with `engine="pyarrow"`
+- [x] **DFOPT-02**: Categorical dtypes applied to low-cardinality columns (CHROM, IMPACT, FILTER, EFFECT, GENE) via optimization utility
+- [x] **DFOPT-03**: iterrows() replaced with itertuples() in inheritance analysis Pass 2-3 (analyzer.py lines 128, 138)
+- [x] **DFOPT-04**: DataFrame passed directly from pipeline context to Excel stage, eliminating redundant TSV re-read from disk
 
 ### Inheritance Analysis Optimization (INHER)
 
@@ -103,10 +103,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | QWIN-02 | Phase 7 | Complete |
 | QWIN-03 | Phase 7 | Complete |
 | QWIN-04 | Phase 7 | Complete |
-| DFOPT-01 | Phase 8 | Pending |
-| DFOPT-02 | Phase 8 | Pending |
-| DFOPT-03 | Phase 8 | Pending |
-| DFOPT-04 | Phase 8 | Pending |
+| DFOPT-01 | Phase 8 | Complete |
+| DFOPT-02 | Phase 8 | Complete |
+| DFOPT-03 | Phase 8 | Complete |
+| DFOPT-04 | Phase 8 | Complete |
 | INHER-01 | Phase 9 | Pending |
 | INHER-02 | Phase 9 | Pending |
 | INHER-03 | Phase 9 | Pending |
