@@ -5,7 +5,6 @@ This test verifies that removing the dead GT parsing loop (lines 220-249)
 from perform_gene_burden_analysis does not change the output.
 """
 
-import numpy as np
 import pandas as pd
 import pytest
 
