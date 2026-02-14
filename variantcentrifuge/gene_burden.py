@@ -209,47 +209,7 @@ def perform_gene_burden_analysis(df: pd.DataFrame, cfg: dict[str, Any]) -> pd.Da
         p_count = gene_df["proband_count"].iloc[0]
         c_count = gene_df["control_count"].iloc[0]
 
-        # For gene burden analysis, we need to identify which samples have ANY variant in this gene
-        # This requires parsing the GT column to find unique samples with variants
-        case_samples_with_variants: set[str] = set()
-        control_samples_with_variants: set[str] = set()
-        case_total_alleles = 0
-        control_total_alleles = 0
-
-        # Parse GT columns to find samples with variants in this gene
-        for _, row in gene_df.iterrows():
-            gt_value = str(row.get("GT", ""))
-            if gt_value and gt_value not in ["NA", "nan", ""]:
-                # Parse the GT field: "Sample1(0/1);Sample2(1/1);..."
-                for sample_entry in gt_value.split(";"):
-                    sample_entry = sample_entry.strip()
-                    if not sample_entry:
-                        continue
-
-                    # Extract sample name and genotype
-                    if "(" in sample_entry and ")" in sample_entry:
-                        sample_name = sample_entry.split("(")[0].strip()
-                        genotype_part = sample_entry.split("(")[1].split(")")[0]
-                        genotype = (
-                            genotype_part.split(":")[0] if ":" in genotype_part else genotype_part
-                        )
-
-                        # Count alleles
-                        if genotype == "1/1":
-                            allele_count = 2
-                        elif genotype in ["0/1", "1/0"]:
-                            allele_count = 1
-                        else:
-                            allele_count = 0
-
-                        # Add to appropriate group if has variant
-                        if allele_count > 0:
-                            # We need to determine if this sample is case or control
-                            # For now, we'll use the aggregated counts from the existing columns
-                            pass
-
-        # Use the existing aggregated counts for now (this preserves the original logic)
-        # but we'll add validation to ensure they make sense
+        # Use the existing aggregated counts
         p_var_count = int(gene_df["proband_variant_count"].sum())
         c_var_count = int(gene_df["control_variant_count"].sum())
         p_allele_count = int(gene_df["proband_allele_count"].sum())
