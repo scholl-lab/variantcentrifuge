@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-14)
 ## Current Position
 
 Phase: 9 of 12 (Inheritance Analysis Optimization)
-Plan: 1 of 4 complete
+Plan: 2 of 4 complete
 Status: In progress
-Last activity: 2026-02-14 — Completed 09-01-PLAN.md (Golden File Validation Infrastructure)
+Last activity: 2026-02-14 — Completed 09-02-PLAN.md (Deducer Vectorization - Pass 1)
 
-Progress: [████████░░░░░░░░░░░░] 58% (Phase 1-8 complete, 9 in progress)
+Progress: [████████░░░░░░░░░░░░] 60% (Phase 1-8 complete, 9 in progress)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11
-- Average duration: 18.5 minutes
-- Total execution time: 3.4 hours
+- Total plans completed: 12
+- Average duration: 17.5 minutes
+- Total execution time: 3.6 hours
 
 **By Phase:**
 
@@ -31,10 +31,10 @@ Progress: [████████░░░░░░░░░░░░] 58% (Ph
 | 6. Benchmark Framework | 4/4 | 48.0 min | 12.0 min |
 | 7. Quick Wins Tier 1 | 3/3 | 89.0 min | 29.7 min |
 | 8. DataFrame Optimization | 4/4 | 62.0 min | 15.5 min |
-| 9. Inheritance Optimization | 1/4 | 6.0 min | 6.0 min |
+| 9. Inheritance Optimization | 2/4 | 21.0 min | 10.5 min |
 
 **Recent Trend:**
-- Last 5 plans: 08-01 (18.0 min), 08-02 (13.0 min), 08-03 (skipped), 08-04 (31.0 min), 09-01 (6.0 min)
+- Last 5 plans: 08-02 (13.0 min), 08-03 (skipped), 08-04 (31.0 min), 09-01 (6.0 min), 09-02 (15.0 min)
 - Trend: Infrastructure tasks 6-18 min, benchmark verification 31-75 min
 
 *Updated after each plan completion*
@@ -69,6 +69,10 @@ Recent decisions affecting current work:
 - Inheritance "regressions" are benchmark variance (08-04): 11-22% slowdown within normal variation, DataFrame I/O doesn't affect inheritance logic
 - Use Parquet format for golden files (09-01): Preserves exact dtypes and column ordering, more reliable than CSV/TSV for validation
 - 10 synthetic test scenarios for inheritance validation (09-01): Covers all major patterns (trio, single-sample, extended-family, X-linked, mitochondrial, compound-het, edge-cases)
+- Build genotype matrix once before all pattern checks (09-02): Encode all sample genotypes (n_variants x n_samples) once using int8, reuse for all checks
+- Per-sample pattern tracking for fallback logic (09-02): Track patterns_before_sample to match original per-sample fallback behavior (carrier/unknown)
+- Use isinstance(dtype, pd.CategoricalDtype) for categorical check (09-02): Future-proof replacement for deprecated is_categorical_dtype()
+- Reuse encode_genotypes from comp_het_vectorized.py (09-02): Consistent encoding across modules, proven correctness
 
 ### Pending Todos
 
@@ -168,7 +172,7 @@ Recent decisions affecting current work:
 
 **Phase 8 achieved 22-62% speedup on gene burden from itertuples optimization.**
 
-**Phase 9 (Inheritance Analysis Optimization): IN PROGRESS (1/4 plans complete)**
+**Phase 9 (Inheritance Analysis Optimization): IN PROGRESS (2/4 plans complete)**
 
 **Plan 01 (Golden File Validation Infrastructure): COMPLETE**
 - Created scripts/validate_inheritance.py with generate and compare modes
@@ -179,14 +183,23 @@ Recent decisions affecting current work:
 - Comparison mode validates clinical equivalence (Inheritance_Pattern exact, confidence within 0.001)
 - Ready for use in Plans 02-04 (deducer, compound het, full vectorization)
 
+**Plan 02 (Deducer Vectorization - Pass 1): COMPLETE**
+- Created vectorized_deducer.py with NumPy boolean mask pattern deduction (802 lines)
+- Replaced df.apply(deduce_patterns_for_variant) with vectorized_deduce_patterns()
+- Genotype matrix encoding once upfront (n_variants x n_samples int8 matrix)
+- All 10 golden file scenarios pass (clinically equivalent output)
+- All 140 inheritance tests + 599 unit tests pass with no regressions
+- Expected 10-100x speedup on Pass 1 (to be confirmed in Plan 05 benchmarks)
+
 **Next Plans:**
-- 02: Deducer vectorization (will use golden files for validation)
 - 03: Compound het vectorization (will use golden files for validation)
-- 04: Full vectorization validation (final golden file check before benchmark)
+- 04: Full vectorization validation (final golden file check + parallel_analyzer update)
+- 05: Benchmark verification (confirm 50-70% speedup target)
 
 **Baseline performance:**
 - 3.2s for 10K variants (down from 4.8s after Phase 7 collateral improvements)
-- Target: 50-70% speedup via vectorization
+- Pass 1 (deduction) is ~50-70% of inheritance analysis time
+- Target: 50-70% speedup via vectorization (Pass 1, 2, 3)
 
 **Phase 11 (Pipeline & Cython Optimization):**
 - Subprocess piping error handling needs platform-specific validation (Windows vs Linux)
@@ -194,7 +207,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-02-14 16:33 UTC
-Stopped at: Completed 09-01-PLAN.md (Golden File Validation Infrastructure)
+Last session: 2026-02-14 17:05 UTC
+Stopped at: Completed 09-02-PLAN.md (Deducer Vectorization - Pass 1)
 Resume file: None
-Next: Phase 9 Plan 02 (Deducer Vectorization) - use golden files to validate pattern deduction vectorization
+Next: Phase 9 Plan 03 (Compound Het Vectorization - Pass 2) - vectorize compound het detection with NumPy, validate with golden files
