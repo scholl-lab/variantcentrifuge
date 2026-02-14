@@ -1,0 +1,4 @@
+# Ignore all ephemeral benchmark result files
+*
+# Keep the .gitignore file itself
+!.gitignore
