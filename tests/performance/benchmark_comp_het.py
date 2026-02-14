@@ -8,7 +8,6 @@ original implementations at multiple scales. Operates at per-gene granularity.
 import pandas as pd
 import pytest
 
-from variantcentrifuge.inheritance.comp_het import analyze_gene_for_compound_het
 from variantcentrifuge.inheritance.comp_het_vectorized import (
     analyze_gene_for_compound_het_vectorized,
 )
@@ -94,9 +93,9 @@ def test_comp_het_original_scaling(benchmark, synthetic_variants, synthetic_pedi
     gene_df = df[df["GENE"] == first_gene].copy()
     n_gene_variants = len(gene_df)
 
-    # Benchmark original compound het
+    # Benchmark compound het
     def run_analysis():
-        return analyze_gene_for_compound_het(gene_df, pedigree, sample_list)
+        return analyze_gene_for_compound_het_vectorized(gene_df, pedigree, sample_list)
 
     if n_gene_variants >= 100:
         result = benchmark.pedantic(run_analysis, rounds=3, iterations=1, warmup_rounds=1)

@@ -8,9 +8,6 @@ See: https://github.com/scholl-lab/variantcentrifuge/issues/33
 import pandas as pd
 import pytest
 
-from variantcentrifuge.inheritance.comp_het import (
-    analyze_gene_for_compound_het as analyze_original,
-)
 from variantcentrifuge.inheritance.comp_het_vectorized import (
     analyze_gene_for_compound_het_vectorized,
 )
@@ -155,19 +152,8 @@ class TestCompHetSplitLinesFalsePositive:
     """Test that transcript-duplicated rows do not cause false compound het calls."""
 
     @pytest.mark.comp_het
-    def test_original_no_false_positive(self, single_variant_three_transcripts, trio_pedigree):
-        """Original implementation must not call comp het for a single variant."""
-        results = analyze_original(
-            single_variant_three_transcripts, trio_pedigree.copy(), SAMPLE_LIST
-        )
-        assert results == {}, (
-            f"Expected no compound het calls for a single variant with "
-            f"3 transcript rows, got: {results}"
-        )
-
-    @pytest.mark.comp_het
-    def test_vectorized_no_false_positive(self, single_variant_three_transcripts, trio_pedigree):
-        """Vectorized implementation must not call comp het for a single variant."""
+    def test_no_false_positive(self, single_variant_three_transcripts, trio_pedigree):
+        """Implementation must not call comp het for a single variant."""
         results = analyze_gene_for_compound_het_vectorized(
             single_variant_three_transcripts, trio_pedigree.copy(), SAMPLE_LIST
         )
@@ -181,19 +167,8 @@ class TestCompHetSplitLinesTruePositive:
     """Test that true compound hets are still detected with transcript duplicates."""
 
     @pytest.mark.comp_het
-    def test_original_true_positive(self, two_variants_with_transcript_duplicates, trio_pedigree):
-        """Original implementation must still detect true comp het with duplicated rows."""
-        results = analyze_original(
-            two_variants_with_transcript_duplicates, trio_pedigree.copy(), SAMPLE_LIST
-        )
-        assert len(results) > 0, "Expected compound het detection for 2 unique variants"
-        # Both variant keys should be present
-        assert "1:1000:A>T" in results
-        assert "1:2000:C>G" in results
-
-    @pytest.mark.comp_het
-    def test_vectorized_true_positive(self, two_variants_with_transcript_duplicates, trio_pedigree):
-        """Vectorized implementation must still detect true comp het with duplicated rows."""
+    def test_true_positive(self, two_variants_with_transcript_duplicates, trio_pedigree):
+        """Implementation must still detect true comp het with duplicated rows."""
         results = analyze_gene_for_compound_het_vectorized(
             two_variants_with_transcript_duplicates, trio_pedigree.copy(), SAMPLE_LIST
         )

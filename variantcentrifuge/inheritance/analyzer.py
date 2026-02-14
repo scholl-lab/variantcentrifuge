@@ -11,17 +11,15 @@ from typing import Any
 
 import pandas as pd
 
-from .comp_het import analyze_gene_for_compound_het
+from .comp_het_vectorized import (
+    analyze_gene_for_compound_het_vectorized,
+    create_variant_key,
+    encode_genotypes,
+    GENOTYPE_ENCODING,
+)
 from .prioritizer import get_pattern_description, prioritize_patterns
 from .segregation_checker import calculate_segregation_score
 from .vectorized_deducer import vectorized_deduce_patterns
-
-try:
-    from .comp_het_vectorized import analyze_gene_for_compound_het_vectorized
-
-    VECTORIZED_AVAILABLE = True
-except ImportError:
-    VECTORIZED_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +47,8 @@ def analyze_inheritance(
     sample_list : List[str]
         List of sample IDs to analyze
     use_vectorized_comp_het : bool, optional
-        Whether to use the vectorized compound het implementation for better performance.
-        Defaults to True if available, falls back to original if not.
+        Deprecated parameter (kept for backward compatibility).
+        Vectorized implementation is now always used.
 
     Returns
     -------
@@ -86,12 +84,7 @@ def analyze_inheritance(
     df["_inheritance_patterns"] = vectorized_deduce_patterns(df, pedigree_data, sample_list)
 
     # Pass 2: Compound Heterozygous Analysis
-    implementation = (
-        "vectorized" if (use_vectorized_comp_het and VECTORIZED_AVAILABLE) else "original"
-    )
-    logger.info(
-        f"Pass 2: Analyzing compound heterozygous patterns (using {implementation} implementation)"
-    )
+    logger.info("Pass 2: Analyzing compound heterozygous patterns")
 
     # Group by gene and analyze
     comp_het_results_by_gene = {}
@@ -106,15 +99,10 @@ def analyze_inheritance(
             if len(gene_df) > 1:
                 logger.debug(f"Analyzing gene {gene} with {len(gene_df)} variants for compound het")
 
-            # Use vectorized implementation if available and requested
-            if use_vectorized_comp_het and VECTORIZED_AVAILABLE:
-                comp_het_results = analyze_gene_for_compound_het_vectorized(
-                    gene_df, pedigree_data, sample_list
-                )
-            else:
-                comp_het_results = analyze_gene_for_compound_het(
-                    gene_df, pedigree_data, sample_list
-                )
+            # Use vectorized implementation
+            comp_het_results = analyze_gene_for_compound_het_vectorized(
+                gene_df, pedigree_data, sample_list
+            )
 
             if comp_het_results:
                 comp_het_results_by_gene[gene] = comp_het_results

@@ -3,13 +3,9 @@
 import numpy as np
 import pandas as pd
 
-from variantcentrifuge.inheritance.comp_het import (
-    analyze_gene_for_compound_het,
-    create_variant_key,
-    determine_compound_het_type,
-)
 from variantcentrifuge.inheritance.comp_het_vectorized import (
-    analyze_gene_for_compound_het_vectorized,
+    analyze_gene_for_compound_het_vectorized_vectorized,
+    create_variant_key,
     find_potential_partners_vectorized,
 )
 
@@ -68,7 +64,7 @@ class TestCompoundHetDetection:
             ]
         )
 
-        results = analyze_gene_for_compound_het(gene_df, self.pedigree_data, self.sample_list)
+        results = analyze_gene_for_compound_het_vectorized(gene_df, self.pedigree_data, self.sample_list)
 
         # Should find compound het for both variants
         assert len(results) == 2
@@ -107,7 +103,7 @@ class TestCompoundHetDetection:
         pedigree_data = {}
         sample_list = ["sample1"]
 
-        results = analyze_gene_for_compound_het(gene_df, pedigree_data, sample_list)
+        results = analyze_gene_for_compound_het_vectorized(gene_df, pedigree_data, sample_list)
 
         # Should still identify possible compound het
         assert len(results) == 2
@@ -145,7 +141,7 @@ class TestCompoundHetDetection:
             ]
         )
 
-        results = analyze_gene_for_compound_het(gene_df, self.pedigree_data, self.sample_list)
+        results = analyze_gene_for_compound_het_vectorized(gene_df, self.pedigree_data, self.sample_list)
 
         # Should identify as possible due to missing data
         assert len(results) == 2
@@ -182,7 +178,7 @@ class TestCompoundHetDetection:
             ]
         )
 
-        results = analyze_gene_for_compound_het(gene_df, self.pedigree_data, self.sample_list)
+        results = analyze_gene_for_compound_het_vectorized(gene_df, self.pedigree_data, self.sample_list)
 
         # Should identify as possible due to ambiguous inheritance
         assert len(results) == 2
@@ -217,7 +213,7 @@ class TestCompoundHetDetection:
             ]
         )
 
-        results = analyze_gene_for_compound_het(gene_df, self.pedigree_data, self.sample_list)
+        results = analyze_gene_for_compound_het_vectorized(gene_df, self.pedigree_data, self.sample_list)
 
         # Should not identify as compound het (both from father)
         assert len(results) == 0 or (
@@ -225,58 +221,6 @@ class TestCompoundHetDetection:
             and results.get("1:1000:A>T", {}).get("child", {}).get("comp_het_type")
             == "not_compound_heterozygous"
         )
-
-
-class TestCompoundHetTypeDetection:
-    """Test specific compound het type determination."""
-
-    def test_determine_type_trans_confirmed(self):
-        """Test determining confirmed trans configuration."""
-        var1 = pd.Series({"father": "0/1", "mother": "0/0"})
-        var2 = pd.Series({"father": "0/0", "mother": "0/1"})
-        gene_df = pd.DataFrame([var1, var2])
-
-        pedigree_data = {"child": {"father_id": "father", "mother_id": "mother"}}
-        sample_list = ["child", "father", "mother"]
-
-        trans_type, comp_het_type = determine_compound_het_type(
-            "child", 0, 1, gene_df, pedigree_data, sample_list
-        )
-
-        assert trans_type == "trans"
-        assert comp_het_type == "compound_heterozygous"
-
-    def test_determine_type_cis(self):
-        """Test determining cis configuration."""
-        var1 = pd.Series({"father": "0/1", "mother": "0/0"})
-        var2 = pd.Series({"father": "0/1", "mother": "0/0"})
-        gene_df = pd.DataFrame([var1, var2])
-
-        pedigree_data = {"child": {"father_id": "father", "mother_id": "mother"}}
-        sample_list = ["child", "father", "mother"]
-
-        trans_type, comp_het_type = determine_compound_het_type(
-            "child", 0, 1, gene_df, pedigree_data, sample_list
-        )
-
-        assert trans_type == "cis"
-        assert comp_het_type == "not_compound_heterozygous"
-
-    def test_determine_type_no_pedigree(self):
-        """Test type determination without pedigree."""
-        var1 = pd.Series({})
-        var2 = pd.Series({})
-        gene_df = pd.DataFrame([var1, var2])
-
-        pedigree_data = {}
-        sample_list = ["sample1"]
-
-        trans_type, comp_het_type = determine_compound_het_type(
-            "sample1", 0, 1, gene_df, pedigree_data, sample_list
-        )
-
-        assert trans_type == "unknown"
-        assert comp_het_type == "compound_heterozygous_possible_no_pedigree"
 
 
 class TestVariantKey:
@@ -335,7 +279,7 @@ class TestPartnerBasedCompHet:
         pedigree_data = {}
         sample_list = ["sample1"]
 
-        results = analyze_gene_for_compound_het_vectorized(gene_df, pedigree_data, sample_list)
+        results = analyze_gene_for_compound_het_vectorized_vectorized(gene_df, pedigree_data, sample_list)
 
         # Each variant should list the other two as partners
         assert len(results) == 3
@@ -423,7 +367,7 @@ class TestPartnerBasedCompHet:
         }
         sample_list = ["child", "father", "mother"]
 
-        results = analyze_gene_for_compound_het_vectorized(gene_df, pedigree_data, sample_list)
+        results = analyze_gene_for_compound_het_vectorized_vectorized(gene_df, pedigree_data, sample_list)
 
         # Check partnerships based on trans configuration
         var1_key = "1:1000:A>T"  # from father
@@ -497,7 +441,7 @@ class TestPartnerBasedCompHet:
         }
         sample_list = ["child", "mother"]  # father not in sample list
 
-        results = analyze_gene_for_compound_het_vectorized(gene_df, pedigree_data, sample_list)
+        results = analyze_gene_for_compound_het_vectorized_vectorized(gene_df, pedigree_data, sample_list)
 
         # varA (from mother) should partner with varB and varC (not from mother)
         var1_key = "1:1000:A>T"
@@ -591,7 +535,7 @@ class TestPartnerBasedCompHet:
         }
         sample_list = ["child", "father", "mother"]
 
-        results = analyze_gene_for_compound_het_vectorized(gene_df, pedigree_data, sample_list)
+        results = analyze_gene_for_compound_het_vectorized_vectorized(gene_df, pedigree_data, sample_list)
 
         # Both variants from father - no trans configuration possible
         assert len(results) == 0
@@ -655,7 +599,7 @@ class TestPartnerBasedCompHet:
         }
         sample_list = ["child", "father", "mother"]
 
-        results = analyze_gene_for_compound_het_vectorized(gene_df, pedigree_data, sample_list)
+        results = analyze_gene_for_compound_het_vectorized_vectorized(gene_df, pedigree_data, sample_list)
 
         # Ambiguous variant should partner with clear origin variants
         var1_key = "1:1000:A>T"
