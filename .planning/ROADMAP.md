@@ -39,22 +39,23 @@ Plans:
 - [x] 06-03-PLAN.md -- Ratio assertions (vectorized vs sequential) and memory budget enforcement via tracemalloc
 - [x] 06-04-PLAN.md -- Macro pipeline benchmarks, result diff helper, end-to-end suite verification
 
-#### Phase 7: Quick Wins - Tier 1
+#### ✅ Phase 7: Quick Wins - Tier 1 (Complete)
 **Goal**: Immediate 30-40% speedup through zero-risk standard optimizations
 **Depends on**: Phase 6 (benchmarks prove improvement)
 **Requirements**: QWIN-01, QWIN-02, QWIN-03, QWIN-04
 **Success Criteria** (what must be TRUE):
-  1. Dead GT parsing loop (gene_burden.py:220-249) removed with regression test confirming identical output
-  2. All 12+ groupby call sites use `observed=True` to prevent categorical dtype slowdown
-  3. Temp file leak in gene_bed.py fixed (bed_path removed after merge)
-  4. Memory freed between pipeline stages via `gc.collect()` in runner.py
-  5. Benchmarks show 30-40% speedup on gene burden analysis with identical output
-**Plans:** 3 plans
+  1. ✅ Dead GT parsing loop (gene_burden.py:220-249) removed with regression test confirming identical output
+  2. ✅ All 12+ groupby call sites use `observed=True` to prevent categorical dtype slowdown
+  3. ✅ Temp file leak in gene_bed.py fixed (bed_path removed after merge)
+  4. ✅ Memory freed between pipeline stages via `gc.collect()` in runner.py
+  5. ✅ Benchmarks show 48-98% speedup on gene burden analysis (exceeding 30-40% target)
+**Plans:** 3 plans (3/3 complete)
+**Verified:** 5/5 must-haves passed
 
 Plans:
-- [ ] 07-01-PLAN.md -- Dead code removal (gene_burden.py GT parsing loop) + temp file leak fixes (gene_bed.py, filters.py)
-- [ ] 07-02-PLAN.md -- Add observed=True to all 17 groupby call sites + gc.collect() with memory logging in runner.py + pre-commit hook
-- [ ] 07-03-PLAN.md -- Run full benchmark suite, compare against baseline, update performance analysis report
+- [x] 07-01-PLAN.md -- Dead code removal (gene_burden.py GT parsing loop) + temp file leak fixes (gene_bed.py, filters.py)
+- [x] 07-02-PLAN.md -- Add observed=True to all 17 groupby call sites + gc.collect() with memory logging in runner.py + pre-commit hook
+- [x] 07-03-PLAN.md -- Run full benchmark suite, compare against baseline, update performance analysis report
 
 #### Phase 8: DataFrame Optimization
 **Goal**: 50-70% memory reduction and 2-3x I/O speedup through optimal DataFrame loading
@@ -139,7 +140,7 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 1-5. Baseline | v0.12.1 | N/A | Complete | 2026-02-14 |
 | 6. Benchmark Framework | v0.13.0 | 4/4 | Complete | 2026-02-14 |
-| 7. Quick Wins - Tier 1 | v0.13.0 | 0/3 | Not started | - |
+| 7. Quick Wins - Tier 1 | v0.13.0 | 3/3 | Complete | 2026-02-14 |
 | 8. DataFrame Optimization | v0.13.0 | 0/TBD | Not started | - |
 | 9. Inheritance Analysis Optimization | v0.13.0 | 0/TBD | Not started | - |
 | 10. Output Optimization | v0.13.0 | 0/TBD | Not started | - |

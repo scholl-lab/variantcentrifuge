@@ -5,7 +5,7 @@
 See: .planning/PROJECT.md (updated 2026-02-14)
 
 **Core value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
-**Current focus:** Phase 7 - Quick Wins Tier 1
+**Current focus:** Phase 8 - DataFrame Optimization
 
 ## Current Position
 

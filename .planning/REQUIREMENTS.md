@@ -18,10 +18,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Quick Wins — Tier 1 (QWIN)
 
-- [ ] **QWIN-01**: Dead GT parsing loop removed from gene_burden.py (lines 220-249) with regression test confirming identical output
-- [ ] **QWIN-02**: `observed=True` added to all groupby calls across the codebase (12+ call sites)
-- [ ] **QWIN-03**: Temp file leak in gene_bed.py fixed (bed_path removed after merge completes)
-- [ ] **QWIN-04**: `gc.collect()` added between pipeline stages in runner.py to free intermediate memory
+- [x] **QWIN-01**: Dead GT parsing loop removed from gene_burden.py (lines 220-249) with regression test confirming identical output
+- [x] **QWIN-02**: `observed=True` added to all groupby calls across the codebase (12+ call sites)
+- [x] **QWIN-03**: Temp file leak in gene_bed.py fixed (bed_path removed after merge completes)
+- [x] **QWIN-04**: `gc.collect()` added between pipeline stages in runner.py to free intermediate memory
 
 ### DataFrame Optimization (DFOPT)
 
@@ -99,10 +99,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BENCH-04 | Phase 6 | Complete |
 | BENCH-05 | Phase 6 | Complete |
 | BENCH-06 | Phase 6 | Complete |
-| QWIN-01 | Phase 7 | Pending |
-| QWIN-02 | Phase 7 | Pending |
-| QWIN-03 | Phase 7 | Pending |
-| QWIN-04 | Phase 7 | Pending |
+| QWIN-01 | Phase 7 | Complete |
+| QWIN-02 | Phase 7 | Complete |
+| QWIN-03 | Phase 7 | Complete |
+| QWIN-04 | Phase 7 | Complete |
 | DFOPT-01 | Phase 8 | Pending |
 | DFOPT-02 | Phase 8 | Pending |
 | DFOPT-03 | Phase 8 | Pending |
