@@ -248,12 +248,12 @@ def build_sample_phenotype_map(df: pd.DataFrame) -> dict[str, set[str]]:
 
     sample_phenos = defaultdict(set)
 
-    for idx, row in df.iterrows():
-        pheno_str = row.get("phenotypes", "")
+    for row in df.itertuples(index=False):
+        pheno_str = getattr(row, "phenotypes", "")
         if not isinstance(pheno_str, str) or not pheno_str.strip():
             continue
 
-        gt_val = row.get("GT", "")
+        gt_val = getattr(row, "GT", "")
         sample_entries = gt_val.split(";") if gt_val and isinstance(gt_val, str) else []
         sample_names = []
         for entry in sample_entries:
@@ -923,10 +923,11 @@ def read_sequencing_manifest(file_path: str) -> dict[str, dict[str, str]]:
         id_col = df.columns[0]
 
         # Convert each row to a dictionary
-        for _, row in df.iterrows():
-            sample_id = row[id_col]
+        for row in df.itertuples(index=True):
+            sample_id = getattr(row, id_col, None)
             if sample_id and not pd.isna(sample_id):
-                result[str(sample_id)] = row.to_dict()
+                # Convert namedtuple to dict for metadata storage
+                result[str(sample_id)] = df.loc[row.Index].to_dict()
 
         logger.info(f"Loaded metadata for {len(result)} samples from {file_path}")
         return result

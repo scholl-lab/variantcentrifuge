@@ -123,9 +123,9 @@ def create_sample_columns_from_gt_vectorized(
 
                     if len(sample_entries) > 0:
                         # Map genotypes back to original dataframe indices
-                        for _, row in sample_entries.iterrows():
-                            original_idx = row["original_index"]
-                            genotype = row["genotype"]
+                        for row in sample_entries.itertuples(index=False):
+                            original_idx = getattr(row, "original_index", None)
+                            genotype = getattr(row, "genotype", "")
                             df_copy.loc[original_idx, sample_id] = genotype
 
         logger.debug(
@@ -314,8 +314,8 @@ def create_sample_columns_from_gt(
         sample_data: dict[str, list[str]] = {sample_id: [] for sample_id in vcf_samples}
 
         # Parse replaced genotype format
-        for _idx, row in df.iterrows():
-            gt_value = str(row["GT"])
+        for row in df.itertuples(index=False):
+            gt_value = str(getattr(row, "GT", ""))
             # Initialize all samples with missing genotype
             row_genotypes = dict.fromkeys(vcf_samples, "./.")
 
@@ -350,13 +350,13 @@ def create_sample_columns_from_gt(
         sample_data = {sample_id: [] for sample_id in vcf_samples}
 
         # Extract genotypes for each row
-        for idx, row in df.iterrows():
-            gt_value = str(row["GT"])
+        for row in df.itertuples(index=True):
+            gt_value = str(getattr(row, "GT", ""))
             if gt_value and gt_value != "NA" and gt_value != "nan":
                 genotypes = gt_value.split(snpsift_sep)
                 if len(genotypes) != len(vcf_samples):
                     logger.warning(
-                        f"Row {idx}: Expected {len(vcf_samples)} genotypes "
+                        f"Row {row.Index}: Expected {len(vcf_samples)} genotypes "
                         f"but found {len(genotypes)}"
                     )
                 for i, sample_id in enumerate(vcf_samples):

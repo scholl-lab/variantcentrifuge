@@ -515,7 +515,8 @@ class TSVOutputStage(Stage):
                 # Header
                 lines.append("\t".join(df.columns))
                 # Data rows
-                for _, row in df.iterrows():
+                for row in df.itertuples(index=False):
+                    # Convert namedtuple to values list (skip Index if present)
                     lines.append("\t".join(str(val) for val in row))
 
                 # Add links

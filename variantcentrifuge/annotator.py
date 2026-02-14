@@ -480,8 +480,10 @@ def _add_json_annotations_as_columns(
 
     # Prepare a list of dictionaries, one for each row in the DataFrame
     annotations_for_df = []
-    for _index, row in df.iterrows():
-        variant_genes = _extract_genes_from_row(row)
+    for row in df.itertuples(index=True):
+        # Convert row to Series for _extract_genes_from_row
+        row_series = df.loc[row.Index]
+        variant_genes = _extract_genes_from_row(row_series)
         row_annotations = {}
         # Find the first gene in the list that has an entry in our JSON data
         for gene in variant_genes:
