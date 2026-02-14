@@ -1,0 +1,887 @@
+{
+    "machine_info": {
+        "node": "dusky",
+        "processor": "x86_64",
+        "machine": "x86_64",
+        "python_compiler": "GCC 12.3.0",
+        "python_implementation": "CPython",
+        "python_implementation_version": "3.10.14",
+        "python_version": "3.10.14",
+        "python_build": [
+            "main",
+            "Mar 20 2024 12:45:18"
+        ],
+        "release": "6.6.87.2-microsoft-standard-WSL2",
+        "system": "Linux",
+        "cpu": {
+            "python_version": "3.10.14.final.0 (64 bit)",
+            "cpuinfo_version": [
+                9,
+                0,
+                0
+            ],
+            "cpuinfo_version_string": "9.0.0",
+            "arch": "X86_64",
+            "bits": 64,
+            "count": 16,
+            "arch_string_raw": "x86_64",
+            "vendor_id_raw": "GenuineIntel",
+            "brand_raw": "12th Gen Intel(R) Core(TM) i7-1260P",
+            "hz_advertised_friendly": "2.4960 GHz",
+            "hz_actual_friendly": "2.4960 GHz",
+            "hz_advertised": [
+                2496009000,
+                0
+            ],
+            "hz_actual": [
+                2496009000,
+                0
+            ],
+            "stepping": 3,
+            "model": 154,
+            "family": 6,
+            "flags": [
+                "3dnowprefetch",
+                "abm",
+                "adx",
+                "aes",
+                "apic",
+                "arch_capabilities",
+                "avx",
+                "avx2",
+                "avx_vnni",
+                "bmi1",
+                "bmi2",
+                "clflush",
+                "clflushopt",
+                "clwb",
+                "cmov",
+                "constant_tsc",
+                "cpuid",
+                "cx16",
+                "cx8",
+                "de",
+                "ept",
+                "ept_ad",
+                "erms",
+                "f16c",
+                "flush_l1d",
+                "fma",
+                "fpu",
+                "fsgsbase",
+                "fsrm",
+                "fxsr",
+                "gfni",
+                "ht",
+                "hypervisor",
+                "ibpb",
+                "ibrs",
+                "ibrs_enhanced",
+                "invpcid",
+                "lahf_lm",
+                "lm",
+                "mca",
+                "mce",
+                "md_clear",
+                "mmx",
+                "movbe",
+                "movdir64b",
+                "movdiri",
+                "msr",
+                "mtrr",
+                "nonstop_tsc",
+                "nopl",
+                "nx",
+                "osxsave",
+                "pae",
+                "pat",
+                "pcid",
+                "pclmulqdq",
+                "pdpe1gb",
+                "pge",
+                "pni",
+                "popcnt",
+                "pse",
+                "pse36",
+                "rdpid",
+                "rdrand",
+                "rdrnd",
+                "rdseed",
+                "rdtscp",
+                "rep_good",
+                "sep",
+                "serialize",
+                "sha",
+                "sha_ni",
+                "smap",
+                "smep",
+                "ss",
+                "ssbd",
+                "sse",
+                "sse2",
+                "sse4_1",
+                "sse4_2",
+                "ssse3",
+                "stibp",
+                "syscall",
+                "tpr_shadow",
+                "tsc",
+                "tsc_adjust",
+                "tsc_deadline_timer",
+                "tsc_known_freq",
+                "tsc_reliable",
+                "tscdeadline",
+                "umip",
+                "vaes",
+                "vme",
+                "vmx",
+                "vnmi",
+                "vpclmulqdq",
+                "vpid",
+                "waitpkg",
+                "x2apic",
+                "xgetbv1",
+                "xsave",
+                "xsavec",
+                "xsaveopt",
+                "xsaves",
+                "xtopology"
+            ],
+            "l3_cache_size": 18874368,
+            "l2_cache_size": 10485760,
+            "l1_data_cache_size": 393216,
+            "l1_instruction_cache_size": 262144,
+            "l2_cache_line_size": 1280,
+            "l2_cache_associativity": 7
+        }
+    },
+    "commit_info": {
+        "id": "f374c968991e4279533426cc87063de7dfc3f965",
+        "time": "2026-02-14T15:15:40+01:00",
+        "author_time": "2026-02-14T15:15:40+01:00",
+        "dirty": true,
+        "project": "variantcentrifuge",
+        "branch": "refactor/phase-7-quick-wins"
+    },
+    "benchmarks": [
+        {
+            "group": null,
+            "name": "test_csv_read_scaling[1000]",
+            "fullname": "tests/performance/benchmark_dataframe_io.py::test_csv_read_scaling[1000]",
+            "params": {
+                "n_variants": 1000
+            },
+            "param": "1000",
+            "extra_info": {
+                "n_variants": 1000,
+                "n_columns": 9,
+                "file_size_mb": 0.09,
+                "component": "dataframe_read"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.0017413030000170693,
+                "max": 0.009011499991174787,
+                "mean": 0.002827585258470051,
+                "stddev": 0.0011918019910683196,
+                "rounds": 139,
+                "median": 0.0024643259966978803,
+                "iqr": 0.0008211312524508685,
+                "q1": 0.002149726245988859,
+                "q3": 0.0029708574984397274,
+                "iqr_outliers": 13,
+                "stddev_outliers": 13,
+                "outliers": "13;13",
+                "ld15iqr": 0.0017413030000170693,
+                "hd15iqr": 0.004313575002015568,
+                "ops": 353.6586552092437,
+                "total": 0.3930343509273371,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_csv_read_scaling[10000]",
+            "fullname": "tests/performance/benchmark_dataframe_io.py::test_csv_read_scaling[10000]",
+            "params": {
+                "n_variants": 10000
+            },
+            "param": "10000",
+            "extra_info": {
+                "n_variants": 10000,
+                "n_columns": 9,
+                "file_size_mb": 0.92,
+                "component": "dataframe_read"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.01155984599608928,
+                "max": 0.018948229000670835,
+                "mean": 0.014322582643983065,
+                "stddev": 0.001541100397520155,
+                "rounds": 76,
+                "median": 0.014187239998136647,
+                "iqr": 0.0020580784912453964,
+                "q1": 0.013221541004895698,
+                "q3": 0.015279619496141095,
+                "iqr_outliers": 2,
+                "stddev_outliers": 23,
+                "outliers": "23;2",
+                "ld15iqr": 0.01155984599608928,
+                "hd15iqr": 0.018472930998541415,
+                "ops": 69.81981007595033,
+                "total": 1.088516280942713,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_csv_read_scaling[50000]",
+            "fullname": "tests/performance/benchmark_dataframe_io.py::test_csv_read_scaling[50000]",
+            "params": {
+                "n_variants": 50000
+            },
+            "param": "50000",
+            "extra_info": {
+                "n_variants": 50000,
+                "n_columns": 9,
+                "file_size_mb": 4.59,
+                "component": "dataframe_read"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.057606458009104244,
+                "max": 0.0758188780018827,
+                "mean": 0.06829189867130481,
+                "stddev": 0.009508152764120684,
+                "rounds": 3,
+                "median": 0.07145036000292748,
+                "iqr": 0.013659314994583838,
+                "q1": 0.061067433507560054,
+                "q3": 0.07472674850214389,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.057606458009104244,
+                "hd15iqr": 0.0758188780018827,
+                "ops": 14.643025299576045,
+                "total": 0.20487569601391442,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_csv_write_scaling[1000]",
+            "fullname": "tests/performance/benchmark_dataframe_io.py::test_csv_write_scaling[1000]",
+            "params": {
+                "n_variants": 1000
+            },
+            "param": "1000",
+            "extra_info": {
+                "n_variants": 1000,
+                "n_columns": 9,
+                "component": "dataframe_write"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.002432303997920826,
+                "max": 0.011212868004804477,
+                "mean": 0.003389463885759854,
+                "stddev": 0.0010419735739921716,
+                "rounds": 369,
+                "median": 0.003081664995988831,
+                "iqr": 0.0007076297551975586,
+                "q1": 0.002817388991388725,
+                "q3": 0.0035250187465862837,
+                "iqr_outliers": 33,
+                "stddev_outliers": 36,
+                "outliers": "36;33",
+                "ld15iqr": 0.002432303997920826,
+                "hd15iqr": 0.0046291179896797985,
+                "ops": 295.0319087928027,
+                "total": 1.2507121738453861,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_csv_write_scaling[10000]",
+            "fullname": "tests/performance/benchmark_dataframe_io.py::test_csv_write_scaling[10000]",
+            "params": {
+                "n_variants": 10000
+            },
+            "param": "10000",
+            "extra_info": {
+                "n_variants": 10000,
+                "n_columns": 9,
+                "component": "dataframe_write"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.021908851005719043,
+                "max": 0.04043108900077641,
+                "mean": 0.028482714595775952,
+                "stddev": 0.0042786152378077496,
+                "rounds": 47,
+                "median": 0.028046527004335076,
+                "iqr": 0.00648761624324834,
+                "q1": 0.02485878175139078,
+                "q3": 0.03134639799463912,
+                "iqr_outliers": 0,
+                "stddev_outliers": 19,
+                "outliers": "19;0",
+                "ld15iqr": 0.021908851005719043,
+                "hd15iqr": 0.04043108900077641,
+                "ops": 35.109013104681466,
+                "total": 1.3386875860014698,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_csv_write_scaling[50000]",
+            "fullname": "tests/performance/benchmark_dataframe_io.py::test_csv_write_scaling[50000]",
+            "params": {
+                "n_variants": 50000
+            },
+            "param": "50000",
+            "extra_info": {
+                "n_variants": 50000,
+                "n_columns": 9,
+                "component": "dataframe_write"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.1819110389915295,
+                "max": 0.2122131970099872,
+                "mean": 0.19702018433599733,
+                "stddev": 0.015151253098031727,
+                "rounds": 3,
+                "median": 0.1969363170064753,
+                "iqr": 0.022726618513843277,
+                "q1": 0.18566735849526594,
+                "q3": 0.20839397700910922,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.1819110389915295,
+                "hd15iqr": 0.2122131970099872,
+                "ops": 5.075622091057455,
+                "total": 0.591060553007992,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_pyarrow_read_scaling[1000]",
+            "fullname": "tests/performance/benchmark_dataframe_io.py::test_pyarrow_read_scaling[1000]",
+            "params": {
+                "n_variants": 1000
+            },
+            "param": "1000",
+            "extra_info": {
+                "n_variants": 1000,
+                "n_columns": 9,
+                "file_size_mb": 0.09,
+                "engine": "pyarrow",
+                "component": "dataframe_read_pyarrow"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.009326514991698787,
+                "max": 0.016147062997333705,
+                "mean": 0.01178861090818166,
+                "stddev": 0.0014322405621259014,
+                "rounds": 55,
+                "median": 0.011901092002517544,
+                "iqr": 0.0020159304986009374,
+                "q1": 0.010586199496174231,
+                "q3": 0.012602129994775169,
+                "iqr_outliers": 1,
+                "stddev_outliers": 16,
+                "outliers": "16;1",
+                "ld15iqr": 0.009326514991698787,
+                "hd15iqr": 0.016147062997333705,
+                "ops": 84.82763641863598,
+                "total": 0.6483735999499913,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_pyarrow_read_scaling[10000]",
+            "fullname": "tests/performance/benchmark_dataframe_io.py::test_pyarrow_read_scaling[10000]",
+            "params": {
+                "n_variants": 10000
+            },
+            "param": "10000",
+            "extra_info": {
+                "n_variants": 10000,
+                "n_columns": 9,
+                "file_size_mb": 0.92,
+                "engine": "pyarrow",
+                "component": "dataframe_read_pyarrow"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.01128518300538417,
+                "max": 0.01732258799893316,
+                "mean": 0.013719239192042015,
+                "stddev": 0.0013617190264268752,
+                "rounds": 73,
+                "median": 0.01351616698957514,
+                "iqr": 0.001871930744528072,
+                "q1": 0.012737392251437996,
+                "q3": 0.014609322995966068,
+                "iqr_outliers": 0,
+                "stddev_outliers": 28,
+                "outliers": "28;0",
+                "ld15iqr": 0.01128518300538417,
+                "hd15iqr": 0.01732258799893316,
+                "ops": 72.89033932581773,
+                "total": 1.001504461019067,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_pyarrow_read_scaling[50000]",
+            "fullname": "tests/performance/benchmark_dataframe_io.py::test_pyarrow_read_scaling[50000]",
+            "params": {
+                "n_variants": 50000
+            },
+            "param": "50000",
+            "extra_info": {
+                "n_variants": 50000,
+                "n_columns": 9,
+                "file_size_mb": 4.59,
+                "engine": "pyarrow",
+                "component": "dataframe_read_pyarrow"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.021766901991213672,
+                "max": 0.024498648999724537,
+                "mean": 0.022753868659492582,
+                "stddev": 0.0015153618711965249,
+                "rounds": 3,
+                "median": 0.021996054987539537,
+                "iqr": 0.002048810256383149,
+                "q1": 0.021824190240295138,
+                "q3": 0.023873000496678287,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.021766901991213672,
+                "hd15iqr": 0.024498648999724537,
+                "ops": 43.94857045915199,
+                "total": 0.06826160597847775,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_csv_read_column_scaling[10]",
+            "fullname": "tests/performance/benchmark_dataframe_io.py::test_csv_read_column_scaling[10]",
+            "params": {
+                "n_columns": 10
+            },
+            "param": "10",
+            "extra_info": {
+                "n_variants": 10000,
+                "n_columns": 10,
+                "file_size_mb": 0.37,
+                "component": "dataframe_read_column_scaling"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.00396003300556913,
+                "max": 0.00805623699852731,
+                "mean": 0.005113888193060727,
+                "stddev": 0.0008721523036286433,
+                "rounds": 192,
+                "median": 0.004819563502678648,
+                "iqr": 0.0011678825103444979,
+                "q1": 0.0044854554944322444,
+                "q3": 0.005653338004776742,
+                "iqr_outliers": 6,
+                "stddev_outliers": 50,
+                "outliers": "50;6",
+                "ld15iqr": 0.00396003300556913,
+                "hd15iqr": 0.00756811500468757,
+                "ops": 195.54592557517128,
+                "total": 0.9818665330676595,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_csv_read_column_scaling[50]",
+            "fullname": "tests/performance/benchmark_dataframe_io.py::test_csv_read_column_scaling[50]",
+            "params": {
+                "n_columns": 50
+            },
+            "param": "50",
+            "extra_info": {
+                "n_variants": 10000,
+                "n_columns": 50,
+                "file_size_mb": 1.86,
+                "component": "dataframe_read_column_scaling"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.025705870997626334,
+                "max": 0.05089495900028851,
+                "mean": 0.0325802973712728,
+                "stddev": 0.004423005040074041,
+                "rounds": 35,
+                "median": 0.032073690003016964,
+                "iqr": 0.0037136184946575668,
+                "q1": 0.030283129250165075,
+                "q3": 0.03399674774482264,
+                "iqr_outliers": 1,
+                "stddev_outliers": 6,
+                "outliers": "6;1",
+                "ld15iqr": 0.025705870997626334,
+                "hd15iqr": 0.05089495900028851,
+                "ops": 30.693396951058386,
+                "total": 1.1403104079945479,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_csv_read_column_scaling[100]",
+            "fullname": "tests/performance/benchmark_dataframe_io.py::test_csv_read_column_scaling[100]",
+            "params": {
+                "n_columns": 100
+            },
+            "param": "100",
+            "extra_info": {
+                "n_variants": 10000,
+                "n_columns": 100,
+                "file_size_mb": 3.71,
+                "component": "dataframe_read_column_scaling"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.0490007490006974,
+                "max": 0.06341196600988042,
+                "mean": 0.05669590467005037,
+                "stddev": 0.0072553265399304704,
+                "rounds": 3,
+                "median": 0.05767499899957329,
+                "iqr": 0.010808412756887265,
+                "q1": 0.05116931150041637,
+                "q3": 0.061977724257303635,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.0490007490006974,
+                "hd15iqr": 0.06341196600988042,
+                "ops": 17.63795825853098,
+                "total": 0.1700877140101511,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_optimized_loader_performance[1000]",
+            "fullname": "tests/performance/benchmark_dataframe_io.py::test_optimized_loader_performance[1000]",
+            "params": {
+                "n_variants": 1000
+            },
+            "param": "1000",
+            "extra_info": {
+                "n_variants": 1000,
+                "n_columns": 9,
+                "file_size_mb": 0.09,
+                "component": "dataframe_optimized_load"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.04472547900513746,
+                "max": 0.07557340800121892,
+                "mean": 0.0601438459319373,
+                "stddev": 0.008283688089947623,
+                "rounds": 15,
+                "median": 0.06022521300474182,
+                "iqr": 0.009725781757879304,
+                "q1": 0.05559246424672892,
+                "q3": 0.06531824600460823,
+                "iqr_outliers": 0,
+                "stddev_outliers": 5,
+                "outliers": "5;0",
+                "ld15iqr": 0.04472547900513746,
+                "hd15iqr": 0.07557340800121892,
+                "ops": 16.626805028924576,
+                "total": 0.9021576889790595,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_optimized_loader_performance[10000]",
+            "fullname": "tests/performance/benchmark_dataframe_io.py::test_optimized_loader_performance[10000]",
+            "params": {
+                "n_variants": 10000
+            },
+            "param": "10000",
+            "extra_info": {
+                "n_variants": 10000,
+                "n_columns": 9,
+                "file_size_mb": 0.92,
+                "component": "dataframe_optimized_load"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.06834867500583641,
+                "max": 0.09232795400021132,
+                "mean": 0.0802617552139314,
+                "stddev": 0.0059108884339027805,
+                "rounds": 14,
+                "median": 0.08141389000229537,
+                "iqr": 0.006340043997624889,
+                "q1": 0.07662497799901757,
+                "q3": 0.08296502199664246,
+                "iqr_outliers": 0,
+                "stddev_outliers": 3,
+                "outliers": "3;0",
+                "ld15iqr": 0.06834867500583641,
+                "hd15iqr": 0.09232795400021132,
+                "ops": 12.45923413130673,
+                "total": 1.1236645729950396,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_categorical_memory_reduction[1000]",
+            "fullname": "tests/performance/benchmark_dataframe_io.py::test_categorical_memory_reduction[1000]",
+            "params": {
+                "n_variants": 1000
+            },
+            "param": "1000",
+            "extra_info": {
+                "n_variants": 1000,
+                "baseline_memory_mb": 0.57,
+                "optimized_memory_mb": 0.1,
+                "memory_reduction_pct": 82.3,
+                "component": "categorical_memory"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.005993725004373118,
+                "max": 0.011344562997692265,
+                "mean": 0.007665488255233233,
+                "stddev": 0.0011550782140734937,
+                "rounds": 86,
+                "median": 0.007406352000543848,
+                "iqr": 0.0015670379943912849,
+                "q1": 0.006762773002265021,
+                "q3": 0.008329810996656306,
+                "iqr_outliers": 1,
+                "stddev_outliers": 21,
+                "outliers": "21;1",
+                "ld15iqr": 0.005993725004373118,
+                "hd15iqr": 0.011344562997692265,
+                "ops": 130.45483427846875,
+                "total": 0.659231989950058,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_categorical_memory_reduction[10000]",
+            "fullname": "tests/performance/benchmark_dataframe_io.py::test_categorical_memory_reduction[10000]",
+            "params": {
+                "n_variants": 10000
+            },
+            "param": "10000",
+            "extra_info": {
+                "n_variants": 10000,
+                "baseline_memory_mb": 5.72,
+                "optimized_memory_mb": 0.9,
+                "memory_reduction_pct": 84.4,
+                "component": "categorical_memory"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.024496252997778356,
+                "max": 0.037128841009689495,
+                "mean": 0.02836095008347507,
+                "stddev": 0.0027199683512034436,
+                "rounds": 36,
+                "median": 0.027718787496269215,
+                "iqr": 0.002522783004678786,
+                "q1": 0.026908037994871847,
+                "q3": 0.029430820999550633,
+                "iqr_outliers": 2,
+                "stddev_outliers": 10,
+                "outliers": "10;2",
+                "ld15iqr": 0.024496252997778356,
+                "hd15iqr": 0.03397874299844261,
+                "ops": 35.259749657775565,
+                "total": 1.0209942030051025,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_itertuples_vs_iterrows[10000]",
+            "fullname": "tests/performance/benchmark_dataframe_io.py::test_itertuples_vs_iterrows[10000]",
+            "params": {
+                "n_variants": 10000
+            },
+            "param": "10000",
+            "extra_info": {
+                "n_variants": 10000,
+                "iterrows_time_s": 0.4804,
+                "itertuples_time_s": 0.0155,
+                "speedup_factor": 30.9,
+                "component": "itertuples_speedup"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.010498158997506835,
+                "max": 0.03131945998757146,
+                "mean": 0.015532986768775094,
+                "stddev": 0.003750233379773135,
+                "rounds": 78,
+                "median": 0.014757234494027216,
+                "iqr": 0.0030853580101393163,
+                "q1": 0.01332489999185782,
+                "q3": 0.016410258001997136,
+                "iqr_outliers": 6,
+                "stddev_outliers": 14,
+                "outliers": "14;6",
+                "ld15iqr": 0.010498158997506835,
+                "hd15iqr": 0.02140083500125911,
+                "ops": 64.37911876743705,
+                "total": 1.2115729679644573,
+                "iterations": 1
+            }
+        }
+    ],
+    "datetime": "2026-02-14T14:17:03.839779+00:00",
+    "version": "5.2.3"
+}
