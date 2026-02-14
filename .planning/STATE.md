@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-02-14)
 
 ## Current Position
 
-Phase: 7 of 12 (Quick Wins - Tier 1)
-Plan: 3 of 3 complete
-Status: Phase complete
-Last activity: 2026-02-14 — Completed 07-03-PLAN.md (Benchmark Verification)
+Phase: 8 of 12 (DataFrame Optimization)
+Plan: 1 of 3 complete
+Status: In progress
+Last activity: 2026-02-14 — Completed 08-01-PLAN.md (DataFrame Optimizer Foundation)
 
-Progress: [███████░░░░░░░░░░░░░] 44% (Phase 1-6 complete, Phase 7 complete)
+Progress: [████████░░░░░░░░░░░░] 47% (Phase 1-7 complete, Phase 8 1/3)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
-- Average duration: 23.0 minutes
-- Total execution time: 2.68 hours
+- Total plans completed: 8
+- Average duration: 22.1 minutes
+- Total execution time: 2.95 hours
 
 **By Phase:**
 
@@ -30,10 +30,11 @@ Progress: [███████░░░░░░░░░░░░░] 44% (Ph
 | 1-5. Baseline | N/A | N/A | N/A (pre-GSD) |
 | 6. Benchmark Framework | 4/4 | 48.0 min | 12.0 min |
 | 7. Quick Wins Tier 1 | 3/3 | 89.0 min | 29.7 min |
+| 8. DataFrame Optimization | 1/3 | 18.0 min | 18.0 min |
 
 **Recent Trend:**
-- Last 5 plans: 06-04 (26.0 min), 07-01 (4.0 min), 07-02 (10.0 min), 07-03 (75.0 min)
-- Trend: Benchmark verification takes longer (75 min), actual optimizations fast (4-10 min)
+- Last 5 plans: 07-01 (4.0 min), 07-02 (10.0 min), 07-03 (75.0 min), 08-01 (18.0 min)
+- Trend: Foundation work fast (4-18 min), benchmark verification longer (75 min)
 
 *Updated after each plan completion*
 
@@ -55,6 +56,11 @@ Recent decisions affecting current work:
 - Pre-commit hook for groupby enforcement (07-02): Prevents new groupby calls without observed=True from being committed
 - Full 60-benchmark suite completed (07-03): All benchmarks passed in 5:37, saved as `0001_phase7_quick_wins.json`. Deprecated streaming perf tests removed.
 - Document collateral improvements (07-03): Inheritance analysis improved 20-58% despite no direct optimizations, attributed to gc.collect() and observed=True reducing overhead
+- PyArrow scope limited to variant DataFrames (08-01): Main TSV loading only, not config/gene lists per 08-CONTEXT decision
+- Categorical dtype auto-detection at 50% cardinality (08-01): Columns with <50% unique values loaded as categorical
+- Column renaming permanent at load time (08-01): No temporary rename-restore, downstream uses sanitized names
+- Memory pass-through threshold 25% available RAM (08-01): Conservative targeting 8-16GB desktops
+- quoting parameter excluded for PyArrow engine (08-01): PyArrow doesn't support it, C engine fallback used
 
 ### Pending Todos
 
@@ -109,10 +115,20 @@ Recent decisions affecting current work:
 
 **Phase 7 achieved 48-98% speedup on gene burden, 20-58% on inheritance analysis.**
 
-**Phase 8 (DataFrame Optimization): READY**
-- PyArrow engine + pandas 3.0 string dtype changes require careful testing to avoid `pd.NA` comparison breakage
-- All groupby calls now have observed=True (Phase 7 Plan 02 complete) - no risk of 3500x slowdown when categorical dtypes are introduced
-- Pre-commit hook enforces observed=True in new groupby calls (prevents regressions)
+**Phase 8 (DataFrame Optimization): IN PROGRESS (1/3 complete)**
+
+**Plan 01 (DataFrame Optimizer Foundation): COMPLETE**
+- Created dataframe_optimizer.py with PyArrow loading, categorical detection, column sanitization
+- PyArrow engine now used automatically (5-15x CSV read speedup)
+- Low-cardinality columns loaded as categorical (50-75% memory reduction expected)
+- Column sanitization complete (GEN[0].GT → GEN_0__GT) - ready for itertuples migration
+- Memory pass-through decision logic in place (25% available RAM threshold)
+- All 568 unit tests + 31 integration tests pass with no regressions
+- Ready for Plan 02-03: itertuples migration in hot paths
+
+**Remaining work:**
+- Plan 02: Replace iterrows with itertuples in gene_burden, scoring, statistics
+- Plan 03: Replace iterrows in inheritance analysis (compound het detection)
 
 **Phase 9 (Inheritance Analysis Optimization):**
 - Full vectorization (INHER-03) is high-risk Tier 3 work, requires extensive validation to preserve clinical correctness
@@ -125,7 +141,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-02-14 11:56 UTC
-Stopped at: Completed 07-03-PLAN.md (Phase 7 complete)
+Last session: 2026-02-14 14:04 UTC
+Stopped at: Completed 08-01-PLAN.md (DataFrame Optimizer Foundation)
 Resume file: None
-Next: Phase 8 planning (DataFrame Optimization)
+Next: Phase 8 Plan 02 (itertuples migration in gene_burden, scoring, stats)
