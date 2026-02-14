@@ -55,7 +55,7 @@ include = ["variantcentrifuge/"]
 
 [tool.pytest.ini_options]
 # Test file patterns
-python_files = ["test_*.py", "*_test.py"]
+python_files = ["test_*.py", "*_test.py", "benchmark_*.py"]
 # Default options: summary of non-passing tests, short tracebacks, strict markers
 addopts = "-ra --tb=short --strict-markers --color=yes"
 # Focus test collection on the tests directory
