@@ -49,10 +49,12 @@ Plans:
   3. Temp file leak in gene_bed.py fixed (bed_path removed after merge)
   4. Memory freed between pipeline stages via `gc.collect()` in runner.py
   5. Benchmarks show 30-40% speedup on gene burden analysis with identical output
-**Plans**: TBD
+**Plans:** 3 plans
 
 Plans:
-- [ ] 07-01: [TBD during planning]
+- [ ] 07-01-PLAN.md -- Dead code removal (gene_burden.py GT parsing loop) + temp file leak fixes (gene_bed.py, filters.py)
+- [ ] 07-02-PLAN.md -- Add observed=True to all 17 groupby call sites + gc.collect() with memory logging in runner.py + pre-commit hook
+- [ ] 07-03-PLAN.md -- Run full benchmark suite, compare against baseline, update performance analysis report
 
 #### Phase 8: DataFrame Optimization
 **Goal**: 50-70% memory reduction and 2-3x I/O speedup through optimal DataFrame loading
@@ -104,7 +106,7 @@ Plans:
 **Depends on**: Phase 9 (inheritance must be optimized first, higher impact)
 **Requirements**: PIPLN-01, PIPLN-02
 **Success Criteria** (what must be TRUE):
-  1. Pipe fusion implemented for SnpSift filter → bgzip chain without intermediate temp VCF
+  1. Pipe fusion implemented for SnpSift filter -> bgzip chain without intermediate temp VCF
   2. Both process return codes checked with proper error propagation
   3. Cython extension created for genotype replacement kernel (hot path string processing)
   4. Benchmarks show 10-30s saved on filtering, 2-3x speedup on genotype replacement
@@ -131,13 +133,13 @@ Plans:
 
 ## Progress
 
-**Execution Order:** Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11 → 12
+**Execution Order:** Phases execute in numeric order: 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-5. Baseline | v0.12.1 | N/A | Complete | 2026-02-14 |
 | 6. Benchmark Framework | v0.13.0 | 4/4 | Complete | 2026-02-14 |
-| 7. Quick Wins - Tier 1 | v0.13.0 | 0/TBD | Not started | - |
+| 7. Quick Wins - Tier 1 | v0.13.0 | 0/3 | Not started | - |
 | 8. DataFrame Optimization | v0.13.0 | 0/TBD | Not started | - |
 | 9. Inheritance Analysis Optimization | v0.13.0 | 0/TBD | Not started | - |
 | 10. Output Optimization | v0.13.0 | 0/TBD | Not started | - |
