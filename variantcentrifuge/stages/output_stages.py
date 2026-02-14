@@ -526,6 +526,12 @@ class TSVOutputStage(Stage):
 
                 df = pd.read_csv(io.StringIO("\n".join(lines_with_links)), sep="\t", dtype=str)
 
+        # Restore original column names before writing output
+        if context.column_rename_map:
+            reverse_map = {v: k for k, v in context.column_rename_map.items()}
+            df = df.rename(columns=reverse_map)
+            logger.debug(f"Restored {len(reverse_map)} column names for output")
+
         # Write file
         compression = None
         if context.config.get("gzip_output") or str(output_path).endswith(".gz"):
@@ -587,10 +593,21 @@ class ExcelReportStage(Stage):
 
         logger.info(f"Generating Excel report: {output_path}")
 
+        # Use in-memory DataFrame if available (avoids redundant disk read)
+        excel_df = None
+        if context.variants_df is not None:
+            excel_df = context.variants_df.copy()  # Copy to avoid mutation
+            # Restore original column names for Excel output
+            if context.column_rename_map:
+                reverse_map = {v: k for k, v in context.column_rename_map.items()}
+                excel_df = excel_df.rename(columns=reverse_map)
+                logger.debug(f"Restored {len(reverse_map)} column names for Excel generation")
+            logger.info("Using in-memory DataFrame for Excel generation (skipping disk read)")
+
         # Convert TSV to Excel using the correct API
         # The convert_to_excel function automatically creates the output path
         # by changing the .tsv extension to .xlsx
-        xlsx_file = convert_to_excel(str(input_file), context.config)
+        xlsx_file = convert_to_excel(str(input_file), context.config, df=excel_df)
 
         # Move the generated file to the desired location if needed
         if xlsx_file != str(output_path):

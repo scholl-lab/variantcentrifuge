@@ -23,7 +23,7 @@ from openpyxl.utils import get_column_letter
 logger = logging.getLogger("variantcentrifuge")
 
 
-def convert_to_excel(tsv_file: str, cfg: dict[str, Any]) -> str:
+def convert_to_excel(tsv_file: str, cfg: dict[str, Any], df: pd.DataFrame | None = None) -> str:
     """
     Convert a TSV file to XLSX format with a single "Results" sheet.
 
@@ -33,6 +33,9 @@ def convert_to_excel(tsv_file: str, cfg: dict[str, Any]) -> str:
         Path to the TSV file.
     cfg : dict
         Configuration dictionary containing various settings.
+    df : pd.DataFrame, optional
+        Optional DataFrame to use instead of reading from disk.
+        If provided, skips the disk read for performance.
 
     Returns
     -------
@@ -41,18 +44,22 @@ def convert_to_excel(tsv_file: str, cfg: dict[str, Any]) -> str:
     """
     # MODIFIED: Start of empty report generation
     # Read the TSV, handling the case where it might only have a header
-    # Define appropriate dtypes for genomic data to avoid mixed type warnings
-    genomic_dtypes = {
-        "CHROM": "str",
-        "POS": "str",  # Use string to handle both numeric positions and special values like "."
-        "REF": "str",
-        "ALT": "str",
-        "QUAL": "str",  # Quality scores can be "." or numeric
-        "FILTER": "str",
-    }
+    # If DataFrame is provided, use it directly (performance optimization)
+    if df is not None:
+        logger.debug("Using provided DataFrame for Excel conversion (skipping disk read)")
+    else:
+        # Define appropriate dtypes for genomic data to avoid mixed type warnings
+        genomic_dtypes = {
+            "CHROM": "str",
+            "POS": "str",  # Use string to handle both numeric positions and special values like "."
+            "REF": "str",
+            "ALT": "str",
+            "QUAL": "str",  # Quality scores can be "." or numeric
+            "FILTER": "str",
+        }
 
-    # Read with low_memory=False to handle mixed types gracefully and suppress warnings
-    df = pd.read_csv(tsv_file, sep="\t", na_values="NA", dtype=genomic_dtypes, low_memory=False)
+        # Read with low_memory=False to handle mixed types gracefully and suppress warnings
+        df = pd.read_csv(tsv_file, sep="\t", na_values="NA", dtype=genomic_dtypes, low_memory=False)
 
     # Log whether we have data or just headers
     if len(df) == 0:
