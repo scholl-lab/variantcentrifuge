@@ -19,6 +19,7 @@ classifiers = [
 ]
 dependencies = [
     "pandas",
+    "pyarrow>=14.0",
     "jinja2",
     "scipy",
     "statsmodels",
