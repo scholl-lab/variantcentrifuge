@@ -20,23 +20,24 @@
 
 **Milestone Goal:** 3-4x full pipeline speedup on large cohorts through benchmarking infrastructure and systematic optimization of DataFrame operations, inheritance analysis, and output generation.
 
-#### Phase 6: Benchmark Framework
+#### ✅ Phase 6: Benchmark Framework (Complete)
 **Goal**: Performance benchmarking infrastructure exists with synthetic data and regression detection
 **Depends on**: Nothing (first phase of milestone)
 **Requirements**: BENCH-01, BENCH-02, BENCH-03, BENCH-04, BENCH-05, BENCH-06
 **Success Criteria** (what must be TRUE):
-  1. Benchmark suite runs via `pytest tests/performance/` covering inheritance, genotype replacement, gene burden, scoring, and DataFrame I/O
-  2. Synthetic data generators produce reproducible DataFrames at 100, 1K, 10K, 50K variants without referencing private cohort names
-  3. Ratio assertions compare vectorized vs sequential implementations within same run with zero CI flakiness
-  4. Performance canary assertions detect 20%+ regressions and fail tests when exceeded
-  5. Memory budget assertions enforce per-function limits via tracemalloc
-**Plans:** 4 plans
+  1. ✅ Benchmark suite runs via `pytest tests/performance/` covering inheritance, genotype replacement, gene burden, scoring, and DataFrame I/O
+  2. ✅ Synthetic data generators produce reproducible DataFrames at 100, 1K, 10K, 50K variants without referencing private cohort names
+  3. ✅ Ratio assertions compare vectorized vs sequential implementations within same run with zero CI flakiness
+  4. ✅ Performance canary assertions detect 20%+ regressions and fail tests when exceeded
+  5. ✅ Memory budget assertions enforce per-function limits via tracemalloc
+**Plans:** 4 plans (4/4 complete)
+**Verified:** 5/5 must-haves passed
 
 Plans:
-- [ ] 06-01-PLAN.md -- Foundation: pytest-benchmark dep, synthetic data generators, memory helpers, conftest fixtures
-- [ ] 06-02-PLAN.md -- Component benchmarks: inheritance, comp_het, genotype replacement, gene burden, scoring, DataFrame I/O
-- [ ] 06-03-PLAN.md -- Ratio assertions (vectorized vs sequential) and memory budget enforcement via tracemalloc
-- [ ] 06-04-PLAN.md -- Macro pipeline benchmarks, result diff helper, end-to-end suite verification
+- [x] 06-01-PLAN.md -- Foundation: pytest-benchmark dep, synthetic data generators, memory helpers, conftest fixtures
+- [x] 06-02-PLAN.md -- Component benchmarks: inheritance, comp_het, genotype replacement, gene burden, scoring, DataFrame I/O
+- [x] 06-03-PLAN.md -- Ratio assertions (vectorized vs sequential) and memory budget enforcement via tracemalloc
+- [x] 06-04-PLAN.md -- Macro pipeline benchmarks, result diff helper, end-to-end suite verification
 
 #### Phase 7: Quick Wins - Tier 1
 **Goal**: Immediate 30-40% speedup through zero-risk standard optimizations
@@ -135,7 +136,7 @@ Plans:
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-5. Baseline | v0.12.1 | N/A | Complete | 2026-02-14 |
-| 6. Benchmark Framework | v0.13.0 | 0/4 | Planned | - |
+| 6. Benchmark Framework | v0.13.0 | 4/4 | Complete | 2026-02-14 |
 | 7. Quick Wins - Tier 1 | v0.13.0 | 0/TBD | Not started | - |
 | 8. DataFrame Optimization | v0.13.0 | 0/TBD | Not started | - |
 | 9. Inheritance Analysis Optimization | v0.13.0 | 0/TBD | Not started | - |

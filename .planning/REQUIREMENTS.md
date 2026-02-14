@@ -9,12 +9,12 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Benchmarking Framework (BENCH)
 
-- [ ] **BENCH-01**: Performance benchmark suite exists with pytest-benchmark covering inheritance analysis, genotype replacement, gene burden, scoring, and DataFrame I/O
-- [ ] **BENCH-02**: Synthetic data generators produce reproducible variant DataFrames at standard sizes (100, 1K, 10K, 50K variants) — benchmarks must use synthetic or public datasets only, no private cohort data in committed code
-- [ ] **BENCH-03**: Performance canary assertions detect 20%+ regressions without flaking on CI noise
-- [ ] **BENCH-04**: Ratio assertions compare vectorized vs sequential implementations within the same run (zero flakiness)
-- [ ] **BENCH-05**: Memory budget assertions via tracemalloc enforce per-function memory limits
-- [ ] **BENCH-06**: Benchmark results include extra metadata (n_variants, n_genes, peak_memory_mb)
+- [x] **BENCH-01**: Performance benchmark suite exists with pytest-benchmark covering inheritance analysis, genotype replacement, gene burden, scoring, and DataFrame I/O
+- [x] **BENCH-02**: Synthetic data generators produce reproducible variant DataFrames at standard sizes (100, 1K, 10K, 50K variants) — benchmarks must use synthetic or public datasets only, no private cohort data in committed code
+- [x] **BENCH-03**: Performance canary assertions detect 20%+ regressions without flaking on CI noise
+- [x] **BENCH-04**: Ratio assertions compare vectorized vs sequential implementations within the same run (zero flakiness)
+- [x] **BENCH-05**: Memory budget assertions via tracemalloc enforce per-function memory limits
+- [x] **BENCH-06**: Benchmark results include extra metadata (n_variants, n_genes, peak_memory_mb)
 
 ### Quick Wins — Tier 1 (QWIN)
 
@@ -89,12 +89,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BENCH-01 | Phase 6 | Pending |
-| BENCH-02 | Phase 6 | Pending |
-| BENCH-03 | Phase 6 | Pending |
-| BENCH-04 | Phase 6 | Pending |
-| BENCH-05 | Phase 6 | Pending |
-| BENCH-06 | Phase 6 | Pending |
+| BENCH-01 | Phase 6 | Complete |
+| BENCH-02 | Phase 6 | Complete |
+| BENCH-03 | Phase 6 | Complete |
+| BENCH-04 | Phase 6 | Complete |
+| BENCH-05 | Phase 6 | Complete |
+| BENCH-06 | Phase 6 | Complete |
 | QWIN-01 | Phase 7 | Pending |
 | QWIN-02 | Phase 7 | Pending |
 | QWIN-03 | Phase 7 | Pending |
