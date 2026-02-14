@@ -12,7 +12,9 @@ from typing import Any
 import pandas as pd
 
 from .comp_het import analyze_gene_for_compound_het, create_variant_key
-from .deducer import deduce_patterns_for_variant
+from .prioritizer import get_pattern_description, prioritize_patterns
+from .segregation_checker import calculate_segregation_score
+from .vectorized_deducer import vectorized_deduce_patterns
 
 try:
     from .comp_het_vectorized import analyze_gene_for_compound_het_vectorized
@@ -20,8 +22,6 @@ try:
     VECTORIZED_AVAILABLE = True
 except ImportError:
     VECTORIZED_AVAILABLE = False
-from .prioritizer import get_pattern_description, prioritize_patterns
-from .segregation_checker import calculate_segregation_score
 
 logger = logging.getLogger(__name__)
 
@@ -81,11 +81,9 @@ def analyze_inheritance(
     df["Inheritance_Pattern"] = "none"
     df["Inheritance_Details"] = "{}"
 
-    # Pass 1: Per-Variant Pattern Deduction
-    logger.info("Pass 1: Deducing inheritance patterns per variant")
-    df["_inheritance_patterns"] = df.apply(
-        lambda row: deduce_patterns_for_variant(row.to_dict(), pedigree_data, sample_list), axis=1
-    )
+    # Pass 1: Per-Variant Pattern Deduction (vectorized)
+    logger.info("Pass 1: Deducing inheritance patterns per variant (vectorized)")
+    df["_inheritance_patterns"] = vectorized_deduce_patterns(df, pedigree_data, sample_list)
 
     # Pass 2: Compound Heterozygous Analysis
     implementation = (

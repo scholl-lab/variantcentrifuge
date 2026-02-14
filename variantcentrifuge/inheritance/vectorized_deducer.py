@@ -88,6 +88,9 @@ def vectorized_deduce_patterns(
         if mother_id and mother_id in sample_to_idx:
             mother_gts = gt_matrix[:, sample_to_idx[mother_id]]
 
+        # Track which patterns were added by this sample (for fallback logic)
+        patterns_before_sample = [len(p) for p in patterns_per_variant]
+
         # a. De novo check (vectorized)
         _check_de_novo_vectorized(
             patterns_per_variant,
@@ -128,7 +131,7 @@ def vectorized_deduce_patterns(
         # d. X-linked check (vectorized)
         chrom_array = df["CHROM"].values
         # Handle categorical dtypes by converting to string
-        if pd.api.types.is_categorical_dtype(chrom_array):
+        if isinstance(chrom_array.dtype, pd.CategoricalDtype):
             chrom_array = chrom_array.astype(str)
         else:
             chrom_array = chrom_array.astype(str)
@@ -159,9 +162,11 @@ def vectorized_deduce_patterns(
             has_variant_mask,
         )
 
-        # f. Fallback for variants with no patterns
+        # f. Fallback for variants with no patterns FROM THIS SAMPLE
+        # This matches original logic: if this sample added no patterns but has variant,
+        # add "unknown" (affected) or "carrier" (unaffected)
         _apply_fallback_vectorized(
-            patterns_per_variant, sample_gts, has_variant_mask, affected
+            patterns_per_variant, sample_gts, has_variant_mask, affected, patterns_before_sample
         )
 
     # Step 3: Deduplication per variant (preserve order)
@@ -307,9 +312,7 @@ def _check_de_novo_vectorized(
 
     # De novo candidate: child has variant, at least one parent missing GT, child affected
     if affected:
-        de_novo_candidate_mask = (
-            has_variant_mask & ((father_gts == -1) | (mother_gts == -1))
-        )
+        de_novo_candidate_mask = has_variant_mask & ((father_gts == -1) | (mother_gts == -1))
         de_novo_candidate_indices = np.where(de_novo_candidate_mask)[0]
         for idx in de_novo_candidate_indices:
             patterns_per_variant[idx].append("de_novo_candidate")
@@ -363,8 +366,7 @@ def _check_dominant_vectorized(
 
     # Classic dominant: at least one parent affected and has variant
     classic_ad_mask = has_variant_mask & (
-        (father_has_variant_mask & father_affected)
-        | (mother_has_variant_mask & mother_affected)
+        (father_has_variant_mask & father_affected) | (mother_has_variant_mask & mother_affected)
     )
     classic_ad_indices = np.where(classic_ad_mask)[0]
     for idx in classic_ad_indices:
@@ -372,8 +374,7 @@ def _check_dominant_vectorized(
 
     # Parent has variant but not affected - incomplete penetrance
     parent_variant_not_affected_mask = has_variant_mask & (
-        (father_has_variant_mask & ~father_affected)
-        | (mother_has_variant_mask & ~mother_affected)
+        (father_has_variant_mask & ~father_affected) | (mother_has_variant_mask & ~mother_affected)
     )
     # Exclude indices already classified as classic AD
     parent_variant_not_affected_mask[classic_ad_indices] = False
@@ -567,9 +568,7 @@ def _check_xlr_male_vectorized(
             father_violates_mask = father_gts > 0
 
         # Classic XLR: mother has variant, father doesn't (or no father data)
-        classic_xlr_mask = (
-            male_xlr_base_mask & mother_has_variant_mask & ~father_violates_mask
-        )
+        classic_xlr_mask = male_xlr_base_mask & mother_has_variant_mask & ~father_violates_mask
         classic_xlr_indices = np.where(classic_xlr_mask)[0]
         for idx in classic_xlr_indices:
             patterns_per_variant[idx].append("x_linked_recessive")
@@ -632,9 +631,7 @@ def _check_xlr_female_vectorized(
 
     # XLR possible: at least one parent has missing data
     xlr_possible_mask = (
-        female_xlr_base_mask
-        & (father_missing_mask | mother_missing_mask)
-        & ~classic_xlr_mask
+        female_xlr_base_mask & (father_missing_mask | mother_missing_mask) & ~classic_xlr_mask
     )
     xlr_possible_indices = np.where(xlr_possible_mask)[0]
     for idx in xlr_possible_indices:
@@ -783,19 +780,37 @@ def _apply_fallback_vectorized(
     sample_gts: np.ndarray,
     has_variant_mask: np.ndarray,
     affected: bool,
+    patterns_before_sample: list[int],
 ) -> None:
     """
-    Apply fallback patterns for variants where sample has variant but no patterns added.
+    Apply fallback patterns for variants where THIS SAMPLE has variant but added no patterns.
 
-    Fallback: affected -> "unknown", not affected -> "carrier"
+    This matches original per-sample logic: if a sample has a variant but contributed
+    no specific patterns, add "unknown" (affected) or "carrier" (unaffected).
+
+    Parameters
+    ----------
+    patterns_per_variant : List[List[str]]
+        Pattern lists per variant
+    sample_gts : np.ndarray
+        Sample genotypes
+    has_variant_mask : np.ndarray
+        Boolean mask where sample has variant
+    affected : bool
+        Whether sample is affected
+    patterns_before_sample : List[int]
+        Number of patterns per variant before this sample's analysis
     """
     # Find variants where sample has variant
     variant_indices = np.where(has_variant_mask)[0]
 
     for idx in variant_indices:
-        # Check if any patterns already added for this variant
-        if not patterns_per_variant[idx]:
-            # No patterns yet - apply fallback
+        # Check if THIS SAMPLE added any patterns
+        # (compare current count to count before this sample)
+        patterns_added_by_sample = len(patterns_per_variant[idx]) - patterns_before_sample[idx]
+
+        if patterns_added_by_sample == 0:
+            # This sample has variant but added no patterns - apply fallback
             if affected:
                 patterns_per_variant[idx].append("unknown")
             else:
