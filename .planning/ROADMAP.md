@@ -67,10 +67,13 @@ Plans:
   3. iterrows replaced with itertuples in inheritance Pass 2-3 achieving 10-13x speedup
   4. DataFrame passed directly from pipeline context to Excel stage without redundant disk read
   5. Memory profiling shows 50-70% reduction, benchmarks show 2-3x I/O speedup
-**Plans**: TBD
+**Plans:** 4 plans
 
 Plans:
-- [ ] 08-01: [TBD during planning]
+- [ ] 08-01-PLAN.md -- DataFrame optimizer utility module (PyArrow engine, categorical auto-detection, column sanitization) + DataFrameLoadingStage integration
+- [ ] 08-02-PLAN.md -- Replace iterrows with itertuples across 14 hot-path sites in 8 files + pd.NA-safe comparisons
+- [ ] 08-03-PLAN.md -- DataFrame pass-through for Excel stage (eliminate redundant TSV re-read) + column name restoration
+- [ ] 08-04-PLAN.md -- Benchmark verification: measure memory reduction, I/O speedup, iteration speedup
 
 #### Phase 9: Inheritance Analysis Optimization
 **Goal**: 10-100x speedup on inheritance analysis (40-60% of total pipeline time)
@@ -141,7 +144,7 @@ Plans:
 | 1-5. Baseline | v0.12.1 | N/A | Complete | 2026-02-14 |
 | 6. Benchmark Framework | v0.13.0 | 4/4 | Complete | 2026-02-14 |
 | 7. Quick Wins - Tier 1 | v0.13.0 | 3/3 | Complete | 2026-02-14 |
-| 8. DataFrame Optimization | v0.13.0 | 0/TBD | Not started | - |
+| 8. DataFrame Optimization | v0.13.0 | 0/4 | Not started | - |
 | 9. Inheritance Analysis Optimization | v0.13.0 | 0/TBD | Not started | - |
 | 10. Output Optimization | v0.13.0 | 0/TBD | Not started | - |
 | 11. Pipeline & Cython Optimization | v0.13.0 | 0/TBD | Not started | - |
