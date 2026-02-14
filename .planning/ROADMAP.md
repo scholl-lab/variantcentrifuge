@@ -102,7 +102,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. xlsxwriter used for initial Excel write with openpyxl for finalization (hyperlinks, freeze panes, auto-filters)
   2. GT column pre-parsed once at DataFrame load time into structured data
-  3. Per-gene GT re-parsing eliminated across gene burden and statistics stages
+  3. GT regex compilation eliminated from hot loops: module-level GT_PATTERN constant used everywhere, gene_burden confirmed free of GT parsing (dead loop removed in Phase 7, regression test guards it)
   4. Benchmarks show 2-5x Excel generation speedup
   5. Output Excel file has hyperlinks, freeze panes, and auto-filters verified by tests
 **Plans:** 3 plans
