@@ -753,6 +753,7 @@ def test_gene_burden_perf(benchmark, burden_df):
 **Date:** 2026-02-14
 **Version:** 0.12.1 + Phase 7 optimizations
 **Benchmark environment:** WSL2 Ubuntu, Python 3.10.14, 16 GB RAM
+**Full suite:** 60 benchmarks passed in 5:37 (saved as `0001_phase7_quick_wins.json`)
 
 ### Optimizations Applied
 
@@ -811,6 +812,76 @@ Unexpected bonus: Inheritance analysis improved 20-58% despite no direct optimiz
 - Reduced GC pressure from `gc.collect()` between stages
 - Less memory fragmentation overall
 - Reduced overhead from `observed=True` preventing unnecessary categorical index construction
+
+#### Comp Het Analysis
+
+| Benchmark | After Phase 7 (mean) | Notes |
+|-----------|---------------------|-------|
+| comp_het_vectorized_scaling[100] | 2.77 ms | |
+| comp_het_vectorized_scaling[1000] | 2.85 ms | |
+| comp_het_vectorized_scaling[10000] | 2.57 ms | |
+| comp_het_original_scaling[100] | 1.47 ms | Original still faster at small scale |
+| comp_het_original_scaling[1000] | 2.44 ms | |
+| comp_het_multi_gene[100] | 29.8 ms | |
+| comp_het_multi_gene[1000] | 299.6 ms | |
+| comp_het_multi_gene[10000] | 2940.9 ms | |
+
+#### Genotype Replacement
+
+| Benchmark | After Phase 7 (mean) | Notes |
+|-----------|---------------------|-------|
+| vectorized_replacement_scaling[100] | 451.7 ms | File-based, includes I/O |
+| vectorized_replacement_scaling[1000] | 1541.5 ms | |
+| vectorized_replacement_scaling[10000] | 22517.3 ms | Main optimization target for Phase 11 |
+| sequential_replacement_scaling[100] | 0.81 ms | Line-based iterator |
+| sequential_replacement_scaling[1000] | 7.87 ms | |
+| replacement_sample_scaling[10] | 208.1 ms | |
+| replacement_sample_scaling[100] | 1790.4 ms | |
+| replacement_sample_scaling[500] | 10979.6 ms | |
+
+#### DataFrame I/O
+
+| Benchmark | After Phase 7 (mean) | Notes |
+|-----------|---------------------|-------|
+| csv_read_scaling[1000] | 1.95 ms | |
+| csv_read_scaling[10000] | 14.6 ms | |
+| csv_read_scaling[50000] | 60.6 ms | |
+| csv_write_scaling[1000] | 3.18 ms | |
+| csv_write_scaling[10000] | 25.8 ms | |
+| csv_write_scaling[50000] | 162.5 ms | |
+| pyarrow_read_scaling[1000] | 18.8 ms | Slower than C engine at small scale |
+| pyarrow_read_scaling[10000] | 27.0 ms | |
+| pyarrow_read_scaling[50000] | 30.7 ms | Faster than C engine at scale |
+| csv_read_column_scaling[10] | 4.7 ms | |
+| csv_read_column_scaling[50] | 31.7 ms | |
+| csv_read_column_scaling[100] | 64.1 ms | |
+
+#### Scoring
+
+| Benchmark | After Phase 7 (mean) | Notes |
+|-----------|---------------------|-------|
+| scoring_apply_scaling[100] | 5.62 ms | |
+| scoring_apply_scaling[1000] | 4.66 ms | |
+| scoring_apply_scaling[10000] | 7.03 ms | |
+| scoring_formula_scaling[1] | 2.86 ms | |
+| scoring_formula_scaling[2] | 3.62 ms | |
+| scoring_formula_scaling[5] | 8.81 ms | |
+
+#### Pipeline Macro Benchmarks
+
+| Benchmark | After Phase 7 (mean) | Notes |
+|-----------|---------------------|-------|
+| full_inheritance_analysis_cohort | 1889.6 ms | 5K variants × 100 samples |
+| full_inheritance_analysis_large_cohort | 11101.7 ms | Large scale |
+| gene_burden_full_pipeline | 56.8 ms | 5K variants × 200 samples |
+
+#### Memory Budgets
+
+All 5 memory budget tests passed (inheritance, comp_het, gene_burden, scoring, dataframe_read).
+
+#### Ratio Assertions
+
+All 3 ratio assertion tests passed (comp_het vectorized vs original at multiple scales).
 
 ### Analysis
 
