@@ -249,10 +249,10 @@ def generate_synthetic_scoring_config() -> dict:
                 }
             },
         },
-        "formulas": {
-            "impact_score": "impact_var",
-            "combined_score": "impact_var * 2 + effect_var",
-        },
+        "formulas": [
+            {"impact_score": "impact_var"},
+            {"combined_score": "impact_var * 2 + effect_var"},
+        ],
     }
 
 
@@ -321,6 +321,18 @@ def generate_synthetic_gene_burden_data(
         gt_str = ";".join(f"{s}({gt})" for s, gt in zip(all_samples, all_gts))
         genotypes_list.append(gt_str)
 
-    df = pd.DataFrame({"GENE": genes, "GT": genotypes_list})
+    # Create DataFrame with required columns for gene burden analysis
+    # The perform_gene_burden_analysis function expects these columns:
+    # - GENE: gene identifier
+    # - GT: genotypes in format "SAMPLE_0001(0/1);SAMPLE_0002(0/0);..."
+    # - proband_count: total number of case samples
+    # - control_count: total number of control samples
+    # Note: The function will parse GT and aggregate per gene internally
+    df = pd.DataFrame({
+        "GENE": genes,
+        "GT": genotypes_list,
+        "proband_count": n_cases,
+        "control_count": n_controls,
+    })
 
     return df, case_samples, control_samples
