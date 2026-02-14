@@ -105,10 +105,12 @@ Plans:
   3. Per-gene GT re-parsing eliminated across gene burden and statistics stages
   4. Benchmarks show 2-5x Excel generation speedup
   5. Output Excel file has hyperlinks, freeze panes, and auto-filters verified by tests
-**Plans**: TBD
+**Plans:** 3 plans
 
 Plans:
-- [ ] 10-01: [TBD during planning]
+- [ ] 10-01-PLAN.md -- Two-pass Excel generation: xlsxwriter for fast bulk write + openpyxl for finalization (hyperlinks, freeze panes, auto-filters)
+- [ ] 10-02-PLAN.md -- GT column pre-parsing at DataFrame load time + downstream consumer updates + cache cleanup before output
+- [ ] 10-03-PLAN.md -- Excel generation benchmarks (100/1K/10K/50K scales) + full fidelity tests proving output equivalence
 
 #### Phase 11: Pipeline & Cython Optimization
 **Goal**: Eliminate intermediate temp files and accelerate genotype replacement kernel
@@ -151,6 +153,6 @@ Plans:
 | 7. Quick Wins - Tier 1 | v0.13.0 | 3/3 | Complete | 2026-02-14 |
 | 8. DataFrame Optimization | v0.13.0 | 4/4 | Complete | 2026-02-14 |
 | 9. Inheritance Analysis Optimization | v0.13.0 | 0/5 | Not started | - |
-| 10. Output Optimization | v0.13.0 | 0/TBD | Not started | - |
+| 10. Output Optimization | v0.13.0 | 0/3 | Not started | - |
 | 11. Pipeline & Cython Optimization | v0.13.0 | 0/TBD | Not started | - |
 | 12. Parallelization & Chunking | v0.13.0 | 0/TBD | Not started | - |
