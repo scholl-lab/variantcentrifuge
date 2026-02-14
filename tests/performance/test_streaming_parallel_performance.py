@@ -1,6 +1,11 @@
 """
 Performance tests for streaming parallel genotype replacement.
 
+.. deprecated::
+    Pre-GSD legacy performance tests. Superseded by pytest-benchmark-based
+    benchmarks in benchmark_genotype_replacement.py. Retained temporarily
+    to ensure no regression; scheduled for removal in v0.14.0.
+
 These tests compare the performance of the new streaming parallel processor
 against the existing chunked vectorized approach.
 """
