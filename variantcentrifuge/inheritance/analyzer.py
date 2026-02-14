@@ -11,12 +11,7 @@ from typing import Any
 
 import pandas as pd
 
-from .comp_het_vectorized import (
-    analyze_gene_for_compound_het_vectorized,
-    create_variant_key,
-    encode_genotypes,
-    GENOTYPE_ENCODING,
-)
+from .comp_het_vectorized import analyze_gene_for_compound_het_vectorized
 from .prioritizer import get_pattern_description, prioritize_patterns
 from .segregation_checker import calculate_segregation_score
 from .vectorized_deducer import vectorized_deduce_patterns
