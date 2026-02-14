@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-02-14)
 
 ## Current Position
 
-Phase: 8 of 12 (DataFrame Optimization)
-Plan: 4 of 4 complete
-Status: Phase complete
-Last activity: 2026-02-14 — Completed 08-04-PLAN.md (Benchmark Verification)
+Phase: 9 of 12 (Inheritance Analysis Optimization)
+Plan: 1 of 4 complete
+Status: In progress
+Last activity: 2026-02-14 — Completed 09-01-PLAN.md (Golden File Validation Infrastructure)
 
-Progress: [████████░░░░░░░░░░░░] 57% (Phase 1-8 complete)
+Progress: [████████░░░░░░░░░░░░] 58% (Phase 1-8 complete, 9 in progress)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
-- Average duration: 19.6 minutes
-- Total execution time: 3.3 hours
+- Total plans completed: 11
+- Average duration: 18.5 minutes
+- Total execution time: 3.4 hours
 
 **By Phase:**
 
@@ -31,10 +31,11 @@ Progress: [████████░░░░░░░░░░░░] 57% (Ph
 | 6. Benchmark Framework | 4/4 | 48.0 min | 12.0 min |
 | 7. Quick Wins Tier 1 | 3/3 | 89.0 min | 29.7 min |
 | 8. DataFrame Optimization | 4/4 | 62.0 min | 15.5 min |
+| 9. Inheritance Optimization | 1/4 | 6.0 min | 6.0 min |
 
 **Recent Trend:**
-- Last 5 plans: 07-03 (75.0 min), 08-01 (18.0 min), 08-02 (13.0 min), 08-03 (skipped), 08-04 (31.0 min)
-- Trend: Optimization tasks 13-18 min, benchmark verification 31-75 min
+- Last 5 plans: 08-01 (18.0 min), 08-02 (13.0 min), 08-03 (skipped), 08-04 (31.0 min), 09-01 (6.0 min)
+- Trend: Infrastructure tasks 6-18 min, benchmark verification 31-75 min
 
 *Updated after each plan completion*
 
@@ -66,6 +67,8 @@ Recent decisions affecting current work:
 - Phase 8 optimizations exceed all targets (08-04): 82-84% memory reduction (vs 50-70%), 30.9x iteration speedup (vs 10-14x), 3.0x I/O speedup at scale
 - Gene burden 37-62% faster as collateral improvement (08-04): itertuples optimization benefits all DataFrame iteration, not just inheritance analysis
 - Inheritance "regressions" are benchmark variance (08-04): 11-22% slowdown within normal variation, DataFrame I/O doesn't affect inheritance logic
+- Use Parquet format for golden files (09-01): Preserves exact dtypes and column ordering, more reliable than CSV/TSV for validation
+- 10 synthetic test scenarios for inheritance validation (09-01): Covers all major patterns (trio, single-sample, extended-family, X-linked, mitochondrial, compound-het, edge-cases)
 
 ### Pending Todos
 
@@ -165,10 +168,25 @@ Recent decisions affecting current work:
 
 **Phase 8 achieved 22-62% speedup on gene burden from itertuples optimization.**
 
-**Phase 9 (Inheritance Analysis Optimization):**
-- Full vectorization (INHER-03) is high-risk Tier 3 work, requires extensive validation to preserve clinical correctness
-- Must preserve byte-identical output for all inheritance patterns
-- Improved baseline: 3.2s for 10K variants (down from 4.8s after Phase 7 collateral improvements)
+**Phase 9 (Inheritance Analysis Optimization): IN PROGRESS (1/4 plans complete)**
+
+**Plan 01 (Golden File Validation Infrastructure): COMPLETE**
+- Created scripts/validate_inheritance.py with generate and compare modes
+- Built 10 synthetic test scenarios covering all inheritance patterns
+- Generated golden reference files (10 .parquet files) from current implementation
+- Created pytest test suite (14 tests, all passing)
+- Validated determinism: scenarios produce identical output across runs
+- Comparison mode validates clinical equivalence (Inheritance_Pattern exact, confidence within 0.001)
+- Ready for use in Plans 02-04 (deducer, compound het, full vectorization)
+
+**Next Plans:**
+- 02: Deducer vectorization (will use golden files for validation)
+- 03: Compound het vectorization (will use golden files for validation)
+- 04: Full vectorization validation (final golden file check before benchmark)
+
+**Baseline performance:**
+- 3.2s for 10K variants (down from 4.8s after Phase 7 collateral improvements)
+- Target: 50-70% speedup via vectorization
 
 **Phase 11 (Pipeline & Cython Optimization):**
 - Subprocess piping error handling needs platform-specific validation (Windows vs Linux)
@@ -176,12 +194,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-02-14 17:15 UTC
-Stopped at: Post-phase fixes — CLI integration tests and DataSortingStage PATH bug
+Last session: 2026-02-14 16:33 UTC
+Stopped at: Completed 09-01-PLAN.md (Golden File Validation Infrastructure)
 Resume file: None
-Next: Phase 8 fully complete with all tests passing. Ready for Phase 9 (Inheritance Analysis Optimization)
-
-### Post-Phase 8 Fixes
-- Fixed test_inheritance_mode_integration.py: real GRCh38 exonic coordinates, snpEff annotation, auto-detect genome, proper fields
-- Fixed DataSortingStage: resolve gzip/sort/tail full paths via shutil.which() to prevent 'command not found' in subprocess shells
-- All 1088 non-slow tests pass, 5 CLI integration tests pass with annotation env
+Next: Phase 9 Plan 02 (Deducer Vectorization) - use golden files to validate pattern deduction vectorization
