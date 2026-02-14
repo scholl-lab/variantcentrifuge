@@ -176,7 +176,12 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-02-14 14:45 UTC
-Stopped at: Completed 08-04-PLAN.md (Benchmark Verification)
+Last session: 2026-02-14 17:15 UTC
+Stopped at: Post-phase fixes — CLI integration tests and DataSortingStage PATH bug
 Resume file: None
-Next: Phase 8 complete (4/4 plans done). Ready for Phase 9 (Inheritance Analysis Optimization)
+Next: Phase 8 fully complete with all tests passing. Ready for Phase 9 (Inheritance Analysis Optimization)
+
+### Post-Phase 8 Fixes
+- Fixed test_inheritance_mode_integration.py: real GRCh38 exonic coordinates, snpEff annotation, auto-detect genome, proper fields
+- Fixed DataSortingStage: resolve gzip/sort/tail full paths via shutil.which() to prevent 'command not found' in subprocess shells
+- All 1088 non-slow tests pass, 5 CLI integration tests pass with annotation env

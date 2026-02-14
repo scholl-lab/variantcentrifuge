@@ -96,9 +96,9 @@ None detected. Code quality is high:
 **Test Coverage:**
 - 20 unit tests for dataframe_optimizer (all passing)
 - 17 performance benchmarks (all passing)
-- 568 total unit tests (all passing)
-- 127 inheritance tests (all passing)
-- 31 integration tests (all passing)
+- 1088 total non-slow tests (all passing)
+- 5 CLI integration tests with real snpEff annotation (all passing)
+- 0 failures, 0 regressions
 
 ### Phase Execution Summary
 
@@ -108,10 +108,14 @@ None detected. Code quality is high:
 3. **08-03-PLAN**: Excel generation optimization (in-memory pass-through) — 5min, 2 files modified
 4. **08-04-PLAN**: Benchmark verification — 31min, 1 file modified
 
-**Total duration:** ~67 minutes
+**Total duration:** ~67 minutes (plans) + post-phase test fixes
 **Files created:** 2 (dataframe_optimizer.py, test_dataframe_optimizer.py)
-**Files modified:** 15
-**Commits:** 8 (4 task pairs + metadata)
+**Files modified:** 15 + 2 post-phase fixes
+**Commits:** 8 (4 task pairs + metadata) + 2 post-phase (test fix, benchmarks)
+
+**Post-Phase Fixes:**
+- Fixed CLI integration tests (test_inheritance_mode_integration.py): real GRCh38 exonic coordinates, snpEff pre-annotation, auto-detect genome name, proper SnpSift fields
+- Fixed DataSortingStage PATH bug (processing_stages.py): resolve gzip/sort/tail via shutil.which() for shell commands
 
 ## Verification Details
 
