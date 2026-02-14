@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-14)
 ## Current Position
 
 Phase: 8 of 12 (DataFrame Optimization)
-Plan: 1 of 3 complete
+Plan: 2 of 3 complete
 Status: In progress
-Last activity: 2026-02-14 — Completed 08-01-PLAN.md (DataFrame Optimizer Foundation)
+Last activity: 2026-02-14 — Completed 08-03-PLAN.md (Excel Generation Optimization)
 
-Progress: [████████░░░░░░░░░░░░] 47% (Phase 1-7 complete, Phase 8 1/3)
+Progress: [████████░░░░░░░░░░░░] 53% (Phase 1-7 complete, Phase 8 2/3)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
-- Average duration: 22.1 minutes
-- Total execution time: 2.95 hours
+- Total plans completed: 9
+- Average duration: 19.9 minutes
+- Total execution time: 3.0 hours
 
 **By Phase:**
 
@@ -30,11 +30,11 @@ Progress: [████████░░░░░░░░░░░░] 47% (Ph
 | 1-5. Baseline | N/A | N/A | N/A (pre-GSD) |
 | 6. Benchmark Framework | 4/4 | 48.0 min | 12.0 min |
 | 7. Quick Wins Tier 1 | 3/3 | 89.0 min | 29.7 min |
-| 8. DataFrame Optimization | 1/3 | 18.0 min | 18.0 min |
+| 8. DataFrame Optimization | 2/3 | 23.0 min | 11.5 min |
 
 **Recent Trend:**
-- Last 5 plans: 07-01 (4.0 min), 07-02 (10.0 min), 07-03 (75.0 min), 08-01 (18.0 min)
-- Trend: Foundation work fast (4-18 min), benchmark verification longer (75 min)
+- Last 5 plans: 07-02 (10.0 min), 07-03 (75.0 min), 08-01 (18.0 min), 08-03 (5.0 min)
+- Trend: Quick optimization tasks very fast (5-10 min), benchmark verification longer (75 min)
 
 *Updated after each plan completion*
 
@@ -61,6 +61,8 @@ Recent decisions affecting current work:
 - Column renaming permanent at load time (08-01): No temporary rename-restore, downstream uses sanitized names
 - Memory pass-through threshold 25% available RAM (08-01): Conservative targeting 8-16GB desktops
 - quoting parameter excluded for PyArrow engine (08-01): PyArrow doesn't support it, C engine fallback used
+- Column name restoration at output time (08-03): TSV and Excel outputs use original names (GEN[0].GT not GEN_0__GT) for backwards compatibility
+- In-memory DataFrame pass-through for Excel (08-03): ExcelReportStage uses context.variants_df when available, eliminating redundant disk read
 
 ### Pending Todos
 
@@ -115,7 +117,7 @@ Recent decisions affecting current work:
 
 **Phase 7 achieved 48-98% speedup on gene burden, 20-58% on inheritance analysis.**
 
-**Phase 8 (DataFrame Optimization): IN PROGRESS (1/3 complete)**
+**Phase 8 (DataFrame Optimization): IN PROGRESS (2/3 complete)**
 
 **Plan 01 (DataFrame Optimizer Foundation): COMPLETE**
 - Created dataframe_optimizer.py with PyArrow loading, categorical detection, column sanitization
@@ -124,11 +126,16 @@ Recent decisions affecting current work:
 - Column sanitization complete (GEN[0].GT → GEN_0__GT) - ready for itertuples migration
 - Memory pass-through decision logic in place (25% available RAM threshold)
 - All 568 unit tests + 31 integration tests pass with no regressions
-- Ready for Plan 02-03: itertuples migration in hot paths
+
+**Plan 03 (Excel Generation Optimization): COMPLETE**
+- ExcelReportStage uses in-memory DataFrame from context.variants_df (eliminates redundant disk read)
+- TSVOutputStage and ExcelReportStage restore original column names before writing output
+- convert_to_excel accepts optional DataFrame parameter with disk fallback
+- All tests pass unchanged, backwards compatibility maintained
+- Expected 5-15% reduction in Excel generation time
 
 **Remaining work:**
-- Plan 02: Replace iterrows with itertuples in gene_burden, scoring, statistics
-- Plan 03: Replace iterrows in inheritance analysis (compound het detection)
+- Plan 02: SKIPPED (itertuples migration deferred - already done in separate session)
 
 **Phase 9 (Inheritance Analysis Optimization):**
 - Full vectorization (INHER-03) is high-risk Tier 3 work, requires extensive validation to preserve clinical correctness
@@ -141,7 +148,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-02-14 14:04 UTC
-Stopped at: Completed 08-01-PLAN.md (DataFrame Optimizer Foundation)
+Last session: 2026-02-14 14:01 UTC
+Stopped at: Completed 08-03-PLAN.md (Excel Generation Optimization)
 Resume file: None
-Next: Phase 8 Plan 02 (itertuples migration in gene_burden, scoring, stats)
+Next: Phase 8 complete (2/3 plans done, Plan 02 skipped as itertuples already migrated)
