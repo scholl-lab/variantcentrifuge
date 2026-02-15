@@ -439,5 +439,103 @@ Benchmarks added in Plan 09-05:
 
 ---
 
-_Verified: 2026-02-14T19:00:00Z_  
+---
+
+## Addendum: Real-Data Benchmarking on Large Cohorts
+
+### How to Run the Full Pipeline on Large VCF Files
+
+Running the stage-based pipeline on production-scale cohorts (thousands of samples, hundreds of genes) requires specific considerations.
+
+#### Prerequisites
+
+1. **External tools in PATH:** `bcftools`, `SnpSift`, `bedtools`, `snpEff`, `bgzip`, `tabix`
+2. **Sufficient memory:** At least 16 GB RAM recommended for >1,000 samples
+3. **Disk space:** Intermediate files can be 10-50x the input VCF size depending on sample count
+
+#### Running with the Stage-Based Pipeline
+
+```bash
+variantcentrifuge \
+  -v <annotated_vcf.gz> \
+  -G <gene_list.txt> \
+  --case-samples-file <case_samples.txt> \
+  --control-samples-file <control_samples.txt> \
+  --perform-gene-burden \
+  --inheritance-mode full \
+  --xlsx \
+  --output-dir <output_dir> \
+  -o <output_dir>/results.tsv \
+  --preset rare \
+  -e "CHROM POS REF ALT ID FILTER QUAL AC ANN[0].GENE ANN[0].FEATUREID ANN[0].EFFECT ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P NMD[0].PERC ANN[0].AA_POS ANN[0].AA_LEN dbNSFP_REVEL_score dbNSFP_CADD_phred dbNSFP_ALFA_Total_AC dbNSFP_clinvar_clnsig GEN[*].GT dbNSFP_gnomAD_exomes_AC dbNSFP_gnomAD_genomes_AC dbNSFP_gnomAD_exomes_AF dbNSFP_gnomAD_genomes_AF" \
+  --log-level INFO
+```
+
+**Important:** The `-e` (extract fields) parameter must match the fields available in the VCF header. If the VCF was not annotated with certain databases (e.g., liftover fields like `dbNSFP_hg19_chr`), those fields must be omitted or SnpSift extractFields will fail.
+
+#### Known Performance Bottlenecks (Issue #76)
+
+At production scale (>1,000 samples), the pipeline is dominated by two stages:
+
+| Stage | Scaling Factor | Root Cause |
+|-------|---------------|------------|
+| SnpSift extractFields | O(variants × samples) | Java, single-threaded, `GEN[*].GT` expands all sample genotypes |
+| Genotype replacement | O(variants × samples) | Pandas string operations on wide DataFrames |
+
+For a 5,000-sample cohort with 500 genes:
+- SnpSift extractFields: ~2-3 hours
+- Genotype replacement: ~7+ hours
+- All other stages combined: <1 hour
+
+The inheritance analysis stage (Phase 9 optimization target) is a small fraction of total runtime at this scale.
+
+#### Tips for Large Runs
+
+1. **Run in background** — Use `nohup`, `screen`, `tmux`, or a job scheduler (SLURM/PBS)
+2. **Use `--enable-checkpoint`** — Enables resume from last completed stage if the run fails
+3. **Monitor progress** — Pipeline logs per-stage timing at INFO level; genotype replacement now logs per-chunk progress
+4. **Adjust chunk size** — Use `--chunks <N>` to control memory usage during chunked analysis (default: 10,000 variants per chunk)
+5. **Specify fields explicitly** — Always use `-e` to list only fields present in your VCF to avoid SnpSift extraction failures
+6. **Check disk space** — The `intermediate/` directory can grow large; compressed intermediates are used by default
+
+#### Interpreting Benchmark Results
+
+After a run completes, the log contains per-stage timing:
+
+```
+Stage 'variant_extraction' completed successfully in 354.4s
+Stage 'snpsift_filtering' completed successfully in 1662.8s
+Stage 'field_extraction' completed successfully in 9664.0s
+Stage 'data_sorting' completed successfully in 206.3s
+Stage 'genotype_replacement' completed successfully in 25293.3s
+Stage 'chunked_analysis' completed successfully in Xs  # Contains inheritance + gene burden
+```
+
+With the Phase 9 instrumentation, the inheritance analysis log also shows Pass 1/2/3 breakdown:
+
+```
+Pass 1 completed in X.XXs (N variants, M samples)
+Pass 2 gene analysis completed in X.XXs (K genes with compound het patterns)
+Pass 2 total (analysis + apply) completed in X.XXs
+Pass 3 completed in X.XXs (N variants prioritized)
+Inheritance analysis complete in X.XXs. Timing: Pass1=X%, Pass2=X%, Pass3=X%
+```
+
+### Real-Data Benchmark Results (2026-02-15)
+
+**Dataset:** Large cohort, hundreds of genes, case-control design
+
+| Stage | Time | Notes |
+|-------|------|-------|
+| variant_extraction | 354s (5.9 min) | bcftools, C-based |
+| snpsift_filtering | 1,663s (27.7 min) | Java/SnpSift |
+| field_extraction | 9,664s (2.7 hrs) | Java/SnpSift, **#1 bottleneck** |
+| data_sorting | 206s (3.4 min) | Unix sort |
+| genotype_replacement | 25,293s (7.0 hrs) | Pandas chunked-vectorized, **#2 bottleneck** |
+| chunked_analysis | Bug fixed, re-running | `chunks=None` TypeError — fixed |
+
+**Key finding:** At production scale, inheritance analysis optimization (Phase 9) is important but the dominant bottlenecks are upstream I/O stages. See issue #76 for proposed improvements.
+
+_Updated: 2026-02-15_
+_Verified: 2026-02-14T19:00:00Z_
 _Verifier: Claude (gsd-verifier)_
