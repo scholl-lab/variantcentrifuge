@@ -527,6 +527,12 @@ class TSVOutputStage(Stage):
 
                 df = pd.read_csv(io.StringIO("\n".join(lines_with_links)), sep="\t", dtype=str)
 
+        # Drop internal cache columns before output
+        cache_cols = [c for c in df.columns if c.startswith("_")]
+        if cache_cols:
+            df = df.drop(columns=cache_cols)
+            logger.debug(f"Dropped {len(cache_cols)} cache columns: {cache_cols}")
+
         # Restore original column names before writing output
         if context.column_rename_map:
             reverse_map = {v: k for k, v in context.column_rename_map.items()}
@@ -598,6 +604,11 @@ class ExcelReportStage(Stage):
         excel_df = None
         if context.variants_df is not None:
             excel_df = context.variants_df.copy()  # Copy to avoid mutation
+            # Drop internal cache columns before Excel output
+            cache_cols = [c for c in excel_df.columns if c.startswith("_")]
+            if cache_cols:
+                excel_df = excel_df.drop(columns=cache_cols)
+                logger.debug(f"Dropped {len(cache_cols)} cache columns: {cache_cols}")
             # Restore original column names for Excel output
             if context.column_rename_map:
                 reverse_map = {v: k for k, v in context.column_rename_map.items()}
