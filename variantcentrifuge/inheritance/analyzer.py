@@ -80,7 +80,9 @@ def analyze_inheritance(
     t_pass1_start = time.monotonic()
     df["_inheritance_patterns"] = vectorized_deduce_patterns(df, pedigree_data, sample_list)
     t_pass1 = time.monotonic() - t_pass1_start
-    logger.info(f"Pass 1 completed in {t_pass1:.2f}s ({len(df)} variants, {len(sample_list)} samples)")
+    logger.info(
+        f"Pass 1 completed in {t_pass1:.2f}s ({len(df)} variants, {len(sample_list)} samples)"
+    )
 
     # Pass 2: Compound Heterozygous Analysis
     logger.info("Pass 2: Analyzing compound heterozygous patterns")

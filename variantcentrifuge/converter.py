@@ -22,6 +22,9 @@ from openpyxl.utils import get_column_letter
 
 logger = logging.getLogger("variantcentrifuge")
 
+# Compile GT parsing pattern once at module level for performance
+GT_PATTERN = re.compile(r"([^()]+)\(([^)]+)\)")
+
 
 def convert_to_excel(tsv_file: str, cfg: dict[str, Any], df: pd.DataFrame | None = None) -> str:
     """
@@ -72,7 +75,11 @@ def convert_to_excel(tsv_file: str, cfg: dict[str, Any], df: pd.DataFrame | None
         df = df.drop(columns=["igv_links"])
 
     xlsx_file = os.path.splitext(tsv_file)[0] + ".xlsx"
-    df.to_excel(xlsx_file, index=False, sheet_name="Results")
+
+    # Use xlsxwriter engine for fast bulk write (2-5x faster than openpyxl)
+    # finalize_excel_file() will add hyperlinks, freeze panes, and auto-filters via openpyxl
+    with pd.ExcelWriter(xlsx_file, engine='xlsxwriter') as writer:
+        df.to_excel(writer, sheet_name='Results', index=False)
     # MODIFIED: End of empty report generation
     return xlsx_file
 
@@ -282,9 +289,6 @@ def finalize_excel_file(xlsx_file: str, cfg: dict[str, Any]) -> None:
                         igv_cell.value = "N/A"
                         continue
 
-                    # Create a regular expression pattern for GT parsing
-                    pattern = re.compile(r"([^()]+)\(([^)]+)\)")
-
                     # Find all related IGV reports for this variant
                     igv_reports = []
                     sample_entries = gt_value.split(";")
@@ -293,7 +297,7 @@ def finalize_excel_file(xlsx_file: str, cfg: dict[str, Any]) -> None:
                         if not entry:
                             continue
 
-                        m = pattern.match(entry)
+                        m = GT_PATTERN.match(entry)
                         if m:
                             sample_id = m.group(1).strip()
                             genotype = m.group(2).strip()
@@ -421,9 +425,6 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
                     key = (chrom, pos, ref, alt, entry["sample_id"])
                     igv_lookup[key] = entry["report_path"]
 
-            # Pattern to extract (SampleID, GenotypeString) tuples from GT column
-            pattern = re.compile(r"([^()]+)\(([^)]+)\)")
-
             # Augment variants with IGV links
             for variant_dict in variants:
                 # Initialize igv_links list
@@ -444,7 +445,7 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
                         if not entry:
                             continue
 
-                        m = pattern.match(entry)
+                        m = GT_PATTERN.match(entry)
                         if m:
                             sample_id = m.group(1).strip()
                             genotype = m.group(2).strip()

@@ -28,6 +28,7 @@ dependencies = [
     "psutil",
     "smart-open",
     "openpyxl",
+    "xlsxwriter>=3.0",
 ]
 
 [project.optional-dependencies]
