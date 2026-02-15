@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-14)
 ## Current Position
 
 Phase: 11 of 12 (Pipeline I/O Elimination)
-Plan: 2 of 3 complete
-Status: In progress - genotype replacement eliminated
-Last activity: 2026-02-15 — Completed 11-02-PLAN.md (genotype replacement elimination)
+Plan: 3 of 3 complete
+Status: Phase complete - validated and tested
+Last activity: 2026-02-15 — Completed 11-03-PLAN.md (pipeline validation)
 
-Progress: [███████████████░░░░░] 77% (Phase 1-10 complete + 2/3 of Phase 11)
+Progress: [████████████████░░░░] 80% (Phase 1-11 complete, Phase 12 pending)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 20
-- Average duration: 14.0 minutes
-- Total execution time: 4.7 hours
+- Total plans completed: 21
+- Average duration: 13.9 minutes
+- Total execution time: 4.9 hours
 
 **By Phase:**
 
@@ -33,11 +33,11 @@ Progress: [███████████████░░░░░] 77% (Ph
 | 8. DataFrame Optimization | 4/4 | 62.0 min | 15.5 min |
 | 9. Inheritance Optimization | 5/5 | 46.8 min | 9.4 min |
 | 10. Output Optimization | 3/3 | 26.0 min | 8.7 min |
-| 11. Pipeline I/O Elimination | 2/3 | 36.0 min | 18.0 min |
+| 11. Pipeline I/O Elimination | 3/3 | 52.0 min | 17.3 min |
 
 **Recent Trend:**
-- Last 5 plans: 10-01 (9.0 min), 10-02 (9.0 min), 10-03 (8.0 min), 11-01 (10.0 min), 11-02 (26.0 min)
-- Trend: Generally fast (8-10 min), occasional longer plans with complex refactoring
+- Last 5 plans: 10-02 (9.0 min), 10-03 (8.0 min), 11-01 (10.0 min), 11-02 (26.0 min), 11-03 (16.0 min)
+- Trend: Steady velocity, Phase 11 plans slightly longer (complex I/O refactoring + testing)
 
 *Updated after each plan completion*
 
@@ -99,6 +99,9 @@ Recent decisions affecting current work:
 - Deferred GT formatting pattern (11-02): reconstruct_gt_column() builds packed "Sample(0/1);Sample2(1/1)" format only at final output (<1 min vs 7 hrs)
 - Per-sample column phenotype extraction (11-02): extract_phenotypes_from_sample_columns() works with bcftools raw columns, auto-detects vs packed GT
 - _GT_PARSED dead code removed (11-02): Cache column never consumed by production code, parse_gt_column() and GT_PATTERN regex deleted
+- Sample column detection order fix (11-03): Check for existing sample columns BEFORE checking for GT column (allows bcftools output without GT)
+- Comprehensive Phase 11 test coverage (11-03): 25 tests proving GT reconstruction equivalence, phenotype extraction equivalence, and full pipeline data flow
+- Phase reference genotype handling (11-03): Added 0|0 and .|. to reference genotype check list in reconstruct_gt_column()
 
 ### Pending Todos
 
@@ -284,15 +287,20 @@ Recent decisions affecting current work:
 - All 636 unit tests pass with zero regressions
 - Expected savings: ~7 hours on large cohort genotype replacement
 
-**Plan 03 (Dead Code Cleanup): PENDING**
-- Remove GenotypeReplacementStage helper methods (all unreachable code)
-- Clean up stage registration and dependencies
-- Finalize pipeline I/O elimination phase
-- Target: 10+ hours → under 1 hour total pipeline time
+**Plan 03 (Pipeline Validation and Testing): COMPLETE**
+- Created 25 comprehensive tests proving Phase 11 equivalence
+- GT reconstruction tests (10): All edge cases covered (phased, hemizygous, missing, empty)
+- Phenotype extraction tests (9): Critical equivalence test proves new function matches old
+- Pipeline data flow tests (6): End-to-end validation, backwards compatibility, sample detection
+- Fixed critical bug: Sample column detection now happens BEFORE GT check (allows bcftools output)
+- Fixed phased reference genotypes: Added 0|0 and .|. to reference check list
+- Stage registry cleanup: GenotypeReplacementStage marked as deprecated with explanation
+- Golden file tests pass: All 14 inheritance scenarios validated
+- 1128 unit tests passing (1 pre-existing failure in extra_sample_fields - out of scope)
 
 ## Session Continuity
 
-Last session: 2026-02-15 10:56 UTC
-Stopped at: Completed 11-02-PLAN.md (genotype replacement elimination)
+Last session: 2026-02-15 11:18 UTC
+Stopped at: Completed 11-03-PLAN.md (pipeline validation and testing)
 Resume file: None
-Next: Phase 11 Plan 03 (Dead Code Cleanup) — /gsd:plan 11 03
+Next: Phase 11 COMPLETE → Phase 12 (Performance Benchmarking) ready to start
