@@ -395,3 +395,23 @@ class TestColumnNaming:
 
         # Should fall back to generic naming
         assert columns == ["CHROM", "POS", "GEN[*].GT"]
+
+    def test_no_double_tab_before_per_sample_columns(self):
+        """Regression test: no double tab between INFO fields and per-sample GT.
+
+        bcftools [...] syntax includes its own leading separator, so the
+        format_parts join must NOT add another tab before the [...] block.
+        A double tab creates an empty column that shifts all sample mappings by +1.
+        """
+        fields = ["CHROM", "POS", "AC", "GEN[*].GT"]
+        samples = ["S1", "S2", "S3"]
+        format_str, columns = build_bcftools_format_string(fields, samples)
+
+        # The format string should go directly from last INFO field to [...]
+        # WITHOUT a \t separator between them (the [...] block has its own \t)
+        assert "\\t[\\t" not in format_str, (
+            f"Double tab found before per-sample block: {format_str!r}"
+        )
+        # Column count must match: CHROM, POS, AC + 3 samples = 6
+        assert len(columns) == 6
+        assert columns == ["CHROM", "POS", "AC", "GEN[0].GT", "GEN[1].GT", "GEN[2].GT"]

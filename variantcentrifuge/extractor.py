@@ -142,28 +142,28 @@ def build_bcftools_format_string(
             format_parts.append(f"%INFO/{field}")
             column_names.append(field)
 
-    # Add per-sample fields at the end
+    # Join fixed/INFO fields with tabs
+    format_string = "\\t".join(format_parts)
+
+    # Append per-sample fields directly (NOT via format_parts join, to avoid double tab)
     if per_sample_fields:
-        # Build per-sample format string
-        # Format: [\t%GT\t%DP] outputs GT, DP for each sample in separate columns
+        # bcftools [...] iterates over all samples.
+        # [\t%GT] outputs: \tGT_s1\tGT_s2\tGT_s3...
+        # The leading \t inside [...] provides the separator from the last fixed field.
         sample_format = "\\t".join(f"%{f}" for f in per_sample_fields)
-        format_parts.append(f"[\\t{sample_format}]")
+        format_string += f"[\\t{sample_format}]"
 
         # Add column names for each sample
         if vcf_samples:
-            for sample in vcf_samples:
+            for sample_idx, _sample in enumerate(vcf_samples):
                 for format_field in per_sample_fields:
-                    # Column name format: GEN[0].GT, GEN[1].GT, etc.
-                    sample_idx = vcf_samples.index(sample)
                     column_names.append(f"GEN[{sample_idx}].{format_field}")
         else:
             logger.warning("No vcf_samples provided - per-sample columns will have generic names")
-            # Just use field names without sample info
             for format_field in per_sample_fields:
                 column_names.append(f"GEN[*].{format_field}")
 
-    # Join with tabs
-    format_string = "\\t".join(format_parts) + "\\n"
+    format_string += "\\n"
 
     return format_string, column_names
 
