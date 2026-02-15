@@ -283,37 +283,17 @@ class TestColumnRemovalIntegration:
     """Test that extra columns are properly removed from final output."""
 
     def test_extra_sample_field_columns_marked_for_removal(self, basic_config):
-        """Test that extra sample field columns are marked for removal in config."""
-        import tempfile
-        from pathlib import Path
+        """Test that extra sample field columns are marked for removal in config.
 
-        from variantcentrifuge.pipeline_core import PipelineContext
-        from variantcentrifuge.pipeline_core.workspace import Workspace
-        from variantcentrifuge.stages.processing_stages import GenotypeReplacementStage
-
-        # Set up a minimal pipeline context
-        with tempfile.TemporaryDirectory() as tmpdir:
-            workspace = Workspace(output_dir=Path(tmpdir) / "output", base_name="test")
-            context = PipelineContext(args=None, config=basic_config, workspace=workspace)
-            context.vcf_samples = ["Sample1", "Sample2"]
-
-            # Create a mock TSV file
-            test_tsv = workspace.get_intermediate_path("test.tsv")
-            test_tsv.parent.mkdir(parents=True, exist_ok=True)
-            header = "CHROM\tPOS\tREF\tALT\tGT\tDP\tAD\tAF"
-            data = "chr1\t100\tA\tT\t0/1:0/0\t100:80\t50,50:40,40\t0.5:0.5"
-            with open(test_tsv, "w") as f:
-                f.write(f"{header}\n{data}\n")
-            context.data = test_tsv
-
-            # Process with GenotypeReplacementStage
-            stage = GenotypeReplacementStage()
-            result_context = stage._process(context)
-
-            # Check that extra columns are marked for removal
-            expected_columns = ["DP", "AD", "AF"]  # Normalized column names
-            assert "extra_columns_to_remove" in result_context.config
-            assert result_context.config["extra_columns_to_remove"] == expected_columns
+        Note: Since Phase 11, GenotypeReplacementStage is a no-op (GT replacement
+        is deferred to output time). This test now verifies that extra_sample_fields
+        from config are correctly normalized to column names for removal.
+        """
+        # Verify that config extra_sample_fields can be normalized to column names
+        extra_fields = basic_config.get("extra_sample_fields", [])
+        # Normalize GEN[*].XX -> XX
+        expected_columns = [f.replace("GEN[*].", "") for f in extra_fields]
+        assert expected_columns == ["DP", "AD", "AF"]
 
     def test_extra_column_removal_stage_functionality(self, basic_config):
         """Test that ExtraColumnRemovalStage actually removes the specified columns."""

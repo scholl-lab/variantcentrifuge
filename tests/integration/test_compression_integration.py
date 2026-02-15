@@ -53,12 +53,12 @@ class TestCompressionIntegration:
 
         return context
 
-    @patch("variantcentrifuge.stages.processing_stages.extract_fields")
+    @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
     def test_field_extraction_creates_compressed_files(self, mock_extract, pipeline_context):
         """Test that FieldExtractionStage creates compressed files when gzip_intermediates=True."""
 
-        # Mock extract_fields to simulate successful extraction
-        def mock_extract_func(variant_file, fields, cfg, output_file):
+        # Mock extract_fields_bcftools to simulate successful extraction
+        def mock_extract_func(variant_file, fields, cfg, output_file, vcf_samples=None):
             # Create the output file to simulate successful extraction
             if output_file.endswith(".gz"):
                 import gzip
@@ -81,20 +81,20 @@ class TestCompressionIntegration:
         # Verify that the output file path includes .gz
         assert str(result_context.extracted_tsv).endswith(".extracted.tsv.gz")
 
-        # Verify that extract_fields was called with compressed filename
+        # Verify that extract_fields_bcftools was called with compressed filename
         mock_extract.assert_called_once()
         call_args = mock_extract.call_args
         output_file = call_args.kwargs["output_file"]
         assert output_file.endswith(".extracted.tsv.gz")
 
-    @patch("variantcentrifuge.stages.processing_stages.extract_fields")
+    @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
     def test_field_extraction_creates_uncompressed_files(self, mock_extract, pipeline_context):
         """Test FieldExtractionStage creates uncompressed files when gzip_intermediates=False."""
         # Disable compression
         pipeline_context.config["gzip_intermediates"] = False
 
-        # Mock extract_fields to simulate successful extraction
-        def mock_extract_func(variant_file, fields, cfg, output_file):
+        # Mock extract_fields_bcftools to simulate successful extraction
+        def mock_extract_func(variant_file, fields, cfg, output_file, vcf_samples=None):
             with open(output_file, "w") as f:
                 f.write("CHROM\tPOS\tREF\tALT\tGENE\n")
                 f.write("chr1\t100\tA\tT\tGENE1\n")
@@ -110,7 +110,7 @@ class TestCompressionIntegration:
         assert str(result_context.extracted_tsv).endswith(".extracted.tsv")
         assert not str(result_context.extracted_tsv).endswith(".extracted.tsv.gz")
 
-        # Verify that extract_fields was called with uncompressed filename
+        # Verify that extract_fields_bcftools was called with uncompressed filename
         mock_extract.assert_called_once()
         call_args = mock_extract.call_args
         output_file = call_args.kwargs["output_file"]
@@ -146,12 +146,11 @@ class TestCompressionIntegration:
         explicit_true = config.get("gzip_intermediates", True)
         assert explicit_true is True
 
-    @patch("variantcentrifuge.stages.processing_stages.extract_fields")
+    @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
     def test_config_propagation_to_extract_fields(
         self, mock_extract, pipeline_context, temp_workspace
     ):
-        """Test that configuration is properly propagated to extract_fields."""
-        pipeline_context.config["extract_fields_separator"] = ";"
+        """Test that configuration is properly propagated to extract_fields_bcftools."""
         pipeline_context.config["log_level"] = "DEBUG"
 
         mock_extract.return_value = "/tmp/output.tsv.gz"
@@ -169,7 +168,6 @@ class TestCompressionIntegration:
         assert call_args.kwargs["fields"] == "CHROM POS REF ALT GENE"
 
         cfg = call_args.kwargs["cfg"]
-        assert cfg["extract_fields_separator"] == ";"
         assert cfg["debug_level"] == "DEBUG"
 
 

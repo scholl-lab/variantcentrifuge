@@ -24,8 +24,10 @@ class MockedToolsTestCase:
         self.bcftools_patcher = patch("variantcentrifuge.stages.processing_stages.run_command")
         self.snpeff_patcher = patch("variantcentrifuge.gene_bed.subprocess.run")
         self.snpsift_patcher = patch("variantcentrifuge.filters.run_command")
-        # Also patch run_command in extractor module
-        self.extractor_patcher = patch("variantcentrifuge.extractor.run_command")
+        # Patch extract_fields_bcftools (Phase 11: bcftools replaces SnpSift)
+        self.extractor_patcher = patch(
+            "variantcentrifuge.stages.processing_stages.extract_fields_bcftools"
+        )
 
         self.mock_bcftools = self.bcftools_patcher.start()
         self.mock_snpeff = self.snpeff_patcher.start()
@@ -45,50 +47,37 @@ class MockedToolsTestCase:
     def _configure_tool_mocks(self):
         """Configure default behaviors for mocked tools."""
 
-        # Mock utils run_command for SnpSift extractFields
-        def utils_side_effect(cmd, output_file=None, *args, **kwargs):
-            if "SnpSift" in cmd and "extractFields" in cmd:
-                # Extract field names from the command (last N args after the filename)
-                field_idx = None
-                for i, arg in enumerate(cmd):
-                    if arg.endswith(".vcf") or arg.endswith(".vcf.gz"):
-                        field_idx = i + 1
-                        break
-
-                if field_idx and field_idx < len(cmd):
-                    fields = cmd[field_idx:]
-                    header = "\t".join(fields) + "\n"
-                    # Generate dummy data based on field count
-                    data_values = []
-                    for field in fields:
-                        if field == "CHROM":
-                            data_values.append("chr17")
-                        elif field == "POS":
-                            data_values.append("43044295")
-                        elif field == "REF":
-                            data_values.append("A")
-                        elif field == "ALT":
-                            data_values.append("G")
-                        elif field == "QUAL":
-                            data_values.append("30")
-                        else:
-                            data_values.append("NA")
-                    data = "\t".join(data_values) + "\n"
-                    content = header + data
+        # Mock extract_fields_bcftools (Phase 11: replaces SnpSift extractFields)
+        def bcftools_extract_side_effect(variant_file, fields, cfg, output_file, vcf_samples=None):
+            """Mock bcftools field extraction by writing TSV output."""
+            field_list = fields.split()
+            header = "\t".join(field_list) + "\n"
+            data_values = []
+            for field in field_list:
+                if field == "CHROM":
+                    data_values.append("chr17")
+                elif field == "POS":
+                    data_values.append("43044295")
+                elif field == "REF":
+                    data_values.append("A")
+                elif field == "ALT":
+                    data_values.append("G")
+                elif field == "QUAL":
+                    data_values.append("30")
                 else:
-                    content = "CHROM\tPOS\tREF\tALT\nchr17\t43044295\tA\tG\n"
+                    data_values.append("NA")
+            data = "\t".join(data_values) + "\n"
+            content = header + data
 
-                if output_file:
-                    with open(output_file, "w") as f:
-                        f.write(content)
-                    return output_file
-                else:
-                    return content
-            # Default behavior
-            result = Mock()
-            result.returncode = 0
-            result.stdout = ""
-            return result
+            if output_file.endswith(".gz"):
+                import gzip
+
+                with gzip.open(output_file, "wt") as f:
+                    f.write(content)
+            else:
+                with open(output_file, "w") as f:
+                    f.write(content)
+            return output_file
 
         # Mock bcftools responses
         def bcftools_side_effect(cmd, *args, **kwargs):
@@ -149,7 +138,7 @@ class MockedToolsTestCase:
         self.mock_bcftools.side_effect = bcftools_side_effect
         self.mock_snpeff.side_effect = snpeff_side_effect
         self.mock_snpsift.side_effect = snpsift_side_effect
-        self.mock_extractor.side_effect = utils_side_effect
+        self.mock_extractor.side_effect = bcftools_extract_side_effect
 
 
 class TestBasicPipelineFlow(MockedToolsTestCase):

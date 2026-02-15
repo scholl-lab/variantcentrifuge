@@ -47,7 +47,7 @@ class TestPipelineSampleDeterminism:
         }
 
     @patch("variantcentrifuge.helpers.get_vcf_names")
-    @patch("variantcentrifuge.stages.processing_stages.extract_fields")
+    @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
     @patch("variantcentrifuge.stages.processing_stages.Path.exists")
     def test_multiple_pipeline_runs_identical_results(
         self, mock_exists, mock_extract, mock_get_names, temp_workspace, mock_test_data
@@ -57,8 +57,8 @@ class TestPipelineSampleDeterminism:
         mock_get_names.return_value = mock_test_data["vcf_samples"]
         mock_exists.return_value = True
 
-        def mock_extract_fields(variant_file, fields, cfg, output_file):
-            """Mock extract_fields to write test TSV data."""
+        def mock_extract_fields(variant_file, fields, cfg, output_file, vcf_samples=None):
+            """Mock extract_fields_bcftools to write test TSV data."""
             from variantcentrifuge.utils import smart_open
 
             # Use smart_open to handle both .tsv and .tsv.gz files properly
