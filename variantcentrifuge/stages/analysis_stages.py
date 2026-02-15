@@ -55,18 +55,20 @@ def create_sample_columns_from_gt_vectorized(
     ------
         ValueError: If GT column is missing or empty
     """
+    # Phase 11: Check if sample columns already exist FIRST (before checking GT)
+    # This allows bcftools query output (per-sample columns, no GT) to skip creation
+    sample_columns_exist = any(sample_id in df.columns for sample_id in vcf_samples)
+
+    if sample_columns_exist:
+        logger.debug("Sample columns already exist, skipping creation")
+        return df
+
+    # If sample columns don't exist, we need GT column to create them
     if "GT" not in df.columns:
         raise ValueError("GT column not found in DataFrame")
 
     if len(df) == 0:
         logger.warning("Empty DataFrame provided to create_sample_columns_from_gt_vectorized")
-        return df
-
-    # Check if sample columns already exist
-    sample_columns_exist = any(sample_id in df.columns for sample_id in vcf_samples)
-
-    if sample_columns_exist:
-        logger.debug("Sample columns already exist, skipping creation")
         return df
 
     # Get the first GT value to determine format
@@ -288,18 +290,20 @@ def create_sample_columns_from_gt(
     ------
         ValueError: If GT column is missing or empty
     """
+    # Phase 11: Check if sample columns already exist FIRST (before checking GT)
+    # This allows bcftools query output (per-sample columns, no GT) to skip creation
+    sample_columns_exist = any(sample_id in df.columns for sample_id in vcf_samples)
+
+    if sample_columns_exist:
+        logger.debug("Sample columns already exist, skipping creation")
+        return df
+
+    # If sample columns don't exist, we need GT column to create them
     if "GT" not in df.columns:
         raise ValueError("GT column not found in DataFrame")
 
     if len(df) == 0:
         logger.warning("Empty DataFrame provided to create_sample_columns_from_gt")
-        return df
-
-    # Check if sample columns already exist
-    sample_columns_exist = any(sample_id in df.columns for sample_id in vcf_samples)
-
-    if sample_columns_exist:
-        logger.debug("Sample columns already exist, skipping creation")
         return df
 
     # Get the first GT value to determine format

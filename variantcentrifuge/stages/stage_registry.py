@@ -468,6 +468,8 @@ def _register_processing_stages():
     register_stage(TranscriptFilterStage, "processing", ["transcript_filter"], 10.0)
     register_stage(SnpSiftFilterStage, "processing", ["snpsift_filter", "filter"], 25.0)
     register_stage(FieldExtractionStage, "processing", ["field_extraction", "extract_fields"], 15.0)
+    # Deprecated (Phase 11): Stage no-ops immediately, GT reconstruction deferred to output time.
+    # Kept for dependency graph compatibility (other stages reference "genotype_replacement").
     register_stage(
         GenotypeReplacementStage, "processing", ["genotype_replacement", "replace_genotypes"], 20.0
     )
