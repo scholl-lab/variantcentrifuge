@@ -283,6 +283,11 @@ class TestGeneBurdenAnalysisStage:
         base_context.current_dataframe = pd.DataFrame(
             {
                 "GENE": ["BRCA1", "BRCA1", "TP53"],
+                "GT": [
+                    "CASE1(0/1);CASE2(0/1)",
+                    "CASE2(0/1);CTRL2(0/1)",
+                    "CASE1(0/1)",
+                ],
                 "CASE1": ["0/1", "0/0", "0/1"],
                 "CASE2": ["0/1", "0/1", "0/0"],
                 "CTRL1": ["0/0", "0/0", "0/0"],
@@ -318,6 +323,11 @@ class TestGeneBurdenAnalysisStage:
 
         assert mock_assign_counts.called
         assert mock_burden.called
+        # Verify case/control samples and vcf_samples are passed
+        _, kwargs = mock_burden.call_args
+        assert "case_samples" in kwargs
+        assert "control_samples" in kwargs
+        assert "vcf_samples" in kwargs
         assert result.gene_burden_results is not None
 
 

@@ -30,6 +30,30 @@ from ..stats_engine import StatsEngine
 
 logger = logging.getLogger(__name__)
 
+# Standard column aliases: sanitized name -> canonical short name.
+# When ANN[0].GENE is sanitized to ANN_0__GENE, downstream stages still expect "GENE".
+_STANDARD_COLUMN_ALIASES = {
+    "ANN_0__GENE": "GENE",
+    "ANN_0__EFFECT": "EFFECT",
+    "ANN_0__IMPACT": "IMPACT",
+    "ANN_0__HGVS_C": "HGVS_C",
+    "ANN_0__HGVS_P": "HGVS_P",
+}
+
+
+def _create_standard_column_aliases(df: pd.DataFrame) -> None:
+    """Create standard short-name aliases for sanitized ANN columns.
+
+    After column sanitization (ANN[0].GENE -> ANN_0__GENE), many downstream
+    stages expect plain column names like GENE, EFFECT, IMPACT. This function
+    creates those aliases in-place if the sanitized source column exists and
+    the short name doesn't already exist.
+    """
+    for sanitized_name, short_name in _STANDARD_COLUMN_ALIASES.items():
+        if short_name not in df.columns and sanitized_name in df.columns:
+            df[short_name] = df[sanitized_name]
+            logger.debug(f"Created column alias: {sanitized_name} -> {short_name}")
+
 
 def create_sample_columns_from_gt_vectorized(
     df: pd.DataFrame, vcf_samples: list[str], separator: str = ";", snpsift_sep: str = ","
@@ -550,6 +574,7 @@ class DataFrameLoadingStage(Stage):
         context.current_dataframe = df
         context.column_rename_map = rename_map
         logger.info(f"Restored {len(df)} variants into DataFrame after checkpoint skip")
+        _create_standard_column_aliases(df)
 
         # Check if DataFrame is small enough for in-memory pass-through
         if should_use_memory_passthrough(df):
@@ -625,6 +650,11 @@ class DataFrameLoadingStage(Stage):
         context.current_dataframe = df
         context.column_rename_map = rename_map
         logger.info(f"Loaded {len(df)} variants into DataFrame")
+
+        # Create standard column aliases from sanitized ANN/NMD column names.
+        # After sanitization, ANN[0].GENE becomes ANN_0__GENE, but many downstream
+        # stages expect a plain "GENE" column. Create aliases for common fields.
+        _create_standard_column_aliases(df)
 
         # Check if DataFrame is small enough for in-memory pass-through
         if should_use_memory_passthrough(df):
@@ -930,8 +960,12 @@ class InheritanceAnalysisStage(Stage):
             f"for {len(vcf_samples)} samples"
         )
 
-        # Prepare sample columns if GT field exists and contains multiple samples
-        if "GT" in df.columns:
+        # Prepare sample columns for inheritance analysis.
+        # Two paths: (1) packed GT column exists -> parse it into sample columns
+        #            (2) Phase 11 per-sample GT columns (GEN_N__GT) -> rename to sample IDs
+        sample_columns_exist = any(s in df.columns for s in vcf_samples)
+
+        if not sample_columns_exist and "GT" in df.columns:
             logger.debug("Preparing sample columns from GT field for inheritance analysis")
             prep_start = self._start_subtask("sample_column_preparation")
 
@@ -946,6 +980,22 @@ class InheritanceAnalysisStage(Stage):
             )
 
             self._end_subtask("sample_column_preparation", prep_start)
+
+        elif not sample_columns_exist:
+            # Phase 11: per-sample GT columns (GEN_N__GT) from bcftools query
+            from ..stages.output_stages import _find_per_sample_gt_columns
+
+            gt_cols = _find_per_sample_gt_columns(df)
+            if gt_cols:
+                n = min(len(gt_cols), len(vcf_samples))
+                logger.info(
+                    f"Creating sample columns from {n} per-sample GT columns "
+                    f"for inheritance analysis"
+                )
+                prep_start = self._start_subtask("sample_column_preparation")
+                for i in range(n):
+                    df[vcf_samples[i]] = df[gt_cols[i]]
+                self._end_subtask("sample_column_preparation", prep_start)
 
         # Apply inheritance analysis with error handling
         analysis_start = self._start_subtask("inheritance_calculation")
@@ -1487,6 +1537,24 @@ class VariantAnalysisStage(Stage):
             "control_phenotypes": context.config.get("control_phenotypes") or [],
         }
 
+        # Phase 11: Reconstruct packed GT column for analyze_variants if needed.
+        # analyze_variants expects a packed GT column ("Sample1(0/1);Sample2(1/1)").
+        # With Phase 11, we have per-sample GEN_N__GT columns instead.
+        if "GT" not in df.columns and context.vcf_samples:
+            from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
+
+            gt_cols = _find_per_sample_gt_columns(df)
+            if gt_cols:
+                logger.info("Reconstructing GT column for variant analysis")
+                # Work on a copy to avoid modifying the original DataFrame
+                df = reconstruct_gt_column(df.copy(), context.vcf_samples)
+
+        # Restore original column names before writing temp TSV.
+        # analyze_variants expects unsanitized names (GENE, not ANN_0__GENE).
+        if context.column_rename_map:
+            reverse_map = {v: k for k, v in context.column_rename_map.items()}
+            df = df.rename(columns=reverse_map)
+
         # Create temporary TSV file for analyze_variants
         temp_tsv = context.workspace.get_intermediate_path("temp_for_analysis.tsv")
 
@@ -1832,7 +1900,21 @@ class GeneBurdenAnalysisStage(Stage):
         # Check if DataFrame has required GENE column
         if "GENE" not in df.columns:
             logger.error("DataFrame missing required 'GENE' column for gene burden analysis")
-            logger.debug(f"Available columns: {list(df.columns)}")
+            logger.debug(f"Available columns: {list(df.columns)[:20]}...")
+            return context
+
+        # Phase 11: Reconstruct packed GT column if missing
+        if "GT" not in df.columns and context.vcf_samples:
+            from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
+
+            gt_cols = _find_per_sample_gt_columns(df)
+            if gt_cols:
+                logger.info("Reconstructing GT column for gene burden analysis")
+                df = reconstruct_gt_column(df.copy(), context.vcf_samples)
+                context.current_dataframe = df
+
+        if "GT" not in df.columns:
+            logger.error("DataFrame missing required 'GT' column for gene burden analysis")
             return context
 
         logger.debug(
@@ -1875,9 +1957,16 @@ class GeneBurdenAnalysisStage(Stage):
             f"({len(df_with_counts)} variants, {len(all_vcf_samples)} samples)"
         )
 
-        # Perform gene burden analysis on prepared DataFrame
+        # Perform gene burden analysis with proper per-sample collapsing
+        # Pass vcf_samples to enable fast column-based aggregation (Phase 11)
         _t_burden = _time.monotonic()
-        burden_results = perform_gene_burden_analysis(df=df_with_counts, cfg=burden_config)
+        burden_results = perform_gene_burden_analysis(
+            df=df_with_counts,
+            cfg=burden_config,
+            case_samples=set(case_samples),
+            control_samples=set(control_samples),
+            vcf_samples=list(context.vcf_samples) if context.vcf_samples else None,
+        )
         _t_burden_elapsed = _time.monotonic() - _t_burden
         n_genes = len(burden_results) if burden_results is not None else 0
         logger.info(

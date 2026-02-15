@@ -39,11 +39,30 @@ from ..utils import get_tool_version, sanitize_metadata_field
 logger = logging.getLogger(__name__)
 
 
+def _find_per_sample_gt_columns(df: pd.DataFrame) -> list[str]:
+    """Find per-sample GT columns in DataFrame (sanitized or original names).
+
+    Matches columns like GEN_0__GT (sanitized) or GEN[0].GT (original).
+    Returns them sorted by sample index.
+    """
+    import re
+
+    gt_cols = []
+    for col in df.columns:
+        # Match sanitized: GEN_0__GT, GEN_123__GT
+        # Match original: GEN[0].GT, GEN[123].GT
+        if re.match(r"^GEN[_\[](\d+)[_\]\.]+(GT)$", col):
+            gt_cols.append(col)
+    # Sort by numeric index
+    gt_cols.sort(key=lambda c: int(re.search(r"(\d+)", c).group(1)))  # type: ignore[union-attr]
+    return gt_cols
+
+
 def reconstruct_gt_column(df: pd.DataFrame, vcf_samples: list[str]) -> pd.DataFrame:
     """
     Reconstruct packed GT column from per-sample GT columns (Phase 11).
 
-    Takes per-sample GT columns (GEN[0].GT, GEN[1].GT, ...) from bcftools query output
+    Takes per-sample GT columns (GEN[0].GT / GEN_0__GT) from bcftools query output
     and reconstructs the packed format "Sample1(0/1);Sample2(1/1)" for TSV/Excel output.
 
     Only includes samples with variants (skips 0/0, ./., NA, empty).
@@ -61,44 +80,51 @@ def reconstruct_gt_column(df: pd.DataFrame, vcf_samples: list[str]) -> pd.DataFr
     pd.DataFrame
         DataFrame with reconstructed GT column, per-sample columns dropped
     """
-    import pandas as pd
 
-    def build_gt_string(row) -> str:
-        """Build packed GT string for a single row."""
-        gt_entries = []
-        for sample_id in vcf_samples:
-            # Get GT value for this sample
-            gt_value = None
-            if hasattr(row, sample_id):
-                gt_value = getattr(row, sample_id)
-            elif hasattr(row, "__getitem__"):
-                try:
-                    gt_value = row[sample_id]
-                except (KeyError, IndexError):
+    gt_cols = _find_per_sample_gt_columns(df)
+    if not gt_cols:
+        logger.warning("No per-sample GT columns found for reconstruction")
+        return df
+
+    n_samples = min(len(gt_cols), len(vcf_samples))
+    if len(gt_cols) != len(vcf_samples):
+        logger.warning(
+            f"GT column count ({len(gt_cols)}) != sample count ({len(vcf_samples)}), "
+            f"using first {n_samples}"
+        )
+
+    logger.info(f"Reconstructing GT column from {n_samples} per-sample columns")
+
+    # Vectorized approach: build GT strings using numpy for speed
+    skip_values = {"0/0", "0|0", "./.", ".|.", ".", "NA", "", "nan", "None"}
+
+    # Extract GT values as a 2D array for fast access
+    gt_data = df[gt_cols[:n_samples]].values  # shape: (n_rows, n_samples)
+    sample_ids = vcf_samples[:n_samples]
+
+    gt_strings = []
+    for row_idx in range(len(df)):
+        entries = []
+        for col_idx in range(n_samples):
+            val = gt_data[row_idx, col_idx]
+            if val is None:
+                continue
+            try:
+                if pd.isna(val):
                     continue
-
-            # Skip reference/missing genotypes
-            if pd.isna(gt_value) or not gt_value:
+            except (TypeError, ValueError):
+                pass
+            gt_str = str(val).strip()
+            if gt_str in skip_values:
                 continue
+            entries.append(f"{sample_ids[col_idx]}({gt_str})")
+        gt_strings.append(";".join(entries))
 
-            gt_str = str(gt_value).strip()
-            if not gt_str or gt_str in ["0/0", "0|0", "./.", ".|.", ".", "NA"]:
-                continue
+    df["GT"] = gt_strings
 
-            # Include this sample in the GT column
-            gt_entries.append(f"{sample_id}({gt_str})")
-
-        return ";".join(gt_entries)
-
-    # Build GT column from per-sample columns
-    logger.debug(f"Reconstructing GT column from {len(vcf_samples)} per-sample columns")
-    df["GT"] = df.apply(build_gt_string, axis=1)
-
-    # Drop per-sample columns (they should not appear in final output)
-    cols_to_drop = [col for col in vcf_samples if col in df.columns]
-    if cols_to_drop:
-        df = df.drop(columns=cols_to_drop)
-        logger.debug(f"Dropped {len(cols_to_drop)} per-sample columns from output")
+    # Drop per-sample GT columns
+    df = df.drop(columns=gt_cols)
+    logger.info(f"Dropped {len(gt_cols)} per-sample GT columns from output")
 
     return df
 
@@ -546,12 +572,9 @@ class TSVOutputStage(Stage):
 
         # Phase 11: Reconstruct GT column from per-sample columns if needed
         if context.vcf_samples and "GT" not in df.columns:
-            # Check if per-sample columns exist
-            has_sample_columns = any(sample in df.columns for sample in context.vcf_samples)
-            if has_sample_columns:
-                logger.info("Reconstructing GT column from per-sample columns for TSV output")
+            gt_cols = _find_per_sample_gt_columns(df)
+            if gt_cols:
                 df = reconstruct_gt_column(df, context.vcf_samples)
-                # Update context dataframe with reconstructed GT
                 context.current_dataframe = df
 
         # Determine output path
@@ -685,12 +708,8 @@ class ExcelReportStage(Stage):
                 logger.debug(f"Dropped {len(cache_cols)} cache columns: {cache_cols}")
             # Phase 11: Reconstruct GT column from per-sample columns if needed
             if context.vcf_samples and "GT" not in excel_df.columns:
-                # Check if per-sample columns exist
-                has_sample_columns = any(
-                    sample in excel_df.columns for sample in context.vcf_samples
-                )
-                if has_sample_columns:
-                    logger.info("Reconstructing GT column from per-sample columns for Excel output")
+                gt_cols = _find_per_sample_gt_columns(excel_df)
+                if gt_cols:
                     excel_df = reconstruct_gt_column(excel_df, context.vcf_samples)
             # Restore original column names for Excel output
             if context.column_rename_map:

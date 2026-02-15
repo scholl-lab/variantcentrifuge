@@ -49,8 +49,8 @@ def test_full_data_flow_simulation():
 
     This simulates the complete pipeline with per-sample columns from bcftools.
     """
-    # 1. Simulate bcftools query output (per-sample GT columns)
-    # Note: In Phase 11, we have per-sample columns directly, no GT column yet
+    # 1. Simulate bcftools query output (per-sample GT columns, sanitized names)
+    # After DataFrame loading, GEN[0].GT -> GEN_0__GT (sanitized for itertuples)
     df = pd.DataFrame(
         {
             "CHROM": ["chr1", "chr2", "chr3"],
@@ -59,20 +59,17 @@ def test_full_data_flow_simulation():
             "ALT": ["G", "T", "A"],
             "ANN_0__GENE": ["GENE1", "GENE2", "GENE3"],
             "ANN_0__EFFECT": ["missense_variant", "frameshift_variant", "stop_gained"],
-            "Sample1": ["0/1", "1/1", "0/0"],  # Per-sample column from bcftools
-            "Sample2": ["1/1", "0/1", "0/1"],  # Per-sample column from bcftools
-            "Sample3": ["0/0", "./.", "1/1"],  # Per-sample column from bcftools
+            "GEN_0__GT": ["0/1", "1/1", "0/0"],  # Per-sample column from bcftools
+            "GEN_1__GT": ["1/1", "0/1", "0/1"],  # Per-sample column from bcftools
+            "GEN_2__GT": ["0/0", "./.", "1/1"],  # Per-sample column from bcftools
         }
     )
 
     vcf_samples = ["Sample1", "Sample2", "Sample3"]
 
-    # 2. Verify create_sample_columns_from_gt_intelligent detects existing columns
-    # It should detect that per-sample columns already exist and skip creation
-    result_df = create_sample_columns_from_gt_intelligent(df, vcf_samples)
-
-    # Should return DataFrame unchanged (columns already exist)
-    pd.testing.assert_frame_equal(result_df, df)
+    # 2. In Phase 11, per-sample columns are GEN_N__GT (not sample-named).
+    # create_sample_columns_from_gt_intelligent is not called because
+    # InheritanceAnalysisStage works directly with per-sample GT columns.
 
     # 3. Simulate analysis (inheritance analysis would work with per-sample columns)
     # Just add a mock analysis column
@@ -91,9 +88,9 @@ def test_full_data_flow_simulation():
     assert output_df["GT"].iloc[2] == "Sample2(0/1);Sample3(1/1)"
 
     # 6. Verify per-sample columns are dropped
-    assert "Sample1" not in output_df.columns
-    assert "Sample2" not in output_df.columns
-    assert "Sample3" not in output_df.columns
+    assert "GEN_0__GT" not in output_df.columns
+    assert "GEN_1__GT" not in output_df.columns
+    assert "GEN_2__GT" not in output_df.columns
 
     # 7. Verify output has expected column structure (same as old pipeline)
     expected_columns = [
@@ -193,7 +190,7 @@ def test_output_column_structure_equivalence():
     Old pipeline: many intermediate columns + GT column
     New pipeline: same columns, GT reconstructed at output time
     """
-    # Create DataFrame with per-sample columns (new pipeline)
+    # Create DataFrame with per-sample GT columns (new pipeline)
     df_new = pd.DataFrame(
         {
             "CHROM": ["chr1"],
@@ -201,8 +198,8 @@ def test_output_column_structure_equivalence():
             "REF": ["A"],
             "ALT": ["G"],
             "ANN_0__GENE": ["BRCA1"],
-            "Sample1": ["0/1"],
-            "Sample2": ["1/1"],
+            "GEN_0__GT": ["0/1"],
+            "GEN_1__GT": ["1/1"],
         }
     )
     vcf_samples = ["Sample1", "Sample2"]
@@ -234,13 +231,12 @@ def test_empty_dataframe_handling():
     """Test that pipeline handles empty DataFrames gracefully."""
     df = pd.DataFrame(
         {
-            "CHROM": [],
-            "POS": [],
-            "Sample1": [],
-            "Sample2": [],
+            "CHROM": pd.Series(dtype=str),
+            "POS": pd.Series(dtype=int),
+            "GEN_0__GT": pd.Series(dtype=str),
+            "GEN_1__GT": pd.Series(dtype=str),
         }
     )
-    df = df.astype({"CHROM": str, "POS": int, "Sample1": str, "Sample2": str})
     vcf_samples = ["Sample1", "Sample2"]
 
     # Should handle empty DataFrame
@@ -248,5 +244,5 @@ def test_empty_dataframe_handling():
 
     assert "GT" in result.columns
     assert len(result) == 0
-    assert "Sample1" not in result.columns
-    assert "Sample2" not in result.columns
+    assert "GEN_0__GT" not in result.columns
+    assert "GEN_1__GT" not in result.columns
