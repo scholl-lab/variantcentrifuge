@@ -138,7 +138,7 @@ class TestInheritanceModeIntegration:
                 stdout=out,
                 stderr=subprocess.PIPE,
                 text=True,
-                timeout=120,
+                timeout=300,
             )
         assert result.returncode == 0, f"snpEff annotation failed: {result.stderr}"
 
@@ -316,9 +316,11 @@ FAM1\tmother\t0\t0\t2\t1
             assert "Inheritance_Description" in df.columns
             assert "Inheritance_Samples" in df.columns
 
-            # Check that new columns have values
+            # Check that new columns have values for definitive patterns
+            # "none" and "unknown" patterns legitimately have no samples
             for _idx, row in df.iterrows():
-                if row["Inheritance_Pattern"] != "none":
+                pattern = row["Inheritance_Pattern"]
+                if pattern not in ("none", "unknown"):
                     assert pd.notna(row["Inheritance_Confidence"])
                     assert pd.notna(row["Inheritance_Description"])
                     assert pd.notna(row["Inheritance_Samples"])

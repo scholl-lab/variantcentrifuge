@@ -199,7 +199,7 @@ class VariantIdentifierStage(Stage):
         if custom_annotations_requested and "Custom_Annotation" not in df.columns:
             # Find a good position for it - after GT column if it exists
             if "GT" in df.columns:
-                gt_pos = df.columns.get_loc("GT") + 1
+                gt_pos = int(df.columns.get_loc("GT")) + 1
                 df.insert(gt_pos, "Custom_Annotation", "")
             else:
                 df["Custom_Annotation"] = ""
