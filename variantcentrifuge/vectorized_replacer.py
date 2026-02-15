@@ -454,11 +454,20 @@ def process_chunked_vectorized(
     output_compression = "gzip" if str(output_path).endswith(".gz") else None
 
     first_chunk = True
+    import time
+
+    chunk_num = 0
+    total_rows_processed = 0
+    t_start = time.monotonic()
 
     for chunk_df in pd.read_csv(
         input_path, sep="\t", dtype=str, compression=compression, chunksize=chunk_size
     ):
+        chunk_num += 1
+        t_chunk_start = time.monotonic()
+
         processed_chunk = replacer.process_dataframe(chunk_df)
+        t_process = time.monotonic() - t_chunk_start
 
         # Write chunk to output
         mode = "w" if first_chunk else "a"
@@ -473,11 +482,24 @@ def process_chunked_vectorized(
             header=header,
         )
 
+        t_write = time.monotonic() - t_chunk_start - t_process
         first_chunk = False
+        total_rows_processed += len(chunk_df)
+        elapsed = time.monotonic() - t_start
+        rows_per_sec = total_rows_processed / elapsed if elapsed > 0 else 0
 
-        logger.debug(f"Processed chunk of {len(chunk_df)} rows")
+        logger.info(
+            f"Chunk {chunk_num}: {len(chunk_df)} rows processed in {t_process:.1f}s "
+            f"(write: {t_write:.1f}s) | "
+            f"Total: {total_rows_processed:,} rows, {elapsed:.0f}s elapsed, "
+            f"{rows_per_sec:.0f} rows/sec"
+        )
 
-    logger.info(f"Completed chunked vectorized genotype replacement: {input_path} -> {output_path}")
+    total_time = time.monotonic() - t_start
+    logger.info(
+        f"Completed chunked vectorized genotype replacement in {total_time:.1f}s: "
+        f"{total_rows_processed:,} rows in {chunk_num} chunks ({input_path} -> {output_path})"
+    )
 
 
 def _process_chunk_worker(

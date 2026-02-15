@@ -13,6 +13,7 @@ Performance benefits:
 """
 
 import logging
+import time
 from typing import Any
 
 import numpy as np
@@ -48,6 +49,7 @@ def vectorized_deduce_patterns(
         List of pattern lists (one per variant), matching the output
         format of the original deduce_patterns_for_variant
     """
+    t_start = time.monotonic()
     n_variants = len(df)
 
     # Initialize result structure - list of lists matching original format
@@ -59,7 +61,14 @@ def vectorized_deduce_patterns(
 
     # Step 1: Build genotype matrix (n_variants x n_samples)
     # This encodes ALL sample genotypes ONCE before pattern checking
+    t_matrix_start = time.monotonic()
     gt_matrix, sample_to_idx = _build_genotype_matrix(df, sample_list)
+    t_matrix = time.monotonic() - t_matrix_start
+    logger.info(
+        f"Vectorized deducer: genotype matrix built in {t_matrix:.3f}s "
+        f"({n_variants} variants x {len(sample_list)} samples, "
+        f"matrix shape={gt_matrix.shape}, dtype={gt_matrix.dtype})"
+    )
 
     # Step 2: Per-sample vectorized pattern deduction
     for sample_id in sample_list:
@@ -169,6 +178,12 @@ def vectorized_deduce_patterns(
             patterns_per_variant, sample_gts, has_variant_mask, affected, patterns_before_sample
         )
 
+    t_patterns = time.monotonic() - t_start - t_matrix
+    logger.info(
+        f"Vectorized deducer: pattern checks completed in {t_patterns:.3f}s "
+        f"({len(sample_list)} samples x {n_variants} variants)"
+    )
+
     # Step 3: Deduplication per variant (preserve order)
     for i in range(n_variants):
         if patterns_per_variant[i]:
@@ -180,6 +195,14 @@ def vectorized_deduce_patterns(
                     seen.add(pattern)
                     unique_patterns.append(pattern)
             patterns_per_variant[i] = unique_patterns
+
+    t_total = time.monotonic() - t_start
+    n_with_patterns = sum(1 for p in patterns_per_variant if p)
+    logger.info(
+        f"Vectorized deducer complete in {t_total:.3f}s: "
+        f"{n_with_patterns}/{n_variants} variants have patterns "
+        f"(matrix={t_matrix:.3f}s, patterns={t_patterns:.3f}s)"
+    )
 
     return patterns_per_variant
 

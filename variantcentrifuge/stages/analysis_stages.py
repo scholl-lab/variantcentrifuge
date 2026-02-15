@@ -1856,15 +1856,30 @@ class GeneBurdenAnalysisStage(Stage):
 
         logger.info(f"Using {len(all_vcf_samples)} VCF samples for gene burden analysis")
 
+        import time as _time
+
+        _t_cc = _time.monotonic()
         df_with_counts = assign_case_control_counts(
             df=df,
             case_samples=set(case_samples),
             control_samples=set(control_samples),
             all_samples=all_vcf_samples,  # This should be ALL samples in VCF
         )
+        _t_cc_elapsed = _time.monotonic() - _t_cc
+        logger.info(
+            f"Case/control count assignment completed in {_t_cc_elapsed:.2f}s "
+            f"({len(df_with_counts)} variants, {len(all_vcf_samples)} samples)"
+        )
 
         # Perform gene burden analysis on prepared DataFrame
+        _t_burden = _time.monotonic()
         burden_results = perform_gene_burden_analysis(df=df_with_counts, cfg=burden_config)
+        _t_burden_elapsed = _time.monotonic() - _t_burden
+        n_genes = len(burden_results) if burden_results is not None else 0
+        logger.info(
+            f"Gene burden analysis completed in {_t_burden_elapsed:.2f}s "
+            f"({n_genes} genes tested)"
+        )
 
         context.gene_burden_results = burden_results
 
@@ -2112,7 +2127,7 @@ class ChunkedAnalysisStage(Stage):
         # Set up inheritance analysis configuration if needed
         self._setup_inheritance_config(context)
 
-        chunk_size = context.config.get("chunks", 10000)
+        chunk_size = context.config.get("chunks") or 10000
 
         # Determine input file
         if context.extra_columns_removed_tsv:

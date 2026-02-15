@@ -7,6 +7,7 @@ pattern deduction, compound heterozygous analysis, and pattern prioritization.
 
 import json
 import logging
+import time
 from typing import Any
 
 import pandas as pd
@@ -76,10 +77,14 @@ def analyze_inheritance(
 
     # Pass 1: Per-Variant Pattern Deduction (vectorized)
     logger.info("Pass 1: Deducing inheritance patterns per variant (vectorized)")
+    t_pass1_start = time.monotonic()
     df["_inheritance_patterns"] = vectorized_deduce_patterns(df, pedigree_data, sample_list)
+    t_pass1 = time.monotonic() - t_pass1_start
+    logger.info(f"Pass 1 completed in {t_pass1:.2f}s ({len(df)} variants, {len(sample_list)} samples)")
 
     # Pass 2: Compound Heterozygous Analysis
     logger.info("Pass 2: Analyzing compound heterozygous patterns")
+    t_pass2_start = time.monotonic()
 
     # Group by gene and analyze
     comp_het_results_by_gene = {}
@@ -104,6 +109,13 @@ def analyze_inheritance(
                 logger.debug(
                     f"Found compound het patterns in gene {gene}: {len(comp_het_results)} variants"
                 )
+
+    n_genes_with_comphet = len(comp_het_results_by_gene)
+    t_pass2_analysis = time.monotonic() - t_pass2_start
+    logger.info(
+        f"Pass 2 gene analysis completed in {t_pass2_analysis:.2f}s "
+        f"({n_genes_with_comphet} genes with compound het patterns)"
+    )
 
     # Apply compound het results to DataFrame (vectorized)
     if comp_het_results_by_gene:
@@ -142,8 +154,12 @@ def analyze_inheritance(
                     for idx in matching_indices:
                         df.at[idx, "_comp_het_info"] = info
 
+    t_pass2_total = time.monotonic() - t_pass2_start
+    logger.info(f"Pass 2 total (analysis + apply) completed in {t_pass2_total:.2f}s")
+
     # Pass 3: Prioritize and Finalize (optimized)
     logger.info("Pass 3: Prioritizing patterns and creating final output")
+    t_pass3_start = time.monotonic()
 
     # Pre-extract column data to avoid repeated df.at[] lookups
     all_inheritance_patterns = df["_inheritance_patterns"].tolist()
@@ -202,12 +218,22 @@ def analyze_inheritance(
     df["Inheritance_Pattern"] = inheritance_patterns_result
     df["Inheritance_Details"] = inheritance_details_result
 
+    t_pass3 = time.monotonic() - t_pass3_start
+    logger.info(f"Pass 3 completed in {t_pass3:.2f}s ({len(df)} variants prioritized)")
+
     # Clean up temporary columns
     df = df.drop(columns=["_inheritance_patterns", "_comp_het_info"])
 
-    # Log summary statistics
+    # Log summary statistics and timing breakdown
+    t_total = t_pass1 + t_pass2_total + t_pass3
     pattern_counts = df["Inheritance_Pattern"].value_counts()
-    logger.info(f"Inheritance analysis complete. Pattern distribution: {pattern_counts.to_dict()}")
+    logger.info(
+        f"Inheritance analysis complete in {t_total:.2f}s. "
+        f"Timing: Pass1={t_pass1:.2f}s ({t_pass1/t_total*100:.0f}%), "
+        f"Pass2={t_pass2_total:.2f}s ({t_pass2_total/t_total*100:.0f}%), "
+        f"Pass3={t_pass3:.2f}s ({t_pass3/t_total*100:.0f}%). "
+        f"Pattern distribution: {pattern_counts.to_dict()}"
+    )
 
     return df
 
