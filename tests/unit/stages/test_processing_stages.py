@@ -374,29 +374,20 @@ class TestGenotypeReplacementStage:
         ctx.mark_complete("sample_config_loading")
         return ctx
 
-    @patch("variantcentrifuge.stages.processing_stages.replace_genotypes")
-    def test_genotype_replacement(self, mock_replace, context):
-        """Test genotype replacement."""
-        # Mock replace_genotypes to return some lines
-        mock_replace.return_value = iter(["header", "line1", "line2"])
+    def test_genotype_replacement(self, context):
+        """Test genotype replacement stage (Phase 11: now a no-op)."""
+        # Phase 11: GenotypeReplacementStage now no-ops immediately
+        # GT reconstruction deferred to output time (TSVOutputStage, ExcelReportStage)
 
+        original_data = context.data
         stage = GenotypeReplacementStage()
         result = stage(context)
 
-        # Verify replacement was called
-        mock_replace.assert_called_once()
-        call_args = mock_replace.call_args[0]
-        # First arg is the opened file handle
-        assert hasattr(call_args[0], "read")  # It's a file-like object
-        # Second arg is the config dict
-        assert isinstance(call_args[1], dict)
-        assert call_args[1]["sample_list"] == "Sample1,Sample2,Sample3"
-        # Just verify it's a dict with expected keys
-        assert "sample_list" in call_args[1]
-        # Verify context updates
-        assert result.genotype_replaced_tsv is not None
-        assert result.data == result.genotype_replaced_tsv
-        assert ".genotype_replaced.tsv" in str(result.data)
+        # Verify stage completes immediately (no actual processing)
+        # The stage may set genotype_replaced_tsv in resume_from_checkpoint
+        # but no actual genotype replacement file should be created
+        # Key verification: data path should remain unchanged from input
+        assert result.data == original_data
 
     def test_skip_if_disabled(self, context):
         """Test skipping when replacement disabled."""

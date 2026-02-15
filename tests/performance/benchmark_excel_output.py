@@ -5,7 +5,6 @@ Tests Excel generation performance at multiple scales:
 - 100, 1K, 10K, 50K variant datasets
 - xlsxwriter vs openpyxl engine comparison
 - Finalization overhead (hyperlinks, freeze panes, auto-filters)
-- GT pre-parsing overhead
 
 Establishes Phase 10 optimization baseline: 2-5x speedup from xlsxwriter.
 """
@@ -17,7 +16,6 @@ import pandas as pd
 import pytest
 
 from variantcentrifuge.converter import convert_to_excel, finalize_excel_file
-from variantcentrifuge.dataframe_optimizer import parse_gt_column
 
 
 def _create_variant_df(n_variants: int, n_samples: int = 3, seed: int = 42) -> pd.DataFrame:
@@ -120,9 +118,12 @@ def test_benchmark_excel_write_100(benchmark, tmp_path):
         finalize_excel_file(xlsx_path, cfg)
         return xlsx_path
 
-    xlsx_path = benchmark(write_excel)
+    xlsx_path_str = benchmark(write_excel)
 
     # Verify
+    from pathlib import Path
+
+    xlsx_path = Path(xlsx_path_str)
     assert xlsx_path.exists()
     result_df = pd.read_excel(xlsx_path, sheet_name="Results")
     assert len(result_df) == n_variants
@@ -148,9 +149,12 @@ def test_benchmark_excel_write_1k(benchmark, tmp_path):
         finalize_excel_file(xlsx_path, cfg)
         return xlsx_path
 
-    xlsx_path = benchmark(write_excel)
+    xlsx_path_str = benchmark(write_excel)
 
     # Verify
+    from pathlib import Path
+
+    xlsx_path = Path(xlsx_path_str)
     assert xlsx_path.exists()
     result_df = pd.read_excel(xlsx_path, sheet_name="Results")
     assert len(result_df) == n_variants
@@ -175,9 +179,12 @@ def test_benchmark_excel_write_10k(benchmark, tmp_path):
         finalize_excel_file(xlsx_path, cfg)
         return xlsx_path
 
-    xlsx_path = benchmark(write_excel)
+    xlsx_path_str = benchmark(write_excel)
 
     # Verify
+    from pathlib import Path
+
+    xlsx_path = Path(xlsx_path_str)
     assert xlsx_path.exists()
     result_df = pd.read_excel(xlsx_path, sheet_name="Results")
     assert len(result_df) == n_variants
@@ -242,30 +249,6 @@ def test_benchmark_excel_finalization_10k(benchmark, tmp_path):
 
 
 @pytest.mark.slow
-@pytest.mark.unit
-def test_benchmark_gt_preparsing_10k(benchmark):
-    """
-    Benchmark parse_gt_column on 10K row DataFrame.
-
-    Measures the one-time GT parse cost at DataFrame load time.
-    This overhead is amortized across all downstream consumers.
-    """
-    n_variants = 10000
-    df = _create_variant_df(n_variants)
-
-    def parse_gt():
-        return parse_gt_column(df.copy())
-
-    result_df = benchmark(parse_gt)
-
-    # Verify _GT_PARSED column exists
-    assert "_GT_PARSED" in result_df.columns
-    assert len(result_df) == n_variants
-
-    benchmark.extra_info["n_variants"] = n_variants
-    benchmark.extra_info["component"] = "gt_preparsing"
-
-
 @pytest.mark.unit
 def test_xlsxwriter_vs_openpyxl_speedup(tmp_path):
     """

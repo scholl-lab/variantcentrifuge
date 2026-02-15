@@ -289,15 +289,13 @@ def test_gt_cache_cleanup_before_output(tmp_path):
     # Create test data with cache columns
     variants_df = _create_test_variants_df(n_variants=10)
 
-    # Add cache columns (simulating what dataframe_optimizer adds)
-    variants_df["_GT_PARSED"] = [
-        [{"sample": f"Sample{i}", "gt": "0/1"}] for i in range(len(variants_df))
-    ]
+    # Add cache column (simulating internal processing cache)
+    # Note: _GT_PARSED removed in Phase 11 (dead code elimination)
     variants_df["_INTERNAL_CACHE"] = ["cache_value"] * len(variants_df)
 
     # Apply the cache cleanup pattern from output stages
     cache_cols = [c for c in variants_df.columns if c.startswith("_")]
-    assert len(cache_cols) == 2, f"Expected 2 cache columns, found {len(cache_cols)}"
+    assert len(cache_cols) == 1, f"Expected 1 cache column, found {len(cache_cols)}"
 
     df_cleaned = variants_df.drop(columns=cache_cols)
 

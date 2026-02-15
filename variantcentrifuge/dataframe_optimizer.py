@@ -21,9 +21,6 @@ import psutil
 
 logger = logging.getLogger(__name__)
 
-# Compile GT parsing pattern once at module level for performance
-GT_PATTERN = re.compile(r"([^()]+)\(([^)]+)\)")
-
 
 def detect_categorical_columns(
     csv_path: str | Path,
@@ -102,84 +99,6 @@ def detect_categorical_columns(
         logger.debug("No categorical columns detected")
 
     return dtype_map
-
-
-def parse_gt_column(df: pd.DataFrame) -> pd.DataFrame:
-    """Parse GT column into structured cache for downstream consumers.
-
-    Parses GT column strings like "Sample1(0/1);Sample2(1/1);Sample3(0/0)"
-    into structured lists of dicts for each row. This pre-parsing eliminates
-    redundant regex work across multiple downstream stages.
-
-    The cache is stored in a _GT_PARSED column (underscore prefix marks it
-    as internal/cache). Cache columns are stripped before final output.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        DataFrame containing a GT column
-
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame with added _GT_PARSED column containing lists of dicts:
-        [{"sample": "Sample1", "gt": "0/1"}, {"sample": "Sample2", "gt": "1/1"}, ...]
-
-    Examples
-    --------
-    >>> df = pd.DataFrame({"GT": ["Sample1(0/1);Sample2(1/1)", "Sample3(0/0)"]})
-    >>> df = parse_gt_column(df)
-    >>> df["_GT_PARSED"][0]
-    [{'sample': 'Sample1', 'gt': '0/1'}, {'sample': 'Sample2', 'gt': '1/1'}]
-    """
-    # Check if GT column exists (may be renamed by sanitization)
-    gt_col = None
-    for col in df.columns:
-        if col == "GT" or col.upper() == "GT":
-            gt_col = col
-            break
-
-    if gt_col is None:
-        logger.debug("No GT column found, skipping GT pre-parsing")
-        return df
-
-    if len(df) == 0:
-        logger.debug("Empty DataFrame, skipping GT pre-parsing")
-        df["_GT_PARSED"] = []
-        return df
-
-    def parse_gt_value(gt_value: Any) -> list[dict[str, str]]:
-        """Parse a single GT value into list of dicts."""
-        # Handle NaN, None, empty strings
-        if pd.isna(gt_value) or not gt_value:
-            return []
-
-        gt_str = str(gt_value).strip()
-        if not gt_str:
-            return []
-
-        # Parse sample(genotype) entries
-        parsed_entries = []
-        sample_entries = gt_str.split(";")
-        for entry in sample_entries:
-            entry = entry.strip()
-            if not entry:
-                continue
-
-            match = GT_PATTERN.match(entry)
-            if match:
-                sample = match.group(1).strip()
-                genotype = match.group(2).strip()
-                parsed_entries.append({"sample": sample, "gt": genotype})
-
-        return parsed_entries
-
-    # Parse all GT values
-    df["_GT_PARSED"] = df[gt_col].apply(parse_gt_value)
-
-    logger.debug(f"Pre-parsed GT column for {len(df)} rows")
-
-    return df
 
 
 def rename_invalid_identifiers(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, str]]:
@@ -408,17 +327,6 @@ def load_optimized_dataframe(
     column_rename_map = {}
     if sanitize_columns:
         df, column_rename_map = rename_invalid_identifiers(df)
-
-    # Step 5: Pre-parse GT column if it exists (after sanitization, before return)
-    # GT column may have been renamed during sanitization
-    if len(df) > 0:
-        # Check for GT column (original or sanitized name)
-        has_gt = "GT" in df.columns or any(
-            col.upper() == "GT" or "GT" in col.upper() for col in df.columns
-        )
-        if has_gt:
-            df = parse_gt_column(df)
-            logger.info(f"Pre-parsed GT column for {len(df)} rows")
 
     # Log memory after loading
     gc.collect()  # Force GC to get accurate post-load memory
