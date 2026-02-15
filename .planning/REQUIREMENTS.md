@@ -44,10 +44,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Pipeline I/O Elimination (PIPEIO) — Supersedes PIPLN
 
-- [ ] **PIPEIO-01**: GenotypeReplacementStage skipped during pipeline — raw genotype columns flow directly to analysis stages
-- [ ] **PIPEIO-02**: `create_sample_columns_from_gt_intelligent()` handles raw SnpSift format without re-parsing replaced format
-- [ ] **PIPEIO-03**: Genotype replacement deferred to output time — TSV/Excel produces identical `"Sample(0/1)"` format
-- [ ] **PIPEIO-04**: SnpSift extractFields replaced with `bcftools query` for field extraction (C-based, 10-50x faster)
+- [x] **PIPEIO-01**: GenotypeReplacementStage skipped during pipeline — raw genotype columns flow directly to analysis stages
+- [x] **PIPEIO-02**: `create_sample_columns_from_gt_intelligent()` handles raw SnpSift format without re-parsing replaced format
+- [x] **PIPEIO-03**: Genotype replacement deferred to output time — TSV/Excel produces identical `"Sample(0/1)"` format
+- [x] **PIPEIO-04**: SnpSift extractFields (2.7 hrs) replaced with `bcftools query` for VCF-to-TSV field extraction (C-based, 19.4x faster measured). Note: SnpSift filter stays — bcftools cannot replicate `na`, `has`, `ANN[ANY]` operators
 
 ### Parallelization & Chunking — Issue #62 (PARLZ)
 
