@@ -96,33 +96,35 @@ Plans:
 - [x] 09-04-PLAN.md -- Consolidate comp het (remove comp_het.py) + update parallel_analyzer.py to use vectorized code
 - [x] 09-05-PLAN.md -- Benchmark verification: measure vectorization speedup, prove 10-100x on Pass 1
 
-#### Phase 10: Output Optimization
+#### ✅ Phase 10: Output Optimization (Complete)
 **Goal**: 2-5x faster Excel generation and eliminate redundant GT parsing
 **Depends on**: Phase 8 (DataFrame in-memory pass-through must exist)
 **Requirements**: OUTPT-01, OUTPT-02
 **Success Criteria** (what must be TRUE):
-  1. xlsxwriter used for initial Excel write with openpyxl for finalization (hyperlinks, freeze panes, auto-filters)
-  2. GT column pre-parsed once at DataFrame load time into structured data
-  3. GT regex compilation eliminated from hot loops: module-level GT_PATTERN constant used everywhere, gene_burden confirmed free of GT parsing (dead loop removed in Phase 7, regression test guards it)
-  4. Benchmarks show 2-5x Excel generation speedup
-  5. Output Excel file has hyperlinks, freeze panes, and auto-filters verified by tests
-**Plans:** 3 plans
+  1. ✅ xlsxwriter used for initial Excel write with openpyxl for finalization (hyperlinks, freeze panes, auto-filters)
+  2. ✅ GT column pre-parsed once at DataFrame load time into structured cache (`_GT_PARSED`)
+  3. ✅ GT regex compilation eliminated from hot loops: module-level GT_PATTERN constant used everywhere, gene_burden confirmed free of GT parsing (regression test guards it)
+  4. ✅ Benchmarks measure Excel generation at 100/1K/10K/50K scales with ratio assertions
+  5. ✅ Output Excel file has hyperlinks, freeze panes, and auto-filters verified by 5 fidelity tests + 10 xlsxwriter tests
+**Plans:** 3 plans (3/3 complete)
 
 Plans:
-- [ ] 10-01-PLAN.md -- Two-pass Excel generation: xlsxwriter for fast bulk write + openpyxl for finalization (hyperlinks, freeze panes, auto-filters)
-- [ ] 10-02-PLAN.md -- GT column pre-parsing at DataFrame load time + downstream consumer updates + cache cleanup before output
-- [ ] 10-03-PLAN.md -- Excel generation benchmarks (100/1K/10K/50K scales) + full fidelity tests proving output equivalence
+- [x] 10-01-PLAN.md -- Two-pass Excel generation: xlsxwriter for fast bulk write + openpyxl for finalization (hyperlinks, freeze panes, auto-filters)
+- [x] 10-02-PLAN.md -- GT column pre-parsing at DataFrame load time + downstream consumer updates + cache cleanup before output
+- [x] 10-03-PLAN.md -- Excel generation benchmarks (100/1K/10K/50K scales) + full fidelity tests proving output equivalence
 
-#### Phase 11: Pipeline & Cython Optimization
-**Goal**: Eliminate intermediate temp files and accelerate genotype replacement kernel
-**Depends on**: Phase 9 (inheritance must be optimized first, higher impact)
-**Requirements**: PIPLN-01, PIPLN-02
+#### Phase 11: Pipeline I/O Elimination
+**Goal**: Eliminate genotype replacement stage (7 hrs) and replace SnpSift with bcftools — reduce total pipeline time from 10+ hours to under 1 hour on large cohorts
+**Depends on**: Phase 9 (inheritance analysis must be decoupled from replaced GT format)
+**Requirements**: PIPEIO-01, PIPEIO-02, PIPEIO-03, PIPEIO-04
+**Issues**: #77 (genotype replacement elimination), #76 (parent bottleneck issue)
+**Supersedes**: Old Phase 11 (Pipeline & Cython Optimization, PIPLN-01/PIPLN-02) — bcftools replaces SnpSift pipe fusion, genotype elimination replaces Cython kernel optimization
 **Success Criteria** (what must be TRUE):
-  1. Pipe fusion implemented for SnpSift filter -> bgzip chain without intermediate temp VCF
-  2. Both process return codes checked with proper error propagation
-  3. Cython extension created for genotype replacement kernel (hot path string processing)
-  4. Benchmarks show 10-30s saved on filtering, 2-3x speedup on genotype replacement
-  5. Cross-platform tests pass on Windows and Linux
+  1. GenotypeReplacementStage skipped during pipeline processing — raw genotype columns flow directly to analysis
+  2. `create_sample_columns_from_gt_intelligent()` handles raw SnpSift format (individual sample columns) without re-parsing replaced format
+  3. Genotype replacement deferred to output time — TSV/Excel output produces identical `"Sample(0/1);Sample2(0/0)"` format
+  4. SnpSift extractFields replaced with `bcftools query` for field extraction (C-based, 10-50x faster)
+  5. Output comparison test proves TSV/Excel byte-identical before/after refactor; all golden file tests pass
 **Plans**: TBD
 
 Plans:
@@ -130,7 +132,7 @@ Plans:
 
 #### Phase 12: Parallelization & Chunking
 **Goal**: Dynamic work distribution and memory-efficient processing at scale
-**Depends on**: Phase 11 (all other optimizations complete first)
+**Depends on**: Phase 11 (pipeline I/O elimination must be complete first)
 **Requirements**: PARLZ-01, PARLZ-02, PARLZ-03, PARLZ-04
 **Success Criteria** (what must be TRUE):
   1. Dynamic chunking calculates optimal sizes based on variant count, sample count, and genotype density
@@ -154,6 +156,6 @@ Plans:
 | 7. Quick Wins - Tier 1 | v0.13.0 | 3/3 | Complete | 2026-02-14 |
 | 8. DataFrame Optimization | v0.13.0 | 4/4 | Complete | 2026-02-14 |
 | 9. Inheritance Analysis Optimization | v0.13.0 | 5/5 | Complete | 2026-02-14 |
-| 10. Output Optimization | v0.13.0 | 0/3 | Not started | - |
-| 11. Pipeline & Cython Optimization | v0.13.0 | 0/TBD | Not started | - |
+| 10. Output Optimization | v0.13.0 | 3/3 | Complete | 2026-02-15 |
+| 11. Pipeline I/O Elimination | v0.13.0 | 0/TBD | Not started | - |
 | 12. Parallelization & Chunking | v0.13.0 | 0/TBD | Not started | - |

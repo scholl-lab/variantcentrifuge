@@ -39,13 +39,15 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Output Optimization (OUTPT)
 
-- [ ] **OUTPT-01**: xlsxwriter used for initial Excel write (2-5x faster), with openpyxl used only for finalization (hyperlinks, freeze panes, auto-filters)
-- [ ] **OUTPT-02**: GT column pre-parsed once at DataFrame load time into structured data, eliminating per-gene re-parsing
+- [x] **OUTPT-01**: xlsxwriter used for initial Excel write (2-5x faster), with openpyxl used only for finalization (hyperlinks, freeze panes, auto-filters)
+- [x] **OUTPT-02**: GT column pre-parsed once at DataFrame load time into structured data, eliminating per-gene re-parsing
 
-### Pipeline Optimization (PIPLN)
+### Pipeline I/O Elimination (PIPEIO) — Supersedes PIPLN
 
-- [ ] **PIPLN-01**: Pipe fusion implemented for SnpSift filter → bgzip chain, eliminating intermediate temp VCF file I/O
-- [ ] **PIPLN-02**: Cython extension created for genotype replacement kernel (hot path string processing in vectorized_replacer.py)
+- [ ] **PIPEIO-01**: GenotypeReplacementStage skipped during pipeline — raw genotype columns flow directly to analysis stages
+- [ ] **PIPEIO-02**: `create_sample_columns_from_gt_intelligent()` handles raw SnpSift format without re-parsing replaced format
+- [ ] **PIPEIO-03**: Genotype replacement deferred to output time — TSV/Excel produces identical `"Sample(0/1)"` format
+- [ ] **PIPEIO-04**: SnpSift extractFields replaced with `bcftools query` for field extraction (C-based, 10-50x faster)
 
 ### Parallelization & Chunking — Issue #62 (PARLZ)
 
@@ -111,18 +113,20 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INHER-02 | Phase 9 | Complete |
 | INHER-03 | Phase 9 | Complete |
 | INHER-04 | Phase 9 | Complete |
-| OUTPT-01 | Phase 10 | Pending |
-| OUTPT-02 | Phase 10 | Pending |
-| PIPLN-01 | Phase 11 | Pending |
-| PIPLN-02 | Phase 11 | Pending |
+| OUTPT-01 | Phase 10 | Complete |
+| OUTPT-02 | Phase 10 | Complete |
+| PIPEIO-01 | Phase 11 | Pending |
+| PIPEIO-02 | Phase 11 | Pending |
+| PIPEIO-03 | Phase 11 | Pending |
+| PIPEIO-04 | Phase 11 | Pending |
 | PARLZ-01 | Phase 12 | Pending |
 | PARLZ-02 | Phase 12 | Pending |
 | PARLZ-03 | Phase 12 | Pending |
 | PARLZ-04 | Phase 12 | Pending |
 
 **Coverage:**
-- v1 requirements: 26 total
-- Mapped to phases: 26
+- v1 requirements: 28 total (PIPLN-01/02 superseded by PIPEIO-01/02/03/04)
+- Mapped to phases: 28
 - Unmapped: 0 (100% coverage)
 
 **Coverage Validation:**
@@ -131,10 +135,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 - Phase 8: 4 requirements (DFOPT-01 through DFOPT-04)
 - Phase 9: 4 requirements (INHER-01 through INHER-04)
 - Phase 10: 2 requirements (OUTPT-01, OUTPT-02)
-- Phase 11: 2 requirements (PIPLN-01, PIPLN-02)
+- Phase 11: 4 requirements (PIPEIO-01 through PIPEIO-04)
 - Phase 12: 4 requirements (PARLZ-01 through PARLZ-04)
-- **Total: 26/26 requirements mapped (100%)**
+- **Total: 28/28 requirements mapped (100%)**
 
 ---
 *Requirements defined: 2026-02-14*
-*Last updated: 2026-02-14 after roadmap creation*
+*Last updated: 2026-02-15 — Phase 11 replaced (PIPLN → PIPEIO)*

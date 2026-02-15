@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-14)
 
 **Core value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
-**Current focus:** Phase 8 - DataFrame Optimization
+**Current focus:** Phase 10 complete - ready for Phase 11
 
 ## Current Position
 
 Phase: 10 of 12 (Output Optimization)
-Plan: 3 of 3 complete
-Status: Phase 10 COMPLETE - All Wave 1 and Wave 2 plans done
-Last activity: 2026-02-15 — Completed 10-03-PLAN.md (Excel benchmarks & fidelity tests)
+Plan: 3 of 3 complete (Phase 10 COMPLETE)
+Status: Phase complete - ready for Phase 11
+Last activity: 2026-02-15 — Completed Phase 10 (Output Optimization)
 
-Progress: [██████████░░░░░░░░░░] 77% (Phase 1-9 complete, Phase 10 complete)
+Progress: [██████████████░░░░░░] 75% (Phase 1-10 complete)
 
 ## Performance Metrics
 
@@ -257,13 +257,15 @@ Recent decisions affecting current work:
 - Overall improvement: 1.66-1.89x faster (40-47% improvement is significant)
 - Remaining bottlenecks: Pass 2/3 still ~60% of total time (future optimization target)
 
-**Phase 11 (Pipeline & Cython Optimization):**
-- Subprocess piping error handling needs platform-specific validation (Windows vs Linux)
-- Cython extension requires hatch-cython integration with existing hatchling build
+**Phase 11 (Pipeline I/O Elimination) — Supersedes old Phase 11 (Pipeline & Cython):**
+- Eliminate genotype replacement stage entirely (7 hrs saved) — defer to output time (#77)
+- Replace SnpSift extractFields with bcftools query (2.7 hrs saved) (#76)
+- Target: 10+ hours → under 1 hour on large cohorts
+- Moderate complexity: ~3 files to modify, inheritance analysis untouched
 
 ## Session Continuity
 
-Last session: 2026-02-15 07:06 UTC
-Stopped at: Completed 10-03-PLAN.md (Excel benchmarks & fidelity tests) - Phase 10 COMPLETE
+Last session: 2026-02-15 08:00 UTC
+Stopped at: Completed Phase 10 (Output Optimization), added Phase 11 (Pipeline I/O Elimination) to roadmap
 Resume file: None
-Next: Begin Phase 11 (Final Integration) when ready
+Next: Phase 11 (Pipeline I/O Elimination) — /gsd:discuss-phase 11 or /gsd:plan-phase 11
