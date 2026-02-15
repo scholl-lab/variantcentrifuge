@@ -121,11 +121,16 @@ def build_bcftools_format_string(
             format_field = field.replace("GEN[*].", "")
             per_sample_fields.append(format_field)
 
-        elif field.startswith("dbNSFP_") or field.startswith("splice_") or field in [
-            "AC",
-            "ClinVar_CLNSIG",
-            "hgmd_CLASS",
-        ]:
+        elif (
+            field.startswith("dbNSFP_")
+            or field.startswith("splice_")
+            or field
+            in [
+                "AC",
+                "ClinVar_CLNSIG",
+                "hgmd_CLASS",
+            ]
+        ):
             # INFO field
             info_field = field
             format_parts.append(f"%INFO/{info_field}")
@@ -152,9 +157,7 @@ def build_bcftools_format_string(
                     sample_idx = vcf_samples.index(sample)
                     column_names.append(f"GEN[{sample_idx}].{format_field}")
         else:
-            logger.warning(
-                "No vcf_samples provided - per-sample columns will have generic names"
-            )
+            logger.warning("No vcf_samples provided - per-sample columns will have generic names")
             # Just use field names without sample info
             for format_field in per_sample_fields:
                 column_names.append(f"GEN[*].{format_field}")
