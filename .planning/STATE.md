@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-14)
 ## Current Position
 
 Phase: 11 of 12 (Pipeline I/O Elimination)
-Plan: 1 of 3 complete
-Status: In progress - bcftools extraction complete
-Last activity: 2026-02-15 — Completed 11-01-PLAN.md (bcftools query field extraction)
+Plan: 2 of 3 complete
+Status: In progress - genotype replacement eliminated
+Last activity: 2026-02-15 — Completed 11-02-PLAN.md (genotype replacement elimination)
 
-Progress: [███████████████░░░░░] 76% (Phase 1-10 complete + 1/3 of Phase 11)
+Progress: [███████████████░░░░░] 77% (Phase 1-10 complete + 2/3 of Phase 11)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 19
-- Average duration: 13.3 minutes
-- Total execution time: 4.3 hours
+- Total plans completed: 20
+- Average duration: 14.0 minutes
+- Total execution time: 4.7 hours
 
 **By Phase:**
 
@@ -33,11 +33,11 @@ Progress: [███████████████░░░░░] 76% (Ph
 | 8. DataFrame Optimization | 4/4 | 62.0 min | 15.5 min |
 | 9. Inheritance Optimization | 5/5 | 46.8 min | 9.4 min |
 | 10. Output Optimization | 3/3 | 26.0 min | 8.7 min |
-| 11. Pipeline I/O Elimination | 1/3 | 10.0 min | 10.0 min |
+| 11. Pipeline I/O Elimination | 2/3 | 36.0 min | 18.0 min |
 
 **Recent Trend:**
-- Last 5 plans: 09-05 (9.0 min), 10-01 (9.0 min), 10-02 (9.0 min), 10-03 (8.0 min), 11-01 (10.0 min)
-- Trend: Consistently fast execution (8-10 min per plan)
+- Last 5 plans: 10-01 (9.0 min), 10-02 (9.0 min), 10-03 (8.0 min), 11-01 (10.0 min), 11-02 (26.0 min)
+- Trend: Generally fast (8-10 min), occasional longer plans with complex refactoring
 
 *Updated after each plan completion*
 
@@ -95,6 +95,10 @@ Recent decisions affecting current work:
 - Dynamic format string construction (11-01): Build bcftools query format dynamically from config.json fields_to_extract for any field combination
 - Per-sample column output (11-01): bcftools [\t%GT] produces separate columns per sample (GEN[0].GT, GEN[1].GT), eliminates genotype replacement need
 - Python ANN parsing (11-01): Parse pipe-delimited SnpEff annotations in Python after bcftools extraction (simple, fast, handles missing gracefully)
+- GenotypeReplacementStage eliminated via no-op (11-02): Stage returns immediately, GT reconstruction deferred to output time (TSV/Excel stages)
+- Deferred GT formatting pattern (11-02): reconstruct_gt_column() builds packed "Sample(0/1);Sample2(1/1)" format only at final output (<1 min vs 7 hrs)
+- Per-sample column phenotype extraction (11-02): extract_phenotypes_from_sample_columns() works with bcftools raw columns, auto-detects vs packed GT
+- _GT_PARSED dead code removed (11-02): Cache column never consumed by production code, parse_gt_column() and GT_PATTERN regex deleted
 
 ### Pending Todos
 
@@ -262,7 +266,7 @@ Recent decisions affecting current work:
 - Overall improvement: 1.66-1.89x faster (40-47% improvement is significant)
 - Remaining bottlenecks: Pass 2/3 still ~60% of total time (future optimization target)
 
-**Phase 11 (Pipeline I/O Elimination): IN PROGRESS (1/3 plans complete)**
+**Phase 11 (Pipeline I/O Elimination): IN PROGRESS (2/3 plans complete)**
 
 **Plan 01 (bcftools Field Extraction): COMPLETE**
 - Replaced SnpSift extractFields with bcftools query (19x faster, measured)
@@ -272,15 +276,23 @@ Recent decisions affecting current work:
 - 23 new unit tests, 8 updated tests, all passing
 - Expected savings: ~2h52m on large cohort extraction
 
-**Plan 02-03 (Genotype Replacement Elimination): PENDING**
-- Eliminate genotype replacement stage entirely (7 hrs saved on large cohorts)
-- Defer GT formatting to output stages only
-- Use per-sample columns from bcftools extraction
+**Plan 02 (Genotype Replacement Elimination): COMPLETE**
+- GenotypeReplacementStage now no-ops immediately (7-hour bottleneck eliminated)
+- GT reconstruction deferred to TSVOutputStage and ExcelReportStage (<1 min at output time)
+- Phenotype integration updated to work with per-sample GT columns from bcftools
+- _GT_PARSED dead code removed (parse_gt_column, GT_PATTERN regex, load-time parsing)
+- All 636 unit tests pass with zero regressions
+- Expected savings: ~7 hours on large cohort genotype replacement
+
+**Plan 03 (Dead Code Cleanup): PENDING**
+- Remove GenotypeReplacementStage helper methods (all unreachable code)
+- Clean up stage registration and dependencies
+- Finalize pipeline I/O elimination phase
 - Target: 10+ hours → under 1 hour total pipeline time
 
 ## Session Continuity
 
-Last session: 2026-02-15 10:27 UTC
-Stopped at: Completed 11-01-PLAN.md (bcftools query field extraction)
+Last session: 2026-02-15 10:56 UTC
+Stopped at: Completed 11-02-PLAN.md (genotype replacement elimination)
 Resume file: None
-Next: Phase 11 Plan 02 (Genotype Replacement Elimination) — /gsd:plan 11 02
+Next: Phase 11 Plan 03 (Dead Code Cleanup) — /gsd:plan 11 03
