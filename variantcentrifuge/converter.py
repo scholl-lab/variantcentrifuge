@@ -78,8 +78,8 @@ def convert_to_excel(tsv_file: str, cfg: dict[str, Any], df: pd.DataFrame | None
 
     # Use xlsxwriter engine for fast bulk write (2-5x faster than openpyxl)
     # finalize_excel_file() will add hyperlinks, freeze panes, and auto-filters via openpyxl
-    with pd.ExcelWriter(xlsx_file, engine='xlsxwriter') as writer:
-        df.to_excel(writer, sheet_name='Results', index=False)
+    with pd.ExcelWriter(xlsx_file, engine="xlsxwriter") as writer:
+        df.to_excel(writer, sheet_name="Results", index=False)
     # MODIFIED: End of empty report generation
     return xlsx_file
 

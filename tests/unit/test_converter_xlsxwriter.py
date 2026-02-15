@@ -24,14 +24,16 @@ from variantcentrifuge.converter import (
 def test_convert_to_excel_uses_xlsxwriter(tmp_path: Path) -> None:
     """Test that convert_to_excel creates valid Excel file using xlsxwriter."""
     # Create a small synthetic DataFrame
-    df = pd.DataFrame({
-        "CHROM": ["chr1", "chr2", "chr3"],
-        "POS": [100, 200, 300],
-        "REF": ["A", "C", "G"],
-        "ALT": ["T", "G", "A"],
-        "GENE": ["GENE1", "GENE2", "GENE3"],
-        "IMPACT": ["HIGH", "MODERATE", "LOW"],
-    })
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1", "chr2", "chr3"],
+            "POS": [100, 200, 300],
+            "REF": ["A", "C", "G"],
+            "ALT": ["T", "G", "A"],
+            "GENE": ["GENE1", "GENE2", "GENE3"],
+            "IMPACT": ["HIGH", "MODERATE", "LOW"],
+        }
+    )
 
     # Write to TSV
     tsv_file = tmp_path / "test_variants.tsv"
@@ -67,12 +69,14 @@ def test_convert_to_excel_uses_xlsxwriter(tmp_path: Path) -> None:
 @pytest.mark.unit
 def test_convert_to_excel_with_dataframe(tmp_path: Path) -> None:
     """Test convert_to_excel with in-memory DataFrame (skips disk read)."""
-    df = pd.DataFrame({
-        "CHROM": ["chr1"],
-        "POS": [12345],
-        "REF": ["G"],
-        "ALT": ["T"],
-    })
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [12345],
+            "REF": ["G"],
+            "ALT": ["T"],
+        }
+    )
 
     # Create dummy TSV path (won't be read)
     tsv_file = tmp_path / "dummy.tsv"
@@ -94,10 +98,12 @@ def test_convert_to_excel_with_dataframe(tmp_path: Path) -> None:
 @pytest.mark.unit
 def test_finalize_adds_freeze_panes(tmp_path: Path) -> None:
     """Test that finalize_excel_file adds freeze panes to all sheets."""
-    df = pd.DataFrame({
-        "CHROM": ["chr1", "chr2"],
-        "POS": [100, 200],
-    })
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1", "chr2"],
+            "POS": [100, 200],
+        }
+    )
 
     tsv_file = tmp_path / "test.tsv"
     df.to_csv(tsv_file, sep="\t", index=False)
@@ -115,12 +121,14 @@ def test_finalize_adds_freeze_panes(tmp_path: Path) -> None:
 @pytest.mark.unit
 def test_finalize_adds_auto_filter(tmp_path: Path) -> None:
     """Test that finalize_excel_file adds auto-filters to all sheets."""
-    df = pd.DataFrame({
-        "CHROM": ["chr1"],
-        "POS": [100],
-        "REF": ["A"],
-        "ALT": ["T"],
-    })
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100],
+            "REF": ["A"],
+            "ALT": ["T"],
+        }
+    )
 
     tsv_file = tmp_path / "test.tsv"
     df.to_csv(tsv_file, sep="\t", index=False)
@@ -142,18 +150,20 @@ def test_finalize_adds_auto_filter(tmp_path: Path) -> None:
 @pytest.mark.unit
 def test_finalize_adds_hyperlinks(tmp_path: Path) -> None:
     """Test that finalize_excel_file adds hyperlinks to URL columns."""
-    df = pd.DataFrame({
-        "CHROM": ["chr1", "chr2"],
-        "POS": [100, 200],
-        "SpliceAI": [
-            "https://spliceailookup.broadinstitute.org/variant1",
-            "https://spliceailookup.broadinstitute.org/variant2",
-        ],
-        "Franklin": [
-            "https://franklin.genoox.com/variant1",
-            "https://franklin.genoox.com/variant2",
-        ],
-    })
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1", "chr2"],
+            "POS": [100, 200],
+            "SpliceAI": [
+                "https://spliceailookup.broadinstitute.org/variant1",
+                "https://spliceailookup.broadinstitute.org/variant2",
+            ],
+            "Franklin": [
+                "https://franklin.genoox.com/variant1",
+                "https://franklin.genoox.com/variant2",
+            ],
+        }
+    )
 
     tsv_file = tmp_path / "test.tsv"
     df.to_csv(tsv_file, sep="\t", index=False)
@@ -199,10 +209,12 @@ def test_finalize_adds_hyperlinks(tmp_path: Path) -> None:
 def test_append_tsv_as_sheet(tmp_path: Path) -> None:
     """Test that append_tsv_as_sheet correctly adds metadata sheet."""
     # Create initial Results sheet
-    df_results = pd.DataFrame({
-        "CHROM": ["chr1"],
-        "POS": [100],
-    })
+    df_results = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100],
+        }
+    )
 
     tsv_file = tmp_path / "test.tsv"
     df_results.to_csv(tsv_file, sep="\t", index=False)
@@ -211,10 +223,12 @@ def test_append_tsv_as_sheet(tmp_path: Path) -> None:
     xlsx_file = convert_to_excel(str(tsv_file), cfg)
 
     # Create metadata TSV
-    df_metadata = pd.DataFrame({
-        "Key": ["Version", "Date", "Samples"],
-        "Value": ["0.13.0", "2026-02-15", "100"],
-    })
+    df_metadata = pd.DataFrame(
+        {
+            "Key": ["Version", "Date", "Samples"],
+            "Value": ["0.13.0", "2026-02-15", "100"],
+        }
+    )
 
     metadata_tsv = tmp_path / "metadata.tsv"
     df_metadata.to_csv(metadata_tsv, sep="\t", index=False)
@@ -284,11 +298,13 @@ def test_finalize_with_empty_dataframe(tmp_path: Path) -> None:
 @pytest.mark.unit
 def test_igv_links_column_removed(tmp_path: Path) -> None:
     """Test that raw igv_links column is removed from Excel output."""
-    df = pd.DataFrame({
-        "CHROM": ["chr1"],
-        "POS": [100],
-        "igv_links": ["igv/sample1.html"],  # Raw IGV links column
-    })
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100],
+            "igv_links": ["igv/sample1.html"],  # Raw IGV links column
+        }
+    )
 
     tsv_file = tmp_path / "test.tsv"
     df.to_csv(tsv_file, sep="\t", index=False)
@@ -312,11 +328,13 @@ def test_igv_links_column_removed(tmp_path: Path) -> None:
 def test_xlsxwriter_openpyxl_compatibility(tmp_path: Path) -> None:
     """Test that openpyxl can read and modify xlsxwriter-generated files."""
     # Create Excel with xlsxwriter
-    df = pd.DataFrame({
-        "CHROM": ["chr1", "chr2"],
-        "POS": [100, 200],
-        "REF": ["A", "C"],
-    })
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1", "chr2"],
+            "POS": [100, 200],
+            "REF": ["A", "C"],
+        }
+    )
 
     tsv_file = tmp_path / "test.tsv"
     df.to_csv(tsv_file, sep="\t", index=False)

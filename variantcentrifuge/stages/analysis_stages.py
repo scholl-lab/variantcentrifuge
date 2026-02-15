@@ -1877,8 +1877,7 @@ class GeneBurdenAnalysisStage(Stage):
         _t_burden_elapsed = _time.monotonic() - _t_burden
         n_genes = len(burden_results) if burden_results is not None else 0
         logger.info(
-            f"Gene burden analysis completed in {_t_burden_elapsed:.2f}s "
-            f"({n_genes} genes tested)"
+            f"Gene burden analysis completed in {_t_burden_elapsed:.2f}s ({n_genes} genes tested)"
         )
 
         context.gene_burden_results = burden_results
