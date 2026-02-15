@@ -295,6 +295,8 @@ class TestFieldExtractionStage:
             }
         )
         ctx.data = Path("/tmp/variants.vcf.gz")
+        # Add vcf_samples for bcftools extraction
+        ctx.vcf_samples = ["Sample1", "Sample2", "Sample3"]
         # Mark all potential dependencies as complete
         ctx.mark_complete("configuration_loading")
         ctx.mark_complete("gene_bed_creation")
@@ -304,28 +306,29 @@ class TestFieldExtractionStage:
         ctx.mark_complete("snpsift_filtering")
         return ctx
 
-    @patch("variantcentrifuge.stages.processing_stages.extract_fields")
+    @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
     def test_field_extraction(self, mock_extract, context):
         """Test field extraction to TSV."""
-        # Mock return value - extract_fields returns the output path
+        # Mock return value - extract_fields_bcftools returns the output path
         mock_extract.return_value = "mocked_output.tsv"
 
         stage = FieldExtractionStage()
         result = stage(context)
 
-        # Verify extraction - extract_fields uses keyword arguments
+        # Verify extraction - extract_fields_bcftools uses keyword arguments
         mock_extract.assert_called_once()
         kwargs = mock_extract.call_args[1]
         assert kwargs["variant_file"] == str(Path("/tmp/variants.vcf.gz"))  # variant_file
         assert kwargs["fields"] == "CHROM POS REF ALT QUAL"  # fields as string
         assert isinstance(kwargs["cfg"], dict)  # cfg
         assert ".extracted.tsv" in kwargs["output_file"]  # output_file
+        assert kwargs["vcf_samples"] == ["Sample1", "Sample2", "Sample3"]  # vcf_samples
 
         # Verify context updates
         assert result.extracted_tsv is not None
         assert result.data == result.extracted_tsv
 
-    @patch("variantcentrifuge.stages.processing_stages.extract_fields")
+    @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
     def test_with_gzip_compression(self, mock_extract, context):
         """Test extraction with gzip compression."""
         context.config["gzip_intermediates"] = True
