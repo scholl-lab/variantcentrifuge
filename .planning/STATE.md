@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-02-14)
 
 ## Current Position
 
-Phase: 10 of 12 (Output Optimization)
-Plan: 3 of 3 complete (Phase 10 COMPLETE)
-Status: Phase complete - ready for Phase 11
-Last activity: 2026-02-15 — Completed Phase 10 (Output Optimization)
+Phase: 11 of 12 (Pipeline I/O Elimination)
+Plan: 1 of 3 complete
+Status: In progress - bcftools extraction complete
+Last activity: 2026-02-15 — Completed 11-01-PLAN.md (bcftools query field extraction)
 
-Progress: [██████████████░░░░░░] 75% (Phase 1-10 complete)
+Progress: [███████████████░░░░░] 76% (Phase 1-10 complete + 1/3 of Phase 11)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 18
-- Average duration: 13.7 minutes
-- Total execution time: 4.1 hours
+- Total plans completed: 19
+- Average duration: 13.3 minutes
+- Total execution time: 4.3 hours
 
 **By Phase:**
 
@@ -33,10 +33,11 @@ Progress: [██████████████░░░░░░] 75% (Ph
 | 8. DataFrame Optimization | 4/4 | 62.0 min | 15.5 min |
 | 9. Inheritance Optimization | 5/5 | 46.8 min | 9.4 min |
 | 10. Output Optimization | 3/3 | 26.0 min | 8.7 min |
+| 11. Pipeline I/O Elimination | 1/3 | 10.0 min | 10.0 min |
 
 **Recent Trend:**
-- Last 5 plans: 09-04 (10.8 min), 09-05 (9.0 min), 10-01 (9.0 min), 10-02 (9.0 min), 10-03 (8.0 min)
-- Trend: Consistently fast execution (8-11 min per plan)
+- Last 5 plans: 09-05 (9.0 min), 10-01 (9.0 min), 10-02 (9.0 min), 10-03 (8.0 min), 11-01 (10.0 min)
+- Trend: Consistently fast execution (8-10 min per plan)
 
 *Updated after each plan completion*
 
@@ -90,6 +91,10 @@ Recent decisions affecting current work:
 - Cache column cleanup pattern (10-02): Underscore-prefixed columns (_GT_PARSED) dropped before final output in TSV and Excel stages
 - Document actual vs aspirational performance (10-03): xlsxwriter vs openpyxl measured at 0.9x for test data; speedup varies by dataset size/structure
 - Benchmark pattern for Phase 10 (10-03): Synthetic data with multiple scales (100, 1K, 10K, 50K), metadata tracking for cross-phase comparison
+- bcftools query over +split-vep (11-01): query 19x faster than SnpSift; +split-vep drops variants without ANN (unacceptable data loss)
+- Dynamic format string construction (11-01): Build bcftools query format dynamically from config.json fields_to_extract for any field combination
+- Per-sample column output (11-01): bcftools [\t%GT] produces separate columns per sample (GEN[0].GT, GEN[1].GT), eliminates genotype replacement need
+- Python ANN parsing (11-01): Parse pipe-delimited SnpEff annotations in Python after bcftools extraction (simple, fast, handles missing gracefully)
 
 ### Pending Todos
 
@@ -257,15 +262,25 @@ Recent decisions affecting current work:
 - Overall improvement: 1.66-1.89x faster (40-47% improvement is significant)
 - Remaining bottlenecks: Pass 2/3 still ~60% of total time (future optimization target)
 
-**Phase 11 (Pipeline I/O Elimination) — Supersedes old Phase 11 (Pipeline & Cython):**
-- Eliminate genotype replacement stage entirely (7 hrs saved) — defer to output time (#77)
-- Replace SnpSift extractFields with bcftools query (2.7 hrs saved) (#76)
-- Target: 10+ hours → under 1 hour on large cohorts
-- Moderate complexity: ~3 files to modify, inheritance analysis untouched
+**Phase 11 (Pipeline I/O Elimination): IN PROGRESS (1/3 plans complete)**
+
+**Plan 01 (bcftools Field Extraction): COMPLETE**
+- Replaced SnpSift extractFields with bcftools query (19x faster, measured)
+- Dynamic format string building from config.json fields
+- Python ANN/NMD parsing from raw pipe-delimited strings
+- Per-sample GT columns (GEN[0].GT, GEN[1].GT, ...) ready for genotype elimination
+- 23 new unit tests, 8 updated tests, all passing
+- Expected savings: ~2h52m on large cohort extraction
+
+**Plan 02-03 (Genotype Replacement Elimination): PENDING**
+- Eliminate genotype replacement stage entirely (7 hrs saved on large cohorts)
+- Defer GT formatting to output stages only
+- Use per-sample columns from bcftools extraction
+- Target: 10+ hours → under 1 hour total pipeline time
 
 ## Session Continuity
 
-Last session: 2026-02-15 08:00 UTC
-Stopped at: Completed Phase 10 (Output Optimization), added Phase 11 (Pipeline I/O Elimination) to roadmap
+Last session: 2026-02-15 10:27 UTC
+Stopped at: Completed 11-01-PLAN.md (bcftools query field extraction)
 Resume file: None
-Next: Phase 11 (Pipeline I/O Elimination) — /gsd:discuss-phase 11 or /gsd:plan-phase 11
+Next: Phase 11 Plan 02 (Genotype Replacement Elimination) — /gsd:plan 11 02
