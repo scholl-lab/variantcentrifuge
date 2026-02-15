@@ -37,7 +37,7 @@ def _create_test_variants_df(n_variants: int = 20, n_samples: int = 3, seed: int
     gts = []
     for _ in range(n_variants):
         sample_gts = [
-            f"Sample{i+1}({rng.choice(['0/0', '0/1', '1/1', './.'])})" for i in range(n_samples)
+            f"Sample{i + 1}({rng.choice(['0/0', '0/1', '1/1', './.'])})" for i in range(n_samples)
         ]
         gts.append(";".join(sample_gts))
 
@@ -83,15 +83,9 @@ def test_full_excel_with_all_sheets(tmp_path):
     """
     # Create test data
     variants_df = _create_test_variants_df(n_variants=20)
-    metadata_df = pd.DataFrame(
-        {"Key": ["sample_count", "gene_count"], "Value": ["3", "3"]}
-    )
-    stats_df = pd.DataFrame(
-        {"Category": ["HIGH", "MODERATE", "LOW"], "Count": [5, 10, 5]}
-    )
-    gene_burden_df = pd.DataFrame(
-        {"Gene": ["BRCA1", "TP53", "EGFR"], "Variant_Count": [7, 8, 5]}
-    )
+    metadata_df = pd.DataFrame({"Key": ["sample_count", "gene_count"], "Value": ["3", "3"]})
+    stats_df = pd.DataFrame({"Category": ["HIGH", "MODERATE", "LOW"], "Count": [5, 10, 5]})
+    gene_burden_df = pd.DataFrame({"Gene": ["BRCA1", "TP53", "EGFR"], "Variant_Count": [7, 8, 5]})
 
     # Write TSV files
     variants_tsv = tmp_path / "variants.tsv"
@@ -137,9 +131,9 @@ def test_full_excel_with_all_sheets(tmp_path):
     # Statistics: 3 data rows + 1 header
     assert stats_ws.max_row == 4, f"Expected 4 rows in Statistics, got {stats_ws.max_row}"
     # Gene Burden: 3 data rows + 1 header
-    assert (
-        gene_burden_ws.max_row == 4
-    ), f"Expected 4 rows in Gene Burden, got {gene_burden_ws.max_row}"
+    assert gene_burden_ws.max_row == 4, (
+        f"Expected 4 rows in Gene Burden, got {gene_burden_ws.max_row}"
+    )
 
 
 @pytest.mark.unit
@@ -322,7 +316,15 @@ def test_gt_cache_cleanup_before_output(tmp_path):
 
     # Verify all expected columns are present
     expected_cols = [
-        "CHROM", "POS", "REF", "ALT", "GT", "GENE", "IMPACT", "SpliceAI_URL", "gnomAD_URL"
+        "CHROM",
+        "POS",
+        "REF",
+        "ALT",
+        "GT",
+        "GENE",
+        "IMPACT",
+        "SpliceAI_URL",
+        "gnomAD_URL",
     ]
     for col in expected_cols:
         assert col in header_row, f"Expected column '{col}' missing from output"

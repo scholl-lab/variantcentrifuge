@@ -56,7 +56,7 @@ def _create_variant_df(n_variants: int, n_samples: int = 3, seed: int = 42) -> p
         sample_gts = []
         for i in range(n_samples):
             genotype = rng.choice(["0/0", "0/1", "1/1", "1/2", "./."])
-            sample_gts.append(f"Sample{i+1}({genotype})")
+            sample_gts.append(f"Sample{i + 1}({genotype})")
         gts.append(";".join(sample_gts))
 
     # Generate annotations
@@ -309,15 +309,15 @@ def test_xlsxwriter_vs_openpyxl_speedup(tmp_path):
     slowdown_pct = ((xlsxwriter_time / openpyxl_time) - 1) * 100 if openpyxl_time > 0 else 0
 
     # Report
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Excel Write Performance Comparison ({n_variants:,} variants)")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"xlsxwriter write: {xlsxwriter_time:.3f}s")
     print(f"openpyxl write:   {openpyxl_time:.3f}s")
     print(f"Speedup ratio:    {speedup:.2f}x")
     if speedup < 1.0:
         print(f"Note:             xlsxwriter {abs(slowdown_pct):.1f}% slower for this dataset")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     # Sanity check: both should complete in reasonable time (< 5s for 10K rows)
     # xlsxwriter may be slightly slower for small datasets due to engine overhead
