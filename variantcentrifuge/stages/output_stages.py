@@ -39,6 +39,70 @@ from ..utils import get_tool_version, sanitize_metadata_field
 logger = logging.getLogger(__name__)
 
 
+def reconstruct_gt_column(df: pd.DataFrame, vcf_samples: list[str]) -> pd.DataFrame:
+    """
+    Reconstruct packed GT column from per-sample GT columns (Phase 11).
+
+    Takes per-sample GT columns (GEN[0].GT, GEN[1].GT, ...) from bcftools query output
+    and reconstructs the packed format "Sample1(0/1);Sample2(1/1)" for TSV/Excel output.
+
+    Only includes samples with variants (skips 0/0, ./., NA, empty).
+    Drops the per-sample columns after reconstruction.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with per-sample GT columns
+    vcf_samples : list of str
+        List of sample IDs in VCF order
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with reconstructed GT column, per-sample columns dropped
+    """
+    import pandas as pd
+
+    def build_gt_string(row) -> str:
+        """Build packed GT string for a single row."""
+        gt_entries = []
+        for sample_id in vcf_samples:
+            # Get GT value for this sample
+            gt_value = None
+            if hasattr(row, sample_id):
+                gt_value = getattr(row, sample_id)
+            elif hasattr(row, "__getitem__"):
+                try:
+                    gt_value = row[sample_id]
+                except (KeyError, IndexError):
+                    continue
+
+            # Skip reference/missing genotypes
+            if pd.isna(gt_value) or not gt_value:
+                continue
+
+            gt_str = str(gt_value).strip()
+            if not gt_str or gt_str in ["0/0", "./.", ".", "NA"]:
+                continue
+
+            # Include this sample in the GT column
+            gt_entries.append(f"{sample_id}({gt_str})")
+
+        return ";".join(gt_entries)
+
+    # Build GT column from per-sample columns
+    logger.debug(f"Reconstructing GT column from {len(vcf_samples)} per-sample columns")
+    df["GT"] = df.apply(build_gt_string, axis=1)
+
+    # Drop per-sample columns (they should not appear in final output)
+    cols_to_drop = [col for col in vcf_samples if col in df.columns]
+    if cols_to_drop:
+        df = df.drop(columns=cols_to_drop)
+        logger.debug(f"Dropped {len(cols_to_drop)} per-sample columns from output")
+
+    return df
+
+
 class VariantIdentifierStage(Stage):
     """Generate unique variant identifiers."""
 
@@ -480,6 +544,16 @@ class TSVOutputStage(Stage):
             logger.error("No data to write")
             return context
 
+        # Phase 11: Reconstruct GT column from per-sample columns if needed
+        if context.vcf_samples and "GT" not in df.columns:
+            # Check if per-sample columns exist
+            has_sample_columns = any(sample in df.columns for sample in context.vcf_samples)
+            if has_sample_columns:
+                logger.info("Reconstructing GT column from per-sample columns for TSV output")
+                df = reconstruct_gt_column(df, context.vcf_samples)
+                # Update context dataframe with reconstructed GT
+                context.current_dataframe = df
+
         # Determine output path
         output_file = context.config.get("output_file")
         if output_file in [None, "stdout", "-"]:
@@ -609,6 +683,15 @@ class ExcelReportStage(Stage):
             if cache_cols:
                 excel_df = excel_df.drop(columns=cache_cols)
                 logger.debug(f"Dropped {len(cache_cols)} cache columns: {cache_cols}")
+            # Phase 11: Reconstruct GT column from per-sample columns if needed
+            if context.vcf_samples and "GT" not in excel_df.columns:
+                # Check if per-sample columns exist
+                has_sample_columns = any(
+                    sample in excel_df.columns for sample in context.vcf_samples
+                )
+                if has_sample_columns:
+                    logger.info("Reconstructing GT column from per-sample columns for Excel output")
+                    excel_df = reconstruct_gt_column(excel_df, context.vcf_samples)
             # Restore original column names for Excel output
             if context.column_rename_map:
                 reverse_map = {v: k for k, v in context.column_rename_map.items()}

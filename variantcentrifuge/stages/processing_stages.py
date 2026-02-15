@@ -27,7 +27,7 @@ from smart_open import smart_open
 from ..extractor import extract_fields, extract_fields_bcftools
 from ..filters import apply_snpsift_filter, extract_variants
 from ..gene_bed import get_gene_bed, normalize_genes
-from ..phenotype import extract_phenotypes_for_gt_row
+from ..phenotype import extract_phenotypes_for_gt_row, extract_phenotypes_from_sample_columns
 from ..pipeline_core import PipelineContext, Stage
 from ..pipeline_core.error_handling import (
     FileFormatError,
@@ -36,7 +36,7 @@ from ..pipeline_core.error_handling import (
     retry_on_failure,
     validate_file_exists,
 )
-from ..replacer import replace_genotypes
+from ..replacer import replace_genotypes  # Used only in dead code below, removed in Plan 11-03
 from ..utils import ensure_fields_in_extract, run_command, split_bed_file
 from ..vcf_eff_one_per_line import process_vcf_file as split_snpeff_annotations
 
@@ -1166,6 +1166,13 @@ class GenotypeReplacementStage(Stage):
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Replace genotypes with sample IDs using optimized processing."""
+        # Phase 11: Genotype replacement stage eliminated - GT reconstruction at output time
+        logger.info(
+            "Genotype replacement skipped — raw per-sample GT columns flow to analysis (Phase 11)"
+        )
+        return context
+
+        # DEAD CODE BELOW - kept for Plan 11-03 cleanup
         # Default behavior: replace genotypes unless explicitly disabled
         if context.config.get("no_replacement", False):
             logger.debug("Genotype replacement disabled")
@@ -1830,15 +1837,30 @@ class PhenotypeIntegrationStage(Stage):
         compression = "gzip" if str(input_tsv).endswith(".gz") else None
         df = pd.read_csv(input_tsv, sep="\t", dtype=str, compression=compression)
 
-        # Check if GT column exists
-        if "GT" not in df.columns:
-            logger.warning("No GT column found, cannot add phenotype data")
-            return context
-
-        # Extract phenotypes for each row based on GT column
-        df["Phenotypes"] = df["GT"].apply(
-            lambda gt_val: extract_phenotypes_for_gt_row(gt_val, context.phenotype_data)
+        # Phase 11: Check for per-sample columns (bcftools output) vs packed GT column
+        # Per-sample columns are sample IDs directly (from context.vcf_samples)
+        has_sample_columns = context.vcf_samples and all(
+            sample in df.columns for sample in context.vcf_samples
         )
+
+        if has_sample_columns:
+            # Phase 11: Use per-sample columns directly
+            logger.debug("Using per-sample GT columns for phenotype extraction")
+            df["Phenotypes"] = df.apply(
+                lambda row: extract_phenotypes_from_sample_columns(
+                    row, context.vcf_samples, context.phenotype_data
+                ),
+                axis=1,
+            )
+        elif "GT" in df.columns:
+            # Backwards compatibility: Use packed GT column (from genotype replacement)
+            logger.debug("Using packed GT column for phenotype extraction (legacy mode)")
+            df["Phenotypes"] = df["GT"].apply(
+                lambda gt_val: extract_phenotypes_for_gt_row(gt_val, context.phenotype_data)
+            )
+        else:
+            logger.warning("No GT column or per-sample columns found, cannot add phenotype data")
+            return context
 
         # Write output
         compression = "gzip" if str(output_tsv).endswith(".gz") else None
