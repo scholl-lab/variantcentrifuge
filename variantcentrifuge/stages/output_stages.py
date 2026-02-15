@@ -82,7 +82,7 @@ def reconstruct_gt_column(df: pd.DataFrame, vcf_samples: list[str]) -> pd.DataFr
                 continue
 
             gt_str = str(gt_value).strip()
-            if not gt_str or gt_str in ["0/0", "./.", ".", "NA"]:
+            if not gt_str or gt_str in ["0/0", "0|0", "./.", ".|.", ".", "NA"]:
                 continue
 
             # Include this sample in the GT column
