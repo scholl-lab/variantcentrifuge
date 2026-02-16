@@ -10,6 +10,7 @@ Establishes Phase 10 optimization baseline: 2-5x speedup from xlsxwriter.
 """
 
 import time
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -212,7 +213,8 @@ def test_benchmark_excel_write_50k(benchmark, tmp_path):
     # Use pedantic mode for large dataset (fewer rounds, more reliable)
     xlsx_path = benchmark.pedantic(write_excel, rounds=3, iterations=1, warmup_rounds=1)
 
-    # Verify
+    # Verify (convert_to_excel returns str, not Path)
+    xlsx_path = Path(xlsx_path)
     assert xlsx_path.exists()
     result_df = pd.read_excel(xlsx_path, sheet_name="Results")
     assert len(result_df) == n_variants
