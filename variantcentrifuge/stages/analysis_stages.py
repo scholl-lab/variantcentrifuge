@@ -932,7 +932,7 @@ class InheritanceAnalysisStage(Stage):
         memory_per_gene_gb = rm.estimate_memory(int(avg_variants_per_gene), len(vcf_samples))
         max_workers = rm.auto_workers(
             task_count=df["GENE"].nunique() if "GENE" in df.columns else 1,
-            memory_per_task_gb=memory_per_gene_gb
+            memory_per_task_gb=memory_per_gene_gb,
         )
 
         # Determine if dataset fits in memory or needs chunking
@@ -2299,7 +2299,7 @@ class ChunkedAnalysisStage(Stage):
             memory_per_chunk_gb = rm.estimate_memory(chunk_size, num_samples)
             max_workers = rm.auto_workers(
                 task_count=10,  # Conservative estimate for number of chunks
-                memory_per_task_gb=memory_per_chunk_gb
+                memory_per_task_gb=memory_per_chunk_gb,
             )
         else:
             # User explicitly set --threads, honor that value

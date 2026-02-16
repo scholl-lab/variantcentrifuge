@@ -149,9 +149,7 @@ def analyze_inheritance_parallel(
         should_parallelize = rm.should_parallelize(len(df))
 
     use_parallel = (
-        (n_workers is None or n_workers > 1)
-        and should_parallelize
-        and "GENE" in df.columns
+        (n_workers is None or n_workers > 1) and should_parallelize and "GENE" in df.columns
     )
 
     if use_parallel and "GENE" in df.columns:
@@ -168,17 +166,14 @@ def analyze_inheritance_parallel(
             # Sort genes by variant count descending (largest first for load balancing)
             genes_with_multiple_variants.sort(key=lambda x: len(x[1]), reverse=True)
             max_gene_size = (
-                len(genes_with_multiple_variants[0][1])
-                if genes_with_multiple_variants
-                else 0
+                len(genes_with_multiple_variants[0][1]) if genes_with_multiple_variants else 0
             )
 
             # Auto-detect worker count if not specified
             if n_workers is None:
                 memory_per_gene_gb = rm.estimate_memory(max_gene_size, len(sample_list))
                 n_workers = rm.auto_workers(
-                    task_count=num_genes,
-                    memory_per_task_gb=memory_per_gene_gb
+                    task_count=num_genes, memory_per_task_gb=memory_per_gene_gb
                 )
 
             logger.info(
