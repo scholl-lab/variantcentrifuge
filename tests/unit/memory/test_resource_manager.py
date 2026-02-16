@@ -195,6 +195,7 @@ def test_get_summary():
     assert "memory_gb" in summary
     assert "memory_source" in summary
     assert "cpu_cores" in summary
+    assert "cpu_source" in summary
     assert "memory_safety_factor" in summary
     assert "overhead_factor" in summary
     assert "min_items_for_parallel" in summary
@@ -247,3 +248,64 @@ def test_pbs_invalid_value(monkeypatch):
     rm = ResourceManager()
     # Should fall back to psutil, not crash
     assert rm.memory_gb > 0
+
+
+# --- CPU detection tests ---
+
+
+@pytest.mark.unit
+def test_cpu_detection_slurm(monkeypatch):
+    """Test SLURM_CPUS_PER_TASK environment variable detection."""
+    monkeypatch.setenv("SLURM_CPUS_PER_TASK", "16")
+    rm = ResourceManager()
+    assert rm.cpu_cores == 16
+    assert rm._get_cpu_source() == "SLURM"
+
+
+@pytest.mark.unit
+def test_cpu_detection_pbs(monkeypatch):
+    """Test PBS_NUM_PPN environment variable detection."""
+    monkeypatch.delenv("SLURM_CPUS_PER_TASK", raising=False)
+    monkeypatch.setenv("PBS_NUM_PPN", "8")
+    rm = ResourceManager()
+    assert rm.cpu_cores == 8
+    assert rm._get_cpu_source() == "PBS"
+
+
+@pytest.mark.unit
+def test_cpu_detection_slurm_invalid(monkeypatch):
+    """Test SLURM CPU detection handles invalid values gracefully."""
+    monkeypatch.setenv("SLURM_CPUS_PER_TASK", "invalid")
+    rm = ResourceManager()
+    # Should fall back to psutil/os, not crash
+    assert rm.cpu_cores > 0
+
+
+@pytest.mark.unit
+def test_cpu_detection_pbs_invalid(monkeypatch):
+    """Test PBS CPU detection handles invalid values gracefully."""
+    monkeypatch.delenv("SLURM_CPUS_PER_TASK", raising=False)
+    monkeypatch.setenv("PBS_NUM_PPN", "invalid")
+    rm = ResourceManager()
+    # Should fall back to psutil/os, not crash
+    assert rm.cpu_cores > 0
+
+
+@pytest.mark.unit
+def test_cpu_detection_slurm_priority(monkeypatch):
+    """Test SLURM takes priority over PBS for CPU detection."""
+    monkeypatch.setenv("SLURM_CPUS_PER_TASK", "12")
+    monkeypatch.setenv("PBS_NUM_PPN", "8")
+    rm = ResourceManager()
+    assert rm.cpu_cores == 12
+    assert rm._get_cpu_source() == "SLURM"
+
+
+@pytest.mark.unit
+def test_cpu_detection_fallback(monkeypatch):
+    """Test fallback to psutil/os when no environment variables set."""
+    monkeypatch.delenv("SLURM_CPUS_PER_TASK", raising=False)
+    monkeypatch.delenv("PBS_NUM_PPN", raising=False)
+    rm = ResourceManager()
+    assert rm.cpu_cores > 0
+    assert rm._get_cpu_source() in ("psutil (physical)", "os (logical)")

@@ -38,6 +38,26 @@ from .utils import run_command, smart_open
 logger = logging.getLogger("variantcentrifuge")
 
 
+def _snpsift_memory_flag(cfg: dict[str, Any]) -> str:
+    """Calculate JVM -Xmx flag for SnpSift based on available resources.
+
+    Uses ResourceManager to detect system memory and allocates up to 25%
+    for SnpSift, bounded between 2GB and 16GB. Falls back to 4GB on error.
+
+    The conda SnpSift wrapper defaults to only -Xmx1g which is insufficient
+    for large multi-sample VCFs (e.g., 5000+ samples).
+    """
+    try:
+        from .memory.resource_manager import ResourceManager
+
+        rm = ResourceManager(config=cfg)
+        # Give SnpSift up to 25% of available memory, min 2GB, max 16GB
+        memory_gb = max(2, min(16, int(rm.memory_gb * 0.25)))
+    except Exception:
+        memory_gb = 4  # Safe default
+    return f"-Xmx{memory_gb}g"
+
+
 def apply_bcftools_prefilter(
     input_vcf: str, output_vcf: str, filter_expression: str, cfg: dict[str, Any]
 ) -> str:
@@ -207,8 +227,9 @@ def apply_snpsift_filter(
     tmp_fd, tmp_vcf = tempfile.mkstemp(suffix=".vcf")
     os.close(tmp_fd)
     try:
-        snpsift_cmd = ["SnpSift", "filter", filter_string, variant_file]
-        logger.debug("Applying SnpSift filter to produce uncompressed VCF: %s", tmp_vcf)
+        xmx = _snpsift_memory_flag(cfg)
+        snpsift_cmd = ["SnpSift", xmx, "filter", filter_string, variant_file]
+        logger.debug("Applying SnpSift filter (%s) to produce uncompressed VCF: %s", xmx, tmp_vcf)
         run_command(snpsift_cmd, output_file=tmp_vcf)
 
         # 2) bgzip compress the temporary VCF

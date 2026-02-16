@@ -537,10 +537,10 @@ def create_parser() -> argparse.ArgumentParser:
     performance_group = parser.add_argument_group("Performance & Processing")
     performance_group.add_argument(
         "--threads",
-        type=int,
-        default=1,
+        default="auto",
         help="Number of parallel worker processes to use for variant extraction and filtering. "
-        "Set to 1 to disable parallelization (default: 1).",
+        "Use 'auto' to detect available CPU cores (default: auto). "
+        "Set to 1 to disable parallelization.",
     )
     performance_group.add_argument(
         "--no-chunked-processing",
@@ -1072,8 +1072,18 @@ def main() -> int:
     # Toggle link columns
     cfg["no_links"] = args.no_links
 
-    # Threads
-    cfg["threads"] = args.threads
+    # Threads — resolve "auto" to detected CPU count
+    if str(args.threads).lower() == "auto":
+        from .memory.resource_manager import ResourceManager
+
+        rm = ResourceManager(config=cfg)
+        resolved_threads = rm.cpu_cores
+        logger.info(f"Auto-detected {resolved_threads} CPU cores for --threads")
+        cfg["threads"] = resolved_threads
+        args.threads = resolved_threads
+    else:
+        cfg["threads"] = int(args.threads)
+        args.threads = int(args.threads)
 
     # Output file - important to override default config value
     if args.output_file is not None:

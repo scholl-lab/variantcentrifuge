@@ -344,6 +344,19 @@ def extract_fields_bcftools(
 
         # Read raw output with pandas
         logger.debug(f"Reading bcftools output from {temp_output}")
+
+        # Handle empty output (0 variants after filtering)
+        if os.path.getsize(temp_output) == 0:
+            logger.debug("bcftools query produced empty output (0 variants)")
+            df = pd.DataFrame(columns=column_names)
+            # Write header-only output
+            if output_file.endswith(".gz"):
+                with gzip.open(output_file, "wt", compresslevel=1) as f:
+                    df.to_csv(f, sep="\t", index=False, na_rep="NA")
+            else:
+                df.to_csv(output_file, sep="\t", index=False, na_rep="NA")
+            return output_file
+
         df = pd.read_csv(
             temp_output,
             sep="\t",
@@ -447,8 +460,12 @@ def extract_fields_snpsift(
     field_list = fields.strip().split()
     logger.debug(f"Field list to extract: {field_list}")
 
+    from .filters import _snpsift_memory_flag
+
+    xmx = _snpsift_memory_flag(cfg)
     cmd = [
         "SnpSift",
+        xmx,
         "extractFields",
         "-s",
         snpsift_sep,  # SnpSift subfield separator
@@ -458,7 +475,7 @@ def extract_fields_snpsift(
         *field_list,
     ]
 
-    logger.debug("Running SnpSift with command: %s", " ".join(cmd))
+    logger.debug("Running SnpSift (%s) with command: %s", xmx, " ".join(cmd))
 
     # Write to a temporary uncompressed file first
     temp_output = output_file.replace(".gz", "")

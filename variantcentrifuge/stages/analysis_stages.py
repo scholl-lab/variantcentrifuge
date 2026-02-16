@@ -2291,19 +2291,15 @@ class ChunkedAnalysisStage(Stage):
         sorted_file = self._ensure_sorted_by_gene(input_file, gene_col_name, context)
 
         # Process chunks - use parallel processing if enabled
-        # Auto-detect worker count if threads not explicitly set
+        # cfg["threads"] is already resolved (auto-detected or user-specified)
         threads_config = context.config.get("threads", 1)
-        if threads_config == 1:
-            # threads=1 is the default, use ResourceManager auto-detection
-            # Estimate memory per chunk for worker calculation
-            memory_per_chunk_gb = rm.estimate_memory(chunk_size, num_samples)
-            max_workers = rm.auto_workers(
-                task_count=10,  # Conservative estimate for number of chunks
-                memory_per_task_gb=memory_per_chunk_gb,
-            )
-        else:
-            # User explicitly set --threads, honor that value
-            max_workers = threads_config
+        # Cap workers by memory constraint to avoid OOM
+        memory_per_chunk_gb = rm.estimate_memory(chunk_size, num_samples)
+        memory_capped_workers = rm.auto_workers(
+            task_count=max(1, threads_config),
+            memory_per_task_gb=memory_per_chunk_gb,
+        )
+        max_workers = min(threads_config, memory_capped_workers)
 
         parallel_chunks = context.config.get("parallel_chunks", False) or max_workers > 1
 

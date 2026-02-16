@@ -149,7 +149,9 @@ class TestParallelProcessingCompression:
 
             with (
                 patch("variantcentrifuge.stages.processing_stages.extract_variants"),
-                patch("variantcentrifuge.stages.processing_stages.extract_fields") as mock_extract,
+                patch(
+                    "variantcentrifuge.stages.processing_stages.extract_fields_bcftools"
+                ) as mock_extract,
             ):
                 result_path = stage._process_single_chunk(
                     chunk_index=0,
@@ -163,7 +165,7 @@ class TestParallelProcessingCompression:
                 # Verify compressed output filename
                 assert str(result_path).endswith(".extracted.tsv.gz")
 
-                # Verify extract_fields was called with compressed output
+                # Verify extract_fields_bcftools was called with compressed output
                 mock_extract.assert_called_once()
                 call_args = mock_extract.call_args
                 output_file = call_args.kwargs["output_file"]
@@ -186,7 +188,9 @@ class TestParallelProcessingCompression:
 
             with (
                 patch("variantcentrifuge.stages.processing_stages.extract_variants"),
-                patch("variantcentrifuge.stages.processing_stages.extract_fields") as mock_extract,
+                patch(
+                    "variantcentrifuge.stages.processing_stages.extract_fields_bcftools"
+                ) as mock_extract,
             ):
                 result_path = stage._process_single_chunk(
                     chunk_index=0,
@@ -201,7 +205,7 @@ class TestParallelProcessingCompression:
                 assert str(result_path).endswith(".extracted.tsv")
                 assert not str(result_path).endswith(".extracted.tsv.gz")
 
-                # Verify extract_fields was called with uncompressed output
+                # Verify extract_fields_bcftools was called with uncompressed output
                 mock_extract.assert_called_once()
                 call_args = mock_extract.call_args
                 output_file = call_args.kwargs["output_file"]
@@ -236,7 +240,7 @@ class TestParallelProcessingCompression:
 
             with (
                 patch("variantcentrifuge.stages.processing_stages.extract_variants"),
-                patch("variantcentrifuge.stages.processing_stages.extract_fields"),
+                patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools"),
             ):
                 result_path = stage._process_single_chunk(
                     chunk_index=0,

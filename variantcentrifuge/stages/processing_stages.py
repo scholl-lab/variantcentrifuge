@@ -22,7 +22,7 @@ from typing import Any
 import pandas as pd
 from smart_open import smart_open
 
-from ..extractor import extract_fields, extract_fields_bcftools
+from ..extractor import extract_fields_bcftools
 from ..filters import apply_snpsift_filter, extract_variants
 from ..gene_bed import get_gene_bed, normalize_genes
 from ..phenotype import extract_phenotypes_for_gt_row, extract_phenotypes_from_sample_columns
@@ -1594,11 +1594,12 @@ class ParallelCompleteProcessingStage(Stage):
         if not fields:
             raise ValueError("No fields specified for extraction")
 
-        extract_fields(
+        extract_fields_bcftools(
             variant_file=str(filtered_vcf),
             fields=" ".join(fields),
             cfg={"extract_fields_separator": config.get("extract_fields_separator", ",")},
             output_file=str(chunk_tsv),
+            vcf_samples=config.get("vcf_samples"),
         )
         field_extract_time = time.time() - field_extract_start
 
@@ -1663,6 +1664,7 @@ class ParallelCompleteProcessingStage(Stage):
                 "extra_sample_fields": context.config.get("extra_sample_fields", []),
                 "extract_fields_separator": context.config.get("extract_fields_separator", ","),
                 "gzip_intermediates": use_compression,
+                "vcf_samples": context.vcf_samples,
             }
 
             # Use a manager to share the subtask times dict across processes

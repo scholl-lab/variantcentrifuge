@@ -52,9 +52,11 @@ class ResourceManager:
         self.cpu_cores = self._detect_cpus()
 
         # Log detected resources
-        source = self._get_memory_source()
+        mem_source = self._get_memory_source()
+        cpu_source = self._get_cpu_source()
         logger.info(
-            f"ResourceManager: {self.cpu_cores} CPUs, {self.memory_gb:.1f}GB available ({source})"
+            f"ResourceManager: {self.cpu_cores} CPUs ({cpu_source}), "
+            f"{self.memory_gb:.1f}GB memory ({mem_source})"
         )
 
     def _get_memory_source(self) -> str:
@@ -170,28 +172,71 @@ class ResourceManager:
         """
         Detect CPU core count.
 
+        Priority:
+        1. SLURM_CPUS_PER_TASK environment variable (HPC allocated CPUs)
+        2. PBS_NUM_PPN environment variable (PBS/Torque allocated CPUs)
+        3. psutil.cpu_count(logical=False) — physical cores
+        4. os.cpu_count() — logical cores
+        5. Conservative fallback: 4 cores
+
         Returns:
-            Number of physical CPU cores (fallback to 4 if detection fails)
+            Number of CPU cores available for processing
         """
+        # 1. Check SLURM allocation
+        slurm_cpus = os.getenv("SLURM_CPUS_PER_TASK")
+        if slurm_cpus:
+            try:
+                cores = int(slurm_cpus)
+                if cores > 0:
+                    logger.debug(f"Using SLURM-allocated CPUs: {cores}")
+                    return cores
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid SLURM_CPUS_PER_TASK value: {slurm_cpus}")
+
+        # 2. Check PBS/Torque allocation
+        pbs_ppn = os.getenv("PBS_NUM_PPN")
+        if pbs_ppn:
+            try:
+                cores = int(pbs_ppn)
+                if cores > 0:
+                    logger.debug(f"Using PBS-allocated CPUs: {cores}")
+                    return cores
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid PBS_NUM_PPN value: {pbs_ppn}")
+
+        # 3. Prefer physical cores over logical (excludes hyperthreading)
         try:
-            # Prefer physical cores over logical (excludes hyperthreading)
-            cores = psutil.cpu_count(logical=False)
-            if cores:
-                return cores
+            physical_cores = psutil.cpu_count(logical=False)
+            if physical_cores is not None and physical_cores > 0:
+                return physical_cores
         except Exception as e:
             logger.debug(f"psutil.cpu_count(logical=False) failed: {e}")
 
-        # Fallback to os.cpu_count
+        # 4. Fallback to os.cpu_count
         try:
-            cores = os.cpu_count()
-            if cores:
-                return cores
+            logical_cores = os.cpu_count()
+            if logical_cores is not None and logical_cores > 0:
+                return logical_cores
         except Exception as e:
             logger.debug(f"os.cpu_count() failed: {e}")
 
-        # Conservative fallback
+        # 5. Conservative fallback
         logger.warning("Could not detect CPU count, using conservative 4 cores")
         return 4
+
+    def _get_cpu_source(self) -> str:
+        """Get description of CPU detection source for logging."""
+        if os.getenv("SLURM_CPUS_PER_TASK"):
+            return "SLURM"
+        if os.getenv("PBS_NUM_PPN"):
+            return "PBS"
+        try:
+            physical = psutil.cpu_count(logical=False)
+            if physical is not None and physical > 0:
+                return "psutil (physical)"
+        except Exception:
+            pass
+        return "os (logical)"
 
     def auto_chunk_size(
         self,
@@ -324,6 +369,7 @@ class ResourceManager:
             "memory_gb": self.memory_gb,
             "memory_source": self._get_memory_source(),
             "cpu_cores": self.cpu_cores,
+            "cpu_source": self._get_cpu_source(),
             "memory_safety_factor": self.memory_safety_factor,
             "overhead_factor": self.overhead_factor,
             "min_items_for_parallel": self.min_items_for_parallel,

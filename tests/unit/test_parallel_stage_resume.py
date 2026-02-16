@@ -168,6 +168,7 @@ class TestParallelCompleteProcessingStage:
         context.workspace = Mock()
         context.workspace.base_name = "test"
         context.workspace.intermediate_dir = Path("/tmp")
+        context.vcf_samples = ["SAMPLE1", "SAMPLE2"]
 
         # Mock bed chunks
         bed_chunks = [Path("/tmp/chunk_0.bed"), Path("/tmp/chunk_1.bed")]

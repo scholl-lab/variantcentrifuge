@@ -51,7 +51,7 @@ class TestParallelCompleteProcessingStage:
     @patch("variantcentrifuge.stages.processing_stages.ProcessPoolExecutor")
     @patch("variantcentrifuge.stages.processing_stages.extract_variants")
     @patch("variantcentrifuge.stages.processing_stages.apply_snpsift_filter")
-    @patch("variantcentrifuge.stages.processing_stages.extract_fields")
+    @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
     def test_parallel_processing(
         self, mock_extract_fields, mock_filter, mock_extract, mock_executor, mock_split, context
     ):
@@ -144,7 +144,7 @@ class TestParallelCompleteProcessingStage:
             with (
                 patch("variantcentrifuge.stages.processing_stages.extract_variants"),
                 patch("variantcentrifuge.stages.processing_stages.apply_snpsift_filter"),
-                patch("variantcentrifuge.stages.processing_stages.extract_fields"),
+                patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools"),
             ):
                 result = stage._process_single_chunk(
                     0, chunk_bed, "/path/to/test.vcf", "test_output", tmppath, config

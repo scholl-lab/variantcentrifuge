@@ -359,7 +359,7 @@ class TestArgumentParser:
             ]
         )
 
-        assert args.threads == 8
+        assert args.threads == "8"  # String at parse time, resolved to int in main()
 
     def test_genotype_replacement_methods(self):
         """Test genotype replacement method parameter."""
@@ -495,9 +495,10 @@ class TestArgumentParser:
         with pytest.raises(SystemExit):
             parser.parse_args(["--vcf-file", "test.vcf", "--log-level", "INVALID"])
 
-        # Test invalid thread count (non-integer)
-        with pytest.raises(SystemExit):
-            parser.parse_args(["--vcf-file", "test.vcf", "--threads", "not_a_number"])
+        # --threads accepts "auto" and numeric strings; validation happens at config resolution
+        # Verify "auto" is accepted as valid
+        args = parser.parse_args(["--vcf-file", "test.vcf", "--threads", "auto"])
+        assert args.threads == "auto"
 
     def test_argument_type_conversion(self):
         """Test that argument types are properly converted."""
@@ -515,8 +516,8 @@ class TestArgumentParser:
             ]
         )
 
-        # Test type conversions
-        assert isinstance(args.threads, int)
+        # --threads is a string at parse time ("auto" or numeric), resolved to int later
+        assert args.threads == "16"
         assert isinstance(args.vcf_file, str)
         assert isinstance(args.log_level, str)
 
@@ -652,7 +653,7 @@ class TestPerformanceConfigMapping:
         # Verify performance parameters are correctly parsed
         assert args.max_memory_gb == 64.0
         assert args.genotype_replacement_method == "parallel"
-        assert args.threads == 8
+        assert args.threads == "8"  # String at parse time, resolved to int in main()
 
     def test_genotype_replacement_method_config_mapping(self):
         """Test that all genotype replacement methods parse correctly."""
@@ -690,7 +691,7 @@ class TestPerformanceConfigMapping:
         # Verify all performance parameters parsed correctly
         assert args.genotype_replacement_method == "parallel"
         assert args.max_memory_gb == 250.0
-        assert args.threads == 16
+        assert args.threads == "16"  # String at parse time, resolved to int in main()
 
     def test_performance_config_prevents_auto_selection_override(self):
         """Test that explicit method selection is preserved in parsed args."""
