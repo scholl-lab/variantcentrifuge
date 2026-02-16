@@ -9,7 +9,11 @@ from jinja2 import Environment, FileSystemLoader
 
 
 def _load_assets() -> dict[str, str]:
-    """Load vendored JS/CSS assets for inline embedding."""
+    """Load vendored JS/CSS assets for inline embedding.
+
+    Returns a dict with keys like 'js/datatables.min' and 'css/datatables.min'
+    to avoid collisions between same-stem files in different subdirectories.
+    """
     assets_dir = Path(__file__).parent / "assets"
     assets = {}
     for subdir in ("js", "css"):
@@ -17,7 +21,8 @@ def _load_assets() -> dict[str, str]:
         if asset_path.exists():
             for f in sorted(asset_path.iterdir()):
                 if f.is_file():
-                    assets[f.stem] = f.read_text(encoding="utf-8")
+                    # Namespace by subdirectory to prevent key collisions
+                    assets[f"{subdir}/{f.stem}"] = f.read_text(encoding="utf-8")
     return assets
 
 
