@@ -673,7 +673,8 @@ class DataFrameLoadingStage(Stage):
         if context.config.get("force_chunked_processing"):
             return True
 
-        # Check explicit chunking request
+        # TODO(12-02): Remove this check after migrating to ResourceManager auto-detection
+        # Check explicit chunking request (legacy config key, removed from CLI in 12-01)
         if context.config.get("chunks"):
             return True
 
@@ -2219,6 +2220,8 @@ class ChunkedAnalysisStage(Stage):
         # Set up inheritance analysis configuration if needed
         self._setup_inheritance_config(context)
 
+        # TODO(12-02): Replace with ResourceManager.auto_chunk_size() auto-detection
+        # Using hardcoded default after CLI flag removal in 12-01
         chunk_size = context.config.get("chunks") or 10000
 
         # Determine input file

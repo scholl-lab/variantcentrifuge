@@ -226,11 +226,8 @@ class ResourceManager:
         # Apply reasonable bounds
         max_items = max(100, min(max_items, 1_000_000))  # 100 to 1M items
 
-        # If full dataset fits, use it
-        if total_items <= max_items:
-            chunk_size = total_items
-        else:
-            chunk_size = max_items
+        # Return the smaller of total_items or max_items
+        chunk_size = min(total_items, max_items)
 
         logger.debug(
             f"Auto chunk size: {chunk_size:,} items "

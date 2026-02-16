@@ -588,13 +588,6 @@ def create_parser() -> argparse.ArgumentParser:
         "Default: auto",
     )
     performance_group.add_argument(
-        "--vectorized-chunk-size",
-        type=int,
-        default=25000,
-        help="Number of rows per chunk for vectorized genotype replacement (default: 25000, optimized for high-memory systems). "
-        "Only used when processing method is vectorized and file is large.",
-    )
-    performance_group.add_argument(
         "--max-memory-gb",
         type=float,
         help="Maximum memory in GB to use for genotype processing (auto-detected if not specified). "
@@ -742,20 +735,6 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_false",
         help="Disable compression of intermediate TSV files.",
     )
-    misc_group.add_argument(
-        "--genotype-replacement-chunk-size",
-        type=int,
-        default=50000,
-        help="Chunk size for parallel genotype replacement (default: 50000 variants per chunk, optimized for high-memory systems). "
-        "Larger chunks use more memory but may be more efficient for very large datasets.",
-    )
-    misc_group.add_argument(
-        "--chunks",
-        type=int,
-        default=None,
-        help="Split file processing into this many chunks. Alias for --chunk-size for backward compatibility.",
-    )
-
     return parser
 
 
@@ -1298,20 +1277,12 @@ def main() -> int:
     # Performance configuration
     cfg["max_memory_gb"] = args.max_memory_gb
     cfg["genotype_replacement_method"] = args.genotype_replacement_method
-    cfg["vectorized_chunk_size"] = args.vectorized_chunk_size
-    cfg["genotype_replacement_chunk_size"] = args.genotype_replacement_chunk_size
-    cfg["chunks"] = args.chunks
 
     # Debug logging for performance parameters
     logger.debug(f"Performance config mapping: max_memory_gb={args.max_memory_gb}")
     logger.debug(
         f"Performance config mapping: genotype_replacement_method={args.genotype_replacement_method}"
     )
-    logger.debug(f"Performance config mapping: vectorized_chunk_size={args.vectorized_chunk_size}")
-    logger.debug(
-        f"Performance config mapping: genotype_replacement_chunk_size={args.genotype_replacement_chunk_size}"
-    )
-    logger.debug(f"Performance config mapping: chunks={args.chunks}")
 
     # Core I/O configuration
     cfg["xlsx"] = args.xlsx
