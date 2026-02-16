@@ -56,12 +56,10 @@ class TestAssetLoading:
         # Check JS assets don't start with HTML error markers
         js_assets = {k: v for k, v in assets.items() if k.startswith("js/")}
         for key, content in js_assets.items():
-            assert not content.startswith(
-                "<!DOCTYPE"
-            ), f"JS asset {key} appears to be HTML error page"
-            assert not content.startswith(
-                "<html"
-            ), f"JS asset {key} appears to be HTML error page"
+            assert not content.startswith("<!DOCTYPE"), (
+                f"JS asset {key} appears to be HTML error page"
+            )
+            assert not content.startswith("<html"), f"JS asset {key} appears to be HTML error page"
             # JS files should have common JS patterns
             assert any(
                 pattern in content for pattern in ["function", "var ", "const ", "let ", "=>"]
@@ -70,12 +68,12 @@ class TestAssetLoading:
         # Check CSS assets contain basic CSS syntax
         css_assets = {k: v for k, v in assets.items() if k.startswith("css/")}
         for key, content in css_assets.items():
-            assert (
-                "{" in content
-            ), f"CSS asset {key} doesn't contain '{{' (basic CSS validity check)"
-            assert (
-                "}" in content
-            ), f"CSS asset {key} doesn't contain '}}' (basic CSS validity check)"
+            assert "{" in content, (
+                f"CSS asset {key} doesn't contain '{{' (basic CSS validity check)"
+            )
+            assert "}" in content, (
+                f"CSS asset {key} doesn't contain '}}' (basic CSS validity check)"
+            )
 
 
 @pytest.mark.unit
@@ -228,9 +226,9 @@ class TestTemplateRendering:
                 # Remove comments
                 script_no_comments = re.sub(r"//.*?$", "", script, flags=re.MULTILINE)
                 script_no_comments = re.sub(r"/\*.*?\*/", "", script_no_comments, flags=re.DOTALL)
-                assert (
-                    "plotly" not in script_no_comments
-                ), "Plotly found in non-comment script section"
+                assert "plotly" not in script_no_comments, (
+                    "Plotly found in non-comment script section"
+                )
 
     def test_modern_stack_markers_in_rendered_html(self, rendered_html_with_data):
         """Test that modern stack markers are present in rendered HTML."""
@@ -268,9 +266,9 @@ class TestTemplateRendering:
         }
 
         # At minimum, we should have some kind of table initialization
-        assert (
-            has_modern_datatable or has_jquery_datatable
-        ), "No DataTable initialization found in rendered HTML"
+        assert has_modern_datatable or has_jquery_datatable, (
+            "No DataTable initialization found in rendered HTML"
+        )
 
     def test_template_renders_empty_variants(self, rendered_html_empty):
         """Test that template renders correctly with empty variant list."""
@@ -283,9 +281,9 @@ class TestTemplateRendering:
 
         # Should contain "No variants" or similar message
         html_lower = html.lower()
-        assert (
-            "no variants" in html_lower or "0 variants" in html_lower or "empty" in html_lower
-        ), "No 'empty variants' message found in rendered HTML"
+        assert "no variants" in html_lower or "0 variants" in html_lower or "empty" in html_lower, (
+            "No 'empty variants' message found in rendered HTML"
+        )
 
         # DataTable should NOT initialize with empty data
         # (or if it does, it should handle empty data gracefully)
@@ -403,9 +401,9 @@ class TestAssetNamespacing:
 
         # All keys should be in format "js/filename" or "css/filename"
         for key in assets:
-            assert (
-                key.startswith("js/") or key.startswith("css/")
-            ), f"Asset key {key} not properly namespaced"
+            assert key.startswith("js/") or key.startswith("css/"), (
+                f"Asset key {key} not properly namespaced"
+            )
 
         # Check that namespacing prevents collisions
         # Example: datatables.min.js and datatables.min.css should have different keys
@@ -426,6 +424,6 @@ class TestAssetNamespacing:
                 css_key = f"css/{stem}"
                 assert js_key in assets, f"Expected namespaced JS key {js_key} not found"
                 assert css_key in assets, f"Expected namespaced CSS key {css_key} not found"
-                assert (
-                    assets[js_key] != assets[css_key]
-                ), f"JS and CSS assets have same content for {stem}"
+                assert assets[js_key] != assets[css_key], (
+                    f"JS and CSS assets have same content for {stem}"
+                )
