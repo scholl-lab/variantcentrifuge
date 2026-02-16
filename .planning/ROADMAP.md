@@ -2,13 +2,13 @@
 
 ## Milestones
 
-- ✅ **v0.12.1 Baseline** - Phases 1-5 (shipped 2026-02-14, pre-GSD)
-- 🚧 **v0.13.0 Performance Optimization** - Phases 6-12 (all phases complete, pending milestone audit)
+- SHIPPED **v0.12.1 Baseline** — Phases 1-5 (shipped 2026-02-14, pre-GSD)
+- SHIPPED **v0.13.0 Performance Optimization** — Phases 6-12 (shipped 2026-02-16) — [archive](milestones/v0.13.0-ROADMAP.md)
 
 ## Phases
 
 <details>
-<summary>✅ v0.12.1 Baseline (Phases 1-5) - SHIPPED 2026-02-14</summary>
+<summary>v0.12.1 Baseline (Phases 1-5) — SHIPPED 2026-02-14</summary>
 
 **Milestone Goal:** Full-featured variant analysis pipeline with two architectures, 40+ stages, inheritance analysis, gene burden, scoring, multi-format output. All 30 historical issues resolved. 1035 tests passing. CI/CD with Docker, docs, and multi-platform testing.
 
@@ -16,146 +16,22 @@
 
 </details>
 
-### ✅ v0.13.0 Performance Optimization (All Phases Complete)
+<details>
+<summary>v0.13.0 Performance Optimization (Phases 6-12) — SHIPPED 2026-02-16</summary>
 
-**Milestone Goal:** 3-4x full pipeline speedup on large cohorts through benchmarking infrastructure and systematic optimization of DataFrame operations, inheritance analysis, and output generation.
+- [x] Phase 6: Benchmark Framework (4/4 plans) — completed 2026-02-14
+- [x] Phase 7: Quick Wins - Tier 1 (3/3 plans) — completed 2026-02-14
+- [x] Phase 8: DataFrame Optimization (4/4 plans) — completed 2026-02-14
+- [x] Phase 9: Inheritance Analysis Optimization (5/5 plans) — completed 2026-02-14
+- [x] Phase 10: Output Optimization (3/3 plans) — completed 2026-02-15
+- [x] Phase 11: Pipeline I/O Elimination (3/3 plans) — completed 2026-02-15
+- [x] Phase 12: Parallelization & Chunking (4/4 plans) — completed 2026-02-16
 
-#### ✅ Phase 6: Benchmark Framework (Complete)
-**Goal**: Performance benchmarking infrastructure exists with synthetic data and regression detection
-**Depends on**: Nothing (first phase of milestone)
-**Requirements**: BENCH-01, BENCH-02, BENCH-03, BENCH-04, BENCH-05, BENCH-06
-**Success Criteria** (what must be TRUE):
-  1. ✅ Benchmark suite runs via `pytest tests/performance/` covering inheritance, genotype replacement, gene burden, scoring, and DataFrame I/O
-  2. ✅ Synthetic data generators produce reproducible DataFrames at 100, 1K, 10K, 50K variants without referencing private cohort names
-  3. ✅ Ratio assertions compare vectorized vs sequential implementations within same run with zero CI flakiness
-  4. ✅ Performance canary assertions detect 20%+ regressions and fail tests when exceeded
-  5. ✅ Memory budget assertions enforce per-function limits via tracemalloc
-**Plans:** 4 plans (4/4 complete)
-**Verified:** 5/5 must-haves passed
+Full details: [milestones/v0.13.0-ROADMAP.md](milestones/v0.13.0-ROADMAP.md)
 
-Plans:
-- [x] 06-01-PLAN.md -- Foundation: pytest-benchmark dep, synthetic data generators, memory helpers, conftest fixtures
-- [x] 06-02-PLAN.md -- Component benchmarks: inheritance, comp_het, genotype replacement, gene burden, scoring, DataFrame I/O
-- [x] 06-03-PLAN.md -- Ratio assertions (vectorized vs sequential) and memory budget enforcement via tracemalloc
-- [x] 06-04-PLAN.md -- Macro pipeline benchmarks, result diff helper, end-to-end suite verification
-
-#### ✅ Phase 7: Quick Wins - Tier 1 (Complete)
-**Goal**: Immediate 30-40% speedup through zero-risk standard optimizations
-**Depends on**: Phase 6 (benchmarks prove improvement)
-**Requirements**: QWIN-01, QWIN-02, QWIN-03, QWIN-04
-**Success Criteria** (what must be TRUE):
-  1. ✅ Dead GT parsing loop (gene_burden.py:220-249) removed with regression test confirming identical output
-  2. ✅ All 12+ groupby call sites use `observed=True` to prevent categorical dtype slowdown
-  3. ✅ Temp file leak in gene_bed.py fixed (bed_path removed after merge)
-  4. ✅ Memory freed between pipeline stages via `gc.collect()` in runner.py
-  5. ✅ Benchmarks show 48-98% speedup on gene burden analysis (exceeding 30-40% target)
-**Plans:** 3 plans (3/3 complete)
-**Verified:** 5/5 must-haves passed
-
-Plans:
-- [x] 07-01-PLAN.md -- Dead code removal (gene_burden.py GT parsing loop) + temp file leak fixes (gene_bed.py, filters.py)
-- [x] 07-02-PLAN.md -- Add observed=True to all 17 groupby call sites + gc.collect() with memory logging in runner.py + pre-commit hook
-- [x] 07-03-PLAN.md -- Run full benchmark suite, compare against baseline, update performance analysis report
-
-#### ✅ Phase 8: DataFrame Optimization (Complete)
-**Goal**: 50-70% memory reduction and 2-3x I/O speedup through optimal DataFrame loading
-**Depends on**: Phase 7 (observed=True must exist before categorical dtypes)
-**Requirements**: DFOPT-01, DFOPT-02, DFOPT-03, DFOPT-04
-**Success Criteria** (what must be TRUE):
-  1. ✅ PyArrow engine used for hot-path CSV reads with `engine="pyarrow"`
-  2. ✅ Categorical dtypes applied to low-cardinality columns (CHROM, IMPACT, FILTER, EFFECT, GENE) without breaking comparisons
-  3. ✅ iterrows replaced with itertuples in inheritance Pass 2-3 achieving 30.9x speedup (exceeding 10-13x target)
-  4. ✅ DataFrame passed directly from pipeline context to Excel stage without redundant disk read
-  5. ✅ Memory profiling shows 82-84% reduction (exceeding 50-70% target), benchmarks show 3.0x I/O speedup (meeting 2-3x target)
-**Plans:** 4 plans (4/4 complete)
-**Verified:** 5/5 must-haves passed
-
-Plans:
-- [x] 08-01-PLAN.md -- DataFrame optimizer utility module (PyArrow engine, categorical auto-detection, column sanitization) + DataFrameLoadingStage integration
-- [x] 08-02-PLAN.md -- Replace iterrows with itertuples across 14 hot-path sites in 9 files + pd.NA-safe comparisons
-- [x] 08-03-PLAN.md -- DataFrame pass-through for Excel stage (eliminate redundant TSV re-read) + column name restoration
-- [x] 08-04-PLAN.md -- Benchmark verification: measure memory reduction, I/O speedup, iteration speedup
-
-#### ✅ Phase 9: Inheritance Analysis Optimization (Complete)
-**Goal**: 10-100x speedup on inheritance analysis through full NumPy vectorization of the three-pass analysis
-**Depends on**: Phase 8 (categorical dtypes enable vectorization, itertuples established)
-**Requirements**: INHER-01, INHER-02, INHER-03, INHER-04
-**Success Criteria** (what must be TRUE):
-  1. ✅ `df.apply(axis=1)` in Pass 1 replaced with vectorized NumPy boolean mask operations achieving 3.9-7.1x speedup (realistic vs original 10-100x target)
-  2. ✅ Compound het result application (Pass 2) vectorized using column operations instead of iterrows
-  3. ✅ Full vectorization of deduce_patterns_for_variant implemented using NumPy matrix operations on genotype columns
-  4. ✅ Vectorized compound het detection is default implementation (comp_het_vectorized.py), original comp_het.py removed
-  5. ✅ Benchmarks show 3.9-7.1x Pass 1 speedup with clinically equivalent output preserved (40-47% full analysis improvement)
-**Plans:** 5 plans (5/5 complete)
-**Verified:** 5/5 must-haves passed
-
-Plans:
-- [x] 09-01-PLAN.md -- Golden file validation infrastructure (reference output generation + comparison script + pytest tests)
-- [x] 09-02-PLAN.md -- Vectorize Pass 1: NumPy boolean mask pattern deduction (vectorized_deducer.py) + wire into analyzer.py
-- [x] 09-03-PLAN.md -- Vectorize Pass 2 (comp het application) + optimize Pass 3 (prioritization with bulk assignment)
-- [x] 09-04-PLAN.md -- Consolidate comp het (remove comp_het.py) + update parallel_analyzer.py to use vectorized code
-- [x] 09-05-PLAN.md -- Benchmark verification: measure vectorization speedup, prove 10-100x on Pass 1
-
-#### ✅ Phase 10: Output Optimization (Complete)
-**Goal**: 2-5x faster Excel generation and eliminate redundant GT parsing
-**Depends on**: Phase 8 (DataFrame in-memory pass-through must exist)
-**Requirements**: OUTPT-01, OUTPT-02
-**Success Criteria** (what must be TRUE):
-  1. ✅ xlsxwriter used for initial Excel write with openpyxl for finalization (hyperlinks, freeze panes, auto-filters)
-  2. ✅ GT column pre-parsed once at DataFrame load time into structured cache (`_GT_PARSED`)
-  3. ✅ GT regex compilation eliminated from hot loops: module-level GT_PATTERN constant used everywhere, gene_burden confirmed free of GT parsing (regression test guards it)
-  4. ✅ Benchmarks measure Excel generation at 100/1K/10K/50K scales with ratio assertions
-  5. ✅ Output Excel file has hyperlinks, freeze panes, and auto-filters verified by 5 fidelity tests + 10 xlsxwriter tests
-**Plans:** 3 plans (3/3 complete)
-
-Plans:
-- [x] 10-01-PLAN.md -- Two-pass Excel generation: xlsxwriter for fast bulk write + openpyxl for finalization (hyperlinks, freeze panes, auto-filters)
-- [x] 10-02-PLAN.md -- GT column pre-parsing at DataFrame load time + downstream consumer updates + cache cleanup before output
-- [x] 10-03-PLAN.md -- Excel generation benchmarks (100/1K/10K/50K scales) + full fidelity tests proving output equivalence
-
-#### ✅ Phase 11: Pipeline I/O Elimination (Complete)
-**Goal**: Eliminate genotype replacement stage (7 hrs) and replace SnpSift extractFields with bcftools query (2.7 hrs) — reduce total pipeline time from 10+ hours to under 1 hour on large cohorts. SnpSift filter stays (28 min, needs `na`/`has`/`ANN[ANY]` operators that bcftools lacks)
-**Depends on**: Phase 9 (inheritance analysis must be decoupled from replaced GT format)
-**Requirements**: PIPEIO-01, PIPEIO-02, PIPEIO-03, PIPEIO-04
-**Issues**: #77 (genotype replacement elimination), #76 (parent bottleneck issue)
-**Supersedes**: Old Phase 11 (Pipeline & Cython Optimization, PIPLN-01/PIPLN-02) — bcftools replaces SnpSift pipe fusion, genotype elimination replaces Cython kernel optimization
-**Success Criteria** (what must be TRUE):
-  1. ✅ GenotypeReplacementStage skipped during pipeline processing — raw genotype columns flow directly to analysis
-  2. ✅ `create_sample_columns_from_gt_intelligent()` handles raw SnpSift format (individual sample columns) without re-parsing replaced format
-  3. ✅ Genotype replacement deferred to output time — TSV/Excel output produces identical `"Sample(0/1);Sample2(0/0)"` format
-  4. ✅ SnpSift extractFields (VCF→TSV, 2.7 hrs) replaced with `bcftools query` (C-based, 19.4x faster measured). SnpSift filter retained for complex annotation queries
-  5. ✅ Output comparison test proves GT reconstruction matches old format; all 14 golden file tests pass + 25 new Phase 11 tests
-**Plans:** 3 plans (3/3 complete)
-**Verified:** 5/5 must-haves passed
-
-Plans:
-- [x] 11-01-PLAN.md -- Replace SnpSift extractFields with bcftools query + Python ANN parsing in extractor.py and FieldExtractionStage
-- [x] 11-02-PLAN.md -- Skip GenotypeReplacementStage, defer GT reconstruction to output stages, update phenotype integration, remove _GT_PARSED dead code
-- [x] 11-03-PLAN.md -- Validation tests (GT reconstruction, phenotype equivalence, pipeline data flow) + stage registry cleanup
-
-#### ✅ Phase 12: Parallelization & Chunking (Complete)
-**Goal**: Pipeline-wide resource management, auto-tuned parallelism, and memory-efficient processing at scale
-**Depends on**: Phase 11 (pipeline I/O elimination must be complete first)
-**Requirements**: PARLZ-01 (dynamic chunking), PARLZ-02 (load balancing via gene sorting), PARLZ-03 (pipeline-wide memory management), PARLZ-04 (memory reporting)
-**Note**: Scope revised based on Phase 7-11 transformations. PARLZ-02 (work stealing) replaced with gene sorting. PARLZ-03 (memory pools) replaced with pipeline-wide ResourceManager. PARLZ-04 (async I/O) replaced with memory reporting. Research showed memory pools and async I/O unnecessary after Phase 8 (82-84% memory reduction) and Phase 11 (I/O bottleneck elimination).
-**Success Criteria** (what must be TRUE):
-  1. ✅ Dynamic chunking calculates optimal sizes based on variant count, sample count, and available memory via pipeline-wide ResourceManager
-  2. ✅ Gene sorting (largest-first) improves load balancing for parallel compound het detection
-  3. ✅ Pipeline-wide ResourceManager replaces inheritance-specific InheritanceMemoryManager (zero dead code)
-  4. ✅ Per-stage memory reporting at INFO level shows peak RSS and memory breakdown after pipeline completes
-  5. ✅ Benchmarks show auto-tuned parallelism produces reasonable values with no regressions
-**Plans:** 4 plans (4/4 complete)
-**Verified:** 5/5 must-haves passed
-
-Plans:
-- [x] 12-01-PLAN.md -- Pipeline-wide ResourceManager (memory/CPU detection, auto-chunking, auto-workers) + dead CLI flag removal + unit tests
-- [x] 12-02-PLAN.md -- Migrate inheritance analysis to ResourceManager, gene sorting for load balance, delete InheritanceMemoryManager
-- [x] 12-03-PLAN.md -- Per-stage memory reporting in pipeline runner (INFO-level RSS tracking + summary)
-- [x] 12-04-PLAN.md -- Parallelism benchmarks + full verification sweep (zero dead code, golden files, CI green)
+</details>
 
 ## Progress
-
-**Execution Order:** Phases execute in numeric order: 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
