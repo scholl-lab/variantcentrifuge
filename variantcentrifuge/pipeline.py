@@ -349,9 +349,6 @@ def create_stages_from_config(config: dict) -> list[Stage]:
     args.annotate_bed = config.get("annotate_bed", [])
     args.annotate_gene_list = config.get("annotate_gene_list", [])
     args.annotate_json_genes = config.get("annotate_json_genes", [])
-    # NOTE: chunks CLI flag was removed in 12-01, this line is now a no-op
-    # Will be removed in 12-02 after migration to ResourceManager
-    args.chunks = config.get("chunks")
     args.late_filtering = config.get("late_filtering", False)
     args.genotype_filter = config.get("genotype_filter")
     args.final_filter = config.get("final_filter")

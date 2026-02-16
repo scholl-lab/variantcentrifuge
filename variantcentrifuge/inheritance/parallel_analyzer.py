@@ -137,9 +137,20 @@ def analyze_inheritance_parallel(
     comp_het_results_by_gene = {}
 
     # Check if we should use parallel processing
+    from ..memory import ResourceManager
+
+    rm = ResourceManager()
+
+    # Use min_variants_for_parallel if explicitly provided (for backward compatibility),
+    # otherwise use ResourceManager's threshold
+    if min_variants_for_parallel != 100:  # 100 is the default
+        should_parallelize = len(df) >= min_variants_for_parallel
+    else:
+        should_parallelize = rm.should_parallelize(len(df))
+
     use_parallel = (
         (n_workers is None or n_workers > 1)
-        and len(df) >= min_variants_for_parallel
+        and should_parallelize
         and "GENE" in df.columns
     )
 
@@ -154,9 +165,21 @@ def analyze_inheritance_parallel(
 
         num_genes = len(genes_with_multiple_variants)
         if num_genes > 0:
+            # Sort genes by variant count descending (largest first for load balancing)
+            genes_with_multiple_variants.sort(key=lambda x: len(x[1]), reverse=True)
+            max_gene_size = len(genes_with_multiple_variants[0][1]) if genes_with_multiple_variants else 0
+
+            # Auto-detect worker count if not specified
+            if n_workers is None:
+                memory_per_gene_gb = rm.estimate_memory(max_gene_size, len(sample_list))
+                n_workers = rm.auto_workers(
+                    task_count=num_genes,
+                    memory_per_task_gb=memory_per_gene_gb
+                )
+
             logger.info(
                 f"Pass 2: Analyzing {num_genes} genes for compound heterozygous patterns "
-                f"in parallel"
+                f"in parallel ({n_workers} workers, largest gene: {max_gene_size} variants)"
             )
 
             # Process genes in parallel
@@ -199,13 +222,16 @@ def analyze_inheritance_parallel(
                 if pd.isna(gene) or gene == "" or len(gene_df) <= 1:
                     continue
 
-                # Use vectorized implementation
-                comp_het_results = analyze_gene_for_compound_het_vectorized(
-                    gene_df, pedigree_data, sample_list
-                )
+                try:
+                    # Use vectorized implementation
+                    comp_het_results = analyze_gene_for_compound_het_vectorized(
+                        gene_df, pedigree_data, sample_list
+                    )
 
-                if comp_het_results:
-                    comp_het_results_by_gene[gene] = comp_het_results
+                    if comp_het_results:
+                        comp_het_results_by_gene[gene] = comp_het_results
+                except Exception as e:
+                    logger.error(f"Error processing gene {gene}: {e}")
 
     pass_times["compound_het_analysis"] = time.time() - pass2_start
 

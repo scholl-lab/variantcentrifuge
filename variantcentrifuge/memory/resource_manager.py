@@ -288,6 +288,27 @@ class ResourceManager:
         """
         return total_items >= self.min_items_for_parallel
 
+    def estimate_memory(
+        self,
+        num_variants: int,
+        num_samples: int,
+        bytes_per_item: int = 8,
+    ) -> float:
+        """
+        Estimate memory required for processing a dataset in GB.
+
+        Args:
+            num_variants: Number of variants
+            num_samples: Number of samples
+            bytes_per_item: Bytes per item per sample (default 8 for float64)
+
+        Returns:
+            Estimated memory in GB
+        """
+        memory_bytes = num_variants * num_samples * bytes_per_item * self.overhead_factor
+        memory_gb = memory_bytes / (1024**3)
+        return memory_gb
+
     def get_summary(self) -> dict[str, Any]:
         """
         Get summary of detected resources for logging.

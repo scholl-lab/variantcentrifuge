@@ -917,30 +917,34 @@ class InheritanceAnalysisStage(Stage):
         # At this point df must be a DataFrame (None case handled above)
         assert df is not None, "DataFrame must not be None for inheritance analysis"
 
-        # Use intelligent memory manager to decide processing strategy
-        from ..memory import InheritanceMemoryManager
+        # Use ResourceManager to decide processing strategy
+        from ..memory import ResourceManager
 
-        memory_manager = InheritanceMemoryManager(context.config)
-        memory_strategy = memory_manager.get_memory_strategy(len(df), len(vcf_samples))
+        rm = ResourceManager(config=context.config)
 
-        logger.info(
-            f"Inheritance memory strategy: {memory_strategy['approach']} - "
-            f"{memory_strategy['reason']}"
+        # Calculate optimal chunk size and worker count
+        chunk_size = rm.auto_chunk_size(len(df), len(vcf_samples))
+
+        # Estimate memory per gene for worker calculation
+        # Use average variants per gene as rough estimate (conservative)
+        avg_variants_per_gene = len(df) / max(1, df["GENE"].nunique() if "GENE" in df.columns else 1)
+        memory_per_gene_gb = rm.estimate_memory(int(avg_variants_per_gene), len(vcf_samples))
+        max_workers = rm.auto_workers(
+            task_count=df["GENE"].nunique() if "GENE" in df.columns else 1,
+            memory_per_task_gb=memory_per_gene_gb
         )
-        memory_manager.log_memory_status()
 
-        if memory_strategy["approach"] == "chunked":
+        # Determine if dataset fits in memory or needs chunking
+        should_chunk = len(df) > chunk_size
+
+        if should_chunk:
             logger.info(
-                f"Using chunked processing: {memory_strategy['chunks']} chunks, "
-                f"max {memory_strategy['max_workers']} parallel workers, "
-                f"~{memory_strategy['estimated_memory_per_chunk_gb']:.1f}GB per chunk"
+                f"Using chunked processing: chunk_size={chunk_size:,}, "
+                f"max_workers={max_workers}, ~{memory_per_gene_gb:.1f}GB per gene"
             )
             # Force chunked processing and delegate to chunked analysis
             context.config["use_chunked_processing"] = True
             context.config["force_chunked_processing"] = True
-
-            # Store memory strategy for chunked processing
-            context.config["inheritance_memory_strategy"] = memory_strategy
 
             # Check if scoring configuration requires Inheritance_Details
             preserve_details = self._check_if_scoring_needs_details(context)
@@ -955,6 +959,11 @@ class InheritanceAnalysisStage(Stage):
                 "preserve_details_for_scoring": preserve_details,
             }
             return context
+
+        logger.info(
+            f"Dataset fits in memory ({len(df):,} variants < {chunk_size:,} chunk size), "
+            f"processing as single batch"
+        )
 
         logger.info(
             f"Calculating inheritance patterns ({inheritance_mode} mode) "
@@ -2220,9 +2229,20 @@ class ChunkedAnalysisStage(Stage):
         # Set up inheritance analysis configuration if needed
         self._setup_inheritance_config(context)
 
-        # TODO(12-02): Replace with ResourceManager.auto_chunk_size() auto-detection
-        # Using hardcoded default after CLI flag removal in 12-01
-        chunk_size = context.config.get("chunks") or 10000
+        # Auto-detect chunk size using ResourceManager
+        from ..memory import ResourceManager
+
+        # Get sample count from inheritance config or estimate
+        inheritance_config = context.config.get("inheritance_analysis_config", {})
+        vcf_samples = inheritance_config.get("vcf_samples", [])
+        num_samples = len(vcf_samples) if vcf_samples else 1
+
+        # Estimate total variants from input file (for proper chunk size calculation)
+        # Use a conservative estimate based on file size if exact count unavailable
+        total_variants = 100000  # Conservative default for chunk sizing
+
+        rm = ResourceManager(config=context.config)
+        chunk_size = rm.auto_chunk_size(total_variants, num_samples)
 
         # Determine input file
         if context.extra_columns_removed_tsv:
@@ -2270,7 +2290,20 @@ class ChunkedAnalysisStage(Stage):
         sorted_file = self._ensure_sorted_by_gene(input_file, gene_col_name, context)
 
         # Process chunks - use parallel processing if enabled
-        max_workers = context.config.get("threads", 1)
+        # Auto-detect worker count if threads not explicitly set
+        threads_config = context.config.get("threads", 1)
+        if threads_config == 1:
+            # threads=1 is the default, use ResourceManager auto-detection
+            # Estimate memory per chunk for worker calculation
+            memory_per_chunk_gb = rm.estimate_memory(chunk_size, num_samples)
+            max_workers = rm.auto_workers(
+                task_count=10,  # Conservative estimate for number of chunks
+                memory_per_task_gb=memory_per_chunk_gb
+            )
+        else:
+            # User explicitly set --threads, honor that value
+            max_workers = threads_config
+
         parallel_chunks = context.config.get("parallel_chunks", False) or max_workers > 1
 
         if parallel_chunks and max_workers > 1:
@@ -2668,19 +2701,21 @@ class ChunkedAnalysisStage(Stage):
         logger.debug(f"Calculating inheritance-safe chunk size for {sample_count} samples")
 
         try:
-            # Use intelligent memory manager if context available
+            # Use ResourceManager if context available
             if context and hasattr(context, "config"):
-                from ..memory import InheritanceMemoryManager
+                from ..memory import ResourceManager
 
-                memory_manager = InheritanceMemoryManager(context.config)
-                chunk_size = memory_manager.calculate_max_chunk_size(sample_count)
+                rm = ResourceManager(config=context.config)
+                # Use conservative estimate for total variants (actual count determined during processing)
+                total_variants = 100000  # Conservative estimate for chunking
+                chunk_size = rm.auto_chunk_size(total_variants, sample_count)
                 logger.info(
                     f"Using memory-aware chunk size: {chunk_size} variants "
                     f"for {sample_count} samples"
                 )
                 return chunk_size
         except Exception as e:
-            logger.debug(f"Could not use memory manager: {e}. Falling back to improved defaults.")
+            logger.debug(f"Could not use ResourceManager: {e}. Falling back to improved defaults.")
 
         # Improved fallback defaults - much more aggressive than before
         if sample_count <= 100:
@@ -2936,25 +2971,27 @@ class ChunkedAnalysisStage(Stage):
                 logger.warning("No VCF samples available for chunk inheritance analysis")
                 return chunk_df
 
-            # Use intelligent memory manager for chunk processing decision
-            from ..memory import InheritanceMemoryManager
+            # Use ResourceManager for memory safety check
+            from ..memory import ResourceManager
 
-            memory_manager = InheritanceMemoryManager(context.config)
-            memory_manager.log_memory_status()
+            rm = ResourceManager(config=context.config)
+            estimated_memory_gb = rm.estimate_memory(len(chunk_df), len(vcf_samples))
+            safe_memory_gb = rm.memory_gb * rm.memory_safety_factor
 
-            # Check if this chunk should be processed
-            should_process, reason = memory_manager.should_process_chunk(
-                len(chunk_df),
-                len(vcf_samples),
-                force_processing=context.config.get("force_inheritance_processing", False),
+            logger.debug(
+                f"Chunk memory: {estimated_memory_gb:.2f}GB estimated, "
+                f"{safe_memory_gb:.2f}GB available"
             )
 
-            logger.info(f"Memory decision for chunk: {reason}")
+            # Check if this chunk should be processed
+            force_processing = context.config.get("force_inheritance_processing", False)
+            should_process = estimated_memory_gb <= safe_memory_gb or force_processing
 
             if not should_process:
                 logger.error(
                     f"MEMORY LIMIT: Skipping inheritance analysis for chunk with "
-                    f"{len(chunk_df)} variants x {len(vcf_samples)} samples. {reason}. "
+                    f"{len(chunk_df)} variants x {len(vcf_samples)} samples "
+                    f"({estimated_memory_gb:.2f}GB exceeds {safe_memory_gb:.2f}GB limit). "
                     f"Consider increasing --max-memory-gb or using --force-inheritance-processing."
                 )
                 # Add placeholder inheritance columns to maintain schema
