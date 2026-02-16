@@ -714,10 +714,6 @@ class TestPerformanceConfigMapping:
                 "64.0",
                 "--genotype-replacement-method",
                 "parallel",
-                "--vectorized-chunk-size",
-                "15000",
-                "--genotype-replacement-chunk-size",
-                "20000",
                 "--threads",
                 "8",
             ]
@@ -726,8 +722,6 @@ class TestPerformanceConfigMapping:
         # Verify performance parameters are correctly parsed
         assert args.max_memory_gb == 64.0
         assert args.genotype_replacement_method == "parallel"
-        assert args.vectorized_chunk_size == 15000
-        assert args.genotype_replacement_chunk_size == 20000
         assert args.threads == 8
 
     def test_genotype_replacement_method_config_mapping(self):
@@ -758,10 +752,6 @@ class TestPerformanceConfigMapping:
                 "parallel",
                 "--max-memory-gb",
                 "250.0",
-                "--genotype-replacement-chunk-size",
-                "25000",
-                "--vectorized-chunk-size",
-                "10000",
                 "--threads",
                 "16",
             ]
@@ -770,8 +760,7 @@ class TestPerformanceConfigMapping:
         # Verify all performance parameters parsed correctly
         assert args.genotype_replacement_method == "parallel"
         assert args.max_memory_gb == 250.0
-        assert args.genotype_replacement_chunk_size == 25000
-        assert args.vectorized_chunk_size == 10000
+        assert args.threads == 16
 
     def test_performance_config_prevents_auto_selection_override(self):
         """Test that explicit method selection is preserved in parsed args."""
@@ -797,8 +786,6 @@ class TestPerformanceConfigMapping:
         # Verify defaults are correctly set
         assert args.genotype_replacement_method == "auto"
         assert args.max_memory_gb is None  # Auto-detect
-        assert args.vectorized_chunk_size == 25000
-        assert args.genotype_replacement_chunk_size == 50000
 
     def test_comprehensive_cli_parameter_config_mapping(self):
         """Comprehensive test for CLI parameter to config mapping completeness."""
