@@ -169,6 +169,11 @@ class PipelineRunner:
         # Log execution time summary
         self._log_execution_summary()
 
+        # Log peak memory usage
+        if self._stage_metrics:
+            peak_mb = max(m["mem_after_mb"] for m in self._stage_metrics.values())
+            logger.info(f"Pipeline peak memory: {peak_mb:.0f} MB")
+
         return context
 
     def _handle_selective_resume(
@@ -591,10 +596,11 @@ class PipelineRunner:
         """
         start_time = time.time()
 
-        mem_before_mb = None
+        # Always track memory (not just at DEBUG level)
+        process = psutil.Process()
+        mem_before_mb = process.memory_info().rss / 1024 / 1024
+
         if logger.isEnabledFor(logging.DEBUG):
-            process = psutil.Process()
-            mem_before_mb = process.memory_info().rss / 1024 / 1024
             logger.debug(f"[{stage.name}] Starting - Memory: {mem_before_mb:.1f} MB")
 
         result = stage(context)
@@ -607,9 +613,19 @@ class PipelineRunner:
 
         gc.collect()
 
-        if mem_before_mb is not None:
-            process = psutil.Process()
-            mem_after_mb = process.memory_info().rss / 1024 / 1024
+        # Always track memory after execution
+        mem_after_mb = process.memory_info().rss / 1024 / 1024
+        mem_delta_mb = mem_after_mb - mem_before_mb
+
+        # Store memory metrics for summary reporting
+        self._stage_metrics[stage.name] = {
+            "mem_before_mb": mem_before_mb,
+            "mem_after_mb": mem_after_mb,
+            "mem_delta_mb": mem_delta_mb,
+            "mem_peak_mb": max(mem_before_mb, mem_after_mb),
+        }
+
+        if logger.isEnabledFor(logging.DEBUG):
             freed_mb = mem_before_mb - mem_after_mb
             logger.debug(
                 f"[{stage.name}] Complete in {elapsed:.1f}s - "
@@ -776,6 +792,43 @@ class PipelineRunner:
         logger.info("-" * 60)
         logger.info(f"{'Total stage time:':30s} {total_time:6.1f}s")
         logger.info("=" * 60)
+
+        # Add memory usage summary if metrics were collected
+        if self._stage_metrics:
+            logger.info("")
+            logger.info("=" * 60)
+            logger.info("Memory Usage Summary")
+            logger.info("=" * 60)
+
+            # Sort stages by absolute memory delta (biggest consumers first)
+            sorted_metrics = sorted(
+                self._stage_metrics.items(),
+                key=lambda x: abs(x[1]["mem_delta_mb"]),
+                reverse=True,
+            )
+
+            # Header
+            logger.info(f"{'Stage':<30} {'Before':>10} {'After':>10} {'Delta':>10}")
+            logger.info("-" * 60)
+
+            # Stage rows
+            for stage_name, metrics in sorted_metrics:
+                before_mb = metrics["mem_before_mb"]
+                after_mb = metrics["mem_after_mb"]
+                delta_mb = metrics["mem_delta_mb"]
+
+                # Format delta with + or - sign
+                delta_str = f"{delta_mb:+.1f} MB"
+
+                logger.info(
+                    f"{stage_name:<30} {before_mb:>8.1f} MB {after_mb:>8.1f} MB {delta_str:>10}"
+                )
+
+            # Footer with peak RSS
+            peak_mb = max(m["mem_after_mb"] for m in self._stage_metrics.values())
+            logger.info("-" * 60)
+            logger.info(f"Peak RSS: {peak_mb:.1f} MB")
+            logger.info("=" * 60)
 
     def dry_run(self, stages: list[Stage]) -> list[list[str]]:
         """Perform a dry run to show execution plan without running stages.
