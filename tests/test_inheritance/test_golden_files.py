@@ -189,8 +189,8 @@ def test_scenario_data_types():
             f"Missing Inheritance_Details in {scenario_name}"
         )
 
-        # Check Inheritance_Pattern is string type
-        assert result["Inheritance_Pattern"].dtype == object, (
+        # Check Inheritance_Pattern is string type (object on pandas <2.2, StringDtype on >=2.2)
+        assert pd.api.types.is_string_dtype(result["Inheritance_Pattern"]), (
             f"Inheritance_Pattern should be string type in {scenario_name}"
         )
 

@@ -324,8 +324,8 @@ def test_load_optimized_dataframe_no_optimization():
             sanitize_columns=False,
         )
 
-        # No categorical dtype
-        assert df["CHROM"].dtype == object
+        # No categorical dtype — should be string-like (object or StringDtype)
+        assert pd.api.types.is_string_dtype(df["CHROM"])
 
         # No column renaming
         assert "GEN[0].GT" in df.columns

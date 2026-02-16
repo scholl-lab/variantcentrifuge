@@ -369,21 +369,21 @@ def _check_dominant_vectorized(
 
     # Check father contribution
     father_has_variant_mask = np.zeros(len(sample_gts), dtype=bool)
-    father_affected = False
+    father_affected = np.bool_(False)
     father_data_complete = np.ones(len(sample_gts), dtype=bool)
 
     if father_id and father_gts is not None:
-        father_affected = is_affected(father_id, pedigree_data)
+        father_affected = np.bool_(is_affected(father_id, pedigree_data))
         father_has_variant_mask = father_gts > 0
         father_data_complete = father_gts != -1
 
     # Check mother contribution
     mother_has_variant_mask = np.zeros(len(sample_gts), dtype=bool)
-    mother_affected = False
+    mother_affected = np.bool_(False)
     mother_data_complete = np.ones(len(sample_gts), dtype=bool)
 
     if mother_id and mother_gts is not None:
-        mother_affected = is_affected(mother_id, pedigree_data)
+        mother_affected = np.bool_(is_affected(mother_id, pedigree_data))
         mother_has_variant_mask = mother_gts > 0
         mother_data_complete = mother_gts != -1
 
@@ -687,7 +687,7 @@ def _check_xld_vectorized(
 
     # Check father (XLD: affected father with variant can pass to daughters)
     if father_id and father_gts is not None:
-        father_affected = is_affected(father_id, pedigree_data)
+        father_affected = np.bool_(is_affected(father_id, pedigree_data))
         father_has_variant_mask = father_gts > 0
 
         # If affected father has variant and child is female, XLD
@@ -699,7 +699,7 @@ def _check_xld_vectorized(
 
     # Check mother (XLD: affected mother with variant can pass to any child)
     if mother_id and mother_gts is not None:
-        mother_affected = is_affected(mother_id, pedigree_data)
+        mother_affected = np.bool_(is_affected(mother_id, pedigree_data))
         mother_has_variant_mask = mother_gts > 0
 
         if mother_affected:
