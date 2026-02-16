@@ -272,6 +272,39 @@
         color: white;
         vertical-align: middle;
     }
+
+    /* Metadata Footer */
+    .metadata-footer {
+        background-color: #f8f9fa;
+        border-top: 1px solid #dee2e6;
+        padding: 12px 20px;
+        margin-top: 30px;
+        font-size: 11px;
+        color: #6c757d;
+    }
+    .metadata-content {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        max-width: 95%;
+        margin: 0 auto;
+        align-items: baseline;
+    }
+    .metadata-item { display: inline-block; }
+    .metadata-item strong { color: #495057; }
+    .filter-expr {
+        background-color: #e9ecef;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+        font-size: 10px;
+        max-width: 500px;
+        display: inline-block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        vertical-align: middle;
+    }
     </style>
 </head>
 <body>
@@ -414,8 +447,25 @@
         {% endif %}
     </div>
 
-    <footer>
-        <p>Created with VariantCentrifuge</p>
+    <footer class="metadata-footer">
+        <div class="metadata-content">
+            <div class="metadata-item">
+                <strong>Filter:</strong>
+                <code class="filter-expr" title="{{ filter_expression | default('None', true) }}">{{ filter_expression | default('None', true) }}</code>
+            </div>
+            <div class="metadata-item">
+                <strong>VCF:</strong> {{ vcf_source | default('Unknown', true) }}
+            </div>
+            <div class="metadata-item">
+                <strong>Reference:</strong> {{ reference_genome | default('Unknown', true) }}
+            </div>
+            <div class="metadata-item">
+                <strong>Pipeline:</strong> VariantCentrifuge v{{ version }}
+            </div>
+            <div class="metadata-item">
+                <strong>Generated:</strong> {{ generation_date }}
+            </div>
+        </div>
     </footer>
 </div>
 
