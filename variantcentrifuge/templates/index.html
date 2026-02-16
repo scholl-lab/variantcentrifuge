@@ -258,6 +258,20 @@
         display: inline-block;
         vertical-align: bottom;
     }
+
+    /* Pill Badge Base */
+    .badge {
+        display: inline-block;
+        padding: 3px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1.2;
+        text-align: center;
+        white-space: nowrap;
+        border-radius: 12px;
+        color: white;
+        vertical-align: middle;
+    }
     </style>
 </head>
 <body>
@@ -289,7 +303,7 @@
                 <ul class="impact-breakdown">
                     {% for level in ['HIGH', 'MODERATE', 'LOW', 'MODIFIER'] %}
                     <li>
-                        <span><span class="impact-dot" style="background-color: {{ {'HIGH':'#dc3545','MODERATE':'#fd7e14','LOW':'#ffc107','MODIFIER':'#6c757d'}[level] }};"></span>{{ level }}</span>
+                        <span><span class="impact-dot" style="background-color: {{ {'HIGH':'#dc3545','MODERATE':'#fd7e14','LOW':'#f59e0b','MODIFIER':'#6c757d'}[level] }};"></span>{{ level }}</span>
                         <strong>{{ summary.impact_distribution.get(level, 0) if summary.impact_distribution is mapping else 0 }}</strong>
                     </li>
                     {% endfor %}
@@ -447,6 +461,96 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Badge render functions for semantic color coding
+    columnData.forEach(function(col, index) {
+        // IMPACT column badge rendering
+        if (col.original_name === 'IMPACT') {
+            dtColumnDefs.push({
+                targets: index,
+                render: function(data, type, row) {
+                    if (type === 'display' && data) {
+                        var colors = {
+                            'HIGH': '#dc3545',
+                            'MODERATE': '#fd7e14',
+                            'LOW': '#f59e0b',
+                            'MODIFIER': '#6c757d'
+                        };
+                        var color = colors[data] || '#6c757d';
+                        return '<span class="badge" style="background-color:' + color + ';">' + data + '</span>';
+                    }
+                    return data;
+                }
+            });
+        }
+
+        // ClinVar classification badge rendering
+        if (col.original_name === 'dbNSFP_clinvar_clnsig' || col.original_name === 'ClinVar_CLNSIG') {
+            dtColumnDefs.push({
+                targets: index,
+                render: function(data, type, row) {
+                    if (type === 'display' && data && String(data).trim() !== '') {
+                        var str = String(data);
+                        var lower = str.toLowerCase();
+                        var color = '#6c757d';
+                        if (lower.indexOf('pathogenic') !== -1 && lower.indexOf('likely') === -1 && lower.indexOf('conflicting') === -1) {
+                            color = '#dc3545';
+                        } else if (lower.indexOf('likely_pathogenic') !== -1 || lower.indexOf('likely pathogenic') !== -1) {
+                            color = '#e8590c';
+                        } else if (lower.indexOf('uncertain') !== -1 || lower === 'vus') {
+                            color = '#f59e0b';
+                        } else if (lower.indexOf('likely_benign') !== -1 || lower.indexOf('likely benign') !== -1) {
+                            color = '#7cb342';
+                        } else if (lower.indexOf('benign') !== -1 && lower.indexOf('likely') === -1) {
+                            color = '#4caf50';
+                        } else if (lower.indexOf('conflicting') !== -1) {
+                            color = '#ff9800';
+                        }
+                        var displayText = str.replace(/_/g, ' ');
+                        return '<span class="badge" style="background-color:' + color + ';">' + displayText + '</span>';
+                    }
+                    return '';
+                }
+            });
+        }
+
+        // Inheritance Pattern badge rendering
+        if (col.original_name === 'Inheritance_Pattern') {
+            dtColumnDefs.push({
+                targets: index,
+                render: function(data, type, row) {
+                    if (type === 'display') {
+                        if (!data || String(data).trim() === '' || data === 'none' || data === 'reference') {
+                            return '<span class="badge" style="background-color:#6c757d;">Unknown</span>';
+                        }
+                        var str = String(data);
+                        var lower = str.toLowerCase();
+                        var color = '#6c757d';
+                        if (lower === 'de_novo' || lower === 'de_novo_candidate') {
+                            color = '#dc3545';
+                        } else if (lower.indexOf('compound_heterozygous') !== -1) {
+                            color = '#9c27b0';
+                        } else if (lower.indexOf('autosomal_dominant') !== -1) {
+                            color = '#2196f3';
+                        } else if (lower.indexOf('autosomal_recessive') !== -1) {
+                            color = '#4caf50';
+                        } else if (lower.indexOf('x_linked') !== -1) {
+                            color = '#00acc1';
+                        } else if (lower === 'mitochondrial') {
+                            color = '#ff9800';
+                        } else if (lower === 'homozygous') {
+                            color = '#78909c';
+                        } else if (lower === 'non_mendelian') {
+                            color = '#ef5350';
+                        }
+                        var displayText = str.replace(/_/g, ' ');
+                        return '<span class="badge" style="background-color:' + color + ';">' + displayText + '</span>';
+                    }
+                    return data;
+                }
+            });
+        }
+    });
+
     // Initialize DataTables v2 on the visible table (required for correct header sizing with scrollX)
     try {
         var table = new DataTable('#variants_table', {
@@ -514,7 +618,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var impactColorMap = {
         'HIGH': '#dc3545',      // Red
         'MODERATE': '#fd7e14',  // Orange
-        'LOW': '#ffc107',       // Amber
+        'LOW': '#f59e0b',       // Amber (WCAG compliant)
         'MODIFIER': '#6c757d'   // Gray
     };
 
