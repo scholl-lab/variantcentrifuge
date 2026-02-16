@@ -7,7 +7,7 @@ import tempfile
 import pandas as pd
 import pytest
 
-from variantcentrifuge.stats_engine import StatsEngine
+from variantcentrifuge.stats_engine import StatsEngine, _validate_expression
 
 
 @pytest.fixture
@@ -241,3 +241,78 @@ class TestStatsEngine:
         assert "=== Gene Statistics ===" in formatted
         assert "total_variants: 6" in formatted
         assert "BRCA1" in formatted
+
+
+class TestExpressionValidation:
+    """Test AST-based expression validation blocks code injection."""
+
+    def test_valid_expressions_pass(self):
+        """Verify legitimate stats expressions are allowed."""
+        valid_expressions = [
+            "len(df)",
+            "(df['IMPACT'] == 'HIGH').mean()",
+            "group_df['dbNSFP_CADD_phred'].mean()",
+            "pd.to_numeric(df['AF'], errors='coerce').mean()",
+            "((df['AF'] < 0.001) & (df['IMPACT'] == 'HIGH')).sum()",
+            "len([col for col in df.columns if col.endswith('_GT')])",
+            "group_df['col'].str.contains('Pathogenic', case=False, na=False).sum()",
+            "group_df['col'].nunique()",
+            "df['col'].max() if len(df) > 0 else 0",
+        ]
+        for expr in valid_expressions:
+            _validate_expression(expr)  # should not raise
+
+    def test_import_blocked(self):
+        """Verify __import__ is rejected (unknown name)."""
+        with pytest.raises(ValueError, match="Unknown name"):
+            _validate_expression("__import__('os').system('rm -rf /')")
+
+    def test_dunder_attribute_blocked(self):
+        """Verify dunder attribute access is rejected."""
+        with pytest.raises(ValueError, match="private/dunder attribute"):
+            _validate_expression("df.__class__.__bases__[0].__subclasses__()")
+
+    def test_dunder_init_blocked(self):
+        """Verify __init__ access is rejected."""
+        with pytest.raises(ValueError, match="private/dunder attribute"):
+            _validate_expression("().__class__.__init__.__globals__")
+
+    def test_unknown_name_blocked(self):
+        """Verify unknown variable names are rejected."""
+        with pytest.raises(ValueError, match="Unknown name"):
+            _validate_expression("os.system('whoami')")
+
+    def test_open_blocked(self):
+        """Verify open() is rejected (not in allowed names)."""
+        with pytest.raises(ValueError, match="Unknown name"):
+            _validate_expression("open('/etc/passwd').read()")
+
+    def test_eval_blocked(self):
+        """Verify nested eval is rejected."""
+        with pytest.raises(ValueError, match="Unknown name"):
+            _validate_expression("eval('__import__(\"os\")')")
+
+    def test_exec_blocked(self):
+        """Verify exec is rejected."""
+        with pytest.raises(ValueError, match="Unknown name"):
+            _validate_expression("exec('import os')")
+
+    def test_injection_via_config_blocked(self, sample_df):
+        """Verify malicious expressions in config are blocked at runtime."""
+        config = {
+            "dataset_stats": [
+                {
+                    "name": "malicious",
+                    "expression": "().__class__.__bases__[0].__subclasses__()",
+                }
+            ]
+        }
+        engine = StatsEngine(config)
+        results = engine.compute(sample_df)
+        # Should be blocked, returning empty results
+        assert results["dataset"].empty
+
+    def test_syntax_error_rejected(self):
+        """Verify syntax errors are caught during validation."""
+        with pytest.raises(ValueError, match="Syntax error"):
+            _validate_expression("this is not valid python")

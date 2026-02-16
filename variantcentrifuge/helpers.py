@@ -848,14 +848,30 @@ def get_vcf_size(vcf_file: str) -> int:
     try:
         from subprocess import PIPE, Popen
 
-        cmd = ["bcftools", "view", "-H", vcf_file, "|wc", "-l"]
-        process = Popen(
-            " ".join(cmd), shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True
+        # Use a proper subprocess pipe chain instead of shell=True to
+        # prevent command injection via crafted file paths.
+        bcf_proc = Popen(
+            ["bcftools", "view", "-H", vcf_file],
+            stdout=PIPE,
+            stderr=PIPE,
         )
-        stdout, stderr = process.communicate()
+        wc_proc = Popen(
+            ["wc", "-l"],
+            stdin=bcf_proc.stdout,
+            stdout=PIPE,
+            stderr=PIPE,
+            universal_newlines=True,
+        )
+        # Allow bcf_proc to receive SIGPIPE if wc_proc exits early
+        if bcf_proc.stdout:
+            bcf_proc.stdout.close()
 
-        if process.returncode != 0:
-            logger.error(f"Error getting VCF size: {stderr}")
+        stdout, _stderr = wc_proc.communicate()
+        bcf_proc.wait()
+
+        if bcf_proc.returncode != 0:
+            bcf_stderr = bcf_proc.stderr.read().decode() if bcf_proc.stderr else ""
+            logger.error(f"Error getting VCF size: {bcf_stderr}")
             return 0
 
         try:
