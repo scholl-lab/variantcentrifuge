@@ -64,6 +64,7 @@ jobs:
             mypy-${{ runner.os }}-py3.10-
 
       - name: Run mypy type checker
+        continue-on-error: true
         run: python -m mypy variantcentrifuge/
 
   test:

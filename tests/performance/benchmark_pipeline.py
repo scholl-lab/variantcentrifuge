@@ -19,10 +19,15 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+    import psutil
+except ImportError:
+    plt = None  # type: ignore[assignment]
+    psutil = None  # type: ignore[assignment]
+
 import numpy as np
 import pandas as pd
-import psutil
 
 
 @dataclass
