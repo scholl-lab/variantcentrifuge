@@ -5,29 +5,24 @@
 See: .planning/PROJECT.md (updated 2026-02-16)
 
 **Core value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
-**Current focus:** Planning next milestone
+**Current focus:** v0.14.0 Report UX Overhaul — defining requirements
 
 ## Current Position
 
-Phase: 12 of 12 (all phases complete)
-Plan: N/A
-Status: Milestone v0.13.0 shipped
-Last activity: 2026-02-16 — v0.13.0 milestone complete
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-02-16 — Milestone v0.14.0 started
 
-Progress: [████████████████████] 100% (v0.13.0 shipped)
-
-## Performance Metrics
-
-**Velocity:**
-- Total plans completed: 26
-- Average duration: 14.0 minutes
-- Total execution time: 5.9 hours
+Progress: [░░░░░░░░░░░░░░░░░░░░] 0%
 
 ## Accumulated Context
 
 ### Decisions
 
-All v0.13.0 decisions documented in PROJECT.md Key Decisions table.
+- Individual HTML report only (cohort report out of scope for v0.14.0)
+- Expandable rows only (no side panel)
+- Modernize JS stack: DataTables v2, drop jQuery, add Tippy.js
 
 ### Pending Todos
 
@@ -35,11 +30,11 @@ All v0.13.0 decisions documented in PROJECT.md Key Decisions table.
 
 ### Blockers/Concerns
 
-None — milestone complete.
+None.
 
 ## Session Continuity
 
 Last session: 2026-02-16
-Stopped at: v0.13.0 milestone archived and shipped
+Stopped at: Defining requirements for v0.14.0
 Resume file: None
-Next: `/gsd:new-milestone` (start with `/clear` for fresh context)
+Next: Define requirements → create roadmap

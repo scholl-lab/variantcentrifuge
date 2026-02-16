@@ -37,7 +37,16 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 
 ### Active
 
-(No active requirements — next milestone not yet defined)
+**Milestone v0.14.0 — Report UX Overhaul (Individual HTML Report)**
+
+- Restructure information hierarchy (summary → charts → filters → table)
+- Semantic color coding (IMPACT, ClinVar, inheritance pattern badges)
+- Comprehensive table redesign: Tippy.js tooltips, sticky columns, expandable row detail, content density toggle, intelligent column widths, zebra striping
+- Column-level filtering for individual report (port from cohort report)
+- Modernize JS stack: DataTables v2 (jQuery-optional), drop jQuery, add Tippy.js
+- Print stylesheet + PDF export
+- Expanded visualizations (chromosome distribution, variant type, AF histogram)
+- ARIA accessibility pass (roles, labels, keyboard support, chart alternatives)
 
 ### Out of Scope
 
@@ -50,12 +59,15 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 
 ## Context
 
-- Current version: v0.13.0
+- Current version: v0.13.1
 - Shipped v0.13.0 with 28,378 LOC Python
 - Tech stack: Python 3.10+, pandas, NumPy, openpyxl, xlsxwriter, bcftools, SnpSift
 - Pipeline time reduced from 10+ hours to under 1 hour on large cohorts (>10x improvement)
 - 4 open issues remain (#58, #60, #61, #62)
 - 2 minor tech debt items from v0.13.0 (aspirational speedup target, dead code in GenotypeReplacementStage)
+- UX assessment scored individual HTML report 4.8/10 — functional but lacking hierarchy, color coding, table UX, accessibility
+- Individual report uses DataTables 1.10.20 (2019), jQuery, custom hover-expand with multiple bugs
+- Cohort report is more advanced (filtering, dashboard) — gap needs closing
 
 ## Constraints
 
@@ -82,5 +94,9 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 | itertuples migration | 30.9x iteration speedup over iterrows | Good |
 | xlsxwriter + openpyxl two-pass | Fast bulk write + rich formatting finalization | Good |
 
+| Individual report only for v0.14.0 | Cohort report is already better; focus on biggest gap first | — Pending |
+| Expandable rows over side panel | Simpler, DataTables-native pattern, avoids complexity | — Pending |
+| Modernize JS stack | DataTables v2 is jQuery-optional; reduce bundle size, future-proof | — Pending |
+
 ---
-*Last updated: 2026-02-16 after v0.13.0 milestone*
+*Last updated: 2026-02-16 after v0.14.0 milestone start*
