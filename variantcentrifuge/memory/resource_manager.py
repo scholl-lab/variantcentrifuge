@@ -252,7 +252,11 @@ class ResourceManager:
         safe_memory_gb = self.memory_gb * self.memory_safety_factor
 
         # How many tasks fit in memory?
-        memory_constrained_workers = max(1, int(safe_memory_gb / memory_per_task_gb))
+        # Handle edge case: if memory_per_task_gb is 0 or very small, use CPU cores
+        if memory_per_task_gb < 0.001:  # Less than 1MB
+            memory_constrained_workers = self.cpu_cores
+        else:
+            memory_constrained_workers = max(1, int(safe_memory_gb / memory_per_task_gb))
 
         # CPU-constrained workers
         cpu_constrained_workers = self.cpu_cores
