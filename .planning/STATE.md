@@ -10,17 +10,17 @@ See: .planning/PROJECT.md (updated 2026-02-14)
 ## Current Position
 
 Phase: 12 of 12 (Parallelization & Chunking)
-Plan: 1 of 3 in progress
+Plan: 2 of 3 in progress
 Status: In progress
-Last activity: 2026-02-16 — Completed 12-01-PLAN.md
+Last activity: 2026-02-16 — Completed 12-03-PLAN.md
 
-Progress: [████████████████░░░░] 81% (Phase 1-11 complete, Phase 12: 1/3 plans complete)
+Progress: [████████████████░░░░] 85% (Phase 1-11 complete, Phase 12: 2/3 plans complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 22
-- Average duration: 14.4 minutes
+- Total plans completed: 23
+- Average duration: 13.8 minutes
 - Total execution time: 5.3 hours
 
 **By Phase:**
@@ -34,11 +34,11 @@ Progress: [████████████████░░░░] 81% (Ph
 | 9. Inheritance Optimization | 5/5 | 46.8 min | 9.4 min |
 | 10. Output Optimization | 3/3 | 26.0 min | 8.7 min |
 | 11. Pipeline I/O Elimination | 3/3 | 52.0 min | 17.3 min |
-| 12. Parallelization & Chunking | 1/3 | 24.0 min | 24.0 min |
+| 12. Parallelization & Chunking | 2/3 | 27.0 min | 13.5 min |
 
 **Recent Trend:**
-- Last 5 plans: 10-03 (8.0 min), 11-01 (10.0 min), 11-02 (26.0 min), 11-03 (16.0 min), 12-01 (24.0 min)
-- Trend: Steady velocity, refactoring/cleanup plans take longer (testing updates + CI fixes)
+- Last 5 plans: 11-01 (10.0 min), 11-02 (26.0 min), 11-03 (16.0 min), 12-01 (24.0 min), 12-03 (3.0 min)
+- Trend: Small focused plans execute very quickly (memory reporting 3 min)
 
 *Updated after each plan completion*
 
@@ -103,6 +103,9 @@ Recent decisions affecting current work:
 - Sample column detection order fix (11-03): Check for existing sample columns BEFORE checking for GT column (allows bcftools output without GT)
 - Comprehensive Phase 11 test coverage (11-03): 25 tests proving GT reconstruction equivalence, phenotype extraction equivalence, and full pipeline data flow
 - Phase reference genotype handling (11-03): Added 0|0 and .|. to reference genotype check list in reconstruct_gt_column()
+- psutil RSS tracking for memory reporting (12-03): Use RSS (resident set size) instead of tracemalloc for production accuracy - tracks all memory including C extensions
+- INFO-level memory reporting (12-03): Memory metrics tracked unconditionally and reported at INFO level after pipeline completion (not just DEBUG)
+- Memory summary sorted by impact (12-03): Sort by absolute delta descending to highlight biggest memory consumers first
 
 ### Pending Todos
 
@@ -299,9 +302,28 @@ Recent decisions affecting current work:
 - Golden file tests pass: All 14 inheritance scenarios validated
 - 1128 unit tests passing (1 pre-existing failure in extra_sample_fields - out of scope)
 
+**Phase 12 (Parallelization & Chunking): IN PROGRESS (2/3 plans complete)**
+
+**Plan 01 (Resource Manager & CLI Cleanup): COMPLETE**
+- ResourceManager created at variantcentrifuge/memory/resource_manager.py (287 lines)
+- Memory detection: CLI > SLURM > PBS > cgroup v1/v2 > psutil
+- Methods: auto_chunk_size(), auto_workers(), should_parallelize(), get_summary()
+- Dead CLI flags removed
+- 21 ResourceManager tests passing
+- All CI checks green (1101 tests, 20 skipped)
+
+**Plan 03 (Memory Reporting): COMPLETE**
+- Per-stage RSS memory tracking via psutil in pipeline runner
+- Memory usage summary logged at INFO level after pipeline completion
+- Summary sorted by absolute memory delta (biggest consumers first)
+- Peak RSS reported across all stages
+- 5 comprehensive tests verify memory reporting functionality
+- 39 pipeline_core tests passing (34 original + 5 new)
+- Negligible overhead (~0.2ms per stage for two psutil calls)
+
 ## Session Continuity
 
-Last session: 2026-02-16 08:28 UTC
-Stopped at: Phase 12 Plan 01 complete (Resource Manager & CLI Cleanup)
+Last session: 2026-02-16 08:36 UTC
+Stopped at: Phase 12 Plan 03 complete (Memory Reporting)
 Resume file: None
-Next: Phase 12 Plan 02 (ResourceManager Migration) — /gsd:execute-plan or continue with Plan 02
+Next: Phase 12 Plan 02 (ResourceManager Migration) or Plan 04 if exists — /gsd:execute-plan
