@@ -311,7 +311,54 @@ The individual HTML report now runs on a modern, lightweight JS stack. All must-
 
 ---
 
+## Post-Verification Fixes (2026-02-16)
+
+Manual browser testing (monkey testing via Playwright) revealed several issues not caught by automated verification:
+
+### Fixes Applied
+
+| # | Issue | Root Cause | Fix |
+|---|-------|-----------|-----|
+| 1 | Table invisible / no column headers | Table and skeleton both started `display: none`; DataTables init on hidden table produced 0-height headers | Table stays visible during init; skeleton hides on `initComplete` |
+| 2 | `tippy is not defined` JS error | Tippy.js UMD bundle requires Popper.js (`window.Popper`), which was not loaded | Added `popper.min.js` (v2.11.8, 20KB) as separate asset loaded before Tippy |
+| 3 | Duplicate header row with ghost sort arrows | DataTables `scrollX` clones thead to `dt-scroll-head` but leaves original visible in body | CSS: `.dt-scroll-body thead { display: none; }` |
+| 4 | Header/column misalignment | Header had 16px font + 30px right-padding vs body's 13px + 6px | Unified font-size (13px) and padding across header and body selectors |
+| 5 | POS column right-aligned, overlapping sort icons | DataTables auto-detects numeric columns (`dt-type-numeric`) and right-aligns | CSS: `.dt-type-numeric { text-align: left !important; }` |
+| 6 | Tooltips not attaching on hidden elements | `offsetWidth < scrollWidth` check returns 0 on `display: none` elements | Changed to Tippy `onShow` callback that cancels if content isn't truncated |
+| 7 | Missing search box | `layout.topEnd` overridden with only buttons, losing default search | Added `search: true` to `layout.topEnd` config |
+
+### Config Changes
+
+| Change | File | Detail |
+|--------|------|--------|
+| Link column order | config.json | Reordered: ClinVar, gnomAD_2, Varsome, Franklin, SpliceAI, autopvs1 |
+| Hidden link columns | config.json | Franklin, SpliceAI, autopvs1 added to `html_report_default_hidden_columns` |
+
+### New Asset
+
+| File | Size | Purpose |
+|------|------|---------|
+| `variantcentrifuge/assets/js/popper.min.js` | 20,122 bytes | @popperjs/core v2.11.8 — required by Tippy.js UMD bundle |
+
+### Updated Artifact Count
+
+- JS assets: 7 → **8** (added popper.min.js)
+- Total JS bundle: 432KB → **452KB**
+- Tests updated: `test_html_report_assets.py` expects 8 JS asset keys
+
+### Verification Method
+
+All fixes verified via Playwright browser automation:
+- Screenshots captured at each fix stage
+- DOM inspection confirmed header height, alignment, visibility
+- Console error monitoring confirmed zero JS errors after fixes
+- Tooltip hover test confirmed Tippy.js working on truncated cells
+- CI checks passed: lint, format, typecheck (non-blocking), 1152 tests
+
+---
+
 _Verified: 2026-02-16T16:18:16Z_
+_Post-verification fixes: 2026-02-16_
 _Verifier: Claude (gsd-verifier)_
 _Phase: 13-js-stack-modernization_
 _Status: PASSED — Ready for Phase 14_
