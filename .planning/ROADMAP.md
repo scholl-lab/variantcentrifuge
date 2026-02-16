@@ -134,19 +134,23 @@ Plans:
 - [x] 11-03-PLAN.md -- Validation tests (GT reconstruction, phenotype equivalence, pipeline data flow) + stage registry cleanup
 
 #### Phase 12: Parallelization & Chunking
-**Goal**: Dynamic work distribution and memory-efficient processing at scale
+**Goal**: Pipeline-wide resource management, auto-tuned parallelism, and memory-efficient processing at scale
 **Depends on**: Phase 11 (pipeline I/O elimination must be complete first)
-**Requirements**: PARLZ-01, PARLZ-02, PARLZ-03, PARLZ-04
+**Requirements**: PARLZ-01 (dynamic chunking), PARLZ-02 (load balancing via gene sorting), PARLZ-03 (pipeline-wide memory management), PARLZ-04 (memory reporting)
+**Note**: Scope revised based on Phase 7-11 transformations. PARLZ-02 (work stealing) replaced with gene sorting. PARLZ-03 (memory pools) replaced with pipeline-wide ResourceManager. PARLZ-04 (async I/O) replaced with memory reporting. Research showed memory pools and async I/O unnecessary after Phase 8 (82-84% memory reduction) and Phase 11 (I/O bottleneck elimination).
 **Success Criteria** (what must be TRUE):
-  1. Dynamic chunking calculates optimal sizes based on variant count, sample count, and genotype density
-  2. Adaptive work stealing redistributes work from large gene groups to idle workers during inheritance analysis
-  3. Memory pool management reduces allocation overhead with reusable pre-allocated buffers
-  4. Asynchronous I/O with memory mapping overlaps reads with processing for I/O-bound workloads
-  5. Benchmarks show improved scaling on large cohorts (5000+ samples) with no memory regressions
-**Plans**: TBD
+  1. Dynamic chunking calculates optimal sizes based on variant count, sample count, and available memory via pipeline-wide ResourceManager
+  2. Gene sorting (largest-first) improves load balancing for parallel compound het detection
+  3. Pipeline-wide ResourceManager replaces inheritance-specific InheritanceMemoryManager (zero dead code)
+  4. Per-stage memory reporting at INFO level shows peak RSS and memory breakdown after pipeline completes
+  5. Benchmarks show auto-tuned parallelism produces reasonable values with no regressions
+**Plans:** 4 plans
 
 Plans:
-- [ ] 12-01: [TBD during planning]
+- [ ] 12-01-PLAN.md -- Pipeline-wide ResourceManager (memory/CPU detection, auto-chunking, auto-workers) + dead CLI flag removal + unit tests
+- [ ] 12-02-PLAN.md -- Migrate inheritance analysis to ResourceManager, gene sorting for load balance, delete InheritanceMemoryManager
+- [ ] 12-03-PLAN.md -- Per-stage memory reporting in pipeline runner (INFO-level RSS tracking + summary)
+- [ ] 12-04-PLAN.md -- Parallelism benchmarks + full verification sweep (zero dead code, golden files, CI green)
 
 ## Progress
 
@@ -161,4 +165,4 @@ Plans:
 | 9. Inheritance Analysis Optimization | v0.13.0 | 5/5 | Complete | 2026-02-14 |
 | 10. Output Optimization | v0.13.0 | 3/3 | Complete | 2026-02-15 |
 | 11. Pipeline I/O Elimination | v0.13.0 | 3/3 | Complete | 2026-02-15 |
-| 12. Parallelization & Chunking | v0.13.0 | 0/TBD | Not started | - |
+| 12. Parallelization & Chunking | v0.13.0 | 0/4 | Not started | - |
