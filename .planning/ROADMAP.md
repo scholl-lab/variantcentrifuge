@@ -74,9 +74,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 14-01-PLAN.md — Expand summary data and restructure template with dashboard above table
-- [ ] 14-02-PLAN.md — Add semantic color badges to IMPACT/ClinVar/Inheritance columns and metadata footer
-- [ ] 14-03-PLAN.md — Tests for dashboard, badges, and metadata footer
+- [x] 14-01-PLAN.md — Expand summary data and restructure template with dashboard above table
+- [x] 14-02-PLAN.md — Add semantic color badges to IMPACT/ClinVar/Inheritance columns and metadata footer
+- [x] 14-03-PLAN.md — Tests for dashboard, badges, and metadata footer
 
 **Success Criteria:**
 
@@ -155,7 +155,7 @@ Plans:
 | 11. Pipeline I/O Elimination | v0.13.0 | 3/3 | Complete | 2026-02-15 |
 | 12. Parallelization & Chunking | v0.13.0 | 4/4 | Complete | 2026-02-16 |
 | 13. JS Stack Modernization | v0.14.0 | 3/3 | Complete | 2026-02-16 |
-| 14. Information Hierarchy and Semantic Color Coding | v0.14.0 | 0/3 | Not Started | — |
+| 14. Information Hierarchy and Semantic Color Coding | v0.14.0 | 3/3 | Complete | 2026-02-16 |
 | 15. Table Redesign | v0.14.0 | 0/? | Not Started | — |
 | 16. Column-Level Filtering and Visualization | v0.14.0 | 0/? | Not Started | — |
 | 17. Accessibility and Print/PDF | v0.14.0 | 0/? | Not Started | — |
