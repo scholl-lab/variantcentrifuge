@@ -211,14 +211,10 @@ class ResourceManager:
             Optimal chunk size (number of items)
         """
         # Calculate safe memory budget
-        safe_memory_bytes = (
-            self.memory_gb * self.memory_safety_factor * (1024**3)
-        )
+        safe_memory_bytes = self.memory_gb * self.memory_safety_factor * (1024**3)
 
         # Calculate memory per item (with overhead)
-        memory_per_item = (
-            num_samples * bytes_per_item * self.overhead_factor
-        )
+        memory_per_item = num_samples * bytes_per_item * self.overhead_factor
 
         # Calculate max items that fit in memory
         max_items = int(safe_memory_bytes / memory_per_item)
