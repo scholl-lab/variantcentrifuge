@@ -40,18 +40,19 @@ class TestFieldExtractionStageCompression:
             "extract_fields_separator": ",",
             "log_level": "INFO",
         }
+        context.vcf_samples = ["Sample1", "Sample2", "Sample3"]  # Add vcf_samples for bcftools
         # Mark dependencies as complete
         context.is_complete.return_value = True
         return context
 
-    @patch("variantcentrifuge.stages.processing_stages.extract_fields")
+    @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
     def test_compression_enabled_by_default(self, mock_extract, base_context):
         """Test that compression is enabled by default (gzip_intermediates=True)."""
         # Default behavior should enable compression
         stage = FieldExtractionStage()
         result_context = stage._process(base_context)
 
-        # Verify extract_fields was called with compressed filename
+        # Verify extract_fields_bcftools was called with compressed filename
         mock_extract.assert_called_once()
         call_args = mock_extract.call_args
         output_file = call_args.kwargs["output_file"]
@@ -59,7 +60,7 @@ class TestFieldExtractionStageCompression:
         assert output_file.endswith(".tsv.gz"), f"Expected .tsv.gz output, got: {output_file}"
         assert result_context.extracted_tsv.name.endswith(".tsv.gz")
 
-    @patch("variantcentrifuge.stages.processing_stages.extract_fields")
+    @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
     def test_compression_enabled_explicitly(self, mock_extract, base_context):
         """Test compression when gzip_intermediates=True."""
         base_context.config["gzip_intermediates"] = True
@@ -67,7 +68,7 @@ class TestFieldExtractionStageCompression:
         stage = FieldExtractionStage()
         result_context = stage._process(base_context)
 
-        # Verify extract_fields was called with compressed filename
+        # Verify extract_fields_bcftools was called with compressed filename
         mock_extract.assert_called_once()
         call_args = mock_extract.call_args
         output_file = call_args.kwargs["output_file"]
@@ -75,7 +76,7 @@ class TestFieldExtractionStageCompression:
         assert output_file.endswith(".tsv.gz"), f"Expected .tsv.gz output, got: {output_file}"
         assert result_context.extracted_tsv.name.endswith(".tsv.gz")
 
-    @patch("variantcentrifuge.stages.processing_stages.extract_fields")
+    @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
     def test_compression_disabled(self, mock_extract, base_context):
         """Test no compression when gzip_intermediates=False."""
         base_context.config["gzip_intermediates"] = False
@@ -83,7 +84,7 @@ class TestFieldExtractionStageCompression:
         stage = FieldExtractionStage()
         result_context = stage._process(base_context)
 
-        # Verify extract_fields was called with uncompressed filename
+        # Verify extract_fields_bcftools was called with uncompressed filename
         mock_extract.assert_called_once()
         call_args = mock_extract.call_args
         output_file = call_args.kwargs["output_file"]
@@ -92,21 +93,23 @@ class TestFieldExtractionStageCompression:
         assert not output_file.endswith(".tsv.gz"), f"Unexpected .tsv.gz output: {output_file}"
         assert result_context.extracted_tsv.name.endswith(".tsv")
 
-    @patch("variantcentrifuge.stages.processing_stages.extract_fields")
+    @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
     def test_config_propagation(self, mock_extract, base_context):
-        """Test that extract_fields receives correct configuration."""
+        """Test that extract_fields_bcftools receives correct configuration."""
         base_context.config["extract_fields_separator"] = ";"
 
         stage = FieldExtractionStage()
         stage._process(base_context)
 
-        # Verify configuration is passed correctly
+        # Verify configuration is passed correctly (bcftools doesn't use extract_fields_separator)
         mock_extract.assert_called_once()
         call_args = mock_extract.call_args
         cfg = call_args.kwargs["cfg"]
 
-        assert cfg["extract_fields_separator"] == ";"
+        # bcftools doesn't use extract_fields_separator, just debug_level
         assert cfg["debug_level"] == "INFO"
+        # Verify vcf_samples is passed
+        assert call_args.kwargs["vcf_samples"] == ["Sample1", "Sample2", "Sample3"]
 
 
 class TestParallelProcessingCompression:
@@ -323,10 +326,11 @@ class TestCompressionEndToEnd:
                 "extract_fields_separator": ",",
                 "log_level": "INFO",
             }
+            context.vcf_samples = ["Sample1", "Sample2", "Sample3"]  # Add vcf_samples for bcftools
             context.is_complete.return_value = True
             yield context
 
-    @patch("variantcentrifuge.stages.processing_stages.extract_fields")
+    @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
     def test_field_extraction_compression_consistency(self, mock_extract, pipeline_context):
         """Test that FieldExtractionStage creates consistent filenames."""
         # Test both enabled and disabled compression

@@ -200,3 +200,65 @@ def extract_phenotypes_for_gt_row(gt_value: str, phenotypes: dict[str, set[str]]
                 phenotype_entries.append(f"{sample_id}()")
 
     return ";".join(phenotype_entries)
+
+
+def extract_phenotypes_from_sample_columns(
+    row, vcf_samples: list[str], phenotypes: dict[str, set[str]]
+) -> str:
+    """
+    Extract phenotypes from per-sample GT columns (Phase 11 bcftools output).
+
+    With bcftools query output, each sample has its own GT column (GEN[0].GT, GEN[1].GT, ...).
+    This function examines these columns to find samples with variants and returns their phenotypes.
+
+    Parameters
+    ----------
+    row : pd.Series or namedtuple
+        DataFrame row containing per-sample GT columns
+    vcf_samples : list of str
+        List of sample IDs in VCF order (matches GEN[N] indexing)
+    phenotypes : dict of {str: set of str}
+        Dictionary mapping sample IDs to a set of phenotypes.
+
+    Returns
+    -------
+    str
+        Phenotypes for samples with variants: "Sample1(pheno1,pheno2);Sample2(pheno3)"
+        Samples with reference genotypes (0/0, ./., NA, empty) are excluded.
+    """
+    import pandas as pd
+
+    phenotype_entries = []
+
+    for sample_id in vcf_samples:
+        # Get GT value for this sample - try both sanitized and original column names
+        # Original: "GEN[0].GT", Sanitized: "GEN_0__GT"
+        gt_value = None
+
+        # Try getting by attribute (namedtuple or Series)
+        if hasattr(row, sample_id):
+            gt_value = getattr(row, sample_id)
+        # Try dictionary-style access (Series)
+        elif hasattr(row, "__getitem__"):
+            import contextlib
+
+            with contextlib.suppress(KeyError, IndexError):
+                gt_value = row[sample_id]
+
+        # Handle missing/NA/reference genotypes
+        if pd.isna(gt_value) or not gt_value:
+            continue
+
+        gt_str = str(gt_value).strip()
+        if not gt_str or gt_str in ["0/0", "./.", ".", "NA"]:
+            continue
+
+        # Sample has variant - get phenotypes
+        if phenotypes.get(sample_id):
+            phenotype_str = ",".join(sorted(phenotypes[sample_id]))
+            phenotype_entries.append(f"{sample_id}({phenotype_str})")
+        else:
+            # Sample has variant but no phenotypes
+            phenotype_entries.append(f"{sample_id}()")
+
+    return ";".join(phenotype_entries)

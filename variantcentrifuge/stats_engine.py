@@ -154,7 +154,7 @@ class StatsEngine:
 
             try:
                 # Group by specified columns
-                grouped = df.groupby(groupby_cols)
+                grouped = df.groupby(groupby_cols, observed=True)
 
                 # Apply the expression to each group
                 if "size()" in expression:
@@ -237,7 +237,7 @@ class StatsEngine:
 
             try:
                 # Group by specified columns
-                grouped = df.groupby(groupby_cols)
+                grouped = df.groupby(groupby_cols, observed=True)
 
                 # Apply the expression
                 if "size()" in expression:
@@ -283,8 +283,8 @@ class StatsEngine:
         # Dataset stats
         if "dataset" in self.results and not self.results["dataset"].empty:
             output_lines.append("=== Dataset Statistics ===")
-            for _, row in self.results["dataset"].iterrows():
-                output_lines.append(f"{row['metric']}: {row['value']}")
+            for row in self.results["dataset"].itertuples(index=False):
+                output_lines.append(f"{getattr(row, 'metric', '')}: {getattr(row, 'value', '')}")
             output_lines.append("")
 
         # Gene stats

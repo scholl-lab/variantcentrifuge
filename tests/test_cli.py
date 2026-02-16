@@ -290,35 +290,6 @@ class TestArgumentParser:
         help_text = parser.format_help()
         assert "variantcentrifuge: Filter and process VCF files." in help_text
 
-    def test_genotype_replacement_chunk_size_parameter_exists(self):
-        """Test that --genotype-replacement-chunk-size parameter is defined in create_parser()."""
-        from variantcentrifuge.cli import create_parser
-
-        parser = create_parser()
-        help_text = parser.format_help()
-
-        # Verify the parameter exists in help
-        assert "--genotype-replacement-chunk-size" in help_text
-        assert "Chunk size for parallel genotype replacement" in help_text
-
-        # Test parsing the parameter
-        args = parser.parse_args(
-            ["--vcf-file", "test.vcf", "--genotype-replacement-chunk-size", "25000"]
-        )
-        assert args.genotype_replacement_chunk_size == 25000
-
-    def test_genotype_replacement_chunk_size_parameter_cli(self):
-        """Test --genotype-replacement-chunk-size parameter via CLI interface."""
-        from variantcentrifuge.cli import create_parser
-
-        parser = create_parser()
-        # Test that the parameter is recognized and parses correctly
-        args = parser.parse_args(
-            ["--vcf-file", "test.vcf", "--genotype-replacement-chunk-size", "25000"]
-        )
-        assert args.genotype_replacement_chunk_size == 25000
-        assert "--genotype-replacement-chunk-size" in parser.format_help()
-
     def test_all_argument_groups_present(self):
         """Test that all expected argument groups are present in create_parser()."""
         from variantcentrifuge.cli import create_parser
@@ -371,8 +342,6 @@ class TestArgumentParser:
         # Test that key performance parameters exist
         performance_params = [
             "--threads",
-            "--genotype-replacement-chunk-size",
-            "--chunks",
             "--sort-memory-limit",
             "--max-memory-gb",
         ]
@@ -387,16 +356,10 @@ class TestArgumentParser:
                 "test.vcf",
                 "--threads",
                 "8",
-                "--genotype-replacement-chunk-size",
-                "10000",
-                "--chunks",
-                "4",
             ]
         )
 
         assert args.threads == 8
-        assert args.genotype_replacement_chunk_size == 10000
-        assert args.chunks == 4
 
     def test_genotype_replacement_methods(self):
         """Test genotype replacement method parameter."""
@@ -467,9 +430,6 @@ class TestArgumentParser:
         parser = create_parser()
         help_text = parser.format_help()
 
-        # Test that genotype-replacement-chunk-size is in Miscellaneous Options
-        assert "--genotype-replacement-chunk-size" in help_text
-
         # Test gzip intermediate options
         misc_params = ["--gzip-intermediates", "--no-gzip-intermediates"]
 
@@ -488,18 +448,18 @@ class TestArgumentParser:
 
         # Test key parameters that were affected by the duplicate parser bug
         critical_params = [
-            "--genotype-replacement-chunk-size",
             "--threads",
-            "--chunks",
             "--vcf-file",
             "--output-file",
+            "--sort-memory-limit",
+            "--max-memory-gb",
         ]
 
         for param in critical_params:
             assert param in help_text, f"Critical parameter missing from create_parser(): {param}"
 
         # Test that these parameters parse without errors
-        for param in ["--genotype-replacement-chunk-size", "--threads", "--chunks"]:
+        for param in ["--threads", "--sort-memory-limit", "--max-memory-gb"]:
             args = parser.parse_args(["--vcf-file", "test.vcf", param, "10"])
             assert args is not None, f"Parameter {param} failed to parse"
 
@@ -511,7 +471,6 @@ class TestArgumentParser:
         args = parser.parse_args(["--vcf-file", "test.vcf"])
 
         # Test some expected defaults
-        assert args.genotype_replacement_chunk_size == 50000
         assert args.log_level == "INFO"
 
         # Test that defaults can be overridden
@@ -519,14 +478,11 @@ class TestArgumentParser:
             [
                 "--vcf-file",
                 "test.vcf",
-                "--genotype-replacement-chunk-size",
-                "25000",
                 "--log-level",
                 "DEBUG",
             ]
         )
 
-        assert args.genotype_replacement_chunk_size == 25000
         assert args.log_level == "DEBUG"
 
     def test_invalid_arguments(self):
@@ -539,11 +495,9 @@ class TestArgumentParser:
         with pytest.raises(SystemExit):
             parser.parse_args(["--vcf-file", "test.vcf", "--log-level", "INVALID"])
 
-        # Test invalid chunk size (non-integer)
+        # Test invalid thread count (non-integer)
         with pytest.raises(SystemExit):
-            parser.parse_args(
-                ["--vcf-file", "test.vcf", "--genotype-replacement-chunk-size", "not_a_number"]
-            )
+            parser.parse_args(["--vcf-file", "test.vcf", "--threads", "not_a_number"])
 
     def test_argument_type_conversion(self):
         """Test that argument types are properly converted."""
@@ -554,15 +508,14 @@ class TestArgumentParser:
             [
                 "--vcf-file",
                 "test.vcf",
-                "--genotype-replacement-chunk-size",
-                "15000",
                 "--threads",
                 "16",
+                "--max-memory-gb",
+                "32",
             ]
         )
 
         # Test type conversions
-        assert isinstance(args.genotype_replacement_chunk_size, int)
         assert isinstance(args.threads, int)
         assert isinstance(args.vcf_file, str)
         assert isinstance(args.log_level, str)
@@ -584,9 +537,7 @@ class TestCLIRegressionTests:
 
         # Test that all critical parameters are recognized by create_parser()
         critical_parameters = [
-            "--genotype-replacement-chunk-size",
             "--threads",
-            "--chunks",
             "--sort-memory-limit",
             "--max-memory-gb",
         ]
@@ -598,27 +549,6 @@ class TestCLIRegressionTests:
             # Verify parsing works
             args = parser.parse_args(["--vcf-file", "test.vcf", param, "10"])
             assert args is not None, f"Parameter {param} failed to parse"
-
-    def test_genotype_replacement_chunk_size_specifically(self):
-        """Specific regression test for --genotype-replacement-chunk-size parameter.
-
-        This is the exact parameter that was failing due to the duplicate parser bug.
-        """
-        from variantcentrifuge.cli import create_parser
-
-        parser = create_parser()
-        help_text = parser.format_help()
-        assert "--genotype-replacement-chunk-size" in help_text
-
-        # Test with different values
-        test_values = ["1000", "10000", "50000", "100000"]
-        for value in test_values:
-            args = parser.parse_args(
-                ["--vcf-file", "test.vcf", "--genotype-replacement-chunk-size", value]
-            )
-            assert args.genotype_replacement_chunk_size == int(value), (
-                f"Failed with chunk size {value}"
-            )
 
     def test_parser_architecture_consistency(self):
         """Test that ensures the parser architecture is consistent.
@@ -714,10 +644,6 @@ class TestPerformanceConfigMapping:
                 "64.0",
                 "--genotype-replacement-method",
                 "parallel",
-                "--vectorized-chunk-size",
-                "15000",
-                "--genotype-replacement-chunk-size",
-                "20000",
                 "--threads",
                 "8",
             ]
@@ -726,8 +652,6 @@ class TestPerformanceConfigMapping:
         # Verify performance parameters are correctly parsed
         assert args.max_memory_gb == 64.0
         assert args.genotype_replacement_method == "parallel"
-        assert args.vectorized_chunk_size == 15000
-        assert args.genotype_replacement_chunk_size == 20000
         assert args.threads == 8
 
     def test_genotype_replacement_method_config_mapping(self):
@@ -758,10 +682,6 @@ class TestPerformanceConfigMapping:
                 "parallel",
                 "--max-memory-gb",
                 "250.0",
-                "--genotype-replacement-chunk-size",
-                "25000",
-                "--vectorized-chunk-size",
-                "10000",
                 "--threads",
                 "16",
             ]
@@ -770,8 +690,7 @@ class TestPerformanceConfigMapping:
         # Verify all performance parameters parsed correctly
         assert args.genotype_replacement_method == "parallel"
         assert args.max_memory_gb == 250.0
-        assert args.genotype_replacement_chunk_size == 25000
-        assert args.vectorized_chunk_size == 10000
+        assert args.threads == 16
 
     def test_performance_config_prevents_auto_selection_override(self):
         """Test that explicit method selection is preserved in parsed args."""
@@ -797,8 +716,6 @@ class TestPerformanceConfigMapping:
         # Verify defaults are correctly set
         assert args.genotype_replacement_method == "auto"
         assert args.max_memory_gb is None  # Auto-detect
-        assert args.vectorized_chunk_size == 25000
-        assert args.genotype_replacement_chunk_size == 50000
 
     def test_comprehensive_cli_parameter_config_mapping(self):
         """Comprehensive test for CLI parameter to config mapping completeness."""

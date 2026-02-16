@@ -275,12 +275,12 @@ class TestIntegrationEdgeCases:
 
         result = perform_gene_burden_analysis(mock_variant_data, config)
 
-        # Check GENE1 aggregation (should sum to 5 variants in cases, 0 in controls)
+        # Check GENE1 aggregation (legacy mode sums per-variant, capped at sample count)
         gene1 = result[result["GENE"] == "GENE1"].iloc[0]
         assert gene1["proband_variant_count"] == 5
         assert gene1["control_variant_count"] == 0
 
-        # Check GENE2 aggregation
+        # Check GENE2 aggregation (legacy mode sums per-variant counts)
         gene2 = result[result["GENE"] == "GENE2"].iloc[0]
         assert gene2["proband_variant_count"] == 1
         assert gene2["control_variant_count"] == 1

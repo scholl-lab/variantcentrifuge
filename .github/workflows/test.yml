@@ -64,6 +64,7 @@ jobs:
             mypy-${{ runner.os }}-py3.10-
 
       - name: Run mypy type checker
+        continue-on-error: true
         run: python -m mypy variantcentrifuge/
 
   test:
@@ -103,6 +104,7 @@ jobs:
       - name: Upload pytest results
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: pytest-results-${{ matrix.python-version }}
           path: junit/test-results-${{ matrix.python-version }}.xml

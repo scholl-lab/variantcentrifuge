@@ -19,6 +19,7 @@ classifiers = [
 ]
 dependencies = [
     "pandas",
+    "pyarrow>=14.0",
     "jinja2",
     "scipy",
     "statsmodels",
@@ -27,6 +28,7 @@ dependencies = [
     "psutil",
     "smart-open",
     "openpyxl",
+    "xlsxwriter>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +37,7 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "pytest-mock>=3.14",
+    "pytest-benchmark>=5.1.0",
     "ruff>=0.11",
     "pre-commit",
 ]
@@ -54,7 +57,7 @@ include = ["variantcentrifuge/"]
 
 [tool.pytest.ini_options]
 # Test file patterns
-python_files = ["test_*.py", "*_test.py"]
+python_files = ["test_*.py", "*_test.py", "benchmark_*.py"]
 # Default options: summary of non-passing tests, short tracebacks, strict markers
 addopts = "-ra --tb=short --strict-markers --color=yes"
 # Focus test collection on the tests directory

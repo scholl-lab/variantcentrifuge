@@ -13,6 +13,9 @@ from .utils import generate_igv_safe_filename_base
 
 logger = logging.getLogger("variantcentrifuge")
 
+# Compile GT parsing pattern once at module level for performance
+GT_PATTERN = re.compile(r"([^()]+)\(([^)]+)\)")
+
 
 def _generate_single_igv_report(
     task_data: tuple[
@@ -244,8 +247,6 @@ def generate_igv_report(
     alt_idx = header.index("ALT")
     gt_idx = header.index("GT")
 
-    pattern = re.compile(r"([^()]+)\(([^)]+)\)")
-
     # Count total variants that will be processed
     total_variants = 0
     with open(variants_tsv, encoding="utf-8") as f:
@@ -262,7 +263,7 @@ def generate_igv_report(
                     entry = entry.strip()
                     if not entry:
                         continue
-                    m = pattern.match(entry)
+                    m = GT_PATTERN.match(entry)
                     if m:
                         genotype = m.group(2).strip()
                         if genotype not in ["0/0", "./."]:
@@ -298,7 +299,7 @@ def generate_igv_report(
                     entry = entry.strip()
                     if not entry:
                         continue
-                    m = pattern.match(entry)
+                    m = GT_PATTERN.match(entry)
                     if m:
                         sample_id = m.group(1).strip()
                         genotype = m.group(2).strip()

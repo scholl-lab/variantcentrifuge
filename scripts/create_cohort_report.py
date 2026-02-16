@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Script to create a cohort report from multiple sample TSV files.
 
 create_cohort_report.py
@@ -171,7 +170,7 @@ def aggregate_data(input_files, sample_regex):
 
         except Exception as e:
             logger.error(
-                f"Failed to process {file_path}. Error: {str(e)}", exc_info=True
+                f"Failed to process {file_path}. Error: {e!s}", exc_info=True
             )  # exc_info=True for traceback
 
     if not dfs:
@@ -245,16 +244,7 @@ def clean_data(df):
         should_convert = False
 
         # AF columns (allele frequency): AF_1, AF_EXAC, AF_GNOMAD, etc.
-        if col.startswith("AF_") or col == "AF":
-            should_convert = True
-        # AD columns (allelic depth): AD_1, AD_2, etc.
-        elif col.startswith("AD_") or col == "AD":
-            should_convert = True
-        # Common numeric columns
-        elif col in ["QUAL", "DP", "IMPACT_SEVERITY", "CADD_PHRED", "Variant_Count"]:
-            should_convert = True
-        # Other common numeric patterns
-        elif any(col.endswith(suffix) for suffix in ["_score", "_SCORE", "_phred", "_PHRED"]):
+        if col.startswith("AF_") or col == "AF" or col.startswith("AD_") or col == "AD" or col in ["QUAL", "DP", "IMPACT_SEVERITY", "CADD_PHRED", "Variant_Count"] or any(col.endswith(suffix) for suffix in ["_score", "_SCORE", "_phred", "_PHRED"]):
             should_convert = True
 
         if should_convert:
@@ -323,10 +313,10 @@ def compute_statistics(df):
     gene_summary = None
     if "Gene" in df.columns:
         # Count variants per gene
-        gene_variants = df.groupby("Gene").size().reset_index(name="VariantCount")
+        gene_variants = df.groupby("Gene", observed=True).size().reset_index(name="VariantCount")
 
         # Count unique samples per gene
-        gene_samples = df.groupby("Gene")["SampleID"].nunique().reset_index(name="SampleCount")
+        gene_samples = df.groupby("Gene", observed=True)["SampleID"].nunique().reset_index(name="SampleCount")
 
         # Merge the two statistics
         gene_summary = pd.merge(gene_variants, gene_samples, on="Gene")
@@ -508,7 +498,7 @@ def discover_igv_maps(input_files, output_dir):
             if igv_map_path:
                 logger.info(f"Found IGV map: {igv_map_path}")
 
-                with open(igv_map_path, "r", encoding="utf-8") as f:
+                with open(igv_map_path, encoding="utf-8") as f:
                     igv_map_data = json.load(f)
 
                 # Handle both old and new IGV map format

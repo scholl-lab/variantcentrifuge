@@ -6,7 +6,6 @@ This module contains stages that handle the core data processing tasks:
 - Variant extraction from VCF files
 - Filtering with bcftools and SnpSift
 - Field extraction to TSV format
-- Genotype replacement
 - Phenotype integration
 """
 
@@ -21,13 +20,12 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import psutil
 from smart_open import smart_open
 
-from ..extractor import extract_fields
+from ..extractor import extract_fields, extract_fields_bcftools
 from ..filters import apply_snpsift_filter, extract_variants
 from ..gene_bed import get_gene_bed, normalize_genes
-from ..phenotype import extract_phenotypes_for_gt_row
+from ..phenotype import extract_phenotypes_for_gt_row, extract_phenotypes_from_sample_columns
 from ..pipeline_core import PipelineContext, Stage
 from ..pipeline_core.error_handling import (
     FileFormatError,
@@ -36,261 +34,10 @@ from ..pipeline_core.error_handling import (
     retry_on_failure,
     validate_file_exists,
 )
-from ..replacer import replace_genotypes
 from ..utils import ensure_fields_in_extract, run_command, split_bed_file
 from ..vcf_eff_one_per_line import process_vcf_file as split_snpeff_annotations
 
 logger = logging.getLogger(__name__)
-
-
-# Memory and compression utilities for intelligent processing method selection
-def get_available_memory_gb() -> float:
-    """Get available system memory in GB."""
-    try:
-        memory = psutil.virtual_memory()
-        available_gb: float = memory.available / (1024**3)
-        return available_gb
-    except Exception as e:
-        logger.warning(f"Could not detect available memory: {e}. Using default estimate of 8GB")
-        return 8.0  # Conservative fallback
-
-
-def estimate_compression_ratio(file_path: Path, sample_size_mb: float = 5.0) -> float:
-    """
-    Estimate compression ratio for a gzipped file by sampling the beginning.
-
-    Parameters
-    ----------
-    file_path : Path
-        Path to the gzipped file
-    sample_size_mb : float
-        Size in MB to sample for ratio estimation
-
-    Returns
-    -------
-    float
-        Estimated compression ratio (uncompressed_size / compressed_size)
-    """
-    if not str(file_path).endswith(".gz"):
-        return 1.0  # Not compressed
-
-    try:
-        sample_size_bytes = int(sample_size_mb * 1024 * 1024)
-        compressed_sample_size = 0
-        uncompressed_sample_size = 0
-
-        with gzip.open(file_path, "rb") as f:
-            # Read sample data
-            sample_data = f.read(sample_size_bytes)
-            uncompressed_sample_size = len(sample_data)
-
-            if uncompressed_sample_size == 0:
-                return 1.0
-
-        # Get compressed size of this sample by checking file position vs data read
-        with open(file_path, "rb") as f:
-            # Read compressed data until we have enough uncompressed data
-            compressed_data = f.read(sample_size_bytes // 2)  # Start with smaller chunk
-
-            # Try to decompress to see how much we need
-            try:
-                with gzip.open(file_path, "rb") as gz_f:
-                    test_data = gz_f.read(sample_size_bytes)
-                    if len(test_data) > 0:
-                        # Estimate based on file size ratios
-                        compressed_sample_size = len(compressed_data)
-
-                        if compressed_sample_size > 0:
-                            ratio = uncompressed_sample_size / compressed_sample_size
-                            # Apply safety bounds for genomic data
-                            ratio = max(5.0, min(50.0, ratio))  # Reasonable bounds for genomic data
-                            return ratio
-            except Exception:
-                pass
-
-        # Fallback: use typical genomic data compression ratios
-        logger.debug(f"Using fallback compression ratio for {file_path}")
-        return 15.0  # Conservative estimate for genomic variant data
-
-    except Exception as e:
-        logger.warning(f"Could not estimate compression ratio for {file_path}: {e}")
-        return 15.0  # Conservative fallback
-
-
-def estimate_memory_requirements(file_path: Path, num_samples: int) -> tuple[float, float]:
-    """
-    Estimate memory requirements for processing a file.
-
-    Parameters
-    ----------
-    file_path : Path
-        Path to the file to process
-    num_samples : int
-        Number of samples in the dataset
-
-    Returns
-    -------
-    Tuple[float, float]
-        (estimated_uncompressed_gb, estimated_memory_required_gb)
-    """
-    file_size_mb = file_path.stat().st_size / (1024 * 1024)
-
-    # Estimate uncompressed size
-    compression_ratio = estimate_compression_ratio(file_path)
-    estimated_uncompressed_mb = file_size_mb * compression_ratio
-    estimated_uncompressed_gb = estimated_uncompressed_mb / 1024
-
-    # Estimate memory overhead for pandas processing
-    # Factors: pandas overhead (2-3x), string processing (1.5x), multiple columns (1.2x),
-    # sample processing overhead
-    pandas_overhead = 3.0  # Be more conservative with pandas overhead
-    string_processing_overhead = 2.0  # String operations with many samples are expensive
-    # Multi-sample overhead - vectorized processing scales worse with high sample counts
-    if num_samples < 100:
-        multi_sample_overhead = 1.2
-    elif num_samples < 1000:
-        multi_sample_overhead = 1.5 + (num_samples - 100) / 1000  # Linear scaling to 2.4x
-    else:
-        # For high sample counts, vectorized processing becomes memory intensive
-        multi_sample_overhead = 2.4 + min(6.0, (num_samples - 1000) / 1000)  # Cap at 8.4x total
-
-    total_overhead = pandas_overhead * string_processing_overhead * multi_sample_overhead
-    estimated_memory_gb = estimated_uncompressed_gb * total_overhead
-
-    logger.debug(
-        f"Memory estimation for {file_path.name}: "
-        f"compressed={file_size_mb:.1f}MB, "
-        f"uncompressed~={estimated_uncompressed_gb:.1f}GB, "
-        f"memory_required~={estimated_memory_gb:.1f}GB "
-        f"(ratio={compression_ratio:.1f}x, overhead={total_overhead:.1f}x)"
-    )
-
-    return estimated_uncompressed_gb, estimated_memory_gb
-
-
-def select_optimal_processing_method(
-    file_path: Path,
-    num_samples: int,
-    threads: int,
-    available_memory_gb: float | None = None,
-) -> str:
-    """
-    Select the optimal processing method based on file characteristics.
-
-    Intelligently select the optimal processing method based on file characteristics and
-    system resources.
-
-    Parameters
-    ----------
-    file_path : Path
-        Path to the file to process
-    num_samples : int
-        Number of samples in the dataset
-    threads : int
-        Number of available threads
-    available_memory_gb : float, optional
-        Available memory in GB (auto-detected if None)
-
-    Returns
-    -------
-    str
-        Selected processing method: 'sequential', 'vectorized', 'chunked-vectorized',
-        'parallel', 'parallel-chunked-vectorized', or 'streaming-parallel'
-    """
-    if available_memory_gb is None:
-        available_memory_gb = get_available_memory_gb()
-
-    file_size_mb = file_path.stat().st_size / (1024 * 1024)
-    _uncompressed_gb, memory_required_gb = estimate_memory_requirements(file_path, num_samples)
-
-    # Memory safety thresholds (more realistic for modern systems)
-    memory_safe_threshold = available_memory_gb * 0.75  # Use max 75% of available memory
-    memory_warning_threshold = available_memory_gb * 0.9  # Warning at 90%
-
-    # Method selection logic
-    if memory_required_gb > memory_warning_threshold:
-        if threads > 1 and file_size_mb > 30:
-            # For high memory pressure, use streaming-parallel for better resource management
-            if threads >= 8 and available_memory_gb > 100:
-                method = "streaming-parallel"
-                reason = (
-                    f"high memory requirement ({memory_required_gb:.1f}GB) but many threads "
-                    f"({threads}) available, using streaming pipeline for optimal resource "
-                    f"utilization"
-                )
-            else:
-                method = (
-                    "parallel-chunked-vectorized"  # Best for very large files with multiple threads
-                )
-                reason = (
-                    f"memory required ({memory_required_gb:.1f}GB) > 90% of available "
-                    f"({available_memory_gb:.1f}GB), using parallel chunked with {threads} threads"
-                )
-        else:
-            method = "chunked-vectorized"  # Safest for very large files
-            reason = (
-                f"memory required ({memory_required_gb:.1f}GB) > 90% of available "
-                f"({available_memory_gb:.1f}GB)"
-            )
-    elif memory_required_gb > memory_safe_threshold:
-        if threads > 1:
-            method = "parallel"
-            reason = (
-                f"memory required ({memory_required_gb:.1f}GB) > safe threshold, "
-                f"using parallel with {threads} threads"
-            )
-        else:
-            method = "chunked-vectorized"
-            reason = f"memory required ({memory_required_gb:.1f}GB) > safe threshold, single thread"
-    elif file_size_mb < 10:  # Very small files
-        method = "sequential"
-        reason = f"small file ({file_size_mb:.1f}MB), sequential is most efficient"
-    elif num_samples > 50 and num_samples < 5000 and memory_required_gb < memory_safe_threshold:
-        method = "vectorized"
-        reason = (
-            f"many samples ({num_samples}), memory safe "
-            f"({memory_required_gb:.1f}GB < {memory_safe_threshold:.1f}GB)"
-        )
-    elif num_samples >= 5000:
-        # For very high sample counts, prefer streaming-parallel for optimal thread utilization
-        if threads > 1 and file_size_mb > 30:
-            if threads >= 10:
-                method = "streaming-parallel"
-                reason = (
-                    f"very high sample count ({num_samples}) with many threads ({threads}), "
-                    f"using streaming parallel for maximum CPU utilization"
-                )
-            else:
-                method = "parallel-chunked-vectorized"
-                reason = (
-                    f"very high sample count ({num_samples}), using parallel chunked "
-                    f"with {threads} threads for optimal performance"
-                )
-        else:
-            method = "chunked-vectorized"
-            reason = f"very high sample count ({num_samples}), using chunked processing for safety"
-    elif file_size_mb > 100 and threads > 1:
-        # For large files with good thread counts, prefer streaming-parallel
-        if threads >= 8:
-            method = "streaming-parallel"
-            reason = (
-                f"large file ({file_size_mb:.1f}MB) with many threads "
-                f"({threads}), using streaming parallel"
-            )
-        else:
-            method = "parallel"
-            reason = f"large file ({file_size_mb:.1f}MB), using {threads} threads"
-    else:
-        method = "sequential"
-        reason = "default fallback for moderate files"
-
-    logger.info(
-        f"Selected {method} processing: {reason} "
-        f"[file={file_size_mb:.1f}MB, samples={num_samples}, "
-        f"est_memory={memory_required_gb:.1f}GB, avail={available_memory_gb:.1f}GB]"
-    )
-
-    return method
 
 
 class GeneBedCreationStage(Stage):
@@ -1088,22 +835,23 @@ class FieldExtractionStage(Stage):
         if context.config.get("gzip_intermediates", True):
             output_tsv = Path(str(output_tsv) + ".gz")
 
-        logger.info(f"Extracting {len(fields)} fields from VCF to TSV")
+        logger.info(f"Extracting {len(fields)} fields from VCF to TSV using bcftools query")
 
-        # Prepare config for extract_fields
+        # Prepare config for extract_fields_bcftools
         extract_config = {
-            "extract_fields_separator": context.config.get("extract_fields_separator", ","),
             "debug_level": context.config.get("log_level", "INFO"),
         }
 
         # Convert fields list to space-separated string
         fields_str = " ".join(fields)
 
-        extract_fields(
+        # Use bcftools query (19x faster than SnpSift)
+        extract_fields_bcftools(
             variant_file=str(input_vcf),
             fields=fields_str,
             cfg=extract_config,
             output_file=str(output_tsv),
+            vcf_samples=context.vcf_samples,  # For per-sample column naming
         )
 
         context.extracted_tsv = output_tsv
@@ -1164,82 +912,14 @@ class GenotypeReplacementStage(Stage):
         return context
 
     def _process(self, context: PipelineContext) -> PipelineContext:
-        """Replace genotypes with sample IDs using optimized processing."""
-        # Default behavior: replace genotypes unless explicitly disabled
-        if context.config.get("no_replacement", False):
-            logger.debug("Genotype replacement disabled")
-            return context
+        """No-op: genotype replacement eliminated in Phase 11.
 
-        input_tsv = context.data
-        samples = context.vcf_samples
-        if not samples:
-            logger.warning("No VCF samples loaded, skipping genotype replacement")
-            return context
-
-        logger.info(f"Replacing genotypes for {len(samples)} samples")
-
-        # Determine processing method using intelligent selection
-        processing_method = context.config.get("genotype_replacement_method", "auto")
-        threads = context.config.get("threads", 1)
-
-        # Debug logging for method selection
-        logger.debug(f"Config genotype_replacement_method: {processing_method}")
-        logger.debug(f"Config threads: {threads}")
-        logger.debug(f"Config max_memory_gb: {context.config.get('max_memory_gb')}")
-
-        # Use intelligent method selection for 'auto' mode
-        if processing_method == "auto":
-            logger.debug("Using auto-selection for genotype replacement method")
-            processing_method = select_optimal_processing_method(
-                file_path=input_tsv,
-                num_samples=len(samples),
-                threads=threads,
-                available_memory_gb=context.config.get("max_memory_gb"),  # Allow override
-            )
-            logger.debug(f"Auto-selected method: {processing_method}")
-        else:
-            logger.debug(f"Using user-specified method: {processing_method}")
-
-        # Final method confirmation
-        logger.info(f"Final genotype replacement method: {processing_method}")
-
-        # Execute based on selected method
-        if processing_method == "vectorized":
-            output_tsv = self._process_genotype_replacement_vectorized(context, input_tsv, samples)
-        elif processing_method == "chunked-vectorized":
-            output_tsv = self._process_genotype_replacement_chunked_vectorized(
-                context, input_tsv, samples
-            )
-        elif processing_method == "parallel-chunked-vectorized":
-            output_tsv = self._process_genotype_replacement_parallel_chunked_vectorized(
-                context, input_tsv, samples, threads
-            )
-        elif processing_method == "streaming-parallel":
-            output_tsv = self._process_genotype_replacement_streaming_parallel(
-                context, input_tsv, samples, threads
-            )
-        elif processing_method == "parallel":
-            output_tsv = self._process_genotype_replacement_parallel(
-                context, input_tsv, samples, threads
-            )
-        else:  # sequential
-            output_tsv = self._process_genotype_replacement_sequential(context, input_tsv, samples)
-
-        context.genotype_replaced_tsv = output_tsv
-        context.data = output_tsv
-
-        # If extra sample fields were used only for genotype formatting,
-        # mark them for removal from the final output
-        if context.config.get("append_extra_sample_fields", False):
-            extra_fields = context.config.get("extra_sample_fields", [])
-            if extra_fields:
-                # Get the normalized column names that would appear in the TSV
-                from ..replacer import _normalize_snpeff_column_name
-
-                columns_to_remove = [_normalize_snpeff_column_name(field) for field in extra_fields]
-                context.config["extra_columns_to_remove"] = columns_to_remove
-                logger.info(f"Marked extra sample field columns for removal: {columns_to_remove}")
-
+        GT reconstruction is deferred to output time (TSV/Excel stages).
+        Raw per-sample GT columns from bcftools flow directly to analysis.
+        """
+        logger.info(
+            "Genotype replacement skipped — raw per-sample GT columns flow to analysis (Phase 11)"
+        )
         return context
 
     def get_input_files(self, context: PipelineContext) -> list[Path]:
@@ -1253,483 +933,6 @@ class GenotypeReplacementStage(Stage):
         if hasattr(context, "genotype_replaced_tsv") and context.genotype_replaced_tsv:
             return [context.genotype_replaced_tsv]
         return []
-
-    def _split_tsv_into_chunks(
-        self, input_tsv: Path, chunk_size: int, context: PipelineContext
-    ) -> list[Path]:
-        """Split TSV file into chunks for parallel processing."""
-        import gzip
-
-        chunks = []
-        chunk_dir = context.workspace.intermediate_dir / "genotype_chunks"
-        chunk_dir.mkdir(exist_ok=True)
-
-        # Open input file
-        with (
-            gzip.open(input_tsv, "rt", encoding="utf-8")
-            if str(input_tsv).endswith(".gz")
-            else open(input_tsv, encoding="utf-8")
-        ) as inp:
-            # Read header
-            header = inp.readline()
-            if not header:
-                return [input_tsv]  # Empty file, return original
-
-            chunk_idx = 0
-            current_chunk = None
-            current_chunk_size = 0
-
-            for line in inp:
-                # Start new chunk if needed
-                if current_chunk is None or current_chunk_size >= chunk_size:
-                    if current_chunk is not None:
-                        current_chunk.close()
-
-                    chunk_path = chunk_dir / f"chunk_{chunk_idx}.tsv.gz"
-                    current_chunk = gzip.open(chunk_path, "wt", encoding="utf-8", compresslevel=1)  # noqa: SIM115 - chunk lifetime spans loop iterations
-                    current_chunk.write(header)  # Write header to each chunk
-                    chunks.append(chunk_path)
-                    chunk_idx += 1
-                    current_chunk_size = 0
-
-                current_chunk.write(line)
-                current_chunk_size += 1
-
-            if current_chunk is not None:
-                current_chunk.close()
-
-        return chunks
-
-    def _process_genotype_chunk(
-        self, chunk_path: Path, replacer_config: dict, chunk_idx: int, context: PipelineContext
-    ) -> Path:
-        """Process a single chunk for genotype replacement."""
-        import gzip
-
-        from ..replacer import replace_genotypes
-
-        output_path = chunk_path.parent / f"processed_chunk_{chunk_idx}.tsv.gz"
-
-        # Process chunk with streaming compression
-        with (
-            gzip.open(chunk_path, "rt", encoding="utf-8") as inp,
-            gzip.open(output_path, "wt", encoding="utf-8", compresslevel=1) as out,
-        ):
-            for line in replace_genotypes(inp, replacer_config):
-                out.write(line + "\n")
-
-        return output_path
-
-    def _merge_genotype_chunks(self, chunk_paths: list[Path], output_path: Path) -> None:
-        """Merge processed genotype chunks into final output."""
-        import gzip
-
-        with gzip.open(output_path, "wt", encoding="utf-8", compresslevel=1) as out:
-            first_chunk = True
-
-            for chunk_path in chunk_paths:
-                with gzip.open(chunk_path, "rt", encoding="utf-8") as inp:
-                    if first_chunk:
-                        # Copy entire first chunk including header
-                        shutil.copyfileobj(inp, out)
-                        first_chunk = False
-                    else:
-                        # Skip header and copy rest
-                        next(inp, None)  # Skip header line
-                        shutil.copyfileobj(inp, out)
-
-    def _process_genotype_replacement_chunked_vectorized(
-        self, context: PipelineContext, input_tsv: Path, samples: list[str]
-    ) -> Path:
-        """Memory-safe chunked vectorized genotype replacement for large files."""
-        logger.info("Using chunked vectorized genotype replacement for memory safety")
-
-        output_tsv = context.workspace.get_intermediate_path(
-            f"{context.workspace.base_name}.genotype_replaced.tsv"
-        )
-
-        # Always use gzip for intermediate files
-        use_compression = context.config.get("gzip_intermediates", True)
-        if use_compression:
-            output_tsv = Path(str(output_tsv) + ".gz")
-
-        # Calculate intelligent chunk size based on available memory
-        available_memory_gb = get_available_memory_gb()
-        num_samples = len(samples)
-
-        # Estimate memory per row (bytes): base columns + sample data + pandas overhead
-        # More realistic estimate for high sample counts
-        base_bytes = 200
-        bytes_per_sample = 60 if num_samples > 1000 else 50  # More per sample for high counts
-        pandas_overhead_factor = 4 if num_samples > 3000 else 3  # Higher overhead for many samples
-        estimated_bytes_per_row = (
-            base_bytes + (bytes_per_sample * num_samples)
-        ) * pandas_overhead_factor
-
-        # For high sample counts, be more conservative with memory usage
-        if num_samples > 3000:
-            memory_fraction = 0.3  # Use only 30% for very high sample counts
-        elif num_samples > 1000:
-            memory_fraction = 0.4  # Use 40% for high sample counts
-        else:
-            memory_fraction = 0.5  # Use 50% for moderate sample counts
-        target_memory_bytes = available_memory_gb * memory_fraction * (1024**3)
-        chunk_size = max(500, min(20000, int(target_memory_bytes / estimated_bytes_per_row)))
-
-        logger.info(
-            f"Using chunk size of {chunk_size:,} rows "
-            f"(estimated {estimated_bytes_per_row} bytes/row, "
-            f"target memory {target_memory_bytes / (1024**3):.1f}GB)"
-        )
-
-        # Prepare config for vectorized replacer
-        replacer_config = {
-            "sample_list": ",".join(samples),
-            "separator": ";",
-            "extract_fields_separator": ",",
-            "append_extra_sample_fields": context.config.get("append_extra_sample_fields", False),
-            "extra_sample_fields": context.config.get("extra_sample_fields", []),
-            "extra_sample_field_delimiter": context.config.get("extra_sample_field_delimiter", ":"),
-            "genotype_replacement_map": context.config.get("genotype_replacement_map", {}),
-        }
-
-        try:
-            # Use the existing chunked processing function from vectorized_replacer
-            from ..vectorized_replacer import process_chunked_vectorized
-
-            logger.info(f"Processing genotype replacement: {input_tsv} -> {output_tsv}")
-            process_chunked_vectorized(
-                input_path=input_tsv,
-                output_path=output_tsv,
-                config=replacer_config,
-                chunk_size=chunk_size,
-            )
-
-            logger.info("Completed chunked vectorized genotype replacement")
-            return output_tsv
-
-        except Exception as e:
-            logger.error(f"Chunked vectorized processing failed: {e}")
-            logger.info("Falling back to sequential processing for safety")
-            # Fallback to sequential processing
-            return self._process_genotype_replacement_sequential(context, input_tsv, samples)
-
-    def _process_genotype_replacement_parallel_chunked_vectorized(
-        self, context: PipelineContext, input_tsv: Path, samples: list[str], threads: int
-    ) -> Path:
-        """Parallel chunked vectorized genotype replacement for optimal performance."""
-        logger.info(
-            f"Using parallel chunked vectorized genotype replacement with {threads} threads"
-        )
-
-        output_tsv = context.workspace.get_intermediate_path(
-            f"{context.workspace.base_name}.genotype_replaced.tsv"
-        )
-
-        # Always use gzip for intermediate files
-        use_compression = context.config.get("gzip_intermediates", True)
-        if use_compression:
-            output_tsv = Path(str(output_tsv) + ".gz")
-
-        # Calculate intelligent chunk size and worker count based on available memory
-        available_memory_gb = get_available_memory_gb()
-        num_samples = len(samples)
-
-        # Estimate memory per row (bytes): base columns + sample data + pandas overhead
-        base_bytes = 200
-        bytes_per_sample = 60 if num_samples > 1000 else 50
-        pandas_overhead_factor = 4 if num_samples > 3000 else 3
-        estimated_bytes_per_row = (
-            base_bytes + (bytes_per_sample * num_samples)
-        ) * pandas_overhead_factor
-
-        # For parallel processing, use more aggressive memory allocation since output is streamed
-        memory_fraction = 0.75  # Use 75% of available memory for all workers combined
-        target_memory_bytes = available_memory_gb * memory_fraction * (1024**3)
-
-        # Calculate chunk size with larger chunks since we have more memory per worker
-        chunk_size = max(
-            2000, min(50000, int(target_memory_bytes / (estimated_bytes_per_row * threads)))
-        )
-        # Use actual thread count provided, with reasonable upper limit
-        max_workers = min(threads, max(8, threads // 2))  # Use more workers, scale with threads
-
-        logger.info(
-            f"Using parallel chunked processing: chunk_size={chunk_size:,} rows, "
-            f"max_workers={max_workers}, estimated {estimated_bytes_per_row} bytes/row, "
-            f"target memory {target_memory_bytes / (1024**3):.1f}GB"
-        )
-
-        # Prepare config for vectorized replacer
-        replacer_config = {
-            "sample_list": ",".join(samples),
-            "separator": ";",
-            "extract_fields_separator": ",",
-            "append_extra_sample_fields": context.config.get("append_extra_sample_fields", False),
-            "extra_sample_fields": context.config.get("extra_sample_fields", []),
-            "extra_sample_field_delimiter": context.config.get("extra_sample_field_delimiter", ":"),
-            "genotype_replacement_map": context.config.get("genotype_replacement_map", {}),
-        }
-
-        try:
-            # Use the new parallel chunked processing function
-            from ..vectorized_replacer import process_parallel_chunked_vectorized
-
-            logger.info(
-                f"Processing parallel chunked genotype replacement: {input_tsv} -> {output_tsv}"
-            )
-            process_parallel_chunked_vectorized(
-                input_path=input_tsv,
-                output_path=output_tsv,
-                config=replacer_config,
-                chunk_size=chunk_size,
-                max_workers=max_workers,
-                available_memory_gb=available_memory_gb,
-            )
-
-            logger.info("Completed parallel chunked vectorized genotype replacement")
-            return output_tsv
-
-        except Exception as e:
-            logger.error(f"Parallel chunked vectorized processing failed: {e}")
-            logger.info("Falling back to chunked vectorized processing for safety")
-            # Fallback to single-threaded chunked processing
-            return self._process_genotype_replacement_chunked_vectorized(
-                context, input_tsv, samples
-            )
-
-    def _process_genotype_replacement_streaming_parallel(
-        self, context: PipelineContext, input_tsv: Path, samples: list[str], threads: int
-    ) -> Path:
-        """
-        Enhanced streaming parallel genotype replacement with intelligent chunking.
-
-        This method uses the new streaming pipeline architecture that provides:
-        - Thread-aware chunking for optimal CPU utilization
-        - Overlapped I/O and computation for better performance
-        - Adaptive memory management based on real usage
-        - Producer-consumer pipeline for consistent throughput
-        """
-        logger.info(
-            f"Using enhanced streaming parallel genotype replacement with {threads} threads"
-        )
-
-        output_tsv = context.workspace.get_intermediate_path(
-            f"{context.workspace.base_name}.genotype_replaced.tsv"
-        )
-
-        # Always use gzip for intermediate files
-        use_compression = context.config.get("gzip_intermediates", True)
-        if use_compression:
-            output_tsv = Path(str(output_tsv) + ".gz")
-
-        # Prepare config for streaming processor (compatible with vectorized_replacer)
-        replacer_config = {
-            "sample_list": ",".join(samples),
-            "separator": ";",
-            "extract_fields_separator": ",",
-            "append_extra_sample_fields": context.config.get("append_extra_sample_fields", False),
-            "extra_sample_fields": context.config.get("extra_sample_fields", []),
-            "extra_sample_field_delimiter": context.config.get("extra_sample_field_delimiter", ":"),
-            "genotype_replacement_map": context.config.get("genotype_replacement_map", {}),
-        }
-
-        try:
-            from ..parallel_genotype_processor import process_streaming_parallel
-
-            logger.info(
-                f"Processing enhanced streaming genotype replacement: {input_tsv} -> {output_tsv}"
-            )
-
-            process_streaming_parallel(
-                input_path=input_tsv,
-                output_path=output_tsv,
-                config=replacer_config,
-                threads=threads,
-            )
-
-            logger.info("Completed enhanced streaming parallel genotype replacement")
-            return output_tsv
-
-        except Exception as e:
-            logger.error(f"Enhanced streaming parallel processing failed: {e}")
-            logger.info("Falling back to standard parallel chunked processing")
-            # Fallback to existing parallel method
-            return self._process_genotype_replacement_parallel_chunked_vectorized(
-                context, input_tsv, samples, threads
-            )
-
-    def _process_genotype_replacement_sequential(
-        self, context: PipelineContext, input_tsv: Path, samples: list[str]
-    ) -> Path:
-        """Sequential genotype replacement (original method)."""
-        output_tsv = context.workspace.get_intermediate_path(
-            f"{context.workspace.base_name}.genotype_replaced.tsv"
-        )
-
-        # Always use gzip for intermediate files
-        use_compression = context.config.get("gzip_intermediates", True)
-        if use_compression:
-            output_tsv = Path(str(output_tsv) + ".gz")
-
-        # Prepare config for replace_genotypes
-        replacer_config = {
-            "sample_list": ",".join(samples),
-            "separator": ";",
-            "extract_fields_separator": ",",
-            "append_extra_sample_fields": context.config.get("append_extra_sample_fields", False),
-            "extra_sample_fields": context.config.get("extra_sample_fields", []),
-            "extra_sample_field_delimiter": context.config.get("extra_sample_field_delimiter", ":"),
-            "genotype_replacement_map": context.config.get("genotype_replacement_map", {}),
-        }
-
-        # Handle gzipped input/output files with streaming
-        import gzip
-
-        with (
-            (
-                gzip.open(input_tsv, "rt", encoding="utf-8")
-                if str(input_tsv).endswith(".gz")
-                else open(input_tsv, encoding="utf-8")
-            ) as inp,
-            (
-                gzip.open(output_tsv, "wt", encoding="utf-8", compresslevel=1)
-                if str(output_tsv).endswith(".gz")
-                else open(output_tsv, "w", encoding="utf-8")
-            ) as out,
-        ):
-            for line in replace_genotypes(inp, replacer_config):
-                out.write(line + "\n")
-
-        return output_tsv
-
-    def _process_genotype_replacement_parallel(
-        self, context: PipelineContext, input_tsv: Path, samples: list[str], threads: int
-    ) -> Path:
-        """Parallel genotype replacement using chunked processing."""
-        logger.info(f"Using parallel genotype replacement with {threads} threads")
-
-        # Split input file into chunks for parallel processing
-        chunk_size = context.config.get("genotype_replacement_chunk_size", 10000)
-        chunks = self._split_tsv_into_chunks(input_tsv, chunk_size, context)
-
-        if len(chunks) <= 1:
-            # Fall back to sequential processing for small files
-            logger.info("File too small for parallel processing, using sequential method")
-            return self._process_genotype_replacement_sequential(context, input_tsv, samples)
-
-        # Process chunks in parallel
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
-        # Prepare common config
-        replacer_config = {
-            "sample_list": ",".join(samples),
-            "separator": ";",
-            "extract_fields_separator": ",",
-            "append_extra_sample_fields": context.config.get("append_extra_sample_fields", False),
-            "extra_sample_fields": context.config.get("extra_sample_fields", []),
-            "extra_sample_field_delimiter": context.config.get("extra_sample_field_delimiter", ":"),
-            "genotype_replacement_map": context.config.get("genotype_replacement_map", {}),
-        }
-
-        processed_chunks = []
-
-        with ThreadPoolExecutor(max_workers=threads) as executor:
-            # Submit chunk processing tasks
-            futures = {}
-            for i, chunk_path in enumerate(chunks):
-                future = executor.submit(
-                    self._process_genotype_chunk, chunk_path, replacer_config, i, context
-                )
-                futures[future] = i
-
-            # Collect results
-            for future in as_completed(futures):
-                chunk_idx = futures[future]
-                try:
-                    result_path = future.result()
-                    processed_chunks.append((chunk_idx, result_path))
-                    logger.debug(f"Completed genotype replacement for chunk {chunk_idx}")
-                except Exception as e:
-                    logger.error(f"Error processing genotype chunk {chunk_idx}: {e}")
-                    raise
-
-        # Sort chunks by index to maintain order
-        processed_chunks.sort(key=lambda x: x[0])
-        chunk_paths = [path for _, path in processed_chunks]
-
-        # Merge processed chunks
-        output_tsv = context.workspace.get_intermediate_path(
-            f"{context.workspace.base_name}.genotype_replaced.tsv.gz"
-        )
-
-        self._merge_genotype_chunks(chunk_paths, output_tsv)
-
-        # Clean up temporary chunks
-        if not context.config.get("keep_intermediates", False):
-            for chunk_path in chunks + chunk_paths:
-                if chunk_path.exists():
-                    chunk_path.unlink()
-
-        logger.info(f"Parallel genotype replacement completed: {output_tsv}")
-        return output_tsv
-
-    def _process_genotype_replacement_vectorized(
-        self, context: PipelineContext, input_tsv: Path, samples: list[str]
-    ) -> Path:
-        """Vectorized genotype replacement using pandas operations."""
-        logger.info("Using vectorized genotype replacement with pandas operations")
-
-        output_tsv = context.workspace.get_intermediate_path(
-            f"{context.workspace.base_name}.genotype_replaced.tsv"
-        )
-
-        # Always use gzip for intermediate files
-        use_compression = context.config.get("gzip_intermediates", True)
-        if use_compression:
-            output_tsv = Path(str(output_tsv) + ".gz")
-
-        # Prepare config for vectorized replacer
-        replacer_config = {
-            "sample_list": ",".join(samples),
-            "separator": ";",
-            "extract_fields_separator": ",",
-            "append_extra_sample_fields": context.config.get("append_extra_sample_fields", False),
-            "extra_sample_fields": context.config.get("extra_sample_fields", []),
-            "extra_sample_field_delimiter": context.config.get("extra_sample_field_delimiter", ":"),
-            "genotype_replacement_map": context.config.get("genotype_replacement_map", {}),
-        }
-
-        # Determine if we should use chunked processing for large files
-        file_size_mb = input_tsv.stat().st_size / (1024 * 1024) if input_tsv.exists() else 0
-        use_chunked = file_size_mb > context.config.get("vectorized_chunk_threshold_mb", 200)
-
-        try:
-            if use_chunked:
-                logger.info(
-                    f"Using chunked vectorized processing for large file ({file_size_mb:.1f} MB)"
-                )
-                chunk_size = context.config.get("vectorized_chunk_size", 5000)
-
-                from ..vectorized_replacer import process_chunked_vectorized
-
-                process_chunked_vectorized(input_tsv, output_tsv, replacer_config, chunk_size)
-            else:
-                logger.info(
-                    f"Using in-memory vectorized processing for file ({file_size_mb:.1f} MB)"
-                )
-
-                from ..vectorized_replacer import replace_genotypes_vectorized
-
-                replace_genotypes_vectorized(input_tsv, output_tsv, replacer_config)
-
-        except Exception as e:
-            logger.warning(f"Vectorized genotype replacement failed: {e}")
-            logger.info("Falling back to sequential processing")
-            return self._process_genotype_replacement_sequential(context, input_tsv, samples)
-
-        logger.info(f"Vectorized genotype replacement completed: {output_tsv}")
-        return output_tsv
 
 
 class PhenotypeIntegrationStage(Stage):
@@ -1829,15 +1032,30 @@ class PhenotypeIntegrationStage(Stage):
         compression = "gzip" if str(input_tsv).endswith(".gz") else None
         df = pd.read_csv(input_tsv, sep="\t", dtype=str, compression=compression)
 
-        # Check if GT column exists
-        if "GT" not in df.columns:
-            logger.warning("No GT column found, cannot add phenotype data")
-            return context
-
-        # Extract phenotypes for each row based on GT column
-        df["Phenotypes"] = df["GT"].apply(
-            lambda gt_val: extract_phenotypes_for_gt_row(gt_val, context.phenotype_data)
+        # Phase 11: Check for per-sample columns (bcftools output) vs packed GT column
+        # Per-sample columns are sample IDs directly (from context.vcf_samples)
+        has_sample_columns = context.vcf_samples and all(
+            sample in df.columns for sample in context.vcf_samples
         )
+
+        if has_sample_columns:
+            # Phase 11: Use per-sample columns directly
+            logger.debug("Using per-sample GT columns for phenotype extraction")
+            df["Phenotypes"] = df.apply(
+                lambda row: extract_phenotypes_from_sample_columns(
+                    row, context.vcf_samples, context.phenotype_data
+                ),
+                axis=1,
+            )
+        elif "GT" in df.columns:
+            # Backwards compatibility: Use packed GT column (from genotype replacement)
+            logger.debug("Using packed GT column for phenotype extraction (legacy mode)")
+            df["Phenotypes"] = df["GT"].apply(
+                lambda gt_val: extract_phenotypes_for_gt_row(gt_val, context.phenotype_data)
+            )
+        else:
+            logger.warning("No GT column or per-sample columns found, cannot add phenotype data")
+            return context
 
         # Write output
         compression = "gzip" if str(output_tsv).endswith(".gz") else None
@@ -1994,7 +1212,6 @@ class StreamingDataProcessingStage(Stage):
         missing_string: str,
     ) -> None:
         """Stream process file line by line."""
-        import gzip
 
         # Validate input file
         input_file = validate_file_exists(input_file, self.name)
@@ -2069,7 +1286,7 @@ class StreamingDataProcessingStage(Stage):
 
                         if samples and i in gt_columns:
                             # Replace genotype encoding
-                            if field in ["0/1", "1/0", "0 < /dev/null | 1", "1|0"]:
+                            if field in ("0/1", "1/0", "0|1", "1|0"):
                                 new_fields.append("het")
                             elif field in ["1/1", "1|1"]:
                                 new_fields.append("hom")
@@ -2571,8 +1788,6 @@ class ParallelCompleteProcessingStage(Stage):
         if len(chunk_tsvs) <= 1:
             return True
 
-        import gzip
-
         try:
             # Read first header
             with gzip.open(chunk_tsvs[0], "rt") as f:
@@ -2591,7 +1806,6 @@ class ParallelCompleteProcessingStage(Stage):
 
     def _fast_concatenate_gzipped_tsvs(self, chunk_tsvs: list[Path], output_tsv: Path) -> None:
         """Fast concatenation of gzipped TSVs using streaming compression."""
-        import gzip
 
         # Use fastest compression level for intermediate files
         compression_level = 1  # Fastest compression
@@ -2612,7 +1826,6 @@ class ParallelCompleteProcessingStage(Stage):
 
     def _merge_tsvs_traditional(self, chunk_tsvs: list[Path], output_tsv: Path) -> None:
         """Traditional TSV merging with compression handling."""
-        import gzip
 
         # Open output file
         with (
@@ -2760,22 +1973,27 @@ class DataSortingStage(Stage):
 
         logger.info(f"Found gene column '{gene_column}' at position {gene_col_idx}")
 
+        # Resolve full paths for shell utilities to avoid PATH issues in
+        # subprocess shells (e.g., WSL, conda envs, non-interactive bash).
+        import shlex
+
+        gzip_bin = shutil.which("gzip") or "gzip"
+        sort_bin = shutil.which("sort") or "sort"
+        tail_bin = shutil.which("tail") or "tail"
+
         # Build sort arguments with memory efficiency options
         sort_args = [
             f"-k{gene_col_idx},{gene_col_idx}",  # Sort by gene column
             f"--buffer-size={memory_limit}",  # Memory limit
             f"--parallel={parallel}",  # Parallel threads
             "--stable",  # Stable sort for consistent results
-            "--compress-program=gzip",  # Use gzip for temp files
+            f"--compress-program={shlex.quote(gzip_bin)}",  # Use gzip for temp files
         ]
 
         if temp_dir:
             sort_args.extend(["-T", temp_dir])
 
         sort_cmd = " ".join(sort_args)
-
-        # Escape file paths to prevent shell injection
-        import shlex
 
         safe_input = shlex.quote(input_file)
         safe_output = shlex.quote(output_file)
@@ -2785,15 +2003,16 @@ class DataSortingStage(Stage):
             if output_file.endswith(".gz"):
                 # Both gzipped
                 cmd = (
-                    f"gzip -cd {safe_input} | "
-                    f"{{ IFS= read -r header; echo \"$header\"; sort {sort_cmd} -t$'\\t'; }} | "
-                    f"gzip -c > {safe_output}"
+                    f"{gzip_bin} -cd {safe_input} | "
+                    f'{{ IFS= read -r header; echo "$header"; '
+                    f"{sort_bin} {sort_cmd} -t$'\\t'; }} | "
+                    f"{gzip_bin} -c > {safe_output}"
                 )
             else:
                 # Input gzipped, output not
                 cmd = (
-                    f"gzip -cd {safe_input} | "
-                    f"{{ IFS= read -r header; echo \"$header\"; sort {sort_cmd} -t$'\\t'; }} "
+                    f"{gzip_bin} -cd {safe_input} | "
+                    f"{{ IFS= read -r header; echo \"$header\"; {sort_bin} {sort_cmd} -t$'\\t'; }} "
                     f"> {safe_output}"
                 )
         else:
@@ -2801,14 +2020,14 @@ class DataSortingStage(Stage):
                 # Input not gzipped, output gzipped
                 cmd = (
                     f'{{ IFS= read -r header < {safe_input}; echo "$header"; '
-                    f"tail -n +2 {safe_input} | sort {sort_cmd} -t$'\\t'; }} | "
-                    f"gzip -c > {safe_output}"
+                    f"{tail_bin} -n +2 {safe_input} | {sort_bin} {sort_cmd} -t$'\\t'; }} | "
+                    f"{gzip_bin} -c > {safe_output}"
                 )
             else:
                 # Neither gzipped
                 cmd = (
                     f'{{ IFS= read -r header < {safe_input}; echo "$header"; '
-                    f"tail -n +2 {safe_input} | sort {sort_cmd} -t$'\\t'; }} "
+                    f"{tail_bin} -n +2 {safe_input} | {sort_bin} {sort_cmd} -t$'\\t'; }} "
                     f"> {safe_output}"
                 )
 

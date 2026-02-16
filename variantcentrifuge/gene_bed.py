@@ -153,52 +153,62 @@ def get_gene_bed(
     bed_fd, bed_path = tempfile.mkstemp(suffix=".bed")
     os.close(bed_fd)
 
-    cmd = ["snpEff", "-Xmx8g", "genes2bed", reference, *gene_args]
-    if interval_expand > 0:
-        cmd.extend(["-ud", str(interval_expand)])
+    try:
+        cmd = ["snpEff", "-Xmx8g", "genes2bed", reference, *gene_args]
+        if interval_expand > 0:
+            cmd.extend(["-ud", str(interval_expand)])
 
-    logger.info("Running: %s", " ".join(cmd))
-    with open(bed_path, "w", encoding="utf-8") as out_f:
-        subprocess.run(cmd, stdout=out_f, check=True, text=True)
-    logger.debug("snpEff genes2bed completed, BED file at %s", bed_path)
+        logger.info("Running: %s", " ".join(cmd))
+        with open(bed_path, "w", encoding="utf-8") as out_f:
+            subprocess.run(cmd, stdout=out_f, check=True, text=True)
+        logger.debug("snpEff genes2bed completed, BED file at %s", bed_path)
 
-    # Sort the BED file
-    sorted_bed = bed_path + ".sorted"
-    sort_cmd = ["sortBed", "-i", bed_path]
-    logger.debug("Sorting BED file with: %s", " ".join(sort_cmd))
-    with open(sorted_bed, "w", encoding="utf-8") as out_f:
-        subprocess.run(sort_cmd, stdout=out_f, check=True, text=True)
-    logger.debug("BED sorting completed, sorted file at %s", sorted_bed)
+        # Sort the BED file
+        sorted_bed = bed_path + ".sorted"
+        sort_cmd = ["sortBed", "-i", bed_path]
+        logger.debug("Sorting BED file with: %s", " ".join(sort_cmd))
+        with open(sorted_bed, "w", encoding="utf-8") as out_f:
+            subprocess.run(sort_cmd, stdout=out_f, check=True, text=True)
+        logger.debug("BED sorting completed, sorted file at %s", sorted_bed)
 
-    # Merge overlapping intervals to prevent duplicate variant extraction
-    merged_bed = sorted_bed + ".merged"
-    merge_cmd = ["bedtools", "merge", "-i", sorted_bed]
-    logger.debug("Merging overlapping intervals with: %s", " ".join(merge_cmd))
-    with open(merged_bed, "w", encoding="utf-8") as out_f:
-        subprocess.run(merge_cmd, stdout=out_f, check=True, text=True)
-    logger.debug("BED merging completed, merged file at %s", merged_bed)
+        # Merge overlapping intervals to prevent duplicate variant extraction
+        merged_bed = sorted_bed + ".merged"
+        merge_cmd = ["bedtools", "merge", "-i", sorted_bed]
+        logger.debug("Merging overlapping intervals with: %s", " ".join(merge_cmd))
+        with open(merged_bed, "w", encoding="utf-8") as out_f:
+            subprocess.run(merge_cmd, stdout=out_f, check=True, text=True)
+        logger.debug("BED merging completed, merged file at %s", merged_bed)
 
-    # Clean up intermediate files
-    os.remove(sorted_bed)
+        # Clean up intermediate files
+        os.remove(sorted_bed)
+        os.remove(bed_path)
 
-    final_bed = merged_bed
-    if add_chr:
-        chr_bed = merged_bed + ".chr"
-        logger.debug("Adding 'chr' prefix to BED file %s", merged_bed)
-        with (
-            open(chr_bed, "w", encoding="utf-8") as out_f,
-            open(merged_bed, encoding="utf-8") as in_f,
-        ):
-            for line in in_f:
-                if not line.startswith("chr"):
-                    out_f.write("chr" + line)
-                else:
-                    out_f.write(line)
-        os.remove(merged_bed)
-        final_bed = chr_bed
-        logger.debug("Final BED file with 'chr': %s", final_bed)
+        final_bed = merged_bed
+        if add_chr:
+            chr_bed = merged_bed + ".chr"
+            logger.debug("Adding 'chr' prefix to BED file %s", merged_bed)
+            with (
+                open(chr_bed, "w", encoding="utf-8") as out_f,
+                open(merged_bed, encoding="utf-8") as in_f,
+            ):
+                for line in in_f:
+                    if not line.startswith("chr"):
+                        out_f.write("chr" + line)
+                    else:
+                        out_f.write(line)
+            os.remove(merged_bed)
+            final_bed = chr_bed
+            logger.debug("Final BED file with 'chr': %s", final_bed)
 
-    shutil.move(final_bed, cached_file)
-    logger.debug("Cached BED file created: %s", cached_file)
+        shutil.move(final_bed, cached_file)
+        logger.debug("Cached BED file created: %s", cached_file)
 
-    return cached_file
+        return cached_file
+    finally:
+        # Cleanup temp files if they exist and subprocess failed
+        if os.path.exists(bed_path):
+            os.remove(bed_path)
+        if "sorted_bed" in locals() and os.path.exists(sorted_bed):
+            os.remove(sorted_bed)
+        if "merged_bed" in locals() and os.path.exists(merged_bed):
+            os.remove(merged_bed)

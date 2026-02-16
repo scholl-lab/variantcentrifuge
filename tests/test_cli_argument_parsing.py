@@ -15,37 +15,34 @@ class TestCriticalArgumentParsing:
     """Tests for critical CLI parameters that must always work."""
 
     def test_genotype_replacement_chunk_size_regression(self):
-        """Regression test for --genotype-replacement-chunk-size parameter.
+        """Regression test for --max-memory-gb parameter (replaced removed flags).
 
-        This parameter was broken due to duplicate argument parser bug.
-        This test ensures it never breaks again.
+        Ensures critical memory configuration parameter always works.
         """
-        test_values = ["1000", "25000", "50000", "100000"]
+        test_values = ["8.0", "16.0", "64.0", "250.0"]
 
         for value in test_values:
             cmd = [
                 "python",
                 "-m",
                 "variantcentrifuge.cli",
-                "--genotype-replacement-chunk-size",
+                "--max-memory-gb",
                 value,
                 "--help",
             ]
             result = subprocess.run(cmd, capture_output=True, text=True)
 
             # Must succeed without "unrecognized arguments" error
-            assert result.returncode == 0, f"Failed with chunk size {value}"
+            assert result.returncode == 0, f"Failed with memory {value}"
             assert "unrecognized arguments" not in result.stderr, (
                 f"Parameter not recognized with value {value}"
             )
-            assert "--genotype-replacement-chunk-size" in result.stdout
+            assert "--max-memory-gb" in result.stdout
 
     def test_performance_parameters_work(self):
         """Test that all critical performance parameters are recognized."""
         performance_params = {
             "--threads": "8",
-            "--chunks": "4",
-            "--genotype-replacement-chunk-size": "25000",
             "--sort-memory-limit": "4G",
             "--max-memory-gb": "16",
         }
@@ -120,14 +117,20 @@ class TestCriticalArgumentParsing:
         help_text = result.stdout
 
         # Test that key parameters from help actually work
-        critical_params = ["--genotype-replacement-chunk-size", "--threads", "--chunks"]
+        critical_params = ["--max-memory-gb", "--threads", "--genotype-replacement-method"]
 
         for param in critical_params:
             # Parameter should be in help
             assert param in help_text, f"Parameter {param} missing from help"
 
-            # Parameter should work when used
-            cmd = ["python", "-m", "variantcentrifuge.cli", param, "10", "--help"]
+            # Parameter should work when used (use appropriate test value per param)
+            if param == "--genotype-replacement-method":
+                test_value = "auto"
+            elif param == "--max-memory-gb":
+                test_value = "16.0"
+            else:
+                test_value = "10"
+            cmd = ["python", "-m", "variantcentrifuge.cli", param, test_value, "--help"]
             test_result = subprocess.run(cmd, capture_output=True, text=True)
             assert test_result.returncode == 0, f"Parameter {param} doesn't work"
             assert "unrecognized arguments" not in test_result.stderr
@@ -143,13 +146,13 @@ class TestArgumentParserArchitecture:
         parser = create_parser()
         help_text = parser.format_help()
 
-        # Critical parameters that caused the original bug
+        # Critical parameters that must always exist
         critical_params = [
-            "--genotype-replacement-chunk-size",
+            "--max-memory-gb",
             "--threads",
             "--vcf-file",
             "--output-file",
-            "--chunks",
+            "--genotype-replacement-method",
         ]
 
         for param in critical_params:

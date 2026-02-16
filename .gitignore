@@ -212,3 +212,6 @@ docker-compose.override.yml
 # Snakemake runtime artifacts
 .snakemake/
 slurm_logs/
+
+# Benchmark results
+benchmarks/*.json

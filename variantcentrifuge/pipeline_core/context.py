@@ -154,6 +154,8 @@ class PipelineContext:
 
     # Analysis results
     current_dataframe: pd.DataFrame | None = None
+    variants_df: pd.DataFrame | None = None  # Optimized DataFrame for in-memory pass-through
+    column_rename_map: dict[str, str] = field(default_factory=dict)  # Column rename mapping
     statistics: dict[str, Any] = field(default_factory=dict)
     gene_burden_results: pd.DataFrame | None = None
 
@@ -289,6 +291,10 @@ class PipelineContext:
             # Update analysis results if present
             if other.current_dataframe is not None and self.current_dataframe is None:
                 self.current_dataframe = other.current_dataframe
+            if other.variants_df is not None and self.variants_df is None:
+                self.variants_df = other.variants_df
+            if other.column_rename_map:
+                self.column_rename_map.update(other.column_rename_map)
             if other.statistics:
                 self.statistics.update(other.statistics)
             if other.gene_burden_results is not None and self.gene_burden_results is None:

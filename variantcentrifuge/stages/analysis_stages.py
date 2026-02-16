@@ -20,6 +20,7 @@ import pandas as pd
 
 from ..analyze_variants import analyze_variants
 from ..annotator import annotate_dataframe_with_features, load_custom_features
+from ..dataframe_optimizer import load_optimized_dataframe, should_use_memory_passthrough
 from ..filters import filter_final_tsv_by_genotype
 from ..gene_burden import perform_gene_burden_analysis
 from ..inheritance import analyze_inheritance
@@ -28,6 +29,30 @@ from ..scoring import apply_scoring
 from ..stats_engine import StatsEngine
 
 logger = logging.getLogger(__name__)
+
+# Standard column aliases: sanitized name -> canonical short name.
+# When ANN[0].GENE is sanitized to ANN_0__GENE, downstream stages still expect "GENE".
+_STANDARD_COLUMN_ALIASES = {
+    "ANN_0__GENE": "GENE",
+    "ANN_0__EFFECT": "EFFECT",
+    "ANN_0__IMPACT": "IMPACT",
+    "ANN_0__HGVS_C": "HGVS_C",
+    "ANN_0__HGVS_P": "HGVS_P",
+}
+
+
+def _create_standard_column_aliases(df: pd.DataFrame) -> None:
+    """Create standard short-name aliases for sanitized ANN columns.
+
+    After column sanitization (ANN[0].GENE -> ANN_0__GENE), many downstream
+    stages expect plain column names like GENE, EFFECT, IMPACT. This function
+    creates those aliases in-place if the sanitized source column exists and
+    the short name doesn't already exist.
+    """
+    for sanitized_name, short_name in _STANDARD_COLUMN_ALIASES.items():
+        if short_name not in df.columns and sanitized_name in df.columns:
+            df[short_name] = df[sanitized_name]
+            logger.debug(f"Created column alias: {sanitized_name} -> {short_name}")
 
 
 def create_sample_columns_from_gt_vectorized(
@@ -54,18 +79,20 @@ def create_sample_columns_from_gt_vectorized(
     ------
         ValueError: If GT column is missing or empty
     """
+    # Phase 11: Check if sample columns already exist FIRST (before checking GT)
+    # This allows bcftools query output (per-sample columns, no GT) to skip creation
+    sample_columns_exist = any(sample_id in df.columns for sample_id in vcf_samples)
+
+    if sample_columns_exist:
+        logger.debug("Sample columns already exist, skipping creation")
+        return df
+
+    # If sample columns don't exist, we need GT column to create them
     if "GT" not in df.columns:
         raise ValueError("GT column not found in DataFrame")
 
     if len(df) == 0:
         logger.warning("Empty DataFrame provided to create_sample_columns_from_gt_vectorized")
-        return df
-
-    # Check if sample columns already exist
-    sample_columns_exist = any(sample_id in df.columns for sample_id in vcf_samples)
-
-    if sample_columns_exist:
-        logger.debug("Sample columns already exist, skipping creation")
         return df
 
     # Get the first GT value to determine format
@@ -122,9 +149,9 @@ def create_sample_columns_from_gt_vectorized(
 
                     if len(sample_entries) > 0:
                         # Map genotypes back to original dataframe indices
-                        for _, row in sample_entries.iterrows():
-                            original_idx = row["original_index"]
-                            genotype = row["genotype"]
+                        for row in sample_entries.itertuples(index=False):
+                            original_idx = getattr(row, "original_index", None)
+                            genotype = getattr(row, "genotype", "")
                             df_copy.loc[original_idx, sample_id] = genotype
 
         logger.debug(
@@ -287,18 +314,20 @@ def create_sample_columns_from_gt(
     ------
         ValueError: If GT column is missing or empty
     """
+    # Phase 11: Check if sample columns already exist FIRST (before checking GT)
+    # This allows bcftools query output (per-sample columns, no GT) to skip creation
+    sample_columns_exist = any(sample_id in df.columns for sample_id in vcf_samples)
+
+    if sample_columns_exist:
+        logger.debug("Sample columns already exist, skipping creation")
+        return df
+
+    # If sample columns don't exist, we need GT column to create them
     if "GT" not in df.columns:
         raise ValueError("GT column not found in DataFrame")
 
     if len(df) == 0:
         logger.warning("Empty DataFrame provided to create_sample_columns_from_gt")
-        return df
-
-    # Check if sample columns already exist
-    sample_columns_exist = any(sample_id in df.columns for sample_id in vcf_samples)
-
-    if sample_columns_exist:
-        logger.debug("Sample columns already exist, skipping creation")
         return df
 
     # Get the first GT value to determine format
@@ -313,8 +342,8 @@ def create_sample_columns_from_gt(
         sample_data: dict[str, list[str]] = {sample_id: [] for sample_id in vcf_samples}
 
         # Parse replaced genotype format
-        for _idx, row in df.iterrows():
-            gt_value = str(row["GT"])
+        for row in df.itertuples(index=False):
+            gt_value = str(getattr(row, "GT", ""))
             # Initialize all samples with missing genotype
             row_genotypes = dict.fromkeys(vcf_samples, "./.")
 
@@ -349,13 +378,13 @@ def create_sample_columns_from_gt(
         sample_data = {sample_id: [] for sample_id in vcf_samples}
 
         # Extract genotypes for each row
-        for idx, row in df.iterrows():
-            gt_value = str(row["GT"])
+        for row in df.itertuples(index=True):
+            gt_value = str(getattr(row, "GT", ""))
             if gt_value and gt_value != "NA" and gt_value != "nan":
                 genotypes = gt_value.split(snpsift_sep)
                 if len(genotypes) != len(vcf_samples):
                     logger.warning(
-                        f"Row {idx}: Expected {len(vcf_samples)} genotypes "
+                        f"Row {row.Index}: Expected {len(vcf_samples)} genotypes "
                         f"but found {len(genotypes)}"
                     )
                 for i, sample_id in enumerate(vcf_samples):
@@ -531,26 +560,26 @@ class DataFrameLoadingStage(Stage):
             # Don't load full DataFrame - chunked stages will handle it
             return context
 
-        # Load full DataFrame
+        # Load full DataFrame with optimizations
         logger.info(f"Restoring DataFrame from {input_file} (checkpoint skip)")
         compression = "gzip" if str(input_file).endswith(".gz") else None
 
-        # Use quoting=3 (QUOTE_NONE) to handle data with quotes
-        # Use low_memory=False to avoid dtype inference issues
-        df = pd.read_csv(
-            input_file,
+        df, rename_map = load_optimized_dataframe(
+            str(input_file),
             sep="\t",
-            dtype=str,
-            keep_default_na=False,
-            na_values=[""],
             compression=compression,
-            quoting=3,  # QUOTE_NONE - don't treat quotes specially
-            low_memory=False,
             on_bad_lines="warn",  # Warn about problematic lines instead of failing
         )
 
         context.current_dataframe = df
+        context.column_rename_map = rename_map
         logger.info(f"Restored {len(df)} variants into DataFrame after checkpoint skip")
+        _create_standard_column_aliases(df)
+
+        # Check if DataFrame is small enough for in-memory pass-through
+        if should_use_memory_passthrough(df):
+            context.variants_df = df
+            logger.info("DataFrame stored for in-memory pass-through (checkpoint skip)")
 
         return context
 
@@ -607,26 +636,30 @@ class DataFrameLoadingStage(Stage):
             # Don't load full DataFrame - chunked stages will handle it
             return context
 
-        # Load full DataFrame
+        # Load full DataFrame with optimizations
         logger.info(f"Loading data from {input_file}")
         compression = "gzip" if str(input_file).endswith(".gz") else None
 
-        # Use quoting=3 (QUOTE_NONE) to handle data with quotes
-        # Use low_memory=False to avoid dtype inference issues
-        df = pd.read_csv(
-            input_file,
+        df, rename_map = load_optimized_dataframe(
+            str(input_file),
             sep="\t",
-            dtype=str,
-            keep_default_na=False,
-            na_values=[""],
             compression=compression,
-            quoting=3,  # QUOTE_NONE - don't treat quotes specially
-            low_memory=False,
             on_bad_lines="warn",  # Warn about problematic lines instead of failing
         )
 
         context.current_dataframe = df
+        context.column_rename_map = rename_map
         logger.info(f"Loaded {len(df)} variants into DataFrame")
+
+        # Create standard column aliases from sanitized ANN/NMD column names.
+        # After sanitization, ANN[0].GENE becomes ANN_0__GENE, but many downstream
+        # stages expect a plain "GENE" column. Create aliases for common fields.
+        _create_standard_column_aliases(df)
+
+        # Check if DataFrame is small enough for in-memory pass-through
+        if should_use_memory_passthrough(df):
+            context.variants_df = df
+            logger.info("DataFrame stored for in-memory pass-through")
 
         return context
 
@@ -640,7 +673,8 @@ class DataFrameLoadingStage(Stage):
         if context.config.get("force_chunked_processing"):
             return True
 
-        # Check explicit chunking request
+        # TODO(12-02): Remove this check after migrating to ResourceManager auto-detection
+        # Check explicit chunking request (legacy config key, removed from CLI in 12-01)
         if context.config.get("chunks"):
             return True
 
@@ -883,30 +917,35 @@ class InheritanceAnalysisStage(Stage):
         # At this point df must be a DataFrame (None case handled above)
         assert df is not None, "DataFrame must not be None for inheritance analysis"
 
-        # Use intelligent memory manager to decide processing strategy
-        from ..memory import InheritanceMemoryManager
+        # Use ResourceManager to decide processing strategy
+        from ..memory import ResourceManager
 
-        memory_manager = InheritanceMemoryManager(context.config)
-        memory_strategy = memory_manager.get_memory_strategy(len(df), len(vcf_samples))
+        rm = ResourceManager(config=context.config)
 
-        logger.info(
-            f"Inheritance memory strategy: {memory_strategy['approach']} - "
-            f"{memory_strategy['reason']}"
+        # Calculate optimal chunk size and worker count
+        chunk_size = rm.auto_chunk_size(len(df), len(vcf_samples))
+
+        # Estimate memory per gene for worker calculation
+        # Use average variants per gene as rough estimate (conservative)
+        num_genes = df["GENE"].nunique() if "GENE" in df.columns else 1
+        avg_variants_per_gene = len(df) / max(1, num_genes)
+        memory_per_gene_gb = rm.estimate_memory(int(avg_variants_per_gene), len(vcf_samples))
+        max_workers = rm.auto_workers(
+            task_count=df["GENE"].nunique() if "GENE" in df.columns else 1,
+            memory_per_task_gb=memory_per_gene_gb,
         )
-        memory_manager.log_memory_status()
 
-        if memory_strategy["approach"] == "chunked":
+        # Determine if dataset fits in memory or needs chunking
+        should_chunk = len(df) > chunk_size
+
+        if should_chunk:
             logger.info(
-                f"Using chunked processing: {memory_strategy['chunks']} chunks, "
-                f"max {memory_strategy['max_workers']} parallel workers, "
-                f"~{memory_strategy['estimated_memory_per_chunk_gb']:.1f}GB per chunk"
+                f"Using chunked processing: chunk_size={chunk_size:,}, "
+                f"max_workers={max_workers}, ~{memory_per_gene_gb:.1f}GB per gene"
             )
             # Force chunked processing and delegate to chunked analysis
             context.config["use_chunked_processing"] = True
             context.config["force_chunked_processing"] = True
-
-            # Store memory strategy for chunked processing
-            context.config["inheritance_memory_strategy"] = memory_strategy
 
             # Check if scoring configuration requires Inheritance_Details
             preserve_details = self._check_if_scoring_needs_details(context)
@@ -923,12 +962,21 @@ class InheritanceAnalysisStage(Stage):
             return context
 
         logger.info(
+            f"Dataset fits in memory ({len(df):,} variants < {chunk_size:,} chunk size), "
+            f"processing as single batch"
+        )
+
+        logger.info(
             f"Calculating inheritance patterns ({inheritance_mode} mode) "
             f"for {len(vcf_samples)} samples"
         )
 
-        # Prepare sample columns if GT field exists and contains multiple samples
-        if "GT" in df.columns:
+        # Prepare sample columns for inheritance analysis.
+        # Two paths: (1) packed GT column exists -> parse it into sample columns
+        #            (2) Phase 11 per-sample GT columns (GEN_N__GT) -> rename to sample IDs
+        sample_columns_exist = any(s in df.columns for s in vcf_samples)
+
+        if not sample_columns_exist and "GT" in df.columns:
             logger.debug("Preparing sample columns from GT field for inheritance analysis")
             prep_start = self._start_subtask("sample_column_preparation")
 
@@ -943,6 +991,22 @@ class InheritanceAnalysisStage(Stage):
             )
 
             self._end_subtask("sample_column_preparation", prep_start)
+
+        elif not sample_columns_exist:
+            # Phase 11: per-sample GT columns (GEN_N__GT) from bcftools query
+            from ..stages.output_stages import _find_per_sample_gt_columns
+
+            gt_cols = _find_per_sample_gt_columns(df)
+            if gt_cols:
+                n = min(len(gt_cols), len(vcf_samples))
+                logger.info(
+                    f"Creating sample columns from {n} per-sample GT columns "
+                    f"for inheritance analysis"
+                )
+                prep_start = self._start_subtask("sample_column_preparation")
+                for i in range(n):
+                    df[vcf_samples[i]] = df[gt_cols[i]]
+                self._end_subtask("sample_column_preparation", prep_start)
 
         # Apply inheritance analysis with error handling
         analysis_start = self._start_subtask("inheritance_calculation")
@@ -1484,6 +1548,24 @@ class VariantAnalysisStage(Stage):
             "control_phenotypes": context.config.get("control_phenotypes") or [],
         }
 
+        # Phase 11: Reconstruct packed GT column for analyze_variants if needed.
+        # analyze_variants expects a packed GT column ("Sample1(0/1);Sample2(1/1)").
+        # With Phase 11, we have per-sample GEN_N__GT columns instead.
+        if "GT" not in df.columns and context.vcf_samples:
+            from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
+
+            gt_cols = _find_per_sample_gt_columns(df)
+            if gt_cols:
+                logger.info("Reconstructing GT column for variant analysis")
+                # Work on a copy to avoid modifying the original DataFrame
+                df = reconstruct_gt_column(df.copy(), context.vcf_samples)
+
+        # Restore original column names before writing temp TSV.
+        # analyze_variants expects unsanitized names (GENE, not ANN_0__GENE).
+        if context.column_rename_map:
+            reverse_map = {v: k for k, v in context.column_rename_map.items()}
+            df = df.rename(columns=reverse_map)
+
         # Create temporary TSV file for analyze_variants
         temp_tsv = context.workspace.get_intermediate_path("temp_for_analysis.tsv")
 
@@ -1829,7 +1911,21 @@ class GeneBurdenAnalysisStage(Stage):
         # Check if DataFrame has required GENE column
         if "GENE" not in df.columns:
             logger.error("DataFrame missing required 'GENE' column for gene burden analysis")
-            logger.debug(f"Available columns: {list(df.columns)}")
+            logger.debug(f"Available columns: {list(df.columns)[:20]}...")
+            return context
+
+        # Phase 11: Reconstruct packed GT column if missing
+        if "GT" not in df.columns and context.vcf_samples:
+            from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
+
+            gt_cols = _find_per_sample_gt_columns(df)
+            if gt_cols:
+                logger.info("Reconstructing GT column for gene burden analysis")
+                df = reconstruct_gt_column(df.copy(), context.vcf_samples)
+                context.current_dataframe = df
+
+        if "GT" not in df.columns:
+            logger.error("DataFrame missing required 'GT' column for gene burden analysis")
             return context
 
         logger.debug(
@@ -1857,15 +1953,36 @@ class GeneBurdenAnalysisStage(Stage):
 
         logger.info(f"Using {len(all_vcf_samples)} VCF samples for gene burden analysis")
 
+        import time as _time
+
+        _t_cc = _time.monotonic()
         df_with_counts = assign_case_control_counts(
             df=df,
             case_samples=set(case_samples),
             control_samples=set(control_samples),
             all_samples=all_vcf_samples,  # This should be ALL samples in VCF
         )
+        _t_cc_elapsed = _time.monotonic() - _t_cc
+        logger.info(
+            f"Case/control count assignment completed in {_t_cc_elapsed:.2f}s "
+            f"({len(df_with_counts)} variants, {len(all_vcf_samples)} samples)"
+        )
 
-        # Perform gene burden analysis on prepared DataFrame
-        burden_results = perform_gene_burden_analysis(df=df_with_counts, cfg=burden_config)
+        # Perform gene burden analysis with proper per-sample collapsing
+        # Pass vcf_samples to enable fast column-based aggregation (Phase 11)
+        _t_burden = _time.monotonic()
+        burden_results = perform_gene_burden_analysis(
+            df=df_with_counts,
+            cfg=burden_config,
+            case_samples=set(case_samples),
+            control_samples=set(control_samples),
+            vcf_samples=list(context.vcf_samples) if context.vcf_samples else None,
+        )
+        _t_burden_elapsed = _time.monotonic() - _t_burden
+        n_genes = len(burden_results) if burden_results is not None else 0
+        logger.info(
+            f"Gene burden analysis completed in {_t_burden_elapsed:.2f}s ({n_genes} genes tested)"
+        )
 
         context.gene_burden_results = burden_results
 
@@ -2113,7 +2230,20 @@ class ChunkedAnalysisStage(Stage):
         # Set up inheritance analysis configuration if needed
         self._setup_inheritance_config(context)
 
-        chunk_size = context.config.get("chunks", 10000)
+        # Auto-detect chunk size using ResourceManager
+        from ..memory import ResourceManager
+
+        # Get sample count from inheritance config or estimate
+        inheritance_config = context.config.get("inheritance_analysis_config", {})
+        vcf_samples = inheritance_config.get("vcf_samples", [])
+        num_samples = len(vcf_samples) if vcf_samples else 1
+
+        # Estimate total variants from input file (for proper chunk size calculation)
+        # Use a conservative estimate based on file size if exact count unavailable
+        total_variants = 100000  # Conservative default for chunk sizing
+
+        rm = ResourceManager(config=context.config)
+        chunk_size = rm.auto_chunk_size(total_variants, num_samples)
 
         # Determine input file
         if context.extra_columns_removed_tsv:
@@ -2161,7 +2291,20 @@ class ChunkedAnalysisStage(Stage):
         sorted_file = self._ensure_sorted_by_gene(input_file, gene_col_name, context)
 
         # Process chunks - use parallel processing if enabled
-        max_workers = context.config.get("threads", 1)
+        # Auto-detect worker count if threads not explicitly set
+        threads_config = context.config.get("threads", 1)
+        if threads_config == 1:
+            # threads=1 is the default, use ResourceManager auto-detection
+            # Estimate memory per chunk for worker calculation
+            memory_per_chunk_gb = rm.estimate_memory(chunk_size, num_samples)
+            max_workers = rm.auto_workers(
+                task_count=10,  # Conservative estimate for number of chunks
+                memory_per_task_gb=memory_per_chunk_gb,
+            )
+        else:
+            # User explicitly set --threads, honor that value
+            max_workers = threads_config
+
         parallel_chunks = context.config.get("parallel_chunks", False) or max_workers > 1
 
         if parallel_chunks and max_workers > 1:
@@ -2559,19 +2702,22 @@ class ChunkedAnalysisStage(Stage):
         logger.debug(f"Calculating inheritance-safe chunk size for {sample_count} samples")
 
         try:
-            # Use intelligent memory manager if context available
+            # Use ResourceManager if context available
             if context and hasattr(context, "config"):
-                from ..memory import InheritanceMemoryManager
+                from ..memory import ResourceManager
 
-                memory_manager = InheritanceMemoryManager(context.config)
-                chunk_size = memory_manager.calculate_max_chunk_size(sample_count)
+                rm = ResourceManager(config=context.config)
+                # Use conservative estimate for total variants
+                # (actual count determined during processing)
+                total_variants = 100000  # Conservative estimate for chunking
+                chunk_size = rm.auto_chunk_size(total_variants, sample_count)
                 logger.info(
                     f"Using memory-aware chunk size: {chunk_size} variants "
                     f"for {sample_count} samples"
                 )
                 return chunk_size
         except Exception as e:
-            logger.debug(f"Could not use memory manager: {e}. Falling back to improved defaults.")
+            logger.debug(f"Could not use ResourceManager: {e}. Falling back to improved defaults.")
 
         # Improved fallback defaults - much more aggressive than before
         if sample_count <= 100:
@@ -2827,25 +2973,27 @@ class ChunkedAnalysisStage(Stage):
                 logger.warning("No VCF samples available for chunk inheritance analysis")
                 return chunk_df
 
-            # Use intelligent memory manager for chunk processing decision
-            from ..memory import InheritanceMemoryManager
+            # Use ResourceManager for memory safety check
+            from ..memory import ResourceManager
 
-            memory_manager = InheritanceMemoryManager(context.config)
-            memory_manager.log_memory_status()
+            rm = ResourceManager(config=context.config)
+            estimated_memory_gb = rm.estimate_memory(len(chunk_df), len(vcf_samples))
+            safe_memory_gb = rm.memory_gb * rm.memory_safety_factor
 
-            # Check if this chunk should be processed
-            should_process, reason = memory_manager.should_process_chunk(
-                len(chunk_df),
-                len(vcf_samples),
-                force_processing=context.config.get("force_inheritance_processing", False),
+            logger.debug(
+                f"Chunk memory: {estimated_memory_gb:.2f}GB estimated, "
+                f"{safe_memory_gb:.2f}GB available"
             )
 
-            logger.info(f"Memory decision for chunk: {reason}")
+            # Check if this chunk should be processed
+            force_processing = context.config.get("force_inheritance_processing", False)
+            should_process = estimated_memory_gb <= safe_memory_gb or force_processing
 
             if not should_process:
                 logger.error(
                     f"MEMORY LIMIT: Skipping inheritance analysis for chunk with "
-                    f"{len(chunk_df)} variants x {len(vcf_samples)} samples. {reason}. "
+                    f"{len(chunk_df)} variants x {len(vcf_samples)} samples "
+                    f"({estimated_memory_gb:.2f}GB exceeds {safe_memory_gb:.2f}GB limit). "
                     f"Consider increasing --max-memory-gb or using --force-inheritance-processing."
                 )
                 # Add placeholder inheritance columns to maintain schema
@@ -3065,7 +3213,7 @@ class ParallelAnalysisOrchestrator(Stage):
         from concurrent.futures import ProcessPoolExecutor, as_completed
 
         # Split DataFrame by gene
-        gene_groups = df.groupby(gene_column)
+        gene_groups = df.groupby(gene_column, observed=True)
 
         # Prepare analysis configuration
         analysis_cfg = {

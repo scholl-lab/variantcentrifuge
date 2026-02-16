@@ -39,6 +39,96 @@ from ..utils import get_tool_version, sanitize_metadata_field
 logger = logging.getLogger(__name__)
 
 
+def _find_per_sample_gt_columns(df: pd.DataFrame) -> list[str]:
+    """Find per-sample GT columns in DataFrame (sanitized or original names).
+
+    Matches columns like GEN_0__GT (sanitized) or GEN[0].GT (original).
+    Returns them sorted by sample index.
+    """
+    import re
+
+    gt_cols = []
+    for col in df.columns:
+        # Match sanitized: GEN_0__GT, GEN_123__GT
+        # Match original: GEN[0].GT, GEN[123].GT
+        if re.match(r"^GEN[_\[](\d+)[_\]\.]+(GT)$", col):
+            gt_cols.append(col)
+    # Sort by numeric index
+    gt_cols.sort(key=lambda c: int(re.search(r"(\d+)", c).group(1)))  # type: ignore[union-attr]
+    return gt_cols
+
+
+def reconstruct_gt_column(df: pd.DataFrame, vcf_samples: list[str]) -> pd.DataFrame:
+    """
+    Reconstruct packed GT column from per-sample GT columns (Phase 11).
+
+    Takes per-sample GT columns (GEN[0].GT / GEN_0__GT) from bcftools query output
+    and reconstructs the packed format "Sample1(0/1);Sample2(1/1)" for TSV/Excel output.
+
+    Only includes samples with variants (skips 0/0, ./., NA, empty).
+    Drops the per-sample columns after reconstruction.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with per-sample GT columns
+    vcf_samples : list of str
+        List of sample IDs in VCF order
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with reconstructed GT column, per-sample columns dropped
+    """
+
+    gt_cols = _find_per_sample_gt_columns(df)
+    if not gt_cols:
+        logger.warning("No per-sample GT columns found for reconstruction")
+        return df
+
+    n_samples = min(len(gt_cols), len(vcf_samples))
+    if len(gt_cols) != len(vcf_samples):
+        logger.warning(
+            f"GT column count ({len(gt_cols)}) != sample count ({len(vcf_samples)}), "
+            f"using first {n_samples}"
+        )
+
+    logger.info(f"Reconstructing GT column from {n_samples} per-sample columns")
+
+    # Vectorized approach: build GT strings using numpy for speed
+    skip_values = {"0/0", "0|0", "./.", ".|.", ".", "NA", "", "nan", "None"}
+
+    # Extract GT values as a 2D array for fast access
+    gt_data = df[gt_cols[:n_samples]].values  # shape: (n_rows, n_samples)
+    sample_ids = vcf_samples[:n_samples]
+
+    gt_strings = []
+    for row_idx in range(len(df)):
+        entries = []
+        for col_idx in range(n_samples):
+            val = gt_data[row_idx, col_idx]
+            if val is None:
+                continue
+            try:
+                if pd.isna(val):
+                    continue
+            except (TypeError, ValueError):
+                pass
+            gt_str = str(val).strip()
+            if gt_str in skip_values:
+                continue
+            entries.append(f"{sample_ids[col_idx]}({gt_str})")
+        gt_strings.append(";".join(entries))
+
+    df["GT"] = gt_strings
+
+    # Drop per-sample GT columns
+    df = df.drop(columns=gt_cols)
+    logger.info(f"Dropped {len(gt_cols)} per-sample GT columns from output")
+
+    return df
+
+
 class VariantIdentifierStage(Stage):
     """Generate unique variant identifiers."""
 
@@ -135,7 +225,7 @@ class VariantIdentifierStage(Stage):
         if custom_annotations_requested and "Custom_Annotation" not in df.columns:
             # Find a good position for it - after GT column if it exists
             if "GT" in df.columns:
-                gt_pos = df.columns.get_loc("GT") + 1
+                gt_pos = int(df.columns.get_loc("GT")) + 1
                 df.insert(gt_pos, "Custom_Annotation", "")
             else:
                 df["Custom_Annotation"] = ""
@@ -480,6 +570,13 @@ class TSVOutputStage(Stage):
             logger.error("No data to write")
             return context
 
+        # Phase 11: Reconstruct GT column from per-sample columns if needed
+        if context.vcf_samples and "GT" not in df.columns:
+            gt_cols = _find_per_sample_gt_columns(df)
+            if gt_cols:
+                df = reconstruct_gt_column(df, context.vcf_samples)
+                context.current_dataframe = df
+
         # Determine output path
         output_file = context.config.get("output_file")
         if output_file in [None, "stdout", "-"]:
@@ -515,7 +612,8 @@ class TSVOutputStage(Stage):
                 # Header
                 lines.append("\t".join(df.columns))
                 # Data rows
-                for _, row in df.iterrows():
+                for row in df.itertuples(index=False):
+                    # Convert namedtuple to values list (skip Index if present)
                     lines.append("\t".join(str(val) for val in row))
 
                 # Add links
@@ -525,6 +623,18 @@ class TSVOutputStage(Stage):
                 import io
 
                 df = pd.read_csv(io.StringIO("\n".join(lines_with_links)), sep="\t", dtype=str)
+
+        # Drop internal cache columns before output
+        cache_cols = [c for c in df.columns if c.startswith("_")]
+        if cache_cols:
+            df = df.drop(columns=cache_cols)
+            logger.debug(f"Dropped {len(cache_cols)} cache columns: {cache_cols}")
+
+        # Restore original column names before writing output
+        if context.column_rename_map:
+            reverse_map = {v: k for k, v in context.column_rename_map.items()}
+            df = df.rename(columns=reverse_map)
+            logger.debug(f"Restored {len(reverse_map)} column names for output")
 
         # Write file
         compression = None
@@ -587,10 +697,31 @@ class ExcelReportStage(Stage):
 
         logger.info(f"Generating Excel report: {output_path}")
 
+        # Use in-memory DataFrame if available (avoids redundant disk read)
+        excel_df = None
+        if context.variants_df is not None:
+            excel_df = context.variants_df.copy()  # Copy to avoid mutation
+            # Drop internal cache columns before Excel output
+            cache_cols = [c for c in excel_df.columns if c.startswith("_")]
+            if cache_cols:
+                excel_df = excel_df.drop(columns=cache_cols)
+                logger.debug(f"Dropped {len(cache_cols)} cache columns: {cache_cols}")
+            # Phase 11: Reconstruct GT column from per-sample columns if needed
+            if context.vcf_samples and "GT" not in excel_df.columns:
+                gt_cols = _find_per_sample_gt_columns(excel_df)
+                if gt_cols:
+                    excel_df = reconstruct_gt_column(excel_df, context.vcf_samples)
+            # Restore original column names for Excel output
+            if context.column_rename_map:
+                reverse_map = {v: k for k, v in context.column_rename_map.items()}
+                excel_df = excel_df.rename(columns=reverse_map)
+                logger.debug(f"Restored {len(reverse_map)} column names for Excel generation")
+            logger.info("Using in-memory DataFrame for Excel generation (skipping disk read)")
+
         # Convert TSV to Excel using the correct API
         # The convert_to_excel function automatically creates the output path
         # by changing the .tsv extension to .xlsx
-        xlsx_file = convert_to_excel(str(input_file), context.config)
+        xlsx_file = convert_to_excel(str(input_file), context.config, df=excel_df)
 
         # Move the generated file to the desired location if needed
         if xlsx_file != str(output_path):

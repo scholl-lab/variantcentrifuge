@@ -204,27 +204,29 @@ def apply_snpsift_filter(
     threads = str(cfg.get("threads", 1))
 
     # 1) Run SnpSift filter -> write uncompressed .vcf to a temporary file
-    tmp_vcf = tempfile.mktemp(suffix=".vcf")
-    snpsift_cmd = ["SnpSift", "filter", filter_string, variant_file]
-    logger.debug("Applying SnpSift filter to produce uncompressed VCF: %s", tmp_vcf)
-    run_command(snpsift_cmd, output_file=tmp_vcf)
+    tmp_fd, tmp_vcf = tempfile.mkstemp(suffix=".vcf")
+    os.close(tmp_fd)
+    try:
+        snpsift_cmd = ["SnpSift", "filter", filter_string, variant_file]
+        logger.debug("Applying SnpSift filter to produce uncompressed VCF: %s", tmp_vcf)
+        run_command(snpsift_cmd, output_file=tmp_vcf)
 
-    # 2) bgzip compress the temporary VCF
-    bgzip_cmd = ["bgzip", "-@", threads, "-c", tmp_vcf]
-    logger.debug("bgzip compressing to: %s", output_file)
-    run_command(bgzip_cmd, output_file=output_file)
+        # 2) bgzip compress the temporary VCF
+        bgzip_cmd = ["bgzip", "-@", threads, "-c", tmp_vcf]
+        logger.debug("bgzip compressing to: %s", output_file)
+        run_command(bgzip_cmd, output_file=output_file)
 
-    # 3) bcftools index the resulting .vcf.gz
-    index_cmd = ["bcftools", "index", "--threads", threads, output_file]
-    logger.debug("Indexing filtered output with command: %s", " ".join(index_cmd))
-    run_command(index_cmd)
+        # 3) bcftools index the resulting .vcf.gz
+        index_cmd = ["bcftools", "index", "--threads", threads, output_file]
+        logger.debug("Indexing filtered output with command: %s", " ".join(index_cmd))
+        run_command(index_cmd)
 
-    # Remove the uncompressed temp file
-    if os.path.exists(tmp_vcf):
-        os.remove(tmp_vcf)
-
-    logger.debug("Filtered output is now available at: %s", output_file)
-    return output_file
+        logger.debug("Filtered output is now available at: %s", output_file)
+        return output_file
+    finally:
+        # Remove the uncompressed temp file
+        if os.path.exists(tmp_vcf):
+            os.remove(tmp_vcf)
 
 
 def filter_final_tsv_by_genotype(
@@ -374,10 +376,10 @@ def filter_final_tsv_by_genotype(
 
     # Helpers to detect genotype as 'het' (0/1 or 1/0) or 'hom' (1/1)
     def is_het(gt_string: str) -> bool:
-        return gt_string in ("0/1", "1/0")
+        return gt_string in ("0/1", "1/0", "0|1", "1|0")
 
     def is_hom(gt_string: str) -> bool:
-        return gt_string == "1/1"
+        return gt_string in ("1/1", "1|1")
 
     # We'll parse the lines grouped by gene, so we can do 'comp_het' logic.
     lines_by_gene: dict[str, list[tuple[str, dict[str, str]]]] = {}

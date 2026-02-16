@@ -8,6 +8,7 @@ Tests the complete pipeline flow including:
 - Deterministic results across multiple runs
 """
 
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -32,6 +33,10 @@ def test_data_paths():
 @pytest.mark.gene_burden
 def test_gene_burden_sample_assignment(test_data_paths):
     """Test that case/control samples are correctly assigned and counted."""
+    # Skip if external tools not available
+    if not shutil.which("bcftools") or not shutil.which("snpEff"):
+        pytest.skip("Requires bcftools and snpEff to be installed")
+
     # Skip if test data not available
     for name, path in test_data_paths.items():
         if not path.exists():
@@ -58,7 +63,6 @@ def test_gene_burden_sample_assignment(test_data_paths):
             str(output_dir),
             "--output-file",
             "test_results.tsv",
-            "--use-new-pipeline",
             "--log-level",
             "INFO",
         ]
@@ -138,6 +142,10 @@ def test_gene_burden_sample_assignment(test_data_paths):
 @pytest.mark.gene_burden
 def test_gene_burden_determinism(test_data_paths):
     """Test that gene burden analysis produces identical results across multiple runs."""
+    # Skip if external tools not available
+    if not shutil.which("bcftools") or not shutil.which("snpEff"):
+        pytest.skip("Requires bcftools and snpEff to be installed")
+
     # Skip if test data not available
     for name, path in test_data_paths.items():
         if not path.exists():
@@ -167,7 +175,6 @@ def test_gene_burden_determinism(test_data_paths):
                 str(output_dir),
                 "--output-file",
                 f"run_{run_num}_results.tsv",
-                "--use-new-pipeline",
                 "--log-level",
                 "WARNING",  # Reduce output
             ]

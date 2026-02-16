@@ -295,6 +295,8 @@ class TestFieldExtractionStage:
             }
         )
         ctx.data = Path("/tmp/variants.vcf.gz")
+        # Add vcf_samples for bcftools extraction
+        ctx.vcf_samples = ["Sample1", "Sample2", "Sample3"]
         # Mark all potential dependencies as complete
         ctx.mark_complete("configuration_loading")
         ctx.mark_complete("gene_bed_creation")
@@ -304,28 +306,29 @@ class TestFieldExtractionStage:
         ctx.mark_complete("snpsift_filtering")
         return ctx
 
-    @patch("variantcentrifuge.stages.processing_stages.extract_fields")
+    @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
     def test_field_extraction(self, mock_extract, context):
         """Test field extraction to TSV."""
-        # Mock return value - extract_fields returns the output path
+        # Mock return value - extract_fields_bcftools returns the output path
         mock_extract.return_value = "mocked_output.tsv"
 
         stage = FieldExtractionStage()
         result = stage(context)
 
-        # Verify extraction - extract_fields uses keyword arguments
+        # Verify extraction - extract_fields_bcftools uses keyword arguments
         mock_extract.assert_called_once()
         kwargs = mock_extract.call_args[1]
         assert kwargs["variant_file"] == str(Path("/tmp/variants.vcf.gz"))  # variant_file
         assert kwargs["fields"] == "CHROM POS REF ALT QUAL"  # fields as string
         assert isinstance(kwargs["cfg"], dict)  # cfg
         assert ".extracted.tsv" in kwargs["output_file"]  # output_file
+        assert kwargs["vcf_samples"] == ["Sample1", "Sample2", "Sample3"]  # vcf_samples
 
         # Verify context updates
         assert result.extracted_tsv is not None
         assert result.data == result.extracted_tsv
 
-    @patch("variantcentrifuge.stages.processing_stages.extract_fields")
+    @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
     def test_with_gzip_compression(self, mock_extract, context):
         """Test extraction with gzip compression."""
         context.config["gzip_intermediates"] = True
@@ -371,29 +374,20 @@ class TestGenotypeReplacementStage:
         ctx.mark_complete("sample_config_loading")
         return ctx
 
-    @patch("variantcentrifuge.stages.processing_stages.replace_genotypes")
-    def test_genotype_replacement(self, mock_replace, context):
-        """Test genotype replacement."""
-        # Mock replace_genotypes to return some lines
-        mock_replace.return_value = iter(["header", "line1", "line2"])
+    def test_genotype_replacement(self, context):
+        """Test genotype replacement stage (Phase 11: now a no-op)."""
+        # Phase 11: GenotypeReplacementStage now no-ops immediately
+        # GT reconstruction deferred to output time (TSVOutputStage, ExcelReportStage)
 
+        original_data = context.data
         stage = GenotypeReplacementStage()
         result = stage(context)
 
-        # Verify replacement was called
-        mock_replace.assert_called_once()
-        call_args = mock_replace.call_args[0]
-        # First arg is the opened file handle
-        assert hasattr(call_args[0], "read")  # It's a file-like object
-        # Second arg is the config dict
-        assert isinstance(call_args[1], dict)
-        assert call_args[1]["sample_list"] == "Sample1,Sample2,Sample3"
-        # Just verify it's a dict with expected keys
-        assert "sample_list" in call_args[1]
-        # Verify context updates
-        assert result.genotype_replaced_tsv is not None
-        assert result.data == result.genotype_replaced_tsv
-        assert ".genotype_replaced.tsv" in str(result.data)
+        # Verify stage completes immediately (no actual processing)
+        # The stage may set genotype_replaced_tsv in resume_from_checkpoint
+        # but no actual genotype replacement file should be created
+        # Key verification: data path should remain unchanged from input
+        assert result.data == original_data
 
     def test_skip_if_disabled(self, context):
         """Test skipping when replacement disabled."""
@@ -405,16 +399,16 @@ class TestGenotypeReplacementStage:
         # Data should not change
         assert result.data == context.data
 
-    def test_skip_if_no_samples(self, context):
-        """Test skipping when no samples available."""
+    def test_noop_with_no_samples(self, context):
+        """Test no-op when no samples available (Phase 11: always no-op)."""
         context.vcf_samples = []
+        original_data = context.data
 
-        with patch("variantcentrifuge.stages.processing_stages.replace_genotypes") as mock:
-            stage = GenotypeReplacementStage()
-            stage(context)
+        stage = GenotypeReplacementStage()
+        result = stage(context)
 
-            # Should not call replace_genotypes
-            mock.assert_not_called()
+        # Phase 11: stage is always a no-op, data unchanged
+        assert result.data == original_data
 
 
 class TestPhenotypeIntegrationStage:

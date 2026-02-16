@@ -320,24 +320,32 @@ def create_variant_key_fast(df: pd.DataFrame, idx: int) -> str:
     return f"{chrom}:{pos}:{ref}>{alt}"
 
 
-def create_variant_key(variant_row: pd.Series) -> str:
+def create_variant_key(variant_row) -> str:
     """
-    Create a unique key for a variant (compatibility function).
+    Create a unique key for a variant.
 
     Parameters
     ----------
-    variant_row : pd.Series
-        Series containing variant information
+    variant_row : pd.Series or namedtuple
+        Series or namedtuple containing variant information
 
     Returns
     -------
     str
         Unique variant identifier
     """
-    chrom = variant_row.get("CHROM", "chr?")
-    pos = variant_row.get("POS", "0")
-    ref = variant_row.get("REF", "N")
-    alt = variant_row.get("ALT", "N")
+    # Handle both Series (with .get()) and namedtuples (with getattr)
+    if isinstance(variant_row, pd.Series):
+        chrom = variant_row.get("CHROM", "chr?")
+        pos = variant_row.get("POS", "0")
+        ref = variant_row.get("REF", "N")
+        alt = variant_row.get("ALT", "N")
+    else:
+        # namedtuple from itertuples
+        chrom = getattr(variant_row, "CHROM", "chr?")
+        pos = getattr(variant_row, "POS", "0")
+        ref = getattr(variant_row, "REF", "N")
+        alt = getattr(variant_row, "ALT", "N")
 
     return f"{chrom}:{pos}:{ref}>{alt}"
 
@@ -411,38 +419,3 @@ def determine_compound_het_type_vectorized(
         return ("ambiguous", "compound_heterozygous_possible")
 
     return ("unknown", "compound_heterozygous_possible")
-
-
-# Compatibility wrapper to use vectorized version with existing code
-def analyze_gene_for_compound_het(
-    gene_df: pd.DataFrame,
-    pedigree_data: dict[str, dict[str, Any]],
-    sample_list: list[str],
-    use_vectorized: bool = True,
-) -> dict[str, dict[str, Any]]:
-    """
-    Use either vectorized or original implementation for compound het analysis.
-
-    Parameters
-    ----------
-    gene_df : pd.DataFrame
-        DataFrame containing all variants in a single gene
-    pedigree_data : Dict[str, Dict[str, Any]]
-        Pedigree information
-    sample_list : List[str]
-        List of sample IDs to analyze
-    use_vectorized : bool
-        Whether to use vectorized implementation (default: True)
-
-    Returns
-    -------
-    Dict[str, Dict[str, Any]]
-        Dictionary mapping variant keys to compound het details
-    """
-    if use_vectorized:
-        return analyze_gene_for_compound_het_vectorized(gene_df, pedigree_data, sample_list)
-    else:
-        # Fall back to original implementation
-        from . import comp_het
-
-        return comp_het.analyze_gene_for_compound_het(gene_df, pedigree_data, sample_list)

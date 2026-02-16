@@ -7,21 +7,15 @@ pattern deduction, compound heterozygous analysis, and pattern prioritization.
 
 import json
 import logging
+import time
 from typing import Any
 
 import pandas as pd
 
-from .comp_het import analyze_gene_for_compound_het, create_variant_key
-from .deducer import deduce_patterns_for_variant
-
-try:
-    from .comp_het_vectorized import analyze_gene_for_compound_het_vectorized
-
-    VECTORIZED_AVAILABLE = True
-except ImportError:
-    VECTORIZED_AVAILABLE = False
+from .comp_het_vectorized import analyze_gene_for_compound_het_vectorized
 from .prioritizer import get_pattern_description, prioritize_patterns
 from .segregation_checker import calculate_segregation_score
+from .vectorized_deducer import vectorized_deduce_patterns
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +43,8 @@ def analyze_inheritance(
     sample_list : List[str]
         List of sample IDs to analyze
     use_vectorized_comp_het : bool, optional
-        Whether to use the vectorized compound het implementation for better performance.
-        Defaults to True if available, falls back to original if not.
+        Deprecated parameter (kept for backward compatibility).
+        Vectorized implementation is now always used.
 
     Returns
     -------
@@ -81,42 +75,36 @@ def analyze_inheritance(
     df["Inheritance_Pattern"] = "none"
     df["Inheritance_Details"] = "{}"
 
-    # Pass 1: Per-Variant Pattern Deduction
-    logger.info("Pass 1: Deducing inheritance patterns per variant")
-    df["_inheritance_patterns"] = df.apply(
-        lambda row: deduce_patterns_for_variant(row.to_dict(), pedigree_data, sample_list), axis=1
+    # Pass 1: Per-Variant Pattern Deduction (vectorized)
+    logger.info("Pass 1: Deducing inheritance patterns per variant (vectorized)")
+    t_pass1_start = time.monotonic()
+    df["_inheritance_patterns"] = vectorized_deduce_patterns(df, pedigree_data, sample_list)
+    t_pass1 = time.monotonic() - t_pass1_start
+    logger.info(
+        f"Pass 1 completed in {t_pass1:.2f}s ({len(df)} variants, {len(sample_list)} samples)"
     )
 
     # Pass 2: Compound Heterozygous Analysis
-    implementation = (
-        "vectorized" if (use_vectorized_comp_het and VECTORIZED_AVAILABLE) else "original"
-    )
-    logger.info(
-        f"Pass 2: Analyzing compound heterozygous patterns (using {implementation} implementation)"
-    )
+    logger.info("Pass 2: Analyzing compound heterozygous patterns")
+    t_pass2_start = time.monotonic()
 
     # Group by gene and analyze
     comp_het_results_by_gene = {}
     if "GENE" in df.columns:
-        gene_counts = df.groupby("GENE").size()
+        gene_counts = df.groupby("GENE", observed=True).size()
         logger.debug(f"Genes with multiple variants: {gene_counts[gene_counts > 1].to_dict()}")
 
-        for gene, gene_df in df.groupby("GENE"):
+        for gene, gene_df in df.groupby("GENE", observed=True):
             if pd.isna(gene) or gene == "":
                 continue
 
             if len(gene_df) > 1:
                 logger.debug(f"Analyzing gene {gene} with {len(gene_df)} variants for compound het")
 
-            # Use vectorized implementation if available and requested
-            if use_vectorized_comp_het and VECTORIZED_AVAILABLE:
-                comp_het_results = analyze_gene_for_compound_het_vectorized(
-                    gene_df, pedigree_data, sample_list
-                )
-            else:
-                comp_het_results = analyze_gene_for_compound_het(
-                    gene_df, pedigree_data, sample_list
-                )
+            # Use vectorized implementation
+            comp_het_results = analyze_gene_for_compound_het_vectorized(
+                gene_df, pedigree_data, sample_list
+            )
 
             if comp_het_results:
                 comp_het_results_by_gene[gene] = comp_het_results
@@ -124,68 +112,130 @@ def analyze_inheritance(
                     f"Found compound het patterns in gene {gene}: {len(comp_het_results)} variants"
                 )
 
-    # Apply compound het results to DataFrame
-    for idx, row in df.iterrows():
-        variant_key = create_variant_key(row)
-        gene = row.get("GENE", "")
+    n_genes_with_comphet = len(comp_het_results_by_gene)
+    t_pass2_analysis = time.monotonic() - t_pass2_start
+    logger.info(
+        f"Pass 2 gene analysis completed in {t_pass2_analysis:.2f}s "
+        f"({n_genes_with_comphet} genes with compound het patterns)"
+    )
 
-        if gene in comp_het_results_by_gene and variant_key in comp_het_results_by_gene[gene]:
-            df.at[idx, "_comp_het_info"] = comp_het_results_by_gene[gene][variant_key]
+    # Apply compound het results to DataFrame (vectorized)
+    if comp_het_results_by_gene:
+        # Build variant keys for all rows at once
+        variant_keys = (
+            df["CHROM"].astype(str)
+            + ":"
+            + df["POS"].astype(str)
+            + ":"
+            + df["REF"].astype(str)
+            + ">"
+            + df["ALT"].astype(str)
+        )
 
-    # Pass 3: Prioritize and Finalize
+        # Get genes array - handle categorical dtype
+        if isinstance(df["GENE"].dtype, pd.CategoricalDtype):
+            genes = df["GENE"].astype(str).values
+        else:
+            genes = df["GENE"].values.astype(str)
+
+        # Apply comp het results per gene
+        for gene, gene_results in comp_het_results_by_gene.items():
+            gene_mask = genes == gene
+            if not gene_mask.any():
+                continue
+
+            # Get variant keys for this gene
+            gene_variant_keys = variant_keys[gene_mask]
+
+            # For each variant in gene_results, find matching rows
+            for vk, info in gene_results.items():
+                vk_mask = gene_variant_keys == vk
+                if vk_mask.any():
+                    # Get matching indices in the original DataFrame
+                    matching_indices = df.index[gene_mask][vk_mask]
+                    for idx in matching_indices:
+                        df.at[idx, "_comp_het_info"] = info
+
+    t_pass2_total = time.monotonic() - t_pass2_start
+    logger.info(f"Pass 2 total (analysis + apply) completed in {t_pass2_total:.2f}s")
+
+    # Pass 3: Prioritize and Finalize (optimized)
     logger.info("Pass 3: Prioritizing patterns and creating final output")
+    t_pass3_start = time.monotonic()
 
-    for idx, row in df.iterrows():
-        # Get all patterns including compound het
-        all_patterns = list(row["_inheritance_patterns"] or [])
+    # Pre-extract column data to avoid repeated df.at[] lookups
+    all_inheritance_patterns = df["_inheritance_patterns"].tolist()
+    all_comp_het_info = df["_comp_het_info"].tolist()
 
-        # Add compound het pattern if applicable
-        comp_het_info = row["_comp_het_info"]
-        comp_het_patterns = []
-        if comp_het_info:
-            for _sample_id, info in comp_het_info.items():
+    # Pre-compute whether segregation is needed
+    needs_segregation = bool(pedigree_data and len(pedigree_data) > 1)
+
+    # Accumulate results in lists for bulk assignment
+    inheritance_patterns_result = []
+    inheritance_details_result = []
+
+    # Use iterrows since we need Series for create_inheritance_details
+    for idx_pos, (_df_idx, row_series) in enumerate(df.iterrows()):
+        # Get patterns from pre-extracted list
+        patterns_list = list(all_inheritance_patterns[idx_pos] or [])
+        comp_info = all_comp_het_info[idx_pos]
+
+        # Add compound het patterns if applicable
+        if comp_info:
+            for _sample_id, info in comp_info.items():
                 if info.get("is_compound_het"):
                     comp_het_type = info.get("comp_het_type", "compound_heterozygous")
-                    if comp_het_type != "not_compound_heterozygous":
-                        comp_het_patterns.append(comp_het_type)
+                    is_not_negative = comp_het_type != "not_compound_heterozygous"
+                    if is_not_negative and comp_het_type not in patterns_list:
+                        patterns_list.append(comp_het_type)
 
-        # Add unique compound het patterns
-        for pattern in comp_het_patterns:
-            if pattern not in all_patterns:
-                all_patterns.append(pattern)
-
-        # Calculate segregation scores for all patterns if we have family data
+        # Calculate segregation scores if needed
         segregation_results = None
-        if pedigree_data and len(pedigree_data) > 1:
+        if needs_segregation:
+            row_dict = row_series.to_dict()
             segregation_results = calculate_segregation_score(
-                all_patterns, row.to_dict(), pedigree_data, sample_list
+                patterns_list, row_dict, pedigree_data, sample_list
             )
 
-        # Get the best pattern with segregation consideration
-        best_pattern, confidence = prioritize_patterns(all_patterns, segregation_results)
+        # Prioritize patterns
+        best_pattern, confidence = prioritize_patterns(patterns_list, segregation_results)
 
         # Create detailed inheritance information
         details = create_inheritance_details(
-            row,
+            row_series,
             best_pattern,
-            all_patterns,
+            patterns_list,
             confidence,
-            comp_het_info,
+            comp_info,
             pedigree_data,
             sample_list,
             segregation_results,
         )
 
-        # Set final values
-        df.at[idx, "Inheritance_Pattern"] = best_pattern
-        df.at[idx, "Inheritance_Details"] = json.dumps(details)
+        # Accumulate results
+        inheritance_patterns_result.append(best_pattern)
+        inheritance_details_result.append(json.dumps(details))
+
+    # Assign results in bulk (avoids per-row df.at[] overhead)
+    df["Inheritance_Pattern"] = inheritance_patterns_result
+    df["Inheritance_Details"] = inheritance_details_result
+
+    t_pass3 = time.monotonic() - t_pass3_start
+    logger.info(f"Pass 3 completed in {t_pass3:.2f}s ({len(df)} variants prioritized)")
 
     # Clean up temporary columns
     df = df.drop(columns=["_inheritance_patterns", "_comp_het_info"])
 
-    # Log summary statistics
+    # Log summary statistics and timing breakdown
+    t_total = t_pass1 + t_pass2_total + t_pass3
     pattern_counts = df["Inheritance_Pattern"].value_counts()
-    logger.info(f"Inheritance analysis complete. Pattern distribution: {pattern_counts.to_dict()}")
+    logger.info(
+        f"Inheritance analysis complete in {t_total:.2f}s. "
+        f"Timing: Pass1={t_pass1:.2f}s ({t_pass1 / t_total * 100:.0f}%), "
+        f"Pass2={t_pass2_total:.2f}s ({t_pass2_total / t_total * 100:.0f}%), "
+        f"Pass3={t_pass3:.2f}s ({t_pass3 / t_total * 100:.0f}%). "
+        f"Pattern distribution: {pattern_counts.to_dict()}"
+    )
 
     return df
 
@@ -273,7 +323,7 @@ def create_inheritance_details(
     details["carrier_count"] = sum(
         1
         for s in details["samples_with_pattern"]
-        if s["genotype"] in ["0/1", "1/0"] and not s["affected"]
+        if s["genotype"] in ("0/1", "1/0", "0|1", "1|0") and not s["affected"]
     )
 
     return details
@@ -302,9 +352,9 @@ def get_inheritance_summary(df: pd.DataFrame) -> dict[str, Any]:
     }
 
     # Analyze details
-    for _, row in df.iterrows():
+    for row in df.itertuples(index=False):
         try:
-            details = json.loads(row["Inheritance_Details"])
+            details = json.loads(getattr(row, "Inheritance_Details", "{}"))
 
             # Count high confidence patterns
             if details.get("confidence", 0) > 0.8:
@@ -316,10 +366,10 @@ def get_inheritance_summary(df: pd.DataFrame) -> dict[str, Any]:
                     summary["compound_het_genes"].add(sample["compound_het_gene"])
 
             # Count de novo
-            if row["Inheritance_Pattern"] == "de_novo":
+            if getattr(row, "Inheritance_Pattern", "") == "de_novo":
                 summary["de_novo_variants"] += 1
 
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, AttributeError):
             continue
 
     summary["compound_het_genes"] = list(summary["compound_het_genes"])
@@ -378,21 +428,21 @@ def export_inheritance_report(
     """
     report_data = []
 
-    for _, row in df.iterrows():
+    for row in df.itertuples(index=False):
         variant_info = {
-            "chromosome": row.get("CHROM", ""),
-            "position": row.get("POS", ""),
-            "reference": row.get("REF", ""),
-            "alternate": row.get("ALT", ""),
-            "gene": row.get("GENE", ""),
-            "impact": row.get("IMPACT", ""),
-            "inheritance_pattern": row["Inheritance_Pattern"],
+            "chromosome": getattr(row, "CHROM", ""),
+            "position": getattr(row, "POS", ""),
+            "reference": getattr(row, "REF", ""),
+            "alternate": getattr(row, "ALT", ""),
+            "gene": getattr(row, "GENE", ""),
+            "impact": getattr(row, "IMPACT", ""),
+            "inheritance_pattern": getattr(row, "Inheritance_Pattern", ""),
         }
 
         try:
-            details = json.loads(row["Inheritance_Details"])
+            details = json.loads(getattr(row, "Inheritance_Details", "{}"))
             variant_info.update(details)
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, AttributeError):
             pass
 
         report_data.append(variant_info)
@@ -444,9 +494,9 @@ def process_inheritance_output(
 
     elif mode == "columns":
         # Create new columns from the JSON details
-        for idx, row in df.iterrows():
+        for row in df.itertuples(index=True):
             try:
-                details = json.loads(row["Inheritance_Details"])
+                details = json.loads(getattr(row, "Inheritance_Details", "{}"))
 
                 # Extract key information
                 confidence = details.get("confidence", 0)
@@ -480,16 +530,16 @@ def process_inheritance_output(
                     sample_strings.append(sample_str)
 
                 # Set the values
-                df.at[idx, "Inheritance_Confidence"] = f"{confidence:.2f}"
-                df.at[idx, "Inheritance_Description"] = pattern_desc
-                df.at[idx, "Inheritance_Samples"] = "; ".join(sample_strings)
+                df.at[row.Index, "Inheritance_Confidence"] = f"{confidence:.2f}"
+                df.at[row.Index, "Inheritance_Description"] = pattern_desc
+                df.at[row.Index, "Inheritance_Samples"] = "; ".join(sample_strings)
 
-            except (json.JSONDecodeError, KeyError, TypeError) as e:
-                logger.debug(f"Error parsing inheritance details for row {idx}: {e}")
+            except (json.JSONDecodeError, KeyError, TypeError, AttributeError) as e:
+                logger.debug(f"Error parsing inheritance details for row {row.Index}: {e}")
                 # Set empty values for this row
-                df.at[idx, "Inheritance_Confidence"] = ""
-                df.at[idx, "Inheritance_Description"] = ""
-                df.at[idx, "Inheritance_Samples"] = ""
+                df.at[row.Index, "Inheritance_Confidence"] = ""
+                df.at[row.Index, "Inheritance_Description"] = ""
+                df.at[row.Index, "Inheritance_Samples"] = ""
 
         # Drop the original details column
         if "Inheritance_Details" in df.columns:

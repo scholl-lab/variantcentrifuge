@@ -47,7 +47,7 @@ class TestPipelineSampleDeterminism:
         }
 
     @patch("variantcentrifuge.helpers.get_vcf_names")
-    @patch("variantcentrifuge.stages.processing_stages.extract_fields")
+    @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
     @patch("variantcentrifuge.stages.processing_stages.Path.exists")
     def test_multiple_pipeline_runs_identical_results(
         self, mock_exists, mock_extract, mock_get_names, temp_workspace, mock_test_data
@@ -57,8 +57,8 @@ class TestPipelineSampleDeterminism:
         mock_get_names.return_value = mock_test_data["vcf_samples"]
         mock_exists.return_value = True
 
-        def mock_extract_fields(variant_file, fields, cfg, output_file):
-            """Mock extract_fields to write test TSV data."""
+        def mock_extract_fields(variant_file, fields, cfg, output_file, vcf_samples=None):
+            """Mock extract_fields_bcftools to write test TSV data."""
             from variantcentrifuge.utils import smart_open
 
             # Use smart_open to handle both .tsv and .tsv.gz files properly
@@ -167,47 +167,6 @@ class TestPipelineSampleDeterminism:
                     f"Sample order changed at {stage_name}: expected {original_order}, "
                     f"got {stage_samples}"
                 )
-
-    @patch("variantcentrifuge.helpers.get_vcf_names")
-    def test_genotype_replacement_determinism(self, mock_get_names, temp_workspace):
-        """Test that genotype replacement produces deterministic output."""
-        from variantcentrifuge.replacer import replace_genotypes
-
-        test_samples = ["Sample1", "Sample2", "Sample3"]
-        mock_get_names.return_value = test_samples
-
-        # Create test TSV input
-        test_input = [
-            "CHROM\tPOS\tREF\tALT\tGT\tGENE",
-            "chr1\t100\tA\tT\t0/1:1/1:0/0\tBRCA1",
-            "chr1\t200\tC\tG\t1/1:0/1:0/0\tTP53",
-        ]
-
-        config = {
-            "sample_list": ",".join(test_samples),
-            "separator": ";",
-            "extract_fields_separator": ":",
-            "append_extra_sample_fields": False,
-            "extra_sample_fields": [],
-            "genotype_replacement_map": {},
-        }
-
-        # Run genotype replacement multiple times
-        results = []
-        for _ in range(3):
-            output_lines = list(replace_genotypes(iter(test_input), config))
-            results.append(output_lines)
-
-        # All results should be identical
-        first_result = results[0]
-        for i, result in enumerate(results[1:], 1):
-            assert result == first_result, f"Genotype replacement run {i + 1} differs from run 1"
-
-        # Verify sample order in output
-        gt_line = first_result[2]  # Second data line
-        assert "Sample1(" in gt_line, "Sample1 should appear in GT column"
-        assert "Sample2(" in gt_line, "Sample2 should appear in GT column"
-        # Sample3 has 0/0 genotype so should not appear (filtered out)
 
     def test_inheritance_analysis_determinism_with_real_data(self, temp_workspace):
         """Test inheritance analysis determinism with realistic family data."""
