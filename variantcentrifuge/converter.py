@@ -477,10 +477,47 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
         impact_counts = df["IMPACT"].value_counts().to_dict()
     # MODIFIED: End of empty report generation
 
+    # Extract unique sample count from GT column
+    num_samples = 0
+    if not df.empty and "GT" in df.columns:
+        sample_ids = set()
+        for gt_value in df["GT"]:
+            if pd.notna(gt_value):
+                sample_entries = str(gt_value).split(";")
+                for entry in sample_entries:
+                    entry = entry.strip()
+                    if entry:
+                        m = GT_PATTERN.match(entry)
+                        if m:
+                            sample_ids.add(m.group(1).strip())
+        num_samples = len(sample_ids)
+
+    # Extract inheritance distribution
+    inheritance_distribution = {}
+    if not df.empty and "Inheritance_Pattern" in df.columns:
+        # Filter out "none" and "reference" patterns as they aren't real patterns
+        valid_patterns = df[
+            ~df["Inheritance_Pattern"].isin(["none", "reference"])
+        ]["Inheritance_Pattern"]
+        if len(valid_patterns) > 0:
+            inheritance_distribution = valid_patterns.value_counts().to_dict()
+
+    # Extract top genes
+    top_genes = []
+    if not df.empty and "GENE" in df.columns:
+        # Drop NaN gene values before counting
+        gene_counts = df["GENE"].dropna().value_counts().head(10)
+        top_genes = [
+            {"gene": gene, "count": int(count)} for gene, count in gene_counts.items()
+        ]
+
     summary_data = {
         "num_variants": num_variants,
         "num_genes": num_genes,
+        "num_samples": num_samples,
         "impact_distribution": impact_counts,
+        "inheritance_distribution": inheritance_distribution,
+        "top_genes": top_genes,
     }
 
     # Ensure the report directory exists

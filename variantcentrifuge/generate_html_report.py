@@ -127,6 +127,17 @@ def generate_html_report(
     # Load vendored assets for inline embedding
     assets = _load_assets()
 
+    # Extract pipeline metadata from config
+    filter_expression = cfg.get("filters", "None")
+    # Try to get VCF file path from various possible keys
+    vcf_path = cfg.get("vcf_file") or cfg.get("input_vcf")
+    if vcf_path:
+        import os
+        vcf_source = os.path.basename(vcf_path)
+    else:
+        vcf_source = "Unknown"
+    reference_genome = cfg.get("reference", "Unknown")
+
     # Render template with the new column structure
     html_content = template.render(
         variants=variants_data,
@@ -136,6 +147,9 @@ def generate_html_report(
         generation_date=pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
         version=__version__,
         assets=assets,
+        filter_expression=filter_expression,
+        vcf_source=vcf_source,
+        reference_genome=reference_genome,
     )
 
     output_path = Path(output_dir) / "index.html"
