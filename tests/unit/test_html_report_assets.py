@@ -24,6 +24,7 @@ class TestAssetLoading:
             "js/buttons.colVis.min",
             "js/chart.umd.min",
             "js/chartjs-plugin-datalabels.min",
+            "js/popper.min",
             "js/tippy-bundle.umd.min",
         ]
 

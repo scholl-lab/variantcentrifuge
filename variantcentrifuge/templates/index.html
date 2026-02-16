@@ -93,26 +93,37 @@
         width: 100%;
     }
 
-    /* Table Styles */
-    #variants_table {
+    /* Table Styles — apply to both body table and DataTables scroll header clone */
+    #variants_table,
+    .dt-scroll-head table,
+    .dataTables_scrollHead table {
         font-size: 13px;
         width: 100% !important;
     }
-    #variants_table th {
-        white-space: normal !important;
-        word-wrap: break-word;
-        text-align: left;
+    #variants_table th,
+    .dt-scroll-head th,
+    .dataTables_scrollHead th {
+        white-space: nowrap !important;
+        text-align: left !important;
         vertical-align: middle;
         line-height: 1.3;
+        padding: 8px 22px 8px 8px !important;
+        font-weight: 600;
     }
-    #variants_table.compact th,
-    #variants_table.compact td {
-        padding: 4px 6px;
+    /* Override DataTables numeric right-alignment */
+    .dt-type-numeric {
+        text-align: left !important;
+    }
+    /* Hide the duplicate thead inside the scroll body (DataTables clones it to scroll-head) */
+    .dt-scroll-body thead,
+    .dataTables_scrollBody thead {
+        display: none;
     }
     #variants_table td {
         text-align: left;
         vertical-align: top;
         line-height: 1.3;
+        padding: 4px 6px;
     }
 
     /* Link Styles */
@@ -217,7 +228,7 @@
         <h2>Variants Table</h2>
 
         <!-- Loading Skeleton -->
-        <div id="table-skeleton" class="skeleton-wrapper" style="display: none;">
+        <div id="table-skeleton" class="skeleton-wrapper">
             {% for i in range(7) %}
             <div class="skeleton-row">
                 <div class="skeleton-cell"></div>
@@ -230,7 +241,7 @@
         </div>
 
         {% if variants and variants|length > 0 %}
-        <table id="variants_table" class="display compact" style="display: none;">
+        <table id="variants_table" class="display compact">
             <thead>
                 <tr>
                     {% for col_info in column_data %}
@@ -316,6 +327,7 @@
 <script>{{ assets['js/buttons.colVis.min'] }}</script>
 <script>{{ assets['js/chart.umd.min'] }}</script>
 <script>{{ assets['js/chartjs-plugin-datalabels.min'] }}</script>
+<script>{{ assets['js/popper.min'] }}</script>
 <script>{{ assets['js/tippy-bundle.umd.min'] }}</script>
 
 <script>
@@ -325,11 +337,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
     }
 
-    // Show loading skeleton
     var skeleton = document.getElementById('table-skeleton');
-    if (skeleton) {
-        skeleton.style.display = 'block';
-    }
 
     // Get column configuration from Jinja2
     var allColumnOriginalNames = {{ column_data | map(attribute='original_name') | list | tojson }};
@@ -354,63 +362,60 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Initialize DataTables v2
-    var table = new DataTable('#variants_table', {
-        autoWidth: false,
-        pageLength: 25,
-        scrollX: true,
-        layout: {
-            topStart: {
-                pageLength: {
-                    menu: [10, 25, 50, 100, -1]
+    // Initialize DataTables v2 on the visible table (required for correct header sizing with scrollX)
+    try {
+        var table = new DataTable('#variants_table', {
+            autoWidth: false,
+            pageLength: 25,
+            scrollX: true,
+            layout: {
+                topStart: {
+                    pageLength: {
+                        menu: [10, 25, 50, 100, -1]
+                    }
+                },
+                topEnd: {
+                    search: true,
+                    buttons: [
+                        {
+                            extend: 'colvis',
+                            text: 'Show/Hide Columns'
+                        }
+                    ]
                 }
             },
-            topEnd: {
-                buttons: [
-                    {
-                        extend: 'colvis',
-                        text: 'Show/Hide Columns'
-                    }
-                ]
+            columnDefs: dtColumnDefs,
+            initComplete: function() {
+                if (skeleton) { skeleton.style.display = 'none'; }
+                this.api().columns.adjust();
+            },
+            drawCallback: function(settings) {
+                initTippyTooltips();
             }
-        },
-        columnDefs: dtColumnDefs,
-        initComplete: function() {
-            // Hide skeleton and show table
-            if (skeleton) {
-                skeleton.style.display = 'none';
-            }
-            document.getElementById('variants_table').style.display = 'table';
-        },
-        drawCallback: function(settings) {
-            // Force column width adjustment
-            this.api().columns.adjust();
+        });
+    } catch (e) {
+        console.error('DataTables initialization failed:', e);
+        if (skeleton) { skeleton.style.display = 'none'; }
+    }
 
-            // Initialize Tippy tooltips for truncated cells
-            initTippyTooltips();
-        }
-    });
-
-    // Initialize Tippy.js tooltips
+    // Initialize Tippy.js tooltips on truncated cells
     function initTippyTooltips() {
         var truncatedCells = document.querySelectorAll('.truncated-cell[data-tippy-content]');
         truncatedCells.forEach(function(cell) {
-            // Only attach tippy if content is actually truncated
-            if (cell.offsetWidth < cell.scrollWidth || cell.offsetHeight < cell.scrollHeight) {
-                if (!cell._tippy) {
-                    tippy(cell, {
-                        theme: 'variantcentrifuge',
-                        placement: 'top',
-                        allowHTML: false,
-                        maxWidth: 400,
-                        interactive: false
-                    });
-                }
-            } else {
-                // Remove tippy if content is not truncated
-                if (cell._tippy) {
-                    cell._tippy.destroy();
-                }
+            if (!cell._tippy) {
+                tippy(cell, {
+                    theme: 'variantcentrifuge',
+                    placement: 'top',
+                    allowHTML: false,
+                    maxWidth: 400,
+                    interactive: false,
+                    onShow: function(instance) {
+                        // Only show if content is actually truncated
+                        if (cell.offsetWidth >= cell.scrollWidth && cell.offsetHeight >= cell.scrollHeight) {
+                            return false;
+                        }
+                    }
+                });
             }
         });
     }
