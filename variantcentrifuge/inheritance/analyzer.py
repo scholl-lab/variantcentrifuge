@@ -323,7 +323,7 @@ def create_inheritance_details(
     details["carrier_count"] = sum(
         1
         for s in details["samples_with_pattern"]
-        if s["genotype"] in ["0/1", "1/0"] and not s["affected"]
+        if s["genotype"] in ("0/1", "1/0", "0|1", "1|0") and not s["affected"]
     )
 
     return details

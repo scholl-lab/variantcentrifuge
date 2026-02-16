@@ -367,8 +367,8 @@ def assign_case_control_counts(
             genotype = samples_with_variant.get(sample_name, "0/0")
             allele_count = genotype_to_allele_count(genotype)
 
-            # Check if homozygous variant
-            is_hom_variant = genotype == "1/1"
+            # Check if homozygous variant (unphased or phased)
+            is_hom_variant = genotype in ("1/1", "1|1")
 
             if sample_name in case_samples:
                 if allele_count > 0:
@@ -458,23 +458,24 @@ def genotype_to_allele_count(genotype: str) -> int:
     """
     Convert genotype string to allele count.
 
-    - '1/1' -> 2
-    - '0/1' or '1/0' -> 1
-    - '0/0' or '' -> 0
+    Handles both unphased (/) and phased (|) genotype separators:
+    - '1/1' or '1|1' -> 2
+    - '0/1', '1/0', '0|1', '1|0' -> 1
+    - '0/0', '0|0', '' -> 0
 
     Parameters
     ----------
     genotype : str
-        Genotype string, expected to be one of '0/0', '0/1', '1/0', '1/1', or ''.
+        Genotype string (e.g., '0/1', '1|0', '1/1', '0|0').
 
     Returns
     -------
     int
         The allele count for the given genotype.
     """
-    if genotype == "1/1":
+    if genotype in ("1/1", "1|1"):
         return 2
-    elif genotype in ["0/1", "1/0"]:
+    elif genotype in ("0/1", "1/0", "0|1", "1|0"):
         return 1
     return 0
 

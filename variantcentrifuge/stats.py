@@ -59,9 +59,9 @@ def compute_basic_stats(df: pd.DataFrame, all_samples: set[str]) -> pd.DataFrame
             for g in val.split(";"):
                 g = g.strip()
                 _, genotype = extract_sample_and_genotype(g)
-                if genotype in ["0/1", "1/0"]:
+                if genotype in ("0/1", "1/0", "0|1", "1|0"):
                     het_counts += 1
-                elif genotype == "1/1":
+                elif genotype in ("1/1", "1|1"):
                     hom_counts += 1
 
     metric_rows = [

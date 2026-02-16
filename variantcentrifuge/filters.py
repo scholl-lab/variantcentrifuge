@@ -376,10 +376,10 @@ def filter_final_tsv_by_genotype(
 
     # Helpers to detect genotype as 'het' (0/1 or 1/0) or 'hom' (1/1)
     def is_het(gt_string: str) -> bool:
-        return gt_string in ("0/1", "1/0")
+        return gt_string in ("0/1", "1/0", "0|1", "1|0")
 
     def is_hom(gt_string: str) -> bool:
-        return gt_string == "1/1"
+        return gt_string in ("1/1", "1|1")
 
     # We'll parse the lines grouped by gene, so we can do 'comp_het' logic.
     lines_by_gene: dict[str, list[tuple[str, dict[str, str]]]] = {}
