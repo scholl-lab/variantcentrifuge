@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-02-16)
 
 ## Current Position
 
-Phase: 13 of 5 (JS Stack Modernization)
-Plan: 3 of 3 completed
-Status: Phase complete, verified ✓
-Last activity: 2026-02-16 — Phase 13 complete (3/3 plans, 5/5 must-haves verified)
+Phase: 14 of 5 (Information Hierarchy and Semantic Color Coding)
+Plan: 1 of 3 completed
+Status: In progress
+Last activity: 2026-02-16 — Completed 14-01-PLAN.md (Dashboard Layout and Expanded Summary)
 
-Progress: [████░░░░░░░░░░░░░░░░] 20% (1/5 phases)
+Progress: [████░░░░░░░░░░░░░░░░] 20% (1/5 phases complete, 1/3 plans in Phase 14)
 
 ## Milestone Overview
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
 | 13 | JS Stack Modernization | 5 | Complete ✓ (verified) |
-| 14 | Information Hierarchy and Semantic Color Coding | 7 | Not Started |
+| 14 | Information Hierarchy and Semantic Color Coding | 7 | In Progress (1/3 plans) |
 | 15 | Table Redesign | 10 | Not Started |
 | 16 | Column-Level Filtering and Visualization | 8 | Not Started |
 | 17 | Accessibility and Print/PDF | 8 | Not Started |
@@ -56,6 +56,12 @@ Progress: [████░░░░░░░░░░░░░░░░] 20% (1/
 | 13-FIX-03 | Hide dt-scroll-body thead via CSS (DataTables scrollX duplicate) | Post-verify | Prevents ghost header row with duplicate sort arrows |
 | 13-FIX-04 | Force left-align on all columns including dt-type-numeric | Post-verify | DataTables auto-right-aligns numeric columns, causing sort icon overlap |
 | 13-FIX-05 | Franklin, SpliceAI, autopvs1 hidden by default; link order: ClinVar, gnomAD_2, Varsome first | Post-verify | Reduce column clutter; most-used links visible by default |
+| 14-01-01 | Dashboard positioned above variant table | 14-01 | Overview-first UX pattern shows summary before details |
+| 14-01-02 | Two-row dashboard grid: metric cards (row 1) + dual charts (row 2) | 14-01 | Separates quick metrics from visualizations |
+| 14-01-03 | Chart height reduced to 220px (from 300px) | 14-01 | Dashboard must fit above-the-fold on 1080p (~600px vertical budget) |
+| 14-01-04 | Inheritance chart placeholder when no pedigree | 14-01 | Better UX than empty chart or error |
+| 14-01-05 | Sample count extraction from GT column | 14-01 | Useful metric for multi-sample VCF reports |
+| 14-01-06 | Filter "none" and "reference" from inheritance_distribution | 14-01 | These aren't real patterns, would clutter visualization |
 
 ### Pending Todos
 
@@ -68,6 +74,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-16
-Stopped at: Phase 13 complete, verified, post-verification UI fixes applied
+Stopped at: Completed 14-01-PLAN.md (Dashboard Layout and Expanded Summary)
 Resume file: None
-Next: Plan Phase 14 (Information Hierarchy and Semantic Color Coding)
+Next: Execute 14-02-PLAN.md (Semantic Color System and Visual Hierarchy)
