@@ -8,6 +8,19 @@ import pandas as pd
 from jinja2 import Environment, FileSystemLoader
 
 
+def _load_assets() -> dict[str, str]:
+    """Load vendored JS/CSS assets for inline embedding."""
+    assets_dir = Path(__file__).parent / "assets"
+    assets = {}
+    for subdir in ("js", "css"):
+        asset_path = assets_dir / subdir
+        if asset_path.exists():
+            for f in sorted(asset_path.iterdir()):
+                if f.is_file():
+                    assets[f.stem] = f.read_text(encoding="utf-8")
+    return assets
+
+
 def generate_html_report(
     variants_json: str, summary_json: str, output_dir: str, cfg: dict[str, Any]
 ) -> None:
@@ -106,6 +119,9 @@ def generate_html_report(
     # Import version for template
     from variantcentrifuge.version import __version__
 
+    # Load vendored assets for inline embedding
+    assets = _load_assets()
+
     # Render template with the new column structure
     html_content = template.render(
         variants=variants_data,
@@ -114,6 +130,7 @@ def generate_html_report(
         default_hidden_columns=default_hidden_columns,
         generation_date=pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
         version=__version__,
+        assets=assets,
     )
 
     output_path = Path(output_dir) / "index.html"
