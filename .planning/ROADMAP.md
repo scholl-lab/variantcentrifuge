@@ -49,9 +49,9 @@ Transform the individual HTML report from a functional-but-dated developer tool 
 **Plans:** 3 plans
 
 Plans:
-- [ ] 13-01-PLAN.md — Vendor JS/CSS assets and update report generator to load them
-- [ ] 13-02-PLAN.md — Rewrite HTML template for modern stack (DataTables v2, Chart.js, Tippy.js)
-- [ ] 13-03-PLAN.md — Add tests for asset loading and template rendering
+- [x] 13-01-PLAN.md — Vendor JS/CSS assets and update report generator to load them
+- [x] 13-02-PLAN.md — Rewrite HTML template for modern stack (DataTables v2, Chart.js, Tippy.js)
+- [x] 13-03-PLAN.md — Add tests for asset loading and template rendering
 
 **Success Criteria:**
 
@@ -147,7 +147,7 @@ Plans:
 | 10. Output Optimization | v0.13.0 | 3/3 | Complete | 2026-02-15 |
 | 11. Pipeline I/O Elimination | v0.13.0 | 3/3 | Complete | 2026-02-15 |
 | 12. Parallelization & Chunking | v0.13.0 | 4/4 | Complete | 2026-02-16 |
-| 13. JS Stack Modernization | v0.14.0 | 0/3 | Not Started | — |
+| 13. JS Stack Modernization | v0.14.0 | 3/3 | Complete | 2026-02-16 |
 | 14. Information Hierarchy and Semantic Color Coding | v0.14.0 | 0/? | Not Started | — |
 | 15. Table Redesign | v0.14.0 | 0/? | Not Started | — |
 | 16. Column-Level Filtering and Visualization | v0.14.0 | 0/? | Not Started | — |

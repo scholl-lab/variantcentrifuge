@@ -4,11 +4,11 @@
 
 ### JS Stack Modernization
 
-- [ ] **STACK-01**: Upgrade DataTables from v1.10.20 to v2 (jQuery-optional)
-- [ ] **STACK-02**: Remove jQuery dependency, replace with vanilla JS
-- [ ] **STACK-03**: Add Tippy.js for viewport-aware, accessible tooltips
-- [ ] **STACK-04**: Replace Plotly with Chart.js for lighter chart bundle (~65KB vs ~3.5MB)
-- [ ] **STACK-05**: Add loading skeleton/spinner during DataTable initialization
+- [x] **STACK-01**: Upgrade DataTables from v1.10.20 to v2 (jQuery-optional)
+- [x] **STACK-02**: Remove jQuery dependency, replace with vanilla JS
+- [x] **STACK-03**: Add Tippy.js for viewport-aware, accessible tooltips
+- [x] **STACK-04**: Replace Plotly with Chart.js for lighter chart bundle (~65KB vs ~3.5MB)
+- [x] **STACK-05**: Add loading skeleton/spinner during DataTable initialization
 
 ### Information Hierarchy
 
@@ -89,11 +89,11 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| STACK-01 | Phase 13 | Pending |
-| STACK-02 | Phase 13 | Pending |
-| STACK-03 | Phase 13 | Pending |
-| STACK-04 | Phase 13 | Pending |
-| STACK-05 | Phase 13 | Pending |
+| STACK-01 | Phase 13 | Complete |
+| STACK-02 | Phase 13 | Complete |
+| STACK-03 | Phase 13 | Complete |
+| STACK-04 | Phase 13 | Complete |
+| STACK-05 | Phase 13 | Complete |
 | HIER-01 | Phase 14 | Pending |
 | HIER-02 | Phase 14 | Pending |
 | HIER-03 | Phase 14 | Pending |
