@@ -399,16 +399,16 @@ class TestGenotypeReplacementStage:
         # Data should not change
         assert result.data == context.data
 
-    def test_skip_if_no_samples(self, context):
-        """Test skipping when no samples available."""
+    def test_noop_with_no_samples(self, context):
+        """Test no-op when no samples available (Phase 11: always no-op)."""
         context.vcf_samples = []
+        original_data = context.data
 
-        with patch("variantcentrifuge.stages.processing_stages.replace_genotypes") as mock:
-            stage = GenotypeReplacementStage()
-            stage(context)
+        stage = GenotypeReplacementStage()
+        result = stage(context)
 
-            # Should not call replace_genotypes
-            mock.assert_not_called()
+        # Phase 11: stage is always a no-op, data unchanged
+        assert result.data == original_data
 
 
 class TestPhenotypeIntegrationStage:
