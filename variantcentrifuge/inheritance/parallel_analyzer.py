@@ -167,7 +167,11 @@ def analyze_inheritance_parallel(
         if num_genes > 0:
             # Sort genes by variant count descending (largest first for load balancing)
             genes_with_multiple_variants.sort(key=lambda x: len(x[1]), reverse=True)
-            max_gene_size = len(genes_with_multiple_variants[0][1]) if genes_with_multiple_variants else 0
+            max_gene_size = (
+                len(genes_with_multiple_variants[0][1])
+                if genes_with_multiple_variants
+                else 0
+            )
 
             # Auto-detect worker count if not specified
             if n_workers is None:

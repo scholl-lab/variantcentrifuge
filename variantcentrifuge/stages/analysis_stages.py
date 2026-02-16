@@ -927,7 +927,8 @@ class InheritanceAnalysisStage(Stage):
 
         # Estimate memory per gene for worker calculation
         # Use average variants per gene as rough estimate (conservative)
-        avg_variants_per_gene = len(df) / max(1, df["GENE"].nunique() if "GENE" in df.columns else 1)
+        num_genes = df["GENE"].nunique() if "GENE" in df.columns else 1
+        avg_variants_per_gene = len(df) / max(1, num_genes)
         memory_per_gene_gb = rm.estimate_memory(int(avg_variants_per_gene), len(vcf_samples))
         max_workers = rm.auto_workers(
             task_count=df["GENE"].nunique() if "GENE" in df.columns else 1,
@@ -2706,7 +2707,8 @@ class ChunkedAnalysisStage(Stage):
                 from ..memory import ResourceManager
 
                 rm = ResourceManager(config=context.config)
-                # Use conservative estimate for total variants (actual count determined during processing)
+                # Use conservative estimate for total variants
+                # (actual count determined during processing)
                 total_variants = 100000  # Conservative estimate for chunking
                 chunk_size = rm.auto_chunk_size(total_variants, sample_count)
                 logger.info(
