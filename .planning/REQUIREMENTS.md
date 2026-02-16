@@ -51,10 +51,12 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Parallelization & Chunking — Issue #62 (PARLZ)
 
-- [ ] **PARLZ-01**: Dynamic content-aware chunking calculates optimal chunk sizes based on data complexity (variant count, sample count, genotype density)
-- [ ] **PARLZ-02**: Adaptive work stealing implemented for inheritance analysis load balancing, redistributing work from large gene groups to idle workers
-- [ ] **PARLZ-03**: Memory pool management reduces DataFrame allocation/deallocation overhead with reusable pre-allocated buffers
-- [ ] **PARLZ-04**: Asynchronous I/O with memory mapping implemented for I/O-bound workloads, overlapping reads with processing
+**Note:** Scope revised based on Phase 7-11 transformations. Research showed memory pools and async I/O unnecessary after Phase 8 (82-84% memory reduction) and Phase 11 (I/O bottleneck elimination).
+
+- [x] **PARLZ-01**: Dynamic content-aware chunking calculates optimal chunk sizes based on variant count, sample count, and available memory via pipeline-wide ResourceManager
+- [x] **PARLZ-02**: Gene sorting (largest-first) for inheritance analysis load balancing, preventing straggler effects in parallel compound het detection (replaces work stealing — simpler, equally effective)
+- [x] **PARLZ-03**: Pipeline-wide ResourceManager replaces inheritance-specific InheritanceMemoryManager with zero dead code (replaces memory pools — unnecessary after Phase 8 memory reduction)
+- [x] **PARLZ-04**: Per-stage memory reporting at INFO level shows peak RSS and memory breakdown after pipeline completes (replaces async I/O — unnecessary after Phase 11 I/O elimination)
 
 ## Future Requirements
 
@@ -115,14 +117,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INHER-04 | Phase 9 | Complete |
 | OUTPT-01 | Phase 10 | Complete |
 | OUTPT-02 | Phase 10 | Complete |
-| PIPEIO-01 | Phase 11 | Pending |
-| PIPEIO-02 | Phase 11 | Pending |
-| PIPEIO-03 | Phase 11 | Pending |
-| PIPEIO-04 | Phase 11 | Pending |
-| PARLZ-01 | Phase 12 | Pending |
-| PARLZ-02 | Phase 12 | Pending |
-| PARLZ-03 | Phase 12 | Pending |
-| PARLZ-04 | Phase 12 | Pending |
+| PIPEIO-01 | Phase 11 | Complete |
+| PIPEIO-02 | Phase 11 | Complete |
+| PIPEIO-03 | Phase 11 | Complete |
+| PIPEIO-04 | Phase 11 | Complete |
+| PARLZ-01 | Phase 12 | Complete |
+| PARLZ-02 | Phase 12 | Complete |
+| PARLZ-03 | Phase 12 | Complete |
+| PARLZ-04 | Phase 12 | Complete |
 
 **Coverage:**
 - v1 requirements: 28 total (PIPLN-01/02 superseded by PIPEIO-01/02/03/04)
@@ -141,4 +143,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-02-14*
-*Last updated: 2026-02-15 — Phase 11 replaced (PIPLN → PIPEIO)*
+*Last updated: 2026-02-16 — All requirements complete (PARLZ scope revised, PIPEIO marked complete)*
