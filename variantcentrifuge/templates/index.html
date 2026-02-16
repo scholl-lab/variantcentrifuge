@@ -44,39 +44,12 @@
         opacity: 0.9;
         font-size: 14px;
     }
-    .summary-section, .chart-section, .table-section {
+    .table-section {
         background-color: white;
         border-radius: 8px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.05);
         padding: 20px;
         margin-bottom: 20px;
-    }
-    .summary-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        grid-gap: 20px;
-        margin-bottom: 20px;
-    }
-    .stats-card {
-        background-color: #fff;
-        border-radius: 8px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.05);
-        padding: 20px;
-        text-align: center;
-        border-left: 5px solid #007bff;
-    }
-    .stats-card h3 {
-        margin-top: 0;
-        color: #6c757d;
-        font-size: 1rem;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    .stats-card p {
-        margin: 0;
-        font-size: 2.25rem;
-        font-weight: 700;
-        color: #343a40;
     }
     footer {
         text-align: center;
@@ -91,6 +64,77 @@
         position: relative;
         height: 300px;
         width: 100%;
+    }
+    .chart-container-sm {
+        position: relative;
+        height: 220px;
+        width: 100%;
+    }
+
+    /* Dashboard Styles */
+    .dashboard { margin-bottom: 24px; }
+    .cards-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px;
+        margin-bottom: 16px;
+    }
+    .charts-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+    }
+
+    /* Metric Card Styles */
+    .metric-card {
+        background: white;
+        border-radius: 8px;
+        padding: 14px 16px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+    }
+    .metric-card h3 {
+        margin: 0 0 4px 0;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #6c757d;
+        font-weight: 600;
+    }
+    .metric-card .metric-value {
+        margin: 0;
+        font-size: 1.75rem;
+        font-weight: 700;
+        line-height: 1.2;
+    }
+    .metric-card .gene-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.5;
+    }
+    .metric-card .gene-list li {
+        display: flex;
+        justify-content: space-between;
+    }
+
+    /* Impact Breakdown Styles */
+    .impact-breakdown { list-style: none; padding: 0; margin: 0; font-size: 13px; }
+    .impact-breakdown li { display: flex; justify-content: space-between; align-items: center; padding: 2px 0; }
+    .impact-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+
+    /* Chart Wrapper Styles */
+    .chart-wrapper {
+        background: white;
+        border-radius: 8px;
+        padding: 14px 16px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+    }
+    .chart-wrapper h3 {
+        margin: 0 0 8px 0;
+        font-size: 14px;
+        font-weight: 600;
+        color: #333;
     }
 
     /* Table Styles — apply to both body table and DataTables scroll header clone */
@@ -224,6 +268,68 @@
         <p>VariantCentrifuge v{{ version }}</p>
     </header>
 
+    <!-- Dashboard Section -->
+    <div class="dashboard">
+        <!-- Cards Row -->
+        <div class="cards-grid">
+            <div class="metric-card">
+                <h3>Total Variants</h3>
+                <p class="metric-value" style="color: #007bff;">{{ summary.num_variants }}</p>
+            </div>
+            <div class="metric-card">
+                <h3>Unique Genes</h3>
+                <p class="metric-value" style="color: #17a2b8;">{{ summary.num_genes }}</p>
+            </div>
+            <div class="metric-card">
+                <h3>Samples</h3>
+                <p class="metric-value" style="color: #28a745;">{{ summary.num_samples | default(0) }}</p>
+            </div>
+            <div class="metric-card">
+                <h3>Impact Breakdown</h3>
+                <ul class="impact-breakdown">
+                    {% for level in ['HIGH', 'MODERATE', 'LOW', 'MODIFIER'] %}
+                    <li>
+                        <span><span class="impact-dot" style="background-color: {{ {'HIGH':'#dc3545','MODERATE':'#fd7e14','LOW':'#ffc107','MODIFIER':'#6c757d'}[level] }};"></span>{{ level }}</span>
+                        <strong>{{ summary.impact_distribution.get(level, 0) if summary.impact_distribution is mapping else 0 }}</strong>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="metric-card">
+                <h3>Top Genes</h3>
+                {% if summary.top_genes is defined and summary.top_genes|length > 0 %}
+                <ul class="gene-list">
+                    {% for gene_info in summary.top_genes[:5] %}
+                    <li><span>{{ gene_info.gene }}</span><strong>{{ gene_info.count }}</strong></li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p style="color: #6c757d; font-size: 13px; margin: 0;">No gene data available</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="charts-grid">
+            <div class="chart-wrapper">
+                <h3>Impact Distribution</h3>
+                <div class="chart-container-sm">
+                    <canvas id="impact_chart"></canvas>
+                </div>
+            </div>
+            <div class="chart-wrapper">
+                <h3>Inheritance Patterns</h3>
+                <div class="chart-container-sm" id="inheritance_chart_container">
+                    {% if summary.inheritance_distribution is defined and summary.inheritance_distribution|length > 0 %}
+                    <canvas id="inheritance_chart"></canvas>
+                    {% else %}
+                    <p style="color: #6c757d; font-style: italic; text-align: center; padding-top: 80px;">Inheritance analysis not available (no pedigree provided)</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="table-section">
         <h2>Variants Table</h2>
 
@@ -292,27 +398,6 @@
             <p>You may want to try adjusting your filtering parameters or check your input data.</p>
         </div>
         {% endif %}
-    </div>
-
-    <div class="summary-section">
-        <h2>Summary</h2>
-        <div class="summary-grid">
-            <div class="stats-card">
-                <h3>Total Variants</h3>
-                <p>{{ summary.num_variants }}</p>
-            </div>
-            <div class="stats-card">
-                <h3>Unique Genes</h3>
-                <p>{{ summary.num_genes }}</p>
-            </div>
-        </div>
-    </div>
-
-    <div class="chart-section">
-        <h2>Impact Distribution</h2>
-        <div class="chart-container">
-            <canvas id="impact_chart"></canvas>
-        </div>
     </div>
 
     <footer>
@@ -420,13 +505,13 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Initialize Chart.js horizontal bar chart
+    // Initialize Chart.js horizontal bar chart for Impact Distribution
     var impactDistribution = {{ summary.impact_distribution | tojson }};
     var impactCategories = Object.keys(impactDistribution);
     var impactCounts = Object.values(impactDistribution);
 
     // Define semantic colors for impact levels
-    var colorMap = {
+    var impactColorMap = {
         'HIGH': '#dc3545',      // Red
         'MODERATE': '#fd7e14',  // Orange
         'LOW': '#ffc107',       // Amber
@@ -434,19 +519,19 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Map colors to categories
-    var backgroundColors = impactCategories.map(function(category) {
-        return colorMap[category] || '#007bff'; // Default blue if unknown category
+    var impactBackgroundColors = impactCategories.map(function(category) {
+        return impactColorMap[category] || '#007bff'; // Default blue if unknown category
     });
 
-    var ctx = document.getElementById('impact_chart').getContext('2d');
-    var impactChart = new Chart(ctx, {
+    var impactCtx = document.getElementById('impact_chart').getContext('2d');
+    var impactChart = new Chart(impactCtx, {
         type: 'bar',
         data: {
             labels: impactCategories,
             datasets: [{
                 label: 'Number of Variants',
                 data: impactCounts,
-                backgroundColor: backgroundColors,
+                backgroundColor: impactBackgroundColors,
                 borderWidth: 0
             }]
         },
@@ -495,6 +580,104 @@ document.addEventListener('DOMContentLoaded', function() {
         },
         plugins: [ChartDataLabels]
     });
+
+    // Initialize Chart.js horizontal bar chart for Inheritance Patterns
+    if (document.getElementById('inheritance_chart')) {
+        var inheritanceDistribution = {{ summary.inheritance_distribution | default({}) | tojson }};
+        var inheritanceCategories = Object.keys(inheritanceDistribution);
+        var inheritanceCounts = Object.values(inheritanceDistribution);
+
+        // Define semantic colors for inheritance patterns
+        var inheritanceColorMap = {
+            'de_novo': '#dc3545',
+            'de_novo_candidate': '#e57373',
+            'compound_heterozygous': '#9c27b0',
+            'compound_heterozygous_possible': '#ba68c8',
+            'compound_heterozygous_possible_no_pedigree': '#ba68c8',
+            'compound_heterozygous_possible_missing_parents': '#ba68c8',
+            'compound_heterozygous_possible_missing_parent_genotypes': '#ba68c8',
+            'autosomal_recessive': '#4caf50',
+            'autosomal_recessive_possible': '#81c784',
+            'autosomal_dominant': '#2196f3',
+            'autosomal_dominant_possible': '#64b5f6',
+            'x_linked_recessive': '#00acc1',
+            'x_linked_dominant': '#00acc1',
+            'x_linked_recessive_possible': '#4dd0e1',
+            'x_linked_dominant_possible': '#4dd0e1',
+            'mitochondrial': '#ff9800',
+            'homozygous': '#78909c',
+            'non_mendelian': '#ef5350',
+            'unknown': '#6c757d'
+        };
+
+        // Map colors to categories
+        var inheritanceBackgroundColors = inheritanceCategories.map(function(category) {
+            return inheritanceColorMap[category] || '#6c757d'; // Default gray if unknown
+        });
+
+        // Replace underscores with spaces in labels for readability
+        var inheritanceLabels = inheritanceCategories.map(function(label) {
+            return label.replace(/_/g, ' ');
+        });
+
+        var inheritanceCtx = document.getElementById('inheritance_chart').getContext('2d');
+        var inheritanceChart = new Chart(inheritanceCtx, {
+            type: 'bar',
+            data: {
+                labels: inheritanceLabels,
+                datasets: [{
+                    label: 'Number of Variants',
+                    data: inheritanceCounts,
+                    backgroundColor: inheritanceBackgroundColors,
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                indexAxis: 'y', // Horizontal bar chart
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: false
+                    },
+                    datalabels: {
+                        anchor: 'end',
+                        align: 'end',
+                        color: '#333',
+                        font: {
+                            weight: 'bold',
+                            size: 12
+                        },
+                        formatter: function(value) {
+                            return value;
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Number of Variants'
+                        },
+                        ticks: {
+                            precision: 0
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Inheritance Pattern'
+                        }
+                    }
+                }
+            },
+            plugins: [ChartDataLabels]
+        });
+    }
 });
 </script>
 
