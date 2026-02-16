@@ -87,43 +87,43 @@
 
 ## Traceability
 
-| Requirement | Phase |
-|-------------|-------|
-| STACK-01 | — |
-| STACK-02 | — |
-| STACK-03 | — |
-| STACK-04 | — |
-| STACK-05 | — |
-| HIER-01 | — |
-| HIER-02 | — |
-| HIER-03 | — |
-| COLOR-01 | — |
-| COLOR-02 | — |
-| COLOR-03 | — |
-| COLOR-04 | — |
-| TABLE-01 | — |
-| TABLE-02 | — |
-| TABLE-03 | — |
-| TABLE-04 | — |
-| TABLE-05 | — |
-| TABLE-06 | — |
-| TABLE-07 | — |
-| TABLE-08 | — |
-| TABLE-09 | — |
-| TABLE-10 | — |
-| FILTER-01 | — |
-| FILTER-02 | — |
-| FILTER-03 | — |
-| FILTER-04 | — |
-| VIZ-01 | — |
-| VIZ-02 | — |
-| VIZ-03 | — |
-| VIZ-04 | — |
-| PRINT-01 | — |
-| PRINT-02 | — |
-| A11Y-01 | — |
-| A11Y-02 | — |
-| A11Y-03 | — |
-| A11Y-04 | — |
-| A11Y-05 | — |
-| A11Y-06 | — |
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| STACK-01 | Phase 13 | Pending |
+| STACK-02 | Phase 13 | Pending |
+| STACK-03 | Phase 13 | Pending |
+| STACK-04 | Phase 13 | Pending |
+| STACK-05 | Phase 13 | Pending |
+| HIER-01 | Phase 14 | Pending |
+| HIER-02 | Phase 14 | Pending |
+| HIER-03 | Phase 14 | Pending |
+| COLOR-01 | Phase 14 | Pending |
+| COLOR-02 | Phase 14 | Pending |
+| COLOR-03 | Phase 14 | Pending |
+| COLOR-04 | Phase 14 | Pending |
+| TABLE-01 | Phase 15 | Pending |
+| TABLE-02 | Phase 15 | Pending |
+| TABLE-03 | Phase 15 | Pending |
+| TABLE-04 | Phase 15 | Pending |
+| TABLE-05 | Phase 15 | Pending |
+| TABLE-06 | Phase 15 | Pending |
+| TABLE-07 | Phase 15 | Pending |
+| TABLE-08 | Phase 15 | Pending |
+| TABLE-09 | Phase 15 | Pending |
+| TABLE-10 | Phase 15 | Pending |
+| FILTER-01 | Phase 16 | Pending |
+| FILTER-02 | Phase 16 | Pending |
+| FILTER-03 | Phase 16 | Pending |
+| FILTER-04 | Phase 16 | Pending |
+| VIZ-01 | Phase 16 | Pending |
+| VIZ-02 | Phase 16 | Pending |
+| VIZ-03 | Phase 16 | Pending |
+| VIZ-04 | Phase 16 | Pending |
+| A11Y-01 | Phase 17 | Pending |
+| A11Y-02 | Phase 17 | Pending |
+| A11Y-03 | Phase 17 | Pending |
+| A11Y-04 | Phase 17 | Pending |
+| A11Y-05 | Phase 17 | Pending |
+| A11Y-06 | Phase 17 | Pending |
+| PRINT-01 | Phase 17 | Pending |
+| PRINT-02 | Phase 17 | Pending |
