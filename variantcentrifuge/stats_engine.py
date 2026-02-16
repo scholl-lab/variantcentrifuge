@@ -1,5 +1,6 @@
 """Configurable statistics computation engine."""
 
+import ast
 import json
 import logging
 from typing import Any
@@ -8,6 +9,159 @@ import numpy as np
 import pandas as pd
 
 logger = logging.getLogger("variantcentrifuge")
+
+# AST node types allowed in stats expressions.  Anything outside this set
+# (e.g. Import, FunctionDef, Global, Exec, Yield, …) will be rejected
+# *before* the expression reaches eval().
+_ALLOWED_AST_NODES: frozenset[type] = frozenset(
+    {
+        # Literals & containers
+        ast.Constant,
+        ast.List,
+        ast.Tuple,
+        ast.Dict,
+        ast.Set,
+        # Variables & attribute access (dunder attrs blocked separately)
+        ast.Name,
+        ast.Attribute,
+        ast.Subscript,
+        ast.Starred,
+        ast.Index,  # kept for Python 3.8 compat, no-op on 3.9+
+        # Expressions
+        ast.Expression,
+        # Comprehensions
+        ast.ListComp,
+        ast.SetComp,
+        ast.DictComp,
+        ast.GeneratorExp,
+        ast.comprehension,
+        # Operators & comparisons
+        ast.BinOp,
+        ast.UnaryOp,
+        ast.BoolOp,
+        ast.Compare,
+        ast.IfExp,
+        # Operator tokens
+        ast.Add,
+        ast.Sub,
+        ast.Mult,
+        ast.Div,
+        ast.FloorDiv,
+        ast.Mod,
+        ast.Pow,
+        ast.BitAnd,
+        ast.BitOr,
+        ast.BitXor,
+        ast.Invert,
+        ast.Not,
+        ast.UAdd,
+        ast.USub,
+        ast.And,
+        ast.Or,
+        # Comparison tokens
+        ast.Eq,
+        ast.NotEq,
+        ast.Lt,
+        ast.LtE,
+        ast.Gt,
+        ast.GtE,
+        ast.Is,
+        ast.IsNot,
+        ast.In,
+        ast.NotIn,
+        # Function calls & keyword args
+        ast.Call,
+        ast.keyword,
+        # Slicing
+        ast.Slice,
+        # Context (Load/Store/Del markers)
+        ast.Load,
+        ast.Store,
+        ast.Del,
+        # f-strings / JoinedStr (harmless in expression context)
+        ast.JoinedStr,
+        ast.FormattedValue,
+    }
+)
+
+# Names the restricted eval namespace exposes — only these may appear
+# as bare ``ast.Name`` references.
+_ALLOWED_NAMES: frozenset[str] = frozenset(
+    {
+        "df",
+        "group_df",
+        "pd",
+        "np",
+        "len",
+        "float",
+        "str",
+        "int",
+        "bool",
+        "size",
+        "True",
+        "False",
+        "None",
+        "sum",
+        "min",
+        "max",
+        "abs",
+        "round",
+        "sorted",
+        "set",
+        "list",
+        "dict",
+        "tuple",
+        "range",
+        "zip",
+        "map",
+        "filter",
+        "any",
+        "all",
+        "enumerate",
+        "isinstance",
+        # Comprehension iteration variables (single-letter by convention)
+        *list("abcdefghijklmnopqrstuvwxyz"),
+        # Common iteration variable names
+        "col",
+        "row",
+        "val",
+        "value",
+        "item",
+        "idx",
+        "key",
+        "_",
+    }
+)
+
+
+def _validate_expression(expression: str) -> None:
+    """Validate a stats expression against the AST allowlist.
+
+    Raises ``ValueError`` if the expression contains disallowed constructs
+    such as imports, dunder attribute access, or unsupported AST node types.
+    """
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except SyntaxError as exc:
+        raise ValueError(f"Syntax error in expression: {exc}") from exc
+
+    for node in ast.walk(tree):
+        node_type = type(node)
+
+        # 1. Reject disallowed AST node types
+        if node_type not in _ALLOWED_AST_NODES:
+            raise ValueError(f"Disallowed construct {node_type.__name__} in expression")
+
+        # 2. Block dunder attribute access (e.g. __class__, __subclasses__)
+        if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
+            raise ValueError(f"Access to private/dunder attribute '{node.attr}' is not allowed")
+
+        # 3. Restrict bare names to the known namespace
+        if isinstance(node, ast.Name) and node.id not in _ALLOWED_NAMES:
+            raise ValueError(
+                f"Unknown name '{node.id}' in expression; "
+                f"allowed names: df, group_df, pd, np, len, float, str, int, bool, size, …"
+            )
 
 
 class StatsEngine:
@@ -70,6 +224,10 @@ class StatsEngine:
         """
         Safely evaluate an expression in the DataFrame context.
 
+        The expression is first validated against an AST allowlist that blocks
+        imports, dunder attribute access, and other dangerous constructs before
+        being passed to ``eval()`` with a restricted namespace.
+
         Parameters
         ----------
         df : pd.DataFrame
@@ -85,7 +243,10 @@ class StatsEngine:
             Result of the expression evaluation
         """
         try:
-            # Create a safe namespace with common functions
+            # Validate the expression AST before executing
+            _validate_expression(expression)
+
+            # Create a restricted namespace with only safe objects
             namespace = {
                 "df": df,
                 "group_df": df,  # Support both df and group_df names
@@ -99,10 +260,13 @@ class StatsEngine:
                 "size": lambda: len(df),  # For grouped operations
             }
 
-            # Use eval with restricted namespace
+            # eval with empty __builtins__ AND prior AST validation
             result = eval(expression, {"__builtins__": {}}, namespace)
             return result
 
+        except ValueError as e:
+            logger.error(f"Blocked unsafe {context} expression '{expression}': {e}")
+            return None
         except Exception as e:
             logger.error(f"Failed to evaluate {context} expression '{expression}': {e}")
             return None
