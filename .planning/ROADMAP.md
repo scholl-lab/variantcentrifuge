@@ -121,6 +121,13 @@ Plans:
 
 **Requirements:** FILTER-01, FILTER-02, FILTER-03, FILTER-04, VIZ-01, VIZ-02, VIZ-03, VIZ-04
 
+**Plans:** 3 plans
+
+Plans:
+- [ ] 16-01-PLAN.md — Vendor noUiSlider and add HTML/CSS scaffolding for filters and visualization section
+- [ ] 16-02-PLAN.md — Wire JS behavior (filter controls, chips, reactive chart updates, collapsible section)
+- [ ] 16-03-PLAN.md — Tests for Phase 16 filtering and visualization features
+
 **Success Criteria:**
 
 1. Each filterable column has an appropriate control: numeric sliders for scores/frequencies, categorical dropdowns for IMPACT/ClinVar/inheritance, and text search for gene names -- matching the cohort report's filter system
@@ -164,5 +171,5 @@ Plans:
 | 13. JS Stack Modernization | v0.14.0 | 3/3 | Complete | 2026-02-16 |
 | 14. Information Hierarchy and Semantic Color Coding | v0.14.0 | 3/3 | Complete | 2026-02-16 |
 | 15. Table Redesign | v0.14.0 | 3/3 | Complete | 2026-02-17 |
-| 16. Column-Level Filtering and Visualization | v0.14.0 | 0/? | Not Started | — |
+| 16. Column-Level Filtering and Visualization | v0.14.0 | 0/3 | In Progress | — |
 | 17. Accessibility and Print/PDF | v0.14.0 | 0/? | Not Started | — |
