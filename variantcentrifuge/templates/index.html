@@ -471,6 +471,122 @@
         white-space: nowrap;
         vertical-align: middle;
     }
+
+    /* Print Stylesheet (PRINT-01) */
+    @media print {
+        /* Hide interactive controls */
+        .dataTables_wrapper .dataTables_filter,
+        .dataTables_wrapper .dataTables_length,
+        .dataTables_wrapper .dataTables_paginate,
+        .dataTables_wrapper .dataTables_info,
+        .dataTables_wrapper .dt-buttons,
+        .buttons-colvis,
+        .density-toggle,
+        .skip-link,
+        #export-pdf-btn,
+        .metadata-footer {
+            display: none !important;
+        }
+
+        /* Collapse FixedColumns to normal flow (prevents duplicate columns) */
+        .dtfc-fixed-left,
+        .dtfc-fixed-right {
+            position: static !important;
+            box-shadow: none !important;
+        }
+
+        /* Optimize table for print */
+        #variants_table thead {
+            display: table-header-group;
+        }
+        #variants_table tfoot {
+            display: table-footer-group;
+        }
+
+        /* Prevent page breaks inside rows */
+        #variants_table tbody tr {
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
+
+        /* Collapse child rows (detail panels) by default */
+        .detail-panel {
+            display: none !important;
+        }
+
+        /* Optimize badges for grayscale printing */
+        .badge {
+            border: 1px solid #333 !important;
+            color: #000 !important;
+            background-color: #fff !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        /* Show chart data tables instead of canvas */
+        canvas {
+            display: none !important;
+        }
+        .chart-data-table {
+            position: static !important;
+            left: auto !important;
+            width: auto !important;
+            height: auto !important;
+            overflow: visible !important;
+            clip: auto !important;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        .chart-data-table th,
+        .chart-data-table td {
+            border: 1px solid #333;
+            padding: 4px 8px;
+            text-align: left;
+        }
+        .chart-data-table thead {
+            background-color: #f0f0f0;
+        }
+
+        /* Show URLs for external links */
+        a[href^="http"]:not(.skip-link)::after {
+            content: " (" attr(href) ")";
+            font-size: 9pt;
+            color: #555;
+            word-break: break-all;
+        }
+
+        /* General print optimization */
+        body {
+            background-color: #fff;
+        }
+        .container {
+            max-width: 100%;
+            padding: 0;
+        }
+        header {
+            box-shadow: none;
+            border-radius: 0;
+        }
+        .table-section {
+            box-shadow: none;
+            border-radius: 0;
+        }
+
+        /* Reduce zebra striping contrast for print */
+        #variants_table tbody tr:nth-child(odd) {
+            background-color: #f5f5f5 !important;
+        }
+
+        /* Ensure dashboard remains visible */
+        .dashboard {
+            page-break-after: avoid;
+        }
+        .metric-card,
+        .chart-wrapper {
+            box-shadow: none;
+            border: 1px solid #ddd;
+        }
+    }
     </style>
 </head>
 <body>
@@ -538,16 +654,36 @@
         <!-- Charts Row -->
         <div class="charts-grid">
             <div class="chart-wrapper">
-                <h3>Impact Distribution</h3>
+                <h3 id="impact-chart-heading">Impact Distribution</h3>
                 <div class="chart-container-sm">
-                    <canvas id="impact_chart"></canvas>
+                    <canvas id="impact_chart" aria-hidden="true" aria-labelledby="impact-chart-heading"></canvas>
                 </div>
+                <table class="chart-data-table sr-only" aria-label="Impact distribution data">
+                    <thead><tr><th scope="col">Impact Level</th><th scope="col">Variant Count</th></tr></thead>
+                    <tbody>
+                    {% for level in ['HIGH', 'MODERATE', 'LOW', 'MODIFIER'] %}
+                        {% if summary.impact_distribution.get(level, 0) > 0 %}
+                        <tr><td>{{ level }}</td><td>{{ summary.impact_distribution.get(level, 0) }}</td></tr>
+                        {% endif %}
+                    {% endfor %}
+                    </tbody>
+                </table>
             </div>
             <div class="chart-wrapper">
-                <h3>Inheritance Patterns</h3>
+                <h3 id="inheritance-chart-heading">Inheritance Patterns</h3>
                 <div class="chart-container-sm" id="inheritance_chart_container">
                     {% if summary.inheritance_distribution is defined and summary.inheritance_distribution|length > 0 %}
-                    <canvas id="inheritance_chart"></canvas>
+                    <canvas id="inheritance_chart" aria-hidden="true" aria-labelledby="inheritance-chart-heading"></canvas>
+                    <table class="chart-data-table sr-only" aria-label="Inheritance pattern distribution data">
+                        <thead><tr><th scope="col">Inheritance Pattern</th><th scope="col">Variant Count</th></tr></thead>
+                        <tbody>
+                        {% for pattern, count in summary.inheritance_distribution.items() %}
+                            {% if pattern != 'none' and pattern != 'reference' %}
+                            <tr><td>{{ pattern|replace('_', ' ') }}</td><td>{{ count }}</td></tr>
+                            {% endif %}
+                        {% endfor %}
+                        </tbody>
+                    </table>
                     {% else %}
                     <p style="color: #6c757d; font-style: italic; text-align: center; padding-top: 80px;">Inheritance analysis not available (no pedigree provided)</p>
                     {% endif %}
@@ -558,6 +694,15 @@
 
     <div class="table-section">
         <h2>Variants Table</h2>
+
+        <!-- PDF Export Button (PRINT-02) -->
+        <button id="export-pdf-btn" type="button" aria-label="Download report as PDF" style="float: right; margin-bottom: 10px; padding: 6px 16px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; display: inline-flex; align-items: center; gap: 6px;">
+            <svg aria-hidden="true" focusable="false" width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 12l-4-4h2.5V2h3v6H12L8 12z"/>
+                <path d="M14 14H2v-2h12v2z"/>
+            </svg>
+            Download PDF
+        </button>
 
         <!-- Loading Skeleton -->
         <div id="table-skeleton" class="skeleton-wrapper">
@@ -668,6 +813,14 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // PDF Export Button Handler (PRINT-02)
+    var pdfBtn = document.getElementById('export-pdf-btn');
+    if (pdfBtn) {
+        pdfBtn.addEventListener('click', function() {
+            window.print();
+        });
+    }
+
     // Early exit if no variants table
     if (!document.getElementById('variants_table')) {
         return;
