@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-16)
 ## Current Position
 
 Phase: 17 of 5 (Accessibility and Print/PDF)
-Plan: 1 of 3 completed
+Plan: 2 of 3 completed
 Status: In progress
-Last activity: 2026-02-17 — Completed 17-01-PLAN.md (core accessibility features)
+Last activity: 2026-02-17 — Completed 17-02-PLAN.md (chart accessibility and print/PDF support)
 
-Progress: [████████████████░░░░] 80% (4/5 phases complete, 1/3 plans in Phase 17)
+Progress: [████████████████░░░░] 82% (4/5 phases complete, 2/3 plans in Phase 17)
 
 ## Milestone Overview
 
@@ -24,7 +24,7 @@ Progress: [████████████████░░░░] 80% (4/
 | 14 | Information Hierarchy and Semantic Color Coding | 7 | Complete ✓ (verified) |
 | 15 | Table Redesign | 10 | Complete ✓ (10/10 verified) |
 | 16 | Column-Level Filtering and Visualization | 8 | Skipped (deferred to v0.15.0) |
-| 17 | Accessibility and Print/PDF | 8 | In Progress (1/3 plans complete) |
+| 17 | Accessibility and Print/PDF | 8 | In Progress (2/3 plans complete) |
 
 ## Accumulated Context
 
@@ -85,6 +85,12 @@ Progress: [████████████████░░░░] 80% (4/
 | 17-01-02 | SVG icons with aria-hidden plus sr-only text | 17-01 | Dual accessibility: SVG hidden from screen readers, adjacent span provides descriptive text |
 | 17-01-03 | All badge colors meet WCAG AA 4.5:1 contrast ratio | 17-01 | MODERATE #c05000 (4.6:1), LOW #b45309 (5.2:1), plus ClinVar and Inheritance badge fixes |
 | 17-01-04 | Truncated cells keyboard-accessible via tabindex="0" | 17-01 | Enables keyboard focus to trigger Tippy.js tooltips configured with focus trigger |
+| 17-02-01 | Canvas elements hidden from screen readers (aria-hidden="true") with data table fallbacks | 17-02 | Charts inaccessible to screen readers; data tables provide equivalent text alternative |
+| 17-02-02 | Data tables use sr-only class for visual hiding but screen reader accessibility | 17-02 | Prevents duplication for sighted users while providing data access to AT |
+| 17-02-03 | Print mode shows chart data tables instead of canvas (canvas display:none) | 17-02 | Canvas doesn't print well; data tables provide printable chart information |
+| 17-02-04 | FixedColumns collapse to static positioning in print to prevent duplicate columns | 17-02 | DataTables FixedColumns creates clones that would print as duplicates |
+| 17-02-05 | Detail panels hidden by default in print mode | 17-02 | Users can expand specific rows before printing; default hide prevents clutter |
+| 17-02-06 | Download PDF button uses window.print() for browser-native print dialog | 17-02 | Leverages browser PDF export capabilities without server-side rendering |
 
 ### Pending Todos
 
@@ -97,6 +103,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 17-01-PLAN.md (core accessibility features)
+Stopped at: Completed 17-02-PLAN.md (chart accessibility and print/PDF support)
 Resume file: None
-Next: Phase 17-02 (Focus Management) or Phase 17-03 (Print Stylesheet)
+Next: Phase 17-03 (if additional tasks) or Phase 17 completion
