@@ -529,6 +529,7 @@
         <table id="variants_table" class="display compact">
             <thead>
                 <tr>
+                    <th></th>
                     {% for col_info in column_data %}
                         <th>{{ col_info.display_name }}</th>
                     {% endfor %}
@@ -537,6 +538,7 @@
             <tbody>
                 {% for v_row in variants %}
                 <tr>
+                    <td></td>
                     {% for col_info in column_data %}
                         <td>
                             {% if col_info.is_igv_link_column %}
@@ -636,10 +638,22 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Setup default hidden columns
+    // TABLE-03: Add control column (chevron) as first column
+    // This shifts ALL data column indices by +1
+    dtColumnDefs.unshift({
+        targets: 0,
+        className: 'dt-control',
+        orderable: false,
+        searchable: false,
+        data: null,
+        defaultContent: '<span class="chevron">&#x203A;</span>',
+        width: '30px'
+    });
+
+    // Setup default hidden columns (shift indices by +1 for control column)
     if (hiddenColumnIndices.length > 0) {
         dtColumnDefs.push({
-            targets: hiddenColumnIndices,
+            targets: hiddenColumnIndices.map(function(i) { return i + 1; }),
             visible: false
         });
     }
@@ -649,7 +663,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // IMPACT column badge rendering
         if (col.original_name === 'IMPACT') {
             dtColumnDefs.push({
-                targets: index,
+                targets: index + 1,
                 render: function(data, type, row) {
                     if (type === 'display' && data) {
                         var colors = {
@@ -669,7 +683,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // ClinVar classification badge rendering
         if (col.original_name === 'dbNSFP_clinvar_clnsig' || col.original_name === 'ClinVar_CLNSIG') {
             dtColumnDefs.push({
-                targets: index,
+                targets: index + 1,
                 render: function(data, type, row) {
                     if (type === 'display' && data && String(data).trim() !== '') {
                         var str = String(data);
@@ -699,7 +713,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Inheritance Pattern badge rendering
         if (col.original_name === 'Inheritance_Pattern') {
             dtColumnDefs.push({
-                targets: index,
+                targets: index + 1,
                 render: function(data, type, row) {
                     if (type === 'display') {
                         if (!data || String(data).trim() === '' || data === 'none' || data === 'reference') {
@@ -732,7 +746,186 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             });
         }
+
+        // TABLE-06: Fixed width for CHROM
+        if (col.original_name === 'CHROM') {
+            dtColumnDefs.push({
+                targets: index + 1,
+                width: '70px',
+                className: 'monospace'
+            });
+        }
+
+        // TABLE-06: Fixed width for POS, right-aligned
+        if (col.original_name === 'POS') {
+            dtColumnDefs.push({
+                targets: index + 1,
+                width: '90px',
+                className: 'monospace dt-right'
+            });
+        }
+
+        // TABLE-06: Grow for GENE (no fixed width)
+        if (col.original_name === 'GENE') {
+            dtColumnDefs.push({
+                targets: index + 1,
+                className: 'gene-column'
+            });
+        }
+
+        // TABLE-08: Monospace for REF/ALT
+        if (col.original_name === 'REF' || col.original_name === 'ALT') {
+            dtColumnDefs.push({
+                targets: index + 1,
+                className: 'monospace'
+            });
+        }
+
+        // TABLE-08: End truncation for HGVS with monospace
+        if (col.original_name === 'HGVS_C' || col.original_name === 'HGVS_P') {
+            dtColumnDefs.push({
+                targets: index + 1,
+                width: '180px',
+                className: 'monospace',
+                render: function(data, type, row) {
+                    if (type === 'display' && data) {
+                        var str = String(data);
+                        if (str.length > 30) {
+                            var truncated = str.substring(0, 30) + '...';
+                            return '<span class="truncated-cell" data-tippy-content="' +
+                                str.replace(/"/g, '&quot;') + '">' + truncated + '</span>';
+                        }
+                    }
+                    return data;
+                }
+            });
+        }
+
+        // TABLE-08: Middle truncation for variant IDs
+        if (col.original_name === 'VAR_ID') {
+            dtColumnDefs.push({
+                targets: index + 1,
+                width: '120px',
+                render: function(data, type, row) {
+                    if (type === 'display' && data) {
+                        var str = String(data);
+                        if (str.length > 18) {
+                            var start = str.substring(0, 10);
+                            var end = str.substring(str.length - 6);
+                            return '<span class="truncated-cell middle-truncate" data-tippy-content="' +
+                                str.replace(/"/g, '&quot;') + '">' + start + '...' + end + '</span>';
+                        }
+                    }
+                    return data;
+                }
+            });
+        }
+
+        // TABLE-06: Right-align numeric score columns
+        // Match columns with score/phred/AF patterns (but not link columns or text columns)
+        if (col.original_name.match(/(_score|_phred|_AF|_freq|_frequency|CADD|REVEL|SpliceAI)/) &&
+            !col.original_name.match(/(link|url|http)/i)) {
+            dtColumnDefs.push({
+                targets: index + 1,
+                className: 'dt-right',
+                render: function(data, type, row) {
+                    if (type === 'display' && data !== null && data !== '' && !isNaN(data)) {
+                        return parseFloat(data).toFixed(3);
+                    }
+                    return data;
+                }
+            });
+        }
     });
+
+    // TABLE-07: Density mode management
+    var densityModes = ['compact', 'regular', 'relaxed'];
+    var savedDensity = localStorage.getItem('variantTableDensity') || 'compact';
+    var currentDensityIndex = densityModes.indexOf(savedDensity);
+    if (currentDensityIndex === -1) { currentDensityIndex = 0; savedDensity = 'compact'; }
+
+    // Apply density class before DataTable init
+    var tableElement = document.getElementById('variants_table');
+    if (tableElement) {
+        tableElement.classList.add('density-' + savedDensity);
+    }
+
+    // TABLE-03: Format function for expandable row details
+    function formatChildRow(rowData, columns) {
+        // Build field-to-value map using column data
+        var fields = {};
+        columns.forEach(function(col, i) {
+            // rowData is an array; column 0 is control column (null), data starts at index 1
+            var value = rowData[i + 1];
+            if (value !== null && value !== undefined && String(value).trim() !== '') {
+                fields[col.original_name] = String(value);
+            }
+        });
+
+        // Define field categories
+        var categories = {
+            'Identifiers': ['CHROM', 'POS', 'REF', 'ALT', 'ID', 'VAR_ID', 'GENE', 'FEATUREID'],
+            'Annotations': ['EFFECT', 'IMPACT', 'HGVS_C', 'HGVS_P', 'BIOTYPE', 'RANK', 'ERRORS'],
+            'Scores': [],
+            'Links': []
+        };
+
+        // Auto-categorize remaining fields
+        var categorized = {};
+        Object.keys(categories).forEach(function(cat) {
+            categories[cat].forEach(function(f) { categorized[f] = true; });
+        });
+
+        columns.forEach(function(col) {
+            var name = col.original_name;
+            if (categorized[name]) return;
+            if (!fields[name]) return;
+
+            // Detect links (columns with URL values or link-related names)
+            if (fields[name] && (fields[name].indexOf('http') === 0 || name.match(/(ClinVar|gnomAD|Varsome|Franklin|SpliceAI_link|autopvs1)/i))) {
+                categories['Links'].push(name);
+            }
+            // Detect scores
+            else if (name.match(/(_score|_phred|_AF|_freq|_frequency|CADD|REVEL|GERP|phyloP|SpliceAI|candidate_score|inheritance_score)/i)) {
+                categories['Scores'].push(name);
+            }
+            // Everything else goes to Annotations
+            else {
+                categories['Annotations'].push(name);
+            }
+        });
+
+        var html = '<div class="detail-panel">';
+
+        Object.keys(categories).forEach(function(catName) {
+            var catFields = categories[catName];
+            // Filter to fields that have values
+            var fieldsWithValues = catFields.filter(function(f) { return fields[f]; });
+            if (fieldsWithValues.length === 0) return;
+
+            html += '<div class="detail-section">';
+            html += '<h4>' + catName + '</h4>';
+            html += '<dl>';
+
+            fieldsWithValues.forEach(function(fieldName) {
+                var value = fields[fieldName];
+                var displayName = fieldName.replace(/_/g, ' ');
+                html += '<dt>' + displayName + '</dt>';
+
+                // Render links as clickable
+                if (value && value.indexOf('http') === 0) {
+                    html += '<dd><a href="' + value + '" target="_blank" rel="noopener">' + displayName + ' &#x2197;</a></dd>';
+                } else {
+                    html += '<dd>' + value + '</dd>';
+                }
+            });
+
+            html += '</dl></div>';
+        });
+
+        html += '</div>';
+        return html;
+    }
 
     // Initialize DataTables v2 on the visible table (required for correct header sizing with scrollX)
     try {
@@ -740,6 +933,9 @@ document.addEventListener('DOMContentLoaded', function() {
             autoWidth: false,
             pageLength: 25,
             scrollX: true,
+            fixedColumns: {
+                left: 2  // TABLE-02: Freeze chevron (col 0) and GENE (col 1 for GENE, assuming it's the first data column after control)
+            },
             layout: {
                 topStart: {
                     pageLength: {
@@ -749,6 +945,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 topEnd: {
                     search: true,
                     buttons: [
+                        {
+                            text: 'Density: ' + savedDensity.charAt(0).toUpperCase() + savedDensity.slice(1),
+                            action: function(e, dt, node, config) {
+                                var tableNode = dt.table().node();
+                                tableNode.classList.remove('density-' + densityModes[currentDensityIndex]);
+                                currentDensityIndex = (currentDensityIndex + 1) % densityModes.length;
+                                var newDensity = densityModes[currentDensityIndex];
+                                tableNode.classList.add('density-' + newDensity);
+                                localStorage.setItem('variantTableDensity', newDensity);
+                                node.text('Density: ' + newDensity.charAt(0).toUpperCase() + newDensity.slice(1));
+                                dt.columns.adjust().draw(false);
+                            }
+                        },
                         {
                             extend: 'colvis',
                             text: 'Show/Hide Columns'
@@ -770,6 +979,20 @@ document.addEventListener('DOMContentLoaded', function() {
         if (skeleton) { skeleton.style.display = 'none'; }
     }
 
+    // TABLE-03: Toggle child row on chevron click
+    table.on('click', 'tbody td.dt-control', function(e) {
+        var tr = e.target.closest('tr');
+        var row = table.row(tr);
+
+        if (row.child.isShown()) {
+            row.child.hide();
+            tr.classList.remove('shown');
+        } else {
+            row.child(formatChildRow(row.data(), columnData)).show();
+            tr.classList.add('shown');
+        }
+    });
+
     // Initialize Tippy.js tooltips on truncated cells
     function initTippyTooltips() {
         var truncatedCells = document.querySelectorAll('.truncated-cell[data-tippy-content]');
@@ -779,12 +1002,20 @@ document.addEventListener('DOMContentLoaded', function() {
                     theme: 'variantcentrifuge',
                     placement: 'top',
                     allowHTML: false,
-                    maxWidth: 400,
+                    maxWidth: 300,
                     interactive: false,
+                    delay: [0, 0],
+                    trigger: 'mouseenter focus',
+                    touch: ['hold', 500],
+                    appendTo: document.body,
                     onShow: function(instance) {
-                        // Only show if content is actually truncated
-                        if (cell.offsetWidth >= cell.scrollWidth && cell.offsetHeight >= cell.scrollHeight) {
-                            return false;
+                        // Format content with line breaks at separators
+                        var content = instance.props.content;
+                        if (content) {
+                            content = String(content)
+                                .replace(/;/g, ';\n')
+                                .replace(/\|/g, '|\n');
+                            instance.setContent(content);
                         }
                     }
                 });
