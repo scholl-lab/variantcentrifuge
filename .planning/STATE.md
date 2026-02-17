@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-16)
 
 ## Current Position
 
-Phase: 14 of 5 (Information Hierarchy and Semantic Color Coding)
-Plan: 3 of 3 completed
-Status: Phase complete, verified ✓
-Last activity: 2026-02-16 — Phase 14 complete (3/3 plans, 7/7 must-haves verified)
+Phase: 15 of 5 (Table Redesign)
+Plan: 1 of 3 completed
+Status: In progress
+Last activity: 2026-02-17 — Completed 15-01-PLAN.md (vendor FixedColumns + CSS)
 
-Progress: [████████░░░░░░░░░░░░] 40% (2/5 phases complete, Phase 14 complete)
+Progress: [████████░░░░░░░░░░░░] 40% (2/5 phases complete, Phase 15 in progress)
 
 ## Milestone Overview
 
@@ -22,7 +22,7 @@ Progress: [████████░░░░░░░░░░░░] 40% (2/
 |-------|------|--------------|--------|
 | 13 | JS Stack Modernization | 5 | Complete ✓ (verified) |
 | 14 | Information Hierarchy and Semantic Color Coding | 7 | Complete ✓ (verified) |
-| 15 | Table Redesign | 10 | Not Started |
+| 15 | Table Redesign | 10 | In Progress (1/3 plans) |
 | 16 | Column-Level Filtering and Visualization | 8 | Not Started |
 | 17 | Accessibility and Print/PDF | 8 | Not Started |
 
@@ -71,6 +71,11 @@ Progress: [████████░░░░░░░░░░░░] 40% (2/
 | 14-03-01 | Class-scoped fixtures for HTML rendering | 14-03 | Reuse expensive template rendering across tests for performance |
 | 14-03-02 | String position comparison for layout testing | 14-03 | Verify ordering with html.find() positions instead of DOM parsing |
 | 14-03-03 | Pattern-based badge testing | 14-03 | Test render function code patterns rather than runtime DOM output |
+| 15-01-01 | Dark header gradient from #2c3e50 to #1a252f with white text | 15-01 | Charcoal gradient provides strong visual hierarchy while aligning with Phase 14 color palette |
+| 15-01-02 | Zebra striping with #f8f9fa (odd) and white (even) | 15-01 | Subtle contrast improves row scannability without being visually distracting |
+| 15-01-03 | Tooltip max-width reduced from 400px to 300px | 15-01 | TABLE-01 requirement for narrower tooltips, better for longer HGVS notation |
+| 15-01-04 | Truncated-cell max-width increased from 150px to 180px | 15-01 | Better fit for HGVS notation while maintaining table compactness |
+| 15-01-05 | FixedColumns JS loaded after datatables.min.js, before buttons | 15-01 | Extension dependencies: FixedColumns requires DataTables core, should load before optional buttons |
 
 ### Pending Todos
 
@@ -82,7 +87,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-16
-Stopped at: Phase 14 complete, verified
+Last session: 2026-02-17
+Stopped at: Completed 15-01-PLAN.md
 Resume file: None
-Next: Plan Phase 15 (Table Redesign)
+Next: Execute 15-02-PLAN.md (wire up JS behavior)
