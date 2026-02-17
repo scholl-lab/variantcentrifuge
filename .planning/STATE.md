@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-16)
 ## Current Position
 
 Phase: 17 of 5 (Accessibility and Print/PDF)
-Plan: 2 of 3 completed
-Status: In progress
-Last activity: 2026-02-17 — Completed 17-02-PLAN.md (chart accessibility and print/PDF support)
+Plan: 3 of 3 completed
+Status: Phase complete ✓
+Last activity: 2026-02-17 — Completed 17-03-PLAN.md (accessibility and print test coverage)
 
-Progress: [████████████████░░░░] 82% (4/5 phases complete, 2/3 plans in Phase 17)
+Progress: [████████████████████] 100% (5/5 phases complete)
 
 ## Milestone Overview
 
@@ -24,7 +24,7 @@ Progress: [████████████████░░░░] 82% (4/
 | 14 | Information Hierarchy and Semantic Color Coding | 7 | Complete ✓ (verified) |
 | 15 | Table Redesign | 10 | Complete ✓ (10/10 verified) |
 | 16 | Column-Level Filtering and Visualization | 8 | Skipped (deferred to v0.15.0) |
-| 17 | Accessibility and Print/PDF | 8 | In Progress (2/3 plans complete) |
+| 17 | Accessibility and Print/PDF | 8 | Complete ✓ (8/8 verified) |
 
 ## Accumulated Context
 
@@ -91,6 +91,10 @@ Progress: [████████████████░░░░] 82% (4/
 | 17-02-04 | FixedColumns collapse to static positioning in print to prevent duplicate columns | 17-02 | DataTables FixedColumns creates clones that would print as duplicates |
 | 17-02-05 | Detail panels hidden by default in print mode | 17-02 | Users can expand specific rows before printing; default hide prevents clutter |
 | 17-02-06 | Download PDF button uses window.print() for browser-native print dialog | 17-02 | Leverages browser PDF export capabilities without server-side rendering |
+| 17-03-01 | Two test class organization: TestPhase17Accessibility and TestPhase17ChartAndPrint | 17-03 | Logical separation by feature domain (15 + 19 tests = 34 total) |
+| 17-03-02 | WCAG contrast helper function with luminance calculation | 17-03 | Automated validation prevents future color regressions, reusable for other components |
+| 17-03-03 | Print stylesheet section testing extracts @media print block | 17-03 | Validates comprehensive print behavior (hide controls, collapse columns, prevent breaks) |
+| 17-03-04 | Two-tiered testing: template source patterns + rendered HTML checks | 17-03 | Comprehensive coverage of both static patterns and dynamic Jinja rendering |
 
 ### Pending Todos
 
@@ -103,6 +107,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 17-02-PLAN.md (chart accessibility and print/PDF support)
+Stopped at: Completed 17-03-PLAN.md (Phase 17 complete - all accessibility and print/PDF features implemented and tested)
 Resume file: None
-Next: Phase 17-03 (if additional tasks) or Phase 17 completion
+Next: Milestone v0.14.0 Report UX Overhaul complete — ready for release
