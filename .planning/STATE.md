@@ -5,13 +5,13 @@
 See: .planning/PROJECT.md (updated 2026-02-16)
 
 **Core value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
-**Current focus:** v0.14.0 Report UX Overhaul — Phase 17 in progress
+**Current focus:** v0.14.0 Report UX Overhaul — Phase 17 complete, verified ✓
 
 ## Current Position
 
 Phase: 17 of 5 (Accessibility and Print/PDF)
 Plan: 3 of 3 completed
-Status: Phase complete ✓
+Status: Phase complete, verified ✓
 Last activity: 2026-02-17 — Completed 17-03-PLAN.md (accessibility and print test coverage)
 
 Progress: [████████████████████] 100% (5/5 phases complete)

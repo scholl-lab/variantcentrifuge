@@ -149,9 +149,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 17-01-PLAN.md — Add skip-link, ARIA roles/labels, SVG link icons, and WCAG AA contrast fixes
-- [ ] 17-02-PLAN.md — Add chart data table fallbacks, @media print stylesheet, and PDF export button
-- [ ] 17-03-PLAN.md — Tests for Phase 17 accessibility and print features
+- [x] 17-01-PLAN.md — Add skip-link, ARIA roles/labels, SVG link icons, and WCAG AA contrast fixes
+- [x] 17-02-PLAN.md — Add chart data table fallbacks, @media print stylesheet, and PDF export button
+- [x] 17-03-PLAN.md — Tests for Phase 17 accessibility and print features
 
 **Success Criteria:**
 
@@ -178,5 +178,5 @@ Plans:
 | 13. JS Stack Modernization | v0.14.0 | 3/3 | Complete | 2026-02-16 |
 | 14. Information Hierarchy and Semantic Color Coding | v0.14.0 | 3/3 | Complete | 2026-02-16 |
 | 15. Table Redesign | v0.14.0 | 3/3 | Complete | 2026-02-17 |
-| 16. Column-Level Filtering and Visualization | v0.14.0 | 0/3 | In Progress | — |
-| 17. Accessibility and Print/PDF | v0.14.0 | 0/3 | Not Started | — |
+| 16. Column-Level Filtering and Visualization | v0.14.0 | 0/3 | Deferred to v0.15.0 | — |
+| 17. Accessibility and Print/PDF | v0.14.0 | 3/3 | Complete | 2026-02-17 |

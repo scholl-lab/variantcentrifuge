@@ -52,17 +52,17 @@
 
 ### Print & PDF
 
-- [ ] **PRINT-01**: Print stylesheet (@media print) hiding interactive controls, optimizing table layout
-- [ ] **PRINT-02**: PDF export button (browser-based via html2pdf.js or window.print)
+- [x] **PRINT-01**: Print stylesheet (@media print) hiding interactive controls, optimizing table layout
+- [x] **PRINT-02**: PDF export button (browser-based via html2pdf.js or window.print)
 
 ### Accessibility
 
-- [ ] **A11Y-01**: ARIA roles and labels on table (role="grid"), filter controls, summary cards
-- [ ] **A11Y-02**: Keyboard-accessible tooltips (tabindex="0", focus trigger, Escape dismiss)
-- [ ] **A11Y-03**: Chart text alternatives (data table fallback or aria-label summary)
-- [ ] **A11Y-04**: Skip-to-content links for keyboard navigation
-- [ ] **A11Y-05**: Replace emoji link icons with SVG icons + screen-reader text
-- [ ] **A11Y-06**: Sufficient color contrast (WCAG AA minimum)
+- [x] **A11Y-01**: ARIA roles and labels on table (role="table"), filter controls, summary cards
+- [x] **A11Y-02**: Keyboard-accessible tooltips (tabindex="0", focus trigger, Escape dismiss)
+- [x] **A11Y-03**: Chart text alternatives (data table fallback or aria-label summary)
+- [x] **A11Y-04**: Skip-to-content links for keyboard navigation
+- [x] **A11Y-05**: Replace emoji link icons with SVG icons + screen-reader text
+- [x] **A11Y-06**: Sufficient color contrast (WCAG AA minimum)
 
 ## Future Requirements
 
@@ -119,11 +119,11 @@
 | VIZ-02 | Phase 16 | Pending |
 | VIZ-03 | Phase 16 | Pending |
 | VIZ-04 | Phase 16 | Pending |
-| A11Y-01 | Phase 17 | Pending |
-| A11Y-02 | Phase 17 | Pending |
-| A11Y-03 | Phase 17 | Pending |
-| A11Y-04 | Phase 17 | Pending |
-| A11Y-05 | Phase 17 | Pending |
-| A11Y-06 | Phase 17 | Pending |
-| PRINT-01 | Phase 17 | Pending |
-| PRINT-02 | Phase 17 | Pending |
+| A11Y-01 | Phase 17 | Complete |
+| A11Y-02 | Phase 17 | Complete |
+| A11Y-03 | Phase 17 | Complete |
+| A11Y-04 | Phase 17 | Complete |
+| A11Y-05 | Phase 17 | Complete |
+| A11Y-06 | Phase 17 | Complete |
+| PRINT-01 | Phase 17 | Complete |
+| PRINT-02 | Phase 17 | Complete |
