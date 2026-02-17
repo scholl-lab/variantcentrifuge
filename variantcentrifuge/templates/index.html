@@ -301,11 +301,11 @@
     }
 
     /* Link Styles */
-    .link-icon {
-        text-decoration: none;
+    .link-icon-svg {
+        display: inline-block;
+        vertical-align: middle;
         margin-right: 3px;
-        color: #007bff;
-        font-size: 0.9em;
+        fill: currentColor;
     }
     .igv-individual-link {
         margin-right: 5px;
@@ -314,8 +314,8 @@
         display: inline-block;
         white-space: nowrap;
     }
-    .igv-individual-link .link-icon {
-        color: #5cb85c;
+    .igv-individual-link .link-icon-svg {
+        fill: #5cb85c;
     }
 
     /* Loading Skeleton */
@@ -475,6 +475,17 @@
 </head>
 <body>
 <a href="#main-content" class="skip-link">Skip to main content</a>
+
+<!-- SVG Icon Sprite (A11Y-05) -->
+<svg style="display: none;" aria-hidden="true">
+    <defs>
+        <symbol id="icon-external-link" viewBox="0 0 16 16">
+            <path d="M14 2H10V4H12.59L6.29 10.29L7.71 11.71L14 5.41V8H16V2H14Z"/>
+            <path d="M14 14H2V2H8V0H2C0.9 0 0 0.9 0 2V14C0 15.1 0.9 16 2 16H14C15.1 16 16 15.1 16 14V8H14V14Z"/>
+        </symbol>
+    </defs>
+</svg>
+
 <div class="container">
     <header>
         <h1>VariantCentrifuge Report</h1>
@@ -504,7 +515,7 @@
                 <ul class="impact-breakdown">
                     {% for level in ['HIGH', 'MODERATE', 'LOW', 'MODIFIER'] %}
                     <li>
-                        <span><span class="impact-dot" style="background-color: {{ {'HIGH':'#dc3545','MODERATE':'#fd7e14','LOW':'#f59e0b','MODIFIER':'#6c757d'}[level] }};"></span>{{ level }}</span>
+                        <span><span class="impact-dot" style="background-color: {{ {'HIGH':'#dc3545','MODERATE':'#c05000','LOW':'#b45309','MODIFIER':'#6c757d'}[level] }};"></span>{{ level }}</span>
                         <strong>{{ summary.impact_distribution.get(level, 0) if summary.impact_distribution is mapping else 0 }}</strong>
                     </li>
                     {% endfor %}
@@ -582,7 +593,9 @@
                                 {% if v_row[col_info.original_name] and v_row[col_info.original_name]|length > 0 %}
                                     {% for igv_link_detail in v_row[col_info.original_name] %}
                                         <a href="{{ igv_link_detail.report_path }}" target="_blank" class="igv-individual-link" title="IGV report for {{ igv_link_detail.sample_id }}">
-                                            <span class="link-icon">🔗</span>{{ igv_link_detail.sample_id }}
+                                            <svg aria-hidden="true" focusable="false" class="link-icon-svg" width="14" height="14"><use href="#icon-external-link"/></svg>
+                                            <span class="sr-only">IGV report for {{ igv_link_detail.sample_id }} (opens in new tab)</span>
+                                            {{ igv_link_detail.sample_id }}
                                         </a>{% if not loop.last %} {% endif %}
                                     {% endfor %}
                                 {% else %}
@@ -590,7 +603,9 @@
                                 {% endif %}
                             {% elif col_info.is_standard_link_column and v_row[col_info.original_name] and v_row[col_info.original_name] | string | trim != "" %}
                                 <a href="{{ v_row[col_info.original_name] }}" target="_blank" title="{{ v_row[col_info.original_name] }}">
-                                    <span class="link-icon">🔗</span>{{ col_info.link_display_text }}
+                                    <svg aria-hidden="true" focusable="false" class="link-icon-svg" width="14" height="14"><use href="#icon-external-link"/></svg>
+                                    <span class="sr-only">{{ col_info.link_display_text }} (opens in new tab)</span>
+                                    {{ col_info.link_display_text }}
                                 </a>
                             {% elif col_info.apply_hover_expand and col_info.max_width_px %}
                                 <span class="truncated-cell" tabindex="0" style="max-width: {{ col_info.max_width_px }}px;" data-tippy-content="{{ v_row[col_info.original_name] }}">{{ v_row[col_info.original_name] }}</span>
@@ -705,8 +720,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (type === 'display' && data) {
                         var colors = {
                             'HIGH': '#dc3545',
-                            'MODERATE': '#fd7e14',
-                            'LOW': '#f59e0b',
+                            'MODERATE': '#c05000',
+                            'LOW': '#b45309',
                             'MODIFIER': '#6c757d'
                         };
                         var color = colors[data] || '#6c757d';
@@ -729,15 +744,15 @@ document.addEventListener('DOMContentLoaded', function() {
                         if (lower.indexOf('pathogenic') !== -1 && lower.indexOf('likely') === -1 && lower.indexOf('conflicting') === -1) {
                             color = '#dc3545';
                         } else if (lower.indexOf('likely_pathogenic') !== -1 || lower.indexOf('likely pathogenic') !== -1) {
-                            color = '#e8590c';
+                            color = '#c0392b';
                         } else if (lower.indexOf('uncertain') !== -1 || lower === 'vus') {
-                            color = '#f59e0b';
+                            color = '#b45309';
                         } else if (lower.indexOf('likely_benign') !== -1 || lower.indexOf('likely benign') !== -1) {
-                            color = '#7cb342';
+                            color = '#558b2f';
                         } else if (lower.indexOf('benign') !== -1 && lower.indexOf('likely') === -1) {
-                            color = '#4caf50';
+                            color = '#2e7d32';
                         } else if (lower.indexOf('conflicting') !== -1) {
-                            color = '#ff9800';
+                            color = '#bf5600';
                         }
                         var displayText = str.replace(/_/g, ' ');
                         return '<span class="badge" style="background-color:' + color + ';">' + displayText + '</span>';
@@ -764,17 +779,17 @@ document.addEventListener('DOMContentLoaded', function() {
                         } else if (lower.indexOf('compound_heterozygous') !== -1) {
                             color = '#9c27b0';
                         } else if (lower.indexOf('autosomal_dominant') !== -1) {
-                            color = '#2196f3';
+                            color = '#1565c0';
                         } else if (lower.indexOf('autosomal_recessive') !== -1) {
-                            color = '#4caf50';
+                            color = '#2e7d32';
                         } else if (lower.indexOf('x_linked') !== -1) {
-                            color = '#00acc1';
+                            color = '#00838f';
                         } else if (lower === 'mitochondrial') {
-                            color = '#ff9800';
+                            color = '#bf5600';
                         } else if (lower === 'homozygous') {
-                            color = '#78909c';
+                            color = '#546e7a';
                         } else if (lower === 'non_mendelian') {
-                            color = '#ef5350';
+                            color = '#c62828';
                         }
                         var displayText = str.replace(/_/g, ' ');
                         return '<span class="badge" style="background-color:' + color + ';">' + displayText + '</span>';
@@ -1109,11 +1124,11 @@ document.addEventListener('DOMContentLoaded', function() {
     var impactCategories = Object.keys(impactDistribution);
     var impactCounts = Object.values(impactDistribution);
 
-    // Define semantic colors for impact levels
+    // Define semantic colors for impact levels (WCAG AA 4.5:1 contrast)
     var impactColorMap = {
         'HIGH': '#dc3545',      // Red
-        'MODERATE': '#fd7e14',  // Orange
-        'LOW': '#f59e0b',       // Amber (WCAG compliant)
+        'MODERATE': '#c05000',  // Dark orange (4.6:1)
+        'LOW': '#b45309',       // Dark amber (5.2:1)
         'MODIFIER': '#6c757d'   // Gray
     };
 
@@ -1186,7 +1201,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var inheritanceCategories = Object.keys(inheritanceDistribution);
         var inheritanceCounts = Object.values(inheritanceDistribution);
 
-        // Define semantic colors for inheritance patterns
+        // Define semantic colors for inheritance patterns (WCAG AA 4.5:1 contrast)
         var inheritanceColorMap = {
             'de_novo': '#dc3545',
             'de_novo_candidate': '#e57373',
@@ -1195,17 +1210,17 @@ document.addEventListener('DOMContentLoaded', function() {
             'compound_heterozygous_possible_no_pedigree': '#ba68c8',
             'compound_heterozygous_possible_missing_parents': '#ba68c8',
             'compound_heterozygous_possible_missing_parent_genotypes': '#ba68c8',
-            'autosomal_recessive': '#4caf50',
+            'autosomal_recessive': '#2e7d32',
             'autosomal_recessive_possible': '#81c784',
-            'autosomal_dominant': '#2196f3',
+            'autosomal_dominant': '#1565c0',
             'autosomal_dominant_possible': '#64b5f6',
-            'x_linked_recessive': '#00acc1',
-            'x_linked_dominant': '#00acc1',
+            'x_linked_recessive': '#00838f',
+            'x_linked_dominant': '#00838f',
             'x_linked_recessive_possible': '#4dd0e1',
             'x_linked_dominant_possible': '#4dd0e1',
-            'mitochondrial': '#ff9800',
-            'homozygous': '#78909c',
-            'non_mendelian': '#ef5350',
+            'mitochondrial': '#bf5600',
+            'homozygous': '#546e7a',
+            'non_mendelian': '#c62828',
             'unknown': '#6c757d'
         };
 
