@@ -96,6 +96,13 @@ Plans:
 
 **Requirements:** TABLE-01, TABLE-02, TABLE-03, TABLE-04, TABLE-05, TABLE-06, TABLE-07, TABLE-08, TABLE-09, TABLE-10
 
+**Plans:** 3 plans
+
+Plans:
+- [ ] 15-01-PLAN.md — Vendor FixedColumns extension and add CSS styles for table redesign
+- [ ] 15-02-PLAN.md — Wire up JS behavior (column intelligence, expandable rows, density toggle, sticky columns)
+- [ ] 15-03-PLAN.md — Tests for Phase 15 table redesign features
+
 **Success Criteria:**
 
 1. Hovering over or focusing (keyboard) a truncated cell shows a Tippy.js tooltip with the full content, positioned viewport-aware (no clipping at edges), dismissable with Escape -- the old yellow hover-expand is completely removed
@@ -156,6 +163,6 @@ Plans:
 | 12. Parallelization & Chunking | v0.13.0 | 4/4 | Complete | 2026-02-16 |
 | 13. JS Stack Modernization | v0.14.0 | 3/3 | Complete | 2026-02-16 |
 | 14. Information Hierarchy and Semantic Color Coding | v0.14.0 | 3/3 | Complete | 2026-02-16 |
-| 15. Table Redesign | v0.14.0 | 0/? | Not Started | — |
+| 15. Table Redesign | v0.14.0 | 0/3 | Not Started | — |
 | 16. Column-Level Filtering and Visualization | v0.14.0 | 0/? | Not Started | — |
 | 17. Accessibility and Print/PDF | v0.14.0 | 0/? | Not Started | — |
