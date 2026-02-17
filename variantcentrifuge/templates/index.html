@@ -9,6 +9,7 @@
     <!-- Inlined CSS Assets -->
     <style>{{ assets['css/datatables.min'] }}</style>
     <style>{{ assets['css/buttons.dataTables.min'] }}</style>
+    <style>{{ assets['css/fixedcolumns.dataTables.min'] }}</style>
     <style>{{ assets['css/tippy'] }}</style>
 
     <style>
@@ -144,30 +145,159 @@
         font-size: 13px;
         width: 100% !important;
     }
-    #variants_table th,
-    .dt-scroll-head th,
-    .dataTables_scrollHead th {
+
+    /* TABLE-05: Dark header with white text and accent bottom border */
+    #variants_table thead th,
+    .dt-scroll-head thead th,
+    .dataTables_scrollHead thead th {
+        background: linear-gradient(180deg, #2c3e50 0%, #1a252f 100%);
+        color: white;
+        border-bottom: 3px solid #007bff;
         white-space: nowrap !important;
         text-align: left !important;
         vertical-align: middle;
         line-height: 1.3;
-        padding: 8px 22px 8px 8px !important;
+        padding: 10px 22px 10px 8px !important;
         font-weight: 600;
     }
+
     /* Override DataTables numeric right-alignment */
     .dt-type-numeric {
         text-align: left !important;
     }
+
     /* Hide the duplicate thead inside the scroll body (DataTables clones it to scroll-head) */
     .dt-scroll-body thead,
     .dataTables_scrollBody thead {
         display: none;
     }
+
+    /* TABLE-04: Zebra striping */
+    #variants_table tbody tr:nth-child(odd) {
+        background-color: #f8f9fa;
+    }
+    #variants_table tbody tr:nth-child(even) {
+        background-color: white;
+    }
+    #variants_table tbody tr:hover {
+        background-color: #e3f2fd;
+    }
+    /* Child row should not get zebra color */
+    #variants_table tbody tr.dt-hasChild + tr > td {
+        background-color: transparent !important;
+    }
+
     #variants_table td {
         text-align: left;
         vertical-align: top;
         line-height: 1.3;
         padding: 4px 6px;
+    }
+
+    /* TABLE-07: Content density modes */
+    #variants_table.density-compact td { padding: 4px 6px; line-height: 1.3; }
+    #variants_table.density-compact th { padding: 8px 22px 8px 6px !important; }
+    #variants_table.density-regular td { padding: 8px 10px; line-height: 1.5; }
+    #variants_table.density-regular th { padding: 10px 22px 10px 10px !important; }
+    #variants_table.density-relaxed td { padding: 12px 14px; line-height: 1.7; }
+    #variants_table.density-relaxed th { padding: 12px 22px 12px 14px !important; }
+
+    /* TABLE-06/08: Column type classes */
+    .monospace {
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    }
+    .dt-right {
+        text-align: right !important;
+    }
+    .middle-truncate {
+        display: inline-block;
+        max-width: 120px;
+    }
+
+    /* TABLE-02: FixedColumns shadow separator */
+    .dtfc-fixed-left {
+        box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+        z-index: 2;
+    }
+
+    /* TABLE-03: Chevron control column */
+    td.dt-control {
+        cursor: pointer;
+        text-align: center !important;
+        width: 30px;
+        user-select: none;
+    }
+    td.dt-control .chevron {
+        display: inline-block;
+        font-size: 18px;
+        font-weight: bold;
+        color: #007bff;
+        transition: transform 200ms ease-in-out;
+    }
+    tr.shown td.dt-control .chevron {
+        transform: rotate(90deg);
+    }
+
+    /* TABLE-03: Detail panel grid layout */
+    .detail-panel {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 16px;
+        padding: 16px;
+        background-color: #f8f9fa;
+        border-left: 3px solid #007bff;
+        animation: slideDown 200ms ease-out;
+    }
+    @keyframes slideDown {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .detail-section {
+        background: white;
+        padding: 12px 14px;
+        border-radius: 6px;
+        border: 1px solid #dee2e6;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .detail-section h4 {
+        margin: 0 0 10px 0;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #6c757d;
+        font-weight: 700;
+    }
+    .detail-section dl {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 6px 12px;
+        margin: 0;
+        font-size: 13px;
+    }
+    .detail-section dt {
+        font-weight: 600;
+        color: #495057;
+    }
+    .detail-section dd {
+        margin: 0;
+        word-break: break-word;
+        color: #212529;
+    }
+    .detail-section a {
+        color: #007bff;
+        text-decoration: none;
+    }
+    .detail-section a:hover {
+        text-decoration: underline;
+    }
+
+    /* TABLE-09: Prominent record count */
+    .dt-info,
+    .dataTables_info {
+        font-size: 14px;
+        font-weight: 600;
+        color: #212529;
+        padding: 8px 0;
     }
 
     /* Link Styles */
@@ -233,8 +363,10 @@
     .tippy-box[data-theme~='variantcentrifuge'] {
         background-color: #333;
         color: #fff;
-        max-width: 400px;
+        max-width: 300px;
         font-size: 13px;
+        line-height: 1.5;
+        word-break: break-word;
     }
     .tippy-box[data-theme~='variantcentrifuge'][data-placement^='top'] > .tippy-arrow::before {
         border-top-color: #333;
@@ -251,7 +383,7 @@
 
     /* Truncated Cell Styles */
     .truncated-cell {
-        max-width: 150px;
+        max-width: 180px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -472,6 +604,7 @@
 <!-- Inlined JavaScript Assets -->
 <script>{{ assets['js/jquery.slim.min'] }}</script>
 <script>{{ assets['js/datatables.min'] }}</script>
+<script>{{ assets['js/fixedcolumns.min'] }}</script>
 <script>{{ assets['js/datatables.buttons.min'] }}</script>
 <script>{{ assets['js/buttons.colVis.min'] }}</script>
 <script>{{ assets['js/chart.umd.min'] }}</script>
