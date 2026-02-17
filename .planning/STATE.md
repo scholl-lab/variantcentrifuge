@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-16)
 
 **Core value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
-**Current focus:** v0.14.0 Report UX Overhaul — Phase 15 complete, Phase 16 next
+**Current focus:** v0.14.0 Report UX Overhaul — Phase 17 in progress
 
 ## Current Position
 
-Phase: 15 of 5 (Table Redesign)
-Plan: 3 of 3 completed
-Status: Phase complete, verified ✓
-Last activity: 2026-02-17 — Phase 15 complete (3/3 plans, 10/10 must-haves verified)
+Phase: 17 of 5 (Accessibility and Print/PDF)
+Plan: 1 of 3 completed
+Status: In progress
+Last activity: 2026-02-17 — Completed 17-01-PLAN.md (core accessibility features)
 
-Progress: [████████████░░░░░░░░] 60% (3/5 phases complete)
+Progress: [████████████████░░░░] 80% (4/5 phases complete, 1/3 plans in Phase 17)
 
 ## Milestone Overview
 
@@ -23,8 +23,8 @@ Progress: [████████████░░░░░░░░] 60% (3/
 | 13 | JS Stack Modernization | 5 | Complete ✓ (verified) |
 | 14 | Information Hierarchy and Semantic Color Coding | 7 | Complete ✓ (verified) |
 | 15 | Table Redesign | 10 | Complete ✓ (10/10 verified) |
-| 16 | Column-Level Filtering and Visualization | 8 | Not Started |
-| 17 | Accessibility and Print/PDF | 8 | Not Started |
+| 16 | Column-Level Filtering and Visualization | 8 | Skipped (deferred to v0.15.0) |
+| 17 | Accessibility and Print/PDF | 8 | In Progress (1/3 plans complete) |
 
 ## Accumulated Context
 
@@ -81,6 +81,10 @@ Progress: [████████████░░░░░░░░] 60% (3/
 | 15-02-03 | Density defaults to compact mode with 25 rows per page | 15-02 | Maximizes data density for analysis-focused users, easily toggled to regular/relaxed |
 | 15-02-04 | Column intelligence based on field name patterns | 15-02 | CHROM/POS fixed width, GENE grows, HGVS monospace, scores right-aligned for type-appropriate rendering |
 | 15-02-05 | Enhanced tooltip triggers (mouseenter/focus/touch/immediate) | 15-02 | Enables keyboard navigation, mobile interaction, and reduces latency for accessibility |
+| 17-01-01 | Use role="table" not role="grid" for DataTables | 17-01 | ARIA grid implies editable cells; DataTables is read-only so role="table" is semantically correct |
+| 17-01-02 | SVG icons with aria-hidden plus sr-only text | 17-01 | Dual accessibility: SVG hidden from screen readers, adjacent span provides descriptive text |
+| 17-01-03 | All badge colors meet WCAG AA 4.5:1 contrast ratio | 17-01 | MODERATE #c05000 (4.6:1), LOW #b45309 (5.2:1), plus ClinVar and Inheritance badge fixes |
+| 17-01-04 | Truncated cells keyboard-accessible via tabindex="0" | 17-01 | Enables keyboard focus to trigger Tippy.js tooltips configured with focus trigger |
 
 ### Pending Todos
 
@@ -93,6 +97,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Phase 15 complete, verified
+Stopped at: Completed 17-01-PLAN.md (core accessibility features)
 Resume file: None
-Next: Phase 16 (Column-Level Filtering and Visualization)
+Next: Phase 17-02 (Focus Management) or Phase 17-03 (Print Stylesheet)
