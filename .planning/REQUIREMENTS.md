@@ -25,16 +25,16 @@
 
 ### Data Table Design
 
-- [ ] **TABLE-01**: Replace hover-expand with Tippy.js tooltips (viewport-aware, keyboard+hover trigger, Escape dismiss)
-- [ ] **TABLE-02**: Sticky first column (GENE) using DataTables FixedColumns
-- [ ] **TABLE-03**: Expandable row detail with chevron (click to show all fields in grouped key-value layout)
-- [ ] **TABLE-04**: Zebra striping (alternating row backgrounds)
-- [ ] **TABLE-05**: Enhanced header row (darker background, white text, bottom border)
-- [ ] **TABLE-06**: Intelligent column widths per type (fixed for CHROM/POS, grow for GENE, truncation for HGVS, right-align for numbers)
-- [ ] **TABLE-07**: Content density toggle (Compact/Regular/Relaxed) with localStorage persistence
-- [ ] **TABLE-08**: Middle truncation for variant IDs, end truncation for HGVS, monospace for genetic notation
-- [ ] **TABLE-09**: Prominent record count ("Showing X of Y variants")
-- [ ] **TABLE-10**: Default page length 25 (up from 10)
+- [x] **TABLE-01**: Replace hover-expand with Tippy.js tooltips (viewport-aware, keyboard+hover trigger, Escape dismiss)
+- [x] **TABLE-02**: Sticky first column (GENE) using DataTables FixedColumns
+- [x] **TABLE-03**: Expandable row detail with chevron (click to show all fields in grouped key-value layout)
+- [x] **TABLE-04**: Zebra striping (alternating row backgrounds)
+- [x] **TABLE-05**: Enhanced header row (darker background, white text, bottom border)
+- [x] **TABLE-06**: Intelligent column widths per type (fixed for CHROM/POS, grow for GENE, truncation for HGVS, right-align for numbers)
+- [x] **TABLE-07**: Content density toggle (Compact/Regular/Relaxed) with localStorage persistence
+- [x] **TABLE-08**: Middle truncation for variant IDs, end truncation for HGVS, monospace for genetic notation
+- [x] **TABLE-09**: Prominent record count ("Showing X of Y variants")
+- [x] **TABLE-10**: Default page length 25 (up from 10)
 
 ### Column-Level Filtering
 
@@ -101,16 +101,16 @@
 | COLOR-02 | Phase 14 | Complete |
 | COLOR-03 | Phase 14 | Complete |
 | COLOR-04 | Phase 14 | Complete |
-| TABLE-01 | Phase 15 | Pending |
-| TABLE-02 | Phase 15 | Pending |
-| TABLE-03 | Phase 15 | Pending |
-| TABLE-04 | Phase 15 | Pending |
-| TABLE-05 | Phase 15 | Pending |
-| TABLE-06 | Phase 15 | Pending |
-| TABLE-07 | Phase 15 | Pending |
-| TABLE-08 | Phase 15 | Pending |
-| TABLE-09 | Phase 15 | Pending |
-| TABLE-10 | Phase 15 | Pending |
+| TABLE-01 | Phase 15 | Complete |
+| TABLE-02 | Phase 15 | Complete |
+| TABLE-03 | Phase 15 | Complete |
+| TABLE-04 | Phase 15 | Complete |
+| TABLE-05 | Phase 15 | Complete |
+| TABLE-06 | Phase 15 | Complete |
+| TABLE-07 | Phase 15 | Complete |
+| TABLE-08 | Phase 15 | Complete |
+| TABLE-09 | Phase 15 | Complete |
+| TABLE-10 | Phase 15 | Complete |
 | FILTER-01 | Phase 16 | Pending |
 | FILTER-02 | Phase 16 | Pending |
 | FILTER-03 | Phase 16 | Pending |
