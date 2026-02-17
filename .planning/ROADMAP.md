@@ -146,9 +146,16 @@ Plans:
 
 **Requirements:** A11Y-01, A11Y-02, A11Y-03, A11Y-04, A11Y-05, A11Y-06, PRINT-01, PRINT-02
 
+**Plans:** 3 plans
+
+Plans:
+- [ ] 17-01-PLAN.md — Add skip-link, ARIA roles/labels, SVG link icons, and WCAG AA contrast fixes
+- [ ] 17-02-PLAN.md — Add chart data table fallbacks, @media print stylesheet, and PDF export button
+- [ ] 17-03-PLAN.md — Tests for Phase 17 accessibility and print features
+
 **Success Criteria:**
 
-1. The data table has `role="grid"`, all filter controls have `aria-label` attributes, summary cards have semantic meaning for screen readers, and skip-to-content links allow keyboard users to jump past the header
+1. The data table has `role="table"`, all filter controls have `aria-label` attributes, summary cards have semantic meaning for screen readers, and skip-to-content links allow keyboard users to jump past the header
 2. All tooltips (Tippy.js) are keyboard-accessible via focus trigger with `tabindex="0"`, dismissable with Escape, and work on touch devices
 3. Every chart has a text alternative (data table fallback or aria-label summary) so screen reader users can access the visualized data
 4. Emoji link icons are replaced with SVG icons that have `aria-hidden="true"` plus screen-reader-only text, and all color-coded badges maintain WCAG AA contrast ratios (4.5:1 minimum)
@@ -172,4 +179,4 @@ Plans:
 | 14. Information Hierarchy and Semantic Color Coding | v0.14.0 | 3/3 | Complete | 2026-02-16 |
 | 15. Table Redesign | v0.14.0 | 3/3 | Complete | 2026-02-17 |
 | 16. Column-Level Filtering and Visualization | v0.14.0 | 0/3 | In Progress | — |
-| 17. Accessibility and Print/PDF | v0.14.0 | 0/? | Not Started | — |
+| 17. Accessibility and Print/PDF | v0.14.0 | 0/3 | Not Started | — |
