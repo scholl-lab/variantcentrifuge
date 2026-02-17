@@ -26,6 +26,7 @@ class TestAssetLoading:
             "js/chartjs-plugin-datalabels.min",
             "js/popper.min",
             "js/tippy-bundle.umd.min",
+            "js/fixedcolumns.min",
         ]
 
         # Expected CSS assets (namespaced as css/filename)
@@ -33,6 +34,7 @@ class TestAssetLoading:
             "css/datatables.min",
             "css/buttons.dataTables.min",
             "css/tippy",
+            "css/fixedcolumns.dataTables.min",
         ]
 
         # Check all expected keys are present
@@ -47,8 +49,8 @@ class TestAssetLoading:
             assert isinstance(value, str), f"Asset {key} is not a string"
             assert len(value) > 0, f"Asset {key} is empty"
 
-        # Total should be at least 10 (7 JS + 3 CSS)
-        assert len(assets) >= 10, f"Expected at least 10 assets, got {len(assets)}"
+        # Total should be at least 12 (9 JS + 4 CSS)
+        assert len(assets) >= 12, f"Expected at least 12 assets, got {len(assets)}"
 
     def test_asset_files_are_valid_js_css(self):
         """Test that asset files contain valid JS/CSS content."""
@@ -428,3 +430,88 @@ class TestAssetNamespacing:
                 assert assets[js_key] != assets[css_key], (
                     f"JS and CSS assets have same content for {stem}"
                 )
+
+
+@pytest.mark.unit
+class TestPhase15FixedColumnsAssets:
+    """Test Phase 15 FixedColumns asset loading."""
+
+    def test_fixedcolumns_js_asset_exists(self):
+        """Test that FixedColumns JS asset exists and is non-empty."""
+        asset_path = (
+            Path(__file__).parent.parent.parent
+            / "variantcentrifuge"
+            / "assets"
+            / "js"
+            / "fixedcolumns.min.js"
+        )
+        assert asset_path.exists(), "FixedColumns JS asset file does not exist"
+        assert asset_path.stat().st_size > 0, "FixedColumns JS asset file is empty"
+
+    def test_fixedcolumns_css_asset_exists(self):
+        """Test that FixedColumns CSS asset exists and is non-empty."""
+        asset_path = (
+            Path(__file__).parent.parent.parent
+            / "variantcentrifuge"
+            / "assets"
+            / "css"
+            / "fixedcolumns.dataTables.min.css"
+        )
+        assert asset_path.exists(), "FixedColumns CSS asset file does not exist"
+        assert asset_path.stat().st_size > 0, "FixedColumns CSS asset file is empty"
+
+    def test_fixedcolumns_js_contains_extension(self):
+        """Test that FixedColumns JS contains valid extension code."""
+        asset_path = (
+            Path(__file__).parent.parent.parent
+            / "variantcentrifuge"
+            / "assets"
+            / "js"
+            / "fixedcolumns.min.js"
+        )
+        content = asset_path.read_text()
+
+        # Should contain FixedColumns reference (not an HTML error page)
+        assert (
+            "FixedColumns" in content or "fixedColumns" in content
+        ), "FixedColumns JS does not contain extension identifier"
+
+        # Should not be an HTML error page
+        assert not content.startswith("<!DOCTYPE"), "FixedColumns JS appears to be HTML error page"
+        assert not content.startswith("<html"), "FixedColumns JS appears to be HTML error page"
+
+    def test_fixedcolumns_css_contains_styles(self):
+        """Test that FixedColumns CSS contains valid styles."""
+        asset_path = (
+            Path(__file__).parent.parent.parent
+            / "variantcentrifuge"
+            / "assets"
+            / "css"
+            / "fixedcolumns.dataTables.min.css"
+        )
+        content = asset_path.read_text()
+
+        # Should contain dtfc class prefix (FixedColumns DataTables class prefix)
+        assert "dtfc" in content, "FixedColumns CSS does not contain 'dtfc' class prefix"
+
+        # Basic CSS validity
+        assert "{" in content, "FixedColumns CSS does not contain '{'"
+        assert "}" in content, "FixedColumns CSS does not contain '}'"
+
+    def test_load_assets_includes_fixedcolumns(self):
+        """Test that _load_assets() includes both FixedColumns assets."""
+        assets = _load_assets()
+
+        # Both JS and CSS should be in the returned dict
+        assert (
+            "js/fixedcolumns.min" in assets
+        ), "FixedColumns JS not found in loaded assets"
+        assert (
+            "css/fixedcolumns.dataTables.min" in assets
+        ), "FixedColumns CSS not found in loaded assets"
+
+        # Both should be non-empty
+        assert len(assets["js/fixedcolumns.min"]) > 0, "FixedColumns JS asset is empty"
+        assert (
+            len(assets["css/fixedcolumns.dataTables.min"]) > 0
+        ), "FixedColumns CSS asset is empty"
