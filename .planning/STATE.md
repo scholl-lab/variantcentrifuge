@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-02-16)
 ## Current Position
 
 Phase: 15 of 5 (Table Redesign)
-Plan: 1 of 3 completed
+Plan: 2 of 3 completed
 Status: In progress
-Last activity: 2026-02-17 — Completed 15-01-PLAN.md (vendor FixedColumns + CSS)
+Last activity: 2026-02-17 — Completed 15-02-PLAN.md (wire up JS behavior)
 
 Progress: [████████░░░░░░░░░░░░] 40% (2/5 phases complete, Phase 15 in progress)
 
@@ -76,6 +76,11 @@ Progress: [████████░░░░░░░░░░░░] 40% (2/
 | 15-01-03 | Tooltip max-width reduced from 400px to 300px | 15-01 | TABLE-01 requirement for narrower tooltips, better for longer HGVS notation |
 | 15-01-04 | Truncated-cell max-width increased from 150px to 180px | 15-01 | Better fit for HGVS notation while maintaining table compactness |
 | 15-01-05 | FixedColumns JS loaded after datatables.min.js, before buttons | 15-01 | Extension dependencies: FixedColumns requires DataTables core, should load before optional buttons |
+| 15-02-01 | FixedColumns left: 2 freezes both chevron and GENE columns | 15-02 | Control column (chevron) is index 0, GENE is index 1 - freezing 2 columns keeps both visible during horizontal scroll |
+| 15-02-02 | formatChildRow auto-categorizes fields into Identifiers/Annotations/Scores/Links | 15-02 | Reduces cognitive load by grouping related fields rather than flat field list |
+| 15-02-03 | Density defaults to compact mode with 25 rows per page | 15-02 | Maximizes data density for analysis-focused users, easily toggled to regular/relaxed |
+| 15-02-04 | Column intelligence based on field name patterns | 15-02 | CHROM/POS fixed width, GENE grows, HGVS monospace, scores right-aligned for type-appropriate rendering |
+| 15-02-05 | Enhanced tooltip triggers (mouseenter/focus/touch/immediate) | 15-02 | Enables keyboard navigation, mobile interaction, and reduces latency for accessibility |
 
 ### Pending Todos
 
@@ -88,6 +93,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 15-01-PLAN.md
+Stopped at: Completed 15-02-PLAN.md
 Resume file: None
-Next: Execute 15-02-PLAN.md (wire up JS behavior)
+Next: Execute 15-03-PLAN.md (test coverage for Phase 15)
