@@ -1599,6 +1599,750 @@ document.addEventListener('DOMContentLoaded', function() {
         plugins: [ChartDataLabels]
     });
 
+    // ===== Phase 16: Filter Initialization =====
+
+    // Missing value sentinel set
+    var MISSING_VALUES = new Set(['', 'N/A', 'NA', '.', 'Unknown', 'null', 'undefined']);
+
+    // Filter state: Map from column original_name -> { type, control, filterFn, displayValue }
+    var activeFilters = new Map();
+
+    // Global "include missing" flag, read by all filter predicates
+    var includeMissing = true;
+
+    // Utility: check if a cell value is considered missing
+    function isMissing(value) {
+        if (value === null || value === undefined) return true;
+        var str = String(value).trim();
+        return MISSING_VALUES.has(str);
+    }
+
+    // Utility: get DataTables column index (1-based, accounting for control column at 0)
+    function getDataColIndex(originalName) {
+        var idx = allColumnOriginalNames.indexOf(originalName);
+        return idx === -1 ? -1 : idx + 1;
+    }
+
+    // Determine filter type for a column based on its original name
+    function getFilterType(col) {
+        var name = col.original_name;
+        // Skip link columns, IGV link columns, and control column
+        if (col.is_standard_link_column || col.is_igv_link_column) return null;
+        if (name.match(/(link|url|_link$)/i)) return null;
+        // Categorical columns
+        if (name === 'IMPACT') return 'categorical';
+        if (name === 'ClinVar_CLNSIG' || name === 'dbNSFP_clinvar_clnsig') return 'categorical';
+        if (name === 'Inheritance_Pattern') return 'categorical';
+        // Text column
+        if (name === 'GENE') return 'text';
+        // Numeric columns: AF/freq/frequency, scores, CADD, REVEL, SpliceAI_D, GERP, phyloP
+        if (name.match(/(_AF|_freq|_frequency|_score|_phred|CADD|REVEL|SpliceAI_D|GERP|phyloP|POS|QUAL|DP)/i) &&
+            !name.match(/(link|url|http)/i)) return 'numeric';
+        return null;
+    }
+
+    // Remove the custom search function for a given column index
+    function removeSearchFn(colIndex) {
+        $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter(function(f) {
+            return f.columnIndex !== colIndex;
+        });
+    }
+
+    // Remove filter for a specific column name (reset control + remove search fn + update state)
+    function removeFilter(colName) {
+        var state = activeFilters.get(colName);
+        if (!state) return;
+        var colIndex = getDataColIndex(colName);
+        removeSearchFn(colIndex);
+
+        // Reset the control
+        if (state.type === 'numeric' && state.control && state.control.noUiSlider) {
+            state.control.noUiSlider.set([state.dataMin, state.dataMax]);
+        } else if (state.type === 'categorical' && state.control) {
+            state.control.value = '';
+        } else if (state.type === 'text' && state.control) {
+            state.control.value = '';
+        }
+
+        activeFilters.delete(colName);
+        updateFilterChips();
+    }
+
+    // Sync active filters Map to the chip strip DOM
+    function updateFilterChips() {
+        var strip = document.getElementById('active-filters-strip');
+        if (!strip) return;
+        var container = strip.querySelector('.filter-chips-container');
+        if (!container) return;
+
+        // Remove existing chips (preserve reset button and count span)
+        container.querySelectorAll('.filter-chip').forEach(function(chip) {
+            chip.remove();
+        });
+
+        if (activeFilters.size === 0) {
+            strip.style.display = 'none';
+            return;
+        }
+
+        strip.style.display = 'block';
+        var countEl = container.querySelector('.filter-count');
+        if (countEl) {
+            countEl.textContent = activeFilters.size + ' filter' + (activeFilters.size !== 1 ? 's' : '') + ' active';
+        }
+
+        var resetBtn = container.querySelector('#btn-reset-all');
+
+        activeFilters.forEach(function(state, colName) {
+            var chip = document.createElement('span');
+            chip.className = 'filter-chip';
+            chip.dataset.column = colName;
+            var label = colName.replace(/_/g, ' ');
+            var removeBtn = document.createElement('button');
+            removeBtn.className = 'chip-remove';
+            removeBtn.setAttribute('aria-label', 'Remove ' + label + ' filter');
+            removeBtn.innerHTML = '&times;';
+            removeBtn.addEventListener('click', function() {
+                removeFilter(colName);
+                table.draw();
+            });
+            chip.appendChild(document.createTextNode(label + ': ' + state.displayValue));
+            chip.appendChild(removeBtn);
+            if (resetBtn) {
+                container.insertBefore(chip, resetBtn);
+            } else {
+                container.appendChild(chip);
+            }
+        });
+    }
+
+    // Filter toggle button
+    var filterToggleBtn = document.getElementById('filter-toggle-btn');
+    if (filterToggleBtn) {
+        filterToggleBtn.addEventListener('click', function() {
+            var filterRow = document.getElementById('filter-row');
+            if (!filterRow) return;
+            var isHidden = filterRow.style.display === 'none' || filterRow.style.display === '';
+            filterRow.style.display = isHidden ? 'flex' : 'none';
+        });
+    }
+
+    // "Include missing values" toggle
+    var includeMissingToggle = document.getElementById('include-missing-toggle');
+    if (includeMissingToggle) {
+        includeMissingToggle.addEventListener('change', function() {
+            includeMissing = this.checked;
+            table.draw();
+        });
+    }
+
+    // Reset All button
+    var resetAllBtn = document.getElementById('btn-reset-all');
+    if (resetAllBtn) {
+        resetAllBtn.addEventListener('click', function() {
+            // Copy keys to array first to avoid mutation during iteration
+            var colNames = [];
+            activeFilters.forEach(function(state, colName) {
+                colNames.push(colName);
+            });
+            colNames.forEach(function(colName) {
+                removeFilter(colName);
+            });
+            table.draw();
+        });
+    }
+
+    // Populate filter controls based on column data
+    var filterRow = document.getElementById('filter-row');
+    if (filterRow) {
+        columnData.forEach(function(col) {
+            var filterType = getFilterType(col);
+            if (!filterType) return;
+
+            var colIndex = getDataColIndex(col.original_name);
+            if (colIndex === -1) return;
+
+            var colName = col.original_name;
+            var label = colName.replace(/_/g, ' ');
+
+            // Build wrapper
+            var wrapper = document.createElement('div');
+            wrapper.className = 'filter-control';
+
+            var labelEl = document.createElement('label');
+            labelEl.textContent = label;
+            wrapper.appendChild(labelEl);
+
+            if (filterType === 'numeric') {
+                // Collect all data values for this column
+                var rawValues = table.column(colIndex).data().toArray();
+                var numericValues = [];
+                rawValues.forEach(function(v) {
+                    if (!isMissing(v)) {
+                        var n = parseFloat(v);
+                        if (!isNaN(n) && isFinite(n)) numericValues.push(n);
+                    }
+                });
+
+                if (numericValues.length < 2) return; // Not enough data for range
+
+                var dataMin = Math.min.apply(null, numericValues);
+                var dataMax = Math.max.apply(null, numericValues);
+                if (dataMin === dataMax) return; // No range to filter
+
+                var sliderDiv = document.createElement('div');
+                sliderDiv.className = 'slider-container';
+                sliderDiv.id = 'slider-' + colName;
+                wrapper.appendChild(sliderDiv);
+
+                var valuesDiv = document.createElement('div');
+                valuesDiv.className = 'slider-values';
+                var minValEl = document.createElement('span');
+                minValEl.id = 'min-val-' + colName;
+                minValEl.textContent = parseFloat(dataMin).toFixed(4);
+                var maxValEl = document.createElement('span');
+                maxValEl.id = 'max-val-' + colName;
+                maxValEl.textContent = parseFloat(dataMax).toFixed(4);
+                valuesDiv.appendChild(minValEl);
+                valuesDiv.appendChild(maxValEl);
+                wrapper.appendChild(valuesDiv);
+
+                filterRow.appendChild(wrapper);
+
+                // Create noUiSlider (only if element is in DOM and not yet initialized)
+                if (sliderDiv && !sliderDiv.noUiSlider) {
+                    noUiSlider.create(sliderDiv, {
+                        start: [dataMin, dataMax],
+                        connect: true,
+                        range: { min: dataMin, max: dataMax },
+                        format: {
+                            to: function(val) { return parseFloat(val).toFixed(4); },
+                            from: function(val) { return Number(val); }
+                        }
+                    });
+
+                    // Closure to capture variables
+                    (function(sliderEl, cn, ci, dMin, dMax, minEl, maxEl) {
+                        sliderEl.noUiSlider.on('update', function(values) {
+                            var minRange = parseFloat(values[0]);
+                            var maxRange = parseFloat(values[1]);
+                            minEl.textContent = values[0];
+                            maxEl.textContent = values[1];
+
+                            // Remove previous filter for this column
+                            removeSearchFn(ci);
+
+                            // Check if back at default range (within float tolerance)
+                            var atDefault = Math.abs(minRange - dMin) < 0.000001 && Math.abs(maxRange - dMax) < 0.000001;
+                            if (atDefault) {
+                                activeFilters.delete(cn);
+                                updateFilterChips();
+                                table.draw();
+                                return;
+                            }
+
+                            // Add new filter function
+                            var filterFn = function(settings, data) {
+                                if (settings.nTable.id !== 'variants_table') return true;
+                                var cellValue = data[ci];
+                                if (isMissing(cellValue)) return includeMissing;
+                                var numVal = parseFloat(cellValue);
+                                if (isNaN(numVal) || !isFinite(numVal)) return includeMissing;
+                                return numVal >= minRange && numVal <= maxRange;
+                            };
+                            filterFn.columnIndex = ci;
+                            $.fn.dataTable.ext.search.push(filterFn);
+
+                            activeFilters.set(cn, {
+                                type: 'numeric',
+                                control: sliderEl,
+                                dataMin: dMin,
+                                dataMax: dMax,
+                                displayValue: values[0] + ' \u2013 ' + values[1]
+                            });
+                            updateFilterChips();
+                            table.draw();
+                        });
+                    })(sliderDiv, colName, colIndex, dataMin, dataMax, minValEl, maxValEl);
+                }
+
+            } else if (filterType === 'categorical') {
+                // Collect unique non-missing values
+                var rawCatValues = table.column(colIndex).data().toArray();
+                var uniqueValues = [];
+                var seen = {};
+                rawCatValues.forEach(function(v) {
+                    if (!isMissing(v)) {
+                        var str = String(v).trim();
+                        if (str && !seen[str]) {
+                            seen[str] = true;
+                            uniqueValues.push(str);
+                        }
+                    }
+                });
+                uniqueValues.sort();
+
+                if (uniqueValues.length === 0) return;
+
+                var select = document.createElement('select');
+                select.className = 'category-dropdown';
+                select.id = 'filter-' + colName;
+
+                var allOption = document.createElement('option');
+                allOption.value = '';
+                allOption.textContent = 'All';
+                select.appendChild(allOption);
+
+                uniqueValues.forEach(function(val) {
+                    var opt = document.createElement('option');
+                    opt.value = val;
+                    // Strip HTML tags from display (badges may have rendered HTML)
+                    opt.textContent = val;
+                    select.appendChild(opt);
+                });
+
+                wrapper.appendChild(select);
+                filterRow.appendChild(wrapper);
+
+                (function(sel, cn, ci) {
+                    sel.addEventListener('change', function() {
+                        var selectedValue = this.value;
+                        removeSearchFn(ci);
+
+                        if (selectedValue === '') {
+                            activeFilters.delete(cn);
+                        } else {
+                            var filterFn = function(settings, data) {
+                                if (settings.nTable.id !== 'variants_table') return true;
+                                var cellValue = data[ci];
+                                if (isMissing(cellValue)) return includeMissing;
+                                return String(cellValue).trim() === selectedValue;
+                            };
+                            filterFn.columnIndex = ci;
+                            $.fn.dataTable.ext.search.push(filterFn);
+
+                            activeFilters.set(cn, {
+                                type: 'categorical',
+                                control: sel,
+                                displayValue: selectedValue
+                            });
+                        }
+                        updateFilterChips();
+                        table.draw();
+                    });
+                })(select, colName, colIndex);
+
+            } else if (filterType === 'text') {
+                var textInput = document.createElement('input');
+                textInput.type = 'text';
+                textInput.className = 'filter-text-input';
+                textInput.id = 'filter-' + colName;
+                textInput.placeholder = 'Search ' + label + '\u2026';
+                wrapper.appendChild(textInput);
+                filterRow.appendChild(wrapper);
+
+                (function(input, cn, ci) {
+                    var debounceTimer = null;
+                    input.addEventListener('input', function() {
+                        clearTimeout(debounceTimer);
+                        var searchValue = this.value;
+                        debounceTimer = setTimeout(function() {
+                            removeSearchFn(ci);
+
+                            if (searchValue.trim() === '') {
+                                activeFilters.delete(cn);
+                            } else {
+                                var lowerSearch = searchValue.trim().toLowerCase();
+                                var filterFn = function(settings, data) {
+                                    if (settings.nTable.id !== 'variants_table') return true;
+                                    var cellValue = data[ci];
+                                    if (isMissing(cellValue)) return includeMissing;
+                                    return String(cellValue).toLowerCase().indexOf(lowerSearch) !== -1;
+                                };
+                                filterFn.columnIndex = ci;
+                                $.fn.dataTable.ext.search.push(filterFn);
+
+                                activeFilters.set(cn, {
+                                    type: 'text',
+                                    control: input,
+                                    displayValue: '"' + searchValue.trim() + '"'
+                                });
+                            }
+                            updateFilterChips();
+                            table.draw();
+                        }, 300);
+                    });
+                })(textInput, colName, colIndex);
+            }
+        });
+    } // end if filterRow
+
+    // ===== Phase 16: Collapsible Visualization Section =====
+
+    var collapseToggle = document.querySelector('.collapse-toggle');
+    if (collapseToggle) {
+        collapseToggle.addEventListener('click', function() {
+            var expanded = this.getAttribute('aria-expanded') === 'true';
+            var content = document.getElementById('viz-content');
+            this.setAttribute('aria-expanded', String(!expanded));
+            if (content) content.hidden = expanded; // toggle: if was expanded, now hide
+            localStorage.setItem('vizSectionExpanded', String(!expanded));
+        });
+        // Restore saved preference (default is collapsed, so only expand if 'true')
+        if (localStorage.getItem('vizSectionExpanded') === 'true') {
+            collapseToggle.click();
+        }
+    }
+
+    // ===== Phase 16: New Chart Variables (declared at this scope for updateAllCharts access) =====
+    var variantTypeChart = null;
+    var chromosomeChart = null;
+    var afHistogramChart = null;
+
+    // Karyogram sort order for chromosomes
+    var KARYOGRAM_ORDER = (function() {
+        var order = {};
+        for (var i = 1; i <= 22; i++) order[String(i)] = i;
+        order['X'] = 23; order['Y'] = 24; order['M'] = 25; order['MT'] = 25;
+        return order;
+    })();
+
+    function chromSortKey(chr) {
+        // Strip leading "chr" prefix (case-insensitive)
+        var clean = chr.replace(/^chr/i, '').toUpperCase();
+        var n = KARYOGRAM_ORDER[clean];
+        return (n !== undefined) ? n : 99; // Unknown chromosomes go last
+    }
+
+    function sortChromosomes(chrList) {
+        return chrList.slice().sort(function(a, b) {
+            return chromSortKey(a) - chromSortKey(b);
+        });
+    }
+
+    // AF bins for histogram
+    var AF_BINS = [
+        { label: '<0.0001', min: 0, max: 0.0001 },
+        { label: '0.0001\u20130.001', min: 0.0001, max: 0.001 },
+        { label: '0.001\u20130.01', min: 0.001, max: 0.01 },
+        { label: '0.01\u20130.1', min: 0.01, max: 0.1 },
+        { label: '>0.1', min: 0.1, max: Infinity }
+    ];
+    var AF_BIN_COLORS = ['#bbdefb', '#90caf9', '#64b5f6', '#2196f3', '#1565c0'];
+
+    // Find AF column index once (first match)
+    var afColIndex = -1;
+    for (var ai = 0; ai < allColumnOriginalNames.length; ai++) {
+        var aName = allColumnOriginalNames[ai];
+        if (aName.match(/(_AF$|^AF$|^AF_|_AF_)/i)) {
+            afColIndex = ai + 1; // +1 for control column offset
+            break;
+        }
+    }
+
+    // Find REF, ALT, CHROM column indices
+    var refColIndex = allColumnOriginalNames.indexOf('REF') + 1;
+    var altColIndex = allColumnOriginalNames.indexOf('ALT') + 1;
+    var chromColIndex = allColumnOriginalNames.indexOf('CHROM') + 1;
+    var impactColIndex = allColumnOriginalNames.indexOf('IMPACT') + 1;
+    var inheritanceColIndex = allColumnOriginalNames.indexOf('Inheritance_Pattern') + 1;
+    // Use 0 as sentinel for "not found" (index 0 is control column, no data column has index 0 unless IMPACT is first)
+    // Actually +1 makes them 1-based, so if indexOf returns -1, +1 = 0, which is the control column and won't match data
+    // Safe: 0 means "not found" for data columns since data starts at 1
+
+    // Compute chart data from filtered rows
+    function computeChartData(filteredData) {
+        // Variant type breakdown
+        var variantTypes = { 'SNV': 0, 'Insertion': 0, 'Deletion': 0, 'MNV': 0 };
+        if (refColIndex > 0 && altColIndex > 0) {
+            filteredData.forEach(function(row) {
+                var ref = String(row[refColIndex] || '');
+                var alt = String(row[altColIndex] || '');
+                // Ignore missing or multi-allelic with comma
+                if (!ref || !alt) return;
+                alt = alt.split(',')[0]; // Use first alt allele for classification
+                if (ref.length === 1 && alt.length === 1) {
+                    variantTypes.SNV++;
+                } else if (ref.length < alt.length) {
+                    variantTypes.Insertion++;
+                } else if (ref.length > alt.length) {
+                    variantTypes.Deletion++;
+                } else {
+                    variantTypes.MNV++;
+                }
+            });
+        }
+
+        // Chromosome distribution
+        var chromCounts = {};
+        if (chromColIndex > 0) {
+            filteredData.forEach(function(row) {
+                var chr = String(row[chromColIndex] || '').trim();
+                if (chr && !isMissing(chr)) {
+                    chromCounts[chr] = (chromCounts[chr] || 0) + 1;
+                }
+            });
+        }
+        var sortedChroms = sortChromosomes(Object.keys(chromCounts));
+
+        // AF histogram
+        var binCounts = AF_BINS.map(function() { return 0; });
+        if (afColIndex > 0) {
+            filteredData.forEach(function(row) {
+                var afVal = parseFloat(row[afColIndex]);
+                if (isNaN(afVal)) return;
+                for (var bi = 0; bi < AF_BINS.length; bi++) {
+                    var bin = AF_BINS[bi];
+                    if (afVal >= bin.min && afVal < bin.max) {
+                        binCounts[bi]++;
+                        break;
+                    }
+                }
+            });
+        }
+
+        // Impact counts from filtered data
+        var filteredImpactCounts = {};
+        if (impactColIndex > 0) {
+            filteredData.forEach(function(row) {
+                var impact = String(row[impactColIndex] || '').trim();
+                // Strip HTML tags from rendered badge values
+                impact = impact.replace(/<[^>]+>/g, '').trim();
+                if (impact) filteredImpactCounts[impact] = (filteredImpactCounts[impact] || 0) + 1;
+            });
+        }
+
+        // Inheritance counts from filtered data
+        var filteredInheritanceCounts = {};
+        if (inheritanceColIndex > 0) {
+            filteredData.forEach(function(row) {
+                var pattern = String(row[inheritanceColIndex] || '').trim();
+                // Strip HTML tags from rendered badge values
+                pattern = pattern.replace(/<[^>]+>/g, '').trim();
+                if (pattern && pattern !== 'none' && pattern !== 'reference' && pattern !== 'Unknown') {
+                    filteredInheritanceCounts[pattern] = (filteredInheritanceCounts[pattern] || 0) + 1;
+                }
+            });
+        }
+
+        return {
+            variantTypes: variantTypes,
+            chromCounts: chromCounts,
+            sortedChroms: sortedChroms,
+            binCounts: binCounts,
+            filteredImpactCounts: filteredImpactCounts,
+            filteredInheritanceCounts: filteredInheritanceCounts
+        };
+    }
+
+    // updateAllCharts: called on every draw.dt event
+    function updateAllCharts() {
+        var filteredData = table.rows({ search: 'applied' }).data().toArray();
+        var d = computeChartData(filteredData);
+
+        // Update impact chart
+        if (typeof impactChart !== 'undefined' && impactChart) {
+            var newImpactLabels = Object.keys(d.filteredImpactCounts);
+            var newImpactData = Object.values(d.filteredImpactCounts);
+            if (newImpactLabels.length === 0) {
+                // Show zero for all original categories
+                newImpactLabels = ['HIGH', 'MODERATE', 'LOW', 'MODIFIER'];
+                newImpactData = [0, 0, 0, 0];
+            }
+            impactChart.data.labels = newImpactLabels;
+            impactChart.data.datasets[0].data = newImpactData;
+            impactChart.data.datasets[0].backgroundColor = newImpactLabels.map(function(cat) {
+                return impactColorMap[cat] || '#007bff';
+            });
+            impactChart.update('none');
+        }
+
+        // Update inheritance chart
+        if (typeof inheritanceChart !== 'undefined' && inheritanceChart) {
+            var newInhLabels = Object.keys(d.filteredInheritanceCounts);
+            var newInhData = Object.values(d.filteredInheritanceCounts);
+            if (newInhLabels.length === 0) {
+                newInhLabels = [];
+                newInhData = [];
+            }
+            var newInhDisplayLabels = newInhLabels.map(function(l) { return l.replace(/_/g, ' '); });
+            inheritanceChart.data.labels = newInhDisplayLabels;
+            inheritanceChart.data.datasets[0].data = newInhData;
+            inheritanceChart.data.datasets[0].backgroundColor = newInhLabels.map(function(cat) {
+                return inheritanceColorMap[cat] || '#6c757d';
+            });
+            inheritanceChart.update('none');
+        }
+
+        // Update variant type chart
+        if (variantTypeChart) {
+            variantTypeChart.data.datasets[0].data = [
+                d.variantTypes.SNV,
+                d.variantTypes.Insertion,
+                d.variantTypes.Deletion,
+                d.variantTypes.MNV
+            ];
+            variantTypeChart.update('none');
+        }
+
+        // Update chromosome chart
+        if (chromosomeChart) {
+            chromosomeChart.data.labels = d.sortedChroms;
+            chromosomeChart.data.datasets[0].data = d.sortedChroms.map(function(c) {
+                return d.chromCounts[c] || 0;
+            });
+            chromosomeChart.update('none');
+        }
+
+        // Update AF histogram chart
+        if (afHistogramChart) {
+            afHistogramChart.data.datasets[0].data = d.binCounts;
+            afHistogramChart.update('none');
+        }
+    }
+
+    // Wire draw.dt to updateAllCharts
+    table.on('draw.dt', function() {
+        updateAllCharts();
+    });
+
+    // Initialize Phase 16 charts from full dataset
+    var allRowData = table.rows().data().toArray();
+    var initData = computeChartData(allRowData);
+
+    // Variant Type Breakdown (doughnut)
+    var variantTypeCanvas = document.getElementById('variant_type_chart');
+    if (variantTypeCanvas) {
+        variantTypeChart = new Chart(variantTypeCanvas.getContext('2d'), {
+            type: 'doughnut',
+            data: {
+                labels: ['SNV', 'Insertion', 'Deletion', 'MNV'],
+                datasets: [{
+                    data: [
+                        initData.variantTypes.SNV,
+                        initData.variantTypes.Insertion,
+                        initData.variantTypes.Deletion,
+                        initData.variantTypes.MNV
+                    ],
+                    backgroundColor: ['#2196f3', '#4caf50', '#dc3545', '#ff9800'],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'right', labels: { font: { size: 12 } } },
+                    title: { display: false },
+                    datalabels: {
+                        color: '#fff',
+                        font: { weight: 'bold', size: 11 },
+                        formatter: function(value, context) {
+                            var total = context.dataset.data.reduce(function(a, b) { return a + b; }, 0);
+                            if (!total || value === 0) return '';
+                            return Math.round(value / total * 100) + '%';
+                        }
+                    }
+                }
+            },
+            plugins: [ChartDataLabels]
+        });
+    }
+
+    // Chromosome Distribution (horizontal bar)
+    var chromosomeCanvas = document.getElementById('chromosome_chart');
+    if (chromosomeCanvas) {
+        chromosomeChart = new Chart(chromosomeCanvas.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: initData.sortedChroms,
+                datasets: [{
+                    label: 'Number of Variants',
+                    data: initData.sortedChroms.map(function(c) { return initData.chromCounts[c] || 0; }),
+                    backgroundColor: '#607d8b',
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    title: { display: false },
+                    datalabels: { display: false }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Number of Variants' },
+                        ticks: { precision: 0 }
+                    },
+                    y: {
+                        title: { display: false }
+                    }
+                }
+            },
+            plugins: [ChartDataLabels]
+        });
+    }
+
+    // Allele Frequency Histogram (log-scale Y)
+    var afCanvas = document.getElementById('af_histogram_chart');
+    if (afCanvas) {
+        if (afColIndex === -1) {
+            // No AF column found — show message
+            var afContainer = afCanvas.parentElement;
+            if (afContainer) {
+                var noAfMsg = document.createElement('p');
+                noAfMsg.style.cssText = 'color:#6c757d;font-style:italic;text-align:center;padding-top:60px;';
+                noAfMsg.textContent = 'No allele frequency data available';
+                afContainer.appendChild(noAfMsg);
+            }
+        } else {
+            afHistogramChart = new Chart(afCanvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: AF_BINS.map(function(b) { return b.label; }),
+                    datasets: [{
+                        label: 'Variant Count',
+                        data: initData.binCounts,
+                        backgroundColor: AF_BIN_COLORS,
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        title: { display: false },
+                        datalabels: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            type: 'logarithmic',
+                            beginAtZero: false,
+                            min: 1,
+                            title: { display: true, text: 'Count (log scale)' },
+                            ticks: {
+                                callback: function(value) {
+                                    if (Number.isInteger(Math.log10(value))) return value;
+                                    return null;
+                                }
+                            }
+                        },
+                        x: {
+                            title: { display: true, text: 'Allele Frequency' }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    // ===== End Phase 16 =====
+
     // Initialize Chart.js horizontal bar chart for Inheritance Patterns
     if (document.getElementById('inheritance_chart')) {
         var inheritanceDistribution = {{ summary.inheritance_distribution | default({}) | tojson }};
