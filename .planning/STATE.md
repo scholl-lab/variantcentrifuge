@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-16)
 
 **Core value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
-**Current focus:** v0.14.0 Report UX Overhaul — Phase 17 complete, verified ✓
+**Current focus:** v0.14.0 Report UX Overhaul — Phase 16 complete, verified ✓
 
 ## Current Position
 
 Phase: 16 of 6 (Column-Level Filtering and Visualization)
-Plan: 2 of 3 completed
-Status: In progress
-Last activity: 2026-02-18 — Completed 16-02-PLAN.md (filter JS behavior, reactive charts, viz section)
+Plan: 3 of 3 completed
+Status: Phase complete
+Last activity: 2026-02-18 — Completed 16-03-PLAN.md (tests for Phase 16 filtering and visualization)
 
-Progress: [████████████████████░] ~94% (Phase 16 Plan 2/3 complete)
+Progress: [█████████████████████] 100% (Phase 16 complete, all phases done)
 
 ## Milestone Overview
 
@@ -23,7 +23,7 @@ Progress: [████████████████████░] ~94%
 | 13 | JS Stack Modernization | 5 | Complete ✓ (verified) |
 | 14 | Information Hierarchy and Semantic Color Coding | 7 | Complete ✓ (verified) |
 | 15 | Table Redesign | 10 | Complete ✓ (10/10 verified) |
-| 16 | Column-Level Filtering and Visualization | 8 | In progress (Plan 1/2 complete) |
+| 16 | Column-Level Filtering and Visualization | 8 | Complete ✓ (3/3 plans done, 27 tests passing) |
 | 17 | Accessibility and Print/PDF | 8 | Complete ✓ (8/8 verified) |
 
 ## Accumulated Context
@@ -104,6 +104,8 @@ Progress: [████████████████████░] ~94%
 | 16-02-03 | IIFE closures for filter event handlers capture per-column variables correctly | 16-02 | Prevents closure over loop variable `col` in forEach callbacks |
 | 16-02-04 | computeChartData() abstraction called at init (all rows) and on draw.dt (filtered rows) | 16-02 | Single function for DRY chart update logic across init and reactive updates |
 | 16-02-05 | Chart.js update('none') used on all reactive updates for instant snap feel | 16-02 | User requested no animation on filter change per CONTEXT.md |
+| 16-03-01 | String pattern matching for JS behavior tests (not DOM parsing) | 16-03 | Consistent with Phase 14/15 decision 14-03-02, sufficient for verifying behavioral patterns |
+| 16-03-02 | Class-scoped fixture renders HTML once per test class | 16-03 | Established Phase 14/15 pattern for efficient test execution |
 
 ### Pending Todos
 
@@ -115,7 +117,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-18
-Stopped at: Completed 16-02-PLAN.md (filter JS, chip strip, reactive charts, viz section)
+Last session: 2026-02-18T08:15:19Z
+Stopped at: Completed 16-03-PLAN.md (Phase 16 tests: noUiSlider assets, filter structure, JS behavior)
 Resume file: None
-Next: Execute 16-03-PLAN.md (tests for Phase 16 filtering and visualization)
+Next: Phase 16 milestone complete. v0.14.0 Report UX Overhaul all phases done. Ready for release prep or next milestone.
