@@ -563,9 +563,9 @@ class TestPhase15FixedColumnsAssets:
         content = asset_path.read_text()
 
         # Should contain FixedColumns reference (not an HTML error page)
-        assert (
-            "FixedColumns" in content or "fixedColumns" in content
-        ), "FixedColumns JS does not contain extension identifier"
+        assert "FixedColumns" in content or "fixedColumns" in content, (
+            "FixedColumns JS does not contain extension identifier"
+        )
 
         # Should not be an HTML error page
         assert not content.startswith("<!DOCTYPE"), "FixedColumns JS appears to be HTML error page"
@@ -594,15 +594,11 @@ class TestPhase15FixedColumnsAssets:
         assets = _load_assets()
 
         # Both JS and CSS should be in the returned dict
-        assert (
-            "js/fixedcolumns.min" in assets
-        ), "FixedColumns JS not found in loaded assets"
-        assert (
-            "css/fixedcolumns.dataTables.min" in assets
-        ), "FixedColumns CSS not found in loaded assets"
+        assert "js/fixedcolumns.min" in assets, "FixedColumns JS not found in loaded assets"
+        assert "css/fixedcolumns.dataTables.min" in assets, (
+            "FixedColumns CSS not found in loaded assets"
+        )
 
         # Both should be non-empty
         assert len(assets["js/fixedcolumns.min"]) > 0, "FixedColumns JS asset is empty"
-        assert (
-            len(assets["css/fixedcolumns.dataTables.min"]) > 0
-        ), "FixedColumns CSS asset is empty"
+        assert len(assets["css/fixedcolumns.dataTables.min"]) > 0, "FixedColumns CSS asset is empty"
