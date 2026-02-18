@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-16)
 ## Current Position
 
 Phase: 16 of 6 (Column-Level Filtering and Visualization)
-Plan: 1 of 2 completed
+Plan: 2 of 3 completed
 Status: In progress
-Last activity: 2026-02-18 — Completed 16-01-PLAN.md (noUiSlider assets and HTML/CSS scaffolding)
+Last activity: 2026-02-18 — Completed 16-02-PLAN.md (filter JS behavior, reactive charts, viz section)
 
-Progress: [███████████████████░] ~92% (Phase 16 Plan 1/2 in progress)
+Progress: [████████████████████░] ~94% (Phase 16 Plan 2/3 complete)
 
 ## Milestone Overview
 
@@ -99,6 +99,11 @@ Progress: [███████████████████░] ~92% (P
 | 16-01-02 | chevron-icon CSS class for collapsible section (not chevron used for row expansion) | 16-01 | Avoids CSS conflict with Phase 15 table row expansion toggle |
 | 16-01-03 | Filter row starts hidden with empty mount point; Plan 02 populates dynamically | 16-01 | Separates structure (Plan 01) from behavior (Plan 02) for context budget |
 | 16-01-04 | Visualization section collapsed by default (aria-expanded=false, hidden attribute) | 16-01 | Keeps above-the-fold clean; user clicks to expand |
+| 16-02-01 | DataTables column index offset: data columns start at index 1 (control chevron is index 0) | 16-02 | All getDataColIndex() calls use indexOf() + 1 accounting for this offset |
+| 16-02-02 | HTML tag stripping in computeChartData() for impact/inheritance badge columns | 16-02 | DataTables render functions produce badge HTML; must strip to aggregate correctly |
+| 16-02-03 | IIFE closures for filter event handlers capture per-column variables correctly | 16-02 | Prevents closure over loop variable `col` in forEach callbacks |
+| 16-02-04 | computeChartData() abstraction called at init (all rows) and on draw.dt (filtered rows) | 16-02 | Single function for DRY chart update logic across init and reactive updates |
+| 16-02-05 | Chart.js update('none') used on all reactive updates for instant snap feel | 16-02 | User requested no animation on filter change per CONTEXT.md |
 
 ### Pending Todos
 
@@ -111,6 +116,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Completed 16-01-PLAN.md (noUiSlider assets vendored, HTML/CSS scaffolding added)
+Stopped at: Completed 16-02-PLAN.md (filter JS, chip strip, reactive charts, viz section)
 Resume file: None
-Next: Execute 16-02-PLAN.md (JavaScript behavior for filter controls, chip strip, and visualization charts)
+Next: Execute 16-03-PLAN.md (tests for Phase 16 filtering and visualization)
