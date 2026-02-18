@@ -215,3 +215,4 @@ slurm_logs/
 
 # Benchmark results
 benchmarks/*.json
+.benchmarks/
