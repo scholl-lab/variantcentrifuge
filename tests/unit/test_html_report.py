@@ -204,10 +204,7 @@ class TestPhase14HTMLReport:
         assert 'id="impact_chart"' in html
 
         # Inheritance chart should be present when data exists
-        assert (
-            'id="inheritance_chart"' in html
-            or "Inheritance analysis not available" in html
-        )
+        assert 'id="inheritance_chart"' in html or "Inheritance analysis not available" in html
 
     def test_badge_css_exists(self, rendered_html_with_phase14_data):
         """Test that badge CSS class is defined."""
@@ -226,15 +223,11 @@ class TestPhase14HTMLReport:
         assert "type === 'display'" in html
 
         # Check for ClinVar badge render function
-        assert (
-            "col.original_name === 'ClinVar_CLNSIG'" in html
-            or "ClinVar_CLNSIG" in html
-        )
+        assert "col.original_name === 'ClinVar_CLNSIG'" in html or "ClinVar_CLNSIG" in html
 
         # Check for Inheritance_Pattern badge render function
         assert (
-            "col.original_name === 'Inheritance_Pattern'" in html
-            or "Inheritance_Pattern" in html
+            "col.original_name === 'Inheritance_Pattern'" in html or "Inheritance_Pattern" in html
         )
 
     def test_metadata_footer_exists(self, rendered_html_with_phase14_data):
@@ -283,7 +276,8 @@ class TestPhase15TableRedesign:
     @pytest.fixture(scope="class")
     def template_path(self):
         """Path to the template file."""
-        return Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates" / "index.html"
+        templates_dir = Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates"
+        return templates_dir / "index.html"
 
     @pytest.fixture(scope="class")
     def template_source(self, template_path):
@@ -434,9 +428,9 @@ class TestPhase15TableRedesign:
         """Test that template contains detail panel grid layout CSS."""
         assert ".detail-panel" in template_source, "detail-panel class not found"
         # Should have grid layout
-        assert (
-            "display: grid" in template_source or "display:grid" in template_source
-        ), "Grid layout for detail panel not found"
+        assert "display: grid" in template_source or "display:grid" in template_source, (
+            "Grid layout for detail panel not found"
+        )
 
     def test_chevron_css(self, template_source):
         """Test that template contains chevron control styling."""
@@ -450,9 +444,9 @@ class TestPhase15TableRedesign:
     def test_monospace_class_css(self, template_source):
         """Test that template contains monospace font-family rule."""
         assert ".monospace" in template_source, "monospace class not found"
-        assert (
-            "font-family:" in template_source and "monospace" in template_source.lower()
-        ), "Monospace font-family rule not found"
+        assert "font-family:" in template_source and "monospace" in template_source.lower(), (
+            "Monospace font-family rule not found"
+        )
 
     def test_fixedcolumns_shadow_css(self, template_source):
         """Test that template contains FixedColumns shadow styling."""
@@ -463,18 +457,18 @@ class TestPhase15TableRedesign:
         """Test that template contains prominent record count styling."""
         assert ".dt-info" in template_source, "dt-info class not found"
         # Should have bold or font-weight styling
-        assert (
-            "font-weight: 600" in template_source or "font-weight:600" in template_source
-        ), "Record count font-weight not found"
+        assert "font-weight: 600" in template_source or "font-weight:600" in template_source, (
+            "Record count font-weight not found"
+        )
 
     # JS behavior tests (pattern-based, check template source)
 
     def test_control_column_definition(self, template_source):
         """Test that template defines control column with chevron."""
         assert "dt-control" in template_source, "dt-control class not found in columnDefs"
-        assert (
-            "defaultContent" in template_source and "chevron" in template_source
-        ), "Control column defaultContent with chevron not found"
+        assert "defaultContent" in template_source and "chevron" in template_source, (
+            "Control column defaultContent with chevron not found"
+        )
 
     def test_fixedcolumns_config(self, template_source):
         """Test that template contains FixedColumns configuration."""
@@ -484,17 +478,17 @@ class TestPhase15TableRedesign:
     def test_density_localstorage_init(self, template_source):
         """Test that template initializes density from localStorage."""
         assert "localStorage.getItem" in template_source, "localStorage.getItem not found"
-        assert (
-            "variantTableDensity" in template_source or "density" in template_source.lower()
-        ), "Density localStorage key not found"
+        assert "variantTableDensity" in template_source or "density" in template_source.lower(), (
+            "Density localStorage key not found"
+        )
 
     def test_density_toggle_button(self, template_source):
         """Test that template contains density toggle button with localStorage persistence."""
         assert "localStorage.setItem" in template_source, "localStorage.setItem not found"
         # Should have button or toggle mechanism
-        assert (
-            "density" in template_source.lower() and "button" in template_source.lower()
-        ), "Density toggle button not found"
+        assert "density" in template_source.lower() and "button" in template_source.lower(), (
+            "Density toggle button not found"
+        )
 
     def test_format_child_row_function(self, template_source):
         """Test that template contains formatChildRow function with category sections."""
@@ -509,53 +503,52 @@ class TestPhase15TableRedesign:
     def test_child_row_click_handler(self, template_source):
         """Test that template contains child row click event handler."""
         assert "table.on('click'" in template_source, "table.on('click') event handler not found"
-        assert (
-            "td.dt-control" in template_source or "dt-control" in template_source
-        ), "dt-control in click handler not found"
+        assert "td.dt-control" in template_source or "dt-control" in template_source, (
+            "dt-control in click handler not found"
+        )
 
     def test_column_index_shift(self, template_source):
         """Test that template accounts for control column with index + 1."""
         # Should have index + 1 or similar offset logic
-        assert (
-            "index + 1" in template_source or "index+1" in template_source
-        ), "Column index shift (index + 1) not found"
+        assert "index + 1" in template_source or "index+1" in template_source, (
+            "Column index shift (index + 1) not found"
+        )
 
     def test_tooltip_keyboard_trigger(self, template_source):
         """Test that template configures tooltips with keyboard focus trigger."""
-        assert (
-            "trigger:" in template_source or "trigger :" in template_source
-        ), "Tooltip trigger config not found"
-        assert (
-            "mouseenter focus" in template_source or "focus" in template_source
-        ), "Tooltip focus trigger not found"
+        assert "trigger:" in template_source or "trigger :" in template_source, (
+            "Tooltip trigger config not found"
+        )
+        assert "mouseenter focus" in template_source or "focus" in template_source, (
+            "Tooltip focus trigger not found"
+        )
 
     def test_tooltip_touch_support(self, template_source):
         """Test that template configures tooltips with touch support."""
         # Should have touch configuration
-        assert (
-            "touch:" in template_source or "touch" in template_source
-        ), "Tooltip touch config not found"
+        assert "touch:" in template_source or "touch" in template_source, (
+            "Tooltip touch config not found"
+        )
 
     def test_hgvs_truncation_render(self, template_source):
         """Test that template contains HGVS end truncation render function."""
         # Should truncate HGVS fields
-        assert (
-            "HGVS" in template_source and ("substring" in template_source or "substr" in template_source)
+        assert "HGVS" in template_source and (
+            "substring" in template_source or "substr" in template_source
         ), "HGVS truncation render function not found"
 
     def test_middle_truncation_render(self, template_source):
         """Test that template contains VAR_ID middle truncation render."""
         # Should have middle truncation logic for variant IDs
-        assert (
-            "VAR_ID" in template_source
-            and ("substring" in template_source or "substr" in template_source)
+        assert "VAR_ID" in template_source and (
+            "substring" in template_source or "substr" in template_source
         ), "VAR_ID middle truncation not found"
 
     def test_right_align_numeric(self, template_source):
         """Test that template right-aligns numeric score columns."""
-        assert (
-            "dt-right" in template_source or "text-align: right" in template_source
-        ), "Right-align for numeric columns not found"
+        assert "dt-right" in template_source or "text-align: right" in template_source, (
+            "Right-align for numeric columns not found"
+        )
 
     # Rendered HTML tests
 
@@ -581,19 +574,20 @@ class TestPhase15TableRedesign:
         html = rendered_html_with_phase15_data
 
         # Should contain FixedColumns or fixedColumns in script
-        assert (
-            "FixedColumns" in html or "fixedColumns" in html
-        ), "FixedColumns JS not found in rendered HTML"
+        assert "FixedColumns" in html or "fixedColumns" in html, (
+            "FixedColumns JS not found in rendered HTML"
+        )
 
 
 @pytest.mark.unit
 class TestPhase17Accessibility:
-    """Test Phase 17 accessibility features: skip-link, ARIA roles, SVG icons, contrast, keyboard."""
+    """Test Phase 17 accessibility features: skip-link, ARIA roles, SVG icons, contrast, keyboard."""  # noqa: E501
 
     @pytest.fixture(scope="class")
     def template_path(self):
         """Path to the template file."""
-        return Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates" / "index.html"
+        templates_dir = Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates"
+        return templates_dir / "index.html"
 
     @pytest.fixture(scope="class")
     def template_source(self, template_path):
@@ -806,9 +800,7 @@ class TestPhase17Accessibility:
         """Test that rendered HTML contains SVG icon sprite definition."""
         html = rendered_html_with_phase17_data
 
-        assert '<symbol id="icon-external-link"' in html, (
-            "SVG icon sprite symbol not found"
-        )
+        assert '<symbol id="icon-external-link"' in html, "SVG icon sprite symbol not found"
 
     def test_svg_icons_have_aria_hidden(self, template_source):
         """Test that template source contains aria-hidden on SVG elements."""
@@ -822,9 +814,7 @@ class TestPhase17Accessibility:
         # Should have sr-only spans near links for screen readers
         assert 'class="sr-only"' in html, "sr-only class not found"
         # Check for descriptive text like "opens in new tab"
-        assert "opens in new tab" in html.lower(), (
-            "Screen reader link description not found"
-        )
+        assert "opens in new tab" in html.lower(), "Screen reader link description not found"
 
     # Color contrast tests (A11Y-06)
 
@@ -834,12 +824,14 @@ class TestPhase17Accessibility:
 
         def contrast_ratio(hex1, hex2):
             """Calculate WCAG contrast ratio between two hex colors."""
+
             def hex_to_rgb(hex_color):
-                hex_color = hex_color.lstrip('#')
-                return tuple(int(hex_color[i:i+2], 16) / 255.0 for i in (0, 2, 4))
+                hex_color = hex_color.lstrip("#")
+                return tuple(int(hex_color[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
 
             def relative_luminance(rgb):
                 """Calculate relative luminance for RGB color."""
+
                 def linearize(val):
                     if val <= 0.03928:
                         return val / 12.92
@@ -848,14 +840,14 @@ class TestPhase17Accessibility:
                 r, g, b = [linearize(c) for c in rgb]
                 return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
-            L1 = relative_luminance(hex_to_rgb(hex1))
-            L2 = relative_luminance(hex_to_rgb(hex2))
+            lum1 = relative_luminance(hex_to_rgb(hex1))
+            lum2 = relative_luminance(hex_to_rgb(hex2))
 
-            # Ensure L1 is the lighter color
-            if L2 > L1:
-                L1, L2 = L2, L1
+            # Ensure lum1 is the lighter color
+            if lum2 > lum1:
+                lum1, lum2 = lum2, lum1
 
-            return (L1 + 0.05) / (L2 + 0.05)
+            return (lum1 + 0.05) / (lum2 + 0.05)
 
         # Extract badge colors from template
         # Look for patterns like: '#dc3545', '#c05000', etc.
@@ -863,22 +855,19 @@ class TestPhase17Accessibility:
         colors = set(re.findall(color_pattern, template_source))
 
         # Known badge colors that should be in template
-        expected_badge_colors = ['#dc3545', '#c05000', '#b45309', '#6c757d']
+        expected_badge_colors = ["#dc3545", "#c05000", "#b45309", "#6c757d"]
 
         for color in expected_badge_colors:
             assert color in colors, f"Expected badge color {color} not found in template"
-            ratio = contrast_ratio(color, '#ffffff')
+            ratio = contrast_ratio(color, "#ffffff")
             assert ratio >= 4.5, (
-                f"Color {color} has contrast ratio {ratio:.2f}, "
-                f"below WCAG AA requirement of 4.5:1"
+                f"Color {color} has contrast ratio {ratio:.2f}, below WCAG AA requirement of 4.5:1"
             )
 
     def test_old_failing_colors_removed(self, template_source):
         """Test that old non-compliant colors are not in template."""
         # #fd7e14 was the old orange that failed contrast
-        assert "#fd7e14" not in template_source, (
-            "Old failing color #fd7e14 found in template"
-        )
+        assert "#fd7e14" not in template_source, "Old failing color #fd7e14 found in template"
 
     # sr-only class test
 
@@ -889,9 +878,7 @@ class TestPhase17Accessibility:
         assert "position: absolute" in template_source or "position:absolute" in template_source, (
             "sr-only should use absolute positioning"
         )
-        assert "-10000px" in template_source, (
-            "sr-only should position element off-screen"
-        )
+        assert "-10000px" in template_source, "sr-only should position element off-screen"
 
 
 @pytest.mark.unit
@@ -901,7 +888,8 @@ class TestPhase17ChartAndPrint:
     @pytest.fixture(scope="class")
     def template_path(self):
         """Path to the template file."""
-        return Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates" / "index.html"
+        templates_dir = Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates"
+        return templates_dir / "index.html"
 
     @pytest.fixture(scope="class")
     def template_source(self, template_path):
@@ -1005,7 +993,7 @@ class TestPhase17ChartAndPrint:
             "Impact chart data table not using sr-only class"
         )
         # Should have table headers
-        assert "<th scope=\"col\">Impact Level</th>" in html, (
+        assert '<th scope="col">Impact Level</th>' in html, (
             "Impact chart data table headers not found"
         )
 
@@ -1018,15 +1006,13 @@ class TestPhase17ChartAndPrint:
             "Inheritance chart data table aria-label not found"
         )
         # Should have table headers
-        assert "<th scope=\"col\">Inheritance Pattern</th>" in html, (
+        assert '<th scope="col">Inheritance Pattern</th>' in html, (
             "Inheritance chart data table headers not found"
         )
 
     def test_chart_headings_have_ids(self, template_source):
         """Test that chart headings have ID attributes for aria-labelledby."""
-        assert 'id="impact-chart-heading"' in template_source, (
-            "Impact chart heading ID not found"
-        )
+        assert 'id="impact-chart-heading"' in template_source, "Impact chart heading ID not found"
         assert 'id="inheritance-chart-heading"' in template_source, (
             "Inheritance chart heading ID not found"
         )
@@ -1046,53 +1032,37 @@ class TestPhase17ChartAndPrint:
         # Check that it appears after @media print
         print_pos = template_source.find("@media print")
         paginate_pos = template_source.find("dataTables_paginate", print_pos)
-        assert paginate_pos > print_pos, (
-            "dataTables_paginate not in print stylesheet section"
-        )
+        assert paginate_pos > print_pos, "dataTables_paginate not in print stylesheet section"
 
     def test_print_hides_filters(self, template_source):
         """Test that print stylesheet hides filter controls."""
-        assert "dataTables_filter" in template_source, (
-            "dataTables_filter not found in stylesheet"
-        )
+        assert "dataTables_filter" in template_source, "dataTables_filter not found in stylesheet"
         print_pos = template_source.find("@media print")
         filter_pos = template_source.find("dataTables_filter", print_pos)
-        assert filter_pos > print_pos, (
-            "dataTables_filter not in print stylesheet"
-        )
+        assert filter_pos > print_pos, "dataTables_filter not in print stylesheet"
 
     def test_print_hides_length(self, template_source):
         """Test that print stylesheet hides length selector."""
-        assert "dataTables_length" in template_source, (
-            "dataTables_length not found in stylesheet"
-        )
+        assert "dataTables_length" in template_source, "dataTables_length not found in stylesheet"
         print_pos = template_source.find("@media print")
         length_pos = template_source.find("dataTables_length", print_pos)
-        assert length_pos > print_pos, (
-            "dataTables_length not in print stylesheet"
-        )
+        assert length_pos > print_pos, "dataTables_length not in print stylesheet"
 
     def test_print_hides_buttons(self, template_source):
         """Test that print stylesheet hides button controls."""
-        assert "dt-buttons" in template_source, (
-            "dt-buttons not found in stylesheet"
-        )
+        assert "dt-buttons" in template_source, "dt-buttons not found in stylesheet"
         # Check it's in print section
         print_pos = template_source.find("@media print")
         buttons_pos = template_source.find("dt-buttons", print_pos)
-        assert buttons_pos > print_pos, (
-            "dt-buttons not hidden in print stylesheet"
-        )
+        assert buttons_pos > print_pos, "dt-buttons not hidden in print stylesheet"
 
     def test_print_collapses_fixed_columns(self, template_source):
         """Test that print stylesheet collapses FixedColumns to static."""
         # Should have dtfc-fixed-left with position: static in print
         print_section_start = template_source.find("@media print")
-        print_section = template_source[print_section_start:print_section_start + 5000]
+        print_section = template_source[print_section_start : print_section_start + 5000]
 
-        assert "dtfc-fixed-left" in print_section, (
-            "dtfc-fixed-left not found in print stylesheet"
-        )
+        assert "dtfc-fixed-left" in print_section, "dtfc-fixed-left not found in print stylesheet"
         assert "position: static" in print_section or "position:static" in print_section, (
             "FixedColumns not collapsed to static in print"
         )
@@ -1100,23 +1070,21 @@ class TestPhase17ChartAndPrint:
     def test_print_prevents_row_breaks(self, template_source):
         """Test that print stylesheet prevents page breaks inside rows."""
         print_section_start = template_source.find("@media print")
-        print_section = template_source[print_section_start:print_section_start + 5000]
+        print_section = template_source[print_section_start : print_section_start + 5000]
 
         # Should have break-inside: avoid or page-break-inside: avoid
         has_break_avoid = (
-            "break-inside: avoid" in print_section or
-            "break-inside:avoid" in print_section or
-            "page-break-inside: avoid" in print_section or
-            "page-break-inside:avoid" in print_section
+            "break-inside: avoid" in print_section
+            or "break-inside:avoid" in print_section
+            or "page-break-inside: avoid" in print_section
+            or "page-break-inside:avoid" in print_section
         )
-        assert has_break_avoid, (
-            "Row break prevention not found in print stylesheet"
-        )
+        assert has_break_avoid, "Row break prevention not found in print stylesheet"
 
     def test_print_repeats_headers(self, template_source):
         """Test that print stylesheet repeats table headers on each page."""
         print_section_start = template_source.find("@media print")
-        print_section = template_source[print_section_start:print_section_start + 5000]
+        print_section = template_source[print_section_start : print_section_start + 5000]
 
         assert "table-header-group" in print_section, (
             "table-header-group not found (needed to repeat headers)"
@@ -1125,7 +1093,7 @@ class TestPhase17ChartAndPrint:
     def test_print_hides_canvas(self, template_source):
         """Test that print stylesheet hides canvas elements."""
         print_section_start = template_source.find("@media print")
-        print_section = template_source[print_section_start:print_section_start + 5000]
+        print_section = template_source[print_section_start : print_section_start + 5000]
 
         # Canvas should be hidden in print
         assert "canvas" in print_section, "canvas not found in print stylesheet"
@@ -1139,12 +1107,10 @@ class TestPhase17ChartAndPrint:
     def test_print_shows_chart_data_tables(self, template_source):
         """Test that print stylesheet shows chart data tables."""
         print_section_start = template_source.find("@media print")
-        print_section = template_source[print_section_start:print_section_start + 5000]
+        print_section = template_source[print_section_start : print_section_start + 5000]
 
         # Should have chart-data-table with position: static or display: block
-        assert "chart-data-table" in print_section, (
-            "chart-data-table not found in print stylesheet"
-        )
+        assert "chart-data-table" in print_section, "chart-data-table not found in print stylesheet"
         # Should make them visible (position: static removes sr-only positioning)
         assert "position: static" in print_section or "position:static" in print_section, (
             "chart-data-table not made visible in print"
@@ -1153,20 +1119,16 @@ class TestPhase17ChartAndPrint:
     def test_print_hides_detail_panels(self, template_source):
         """Test that print stylesheet hides detail panels by default."""
         print_section_start = template_source.find("@media print")
-        print_section = template_source[print_section_start:print_section_start + 5000]
+        print_section = template_source[print_section_start : print_section_start + 5000]
 
         # Detail panels should be hidden
-        assert "detail-panel" in print_section, (
-            "detail-panel not found in print stylesheet"
-        )
+        assert "detail-panel" in print_section, "detail-panel not found in print stylesheet"
 
     # PDF export tests (PRINT-02)
 
     def test_pdf_export_button_exists(self, template_source):
         """Test that template contains PDF export button."""
-        assert "export-pdf-btn" in template_source, (
-            "PDF export button ID not found"
-        )
+        assert "export-pdf-btn" in template_source, "PDF export button ID not found"
 
     def test_pdf_export_calls_window_print(self, template_source):
         """Test that PDF export button handler calls window.print()."""
@@ -1184,16 +1146,395 @@ class TestPhase17ChartAndPrint:
         # Find the button in rendered HTML
         assert 'id="export-pdf-btn"' in html, "export-pdf-btn not found in HTML"
         # aria-label should be on the button element
-        assert 'aria-label="Download report as PDF"' in html, (
-            "PDF export button missing aria-label"
-        )
+        assert 'aria-label="Download report as PDF"' in html, "PDF export button missing aria-label"
 
     def test_pdf_button_hidden_in_print(self, template_source):
         """Test that PDF button is hidden in print stylesheet."""
         print_section_start = template_source.find("@media print")
-        print_section = template_source[print_section_start:print_section_start + 5000]
+        print_section = template_source[print_section_start : print_section_start + 5000]
 
         # export-pdf-btn should be in hidden list
         assert "export-pdf-btn" in print_section, (
             "export-pdf-btn not found in print stylesheet hidden elements"
+        )
+
+
+@pytest.mark.unit
+class TestPhase16FilteringAndVisualization:
+    """Test Phase 16 column-level filtering and visualization features."""
+
+    @pytest.fixture(scope="class")
+    def template_path(self):
+        """Path to the template file."""
+        templates_dir = Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates"
+        return templates_dir / "index.html"
+
+    @pytest.fixture(scope="class")
+    def template_source(self, template_path):
+        """Raw template source for pattern matching tests."""
+        return template_path.read_text()
+
+    @pytest.fixture(scope="class")
+    def rendered_html_with_phase16_data(self):
+        """Render template with Phase 16 test data (reused across tests)."""
+        templates_dir = Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates"
+
+        env = Environment(loader=FileSystemLoader(str(templates_dir)))
+        template = env.get_template("index.html")
+
+        assets = _load_assets()
+
+        # Diverse summary data with impact and inheritance distributions
+        summary = {
+            "num_variants": 30,
+            "num_genes": 10,
+            "num_samples": 4,
+            "impact_distribution": {
+                "HIGH": 8,
+                "MODERATE": 12,
+                "LOW": 6,
+                "MODIFIER": 4,
+            },
+            "inheritance_distribution": {
+                "de_novo": 6,
+                "autosomal_dominant": 5,
+                "autosomal_recessive": 3,
+            },
+            "top_genes": [
+                {"gene": "BRCA1", "count": 8},
+                {"gene": "TP53", "count": 5},
+            ],
+        }
+
+        # Diverse variant data: mix of chromosomes, SNVs and indels, numeric AF column
+        variants = [
+            {
+                "GENE": "BRCA1",
+                "CHROM": "chr17",
+                "POS": "41234567",
+                "REF": "A",
+                "ALT": "G",
+                "IMPACT": "HIGH",
+                "Inheritance_Pattern": "de_novo",
+                "AF": "0.001",
+                "ClinVar_CLNSIG": "Pathogenic",
+                "igv_links": [],
+            },
+            {
+                "GENE": "TP53",
+                "CHROM": "chr17",
+                "POS": "7577538",
+                "REF": "C",
+                "ALT": "CAGT",
+                "IMPACT": "MODERATE",
+                "Inheritance_Pattern": "autosomal_dominant",
+                "AF": "0.003",
+                "ClinVar_CLNSIG": None,
+                "igv_links": [],
+            },
+            {
+                "GENE": "EGFR",
+                "CHROM": "chr7",
+                "POS": "55241707",
+                "REF": "ATGT",
+                "ALT": "A",
+                "IMPACT": "HIGH",
+                "Inheritance_Pattern": "autosomal_recessive",
+                "AF": "0.0005",
+                "ClinVar_CLNSIG": "Likely_pathogenic",
+                "igv_links": [],
+            },
+            {
+                "GENE": "PTEN",
+                "CHROM": "chr10",
+                "POS": "89692905",
+                "REF": "G",
+                "ALT": "T",
+                "IMPACT": "LOW",
+                "Inheritance_Pattern": "de_novo",
+                "AF": "0.01",
+                "ClinVar_CLNSIG": "Uncertain_significance",
+                "igv_links": [],
+            },
+            {
+                "GENE": "RET",
+                "CHROM": "chr10",
+                "POS": "43612032",
+                "REF": "C",
+                "ALT": "G",
+                "IMPACT": "MODIFIER",
+                "Inheritance_Pattern": "autosomal_dominant",
+                "AF": "0.05",
+                "ClinVar_CLNSIG": None,
+                "igv_links": [],
+            },
+        ]
+
+        column_data = [
+            {
+                "original_name": "GENE",
+                "display_name": "GENE",
+                "is_standard_link_column": False,
+                "is_igv_link_column": False,
+                "link_display_text": None,
+                "apply_hover_expand": False,
+                "max_width_px": None,
+            },
+            {
+                "original_name": "CHROM",
+                "display_name": "CHROM",
+                "is_standard_link_column": False,
+                "is_igv_link_column": False,
+                "link_display_text": None,
+                "apply_hover_expand": False,
+                "max_width_px": None,
+            },
+            {
+                "original_name": "POS",
+                "display_name": "POS",
+                "is_standard_link_column": False,
+                "is_igv_link_column": False,
+                "link_display_text": None,
+                "apply_hover_expand": False,
+                "max_width_px": None,
+            },
+            {
+                "original_name": "REF",
+                "display_name": "REF",
+                "is_standard_link_column": False,
+                "is_igv_link_column": False,
+                "link_display_text": None,
+                "apply_hover_expand": False,
+                "max_width_px": None,
+            },
+            {
+                "original_name": "ALT",
+                "display_name": "ALT",
+                "is_standard_link_column": False,
+                "is_igv_link_column": False,
+                "link_display_text": None,
+                "apply_hover_expand": False,
+                "max_width_px": None,
+            },
+            {
+                "original_name": "IMPACT",
+                "display_name": "IMPACT",
+                "is_standard_link_column": False,
+                "is_igv_link_column": False,
+                "link_display_text": None,
+                "apply_hover_expand": False,
+                "max_width_px": None,
+            },
+            {
+                "original_name": "Inheritance_Pattern",
+                "display_name": "Inheritance Pattern",
+                "is_standard_link_column": False,
+                "is_igv_link_column": False,
+                "link_display_text": None,
+                "apply_hover_expand": False,
+                "max_width_px": None,
+            },
+            {
+                "original_name": "AF",
+                "display_name": "AF",
+                "is_standard_link_column": False,
+                "is_igv_link_column": False,
+                "link_display_text": None,
+                "apply_hover_expand": False,
+                "max_width_px": None,
+            },
+            {
+                "original_name": "ClinVar_CLNSIG",
+                "display_name": "ClinVar CLNSIG",
+                "is_standard_link_column": False,
+                "is_igv_link_column": False,
+                "link_display_text": None,
+                "apply_hover_expand": False,
+                "max_width_px": None,
+            },
+            {
+                "original_name": "igv_links",
+                "display_name": "IGV Links",
+                "is_standard_link_column": False,
+                "is_igv_link_column": True,
+                "link_display_text": None,
+                "apply_hover_expand": False,
+                "max_width_px": None,
+            },
+        ]
+
+        html = template.render(
+            variants=variants,
+            summary=summary,
+            column_data=column_data,
+            default_hidden_columns=[],
+            generation_date="2026-02-18 12:00:00",
+            version="0.14.0-test",
+            filter_expression="(ANN[0].IMPACT has 'HIGH')",
+            vcf_source="/data/test.vcf.gz",
+            reference_genome="hg38",
+            assets=assets,
+        )
+
+        return html
+
+    # ---- HTML Structure Tests ----
+
+    def test_visualization_section_exists(self, rendered_html_with_phase16_data):
+        """Test that rendered HTML contains the visualization section with viz-content id."""
+        html = rendered_html_with_phase16_data
+
+        assert "visualization-section" in html, (
+            "visualization-section class not found in rendered HTML"
+        )
+        assert 'id="viz-content"' in html, "viz-content id not found in rendered HTML"
+
+    def test_three_chart_canvases_exist(self, rendered_html_with_phase16_data):
+        """Test that rendered HTML contains all three Phase 16 chart canvases."""
+        html = rendered_html_with_phase16_data
+
+        assert 'id="variant_type_chart"' in html, (
+            "variant_type_chart canvas id not found in rendered HTML"
+        )
+        assert 'id="chromosome_chart"' in html, (
+            "chromosome_chart canvas id not found in rendered HTML"
+        )
+        assert 'id="af_histogram_chart"' in html, (
+            "af_histogram_chart canvas id not found in rendered HTML"
+        )
+
+    def test_collapse_toggle_exists(self, rendered_html_with_phase16_data):
+        """Test that rendered HTML contains collapse toggle button with aria-expanded=false."""
+        html = rendered_html_with_phase16_data
+
+        assert "collapse-toggle" in html, "collapse-toggle class not found in rendered HTML"
+        assert 'aria-expanded="false"' in html, "aria-expanded='false' not found on collapse toggle"
+
+    def test_filter_controls_container_exists(self, rendered_html_with_phase16_data):
+        """Test that rendered HTML contains filter-controls id and filter-row id."""
+        html = rendered_html_with_phase16_data
+
+        assert 'id="filter-controls"' in html, "filter-controls id not found in rendered HTML"
+        assert 'id="filter-row"' in html, "filter-row id not found in rendered HTML"
+
+    def test_filter_toggle_button_exists(self, rendered_html_with_phase16_data):
+        """Test that rendered HTML contains filter-toggle-btn id."""
+        html = rendered_html_with_phase16_data
+
+        assert 'id="filter-toggle-btn"' in html, "filter-toggle-btn id not found in rendered HTML"
+
+    def test_filter_chip_strip_exists(self, rendered_html_with_phase16_data):
+        """Test that rendered HTML contains active-filters-strip id and btn-reset-all id."""
+        html = rendered_html_with_phase16_data
+
+        assert 'id="active-filters-strip"' in html, (
+            "active-filters-strip id not found in rendered HTML"
+        )
+        assert 'id="btn-reset-all"' in html, "btn-reset-all id not found in rendered HTML"
+
+    def test_missing_values_toggle_exists(self, rendered_html_with_phase16_data):
+        """Test that rendered HTML contains include-missing-toggle with checked attribute."""
+        html = rendered_html_with_phase16_data
+
+        assert 'id="include-missing-toggle"' in html, (
+            "include-missing-toggle id not found in rendered HTML"
+        )
+        # Should be checked by default
+        assert "checked" in html, (
+            "checked attribute not found (include-missing-toggle default state)"
+        )
+
+    def test_nouislider_css_inlined(self, rendered_html_with_phase16_data):
+        """Test that noUiSlider CSS is inlined in rendered HTML."""
+        html = rendered_html_with_phase16_data
+
+        # noUiSlider CSS contains .noUi- selectors
+        assert ".noUi-" in html, (
+            "noUiSlider CSS (.noUi-) not found in rendered HTML — check asset inlining"
+        )
+
+    def test_nouislider_js_inlined(self, rendered_html_with_phase16_data):
+        """Test that noUiSlider JS is inlined in rendered HTML."""
+        html = rendered_html_with_phase16_data
+
+        # noUiSlider JS contains noUiSlider identifier
+        assert "noUiSlider" in html, (
+            "noUiSlider JS not found in rendered HTML — check asset inlining"
+        )
+
+    # ---- JavaScript Behavior Pattern Tests ----
+
+    def test_filter_initialization_pattern(self, template_source):
+        """Test that template contains noUiSlider.create call for slider creation."""
+        assert "noUiSlider.create" in template_source, "noUiSlider.create not found in template"
+
+    def test_custom_search_function_pattern(self, template_source):
+        """Test that template registers custom search functions via ext.search.push."""
+        assert "ext.search.push" in template_source, (
+            "ext.search.push (DataTables filter registration) not found in template"
+        )
+
+    def test_missing_values_set(self, template_source):
+        """Test that template defines MISSING_VALUES set with standard sentinel values."""
+        assert "MISSING_VALUES" in template_source, "MISSING_VALUES not found in template"
+        # Should include standard missing value sentinels
+        assert "'N/A'" in template_source, "'N/A' not in MISSING_VALUES set"
+        assert "'NA'" in template_source, "'NA' not in MISSING_VALUES set"
+        assert "'.'" in template_source, "'.' not in MISSING_VALUES set"
+
+    def test_active_filters_map(self, template_source):
+        """Test that template contains activeFilters map and updateFilterChips function."""
+        assert "activeFilters" in template_source, "activeFilters not found in template"
+        assert "updateFilterChips" in template_source, (
+            "updateFilterChips function not found in template"
+        )
+
+    def test_reactive_chart_update(self, template_source):
+        """Test that template wires draw.dt event to chart update function."""
+        assert "draw.dt" in template_source, "draw.dt event handler not found in template"
+        assert "updateAllCharts" in template_source, (
+            "updateAllCharts function not found in template"
+        )
+
+    def test_chart_update_no_animation(self, template_source):
+        """Test that chart updates use update('none') to suppress animation."""
+        assert "update('none')" in template_source, (
+            "update('none') pattern not found in template — charts should update without animation"
+        )
+
+    def test_debounce_pattern(self, template_source):
+        """Test that template contains setTimeout/clearTimeout debounce pattern for text input."""
+        assert "setTimeout" in template_source, (
+            "setTimeout not found in template (needed for debounce)"
+        )
+        assert "clearTimeout" in template_source, (
+            "clearTimeout not found in template (needed for debounce)"
+        )
+
+    def test_log_scale_histogram(self, template_source):
+        """Test that template configures AF histogram with logarithmic Chart.js scale."""
+        assert "logarithmic" in template_source, (
+            "logarithmic scale type not found in template — AF histogram should use log scale"
+        )
+
+    def test_collapsible_section_localstorage(self, template_source):
+        """Test that template persists visualization section state via localStorage."""
+        assert "vizSectionExpanded" in template_source, (
+            "vizSectionExpanded localStorage key not found in template"
+        )
+
+    def test_include_missing_toggle_wiring(self, template_source):
+        """Test that template wires include-missing-toggle change event."""
+        assert "include-missing-toggle" in template_source, (
+            "include-missing-toggle not found in template"
+        )
+        # Should have change event handler wiring
+        assert "change" in template_source, "change event handler not found in template"
+
+    def test_reset_all_button_wiring(self, template_source):
+        """Test that template wires btn-reset-all click event to reset all filters."""
+        assert "btn-reset-all" in template_source, "btn-reset-all not found in template"
+        # Should have click handler pattern
+        assert "resetAllBtn" in template_source or "reset" in template_source.lower(), (
+            "Reset all button click handler pattern not found"
         )

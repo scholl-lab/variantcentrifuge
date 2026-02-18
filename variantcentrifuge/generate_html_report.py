@@ -133,6 +133,7 @@ def generate_html_report(
     vcf_path = cfg.get("vcf_file") or cfg.get("input_vcf")
     if vcf_path:
         import os
+
         vcf_source = os.path.basename(vcf_path)
     else:
         vcf_source = "Unknown"

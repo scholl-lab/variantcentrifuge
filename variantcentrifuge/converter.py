@@ -496,9 +496,9 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
     inheritance_distribution = {}
     if not df.empty and "Inheritance_Pattern" in df.columns:
         # Filter out "none" and "reference" patterns as they aren't real patterns
-        valid_patterns = df[
-            ~df["Inheritance_Pattern"].isin(["none", "reference"])
-        ]["Inheritance_Pattern"]
+        valid_patterns = df[~df["Inheritance_Pattern"].isin(["none", "reference"])][
+            "Inheritance_Pattern"
+        ]
         if len(valid_patterns) > 0:
             inheritance_distribution = valid_patterns.value_counts().to_dict()
 
@@ -507,9 +507,7 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
     if not df.empty and "GENE" in df.columns:
         # Drop NaN gene values before counting
         gene_counts = df["GENE"].dropna().value_counts().head(10)
-        top_genes = [
-            {"gene": gene, "count": int(count)} for gene, count in gene_counts.items()
-        ]
+        top_genes = [{"gene": gene, "count": int(count)} for gene, count in gene_counts.items()]
 
     summary_data = {
         "num_variants": num_variants,
