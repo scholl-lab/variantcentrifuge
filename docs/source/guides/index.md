@@ -15,10 +15,10 @@ Before using VariantCentrifuge, your VCF files should be properly annotated with
 
 Learn how to design and execute variant analysis workflows for different research contexts:
 
-- Rare disease analysis
-- Cancer genomics
-- Population genetics
-- Clinical diagnostics
+- Rare disease analysis with family trios
+- Cancer genomics (tumor-normal, tumor-only, LOH)
+- Mendelian inheritance analysis (de novo, AD, AR, X-linked, compound het)
+- Cohort analysis and population genetics
 
 ## Advanced Usage
 
@@ -43,9 +43,10 @@ Learn how to protect participant privacy when sharing genomic data:
 :maxdepth: 1
 
 annotation_strategies
-cohort_analysis
 rare_disease_workflow
 cancer_analysis
+inheritance_analysis
+cohort_analysis
 variant_scoring
 custom_filters
 ../user-guide/privacy_and_pseudonymization

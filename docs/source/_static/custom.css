@@ -1,0 +1,5 @@
+/* Fix Mermaid diagram rendering - allow natural height instead of 500px cap */
+pre.mermaid > svg {
+    height: auto !important;
+    max-height: none !important;
+}

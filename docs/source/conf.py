@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.abspath("_ext"))
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "VariantCentrifuge"
-copyright = "2024, Bernt Popp"
+copyright = "2024-2026, Bernt Popp"
 author = "Bernt Popp"
 
 # The full version, including alpha/beta/rc tags
@@ -38,6 +38,7 @@ extensions = [
     "sphinx.ext.intersphinx",  # Link to other project documentations
     "myst_parser",  # Enable writing docs in Markdown
     "sphinx_autodoc_typehints",  # Automatically document typehints
+    "sphinxcontrib.mermaid",  # Mermaid diagram support
     "sphinx_seo",  # Custom SEO extension
 ]
 
@@ -47,7 +48,7 @@ templates_path = ["_templates"]
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = []
+exclude_patterns = ["guides/index.md"]
 
 # The suffix(es) of source filenames.
 source_suffix = {
@@ -65,6 +66,7 @@ language = "en"
 
 html_theme = "furo"
 html_static_path = ["_static"]
+html_css_files = ["custom.css"]
 
 # SEO Configuration
 html_baseurl = "https://scholl-lab.github.io/variantcentrifuge/"

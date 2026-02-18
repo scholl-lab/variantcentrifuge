@@ -57,7 +57,7 @@ Define your own pattern:
 
 ## Security Best Practices
 
-⚠️ **Critical Security Information**
+**Critical Security Information**
 
 ### 1. Mapping Table Security
 
@@ -241,6 +241,6 @@ Before sharing pseudonymized data:
 
 ## See Also
 
-- [Security Best Practices](../admin-guide/security.md)
-- [Data Sharing Guidelines](../admin-guide/data-sharing.md)
-- [CLI Reference](../reference/cli.md#data-privacy-options)
+- [Usage Guide](../usage.md) — CLI reference for all pseudonymization flags
+- [Configuration Guide](../configuration.md) — Config file options
+- [Rare Disease Workflow](../guides/rare_disease_workflow.md) — Family analysis with pseudonymization

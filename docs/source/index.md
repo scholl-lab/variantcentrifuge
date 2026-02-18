@@ -6,26 +6,26 @@
 
 VariantCentrifuge addresses the critical challenges in clinical variant interpretation by providing:
 
-### 🧬 Advanced Variant Filtering
+### Advanced Variant Filtering
 - **Gene-Centric Analysis:** Focus on specific genes of interest with automatic region extraction
 - **Rare Variant Detection:** Identify clinically relevant rare variants using population frequency databases
 - **Impact-Based Filtering:** Prioritize high and moderate impact variants using SnpEff annotations
 - **Custom Filter Presets:** 20+ pre-configured filters for common clinical scenarios
 
-### 🔬 Clinical Interpretation Features
+### Clinical Interpretation Features
 - **Mendelian Inheritance Analysis:** Automatically detect de novo, recessive, dominant, and compound heterozygous patterns
 - **ACMG Classification Support:** Integrate pathogenicity predictions and clinical significance
 - **Phenotype Integration:** Link variants to patient phenotypes for enhanced interpretation
 - **Custom Variant Scoring:** Apply configurable scoring algorithms for variant prioritization
 
-### 📊 Comprehensive Analysis Tools
+### Comprehensive Analysis Tools
 - **Gene Burden Testing:** Statistical analysis for case-control studies using Fisher's exact test
 - **Compound Heterozygous Detection:** Optimized algorithm (10-50x faster) for identifying compound het variants
 - **Multi-Sample Support:** Analyze families, trios, and cohorts with pedigree files
 - **Performance Optimization:** Handle large VCF files with chunked processing and parallel execution
 
-### 📈 Professional Reporting
-- **Interactive HTML Reports:** Sortable tables, filtering, and search functionality
+### Professional Reporting
+- **Interactive HTML Reports:** DataTables v2 with column-level filtering (range sliders, dropdowns), summary dashboard with charts, semantic color badges, WCAG 2.1 AA accessibility, and PDF export
 - **IGV.js Integration:** Visualize variants directly in the browser with genomic context
 - **Excel Export:** Generate formatted Excel workbooks for clinical review
 - **Detailed Statistics:** Comprehensive variant and gene-level statistics
@@ -57,8 +57,22 @@ installation
 usage
 configuration
 resume_system
-guides/index
 faq
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Practical Guides
+
+guides/annotation_strategies
+guides/rare_disease_workflow
+guides/cancer_analysis
+guides/inheritance_analysis
+guides/cohort_analysis
+guides/variant_scoring
+guides/custom_filters
+user-guide/privacy_and_pseudonymization
+guides/performance_tips
 ```
 
 ```{toctree}

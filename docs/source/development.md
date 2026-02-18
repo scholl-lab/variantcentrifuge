@@ -101,14 +101,14 @@ All linting behavior is configured in `pyproject.toml`:
 | Issue | Solution |
 |-------|----------|
 | Line too long | `make format` will auto-fix, or break long lines manually |
-| Missing docstring | Add numpy-style docstring to function/class |
+| Missing docstring | Add Google-style docstring to function/class |
 | Import order | `make format` will automatically fix |
 | Unused imports | Remove unused imports or add `# noqa` comment |
 | Trailing whitespace | Pre-commit will automatically remove |
 
 #### Docstring Requirements
 
-All functions and classes must have docstrings following numpy style:
+All functions and classes must have docstrings. Both Google and numpy styles are supported (Napoleon parses both). Google style is preferred for new code:
 
 ```python
 def example_function(param1: str, param2: int = 10) -> bool:
@@ -479,26 +479,40 @@ Open `docs/build/html/index.html` in your browser.
 
 ```
 variantcentrifuge/
-├── cli.py              # Command-line interface
-├── pipeline.py         # Main workflow orchestration
-├── config.py           # Configuration management
-├── filters.py          # Variant filtering
-├── extractor.py        # Field extraction
-├── analyze_variants.py # Statistical analysis
-├── generate_*_report.py # Report generation
-└── utils.py            # Common utilities
+├── cli.py                    # Command-line interface
+├── pipeline.py               # Pipeline orchestration (builds stages, runs pipeline)
+├── config.py                 # Configuration management
+├── pipeline_core/            # Stage-based pipeline framework
+│   ├── runner.py             # PipelineRunner: dependency graph, topological sort, parallel execution
+│   ├── context.py            # PipelineContext: thread-safe shared state between stages
+│   ├── stage.py              # Abstract Stage base class
+│   └── workspace.py          # File path and directory management
+├── stages/                   # Pipeline stage implementations
+│   ├── setup_stages.py       # Config loading, pedigree, BED creation
+│   ├── processing_stages.py  # VCF processing, filtering, extraction
+│   ├── analysis_stages.py    # Inheritance, scoring, gene burden
+│   └── output_stages.py      # TSV, Excel, HTML, IGV reports
+├── inheritance/              # Inheritance analysis subsystem
+│   ├── analyzer.py           # Main orchestrator
+│   ├── deducer.py            # Pattern deduction (de novo, AD, AR, X-linked)
+│   ├── comp_het_vectorized.py # Vectorized compound het detection
+│   ├── segregation_checker.py # Segregation analysis
+│   └── prioritizer.py        # Pattern prioritization
+├── memory/                   # Memory management (SLURM/PBS/cgroup detection)
+├── scoring.py                # Variant scoring engine
+├── generate_html_report.py   # HTML report generation
+└── checkpoint.py             # Checkpoint/resume system
 ```
 
 ### Data Flow
 
-1. **Input Validation** - CLI validates arguments and files
-2. **Configuration Loading** - Load and merge config from file and CLI
-3. **Gene Processing** - Convert genes to BED regions
-4. **Variant Extraction** - Extract variants from VCF using external tools
-5. **Filtering** - Apply SnpSift filters
-6. **Field Extraction** - Extract specified fields
-7. **Analysis** - Perform statistical analysis and gene burden testing
-8. **Report Generation** - Create output files and reports
+1. **Input Validation** — CLI validates arguments and files
+2. **Configuration Loading** — Load config, resolve field profiles, expand presets
+3. **Gene Processing** — Convert gene names to BED regions via snpEff
+4. **Variant Extraction** — bcftools prefilter (optional) → SnpSift filter → field extraction → data sorting
+5. **Genotype Processing** — Genotype replacement (vectorized/chunked/parallel)
+6. **Analysis** — Inheritance deduction → compound het → scoring → statistics → gene burden
+7. **Output** — TSV → final filter → pseudonymization → Excel/HTML/IGV reports
 
 ## Contributing
 

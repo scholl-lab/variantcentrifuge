@@ -22,7 +22,7 @@ Ensure these tools are in your `PATH` before running VariantCentrifuge.
 
 ### Python Requirements
 
-VariantCentrifuge requires **Python 3.7+** and the following Python packages:
+VariantCentrifuge requires **Python 3.10+** and the following Python packages:
 
 - `pandas` - For XLSX conversion and data handling
 - `jinja2` - For HTML template rendering

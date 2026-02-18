@@ -5,6 +5,10 @@ All notable changes to VariantCentrifuge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+_No unreleased changes._
+
 ## [0.14.0] - 2026-02-18
 
 ### Added
@@ -43,16 +47,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Golden file infrastructure for inheritance validation
 - Performance benchmark test suite
 
-## [Unreleased]
+## [0.12.0] - 2025-12-01
 
 ### Added
+- **Stage-based pipeline architecture** (`pipeline_core/`) with modular stages, dependency graph, topological sort, and parallel execution via ThreadPoolExecutor/ProcessPoolExecutor
 - **Restructured Snakemake workflow** matching lab pipeline conventions (Issue #68):
   - Snakemake 8+ with `min_version("8.0")` and executor plugins
   - Schema-validated config (`config/config_vc.yaml`) and sample sheet (`config/samples.tsv`)
   - Profile layering: `profiles/default/` (resources) + `profiles/{bih,charite,local}/` (executor)
   - Auto-detecting launcher script (`scripts/run_snakemake.sh`) for BIH, Charite, and local
   - Singularity/Apptainer container support via `container:` directive with conda fallback
-  - Legacy `snakemake/` directory removed (replaced entirely by new layout)
 - **Docker image** on GHCR (`ghcr.io/scholl-lab/variantcentrifuge`) with all bioinformatics tools pre-installed:
   - Multi-stage build using micromamba for minimal image size
   - CI/CD pipeline with automated builds, Trivy security scanning, and cosign image signing
@@ -63,49 +67,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Template syntax `{{fragment:param}}` for parameterized filter presets
   - `--list-field-profiles` to show available profiles
   - Custom profiles configurable in `config.json` without code changes
-- Comprehensive Sphinx documentation with modern Furo theme
-- GitHub Actions workflow for automated documentation deployment
-- API reference documentation with autodoc
-- User guides for installation, usage, and configuration
-- Development and contributing guides
-- Annotation strategy guides for VCF preprocessing
-- Unified annotation system supporting BED files, gene lists, and JSON gene data
-- JSON gene annotation feature with flexible field mapping (`--annotate-json-genes` and `--json-gene-mapping`)
-- Custom annotation integration in the pipeline workflow
-- **bcftools pre-filtering** (`--bcftools-prefilter`) for early variant filtering during extraction, significantly improving performance on large VCFs
-- **Final filtering** (`--final-filter`) using pandas query syntax, allowing filtering on any column including computed scores and inheritance patterns
-- Comprehensive test suite for new filtering features
+- **Inheritance analysis** with three-pass pipeline (deduction, compound het, prioritization):
+  - Supported patterns: de novo, AD, AR, X-linked (XLR/XLD), compound heterozygous, mitochondrial
+  - PED file integration for family-based analysis (`--ped`, `--inheritance-mode`)
+  - Vectorized compound het detection (10-50x faster than original)
+  - Segregation analysis with Fisher's exact test
+  - Pattern prioritization by clinical significance
+- **bcftools pre-filtering** (`--bcftools-prefilter`) for early variant filtering during extraction
+- **Final filtering** (`--final-filter`) using pandas query syntax on any column including computed scores
 - **Sample pseudonymization** for privacy-preserving data sharing (Issue #34):
   - Multiple naming schemas: sequential, categorical, anonymous, and custom patterns
   - Consistent pseudonym mapping across all output formats (TSV, Excel, HTML)
-  - Automatic handling of genotype and inheritance columns
   - PED file pseudonymization support (`--pseudonymize-ped`)
   - Secure mapping table storage in parent directory
-  - Comprehensive test suite and documentation
 - **Checkpoint and resume system** for robust pipeline execution:
   - Automatic pipeline state tracking with `.variantcentrifuge_state.json`
   - Resume capability after interruptions (`--enable-checkpoint` and `--resume`)
-  - Full support for parallel processing (`--threads`)
   - Optional file checksum validation (`--checkpoint-checksum`)
-  - Status inspection without resuming (`--show-checkpoint-status`)
+  - Interactive resume point selection (`--interactive-resume`)
   - Thread-safe state updates for parallel chunk processing
-  - Comprehensive tracking of all major pipeline steps
+- Unified annotation system supporting BED files, gene lists, and JSON gene data
+- JSON gene annotation feature with flexible field mapping (`--annotate-json-genes` and `--json-gene-mapping`)
+- Comprehensive Sphinx documentation with modern Furo theme
+- GitHub Actions workflow for automated documentation deployment
+- Tumor-normal filtering presets (`somatic`, `loh`, `tumor_only`) with configurable sample indices and thresholds
+- VCF annotation inspection (`--show-vcf-annotations`) for field discovery
+- Genotype filtering (`--genotype-filter`) with per-gene override support
+- Transcript-level filtering (`--transcript-list`, `--transcript-file`)
+- ClinVar PM5 annotation support (`--clinvar-pm5-lookup`)
 
 ### Changed
 - Documentation migrated from README to structured Sphinx documentation
-- Improved configuration documentation with preset examples
-- Enhanced filtering capabilities with three-stage filtering approach (bcftools pre-filter, SnpSift filter, final filter)
+- Enhanced filtering with three-stage approach (bcftools pre-filter, SnpSift filter, final filter)
 
 ### Fixed
-- Documentation structure and navigation
 - Numeric type conversion in final filtering to handle mixed data types correctly
-- **Gene burden analysis edge cases** (Issue #31): Improved handling of infinite and zero odds ratios by:
-  - Detecting structural zeros (e.g., entire row/column zero) and returning NaN appropriately
-  - Applying continuity correction (default 0.5) to zero cells to calculate meaningful confidence intervals
-  - Using score method as primary CI calculation (more robust for sparse data)
-  - Removing arbitrary fallback bounds in favor of statistically sound methods
+- **Gene burden analysis edge cases** (Issue #31): Improved handling of infinite and zero odds ratios
 
-## [0.5.0] - 2024-XX-XX
+## [0.5.0] - 2024-08-01
 
 ### Added
 - Interactive HTML report generation with sortable tables
@@ -128,7 +127,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sample identification in cohort reports
 - IGV report generation with proper FASTA handling
 
-## [0.4.0] - 2024-XX-XX
+## [0.4.0] - 2024-06-01
 
 ### Added
 - Comprehensive test suite with pytest
@@ -145,7 +144,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gene BED file generation edge cases
 - Genotype replacement functionality
 
-## [0.3.0] - 2024-XX-XX
+## [0.3.0] - 2024-04-01
 
 ### Added
 - Gene-centric variant filtering
@@ -157,7 +156,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Migrated from Bash/R to Python-based pipeline
 - Improved error handling and validation
 
-## [0.2.0] - 2024-XX-XX
+## [0.2.0] - 2024-02-01
 
 ### Added
 - Initial Python CLI implementation
@@ -168,7 +167,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Complete rewrite from shell scripts to Python
 
-## [0.1.0] - 2024-XX-XX
+## [0.1.0] - 2024-01-01
 
 ### Added
 - Initial release

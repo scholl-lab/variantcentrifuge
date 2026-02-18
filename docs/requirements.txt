@@ -3,6 +3,7 @@ sphinx>=7.0.0
 furo
 myst-parser
 sphinx-autodoc-typehints
+sphinxcontrib-mermaid
 linkify-it-py
 
 # Required dependencies for variantcentrifuge package
