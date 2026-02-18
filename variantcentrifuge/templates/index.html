@@ -597,75 +597,81 @@
         margin-bottom: 0;
     }
 
-    /* Unified toolbar: one horizontal band containing all table controls */
+    /* ===== Unified Toolbar: all table controls in one 28px-height row ===== */
     .table-toolbar {
         display: flex;
         align-items: center;
-        flex-wrap: wrap;
-        gap: 6px;
-        padding: 6px 0 8px 0;
-        margin-bottom: 4px;
+        justify-content: space-between;
+        gap: 0;
+        padding: 4px 0;
+        margin-bottom: 2px;
     }
-    .table-toolbar-left {
+    .toolbar-group {
         display: flex;
         align-items: center;
         gap: 6px;
-        flex: 1 1 auto;
-        flex-wrap: wrap;
     }
-    .table-toolbar-right {
-        display: flex;
-        align-items: center;
-        gap: 6px;
+    .toolbar-left { flex: 0 1 auto; }
+    .toolbar-right { flex: 0 1 auto; }
+    .toolbar-sep {
+        width: 1px;
+        height: 18px;
+        background: #dee2e6;
         flex-shrink: 0;
     }
 
-    /* Filter toggle button — visually matches DT Buttons */
-    .filter-toggle-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        padding: 5px 10px;
-        background-color: #fff;
-        border: 1px solid #adb5bd;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 12.5px;
-        font-weight: 500;
-        color: #333;
-        white-space: nowrap;
-        line-height: 1.4;
-        transition: background 0.15s, border-color 0.15s;
+    /* Shared toolbar button style — 28px height, consistent across all buttons */
+    .toolbar-btn,
+    .table-toolbar .dt-button {
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 4px !important;
+        height: 28px !important;
+        padding: 0 10px !important;
+        background: #fff !important;
+        border: 1px solid #ced4da !important;
+        border-radius: 4px !important;
+        cursor: pointer !important;
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        color: #495057 !important;
+        white-space: nowrap !important;
+        line-height: 28px !important;
+        box-sizing: border-box !important;
+        transition: background 0.15s, border-color 0.15s !important;
+        margin: 0 !important;
     }
-    .filter-toggle-btn:hover {
-        background-color: #f0f0f0;
-        border-color: #888;
+    .toolbar-btn:hover,
+    .table-toolbar .dt-button:hover {
+        background: #f0f0f0 !important;
+        border-color: #adb5bd !important;
     }
-    .filter-toggle-btn[aria-expanded="true"] {
-        background-color: #e8f0fe;
-        border-color: #2196f3;
-        color: #1a73e8;
+    .toolbar-btn[aria-expanded="true"] {
+        background: #e8f0fe !important;
+        border-color: #2196f3 !important;
+        color: #1a73e8 !important;
     }
-    .filter-toggle-btn .btn-chevron {
-        font-size: 10px;
+    .toolbar-btn .btn-chevron {
+        font-size: 9px;
         display: inline-block;
         transition: transform 0.2s ease;
     }
-    .filter-toggle-btn[aria-expanded="true"] .btn-chevron {
+    .toolbar-btn[aria-expanded="true"] .btn-chevron {
         transform: rotate(180deg);
     }
 
-    /* Missing values toggle */
-    .missing-toggle {
+    /* Toolbar checkbox label — 28px height to match buttons */
+    .toolbar-checkbox {
         display: inline-flex;
         align-items: center;
-        gap: 5px;
-        font-size: 12.5px;
+        gap: 4px;
+        height: 28px;
+        font-size: 12px;
         color: #495057;
         white-space: nowrap;
         cursor: pointer;
     }
-    .missing-toggle input[type="checkbox"] {
+    .toolbar-checkbox input[type="checkbox"] {
         accent-color: #2196f3;
         width: 14px;
         height: 14px;
@@ -673,67 +679,57 @@
         margin: 0;
     }
 
-    /* PDF export button — compact, icon+text */
-    .btn-pdf-export {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        padding: 5px 10px;
-        background: #fff;
-        border: 1px solid #adb5bd;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 12.5px;
-        font-weight: 500;
-        color: #333;
-        white-space: nowrap;
-        line-height: 1.4;
-        transition: background 0.15s, border-color 0.15s;
-    }
-    .btn-pdf-export:hover {
-        background-color: #f0f0f0;
-        border-color: #888;
-    }
-
     /* ===== Phase 16: Compact Filter Panel ===== */
     .filter-row {
         display: none;
-        flex-wrap: wrap;
-        gap: 10px;
-        padding: 10px 12px;
+        flex-wrap: nowrap;
+        gap: 6px;
+        padding: 6px 8px;
         background: #f8f9fa;
         border-radius: 6px;
         border: 1px solid #e9ecef;
         margin-bottom: 8px;
+        align-items: flex-end;
     }
     .filter-control {
         display: flex;
         flex-direction: column;
-        gap: 3px;
-        min-width: 130px;
-        max-width: 180px;
-        flex: 1 1 130px;
+        gap: 2px;
+        flex: 0 1 auto;
+        min-width: 0;
+    }
+    .filter-control.filter-type-numeric {
+        flex: 1 1 0;
+        min-width: 90px;
+    }
+    .filter-control.filter-type-categorical {
+        flex: 0 0 auto;
+    }
+    .filter-control.filter-type-text {
+        flex: 0 0 auto;
+        width: 100px;
     }
     .filter-control label {
-        font-size: 11px;
+        font-size: 10px;
         font-weight: 600;
         color: #6c757d;
         text-transform: uppercase;
-        letter-spacing: 0.4px;
+        letter-spacing: 0.3px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        line-height: 1;
     }
     .slider-container {
-        min-height: 28px;
-        padding: 6px 4px 2px 4px;
+        min-height: 24px;
+        padding: 5px 4px 1px 4px;
     }
     .slider-values {
         display: flex;
         justify-content: space-between;
-        font-size: 10.5px;
+        font-size: 10px;
         color: #6c757d;
-        margin-top: 3px;
+        margin-top: 1px;
         gap: 2px;
     }
     .slider-values span {
@@ -746,11 +742,11 @@
         padding: 4px 6px;
         border: 1px solid #ced4da;
         border-radius: 4px;
-        font-size: 12.5px;
+        font-size: 12px;
         color: #495057;
         background-color: white;
         cursor: pointer;
-        width: 100%;
+        width: auto;
     }
     .category-dropdown:hover {
         border-color: #adb5bd;
@@ -759,7 +755,7 @@
         padding: 4px 6px;
         border: 1px solid #ced4da;
         border-radius: 4px;
-        font-size: 12.5px;
+        font-size: 12px;
         color: #495057;
         width: 100%;
         box-sizing: border-box;
@@ -867,44 +863,56 @@
     .dt-container {
         margin-top: 0;
     }
-    /* Hide the DT layout top row's own padding since we manage spacing via toolbar */
+    /* Hide the DT top layout row — its controls are relocated into our unified toolbar */
     .dt-layout-row:first-child {
-        margin-bottom: 0;
-        padding-bottom: 0;
+        display: none !important;
     }
-    /* Compact DT search input to match toolbar style */
-    .dt-search input {
-        padding: 4px 8px !important;
-        font-size: 12.5px !important;
-        border: 1px solid #adb5bd !important;
-        border-radius: 4px !important;
-        height: auto !important;
+    /* DT controls in toolbar — 28px height, inline */
+    .table-toolbar .dt-search,
+    .table-toolbar .dt-length,
+    .table-toolbar .dt-buttons {
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 4px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        float: none !important;
+        height: 28px !important;
     }
-    /* Compact DT length select */
-    .dt-length select {
-        padding: 3px 6px !important;
-        font-size: 12.5px !important;
-        border: 1px solid #adb5bd !important;
-        border-radius: 4px !important;
-    }
-    .dt-length label {
-        font-size: 12.5px !important;
+    .table-toolbar .dt-search label,
+    .table-toolbar .dt-length label {
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 4px !important;
+        font-size: 12px !important;
         color: #495057 !important;
+        margin: 0 !important;
+        white-space: nowrap !important;
+        height: 28px !important;
+    }
+    .table-toolbar .dt-search input {
+        height: 26px !important;
+        padding: 0 8px !important;
+        font-size: 12px !important;
+        border: 1px solid #ced4da !important;
+        border-radius: 4px !important;
+        width: 130px !important;
+        box-sizing: border-box !important;
+    }
+    .table-toolbar .dt-length select {
+        height: 26px !important;
+        padding: 0 6px !important;
+        font-size: 12px !important;
+        border: 1px solid #ced4da !important;
+        border-radius: 4px !important;
+        box-sizing: border-box !important;
     }
     .dt-info {
-        font-size: 12.5px !important;
+        font-size: 12px !important;
         color: #6c757d !important;
     }
-    /* Compact DT buttons (density, show/hide columns) */
+    /* DT buttons inherit from .toolbar-btn via shared rule above */
     .dt-buttons .dt-button {
-        padding: 4px 10px !important;
-        font-size: 12.5px !important;
-        font-weight: 500 !important;
-        background: #fff !important;
-        border: 1px solid #adb5bd !important;
-        border-radius: 4px !important;
-        color: #333 !important;
-        transition: background 0.15s !important;
     }
     .dt-buttons .dt-button:hover {
         background: #f0f0f0 !important;
@@ -1091,31 +1099,35 @@
     <div class="table-section">
         <h2>Variants Table</h2>
 
-        <!-- Filter Controls (Phase 16) -->
+        <!-- Unified Table Toolbar (Phase 16) — all controls in one row -->
         <div class="filter-controls" id="filter-controls">
-            <!-- Unified Table Toolbar -->
-            <div class="table-toolbar" role="toolbar" aria-label="Table controls">
-                <div class="table-toolbar-left">
-                    <button class="filter-toggle-btn" id="filter-toggle-btn" type="button"
+            <div class="table-toolbar" id="table-toolbar" role="toolbar" aria-label="Table controls">
+                <!-- Left group: data manipulation controls -->
+                <div class="toolbar-group toolbar-left">
+                    <span id="toolbar-slot-length"></span>
+                    <span class="toolbar-sep"></span>
+                    <button class="toolbar-btn" id="filter-toggle-btn" type="button"
                             aria-expanded="false" aria-controls="filter-row">
-                        <svg aria-hidden="true" focusable="false" width="13" height="13"
+                        <svg aria-hidden="true" focusable="false" width="12" height="12"
                              viewBox="0 0 16 16" fill="currentColor">
                             <path d="M1.5 2h13l-5 6.5V13l-3-1.5V8.5L1.5 2z"/>
                         </svg>
                         Filters
                         <span class="btn-chevron" aria-hidden="true">&#9660;</span>
                     </button>
-                    <label class="missing-toggle">
+                    <label class="toolbar-checkbox">
                         <input type="checkbox" id="include-missing-toggle" checked
                                aria-label="Include missing values in filter results">
-                        Include missing values
+                        Missing
                     </label>
                 </div>
-                <div class="table-toolbar-right">
-                    <!-- PDF Export Button (PRINT-02) — moved into toolbar -->
-                    <button id="export-pdf-btn" class="btn-pdf-export" type="button"
+                <!-- Right group: view controls -->
+                <div class="toolbar-group toolbar-right">
+                    <span id="toolbar-slot-search"></span>
+                    <span id="toolbar-slot-buttons"></span>
+                    <button class="toolbar-btn" id="export-pdf-btn" type="button"
                             aria-label="Download report as PDF">
-                        <svg aria-hidden="true" focusable="false" width="13" height="13"
+                        <svg aria-hidden="true" focusable="false" width="12" height="12"
                              viewBox="0 0 16 16" fill="currentColor">
                             <path d="M8 12l-4-4h2.5V2h3v6H12L8 12z"/>
                             <path d="M14 14H2v-2h12v2z"/>
@@ -1613,6 +1625,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (skeleton) { skeleton.style.display = 'none'; }
                 this.api().columns.adjust();
 
+                // Move DT controls into unified toolbar slots
+                var slotLength = document.getElementById('toolbar-slot-length');
+                var slotSearch = document.getElementById('toolbar-slot-search');
+                var slotButtons = document.getElementById('toolbar-slot-buttons');
+                var dtLength = document.querySelector('.dt-length');
+                var dtSearch = document.querySelector('.dt-search');
+                var dtButtons = document.querySelector('.dt-buttons');
+                if (slotLength && dtLength) {
+                    slotLength.parentNode.replaceChild(dtLength, slotLength);
+                }
+                if (slotSearch && dtSearch) {
+                    slotSearch.parentNode.replaceChild(dtSearch, slotSearch);
+                }
+                if (slotButtons && dtButtons) {
+                    slotButtons.parentNode.replaceChild(dtButtons, slotButtons);
+                }
+
                 // A11Y-01: Add ARIA roles and labels
                 var tableEl = document.getElementById('variants_table');
                 if (tableEl) {
@@ -1975,7 +2004,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Build wrapper
             var wrapper = document.createElement('div');
-            wrapper.className = 'filter-control';
+            wrapper.className = 'filter-control filter-type-' + filterType;
 
             var labelEl = document.createElement('label');
             labelEl.textContent = label;
