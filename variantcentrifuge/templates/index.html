@@ -983,119 +983,6 @@
     </header>
 
     <main id="main-content" tabindex="-1">
-    <!-- Dashboard Section -->
-    <div class="dashboard">
-        <!-- Cards Row -->
-        <div class="cards-grid">
-            <div class="metric-card">
-                <h3>Total Variants</h3>
-                <p class="metric-value" style="color: #007bff;">{{ summary.num_variants }}</p>
-            </div>
-            <div class="metric-card">
-                <h3>Unique Genes</h3>
-                <p class="metric-value" style="color: #17a2b8;">{{ summary.num_genes }}</p>
-            </div>
-            <div class="metric-card">
-                <h3>Samples</h3>
-                <p class="metric-value" style="color: #28a745;">{{ summary.num_samples | default(0) }}</p>
-            </div>
-            <div class="metric-card">
-                <h3>Impact Breakdown</h3>
-                <ul class="impact-breakdown">
-                    {% for level in ['HIGH', 'MODERATE', 'LOW', 'MODIFIER'] %}
-                    <li>
-                        <span><span class="impact-dot" style="background-color: {{ {'HIGH':'#dc3545','MODERATE':'#c05000','LOW':'#b45309','MODIFIER':'#6c757d'}[level] }};"></span>{{ level }}</span>
-                        <strong>{{ summary.impact_distribution.get(level, 0) if summary.impact_distribution is mapping else 0 }}</strong>
-                    </li>
-                    {% endfor %}
-                </ul>
-            </div>
-            <div class="metric-card">
-                <h3>Top Genes</h3>
-                {% if summary.top_genes is defined and summary.top_genes|length > 0 %}
-                <ul class="gene-list">
-                    {% for gene_info in summary.top_genes[:5] %}
-                    <li><span>{{ gene_info.gene }}</span><strong>{{ gene_info.count }}</strong></li>
-                    {% endfor %}
-                </ul>
-                {% else %}
-                <p style="color: #6c757d; font-size: 13px; margin: 0;">No gene data available</p>
-                {% endif %}
-            </div>
-        </div>
-
-        <!-- Charts Row -->
-        <div class="charts-grid">
-            <div class="chart-wrapper">
-                <h3 id="impact-chart-heading">Impact Distribution</h3>
-                <div class="chart-container-sm">
-                    <canvas id="impact_chart" aria-hidden="true" aria-labelledby="impact-chart-heading"></canvas>
-                </div>
-                <table class="chart-data-table sr-only" aria-label="Impact distribution data">
-                    <thead><tr><th scope="col">Impact Level</th><th scope="col">Variant Count</th></tr></thead>
-                    <tbody>
-                    {% for level in ['HIGH', 'MODERATE', 'LOW', 'MODIFIER'] %}
-                        {% if summary.impact_distribution.get(level, 0) > 0 %}
-                        <tr><td>{{ level }}</td><td>{{ summary.impact_distribution.get(level, 0) }}</td></tr>
-                        {% endif %}
-                    {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            <div class="chart-wrapper">
-                <h3 id="inheritance-chart-heading">Inheritance Patterns</h3>
-                <div class="chart-container-sm" id="inheritance_chart_container">
-                    {% if summary.inheritance_distribution is defined and summary.inheritance_distribution|length > 0 %}
-                    <canvas id="inheritance_chart" aria-hidden="true" aria-labelledby="inheritance-chart-heading"></canvas>
-                    <table class="chart-data-table sr-only" aria-label="Inheritance pattern distribution data">
-                        <thead><tr><th scope="col">Inheritance Pattern</th><th scope="col">Variant Count</th></tr></thead>
-                        <tbody>
-                        {% for pattern, count in summary.inheritance_distribution.items() %}
-                            {% if pattern != 'none' and pattern != 'reference' %}
-                            <tr><td>{{ pattern|replace('_', ' ') }}</td><td>{{ count }}</td></tr>
-                            {% endif %}
-                        {% endfor %}
-                        </tbody>
-                    </table>
-                    {% else %}
-                    <p style="color: #6c757d; font-style: italic; text-align: center; padding-top: 80px;">Inheritance analysis not available (no pedigree provided)</p>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Visualization Section (Phase 16) -->
-    <div class="visualization-section">
-        <button class="collapse-toggle" aria-expanded="false" aria-controls="viz-content">
-            <span class="chevron-icon">&#x25B6;</span>
-            Visualizations
-            <span style="font-weight:normal;color:#6c757d;font-size:13px;">3 charts</span>
-        </button>
-        <div id="viz-content" class="collapse-content" hidden>
-            <div class="charts-grid-3col">
-                <div class="chart-wrapper">
-                    <h3>Variant Type Breakdown</h3>
-                    <div class="chart-container-sm">
-                        <canvas id="variant_type_chart"></canvas>
-                    </div>
-                </div>
-                <div class="chart-wrapper">
-                    <h3>Chromosome Distribution</h3>
-                    <div class="chart-container-sm">
-                        <canvas id="chromosome_chart"></canvas>
-                    </div>
-                </div>
-                <div class="chart-wrapper">
-                    <h3>Allele Frequency</h3>
-                    <div class="chart-container-sm">
-                        <canvas id="af_histogram_chart"></canvas>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <div class="table-section">
         <h2>Variants Table</h2>
 
@@ -1224,6 +1111,119 @@
             <p>You may want to try adjusting your filtering parameters or check your input data.</p>
         </div>
         {% endif %}
+    </div>
+
+    <!-- Dashboard Section (summary cards + charts) -->
+    <div class="dashboard">
+        <!-- Cards Row -->
+        <div class="cards-grid">
+            <div class="metric-card">
+                <h3>Total Variants</h3>
+                <p class="metric-value" style="color: #007bff;">{{ summary.num_variants }}</p>
+            </div>
+            <div class="metric-card">
+                <h3>Unique Genes</h3>
+                <p class="metric-value" style="color: #17a2b8;">{{ summary.num_genes }}</p>
+            </div>
+            <div class="metric-card">
+                <h3>Samples</h3>
+                <p class="metric-value" style="color: #28a745;">{{ summary.num_samples | default(0) }}</p>
+            </div>
+            <div class="metric-card">
+                <h3>Impact Breakdown</h3>
+                <ul class="impact-breakdown">
+                    {% for level in ['HIGH', 'MODERATE', 'LOW', 'MODIFIER'] %}
+                    <li>
+                        <span><span class="impact-dot" style="background-color: {{ {'HIGH':'#dc3545','MODERATE':'#c05000','LOW':'#b45309','MODIFIER':'#6c757d'}[level] }};"></span>{{ level }}</span>
+                        <strong>{{ summary.impact_distribution.get(level, 0) if summary.impact_distribution is mapping else 0 }}</strong>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="metric-card">
+                <h3>Top Genes</h3>
+                {% if summary.top_genes is defined and summary.top_genes|length > 0 %}
+                <ul class="gene-list">
+                    {% for gene_info in summary.top_genes[:5] %}
+                    <li><span>{{ gene_info.gene }}</span><strong>{{ gene_info.count }}</strong></li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p style="color: #6c757d; font-size: 13px; margin: 0;">No gene data available</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="charts-grid">
+            <div class="chart-wrapper">
+                <h3 id="impact-chart-heading">Impact Distribution</h3>
+                <div class="chart-container-sm">
+                    <canvas id="impact_chart" aria-hidden="true" aria-labelledby="impact-chart-heading"></canvas>
+                </div>
+                <table class="chart-data-table sr-only" aria-label="Impact distribution data">
+                    <thead><tr><th scope="col">Impact Level</th><th scope="col">Variant Count</th></tr></thead>
+                    <tbody>
+                    {% for level in ['HIGH', 'MODERATE', 'LOW', 'MODIFIER'] %}
+                        {% if summary.impact_distribution.get(level, 0) > 0 %}
+                        <tr><td>{{ level }}</td><td>{{ summary.impact_distribution.get(level, 0) }}</td></tr>
+                        {% endif %}
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="chart-wrapper">
+                <h3 id="inheritance-chart-heading">Inheritance Patterns</h3>
+                <div class="chart-container-sm" id="inheritance_chart_container">
+                    {% if summary.inheritance_distribution is defined and summary.inheritance_distribution|length > 0 %}
+                    <canvas id="inheritance_chart" aria-hidden="true" aria-labelledby="inheritance-chart-heading"></canvas>
+                    <table class="chart-data-table sr-only" aria-label="Inheritance pattern distribution data">
+                        <thead><tr><th scope="col">Inheritance Pattern</th><th scope="col">Variant Count</th></tr></thead>
+                        <tbody>
+                        {% for pattern, count in summary.inheritance_distribution.items() %}
+                            {% if pattern != 'none' and pattern != 'reference' %}
+                            <tr><td>{{ pattern|replace('_', ' ') }}</td><td>{{ count }}</td></tr>
+                            {% endif %}
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <p style="color: #6c757d; font-style: italic; text-align: center; padding-top: 80px;">Inheritance analysis not available (no pedigree provided)</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Visualization Section (Phase 16) -->
+    <div class="visualization-section">
+        <button class="collapse-toggle" aria-expanded="false" aria-controls="viz-content">
+            <span class="chevron-icon">&#x25B6;</span>
+            Visualizations
+            <span style="font-weight:normal;color:#6c757d;font-size:13px;">3 charts</span>
+        </button>
+        <div id="viz-content" class="collapse-content" hidden>
+            <div class="charts-grid-3col">
+                <div class="chart-wrapper">
+                    <h3>Variant Type Breakdown</h3>
+                    <div class="chart-container-sm">
+                        <canvas id="variant_type_chart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <h3>Chromosome Distribution</h3>
+                    <div class="chart-container-sm">
+                        <canvas id="chromosome_chart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <h3>Allele Frequency</h3>
+                    <div class="chart-container-sm">
+                        <canvas id="af_histogram_chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
     </main>
 

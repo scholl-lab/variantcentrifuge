@@ -168,17 +168,17 @@ class TestPhase14HTMLReport:
 
         return html
 
-    def test_dashboard_above_table(self, rendered_html_with_phase14_data):
-        """Test that dashboard appears before the variant table."""
+    def test_table_above_dashboard(self, rendered_html_with_phase14_data):
+        """Test that variant table appears before dashboard (table-first layout)."""
         html = rendered_html_with_phase14_data
 
-        # Dashboard should appear before table
+        # Table should appear before dashboard (table is most important)
         dashboard_pos = html.find('class="dashboard"')
         table_pos = html.find('id="variants_table"')
 
         assert dashboard_pos != -1, "Dashboard class not found in HTML"
         assert table_pos != -1, "Variants table ID not found in HTML"
-        assert dashboard_pos < table_pos, "Dashboard should appear before variants table"
+        assert table_pos < dashboard_pos, "Variants table should appear before dashboard"
 
     def test_dashboard_has_cards(self, rendered_html_with_phase14_data):
         """Test that dashboard contains metric cards with expected content."""
