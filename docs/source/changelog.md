@@ -5,6 +5,44 @@ All notable changes to VariantCentrifuge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-02-18
+
+### Added
+- **Modern HTML report** — complete UX overhaul of the individual variant report across 5 phases:
+  - **JS Stack Modernization**: DataTables v2, Chart.js (65KB vs Plotly 3.5MB, 98% reduction), Tippy.js tooltips, all assets vendored for offline single-file reports
+  - **Summary dashboard**: metric cards (total variants, genes, samples, impact breakdown, top genes), impact distribution and inheritance pattern charts
+  - **Semantic color badges**: IMPACT (red/orange/amber/gray), ClinVar (red-to-green severity), inheritance patterns (de novo=red, compound het=purple, AD=blue, AR=green, X-linked=teal)
+  - **Table redesign**: sticky GENE column (FixedColumns), dark header, expandable row detail panels, content density toggle (Compact/Regular/Relaxed with localStorage), intelligent column widths, zebra striping
+  - **Column-level filtering**: noUiSlider range sliders for numeric columns (POS, gnomAD AF, CADD), categorical dropdowns (IMPACT, ClinVar, Inheritance), text search (GENE), removable filter chips, "Include missing values" toggle, reactive chart updates
+  - **Unified toolbar**: all controls in one 28px row — entries/page, filters, missing, search, density, show/hide columns, PDF export
+  - **Accessibility (WCAG 2.1 AA)**: skip-link, ARIA roles/labels, keyboard-accessible tooltips, SVG icons with screen-reader text, chart data table fallbacks, 4.5:1 contrast ratios on all badges
+  - **Print/PDF support**: @media print stylesheet hiding interactive controls, PDF export via browser print dialog
+  - Report metadata footer with filter criteria, VCF source, reference genome, version, and date
+  - Expanded summary.json with inheritance distribution, top genes, and sample count
+  - Loading skeleton with shimmer animation during DataTable initialization
+- 107 HTML report-specific tests (structure, behavior, assets, accessibility, print)
+- Unified resource auto-detection across pipeline modes
+
+## [0.13.1] - 2026-02-16
+
+### Fixed
+- Resource auto-detection across classic and stage-based pipeline modes
+
+## [0.13.0] - 2026-02-16
+
+### Added
+- **Performance optimization** across 7 phases:
+  - Benchmark framework with timing instrumentation
+  - Vectorized genotype replacement (Pandas-native operations)
+  - DataFrame optimization with sanitized column names for itertuples compatibility
+  - Inheritance analysis optimization with vectorized deduction
+  - Output stage optimization
+  - Pipeline I/O elimination (reduced intermediate file writes)
+  - Parallelization and chunking with memory-aware chunk sizing
+- Memory management system with SLURM/PBS/cgroup detection
+- Golden file infrastructure for inheritance validation
+- Performance benchmark test suite
+
 ## [Unreleased]
 
 ### Added

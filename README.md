@@ -17,7 +17,7 @@ VariantCentrifuge combines gene-centric region extraction, multi-tier filtering 
 - Inheritance pattern analysis (de novo, AD, AR, X-linked, compound het)
 - Configurable variant scoring models
 - Gene burden analysis with Fisher's exact test
-- Interactive HTML reports with sortable tables and IGV.js integration
+- Interactive HTML reports with column-level filtering, semantic color badges, summary dashboard, accessible design (WCAG 2.1 AA), and PDF export
 - ClinVar, gnomAD, and SpliceAI annotation links
 - Cohort aggregation across multiple samples
 - Field profiles for switching annotation database versions (e.g., dbNSFP v4/v5)
