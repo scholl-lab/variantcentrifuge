@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-16)
 
 ## Current Position
 
-Phase: 17 of 5 (Accessibility and Print/PDF)
-Plan: 3 of 3 completed
-Status: Phase complete, verified ✓
-Last activity: 2026-02-17 — Completed 17-03-PLAN.md (accessibility and print test coverage)
+Phase: 16 of 6 (Column-Level Filtering and Visualization)
+Plan: 1 of 2 completed
+Status: In progress
+Last activity: 2026-02-18 — Completed 16-01-PLAN.md (noUiSlider assets and HTML/CSS scaffolding)
 
-Progress: [████████████████████] 100% (5/5 phases complete)
+Progress: [███████████████████░] ~92% (Phase 16 Plan 1/2 in progress)
 
 ## Milestone Overview
 
@@ -23,7 +23,7 @@ Progress: [████████████████████] 100% (5
 | 13 | JS Stack Modernization | 5 | Complete ✓ (verified) |
 | 14 | Information Hierarchy and Semantic Color Coding | 7 | Complete ✓ (verified) |
 | 15 | Table Redesign | 10 | Complete ✓ (10/10 verified) |
-| 16 | Column-Level Filtering and Visualization | 8 | Skipped (deferred to v0.15.0) |
+| 16 | Column-Level Filtering and Visualization | 8 | In progress (Plan 1/2 complete) |
 | 17 | Accessibility and Print/PDF | 8 | Complete ✓ (8/8 verified) |
 
 ## Accumulated Context
@@ -95,6 +95,10 @@ Progress: [████████████████████] 100% (5
 | 17-03-02 | WCAG contrast helper function with luminance calculation | 17-03 | Automated validation prevents future color regressions, reusable for other components |
 | 17-03-03 | Print stylesheet section testing extracts @media print block | 17-03 | Validates comprehensive print behavior (hide controls, collapse columns, prevent breaks) |
 | 17-03-04 | Two-tiered testing: template source patterns + rendered HTML checks | 17-03 | Comprehensive coverage of both static patterns and dynamic Jinja rendering |
+| 16-01-01 | noUiSlider JS loaded after jQuery slim and before DataTables | 16-01 | No deps on other libs, should load before DataTables custom code |
+| 16-01-02 | chevron-icon CSS class for collapsible section (not chevron used for row expansion) | 16-01 | Avoids CSS conflict with Phase 15 table row expansion toggle |
+| 16-01-03 | Filter row starts hidden with empty mount point; Plan 02 populates dynamically | 16-01 | Separates structure (Plan 01) from behavior (Plan 02) for context budget |
+| 16-01-04 | Visualization section collapsed by default (aria-expanded=false, hidden attribute) | 16-01 | Keeps above-the-fold clean; user clicks to expand |
 
 ### Pending Todos
 
@@ -106,7 +110,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-17
-Stopped at: Completed 17-03-PLAN.md (Phase 17 complete - all accessibility and print/PDF features implemented and tested)
+Last session: 2026-02-18
+Stopped at: Completed 16-01-PLAN.md (noUiSlider assets vendored, HTML/CSS scaffolding added)
 Resume file: None
-Next: Milestone v0.14.0 Report UX Overhaul complete — ready for release
+Next: Execute 16-02-PLAN.md (JavaScript behavior for filter controls, chip strip, and visualization charts)
