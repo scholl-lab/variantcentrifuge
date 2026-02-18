@@ -12,16 +12,16 @@
 
 ### Information Hierarchy
 
-- [ ] **HIER-01**: Move summary dashboard (cards + charts) above the variant table
-- [ ] **HIER-02**: Expand summary cards: impact breakdown, inheritance distribution, top genes, sample count, filter criteria
-- [ ] **HIER-03**: Add report metadata footer (filter criteria, VCF source, reference genome, pipeline version, run date)
+- [x] **HIER-01**: Move summary dashboard (cards + charts) above the variant table
+- [x] **HIER-02**: Expand summary cards: impact breakdown, inheritance distribution, top genes, sample count, filter criteria
+- [x] **HIER-03**: Add report metadata footer (filter criteria, VCF source, reference genome, pipeline version, run date)
 
 ### Semantic Color Coding
 
-- [ ] **COLOR-01**: IMPACT column as colored badges (HIGH=red, MODERATE=orange, LOW=amber, MODIFIER=gray)
-- [ ] **COLOR-02**: ClinVar classification badges (Pathogenic=red, Likely Path=orange, VUS=yellow, Likely Benign=light green, Benign=green)
-- [ ] **COLOR-03**: Inheritance pattern badges (de novo=red, compound het=purple, AD=blue, AR=green, X-linked=teal)
-- [ ] **COLOR-04**: Color-coded summary cards matching severity palette
+- [x] **COLOR-01**: IMPACT column as colored badges (HIGH=red, MODERATE=orange, LOW=amber, MODIFIER=gray)
+- [x] **COLOR-02**: ClinVar classification badges (Pathogenic=red, Likely Path=orange, VUS=yellow, Likely Benign=light green, Benign=green)
+- [x] **COLOR-03**: Inheritance pattern badges (de novo=red, compound het=purple, AD=blue, AR=green, X-linked=teal)
+- [x] **COLOR-04**: Color-coded summary cards matching severity palette
 
 ### Data Table Design
 
@@ -38,17 +38,17 @@
 
 ### Column-Level Filtering
 
-- [ ] **FILTER-01**: Port cohort report's column-level filtering to individual report (numeric sliders, categorical dropdowns, text search)
-- [ ] **FILTER-02**: Active filter indicator (removable filter chips/tags)
-- [ ] **FILTER-03**: "Include missing values" checkboxes for each filter
-- [ ] **FILTER-04**: Reset all filters button
+- [x] **FILTER-01**: Port cohort report's column-level filtering to individual report (numeric sliders, categorical dropdowns, text search)
+- [x] **FILTER-02**: Active filter indicator (removable filter chips/tags)
+- [x] **FILTER-03**: "Include missing values" checkboxes for each filter
+- [x] **FILTER-04**: Reset all filters button
 
 ### Data Visualization
 
-- [ ] **VIZ-01**: Impact distribution chart with semantic colors (above table)
-- [ ] **VIZ-02**: Variant type breakdown chart (SNV/indel/MNV)
-- [ ] **VIZ-03**: Chromosome distribution chart (horizontal bar)
-- [ ] **VIZ-04**: Allele frequency histogram (log-scale)
+- [x] **VIZ-01**: Impact distribution chart with semantic colors (above table)
+- [x] **VIZ-02**: Variant type breakdown chart (SNV/indel/MNV)
+- [x] **VIZ-03**: Chromosome distribution chart (horizontal bar)
+- [x] **VIZ-04**: Allele frequency histogram (log-scale)
 
 ### Print & PDF
 
@@ -111,14 +111,14 @@
 | TABLE-08 | Phase 15 | Complete |
 | TABLE-09 | Phase 15 | Complete |
 | TABLE-10 | Phase 15 | Complete |
-| FILTER-01 | Phase 16 | Pending |
-| FILTER-02 | Phase 16 | Pending |
-| FILTER-03 | Phase 16 | Pending |
-| FILTER-04 | Phase 16 | Pending |
-| VIZ-01 | Phase 16 | Pending |
-| VIZ-02 | Phase 16 | Pending |
-| VIZ-03 | Phase 16 | Pending |
-| VIZ-04 | Phase 16 | Pending |
+| FILTER-01 | Phase 16 | Complete |
+| FILTER-02 | Phase 16 | Complete |
+| FILTER-03 | Phase 16 | Complete |
+| FILTER-04 | Phase 16 | Complete |
+| VIZ-01 | Phase 16 | Complete |
+| VIZ-02 | Phase 16 | Complete |
+| VIZ-03 | Phase 16 | Complete |
+| VIZ-04 | Phase 16 | Complete |
 | A11Y-01 | Phase 17 | Complete |
 | A11Y-02 | Phase 17 | Complete |
 | A11Y-03 | Phase 17 | Complete |

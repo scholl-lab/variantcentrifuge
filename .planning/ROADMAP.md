@@ -124,9 +124,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 16-01-PLAN.md — Vendor noUiSlider and add HTML/CSS scaffolding for filters and visualization section
-- [ ] 16-02-PLAN.md — Wire JS behavior (filter controls, chips, reactive chart updates, collapsible section)
-- [ ] 16-03-PLAN.md — Tests for Phase 16 filtering and visualization features
+- [x] 16-01-PLAN.md — Vendor noUiSlider and add HTML/CSS scaffolding for filters and visualization section
+- [x] 16-02-PLAN.md — Wire JS behavior (filter controls, chips, reactive chart updates, collapsible section)
+- [x] 16-03-PLAN.md — Tests for Phase 16 filtering and visualization features
 
 **Success Criteria:**
 
@@ -178,5 +178,5 @@ Plans:
 | 13. JS Stack Modernization | v0.14.0 | 3/3 | Complete | 2026-02-16 |
 | 14. Information Hierarchy and Semantic Color Coding | v0.14.0 | 3/3 | Complete | 2026-02-16 |
 | 15. Table Redesign | v0.14.0 | 3/3 | Complete | 2026-02-17 |
-| 16. Column-Level Filtering and Visualization | v0.14.0 | 0/3 | Deferred to v0.15.0 | — |
+| 16. Column-Level Filtering and Visualization | v0.14.0 | 3/3 | Complete | 2026-02-18 |
 | 17. Accessibility and Print/PDF | v0.14.0 | 3/3 | Complete | 2026-02-17 |
