@@ -433,6 +433,97 @@ class TestAssetNamespacing:
 
 
 @pytest.mark.unit
+class TestPhase16NoUiSliderAssets:
+    """Test Phase 16 noUiSlider asset loading."""
+
+    def test_nouislider_js_asset_exists(self):
+        """Test that noUiSlider JS asset exists and is non-empty."""
+        asset_path = (
+            Path(__file__).parent.parent.parent
+            / "variantcentrifuge"
+            / "assets"
+            / "js"
+            / "nouislider.min.js"
+        )
+        assert asset_path.exists(), "noUiSlider JS asset file does not exist"
+        assert asset_path.stat().st_size > 0, "noUiSlider JS asset file is empty"
+
+    def test_nouislider_css_asset_exists(self):
+        """Test that noUiSlider CSS asset exists and is non-empty."""
+        asset_path = (
+            Path(__file__).parent.parent.parent
+            / "variantcentrifuge"
+            / "assets"
+            / "css"
+            / "nouislider.min.css"
+        )
+        assert asset_path.exists(), "noUiSlider CSS asset file does not exist"
+        assert asset_path.stat().st_size > 0, "noUiSlider CSS asset file is empty"
+
+    def test_nouislider_js_contains_identifier(self):
+        """Test that noUiSlider JS contains the noUiSlider identifier string."""
+        asset_path = (
+            Path(__file__).parent.parent.parent
+            / "variantcentrifuge"
+            / "assets"
+            / "js"
+            / "nouislider.min.js"
+        )
+        content = asset_path.read_text(encoding="utf-8")
+
+        # Should contain noUiSlider reference
+        assert "noUiSlider" in content, "noUiSlider JS does not contain 'noUiSlider' identifier"
+
+        # Should not be an HTML error page
+        assert not content.startswith("<!DOCTYPE"), "noUiSlider JS appears to be HTML error page"
+        assert not content.startswith("<html"), "noUiSlider JS appears to be HTML error page"
+
+    def test_nouislider_css_contains_selectors(self):
+        """Test that noUiSlider CSS contains .noUi- selectors."""
+        asset_path = (
+            Path(__file__).parent.parent.parent
+            / "variantcentrifuge"
+            / "assets"
+            / "css"
+            / "nouislider.min.css"
+        )
+        content = asset_path.read_text(encoding="utf-8")
+
+        # Should contain .noUi- class selectors
+        assert ".noUi-" in content, "noUiSlider CSS does not contain '.noUi-' selectors"
+
+        # Basic CSS validity
+        assert "{" in content, "noUiSlider CSS does not contain '{'"
+        assert "}" in content, "noUiSlider CSS does not contain '}'"
+
+    def test_load_assets_includes_nouislider_js(self):
+        """Test that _load_assets() returns the js/nouislider.min key."""
+        assets = _load_assets()
+
+        assert "js/nouislider.min" in assets, "noUiSlider JS not found in loaded assets"
+        assert len(assets["js/nouislider.min"]) > 0, "noUiSlider JS asset is empty"
+
+    def test_load_assets_includes_nouislider_css(self):
+        """Test that _load_assets() returns the css/nouislider.min key."""
+        assets = _load_assets()
+
+        assert "css/nouislider.min" in assets, "noUiSlider CSS not found in loaded assets"
+        assert len(assets["css/nouislider.min"]) > 0, "noUiSlider CSS asset is empty"
+
+    def test_load_assets_nouislider_content_is_string(self):
+        """Test that loaded noUiSlider assets are non-empty strings."""
+        assets = _load_assets()
+
+        js_asset = assets.get("js/nouislider.min", "")
+        css_asset = assets.get("css/nouislider.min", "")
+
+        assert isinstance(js_asset, str), "noUiSlider JS asset is not a string"
+        assert isinstance(css_asset, str), "noUiSlider CSS asset is not a string"
+        assert len(js_asset) > 0, "noUiSlider JS asset is empty string"
+        assert len(css_asset) > 0, "noUiSlider CSS asset is empty string"
+
+
+@pytest.mark.unit
 class TestPhase15FixedColumnsAssets:
     """Test Phase 15 FixedColumns asset loading."""
 
