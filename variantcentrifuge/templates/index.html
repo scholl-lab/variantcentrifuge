@@ -485,6 +485,9 @@
         .density-toggle,
         .skip-link,
         #export-pdf-btn,
+        .table-toolbar,
+        .filter-controls,
+        .filter-strip,
         .metadata-footer {
             display: none !important;
         }
@@ -589,76 +592,177 @@
         }
     }
 
-    /* ===== Phase 16: Filter Controls ===== */
+    /* ===== Phase 16: Unified Table Toolbar ===== */
     .filter-controls {
-        margin-bottom: 16px;
+        margin-bottom: 0;
     }
+
+    /* Unified toolbar: one horizontal band containing all table controls */
+    .table-toolbar {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 6px 0 8px 0;
+        margin-bottom: 4px;
+    }
+    .table-toolbar-left {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex: 1 1 auto;
+        flex-wrap: wrap;
+    }
+    .table-toolbar-right {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+    }
+
+    /* Filter toggle button — visually matches DT Buttons */
     .filter-toggle-btn {
-        padding: 6px 14px;
-        background-color: white;
-        border: 1px solid #dee2e6;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 5px 10px;
+        background-color: #fff;
+        border: 1px solid #adb5bd;
         border-radius: 4px;
         cursor: pointer;
-        font-size: 13px;
+        font-size: 12.5px;
         font-weight: 500;
-        color: #495057;
+        color: #333;
+        white-space: nowrap;
+        line-height: 1.4;
+        transition: background 0.15s, border-color 0.15s;
     }
     .filter-toggle-btn:hover {
-        background-color: #f8f9fa;
-        border-color: #adb5bd;
+        background-color: #f0f0f0;
+        border-color: #888;
     }
+    .filter-toggle-btn[aria-expanded="true"] {
+        background-color: #e8f0fe;
+        border-color: #2196f3;
+        color: #1a73e8;
+    }
+    .filter-toggle-btn .btn-chevron {
+        font-size: 10px;
+        display: inline-block;
+        transition: transform 0.2s ease;
+    }
+    .filter-toggle-btn[aria-expanded="true"] .btn-chevron {
+        transform: rotate(180deg);
+    }
+
+    /* Missing values toggle */
+    .missing-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 12.5px;
+        color: #495057;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+    .missing-toggle input[type="checkbox"] {
+        accent-color: #2196f3;
+        width: 14px;
+        height: 14px;
+        cursor: pointer;
+        margin: 0;
+    }
+
+    /* PDF export button — compact, icon+text */
+    .btn-pdf-export {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 5px 10px;
+        background: #fff;
+        border: 1px solid #adb5bd;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12.5px;
+        font-weight: 500;
+        color: #333;
+        white-space: nowrap;
+        line-height: 1.4;
+        transition: background 0.15s, border-color 0.15s;
+    }
+    .btn-pdf-export:hover {
+        background-color: #f0f0f0;
+        border-color: #888;
+    }
+
+    /* ===== Phase 16: Compact Filter Panel ===== */
     .filter-row {
         display: none;
         flex-wrap: wrap;
-        gap: 16px;
-        padding: 12px 0;
-        border-top: 1px solid #dee2e6;
-        margin-top: 8px;
+        gap: 10px;
+        padding: 10px 12px;
+        background: #f8f9fa;
+        border-radius: 6px;
+        border: 1px solid #e9ecef;
+        margin-bottom: 8px;
     }
     .filter-control {
         display: flex;
         flex-direction: column;
-        gap: 4px;
-        min-width: 160px;
+        gap: 3px;
+        min-width: 130px;
+        max-width: 180px;
+        flex: 1 1 130px;
     }
     .filter-control label {
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 600;
         color: #6c757d;
         text-transform: uppercase;
         letter-spacing: 0.4px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     .slider-container {
-        min-height: 40px;
-        padding: 8px 0;
+        min-height: 28px;
+        padding: 6px 4px 2px 4px;
     }
     .slider-values {
         display: flex;
         justify-content: space-between;
-        font-size: 11px;
+        font-size: 10.5px;
         color: #6c757d;
-        margin-top: 4px;
+        margin-top: 3px;
+        gap: 2px;
+    }
+    .slider-values span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 48%;
     }
     .category-dropdown {
-        padding: 5px 8px;
+        padding: 4px 6px;
         border: 1px solid #ced4da;
         border-radius: 4px;
-        font-size: 13px;
+        font-size: 12.5px;
         color: #495057;
         background-color: white;
         cursor: pointer;
-        min-width: 140px;
+        width: 100%;
     }
     .category-dropdown:hover {
         border-color: #adb5bd;
     }
     .filter-text-input {
-        padding: 5px 8px;
+        padding: 4px 6px;
         border: 1px solid #ced4da;
         border-radius: 4px;
-        font-size: 13px;
+        font-size: 12.5px;
         color: #495057;
-        min-width: 140px;
+        width: 100%;
+        box-sizing: border-box;
     }
     .filter-text-input:focus {
         outline: none;
@@ -666,11 +770,46 @@
         box-shadow: 0 0 0 2px rgba(33,150,243,0.15);
     }
 
+    /* ===== Phase 16: Compact noUiSlider overrides ===== */
+    .noUi-target {
+        height: 6px;
+        border: none;
+        background: #dde2e8;
+        border-radius: 3px;
+        box-shadow: none;
+    }
+    .noUi-connect {
+        background: #2196f3;
+        border-radius: 3px;
+    }
+    .noUi-handle {
+        width: 16px !important;
+        height: 16px !important;
+        border-radius: 50% !important;
+        border: 2px solid #2196f3 !important;
+        background: white !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.15) !important;
+        top: -6px !important;
+        right: -8px !important;
+        cursor: grab !important;
+    }
+    .noUi-handle:before,
+    .noUi-handle:after {
+        display: none !important;
+    }
+    .noUi-touch-area {
+        width: 28px;
+        height: 28px;
+        position: relative;
+        top: -6px;
+        left: -6px;
+    }
+
     /* ===== Phase 16: Filter Chip Strip ===== */
     .filter-strip {
         display: none;
-        margin-bottom: 12px;
-        padding: 8px 0;
+        margin-bottom: 8px;
+        padding: 6px 0 4px 0;
         border-bottom: 1px solid #dee2e6;
     }
     .filter-chips-container {
@@ -691,8 +830,8 @@
         background: #e3f2fd;
         border: 1px solid #2196f3;
         border-radius: 16px;
-        padding: 4px 8px 4px 12px;
-        font-size: 13px;
+        padding: 3px 8px 3px 10px;
+        font-size: 12px;
         color: #1976d2;
         gap: 4px;
     }
@@ -700,7 +839,7 @@
         background: none;
         border: none;
         color: #1976d2;
-        font-size: 18px;
+        font-size: 16px;
         cursor: pointer;
         padding: 0;
         line-height: 1;
@@ -715,27 +854,61 @@
         color: #721c24;
         border: 1px solid #f5c6cb;
         border-radius: 16px;
-        padding: 4px 12px;
-        font-size: 13px;
+        padding: 3px 10px;
+        font-size: 12px;
         cursor: pointer;
     }
     .btn-reset-all:hover {
         background: #f1b0b7;
     }
 
-    /* ===== Phase 16: Missing Values Toggle ===== */
-    .missing-toggle {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 13px;
-        color: #495057;
+    /* ===== Phase 16: DataTables native controls alignment ===== */
+    /* Move DT controls into a tighter space below the toolbar */
+    .dt-container {
+        margin-top: 0;
     }
-    .missing-toggle input[type="checkbox"] {
-        accent-color: #2196f3;
-        width: 14px;
-        height: 14px;
-        cursor: pointer;
+    /* Hide the DT layout top row's own padding since we manage spacing via toolbar */
+    .dt-layout-row:first-child {
+        margin-bottom: 0;
+        padding-bottom: 0;
+    }
+    /* Compact DT search input to match toolbar style */
+    .dt-search input {
+        padding: 4px 8px !important;
+        font-size: 12.5px !important;
+        border: 1px solid #adb5bd !important;
+        border-radius: 4px !important;
+        height: auto !important;
+    }
+    /* Compact DT length select */
+    .dt-length select {
+        padding: 3px 6px !important;
+        font-size: 12.5px !important;
+        border: 1px solid #adb5bd !important;
+        border-radius: 4px !important;
+    }
+    .dt-length label {
+        font-size: 12.5px !important;
+        color: #495057 !important;
+    }
+    .dt-info {
+        font-size: 12.5px !important;
+        color: #6c757d !important;
+    }
+    /* Compact DT buttons (density, show/hide columns) */
+    .dt-buttons .dt-button {
+        padding: 4px 10px !important;
+        font-size: 12.5px !important;
+        font-weight: 500 !important;
+        background: #fff !important;
+        border: 1px solid #adb5bd !important;
+        border-radius: 4px !important;
+        color: #333 !important;
+        transition: background 0.15s !important;
+    }
+    .dt-buttons .dt-button:hover {
+        background: #f0f0f0 !important;
+        border-color: #888 !important;
     }
 
     /* ===== Phase 16: Collapsible Visualization Section ===== */
@@ -920,19 +1093,42 @@
 
         <!-- Filter Controls (Phase 16) -->
         <div class="filter-controls" id="filter-controls">
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-                <button class="filter-toggle-btn" id="filter-toggle-btn" type="button">
-                    &#x1F50D; Filters
-                </button>
-                <div class="missing-toggle">
-                    <label>
-                        <input type="checkbox" id="include-missing-toggle" checked>
+            <!-- Unified Table Toolbar -->
+            <div class="table-toolbar" role="toolbar" aria-label="Table controls">
+                <div class="table-toolbar-left">
+                    <button class="filter-toggle-btn" id="filter-toggle-btn" type="button"
+                            aria-expanded="false" aria-controls="filter-row">
+                        <svg aria-hidden="true" focusable="false" width="13" height="13"
+                             viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M1.5 2h13l-5 6.5V13l-3-1.5V8.5L1.5 2z"/>
+                        </svg>
+                        Filters
+                        <span class="btn-chevron" aria-hidden="true">&#9660;</span>
+                    </button>
+                    <label class="missing-toggle">
+                        <input type="checkbox" id="include-missing-toggle" checked
+                               aria-label="Include missing values in filter results">
                         Include missing values
                     </label>
                 </div>
+                <div class="table-toolbar-right">
+                    <!-- PDF Export Button (PRINT-02) — moved into toolbar -->
+                    <button id="export-pdf-btn" class="btn-pdf-export" type="button"
+                            aria-label="Download report as PDF">
+                        <svg aria-hidden="true" focusable="false" width="13" height="13"
+                             viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M8 12l-4-4h2.5V2h3v6H12L8 12z"/>
+                            <path d="M14 14H2v-2h12v2z"/>
+                        </svg>
+                        PDF
+                    </button>
+                </div>
             </div>
-            <div class="filter-row" id="filter-row" style="display:none;">
-                <!-- Filter controls will be dynamically populated by JS in Plan 02 -->
+
+            <!-- Collapsible Filter Panel -->
+            <div class="filter-row" id="filter-row" style="display:none;" role="region"
+                 aria-label="Active filters">
+                <!-- Filter controls will be dynamically populated by JS -->
             </div>
         </div>
 
@@ -944,15 +1140,6 @@
                 <button class="btn-reset-all" id="btn-reset-all" type="button">Reset All Filters</button>
             </div>
         </div>
-
-        <!-- PDF Export Button (PRINT-02) -->
-        <button id="export-pdf-btn" type="button" aria-label="Download report as PDF" style="float: right; margin-bottom: 10px; padding: 6px 16px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; display: inline-flex; align-items: center; gap: 6px;">
-            <svg aria-hidden="true" focusable="false" width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M8 12l-4-4h2.5V2h3v6H12L8 12z"/>
-                <path d="M14 14H2v-2h12v2z"/>
-            </svg>
-            Download PDF
-        </button>
 
         <!-- Loading Skeleton -->
         <div id="table-skeleton" class="skeleton-wrapper">
@@ -1724,6 +1911,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!filterRow) return;
             var isHidden = filterRow.style.display === 'none' || filterRow.style.display === '';
             filterRow.style.display = isHidden ? 'flex' : 'none';
+            this.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
         });
     }
 
@@ -1750,6 +1938,26 @@ document.addEventListener('DOMContentLoaded', function() {
             });
             table.draw();
         });
+    }
+
+    // Smart number formatter for slider value labels
+    function formatSliderValue(val) {
+        var n = parseFloat(val);
+        if (isNaN(n)) return String(val);
+        // Integers or values >= 1000: use locale string (e.g. 10,234)
+        if (Number.isInteger(n) || Math.abs(n) >= 1000) {
+            return Math.round(n).toLocaleString();
+        }
+        // Very small decimals (< 0.001): use 4 decimal places
+        if (Math.abs(n) > 0 && Math.abs(n) < 0.001) {
+            return n.toFixed(4);
+        }
+        // Small decimals < 1: 3 decimal places
+        if (Math.abs(n) < 1) {
+            return n.toFixed(3);
+        }
+        // Everything else: 2 decimal places
+        return n.toFixed(2);
     }
 
     // Populate filter controls based on column data
@@ -1799,10 +2007,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 valuesDiv.className = 'slider-values';
                 var minValEl = document.createElement('span');
                 minValEl.id = 'min-val-' + colName;
-                minValEl.textContent = parseFloat(dataMin).toFixed(4);
+                minValEl.textContent = formatSliderValue(dataMin);
                 var maxValEl = document.createElement('span');
                 maxValEl.id = 'max-val-' + colName;
-                maxValEl.textContent = parseFloat(dataMax).toFixed(4);
+                maxValEl.textContent = formatSliderValue(dataMax);
                 valuesDiv.appendChild(minValEl);
                 valuesDiv.appendChild(maxValEl);
                 wrapper.appendChild(valuesDiv);
@@ -1816,7 +2024,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         connect: true,
                         range: { min: dataMin, max: dataMax },
                         format: {
-                            to: function(val) { return parseFloat(val).toFixed(4); },
+                            to: function(val) { return parseFloat(val); },
                             from: function(val) { return Number(val); }
                         }
                     });
@@ -1826,8 +2034,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         // 'update' fires on init AND on user interaction — use it only
                         // to keep the min/max value labels in sync with the handle positions.
                         sliderEl.noUiSlider.on('update', function(values) {
-                            minEl.textContent = values[0];
-                            maxEl.textContent = values[1];
+                            minEl.textContent = formatSliderValue(values[0]);
+                            maxEl.textContent = formatSliderValue(values[1]);
                         });
 
                         // 'change' fires only on user-initiated handle movements (mouse/touch
@@ -1867,7 +2075,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 control: sliderEl,
                                 dataMin: dMin,
                                 dataMax: dMax,
-                                displayValue: values[0] + ' \u2013 ' + values[1]
+                                displayValue: formatSliderValue(values[0]) + ' \u2013 ' + formatSliderValue(values[1])
                             });
                             updateFilterChips();
                             table.draw();
