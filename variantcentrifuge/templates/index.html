@@ -1823,11 +1823,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     // Closure to capture variables
                     (function(sliderEl, cn, ci, dMin, dMax, minEl, maxEl) {
+                        // 'update' fires on init AND on user interaction — use it only
+                        // to keep the min/max value labels in sync with the handle positions.
                         sliderEl.noUiSlider.on('update', function(values) {
-                            var minRange = parseFloat(values[0]);
-                            var maxRange = parseFloat(values[1]);
                             minEl.textContent = values[0];
                             maxEl.textContent = values[1];
+                        });
+
+                        // 'change' fires only on user-initiated handle movements (mouse/touch
+                        // release, keyboard).  'set' fires on programmatic calls to .set().
+                        // Both are used to apply / remove the filter so that the chip strip
+                        // and table are only updated in response to real filter changes.
+                        sliderEl.noUiSlider.on('change', function(values) {
+                            var minRange = parseFloat(values[0]);
+                            var maxRange = parseFloat(values[1]);
 
                             // Remove previous filter for this column
                             removeSearchFn(ci);
@@ -1862,6 +1871,21 @@ document.addEventListener('DOMContentLoaded', function() {
                             });
                             updateFilterChips();
                             table.draw();
+                        });
+
+                        // When the slider is reset programmatically (removeFilter calls .set()),
+                        // noUiSlider fires 'set' but not 'change'.  We need to re-apply the
+                        // default (no-filter) logic so the chip and search fn are cleaned up.
+                        sliderEl.noUiSlider.on('set', function(values) {
+                            var minRange = parseFloat(values[0]);
+                            var maxRange = parseFloat(values[1]);
+                            var atDefault = Math.abs(minRange - dMin) < 0.000001 && Math.abs(maxRange - dMax) < 0.000001;
+                            if (atDefault) {
+                                removeSearchFn(ci);
+                                activeFilters.delete(cn);
+                                updateFilterChips();
+                                // table.draw() is called by removeFilter's caller
+                            }
                         });
                     })(sliderDiv, colName, colIndex, dataMin, dataMax, minValEl, maxValEl);
                 }
