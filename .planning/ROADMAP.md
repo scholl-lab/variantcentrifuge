@@ -83,10 +83,11 @@ Plans:
 
 **Requirements:** COV-01, COV-02, COV-03, COV-04, BURDEN-01, BURDEN-02, BURDEN-03, WEIGHT-01, WEIGHT-02
 
-**Plans:** 3 plans estimated
-- 19-01: covariates.py — covariate file loading, sample ID alignment with VCF order, one-hot encoding, multicollinearity check; genotype matrix builder with multi-allelic, missing, and phased genotype handling
-- 19-02: logistic_burden.py and linear_burden.py tests; Beta(MAF;1,25) and uniform weight modules; CLI args --covariate-file, --covariates, --trait-type, --variant-weights
-- 19-03: Unit tests for covariate alignment with shuffled sample order, genotype edge cases (1/2, ./., 0|1), logistic/linear burden test outputs validated against manual statsmodels calls
+**Plans:** 3 plans
+Plans:
+- [ ] 19-01-PLAN.md — covariates.py, genotype_matrix.py, weights.py, and AssociationConfig extension
+- [ ] 19-02-PLAN.md — LogisticBurdenTest + LinearBurdenTest implementations, engine registry, CLI args, AssociationAnalysisStage integration
+- [ ] 19-03-PLAN.md — Unit tests: covariate alignment, genotype edge cases, burden test validation against manual statsmodels
 
 **Success Criteria:**
 
@@ -209,7 +210,7 @@ Plans:
 | 16. Column-Level Filtering and Visualization | v0.14.0 | 3/3 | Complete | 2026-02-18 |
 | 17. Accessibility and Print/PDF | v0.14.0 | 3/3 | Complete | 2026-02-17 |
 | 18. Foundation — Core Abstractions and Fisher Refactor | v0.15.0 | 4/4 | Complete | 2026-02-19 |
-| 19. Covariate System and Burden Tests | v0.15.0 | 0/3 | Pending | — |
+| 19. Covariate System and Burden Tests | v0.15.0 | 0/3 | In Progress | — |
 | 20. R SKAT Backend | v0.15.0 | 0/3 | Pending | — |
 | 21. Pure Python SKAT Backend | v0.15.0 | 0/3 | Pending | — |
 | 22. ACAT-O and Diagnostics | v0.15.0 | 0/3 | Pending | — |
