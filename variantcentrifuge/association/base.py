@@ -42,9 +42,6 @@ class TestResult:
         Lower bound of the confidence interval for effect_size.
     ci_upper : float | None
         Upper bound of the confidence interval for effect_size.
-    se : float | None
-        Standard error of the effect size estimate. First-class field for
-        regression tests (burden, SKAT); None for non-regression tests (Fisher).
     n_cases : int
         Total number of case samples in the analysis.
     n_controls : int
@@ -63,7 +60,6 @@ class TestResult:
     effect_size: float | None
     ci_lower: float | None
     ci_upper: float | None
-    se: float | None
     n_cases: int
     n_controls: int
     n_variants: int
@@ -104,40 +100,6 @@ class AssociationConfig:
     confidence_interval_method: str = "normal_approx"
     confidence_interval_alpha: float = 0.05
     continuity_correction: float = 0.5
-
-    # Phase 19: Covariate system + burden test fields
-    # All optional; backward compatible with Phase 18 workflows.
-    covariate_file: str | None = None
-    """Path to tab/CSV covariate file (first column = sample ID). None = no covariates."""
-
-    covariate_columns: list[str] | None = None
-    """Subset of covariate columns to use. None = all columns."""
-
-    categorical_covariates: list[str] | None = None
-    """Column names to one-hot encode. None = auto-detect (non-numeric with <=5 levels)."""
-
-    trait_type: str = "binary"
-    """Phenotype scale: "binary" (logistic, Firth fallback) or "quantitative" (linear OLS)."""
-
-    variant_weights: str = "beta:1,25"
-    """Weight scheme: "beta:a,b" (Beta MAF weights, SKAT convention) or "uniform"."""
-
-    missing_site_threshold: float = 0.10
-    """Variants with >threshold fraction missing site-wide are excluded before imputation."""
-
-    missing_sample_threshold: float = 0.80
-    """Samples with >threshold fraction missing across kept variants are excluded."""
-
-    firth_max_iter: int = 25
-    """Maximum Newton-Raphson iterations for Firth penalized logistic regression fallback."""
-
-    # Phase 20: R SKAT backend fields
-    # All optional; backward compatible with Phase 18-19 workflows.
-    skat_backend: str = "auto"
-    """SKAT computation backend: "r" (R via rpy2), "python" (Phase 21), or "auto" (try r first)."""
-
-    skat_method: str = "SKAT"
-    """SKAT variant to run: "SKAT" (default), "Burden" (burden-only), or "SKATO" (omnibus)."""
 
 
 class AssociationTest(ABC):
@@ -198,23 +160,6 @@ class AssociationTest(ABC):
         """
         ...
 
-    def effect_column_names(self) -> dict[str, str]:
-        """
-        Column name suffixes for this test's effect size output.
-
-        Returns a mapping of semantic role to column suffix. The engine uses
-        these to build output column names as ``{test_name}_{suffix}``.
-
-        Default returns OR-based naming (appropriate for Fisher's exact test).
-        Regression tests (burden, SKAT) override to return beta/SE naming.
-        """
-        return {
-            "effect": "or",
-            "se": None,
-            "ci_lower": "or_ci_lower",
-            "ci_upper": "or_ci_upper",
-        }
-
     def check_dependencies(self) -> None:  # noqa: B027
         """
         Verify that required optional dependencies are available.
@@ -224,25 +169,4 @@ class AssociationTest(ABC):
         ImportError
             If a required library is not installed. Called eagerly at engine
             construction so users get a clear error before processing begins.
-        """
-
-    def prepare(self, gene_count: int) -> None:  # noqa: B027
-        """
-        Called by the engine before the per-gene loop.
-
-        Default is a no-op. Subclasses override to set up progress logging,
-        emit large-panel warnings, initialize timers, etc.
-
-        Parameters
-        ----------
-        gene_count : int
-            Total number of genes that will be processed.
-        """
-
-    def finalize(self) -> None:  # noqa: B027
-        """
-        Called by the engine after the per-gene loop completes.
-
-        Default is a no-op. Subclasses override to log aggregate timing,
-        release resources, or perform post-run cleanup.
         """

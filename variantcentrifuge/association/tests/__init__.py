@@ -15,19 +15,7 @@ def __getattr__(name: str) -> object:
         from variantcentrifuge.association.tests.fisher import FisherExactTest
 
         return FisherExactTest
-    if name == "LogisticBurdenTest":
-        from variantcentrifuge.association.tests.logistic_burden import LogisticBurdenTest
-
-        return LogisticBurdenTest
-    if name == "LinearBurdenTest":
-        from variantcentrifuge.association.tests.linear_burden import LinearBurdenTest
-
-        return LinearBurdenTest
-    if name == "RSKATTest":
-        from variantcentrifuge.association.tests.skat_r import RSKATTest
-
-        return RSKATTest
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-__all__ = ["FisherExactTest", "LinearBurdenTest", "LogisticBurdenTest", "RSKATTest"]
+__all__ = ["FisherExactTest"]
