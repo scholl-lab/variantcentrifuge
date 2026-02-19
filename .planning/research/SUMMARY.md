@@ -1,369 +1,491 @@
-# Research Summary: Performance Optimization for variantcentrifuge v0.13.0
+# Research Summary: v0.15.0 Modular Rare Variant Association Framework
 
-**Project:** variantcentrifuge (Clinical genomic variant analysis pipeline)
-**Milestone:** v0.13.0 Performance Optimization
-**Target:** 3-4x full pipeline speedup on large cohorts (5,125 samples, 22 GB VCFs)
-**Research Date:** 2026-02-14
-**Confidence:** HIGH
+**Project:** variantcentrifuge — v0.15.0 milestone
+**Domain:** Rare variant association testing for clinical genomics (nephrology, GCKD cohort)
+**Researched:** 2026-02-19
+**Confidence:** HIGH (primary literature + direct codebase reading)
+
+---
+
+## Executive Summary
+
+This milestone adds a modular rare variant association framework to variantcentrifuge, upgrading
+the existing Fisher's exact test in `gene_burden.py` to a multi-test engine supporting SKAT,
+SKAT-O, ACAT-O, logistic/linear burden tests, covariate adjustment, and PCA integration. The GCKD
+cohort (5,125 samples) is the primary target; all existing Mendelian analysis capabilities
+(inheritance patterns, compound het, scoring) remain unchanged. The framework must be backward-
+compatible: `--perform-gene-burden` users see zero behavioral change. The entire new `association/`
+package is declared as an optional extra in pyproject.toml; the main package remains importable
+without R or matplotlib.
+
+The recommended approach is a six-phase build that starts with foundation abstractions and a
+Fisher-equivalent refactor (bit-identical to current output), then adds covariate-adjusted burden
+tests (using existing statsmodels), the R SKAT backend via rpy2 as a validated oracle, the pure-
+Python SKAT fallback validated against R, ACAT-O combination and diagnostics, and finally PCA
+computation as a pipeline stage. The dual-backend strategy (R via rpy2 + pure Python) is the key
+architectural decision: it gives users without R a validated fallback while using the canonical R
+SKAT package as the ground truth during development. Approximately 80% of the new statistical
+functionality uses already-required dependencies (scipy, statsmodels, numpy).
+
+The three most dangerous failure modes are: (1) Davies method silently returning wrong p-values
+for extreme significance levels without raising any error; (2) using continuous-trait SKAT on
+binary phenotypes without small-sample correction, which causes 5-fold type I error inflation with
+imbalanced case/control ratios; and (3) rpy2 called from ThreadPoolExecutor worker threads, which
+crashes the pipeline via segfault with no Python traceback. All three must be addressed as
+architecture decisions in Phase 1, before any statistical code is written.
 
 ---
 
 ## Key Findings
 
-This research covers performance optimization of a pandas-heavy clinical genomics pipeline. The codebase currently processes 22 GB VCFs with 5,125 samples across 2,500 genes, taking 90 minutes. The 3-4x speedup target is achievable through **incremental optimization** without architectural rewrites. Critical insight: the tool uses `dtype=str` everywhere as a defensive measure, and optimizations must preserve byte-identical output for clinical correctness.
+### Stack Additions
 
-Research identified 27+ specific optimizations across 7 integration points, organized into 3 tiers. Tier 1 optimizations (remove dead code, add `observed=True`, PyArrow engine, categorical dtypes) deliver 1.5-2x speedup in 1-2 weeks with low risk. Tier 2 (vectorize iterrows/apply, xlsxwriter, DataFrame pass-through) pushes to 3.6x in 2-4 weeks. Tier 3 (pipe fusion, Cython, full vectorization) reaches 5x but has higher complexity. The phased approach minimizes risk by keeping old implementations as feature-flagged fallbacks.
+The existing stack (pandas, numpy, scipy, statsmodels) handles approximately 80% of the new
+functionality without new required dependencies. Only two optional dependencies are added:
+`rpy2>=3.6.4` for the R SKAT backend and `matplotlib>=3.10` for diagnostic plots. Both are
+declared under a new `[association]` extra — not required dependencies. The Davies method C
+extension (`qfc.c` from the CompQuadForm R package) is bundled as source and compiled at runtime
+via ctypes stdlib; if gcc is unavailable, Liu moment-matching (implemented in 20 lines of
+existing scipy primitives) serves as fallback.
 
-The performance analysis report revealed inheritance analysis consumes 40-60% of total time (dominated by `df.apply(axis=1)` with 5,000-key dicts per row), gene burden has 20-30% dead code (GT parsing loop results never used), and Excel generation re-reads multi-GB TSV from disk. These bottlenecks are addressable with proven pandas techniques rather than migration to Polars or GPU frameworks.
+**Core additions:**
+
+- `rpy2>=3.6.4` (optional, `[association]` extra) — R bridge for canonical SKAT package; 3.6.0 fixed R 4.3+ `Rcomplex` C-API bug; broad `except Exception` required at import, not just `ImportError` (R initialization failures raise `OSError` and `RRuntimeError`, not only `ImportError`)
+- `ctypes` (stdlib) — wraps `qfc.c` for Davies method; no new dependency; runtime lazy compile with Liu fallback if gcc absent
+- `scipy.stats.ncx2 / norm` (existing) — Liu 2009 moment-matching fallback; 20-line implementation from published algorithm; no new scipy requirement
+- `scipy.linalg.eigh` (existing) — SKAT kernel eigenvalues; use `eigh` not `eig` for symmetric matrices (guaranteed real eigenvalues, faster)
+- `statsmodels.api.Logit / OLS` (existing, 0.14.6) — logistic/linear burden tests; use `wald_test(scalar=True)` explicitly for forward compatibility with 0.15.x API change
+- `matplotlib>=3.10` (optional) — QQ/Manhattan plots; lazy import only; `matplotlib.use("Agg")` must precede pyplot import for headless HPC nodes
+
+**Critical Python version decision (must resolve before Phase 1):**
+
+scipy 1.16 dropped Python 3.10. The current `requires-python = ">=3.10"` with no upper scipy
+bound means Python 3.10 users get scipy 1.15.x (maintenance-only) while Python 3.11+ gets
+scipy 1.17.x (active development, January 2026). Recommendation: bump `requires-python = ">=3.11"`.
+HPC clusters have standardized on Python 3.11+ by 2025 and scipy 1.17.0 includes linalg
+improvements relevant to SKAT kernel computation.
+
+**Do NOT add:** momentchi2 (abandoned since 2021; Liu via scipy is equivalent), cffi (no
+advantage over ctypes for one stable function), hatch-cython (build-time gcc requirement defeats
+portability goal), pystatgen/limix (heavy BLAS/MKL deps, poor Windows support).
+
+**pyproject.toml delta:**
+
+```toml
+[project.optional-dependencies]
+association = ["rpy2>=3.6.4", "matplotlib>=3.10"]
+
+[tool.hatch.build.targets.wheel]
+artifacts = ["variantcentrifuge/data/*.c"]  # Bundle qfc.c source
+```
+
+### Feature Categories
+
+**Table stakes — publishable credibility requires all of these:**
+
+- Fisher's exact test (refactored, bit-identical output to current `--perform-gene-burden`)
+- Logistic regression burden test with covariate adjustment (OR + 95% CI)
+- SKAT and SKAT-O via dual backend (R via rpy2 + pure Python fallback)
+- Beta(MAF; 1, 25) variant weights as default (the dominant standard across SKAT/SAIGE/REGENIE)
+- FDR (BH) and Bonferroni multiple testing correction (already in gene_burden.py; carry over)
+- Per-gene TSV output with p-values, effect sizes, variant counts, confidence intervals
+- Lambda_GC genomic inflation factor diagnostic (expected in any analysis submission)
+- QQ plot data TSV (observed vs expected -log10(p); plot optional, TSV mandatory)
+- Binary trait support (case/control is the primary GCKD design)
+
+**Standard output columns (seqMeta/SAIGE-GENE+ convention):**
+
+```
+GENE  n_variants  n_cases  n_controls  case_carriers  control_carriers
+fisher_p  fisher_or  fisher_ci_lower  fisher_ci_upper
+burden_p  burden_beta  burden_se  burden_or  burden_or_ci_lower  burden_or_ci_upper
+skat_p  skat_stat
+skat_o_p  skat_o_rho_opt  skat_o_stat
+acat_o_p
+corrected_fisher_p  corrected_skat_o_p  corrected_acat_o_p
+```
+
+**Differentiators — post-MVP, high scientific value:**
+
+- ACAT-O omnibus test (analytically simple once SKAT/burden p-values exist; combine with Cauchy combination then single FDR)
+- ACAT-V per-variant Cauchy combination
+- Quantitative trait support (linear burden + linear SKAT for continuous phenotypes like eGFR)
+- Functional variant weights (CADD-normalized, REVEL-based — scores already in pipeline columns from SnpSift extraction)
+- PCA file integration (PLINK .eigenvec, AKT, generic TSV; 10 PCs default)
+- JSON config mode for reproducible analysis SOP
+- `p_method` column in output indicating Davies/saddlepoint/Liu (transparency on numerical precision)
+- `SKAT_Null_Model_MomentAdjust()` for small-sample binary trait correction (R backend default)
+
+**Defer to v2+ (explicit anti-features — do not build):**
+
+- Meta-analysis (RAREMETAL, Meta-SAIGE) — different problem, out of scope for single-cohort tool
+- Mixed model / GRM (SAIGE-GENE approach) — biobank-scale; PCs + kinship exclusion sufficient for GCKD (<10K samples)
+- Phased haplotype tests — existing comp_het.py already handles compound heterozygous detection
+- DeepRVAT neural network weights — requires massive training data, no nephrology model exists
+- Conditional analysis — for known-signal follow-up; not needed for discovery
+- Adaptive permutation p-values — high complexity; flag low-MAC genes in output as mitigation
+- Allelic series test (COAST) — requires BMV/DMV/PTV classification; PolyPhen/SIFT available but v2+ scope
+- REGENIE-style whole-genome split — designed for >100K samples; not needed for lab cohorts
+
+**Small-sample handling (GCKD-specific):** With N_cases potentially 50-500, use
+`SKAT_Null_Model_MomentAdjust()` (R backend) and `method="optimal.adj"` (SKAT-O) as defaults.
+Flag genes where `case_carriers < 10` in output for cautious interpretation.
+
+### Architecture Integration
+
+The association framework slots into the existing stage-based pipeline as two new stages
+(`AssociationAnalysisStage` and `PCAComputationStage`) without modifying any existing stage.
+`GeneBurdenAnalysisStage` becomes a conditional shim that skips execution when
+`--perform-association` is active. The `gene_burden.py` aggregation utilities (`_find_gt_columns`,
+`_gt_to_dosage`, `_aggregate_gene_burden_from_columns`) are reused directly by the new engine
+rather than duplicated. The R backend is isolated via a factory pattern (`get_skat_backend()`) so
+the entire `association/` package remains importable without R.
+
+**New package layout:**
+
+```
+variantcentrifuge/
+  association/           # NEW — statistical engine
+    engine.py            # AssociationEngine orchestrator (per-gene loop)
+    config.py            # AssociationConfig dataclass
+    results.py           # TestResult, AssociationResults container
+    correction.py        # FDR/Bonferroni (refactored from gene_burden.py)
+    covariates.py        # Covariate file loading + PCA merging + alignment validation
+    pca.py               # PCA file parser + AKT/PLINK wrappers
+    diagnostics.py       # Lambda_GC, QQ plot data
+    tests/               # One module per statistical test
+      base.py            # Abstract AssociationTest + TestResult
+      fisher.py          # Thin wrapper around gene_burden logic
+      logistic_burden.py # statsmodels.Logit; OR + 95% CI
+      linear_burden.py   # statsmodels.OLS; beta + SE
+      skat.py            # SKAT/SKAT-O dispatch to backend factory
+      acat.py            # ACAT-V, ACAT-O Cauchy combination
+    weights/             # Variant weighting schemes
+      beta_weights.py    # Beta(MAF; 1, 25) via scipy.stats.beta.pdf
+      uniform.py         # Uniform weights
+    backends/            # SKAT-specific computation only
+      r_backend.py       # rpy2 bridge to R SKAT (module-level rpy2 import OK here)
+      python_backend.py  # Pure Python SKAT
+      davies.py          # Davies ctypes(qfc.c) + saddlepoint + Liu fallback
+
+  stages/
+    analysis_stages.py   # MODIFY: add AssociationAnalysisStage; GeneBurdenAnalysisStage becomes shim
+    processing_stages.py # MODIFY: add PCAComputationStage
+
+  pipeline_core/
+    context.py           # MODIFY: add association_results field
+
+  data/
+    qfc.c                # NEW: bundled Davies method C source
+```
+
+**Key integration points:**
+
+- `AssociationAnalysisStage` hard-depends on `{"dataframe_loading", "sample_config_loading"}` and soft-depends on `{"custom_annotation", "pca_computation"}`; declared `parallel_safe = False` when R backend active
+- `PCAComputationStage` lives in `processing_stages.py`, hard-depends on `{"variant_extraction"}`, stores eigenvectors in `context.stage_results["pca_computation"]`
+- `PipelineContext` gains one new field: `association_results: Any | None = None`
+- `get_skat_backend()` factory is called inside `AssociationEngine`, never at module import time
+- `ExcelReportStage` gets a new "Association" sheet and optional "QQ Data" sheet
+- Output: `{base}.association.tsv` + optional `{base}.diagnostics/` directory
+- Genotype matrix is NEVER stored in PipelineContext — extracted per-gene inside the engine loop and discarded immediately (memory safety: 5K samples × 50K variants = 1.6 GB if stored)
+- `gene_burden.py` is not removed or restructured during this milestone; `perform_gene_burden_analysis()` remains the public API for backward compat
+
+**Backward compatibility guarantee:** `--perform-gene-burden` alone produces zero behavioral change. `GeneBurdenAnalysisStage` shim exits early only when `perform_association=True`.
+
+### Critical Pitfalls (Top 5)
+
+**1. R thread safety — crashes parallel pipeline (CRITICAL)**
+
+R is not thread-safe. Calling rpy2 from `ThreadPoolExecutor` worker threads (the existing parallel
+execution path in `pipeline_core/runner.py`) causes segfaults or `ValueError: signal only works
+in main thread`. No Python traceback is produced — the crash is silent from the pipeline's
+perspective. Prevention: declare any stage using the R backend as `parallel_safe = False`. R
+backend calls must originate from the main thread only. Use `ProcessPoolExecutor` (separate
+interpreter per process) only for the pure Python backend. This constraint must be locked in as
+an architecture invariant before any SKAT code is written.
+
+**2. Binary trait type I error inflation (CRITICAL)**
+
+Standard SKAT (continuous-trait formulation) on binary phenotypes with case/control imbalance
+produces up to 5-fold inflated type I error. The asymptotic null distribution is inaccurate for
+sparse genotype data with imbalanced samples. Prevention: always use `SKATBinary` (R package) for
+binary traits, never `SKAT`. Implement moment-adjustment (`SKAT_Null_Model_MomentAdjust`) as the
+default for small samples. Default to `method="optimal.adj"` for SKAT-O. Warn when `n_cases < 200`
+or `case:control ratio > 1:20`. Gate on trait_type at null model construction time in Phase 1
+— this decision cannot be retrofitted later.
+
+**3. Davies method silent numerical failure (CRITICAL)**
+
+The Davies method returns plausible-looking wrong p-values (not an error, no exception) when the
+true p-value falls below 10^-6 with default accuracy settings (acc=1e-6, lim=10^4). It may also
+return exactly `0.0` due to floating-point underflow, which is uninformative. Prevention: use
+corrected defaults from Liu et al. 2016 (acc=1e-9, lim=10^6). Implement hybrid fallback chain:
+Davies (primary) → saddlepoint approximation (secondary) → Liu (last resort only). Never pass
+`p=0.0` downstream; log as `"p < precision_floor"`. Record computation method in `p_method` output
+column. Liu is anti-conservative for p < 10^-4 — it must not be treated as a routine fallback.
+
+**4. rpy2 memory leaks in per-gene loops (HIGH)**
+
+R objects created during each per-gene SKAT call accumulate in R's heap because Python's GC cannot
+see R-managed memory. For 5K samples × thousands of genes, peak memory eventually exceeds HPC node
+limits. Prevention: convert R results to Python primitives immediately (`float(result[0])`, not
+`result[0]`), `del` R object references after each gene, call `rpy2.robjects.r('gc()')` every
+100 genes. Profile memory on a 100-gene run before declaring the R backend production-ready.
+
+**5. Sample/covariate mismatch — silent analysis corruption (MEDIUM but extremely dangerous)**
+
+Genotype data row order is determined by the VCF header. Covariate file row order is arbitrary.
+If alignment is incorrect, each sample's covariates are assigned to the wrong genotype row — the
+analysis runs without errors and produces plausible but completely wrong results. Prevention:
+always reindex the covariate DataFrame to `context.vcf_samples` order explicitly. Assert no NaN
+after reindex (any VCF sample absent from the covariate file is an error, not a warning). Test
+with shuffled covariate file row order and assert identical results.
+
+**Additional high-severity pitfalls (tracked in PITFALLS.md):**
+
+- Eigenvalue instability from near-singular kernel matrices: use `scipy.linalg.eigh`, threshold `eigenvalues = np.maximum(eigenvalues, 0)`, skip SKAT for genes with `matrix_rank < 2`
+- Genotype matrix construction: existing `_gt_to_dosage` must be audited for `1/2` multi-allelic hets and `./. ` missing genotypes (mean-impute to 2×MAF, not 0)
+- SKAT-O rho grid correctness: the covariance of rho-specific statistics is non-trivial; implement SKAT before SKAT-O; validate Python SKAT-O via extensive null simulation before deploying
+- Multiple testing strategy: apply ACAT-O Cauchy combination within genes, then single FDR correction across genes — applying FDR separately per test is statistically wrong
+- PC overcorrection: >10 PCs can inflate type I error; default to 10; warn at >20; validate lambda_GC under permuted null
 
 ---
 
-## Stack Additions
-
-Add these dependencies to `pyproject.toml` for benchmarking and optimization:
-
-**Core Performance Stack (required):**
-- `pyarrow>=23.0` — Columnar backend for pandas; 2-3x faster CSV I/O, 70% memory reduction for strings
-- `numba>=0.63` — JIT compilation for numeric kernels; 100-740x speedup on vectorized array operations
-- `xlsxwriter>=3.2` — Fast Excel generation; 2-5x faster than openpyxl for write-only operations
-
-**Benchmarking and Profiling (dev dependencies):**
-- `pytest-benchmark>=5.2` — Regression tracking with pedantic mode for exact iteration control
-- `py-spy>=0.4` — Production profiling with native C extension support for pandas/NumPy profiling
-
-**Build System (optional, only if Cython extensions needed in Tier 3):**
-- `hatch-cython>=0.5` — Integrates Cython with existing hatchling build system
-- `Cython>=3.2` — Compiled extensions for hot paths (genotype string processing)
-
-**Version Requirements:**
-- Ensure `pandas>=2.0` (already present) to support PyArrow backend
-- All tools ship pre-built wheels for Windows and Linux (x86-64, ARM64)
-
-**NOT Recommended:**
-- Polars (requires 3-6 week full rewrite, breaks scikit-learn/matplotlib integration)
-- Dask/Ray (pipeline not memory-bound, ProcessPoolExecutor already handles parallelism)
-- GPU acceleration (I/O and string-processing bound, not numeric-heavy)
-- Rust extensions (Cython achieves 90% of Rust performance with 50% less complexity)
-
----
-
-## Feature Categories
-
-### Table Stakes (Expected, Zero-Risk)
-
-| Feature | Impact | Effort | Rationale |
-|---------|--------|--------|-----------|
-| **Eliminate df.apply(axis=1)** | 40-60% time saved | Medium | Standard pandas optimization; apply(axis=1) is 10-100x slower than vectorization |
-| **Replace iterrows() loops** | 10-13x speedup | Low | Three instances in inheritance analysis; itertuples is drop-in replacement |
-| **Add observed=True to groupby** | Prevents 3500x slowdown | Trivial | 12 call sites; critical when categorical dtypes added |
-| **Typed dtypes (not dtype=str)** | 50-80% memory reduction | Medium | Convert CHROM→category, POS→int64, AF→float64; enables NumPy vectorization |
-| **PyArrow engine for CSV I/O** | 2-3x I/O speedup | Low | Industry standard since 2024; 16 pd.read_csv calls need `engine="pyarrow"` |
-| **Remove dead code** | 20-30% of gene burden | Low | Lines 220-249 in gene_burden.py parse GT but results never used |
-
-### Differentiators (Maximum Impact)
-
-| Feature | Impact | Effort | Rationale |
-|---------|--------|--------|-----------|
-| **Vectorize inheritance deduction** | 100-740x on hottest path | High | Replace lambda row: deduce_patterns_for_variant(row.to_dict(), ...) with NumPy matrix ops |
-| **xlsxwriter for Excel** | 2-5x Excel speedup | Low | openpyxl writes cells one-by-one; xlsxwriter streams 2-5x faster |
-| **Pre-parse GT column once** | Eliminates re-parsing overhead | Medium | GT parsing happens per-gene; do once at load time |
-| **Categorical dtypes** | 50-90% memory reduction | Low | CHROM (~25 values), IMPACT (4), FILTER (3) waste 90-99% memory as strings |
-| **Pass DataFrame in memory** | Eliminates 2-10 GB disk read | Trivial | Excel stage re-reads TSV that's already in context.current_dataframe |
-| **Pipe fusion for external tools** | Eliminates 2 temp VCFs | Medium | Current: bcftools → temp → SnpSift → temp → extractFields; use pipes instead |
-| **Parquet/Feather intermediates** | 4-15x I/O speedup | Medium | Feather: 2.3s vs 15s CSV for 5M records; replace write-then-read temp TSV |
-| **Numba JIT for hot loops** | 10-50x on numeric ops | Medium | Best for NumPy array operations; first-call compilation overhead, subsequent cached |
+## Implications for Roadmap
+
+The dependency graph from FEATURES.md and ARCHITECTURE.md dictates a clear 6-phase build order.
+Each phase is independently testable and delivers scientific value before the next begins.
+
+### Phase 1: Foundation — Core Abstractions + Fisher Refactor
+
+**Rationale:** All subsequent phases depend on `AssociationAnalysisStage` being registered in the
+pipeline and the `AssociationEngine` orchestration pattern being established. The Fisher refactor
+provides a validatable baseline with no new math — the validation gate is bit-identical output.
+Critical architecture decisions (R thread safety, binary trait gating, correction strategy) must
+be locked in here before any statistical code is written.
+
+**Delivers:**
+- `association/` package skeleton (`__init__.py`, `config.py`, `results.py`, `tests/base.py`)
+- `association/tests/fisher.py` wrapping existing `gene_burden.perform_gene_burden_analysis`
+- `AssociationEngine` with single-test execution loop
+- `AssociationAnalysisStage` (Fisher-only) registered in `stage_registry.py`
+- `GeneBurdenAnalysisStage` shim check (`perform_association` guard)
+- `PipelineContext.association_results` field added to `context.py`
+- `ExcelReportStage` "Association" sheet extension
+- CLI args: `--perform-association`, `--association-tests`
+- `association/correction.py` (FDR/Bonferroni, refactored from gene_burden.py, re-exported there)
+
+**Validation gate:** `--perform-association --association-tests fisher` produces bit-identical
+output to `--perform-gene-burden` across all existing integration tests. All existing
+`--perform-gene-burden` integration tests pass unchanged.
+
+**Addresses pitfalls:** R thread safety architecture decision, multiple testing strategy design,
+sample mismatch validation pattern established in covariates.py foundation.
+
+**Research flag:** Standard patterns — no additional research needed. Stage integration and
+factory patterns are well-established in the existing codebase.
+
+### Phase 2: Covariate System + Logistic/Linear Burden
+
+**Rationale:** Uses only existing dependencies (statsmodels is already required). Provides
+immediate scientific value (covariate-adjusted burden tests) before the complex SKAT math.
+Establishes the covariate matrix assembly pattern that all later phases reuse. The genotype matrix
+builder audit for multi-allelic/missing genotypes belongs here (it affects burden tests as well
+as SKAT).
+
+**Delivers:**
+- `association/covariates.py` — covariate file loading, sample ID alignment to `vcf_samples`, missingness validation, condition-number multicollinearity check
+- `association/weights/` — `beta_weights.py` (Beta(MAF; 1, 25) via `scipy.stats.beta.pdf(maf, 1, 25)`), `uniform.py`
+- `association/tests/logistic_burden.py` — `statsmodels.Logit` with Wald and LRT tests, OR + 95% CI; `wald_test(scalar=True)` for API forward-compat
+- `association/tests/linear_burden.py` — `statsmodels.OLS` with beta + SE for quantitative traits
+- Genotype matrix builder audited and tested for `1/2`, `.|.`, `0|1`, `./.` edge cases; mean imputation for missing
+- CLI args: `--covariate-file`, `--covariates`, `--variant-weights`, `--trait-type`
+
+**Avoids:** Covariate multicollinearity (condition number check), sample mismatch (explicit
+reindex with assertion), PC overcorrection (document 10-PC default before PCA stage exists).
+
+**Research flag:** Standard patterns — statsmodels Logit/OLS API well-documented; wald_test
+scalar note already captured in STACK.md.
+
+### Phase 3: R SKAT Backend (Oracle)
+
+**Rationale:** The R SKAT package (leelabsg/SKAT on CRAN) is the peer-reviewed gold standard
+with 10+ years of validation. Build and validate it before writing the Python backend — this
+order allows the R backend to serve as the correctness oracle during Phase 4 development.
+
+**Delivers:**
+- `association/backends/base.py` — `SKATBackend` ABC, `NullModel` container
+- `association/backends/__init__.py` — `get_skat_backend()` factory (lazy, never at module import time)
+- `association/backends/r_backend.py` — `RSKATBackend` via rpy2; `SKATBinary` for binary traits by default; `SKAT_Null_Model_MomentAdjust` for small-sample binary adjustment; explicit R GC every 100 genes; `parallel_safe = False` on the stage
+- `association/tests/skat.py` — dispatch to backend for both SKAT and SKAT-O
+- Synthetic cohort test fixtures (100 cases/controls, 50 genes, 5 signal genes with injected burden)
+- CLI arg: `--skat-backend auto|r|python`
+
+**Avoids:** R thread safety (enforce `parallel_safe = False`, main-thread-only R calls; no
+ThreadPoolExecutor for R-using stages), binary trait type I error (SKATBinary + moment adjustment
+by default), R memory leaks (explicit del + periodic gc()), R_HOME detection failure (informative
+error message + automatic fallback to Python backend).
+
+**Research flag:** Needs phase research for rpy2 thread safety solution before implementation
+commits. Specifically: whether `parallel_safe=False` on the stage is sufficient given the existing
+runner architecture, or whether a dedicated R worker process with queue-based serialization is
+required.
+
+### Phase 4: Pure Python SKAT Backend
+
+**Rationale:** Requires the R backend as a correctness reference. The iterative development loop
+(implement → compare against R on same inputs → fix discrepancies) needs both backends running
+simultaneously. SKAT before SKAT-O — validate the simpler test first, then add the rho grid.
+
+**Delivers:**
+- `association/backends/davies.py` — Liu fallback first (pure scipy, always available), then ctypes qfc.c lazy compile; fallback order: Davies → saddlepoint → Liu; `p_method` metadata in every result
+- `association/backends/python_backend.py` — `PythonSKATBackend`; SKAT implementation first; SKAT-O only after SKAT validates against R across 50+ genes
+- `variantcentrifuge/data/qfc.c` — bundled qfc.c source from CompQuadForm; `pyproject.toml` artifacts field updated
+- Validation test suite: Python vs R p-values within 10% relative difference on log10(p) scale for p > 0.001; larger differences expected and documented for p < 0.001
+- Eigenvalue stability: `scipy.linalg.eigh`, threshold `np.maximum(eigenvalues, 0)`, skip if `matrix_rank < 2`
+
+**Avoids:** Davies silent failure (acc=1e-9, lim=10^6; saddlepoint fallback; p=0.0 logged as
+floor, not passed downstream), SKAT-O rho correctness (SKAT first; null simulation before SKAT-O
+deployment), Liu anti-conservation (Liu is last resort with `p_method="liu"` flag), ctypes
+compilation failures (Liu always available; Davies is enhancement).
+
+**Research flag:** Needs phase research for saddlepoint approximation algorithm (the middle tier
+of the Davies fallback chain). Not in scipy stdlib; requires derivation from Davies 1980 or
+reference implementation from fastSKAT literature before Phase 4 starts.
 
-### Anti-Features (Explicitly Avoid)
+### Phase 5: ACAT-O + Diagnostics
 
-- **Migrate to Polars** — 10-100x speedup but requires complete rewrite; pandas + optimizations hits target
-- **GPU acceleration** — I/O-bound and logic-heavy pipeline, not numeric-heavy; transfer overhead negates benefit
-- **SharedMemory for parallel stages** — Complexity not justified for small gene-level DataFrames (1-20 variants each)
-- **Cython/Rust for all code** — Only justified for proven bottlenecks after other optimizations exhausted
-- **Custom C extensions for VCF** — Use cyvcf2 (wraps htslib); don't reinvent bioinformatics wheel
-- **Async I/O** — Genomic files are GB-scale; async helps network I/O, not local disk bandwidth-bound
-- **In-memory databases (SQLite/DuckDB)** — Query layer overhead; pandas already in-memory and optimized
-- **Modin** — Drop-in parallelized pandas but doesn't fix root cause (inefficient apply/iterrows)
+**Rationale:** Analytically simple once SKAT and burden p-values exist (ACAT-O is a Cauchy
+combination formula, a few lines of scipy). Diagnostics require all p-values to be collected
+across all genes, making this naturally the last computation step.
 
----
+**Delivers:**
+- `association/tests/acat.py` — ACAT-V (per-variant Cauchy via `scipy.stats.cauchy.sf`) and ACAT-O (combine SKAT + burden + ACAT-V p-values; one Cauchy combination per gene)
+- `association/diagnostics.py` — lambda_GC per test (`median(chi2) / 0.4549`), QQ data TSV, optional matplotlib QQ plot PNG with lazy headless import
+- `ExcelReportStage` "QQ Data" sheet addition
+- Single FDR correction applied to ACAT-O p-values across genes (not separately per test)
+- Per-test raw p-values reported alongside combined ACAT-O for full transparency
+- CLI arg: `--diagnostics-output` (path for diagnostics/ directory)
 
-## Architecture Integration
+**Avoids:** Multiple testing correction on wrong set (ACAT-O combination then single FDR),
+ACAT-O with non-uniform inputs (validate all inputs are analytical p-values, not permutation-
+based), Liu anti-conservation (ACAT-O inputs come from Davies/saddlepoint path).
 
-Optimizations integrate through 7 integration points across the existing stage-based pipeline:
+**Research flag:** Standard patterns — ACAT methodology is well-published (Liu et al. 2019,
+PMC6407498). Cauchy combination formula is straightforward.
 
-**Integration Points:**
+### Phase 6: PCA Integration
 
-1. **DataFrameLoadingStage** (analysis_stages.py)
-   - Add `load_optimized_dataframe()` utility
-   - Apply PyArrow engine, categorical dtypes, pre-parsed GT column
-   - Risk: MEDIUM (PyArrow edge cases, categorical requires observed=True everywhere)
+**Rationale:** Optional and architecturally independent. Pre-computed PCA files already work from
+Phase 2 onward via `--covariate-file`. The `PCAComputationStage` is purely additive. Deferring it
+allows Phases 1-5 to validate the statistical core without the external tool dependency.
 
-2. **InheritanceAnalysisStage** (analysis_stages.py)
-   - Replace `apply(axis=1)` with itertuples (10x) or vectorization (100-740x)
-   - Replace Pass 3 iterrows with itertuples
-   - Use `observed=True` on `groupby("GENE")`
-   - Risk: HIGH (complex logic, must preserve clinical correctness)
+**Delivers:**
+- `association/pca.py` — PLINK `.eigenvec` parser, AKT output parser, generic TSV parser; sample ID alignment validation
+- `PCAComputationStage` in `processing_stages.py` — wraps akt and plink2 via subprocess; stores eigenvectors in `context.stage_results["pca_computation"]`; registered in stage_registry under "processing" category
+- `covariates.py` updated to merge eigenvectors from `stage_results["pca_computation"]` alongside covariate file columns
+- Lambda_GC validation with and without PCA to detect overcorrection
+- CLI args: `--pca-file`, `--pca-tool akt|plink`, `--pca-components` (default 10; warn if >20)
+- Documentation: PCA must be computed on common variants (MAF > 1%), not on the rare variants being tested
 
-3. **StatisticsGenerationStage** (analysis_stages.py)
-   - Add `observed=True, sort=False` to all groupby calls
-   - Risk: LOW (trivial change, no logic modifications)
+**Avoids:** PC overcorrection (default 10; warn at >20; lambda diagnostic), PCA computed on rare
+variants (explicit documentation and optional validation check).
 
-4. **GeneBurdenAnalysisStage** (analysis_stages.py)
-   - Remove dead code (lines 220-249)
-   - Add `observed=True` to groupby
-   - Use pre-parsed GT column if available
-   - Risk: VERY LOW (dead code removal has zero functional impact)
+**Research flag:** Standard patterns if loading pre-computed files. Needs phase research if
+automating AKT/PLINK2 invocations — tool versions, exact command-line flags, and output format
+consistency across versions are not fully verified.
 
-5. **ExcelReportStage** (output_stages.py)
-   - Pass DataFrame from context (no re-read)
-   - Use xlsxwriter for initial write, openpyxl for finalization
-   - Risk: LOW (DataFrame already in memory, xlsxwriter well-tested)
+### Phase Ordering Rationale
 
-6. **Subprocess Pipe Fusion** (processing_stages.py)
-   - Pipe SnpSift → bgzip (eliminates temp VCF)
-   - Check all return codes (both processes)
-   - Risk: MEDIUM (pipe errors can fail silently)
+- Phases 1-2 use zero new dependencies (statsmodels/scipy already required) — validate the new architecture before adding optional extras
+- Phase 3 before Phase 4 — R backend is the oracle; correctness of the Python backend cannot be established without R comparison
+- Phase 5 after Phases 3 and 4 — ACAT-O requires p-values from both SKAT and burden tests to exist
+- Phase 6 last — PCA is optional and architecturally independent; pre-computed file path available from Phase 2 via `--covariate-file`
+- Binary trait gating (SKATBinary vs SKAT) is a Phase 1 architecture decision that cannot be retrofitted — it affects the null model interface used by all later phases
 
-7. **Shared Utilities Module** (NEW: optimization/)
-   - `dataframe_loader.py`, `dtype_optimizer.py`, `gt_parser.py`, `groupby_helper.py`, `pipe_fusion.py`
-   - Isolates all optimizations from clinical logic
-   - Risk: LOW (new code, doesn't modify existing stages directly)
+### Research Flags
 
-**Build Order (Phased):**
+**Needs deeper research before implementation:**
 
-1. **Phase 1 (Week 1): Quick Wins** — Remove dead code, add observed=True, gc.collect()
-   - Impact: 30-40% speedup
-   - Risk: VERY LOW
+- **Phase 3:** rpy2 thread safety solution in the existing PipelineRunner — whether `parallel_safe=False` on the stage is sufficient or whether a dedicated R worker process is required
+- **Phase 4:** Saddlepoint approximation implementation — the mathematical derivation for the intermediate Davies fallback tier is not in any stdlib and needs a verified reference implementation
 
-2. **Phase 2 (Week 2): DataFrame Loading** — PyArrow engine, categorical dtypes, numeric downcasting
-   - Impact: 50-70% memory reduction, 2-3x I/O speedup
-   - Risk: LOW (feature-flagged)
+**Standard patterns (skip research-phase):**
 
-3. **Phase 3 (Week 3): Inheritance Itertuples** — Replace apply/iterrows with itertuples
-   - Impact: 5-10x inheritance speedup
-   - Risk: MEDIUM (keep old implementation as fallback)
-
-4. **Phase 4 (Week 4): Excel Pass-through** — DataFrame to Excel, xlsxwriter
-   - Impact: 2-5x Excel speedup, eliminates disk re-read
-   - Risk: LOW (feature-flagged)
-
-5. **Phase 5 (Week 5, Optional): Pipe Fusion** — SnpSift → bgzip piping
-   - Impact: 10-30s faster, saves 1-2 GB temp file
-   - Risk: MEDIUM (subprocess error handling)
-
-6. **Phase 6 (Week 6+, Advanced): Vectorized Inheritance** — Full vectorization of Pass 1
-   - Impact: 100-740x on hottest path, 2-3x overall
-   - Risk: HIGH (extensive validation required, opt-in only)
-
-**Expected Cumulative Impact:**
-- Baseline: 90 min
-- After Phase 1: 60 min (1.5x)
-- After Phase 2: 25 min (3.6x)
-- After Phase 4: 18 min (5.0x)
-
-Target achieved at Phase 2-3 (2-4 weeks effort).
-
----
-
-## Critical Pitfalls (Top 5)
-
-### 1. Pandas 3.0 String Dtype Breaking Changes with PyArrow (CRITICAL)
-
-**Risk:** PyArrow engine in pandas 3.0 defaults to `string[pyarrow]` instead of object dtype. Missing value semantics change from `np.nan` to `pd.NA`, breaking string comparisons (`pd.NA == "value"` returns `pd.NA`, not `False`). Genotype matching code like `if genotype == "0/1"` fails if genotype is `pd.NA`.
-
-**Prevention:**
-- Keep `dtype=str` when using PyArrow engine: `pd.read_csv(path, sep="\t", dtype=str, engine="pyarrow")`
-- Test with pandas 3.0+ in CI
-- Use `pd.isna(value) or value == ""` instead of `if value == ""`
-- Regression test all string comparisons
-
-**Detection:** Tests fail with `TypeError: boolean value of NA is ambiguous`, different variant counts between pandas 2.x and 3.0
-
-**Affected:** #4 (PyArrow engine), #5 (categorical dtypes)
-
-### 2. Categorical Groupby 3500x Slowdown Without observed=True (CRITICAL)
-
-**Risk:** Converting columns to categorical dtype without adding `observed=True` to groupby creates groups for every possible category (e.g., 2,500 genes) even if only 3 genes have variants. Each iteration processes empty DataFrames, causing catastrophic slowdown.
-
-**Prevention:**
-- ALWAYS use `df.groupby("GENE", observed=True, sort=False)`
-- Search-and-replace across entire codebase (12 call sites)
-- Add lint rule to detect missing `observed=True`
-- Regression test: assert elapsed < 5.0s for categorical gene burden
-
-**Detection:** Tests hang or timeout, memory spikes to GB for small DataFrames, FutureWarning about observed=False
-
-**Affected:** #3 (add observed=True), #5 (categorical dtypes)
-
-### 3. Vectorization Changing Row Processing Order (CRITICAL)
-
-**Risk:** Replacing `iterrows()` with vectorized operations can break order-dependent logic. Compound heterozygous detection expects sequential gene analysis; vectorization processes all rows simultaneously without sequential state.
-
-**Prevention:**
-- Audit for side effects before vectorizing (mutation of external state is red flag)
-- Preserve order-dependent logic: `for gene, gene_df in df.groupby("GENE", sort=False):`
-- Test determinism: run 5 times, assert identical output
-- Add row checksums to output
-
-**Detection:** Different output on repeated runs, compound het pairs missing in vectorized version
-
-**Affected:** #1 (vectorize inheritance), #6 (replace iterrows), #11 (full vectorization)
-
-### 4. Dead Code Removal Breaking Validation Logic (HIGH)
-
-**Risk:** Lines 220-249 in gene_burden.py parse GT strings but results are never used. However, the parsing loop may serve as validation that GT format is correct. Removing it could allow malformed data to pass silently.
-
-**Prevention:**
-- Confirm dead code is truly unused (instrument with flag before removing)
-- Extract validation if needed: `validate_gt_format(gt_string)` applied once, fail fast
-- Add regression test for malformed GT input
-- Check git blame and PR history to understand why code was written
-
-**Detection:** Tests pass after removal but production crashes on edge cases, no ValueError on malformed GT
-
-**Affected:** #2 (remove dead code)
-
-### 5. xlsxwriter Incompatibility with openpyxl Post-Processing (HIGH)
-
-**Risk:** Pipeline uses openpyxl to finalize Excel files (add hyperlinks, freeze panes, auto-filters). xlsxwriter is write-only and cannot open existing files for modification. Switching breaks finalization step.
-
-**Prevention:**
-- Do all formatting during initial write via xlsxwriter API (freeze_panes, autofilter, write_url)
-- OR use hybrid: write with xlsxwriter, reopen with openpyxl for finalization
-- Benchmark both engines before committing
-- Test Excel output structure: assert hyperlinks, freeze panes, auto-filters present
-
-**Detection:** Missing hyperlinks/freeze panes/auto-filters, InvalidFileException from openpyxl
-
-**Affected:** #8 (xlsxwriter for Excel)
-
----
-
-## Recommended Phase Structure
-
-### Phase 1: Quick Wins (1-2 hours, 1.5x speedup)
-
-**What:** Remove dead code, add `observed=True`, enable PyArrow engine
-
-**Why First:** Zero risk, immediate 30-40% speedup, unblocks categorical dtypes
-
-**Deliverables:**
-- Remove gene_burden.py:220-249
-- Add `observed=True, sort=False` to 12 groupby calls
-- Add `gc.collect()` between stages in runner.py
-- Fix temp file leak (gene_bed.py:153)
-
-**Validation:** All tests pass, output byte-identical, gene burden 20-30% faster
-
-**Research Flags:** None (standard patterns)
-
-### Phase 2: Core Optimizations (2-3 days, 3.6x cumulative speedup)
-
-**What:** DataFrame loading optimizations, itertuples, categorical dtypes, in-memory pass-through
-
-**Why Second:** Low-medium risk, delivers target speedup, enables Phase 3+
-
-**Deliverables:**
-- Create `optimization/` module with dataframe_loader.py, dtype_optimizer.py
-- Add feature flags: `--enable-pyarrow`, `--enable-categorical-dtypes`
-- Replace iterrows with itertuples in inheritance analyzer
-- Pass DataFrame directly to Excel stage
-
-**Validation:** Output byte-identical, memory reduced 50-70%, inheritance 5-10x faster
-
-**Research Flags:** Needs research for PyArrow edge cases with malformed CSV
-
-### Phase 3: Strategic Enhancements (1-2 weeks, 5x cumulative speedup)
-
-**What:** Pre-parse GT, xlsxwriter, pipe fusion, Parquet intermediates
-
-**Why Third:** Pushes beyond target, larger refactoring, optional for 3-4x goal
-
-**Deliverables:**
-- Pre-parse GT column at load time
-- Hybrid xlsxwriter + openpyxl for Excel
-- Pipe SnpSift → bgzip → extractFields
-- Replace TSV write-then-read with Parquet
-
-**Validation:** Output functionally identical (allow 1e-9 float tolerance), Excel has hyperlinks, subprocess errors caught
-
-**Research Flags:** Needs research for subprocess piping error handling on Windows vs Linux
-
-### Defer to Post-MVP
-
-**Numba JIT compilation** — Requires extensive vectorization first; only beneficial after Phase 2 complete
-
-**Chunked processing** — Only needed if DataFrames exceed 50% system RAM; currently 22 GB → 2-10 GB DataFrame fits in 32 GB
-
-**Polars migration** — Only if optimized pandas still 3x too slow; require compelling 10x+ improvement case
-
-**Cython/Rust extensions** — Only for genotype replacement kernel if still >30% of pipeline time after Phase 3
+- **Phase 1:** Stage integration, factory pattern, abstract base classes — well-established patterns in the existing codebase (see ARCHITECTURE.md for precise integration points)
+- **Phase 2:** statsmodels Logit/OLS — well-documented; API notes already captured
+- **Phase 5:** ACAT-O Cauchy combination — simple formula from published paper (PMC6407498)
+- **Phase 6 (file loading path):** PLINK .eigenvec format is fixed and well-documented
 
 ---
 
 ## Confidence Assessment
 
-| Area | Confidence | Source Quality | Notes |
-|------|------------|----------------|-------|
-| Stack (PyArrow, numba, xlsxwriter) | HIGH | Official PyPI, pandas docs, 5+ years production use | All versions verified 2026-02-14 |
-| Features (table stakes vs differentiators) | HIGH | Performance analysis report, pandas official docs, real-world benchmarks | 27+ optimizations from actual bottleneck analysis |
-| Architecture (7 integration points) | HIGH | Existing codebase analysis, stage-based pipeline structure | Clear separation via `optimization/` module |
-| Pitfalls (pandas 3.0, categorical groupby) | HIGH | Official pandas docs, GitHub issues with reproducible examples | Critical pitfalls well-documented |
-| Phase structure (1→2→3 ordering) | HIGH | Dependency analysis, risk assessment | Phase 1-2 achieves target (3.6x), Phase 3 is stretch goal (5x) |
+| Area | Confidence | Notes |
+|------|------------|-------|
+| Stack additions | HIGH | All versions verified on PyPI 2026-02-19; ctypes vs cffi decision technically clear; scipy version constraint documented from release notes |
+| Feature requirements (table stakes) | HIGH | From original SKAT/SKAT-O papers (PMC3135811, PMC3415556) and major tool documentation (SAIGE, REGENIE) |
+| Feature requirements (differentiators) | HIGH | ACAT from PMC6407498; COAST from PMC10432147; Beta(1,25) confirmed in multiple tool docs |
+| Architecture integration | HIGH | Based on direct codebase reading of context.py, analysis_stages.py, gene_burden.py, stage_registry.py |
+| Critical pitfalls (Davies, binary traits) | HIGH | Primary literature (Liu et al. 2016, Lee et al. 2012) and SKAT package official docs |
+| rpy2 thread safety | HIGH | Multiple independent sources; documented in rpy2 code and confirmed by external reports |
+| SKAT-O rho correctness implementation details | MEDIUM | SKAT-O paper is definitive for the math; specific Python re-implementation bugs are speculative until implemented |
+| PCA tooling (akt/plink exact flags) | MEDIUM | Tool versions and output format consistency not verified against current releases |
+| Madsen-Browning current adoption | LOW | Single WebSearch source; deferred appropriately to anti-features |
 
-**Gaps to Address:**
-- PyArrow engine behavior with malformed CSV requires testing on real data
-- Subprocess piping error handling needs platform-specific validation (Windows vs Linux)
-- Benchmark stability on GitHub Actions (2.66% variance) requires ratio assertions instead of absolute thresholds
+**Overall confidence:** HIGH for architecture decisions and critical statistical pitfalls; MEDIUM
+for implementation details that only surface during Phase 4 (SKAT-O rho, saddlepoint derivation).
 
-**Overall Confidence:** HIGH — Research is specific to planned optimizations with actionable prevention strategies for all critical pitfalls.
+### Gaps to Address During Implementation
+
+- **Saddlepoint approximation algorithm:** The middle tier of the Davies fallback chain. Not in scipy stdlib. Derivation from Davies 1980 or reference from fastSKAT (PMC4375394) needed before Phase 4 starts.
+- **rpy2 thread safety solution:** Queue-based serialization is the documented solution but adds complexity. Validate whether `parallel_safe=False` on the stage is sufficient in the existing PipelineRunner, or whether a dedicated R worker process is required.
+- **GCKD cryptic relatedness:** The GCKD cohort (kidney disease study) may include related individuals. Standard SKAT assumes independence. If IBD analysis reveals kinship > 0.05 for any pairs, standard SKAT is invalid and the analysis plan requires mixed-model SKAT (GENESIS package) or sample pruning. This is a study design question that should be assessed before Phase 3.
+- **Python version bump validation:** The `requires-python = ">=3.11"` change must be confirmed acceptable before Phase 1. Active users on Python 3.10 need a migration communication plan.
+- **qfc.c compilation on HPC job nodes:** Runtime compilation via gcc works on development machines; HPC job nodes often block subprocess execution. If the GCKD cluster does not permit gcc during job execution, qfc.c must be pre-compiled into the package or the saddlepoint fallback must be treated as the production Davies path (not an exception case).
 
 ---
 
 ## Sources
 
-**Technology Stack:**
-- [PyArrow Functionality — pandas 3.0.0 documentation](https://pandas.pydata.org/docs/user_guide/pyarrow.html)
-- [pytest-benchmark documentation](https://pytest-benchmark.readthedocs.io/)
-- [py-spy GitHub](https://github.com/benfred/py-spy)
-- [xlsxwriter PyPI](https://pypi.org/project/xlsxwriter/)
-- [Cython official site](https://cython.org/)
-- [hatch-cython PyPI](https://pypi.org/project/hatch-cython/)
+### Primary (HIGH confidence)
 
-**Performance Optimization:**
-- [Enhancing performance — pandas 3.0.0 documentation](https://pandas.pydata.org/docs/user_guide/enhancingperf.html)
-- [Pandas vectorization: faster code, slower code, bloated memory](https://pythonspeed.com/articles/pandas-vectorization/)
-- [Tutorial: 700x speed improvement on Pandas with Vectorization](https://www.linkedin.com/pulse/tutorial-basic-vectorization-pandas-iterrows-apply-duc-lai-trung-minh-75d4c)
-- [For the Love of God, Stop Using iterrows()](https://ryxcommar.com/2020/01/15/for-the-love-of-god-stop-using-iterrows/)
+- [SKAT original paper — Wu et al. 2011 (PMC3135811)](https://pmc.ncbi.nlm.nih.gov/articles/PMC3135811/) — SKAT formulation, Beta(1,25) weights, kernel definition
+- [SKAT-O paper — Lee et al. 2012 (PMC3415556)](https://pmc.ncbi.nlm.nih.gov/articles/PMC3415556/) — SKAT-O rho grid, small-sample adjustment for binary traits, SKATBinary requirement
+- [Liu et al. 2016 — efficient SKAT p-value (PMC4761292)](https://pmc.ncbi.nlm.nih.gov/articles/PMC4761292/) — hybrid Davies/saddlepoint approach, corrected accuracy defaults (acc=1e-9, lim=10^6)
+- [ACAT paper — Liu et al. 2019 (PMC6407498)](https://pmc.ncbi.nlm.nih.gov/articles/PMC6407498/) — Cauchy combination formula, ACAT-O, multiple testing strategy
+- [COAST allelic series — PMC10432147](https://pmc.ncbi.nlm.nih.gov/articles/PMC10432147/) — BMV/DMV/PTV classification, COAST test; correctly deferred to v2+
+- [PC stratification in rare variant tests — PMC6283567](https://pmc.ncbi.nlm.nih.gov/articles/PMC6283567/) — empirical evidence for >10 PC overcorrection
+- [Controlling stratification — PMC8463695](https://pmc.ncbi.nlm.nih.gov/articles/PMC8463695/) — PC selection guidance
+- [rpy2 official docs — version 3.6.4](https://rpy2.github.io/doc/latest/html/introduction.html) — importr pattern, numpy2ri, memory management
+- [rpy2 changelog (Rcomplex fix in 3.6.0)](https://rpy2.github.io/doc/latest/html/changes.html) — R 4.3+ compatibility requirement
+- [SKAT R package documentation (RDocumentation)](https://www.rdocumentation.org/packages/SKAT/versions/2.0.1) — SKATBinary, SKAT_Null_Model_MomentAdjust, method="optimal.adj"
+- [SAIGE-GENE+ documentation](https://saigegit.github.io/SAIGE-doc/) — output format conventions
+- [REGENIE gene-based test options](https://rgcgithub.github.io/regenie/options/) — supported tests, ACATO as peer to SKATO
+- [CompQuadForm CRAN source — qfc.c function signature](https://rdrr.io/cran/CompQuadForm/src/R/davies.R) — verified 2026-02-19
 
-**Categorical Dtypes:**
-- [Categorical data — pandas 3.0.0 documentation](https://pandas.pydata.org/docs/user_guide/categorical.html)
-- [Be Careful When Using Pandas Groupby with Categorical Data Type](https://towardsdatascience.com/be-careful-when-using-pandas-groupby-with-categorical-data-type-a1d31f66b162/)
-- [Pandas GroupBy at Speed: Pitfalls and Power Moves](https://medium.com/@2nick2patel2/pandas-groupby-at-speed-pitfalls-and-power-moves-8b27ca7ccc5a)
+### Secondary (MEDIUM confidence)
 
-**Excel Generation:**
-- [Openpyxl vs XlsxWriter: The Ultimate Showdown](https://hive.blog/python/@geekgirl/openpyxl-vs-xlsxwriter-the-ultimate-showdown-for-excel-automation)
-- [Optimizing Excel Report Generation: From OpenPyXL to XLSXWriter](https://mass-software-solutions.medium.com/optimizing-excel-report-generation-from-openpyxl-to-xlsmerge-processing-52-columns-200k-rows-5b5a03ecbcd4)
+- [RAVA-FIRST CADD weighting — PMC9518893](https://pmc.ncbi.nlm.nih.gov/articles/PMC9518893/) — functional weight adoption
+- [DeepRVAT — Nature Genetics 2024](https://www.nature.com/articles/s41588-024-01919-z) — neural network weights, correctly excluded as anti-feature
+- [fastSKAT eigenvalue approximation — PMC4375394](https://pmc.ncbi.nlm.nih.gov/articles/PMC4375394/) — saddlepoint reference for Phase 4
+- [rpy2 R 4.4 CentOS 7 issue (GitHub #1107)](https://github.com/rpy2/rpy2/issues/1107) — platform-specific build issue scope (CentOS 7 only)
+- [rpy2 thread safety confirmed (Streamlit issue)](https://github.com/streamlit/streamlit/issues/2618) — external corroboration
+- [rpy2 memory management docs](https://rpy2.github.io/doc/v3.2.x/html/rinterface-memorymanagement.html) — gc() cadence guidance
+- [scipy PyPI (1.17.0, January 2026)](https://pypi.org/project/SciPy/) — version verified
+- [statsmodels PyPI (0.14.6, December 2025)](https://pypi.org/project/statsmodels/) — version and wald_test API note verified
+- [matplotlib PyPI (3.10.8, December 2025)](https://pypi.org/project/matplotlib/) — version verified
+- [seqMeta output conventions](https://github.com/genepi-freiburg/seqmeta) — column naming standard
+- [Multi-allelic variant association (PMC7288273)](https://pmc.ncbi.nlm.nih.gov/articles/PMC7288273/) — genotype matrix construction guidance
+- [Population stratification — PMC6283567](https://pmc.ncbi.nlm.nih.gov/articles/PMC6283567/) — PC count empirical evidence
 
-**Pitfalls:**
-- [pandas 3.0.0 whatsnew](https://pandas.pydata.org/docs/whatsnew/v3.0.0.html)
-- [String dtype breaking changes](https://github.com/pandas-dev/pandas/issues/59328)
-- [Categorical groupby slowdown](https://github.com/pandas-dev/pandas/issues/32976)
-- [AMP/CAP NGS bioinformatics validation guidelines](https://www.sciencedirect.com/science/article/pii/S1525157817303732)
+### Tertiary (LOW confidence)
 
-**Benchmarking:**
-- [GitHub Actions performance stability](https://aakinshin.net/posts/github-actions-perf-stability/)
-- [Practical performance tests](https://solidean.com/blog/2025/practical-performance-tests/)
+- Madsen-Browning / WSS current adoption rate — single WebSearch source; deferred to anti-features
+- ACAT-O replacing SKAT-O as primary — no evidence found; both are peer options in REGENIE; ACAT-O is additional test, not a replacement
 
 ---
 
-## Ready for Roadmap Creation
-
-This summary synthesizes findings from 4 parallel research streams (STACK, FEATURES, ARCHITECTURE, PITFALLS) into actionable guidance. The roadmapper agent can now structure phases with clear dependencies, risk levels, and validation criteria. All critical pitfalls have prevention strategies, and the phased approach enables incremental delivery with rollback safety.
-
-**Key Recommendations for Roadmapper:**
-1. Start with Phase 1 (trivial wins) to build momentum
-2. Phase 2 delivers target speedup; Phase 3 is optional stretch goal
-3. Every optimization behind feature flag with old implementation as fallback
-4. Byte-identical output validation required at every phase
-5. Cross-platform testing (Windows + Linux) mandatory
-6. Test with pandas 3.0+ to catch string dtype issues early
+*Research completed: 2026-02-19*
+*Synthesized from: STACK.md, FEATURES.md, ARCHITECTURE.md, PITFALLS.md (4 research streams)*
+*Ready for roadmap: yes*

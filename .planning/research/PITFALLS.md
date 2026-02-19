@@ -1,1059 +1,944 @@
-# Domain Pitfalls: Performance Optimization in Clinical Genomics Pipelines
+# Domain Pitfalls: Rare Variant Association Testing (SKAT/SKAT-O/ACAT-O)
 
-**Domain:** Clinical genomics variant analysis pipeline
-**Focus:** Adding performance optimizations to pandas-heavy bioinformatics system
-**Researched:** 2026-02-14
-**Context:** Optimizing variantcentrifuge (clinical tool, 1035 tests, Windows + Linux)
+**Domain:** Statistical rare variant association testing in clinical genomics
+**Focus:** Adding SKAT/SKAT-O, burden tests, ACAT-O, covariate adjustment, PCA integration to VariantCentrifuge
+**Researched:** 2026-02-19
+**Context:** GCKD cohort (5,125 samples, 22 GB VCF). Existing Fisher's exact pipeline. Adding dual-backend (R gold standard + Python fallback), compiled Davies method, covariates, PCA.
 
 ---
 
 ## Executive Summary
 
-Optimizing a **clinical genomics pipeline** is fundamentally different from optimizing a web service or data analytics tool. The critical constraint is **bitwise output identity** — a single dropped variant, changed filter result, or reordered row can invalidate clinical interpretation. Performance optimizations that introduce subtle semantic changes are **catastrophic failures**, not acceptable tradeoffs.
+Implementing rare variant association tests correctly is deceptively hard. The statistical methods look simple in papers but have layers of edge cases: numerical precision failures that silently return wrong p-values, binary trait corrections that are absolutely required but often omitted, rpy2 integration that breaks in multi-threaded environments, and genotype matrix construction mistakes that invalidate entire analyses. Most pitfalls do not raise errors — they return plausible-looking but wrong results.
 
-This document catalogs pitfalls specific to the 11 planned optimizations for variantcentrifuge, with emphasis on:
-1. **Clinical correctness risks** (output must be identical)
-2. **Cross-platform pitfalls** (Windows + Linux compatibility)
-3. **Integration with existing defensive architecture** (dtype=str is intentional)
-4. **Subtle pandas behavior changes** (especially pandas 3.0 string dtype defaults)
+The three most dangerous failure modes for this milestone:
+
+1. **Silent numerical failure:** Davies method returns `0.0` or `1.0` for extreme p-values without any error. Results look valid but are wrong.
+2. **Binary trait type I error inflation:** Using continuous-trait SKAT on binary phenotypes with small/imbalanced samples produces inflated false positive rates — up to 5-fold above nominal level.
+3. **Population stratification overcorrection:** Using too many PCs (>10) inflates type I error rates in burden and SKAT tests, counteracting the purpose of stratification adjustment.
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Pandas 3.0 String Dtype Breaking Changes with PyArrow Engine
+### Pitfall 1: Davies Method Silent Failure for Extreme P-Values
 
 **What goes wrong:**
 
-Starting January 21, 2026, pandas 3.0 changed the default string dtype from `object` to dedicated `string[pyarrow]` when PyArrow is installed. Code that checks `df.dtypes == 'object'` or assumes string columns are object dtype will break. More critically: **missing value semantics change** from `np.nan` (object dtype) to `pd.NA` (PyArrow strings), breaking comparisons.
+The Davies method for computing p-values from mixtures of chi-squared distributions can "falsely converge" and return incorrect results in the range 10^-6 to 10^-8 when using default accuracy settings (10^-6 accuracy, 10^4 max integration terms). Crucially, the function does not raise an error — it returns a plausible-looking p-value that is simply wrong.
+
+Additionally, when the true p-value is extremely small, the method may return exactly `0.0` due to floating-point underflow. This looks like "very significant" but is uninformative — you cannot distinguish p=10^-20 from p=10^-300.
 
 ```python
-# Pre-pandas 3.0 with dtype=str
-df = pd.read_csv("data.tsv", sep="\t", dtype=str)
-df["GENE"].dtype  # → dtype('O')  (object)
-df["GENE"].isna().sum()  # Uses np.nan
+# DANGEROUS: Default Davies accuracy — silently wrong for p < 1e-6
+p_value = davies_method(Q_stat, eigenvalues)  # May return wrong value
 
-# Pandas 3.0 with engine="pyarrow"
-df = pd.read_csv("data.tsv", sep="\t", engine="pyarrow")
-df["GENE"].dtype  # → string[pyarrow]
-df["GENE"].isna().sum()  # Uses pd.NA, different comparison semantics
+# CORRECT: Higher accuracy settings with saddlepoint fallback
+p_value = davies_method(Q_stat, eigenvalues,
+                        accuracy=1e-9,
+                        lim=1e6)            # More terms
+if p_value == 0.0:
+    # Fallback: saddlepoint approximation gives bounded estimate
+    p_value = saddlepoint_approximation(Q_stat, eigenvalues)
 ```
 
 **Why it happens:**
 
-The codebase defensively uses `dtype=str` everywhere to avoid type coercion surprises. Adding `engine="pyarrow"` while keeping `dtype=str` works, but removing `dtype=str` to gain memory benefits triggers pandas 3.0's new string inference.
+Davies algorithm inverts a characteristic function integral. For very small tail probabilities, the integral requires many terms and tight accuracy. The SKAT R package default (10^-6 accuracy, 10^4 terms) was calibrated for genome-wide thresholds, not for the 10^-8 to 10^-10 range where exome studies operate.
 
 **Consequences:**
 
-- String comparisons that worked with `==` may fail with PyArrow strings (`pd.NA == "some_value"` returns `pd.NA`, not `False`)
-- `fillna("")` behavior changes (PyArrow strings preserve `pd.NA`)
-- `.str` accessor methods return PyArrow-backed Series (faster but different dtype)
-- Genotype string matching code like `if genotype == "0/1"` may fail if genotype is `pd.NA`
+- Type I error inflation at stringent significance thresholds
+- Gene-level p-values that appear significant but are numerical artifacts
+- Analysis at genome-wide significance (5×10^-8) is unreliable with default settings
 
 **Prevention:**
 
-1. **Explicit dtype retention:**
-   ```python
-   # Keep dtype=str when using pyarrow engine
-   df = pd.read_csv(path, sep="\t", dtype=str, engine="pyarrow")
-   # NOT: df = pd.read_csv(path, sep="\t", engine="pyarrow")  # DANGEROUS
-   ```
+1. **Use stricter Davies settings:** accuracy=1e-9, lim=1e6 (from Liu et al. 2016 PMC4761292)
+2. **Implement hybrid fallback:** Davies → saddlepoint approximation → Satterthwaite (last resort)
+3. **Never use p=0.0 directly:** Log "p < X" where X is the precision floor; do not rank genes by exact 0.0 values
+4. **Validate with R SKAT:** The R SKAT package v2.0+ uses the corrected hybrid approach — compare Python implementation against R results on the same data
 
-2. **Test with pandas 3.0+ in CI:**
-   ```yaml
-   strategy:
-     matrix:
-       pandas-version: ["2.2", "3.0"]
-   ```
+**Warning signs:**
 
-3. **Explicit missing value checks:**
-   ```python
-   # BEFORE: if value == "":
-   # AFTER: if pd.isna(value) or value == "":
-   ```
+- p-values of exactly `0.0` appearing frequently
+- P-value distributions showing unexpected spikes at 10^-6 or 10^-8
+- Results disagree with R SKAT on the same input
 
-4. **Regression test all string comparisons:**
-   ```python
-   def test_genotype_matching_with_missing():
-       df = pd.DataFrame({"GT": ["0/1", "1/1", pd.NA]})
-       result = match_genotypes(df)
-       assert result.tolist() == expected  # Explicit comparison
-   ```
+**Implementation step:** Davies wrapper in Python backend — implement with correct defaults from day one.
 
-**Detection:**
-
-- Tests fail with `TypeError: boolean value of NA is ambiguous`
-- Different variant counts between pandas 2.x and 3.0
-- `AssertionError` in output identity checks
-
-**Severity:** **CRITICAL** — silently changes clinical output
-
-**Affected optimizations:** #4 (PyArrow engine), #5 (categorical/PyArrow dtypes)
+**Severity:** CRITICAL — silent wrong p-values
 
 **Sources:**
-- [pandas 3.0.0 whatsnew](https://pandas.pydata.org/docs/whatsnew/v3.0.0.html)
-- [String dtype breaking changes](https://github.com/pandas-dev/pandas/issues/59328)
-- [pandas 3.0 InfoQ coverage](https://www.infoq.com/news/2026/02/pandas-library/)
+- [Liu et al. 2016 — efficient p-value calculation for SKAT (PMC4761292)](https://pmc.ncbi.nlm.nih.gov/articles/PMC4761292/) — PRIMARY source for hybrid Davies/saddlepoint approach
+- [SKAT CRAN package documentation](https://cran.r-project.org/web/packages/SKAT/SKAT.pdf)
 
 ---
 
-### Pitfall 2: Vectorization Changing Row Processing Order with Non-Deterministic Results
+### Pitfall 2: Using Continuous-Trait SKAT for Binary Phenotypes Without Small-Sample Correction
 
 **What goes wrong:**
 
-Replacing `df.apply(axis=1)` or `iterrows()` with vectorized operations can change the order of operations when those operations have side effects or depend on row processing order. For inheritance analysis with compound heterozygous detection, order matters when building gene-level state.
+SKAT was developed for quantitative traits. When applied to binary (case/control) traits with small samples, the asymptotic null distribution is inaccurate because the sparse genotype matrix makes the "large-sample" assumption invalid. The result is conservative type I error — empirical type I error is 5-fold below nominal. This means you lose substantial power.
+
+More dangerously: **case-control imbalance causes the opposite effect** — inflated type I error. With very few cases (e.g., 50 cases, 5000 controls), standard SKAT produces false positives at 5-fold above nominal.
 
 ```python
-# BEFORE: Sequential row processing
-for idx, row in df.iterrows():
-    variant_key = create_variant_key(row)  # Uses CHROM:POS:REF:ALT
-    gene = row["GENE"]
-    # Side effect: updates global lookup
-    comp_het_results[gene][variant_key] = analyze_variant(row)
+# WRONG for binary traits, even if "it runs"
+null_model = fit_null_model(y_binary, covariates, family="binomial")
+p_value = skat(G, null_model, method="davies")  # Anti-conservative with imbalanced data
 
-# AFTER: Vectorized (WRONG if order matters)
-df["variant_key"] = df["CHROM"] + ":" + df["POS"] + ":" + df["REF"] + ":" + df["ALT"]
-# This processes all rows simultaneously — no sequential state
+# CORRECT: Use SKATBinary equivalent with small-sample adjustment
+null_model = fit_null_model(y_binary, covariates, family="binomial")
+p_value = skat_binary(G, null_model,
+                      method="Hybrid",          # Selects MA/QA/ER based on MAC
+                      is_accurate_small_sample=True)
 ```
 
 **Why it happens:**
 
-Pandas vectorized operations execute in parallel conceptually (though CPython GIL means single-threaded). Code written assuming "process row 1, then row 2" breaks when vectorized.
+The SKAT statistic's variance under the null is estimated from the asymptotic formula. For binary traits with sparse genotype data, the actual small-sample variance is much smaller than the asymptotic estimate, making the test either over- or under-conservative depending on the direction of imbalance.
 
 **Consequences:**
 
-- Compound het detection may miss variant pairs (expects sequential gene analysis)
-- Variant prioritization changes if tie-breaking uses implicit row order
-- Non-deterministic output across runs if dict insertion order matters
+- Conservative SKAT: miss real associations (power loss up to 80%)
+- Inflated SKAT with case-control imbalance: false discoveries in top results
+- Passing p-values to researchers who report associations that do not replicate
 
 **Prevention:**
 
-1. **Audit for side effects before vectorizing:**
-   ```python
-   # RED FLAG: Mutation of external state
-   for idx, row in df.iterrows():
-       global_lookup[row["key"]] = row["value"]  # SIDE EFFECT
+1. **Always use `SKATBinary` for binary traits, never `SKAT`:** The R package enforces this distinction — mirror it in Python
+2. **Implement moment-matching (MA) adjustment:** Uses eigenvalue decomposition to estimate exact small-sample variance and kurtosis
+3. **Check effective sample size before running:** Warn if n_cases < 200 or case:control ratio > 1:20
+4. **Default to "Hybrid" method:** Automatically selects MA/QA/ER based on total minor allele count (MAC), number of carriers, and case-control imbalance
 
-   # SAFE: Pure function returning values
-   results = df.apply(lambda row: pure_function(row), axis=1)
-   ```
+**Warning signs:**
 
-2. **Preserve order-dependent logic explicitly:**
-   ```python
-   # If compound het needs pairs from same gene processed together:
-   for gene, gene_df in df.groupby("GENE", sort=False):  # sort=False preserves input order
-       # Process gene_df rows in order
-   ```
+- P-value histogram is sharply L-shaped (too conservative) or U-shaped (inflated)
+- QQ-plot lambda > 1.1 under null simulation
+- R SKAT result disagrees by >2 orders of magnitude from Python result on binary traits
 
-3. **Test determinism:**
-   ```python
-   @pytest.mark.parametrize("run_number", range(5))
-   def test_inheritance_analysis_deterministic(run_number):
-       result = analyze_inheritance(df_fixture.copy())
-       assert result.equals(expected_output)  # Must be identical every run
-   ```
+**Implementation step:** Phase 1 of association framework — trait type detection must gate which null model and test function is called.
 
-4. **Add checksums to output:**
-   ```python
-   # In final TSV/Excel, include row hash
-   df["_row_checksum"] = df.apply(lambda r: hash(tuple(r)), axis=1)
-   ```
-
-**Detection:**
-
-- Different output on repeated runs with same input
-- Test failures with "Expected X variants, got Y"
-- Compound het pairs missing in vectorized version
-
-**Severity:** **CRITICAL** — breaks clinical correctness through non-determinism
-
-**Affected optimizations:** #1 (vectorize inheritance deduction), #6 (replace iterrows), #11 (full vectorization)
+**Severity:** CRITICAL — produces wrong p-values for the primary use case (case/control)
 
 **Sources:**
-- [Pandas vectorization pitfalls](https://pythonspeed.com/articles/pandas-vectorization/)
-- [Row-wise function application](https://www.architecture-performance.fr/ap_blog/applying-a-row-wise-function-to-a-pandas-dataframe/)
+- [Lee et al. 2012 — SKAT-O with small-sample adjustment (PMC3415556)](https://pmc.ncbi.nlm.nih.gov/articles/PMC3415556/)
+- [SKAT package — SKATBinary documentation](https://www.rdocumentation.org/packages/SKAT/versions/2.0.0/topics/SKATBinary)
 
 ---
 
-### Pitfall 3: Categorical Groupby 3500x Slowdown Without observed=True
+### Pitfall 3: Population Stratification Overcorrection with Excessive PCs
 
 **What goes wrong:**
 
-Converting low-cardinality columns (CHROM, GENE, IMPACT) to categorical dtype saves 70-97% memory and speeds up operations **except groupby**. Without `observed=True`, pandas groupby on categorical columns creates groups for **every possible category** (even if not present in data), causing catastrophic slowdown.
+Adding PCs as covariates corrects for population stratification — but adding too many PCs causes its own type I error inflation. Using 50 PCs inflates type I error regardless of the level of actual stratification, because the logistic regression model becomes overfit. The optimal number of PCs is usually 2-10, not 20-50.
+
+An additional complication: rare variants are more geographically clustered than common variants (due to recency of mutations), so PCA computed on common variants may not adequately capture stratification for rare variant tests. SKAT tests are particularly sensitive to this because population-specific rare variants create spurious associations.
 
 ```python
-df["GENE"] = df["GENE"].astype("category")  # 2500 genes defined
+# DANGEROUS: Too many PCs
+covariates = pd.concat([age, sex, pcs[:50]], axis=1)  # Inflated type I error
 
-# WITHOUT observed=True (DISASTER)
-gene_groups = df.groupby("GENE")  # Creates 2500 groups even if df has 10 variants in 3 genes
-# Each iteration processes empty DataFrames for 2497 genes → 3500x slower
-
-# WITH observed=True (CORRECT)
-gene_groups = df.groupby("GENE", observed=True)  # Only 3 groups
+# CORRECT: Conservative number of PCs
+covariates = pd.concat([age, sex, pcs[:10]], axis=1)  # Tested in literature
+# AND: Validate PC count using null simulations or genomic inflation lambda
 ```
 
 **Why it happens:**
 
-Pandas defaults to `observed=False` for backward compatibility (pre-3.0). This is correct for statistical analysis (you want to see zero-count categories), but catastrophic for bioinformatics pipelines where you only care about genes with variants.
+PCA on genotype matrices identifies population structure axes. The first few PCs capture continental ancestry; later PCs capture LD blocks and local structure. Including PCs that capture LD structure as covariates removes legitimate signal from the test statistic.
 
 **Consequences:**
 
-- Gene burden analysis on 2500-gene panel with 50 variants takes **hours instead of seconds**
-- Memory explosion from creating empty DataFrames for every unobserved category
-- Statistical aggregations produce nonsensical results (mean of empty group = NaN)
+- Type I error inflation: false positives in fine-scale stratified cohorts
+- Reduced power: PCs eat degrees of freedom
+- Inconsistent results across cohorts if different PC counts used
 
 **Prevention:**
 
-1. **ALWAYS use observed=True with categorical groupby:**
-   ```python
-   # Search and replace across entire codebase
-   .groupby("GENE")  # WRONG
-   .groupby("GENE", observed=True, sort=False)  # CORRECT
-   ```
+1. **Compute genomic inflation factor (lambda GC) under null:** Using permuted phenotypes, compute SKAT p-values and measure lambda. Should be ~1.0 for correct number of PCs
+2. **Start with 5 PCs, validate with simulation:** Increase only if lambda > 1.05 under null
+3. **Use PCA on common variants (MAF > 0.01) for stratification correction**, not rare variants
+4. **Document PC computation method:** LD pruning, MAF threshold, exclusion of high-LD regions (MHC, inversions) — differences here invalidate cross-cohort comparison
+5. **Warn if requested PCs > 20** with a message explaining the inflation risk
 
-2. **Add lint rule:**
-   ```python
-   # Custom ruff rule or grep check in CI
-   if "groupby(" in line and "observed=" not in line and column_is_categorical:
-       raise Error("Missing observed=True")
-   ```
+**Warning signs:**
 
-3. **Regression test:**
-   ```python
-   def test_gene_burden_with_categorical_dtype():
-       df["GENE"] = df["GENE"].astype("category")  # Force categorical
-       start = time.time()
-       result = compute_gene_burden(df)
-       elapsed = time.time() - start
-       assert elapsed < 5.0, f"Took {elapsed}s, likely missing observed=True"
-   ```
+- QQ-plot inflation (lambda > 1.1) after adding more PCs
+- Results change substantially when varying PC count from 5 to 10 to 20
+- Genomic inflation factor increases (gets worse) as PC count increases
 
-4. **Note pandas 3.0 changes default:**
-   In pandas 3.0+, `observed=True` becomes default. Add explicit `observed=True` now for forward compatibility and performance.
+**Implementation step:** PCA module and covariate preparation stage — enforce PC count guidance and provide lambda diagnostic.
 
-**Detection:**
-
-- Tests hang or timeout on categorical columns
-- Memory usage spikes to gigabytes for small DataFrames
-- Warning: "FutureWarning: The default of observed=False is deprecated"
-
-**Severity:** **CRITICAL** — makes optimization counterproductive
-
-**Affected optimizations:** #3 (add observed=True), #5 (categorical dtypes)
+**Severity:** CRITICAL — systematic false positive inflation in stratified cohorts
 
 **Sources:**
-- [Categorical groupby slowdown](https://github.com/pandas-dev/pandas/issues/32976)
-- [pandas 3.0 observed default change](https://pandas.pydata.org/docs/whatsnew/v3.0.0.html)
-- [Categorical dtype gotchas](https://towardsdatascience.com/staying-sane-while-adopting-pandas-categorical-datatypes-78dbd19dcd8a)
+- [Genome-wide stratification impact on rare variant tests (PMC6283567)](https://pmc.ncbi.nlm.nih.gov/articles/PMC6283567/) — empirical evidence for overcorrection with 50 PCs
+- [Controlling stratification in rare variant studies (PMC8463695)](https://pmc.ncbi.nlm.nih.gov/articles/PMC8463695/)
 
 ---
 
-### Pitfall 4: Dead Code Removal Breaking Validation Logic
+### Pitfall 4: rpy2 Thread Safety — R is Single-Threaded
 
 **What goes wrong:**
 
-Lines 220-249 in `gene_burden.py` parse GT strings but results are never used (line 251 says "Use the existing aggregated counts for now"). This looks like dead code to remove. **However:** the parsing loop may serve as validation that GT format is correct, even if results aren't used. Removing it could allow malformed data to pass silently.
+R itself is not thread-safe. The rpy2 bridge inherits this limitation. Importing rpy2 in any non-main thread causes `ValueError: signal only works in main thread`. Calling R functions from multiple threads simultaneously corrupts the R interpreter state, causing segfaults or silent wrong results.
+
+VariantCentrifuge uses `ThreadPoolExecutor` and `ProcessPoolExecutor` in `pipeline_core/runner.py`. If the SKAT R backend is called within a thread pool stage, the pipeline will crash or produce wrong results.
 
 ```python
-# Lines 220-249: Looks like dead code
-for _, row in gene_df.iterrows():
-    gt_value = str(row.get("GT", ""))
-    for sample_entry in gt_value.split(";"):
-        # Parse but results discarded
-        sample_name = sample_entry.split("(")[0]
-        genotype = ...
-        # Sets not used!
+# WRONG: R backend called from ThreadPoolExecutor worker thread
+with ThreadPoolExecutor(max_workers=4) as executor:
+    futures = [executor.submit(run_skat_r, gene_data) for gene in genes]
+    # Crashes with ValueError or segfault
 
-# Line 251: Uses different columns entirely
-p_var_count = int(gene_df["proband_variant_count"].sum())
+# CORRECT: R backend only in main thread; use ProcessPoolExecutor for Python backend
+# Option A: Serial R calls from main thread
+for gene in genes:
+    run_skat_r(gene_data)  # Main thread only
+
+# Option B: ProcessPoolExecutor for Python backend (separate interpreter per process)
+with ProcessPoolExecutor(max_workers=4) as executor:
+    futures = [executor.submit(run_skat_python, gene_data) for gene in genes]
 ```
 
 **Why it happens:**
 
-Code evolves. Original implementation manually parsed GT, later implementation used pre-computed columns, but the parsing loop remained as a "safety check" or was forgotten.
-
-**Consequences if removed without verification:**
-
-- Malformed GT strings that would have raised `IndexError` during parsing now pass silently
-- No validation that GT format matches expected pattern
-- Downstream crashes when other code expects valid GT format
-
-**Prevention:**
-
-1. **Confirm dead code is truly unused:**
-   ```python
-   # Instrument before removing
-   removed_code_reached = False
-   for _, row in gene_df.iterrows():
-       removed_code_reached = True  # Set flag
-       # ... parsing code ...
-   if removed_code_reached:
-       logger.warning("Code marked for removal was executed!")
-   ```
-
-2. **Extract validation if needed:**
-   ```python
-   # Replace dead loop with explicit validation
-   def validate_gt_format(gt_string: str) -> None:
-       for entry in gt_string.split(";"):
-           if "(" not in entry or ")" not in entry:
-               raise ValueError(f"Malformed GT: {entry}")
-
-   # Apply once, fail fast
-   df["GT"].apply(validate_gt_format)
-   ```
-
-3. **Add regression test for malformed input:**
-   ```python
-   def test_gene_burden_rejects_malformed_gt():
-       df = make_gene_df()
-       df.loc[0, "GT"] = "INVALID_FORMAT"  # No parentheses
-       with pytest.raises(ValueError, match="Malformed GT"):
-           compute_gene_burden(df)
-   ```
-
-4. **Check git blame and PR history:**
-   Understand **why** code was written before removing it.
-
-**Detection:**
-
-- Tests pass after removal but production crashes on edge cases
-- Different error messages (no ValueError on malformed GT)
-
-**Severity:** **HIGH** — removes implicit validation, allows bad data
-
-**Affected optimizations:** #2 (remove dead code)
-
-**Sources:**
-- Clinical validation requires explicit data quality checks
-- [AMP/CAP NGS validation guidelines](https://www.sciencedirect.com/science/article/pii/S1525157817303732)
-
----
-
-### Pitfall 5: xlsxwriter Incompatibility with Existing openpyxl Post-Processing
-
-**What goes wrong:**
-
-The pipeline uses openpyxl to **finalize** Excel files after initial write: adding hyperlinks, freeze panes, auto-filters. xlsxwriter is write-only and cannot open existing files for modification. Switching to xlsxwriter for initial write breaks the finalization step.
-
-```python
-# Current workflow (openpyxl)
-df.to_excel(xlsx_file, engine="openpyxl")  # Write
-finalize_excel_file(xlsx_file, config)     # Open with openpyxl, add formatting
-
-# After switching to xlsxwriter (BROKEN)
-df.to_excel(xlsx_file, engine="xlsxwriter")  # Write
-finalize_excel_file(xlsx_file, config)       # openpyxl.load_workbook() fails!
-# xlsxwriter doesn't support reading, openpyxl can't modify xlsxwriter files in-place
-```
-
-**Why it happens:**
-
-xlsxwriter optimizes for write performance by streaming to disk. It never builds an in-memory workbook object, so cannot be reopened for editing.
+R's signal handling is registered to the main thread at startup. rpy2 wraps R's C interface, inheriting all thread restrictions. Python's GIL does not help here because the unsafe code is inside the R C library, not Python.
 
 **Consequences:**
 
-- Hyperlinks missing (clinical users rely on SpliceAI/ClinVar links)
-- No freeze panes (usability regression)
-- No auto-filters (filtering by gene/impact broken)
+- Crash on multi-gene parallel analysis (which is the common case)
+- Segfaults that corrupt output files without error messages
+- Silent wrong results if R state is corrupted but interpreter continues
 
 **Prevention:**
 
-1. **Do all formatting during initial write:**
-   ```python
-   # Use xlsxwriter for everything, including formatting
-   with pd.ExcelWriter(xlsx_file, engine="xlsxwriter") as writer:
-       df.to_excel(writer, sheet_name="Results", index=False)
-       workbook = writer.book
-       worksheet = writer.sheets["Results"]
+1. **Establish architecture invariant:** R backend calls are ONLY from main thread or a dedicated R worker process
+2. **Route R calls through a serializing queue:** Main thread owns R; parallel worker threads submit jobs to a queue and wait for results
+3. **Use ProcessPoolExecutor for Python backend only** (separate interpreter = no shared R state)
+4. **Test in multi-gene mode explicitly:** Run with 100+ genes and verify no crashes
+5. **In PipelineStage declaration:** Mark any stage using R backend as `parallel_safe = False`
 
-       # Add formatting via xlsxwriter API
-       worksheet.freeze_panes(1, 0)
-       worksheet.autofilter(0, 0, len(df), len(df.columns)-1)
+**Warning signs:**
 
-       # Add hyperlinks
-       for row_idx in range(len(df)):
-           if df.loc[row_idx, "SpliceAI_URL"]:
-               worksheet.write_url(row_idx+1, col_idx, df.loc[row_idx, "SpliceAI_URL"])
-   ```
+- Intermittent crashes only when running with multiple genes
+- `ValueError: signal only works in main thread` during initialization
+- Segfaults with no Python traceback (crash inside R C library)
 
-2. **Hybrid approach (complex but works):**
-   ```python
-   # Write data with xlsxwriter (fast)
-   df.to_excel(xlsx_file, engine="xlsxwriter", index=False)
+**Implementation step:** Architecture decision in Phase 1 — must be decided before writing any SKAT code.
 
-   # Reopen with openpyxl for formatting (slower but familiar)
-   wb = openpyxl.load_workbook(xlsx_file)
-   # ... add formatting ...
-   wb.save(xlsx_file)
-   ```
-
-3. **Benchmark both engines before committing:**
-   ```python
-   @pytest.mark.benchmark
-   def test_excel_generation_speed(benchmark, large_df):
-       benchmark(large_df.to_excel, "test.xlsx", engine="xlsxwriter")
-       # Compare with openpyxl baseline
-   ```
-
-4. **Test Excel output structure:**
-   ```python
-   def test_excel_has_hyperlinks():
-       wb = openpyxl.load_workbook(output_xlsx)
-       ws = wb["Results"]
-       assert ws["B2"].hyperlink is not None  # SpliceAI column
-   ```
-
-**Detection:**
-
-- Missing hyperlinks in Excel output
-- Missing freeze panes and auto-filters
-- Error: "openpyxl.utils.exceptions.InvalidFileException"
-
-**Severity:** **HIGH** — breaks clinical usability features
-
-**Affected optimizations:** #8 (xlsxwriter for Excel)
+**Severity:** CRITICAL — crashes parallel pipeline
 
 **Sources:**
-- [xlsxwriter vs openpyxl comparison](https://medium.com/@badr.t/excel-file-writing-showdown-pandas-xlsxwriter-and-openpyxl-29ff5bcb4fcd)
-- [xlsxwriter alternatives](https://xlsxwriter.readthedocs.io/alternatives.html)
+- [Run R in multi-threaded environment — BioStars discussion](https://www.biostars.org/p/174459/)
+- [rpy2 thread safety — Streamlit issue](https://github.com/streamlit/streamlit/issues/2618)
 
 ---
 
 ## High Severity Pitfalls
 
-### Pitfall 6: Type Coercion Surprises When Removing dtype=str
+### Pitfall 5: rpy2 Memory Leaks with Large R Objects in Loops
 
 **What goes wrong:**
 
-The codebase uses `dtype=str` defensively to prevent pandas from inferring types incorrectly. Removing it enables optimizations (categoricals, PyArrow) but risks **silent type changes** that break string comparisons.
+When calling R functions from Python in a gene-by-gene loop, R objects created during each call are not freed because Python does not know the size of R objects (they live in R's memory space). Python's garbage collector may not trigger often enough, causing transient memory explosions.
+
+For VariantCentrifuge with 5,125 samples and thousands of genes, each SKAT call allocates an n×p kernel matrix. Without explicit cleanup, memory grows unboundedly across genes.
 
 ```python
-# WITH dtype=str (current)
-df = pd.read_csv("data.tsv", sep="\t", dtype=str)
-df["POS"].dtype  # → dtype('O'), string "12345"
-df["POS"] == "12345"  # → True
+# DANGEROUS: R objects accumulate without cleanup
+for gene in genes:
+    result = r_skat_function(G_matrix, null_model, weights)
+    p_values[gene] = result  # R objects held alive via references
 
-# WITHOUT dtype=str (RISKY)
-df = pd.read_csv("data.tsv", sep="\t")
-df["POS"].dtype  # → dtype('int64'), integer 12345
-df["POS"] == "12345"  # → False! Type mismatch
+# CORRECT: Explicit R garbage collection per batch
+import gc
+import rpy2.robjects as ro
+
+r_gc = ro.r('gc')  # R's garbage collector
+for i, gene in enumerate(genes):
+    result = r_skat_function(G_matrix, null_model, weights)
+    p_values[gene] = float(result[0])  # Convert to Python primitive immediately
+    del result                          # Release rpy2 reference
+    if i % 100 == 0:
+        r_gc()                          # Trigger R GC every 100 genes
+        gc.collect()                    # Trigger Python GC too
 ```
 
 **Why it happens:**
 
-Pandas infers numeric columns as int64/float64. Code expecting strings breaks.
+R uses NAMED-based reference tracking rather than Python's reference counting. rpy2 bridges the two, but the size of R objects is not visible to Python's GC. When large matrices (5125×50 = 256K floats per gene) are created in a loop without cleanup, peak memory can exceed available RAM.
 
 **Consequences:**
 
-- Filters comparing to string literals fail (`df[df["POS"] == "12345"]` returns empty)
-- Genotype matching breaks (`"0/1" == 0` is False)
-- JSON serialization changes (int vs string)
+- OOM killer terminates the pipeline after hours of computation
+- Swap thrashing on HPC nodes slows analysis to unusable speeds
+- Memory profiling shows monotonically increasing usage
 
 **Prevention:**
 
-1. **Explicit dtype mapping:**
-   ```python
-   GENOMIC_DTYPES = {
-       "CHROM": "category",
-       "POS": "Int64",  # Nullable int, not string
-       "REF": "string[pyarrow]",
-       "ALT": "string[pyarrow]",
-       "GT": str,  # Keep as object/string
-   }
-   df = pd.read_csv(path, sep="\t", dtype=GENOMIC_DTYPES)
-   ```
+1. **Convert R results to Python primitives immediately:** `float(r_result[0])` not `r_result[0]`
+2. **Explicit `del` of R object references after each gene**
+3. **Call `rpy2.robjects.r('gc()')` every N genes** (N=50-100 depending on cohort size)
+4. **Process genes in batches:** Complete and clear each batch before starting next
+5. **Profile memory on a 100-gene run** before declaring production-ready
 
-2. **Test type assumptions:**
-   ```python
-   def test_pos_is_numeric():
-       df = load_variants()
-       assert pd.api.types.is_integer_dtype(df["POS"])
+**Warning signs:**
 
-   def test_gt_is_string():
-       df = load_variants()
-       assert pd.api.types.is_string_dtype(df["GT"])
-   ```
+- Memory usage grows linearly with number of genes processed
+- `htop` shows increasing RSS without plateau
+- Jobs killed with signal 9 (OOM) on HPC
 
-3. **Gradual migration:**
-   Convert one hot-path file at a time, test extensively before moving to next.
+**Implementation step:** R backend wrapper — build cleanup into the gene iteration loop.
 
-**Detection:**
-
-- Failing tests with type mismatches
-- Empty filter results
-- `TypeError: '>' not supported between instances of 'str' and 'int'`
-
-**Severity:** **HIGH** — silent correctness bugs
-
-**Affected optimizations:** #5 (categorical dtypes), #4 (PyArrow engine)
+**Severity:** HIGH — OOM crash on large cohorts
 
 **Sources:**
-- [Pandas dtype pitfalls](https://notes.dsc80.com/content/02/data-types.html)
+- [rpy2 memory management documentation](https://rpy2.github.io/doc/v3.2.x/html/rinterface-memorymanagement.html)
+- [rpy2 performance and memory guidelines](https://rpy2.github.io/doc/latest/html/performances.html)
 
 ---
 
-### Pitfall 7: Subprocess Pipe Fusion Breaking Error Handling
+### Pitfall 6: Eigenvalue Computation Instability from Near-Singular Kernel Matrices
 
 **What goes wrong:**
 
-Current implementation calls `SnpSift filter`, checks return code, then calls `bgzip`. Fusing into a pipe makes error detection harder — if SnpSift fails, bgzip may still succeed, hiding the error.
+The SKAT test statistic Q has a null distribution that is a mixture of chi-squared distributions, where mixing weights are the eigenvalues of a matrix derived from the genotype covariance structure. Computing eigenvalues of a near-singular (low-rank) matrix produces numerical instability: negative eigenvalues that should be zero, eigenvalues differing by orders of magnitude, and non-convergence in iterative solvers.
+
+This happens routinely in rare variant analysis because:
+- Many genes have only 2-5 qualifying variants (very low-rank genotype matrix)
+- High LD between variants makes the covariance matrix near-singular
+- With all-rare-allele variants, most eigenvalues are effectively zero
 
 ```python
-# BEFORE: Sequential with error checking
-result = subprocess.run(["SnpSift", "filter", expr, input_vcf], check=True, capture_output=True)
-if result.returncode != 0:
-    raise RuntimeError(f"SnpSift failed: {result.stderr}")
-subprocess.run(["bgzip", temp_vcf], check=True)
+# PROBLEM: Eigenvalues with numerical noise
+eigenvalues = np.linalg.eigvalsh(K_matrix)
+# eigenvalues = [-1e-14, 2.3e-12, 0.45, 1.2, 3.7]  # Negative eigenvalues!
 
-# AFTER: Piped (RISKY)
-snpsift = subprocess.Popen(["SnpSift", "filter", expr, input_vcf], stdout=PIPE)
-bgzip = subprocess.Popen(["bgzip", "-c"], stdin=snpsift.stdout, stdout=output_file)
-bgzip.wait()  # But what if SnpSift failed?
+# CORRECT: Threshold small/negative eigenvalues
+eigenvalues = np.linalg.eigvalsh(K_matrix)
+eigenvalues = eigenvalues[eigenvalues > 1e-10 * eigenvalues.max()]  # Trim near-zero
+# Use only positive eigenvalues for Davies method
 ```
 
 **Why it happens:**
 
-Unix pipe semantics: if early process fails but writes partial output, later process succeeds. Return code is only from final process.
+Floating-point arithmetic in eigendecomposition produces small negative values for theoretically zero eigenvalues. The Davies method requires nonnegative eigenvalues (kernel matrices are positive semidefinite by construction, but numerically may not be). Passing negative eigenvalues to Davies produces undefined behavior.
 
 **Consequences:**
 
-- Truncated VCF files with no error
-- Silent filter failures (output contains unfiltered variants)
-- Non-reproducible results depending on where pipe breaks
+- Davies method returns NaN or garbage p-values
+- Crash in eigenvalue computation for degenerate cases
+- Different results across platforms (LAPACK implementations differ)
 
 **Prevention:**
 
-1. **Check all return codes:**
-   ```python
-   snpsift.stdout.close()  # Allow SIGPIPE
-   bgzip_rc = bgzip.wait()
-   snpsift_rc = snpsift.wait()
+1. **Use `np.linalg.eigvalsh` not `np.linalg.eig`:** `eigvalsh` is specialized for symmetric matrices and is more numerically stable
+2. **Threshold negative eigenvalues to zero:** `eigenvalues = np.maximum(eigenvalues, 0)` before Davies
+3. **Use SVD as alternative for near-singular matrices:** More stable than eigendecomposition for rank-deficient cases
+4. **Pre-check matrix rank:** If `np.linalg.matrix_rank(G, tol=1e-10) < 2`, skip SKAT and return NA (too few effective variants)
+5. **Use `scipy.linalg.eigh` with `driver='evd'`** for full stability on small matrices
 
-   if snpsift_rc != 0:
-       raise RuntimeError(f"SnpSift failed with code {snpsift_rc}")
-   if bgzip_rc != 0:
-       raise RuntimeError(f"bgzip failed with code {bgzip_rc}")
-   ```
+**Warning signs:**
 
-2. **Validate output:**
-   ```python
-   # After pipe completes, verify VCF is valid
-   result = subprocess.run(["bcftools", "view", "-h", output_vcf], capture_output=True)
-   if result.returncode != 0:
-       raise RuntimeError("Output VCF is malformed")
-   ```
+- NaN p-values for specific genes
+- Results that differ between platforms (Windows vs Linux) due to LAPACK differences
+- Genes with 1-2 variants consistently failing
 
-3. **Use `set -e -o pipefail` if using shell:**
-   ```python
-   subprocess.run(
-       "SnpSift filter 'expr' input.vcf | bgzip -c > output.vcf.gz",
-       shell=True, check=True, executable="/bin/bash",
-       env={**os.environ, "BASH_ENV": "set -e -o pipefail"}
-   )
-   ```
+**Implementation step:** Eigenvalue computation in Python SKAT backend — validate inputs and handle degenerate cases.
 
-4. **Test pipe failure handling:**
-   ```python
-   @pytest.mark.integration
-   def test_pipe_detects_snpsift_failure(tmp_path):
-       malformed_vcf = tmp_path / "bad.vcf"
-       malformed_vcf.write_text("NOT A VCF")
-
-       with pytest.raises(RuntimeError, match="SnpSift failed"):
-           apply_filter_piped(malformed_vcf, "1 == 1", config)
-   ```
-
-**Detection:**
-
-- Truncated output files
-- Different variant counts between piped and sequential
-- Silent test failures
-
-**Severity:** **HIGH** — hides tool failures
-
-**Affected optimizations:** #7 (pipe fusion)
+**Severity:** HIGH — silent NaN results or platform-dependent wrong answers
 
 **Sources:**
-- [Subprocess pipe chaining](https://rednafi.com/python/unix_style_pipeline_with_subprocess/)
-- [bcftools pipe streaming](https://samtools.github.io/bcftools/bcftools.html)
+- [fastSKAT — eigenvalue approximation for large n (PMC4375394)](https://pmc.ncbi.nlm.nih.gov/articles/PMC4375394/)
+- [NumPy eigvalsh documentation](https://numpy.org/doc/stable/reference/generated/numpy.linalg.eig.html)
 
 ---
 
-### Pitfall 8: Cython/Rust Extension Breaking Cross-Platform Compatibility
+### Pitfall 7: Genotype Matrix Construction — Multi-Allelic Sites and Missing Genotypes
 
 **What goes wrong:**
 
-Adding Cython or Rust extensions for genotype replacement requires C compiler on user machines and increases build complexity. Windows users face MSVC vs MinGW issues, conda environments break, and CI needs per-platform builds.
+Building the n_samples × n_variants dosage matrix (0, 1, 2) from VCF genotypes has multiple failure modes specific to rare variant analysis:
 
-**Why it happens:**
+**Multi-allelic sites:** A site with REF=A, ALT=T,G has genotypes coded as 0 (ref), 1 (first alt T), 2 (second alt G). A genotype of `1/2` means heterozygous for two different alternate alleles. If you decode `1/2` as dosage=2, you overstate the alternate allele burden. The correct approach for SKAT is to treat multi-allelic sites as dosage=1 (carrier) or split into separate rows per ALT.
 
-Binary extensions are platform-specific. PyPI wheels must be built for Windows, macOS, Linux across Python 3.10, 3.11, 3.12.
+**Missing genotypes:** `./. ` means unknown, not reference. Mean-imputation (impute to 2×MAF) is standard for SKAT but changes the effective sample size calculation. Setting missing to 0 (reference) systematically biases the test toward the null.
 
-**Consequences:**
-
-- `pip install` fails on Windows with "error: Microsoft Visual C++ 14.0 is required"
-- Conda environment cannot resolve dependencies
-- Different behavior between platforms (Rust and Cython may have subtle differences)
-- Maintenance burden for cross-compilation
-
-**Prevention:**
-
-1. **Use pure-Python optimization first:**
-   ```python
-   # Vectorized string operations often sufficient
-   # 10-50x speedup without compilation
-   ```
-
-2. **If extension needed, provide wheels:**
-   ```yaml
-   # .github/workflows/wheels.yml
-   - uses: pypa/cibuildwheel@v2.16
-     env:
-       CIBW_BUILD: "cp310-* cp311-* cp312-*"
-       CIBW_SKIP: "*-win32 *-manylinux_i686"
-   ```
-
-3. **Make extension optional:**
-   ```python
-   try:
-       from variantcentrifuge._genotype_replace_ext import replace_fast
-       USE_NATIVE = True
-   except ImportError:
-       logger.warning("Native extension unavailable, using pure Python")
-       USE_NATIVE = False
-   ```
-
-4. **Test on all platforms in CI:**
-   ```yaml
-   strategy:
-     matrix:
-       os: [ubuntu-latest, windows-latest, macos-latest]
-       python-version: ["3.10", "3.12"]
-   ```
-
-5. **Document build requirements:**
-   ```markdown
-   ## Building from source (optional)
-
-   Native extensions require:
-   - Windows: Visual Studio 2022 with C++ tools
-   - Linux: gcc 9+
-   - macOS: Xcode command line tools
-   ```
-
-**Detection:**
-
-- Build failures on clean Windows machine
-- ImportError on fresh conda environment
-- Different output between platforms
-
-**Severity:** **HIGH** — breaks installation, platform compatibility
-
-**Affected optimizations:** #10 (Cython/Rust extension)
-
-**Sources:**
-- [Cython cross-platform](https://cython-devel.python.narkive.com/Vy84tUt0/cython-cross-platform-extensions)
-- [Rust vs Cython comparison](https://pythonspeed.com/articles/rust-cython-python-extensions/)
-
----
-
-## Medium Severity Pitfalls
-
-### Pitfall 9: Passing DataFrame Through Pipeline Breaking Checkpoint/Resume
-
-**What goes wrong:**
-
-Current pipeline writes TSV to disk between stages, enabling checkpoint/resume. Passing DataFrame in memory breaks this — if pipeline crashes after 2-hour inheritance analysis, must restart from scratch.
+**Phase (| vs /):** For SKAT, phase information is irrelevant — `0|1` and `0/1` are both dosage=1. Code that doesn't handle `|` as a separator silently treats phased genotypes as unreadable.
 
 ```python
-# BEFORE: TSV on disk enables checkpointing
-analyze_variants(input_vcf) → writes annotated.tsv
-analyze_inheritance(annotated.tsv) → writes inheritance.tsv  # Can resume here!
+# WRONG: Does not handle multi-allelic or missing
+def gt_to_dosage(gt):
+    return gt.count("1")  # "1/2" returns 2 (WRONG), "./." returns 0 (WRONG)
 
-# AFTER: In-memory DataFrame (LOST)
-df = analyze_variants(input_vcf)  # 2 hours
-df = analyze_inheritance(df)      # Crashes here → restart from beginning
+# CORRECT:
+def gt_to_dosage(gt):
+    if gt in (".", "./.", ".|."):
+        return np.nan  # Missing — impute separately
+    # Normalize separator
+    alleles = gt.replace("|", "/").split("/")
+    # Count non-reference alleles (any value != "0" or ".")
+    return sum(1 for a in alleles if a not in ("0", "."))
+    # For multi-allelic 1/2: returns 2 which is correct (2 non-ref alleles total)
+    # But for SKAT burden collapse, may want: min(count, 1) for carrier-only
 ```
 
 **Why it happens:**
 
-Optimization removes redundant disk I/O but loses crash recovery.
+VariantCentrifuge already handles this for Fisher's exact test, but SKAT needs a true dosage matrix rather than binary carrier calls. The existing `_gt_to_dosage` function in `gene_burden.py` handles `1/1`, `0/1`, `1|1`, `0|1` correctly but may not handle `1/2` (multi-allelic het) or missing values correctly for SKAT input.
 
 **Consequences:**
 
-- Long-running jobs (>1 hour) cannot recover from errors
-- OOM kills lose all intermediate results
-- Debugging harder (no intermediate files to inspect)
+- Incorrect dosage values for multi-allelic sites inflate burden statistics
+- Missing genotypes coded as reference (dosage=0) bias test toward null
+- Phase separator bugs produce zero-dosage for all phased genotypes
 
 **Prevention:**
 
-1. **Hybrid: memory + checkpoint writes:**
-   ```python
-   df = analyze_variants(input_vcf)
-   # Keep in memory BUT also checkpoint
-   df.to_csv(checkpoint_path, sep="\t", index=False)
-   context.data["variants_df"] = df  # In memory for next stage
-   ```
+1. **Audit existing `_gt_to_dosage`** — verify it handles: `1/2`, `2/2`, `.|.`, `.`, `0|1`
+2. **For SKAT, use mean imputation** for missing genotypes: `G[G.isna()] = 2 * MAF_of_variant`
+3. **For multi-allelic sites in SKAT**: either (a) split into separate columns per ALT allele or (b) count all non-REF alleles (dosage=2 for `1/2`)
+4. **Log the count of missing genotypes** per gene — if >10% missing, warn
+5. **Unit test with synthetic VCF** covering all genotype formats
 
-2. **Use pipeline checkpoint system:**
-   ```python
-   # In runner.py
-   if stage.supports_checkpoint and config.checkpoints_enabled:
-       context.data["stage_df"].to_parquet(checkpoint_path)  # Fast binary format
-   ```
+**Warning signs:**
 
-3. **Memory-map DataFrames for crash recovery:**
-   ```python
-   # Use parquet with memory mapping
-   df.to_parquet(checkpoint_path)
-   df = pd.read_parquet(checkpoint_path, memory_map=True)  # Maps without full load
-   ```
+- All-zero rows in dosage matrix (indicates phase-separator bug)
+- Different carrier counts between burden analysis and SKAT
+- Genes near multi-allelic sites showing unusual results
 
-4. **Test crash recovery:**
-   ```python
-   def test_pipeline_resumes_after_crash(tmp_path):
-       # Run pipeline to stage 3
-       run_partial(stages=3)
+**Implementation step:** Genotype matrix builder — new function that extends existing `_gt_to_dosage`.
 
-       # Simulate crash, restart from checkpoint
-       result = run_from_checkpoint(stage=3)
-       assert result.equals(run_full())  # Same result
-   ```
+**Severity:** HIGH — incorrect input matrix invalidates all test results
 
-**Detection:**
-
-- Long jobs restart from beginning after errors
-- No intermediate files in output directory
-- User complaints about lost progress
-
-**Severity:** **MEDIUM** — usability regression for long jobs
-
-**Affected optimizations:** #9 (pass DataFrame through pipeline)
+**Sources:**
+- [rvtests missing genotype mean imputation](https://github.com/zhanxw/rvtests)
+- [Multi-allelic variant representation (PMC7288273)](https://pmc.ncbi.nlm.nih.gov/articles/PMC7288273/)
 
 ---
 
-### Pitfall 10: High-Cardinality Categorical Dtype Increasing Memory
+### Pitfall 8: SKAT-O Rho Grid and Type I Error Control
 
 **What goes wrong:**
 
-Categorical dtype saves memory when cardinality is low (<10% of row count). For high-cardinality columns like sample IDs or variant keys, categorical uses **more** memory than object dtype.
+SKAT-O optimizes over a mixing parameter rho (ρ) that interpolates between SKAT (ρ=0) and burden test (ρ=1). The original implementation uses 11 equally spaced ρ values from 0 to 1. The p-value of SKAT-O is computed by integrating over this grid — but the integration itself requires careful implementation to maintain proper type I error control.
+
+Two specific bugs appear in re-implementations:
+
+1. **Using `SKAT_O` instead of `optimal.adj`:** The "optimal.adj" method applies a small-sample adjustment to the combined statistic. The raw "SKAT_O" without adjustment has conservative type I error for small samples.
+
+2. **Wrong variance estimation in the combination step:** When combining SKAT and burden p-values for the optimal ρ, the variance-covariance matrix of the component statistics must be estimated correctly. Errors here cause the rho-specific p-value transformation to be wrong, breaking the uniformity guarantee.
 
 ```python
-# LOW cardinality: CHROM has 25 values, 50K rows → 97% memory savings
-df["CHROM"] = df["CHROM"].astype("category")  # GOOD
+# WRONG: Naive rho grid without small-sample adjustment
+rho_values = np.linspace(0, 1, 11)
+pvals_per_rho = [skat_with_rho(G, residuals, rho) for rho in rho_values]
+p_skatO = min_pval_combination(pvals_per_rho)  # WRONG — no correlation structure
 
-# HIGH cardinality: 50K unique variant keys for 50K rows → memory INCREASE
-df["variant_key"] = df["variant_key"].astype("category")  # BAD
+# CORRECT: Account for correlation between rho-specific statistics
+# The key step is computing the covariance of (T_rho1, T_rho2, ...) statistics
+# This requires the kernel matrix eigenvalues at each rho value
 ```
 
 **Why it happens:**
 
-Categorical stores: `categories array + codes array`. If categories ≈ row count, you store the data twice.
+SKAT-O is computationally intensive and the math is non-trivial. Re-implementations often simplify the combination step incorrectly. The R SKAT package source code is the ground truth — any Python reimplementation must produce identical results on test cases.
 
 **Consequences:**
 
-- Memory usage increases instead of decreases
-- Slower operations (category lookup overhead)
-- Misleading optimization results
+- SKAT-O p-values that are uniformly too small or too large
+- Loss of power advantage over SKAT (SKAT-O should be more powerful)
+- Inconsistent comparison with published results using R SKAT
 
 **Prevention:**
 
-1. **Check cardinality before converting:**
-   ```python
-   def should_categorize(series: pd.Series, threshold: float = 0.5) -> bool:
-       n_unique = series.nunique()
-       n_total = len(series)
-       cardinality = n_unique / n_total
-       return cardinality < threshold  # Only if <50% unique
+1. **Use R backend as ground truth for SKAT-O** — do not reimplement from scratch for the Python fallback
+2. **For Python fallback, implement SKAT only** (not SKAT-O) initially; add SKAT-O only after extensive validation
+3. **Validate on simulated null data:** 10,000 permutations should give uniform p-value distribution
+4. **Cross-validate with R SKAT** on 50+ real genes: Python result should match R within 10% for p > 0.001
 
-   if should_categorize(df["GENE"]):
-       df["GENE"] = df["GENE"].astype("category")
-   ```
+**Warning signs:**
 
-2. **Profile memory before/after:**
-   ```python
-   before = df.memory_usage(deep=True).sum()
-   df["GENE"] = df["GENE"].astype("category")
-   after = df.memory_usage(deep=True).sum()
-   assert after < before, f"Categorical increased memory: {after} > {before}"
-   ```
+- Python SKAT-O gives systematically different results from R SKAT-O
+- P-value histogram shows non-uniform distribution under null
+- Power advantage of SKAT-O over SKAT disappears
 
-3. **Document which columns to categorize:**
-   ```python
-   # In GENOMIC_DTYPES mapping
-   "CHROM": "category",      # ~25 values
-   "IMPACT": "category",     # 4 values: HIGH, MODERATE, LOW, MODIFIER
-   "GENE": "string[pyarrow]",  # Can be 2500+ unique, use PyArrow instead
-   ```
+**Implementation step:** Python SKAT-O backend — validate before deploying.
 
-**Detection:**
-
-- Memory usage increases after optimization
-- Slower groupby performance
-- Profiler shows category overhead
-
-**Severity:** **MEDIUM** — counterproductive optimization
-
-**Affected optimizations:** #5 (categorical dtypes)
+**Severity:** HIGH — wrong test statistic for the omnibus test
 
 **Sources:**
-- [Categorical dtype memory](https://pandas.pydata.org/docs/user_guide/categorical.html)
-- [Categorical pitfalls](https://pbpython.com/pandas_dtypes_cat.html)
+- [SKAT-O optimal unified approach (PMC3415556)](https://pmc.ncbi.nlm.nih.gov/articles/PMC3415556/)
+- [SKAT R package GitHub — leelabsg/SKAT](https://github.com/leelabsg/SKAT)
 
 ---
 
-### Pitfall 11: Itertuples Name Collision with Reserved Attributes
+### Pitfall 9: ctypes C Compilation Failures at Install Time
 
 **What goes wrong:**
 
-`itertuples()` returns namedtuples with column names as attributes. If a column is named `count`, `index`, or other reserved names, access via `.count` returns the namedtuple method, not the column value.
+Compiling `qfc.c` (Davies' method C implementation) at install time fails on:
+
+- **Windows:** No C compiler in PATH by default; MSVC requires separate installation; MinGW has inconsistent ABI
+- **macOS ARM64 (Apple Silicon):** ctypes on ARM64 has known bugs with variadic function calls (CPython issue #42880); needs explicit architecture flag `-arch arm64`
+- **HPC nodes:** Often lack write permission to `/tmp` or block `gcc` during job execution; compilation must happen at install time, not at runtime
+- **conda environments:** Package-provided GCC may conflict with system GCC
 
 ```python
-df = pd.DataFrame({"GENE": ["BRCA1"], "count": [5]})
+# DANGEROUS: Compile at first use (runtime compilation on HPC)
+try:
+    lib = ctypes.CDLL("/tmp/qfc.so")
+except OSError:
+    os.system("gcc -shared -o /tmp/qfc.so qfc.c")  # Fails on HPC!
+    lib = ctypes.CDLL("/tmp/qfc.so")
 
-for row in df.itertuples():
-    print(row.count)  # → <bound method count of ...>, NOT 5!
+# CORRECT: Check at module import time with informative error
+import importlib.resources
+_QFC_LIB = None
+
+def _load_qfc():
+    global _QFC_LIB
+    try:
+        lib_path = _find_compiled_qfc()  # Look in package data first
+        _QFC_LIB = ctypes.CDLL(lib_path)
+    except OSError:
+        _QFC_LIB = None
+        logger.warning("qfc.c not compiled — Davies method unavailable; using saddlepoint")
 ```
 
 **Why it happens:**
 
-Namedtuples use `_make`, `_asdict`, `_replace` internally. Column names shadow these.
+C compilation is platform-specific and requires a toolchain. Users may not have the required tools, or compilation may fail silently. The qfc.c file from the CompQuadForm R package is the standard Davies implementation used by SKAT.
 
 **Consequences:**
 
-- Silent bugs where `.count` returns a method
-- Type errors if code expects integer but gets callable
-- Hard to debug (looks correct in code review)
+- Silent fallback to less accurate approximation (user doesn't know Davies failed)
+- Installation fails on user machines, blocking all SKAT functionality
+- Different results between users who successfully compiled and those who didn't
 
 **Prevention:**
 
-1. **Use positional access or rename:**
-   ```python
-   for row in df.itertuples(index=False):
-       gene = row[0]  # Positional
-       count = row[1]
+1. **Make Davies method optional, never required:** Saddlepoint fallback must always work
+2. **Compile as part of package setup.py/build** with clear error on failure
+3. **Provide pre-compiled wheels for common platforms** (Linux x86_64, macOS arm64/x86_64, Windows x64)
+4. **Add `check_dependencies` function** that tests compilation at startup and logs the result
+5. **Never compile at runtime** — always at install time or at package import in development mode
+6. **Test CI on all three platforms:** GitHub Actions matrix with ubuntu, macos, windows
 
-   # OR rename parameter
-   for row in df.itertuples(index=False, name="Variant"):
-       print(row.GENE, row.count)  # Now safe
-   ```
+**Warning signs:**
 
-2. **Check for reserved names:**
-   ```python
-   RESERVED = {"count", "index", "_fields", "_make", "_asdict", "_replace"}
-   assert not (set(df.columns) & RESERVED), "Column names conflict with namedtuple"
-   ```
+- `ImportError` or `OSError` when loading qfc.so
+- Users report different p-values across machines (some have Davies, some don't)
+- CI passes but user machine fails to compile
 
-3. **Test with real column names:**
-   ```python
-   def test_itertuples_with_real_columns():
-       df = load_real_data()
-       for row in df.itertuples(index=False):
-           # Access each column by name
-           _ = row.GENE, row.POS, row.REF  # Will fail if names conflict
-   ```
+**Implementation step:** Package build system — must be designed before first release.
 
-**Detection:**
-
-- Type errors: "expected int, got method"
-- Wrong values silently used
-
-**Severity:** **MEDIUM** — subtle correctness bug
-
-**Affected optimizations:** #6 (replace iterrows with itertuples)
+**Severity:** HIGH — breaks installation on common platforms
 
 **Sources:**
-- [itertuples documentation](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.itertuples.html)
+- [CPython ARM64 ctypes variadic bug (issue #42880)](https://bugs.python.org/issue42880)
+- [Python ctypes cross-platform package sample](https://github.com/joerick/python-ctypes-package-sample)
 
 ---
 
-### Pitfall 12: Regression Test False Negatives from Floating Point Comparison
+### Pitfall 10: Multiple Testing Correction Applied to the Wrong Set
 
 **What goes wrong:**
 
-When verifying "output identical before/after optimization," using `.equals()` or `==` for floating-point columns fails due to rounding differences in optimized code paths.
+When reporting SKAT + burden + ACAT-O p-values for the same genes, applying multiple testing correction to each test separately (N genes per test) is incorrect — you are running 3 tests per gene and must account for the additional multiplicity. However, combining all three tests into one correction (3N hypotheses) is also wrong because the tests are correlated (all test the same gene).
+
+Additionally, the Benjamini-Hochberg FDR procedure assumes continuous p-values with uniform null distribution. For discrete tests (Fisher's exact, burden with few carriers), this assumption fails and BH can be anti-conservative.
 
 ```python
-# Before optimization
-df["AF"] = pd.read_csv(...)["AF"]  # AF = 0.12345678901234567
+# WRONG: Independent correction per test
+skat_fdr = multipletests(skat_pvals, method='fdr_bh')[1]
+burden_fdr = multipletests(burden_pvals, method='fdr_bh')[1]
+# This pretends SKAT and burden are testing different genes
 
-# After optimization (PyArrow engine)
-df["AF"] = pd.read_csv(..., engine="pyarrow")["AF"]  # AF = 0.12345678901234566
+# WRONG: Naive combination of all tests
+all_pvals = np.concatenate([skat_pvals, burden_pvals, acato_pvals])
+all_fdr = multipletests(all_pvals, method='fdr_bh')[1]
+# This penalizes each test 3x by inflating denominator
 
-df_before.equals(df_after)  # → False! Difference in 16th decimal place
+# CORRECT for ACAT-O approach: combine p-values first, then correct once
+acato_pvals = [acat_combine([skat_p, burden_p, acatv_p]) for gene in genes]
+gene_level_fdr = multipletests(acato_pvals, method='fdr_bh')[1]
 ```
 
 **Why it happens:**
 
-Different parsing engines (C vs PyArrow) have subtly different floating-point rounding. Scientifically identical, but bitwise different.
+Multiple testing correction was designed for independent tests. Gene-based rare variant tests running SKAT + burden on the same gene are neither independent nor identically distributed. The ACAT-O framework exists precisely to address this — combine within-gene tests using Cauchy combination, then correct across genes.
 
 **Consequences:**
 
-- Optimization rejected due to "different output"
-- Manual review needed for every floating-point column
-- False alarm on clinically irrelevant differences
+- Overly conservative results (too few discoveries)
+- Inconsistent results reported for SKAT vs burden from same analysis
+- Different FDR cutoffs needed for different test types confuses users
 
 **Prevention:**
 
-1. **Fuzzy comparison for floats:**
-   ```python
-   def dataframes_clinically_equal(df1, df2, rtol=1e-9) -> bool:
-       # Exact match for strings, categoricals
-       string_cols = df1.select_dtypes(include=["object", "string", "category"]).columns
-       pd.testing.assert_frame_equal(df1[string_cols], df2[string_cols], check_exact=True)
+1. **Use ACAT-O as the primary test** — it combines SKAT, burden, and variant-level results in one framework, then apply single FDR correction across genes
+2. **Report raw p-values for all tests** alongside the combined ACAT-O p-value — researchers can evaluate separately
+3. **Document which p-value was corrected** explicitly in output headers
+4. **For exploratory analysis, use FDR (BH)** for hypothesis generation; for confirmatory analysis, use Bonferroni
+5. **Warn when both SKAT and burden p-values are available** without ACAT-O combination
 
-       # Fuzzy match for numerics
-       numeric_cols = df1.select_dtypes(include=[np.number]).columns
-       pd.testing.assert_frame_equal(df1[numeric_cols], df2[numeric_cols], rtol=rtol)
-   ```
+**Warning signs:**
 
-2. **Round before comparison:**
-   ```python
-   # Round to clinical significance (e.g., allele frequency to 6 decimals)
-   df1["AF"] = df1["AF"].round(6)
-   df2["AF"] = df2["AF"].round(6)
-   assert df1.equals(df2)
-   ```
+- SKAT FDR and burden FDR give different significant genes (expected sometimes, but should be investigated)
+- User reports "my gene was significant for SKAT but not after correction"
+- Corrected p-values that are lower than raw p-values (mathematical error)
 
-3. **Use checksums on sorted data:**
-   ```python
-   # Hash row tuples after rounding
-   def row_hash(row):
-       # Round floats to 10 decimals, then hash
-       rounded = tuple(round(x, 10) if isinstance(x, float) else x for x in row)
-       return hash(rounded)
+**Implementation step:** Results reporting stage — multiple testing correction strategy must be decided in design.
 
-   df["_hash"] = df.apply(row_hash, axis=1)
-   assert df1["_hash"].equals(df2["_hash"])
-   ```
-
-**Detection:**
-
-- Test failures on floating-point columns
-- Diffs show changes in 10th+ decimal place
-- Allele frequencies differ by <0.000001
-
-**Severity:** **MEDIUM** — false negatives in testing
-
-**Affected optimizations:** #4 (PyArrow engine), #5 (numeric dtypes)
+**Severity:** HIGH — incorrect statistical inference
 
 **Sources:**
-- [Pandas testing utilities](https://pandas.pydata.org/docs/reference/api/pandas.testing.assert_frame_equal.html)
+- [ACAT p-value combination for rare variants (PMC6407498)](https://pmc.ncbi.nlm.nih.gov/articles/PMC6407498/)
+- [Leveraging gene-level prediction for rare variant testing (PMC8872452)](https://pmc.ncbi.nlm.nih.gov/articles/PMC8872452/)
+
+---
+
+## Moderate Pitfalls
+
+### Pitfall 11: R_HOME Detection Failures in Conda and HPC Environments
+
+**What goes wrong:**
+
+rpy2 requires `R_HOME` to be set to the R installation directory. In conda environments, R may be installed in a non-standard location. On HPC, module systems may change `PATH` but not `R_HOME`. The failure mode is an unhelpful `ImportError` or `RRuntimeError` at startup rather than at the point of first R call.
+
+Common failure: user has both system R (/usr/bin/R) and conda R (/opt/conda/bin/R). rpy2 finds system R via R_HOME but conda SKAT package is installed in conda R. The mismatch causes `library(SKAT)` to fail with "package not found."
+
+**Prevention:**
+
+1. **Set R_HOME explicitly** in the VariantCentrifuge launcher based on which R is in PATH
+2. **Validate SKAT is loadable before any analysis:** `r('library(SKAT)')` in a startup check function
+3. **Provide clear error message** if SKAT is not found: "Install SKAT R package in the R found at [path]"
+4. **Document conda setup steps** explicitly: `conda install -c bioconda r-skat` vs `R -e 'install.packages("SKAT")'`
+5. **Fall back to Python backend automatically** if R/SKAT is unavailable (with warning)
+
+**Warning signs:**
+
+- Works in development environment but fails on CI or user machine
+- `RRuntimeError: Error in library(SKAT)` at startup
+- rpy2 imports successfully but R is wrong version
+
+**Implementation step:** R backend initialization — check at import time with informative failure.
+
+**Severity:** MEDIUM — blocks R backend but Python fallback handles it
+
+**Sources:**
+- [rpy2 + conda/mamba setup guide (2025)](https://sychen9584.github.io/posts/2025/06/rpy2/)
+- [rpy2 RRuntimeError known issues](https://github.com/rpy2/rpy2/issues/911)
+
+---
+
+### Pitfall 12: Covariate Multicollinearity Causing Model Fitting Failures
+
+**What goes wrong:**
+
+PCs 1-10 may be highly correlated with categorical covariates like ancestry group or geographic region. Including both PCs and ancestry categories in the covariate matrix causes multicollinearity, making the null model matrix singular and the logistic regression unfit.
+
+More subtly: if all cases have missing values for one covariate and all controls have values, the covariate perfectly predicts case status — the model is unidentifiable.
+
+```python
+# PROBLEM: PC1 correlates r=0.99 with "ancestry" categorical variable
+covariates = [age, sex, pc1, pc2, ..., pc10, ancestry]  # Singular design matrix
+
+# DETECT:
+cond_number = np.linalg.cond(covariate_matrix)
+if cond_number > 1e8:
+    logger.warning(f"Covariate matrix near-singular (condition number: {cond_number:.2e})")
+```
+
+**Prevention:**
+
+1. **Check condition number** of the covariate matrix before fitting null model
+2. **Never include both PCs and ancestry categories** — use one or the other
+3. **Detect perfect separation** (categorical variable perfectly predicts outcome) before fitting
+4. **Log covariate missingness by case/control status** — unequal missingness is a red flag
+5. **Handle factor encoding explicitly:** Dummy-encode categoricals with drop_first=True to avoid perfect collinearity
+
+**Warning signs:**
+
+- Null model fitting fails to converge
+- Extreme coefficient estimates in logistic regression (>100)
+- `np.linalg.LinAlgError: Singular matrix`
+
+**Implementation step:** Covariate preparation module.
+
+**Severity:** MEDIUM — causes analysis failure with cryptic error
+
+---
+
+### Pitfall 13: Sample Mismatch Between Genotype Matrix and Covariate Data
+
+**What goes wrong:**
+
+Genotype data comes from VCF (sample order determined by VCF header). Covariate data comes from a separate file with arbitrary row order. If sample IDs are matched incorrectly, each sample's covariates are assigned to the wrong genotype row, corrupting the entire analysis.
+
+This is particularly dangerous because: (1) the analysis runs without error, (2) the p-values look plausible, and (3) the error is invisible without an explicit validation check.
+
+**Prevention:**
+
+1. **Always reindex covariate DataFrame** to VCF sample order explicitly
+2. **Assert no NaN after reindex** — if a sample in VCF has no covariate row, that is an error
+3. **Log sample counts:** "Matched X of Y VCF samples to covariate file"
+4. **Include sample ID as an explicit check column** in the covariate file validation
+5. **Test with shuffled covariate order** — results must be identical to correctly-ordered version
+
+**Warning signs:**
+
+- Different results when covariate file rows are reordered
+- Number of analyzed samples differs from expected
+
+**Implementation step:** Data loading stage — validation before any analysis.
+
+**Severity:** MEDIUM — silent analysis corruption
+
+---
+
+### Pitfall 14: Small Gene Edge Cases — Zero Variants, Monomorphic Variants, MAC=1
+
+**What goes wrong:**
+
+Rare variant analysis has three common degenerate cases that must be handled explicitly:
+
+**Zero qualifying variants in gene:** SKAT cannot run. Return NA, not 0 or 1.
+
+**All variants monomorphic in analyzed samples:** After applying MAF filter and extracting the gene cohort, all variants may be fixed (everyone has the same genotype). The genotype matrix is all-zero — SKAT returns a test statistic of 0 and p=1.0 trivially, which is technically correct but may be misleading.
+
+**Singletons (MAC=1):** A variant carried by exactly one individual. For binary traits, there are only 2 possible configurations (singleton in case or singleton in control). The SKAT contribution from a singleton is essentially a single Bernoulli trial, which has very limited statistical power. Including many singletons can dilute SKAT power.
+
+```python
+# Check before running SKAT
+if G_matrix.shape[1] == 0:
+    return {"gene": gene, "p_skat": np.nan, "n_variants": 0, "note": "no_qualifying_variants"}
+
+if G_matrix.sum() == 0:
+    return {"gene": gene, "p_skat": 1.0, "n_variants": G_matrix.shape[1], "note": "all_monomorphic"}
+
+mac_per_variant = G_matrix.sum(axis=0)
+n_singletons = (mac_per_variant == 1).sum()
+if n_singletons > G_matrix.shape[1] * 0.8:
+    logger.warning(f"Gene {gene}: {n_singletons}/{G_matrix.shape[1]} variants are singletons")
+```
+
+**Prevention:**
+
+1. **Return NA (not 1.0 or error) for genes with no qualifying variants** — downstream correction methods need to know vs. skip
+2. **Log monomorphic and singleton counts** per gene for QC purposes
+3. **Provide option to exclude singletons** from SKAT analysis (they dilute power)
+4. **Test all three edge cases** with explicit unit tests
+
+**Warning signs:**
+
+- Many genes with p=1.0 exactly (monomorphic)
+- Crash on genes with 0 variants (index error in matrix operations)
+
+**Implementation step:** Gene-level SKAT dispatcher — pre-flight checks before matrix construction.
+
+**Severity:** MEDIUM — crashes or misleading results for common gene classes
+
+**Sources:**
+- [How singletons are treated in SKAT (SKAT Google Group)](https://groups.google.com/g/skat_slee/c/amQZMDTk7CE)
+- [SKAT — handling monomorphic and high-missingness SNPs](https://cran.r-project.org/web/packages/SKAT/SKAT.pdf)
+
+---
+
+### Pitfall 15: Liu Moment-Matching Approximation Anti-Conservation
+
+**What goes wrong:**
+
+The Liu moment-matching approximation (non-central chi-squared) is used as a fallback when Davies method fails. However, it is systematically anti-conservative for small significance levels (p < 10^-4). This means using Liu as the primary method for extreme p-values inflates type I error — the exact opposite of what you want for rare variant association at stringent thresholds.
+
+The Liu approximation is appropriate as a sanity check or for p-values near 0.05, but should never be the final answer for results below 10^-3.
+
+**Prevention:**
+
+1. **Fallback order:** Davies → saddlepoint approximation → Liu (last resort only)
+2. **When Liu is used, flag in output:** Add a column `p_method` = "davies"/"saddlepoint"/"liu" so downstream analysis knows confidence level
+3. **Saddlepoint approximation is strictly better than Liu** for small tails — implement it first
+
+**Warning signs:**
+
+- P-value histogram shows too many extreme values under null
+- Results with Liu method systematically smaller than Davies for same data
+
+**Implementation step:** P-value computation backend — approximation hierarchy.
+
+**Severity:** MEDIUM — inflated type I error for exact p-values
+
+**Sources:**
+- [Satterthwaite vs Davies type I error comparison (PMC4761292)](https://pmc.ncbi.nlm.nih.gov/articles/PMC4761292/)
+
+---
+
+### Pitfall 16: Cryptic Relatedness in SKAT Null Model
+
+**What goes wrong:**
+
+SKAT's standard null model assumes independent samples. The GCKD cohort (kidney disease) may include related individuals (family members, duplicate samples). Including related samples in standard SKAT violates the independence assumption, inflating type I error.
+
+For the GCKD cohort specifically: check if kinship matrix or identity-by-descent (IBD) estimates are available. If any pairs have kinship > 0.05, they are considered related and standard SKAT is invalid.
+
+**Prevention:**
+
+1. **Compute pairwise IBD/kinship** using PLINK or similar before running SKAT
+2. **If relatedness exists, use SKAT with mixed model null** (emmax-style) or GENESIS package's SKAT implementation
+3. **Alternatively, prune related samples** (keep one per related pair) — simpler but loses data
+4. **Document relatedness assumption** in analysis report
+
+**Warning signs:**
+
+- Known to have family structure in the cohort
+- Inflated genomic inflation factor (lambda > 1.0) even after PC correction
+
+**Implementation step:** Data preparation — must be assessed before analysis, not during.
+
+**Severity:** MEDIUM — systematic type I error inflation for related cohorts
+
+**Sources:**
+- [GENESIS package for SKAT with relatedness](https://rdrr.io/bioc/GENESIS/man/assocTestAggregate.html)
 
 ---
 
 ## Low Severity Pitfalls
 
-### Pitfall 13: Benchmark Flakiness on GitHub Actions
+### Pitfall 17: Variant Weighting Default Beta(1,25) Not Always Optimal
 
 **What goes wrong:**
 
-GitHub Actions runners have ~2.66% performance variance. A 5% performance gate fails 45% of the time even when code is unchanged.
+SKAT by default uses a beta(1,25) weighting function that up-weights very rare variants (MAF near 0) and down-weights common variants. This is appropriate when you expect rarer variants to have larger effects (the common assumption in rare disease genetics). However, for complex traits where effect size does not strongly correlate with rarity, beta(1,1) (equal weights) may be more powerful.
 
 **Prevention:**
 
-Use ratio assertions and performance canaries (see issue assessment). Test relative performance (vectorized vs sequential) rather than absolute thresholds.
+1. **Report results for both beta(1,25) and beta(1,1)** weighting schemes
+2. **Allow weight scheme to be configured** in the analysis parameters
+3. **Document which weights were used** in the output
 
-**Severity:** **LOW** — testing infrastructure annoyance
-
-**Affected optimizations:** All (validation)
-
-**Sources:**
-- [GitHub Actions performance stability](https://aakinshin.net/posts/github-actions-perf-stability/)
-- [Practical performance tests](https://solidean.com/blog/2025/practical-performance-tests/)
+**Severity:** LOW — affects power but not correctness
 
 ---
 
-### Pitfall 14: xlsx File Size Increase with xlsxwriter
+### Pitfall 18: ACAT-O Requires Uniform Null Distribution of Input P-Values
 
 **What goes wrong:**
 
-xlsxwriter produces larger files than openpyxl for identical data (~10-20% larger) due to different compression settings.
+ACAT-O combines p-values using the Cauchy distribution, which requires that input p-values are uniformly distributed under the null. If the input SKAT p-values have been discretized (e.g., from a permutation test with 1000 permutations), the distribution is not uniform and ACAT-O is invalid.
 
 **Prevention:**
 
-Acceptable tradeoff for 2-5x speed increase. Document expected file size change.
+1. **Use analytical p-values** (from Davies/saddlepoint) as ACAT-O inputs, not permutation p-values
+2. **Validate input p-values are not all 0 or 1** before ACAT-O combination
+3. **If any input test returns NA, use only available tests** in ACAT-O combination
 
-**Severity:** **LOW** — cosmetic issue
+**Severity:** LOW — only relevant if using permutation-based p-values
 
-**Affected optimizations:** #8 (xlsxwriter)
+**Sources:**
+- [ACAT methodology and assumptions (PMC6407498)](https://pmc.ncbi.nlm.nih.gov/articles/PMC6407498/)
+
+---
+
+### Pitfall 19: Validation Against Wrong Reference
+
+**What goes wrong:**
+
+When validating the Python SKAT implementation against R SKAT, small differences in:
+- MAF computation (from VCF allele count vs from genotype matrix)
+- Missing genotype handling (exclude vs mean-impute)
+- Weight precision
+
+...can produce p-value differences of up to 2x for the same gene. Treating any difference as a bug wastes time; treating real bugs as "acceptable tolerance" misses errors.
+
+**Prevention:**
+
+1. **Establish explicit tolerance:** p-value difference < 10% for p > 0.001 is acceptable; absolute difference in log10(p) < 0.05 is the standard
+2. **Use identical input processing** — same MAF computation, same missing handling
+3. **Test on the SKAT package's example dataset** (`SKAT.haplotypes`) which has known correct answers
+4. **For p < 0.001, expect larger differences** between methods — this is normal numerical behavior
+
+**Severity:** LOW — validation process pitfall, not a correctness pitfall in production
+
+**Sources:**
+- [SKAT.haplotypes reference dataset](https://cran.r-project.org/web/packages/SKAT/SKAT.pdf)
+
+---
+
+## Phase-Specific Warnings
+
+| Phase Topic | Likely Pitfall | Mitigation |
+|-------------|---------------|------------|
+| Dual backend architecture | R thread safety (#4) | Enforce main-thread-only for R; ProcessPool for Python |
+| Null model fitting for binary traits | Binary trait correction (#2) | Use SKATBinary variant from day one |
+| Genotype matrix extraction | Multi-allelic and missing (#7) | Extend existing `_gt_to_dosage` with explicit tests |
+| PCA integration | PC count overcorrection (#3) | Default to 10 PCs max; lambda GC diagnostic |
+| Davies method compilation | C compilation failures (#9) | Optional compile; saddlepoint always available |
+| Eigenvalue computation | Near-singular matrix (#6) | Threshold and use `eigvalsh`, not `eig` |
+| Multiple testing | Wrong correction set (#10) | ACAT-O combination then single FDR |
+| R memory management | Memory leaks in loops (#5) | Explicit R GC every 100 genes |
+| SKAT-O implementation | Rho grid correctness (#8) | Use R backend; validate Python with extensive null sim |
+| Sample/covariate joining | Sample mismatch (#13) | Explicit reindex with assertion |
+| Gene edge cases | Zero/singleton variants (#14) | Pre-flight checks before matrix construction |
+| Validation against R | Wrong tolerance (#19) | Document acceptable tolerance before testing |
 
 ---
 
 ## Summary: Risk Matrix
 
-| Optimization | Critical Risk | High Risk | Medium Risk | Recommended Mitigation Priority |
-|--------------|--------------|-----------|-------------|-------------------------------|
-| #1: Vectorize `apply(axis=1)` | Order-dependent logic (#2) | Type coercion (#6) | Floating-point diffs (#12) | HIGH — test determinism |
-| #2: Remove dead code | Dead code as validation (#4) | - | - | HIGH — confirm truly unused |
-| #3: Add `observed=True` | 3500x slowdown without (#3) | - | - | CRITICAL — trivial fix, huge impact |
-| #4: PyArrow engine | Pandas 3.0 dtype changes (#1) | Type coercion (#6) | Float precision (#12) | HIGH — test with pandas 3.0 |
-| #5: Categorical dtypes | Pandas 3.0 + groupby (#3) | Type coercion (#6) | High cardinality (#10) | HIGH — cardinality checks |
-| #6: Replace `iterrows` | Order-dependent logic (#2) | - | Name collision (#11) | MEDIUM — test column names |
-| #7: Pipe fusion | - | Error handling (#7) | - | HIGH — validate pipe errors |
-| #8: xlsxwriter | - | openpyxl incompatibility (#5) | File size (#14) | HIGH — test hyperlinks |
-| #9: Pass DataFrame | - | - | Checkpoint loss (#9) | MEDIUM — hybrid approach |
-| #10: Cython/Rust | - | Cross-platform (#8) | - | HIGH — wheels + optional |
-| #11: Full vectorization | Order-dependent logic (#2) | Type coercion (#6) | - | CRITICAL — extensive testing |
-
----
-
-## Validation Protocol
-
-Before merging any optimization:
-
-1. **Output identity check:**
-   ```python
-   df_before = run_pipeline_baseline(test_vcf)
-   df_after = run_pipeline_optimized(test_vcf)
-   assert dataframes_clinically_equal(df_before, df_after)
-   ```
-
-2. **All 1035 tests pass** (no skips, no warnings)
-
-3. **Cross-platform validation:** Windows + Linux CI
-
-4. **Benchmark shows improvement:**
-   ```python
-   assert time_after < time_before * 0.9  # At least 10% faster
-   ```
-
-5. **Memory profile shows improvement or no regression:**
-   ```python
-   assert memory_after <= memory_before * 1.1  # Allow 10% tolerance
-   ```
-
-6. **Manual review of 5 random output files** for hyperlinks, formatting, clinical correctness
+| Pitfall | Severity | Detection Difficulty | Implementation Phase |
+|---------|----------|---------------------|---------------------|
+| Davies silent failure (#1) | CRITICAL | Hard — no error raised | P-value computation |
+| Binary trait type I error (#2) | CRITICAL | Medium — requires simulation | Null model design |
+| PC overcorrection (#3) | CRITICAL | Medium — QQ-plot needed | PCA module |
+| R thread safety (#4) | CRITICAL | Easy — crashes immediately | Architecture Phase 1 |
+| R memory leaks (#5) | HIGH | Medium — slow accumulation | R backend iteration |
+| Eigenvalue instability (#6) | HIGH | Medium — NaN for some genes | SKAT computation |
+| Genotype matrix construction (#7) | HIGH | Hard — plausible wrong values | Input preparation |
+| SKAT-O rho correctness (#8) | HIGH | Medium — requires validation | SKAT-O backend |
+| C compilation failures (#9) | HIGH | Easy — install-time failure | Package build |
+| Multiple testing strategy (#10) | HIGH | Medium — review needed | Results reporting |
+| R_HOME detection (#11) | MEDIUM | Easy — clear error message | R initialization |
+| Covariate multicollinearity (#12) | MEDIUM | Easy — condition number check | Covariate prep |
+| Sample mismatch (#13) | MEDIUM | Hard — silent corruption | Data loading |
+| Edge case genes (#14) | MEDIUM | Easy — explicit pre-checks | Gene dispatcher |
+| Liu anti-conservation (#15) | MEDIUM | Medium — requires simulation | P-value backend |
+| Cryptic relatedness (#16) | MEDIUM | Medium — requires IBD analysis | Study design |
 
 ---
 
 ## Key References
 
-**Pandas 3.0 Breaking Changes:**
-- [pandas 3.0.0 whatsnew](https://pandas.pydata.org/docs/whatsnew/v3.0.0.html)
-- [String dtype breaking changes issue](https://github.com/pandas-dev/pandas/issues/59328)
-- [pandas 3.0 InfoQ coverage](https://www.infoq.com/news/2026/02/pandas-library/)
+**Numerical Precision:**
+- [Liu et al. 2016 — hybrid Davies/saddlepoint for SKAT (PMC4761292)](https://pmc.ncbi.nlm.nih.gov/articles/PMC4761292/)
+- [SKAT CRAN package — CompQuadForm Davies implementation](https://cran.r-project.org/web/packages/CompQuadForm/index.html)
 
-**Performance Optimization:**
-- [Pandas vectorization pitfalls](https://pythonspeed.com/articles/pandas-vectorization/)
-- [PyArrow CSV benchmark](https://pythonspeed.com/articles/pandas-read-csv-fast/)
-- [Categorical groupby slowdown](https://github.com/pandas-dev/pandas/issues/32976)
-- [Categorical dtype gotchas](https://towardsdatascience.com/staying-sane-while-adopting-pandas-categorical-datatypes-78dbd19dcd8a)
+**Binary Traits and Small Samples:**
+- [Lee et al. 2012 — SKAT-O with small-sample adjustment (PMC3415556)](https://pmc.ncbi.nlm.nih.gov/articles/PMC3415556/)
+- [SKATBinary documentation](https://www.rdocumentation.org/packages/SKAT/versions/2.0.0/topics/SKATBinary)
 
-**Clinical Validation:**
-- [AMP/CAP NGS bioinformatics validation guidelines](https://www.sciencedirect.com/science/article/pii/S1525157817303732)
-- [Assembling and validating bioinformatic pipelines](https://meridian.allenpress.com/aplm/article/144/9/1118/427496)
-- [AI-powered medical software validation 2026](https://medium.com/@sginsbourg/ai-powered-medical-software-validation-in-2026-from-bottleneck-to-competitive-advantage-13f3535a65dd)
+**Population Stratification:**
+- [Fine-scale stratification impact on rare variant tests (PMC6283567)](https://pmc.ncbi.nlm.nih.gov/articles/PMC6283567/)
+- [Controlling stratification in rare variant studies (PMC8463695)](https://pmc.ncbi.nlm.nih.gov/articles/PMC8463695/)
 
-**Tools and Libraries:**
-- [xlsxwriter vs openpyxl comparison](https://medium.com/@badr.t/excel-file-writing-showdown-pandas-xlsxwriter-and-openpyxl-29ff5bcb4fcd)
-- [Cython cross-platform extensions](https://cython-devel.python.narkive.com/Vy84tUt0/cython-cross-platform-extensions)
-- [Subprocess pipe chaining](https://rednafi.com/python/unix_style_pipeline_with_subprocess/)
+**rpy2 Integration:**
+- [rpy2 performance and memory documentation](https://rpy2.github.io/doc/latest/html/performances.html)
+- [rpy2 memory management](https://rpy2.github.io/doc/v3.2.x/html/rinterface-memorymanagement.html)
+- [rpy2 thread safety — Streamlit issue](https://github.com/streamlit/streamlit/issues/2618)
 
-**Testing:**
-- [GitHub Actions performance stability](https://aakinshin.net/posts/github-actions-perf-stability/)
-- [Practical CI-friendly performance tests](https://solidean.com/blog/2025/practical-performance-tests/)
+**ACAT-O:**
+- [ACAT: Cauchy combination for rare variant p-values (PMC6407498)](https://pmc.ncbi.nlm.nih.gov/articles/PMC6407498/)
+
+**Genotype Matrix:**
+- [Multi-allelic variant association analysis (PMC7288273)](https://pmc.ncbi.nlm.nih.gov/articles/PMC7288273/)
+- [rvtests — mean imputation for missing genotypes](https://github.com/zhanxw/rvtests)
+
+**SKAT Implementation:**
+- [SKAT R package GitHub — leelabsg/SKAT](https://github.com/leelabsg/SKAT)
+- [SKAT original paper (PMC3135811)](https://pmc.ncbi.nlm.nih.gov/articles/PMC3135811/)
 
 ---
 
@@ -1061,11 +946,15 @@ Before merging any optimization:
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Pandas 3.0 string dtype changes | HIGH | Official docs + verified with pandas team GitHub issues |
-| Categorical groupby slowdown | HIGH | Documented GitHub issue with reproducible example |
-| Clinical validation requirements | MEDIUM | AMP/CAP guidelines verified, but 2026 AI practices from blog |
-| Cross-platform Cython/Rust | MEDIUM | General knowledge + Cython docs, not variantcentrifuge-specific |
-| xlsxwriter formatting limitations | HIGH | Official docs + cross-referenced multiple sources |
-| Pipeline-specific risks | HIGH | Based on code review of actual implementation |
+| Davies numerical precision | HIGH | Primary literature (Liu et al. 2016) verified with official SKAT docs |
+| Binary trait correction | HIGH | Original SKAT-O paper (Lee et al. 2012) + SKAT package docs |
+| PC overcorrection | HIGH | Empirical study (PMC6283567) with specific PC counts tested |
+| rpy2 thread safety | HIGH | Multiple independent sources confirm; documented in rpy2 code |
+| rpy2 memory leaks | HIGH | Official rpy2 performance documentation |
+| Genotype matrix construction | MEDIUM | Cross-referenced rvtests and VCF specifications |
+| Eigenvalue stability | MEDIUM | NumPy documentation + general numerical linear algebra |
+| ctypes compilation | MEDIUM | CPython issue tracker + cross-platform package examples |
+| SKAT-O rho correctness | MEDIUM | Based on SKAT paper + general knowledge; specific bugs LOW confidence |
+| Multiple testing strategy | HIGH | ACAT paper + FDR literature well-established |
 
-**Overall confidence:** HIGH — pitfalls are specific to planned optimizations with actionable prevention strategies.
+**Overall confidence:** HIGH for critical pitfalls (numerical, thread safety, binary traits); MEDIUM for implementation-specific details (SKAT-O rho bugs, eigenvalue thresholds).
