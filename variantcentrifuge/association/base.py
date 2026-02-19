@@ -1,0 +1,172 @@
+# File: variantcentrifuge/association/base.py
+# Location: variantcentrifuge/variantcentrifuge/association/base.py
+"""
+Core abstractions for the association testing framework.
+
+Defines the AssociationTest abstract base class, TestResult dataclass, and
+AssociationConfig dataclass that all association tests in the v0.15.0
+framework must implement.
+"""
+
+from __future__ import annotations
+
+import logging
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Any
+
+logger = logging.getLogger("variantcentrifuge")
+
+
+@dataclass
+class TestResult:
+    """
+    Result from a single association test on a single gene.
+
+    Fields
+    ------
+    gene : str
+        Gene symbol tested.
+    test_name : str
+        Short test identifier (e.g. "fisher", "burden", "skat").
+    p_value : float | None
+        Raw (uncorrected) p-value. None when test is skipped (e.g. zero
+        qualifying variants) — None is NOT the same as 1.0 (failure vs skip).
+    corrected_p_value : float | None
+        Multiple-testing-corrected p-value. Populated by AssociationEngine
+        after all genes are tested. None until correction is applied.
+    effect_size : float | None
+        Primary effect size estimate. For Fisher: odds ratio. For regression
+        tests (Phase 19+): beta coefficient.
+    ci_lower : float | None
+        Lower bound of the confidence interval for effect_size.
+    ci_upper : float | None
+        Upper bound of the confidence interval for effect_size.
+    n_cases : int
+        Total number of case samples in the analysis.
+    n_controls : int
+        Total number of control samples in the analysis.
+    n_variants : int
+        Number of qualifying variants for this gene (after filtering).
+    extra : dict
+        Test-specific ancillary data (e.g. contingency table, convergence
+        flags). Not written to output unless a formatter explicitly accesses it.
+    """
+
+    gene: str
+    test_name: str
+    p_value: float | None
+    corrected_p_value: float | None
+    effect_size: float | None
+    ci_lower: float | None
+    ci_upper: float | None
+    n_cases: int
+    n_controls: int
+    n_variants: int
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class AssociationConfig:
+    """
+    Configuration for the association analysis framework.
+
+    All fields have defaults that mirror the equivalent keys read from the
+    cfg dict in gene_burden.py (lines 373-377), so existing workflows can
+    transition without changing semantics.
+
+    Fields
+    ------
+    correction_method : str
+        Multiple-testing correction method. "fdr" (Benjamini-Hochberg) or
+        "bonferroni". Default: "fdr".
+    gene_burden_mode : str
+        Collapsing strategy for carrier counting. "samples" = unique carrier
+        samples (CMC/CAST); "alleles" = max allele dosage summed across
+        samples (preserves diploid constraint). Default: "samples".
+    confidence_interval_method : str
+        Method for odds ratio CI computation. Currently "normal_approx" which
+        tries score -> normal -> logit methods in sequence. Default:
+        "normal_approx".
+    confidence_interval_alpha : float
+        Significance level for CIs. 0.05 gives 95% CIs. Default: 0.05.
+    continuity_correction : float
+        Value added to each cell when a zero is present, to stabilise CI
+        computation. Default: 0.5 (Haldane-Anscombe correction).
+    """
+
+    correction_method: str = "fdr"
+    gene_burden_mode: str = "samples"
+    confidence_interval_method: str = "normal_approx"
+    confidence_interval_alpha: float = 0.05
+    continuity_correction: float = 0.5
+
+
+class AssociationTest(ABC):
+    """
+    Abstract base class for all association tests.
+
+    Subclasses implement a specific statistical test (Fisher, burden regression,
+    SKAT, etc.) and are registered in AssociationEngine's test registry. Each
+    subclass is responsible for a single gene at a time; the engine handles
+    iteration and correction.
+
+    Methods
+    -------
+    name : str (property)
+        Short, lowercase identifier used for test registry lookup and output
+        column prefixes (e.g. "fisher", "burden", "skat").
+    run(gene, contingency_data, config) -> TestResult
+        Execute the test for one gene and return a TestResult.
+    check_dependencies() -> None
+        Raise ImportError if required optional libraries are missing. The
+        default implementation is a no-op; subclasses override as needed.
+    """
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Short lowercase identifier for this test (e.g. 'fisher')."""
+        ...
+
+    @abstractmethod
+    def run(
+        self, gene: str, contingency_data: dict[str, Any], config: AssociationConfig
+    ) -> TestResult:
+        """
+        Run the association test for a single gene.
+
+        Parameters
+        ----------
+        gene : str
+            Gene symbol being tested.
+        contingency_data : dict
+            Gene-level aggregated data. Keys available from gene_burden
+            aggregation:
+              - proband_count       : int, total case samples
+              - control_count       : int, total control samples
+              - proband_carrier_count : int, case carrier samples
+              - control_carrier_count : int, control carrier samples
+              - proband_allele_count  : int, total alt alleles in cases
+              - control_allele_count  : int, total alt alleles in controls
+              - n_qualifying_variants : int, variants passing filters
+        config : AssociationConfig
+            Runtime configuration (correction method, mode, CI params).
+
+        Returns
+        -------
+        TestResult
+            Result with p_value=None when test is skipped (e.g. zero variants).
+        """
+        ...
+
+    def check_dependencies(self) -> None:  # noqa: B027
+        """
+        Verify that required optional dependencies are available.
+
+        Raises
+        ------
+        ImportError
+            If a required library is not installed. Called eagerly at engine
+            construction so users get a clear error before processing begins.
+        """
