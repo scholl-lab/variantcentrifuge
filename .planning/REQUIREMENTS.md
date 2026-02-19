@@ -7,14 +7,14 @@
 
 ### Core Framework
 
-- [ ] **CORE-01**: AssociationEngine orchestrates test selection, execution per gene, and result collection
-- [ ] **CORE-02**: Abstract AssociationTest base class with standardized TestResult output (p-value, effect size, CI, variant counts)
-- [ ] **CORE-03**: Fisher's exact test refactored into association/tests/fisher.py with bit-identical output to current --perform-gene-burden
-- [ ] **CORE-04**: AssociationAnalysisStage registered in pipeline with dependency on dataframe_loading and sample_config_loading
-- [ ] **CORE-05**: GeneBurdenAnalysisStage shim that skips when --perform-association is active (backward compatible)
-- [ ] **CORE-06**: CLI args: --perform-association, --association-tests, --skat-backend (auto/r/python)
-- [ ] **CORE-07**: PipelineContext gains association_results field; ExcelReportStage gains Association sheet
-- [ ] **CORE-08**: Multiple testing correction refactored into association/correction.py (FDR + Bonferroni), re-exported in gene_burden.py
+- [x] **CORE-01**: AssociationEngine orchestrates test selection, execution per gene, and result collection
+- [x] **CORE-02**: Abstract AssociationTest base class with standardized TestResult output (p-value, effect size, CI, variant counts)
+- [x] **CORE-03**: Fisher's exact test refactored into association/tests/fisher.py with bit-identical output to current --perform-gene-burden
+- [x] **CORE-04**: AssociationAnalysisStage registered in pipeline with dependency on dataframe_loading and sample_config_loading
+- [x] **CORE-05**: GeneBurdenAnalysisStage shim that skips when --perform-association is active (backward compatible)
+- [x] **CORE-06**: CLI args: --perform-association, --association-tests, --skat-backend (auto/r/python)
+- [x] **CORE-07**: PipelineContext gains association_results field; ExcelReportStage gains Association sheet
+- [x] **CORE-08**: Multiple testing correction refactored into association/correction.py (FDR + Bonferroni), re-exported in gene_burden.py
 
 ### Covariate System
 
@@ -108,14 +108,14 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CORE-01 | Phase 18 | Pending |
-| CORE-02 | Phase 18 | Pending |
-| CORE-03 | Phase 18 | Pending |
-| CORE-04 | Phase 18 | Pending |
-| CORE-05 | Phase 18 | Pending |
-| CORE-06 | Phase 18 | Pending |
-| CORE-07 | Phase 18 | Pending |
-| CORE-08 | Phase 18 | Pending |
+| CORE-01 | Phase 18 | Complete |
+| CORE-02 | Phase 18 | Complete |
+| CORE-03 | Phase 18 | Complete |
+| CORE-04 | Phase 18 | Complete |
+| CORE-05 | Phase 18 | Complete |
+| CORE-06 | Phase 18 | Complete |
+| CORE-07 | Phase 18 | Complete |
+| CORE-08 | Phase 18 | Complete |
 | COV-01 | Phase 19 | Pending |
 | COV-02 | Phase 19 | Pending |
 | COV-03 | Phase 19 | Pending |
