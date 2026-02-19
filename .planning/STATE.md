@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 18 — Foundation: Core Abstractions and Fisher Refactor
-Plan: 03 of N in Phase 18
-Status: In progress — Plan 18-03 complete
-Last activity: 2026-02-19 — Completed 18-03-PLAN.md (CLI args + Excel Association sheet)
+Plan: 04 of N in Phase 18
+Status: In progress — Plan 18-04 complete
+Last activity: 2026-02-19 — Completed 18-04-PLAN.md (parity tests + stage coexistence suite)
 
-Progress: ███░░░░░░░░░░░░░░░░░░ ~12% (3 plans delivered, phase 18 in progress)
+Progress: ████░░░░░░░░░░░░░░░░░ ~16% (4 plans delivered, phase 18 in progress)
 
 ## Milestone Overview
 
@@ -53,6 +53,8 @@ Progress: ███░░░░░░░░░░░░░░░░░░ ~12% (
 | IMPL-06 | GeneBurdenAnalysisStage and AssociationAnalysisStage are fully independent | 18-02 | Both guard on separate config keys; both can run in same pipeline invocation without interference |
 | IMPL-07 | parser.error() for --association-tests without --perform-association | 18-03 | argparse convention; produces correctly formatted usage message |
 | IMPL-08 | Association sheet mirrors Gene Burden sheet pattern verbatim | 18-03 | Explicit duplication preferred over abstraction for parallel maintainability |
+| TEST-01 | Bit-identity uses == (exact equality) not pytest.approx for Fisher p-values | 18-04 | Same scipy call chain guarantees floating-point reproducibility; tolerance would hide regressions |
+| TEST-02 | CORE-05 verified via source inspection (inspect.getsource) | 18-04 | Structural proof that GeneBurdenAnalysisStage._process() never references perform_association key |
 
 ### Architecture Invariants (from research)
 
@@ -64,6 +66,7 @@ Progress: ███░░░░░░░░░░░░░░░░░░ ~12% (
 - Genotype matrix: never stored in PipelineContext (5K samples x 50K variants = 1.6 GB)
 - Eigenvalue stability: scipy.linalg.eigh; threshold max(eigenvalues, 0); skip if matrix_rank < 2
 - Python version: recommend bumping requires-python to >=3.11 (scipy 1.16 dropped 3.10)
+- apply_correction([]) returns empty array (statsmodels multipletests raises ZeroDivisionError on empty; guarded in correction.py)
 
 ### Pending Todos
 
@@ -77,7 +80,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-19T08:20:30Z
-Stopped at: Completed 18-03-PLAN.md — CLI args + Excel Association sheet
+Last session: 2026-02-19T09:15:05Z
+Stopped at: Completed 18-04-PLAN.md — parity tests + stage coexistence suite (87 new tests)
 Resume file: None
-Next: Plan 18-04 (parity tests: FisherExactTest vs gene_burden.py cross-validation)
+Next: Plan 18-05 (if exists) or Phase 18 wrap-up
