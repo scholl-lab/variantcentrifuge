@@ -13,7 +13,6 @@ import statsmodels.stats.multitest as smm
 
 from variantcentrifuge.association.correction import apply_correction
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -88,7 +87,7 @@ class TestApplyCorrectionFDR:
 
 @pytest.mark.unit
 class TestApplyCorrectionBonferroni:
-    """apply_correction(method='bonferroni') matches direct smm.multipletests(method='bonferroni')."""
+    """apply_correction(method='bonferroni') matches smm.multipletests(method='bonferroni')."""
 
     def test_bonferroni_parity_typical_values(self):
         """Bonferroni correction matches smm for typical p-values."""
