@@ -51,6 +51,9 @@ def apply_correction(
     """
     pvals_array = np.asarray(pvals, dtype=float)
 
+    if len(pvals_array) == 0:
+        return pvals_array
+
     if smm is None:
         logger.warning("statsmodels not available. Skipping multiple testing correction.")
         return pvals_array
