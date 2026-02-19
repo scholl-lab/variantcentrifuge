@@ -17,6 +17,7 @@ from .pipeline_core.runner import PipelineRunner
 from .pipeline_core.stage import Stage
 from .pipeline_core.workspace import Workspace
 from .stages.analysis_stages import (
+    AssociationAnalysisStage,
     ChunkedAnalysisStage,
     ClinVarPM5Stage,
     CustomAnnotationStage,
@@ -280,6 +281,9 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
 
     if hasattr(args, "perform_gene_burden") and args.perform_gene_burden:
         stages.append(GeneBurdenAnalysisStage())
+
+    if hasattr(args, "perform_association") and args.perform_association:
+        stages.append(AssociationAnalysisStage())
 
     # ClinVar PM5 annotation (when lookup table is provided)
     if config.get("clinvar_pm5_lookup") or getattr(args, "clinvar_pm5_lookup", None):
