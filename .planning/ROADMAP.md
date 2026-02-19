@@ -83,11 +83,10 @@ Plans:
 
 **Requirements:** COV-01, COV-02, COV-03, COV-04, BURDEN-01, BURDEN-02, BURDEN-03, WEIGHT-01, WEIGHT-02
 
-**Plans:** 3 plans
-Plans:
-- [x] 19-01-PLAN.md — covariates.py, genotype_matrix.py, weights.py, and AssociationConfig extension
-- [x] 19-02-PLAN.md — LogisticBurdenTest + LinearBurdenTest implementations, engine registry, CLI args, AssociationAnalysisStage integration
-- [x] 19-03-PLAN.md — Unit tests: covariate alignment, genotype edge cases, burden test validation against manual statsmodels
+**Plans:** 3 plans estimated
+- 19-01: covariates.py — covariate file loading, sample ID alignment with VCF order, one-hot encoding, multicollinearity check; genotype matrix builder with multi-allelic, missing, and phased genotype handling
+- 19-02: logistic_burden.py and linear_burden.py tests; Beta(MAF;1,25) and uniform weight modules; CLI args --covariate-file, --covariates, --trait-type, --variant-weights
+- 19-03: Unit tests for covariate alignment with shuffled sample order, genotype edge cases (1/2, ./., 0|1), logistic/linear burden test outputs validated against manual statsmodels calls
 
 **Success Criteria:**
 
@@ -107,17 +106,16 @@ Plans:
 
 **Requirements:** SKAT-01, SKAT-02, SKAT-03, SKAT-04, SKAT-08, SKAT-09
 
-**Plans:** 3 plans
-Plans:
-- [ ] 20-01-PLAN.md — Backend ABC, RSKATBackend skeleton with R/SKAT detection, engine None-effect guard fix, RSKATTest wrapper
-- [ ] 20-02-PLAN.md — RSKATBackend core: fit_null_model (Adjustment=TRUE), test_gene (SKATBinary/SKAT dispatch, SKAT-O), R memory management, stage integration
-- [ ] 20-03-PLAN.md — Unit tests: mocked rpy2 backend tests, RSKATTest wrapper tests, engine SKAT integration tests
+**Plans:** 3 plans estimated
+- 20-01: backends/base.py SKATBackend ABC and NullModel container; backends/__init__.py get_skat_backend() factory (lazy, never at module import); r_backend.py RSKATBackend with rpy2 import guard, R/SKAT detection, graceful fallback
+- 20-02: RSKATBackend.fit_null_model() using SKAT_Null_Model_MomentAdjust for binary traits; RSKATBackend.test_gene() dispatching to SKATBinary vs SKAT by trait type; SKAT-O with method="optimal.adj"; parallel_safe=False on AssociationAnalysisStage when R backend active; explicit del + gc() every 100 genes
+- 20-03: Synthetic test fixtures (100 cases/100 controls, 50 genes, 5 genes with injected burden signal); validate R backend detects signal genes at p < 0.05; validate R memory usage stays bounded across 500-gene run
 
 **Success Criteria:**
 
 1. On a system with R and the SKAT package, `--skat-backend r` runs SKAT and SKAT-O and reports p-values; on a system without R, the same command falls back gracefully to the Python backend with an informative log message
 2. A binary trait phenotype always uses SKATBinary — the continuous-trait SKAT formulation is never called for binary outcomes, verified by inspecting which R function was invoked
-3. SKAT-O reports the optimal rho value alongside the p-value, and uses `method="SKATO"` correction (not the uncorrected minimum p)
+3. SKAT-O reports the optimal rho value alongside the p-value, and uses `method="optimal.adj"` correction (not the uncorrected minimum p)
 4. Running the R backend across 500 synthetic genes does not cause R heap exhaustion — R objects are deleted after each gene and `gc()` is called every 100 genes
 5. Calling the R backend from a ThreadPoolExecutor worker thread raises an explicit error rather than causing a segfault or silent crash
 
@@ -211,8 +209,8 @@ Plans:
 | 16. Column-Level Filtering and Visualization | v0.14.0 | 3/3 | Complete | 2026-02-18 |
 | 17. Accessibility and Print/PDF | v0.14.0 | 3/3 | Complete | 2026-02-17 |
 | 18. Foundation — Core Abstractions and Fisher Refactor | v0.15.0 | 4/4 | Complete | 2026-02-19 |
-| 19. Covariate System and Burden Tests | v0.15.0 | 3/3 | Complete | 2026-02-20 |
-| 20. R SKAT Backend | v0.15.0 | 3/3 | Complete | 2026-02-20 |
+| 19. Covariate System and Burden Tests | v0.15.0 | 0/3 | Pending | — |
+| 20. R SKAT Backend | v0.15.0 | 0/3 | Pending | — |
 | 21. Pure Python SKAT Backend | v0.15.0 | 0/3 | Pending | — |
 | 22. ACAT-O and Diagnostics | v0.15.0 | 0/3 | Pending | — |
 | 23. PCA Integration, Functional Weights, Allelic Series, and JSON Config | v0.15.0 | 0/4 | Pending | — |

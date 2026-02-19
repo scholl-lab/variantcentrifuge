@@ -18,36 +18,36 @@
 
 ### Covariate System
 
-- [x] **COV-01**: Covariate file loading with explicit sample ID alignment to VCF sample order (assert no NaN after reindex)
-- [x] **COV-02**: Automatic one-hot encoding for categorical covariate columns
-- [x] **COV-03**: Multicollinearity check (condition number warning)
-- [x] **COV-04**: CLI args: --covariate-file, --covariates (column selection), --trait-type (binary/quantitative)
+- [ ] **COV-01**: Covariate file loading with explicit sample ID alignment to VCF sample order (assert no NaN after reindex)
+- [ ] **COV-02**: Automatic one-hot encoding for categorical covariate columns
+- [ ] **COV-03**: Multicollinearity check (condition number warning)
+- [ ] **COV-04**: CLI args: --covariate-file, --covariates (column selection), --trait-type (binary/quantitative)
 
 ### Burden Tests
 
-- [x] **BURDEN-01**: Logistic regression burden test via statsmodels.Logit with Wald test, OR + 95% CI
-- [x] **BURDEN-02**: Linear regression burden test via statsmodels.OLS with beta + SE for quantitative traits
-- [x] **BURDEN-03**: Genotype matrix builder with correct handling of multi-allelic (1/2), missing (./.), phased (0|1) genotypes; mean imputation for missing
+- [ ] **BURDEN-01**: Logistic regression burden test via statsmodels.Logit with Wald test, OR + 95% CI
+- [ ] **BURDEN-02**: Linear regression burden test via statsmodels.OLS with beta + SE for quantitative traits
+- [ ] **BURDEN-03**: Genotype matrix builder with correct handling of multi-allelic (1/2), missing (./.), phased (0|1) genotypes; mean imputation for missing
 
 ### Variant Weights
 
-- [x] **WEIGHT-01**: Beta(MAF; 1, 25) weights as default (scipy.stats.beta.pdf)
-- [x] **WEIGHT-02**: Uniform weights option (backward compatible with current behavior)
+- [ ] **WEIGHT-01**: Beta(MAF; 1, 25) weights as default (scipy.stats.beta.pdf)
+- [ ] **WEIGHT-02**: Uniform weights option (backward compatible with current behavior)
 - [ ] **WEIGHT-03**: Functional weights from annotation columns (CADD-normalized, REVEL-based)
 - [ ] **WEIGHT-04**: Combined weights: Beta(MAF) x functional score
 - [ ] **WEIGHT-05**: CLI args: --variant-weights (beta/uniform/cadd/revel/combined), --variant-weight-params
 
 ### SKAT/SKAT-O
 
-- [x] **SKAT-01**: R SKAT backend via rpy2 with automatic R/SKAT package detection and graceful fallback
-- [x] **SKAT-02**: SKATBinary used by default for binary traits (never continuous-trait SKAT on binary phenotypes)
-- [x] **SKAT-03**: Small-sample moment adjustment (SKAT_Null_Model_MomentAdjust) as R backend default
-- [x] **SKAT-04**: SKAT-O with rho grid search and method="optimal.adj" correction
+- [ ] **SKAT-01**: R SKAT backend via rpy2 with automatic R/SKAT package detection and graceful fallback
+- [ ] **SKAT-02**: SKATBinary used by default for binary traits (never continuous-trait SKAT on binary phenotypes)
+- [ ] **SKAT-03**: Small-sample moment adjustment (SKAT_Null_Model_MomentAdjust) as R backend default
+- [ ] **SKAT-04**: SKAT-O with rho grid search and method="optimal.adj" correction
 - [ ] **SKAT-05**: Pure Python SKAT backend validated against R within 10% relative difference on log10(p)
 - [ ] **SKAT-06**: Davies method via ctypes-compiled qfc.c with corrected defaults (acc=1e-9, lim=10^6)
 - [ ] **SKAT-07**: Fallback chain: Davies -> saddlepoint -> Liu moment-matching; p_method recorded in output
-- [x] **SKAT-08**: R backend declares parallel_safe=False; rpy2 calls only from main thread
-- [x] **SKAT-09**: R memory management: explicit del + rpy2 gc() every 100 genes
+- [ ] **SKAT-08**: R backend declares parallel_safe=False; rpy2 calls only from main thread
+- [ ] **SKAT-09**: R memory management: explicit del + rpy2 gc() every 100 genes
 - [ ] **SKAT-10**: Eigenvalue stability: scipy.linalg.eigh, threshold max(eigenvalues, 0), skip if matrix_rank < 2
 
 ### Omnibus Tests
@@ -116,21 +116,21 @@
 | CORE-06 | Phase 18 | Complete |
 | CORE-07 | Phase 18 | Complete |
 | CORE-08 | Phase 18 | Complete |
-| COV-01 | Phase 19 | Complete |
-| COV-02 | Phase 19 | Complete |
-| COV-03 | Phase 19 | Complete |
-| COV-04 | Phase 19 | Complete |
-| BURDEN-01 | Phase 19 | Complete |
-| BURDEN-02 | Phase 19 | Complete |
-| BURDEN-03 | Phase 19 | Complete |
-| WEIGHT-01 | Phase 19 | Complete |
-| WEIGHT-02 | Phase 19 | Complete |
-| SKAT-01 | Phase 20 | Complete |
-| SKAT-02 | Phase 20 | Complete |
-| SKAT-03 | Phase 20 | Complete |
-| SKAT-04 | Phase 20 | Complete |
-| SKAT-08 | Phase 20 | Complete |
-| SKAT-09 | Phase 20 | Complete |
+| COV-01 | Phase 19 | Pending |
+| COV-02 | Phase 19 | Pending |
+| COV-03 | Phase 19 | Pending |
+| COV-04 | Phase 19 | Pending |
+| BURDEN-01 | Phase 19 | Pending |
+| BURDEN-02 | Phase 19 | Pending |
+| BURDEN-03 | Phase 19 | Pending |
+| WEIGHT-01 | Phase 19 | Pending |
+| WEIGHT-02 | Phase 19 | Pending |
+| SKAT-01 | Phase 20 | Pending |
+| SKAT-02 | Phase 20 | Pending |
+| SKAT-03 | Phase 20 | Pending |
+| SKAT-04 | Phase 20 | Pending |
+| SKAT-08 | Phase 20 | Pending |
+| SKAT-09 | Phase 20 | Pending |
 | SKAT-05 | Phase 21 | Pending |
 | SKAT-06 | Phase 21 | Pending |
 | SKAT-07 | Phase 21 | Pending |
@@ -163,4 +163,4 @@
 
 ---
 *Requirements defined: 2026-02-19*
-*Last updated: 2026-02-20 — Phase 19 requirements marked Complete*
+*Last updated: 2026-02-19 — traceability table populated during roadmap creation*
