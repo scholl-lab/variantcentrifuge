@@ -1,129 +1,121 @@
-# Requirements: v0.14.0 Report UX Overhaul
+# Requirements: v0.15.0 Modular Rare Variant Association Framework
 
-## Milestone Requirements
+**Defined:** 2026-02-19
+**Core Value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
 
-### JS Stack Modernization
+## v1 Requirements
 
-- [x] **STACK-01**: Upgrade DataTables from v1.10.20 to v2 (jQuery-optional)
-- [x] **STACK-02**: Remove jQuery dependency, replace with vanilla JS
-- [x] **STACK-03**: Add Tippy.js for viewport-aware, accessible tooltips
-- [x] **STACK-04**: Replace Plotly with Chart.js for lighter chart bundle (~65KB vs ~3.5MB)
-- [x] **STACK-05**: Add loading skeleton/spinner during DataTable initialization
+### Core Framework
 
-### Information Hierarchy
+- [ ] **CORE-01**: AssociationEngine orchestrates test selection, execution per gene, and result collection
+- [ ] **CORE-02**: Abstract AssociationTest base class with standardized TestResult output (p-value, effect size, CI, variant counts)
+- [ ] **CORE-03**: Fisher's exact test refactored into association/tests/fisher.py with bit-identical output to current --perform-gene-burden
+- [ ] **CORE-04**: AssociationAnalysisStage registered in pipeline with dependency on dataframe_loading and sample_config_loading
+- [ ] **CORE-05**: GeneBurdenAnalysisStage shim that skips when --perform-association is active (backward compatible)
+- [ ] **CORE-06**: CLI args: --perform-association, --association-tests, --skat-backend (auto/r/python)
+- [ ] **CORE-07**: PipelineContext gains association_results field; ExcelReportStage gains Association sheet
+- [ ] **CORE-08**: Multiple testing correction refactored into association/correction.py (FDR + Bonferroni), re-exported in gene_burden.py
 
-- [x] **HIER-01**: Move summary dashboard (cards + charts) above the variant table
-- [x] **HIER-02**: Expand summary cards: impact breakdown, inheritance distribution, top genes, sample count, filter criteria
-- [x] **HIER-03**: Add report metadata footer (filter criteria, VCF source, reference genome, pipeline version, run date)
+### Covariate System
 
-### Semantic Color Coding
+- [ ] **COV-01**: Covariate file loading with explicit sample ID alignment to VCF sample order (assert no NaN after reindex)
+- [ ] **COV-02**: Automatic one-hot encoding for categorical covariate columns
+- [ ] **COV-03**: Multicollinearity check (condition number warning)
+- [ ] **COV-04**: CLI args: --covariate-file, --covariates (column selection), --trait-type (binary/quantitative)
 
-- [x] **COLOR-01**: IMPACT column as colored badges (HIGH=red, MODERATE=orange, LOW=amber, MODIFIER=gray)
-- [x] **COLOR-02**: ClinVar classification badges (Pathogenic=red, Likely Path=orange, VUS=yellow, Likely Benign=light green, Benign=green)
-- [x] **COLOR-03**: Inheritance pattern badges (de novo=red, compound het=purple, AD=blue, AR=green, X-linked=teal)
-- [x] **COLOR-04**: Color-coded summary cards matching severity palette
+### Burden Tests
 
-### Data Table Design
+- [ ] **BURDEN-01**: Logistic regression burden test via statsmodels.Logit with Wald test, OR + 95% CI
+- [ ] **BURDEN-02**: Linear regression burden test via statsmodels.OLS with beta + SE for quantitative traits
+- [ ] **BURDEN-03**: Genotype matrix builder with correct handling of multi-allelic (1/2), missing (./.), phased (0|1) genotypes; mean imputation for missing
 
-- [x] **TABLE-01**: Replace hover-expand with Tippy.js tooltips (viewport-aware, keyboard+hover trigger, Escape dismiss)
-- [x] **TABLE-02**: Sticky first column (GENE) using DataTables FixedColumns
-- [x] **TABLE-03**: Expandable row detail with chevron (click to show all fields in grouped key-value layout)
-- [x] **TABLE-04**: Zebra striping (alternating row backgrounds)
-- [x] **TABLE-05**: Enhanced header row (darker background, white text, bottom border)
-- [x] **TABLE-06**: Intelligent column widths per type (fixed for CHROM/POS, grow for GENE, truncation for HGVS, right-align for numbers)
-- [x] **TABLE-07**: Content density toggle (Compact/Regular/Relaxed) with localStorage persistence
-- [x] **TABLE-08**: Middle truncation for variant IDs, end truncation for HGVS, monospace for genetic notation
-- [x] **TABLE-09**: Prominent record count ("Showing X of Y variants")
-- [x] **TABLE-10**: Default page length 25 (up from 10)
+### Variant Weights
 
-### Column-Level Filtering
+- [ ] **WEIGHT-01**: Beta(MAF; 1, 25) weights as default (scipy.stats.beta.pdf)
+- [ ] **WEIGHT-02**: Uniform weights option (backward compatible with current behavior)
+- [ ] **WEIGHT-03**: Functional weights from annotation columns (CADD-normalized, REVEL-based)
+- [ ] **WEIGHT-04**: Combined weights: Beta(MAF) x functional score
+- [ ] **WEIGHT-05**: CLI args: --variant-weights (beta/uniform/cadd/revel/combined), --variant-weight-params
 
-- [x] **FILTER-01**: Port cohort report's column-level filtering to individual report (numeric sliders, categorical dropdowns, text search)
-- [x] **FILTER-02**: Active filter indicator (removable filter chips/tags)
-- [x] **FILTER-03**: "Include missing values" checkboxes for each filter
-- [x] **FILTER-04**: Reset all filters button
+### SKAT/SKAT-O
 
-### Data Visualization
+- [ ] **SKAT-01**: R SKAT backend via rpy2 with automatic R/SKAT package detection and graceful fallback
+- [ ] **SKAT-02**: SKATBinary used by default for binary traits (never continuous-trait SKAT on binary phenotypes)
+- [ ] **SKAT-03**: Small-sample moment adjustment (SKAT_Null_Model_MomentAdjust) as R backend default
+- [ ] **SKAT-04**: SKAT-O with rho grid search and method="optimal.adj" correction
+- [ ] **SKAT-05**: Pure Python SKAT backend validated against R within 10% relative difference on log10(p)
+- [ ] **SKAT-06**: Davies method via ctypes-compiled qfc.c with corrected defaults (acc=1e-9, lim=10^6)
+- [ ] **SKAT-07**: Fallback chain: Davies -> saddlepoint -> Liu moment-matching; p_method recorded in output
+- [ ] **SKAT-08**: R backend declares parallel_safe=False; rpy2 calls only from main thread
+- [ ] **SKAT-09**: R memory management: explicit del + rpy2 gc() every 100 genes
+- [ ] **SKAT-10**: Eigenvalue stability: scipy.linalg.eigh, threshold max(eigenvalues, 0), skip if matrix_rank < 2
 
-- [x] **VIZ-01**: Impact distribution chart with semantic colors (above table)
-- [x] **VIZ-02**: Variant type breakdown chart (SNV/indel/MNV)
-- [x] **VIZ-03**: Chromosome distribution chart (horizontal bar)
-- [x] **VIZ-04**: Allele frequency histogram (log-scale)
+### Omnibus Tests
 
-### Print & PDF
+- [ ] **OMNI-01**: ACAT-V per-variant Cauchy combination of marginal score test p-values
+- [ ] **OMNI-02**: ACAT-O omnibus combining burden + SKAT + ACAT-V p-values per gene
+- [ ] **OMNI-03**: Single FDR correction applied to ACAT-O p-values across genes (not separate per test)
 
-- [x] **PRINT-01**: Print stylesheet (@media print) hiding interactive controls, optimizing table layout
-- [x] **PRINT-02**: PDF export button (browser-based via html2pdf.js or window.print)
+### Diagnostics and Output
 
-### Accessibility
+- [ ] **DIAG-01**: Per-gene TSV output with standard columns (fisher_p, burden_p, skat_p, skat_o_p, acat_o_p, effect sizes, CIs, variant counts)
+- [ ] **DIAG-02**: Lambda_GC genomic inflation factor computed per test
+- [ ] **DIAG-03**: QQ plot data TSV (observed vs expected -log10(p))
+- [ ] **DIAG-04**: Optional matplotlib QQ plot PNG/SVG (lazy import, graceful if matplotlib absent)
+- [ ] **DIAG-05**: CLI arg: --diagnostics-output (path for diagnostics directory)
+- [ ] **DIAG-06**: Warn when n_cases < 200 or case:control ratio > 1:20; flag genes with case_carriers < 10
 
-- [x] **A11Y-01**: ARIA roles and labels on table (role="table"), filter controls, summary cards
-- [x] **A11Y-02**: Keyboard-accessible tooltips (tabindex="0", focus trigger, Escape dismiss)
-- [x] **A11Y-03**: Chart text alternatives (data table fallback or aria-label summary)
-- [x] **A11Y-04**: Skip-to-content links for keyboard navigation
-- [x] **A11Y-05**: Replace emoji link icons with SVG icons + screen-reader text
-- [x] **A11Y-06**: Sufficient color contrast (WCAG AA minimum)
+### PCA Integration
+
+- [ ] **PCA-01**: PCA file loading supporting PLINK .eigenvec, AKT output, and generic TSV formats
+- [ ] **PCA-02**: PCA components merged as covariates (default 10 PCs; warn if >20)
+- [ ] **PCA-03**: AKT wrapper as PCAComputationStage in pipeline (optional, requires akt in PATH)
+- [ ] **PCA-04**: CLI args: --pca-file, --pca-tool akt, --pca-components
+
+### Allelic Series
+
+- [ ] **SERIES-01**: COAST allelic series test with BMV/DMV/PTV variant classification from PolyPhen/SIFT annotations
+- [ ] **SERIES-02**: Configurable variant category weights (default w=1,2,3 for BMV/DMV/PTV)
+
+### Configuration
+
+- [ ] **CONFIG-01**: JSON config mode for association analysis (--association-config file.json)
+- [ ] **CONFIG-02**: Config supports all CLI association options as JSON fields
 
 ## Future Requirements
 
-- Cohort report improvements (port individual report enhancements back)
-- Dark mode support (CSS custom properties)
-- Filter presets (pathogenic rare, de novo candidates, compound het)
-- URL-based filter state for shareable views
-- Variant bookmarking/flagging with localStorage
-- Gene info tooltips (OMIM, constraint scores)
-- Keyboard shortcuts (j/k navigation, Enter/Esc for details)
-- Column resize handles
-- Virtual scrolling for 10,000+ variant datasets
-- Pedigree visualization
+- Permutation-based p-values for low-MAC situations (adaptive permutation)
+- Kinship matrix support / mixed-model SKAT (GENESIS package)
+- Conditional analysis (testing after conditioning on known signals)
+- Manhattan plot data generation (gene-level)
+- PLINK 2.0 wrapper for PCA computation
+- Score statistics export for meta-analysis (RAREMETAL-compatible format)
+- Dark mode for diagnostic plots
 
 ## Out of Scope
 
-- Cohort HTML report changes — focus on individual report gap
-- Side panel variant detail — using expandable rows instead (simpler)
-- Server-side data loading — reports must remain self-contained HTML files
-- Custom user-defined filter presets — deferred to future milestone
-- Excel report UX changes — separate scope
+| Feature | Reason |
+|---------|--------|
+| Meta-analysis (RAREMETAL, Meta-SAIGE) | Different problem: combining results across cohorts; out of scope for single-cohort tool |
+| Mixed model / GRM (SAIGE-GENE approach) | Biobank-scale; PCs + kinship exclusion sufficient for GCKD (<10K samples) |
+| DeepRVAT neural network weights | Requires massive training data; no nephrology model exists |
+| Phased haplotype tests | Existing comp_het.py already handles compound heterozygous detection |
+| REGENIE-style whole-genome split | Designed for >100K samples; not needed for lab cohorts |
+| Adaptive test selection per gene | Post-hoc best-test selection inflates type I error |
+| PLINK 2.0 wrapper | AKT is sufficient for VCF-native PCA; PLINK file loading (pre-computed) supported |
 
 ## Traceability
 
+(Populated during roadmap creation)
+
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| STACK-01 | Phase 13 | Complete |
-| STACK-02 | Phase 13 | Complete |
-| STACK-03 | Phase 13 | Complete |
-| STACK-04 | Phase 13 | Complete |
-| STACK-05 | Phase 13 | Complete |
-| HIER-01 | Phase 14 | Complete |
-| HIER-02 | Phase 14 | Complete |
-| HIER-03 | Phase 14 | Complete |
-| COLOR-01 | Phase 14 | Complete |
-| COLOR-02 | Phase 14 | Complete |
-| COLOR-03 | Phase 14 | Complete |
-| COLOR-04 | Phase 14 | Complete |
-| TABLE-01 | Phase 15 | Complete |
-| TABLE-02 | Phase 15 | Complete |
-| TABLE-03 | Phase 15 | Complete |
-| TABLE-04 | Phase 15 | Complete |
-| TABLE-05 | Phase 15 | Complete |
-| TABLE-06 | Phase 15 | Complete |
-| TABLE-07 | Phase 15 | Complete |
-| TABLE-08 | Phase 15 | Complete |
-| TABLE-09 | Phase 15 | Complete |
-| TABLE-10 | Phase 15 | Complete |
-| FILTER-01 | Phase 16 | Complete |
-| FILTER-02 | Phase 16 | Complete |
-| FILTER-03 | Phase 16 | Complete |
-| FILTER-04 | Phase 16 | Complete |
-| VIZ-01 | Phase 16 | Complete |
-| VIZ-02 | Phase 16 | Complete |
-| VIZ-03 | Phase 16 | Complete |
-| VIZ-04 | Phase 16 | Complete |
-| A11Y-01 | Phase 17 | Complete |
-| A11Y-02 | Phase 17 | Complete |
-| A11Y-03 | Phase 17 | Complete |
-| A11Y-04 | Phase 17 | Complete |
-| A11Y-05 | Phase 17 | Complete |
-| A11Y-06 | Phase 17 | Complete |
-| PRINT-01 | Phase 17 | Complete |
-| PRINT-02 | Phase 17 | Complete |
+
+**Coverage:**
+- v1 requirements: 44 total
+- Mapped to phases: 0
+- Unmapped: 44
+
+---
+*Requirements defined: 2026-02-19*
+*Last updated: 2026-02-19 after initial definition*
