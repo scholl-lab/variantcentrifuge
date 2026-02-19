@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 18 — Foundation: Core Abstractions and Fisher Refactor
-Plan: 02 of N in Phase 18
-Status: In progress — Plan 18-02 complete
-Last activity: 2026-02-19 — Completed 18-02-PLAN.md (AssociationAnalysisStage pipeline wiring)
+Plan: 03 of N in Phase 18
+Status: In progress — Plan 18-03 complete
+Last activity: 2026-02-19 — Completed 18-03-PLAN.md (CLI args + Excel Association sheet)
 
-Progress: ██░░░░░░░░░░░░░░░░░░░ ~10% (2 plans delivered, phase 18 in progress)
+Progress: ███░░░░░░░░░░░░░░░░░░ ~12% (3 plans delivered, phase 18 in progress)
 
 ## Milestone Overview
 
@@ -51,6 +51,8 @@ Progress: ██░░░░░░░░░░░░░░░░░░░ ~10% (
 | IMPL-04 | AssociationAnalysisStage reuses gene_burden.py aggregation functions | 18-02 | Ensures bit-identical contingency data between --perform-gene-burden and --perform-association paths |
 | IMPL-05 | gene_burden.py correction rewired to association/correction.py with smm fallback | 18-02 | Zero behavioral change; if association package unavailable, original code path still works |
 | IMPL-06 | GeneBurdenAnalysisStage and AssociationAnalysisStage are fully independent | 18-02 | Both guard on separate config keys; both can run in same pipeline invocation without interference |
+| IMPL-07 | parser.error() for --association-tests without --perform-association | 18-03 | argparse convention; produces correctly formatted usage message |
+| IMPL-08 | Association sheet mirrors Gene Burden sheet pattern verbatim | 18-03 | Explicit duplication preferred over abstraction for parallel maintainability |
 
 ### Architecture Invariants (from research)
 
@@ -75,7 +77,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-19T08:01:12Z
-Stopped at: Completed 18-02-PLAN.md — AssociationAnalysisStage wired into pipeline
+Last session: 2026-02-19T08:20:30Z
+Stopped at: Completed 18-03-PLAN.md — CLI args + Excel Association sheet
 Resume file: None
-Next: Plan 18-03 (parity tests: FisherExactTest vs gene_burden.py cross-validation)
+Next: Plan 18-04 (parity tests: FisherExactTest vs gene_burden.py cross-validation)
