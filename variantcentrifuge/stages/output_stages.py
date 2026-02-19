@@ -674,8 +674,8 @@ class ExcelReportStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of optional stage names this stage depends on."""
-        # This ensures Excel generation waits for gene burden analysis if it's running.
-        return {"gene_burden_analysis"}
+        # This ensures Excel generation waits for gene burden/association analysis if running.
+        return {"gene_burden_analysis", "association_analysis"}
 
     @property
     def parallel_safe(self) -> bool:
@@ -809,6 +809,18 @@ class ExcelReportStage(Stage):
                     logger.error(f"Failed to add Gene Burden sheet: {e}")
             else:
                 logger.debug("Gene burden file not found or empty, skipping Gene Burden sheet")
+
+        # Add Association sheet (if association analysis was performed and file exists)
+        if context.config.get("perform_association"):
+            assoc_file = context.config.get("association_output")
+            if assoc_file and Path(assoc_file).exists() and Path(assoc_file).stat().st_size > 0:
+                try:
+                    append_tsv_as_sheet(xlsx_file, assoc_file, sheet_name="Association")
+                    logger.info("Successfully added Association sheet to Excel file")
+                except Exception as e:
+                    logger.error(f"Failed to add Association sheet: {e}")
+            else:
+                logger.debug("Association file not found or empty, skipping Association sheet")
 
 
 class HTMLReportStage(Stage):
