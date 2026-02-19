@@ -22,6 +22,7 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 - Inheritance analysis vectorized with NumPy (40-47% faster) — v0.13.0
 - Variant scoring with configurable formula models
 - Gene burden analysis with Fisher's exact test and multiple testing correction
+- Individual HTML report: modern JS stack, semantic color coding, table redesign, column-level filtering, accessibility, print/PDF — v0.14.0
 - Statistics generation (gene-level, impact summary, variant type summary)
 - Output: TSV, Excel (xlsxwriter + openpyxl two-pass), HTML (interactive), IGV reports — v0.13.0
 - Pseudonymization and archiving
@@ -37,16 +38,20 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 
 ### Active
 
-**Milestone v0.14.0 — Report UX Overhaul (Individual HTML Report)**
+**Milestone v0.15.0 — Modular Rare Variant Association Framework**
 
-- Restructure information hierarchy (summary → charts → filters → table)
-- Semantic color coding (IMPACT, ClinVar, inheritance pattern badges)
-- Comprehensive table redesign: Tippy.js tooltips, sticky columns, expandable row detail, content density toggle, intelligent column widths, zebra striping
-- Column-level filtering for individual report (port from cohort report)
-- Modernize JS stack: DataTables v2 (jQuery-optional), drop jQuery, add Tippy.js
-- Print stylesheet + PDF export
-- Expanded visualizations (chromosome distribution, variant type, AF histogram)
-- ARIA accessibility pass (roles, labels, keyboard support, chart alternatives)
+- Modular association engine with pluggable statistical tests (Fisher, burden, SKAT, SKAT-O, ACAT-O)
+- Dual SKAT backend: R SKAT via rpy2 (gold standard) + pure Python fallback with iterative validation
+- Covariate adjustment system (age, sex, custom covariates + PCA components)
+- PCA integration: pre-computed file loading + AKT/PLINK computation wrappers
+- Variant weighting schemes: Beta(MAF), CADD/REVEL-based, uniform
+- Logistic/linear regression burden tests with covariates (statsmodels)
+- ACAT-V (variant-level) and ACAT-O (omnibus p-value combination)
+- Compiled Davies method (qfc.c via ctypes) for mixture-of-χ² p-values
+- Diagnostics: lambda_GC, QQ plot data, Manhattan plot data
+- Allelic series test (LoF vs damaging vs benign ordered alternatives)
+- JSON config mode for power users
+- Backward compatible: existing --perform-gene-burden unchanged
 
 ### Out of Scope
 
@@ -59,23 +64,24 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 
 ## Context
 
-- Current version: v0.13.1
-- Shipped v0.13.0 with 28,378 LOC Python
-- Tech stack: Python 3.10+, pandas, NumPy, openpyxl, xlsxwriter, bcftools, SnpSift
-- Pipeline time reduced from 10+ hours to under 1 hour on large cohorts (>10x improvement)
-- 4 open issues remain (#58, #60, #61, #62)
-- 2 minor tech debt items from v0.13.0 (aspirational speedup target, dead code in GenotypeReplacementStage)
-- UX assessment scored individual HTML report 4.8/10 — functional but lacking hierarchy, color coding, table UX, accessibility
-- Individual report uses DataTables 1.10.20 (2019), jQuery, custom hover-expand with multiple bugs
-- Cohort report is more advanced (filtering, dashboard) — gap needs closing
+- Current version: v0.14.0
+- Tech stack: Python 3.10+, pandas, NumPy, openpyxl, xlsxwriter, bcftools, SnpSift, scipy, statsmodels
+- Pipeline time reduced from 10+ hours to under 1 hour on large cohorts (>10x improvement) — v0.13.0
+- Individual HTML report overhauled with modern JS stack, semantic colors, filtering, accessibility — v0.14.0
+- Current gene burden is Fisher's exact only — adequate for strong Mendelian signals (PKD1 p=2e-80) but underpowered for novel associations
+- Design document: `.planning/ASSOCIATION-FRAMEWORK-DESIGN.md` (detailed architecture, math specs, validation strategy)
+- R SKAT package (Lee Lab) is the gold standard for rare variant association — we port from it
+- Davies method (Algorithm AS 155) is the critical piece for mixture-of-χ² p-values
+- GCKD cohort (5,125 samples) is the primary validation dataset
 
 ## Constraints
 
-- **Correctness**: All optimizations must preserve identical output — clinical tool, zero tolerance for behavioral changes
-- **Test coverage**: Every optimization requires benchmark measurements before and after
-- **Backwards compatibility**: CLI interface and output formats must not change
-- **Dependencies**: No new heavy dependencies except pytest-benchmark (dev)
-- **Platform**: Must pass on both Windows and Linux (CI runs Ubuntu)
+- **Correctness**: Clinical tool, zero tolerance for behavioral changes in existing functionality
+- **Backwards compatibility**: Existing CLI interface and output formats must not change; new features are additive
+- **Test coverage**: Statistical tests validated against R SKAT reference implementation
+- **Dependencies**: New optional deps (rpy2, matplotlib) must degrade gracefully; core tests use scipy/statsmodels only
+- **Platform**: Must pass on both Windows and Linux (CI runs Ubuntu); compiled qfc.c needs cross-platform build
+- **Numerical precision**: Python SKAT p-values within 10% relative difference of R; Davies ctypes within 1%
 
 ## Key Decisions
 
@@ -94,9 +100,12 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 | itertuples migration | 30.9x iteration speedup over iterrows | Good |
 | xlsxwriter + openpyxl two-pass | Fast bulk write + rich formatting finalization | Good |
 
-| Individual report only for v0.14.0 | Cohort report is already better; focus on biggest gap first | — Pending |
-| Expandable rows over side panel | Simpler, DataTables-native pattern, avoids complexity | — Pending |
-| Modernize JS stack | DataTables v2 is jQuery-optional; reduce bundle size, future-proof | — Pending |
+| Individual report only for v0.14.0 | Cohort report is already better; focus on biggest gap first | ✓ Good |
+| Expandable rows over side panel | Simpler, DataTables-native pattern, avoids complexity | ✓ Good |
+| Modernize JS stack | DataTables v2 is jQuery-optional; reduce bundle size, future-proof | ✓ Good |
+| Dual SKAT backend (R + Python) | R is gold standard for validation; Python for portability | — Pending |
+| Compiled Davies via ctypes | Exact p-values without R dependency; Liu fallback for safety | — Pending |
+| AKT + PLINK for PCA | Both supported — AKT for VCF-native, PLINK for pre-existing BED files | — Pending |
 
 ---
-*Last updated: 2026-02-16 after v0.14.0 milestone start*
+*Last updated: 2026-02-19 after v0.15.0 milestone start*
