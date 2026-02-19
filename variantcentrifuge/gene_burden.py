@@ -42,6 +42,11 @@ except ImportError:
     smm = None
     Table2x2 = None
 
+try:
+    from .association.correction import apply_correction as _apply_correction
+except ImportError:
+    _apply_correction = None  # type: ignore[assignment]
+
 logger = logging.getLogger("variantcentrifuge")
 
 
@@ -500,14 +505,16 @@ def perform_gene_burden_analysis(
 
     # Multiple testing correction
     pvals = results_df["raw_p_value"].values
-    if smm is None:
-        logger.warning("statsmodels not available. Skipping multiple testing correction.")
-        corrected_pvals = pvals
-    else:
+    if _apply_correction is not None:
+        corrected_pvals = _apply_correction(pvals, correction_method)
+    elif smm is not None:
         if correction_method == "bonferroni":
             corrected_pvals = smm.multipletests(pvals, method="bonferroni")[1]
         else:
             corrected_pvals = smm.multipletests(pvals, method="fdr_bh")[1]
+    else:
+        logger.warning("statsmodels not available. Skipping multiple testing correction.")
+        corrected_pvals = pvals
 
     results_df["corrected_p_value"] = corrected_pvals
 

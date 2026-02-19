@@ -482,6 +482,7 @@ def _register_processing_stages():
 def _register_analysis_stages():
     """Register all analysis stages."""
     from .analysis_stages import (
+        AssociationAnalysisStage,
         ChunkedAnalysisStage,
         CustomAnnotationStage,
         DataFrameLoadingStage,
@@ -504,6 +505,9 @@ def _register_analysis_stages():
     register_stage(StatisticsGenerationStage, "analysis", ["statistics_generation", "stats"], 10.0)
     register_stage(VariantAnalysisStage, "analysis", ["variant_analysis", "analysis"], 25.0)
     register_stage(GeneBurdenAnalysisStage, "analysis", ["gene_burden", "burden_analysis"], 30.0)
+    register_stage(
+        AssociationAnalysisStage, "analysis", ["association_analysis", "association"], 30.0
+    )
     register_stage(ChunkedAnalysisStage, "analysis", ["chunked_analysis"], 60.0)
     register_stage(ParallelAnalysisOrchestrator, "analysis", ["analysis_orchestrator"], 45.0)
 
