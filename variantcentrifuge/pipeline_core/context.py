@@ -158,6 +158,7 @@ class PipelineContext:
     column_rename_map: dict[str, str] = field(default_factory=dict)  # Column rename mapping
     statistics: dict[str, Any] = field(default_factory=dict)
     gene_burden_results: pd.DataFrame | None = None
+    association_results: pd.DataFrame | None = None
 
     # Output paths
     final_output_path: Path | None = None
@@ -299,6 +300,8 @@ class PipelineContext:
                 self.statistics.update(other.statistics)
             if other.gene_burden_results is not None and self.gene_burden_results is None:
                 self.gene_burden_results = other.gene_burden_results
+            if other.association_results is not None and self.association_results is None:
+                self.association_results = other.association_results
 
             # Merge config updates (important for ConfigurationLoadingStage)
             if other.config:

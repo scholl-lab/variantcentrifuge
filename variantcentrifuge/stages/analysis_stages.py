@@ -20,9 +20,17 @@ import pandas as pd
 
 from ..analyze_variants import analyze_variants
 from ..annotator import annotate_dataframe_with_features, load_custom_features
+from ..association.base import AssociationConfig
+from ..association.engine import AssociationEngine
 from ..dataframe_optimizer import load_optimized_dataframe, should_use_memory_passthrough
 from ..filters import filter_final_tsv_by_genotype
-from ..gene_burden import perform_gene_burden_analysis
+from ..gene_burden import (
+    _aggregate_gene_burden_from_columns,
+    _aggregate_gene_burden_from_gt,
+    _aggregate_gene_burden_legacy,
+    _find_gt_columns,
+    perform_gene_burden_analysis,
+)
 from ..inheritance import analyze_inheritance
 from ..pipeline_core import PipelineContext, Stage
 from ..scoring import apply_scoring
@@ -2026,6 +2034,208 @@ class GeneBurdenAnalysisStage(Stage):
             burden_output = context.config["gene_burden_output"]
             if Path(burden_output).exists():
                 return [Path(burden_output)]
+        return []
+
+
+class AssociationAnalysisStage(Stage):
+    """Perform association analysis using the modular AssociationEngine framework."""
+
+    @property
+    def name(self) -> str:
+        """Return the stage name."""
+        return "association_analysis"
+
+    @property
+    def description(self) -> str:
+        """Return a description of what this stage does."""
+        return "Perform association analysis"
+
+    @property
+    def dependencies(self) -> set[str]:
+        """Return the set of stage names this stage depends on."""
+        return {"dataframe_loading", "sample_config_loading"}
+
+    @property
+    def soft_dependencies(self) -> set[str]:
+        """Return the set of stage names that should run before if present."""
+        return {"custom_annotation"}
+
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Handle the case where this stage is skipped by checkpoint system.
+
+        When this stage is skipped, we need to restore the association output file path
+        so that subsequent stages can find the results.
+        """
+        if not context.config.get("perform_association"):
+            return context
+
+        # Try to find existing association output file
+        assoc_output = context.config.get("association_output")
+        if not assoc_output:
+            output_dir = context.config.get("output_dir", "output")
+            base_name = context.config.get("output_file_base", "association_results")
+
+            default_path = Path(output_dir) / f"{base_name}.association.tsv"
+            default_path_gz = Path(str(default_path) + ".gz")
+
+            if default_path_gz.exists():
+                assoc_output = str(default_path_gz)
+                context.config["association_output"] = assoc_output
+                logger.info(f"Restored association output file path: {assoc_output}")
+            elif default_path.exists():
+                assoc_output = str(default_path)
+                context.config["association_output"] = assoc_output
+                logger.info(f"Restored association output file path: {assoc_output}")
+            else:
+                logger.warning("Association output file not found during checkpoint skip")
+
+        return context
+
+    def _process(self, context: PipelineContext) -> PipelineContext:
+        """Perform association analysis."""
+        if not context.config.get("perform_association"):
+            logger.debug("Association analysis not requested")
+            return context
+
+        # Check required inputs
+        case_samples = context.config.get("case_samples", [])
+        control_samples = context.config.get("control_samples", [])
+
+        if not case_samples or not control_samples:
+            logger.warning(
+                f"Case/control samples not defined for association analysis: "
+                f"case_samples={len(case_samples) if case_samples else 0}, "
+                f"control_samples={len(control_samples) if control_samples else 0}"
+            )
+            return context
+
+        # Build AssociationConfig from context
+        assoc_config = AssociationConfig(
+            correction_method=context.config.get("correction_method", "fdr"),
+            gene_burden_mode=context.config.get("gene_burden_mode", "samples"),
+            confidence_interval_method=context.config.get(
+                "confidence_interval_method", "normal_approx"
+            ),
+            confidence_interval_alpha=context.config.get("confidence_interval_alpha", 0.05),
+        )
+
+        # Get test names; default to fisher
+        test_names: list[str] = context.config.get("association_tests", ["fisher"])
+
+        # Eager dependency check: instantiate engine (also calls check_dependencies per test)
+        engine = AssociationEngine.from_names(test_names, assoc_config)
+
+        # Get DataFrame
+        df = context.current_dataframe
+        if df is None:
+            df = context.variants_df
+        if df is None or df.empty:
+            logger.warning("No DataFrame loaded for association analysis")
+            return context
+
+        if "GENE" not in df.columns:
+            logger.error("DataFrame missing required 'GENE' column for association analysis")
+            return context
+
+        # Phase 11: Reconstruct packed GT column if missing
+        if "GT" not in df.columns and context.vcf_samples:
+            from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
+
+            gt_cols = _find_per_sample_gt_columns(df)
+            if gt_cols:
+                logger.info("Reconstructing GT column for association analysis")
+                df = reconstruct_gt_column(df.copy(), context.vcf_samples)
+                context.current_dataframe = df
+
+        # Determine aggregation strategy (same priority as perform_gene_burden_analysis)
+        case_set = set(case_samples)
+        control_set = set(control_samples)
+        vcf_samples_list = list(context.vcf_samples) if context.vcf_samples else None
+
+        has_case_ctrl = True  # already checked above
+        gt_columns = _find_gt_columns(df)
+        use_column_aggregation = bool(
+            has_case_ctrl
+            and gt_columns
+            and vcf_samples_list
+            and len(gt_columns) <= len(vcf_samples_list)
+        )
+        use_gt_aggregation = has_case_ctrl and not use_column_aggregation and "GT" in df.columns
+
+        if use_column_aggregation:
+            logger.info(
+                f"Association analysis: using column-based aggregation "
+                f"({len(gt_columns)} GT columns, "
+                f"{len(case_set)} cases, {len(control_set)} controls)"
+            )
+            gene_burden_data = _aggregate_gene_burden_from_columns(
+                df, case_set, control_set, vcf_samples_list, gt_columns
+            )
+        elif use_gt_aggregation:
+            logger.info(
+                "Association analysis: using packed GT string collapsing "
+                f"({len(case_set)} cases, {len(control_set)} controls)"
+            )
+            gene_burden_data = _aggregate_gene_burden_from_gt(df, case_set, control_set)
+        else:
+            logger.info("Association analysis: using pre-computed per-variant counts (legacy mode)")
+            gene_burden_data = _aggregate_gene_burden_legacy(df)
+
+        if not gene_burden_data:
+            logger.warning("No genes found with variant data for association analysis.")
+            return context
+
+        # Run association tests
+        results_df = engine.run_all(gene_burden_data)
+
+        if results_df.empty:
+            logger.warning("Association analysis produced no results.")
+            return context
+
+        # Write results to output file
+        assoc_output = context.config.get("association_output")
+        if not assoc_output:
+            output_dir = context.config.get("output_dir", "output")
+            base_name = context.config.get("output_file_base", "association_results")
+            assoc_output = str(Path(output_dir) / f"{base_name}.association.tsv")
+            context.config["association_output"] = assoc_output
+
+        # Apply compression based on configuration
+        use_compression = context.config.get("gzip_intermediates", True)
+        if use_compression and not str(assoc_output).endswith(".gz"):
+            assoc_output = str(assoc_output) + ".gz"
+            context.config["association_output"] = assoc_output
+            compression = "gzip"
+        else:
+            compression = None
+
+        results_df.to_csv(assoc_output, sep="\t", index=False, compression=compression)
+        logger.info(f"Wrote association results to {assoc_output}")
+
+        # Store results in context
+        context.association_results = results_df
+
+        # Log summary
+        n_genes = len(results_df)
+        # Count significant genes across any corrected p-value column
+        corr_cols = [c for c in results_df.columns if c.endswith("_corrected_p_value")]
+        n_sig = int((results_df[corr_cols].min(axis=1) < 0.05).sum()) if corr_cols else 0
+        logger.info(
+            f"Association analysis: {n_genes} genes tested, {n_sig} significant (FDR < 0.05)"
+        )
+
+        return context
+
+    def get_input_files(self, context: PipelineContext) -> list[Path]:
+        """Return input files for checkpoint tracking."""
+        return []
+
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
+        """Return output files for checkpoint tracking."""
+        if hasattr(context, "config") and context.config.get("association_output"):
+            assoc_output = context.config["association_output"]
+            if Path(assoc_output).exists():
+                return [Path(assoc_output)]
         return []
 
 
