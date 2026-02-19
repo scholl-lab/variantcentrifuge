@@ -12,7 +12,6 @@ import pytest
 from variantcentrifuge.association.base import AssociationConfig
 from variantcentrifuge.association.engine import AssociationEngine
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -102,7 +101,9 @@ class TestAssociationEngineRunAll:
         import pandas as pd
 
         gene_data = [
-            _make_gene_data("BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3)
+            _make_gene_data(
+                "BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3
+            )
         ]
         engine = AssociationEngine.from_names(["fisher"], default_config)
         result = engine.run_all(gene_data)
@@ -113,7 +114,9 @@ class TestAssociationEngineRunAll:
     def test_run_all_output_columns(self, default_config):
         """run_all output contains all expected columns."""
         gene_data = [
-            _make_gene_data("BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3)
+            _make_gene_data(
+                "BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3
+            )
         ]
         engine = AssociationEngine.from_names(["fisher"], default_config)
         result = engine.run_all(gene_data)
@@ -134,9 +137,15 @@ class TestAssociationEngineRunAll:
     def test_run_all_multiple_genes_returns_sorted(self, default_config):
         """run_all with multiple genes returns them sorted alphabetically by gene."""
         gene_data = [
-            _make_gene_data("TP53", p_carriers=3, c_carriers=0, p_total=50, c_total=50, n_variants=2),
-            _make_gene_data("BRCA1", p_carriers=5, c_carriers=1, p_total=50, c_total=50, n_variants=3),
-            _make_gene_data("MYH7", p_carriers=2, c_carriers=1, p_total=50, c_total=50, n_variants=1),
+            _make_gene_data(
+                "TP53", p_carriers=3, c_carriers=0, p_total=50, c_total=50, n_variants=2
+            ),
+            _make_gene_data(
+                "BRCA1", p_carriers=5, c_carriers=1, p_total=50, c_total=50, n_variants=3
+            ),
+            _make_gene_data(
+                "MYH7", p_carriers=2, c_carriers=1, p_total=50, c_total=50, n_variants=1
+            ),
         ]
         engine = AssociationEngine.from_names(["fisher"], default_config)
         result = engine.run_all(gene_data)
@@ -146,9 +155,13 @@ class TestAssociationEngineRunAll:
     def test_run_all_zero_variant_gene_excluded(self, default_config):
         """Gene with n_qualifying_variants=0 is excluded from results (p_value=None)."""
         gene_data = [
-            _make_gene_data("BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3),
+            _make_gene_data(
+                "BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3
+            ),
             # Zero-variant gene — should be excluded
-            _make_gene_data("EMPTY", p_carriers=0, c_carriers=0, p_total=100, c_total=200, n_variants=0),
+            _make_gene_data(
+                "EMPTY", p_carriers=0, c_carriers=0, p_total=100, c_total=200, n_variants=0
+            ),
         ]
         engine = AssociationEngine.from_names(["fisher"], default_config)
         result = engine.run_all(gene_data)
@@ -159,8 +172,12 @@ class TestAssociationEngineRunAll:
     def test_run_all_all_zero_variant_genes_returns_empty_df(self, default_config):
         """run_all with all zero-variant genes returns empty DataFrame."""
         gene_data = [
-            _make_gene_data("GENE1", p_carriers=0, c_carriers=0, p_total=50, c_total=50, n_variants=0),
-            _make_gene_data("GENE2", p_carriers=0, c_carriers=0, p_total=50, c_total=50, n_variants=0),
+            _make_gene_data(
+                "GENE1", p_carriers=0, c_carriers=0, p_total=50, c_total=50, n_variants=0
+            ),
+            _make_gene_data(
+                "GENE2", p_carriers=0, c_carriers=0, p_total=50, c_total=50, n_variants=0
+            ),
         ]
         engine = AssociationEngine.from_names(["fisher"], default_config)
         result = engine.run_all(gene_data)
@@ -176,8 +193,12 @@ class TestAssociationEngineRunAll:
     def test_run_all_corrected_p_values_populated(self, default_config):
         """run_all populates corrected p-values for all genes."""
         gene_data = [
-            _make_gene_data("BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3),
-            _make_gene_data("TP53", p_carriers=3, c_carriers=0, p_total=100, c_total=200, n_variants=2),
+            _make_gene_data(
+                "BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3
+            ),
+            _make_gene_data(
+                "TP53", p_carriers=3, c_carriers=0, p_total=100, c_total=200, n_variants=2
+            ),
         ]
         engine = AssociationEngine.from_names(["fisher"], default_config)
         result = engine.run_all(gene_data)
@@ -189,9 +210,15 @@ class TestAssociationEngineRunAll:
         """Input in reverse alpha order -> output still alphabetical."""
         # GENE names in reverse order to verify sort is applied
         gene_data = [
-            _make_gene_data("ZZGENE", p_carriers=3, c_carriers=0, p_total=50, c_total=50, n_variants=1),
-            _make_gene_data("MMGENE", p_carriers=2, c_carriers=1, p_total=50, c_total=50, n_variants=1),
-            _make_gene_data("AAGENE", p_carriers=5, c_carriers=1, p_total=50, c_total=50, n_variants=1),
+            _make_gene_data(
+                "ZZGENE", p_carriers=3, c_carriers=0, p_total=50, c_total=50, n_variants=1
+            ),
+            _make_gene_data(
+                "MMGENE", p_carriers=2, c_carriers=1, p_total=50, c_total=50, n_variants=1
+            ),
+            _make_gene_data(
+                "AAGENE", p_carriers=5, c_carriers=1, p_total=50, c_total=50, n_variants=1
+            ),
         ]
         engine = AssociationEngine.from_names(["fisher"], default_config)
         result = engine.run_all(gene_data)
@@ -201,7 +228,9 @@ class TestAssociationEngineRunAll:
     def test_run_all_n_cases_n_controls_correct(self, default_config):
         """run_all output has correct n_cases and n_controls from contingency data."""
         gene_data = [
-            _make_gene_data("BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3)
+            _make_gene_data(
+                "BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3
+            )
         ]
         engine = AssociationEngine.from_names(["fisher"], default_config)
         result = engine.run_all(gene_data)
@@ -214,7 +243,9 @@ class TestAssociationEngineRunAll:
     def test_run_all_no_tests_returns_empty_df(self, default_config):
         """Engine with no registered tests returns empty DataFrame."""
         gene_data = [
-            _make_gene_data("BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3)
+            _make_gene_data(
+                "BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3
+            )
         ]
         engine = AssociationEngine.from_names([], default_config)
         result = engine.run_all(gene_data)
