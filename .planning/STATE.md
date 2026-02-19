@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 20 — R SKAT Backend
-Plan: 3/3 complete
-Status: Phase 20 complete — verified + live tested on GCKD (4/5 criteria pass; Python fallback is Phase 21 scope)
-Last activity: 2026-02-20 — Phase 20 live tested on real GCKD cohort (5124 samples), 4 bug fixes applied
+Phase: 18 — Foundation: Core Abstractions and Fisher Refactor
+Plan: 01 of N in Phase 18
+Status: In progress — Plan 18-01 complete
+Last activity: 2026-02-19 — Completed 18-01-PLAN.md (association/ package skeleton + FisherExactTest)
 
-Progress: ██████████░░░░░░░░░░░ ~50% (Phases 18-20 complete, 3 phases remaining)
+Progress: █░░░░░░░░░░░░░░░░░░░░ ~5% (1 plan delivered, phase 18 in progress)
 
 ## Milestone Overview
 
@@ -22,15 +22,14 @@ Progress: ██████████░░░░░░░░░░░ ~50% (
 
 | Phase | Goal | Requirements | Status |
 |-------|------|--------------|--------|
-| 18. Foundation | Core abstractions + Fisher refactor; bit-identical output validation | CORE-01..08 (8) | Complete |
-| 19. Covariate System + Burden Tests | Logistic/linear burden tests with covariate adjustment and genotype matrix builder | COV-01..04, BURDEN-01..03, WEIGHT-01..02 (9) | Complete ✓ |
-| 20. R SKAT Backend | R SKAT via rpy2 as gold standard oracle; SKATBinary + moment adjustment | SKAT-01..04, SKAT-08..09 (6) | Complete ✓ |
+| 18. Foundation | Core abstractions + Fisher refactor; bit-identical output validation | CORE-01..08 (8) | Pending |
+| 19. Covariate System + Burden Tests | Logistic/linear burden tests with covariate adjustment and genotype matrix builder | COV-01..04, BURDEN-01..03, WEIGHT-01..02 (9) | Pending |
+| 20. R SKAT Backend | R SKAT via rpy2 as gold standard oracle; SKATBinary + moment adjustment | SKAT-01..04, SKAT-08..09 (6) | Pending |
 | 21. Pure Python SKAT Backend | Davies ctypes + saddlepoint + Liu fallback; validated against R within 10% | SKAT-05..07, SKAT-10 (4) | Pending |
 | 22. ACAT-O + Diagnostics | ACAT-O omnibus; single FDR; lambda_GC; QQ TSV; sample size warnings | OMNI-01..03, DIAG-01..03, DIAG-05..06 (8) | Pending |
 | 23. PCA + Functional Weights + Allelic Series + JSON Config | PCA file loading + AKT stage; CADD/REVEL weights; COAST test; JSON config; matplotlib plots | DIAG-04, PCA-01..04, SERIES-01..02, CONFIG-01..02, WEIGHT-03..05 (12) | Pending |
 
-**Total requirements:** 47 mapped across 6 phases (23 complete, 24 pending)
-<!-- Note: 8 CORE + 9 Phase 19 + 6 Phase 20 = 23 complete -->
+**Total requirements:** 47 mapped across 6 phases
 
 ## Accumulated Context
 
@@ -49,36 +48,6 @@ Progress: ██████████░░░░░░░░░░░ ~50% (
 | IMPL-01 | Clean reimplementation (not delegation) for FisherExactTest | 18-01 | fisher.py doesn't import gene_burden.py; correct coupling direction for future deprecation |
 | IMPL-02 | p_value=None for zero-variant genes (not 1.0) | 18-01 | Semantically distinct: skip vs tested-with-no-signal; zero-variant genes excluded from output |
 | IMPL-03 | Lazy test registry via _build_registry() | 18-01 | Defers FisherExactTest import to avoid circular imports at package load time |
-| IMPL-04 | AssociationAnalysisStage reuses gene_burden.py aggregation functions | 18-02 | Ensures bit-identical contingency data between --perform-gene-burden and --perform-association paths |
-| IMPL-05 | gene_burden.py correction rewired to association/correction.py with smm fallback | 18-02 | Zero behavioral change; if association package unavailable, original code path still works |
-| IMPL-06 | GeneBurdenAnalysisStage and AssociationAnalysisStage are fully independent | 18-02 | Both guard on separate config keys; both can run in same pipeline invocation without interference |
-| IMPL-07 | parser.error() for --association-tests without --perform-association | 18-03 | argparse convention; produces correctly formatted usage message |
-| IMPL-08 | Association sheet mirrors Gene Burden sheet pattern verbatim | 18-03 | Explicit duplication preferred over abstraction for parallel maintainability |
-| TEST-01 | Bit-identity uses == (exact equality) not pytest.approx for Fisher p-values | 18-04 | Same scipy call chain guarantees floating-point reproducibility; tolerance would hide regressions |
-| TEST-02 | CORE-05 verified via source inspection (inspect.getsource) | 18-04 | Structural proof that GeneBurdenAnalysisStage._process() never references perform_association key |
-| TEST-03 | CI validation uses sm.OLS conf_int() reference, not true-beta coverage | 19-03 | Finite-sample bias causes true beta to fall outside 95% CI with n=100; statsmodels reference is correct check |
-| TEST-04 | FIRTH_CONVERGE_FAIL test replaced with always-returns-TestResult invariant | 19-03 | All-carrier gene exposes sm.add_constant removing intercept edge case; robustness invariant is more useful |
-| IMPL-09 | parse_gt_to_dosage returns (int\|None, bool) not int\|None | 19-01 | Multi-allelic flag needed to emit 'run bcftools norm' warning without second parse pass |
-| IMPL-10 | load_covariates returns (np.ndarray, list[str]) tuple | 19-01 | Column names returned alongside matrix for diagnostics; callers can ignore second element |
-| IMPL-11 | build_genotype_matrix: sample_mask is list[bool], all samples remain in geno | 19-01 | Callers (logistic burden test) decide whether to exclude high-missing samples |
-| IMPL-12 | LogisticBurdenTest builds design matrix inline (not in genotype_matrix.py) | 19-02 | Firth + separation checks are logistic-specific; keeps coupling clean |
-| IMPL-13 | Tiered sample size check at n_cases<10 aborts with logger.error() not exception | 19-02 | Stage returns context cleanly; exception would crash pipeline; logger.error signals severity |
-| IMPL-14 | ~~linear_burden effect_size=beta; engine column named *_or contains beta~~ RESOLVED | 19-02 | Originally deferred to Phase 22; resolved early via effect_column_names() polymorphism (commit 48a6e68) |
-| IMPL-15 | Burden tests report beta+SE (not OR); Fisher keeps OR columns | 19 (post-verify) | Per-unit burden OR misleadingly close to 1.0 due to Beta(MAF;1,25) weights; beta+SE matches SKAT/SAIGE-GENE convention |
-| IMPL-16 | AssociationAnalysisStage recovers per-sample GT from context.variants_df | 19 (post-verify) | gene_burden_analysis at same level drops per-sample GT columns before association can use them |
-| IMPL-17 | RSKATTest.check_dependencies() hardcodes backend='r'; no auto-detect at test level | 20-01 | RSKATTest IS the R SKAT test; auto-selection is at the factory level. Separate PurePythonSKATTest for Phase 21. |
-| IMPL-18 | Extra columns written with bare key names (skat_o_rho, not skat_skat_o_rho) | 20-01 | Keys in TestResult.extra are already namespaced by test; double-prefixing would produce unreadable names |
-| IMPL-19 | effect_column_names() return type is dict[str, str \| None] not dict[str, str] | 20-01 | SKAT has no effect size; all four slots are None. Type broadened to accommodate without breaking existing tests. |
-| IMPL-20 | withCallingHandlers embedded in R code string (not rpy2 Python callbacks) | 20-02 | Cleaner for string-based R execution; avoids rpy2 Python-side callback wiring complexity |
-| IMPL-21 | GC triggered in RSKATTest.run() every 100 genes (not only in finalize) | 20-02 | Prevents R heap accumulation during long runs; finalize only handles terminal cleanup |
-| IMPL-22 | prepare()/finalize() as no-ops in AssociationTest ABC | 20-02 | Fisher/burden tests unaffected; only RSKATTest overrides for R-specific lifecycle management |
-| IMPL-23 | parallel_safe=False on AssociationAnalysisStage is unconditional | 20-02 | Not gated on skat_backend config; rpy2 safety applies regardless of test mix in same invocation |
-| TEST-05 | rpy2 mock hierarchy requires parent attribute linking: mock_rpy2.robjects = mock_ro | 20-03 | bare sys.modules injection fails for nested submodule imports inside method bodies; parent mock attribute must point to child mock |
-| TEST-06 | NA_Real sentinel: create unique object() per test; inject via sys.modules rpy2.rinterface.NA_Real | 20-03 | identity check `p_val_r is NA_Real` requires same object; fresh sentinel per test prevents cross-test contamination |
-| FIX-01 | rpy2 3.6.x removed `rpy2.__version__`; use `importlib.metadata.version("rpy2")` | 20 (live) | rpy2 3.6.4 raises AttributeError on `rpy2.__version__`; importlib.metadata is stdlib since 3.8 |
-| FIX-02 | R cleanup pattern must be `'^\\\\._vc_'` not `'\\._vc_'` | 20 (live) | Unescaped dot in regex matches any char; caret anchors to variable name start |
-| FIX-03 | SKAT-O rho: `param$rho_est` is optimal rho; `param$rho` is the search grid | 20 (live) | `param$rho[0]` always returns 0.0 (first grid value); `param$rho_est` is the actual estimate |
-| FIX-04 | Remove `.tolist()` before `FloatVector()` — numpy arrays accepted directly | 20 (live) | Unnecessary copy; rpy2 FloatVector accepts numpy arrays natively |
 
 ### Architecture Invariants (from research)
 
@@ -90,16 +59,12 @@ Progress: ██████████░░░░░░░░░░░ ~50% (
 - Genotype matrix: never stored in PipelineContext (5K samples x 50K variants = 1.6 GB)
 - Eigenvalue stability: scipy.linalg.eigh; threshold max(eigenvalues, 0); skip if matrix_rank < 2
 - Python version: recommend bumping requires-python to >=3.11 (scipy 1.16 dropped 3.10)
-- apply_correction([]) returns empty array (statsmodels multipletests raises ZeroDivisionError on empty; guarded in correction.py)
-- Firth NR fallback: self-contained 130-line Newton-Raphson; no external package; step-halving on penalized log-likelihood
-- Separation detection: both mle_retvals['converged']==False AND bse.max()>100 needed (statsmodels may not raise exception)
 
 ### Pending Todos
 
 - **DEPR-01** (backlog): Deprecate classic pipeline mode (`pipeline.py`) in favor of stage-based pipeline (`pipeline_core/`). See archived REQUIREMENTS.md Future Requirements.
-- ~~**RESEARCH-01** (before Phase 20): Validate whether parallel_safe=False on the stage is sufficient for rpy2 thread safety~~ — RESOLVED: parallel_safe=False + _assert_main_thread() guard confirmed sufficient (unit tests verify RuntimeError from worker threads)
+- **RESEARCH-01** (before Phase 20): Validate whether parallel_safe=False on the stage is sufficient for rpy2 thread safety, or whether a dedicated R worker process with queue is required.
 - **RESEARCH-02** (before Phase 21): Saddlepoint approximation algorithm for middle tier of Davies fallback chain — not in scipy stdlib; need reference from fastSKAT (PMC4375394) before implementation.
-- ~~**COLUMN-01** (Phase 22): Rename `linear_burden_or` column to `linear_burden_beta`~~ — DONE (resolved via effect_column_names() in commit 48a6e68)
 
 ### Blockers/Concerns
 
@@ -107,7 +72,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-20
-Stopped at: Phase 20 complete — live tested on GCKD (PKD1/PKD2/COL4A5), 4 bug fixes, 1523 tests passing
+Last session: 2026-02-19T07:35:45Z
+Stopped at: Completed 18-01-PLAN.md — association/ package skeleton with FisherExactTest
 Resume file: None
-Next: `/gsd:discuss-phase 21`
+Next: Plan 18-02 (parity tests: FisherExactTest vs gene_burden.py cross-validation)
