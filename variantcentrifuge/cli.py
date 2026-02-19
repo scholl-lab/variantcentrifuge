@@ -405,6 +405,24 @@ def create_parser() -> argparse.ArgumentParser:
         "--stats-config",
         help="Path to custom statistics configuration JSON file. If not provided, uses default statistics.",
     )
+    # Association Analysis
+    stats_group.add_argument(
+        "--perform-association",
+        action="store_true",
+        help="Perform association analysis using the modular association framework",
+    )
+    stats_group.add_argument(
+        "--association-tests",
+        type=str,
+        default=None,
+        help="Comma-separated list of association tests to run (default: fisher). Available: fisher",
+    )
+    stats_group.add_argument(
+        "--skat-backend",
+        choices=["auto", "r", "python"],
+        default="auto",
+        help="SKAT computation backend: auto (prefer R, fall back to Python), r, or python",
+    )
     # Inheritance Analysis
     inheritance_group = parser.add_argument_group("Inheritance Analysis")
     inheritance_group.add_argument(
@@ -1013,6 +1031,14 @@ def main() -> int:
     cfg["gene_burden_mode"] = args.gene_burden_mode
     cfg["correction_method"] = args.correction_method
 
+    # Association analysis configuration
+    cfg["perform_association"] = args.perform_association
+    if args.association_tests:
+        cfg["association_tests"] = [t.strip() for t in args.association_tests.split(",")]
+    else:
+        cfg["association_tests"] = ["fisher"] if args.perform_association else []
+    cfg["skat_backend"] = getattr(args, "skat_backend", "auto")
+
     # Handle add_chr configuration
     if args.add_chr:
         cfg["add_chr"] = True
@@ -1145,6 +1171,10 @@ def main() -> int:
     if args.json_gene_mapping and not args.annotate_json_genes:
         logger.error("--json-gene-mapping requires --annotate-json-genes to be provided.")
         sys.exit(1)
+
+    # Validate association analysis arguments
+    if args.association_tests and not args.perform_association:
+        parser.error("--association-tests requires --perform-association to be set")
 
     # Inheritance analysis configuration
     cfg["ped_file"] = args.ped
