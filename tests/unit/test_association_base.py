@@ -15,6 +15,7 @@ from variantcentrifuge.association.base import (
     TestResult,
 )
 
+
 # ---------------------------------------------------------------------------
 # TestResult tests
 # ---------------------------------------------------------------------------
@@ -34,7 +35,6 @@ class TestTestResult:
             effect_size=2.5,
             ci_lower=1.1,
             ci_upper=5.7,
-            se=None,
             n_cases=100,
             n_controls=200,
             n_variants=5,
@@ -61,7 +61,6 @@ class TestTestResult:
             effect_size=None,
             ci_lower=None,
             ci_upper=None,
-            se=None,
             n_cases=50,
             n_controls=50,
             n_variants=0,
@@ -81,7 +80,6 @@ class TestTestResult:
             effect_size=3.0,
             ci_lower=1.5,
             ci_upper=6.0,
-            se=None,
             n_cases=75,
             n_controls=75,
             n_variants=3,
@@ -100,7 +98,6 @@ class TestTestResult:
             effect_size=None,
             ci_lower=None,
             ci_upper=None,
-            se=None,
             n_cases=10,
             n_controls=10,
             n_variants=1,
@@ -113,7 +110,6 @@ class TestTestResult:
             effect_size=None,
             ci_lower=None,
             ci_upper=None,
-            se=None,
             n_cases=10,
             n_controls=10,
             n_variants=1,
@@ -132,7 +128,6 @@ class TestTestResult:
             effect_size=1.8,
             ci_lower=0.9,
             ci_upper=3.6,
-            se=None,
             n_cases=120,
             n_controls=120,
             n_variants=2,
@@ -237,7 +232,6 @@ class TestAssociationTestABC:
                     effect_size=None,
                     ci_lower=None,
                     ci_upper=None,
-                    se=None,
                     n_cases=0,
                     n_controls=0,
                     n_variants=0,
