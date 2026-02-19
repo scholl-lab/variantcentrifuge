@@ -58,11 +58,12 @@ Upgrade the existing Fisher's exact gene burden pipeline to a multi-test associa
 
 **Requirements:** CORE-01, CORE-02, CORE-03, CORE-04, CORE-05, CORE-06, CORE-07, CORE-08
 
-**Plans:** 4 plans estimated
-- 18-01: association/ package skeleton — AssociationTest ABC, TestResult, AssociationEngine, AssociationConfig, correction.py
-- 18-02: Fisher refactor and pipeline stage integration — fisher.py, AssociationAnalysisStage, GeneBurdenAnalysisStage shim, PipelineContext field
-- 18-03: CLI args and ExcelReportStage Association sheet
-- 18-04: Integration tests validating bit-identical Fisher output and backward compatibility
+**Plans:** 4 plans
+Plans:
+- [ ] 18-01-PLAN.md — association/ package skeleton (base.py, engine.py, correction.py, fisher.py)
+- [ ] 18-02-PLAN.md — Pipeline integration (AssociationAnalysisStage, PipelineContext, stage registry, gene_burden.py correction rewire)
+- [ ] 18-03-PLAN.md — CLI args (--perform-association, --association-tests, --skat-backend) and ExcelReportStage Association sheet
+- [ ] 18-04-PLAN.md — Unit tests: bit-identity Fisher parity, edge cases, correction, stage behavior
 
 **Success Criteria:**
 
@@ -207,7 +208,7 @@ Upgrade the existing Fisher's exact gene burden pipeline to a multi-test associa
 | 15. Table Redesign | v0.14.0 | 3/3 | Complete | 2026-02-17 |
 | 16. Column-Level Filtering and Visualization | v0.14.0 | 3/3 | Complete | 2026-02-18 |
 | 17. Accessibility and Print/PDF | v0.14.0 | 3/3 | Complete | 2026-02-17 |
-| 18. Foundation — Core Abstractions and Fisher Refactor | v0.15.0 | 0/4 | Pending | — |
+| 18. Foundation — Core Abstractions and Fisher Refactor | v0.15.0 | 0/4 | In Progress | — |
 | 19. Covariate System and Burden Tests | v0.15.0 | 0/3 | Pending | — |
 | 20. R SKAT Backend | v0.15.0 | 0/3 | Pending | — |
 | 21. Pure Python SKAT Backend | v0.15.0 | 0/3 | Pending | — |
