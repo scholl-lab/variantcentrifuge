@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 18 — Foundation: Core Abstractions and Fisher Refactor
-Plan: 01 of N in Phase 18
-Status: In progress — Plan 18-01 complete
-Last activity: 2026-02-19 — Completed 18-01-PLAN.md (association/ package skeleton + FisherExactTest)
+Plan: 02 of N in Phase 18
+Status: In progress — Plan 18-02 complete
+Last activity: 2026-02-19 — Completed 18-02-PLAN.md (AssociationAnalysisStage pipeline wiring)
 
-Progress: █░░░░░░░░░░░░░░░░░░░░ ~5% (1 plan delivered, phase 18 in progress)
+Progress: ██░░░░░░░░░░░░░░░░░░░ ~10% (2 plans delivered, phase 18 in progress)
 
 ## Milestone Overview
 
@@ -48,6 +48,9 @@ Progress: █░░░░░░░░░░░░░░░░░░░░ ~5% (1
 | IMPL-01 | Clean reimplementation (not delegation) for FisherExactTest | 18-01 | fisher.py doesn't import gene_burden.py; correct coupling direction for future deprecation |
 | IMPL-02 | p_value=None for zero-variant genes (not 1.0) | 18-01 | Semantically distinct: skip vs tested-with-no-signal; zero-variant genes excluded from output |
 | IMPL-03 | Lazy test registry via _build_registry() | 18-01 | Defers FisherExactTest import to avoid circular imports at package load time |
+| IMPL-04 | AssociationAnalysisStage reuses gene_burden.py aggregation functions | 18-02 | Ensures bit-identical contingency data between --perform-gene-burden and --perform-association paths |
+| IMPL-05 | gene_burden.py correction rewired to association/correction.py with smm fallback | 18-02 | Zero behavioral change; if association package unavailable, original code path still works |
+| IMPL-06 | GeneBurdenAnalysisStage and AssociationAnalysisStage are fully independent | 18-02 | Both guard on separate config keys; both can run in same pipeline invocation without interference |
 
 ### Architecture Invariants (from research)
 
@@ -72,7 +75,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-19T07:35:45Z
-Stopped at: Completed 18-01-PLAN.md — association/ package skeleton with FisherExactTest
+Last session: 2026-02-19T08:01:12Z
+Stopped at: Completed 18-02-PLAN.md — AssociationAnalysisStage wired into pipeline
 Resume file: None
-Next: Plan 18-02 (parity tests: FisherExactTest vs gene_burden.py cross-validation)
+Next: Plan 18-03 (parity tests: FisherExactTest vs gene_burden.py cross-validation)
