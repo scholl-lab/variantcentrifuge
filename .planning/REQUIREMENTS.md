@@ -106,16 +106,61 @@
 
 ## Traceability
 
-(Populated during roadmap creation)
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| CORE-01 | Phase 18 | Pending |
+| CORE-02 | Phase 18 | Pending |
+| CORE-03 | Phase 18 | Pending |
+| CORE-04 | Phase 18 | Pending |
+| CORE-05 | Phase 18 | Pending |
+| CORE-06 | Phase 18 | Pending |
+| CORE-07 | Phase 18 | Pending |
+| CORE-08 | Phase 18 | Pending |
+| COV-01 | Phase 19 | Pending |
+| COV-02 | Phase 19 | Pending |
+| COV-03 | Phase 19 | Pending |
+| COV-04 | Phase 19 | Pending |
+| BURDEN-01 | Phase 19 | Pending |
+| BURDEN-02 | Phase 19 | Pending |
+| BURDEN-03 | Phase 19 | Pending |
+| WEIGHT-01 | Phase 19 | Pending |
+| WEIGHT-02 | Phase 19 | Pending |
+| SKAT-01 | Phase 20 | Pending |
+| SKAT-02 | Phase 20 | Pending |
+| SKAT-03 | Phase 20 | Pending |
+| SKAT-04 | Phase 20 | Pending |
+| SKAT-08 | Phase 20 | Pending |
+| SKAT-09 | Phase 20 | Pending |
+| SKAT-05 | Phase 21 | Pending |
+| SKAT-06 | Phase 21 | Pending |
+| SKAT-07 | Phase 21 | Pending |
+| SKAT-10 | Phase 21 | Pending |
+| OMNI-01 | Phase 22 | Pending |
+| OMNI-02 | Phase 22 | Pending |
+| OMNI-03 | Phase 22 | Pending |
+| DIAG-01 | Phase 22 | Pending |
+| DIAG-02 | Phase 22 | Pending |
+| DIAG-03 | Phase 22 | Pending |
+| DIAG-05 | Phase 22 | Pending |
+| DIAG-06 | Phase 22 | Pending |
+| DIAG-04 | Phase 23 | Pending |
+| PCA-01 | Phase 23 | Pending |
+| PCA-02 | Phase 23 | Pending |
+| PCA-03 | Phase 23 | Pending |
+| PCA-04 | Phase 23 | Pending |
+| SERIES-01 | Phase 23 | Pending |
+| SERIES-02 | Phase 23 | Pending |
+| CONFIG-01 | Phase 23 | Pending |
+| CONFIG-02 | Phase 23 | Pending |
+| WEIGHT-03 | Phase 23 | Pending |
+| WEIGHT-04 | Phase 23 | Pending |
+| WEIGHT-05 | Phase 23 | Pending |
 
 **Coverage:**
-- v1 requirements: 44 total
-- Mapped to phases: 0
-- Unmapped: 44
+- v1 requirements: 47 total
+- Mapped to phases: 47
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-19*
-*Last updated: 2026-02-19 after initial definition*
+*Last updated: 2026-02-19 — traceability table populated during roadmap creation*

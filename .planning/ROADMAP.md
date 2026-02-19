@@ -4,7 +4,8 @@
 
 - SHIPPED **v0.12.1 Baseline** — Phases 1-5 (shipped 2026-02-14, pre-GSD)
 - SHIPPED **v0.13.0 Performance Optimization** — Phases 6-12 (shipped 2026-02-16) — [archive](milestones/v0.13.0-ROADMAP.md)
-- ACTIVE **v0.14.0 Report UX Overhaul** — Phases 13-17
+- SHIPPED **v0.14.0 Report UX Overhaul** — Phases 13-17 (shipped 2026-02-19)
+- ACTIVE **v0.15.0 Modular Rare Variant Association Framework** — Phases 18-23
 
 ## Phases
 
@@ -32,134 +33,160 @@ Full details: [milestones/v0.13.0-ROADMAP.md](milestones/v0.13.0-ROADMAP.md)
 
 </details>
 
-### v0.14.0 Report UX Overhaul (Phases 13-17)
+<details>
+<summary>v0.14.0 Report UX Overhaul (Phases 13-17) — SHIPPED 2026-02-19</summary>
 
-Transform the individual HTML report from a functional-but-dated developer tool (scored 4.8/10) into a modern, accessible clinical genomics report with semantic color coding, enterprise-grade table design, column-level filtering, expanded visualizations, and print support. All changes target the individual HTML report only. Implementation involves Python template code and embedded HTML/CSS/JS.
+- [x] Phase 13: JS Stack Modernization (3/3 plans) — completed 2026-02-16
+- [x] Phase 14: Information Hierarchy and Semantic Color Coding (3/3 plans) — completed 2026-02-16
+- [x] Phase 15: Table Redesign (3/3 plans) — completed 2026-02-17
+- [x] Phase 16: Column-Level Filtering and Visualization (3/3 plans) — completed 2026-02-18
+- [x] Phase 17: Accessibility and Print/PDF (3/3 plans) — completed 2026-02-17
+
+</details>
+
+### v0.15.0 Modular Rare Variant Association Framework (Phases 18-23)
+
+Upgrade the existing Fisher's exact gene burden pipeline to a multi-test association engine supporting SKAT, SKAT-O, ACAT-O, logistic/linear burden tests, covariate adjustment, PCA integration, and variant weighting — all backward compatible with existing `--perform-gene-burden` behavior.
 
 ---
 
-#### Phase 13: JS Stack Modernization
+#### Phase 18: Foundation — Core Abstractions and Fisher Refactor
 
-**Goal:** The individual report runs on a modern, lightweight JS stack with no jQuery dependency, enabling all subsequent UX work.
+**Goal:** Users can run `--perform-association --association-tests fisher` and receive output bit-identical to `--perform-gene-burden`, establishing the association package skeleton and pipeline integration that all subsequent phases build on.
 
 **Dependencies:** None (foundation phase)
 
-**Requirements:** STACK-01, STACK-02, STACK-03, STACK-04, STACK-05
+**Requirements:** CORE-01, CORE-02, CORE-03, CORE-04, CORE-05, CORE-06, CORE-07, CORE-08
 
-**Plans:** 3 plans
-
-Plans:
-- [x] 13-01-PLAN.md — Vendor JS/CSS assets and update report generator to load them
-- [x] 13-02-PLAN.md — Rewrite HTML template for modern stack (DataTables v2, Chart.js, Tippy.js)
-- [x] 13-03-PLAN.md — Add tests for asset loading and template rendering
+**Plans:** 4 plans estimated
+- 18-01: association/ package skeleton — AssociationTest ABC, TestResult, AssociationEngine, AssociationConfig, correction.py
+- 18-02: Fisher refactor and pipeline stage integration — fisher.py, AssociationAnalysisStage, GeneBurdenAnalysisStage shim, PipelineContext field
+- 18-03: CLI args and ExcelReportStage Association sheet
+- 18-04: Integration tests validating bit-identical Fisher output and backward compatibility
 
 **Success Criteria:**
 
-1. The individual HTML report loads with DataTables v2 and all existing functionality (sorting, pagination, search, column visibility, horizontal scroll) works identically to the current report
-2. No jQuery is loaded or referenced anywhere in the generated HTML -- all JS is vanilla or library-specific
-3. Tippy.js is loaded and available for tooltip use (integration with table cells happens in Phase 15)
-4. The impact distribution chart renders using Chart.js instead of Plotly, reducing JS bundle from ~3.5MB to ~65KB
-5. A loading skeleton or spinner is visible during DataTable initialization, replaced by the table once ready
+1. Running `--perform-association --association-tests fisher` produces output byte-for-byte identical to `--perform-gene-burden` across all existing integration test fixtures
+2. Running `--perform-gene-burden` without `--perform-association` produces zero behavioral change — GeneBurdenAnalysisStage executes normally and its existing tests all pass
+3. The `association/` package is importable without R, rpy2, or matplotlib installed — all optional dependencies are imported lazily inside the functions that need them
+4. `ExcelReportStage` generates an "Association" sheet when `--perform-association` is active
+5. FDR and Bonferroni correction functions in `association/correction.py` are re-exported from `gene_burden.py` with no change to existing callers
 
 ---
 
-#### Phase 14: Information Hierarchy and Semantic Color Coding
+#### Phase 19: Covariate System and Burden Tests
 
-**Goal:** Users see a clinically meaningful overview (summary dashboard with colored cards, charts) before the variant table, with semantic color coding applied throughout.
+**Goal:** Users can run logistic or linear regression burden tests with covariate adjustment, and the genotype matrix builder handles all real-world genotype encodings correctly.
 
-**Dependencies:** Phase 13 (Chart.js for colored charts, DataTables v2 for badge rendering)
+**Dependencies:** Phase 18 (AssociationEngine, AssociationTest ABC, pipeline integration)
 
-**Requirements:** HIER-01, HIER-02, HIER-03, COLOR-01, COLOR-02, COLOR-03, COLOR-04
+**Requirements:** COV-01, COV-02, COV-03, COV-04, BURDEN-01, BURDEN-02, BURDEN-03, WEIGHT-01, WEIGHT-02
 
-**Plans:** 3 plans
-
-Plans:
-- [x] 14-01-PLAN.md — Expand summary data and restructure template with dashboard above table
-- [x] 14-02-PLAN.md — Add semantic color badges to IMPACT/ClinVar/Inheritance columns and metadata footer
-- [x] 14-03-PLAN.md — Tests for dashboard, badges, and metadata footer
+**Plans:** 3 plans estimated
+- 19-01: covariates.py — covariate file loading, sample ID alignment with VCF order, one-hot encoding, multicollinearity check; genotype matrix builder with multi-allelic, missing, and phased genotype handling
+- 19-02: logistic_burden.py and linear_burden.py tests; Beta(MAF;1,25) and uniform weight modules; CLI args --covariate-file, --covariates, --trait-type, --variant-weights
+- 19-03: Unit tests for covariate alignment with shuffled sample order, genotype edge cases (1/2, ./., 0|1), logistic/linear burden test outputs validated against manual statsmodels calls
 
 **Success Criteria:**
 
-1. Opening the report shows summary cards and charts above the variant table without scrolling -- the table is below the fold on a standard 1080p display
-2. Summary cards display impact breakdown, inheritance distribution, top genes, sample count, and filter criteria -- each card color-coded to match severity palette (red for HIGH, orange for MODERATE, etc.)
-3. IMPACT column values in the table render as colored badges (HIGH=red, MODERATE=orange, LOW=amber, MODIFIER=gray) instead of plain text
-4. ClinVar classification values render as colored badges (Pathogenic=red through Benign=green) and inheritance patterns render as colored badges (de novo=red, compound het=purple, AD=blue, AR=green, X-linked=teal)
-5. A report metadata footer displays filter criteria, VCF source, reference genome, pipeline version, and run date
+1. Providing a covariate file with rows in a different order than the VCF sample list produces identical results to a covariate file in VCF sample order — the reindex assertion catches any mismatch
+2. The logistic burden test reports OR + 95% CI for a binary trait with covariates, and results match manually running `statsmodels.Logit` on the same genotype matrix and covariate matrix
+3. The linear burden test reports beta + SE for a quantitative trait, matching `statsmodels.OLS` on the same inputs
+4. Beta(MAF; 1, 25) weights up-weight rare variants relative to common ones; uniform weights produce the same result as setting all weights to 1.0
+5. Genotype strings `1/2`, `./.`, and `0|1` are parsed correctly — multi-allelic hets counted as 1 dosage, missing values imputed to 2*MAF, phased genotypes summed to 0/1/2
 
 ---
 
-#### Phase 15: Table Redesign
+#### Phase 20: R SKAT Backend
 
-**Goal:** Users can efficiently scan, explore, and read variant data in a modern enterprise-grade table with tooltips, sticky columns, expandable row details, and configurable density.
+**Goal:** Users with R and the SKAT package installed can run SKAT and SKAT-O via rpy2, with SKATBinary used automatically for binary traits, moment adjustment enabled by default for small samples, and R memory managed explicitly to prevent heap exhaustion across thousands of genes.
 
-**Dependencies:** Phase 13 (DataTables v2, Tippy.js), Phase 14 (color badges in cells)
+**Dependencies:** Phase 19 (genotype matrix builder, covariate matrix, weight vector — all inputs to SKAT)
 
-**Requirements:** TABLE-01, TABLE-02, TABLE-03, TABLE-04, TABLE-05, TABLE-06, TABLE-07, TABLE-08, TABLE-09, TABLE-10
+**Requirements:** SKAT-01, SKAT-02, SKAT-03, SKAT-04, SKAT-08, SKAT-09
 
-**Plans:** 3 plans
-
-Plans:
-- [x] 15-01-PLAN.md — Vendor FixedColumns extension and add CSS styles for table redesign
-- [x] 15-02-PLAN.md — Wire up JS behavior (column intelligence, expandable rows, density toggle, sticky columns)
-- [x] 15-03-PLAN.md — Tests for Phase 15 table redesign features
+**Plans:** 3 plans estimated
+- 20-01: backends/base.py SKATBackend ABC and NullModel container; backends/__init__.py get_skat_backend() factory (lazy, never at module import); r_backend.py RSKATBackend with rpy2 import guard, R/SKAT detection, graceful fallback
+- 20-02: RSKATBackend.fit_null_model() using SKAT_Null_Model_MomentAdjust for binary traits; RSKATBackend.test_gene() dispatching to SKATBinary vs SKAT by trait type; SKAT-O with method="optimal.adj"; parallel_safe=False on AssociationAnalysisStage when R backend active; explicit del + gc() every 100 genes
+- 20-03: Synthetic test fixtures (100 cases/100 controls, 50 genes, 5 genes with injected burden signal); validate R backend detects signal genes at p < 0.05; validate R memory usage stays bounded across 500-gene run
 
 **Success Criteria:**
 
-1. Hovering over or focusing (keyboard) a truncated cell shows a Tippy.js tooltip with the full content, positioned viewport-aware (no clipping at edges), dismissable with Escape -- the old yellow hover-expand is completely removed
-2. The GENE column stays visible (sticky) when scrolling horizontally, and the header row has a dark background with white text and a colored bottom border
-3. Clicking a chevron on any row expands an inline detail panel showing all variant fields grouped by category (Identifiers, Annotations, Scores, Links) in a key-value layout
-4. Users can switch between Compact, Regular, and Relaxed density modes via a toolbar control, with their preference persisted across sessions (localStorage)
-5. The table shows "Showing X of Y variants" prominently, defaults to 25 rows per page, uses zebra striping, applies intelligent column widths (fixed for CHROM/POS, grow for GENE, truncation with monospace for HGVS, right-aligned numbers), and uses middle truncation for variant IDs
+1. On a system with R and the SKAT package, `--skat-backend r` runs SKAT and SKAT-O and reports p-values; on a system without R, the same command falls back gracefully to the Python backend with an informative log message
+2. A binary trait phenotype always uses SKATBinary — the continuous-trait SKAT formulation is never called for binary outcomes, verified by inspecting which R function was invoked
+3. SKAT-O reports the optimal rho value alongside the p-value, and uses `method="optimal.adj"` correction (not the uncorrected minimum p)
+4. Running the R backend across 500 synthetic genes does not cause R heap exhaustion — R objects are deleted after each gene and `gc()` is called every 100 genes
+5. Calling the R backend from a ThreadPoolExecutor worker thread raises an explicit error rather than causing a segfault or silent crash
 
 ---
 
-#### Phase 16: Column-Level Filtering and Visualization
+#### Phase 21: Pure Python SKAT Backend
 
-**Goal:** Users can filter variants by individual columns (numeric ranges, categorical dropdowns, text search) and see expanded visualizations that update with filters.
+**Goal:** Users without R can run SKAT and SKAT-O via a pure Python implementation that matches R output within 10% relative difference on log10(p), using Davies ctypes for exact p-values with a Liu moment-matching fallback when compilation is unavailable.
 
-**Dependencies:** Phase 13 (Chart.js), Phase 15 (stable table structure)
+**Dependencies:** Phase 20 (R backend as correctness oracle; must run both backends simultaneously for validation)
 
-**Requirements:** FILTER-01, FILTER-02, FILTER-03, FILTER-04, VIZ-01, VIZ-02, VIZ-03, VIZ-04
+**Requirements:** SKAT-05, SKAT-06, SKAT-07, SKAT-10
 
-**Plans:** 3 plans
-
-Plans:
-- [x] 16-01-PLAN.md — Vendor noUiSlider and add HTML/CSS scaffolding for filters and visualization section
-- [x] 16-02-PLAN.md — Wire JS behavior (filter controls, chips, reactive chart updates, collapsible section)
-- [x] 16-03-PLAN.md — Tests for Phase 16 filtering and visualization features
+**Plans:** 3 plans estimated
+- 21-01: backends/davies.py — Liu moment-matching fallback first (pure scipy, always available); then ctypes lazy compilation of bundled qfc.c with acc=1e-9, lim=10^6; fallback chain: Davies -> saddlepoint -> Liu; p_method metadata in every result; data/qfc.c bundled source; pyproject.toml artifacts field
+- 21-02: backends/python_backend.py PythonSKATBackend — score test (SKAT linear/logistic formulation from null model residuals); SKAT eigenvalue computation with scipy.linalg.eigh, threshold max(eigenvalues,0), skip if matrix_rank < 2; SKAT-O rho grid search only after SKAT validates against R
+- 21-03: Validation test suite comparing Python vs R p-values across 50+ genes on same synthetic fixtures — assert 10% relative difference on log10(p) for p > 0.001; document expected larger divergence for p < 0.001 in test comments
 
 **Success Criteria:**
 
-1. Each filterable column has an appropriate control: numeric sliders for scores/frequencies, categorical dropdowns for IMPACT/ClinVar/inheritance, and text search for gene names -- matching the cohort report's filter system
-2. Active filters are displayed as removable chips/tags above the table, and a "Reset all filters" button clears all filters in one click
-3. Each filter includes an "Include missing values" checkbox so users can control whether variants with missing data are shown or hidden
-4. Impact distribution, variant type breakdown, chromosome distribution, and allele frequency histogram charts are displayed above the table using semantic colors, and they visually update when filters change
-5. The allele frequency histogram uses log-scale for its axis to properly visualize the distribution of rare variants
+1. Python SKAT p-values are within 10% relative difference of R SKAT p-values on log10(p) scale for p-values greater than 0.001, validated across at least 50 synthetic genes
+2. Davies ctypes compilation succeeds on both Linux and Windows; when gcc is absent, Liu moment-matching activates automatically and the `p_method` column records "liu"
+3. The `p_method` output column records "davies", "saddlepoint", or "liu" for every gene, giving users visibility into which numerical method was used
+4. SKAT skips genes where the kernel matrix rank is less than 2 rather than returning a spurious p-value, and reports `p_value=NA` with a diagnostic warning for those genes
+5. Running `--skat-backend python` without R installed completes successfully and produces association results — the entire pipeline is functional without any R dependency
 
 ---
 
-#### Phase 17: Accessibility and Print/PDF
+#### Phase 22: ACAT-O and Diagnostics
 
-**Goal:** The report meets WCAG 2.1 AA accessibility standards and can be printed or exported to PDF with a clean, usable layout.
+**Goal:** Users receive omnibus ACAT-O p-values combining burden and SKAT results per gene, a single FDR-corrected set of ACAT-O p-values across all genes, and a diagnostics directory containing lambda_GC per test and QQ plot data TSV.
 
-**Dependencies:** Phases 14-16 (all visual components and interactive features must exist before accessibility audit and print optimization)
+**Dependencies:** Phase 19 (burden p-values), Phase 20 or 21 (SKAT p-values); ACAT-O requires both test types to exist
 
-**Requirements:** A11Y-01, A11Y-02, A11Y-03, A11Y-04, A11Y-05, A11Y-06, PRINT-01, PRINT-02
+**Requirements:** OMNI-01, OMNI-02, OMNI-03, DIAG-01, DIAG-02, DIAG-03, DIAG-05, DIAG-06
 
-**Plans:** 3 plans
-
-Plans:
-- [x] 17-01-PLAN.md — Add skip-link, ARIA roles/labels, SVG link icons, and WCAG AA contrast fixes
-- [x] 17-02-PLAN.md — Add chart data table fallbacks, @media print stylesheet, and PDF export button
-- [x] 17-03-PLAN.md — Tests for Phase 17 accessibility and print features
+**Plans:** 3 plans estimated
+- 22-01: association/tests/acat.py — ACAT-V Cauchy combination of marginal score test p-values per gene; ACAT-O combining burden + SKAT + ACAT-V p-values; single FDR applied to ACAT-O across all genes (not per-test)
+- 22-02: association/diagnostics.py — lambda_GC per test (median chi2 / 0.4549); QQ data TSV (observed vs expected -log10(p)); per-gene TSV with all standard output columns; CLI arg --diagnostics-output; sample size warnings when n_cases < 200, case:control > 1:20, or case_carriers < 10 per gene
+- 22-03: Tests validating ACAT-O Cauchy formula against published values; lambda_GC within [0.95, 1.05] on permuted null phenotype; output TSV column completeness check
 
 **Success Criteria:**
 
-1. The data table has `role="table"`, all filter controls have `aria-label` attributes, summary cards have semantic meaning for screen readers, and skip-to-content links allow keyboard users to jump past the header
-2. All tooltips (Tippy.js) are keyboard-accessible via focus trigger with `tabindex="0"`, dismissable with Escape, and work on touch devices
-3. Every chart has a text alternative (data table fallback or aria-label summary) so screen reader users can access the visualized data
-4. Emoji link icons are replaced with SVG icons that have `aria-hidden="true"` plus screen-reader-only text, and all color-coded badges maintain WCAG AA contrast ratios (4.5:1 minimum)
-5. A print stylesheet hides interactive controls (filters, pagination, column toggles, density selector) and optimizes the table layout for paper, and a "Download PDF" button triggers browser-based PDF export
+1. The per-gene association TSV contains all standard columns: fisher_p, burden_p, skat_p, skat_o_p, acat_o_p, effect sizes, confidence intervals, and variant/carrier counts
+2. ACAT-O p-values are computed using a single Cauchy combination per gene and a single FDR correction pass across all genes — not separate FDR corrections per test type
+3. The `--diagnostics-output` directory contains `lambda_gc.txt` with one genomic inflation factor per active test and `qq_data.tsv` with observed vs expected -log10(p) columns
+4. The pipeline logs a warning for any gene where `case_carriers < 10` and emits a summary warning when `n_cases < 200` or `case:control ratio > 1:20`, flagging those genes in the output TSV
+5. Lambda_GC computed on a permuted null phenotype (random case/control assignment) falls within [0.95, 1.05] for Fisher, burden, and SKAT tests — indicating no systematic inflation in the implementation
+
+---
+
+#### Phase 23: PCA Integration, Functional Weights, Allelic Series, and JSON Config
+
+**Goal:** Users can supply a pre-computed PCA file or trigger AKT-based PCA computation as a pipeline stage, apply CADD/REVEL functional variant weights, run the COAST allelic series test, and specify all association options via a JSON config file — with optional matplotlib QQ plot generation for users who have it installed.
+
+**Dependencies:** Phase 19 (covariate system for PCA merging; weights architecture for functional weights), Phase 22 (diagnostics architecture for QQ plot)
+
+**Requirements:** DIAG-04, PCA-01, PCA-02, PCA-03, PCA-04, SERIES-01, SERIES-02, CONFIG-01, CONFIG-02, WEIGHT-03, WEIGHT-04, WEIGHT-05
+
+**Plans:** 4 plans estimated
+- 23-01: association/pca.py — PLINK .eigenvec parser, AKT output parser, generic TSV parser; sample ID alignment validation; PCAComputationStage in processing_stages.py wrapping akt subprocess; CLI args --pca-file, --pca-tool, --pca-components; covariates.py updated to merge PCA eigenvectors; warn if >20 components requested
+- 23-02: Functional weights — weights/functional_weights.py with CADD-normalized and REVEL-based schemes; weights/combined.py for Beta(MAF) x functional score; CLI arg --variant-weights cadd/revel/combined with --variant-weight-params
+- 23-03: COAST allelic series test — tests/allelic_series.py classifying variants as BMV/DMV/PTV from PolyPhen/SIFT columns; ordered alternative test; configurable category weights (default w=1,2,3)
+- 23-04: JSON config mode — association/config.py JSON loader mapping all CLI options to AssociationConfig fields; CLI arg --association-config; optional matplotlib QQ plot PNG/SVG in diagnostics.py with lazy import and matplotlib.use("Agg") for headless HPC
+
+**Success Criteria:**
+
+1. Providing `--pca-file pca.eigenvec` merges the requested number of PCs as additional covariate columns, with sample alignment verified against VCF sample order; requesting >20 PCs triggers a logged warning
+2. Running `--pca-tool akt` invokes AKT as a pipeline stage, stores eigenvectors in context, and uses them in subsequent association tests — when AKT is not in PATH, the stage skips gracefully with an informative warning
+3. Setting `--variant-weights cadd` applies CADD-normalized weights to variants, and `--variant-weights combined` applies Beta(MAF) x CADD weights; both produce different p-values than uniform weights on the same data, confirming the weights are applied
+4. Running `--association-config config.json` with a valid JSON file produces the same results as passing equivalent CLI flags directly — the JSON config is a complete alternative to CLI args for all association options
+5. When matplotlib is installed, `--diagnostics-output` produces a QQ plot PNG in addition to the data TSV; when matplotlib is absent, the pipeline completes without error and logs a single INFO message noting the plot was skipped
 
 ---
 
@@ -180,3 +207,9 @@ Plans:
 | 15. Table Redesign | v0.14.0 | 3/3 | Complete | 2026-02-17 |
 | 16. Column-Level Filtering and Visualization | v0.14.0 | 3/3 | Complete | 2026-02-18 |
 | 17. Accessibility and Print/PDF | v0.14.0 | 3/3 | Complete | 2026-02-17 |
+| 18. Foundation — Core Abstractions and Fisher Refactor | v0.15.0 | 0/4 | Pending | — |
+| 19. Covariate System and Burden Tests | v0.15.0 | 0/3 | Pending | — |
+| 20. R SKAT Backend | v0.15.0 | 0/3 | Pending | — |
+| 21. Pure Python SKAT Backend | v0.15.0 | 0/3 | Pending | — |
+| 22. ACAT-O and Diagnostics | v0.15.0 | 0/3 | Pending | — |
+| 23. PCA Integration, Functional Weights, Allelic Series, and JSON Config | v0.15.0 | 0/4 | Pending | — |
