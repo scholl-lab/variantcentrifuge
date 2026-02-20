@@ -251,3 +251,71 @@ class TestAssociationEngineRunAll:
         result = engine.run_all(gene_data)
 
         assert result.empty
+
+
+# ---------------------------------------------------------------------------
+# Test-aware column naming
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestAssociationEngineColumnNaming:
+    """Tests that column naming is test-aware (OR for Fisher, beta/SE for burden)."""
+
+    def test_fisher_uses_or_columns(self, default_config):
+        """Fisher test produces _or, _or_ci_lower, _or_ci_upper columns."""
+        gene_data = [
+            _make_gene_data(
+                "BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3
+            )
+        ]
+        engine = AssociationEngine.from_names(["fisher"], default_config)
+        result = engine.run_all(gene_data)
+
+        assert "fisher_or" in result.columns
+        assert "fisher_or_ci_lower" in result.columns
+        assert "fisher_or_ci_upper" in result.columns
+        # Fisher should NOT have _se column
+        assert "fisher_se" not in result.columns
+
+    def test_burden_uses_beta_se_columns(self, default_config):
+        """Burden tests produce _beta, _se, _beta_ci_lower, _beta_ci_upper columns."""
+        import numpy as np
+
+        # Need genotype matrix for burden tests
+        np.random.seed(42)
+        n = 60
+        geno = np.zeros((n, 3))
+        for v in range(3):
+            carriers = np.random.choice(n, size=int(n * 0.1), replace=False)
+            geno[carriers, v] = 1
+        phenotype = np.zeros(n)
+        phenotype[:30] = 1
+        mafs = geno.mean(axis=0) / 2
+
+        gene_data = [
+            {
+                "GENE": "TEST_GENE",
+                "proband_count": 30,
+                "control_count": 30,
+                "proband_carrier_count": 5,
+                "control_carrier_count": 3,
+                "proband_allele_count": 5,
+                "control_allele_count": 3,
+                "n_qualifying_variants": 3,
+                "genotype_matrix": geno,
+                "variant_mafs": mafs,
+                "phenotype_vector": phenotype,
+                "covariate_matrix": None,
+            }
+        ]
+
+        engine = AssociationEngine.from_names(["logistic_burden"], default_config)
+        result = engine.run_all(gene_data)
+
+        assert "logistic_burden_beta" in result.columns
+        assert "logistic_burden_se" in result.columns
+        assert "logistic_burden_beta_ci_lower" in result.columns
+        assert "logistic_burden_beta_ci_upper" in result.columns
+        # Should NOT have _or columns
+        assert "logistic_burden_or" not in result.columns

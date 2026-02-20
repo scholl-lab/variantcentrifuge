@@ -87,6 +87,8 @@ def load_covariates(
 
     # 2. Load file (first column = sample ID, header required)
     df = pd.read_csv(filepath, sep=sep, index_col=0)
+    # Ensure index is string (sample IDs from VCF are always strings)
+    df.index = df.index.astype(str)
 
     # 3. Column selection
     if covariate_columns is not None:
@@ -96,7 +98,12 @@ def load_covariates(
     vcf_samples_list = list(vcf_samples)
     missing = set(vcf_samples_list) - set(df.index)
     if missing:
-        raise ValueError(f"VCF samples missing from covariate file: {sorted(missing)}")
+        sorted_missing = sorted(missing)
+        preview = sorted_missing[:10]
+        suffix = f" ... and {len(sorted_missing) - 10} more" if len(sorted_missing) > 10 else ""
+        raise ValueError(
+            f"{len(sorted_missing)} VCF sample(s) missing from covariate file: {preview}{suffix}"
+        )
 
     # 5. Warn about extra covariate samples not in VCF (then ignore them)
     extra = set(df.index) - set(vcf_samples_list)

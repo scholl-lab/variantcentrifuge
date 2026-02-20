@@ -13,13 +13,6 @@ In statsmodels 0.14.4, ``OLSResults.conf_int()`` returns a numpy ndarray of
 shape ``(n_params, 2)``, NOT a DataFrame. Use ``ci[1, 0]`` and ``ci[1, 1]`` for
 the burden coefficient (index 1, after intercept at index 0).
 
-Note on ``effect_size`` column naming
---------------------------------------
-The engine names the effect size column ``{test_name}_or`` for all tests.
-For ``linear_burden``, this column contains the OLS beta (not an odds ratio).
-Column renaming to ``linear_burden_beta`` is deferred to Phase 22 when
-output column standardization is addressed.
-
 Warning codes
 -------------
 ``NO_GENOTYPE_MATRIX``
@@ -68,6 +61,15 @@ class LinearBurdenTest(AssociationTest):
     def name(self) -> str:
         """Short identifier for test registry and output column prefixes."""
         return "linear_burden"
+
+    def effect_column_names(self) -> dict[str, str]:
+        """Beta/SE column naming for linear burden (OLS coefficient scale)."""
+        return {
+            "effect": "beta",
+            "se": "se",
+            "ci_lower": "beta_ci_lower",
+            "ci_upper": "beta_ci_upper",
+        }
 
     def check_dependencies(self) -> None:
         """Raise ImportError if statsmodels is not available."""
@@ -119,6 +121,7 @@ class LinearBurdenTest(AssociationTest):
                 effect_size=None,
                 ci_lower=None,
                 ci_upper=None,
+                se=None,
                 n_cases=n_cases,
                 n_controls=n_controls,
                 n_variants=n_variants,
@@ -139,6 +142,7 @@ class LinearBurdenTest(AssociationTest):
                 effect_size=None,
                 ci_lower=None,
                 ci_upper=None,
+                se=None,
                 n_cases=n_cases,
                 n_controls=n_controls,
                 n_variants=n_variants,
@@ -177,6 +181,7 @@ class LinearBurdenTest(AssociationTest):
                 effect_size=None,
                 ci_lower=None,
                 ci_upper=None,
+                se=None,
                 n_cases=n_cases,
                 n_controls=n_controls,
                 n_variants=n_variants,
@@ -198,9 +203,10 @@ class LinearBurdenTest(AssociationTest):
             test_name=self.name,
             p_value=p_value,
             corrected_p_value=None,
-            effect_size=beta,  # beta, not OR (linear test)
+            effect_size=beta,
             ci_lower=ci_lower,
             ci_upper=ci_upper,
+            se=se,
             n_cases=n_cases,
             n_controls=n_controls,
             n_variants=n_variants,

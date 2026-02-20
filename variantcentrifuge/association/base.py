@@ -42,6 +42,9 @@ class TestResult:
         Lower bound of the confidence interval for effect_size.
     ci_upper : float | None
         Upper bound of the confidence interval for effect_size.
+    se : float | None
+        Standard error of the effect size estimate. First-class field for
+        regression tests (burden, SKAT); None for non-regression tests (Fisher).
     n_cases : int
         Total number of case samples in the analysis.
     n_controls : int
@@ -60,6 +63,7 @@ class TestResult:
     effect_size: float | None
     ci_lower: float | None
     ci_upper: float | None
+    se: float | None
     n_cases: int
     n_controls: int
     n_variants: int
@@ -185,6 +189,23 @@ class AssociationTest(ABC):
             Result with p_value=None when test is skipped (e.g. zero variants).
         """
         ...
+
+    def effect_column_names(self) -> dict[str, str]:
+        """
+        Column name suffixes for this test's effect size output.
+
+        Returns a mapping of semantic role to column suffix. The engine uses
+        these to build output column names as ``{test_name}_{suffix}``.
+
+        Default returns OR-based naming (appropriate for Fisher's exact test).
+        Regression tests (burden, SKAT) override to return beta/SE naming.
+        """
+        return {
+            "effect": "or",
+            "se": None,
+            "ci_lower": "or_ci_lower",
+            "ci_upper": "or_ci_upper",
+        }
 
     def check_dependencies(self) -> None:  # noqa: B027
         """

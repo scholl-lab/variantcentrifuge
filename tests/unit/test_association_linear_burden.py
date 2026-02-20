@@ -328,3 +328,15 @@ class TestLinearBurdenWarnings:
             assert result.ci_lower < result.ci_upper, (
                 f"ci_lower={result.ci_lower} should be < ci_upper={result.ci_upper}"
             )
+
+    def test_linear_burden_se_field(self, synthetic_quantitative_data, default_config) -> None:
+        """result.se is populated and matches extra['se']."""
+        geno, phenotype, mafs = synthetic_quantitative_data
+        test = LinearBurdenTest()
+        contingency = _make_contingency(geno, phenotype, mafs)
+        result = test.run("GENE1", contingency, default_config)
+
+        if result.p_value is not None:
+            assert result.se is not None, "SE should be populated for successful fit"
+            assert result.se > 0, "SE must be positive"
+            assert result.se == pytest.approx(result.extra["se"], rel=1e-6)
