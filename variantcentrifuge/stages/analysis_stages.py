@@ -2109,7 +2109,7 @@ class AssociationAnalysisStage(Stage):
             )
             return context
 
-        # Build AssociationConfig from context
+        # Build AssociationConfig from context (Phase 19: includes covariate/trait/weight fields)
         assoc_config = AssociationConfig(
             correction_method=context.config.get("correction_method", "fdr"),
             gene_burden_mode=context.config.get("gene_burden_mode", "samples"),
@@ -2117,7 +2117,13 @@ class AssociationAnalysisStage(Stage):
                 "confidence_interval_method", "normal_approx"
             ),
             confidence_interval_alpha=context.config.get("confidence_interval_alpha", 0.05),
+            covariate_file=context.config.get("covariate_file"),
+            covariate_columns=context.config.get("covariate_columns"),
+            categorical_covariates=context.config.get("categorical_covariates"),
+            trait_type=context.config.get("trait_type", "binary"),
+            variant_weights=context.config.get("variant_weights", "beta:1,25"),
         )
+        logger.info(f"Association analysis: trait type = {assoc_config.trait_type}")
 
         # Get test names; default to fisher
         test_names: list[str] = context.config.get("association_tests", ["fisher"])
@@ -2152,6 +2158,75 @@ class AssociationAnalysisStage(Stage):
         control_set = set(control_samples)
         vcf_samples_list = list(context.vcf_samples) if context.vcf_samples else None
 
+        # ------------------------------------------------------------------
+        # Phase 19: Tiered sample size warnings (CONTEXT.md)
+        # ------------------------------------------------------------------
+        n_cases_total = len(case_samples)
+        n_controls_total = len(control_samples)
+        if n_cases_total < 10:
+            logger.error(
+                f"Association analysis: only {n_cases_total} case(s) found — "
+                "fewer than 10 cases produces invalid results. Aborting."
+            )
+            return context
+        if n_cases_total < 50:
+            logger.warning(
+                f"Association analysis: only {n_cases_total} case(s) — "
+                "fewer than 50 cases provides no practical power for regression tests"
+            )
+        elif n_cases_total < 200:
+            logger.warning(
+                f"Association analysis: {n_cases_total} case(s) — "
+                "fewer than 200 cases is underpowered for SKAT; interpret results with caution"
+            )
+        if n_controls_total > 0 and n_cases_total > 0:
+            ratio = n_controls_total / n_cases_total
+            if ratio > 20:
+                logger.warning(
+                    f"Association analysis: case:control ratio is 1:{ratio:.0f} — "
+                    "exceeds 1:20; Type I error inflation risk without SPA/Firth correction"
+                )
+
+        # ------------------------------------------------------------------
+        # Phase 19: Load covariates once (if covariate_file provided)
+        # ------------------------------------------------------------------
+        covariate_matrix = None
+        if assoc_config.covariate_file and vcf_samples_list:
+            from ..association.covariates import load_covariates
+
+            covariate_matrix, cov_names = load_covariates(
+                assoc_config.covariate_file,
+                vcf_samples_list,
+                assoc_config.covariate_columns,
+                assoc_config.categorical_covariates,
+            )
+            logger.info(
+                f"Association analysis: loaded {covariate_matrix.shape[1]} "
+                f"covariate(s): {cov_names}"
+            )
+
+        # ------------------------------------------------------------------
+        # Phase 19: Build phenotype vector once (0=control, 1=case)
+        # ------------------------------------------------------------------
+        import numpy as np
+
+        phenotype_vector = None
+        if vcf_samples_list:
+            case_set_all = set(case_samples)
+            phenotype_vector = np.array(
+                [1.0 if s in case_set_all else 0.0 for s in vcf_samples_list],
+                dtype=float,
+            )
+            n_pv_cases = int(phenotype_vector.sum())
+            n_pv_controls = int((1.0 - phenotype_vector).sum())
+            logger.info(
+                f"Association analysis: phenotype vector built — "
+                f"{n_pv_cases} cases, {n_pv_controls} controls"
+            )
+
+        # ------------------------------------------------------------------
+        # Standard aggregation (existing paths — unchanged)
+        # ------------------------------------------------------------------
         has_case_ctrl = True  # already checked above
         gt_columns = _find_gt_columns(df)
         use_column_aggregation = bool(
@@ -2184,6 +2259,71 @@ class AssociationAnalysisStage(Stage):
         if not gene_burden_data:
             logger.warning("No genes found with variant data for association analysis.")
             return context
+
+        # ------------------------------------------------------------------
+        # Phase 19: Augment gene_burden_data with genotype matrix for
+        # regression tests (logistic_burden, linear_burden, skat, skat_python)
+        # Backward compatible: FisherExactTest ignores the new keys.
+        # ------------------------------------------------------------------
+        needs_genotype_matrix = any(
+            t in test_names for t in ("logistic_burden", "linear_burden", "skat", "skat_python")
+        )
+        if needs_genotype_matrix and gt_columns and vcf_samples_list:
+            from ..association.genotype_matrix import build_genotype_matrix
+
+            is_binary = assoc_config.trait_type == "binary"
+            for gene_data in gene_burden_data:
+                gene_name = gene_data.get("GENE", "")
+                gene_df = df[df["GENE"] == gene_name]
+                if gene_df.empty:
+                    gene_data["genotype_matrix"] = np.zeros(
+                        (len(vcf_samples_list), 0), dtype=float
+                    )
+                    gene_data["variant_mafs"] = np.zeros(0, dtype=float)
+                    gene_data["phenotype_vector"] = phenotype_vector
+                    gene_data["covariate_matrix"] = covariate_matrix
+                    continue
+
+                geno, mafs, sample_mask, gt_warnings = build_genotype_matrix(
+                    gene_df,
+                    vcf_samples_list,
+                    gt_columns,
+                    is_binary=is_binary,
+                    missing_site_threshold=assoc_config.missing_site_threshold,
+                    missing_sample_threshold=assoc_config.missing_sample_threshold,
+                    phenotype_vector=phenotype_vector,
+                )
+                for w in gt_warnings:
+                    logger.warning(f"Gene {gene_name}: {w}")
+
+                # Apply sample mask to phenotype and covariates if any high-missing samples
+                if not all(sample_mask):
+                    mask_arr = np.array(sample_mask, dtype=bool)
+                    pv = phenotype_vector[mask_arr] if phenotype_vector is not None else None
+                    cm = covariate_matrix[mask_arr] if covariate_matrix is not None else None
+                    geno = geno[mask_arr]
+                else:
+                    pv = phenotype_vector
+                    cm = covariate_matrix
+
+                # Per-gene MAC check: skip regression if < 5 minor allele copies
+                total_mac = int(geno.sum()) if geno.size > 0 else 0
+                if total_mac < 5:
+                    logger.debug(
+                        f"Gene {gene_name}: MAC={total_mac} < 5 — "
+                        "regression will report NA (insufficient data)"
+                    )
+                    gene_data["genotype_matrix"] = np.zeros(
+                        (geno.shape[0], 0), dtype=float
+                    )
+                    gene_data["variant_mafs"] = np.zeros(0, dtype=float)
+                else:
+                    gene_data["genotype_matrix"] = geno
+                    gene_data["variant_mafs"] = mafs
+
+                gene_data["phenotype_vector"] = pv
+                gene_data["covariate_matrix"] = cm
+                gene_data["vcf_samples"] = vcf_samples_list
 
         # Run association tests
         results_df = engine.run_all(gene_burden_data)
