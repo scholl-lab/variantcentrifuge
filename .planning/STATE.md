@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 19 — Covariate System + Burden Tests
-Plan: 1/2 complete
-Status: In progress — Plan 19-01 complete
-Last activity: 2026-02-20 — Completed 19-01-PLAN.md (Covariate System and Data Infrastructure)
+Plan: 2/2 complete
+Status: Phase 19 complete
+Last activity: 2026-02-20 — Completed 19-02-PLAN.md (LogisticBurdenTest + LinearBurdenTest + Stage + CLI)
 
-Progress: █████░░░░░░░░░░░░░░░░ ~20% (Phase 18 complete, Phase 19 plan 1/2 complete)
+Progress: ██████░░░░░░░░░░░░░░░ ~25% (Phases 18-19 complete, 4 phases remaining)
 
 ## Milestone Overview
 
@@ -23,13 +23,13 @@ Progress: █████░░░░░░░░░░░░░░░░ ~20% (
 | Phase | Goal | Requirements | Status |
 |-------|------|--------------|--------|
 | 18. Foundation | Core abstractions + Fisher refactor; bit-identical output validation | CORE-01..08 (8) | Complete |
-| 19. Covariate System + Burden Tests | Logistic/linear burden tests with covariate adjustment and genotype matrix builder | COV-01..04, BURDEN-01..03, WEIGHT-01..02 (9) | Pending |
+| 19. Covariate System + Burden Tests | Logistic/linear burden tests with covariate adjustment and genotype matrix builder | COV-01..04, BURDEN-01..03, WEIGHT-01..02 (9) | Complete |
 | 20. R SKAT Backend | R SKAT via rpy2 as gold standard oracle; SKATBinary + moment adjustment | SKAT-01..04, SKAT-08..09 (6) | Pending |
 | 21. Pure Python SKAT Backend | Davies ctypes + saddlepoint + Liu fallback; validated against R within 10% | SKAT-05..07, SKAT-10 (4) | Pending |
 | 22. ACAT-O + Diagnostics | ACAT-O omnibus; single FDR; lambda_GC; QQ TSV; sample size warnings | OMNI-01..03, DIAG-01..03, DIAG-05..06 (8) | Pending |
 | 23. PCA + Functional Weights + Allelic Series + JSON Config | PCA file loading + AKT stage; CADD/REVEL weights; COAST test; JSON config; matplotlib plots | DIAG-04, PCA-01..04, SERIES-01..02, CONFIG-01..02, WEIGHT-03..05 (12) | Pending |
 
-**Total requirements:** 47 mapped across 6 phases (8 complete, 39 pending)
+**Total requirements:** 47 mapped across 6 phases (17 complete, 30 pending)
 
 ## Accumulated Context
 
@@ -58,6 +58,9 @@ Progress: █████░░░░░░░░░░░░░░░░ ~20% (
 | IMPL-09 | parse_gt_to_dosage returns (int\|None, bool) not int\|None | 19-01 | Multi-allelic flag needed to emit 'run bcftools norm' warning without second parse pass |
 | IMPL-10 | load_covariates returns (np.ndarray, list[str]) tuple | 19-01 | Column names returned alongside matrix for diagnostics; callers can ignore second element |
 | IMPL-11 | build_genotype_matrix: sample_mask is list[bool], all samples remain in geno | 19-01 | Callers (logistic burden test) decide whether to exclude high-missing samples |
+| IMPL-12 | LogisticBurdenTest builds design matrix inline (not in genotype_matrix.py) | 19-02 | Firth + separation checks are logistic-specific; keeps coupling clean |
+| IMPL-13 | Tiered sample size check at n_cases<10 aborts with logger.error() not exception | 19-02 | Stage returns context cleanly; exception would crash pipeline; logger.error signals severity |
+| IMPL-14 | linear_burden effect_size=beta; engine column named *_or contains beta | 19-02 | Column renaming deferred to Phase 22; no behavioral change needed now |
 
 ### Architecture Invariants (from research)
 
@@ -70,12 +73,15 @@ Progress: █████░░░░░░░░░░░░░░░░ ~20% (
 - Eigenvalue stability: scipy.linalg.eigh; threshold max(eigenvalues, 0); skip if matrix_rank < 2
 - Python version: recommend bumping requires-python to >=3.11 (scipy 1.16 dropped 3.10)
 - apply_correction([]) returns empty array (statsmodels multipletests raises ZeroDivisionError on empty; guarded in correction.py)
+- Firth NR fallback: self-contained 130-line Newton-Raphson; no external package; step-halving on penalized log-likelihood
+- Separation detection: both mle_retvals['converged']==False AND bse.max()>100 needed (statsmodels may not raise exception)
 
 ### Pending Todos
 
 - **DEPR-01** (backlog): Deprecate classic pipeline mode (`pipeline.py`) in favor of stage-based pipeline (`pipeline_core/`). See archived REQUIREMENTS.md Future Requirements.
 - **RESEARCH-01** (before Phase 20): Validate whether parallel_safe=False on the stage is sufficient for rpy2 thread safety, or whether a dedicated R worker process with queue is required.
 - **RESEARCH-02** (before Phase 21): Saddlepoint approximation algorithm for middle tier of Davies fallback chain — not in scipy stdlib; need reference from fastSKAT (PMC4375394) before implementation.
+- **COLUMN-01** (Phase 22): Rename `linear_burden_or` column to `linear_burden_beta` for semantic correctness (IMPL-14)
 
 ### Blockers/Concerns
 
@@ -84,6 +90,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-20
-Stopped at: Completed 19-01-PLAN.md (Covariate System and Data Infrastructure)
+Stopped at: Completed 19-02-PLAN.md (LogisticBurdenTest + LinearBurdenTest + Stage + CLI)
 Resume file: None
-Next: Execute Plan 19-02 (LogisticBurdenTest + LinearBurdenTest)
+Next: Execute Phase 20 (R SKAT Backend) — research and planning phases first
