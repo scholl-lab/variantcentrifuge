@@ -56,12 +56,18 @@ def minimal_df():
 
 @pytest.fixture
 def case_control_config(tmp_path):
-    """Config dict with case/control samples and analysis flags."""
+    """Config dict with case/control samples and analysis flags.
+
+    Uses 10 cases and 10 controls to pass the tiered sample size guard
+    (Phase 19: cases < 10 refuses to run).
+    """
+    cases = [f"CASE{i}" for i in range(1, 11)]
+    controls = [f"CTRL{i}" for i in range(1, 11)]
     return {
         "perform_association": True,
         "perform_gene_burden": False,
-        "case_samples": ["CASE1", "CASE2"],
-        "control_samples": ["CTRL1", "CTRL2"],
+        "case_samples": cases,
+        "control_samples": controls,
         "gene_burden_mode": "samples",
         "correction_method": "fdr",
         "association_tests": ["fisher"],
@@ -234,11 +240,13 @@ class TestAssociationAnalysisStageRun:
         self, mock_workspace, minimal_df, tmp_path
     ):
         """Stage guard reads perform_association, not perform_gene_burden."""
+        cases = [f"CASE{i}" for i in range(1, 11)]
+        controls = [f"CTRL{i}" for i in range(1, 11)]
         config = {
             "perform_association": True,
             "perform_gene_burden": False,  # explicitly False; should NOT block this stage
-            "case_samples": ["CASE1", "CASE2"],
-            "control_samples": ["CTRL1", "CTRL2"],
+            "case_samples": cases,
+            "control_samples": controls,
             "gene_burden_mode": "samples",
             "correction_method": "fdr",
             "association_tests": ["fisher"],
@@ -333,11 +341,13 @@ class TestStageCoexistence:
         self, mock_workspace, minimal_df, tmp_path
     ):
         """Both stages produce results when both perform_ flags are True."""
+        cases = [f"CASE{i}" for i in range(1, 11)]
+        controls = [f"CTRL{i}" for i in range(1, 11)]
         config = {
             "perform_gene_burden": True,
             "perform_association": True,
-            "case_samples": ["CASE1", "CASE2"],
-            "control_samples": ["CTRL1", "CTRL2"],
+            "case_samples": cases,
+            "control_samples": controls,
             "gene_burden_mode": "samples",
             "correction_method": "fdr",
             "association_tests": ["fisher"],
@@ -362,11 +372,13 @@ class TestStageCoexistence:
         self, mock_workspace, minimal_df, tmp_path
     ):
         """Gene burden and association use distinct config keys for output paths."""
+        cases = [f"CASE{i}" for i in range(1, 11)]
+        controls = [f"CTRL{i}" for i in range(1, 11)]
         config = {
             "perform_gene_burden": True,
             "perform_association": True,
-            "case_samples": ["CASE1", "CASE2"],
-            "control_samples": ["CTRL1", "CTRL2"],
+            "case_samples": cases,
+            "control_samples": controls,
             "gene_burden_mode": "samples",
             "correction_method": "fdr",
             "association_tests": ["fisher"],
@@ -416,11 +428,13 @@ class TestStageCoexistence:
 
     def test_only_association_true_gene_burden_skips(self, mock_workspace, minimal_df, tmp_path):
         """When only perform_association=True, GeneBurdenAnalysisStage skips cleanly."""
+        cases = [f"CASE{i}" for i in range(1, 11)]
+        controls = [f"CTRL{i}" for i in range(1, 11)]
         config = {
             "perform_gene_burden": False,
             "perform_association": True,
-            "case_samples": ["CASE1", "CASE2"],
-            "control_samples": ["CTRL1", "CTRL2"],
+            "case_samples": cases,
+            "control_samples": controls,
             "gene_burden_mode": "samples",
             "correction_method": "fdr",
             "association_tests": ["fisher"],
