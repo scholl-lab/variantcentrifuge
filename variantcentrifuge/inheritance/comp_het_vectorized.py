@@ -47,6 +47,11 @@ def encode_genotypes(genotype_series: pd.Series) -> np.ndarray:
     np.ndarray
         Integer-encoded genotypes (int8 for memory efficiency)
     """
+    # Convert Categorical to object before fillna — Categorical columns
+    # from dataframe_optimizer may not include ./. in their category set
+    if isinstance(genotype_series.dtype, pd.CategoricalDtype):
+        genotype_series = genotype_series.astype(object)
+
     # Convert to string and handle NaN
     gt_strings = genotype_series.fillna("./.").astype(str)
 

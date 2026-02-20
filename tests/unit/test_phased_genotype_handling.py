@@ -184,6 +184,138 @@ class TestCompHetVectorizedEncoding:
         assert GENOTYPE_ENCODING["1/1"] == GENOTYPE_ENCODING["1|1"]
         assert GENOTYPE_ENCODING["0/0"] == GENOTYPE_ENCODING["0|0"]
 
+    def test_encode_genotypes_categorical_without_missing(self):
+        """Categorical series without ./. in categories encodes correctly (issue #81)."""
+        import numpy as np
+        import pandas as pd
+
+        from variantcentrifuge.inheritance.comp_het_vectorized import encode_genotypes
+
+        cat_series = pd.Categorical(["0/0", "0/1", "1/1", "0/1"])
+        series = pd.Series(cat_series)
+        assert isinstance(series.dtype, pd.CategoricalDtype)
+
+        result = encode_genotypes(series)
+        np.testing.assert_array_equal(result, np.array([0, 1, 2, 1], dtype=np.int8))
+
+    def test_encode_genotypes_categorical_with_nan(self):
+        """Categorical series with NaN fills ./. and encodes as -1 (issue #81)."""
+        import numpy as np
+        import pandas as pd
+
+        from variantcentrifuge.inheritance.comp_het_vectorized import encode_genotypes
+
+        cat_series = pd.Categorical(["0/0", None, "1/1", None])
+        series = pd.Series(cat_series)
+        assert isinstance(series.dtype, pd.CategoricalDtype)
+
+        result = encode_genotypes(series)
+        np.testing.assert_array_equal(result, np.array([0, -1, 2, -1], dtype=np.int8))
+
+    def test_encode_genotypes_regular_series(self):
+        """Non-categorical series still works (regression guard)."""
+        import numpy as np
+        import pandas as pd
+
+        from variantcentrifuge.inheritance.comp_het_vectorized import encode_genotypes
+
+        series = pd.Series(["0/0", "0/1", None, "1/1"])
+        assert not isinstance(series.dtype, pd.CategoricalDtype)
+
+        result = encode_genotypes(series)
+        np.testing.assert_array_equal(result, np.array([0, 1, -1, 2], dtype=np.int8))
+
+    def test_encode_genotypes_categorical_full_pipeline_path(self):
+        """Categorical GT columns work through vectorized_deduce_patterns (issue #81)."""
+        import pandas as pd
+
+        from variantcentrifuge.inheritance.vectorized_deducer import vectorized_deduce_patterns
+
+        df = pd.DataFrame(
+            {
+                "CHROM": ["chr1", "chr1"],
+                "POS": [100, 200],
+                "REF": ["A", "G"],
+                "ALT": ["T", "C"],
+                "GENE": ["BRCA1", "BRCA1"],
+                "SAMPLE1": pd.Categorical(["0/1", "0/0"]),
+                "SAMPLE2": pd.Categorical(["0/0", "0/1"]),
+            }
+        )
+        pedigree = {
+            "SAMPLE1": {
+                "family_id": "FAM1",
+                "individual_id": "SAMPLE1",
+                "paternal_id": "0",
+                "maternal_id": "0",
+                "sex": "1",
+                "phenotype": "2",
+            },
+            "SAMPLE2": {
+                "family_id": "FAM1",
+                "individual_id": "SAMPLE2",
+                "paternal_id": "0",
+                "maternal_id": "0",
+                "sex": "2",
+                "phenotype": "1",
+            },
+        }
+        # Should not raise TypeError
+        result = vectorized_deduce_patterns(df, pedigree, ["SAMPLE1", "SAMPLE2"])
+        assert len(result) == 2
+        # Patterns should be real, not empty
+        for patterns in result:
+            assert isinstance(patterns, list)
+            assert len(patterns) > 0
+
+    def test_encode_genotypes_categorical_analyze_inheritance(self):
+        """Full analyze_inheritance with Categorical GT produces no 'error' patterns (issue #81)."""
+        import pandas as pd
+
+        from variantcentrifuge.inheritance.analyzer import analyze_inheritance
+
+        df = pd.DataFrame(
+            {
+                "CHROM": ["chr17", "chr17"],
+                "POS": [100, 200],
+                "REF": ["A", "G"],
+                "ALT": ["T", "C"],
+                "GENE": ["BRCA1", "BRCA1"],
+                "PROBAND": pd.Categorical(["0/1", "1/1"]),
+                "FATHER": pd.Categorical(["0/1", "0/1"]),
+                "MOTHER": pd.Categorical(["0/0", "0/1"]),
+            }
+        )
+        pedigree = {
+            "PROBAND": {
+                "family_id": "FAM1",
+                "individual_id": "PROBAND",
+                "paternal_id": "FATHER",
+                "maternal_id": "MOTHER",
+                "sex": "1",
+                "phenotype": "2",
+            },
+            "FATHER": {
+                "family_id": "FAM1",
+                "individual_id": "FATHER",
+                "paternal_id": "0",
+                "maternal_id": "0",
+                "sex": "1",
+                "phenotype": "1",
+            },
+            "MOTHER": {
+                "family_id": "FAM1",
+                "individual_id": "MOTHER",
+                "paternal_id": "0",
+                "maternal_id": "0",
+                "sex": "2",
+                "phenotype": "1",
+            },
+        }
+        result_df = analyze_inheritance(df, pedigree, ["PROBAND", "FATHER", "MOTHER"])
+        assert "Inheritance_Pattern" in result_df.columns
+        assert (result_df["Inheritance_Pattern"] != "error").all()
+
 
 # ---------------------------------------------------------------------------
 # gene_burden._gt_to_dosage

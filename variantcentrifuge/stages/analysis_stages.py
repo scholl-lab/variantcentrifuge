@@ -441,7 +441,10 @@ def handle_inheritance_analysis_error(
         - Optionally adds Inheritance_Details column if needed for scoring
         - Maintains DataFrame schema consistency
     """
-    logger.error(f"Error in {context_description}: {error}")
+    logger.warning(
+        f"Inheritance analysis failed ({context_description}): {error}. "
+        "All variants will have Inheritance_Pattern='error' and inheritance_score=0.0."
+    )
 
     # Add error-state inheritance columns to maintain schema
     df = df.copy()
