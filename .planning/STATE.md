@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 19 — Covariate System + Burden Tests
-Plan: 3/3 complete
-Status: Phase 19 complete — verified (5/5 must-haves pass)
-Last activity: 2026-02-20 — Phase 19 verified and finalized
+Phase: 20 — R SKAT Backend
+Plan: 1/3 complete
+Status: In progress — Plan 20-01 complete
+Last activity: 2026-02-20 — Completed 20-01-PLAN.md (SKAT backend abstraction layer)
 
-Progress: ███████░░░░░░░░░░░░░░ ~33% (Phases 18-19 complete, 4 phases remaining)
+Progress: ████████░░░░░░░░░░░░░ ~36% (Phases 18-19 complete, Phase 20 in progress)
 
 ## Milestone Overview
 
@@ -66,6 +66,9 @@ Progress: ███████░░░░░░░░░░░░░░ ~33% (
 | IMPL-14 | ~~linear_burden effect_size=beta; engine column named *_or contains beta~~ RESOLVED | 19-02 | Originally deferred to Phase 22; resolved early via effect_column_names() polymorphism (commit 48a6e68) |
 | IMPL-15 | Burden tests report beta+SE (not OR); Fisher keeps OR columns | 19 (post-verify) | Per-unit burden OR misleadingly close to 1.0 due to Beta(MAF;1,25) weights; beta+SE matches SKAT/SAIGE-GENE convention |
 | IMPL-16 | AssociationAnalysisStage recovers per-sample GT from context.variants_df | 19 (post-verify) | gene_burden_analysis at same level drops per-sample GT columns before association can use them |
+| IMPL-17 | RSKATTest.check_dependencies() hardcodes backend='r'; no auto-detect at test level | 20-01 | RSKATTest IS the R SKAT test; auto-selection is at the factory level. Separate PurePythonSKATTest for Phase 21. |
+| IMPL-18 | Extra columns written with bare key names (skat_o_rho, not skat_skat_o_rho) | 20-01 | Keys in TestResult.extra are already namespaced by test; double-prefixing would produce unreadable names |
+| IMPL-19 | effect_column_names() return type is dict[str, str \| None] not dict[str, str] | 20-01 | SKAT has no effect size; all four slots are None. Type broadened to accommodate without breaking existing tests. |
 
 ### Architecture Invariants (from research)
 
@@ -95,6 +98,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-20
-Stopped at: Phase 19 complete — verified, beta+SE switch applied, GCKD validated
+Stopped at: Completed 20-01-PLAN.md — SKAT backend abstraction layer + engine fixes
 Resume file: None
-Next: `/gsd:discuss-phase 20`
+Next: Execute Plan 20-02 (RSKATBackend.fit_null_model + test_gene implementation)
