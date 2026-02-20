@@ -161,6 +161,10 @@ class AssociationEngine:
         # Collect results: results_by_test[test_name][gene] = TestResult
         results_by_test: dict[str, dict[str, TestResult]] = {name: {} for name in self._tests}
 
+        # Lifecycle hook: prepare() before gene loop (allows progress setup, panel warnings)
+        for test in self._tests.values():
+            test.prepare(len(sorted_data))
+
         for gene_data in sorted_data:
             gene = gene_data.get("GENE", "")
             for test_name, test in self._tests.items():
@@ -169,6 +173,10 @@ class AssociationEngine:
                 logger.debug(
                     f"Gene {gene} | {test_name}: p={result.p_value}, OR={result.effect_size}"
                 )
+
+        # Lifecycle hook: finalize() after gene loop (allows timing summary, cleanup)
+        for test in self._tests.values():
+            test.finalize()
 
         # Apply multiple testing correction per test (on genes with non-None p-values)
         for test_name in self._tests:

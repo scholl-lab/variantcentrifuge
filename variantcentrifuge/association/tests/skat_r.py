@@ -24,23 +24,27 @@ Thread safety
 RSKATBackend is not thread-safe (rpy2 restriction). The stage that uses
 RSKATTest must declare ``parallel_safe=False``.
 
-Note: run() currently raises NotImplementedError because the backend stubs
-(fit_null_model / test_gene) are not yet implemented. Plan 20-02 completes
-the backend logic.
+Lifecycle hooks
+---------------
+The engine calls ``prepare(n_genes)`` before the gene loop and ``finalize()``
+after. RSKATTest uses these for:
+  - prepare(): large panel warning, log interval computation, start message
+  - finalize(): total timing summary, backend cleanup (R gc())
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from variantcentrifuge.association.backends.r_backend import RSKATBackend
 from variantcentrifuge.association.base import AssociationConfig, AssociationTest, TestResult
 
 if TYPE_CHECKING:
     from variantcentrifuge.association.backends.base import NullModelResult
-    from variantcentrifuge.association.backends.r_backend import RSKATBackend
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -74,6 +78,12 @@ class RSKATTest(AssociationTest):
     def __init__(self) -> None:
         self._backend: RSKATBackend | None = None
         self._null_model: NullModelResult | None = None
+
+        # Lifecycle tracking (set by prepare())
+        self._total_genes: int = 0
+        self._log_interval: int = 50
+        self._genes_processed: int = 0
+        self._start_time: float = 0.0
 
     @property
     def name(self) -> str:
@@ -125,6 +135,47 @@ class RSKATTest(AssociationTest):
             "ci_upper": None,
         }
 
+    def prepare(self, gene_count: int) -> None:
+        """
+        Called by the engine before the gene loop with total gene count.
+
+        Sets up progress logging parameters and emits pre-run messages:
+        - WARNING if gene_count > LARGE_PANEL_THRESHOLD (>2000 genes)
+        - INFO log announcing start: "R SKAT: beginning analysis of N genes"
+
+        Parameters
+        ----------
+        gene_count : int
+            Total number of genes to be processed.
+        """
+        self._total_genes = gene_count
+        self._genes_processed = 0
+        self._log_interval = max(10, min(50, gene_count // 10)) if gene_count > 0 else 50
+        self._start_time = time.time()
+
+        if gene_count > RSKATBackend.LARGE_PANEL_THRESHOLD:
+            logger.warning(
+                f"R SKAT: large gene panel ({gene_count} genes > "
+                f"{RSKATBackend.LARGE_PANEL_THRESHOLD} threshold). "
+                "Memory usage will be monitored. Consider splitting the panel "
+                "if R heap warnings appear."
+            )
+
+        logger.info(f"R SKAT: beginning analysis of {gene_count} genes")
+
+    def finalize(self) -> None:
+        """
+        Called by the engine after the gene loop completes.
+
+        Logs aggregate timing summary and triggers R backend cleanup (R gc()).
+        """
+        elapsed = time.time() - self._start_time
+        logger.info(
+            f"R SKAT complete: {self._genes_processed} genes in {elapsed:.1f}s"
+        )
+        if self._backend is not None:
+            self._backend.cleanup()
+
     def run(
         self,
         gene: str,
@@ -158,12 +209,6 @@ class RSKATTest(AssociationTest):
             p_value=None when test is skipped (no variants, no genotype matrix).
             effect_size=None, se=None, ci_lower=None, ci_upper=None (SKAT has
             no effect size). extra contains SKAT-specific metadata.
-
-        Raises
-        ------
-        NotImplementedError
-            Until Plan 20-02 fills in RSKATBackend.fit_null_model() and
-            RSKATBackend.test_gene().
 
         Notes
         -----
@@ -239,6 +284,27 @@ class RSKATTest(AssociationTest):
             weights_beta=weights_beta,
         )
 
+        # Increment local counter (backend also tracks, but we need per-test tracking)
+        self._genes_processed += 1
+
+        # Periodic GC + heap monitoring (every GC_INTERVAL genes)
+        if self._genes_processed % RSKATBackend.GC_INTERVAL == 0:
+            self._backend._run_r_gc()
+            heap_mb = self._backend._check_r_heap()
+            if heap_mb is not None and heap_mb > RSKATBackend.R_HEAP_WARNING_GB * 1024.0:
+                logger.warning(
+                    f"R heap usage {heap_mb / 1024.0:.1f} GB exceeds "
+                    f"{RSKATBackend.R_HEAP_WARNING_GB} GB threshold"
+                )
+
+        # Progress logging at INFO level every log_interval genes
+        if self._total_genes > 0 and self._genes_processed % self._log_interval == 0:
+            pct = 100.0 * self._genes_processed / self._total_genes
+            logger.info(
+                f"SKAT progress: {self._genes_processed}/{self._total_genes} "
+                f"genes ({pct:.0f}%)"
+            )
+
         return TestResult(
             gene=gene,
             test_name=self.name,
@@ -253,7 +319,7 @@ class RSKATTest(AssociationTest):
             n_variants=result.get("n_variants", n_variants),
             extra={
                 "skat_o_rho": result.get("rho"),
-                "skat_warnings": result.get("warnings", []),
+                "skat_warnings": "; ".join(result.get("warnings", [])) or None,
                 "skat_method": config.skat_method,
                 "skat_n_marker_test": result.get("n_marker_test"),
             },
@@ -264,19 +330,30 @@ def _parse_weights_beta(variant_weights: str) -> tuple[float, float]:
     """
     Parse weight specification string to Beta distribution parameters.
 
-    Handles ``"beta:a,b"`` format. Falls back to (1.0, 25.0) — the SKAT
-    paper default — if the string cannot be parsed.
+    Handles ``"beta:a,b"`` format and ``"uniform"`` special case. Falls back
+    to (1.0, 25.0) — the SKAT paper default — if the string cannot be parsed.
 
     Parameters
     ----------
     variant_weights : str
-        Weight scheme, e.g. ``"beta:1,25"`` or ``"uniform"``.
+        Weight scheme, e.g. ``"beta:1,25"``, ``"uniform"``, or any string.
 
     Returns
     -------
     tuple of (float, float)
         Beta distribution parameters (a1, a2).
+
+    Examples
+    --------
+    >>> _parse_weights_beta("beta:1,25")
+    (1.0, 25.0)
+    >>> _parse_weights_beta("uniform")
+    (1.0, 1.0)
+    >>> _parse_weights_beta("beta:0.5,0.5")
+    (0.5, 0.5)
     """
+    if variant_weights == "uniform":
+        return 1.0, 1.0
     if variant_weights.startswith("beta:"):
         try:
             params = variant_weights[5:].split(",")
