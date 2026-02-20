@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 18 — Foundation: Core Abstractions and Fisher Refactor
-Plan: 4/4 complete
-Status: Phase 18 complete — verified
-Last activity: 2026-02-19 — Phase 18 verified (9/10 automated + 1 human-verified)
+Phase: 19 — Covariate System + Burden Tests
+Plan: 1/2 complete
+Status: In progress — Plan 19-01 complete
+Last activity: 2026-02-20 — Completed 19-01-PLAN.md (Covariate System and Data Infrastructure)
 
-Progress: ████░░░░░░░░░░░░░░░░░ ~17% (Phase 18 complete, 5 phases remaining)
+Progress: █████░░░░░░░░░░░░░░░░ ~20% (Phase 18 complete, Phase 19 plan 1/2 complete)
 
 ## Milestone Overview
 
@@ -55,6 +55,9 @@ Progress: ████░░░░░░░░░░░░░░░░░ ~17% (
 | IMPL-08 | Association sheet mirrors Gene Burden sheet pattern verbatim | 18-03 | Explicit duplication preferred over abstraction for parallel maintainability |
 | TEST-01 | Bit-identity uses == (exact equality) not pytest.approx for Fisher p-values | 18-04 | Same scipy call chain guarantees floating-point reproducibility; tolerance would hide regressions |
 | TEST-02 | CORE-05 verified via source inspection (inspect.getsource) | 18-04 | Structural proof that GeneBurdenAnalysisStage._process() never references perform_association key |
+| IMPL-09 | parse_gt_to_dosage returns (int\|None, bool) not int\|None | 19-01 | Multi-allelic flag needed to emit 'run bcftools norm' warning without second parse pass |
+| IMPL-10 | load_covariates returns (np.ndarray, list[str]) tuple | 19-01 | Column names returned alongside matrix for diagnostics; callers can ignore second element |
+| IMPL-11 | build_genotype_matrix: sample_mask is list[bool], all samples remain in geno | 19-01 | Callers (logistic burden test) decide whether to exclude high-missing samples |
 
 ### Architecture Invariants (from research)
 
@@ -80,7 +83,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-19
-Stopped at: Phase 18 complete — verified and finalized
+Last session: 2026-02-20
+Stopped at: Completed 19-01-PLAN.md (Covariate System and Data Infrastructure)
 Resume file: None
-Next: `/gsd:discuss-phase 19`
+Next: Execute Plan 19-02 (LogisticBurdenTest + LinearBurdenTest)
