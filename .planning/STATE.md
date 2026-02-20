@@ -63,7 +63,9 @@ Progress: ███████░░░░░░░░░░░░░░ ~33% (
 | IMPL-11 | build_genotype_matrix: sample_mask is list[bool], all samples remain in geno | 19-01 | Callers (logistic burden test) decide whether to exclude high-missing samples |
 | IMPL-12 | LogisticBurdenTest builds design matrix inline (not in genotype_matrix.py) | 19-02 | Firth + separation checks are logistic-specific; keeps coupling clean |
 | IMPL-13 | Tiered sample size check at n_cases<10 aborts with logger.error() not exception | 19-02 | Stage returns context cleanly; exception would crash pipeline; logger.error signals severity |
-| IMPL-14 | linear_burden effect_size=beta; engine column named *_or contains beta | 19-02 | Column renaming deferred to Phase 22; no behavioral change needed now |
+| IMPL-14 | ~~linear_burden effect_size=beta; engine column named *_or contains beta~~ RESOLVED | 19-02 | Originally deferred to Phase 22; resolved early via effect_column_names() polymorphism (commit 48a6e68) |
+| IMPL-15 | Burden tests report beta+SE (not OR); Fisher keeps OR columns | 19 (post-verify) | Per-unit burden OR misleadingly close to 1.0 due to Beta(MAF;1,25) weights; beta+SE matches SKAT/SAIGE-GENE convention |
+| IMPL-16 | AssociationAnalysisStage recovers per-sample GT from context.variants_df | 19 (post-verify) | gene_burden_analysis at same level drops per-sample GT columns before association can use them |
 
 ### Architecture Invariants (from research)
 
@@ -84,7 +86,7 @@ Progress: ███████░░░░░░░░░░░░░░ ~33% (
 - **DEPR-01** (backlog): Deprecate classic pipeline mode (`pipeline.py`) in favor of stage-based pipeline (`pipeline_core/`). See archived REQUIREMENTS.md Future Requirements.
 - **RESEARCH-01** (before Phase 20): Validate whether parallel_safe=False on the stage is sufficient for rpy2 thread safety, or whether a dedicated R worker process with queue is required.
 - **RESEARCH-02** (before Phase 21): Saddlepoint approximation algorithm for middle tier of Davies fallback chain — not in scipy stdlib; need reference from fastSKAT (PMC4375394) before implementation.
-- **COLUMN-01** (Phase 22): Rename `linear_burden_or` column to `linear_burden_beta` for semantic correctness (IMPL-14)
+- ~~**COLUMN-01** (Phase 22): Rename `linear_burden_or` column to `linear_burden_beta`~~ — DONE (resolved via effect_column_names() in commit 48a6e68)
 
 ### Blockers/Concerns
 
@@ -93,6 +95,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-20
-Stopped at: Phase 19 complete — verified and finalized
+Stopped at: Phase 19 complete — verified, beta+SE switch applied, GCKD validated
 Resume file: None
 Next: `/gsd:discuss-phase 20`
