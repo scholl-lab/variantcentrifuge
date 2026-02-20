@@ -590,7 +590,6 @@ class RSKATBackend(SKATBackend):
         """
         elapsed = time.time() - self._start_time
         logger.info(
-            f"RSKATBackend.cleanup: {self._genes_processed} genes processed "
-            f"in {elapsed:.1f}s"
+            f"RSKATBackend.cleanup: {self._genes_processed} genes processed in {elapsed:.1f}s"
         )
         self._run_r_gc()
