@@ -131,6 +131,14 @@ class AssociationConfig:
     firth_max_iter: int = 25
     """Maximum Newton-Raphson iterations for Firth penalized logistic regression fallback."""
 
+    # Phase 20: R SKAT backend fields
+    # All optional; backward compatible with Phase 18-19 workflows.
+    skat_backend: str = "auto"
+    """SKAT computation backend: "r" (R via rpy2), "python" (Phase 21), or "auto" (try r first)."""
+
+    skat_method: str = "SKAT"
+    """SKAT variant to run: "SKAT" (default), "Burden" (burden-only), or "SKATO" (omnibus)."""
+
 
 class AssociationTest(ABC):
     """
