@@ -107,16 +107,17 @@ Plans:
 
 **Requirements:** SKAT-01, SKAT-02, SKAT-03, SKAT-04, SKAT-08, SKAT-09
 
-**Plans:** 3 plans estimated
-- 20-01: backends/base.py SKATBackend ABC and NullModel container; backends/__init__.py get_skat_backend() factory (lazy, never at module import); r_backend.py RSKATBackend with rpy2 import guard, R/SKAT detection, graceful fallback
-- 20-02: RSKATBackend.fit_null_model() using SKAT_Null_Model_MomentAdjust for binary traits; RSKATBackend.test_gene() dispatching to SKATBinary vs SKAT by trait type; SKAT-O with method="optimal.adj"; parallel_safe=False on AssociationAnalysisStage when R backend active; explicit del + gc() every 100 genes
-- 20-03: Synthetic test fixtures (100 cases/100 controls, 50 genes, 5 genes with injected burden signal); validate R backend detects signal genes at p < 0.05; validate R memory usage stays bounded across 500-gene run
+**Plans:** 3 plans
+Plans:
+- [ ] 20-01-PLAN.md — Backend ABC, RSKATBackend skeleton with R/SKAT detection, engine None-effect guard fix, RSKATTest wrapper
+- [ ] 20-02-PLAN.md — RSKATBackend core: fit_null_model (Adjustment=TRUE), test_gene (SKATBinary/SKAT dispatch, SKAT-O), R memory management, stage integration
+- [ ] 20-03-PLAN.md — Unit tests: mocked rpy2 backend tests, RSKATTest wrapper tests, engine SKAT integration tests
 
 **Success Criteria:**
 
 1. On a system with R and the SKAT package, `--skat-backend r` runs SKAT and SKAT-O and reports p-values; on a system without R, the same command falls back gracefully to the Python backend with an informative log message
 2. A binary trait phenotype always uses SKATBinary — the continuous-trait SKAT formulation is never called for binary outcomes, verified by inspecting which R function was invoked
-3. SKAT-O reports the optimal rho value alongside the p-value, and uses `method="optimal.adj"` correction (not the uncorrected minimum p)
+3. SKAT-O reports the optimal rho value alongside the p-value, and uses `method="SKATO"` correction (not the uncorrected minimum p)
 4. Running the R backend across 500 synthetic genes does not cause R heap exhaustion — R objects are deleted after each gene and `gc()` is called every 100 genes
 5. Calling the R backend from a ThreadPoolExecutor worker thread raises an explicit error rather than causing a segfault or silent crash
 
@@ -211,7 +212,7 @@ Plans:
 | 17. Accessibility and Print/PDF | v0.14.0 | 3/3 | Complete | 2026-02-17 |
 | 18. Foundation — Core Abstractions and Fisher Refactor | v0.15.0 | 4/4 | Complete | 2026-02-19 |
 | 19. Covariate System and Burden Tests | v0.15.0 | 3/3 | Complete | 2026-02-20 |
-| 20. R SKAT Backend | v0.15.0 | 0/3 | Pending | — |
+| 20. R SKAT Backend | v0.15.0 | 0/3 | Planned | — |
 | 21. Pure Python SKAT Backend | v0.15.0 | 0/3 | Pending | — |
 | 22. ACAT-O and Diagnostics | v0.15.0 | 0/3 | Pending | — |
 | 23. PCA Integration, Functional Weights, Allelic Series, and JSON Config | v0.15.0 | 0/4 | Pending | — |
