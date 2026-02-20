@@ -138,7 +138,7 @@ class TestLoadCovariatesAlignment:
         # VCF expects A, B, C, D
         vcf_samples = ["S_A", "S_B", "S_C", "S_D"]
 
-        with pytest.raises(ValueError, match="VCF samples missing"):
+        with pytest.raises(ValueError, match=r"VCF sample\(s\) missing"):
             load_covariates(str(cov_file), vcf_samples)
 
     def test_load_covariates_missing_multiple_samples_all_reported(
