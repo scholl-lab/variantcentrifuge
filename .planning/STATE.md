@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 20 — R SKAT Backend
-Plan: 2/3 complete
-Status: In progress — Plan 20-02 complete
-Last activity: 2026-02-20 — Completed 20-02-PLAN.md (RSKATBackend full implementation)
+Plan: 3/3 complete
+Status: Phase complete — Plan 20-03 complete
+Last activity: 2026-02-20 — Completed 20-03-PLAN.md (SKAT unit tests with mocked rpy2)
 
-Progress: █████████░░░░░░░░░░░░ ~39% (Phases 18-19 complete, Phase 20 2/3 done)
+Progress: ██████████░░░░░░░░░░░ ~43% (Phases 18-20 complete)
 
 ## Milestone Overview
 
@@ -24,7 +24,7 @@ Progress: █████████░░░░░░░░░░░░ ~39% (
 |-------|------|--------------|--------|
 | 18. Foundation | Core abstractions + Fisher refactor; bit-identical output validation | CORE-01..08 (8) | Complete |
 | 19. Covariate System + Burden Tests | Logistic/linear burden tests with covariate adjustment and genotype matrix builder | COV-01..04, BURDEN-01..03, WEIGHT-01..02 (9) | Complete ✓ |
-| 20. R SKAT Backend | R SKAT via rpy2 as gold standard oracle; SKATBinary + moment adjustment | SKAT-01..04, SKAT-08..09 (6) | In Progress (2/3) |
+| 20. R SKAT Backend | R SKAT via rpy2 as gold standard oracle; SKATBinary + moment adjustment | SKAT-01..04, SKAT-08..09 (6) | Complete ✓ |
 | 21. Pure Python SKAT Backend | Davies ctypes + saddlepoint + Liu fallback; validated against R within 10% | SKAT-05..07, SKAT-10 (4) | Pending |
 | 22. ACAT-O + Diagnostics | ACAT-O omnibus; single FDR; lambda_GC; QQ TSV; sample size warnings | OMNI-01..03, DIAG-01..03, DIAG-05..06 (8) | Pending |
 | 23. PCA + Functional Weights + Allelic Series + JSON Config | PCA file loading + AKT stage; CADD/REVEL weights; COAST test; JSON config; matplotlib plots | DIAG-04, PCA-01..04, SERIES-01..02, CONFIG-01..02, WEIGHT-03..05 (12) | Pending |
@@ -73,6 +73,8 @@ Progress: █████████░░░░░░░░░░░░ ~39% (
 | IMPL-21 | GC triggered in RSKATTest.run() every 100 genes (not only in finalize) | 20-02 | Prevents R heap accumulation during long runs; finalize only handles terminal cleanup |
 | IMPL-22 | prepare()/finalize() as no-ops in AssociationTest ABC | 20-02 | Fisher/burden tests unaffected; only RSKATTest overrides for R-specific lifecycle management |
 | IMPL-23 | parallel_safe=False on AssociationAnalysisStage is unconditional | 20-02 | Not gated on skat_backend config; rpy2 safety applies regardless of test mix in same invocation |
+| TEST-05 | rpy2 mock hierarchy requires parent attribute linking: mock_rpy2.robjects = mock_ro | 20-03 | bare sys.modules injection fails for nested submodule imports inside method bodies; parent mock attribute must point to child mock |
+| TEST-06 | NA_Real sentinel: create unique object() per test; inject via sys.modules rpy2.rinterface.NA_Real | 20-03 | identity check `p_val_r is NA_Real` requires same object; fresh sentinel per test prevents cross-test contamination |
 
 ### Architecture Invariants (from research)
 
@@ -91,7 +93,7 @@ Progress: █████████░░░░░░░░░░░░ ~39% (
 ### Pending Todos
 
 - **DEPR-01** (backlog): Deprecate classic pipeline mode (`pipeline.py`) in favor of stage-based pipeline (`pipeline_core/`). See archived REQUIREMENTS.md Future Requirements.
-- **RESEARCH-01** (before Phase 20): Validate whether parallel_safe=False on the stage is sufficient for rpy2 thread safety, or whether a dedicated R worker process with queue is required.
+- ~~**RESEARCH-01** (before Phase 20): Validate whether parallel_safe=False on the stage is sufficient for rpy2 thread safety~~ — RESOLVED: parallel_safe=False + _assert_main_thread() guard confirmed sufficient (unit tests verify RuntimeError from worker threads)
 - **RESEARCH-02** (before Phase 21): Saddlepoint approximation algorithm for middle tier of Davies fallback chain — not in scipy stdlib; need reference from fastSKAT (PMC4375394) before implementation.
 - ~~**COLUMN-01** (Phase 22): Rename `linear_burden_or` column to `linear_burden_beta`~~ — DONE (resolved via effect_column_names() in commit 48a6e68)
 
@@ -102,6 +104,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-20
-Stopped at: Completed 20-02-PLAN.md — RSKATBackend full implementation + lifecycle hooks
+Stopped at: Completed 20-03-PLAN.md — 72 SKAT unit tests, Phase 20 complete
 Resume file: None
-Next: Execute Plan 20-03 (mocked unit tests for RSKATBackend and RSKATTest)
+Next: Phase 21 — Pure Python SKAT Backend (Davies ctypes + saddlepoint + Liu fallback)
