@@ -11,6 +11,11 @@ Column naming convention: {test_name}_{field}, e.g.:
   fisher_p_value, fisher_corrected_p_value, fisher_or,
   fisher_or_ci_lower, fisher_or_ci_upper
 
+Effect size column names are test-aware (via AssociationTest.effect_column_names()):
+  - Fisher: fisher_or, fisher_or_ci_lower, fisher_or_ci_upper
+  - Burden tests: logistic_burden_beta, logistic_burden_se,
+    logistic_burden_beta_ci_lower, logistic_burden_beta_ci_upper
+
 Shared columns (gene-level metadata, not test-specific):
   gene, n_cases, n_controls, n_variants
 """
@@ -136,8 +141,8 @@ class AssociationEngine:
             Wide-format results. One row per gene that has at least one test
             result (genes where all tests returned p_value=None are excluded).
             Columns: gene, n_cases, n_controls, n_variants, then per-test
-            columns: {test}_p_value, {test}_corrected_p_value, {test}_or,
-            {test}_or_ci_lower, {test}_or_ci_upper.
+            columns: {test}_p_value, {test}_corrected_p_value, plus
+            test-aware effect columns (e.g. fisher_or or logistic_burden_beta).
         """
         if not gene_burden_data:
             logger.warning("No gene burden data provided to AssociationEngine.")
@@ -203,13 +208,16 @@ class AssociationEngine:
                 "n_variants": first_result.n_variants,
             }
 
-            for test_name in self._tests:
+            for test_name, test in self._tests.items():
                 res = results_by_test[test_name][gene]
+                col_names = test.effect_column_names()
                 row[f"{test_name}_p_value"] = res.p_value
                 row[f"{test_name}_corrected_p_value"] = res.corrected_p_value
-                row[f"{test_name}_or"] = res.effect_size
-                row[f"{test_name}_or_ci_lower"] = res.ci_lower
-                row[f"{test_name}_or_ci_upper"] = res.ci_upper
+                row[f"{test_name}_{col_names['effect']}"] = res.effect_size
+                if col_names.get("se") is not None:
+                    row[f"{test_name}_{col_names['se']}"] = res.se
+                row[f"{test_name}_{col_names['ci_lower']}"] = res.ci_lower
+                row[f"{test_name}_{col_names['ci_upper']}"] = res.ci_upper
 
             rows.append(row)
 
