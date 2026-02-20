@@ -75,8 +75,7 @@ class LinearBurdenTest(AssociationTest):
             import statsmodels.api  # noqa: F401
         except ImportError as e:
             raise ImportError(
-                "LinearBurdenTest requires statsmodels. "
-                "Install with: pip install statsmodels"
+                "LinearBurdenTest requires statsmodels. Install with: pip install statsmodels"
             ) from e
 
     def run(

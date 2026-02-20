@@ -152,9 +152,7 @@ class TestParseGtToDosage:
         for gt, (exp_dosage, exp_multi) in expected.items():
             dosage, is_multi = parse_gt_to_dosage(gt)
             assert dosage == exp_dosage, f"GT={gt}: expected dosage {exp_dosage}, got {dosage}"
-            assert is_multi is exp_multi, (
-                f"GT={gt}: expected is_multi={exp_multi}, got {is_multi}"
-            )
+            assert is_multi is exp_multi, f"GT={gt}: expected is_multi={exp_multi}, got {is_multi}"
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +275,7 @@ class TestBuildGenotypeMatrixMissingData:
         # 20 samples: S0=0/1, S1=./., S2-S19=0/0
         # Missing rate = 1/20 = 5% (below 10% threshold -> variant kept)
         n_samples = 20
-        gt_values = [["0/1", "./." ] + ["0/0"] * (n_samples - 2)]
+        gt_values = [["0/1", "./."] + ["0/0"] * (n_samples - 2)]
         gene_df, vcf_samples, gt_cols = _make_gene_df(n_samples, 1, gt_values)
 
         geno, _, _, _ = build_genotype_matrix(gene_df, vcf_samples, gt_cols, is_binary=True)
@@ -297,7 +295,7 @@ class TestBuildGenotypeMatrixMissingData:
         # 20 samples: S0=0/1, S1=./., S2..S10=0/0 (9), S11..S19=0/1 (9)
         # Missing rate = 1/20 = 5% (below 10% threshold -> variant kept)
         n_samples = 20
-        gt_values = [["0/1", "./." ] + ["0/0"] * 9 + ["0/1"] * 9]
+        gt_values = [["0/1", "./."] + ["0/0"] * 9 + ["0/1"] * 9]
         gene_df, vcf_samples, gt_cols = _make_gene_df(n_samples, 1, gt_values)
 
         geno, mafs, _, _ = build_genotype_matrix(gene_df, vcf_samples, gt_cols, is_binary=False)
@@ -315,7 +313,7 @@ class TestBuildGenotypeMatrixMissingData:
         n_samples = 20
         # Variant 0: all valid (0/0); Variant 1: 50% missing (>10% -> removed)
         gt_variant_0 = ["0/0"] * n_samples
-        gt_variant_1 = ["./." ] * (n_samples // 2) + ["0/0"] * (n_samples // 2)
+        gt_variant_1 = ["./."] * (n_samples // 2) + ["0/0"] * (n_samples // 2)
 
         gt_values = [gt_variant_0, gt_variant_1]
         gene_df, vcf_samples, gt_cols = _make_gene_df(n_samples, 2, gt_values)
@@ -332,7 +330,7 @@ class TestBuildGenotypeMatrixMissingData:
         """Variant with exactly 10% missing (at threshold) is kept."""
         n_samples = 10
         # 1 of 10 missing = 10% -> at threshold (<=10% kept)
-        gt_values = [["./." ] + ["0/1"] * 9]
+        gt_values = [["./."] + ["0/1"] * 9]
         gene_df, vcf_samples, gt_cols = _make_gene_df(n_samples, 1, gt_values)
 
         geno, _, _, _ = build_genotype_matrix(
@@ -352,7 +350,7 @@ class TestBuildGenotypeMatrixMissingData:
 
         gt_values = []
         for _ in range(n_variants):
-            row = ["./." ] + ["0/1"] * (n_samples - 1)
+            row = ["./."] + ["0/1"] * (n_samples - 1)
             gt_values.append(row)
 
         gene_df, vcf_samples, gt_cols = _make_gene_df(n_samples, n_variants, gt_values)
@@ -486,7 +484,7 @@ class TestBuildGenotypeMatrixWarnings:
         # Variant 0: all cases missing (100%), controls have data (0% missing)
         n_samples = 10
         gt_values = [
-            ["./." ] * 5 + ["0/1"] * 5,  # cases all missing
+            ["./."] * 5 + ["0/1"] * 5,  # cases all missing
         ]
         gene_df, vcf_samples, gt_cols = _make_gene_df(n_samples, 1, gt_values)
 

@@ -245,8 +245,7 @@ class LogisticBurdenTest(AssociationTest):
             import statsmodels.api  # noqa: F401
         except ImportError as e:
             raise ImportError(
-                "LogisticBurdenTest requires statsmodels. "
-                "Install with: pip install statsmodels"
+                "LogisticBurdenTest requires statsmodels. Install with: pip install statsmodels"
             ) from e
 
     def run(
