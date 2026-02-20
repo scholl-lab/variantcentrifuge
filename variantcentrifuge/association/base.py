@@ -101,6 +101,32 @@ class AssociationConfig:
     confidence_interval_alpha: float = 0.05
     continuity_correction: float = 0.5
 
+    # Phase 19: Covariate system + burden test fields
+    # All optional; backward compatible with Phase 18 workflows.
+    covariate_file: str | None = None
+    """Path to tab/CSV covariate file (first column = sample ID). None = no covariates."""
+
+    covariate_columns: list[str] | None = None
+    """Subset of covariate columns to use. None = all columns."""
+
+    categorical_covariates: list[str] | None = None
+    """Column names to one-hot encode. None = auto-detect (non-numeric with <=5 levels)."""
+
+    trait_type: str = "binary"
+    """Phenotype scale: "binary" (logistic, Firth fallback) or "quantitative" (linear OLS)."""
+
+    variant_weights: str = "beta:1,25"
+    """Weight scheme: "beta:a,b" (Beta MAF weights, SKAT convention) or "uniform"."""
+
+    missing_site_threshold: float = 0.10
+    """Variants with >threshold fraction missing site-wide are excluded before imputation."""
+
+    missing_sample_threshold: float = 0.80
+    """Samples with >threshold fraction missing across kept variants are excluded."""
+
+    firth_max_iter: int = 25
+    """Maximum Newton-Raphson iterations for Firth penalized logistic regression fallback."""
+
 
 class AssociationTest(ABC):
     """
