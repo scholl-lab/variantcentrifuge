@@ -18,21 +18,21 @@
 
 ### Covariate System
 
-- [ ] **COV-01**: Covariate file loading with explicit sample ID alignment to VCF sample order (assert no NaN after reindex)
-- [ ] **COV-02**: Automatic one-hot encoding for categorical covariate columns
-- [ ] **COV-03**: Multicollinearity check (condition number warning)
-- [ ] **COV-04**: CLI args: --covariate-file, --covariates (column selection), --trait-type (binary/quantitative)
+- [x] **COV-01**: Covariate file loading with explicit sample ID alignment to VCF sample order (assert no NaN after reindex)
+- [x] **COV-02**: Automatic one-hot encoding for categorical covariate columns
+- [x] **COV-03**: Multicollinearity check (condition number warning)
+- [x] **COV-04**: CLI args: --covariate-file, --covariates (column selection), --trait-type (binary/quantitative)
 
 ### Burden Tests
 
-- [ ] **BURDEN-01**: Logistic regression burden test via statsmodels.Logit with Wald test, OR + 95% CI
-- [ ] **BURDEN-02**: Linear regression burden test via statsmodels.OLS with beta + SE for quantitative traits
-- [ ] **BURDEN-03**: Genotype matrix builder with correct handling of multi-allelic (1/2), missing (./.), phased (0|1) genotypes; mean imputation for missing
+- [x] **BURDEN-01**: Logistic regression burden test via statsmodels.Logit with Wald test, OR + 95% CI
+- [x] **BURDEN-02**: Linear regression burden test via statsmodels.OLS with beta + SE for quantitative traits
+- [x] **BURDEN-03**: Genotype matrix builder with correct handling of multi-allelic (1/2), missing (./.), phased (0|1) genotypes; mean imputation for missing
 
 ### Variant Weights
 
-- [ ] **WEIGHT-01**: Beta(MAF; 1, 25) weights as default (scipy.stats.beta.pdf)
-- [ ] **WEIGHT-02**: Uniform weights option (backward compatible with current behavior)
+- [x] **WEIGHT-01**: Beta(MAF; 1, 25) weights as default (scipy.stats.beta.pdf)
+- [x] **WEIGHT-02**: Uniform weights option (backward compatible with current behavior)
 - [ ] **WEIGHT-03**: Functional weights from annotation columns (CADD-normalized, REVEL-based)
 - [ ] **WEIGHT-04**: Combined weights: Beta(MAF) x functional score
 - [ ] **WEIGHT-05**: CLI args: --variant-weights (beta/uniform/cadd/revel/combined), --variant-weight-params
@@ -116,15 +116,15 @@
 | CORE-06 | Phase 18 | Complete |
 | CORE-07 | Phase 18 | Complete |
 | CORE-08 | Phase 18 | Complete |
-| COV-01 | Phase 19 | Pending |
-| COV-02 | Phase 19 | Pending |
-| COV-03 | Phase 19 | Pending |
-| COV-04 | Phase 19 | Pending |
-| BURDEN-01 | Phase 19 | Pending |
-| BURDEN-02 | Phase 19 | Pending |
-| BURDEN-03 | Phase 19 | Pending |
-| WEIGHT-01 | Phase 19 | Pending |
-| WEIGHT-02 | Phase 19 | Pending |
+| COV-01 | Phase 19 | Complete |
+| COV-02 | Phase 19 | Complete |
+| COV-03 | Phase 19 | Complete |
+| COV-04 | Phase 19 | Complete |
+| BURDEN-01 | Phase 19 | Complete |
+| BURDEN-02 | Phase 19 | Complete |
+| BURDEN-03 | Phase 19 | Complete |
+| WEIGHT-01 | Phase 19 | Complete |
+| WEIGHT-02 | Phase 19 | Complete |
 | SKAT-01 | Phase 20 | Pending |
 | SKAT-02 | Phase 20 | Pending |
 | SKAT-03 | Phase 20 | Pending |
@@ -163,4 +163,4 @@
 
 ---
 *Requirements defined: 2026-02-19*
-*Last updated: 2026-02-19 — traceability table populated during roadmap creation*
+*Last updated: 2026-02-20 — Phase 19 requirements marked Complete*

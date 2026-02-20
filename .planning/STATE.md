@@ -11,10 +11,10 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 Phase: 19 — Covariate System + Burden Tests
 Plan: 3/3 complete
-Status: Phase 19 fully complete (implementations + tests)
-Last activity: 2026-02-20 — Completed 19-03-PLAN.md (Comprehensive unit tests for all Phase 19 modules)
+Status: Phase 19 complete — verified (5/5 must-haves pass)
+Last activity: 2026-02-20 — Phase 19 verified and finalized
 
-Progress: ███████░░░░░░░░░░░░░░ ~28% (Phases 18-19 complete, 4 phases remaining)
+Progress: ███████░░░░░░░░░░░░░░ ~33% (Phases 18-19 complete, 4 phases remaining)
 
 ## Milestone Overview
 
@@ -23,13 +23,14 @@ Progress: ███████░░░░░░░░░░░░░░ ~28% (
 | Phase | Goal | Requirements | Status |
 |-------|------|--------------|--------|
 | 18. Foundation | Core abstractions + Fisher refactor; bit-identical output validation | CORE-01..08 (8) | Complete |
-| 19. Covariate System + Burden Tests | Logistic/linear burden tests with covariate adjustment and genotype matrix builder | COV-01..04, BURDEN-01..03, WEIGHT-01..02 (9) | Complete |
+| 19. Covariate System + Burden Tests | Logistic/linear burden tests with covariate adjustment and genotype matrix builder | COV-01..04, BURDEN-01..03, WEIGHT-01..02 (9) | Complete ✓ |
 | 20. R SKAT Backend | R SKAT via rpy2 as gold standard oracle; SKATBinary + moment adjustment | SKAT-01..04, SKAT-08..09 (6) | Pending |
 | 21. Pure Python SKAT Backend | Davies ctypes + saddlepoint + Liu fallback; validated against R within 10% | SKAT-05..07, SKAT-10 (4) | Pending |
 | 22. ACAT-O + Diagnostics | ACAT-O omnibus; single FDR; lambda_GC; QQ TSV; sample size warnings | OMNI-01..03, DIAG-01..03, DIAG-05..06 (8) | Pending |
 | 23. PCA + Functional Weights + Allelic Series + JSON Config | PCA file loading + AKT stage; CADD/REVEL weights; COAST test; JSON config; matplotlib plots | DIAG-04, PCA-01..04, SERIES-01..02, CONFIG-01..02, WEIGHT-03..05 (12) | Pending |
 
 **Total requirements:** 47 mapped across 6 phases (17 complete, 30 pending)
+<!-- Note: 8 CORE + 9 Phase 19 = 17 complete -->
 
 ## Accumulated Context
 
@@ -92,6 +93,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-20
-Stopped at: Completed 19-03-PLAN.md (Comprehensive unit tests for all Phase 19 modules)
+Stopped at: Phase 19 complete — verified and finalized
 Resume file: None
-Next: Execute Phase 20 (R SKAT Backend) — research and planning phases first
+Next: `/gsd:discuss-phase 20`

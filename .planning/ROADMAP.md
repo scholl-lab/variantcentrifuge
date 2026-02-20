@@ -85,9 +85,9 @@ Plans:
 
 **Plans:** 3 plans
 Plans:
-- [ ] 19-01-PLAN.md — covariates.py, genotype_matrix.py, weights.py, and AssociationConfig extension
-- [ ] 19-02-PLAN.md — LogisticBurdenTest + LinearBurdenTest implementations, engine registry, CLI args, AssociationAnalysisStage integration
-- [ ] 19-03-PLAN.md — Unit tests: covariate alignment, genotype edge cases, burden test validation against manual statsmodels
+- [x] 19-01-PLAN.md — covariates.py, genotype_matrix.py, weights.py, and AssociationConfig extension
+- [x] 19-02-PLAN.md — LogisticBurdenTest + LinearBurdenTest implementations, engine registry, CLI args, AssociationAnalysisStage integration
+- [x] 19-03-PLAN.md — Unit tests: covariate alignment, genotype edge cases, burden test validation against manual statsmodels
 
 **Success Criteria:**
 
@@ -210,7 +210,7 @@ Plans:
 | 16. Column-Level Filtering and Visualization | v0.14.0 | 3/3 | Complete | 2026-02-18 |
 | 17. Accessibility and Print/PDF | v0.14.0 | 3/3 | Complete | 2026-02-17 |
 | 18. Foundation — Core Abstractions and Fisher Refactor | v0.15.0 | 4/4 | Complete | 2026-02-19 |
-| 19. Covariate System and Burden Tests | v0.15.0 | 0/3 | In Progress | — |
+| 19. Covariate System and Burden Tests | v0.15.0 | 3/3 | Complete | 2026-02-20 |
 | 20. R SKAT Backend | v0.15.0 | 0/3 | Pending | — |
 | 21. Pure Python SKAT Backend | v0.15.0 | 0/3 | Pending | — |
 | 22. ACAT-O and Diagnostics | v0.15.0 | 0/3 | Pending | — |
