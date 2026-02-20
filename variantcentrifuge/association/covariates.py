@@ -17,7 +17,7 @@ from __future__ import annotations
 import csv
 import logging
 import os
-from collections.abc import Sequence
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
@@ -87,8 +87,6 @@ def load_covariates(
 
     # 2. Load file (first column = sample ID, header required)
     df = pd.read_csv(filepath, sep=sep, index_col=0)
-    # Ensure index is string (sample IDs from VCF are always strings)
-    df.index = df.index.astype(str)
 
     # 3. Column selection
     if covariate_columns is not None:
@@ -98,11 +96,8 @@ def load_covariates(
     vcf_samples_list = list(vcf_samples)
     missing = set(vcf_samples_list) - set(df.index)
     if missing:
-        sorted_missing = sorted(missing)
-        preview = sorted_missing[:10]
-        suffix = f" ... and {len(sorted_missing) - 10} more" if len(sorted_missing) > 10 else ""
         raise ValueError(
-            f"{len(sorted_missing)} VCF sample(s) missing from covariate file: {preview}{suffix}"
+            f"VCF samples missing from covariate file: {sorted(missing)}"
         )
 
     # 5. Warn about extra covariate samples not in VCF (then ignore them)
@@ -129,7 +124,8 @@ def load_covariates(
         categorical_columns = [
             col
             for col in df_aligned.columns
-            if not pd.api.types.is_numeric_dtype(df_aligned[col]) and df_aligned[col].nunique() <= 5
+            if not pd.api.types.is_numeric_dtype(df_aligned[col])
+            and df_aligned[col].nunique() <= 5
         ]
 
     if categorical_columns:
@@ -141,9 +137,9 @@ def load_covariates(
         )
 
     # 8. Multicollinearity check (warn only, never abort)
-    covariate_matrix = df_aligned.values.astype(np.float64)
-    if covariate_matrix.shape[1] >= 2:
-        cond_num = np.linalg.cond(covariate_matrix)
+    X = df_aligned.values.astype(np.float64)
+    if X.shape[1] >= 2:
+        cond_num = np.linalg.cond(X)
         if cond_num > 1000:
             logger.warning(
                 "High multicollinearity in covariate matrix "
@@ -152,4 +148,4 @@ def load_covariates(
             )
 
     column_names = list(df_aligned.columns)
-    return covariate_matrix, column_names
+    return X, column_names
