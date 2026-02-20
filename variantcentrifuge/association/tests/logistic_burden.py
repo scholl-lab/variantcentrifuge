@@ -213,8 +213,7 @@ class LogisticBurdenTest(AssociationTest):
 
     Collapses per-sample variant genotypes into a single burden score using
     Beta(MAF; 1, 25) weights (or user-specified scheme), then fits logistic
-    regression with optional covariate adjustment. Reports beta coefficient
-    (log-odds) + SE, matching SKAT/SAIGE-GENE convention.
+    regression with optional covariate adjustment. Reports odds ratio + 95% CI.
 
     Firth fallback is triggered automatically when:
     - Standard Logit fails to converge (``mle_retvals["converged"] == False``)
@@ -240,22 +239,14 @@ class LogisticBurdenTest(AssociationTest):
         """Short identifier for test registry and output column prefixes."""
         return "logistic_burden"
 
-    def effect_column_names(self) -> dict[str, str]:
-        """Beta/SE column naming for logistic burden (log-odds scale)."""
-        return {
-            "effect": "beta",
-            "se": "se",
-            "ci_lower": "beta_ci_lower",
-            "ci_upper": "beta_ci_upper",
-        }
-
     def check_dependencies(self) -> None:
         """Raise ImportError if statsmodels is not available."""
         try:
             import statsmodels.api  # noqa: F401
         except ImportError as e:
             raise ImportError(
-                "LogisticBurdenTest requires statsmodels. Install with: pip install statsmodels"
+                "LogisticBurdenTest requires statsmodels. "
+                "Install with: pip install statsmodels"
             ) from e
 
     def run(
@@ -279,7 +270,7 @@ class LogisticBurdenTest(AssociationTest):
         -------
         TestResult
             ``p_value=None`` when test is skipped or fails. ``effect_size``
-            is the beta coefficient (log-odds) for the burden score.
+            is the odds ratio (exp(beta)) for the burden coefficient.
         """
         import statsmodels.api as sm
 
@@ -299,7 +290,6 @@ class LogisticBurdenTest(AssociationTest):
                 effect_size=None,
                 ci_lower=None,
                 ci_upper=None,
-                se=None,
                 n_cases=n_cases,
                 n_controls=n_controls,
                 n_variants=n_variants,
@@ -320,7 +310,6 @@ class LogisticBurdenTest(AssociationTest):
                 effect_size=None,
                 ci_lower=None,
                 ci_upper=None,
-                se=None,
                 n_cases=n_cases,
                 n_controls=n_controls,
                 n_variants=n_variants,
@@ -399,7 +388,6 @@ class LogisticBurdenTest(AssociationTest):
                     effect_size=None,
                     ci_lower=None,
                     ci_upper=None,
-                    se=None,
                     n_cases=n_cases,
                     n_controls=n_controls,
                     n_variants=n_variants,
@@ -419,21 +407,22 @@ class LogisticBurdenTest(AssociationTest):
 
         # conf_int() returns ndarray shape (n_params, 2) — NOT DataFrame (Pitfall 1)
         ci = fit_result.conf_int()
-        ci_lower = float(ci[1, 0])
-        ci_upper = float(ci[1, 1])
+        ci_lower_log = float(ci[1, 0])
+        ci_upper_log = float(ci[1, 1])
 
-        # Report beta (log-odds) + SE directly — matching SKAT/SAIGE-GENE convention.
-        # OR = exp(beta) is NOT reported because per-unit burden OR is non-intuitive
-        # when Beta(MAF;1,25) weights make each variant contribute ~24 units.
+        # Convert log-odds to odds ratio scale
+        odds_ratio = float(np.exp(beta))
+        or_ci_lower = float(np.exp(ci_lower_log))
+        or_ci_upper = float(np.exp(ci_upper_log))
+
         return TestResult(
             gene=gene,
             test_name=self.name,
             p_value=p_value,
             corrected_p_value=None,
-            effect_size=beta,
-            ci_lower=ci_lower,
-            ci_upper=ci_upper,
-            se=se,
+            effect_size=odds_ratio,
+            ci_lower=or_ci_lower,
+            ci_upper=or_ci_upper,
             n_cases=n_cases,
             n_controls=n_controls,
             n_variants=n_variants,
