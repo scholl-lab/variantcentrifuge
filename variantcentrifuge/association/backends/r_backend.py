@@ -224,9 +224,12 @@ class RSKATBackend(SKATBackend):
         self._base_pkg = importr("base")
 
         # Step 4: Extract version strings
-        import rpy2
+        try:
+            from importlib.metadata import version as pkg_version
 
-        self._rpy2_version = str(rpy2.__version__)
+            self._rpy2_version = pkg_version("rpy2")
+        except Exception:
+            self._rpy2_version = "unknown"
 
         import rpy2.robjects as ro
 
@@ -333,12 +336,12 @@ class RSKATBackend(SKATBackend):
         out_type = "D" if trait_type == "binary" else "C"
 
         # Build phenotype vector in R global env
-        ro.globalenv["._vc_y"] = ro.FloatVector(phenotype.tolist())
+        ro.globalenv["._vc_y"] = ro.FloatVector(phenotype)
 
         # Build formula string and optionally set covariate matrix
         if covariates is not None and covariates.shape[1] > 0:
             r_cov = ro.r["matrix"](
-                ro.FloatVector(covariates.ravel(order="F").tolist()),
+                ro.FloatVector(covariates.ravel(order="F")),
                 nrow=len(phenotype),
                 ncol=covariates.shape[1],
             )
@@ -356,7 +359,7 @@ class RSKATBackend(SKATBackend):
         )
 
         # Clean up R global env (but keep the null model object — it's returned)
-        ro.r("rm(list=ls(pattern='\\._vc_'))")
+        ro.r("rm(list=ls(pattern='^\\\\._vc_'))")
 
         logger.debug(
             f"Null model fit: trait_type={trait_type}, out_type={out_type}, "
@@ -437,7 +440,7 @@ class RSKATBackend(SKATBackend):
 
         # Convert numpy matrix to R matrix (column-major order for R)
         r_z = ro.r["matrix"](
-            ro.FloatVector(genotype_matrix.ravel(order="F").tolist()),
+            ro.FloatVector(genotype_matrix.ravel(order="F")),
             nrow=n_samples,
             ncol=n_variants,
         )
@@ -478,11 +481,12 @@ class RSKATBackend(SKATBackend):
         p_val_r = result.rx2("p.value")[0]
         p_value = None if p_val_r is NA_Real else float(p_val_r)
 
-        # Extract SKAT-O rho (only present when method="SKATO")
+        # Extract SKAT-O optimal rho (only present when method="SKATO")
+        # param$rho_est is the optimal rho estimate; param$rho is the search grid
         rho: float | None = None
         if method == "SKATO":
             try:
-                rho_r = result.rx2("param").rx2("rho")[0]
+                rho_r = result.rx2("param").rx2("rho_est")[0]
                 rho = None if rho_r is NA_Real else float(rho_r)
             except Exception:
                 rho = None
@@ -496,7 +500,7 @@ class RSKATBackend(SKATBackend):
             n_marker_test = None
 
         # Clean up R globals
-        ro.r("rm(list=ls(pattern='\\._vc_'))")
+        ro.r("rm(list=ls(pattern='^\\\\._vc_'))")
 
         # Release rpy2 wrapper for the R matrix (frees Python reference)
         del r_z

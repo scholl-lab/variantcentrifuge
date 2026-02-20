@@ -11,8 +11,8 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 Phase: 20 — R SKAT Backend
 Plan: 3/3 complete
-Status: Phase 20 complete — verified (4/5 criteria pass; Python fallback is Phase 21 scope)
-Last activity: 2026-02-20 — Phase 20 verified and finalized
+Status: Phase 20 complete — verified + live tested on GCKD (4/5 criteria pass; Python fallback is Phase 21 scope)
+Last activity: 2026-02-20 — Phase 20 live tested on real GCKD cohort (5124 samples), 4 bug fixes applied
 
 Progress: ██████████░░░░░░░░░░░ ~50% (Phases 18-20 complete, 3 phases remaining)
 
@@ -75,6 +75,10 @@ Progress: ██████████░░░░░░░░░░░ ~50% (
 | IMPL-23 | parallel_safe=False on AssociationAnalysisStage is unconditional | 20-02 | Not gated on skat_backend config; rpy2 safety applies regardless of test mix in same invocation |
 | TEST-05 | rpy2 mock hierarchy requires parent attribute linking: mock_rpy2.robjects = mock_ro | 20-03 | bare sys.modules injection fails for nested submodule imports inside method bodies; parent mock attribute must point to child mock |
 | TEST-06 | NA_Real sentinel: create unique object() per test; inject via sys.modules rpy2.rinterface.NA_Real | 20-03 | identity check `p_val_r is NA_Real` requires same object; fresh sentinel per test prevents cross-test contamination |
+| FIX-01 | rpy2 3.6.x removed `rpy2.__version__`; use `importlib.metadata.version("rpy2")` | 20 (live) | rpy2 3.6.4 raises AttributeError on `rpy2.__version__`; importlib.metadata is stdlib since 3.8 |
+| FIX-02 | R cleanup pattern must be `'^\\\\._vc_'` not `'\\._vc_'` | 20 (live) | Unescaped dot in regex matches any char; caret anchors to variable name start |
+| FIX-03 | SKAT-O rho: `param$rho_est` is optimal rho; `param$rho` is the search grid | 20 (live) | `param$rho[0]` always returns 0.0 (first grid value); `param$rho_est` is the actual estimate |
+| FIX-04 | Remove `.tolist()` before `FloatVector()` — numpy arrays accepted directly | 20 (live) | Unnecessary copy; rpy2 FloatVector accepts numpy arrays natively |
 
 ### Architecture Invariants (from research)
 
@@ -104,6 +108,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-20
-Stopped at: Phase 20 complete — verified, 72 SKAT unit tests, 1084 total tests passing
+Stopped at: Phase 20 complete — live tested on GCKD (PKD1/PKD2/COL4A5), 4 bug fixes, 1523 tests passing
 Resume file: None
 Next: `/gsd:discuss-phase 21`

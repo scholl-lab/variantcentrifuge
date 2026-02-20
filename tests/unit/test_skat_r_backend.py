@@ -199,7 +199,7 @@ def _make_r_outer_result(
 
             def param_rx2(k: str) -> Any:
                 v = MagicMock()
-                if k == "rho":
+                if k == "rho_est":
                     v.__getitem__ = lambda self, idx: rho_scalar
                 elif k == "n.marker.test":
                     v.__getitem__ = lambda self, idx: n_marker_test_scalar
@@ -590,7 +590,7 @@ class TestTestGene:
         assert len(skat_calls) >= 1, f"SKAT should be called for continuous, got: {code_tracker}"
 
     def test_test_gene_skat_o_extracts_rho(self):
-        """SKAT-O method extracts rho from result.rx2('param').rx2('rho')."""
+        """SKAT-O method extracts optimal rho from result.rx2('param').rx2('rho_est')."""
         backend = _make_backend_with_mocked_env()
         null_model = _make_null_model(trait_type="binary")
         geno = np.zeros((10, 3))
