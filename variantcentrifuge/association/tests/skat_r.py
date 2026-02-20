@@ -170,9 +170,7 @@ class RSKATTest(AssociationTest):
         Logs aggregate timing summary and triggers R backend cleanup (R gc()).
         """
         elapsed = time.time() - self._start_time
-        logger.info(
-            f"R SKAT complete: {self._genes_processed} genes in {elapsed:.1f}s"
-        )
+        logger.info(f"R SKAT complete: {self._genes_processed} genes in {elapsed:.1f}s")
         if self._backend is not None:
             self._backend.cleanup()
 
@@ -301,8 +299,7 @@ class RSKATTest(AssociationTest):
         if self._total_genes > 0 and self._genes_processed % self._log_interval == 0:
             pct = 100.0 * self._genes_processed / self._total_genes
             logger.info(
-                f"SKAT progress: {self._genes_processed}/{self._total_genes} "
-                f"genes ({pct:.0f}%)"
+                f"SKAT progress: {self._genes_processed}/{self._total_genes} genes ({pct:.0f}%)"
             )
 
         return TestResult(
