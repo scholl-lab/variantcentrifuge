@@ -212,7 +212,7 @@ Plans:
 | 17. Accessibility and Print/PDF | v0.14.0 | 3/3 | Complete | 2026-02-17 |
 | 18. Foundation — Core Abstractions and Fisher Refactor | v0.15.0 | 4/4 | Complete | 2026-02-19 |
 | 19. Covariate System and Burden Tests | v0.15.0 | 3/3 | Complete | 2026-02-20 |
-| 20. R SKAT Backend | v0.15.0 | 0/3 | Planned | — |
+| 20. R SKAT Backend | v0.15.0 | 3/3 | Complete | 2026-02-20 |
 | 21. Pure Python SKAT Backend | v0.15.0 | 0/3 | Pending | — |
 | 22. ACAT-O and Diagnostics | v0.15.0 | 0/3 | Pending | — |
 | 23. PCA Integration, Functional Weights, Allelic Series, and JSON Config | v0.15.0 | 0/4 | Pending | — |

@@ -11,10 +11,10 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 Phase: 20 — R SKAT Backend
 Plan: 3/3 complete
-Status: Phase complete — Plan 20-03 complete
-Last activity: 2026-02-20 — Completed 20-03-PLAN.md (SKAT unit tests with mocked rpy2)
+Status: Phase 20 complete — verified (4/5 criteria pass; Python fallback is Phase 21 scope)
+Last activity: 2026-02-20 — Phase 20 verified and finalized
 
-Progress: ██████████░░░░░░░░░░░ ~43% (Phases 18-20 complete)
+Progress: ██████████░░░░░░░░░░░ ~50% (Phases 18-20 complete, 3 phases remaining)
 
 ## Milestone Overview
 
@@ -29,8 +29,8 @@ Progress: ██████████░░░░░░░░░░░ ~43% (
 | 22. ACAT-O + Diagnostics | ACAT-O omnibus; single FDR; lambda_GC; QQ TSV; sample size warnings | OMNI-01..03, DIAG-01..03, DIAG-05..06 (8) | Pending |
 | 23. PCA + Functional Weights + Allelic Series + JSON Config | PCA file loading + AKT stage; CADD/REVEL weights; COAST test; JSON config; matplotlib plots | DIAG-04, PCA-01..04, SERIES-01..02, CONFIG-01..02, WEIGHT-03..05 (12) | Pending |
 
-**Total requirements:** 47 mapped across 6 phases (17 complete, 30 pending)
-<!-- Note: 8 CORE + 9 Phase 19 = 17 complete -->
+**Total requirements:** 47 mapped across 6 phases (23 complete, 24 pending)
+<!-- Note: 8 CORE + 9 Phase 19 + 6 Phase 20 = 23 complete -->
 
 ## Accumulated Context
 
@@ -104,6 +104,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-20
-Stopped at: Completed 20-03-PLAN.md — 72 SKAT unit tests, Phase 20 complete
+Stopped at: Phase 20 complete — verified, 72 SKAT unit tests, 1084 total tests passing
 Resume file: None
-Next: Phase 21 — Pure Python SKAT Backend (Davies ctypes + saddlepoint + Liu fallback)
+Next: `/gsd:discuss-phase 21`
