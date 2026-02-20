@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 20 — R SKAT Backend
-Plan: 1/3 complete
-Status: In progress — Plan 20-01 complete
-Last activity: 2026-02-20 — Completed 20-01-PLAN.md (SKAT backend abstraction layer)
+Plan: 2/3 complete
+Status: In progress — Plan 20-02 complete
+Last activity: 2026-02-20 — Completed 20-02-PLAN.md (RSKATBackend full implementation)
 
-Progress: ████████░░░░░░░░░░░░░ ~36% (Phases 18-19 complete, Phase 20 in progress)
+Progress: █████████░░░░░░░░░░░░ ~39% (Phases 18-19 complete, Phase 20 2/3 done)
 
 ## Milestone Overview
 
@@ -24,7 +24,7 @@ Progress: ████████░░░░░░░░░░░░░ ~36% (
 |-------|------|--------------|--------|
 | 18. Foundation | Core abstractions + Fisher refactor; bit-identical output validation | CORE-01..08 (8) | Complete |
 | 19. Covariate System + Burden Tests | Logistic/linear burden tests with covariate adjustment and genotype matrix builder | COV-01..04, BURDEN-01..03, WEIGHT-01..02 (9) | Complete ✓ |
-| 20. R SKAT Backend | R SKAT via rpy2 as gold standard oracle; SKATBinary + moment adjustment | SKAT-01..04, SKAT-08..09 (6) | Pending |
+| 20. R SKAT Backend | R SKAT via rpy2 as gold standard oracle; SKATBinary + moment adjustment | SKAT-01..04, SKAT-08..09 (6) | In Progress (2/3) |
 | 21. Pure Python SKAT Backend | Davies ctypes + saddlepoint + Liu fallback; validated against R within 10% | SKAT-05..07, SKAT-10 (4) | Pending |
 | 22. ACAT-O + Diagnostics | ACAT-O omnibus; single FDR; lambda_GC; QQ TSV; sample size warnings | OMNI-01..03, DIAG-01..03, DIAG-05..06 (8) | Pending |
 | 23. PCA + Functional Weights + Allelic Series + JSON Config | PCA file loading + AKT stage; CADD/REVEL weights; COAST test; JSON config; matplotlib plots | DIAG-04, PCA-01..04, SERIES-01..02, CONFIG-01..02, WEIGHT-03..05 (12) | Pending |
@@ -69,6 +69,10 @@ Progress: ████████░░░░░░░░░░░░░ ~36% (
 | IMPL-17 | RSKATTest.check_dependencies() hardcodes backend='r'; no auto-detect at test level | 20-01 | RSKATTest IS the R SKAT test; auto-selection is at the factory level. Separate PurePythonSKATTest for Phase 21. |
 | IMPL-18 | Extra columns written with bare key names (skat_o_rho, not skat_skat_o_rho) | 20-01 | Keys in TestResult.extra are already namespaced by test; double-prefixing would produce unreadable names |
 | IMPL-19 | effect_column_names() return type is dict[str, str \| None] not dict[str, str] | 20-01 | SKAT has no effect size; all four slots are None. Type broadened to accommodate without breaking existing tests. |
+| IMPL-20 | withCallingHandlers embedded in R code string (not rpy2 Python callbacks) | 20-02 | Cleaner for string-based R execution; avoids rpy2 Python-side callback wiring complexity |
+| IMPL-21 | GC triggered in RSKATTest.run() every 100 genes (not only in finalize) | 20-02 | Prevents R heap accumulation during long runs; finalize only handles terminal cleanup |
+| IMPL-22 | prepare()/finalize() as no-ops in AssociationTest ABC | 20-02 | Fisher/burden tests unaffected; only RSKATTest overrides for R-specific lifecycle management |
+| IMPL-23 | parallel_safe=False on AssociationAnalysisStage is unconditional | 20-02 | Not gated on skat_backend config; rpy2 safety applies regardless of test mix in same invocation |
 
 ### Architecture Invariants (from research)
 
@@ -98,6 +102,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-20
-Stopped at: Completed 20-01-PLAN.md — SKAT backend abstraction layer + engine fixes
+Stopped at: Completed 20-02-PLAN.md — RSKATBackend full implementation + lifecycle hooks
 Resume file: None
-Next: Execute Plan 20-02 (RSKATBackend.fit_null_model + test_gene implementation)
+Next: Execute Plan 20-03 (mocked unit tests for RSKATBackend and RSKATTest)
