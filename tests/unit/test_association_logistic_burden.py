@@ -6,8 +6,7 @@ the same p-value, beta, and SE as calling statsmodels.Logit directly on the same
 inputs (intercept + burden score + covariates).
 
 Tests also cover:
-- effect_size = beta (log-odds), not OR
-- SE as first-class field (result.se)
+- Odds ratio = exp(beta)
 - Firth fallback on perfect separation (PERFECT_SEPARATION warning)
 - Warning codes: FIRTH_CONVERGE_FAIL, ZERO_CARRIERS_ONE_GROUP, LOW_CARRIER_COUNT
 - NO_GENOTYPE_MATRIX early return
@@ -174,10 +173,8 @@ class TestLogisticBurdenMatchesStatsmodels:
         )
         assert result.extra["beta"] == pytest.approx(manual_beta, rel=1e-6)
 
-    def test_logistic_burden_effect_size_is_beta(
-        self, synthetic_binary_data, default_config
-    ) -> None:
-        """effect_size = beta (log-odds), not exp(beta). CI on log-odds scale."""
+    def test_logistic_burden_odds_ratio(self, synthetic_binary_data, default_config) -> None:
+        """effect_size = exp(beta) and CI bounds = exp(ci_beta)."""
         geno, phenotype, mafs = synthetic_binary_data
         test = LogisticBurdenTest()
         contingency = _make_contingency(geno, phenotype, mafs)
@@ -185,14 +182,14 @@ class TestLogisticBurdenMatchesStatsmodels:
 
         assert result.p_value is not None
         beta = result.extra["beta"]
+        expected_or = float(np.exp(beta))
 
-        # effect_size IS the raw beta (log-odds), not OR
-        assert result.effect_size == pytest.approx(beta, rel=1e-6), (
-            f"effect_size should be beta={beta}, got {result.effect_size}"
+        assert result.effect_size == pytest.approx(expected_or, rel=1e-6), (
+            f"OR mismatch: got {result.effect_size}, expected exp(beta)={expected_or}"
         )
-        # CI on log-odds scale can be negative
+        # CI lower bound should be positive (exp-transformed log-odds)
         if result.ci_lower is not None:
-            assert result.ci_lower < result.ci_upper
+            assert result.ci_lower > 0, "CI lower bound (OR scale) must be positive"
 
 
 # ---------------------------------------------------------------------------
@@ -384,10 +381,10 @@ class TestLogisticBurdenCarrierCounts:
         assert result.gene == "MY_GENE"
         assert result.test_name == "logistic_burden"
 
-    def test_logistic_burden_effect_size_is_beta_not_or(
+    def test_logistic_burden_effect_size_is_odds_ratio(
         self, synthetic_binary_data, default_config
     ) -> None:
-        """effect_size is raw beta (log-odds), not exp(beta)."""
+        """effect_size > 0 and equals exp(beta)."""
         geno, phenotype, mafs = synthetic_binary_data
         test = LogisticBurdenTest()
         contingency = _make_contingency(geno, phenotype, mafs)
@@ -395,14 +392,13 @@ class TestLogisticBurdenCarrierCounts:
 
         if result.p_value is not None:
             beta = result.extra["beta"]
-            assert result.effect_size == pytest.approx(beta, rel=1e-6)
-            # Verify it's NOT exp(beta)
-            assert result.effect_size != pytest.approx(float(np.exp(beta)), rel=1e-2)
+            assert result.effect_size == pytest.approx(float(np.exp(beta)), rel=1e-6)
+            assert result.effect_size > 0, "Odds ratio must be positive"
 
     def test_logistic_burden_ci_bounds_consistent_with_effect_size(
         self, synthetic_binary_data, default_config
     ) -> None:
-        """ci_lower <= effect_size <= ci_upper (log-odds scale)."""
+        """ci_lower <= effect_size <= ci_upper (OR scale)."""
         geno, phenotype, mafs = synthetic_binary_data
         test = LogisticBurdenTest()
         contingency = _make_contingency(geno, phenotype, mafs)
@@ -410,21 +406,9 @@ class TestLogisticBurdenCarrierCounts:
 
         if result.p_value is not None and result.ci_lower is not None:
             assert result.ci_lower <= result.effect_size <= result.ci_upper, (
-                f"Beta CI inconsistent: [{result.ci_lower}, {result.ci_upper}] "
-                f"does not contain beta={result.effect_size}"
+                f"OR CI inconsistent: [{result.ci_lower}, {result.ci_upper}] "
+                f"does not contain OR={result.effect_size}"
             )
-
-    def test_logistic_burden_se_field(self, synthetic_binary_data, default_config) -> None:
-        """result.se is populated and matches extra['se']."""
-        geno, phenotype, mafs = synthetic_binary_data
-        test = LogisticBurdenTest()
-        contingency = _make_contingency(geno, phenotype, mafs)
-        result = test.run("GENE1", contingency, default_config)
-
-        if result.p_value is not None:
-            assert result.se is not None, "SE should be populated for successful fit"
-            assert result.se > 0, "SE must be positive"
-            assert result.se == pytest.approx(result.extra["se"], rel=1e-6)
 
     def test_logistic_burden_check_dependencies(self) -> None:
         """check_dependencies does not raise (statsmodels is available)."""
