@@ -55,7 +55,7 @@ class TestLoadCovariatesBasic:
     def test_load_covariates_dtype_float64(self, tmp_path: pathlib.Path) -> None:
         """Returned matrix is float64."""
         cov_file = tmp_path / "covariates.tsv"
-        cov_file.write_text("sample_id\tage\nS1\t30\nS2\t45\n")
+        cov_file.write_text("sample_id\tage\n" "S1\t30\n" "S2\t45\n")
 
         cov_mat, _ = load_covariates(str(cov_file), ["S1", "S2"])
 
@@ -64,7 +64,7 @@ class TestLoadCovariatesBasic:
     def test_load_covariates_no_nan(self, tmp_path: pathlib.Path) -> None:
         """Returned matrix contains no NaN."""
         cov_file = tmp_path / "covariates.tsv"
-        cov_file.write_text("sample_id\tage\tpc1\nS1\t30\t0.1\nS2\t45\t-0.2\n")
+        cov_file.write_text("sample_id\tage\tpc1\n" "S1\t30\t0.1\n" "S2\t45\t-0.2\n")
 
         cov_mat, _ = load_covariates(str(cov_file), ["S1", "S2"])
 
@@ -90,7 +90,11 @@ class TestLoadCovariatesAlignment:
         cov_file = tmp_path / "covariates.tsv"
         # File has samples in reverse order: D, C, B, A
         cov_file.write_text(
-            "sample_id\tage\nSAMPLE_D\t52\nSAMPLE_C\t28\nSAMPLE_B\t45\nSAMPLE_A\t30\n"
+            "sample_id\tage\n"
+            "SAMPLE_D\t52\n"
+            "SAMPLE_C\t28\n"
+            "SAMPLE_B\t45\n"
+            "SAMPLE_A\t30\n"
         )
         # VCF order: A, B, C, D
         vcf_samples = ["SAMPLE_A", "SAMPLE_B", "SAMPLE_C", "SAMPLE_D"]
@@ -111,13 +115,21 @@ class TestLoadCovariatesAlignment:
         # File 1: samples in VCF order (A, B, C, D)
         cov_file_ordered = tmp_path / "ordered.tsv"
         cov_file_ordered.write_text(
-            "sample_id\tage\tpc1\nS1\t30\t0.1\nS2\t45\t-0.2\nS3\t28\t0.05\nS4\t52\t0.3\n"
+            "sample_id\tage\tpc1\n"
+            "S1\t30\t0.1\n"
+            "S2\t45\t-0.2\n"
+            "S3\t28\t0.05\n"
+            "S4\t52\t0.3\n"
         )
 
         # File 2: same data but samples shuffled
         cov_file_shuffled = tmp_path / "shuffled.tsv"
         cov_file_shuffled.write_text(
-            "sample_id\tage\tpc1\nS3\t28\t0.05\nS1\t30\t0.1\nS4\t52\t0.3\nS2\t45\t-0.2\n"
+            "sample_id\tage\tpc1\n"
+            "S3\t28\t0.05\n"
+            "S1\t30\t0.1\n"
+            "S4\t52\t0.3\n"
+            "S2\t45\t-0.2\n"
         )
 
         vcf_samples = ["S1", "S2", "S3", "S4"]
@@ -129,16 +141,18 @@ class TestLoadCovariatesAlignment:
             "Shuffled covariate file must produce identical matrix to ordered file"
         )
 
-    def test_load_covariates_missing_vcf_sample_raises(self, tmp_path: pathlib.Path) -> None:
+    def test_load_covariates_missing_vcf_sample_raises(
+        self, tmp_path: pathlib.Path
+    ) -> None:
         """VCF sample not in covariate file raises ValueError mentioning 'VCF samples missing'."""
         cov_file = tmp_path / "covariates.tsv"
         # Only A, B, C — missing D
-        cov_file.write_text("sample_id\tage\nS_A\t30\nS_B\t45\nS_C\t28\n")
+        cov_file.write_text("sample_id\tage\n" "S_A\t30\n" "S_B\t45\n" "S_C\t28\n")
 
         # VCF expects A, B, C, D
         vcf_samples = ["S_A", "S_B", "S_C", "S_D"]
 
-        with pytest.raises(ValueError, match=r"VCF sample\(s\) missing"):
+        with pytest.raises(ValueError, match="VCF samples missing"):
             load_covariates(str(cov_file), vcf_samples)
 
     def test_load_covariates_missing_multiple_samples_all_reported(
@@ -146,7 +160,7 @@ class TestLoadCovariatesAlignment:
     ) -> None:
         """All missing VCF samples are reported in the error message."""
         cov_file = tmp_path / "covariates.tsv"
-        cov_file.write_text("sample_id\tage\nS_A\t30\n")
+        cov_file.write_text("sample_id\tage\n" "S_A\t30\n")
 
         # B, C, D are all missing from covariate file
         vcf_samples = ["S_A", "S_B", "S_C", "S_D"]
@@ -164,7 +178,14 @@ class TestLoadCovariatesAlignment:
         """Covariate file with extra samples not in VCF warns but returns correct shape."""
         cov_file = tmp_path / "covariates.tsv"
         # File has A, B, C, D, E but VCF only has A, B, C
-        cov_file.write_text("sample_id\tage\nS_A\t30\nS_B\t45\nS_C\t28\nS_D\t52\nS_E\t33\n")
+        cov_file.write_text(
+            "sample_id\tage\n"
+            "S_A\t30\n"
+            "S_B\t45\n"
+            "S_C\t28\n"
+            "S_D\t52\n"
+            "S_E\t33\n"
+        )
         vcf_samples = ["S_A", "S_B", "S_C"]
 
         with caplog.at_level(logging.WARNING, logger="variantcentrifuge"):
@@ -192,7 +213,13 @@ class TestLoadCovariatesCategorical:
     def test_load_covariates_categorical_auto_detect(self, tmp_path: pathlib.Path) -> None:
         """Non-numeric column with <=5 unique values is auto-detected and one-hot encoded."""
         cov_file = tmp_path / "covariates.tsv"
-        cov_file.write_text("sample_id\tage\tsex\nS1\t30\tM\nS2\t45\tF\nS3\t28\tM\nS4\t52\tF\n")
+        cov_file.write_text(
+            "sample_id\tage\tsex\n"
+            "S1\t30\tM\n"
+            "S2\t45\tF\n"
+            "S3\t28\tM\n"
+            "S4\t52\tF\n"
+        )
         vcf_samples = ["S1", "S2", "S3", "S4"]
 
         cov_mat, col_names = load_covariates(str(cov_file), vcf_samples)
@@ -207,7 +234,11 @@ class TestLoadCovariatesCategorical:
         """Passing categorical_columns=['ethnicity'] forces one-hot encoding."""
         cov_file = tmp_path / "covariates.tsv"
         cov_file.write_text(
-            "sample_id\tage\tethnicity\nS1\t30\tEUR\nS2\t45\tAFR\nS3\t28\tEUR\nS4\t52\tEAS\n"
+            "sample_id\tage\tethnicity\n"
+            "S1\t30\tEUR\n"
+            "S2\t45\tAFR\n"
+            "S3\t28\tEUR\n"
+            "S4\t52\tEAS\n"
         )
         vcf_samples = ["S1", "S2", "S3", "S4"]
 
@@ -225,7 +256,12 @@ class TestLoadCovariatesCategorical:
     def test_load_covariates_one_hot_dtype_float(self, tmp_path: pathlib.Path) -> None:
         """One-hot encoded columns are float64, not bool (pandas 2.x pitfall — COV-02)."""
         cov_file = tmp_path / "covariates.tsv"
-        cov_file.write_text("sample_id\tsex\nS1\tM\nS2\tF\nS3\tM\n")
+        cov_file.write_text(
+            "sample_id\tsex\n"
+            "S1\tM\n"
+            "S2\tF\n"
+            "S3\tM\n"
+        )
         vcf_samples = ["S1", "S2", "S3"]
 
         cov_mat, _ = load_covariates(str(cov_file), vcf_samples)
@@ -243,7 +279,13 @@ class TestLoadCovariatesCategorical:
         cov_file = tmp_path / "covariates.tsv"
         # "region" has 6 unique values — above the <=5 threshold
         cov_file.write_text(
-            "sample_id\tregion\nS1\tNorth\nS2\tSouth\nS3\tEast\nS4\tWest\nS5\tCenter\nS6\tIsland\n"
+            "sample_id\tregion\n"
+            "S1\tNorth\n"
+            "S2\tSouth\n"
+            "S3\tEast\n"
+            "S4\tWest\n"
+            "S5\tCenter\n"
+            "S6\tIsland\n"
         )
         vcf_samples = ["S1", "S2", "S3", "S4", "S5", "S6"]
 
@@ -299,7 +341,11 @@ class TestLoadCovariatesMulticollinearity:
         cov_file = tmp_path / "covariates.tsv"
         # age and pc1 are independent
         cov_file.write_text(
-            "sample_id\tage\tpc1\nS1\t30\t0.1\nS2\t45\t-0.5\nS3\t28\t0.8\nS4\t52\t-0.3\n"
+            "sample_id\tage\tpc1\n"
+            "S1\t30\t0.1\n"
+            "S2\t45\t-0.5\n"
+            "S3\t28\t0.8\n"
+            "S4\t52\t-0.3\n"
         )
         vcf_samples = ["S1", "S2", "S3", "S4"]
 
@@ -325,7 +371,9 @@ class TestLoadCovariatesFormatAndSelection:
     def test_load_covariates_csv_detection(self, tmp_path: pathlib.Path) -> None:
         """CSV file (.csv extension) loads correctly with comma delimiter."""
         cov_file = tmp_path / "covariates.csv"
-        cov_file.write_text("sample_id,age,pc1\nS1,30,0.1\nS2,45,-0.2\nS3,28,0.05\n")
+        cov_file.write_text(
+            "sample_id,age,pc1\n" "S1,30,0.1\n" "S2,45,-0.2\n" "S3,28,0.05\n"
+        )
         vcf_samples = ["S1", "S2", "S3"]
 
         cov_mat, col_names = load_covariates(str(cov_file), vcf_samples)
@@ -355,7 +403,7 @@ class TestLoadCovariatesFormatAndSelection:
     def test_load_covariates_returns_tuple(self, tmp_path: pathlib.Path) -> None:
         """Return value is a tuple of (ndarray, list[str])."""
         cov_file = tmp_path / "covariates.tsv"
-        cov_file.write_text("sample_id\tage\nS1\t30\n")
+        cov_file.write_text("sample_id\tage\n" "S1\t30\n")
 
         result = load_covariates(str(cov_file), ["S1"])
 

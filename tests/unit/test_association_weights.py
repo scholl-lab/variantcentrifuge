@@ -42,7 +42,7 @@ class TestBetaMafWeights:
         for i in range(len(weights) - 1):
             assert weights[i] >= weights[i + 1], (
                 f"Weights not monotonically decreasing at index {i}: "
-                f"w[{i}]={weights[i]:.4f} < w[{i + 1}]={weights[i + 1]:.4f}"
+                f"w[{i}]={weights[i]:.4f} < w[{i+1}]={weights[i+1]:.4f}"
             )
 
     def test_beta_weights_all_positive(self) -> None:
@@ -132,9 +132,8 @@ class TestUniformWeights:
         # Manual: row sum (sum each variant dosage per sample)
         burden_manual = gmat.sum(axis=1)
 
-        (
-            np.testing.assert_allclose(burden_weighted, burden_manual, rtol=1e-10),
-            ("Uniform weights burden should equal manual row sum"),
+        np.testing.assert_allclose(burden_weighted, burden_manual, rtol=1e-10), (
+            "Uniform weights burden should equal manual row sum"
         )
 
 
