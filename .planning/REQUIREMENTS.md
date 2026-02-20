@@ -39,15 +39,15 @@
 
 ### SKAT/SKAT-O
 
-- [ ] **SKAT-01**: R SKAT backend via rpy2 with automatic R/SKAT package detection and graceful fallback
-- [ ] **SKAT-02**: SKATBinary used by default for binary traits (never continuous-trait SKAT on binary phenotypes)
-- [ ] **SKAT-03**: Small-sample moment adjustment (SKAT_Null_Model_MomentAdjust) as R backend default
-- [ ] **SKAT-04**: SKAT-O with rho grid search and method="optimal.adj" correction
+- [x] **SKAT-01**: R SKAT backend via rpy2 with automatic R/SKAT package detection and graceful fallback
+- [x] **SKAT-02**: SKATBinary used by default for binary traits (never continuous-trait SKAT on binary phenotypes)
+- [x] **SKAT-03**: Small-sample moment adjustment (SKAT_Null_Model_MomentAdjust) as R backend default
+- [x] **SKAT-04**: SKAT-O with rho grid search and method="optimal.adj" correction
 - [ ] **SKAT-05**: Pure Python SKAT backend validated against R within 10% relative difference on log10(p)
 - [ ] **SKAT-06**: Davies method via ctypes-compiled qfc.c with corrected defaults (acc=1e-9, lim=10^6)
 - [ ] **SKAT-07**: Fallback chain: Davies -> saddlepoint -> Liu moment-matching; p_method recorded in output
-- [ ] **SKAT-08**: R backend declares parallel_safe=False; rpy2 calls only from main thread
-- [ ] **SKAT-09**: R memory management: explicit del + rpy2 gc() every 100 genes
+- [x] **SKAT-08**: R backend declares parallel_safe=False; rpy2 calls only from main thread
+- [x] **SKAT-09**: R memory management: explicit del + rpy2 gc() every 100 genes
 - [ ] **SKAT-10**: Eigenvalue stability: scipy.linalg.eigh, threshold max(eigenvalues, 0), skip if matrix_rank < 2
 
 ### Omnibus Tests
@@ -125,12 +125,12 @@
 | BURDEN-03 | Phase 19 | Complete |
 | WEIGHT-01 | Phase 19 | Complete |
 | WEIGHT-02 | Phase 19 | Complete |
-| SKAT-01 | Phase 20 | Pending |
-| SKAT-02 | Phase 20 | Pending |
-| SKAT-03 | Phase 20 | Pending |
-| SKAT-04 | Phase 20 | Pending |
-| SKAT-08 | Phase 20 | Pending |
-| SKAT-09 | Phase 20 | Pending |
+| SKAT-01 | Phase 20 | Complete |
+| SKAT-02 | Phase 20 | Complete |
+| SKAT-03 | Phase 20 | Complete |
+| SKAT-04 | Phase 20 | Complete |
+| SKAT-08 | Phase 20 | Complete |
+| SKAT-09 | Phase 20 | Complete |
 | SKAT-05 | Phase 21 | Pending |
 | SKAT-06 | Phase 21 | Pending |
 | SKAT-07 | Phase 21 | Pending |
