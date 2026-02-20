@@ -415,13 +415,62 @@ def create_parser() -> argparse.ArgumentParser:
         "--association-tests",
         type=str,
         default=None,
-        help="Comma-separated list of association tests to run (default: fisher). Available: fisher",
+        help=(
+            "Comma-separated list of association tests to run (default: fisher). "
+            "Available: fisher, logistic_burden, linear_burden"
+        ),
     )
     stats_group.add_argument(
         "--skat-backend",
         choices=["auto", "r", "python"],
         default="auto",
         help="SKAT computation backend: auto (prefer R, fall back to Python), r, or python",
+    )
+    stats_group.add_argument(
+        "--covariate-file",
+        type=str,
+        default=None,
+        help=(
+            "Path to covariate file (TSV/CSV). First column = sample ID, "
+            "remaining columns = covariates. Required when using logistic_burden or linear_burden."
+        ),
+    )
+    stats_group.add_argument(
+        "--covariates",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated covariate column names to use from the covariate file. "
+            "Default: all columns."
+        ),
+    )
+    stats_group.add_argument(
+        "--categorical-covariates",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated column names to force-treat as categorical (one-hot encoded). "
+            "Default: auto-detect (non-numeric columns with <=5 unique values)."
+        ),
+    )
+    stats_group.add_argument(
+        "--trait-type",
+        choices=["binary", "quantitative"],
+        default="binary",
+        help=(
+            "Phenotype type for burden tests. 'binary' uses logistic regression with "
+            "Firth fallback; 'quantitative' uses OLS. Default: binary."
+        ),
+    )
+    stats_group.add_argument(
+        "--variant-weights",
+        type=str,
+        default="beta:1,25",
+        help=(
+            "Variant weighting scheme for burden tests. "
+            "'beta:a,b' = Beta(MAF;a,b) density (default: 'beta:1,25', SKAT convention). "
+            "'uniform' = equal weights."
+        ),
     )
     # Inheritance Analysis
     inheritance_group = parser.add_argument_group("Inheritance Analysis")
@@ -1039,6 +1088,19 @@ def main() -> int:
         cfg["association_tests"] = ["fisher"] if args.perform_association else []
     cfg["skat_backend"] = getattr(args, "skat_backend", "auto")
 
+    # Phase 19: Covariate and regression configuration
+    cfg["covariate_file"] = getattr(args, "covariate_file", None)
+    covariates_arg = getattr(args, "covariates", None)
+    cfg["covariate_columns"] = (
+        [c.strip() for c in covariates_arg.split(",")] if covariates_arg else None
+    )
+    cat_cov_arg = getattr(args, "categorical_covariates", None)
+    cfg["categorical_covariates"] = (
+        [c.strip() for c in cat_cov_arg.split(",")] if cat_cov_arg else None
+    )
+    cfg["trait_type"] = getattr(args, "trait_type", "binary")
+    cfg["variant_weights"] = getattr(args, "variant_weights", "beta:1,25")
+
     # Handle add_chr configuration
     if args.add_chr:
         cfg["add_chr"] = True
@@ -1175,6 +1237,21 @@ def main() -> int:
     # Validate association analysis arguments
     if args.association_tests and not args.perform_association:
         parser.error("--association-tests requires --perform-association to be set")
+
+    # Covariate file only makes sense with association analysis
+    if getattr(args, "covariate_file", None) and not args.perform_association:
+        parser.error("--covariate-file requires --perform-association to be set")
+
+    # Trait type / test compatibility check
+    trait_type = getattr(args, "trait_type", "binary")
+    if trait_type == "quantitative" and args.association_tests:
+        test_list = [t.strip() for t in args.association_tests.split(",")]
+        if "logistic_burden" in test_list:
+            parser.error(
+                "--trait-type quantitative is incompatible with logistic_burden "
+                "(logistic regression is for binary traits only). "
+                "Use linear_burden for quantitative traits."
+            )
 
     # Inheritance analysis configuration
     cfg["ped_file"] = args.ped
