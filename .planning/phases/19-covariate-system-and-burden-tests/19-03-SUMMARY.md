@@ -160,8 +160,8 @@ The same pattern used for covariate-adjusted case (intercept + burden + 2 covari
 - `NO_GENOTYPE_MATRIX`: absent key → p_value=None
 
 **Invariants:**
-- `effect_size = beta` (log-odds scale, post beta+SE switch commit 48a6e68)
-- `ci_lower <= effect_size <= ci_upper` always (on log-odds scale)
+- `effect_size = exp(beta)` (OR scale)
+- `ci_lower <= effect_size <= ci_upper` always
 - Always returns TestResult, never raises
 
 ### tests/unit/test_association_linear_burden.py (11 tests)

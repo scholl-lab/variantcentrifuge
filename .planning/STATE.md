@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 19 — Covariate System + Burden Tests
-Plan: 2/2 complete
-Status: Phase 19 complete
-Last activity: 2026-02-20 — Completed 19-02-PLAN.md (LogisticBurdenTest + LinearBurdenTest + Stage + CLI)
+Plan: 3/3 complete
+Status: Phase 19 fully complete (implementations + tests)
+Last activity: 2026-02-20 — Completed 19-03-PLAN.md (Comprehensive unit tests for all Phase 19 modules)
 
-Progress: ██████░░░░░░░░░░░░░░░ ~25% (Phases 18-19 complete, 4 phases remaining)
+Progress: ███████░░░░░░░░░░░░░░ ~28% (Phases 18-19 complete, 4 phases remaining)
 
 ## Milestone Overview
 
@@ -55,6 +55,8 @@ Progress: ██████░░░░░░░░░░░░░░░ ~25% (
 | IMPL-08 | Association sheet mirrors Gene Burden sheet pattern verbatim | 18-03 | Explicit duplication preferred over abstraction for parallel maintainability |
 | TEST-01 | Bit-identity uses == (exact equality) not pytest.approx for Fisher p-values | 18-04 | Same scipy call chain guarantees floating-point reproducibility; tolerance would hide regressions |
 | TEST-02 | CORE-05 verified via source inspection (inspect.getsource) | 18-04 | Structural proof that GeneBurdenAnalysisStage._process() never references perform_association key |
+| TEST-03 | CI validation uses sm.OLS conf_int() reference, not true-beta coverage | 19-03 | Finite-sample bias causes true beta to fall outside 95% CI with n=100; statsmodels reference is correct check |
+| TEST-04 | FIRTH_CONVERGE_FAIL test replaced with always-returns-TestResult invariant | 19-03 | All-carrier gene exposes sm.add_constant removing intercept edge case; robustness invariant is more useful |
 | IMPL-09 | parse_gt_to_dosage returns (int\|None, bool) not int\|None | 19-01 | Multi-allelic flag needed to emit 'run bcftools norm' warning without second parse pass |
 | IMPL-10 | load_covariates returns (np.ndarray, list[str]) tuple | 19-01 | Column names returned alongside matrix for diagnostics; callers can ignore second element |
 | IMPL-11 | build_genotype_matrix: sample_mask is list[bool], all samples remain in geno | 19-01 | Callers (logistic burden test) decide whether to exclude high-missing samples |
@@ -90,6 +92,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-20
-Stopped at: Completed 19-02-PLAN.md (LogisticBurdenTest + LinearBurdenTest + Stage + CLI)
+Stopped at: Completed 19-03-PLAN.md (Comprehensive unit tests for all Phase 19 modules)
 Resume file: None
 Next: Execute Phase 20 (R SKAT Backend) — research and planning phases first
