@@ -2140,15 +2140,40 @@ class AssociationAnalysisStage(Stage):
             logger.error("DataFrame missing required 'GENE' column for association analysis")
             return context
 
-        # Phase 11: Reconstruct packed GT column if missing
+        # Phase 11: Reconstruct packed GT column if missing.
+        # Phase 19: When regression tests need per-sample GT columns, keep a
+        # reference to the pre-reconstruction DataFrame for genotype matrix
+        # building. reconstruct_gt_column drops per-sample columns, so we
+        # must save them first.
+        needs_regression = any(
+            t in test_names for t in ("logistic_burden", "linear_burden", "skat", "skat_python")
+        )
+        df_with_per_sample_gt: pd.DataFrame | None = None
         if "GT" not in df.columns and context.vcf_samples:
             from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
 
             gt_cols = _find_per_sample_gt_columns(df)
             if gt_cols:
+                # Save DataFrame with per-sample GT columns for genotype matrix
+                if needs_regression:
+                    df_with_per_sample_gt = df
                 logger.info("Reconstructing GT column for association analysis")
                 df = reconstruct_gt_column(df.copy(), context.vcf_samples)
                 context.current_dataframe = df
+        elif "GT" in df.columns and needs_regression and context.vcf_samples:
+            # GT already reconstructed (e.g. by gene_burden_analysis at same level).
+            # Try variants_df as fallback source for per-sample GT columns.
+            from ..stages.output_stages import _find_per_sample_gt_columns
+
+            fallback_df = context.variants_df
+            if fallback_df is not None:
+                gt_cols_fb = _find_per_sample_gt_columns(fallback_df)
+                if gt_cols_fb:
+                    logger.info(
+                        f"Association analysis: recovered {len(gt_cols_fb)} "
+                        "per-sample GT columns from variants_df for genotype matrix"
+                    )
+                    df_with_per_sample_gt = fallback_df
 
         # Determine aggregation strategy (same priority as perform_gene_burden_analysis)
         case_set = set(case_samples)
@@ -2261,17 +2286,20 @@ class AssociationAnalysisStage(Stage):
         # Phase 19: Augment gene_burden_data with genotype matrix for
         # regression tests (logistic_burden, linear_burden, skat, skat_python)
         # Backward compatible: FisherExactTest ignores the new keys.
+        #
+        # Use df_with_per_sample_gt when available (per-sample GT columns
+        # were dropped by reconstruct_gt_column for the aggregation step).
+        # Fall back to gt_columns from current df if columns still present.
         # ------------------------------------------------------------------
-        needs_genotype_matrix = any(
-            t in test_names for t in ("logistic_burden", "linear_burden", "skat", "skat_python")
-        )
-        if needs_genotype_matrix and gt_columns and vcf_samples_list:
+        gt_source_df = df_with_per_sample_gt if df_with_per_sample_gt is not None else df
+        gt_columns_for_matrix = _find_gt_columns(gt_source_df)
+        if needs_regression and gt_columns_for_matrix and vcf_samples_list:
             from ..association.genotype_matrix import build_genotype_matrix
 
             is_binary = assoc_config.trait_type == "binary"
             for gene_data in gene_burden_data:
                 gene_name = gene_data.get("GENE", "")
-                gene_df = df[df["GENE"] == gene_name]
+                gene_df = gt_source_df[gt_source_df["GENE"] == gene_name]
                 if gene_df.empty:
                     gene_data["genotype_matrix"] = np.zeros((len(vcf_samples_list), 0), dtype=float)
                     gene_data["variant_mafs"] = np.zeros(0, dtype=float)
@@ -2282,7 +2310,7 @@ class AssociationAnalysisStage(Stage):
                 geno, mafs, sample_mask, gt_warnings = build_genotype_matrix(
                     gene_df,
                     vcf_samples_list,
-                    gt_columns,
+                    gt_columns_for_matrix,
                     is_binary=is_binary,
                     missing_site_threshold=assoc_config.missing_site_threshold,
                     missing_sample_threshold=assoc_config.missing_sample_threshold,
@@ -2317,6 +2345,9 @@ class AssociationAnalysisStage(Stage):
                 gene_data["phenotype_vector"] = pv
                 gene_data["covariate_matrix"] = cm
                 gene_data["vcf_samples"] = vcf_samples_list
+
+            # Release the per-sample GT DataFrame (can be large with many samples)
+            del df_with_per_sample_gt, gt_source_df
 
         # Run association tests
         results_df = engine.run_all(gene_burden_data)
