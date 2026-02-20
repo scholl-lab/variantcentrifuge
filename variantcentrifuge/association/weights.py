@@ -119,22 +119,21 @@ def get_weights(mafs: np.ndarray, weight_spec: str) -> np.ndarray:
         return uniform_weights(len(mafs_arr))
 
     if weight_spec.startswith("beta:"):
-        params_str = weight_spec[len("beta:"):]
+        params_str = weight_spec[len("beta:") :]
         try:
             parts = params_str.split(",")
             if len(parts) != 2:
                 raise ValueError()
             a = float(parts[0].strip())
             b = float(parts[1].strip())
-        except (ValueError, IndexError):
+        except (ValueError, IndexError) as err:
             raise ValueError(
                 f"Invalid beta weight spec '{weight_spec}'. "
                 "Expected format: 'beta:a,b' where a and b are floats "
                 "(e.g. 'beta:1,25')."
-            )
+            ) from err
         return beta_maf_weights(mafs_arr, a=a, b=b)
 
     raise ValueError(
-        f"Unknown weight spec '{weight_spec}'. "
-        "Supported specs: 'beta:a,b' or 'uniform'."
+        f"Unknown weight spec '{weight_spec}'. Supported specs: 'beta:a,b' or 'uniform'."
     )

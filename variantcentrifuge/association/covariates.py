@@ -17,7 +17,7 @@ from __future__ import annotations
 import csv
 import logging
 import os
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
@@ -96,9 +96,7 @@ def load_covariates(
     vcf_samples_list = list(vcf_samples)
     missing = set(vcf_samples_list) - set(df.index)
     if missing:
-        raise ValueError(
-            f"VCF samples missing from covariate file: {sorted(missing)}"
-        )
+        raise ValueError(f"VCF samples missing from covariate file: {sorted(missing)}")
 
     # 5. Warn about extra covariate samples not in VCF (then ignore them)
     extra = set(df.index) - set(vcf_samples_list)
@@ -124,8 +122,7 @@ def load_covariates(
         categorical_columns = [
             col
             for col in df_aligned.columns
-            if not pd.api.types.is_numeric_dtype(df_aligned[col])
-            and df_aligned[col].nunique() <= 5
+            if not pd.api.types.is_numeric_dtype(df_aligned[col]) and df_aligned[col].nunique() <= 5
         ]
 
     if categorical_columns:
@@ -137,9 +134,9 @@ def load_covariates(
         )
 
     # 8. Multicollinearity check (warn only, never abort)
-    X = df_aligned.values.astype(np.float64)
-    if X.shape[1] >= 2:
-        cond_num = np.linalg.cond(X)
+    covariate_matrix = df_aligned.values.astype(np.float64)
+    if covariate_matrix.shape[1] >= 2:
+        cond_num = np.linalg.cond(covariate_matrix)
         if cond_num > 1000:
             logger.warning(
                 "High multicollinearity in covariate matrix "
@@ -148,4 +145,4 @@ def load_covariates(
             )
 
     column_names = list(df_aligned.columns)
-    return X, column_names
+    return covariate_matrix, column_names
