@@ -30,7 +30,6 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Core helper: build a properly-linked rpy2 mock hierarchy
 # ---------------------------------------------------------------------------
@@ -282,9 +281,11 @@ class TestDetectEnvironment:
                 raise ImportError(f"Mocked: no module '{name}'")
             return original_import(name, *args, **kwargs)
 
-        with patch("builtins.__import__", side_effect=blocking_import):
-            with pytest.raises(ImportError) as exc_info:
-                backend.detect_environment()
+        with (
+            patch("builtins.__import__", side_effect=blocking_import),
+            pytest.raises(ImportError) as exc_info,
+        ):
+            backend.detect_environment()
 
         assert "R_HOME" in str(exc_info.value)
 
@@ -293,11 +294,10 @@ class TestDetectEnvironment:
         from variantcentrifuge.association.backends.r_backend import RSKATBackend
 
         backend = RSKATBackend()
-        mods, mock_rpy2, mock_ro, mock_rpacks, _ = _patch_rpy2(isinstalled_return=False)
+        mods, _, _, _, _ = _patch_rpy2(isinstalled_return=False)
 
-        with patch.dict("sys.modules", mods):
-            with pytest.raises(ImportError) as exc_info:
-                backend.detect_environment()
+        with patch.dict("sys.modules", mods), pytest.raises(ImportError) as exc_info:
+            backend.detect_environment()
 
         assert "install.packages('SKAT')" in str(exc_info.value)
 
@@ -306,7 +306,7 @@ class TestDetectEnvironment:
         from variantcentrifuge.association.backends.r_backend import RSKATBackend
 
         backend = RSKATBackend()
-        mods, mock_rpy2, mock_ro, mock_rpacks, _ = _patch_rpy2(isinstalled_return=True)
+        mods, _, _, _, _ = _patch_rpy2(isinstalled_return=True)
 
         with patch.dict("sys.modules", mods):
             # Should not raise
@@ -383,7 +383,7 @@ class TestFitNullModel:
         phenotype = np.array([1.0, 0.0, 1.0, 0.0, 1.0] * 20)
         covariates = np.random.randn(100, 2)
 
-        mods, mock_rpy2, mock_ro, mock_rpacks, _ = _patch_rpy2()
+        mods, _, mock_ro, _, _ = _patch_rpy2()
         mock_ro.globalenv = {}
 
         with patch.dict("sys.modules", mods):
@@ -401,7 +401,7 @@ class TestFitNullModel:
         backend = _make_backend_with_mocked_env()
         phenotype = np.random.randn(100)
 
-        mods, mock_rpy2, mock_ro, mock_rpacks, _ = _patch_rpy2()
+        mods, _, mock_ro, _, _ = _patch_rpy2()
         mock_ro.globalenv = {}
         captured_formula: dict[str, Any] = {}
 
@@ -441,7 +441,7 @@ class TestFitNullModel:
         backend = _make_backend_with_mocked_env()
         phenotype = np.array([1.0, 0.0] * 50)
 
-        mods, mock_rpy2, mock_ro, mock_rpacks, _ = _patch_rpy2()
+        mods, _, mock_ro, _, _ = _patch_rpy2()
         mock_ro.globalenv = {}
         rm_calls: list[str] = []
 
@@ -468,7 +468,7 @@ class TestFitNullModel:
         backend._genes_processed = 999
         phenotype = np.array([1.0, 0.0] * 50)
 
-        mods, mock_rpy2, mock_ro, mock_rpacks, _ = _patch_rpy2()
+        mods, _, mock_ro, _, _ = _patch_rpy2()
         mock_ro.globalenv = {}
 
         with patch.dict("sys.modules", mods):
@@ -495,7 +495,7 @@ class TestTestGene:
         geno_3x2: bool = False,
     ) -> dict[str, Any]:
         """Build patched sys.modules where ro.r returns outer_result for SKAT calls."""
-        mods, mock_rpy2, mock_ro, mock_rpacks, _ = _patch_rpy2(na_real_sentinel=na_sentinel)
+        mods, _, mock_ro, _, _ = _patch_rpy2(na_real_sentinel=na_sentinel)
         mock_ro.globalenv = {}
 
         def r_side_effect(code: str) -> Any:
@@ -576,7 +576,7 @@ class TestTestGene:
         mods = self._make_mods_with_result(outer_result, na_sentinel, code_tracker=code_tracker)
 
         with patch.dict("sys.modules", mods):
-            result = backend.test_gene(
+            backend.test_gene(
                 gene="MYH7",
                 genotype_matrix=geno,
                 null_model=null_model,
@@ -585,13 +585,9 @@ class TestTestGene:
             )
 
         skat_binary_calls = [c for c in code_tracker if "SKATBinary" in c]
-        skat_calls = [
-            c for c in code_tracker if "SKAT(" in c and "SKATBinary" not in c
-        ]
+        skat_calls = [c for c in code_tracker if "SKAT(" in c and "SKATBinary" not in c]
         assert len(skat_binary_calls) == 0, "SKATBinary should NOT be called for continuous"
-        assert len(skat_calls) >= 1, (
-            f"SKAT should be called for continuous, got: {code_tracker}"
-        )
+        assert len(skat_calls) >= 1, f"SKAT should be called for continuous, got: {code_tracker}"
 
     def test_test_gene_skat_o_extracts_rho(self):
         """SKAT-O method extracts rho from result.rx2('param').rx2('rho')."""
@@ -711,7 +707,7 @@ class TestTestGene:
         geno = np.zeros((10, 3))
         na_sentinel = object()
 
-        mods, mock_rpy2, mock_ro, mock_rpacks, _ = _patch_rpy2(na_real_sentinel=na_sentinel)
+        mods, _, mock_ro, _, _ = _patch_rpy2(na_real_sentinel=na_sentinel)
         mock_ro.globalenv = {}
 
         class RRuntimeError(Exception):
@@ -720,15 +716,14 @@ class TestTestGene:
         mock_ro.r = MagicMock(side_effect=RRuntimeError("R computation failed"))
         mock_ro.r.__getitem__ = MagicMock(return_value=MagicMock(return_value=MagicMock()))
 
-        with patch.dict("sys.modules", mods):
-            with pytest.raises(RRuntimeError):
-                backend.test_gene(
-                    gene="GENE3",
-                    genotype_matrix=geno,
-                    null_model=null_model,
-                    method="SKAT",
-                    weights_beta=(1.0, 25.0),
-                )
+        with patch.dict("sys.modules", mods), pytest.raises(RRuntimeError):
+            backend.test_gene(
+                gene="GENE3",
+                genotype_matrix=geno,
+                null_model=null_model,
+                method="SKAT",
+                weights_beta=(1.0, 25.0),
+            )
 
     def test_test_gene_cleans_r_globals_per_gene(self):
         """test_gene calls ro.r('rm(...)') to clean up ._vc_ globals after each call."""
@@ -820,7 +815,7 @@ class TestMemoryManagement:
         rx_result.__getitem__ = lambda self, idx: float(vcells_used)
         gc_matrix.rx = MagicMock(return_value=rx_result)
 
-        mods, mock_rpy2, mock_ro, mock_rpacks, _ = _patch_rpy2()
+        mods, _, mock_ro, _, _ = _patch_rpy2()
         mock_ro.r = MagicMock(return_value=gc_matrix)
 
         with patch.dict("sys.modules", mods):
@@ -832,7 +827,7 @@ class TestMemoryManagement:
         """_check_r_heap() returns None if R gc() call fails."""
         backend = _make_backend_with_mocked_env()
 
-        mods, mock_rpy2, mock_ro, mock_rpacks, _ = _patch_rpy2()
+        mods, _, mock_ro, _, _ = _patch_rpy2()
         mock_ro.r = MagicMock(side_effect=RuntimeError("R gc() failed"))
 
         with patch.dict("sys.modules", mods):
@@ -873,7 +868,7 @@ class TestMemoryManagement:
         gc_called = [False]
         gc_func = MagicMock(side_effect=lambda: gc_called.__setitem__(0, True))
 
-        mods, mock_rpy2, mock_ro, mock_rpacks, _ = _patch_rpy2()
+        mods, _, mock_ro, _, _ = _patch_rpy2()
         mock_ro.r.__getitem__ = MagicMock(return_value=gc_func)
 
         with patch.dict("sys.modules", mods):
