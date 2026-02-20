@@ -2276,9 +2276,7 @@ class AssociationAnalysisStage(Stage):
                 gene_name = gene_data.get("GENE", "")
                 gene_df = df[df["GENE"] == gene_name]
                 if gene_df.empty:
-                    gene_data["genotype_matrix"] = np.zeros(
-                        (len(vcf_samples_list), 0), dtype=float
-                    )
+                    gene_data["genotype_matrix"] = np.zeros((len(vcf_samples_list), 0), dtype=float)
                     gene_data["variant_mafs"] = np.zeros(0, dtype=float)
                     gene_data["phenotype_vector"] = phenotype_vector
                     gene_data["covariate_matrix"] = covariate_matrix
@@ -2313,9 +2311,7 @@ class AssociationAnalysisStage(Stage):
                         f"Gene {gene_name}: MAC={total_mac} < 5 — "
                         "regression will report NA (insufficient data)"
                     )
-                    gene_data["genotype_matrix"] = np.zeros(
-                        (geno.shape[0], 0), dtype=float
-                    )
+                    gene_data["genotype_matrix"] = np.zeros((geno.shape[0], 0), dtype=float)
                     gene_data["variant_mafs"] = np.zeros(0, dtype=float)
                 else:
                     gene_data["genotype_matrix"] = geno

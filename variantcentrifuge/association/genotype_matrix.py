@@ -203,8 +203,7 @@ def build_genotype_matrix(
         missing_per_sample = np.zeros(n_samples, dtype=np.float64)
 
     sample_mask: list[bool] = [
-        bool(missing_per_sample[i] <= missing_sample_threshold)
-        for i in range(n_samples)
+        bool(missing_per_sample[i] <= missing_sample_threshold) for i in range(n_samples)
     ]
 
     # ------------------------------------------------------------------ #
