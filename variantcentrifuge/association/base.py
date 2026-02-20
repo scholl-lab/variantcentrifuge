@@ -225,3 +225,24 @@ class AssociationTest(ABC):
             If a required library is not installed. Called eagerly at engine
             construction so users get a clear error before processing begins.
         """
+
+    def prepare(self, gene_count: int) -> None:  # noqa: B027
+        """
+        Called by the engine before the per-gene loop.
+
+        Default is a no-op. Subclasses override to set up progress logging,
+        emit large-panel warnings, initialize timers, etc.
+
+        Parameters
+        ----------
+        gene_count : int
+            Total number of genes that will be processed.
+        """
+
+    def finalize(self) -> None:  # noqa: B027
+        """
+        Called by the engine after the per-gene loop completes.
+
+        Default is a no-op. Subclasses override to log aggregate timing,
+        release resources, or perform post-run cleanup.
+        """

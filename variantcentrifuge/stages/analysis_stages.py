@@ -2057,6 +2057,17 @@ class AssociationAnalysisStage(Stage):
         """Return the set of stage names that should run before if present."""
         return {"custom_annotation"}
 
+    @property
+    def parallel_safe(self) -> bool:
+        """Return False — rpy2/R SKAT backend is not thread-safe (SKAT-08).
+
+        rpy2 is not thread-safe. Calling rpy2 functions from a ThreadPoolExecutor
+        worker thread causes segfaults with no Python traceback. This explicit
+        property documents the SKAT-08 requirement and prevents parallel execution
+        regardless of which tests are active.
+        """
+        return False
+
     def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
         """Handle the case where this stage is skipped by checkpoint system.
 
