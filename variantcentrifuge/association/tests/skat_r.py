@@ -1,0 +1,289 @@
+# File: variantcentrifuge/association/tests/skat_r.py
+# Location: variantcentrifuge/variantcentrifuge/association/tests/skat_r.py
+"""
+RSKATTest — AssociationTest wrapper for the R SKAT backend.
+
+Wraps RSKATBackend to integrate R-based SKAT into the AssociationEngine
+framework. Registered in the engine registry as ``"skat"``.
+
+SKAT has no effect size, standard error, or confidence interval — it only
+produces a p-value (and optionally rho from SKAT-O). The engine's None-effect
+guard handles the all-None ``effect_column_names()`` return without creating
+malformed column names like ``skat_None``.
+
+Null model lifecycle
+--------------------
+The SKAT null model is fit once on the full cohort (all samples, phenotype +
+covariates) and then reused for all genes. RSKATTest caches the null model
+as ``self._null_model`` after the first gene call. This is safe because the
+null model does not depend on the variant data — it depends only on the
+phenotype, covariates, and trait type.
+
+Thread safety
+-------------
+RSKATBackend is not thread-safe (rpy2 restriction). The stage that uses
+RSKATTest must declare ``parallel_safe=False``.
+
+Note: run() currently raises NotImplementedError because the backend stubs
+(fit_null_model / test_gene) are not yet implemented. Plan 20-02 completes
+the backend logic.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
+
+from variantcentrifuge.association.base import AssociationConfig, AssociationTest, TestResult
+
+if TYPE_CHECKING:
+    from variantcentrifuge.association.backends.base import NullModelResult
+    from variantcentrifuge.association.backends.r_backend import RSKATBackend
+
+logger = logging.getLogger("variantcentrifuge")
+
+
+class RSKATTest(AssociationTest):
+    """
+    SKAT association test using the R SKAT package via rpy2.
+
+    Registered in the engine as ``"skat"``. Uses RSKATBackend for all R
+    interaction; this class handles the AssociationTest protocol (lifecycle,
+    null model caching, result packing).
+
+    Parameters
+    ----------
+    None — instantiated by AssociationEngine.from_names() via the registry.
+
+    Raises
+    ------
+    ImportError
+        From check_dependencies() if rpy2 is not importable or the R SKAT
+        package is not installed.
+
+    Examples
+    --------
+    This test is typically used through the engine, not instantiated directly:
+
+    >>> engine = AssociationEngine.from_names(["skat"], config)
+    >>> result_df = engine.run_all(gene_burden_data)
+    """
+
+    def __init__(self) -> None:
+        self._backend: RSKATBackend | None = None
+        self._null_model: NullModelResult | None = None
+
+    @property
+    def name(self) -> str:
+        """Short identifier for this test used in registry lookup and column prefixes."""
+        return "skat"
+
+    def check_dependencies(self) -> None:
+        """
+        Verify that rpy2 is importable and the R SKAT package is installed.
+
+        Calls RSKATBackend.detect_environment() eagerly so that users get a
+        clear error (with R_HOME and install instructions) before any data
+        processing begins.
+
+        Raises
+        ------
+        ImportError
+            If rpy2 is not installed, R is not found (R_HOME misconfigured),
+            or the SKAT package is not installed in R.
+        """
+        from variantcentrifuge.association.backends import get_skat_backend
+
+        # RSKATTest is always backed by the R backend — the "r" name is
+        # hard-coded here because this class IS the R SKAT test. The engine
+        # registry maps "skat" -> RSKATTest; an auto-selected Python backend
+        # would be a separate test class (Phase 21).
+        backend = get_skat_backend("r")
+        backend.detect_environment()
+        backend.log_environment()
+        self._backend = backend  # type: ignore[assignment]
+
+    def effect_column_names(self) -> dict[str, str | None]:
+        """
+        Column name suffixes for SKAT output.
+
+        SKAT produces only a p-value (plus SKAT-O rho and other metadata in
+        ``extra``). There is no effect size, standard error, or confidence
+        interval. All four slots are None; the engine's None-guard skips
+        column creation for them.
+
+        Returns
+        -------
+        dict with all values None.
+        """
+        return {
+            "effect": None,
+            "se": None,
+            "ci_lower": None,
+            "ci_upper": None,
+        }
+
+    def run(
+        self,
+        gene: str,
+        contingency_data: dict[str, Any],
+        config: AssociationConfig,
+    ) -> TestResult:
+        """
+        Run SKAT for a single gene.
+
+        Fits the null model on the first call (lazy), then reuses it for all
+        subsequent genes. The genotype matrix, phenotype, and covariate matrix
+        are extracted from ``contingency_data`` (same keys as logistic_burden).
+
+        Parameters
+        ----------
+        gene : str
+            Gene symbol being tested.
+        contingency_data : dict
+            Must contain:
+              - ``genotype_matrix`` : np.ndarray (n_samples, n_variants)
+              - ``variant_mafs``     : np.ndarray (n_variants,)
+              - ``phenotype_vector`` : np.ndarray (n_samples,)
+              Optional:
+              - ``covariate_matrix`` : np.ndarray (n_samples, k) or None
+        config : AssociationConfig
+            Runtime configuration (skat_method, trait_type, variant_weights).
+
+        Returns
+        -------
+        TestResult
+            p_value=None when test is skipped (no variants, no genotype matrix).
+            effect_size=None, se=None, ci_lower=None, ci_upper=None (SKAT has
+            no effect size). extra contains SKAT-specific metadata.
+
+        Raises
+        ------
+        NotImplementedError
+            Until Plan 20-02 fills in RSKATBackend.fit_null_model() and
+            RSKATBackend.test_gene().
+
+        Notes
+        -----
+        The backend must be initialised (check_dependencies() called) before
+        run() is invoked. The engine calls check_dependencies() at construction
+        time (from_names()), so this is guaranteed in normal usage.
+        """
+        n_cases = int(contingency_data.get("proband_count", 0))
+        n_controls = int(contingency_data.get("control_count", 0))
+        n_variants = int(contingency_data.get("n_qualifying_variants", 0))
+
+        # Require genotype matrix — absent when only Fisher is requested
+        if "genotype_matrix" not in contingency_data:
+            return TestResult(
+                gene=gene,
+                test_name=self.name,
+                p_value=None,
+                corrected_p_value=None,
+                effect_size=None,
+                ci_lower=None,
+                ci_upper=None,
+                se=None,
+                n_cases=n_cases,
+                n_controls=n_controls,
+                n_variants=n_variants,
+                extra={"skat_warnings": ["NO_GENOTYPE_MATRIX"]},
+            )
+
+        geno: np.ndarray = contingency_data["genotype_matrix"]
+        phenotype: np.ndarray | None = contingency_data.get("phenotype_vector")
+        covariate_matrix: np.ndarray | None = contingency_data.get("covariate_matrix")
+
+        if phenotype is None or geno.shape[0] == 0 or geno.shape[1] == 0:
+            return TestResult(
+                gene=gene,
+                test_name=self.name,
+                p_value=None,
+                corrected_p_value=None,
+                effect_size=None,
+                ci_lower=None,
+                ci_upper=None,
+                se=None,
+                n_cases=n_cases,
+                n_controls=n_controls,
+                n_variants=n_variants,
+                extra={"skat_warnings": ["NO_PHENOTYPE_OR_EMPTY_MATRIX"]},
+            )
+
+        # Backend must have been initialised by check_dependencies()
+        if self._backend is None:
+            raise RuntimeError(
+                "RSKATTest.run() called without check_dependencies(). "
+                "Use AssociationEngine.from_names() which calls check_dependencies() "
+                "at construction time."
+            )
+
+        # Lazy null model: fit once, reuse for all genes
+        if self._null_model is None:
+            self._null_model = self._backend.fit_null_model(
+                phenotype=phenotype,
+                covariates=covariate_matrix,
+                trait_type=config.trait_type,
+            )
+
+        # Parse weight parameters from config (e.g. "beta:1,25" -> (1.0, 25.0))
+        weights_beta = _parse_weights_beta(config.variant_weights)
+
+        result = self._backend.test_gene(
+            gene=gene,
+            genotype_matrix=geno,
+            null_model=self._null_model,
+            method=config.skat_method,
+            weights_beta=weights_beta,
+        )
+
+        return TestResult(
+            gene=gene,
+            test_name=self.name,
+            p_value=result.get("p_value"),
+            corrected_p_value=None,
+            effect_size=None,
+            ci_lower=None,
+            ci_upper=None,
+            se=None,
+            n_cases=n_cases,
+            n_controls=n_controls,
+            n_variants=result.get("n_variants", n_variants),
+            extra={
+                "skat_o_rho": result.get("rho"),
+                "skat_warnings": result.get("warnings", []),
+                "skat_method": config.skat_method,
+                "skat_n_marker_test": result.get("n_marker_test"),
+            },
+        )
+
+
+def _parse_weights_beta(variant_weights: str) -> tuple[float, float]:
+    """
+    Parse weight specification string to Beta distribution parameters.
+
+    Handles ``"beta:a,b"`` format. Falls back to (1.0, 25.0) — the SKAT
+    paper default — if the string cannot be parsed.
+
+    Parameters
+    ----------
+    variant_weights : str
+        Weight scheme, e.g. ``"beta:1,25"`` or ``"uniform"``.
+
+    Returns
+    -------
+    tuple of (float, float)
+        Beta distribution parameters (a1, a2).
+    """
+    if variant_weights.startswith("beta:"):
+        try:
+            params = variant_weights[5:].split(",")
+            return float(params[0]), float(params[1])
+        except (IndexError, ValueError):
+            logger.warning(
+                f"Could not parse variant_weights '{variant_weights}'. "
+                "Using SKAT default Beta(1, 25)."
+            )
+    return 1.0, 25.0

@@ -46,11 +46,13 @@ def _build_registry() -> dict[str, type[AssociationTest]]:
     from variantcentrifuge.association.tests.fisher import FisherExactTest
     from variantcentrifuge.association.tests.linear_burden import LinearBurdenTest
     from variantcentrifuge.association.tests.logistic_burden import LogisticBurdenTest
+    from variantcentrifuge.association.tests.skat_r import RSKATTest
 
     return {
         "fisher": FisherExactTest,
         "logistic_burden": LogisticBurdenTest,
         "linear_burden": LinearBurdenTest,
+        "skat": RSKATTest,
     }
 
 
@@ -213,11 +215,24 @@ class AssociationEngine:
                 col_names = test.effect_column_names()
                 row[f"{test_name}_p_value"] = res.p_value
                 row[f"{test_name}_corrected_p_value"] = res.corrected_p_value
-                row[f"{test_name}_{col_names['effect']}"] = res.effect_size
+                # None-effect guard: skip column creation when effect/CI names are None.
+                # Required for SKAT which has no effect size, SE, or confidence interval.
+                # Without this guard, col_names['effect'] = None would produce
+                # "skat_None" as a column name.
+                if col_names.get("effect") is not None:
+                    row[f"{test_name}_{col_names['effect']}"] = res.effect_size
                 if col_names.get("se") is not None:
                     row[f"{test_name}_{col_names['se']}"] = res.se
-                row[f"{test_name}_{col_names['ci_lower']}"] = res.ci_lower
-                row[f"{test_name}_{col_names['ci_upper']}"] = res.ci_upper
+                if col_names.get("ci_lower") is not None:
+                    row[f"{test_name}_{col_names['ci_lower']}"] = res.ci_lower
+                if col_names.get("ci_upper") is not None:
+                    row[f"{test_name}_{col_names['ci_upper']}"] = res.ci_upper
+                # Write test-specific extra columns (e.g. skat_o_rho, skat_warnings).
+                # Keys in res.extra are already namespaced by the test (e.g. "skat_o_rho"),
+                # so we write them without an additional test_name prefix.
+                # Fisher and burden tests have empty extra dicts, so this is a no-op for them.
+                for extra_key, extra_val in res.extra.items():
+                    row[extra_key] = extra_val
 
             rows.append(row)
 

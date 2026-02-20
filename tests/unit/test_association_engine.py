@@ -65,14 +65,14 @@ class TestAssociationEngineConstruction:
         assert "fisher" in engine._tests
 
     def test_from_names_unknown_test_raises_value_error(self, default_config):
-        """from_names(['skat'], config) raises ValueError mentioning available tests."""
-        with pytest.raises(ValueError, match="Available tests: fisher"):
-            AssociationEngine.from_names(["skat"], default_config)
+        """from_names(['nonexistent'], config) raises ValueError mentioning available tests."""
+        with pytest.raises(ValueError, match="Available tests:"):
+            AssociationEngine.from_names(["nonexistent_test_xyz"], default_config)
 
     def test_from_names_unknown_test_error_includes_test_name(self, default_config):
         """ValueError message includes the unknown test name."""
-        with pytest.raises(ValueError, match="skat"):
-            AssociationEngine.from_names(["skat"], default_config)
+        with pytest.raises(ValueError, match="nonexistent_test_xyz"):
+            AssociationEngine.from_names(["nonexistent_test_xyz"], default_config)
 
     def test_from_names_empty_list_creates_engine_no_tests(self, default_config):
         """from_names([], config) creates engine with empty test set."""
