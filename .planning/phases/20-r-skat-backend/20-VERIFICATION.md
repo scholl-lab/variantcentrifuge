@@ -51,7 +51,7 @@ small samples, and R memory managed explicitly to prevent heap exhaustion across
 |---|-------|--------|----------|
 | 1 | On a system with R+SKAT, `--skat-backend r` runs SKAT and reports p-values; on a system without R, falls back gracefully to Python backend with informative log | PARTIAL | ImportError is raised with R_HOME diagnostics (informative). No graceful fallback — Python backend is Phase 21 (NotImplementedError). AssociationAnalysisStage does not catch ImportError. |
 | 2 | Binary trait phenotype always uses SKATBinary — continuous-trait SKAT never called for binary outcomes | VERIFIED | `r_backend.py:450` — `func_name = "SKATBinary" if null_model.trait_type == "binary" else "SKAT"`. 30 unit tests including `test_test_gene_binary_calls_skatbinary` and `test_test_gene_continuous_calls_skat`. |
-| 3 | SKAT-O reports optimal rho alongside p-value, uses `method="SKATO"` correction | VERIFIED | `r_backend.py:485-489` — rho extracted from `result.rx2("param").rx2("rho_est")[0]` when `method == "SKATO"`. Bug fix: `param$rho` is the search grid, `param$rho_est` is the optimal rho estimate. `skat_r.py:321` — `skat_o_rho` in extra dict. Test `test_test_gene_skat_o_extracts_rho` verifies. |
+| 3 | SKAT-O reports optimal rho alongside p-value, uses `method="SKATO"` correction | VERIFIED | `r_backend.py:483-488` — rho extracted from `result.rx2("param").rx2("rho")[0]` when `method == "SKATO"`. `skat_r.py:321` — `skat_o_rho` in extra dict. Test `test_test_gene_skat_o_extracts_rho` verifies. |
 | 4 | Running R backend across 500 synthetic genes does not cause R heap exhaustion — objects deleted after each gene, gc() every 100 genes | VERIFIED | `r_backend.py:499,502` — `ro.r("rm(list=ls(...))")` + `del r_z` per gene. `skat_r.py:289-291` — GC every `GC_INTERVAL=100` genes with heap check. `test_gc_called_at_interval` verifies by mock spy. |
 | 5 | Calling R backend from ThreadPoolExecutor worker thread raises explicit RuntimeError (not segfault) | VERIFIED | `r_backend.py:153-158` — `_assert_main_thread()` raises RuntimeError from non-main thread. Live test confirmed: `threading.Thread` worker raises RuntimeError. 4 thread-safety unit tests pass. |
 
@@ -148,44 +148,32 @@ The four other success criteria are fully verified by code inspection and live e
 
 ---
 
-## Human Verification — COMPLETED
+## Human Verification Required
 
-### 1. R Integration End-to-End Test — PASSED
+### 1. R Integration End-to-End Test
 
-Tested on system with R 4.1.2, SKAT 2.2.5, rpy2 3.6.4.
-Environment detection succeeded; INFO log emitted:
-`R SKAT backend: rpy2=3.6.4, R=4.1.2, SKAT=2.2.5, R_HOME=<not set>`
+**Test:** On a system with R >= 4.0 and SKAT installed:
+```
+python -c "
+from variantcentrifuge.association.backends.r_backend import RSKATBackend
+b = RSKATBackend()
+b.detect_environment()
+b.log_environment()
+# Verify: INFO log shows rpy2/R/SKAT versions, no errors
+print('Environment OK')
+"
+```
+**Expected:** INFO log line with `R SKAT backend: rpy2=X.X.X, R=X.X, SKAT=X.X, R_HOME=...`
+**Why human:** No R installed in CI environment; mocked tests verify the logic.
 
-### 2. SKAT p-value Generation — PASSED (Real GCKD Cohort)
+### 2. SKAT p-value Generation
 
-Full pipeline test on GCKD cohort (5124 samples) with PKD phenotype (235 cases, 4889 controls).
-Three tests run in parallel: Fisher, logistic burden, SKAT. All three methods agree.
-
-| Gene | Fisher p | Logistic Burden p | SKAT p | Significant? |
-|------|----------|-------------------|--------|-------------|
-| PKD1 | 8.9e-35 | 1.0e-44 | 2.6e-30 | YES (all three) |
-| PKD2 | 9.1e-17 | 3.5e-20 | 1.1e-12 | YES (all three) |
-| COL4A5 | 0.195 | 0.285 | 1.0 | No (correct negative control) |
-
-Results are biologically correct: PKD1/PKD2 are causal for ADPKD; COL4A5 (Alport) is unrelated.
-
----
-
-## Live Testing Bug Fixes
-
-Four bugs found and fixed during live testing on real GCKD data:
-
-| # | Bug | Fix | File |
-|---|-----|-----|------|
-| 1 | `rpy2.__version__` AttributeError on rpy2 3.6.x (removed in 3.6) | Use `importlib.metadata.version("rpy2")` | r_backend.py:227-232 |
-| 2 | R cleanup pattern `'\\._vc_'` is invalid regex (unescaped dot) | Changed to `'^\\\\._vc_'` (2 locations) | r_backend.py:362,503 |
-| 3 | SKAT-O rho extraction reads `param$rho[0]` (grid) not optimal rho | Changed to `param$rho_est[0]` | r_backend.py:489 |
-| 4 | Unnecessary `.tolist()` on numpy arrays before `FloatVector()` | Removed `.tolist()` (3 locations) | r_backend.py:339,344,443 |
-
-Test mock updated: `test_skat_r_backend.py` — `param_rx2` dispatch key changed from `"rho"` to `"rho_est"`.
+**Test:** Run a minimal SKAT analysis with synthetic data on an R-equipped system to verify
+actual p-values are produced (not just that the code paths are correct).
+**Expected:** Non-None p-values in the 0-1 range for genes with variants.
+**Why human:** Requires real rpy2 + R + SKAT to execute.
 
 ---
 
-_Initial verification: 2026-02-20T15:58:35Z (Claude gsd-verifier)_
-_Live testing completed: 2026-02-20T18:26:55Z_
-_Test count: 1523 passed (72 SKAT unit tests), 0 regressions_
+_Verified: 2026-02-20T15:58:35Z_
+_Verifier: Claude (gsd-verifier)_
