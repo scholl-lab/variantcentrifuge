@@ -698,9 +698,16 @@ class ExcelReportStage(Stage):
         logger.info(f"Generating Excel report: {output_path}")
 
         # Use in-memory DataFrame if available (avoids redundant disk read)
+        # Prefer current_dataframe (has all columns from scoring/analysis stages)
+        # over variants_df (stale snapshot from dataframe_loading — see #80)
         excel_df = None
-        if context.variants_df is not None:
-            excel_df = context.variants_df.copy()  # Copy to avoid mutation
+        source_df = (
+            context.current_dataframe
+            if context.current_dataframe is not None
+            else context.variants_df
+        )
+        if source_df is not None:
+            excel_df = source_df.copy()
             # Drop internal cache columns before Excel output
             cache_cols = [c for c in excel_df.columns if c.startswith("_")]
             if cache_cols:

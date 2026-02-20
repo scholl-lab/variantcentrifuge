@@ -609,6 +609,60 @@ class TestExcelReportStage:
         stage = ExcelReportStage()
         assert stage.parallel_safe is True
 
+    @patch("variantcentrifuge.stages.output_stages.finalize_excel_file")
+    @patch("variantcentrifuge.stages.output_stages.convert_to_excel")
+    def test_excel_uses_current_dataframe_over_variants_df(
+        self, mock_convert, mock_finalize, context
+    ):
+        """Regression test for #80: Excel must use current_dataframe, not stale variants_df.
+
+        variants_df is set once during dataframe_loading and misses columns
+        added by scoring, inheritance analysis, and other downstream stages.
+        current_dataframe has all columns — Excel must prefer it.
+        """
+        # Simulate stale variants_df (only loading-time columns)
+        context.variants_df = pd.DataFrame(
+            {
+                "CHROM": ["chr1", "chr1"],
+                "POS": [100, 200],
+            }
+        )
+        # Simulate current_dataframe with columns added by downstream stages
+        context.current_dataframe = pd.DataFrame(
+            {
+                "CHROM": ["chr1", "chr1"],
+                "POS": [100, 200],
+                "Inheritance_Pattern": ["AD", "AR"],
+                "nephro_candidate_score": [0.8, 0.3],
+                "ngs": ["WES", "WES"],
+            }
+        )
+
+        context.mark_complete("tsv_output")
+        context.mark_complete("metadata_generation")
+        context.mark_complete("statistics_generation")
+        context.final_output_path = context.workspace.output_dir / "output.tsv"
+        context.final_output_path.touch()
+
+        expected_excel_path = str(context.workspace.output_dir / "output.xlsx")
+        mock_convert.return_value = expected_excel_path
+        Path(expected_excel_path).touch()
+
+        stage = ExcelReportStage()
+        stage(context)
+
+        # Verify convert_to_excel received DataFrame with all columns
+        call_kwargs = mock_convert.call_args
+        passed_df = call_kwargs.kwargs.get("df")
+        if passed_df is None:
+            passed_df = call_kwargs[1].get("df") if len(call_kwargs) > 1 else None
+        assert passed_df is not None, "DataFrame should be passed to convert_to_excel"
+        assert "Inheritance_Pattern" in passed_df.columns, (
+            "Excel DataFrame must include columns from current_dataframe, not stale variants_df"
+        )
+        assert "nephro_candidate_score" in passed_df.columns
+        assert "ngs" in passed_df.columns
+
 
 class TestHTMLReportStage:
     """Test HTMLReportStage."""
