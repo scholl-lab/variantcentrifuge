@@ -19,7 +19,7 @@ score: 5/5 must-haves verified
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
 | 1 | Covariate file with rows in different order than VCF produces identical aligned matrix as a file in VCF order | VERIFIED | `load_covariates()` uses `df.reindex(vcf_samples)` + NaN assertion (covariates.py:113-117). Manual test confirmed identical numpy arrays. `test_load_covariates_alignment_produces_identical_results` asserts `np.array_equal`. |
-| 2 | Logistic burden test reports beta (log-odds) + SE + 95% CI matching `statsmodels.Logit` on same inputs | VERIFIED | `LogisticBurdenTest.run()` extracts beta/SE/CI at index 1 on log-odds scale (no exp() conversion). Manual verification: p-value 0.44392944 matches exactly. `test_logistic_burden_matches_manual_statsmodels` asserts `pytest.approx(rel=1e-6)`. Post-verification: switched from OR to beta+SE output matching SKAT/SAIGE-GENE convention (commit 48a6e68). |
+| 2 | Logistic burden test reports OR + 95% CI matching `statsmodels.Logit` on same inputs | VERIFIED | `LogisticBurdenTest.run()` extracts beta/CI at index 1, converts to OR via `exp(beta)`. Manual verification: p-value 0.44392944 matches exactly. `test_logistic_burden_matches_manual_statsmodels` asserts `pytest.approx(rel=1e-6)`. |
 | 3 | Linear burden test reports beta + SE matching `statsmodels.OLS` on same inputs | VERIFIED | `LinearBurdenTest.run()` returns `effect_size=beta` (not OR). Manual verification: beta 2.45245672 matches exactly. `test_linear_burden_matches_manual_statsmodels` asserts `pytest.approx(rel=1e-6)`. |
 | 4 | Beta(MAF;1,25) weights up-weight rare variants; uniform weights produce all-ones | VERIFIED | `beta_maf_weights()` uses `scipy.stats.beta.pdf` with `np.clip`. Verified: weights[MAF=0.001] > weights[MAF=0.01] > weights[MAF=0.1]. `uniform_weights()` returns `np.ones(n)`. `test_beta_weights_monotonic_decreasing` and `test_uniform_weights_all_ones` confirm. |
 | 5 | Genotype strings `1/2`, `./.`, `0\|1` parse correctly — multi-allelic counted as 1 dosage, missing to None, phased summed to 0/1/2 | VERIFIED | `parse_gt_to_dosage()` handles all cases: `1/2`→`(1, True)`, `./.`→`(None, False)`, `0\|1`→`(1, False)`. Missing values imputed to `round(2*MAF)` for binary, `2*MAF` for quantitative. 33 tests confirm all edge cases. |
@@ -34,7 +34,7 @@ score: 5/5 must-haves verified
 | `variantcentrifuge/association/genotype_matrix.py` | `parse_gt_to_dosage()`, `build_genotype_matrix()` with imputation | VERIFIED | 257 lines, both functions exported and wired to stage |
 | `variantcentrifuge/association/weights.py` | `beta_maf_weights()`, `uniform_weights()`, `get_weights()` | VERIFIED | 139 lines, all three functions exported, used in burden tests |
 | `variantcentrifuge/association/base.py` | Extended `AssociationConfig` with 8 new fields | VERIFIED | 198 lines; all 8 fields present with defaults (trait_type, variant_weights, covariate_file, etc.) |
-| `variantcentrifuge/association/tests/logistic_burden.py` | `LogisticBurdenTest` with Firth fallback, beta+SE+CI, warning codes | VERIFIED | 449 lines, exports `LogisticBurdenTest`, registered in engine. Post-verification: switched from OR to beta+SE (commit 48a6e68). |
+| `variantcentrifuge/association/tests/logistic_burden.py` | `LogisticBurdenTest` with Firth fallback, OR + CI, warning codes | VERIFIED | 436 lines, exports `LogisticBurdenTest`, registered in engine |
 | `variantcentrifuge/association/tests/linear_burden.py` | `LinearBurdenTest` with beta + SE output | VERIFIED | 212 lines, exports `LinearBurdenTest`, registered in engine |
 | `variantcentrifuge/cli.py` | 5 new CLI args: `--covariate-file`, `--covariates`, `--categorical-covariates`, `--trait-type`, `--variant-weights` | VERIFIED | All 5 args present at lines 430-470; config mapping at lines 1092-1102; validation at lines 1242-1251 |
 | `variantcentrifuge/stages/analysis_stages.py` | Covariate loading and genotype matrix building in `AssociationAnalysisStage` | VERIFIED | `load_covariates` called at line 2194; `build_genotype_matrix` called at line 2282; both behind `covariate_file` and `needs_genotype_matrix` guards |
@@ -67,7 +67,7 @@ score: 5/5 must-haves verified
 | COV-02: Categorical one-hot encoding | SATISFIED | `pd.get_dummies(drop_first=True, dtype=float)`, auto-detect + explicit modes |
 | COV-03: Multicollinearity warning | SATISFIED | `np.linalg.cond(X) > 1000` triggers `logger.warning()`, test confirms warning via caplog |
 | COV-04: Column selection | SATISFIED | `covariate_columns` parameter filters columns before alignment |
-| BURDEN-01: Logistic beta+SE+CI matching statsmodels | SATISFIED | p-value, beta, SE all match to rel=1e-6 in `test_logistic_burden_matches_manual_statsmodels`. Post-verification: switched from OR to beta+SE (commit 48a6e68). |
+| BURDEN-01: Logistic OR + CI matching statsmodels | SATISFIED | p-value, beta, OR all match to rel=1e-6 in `test_logistic_burden_matches_manual_statsmodels` |
 | BURDEN-02: Linear beta + SE matching statsmodels | SATISFIED | beta, p-value match to rel=1e-6 in `test_linear_burden_matches_manual_statsmodels` |
 | BURDEN-03: Correct genotype encoding (1/2, ./., 0\|1) | SATISFIED | `parse_gt_to_dosage()` handles all edge cases; 13 direct parse tests + matrix tests |
 | WEIGHT-01: Beta(MAF;1,25) upweights rare variants | SATISFIED | Monotonically decreasing over MAF grid; 8 weight tests confirm |
@@ -87,17 +87,9 @@ None. All key behaviors are verified programmatically:
 
 ## Test Summary
 
-- Phase 19 tests: **103 passed** (covariates: 17, genotype_matrix: 33, weights: 23, logistic_burden: 16, linear_burden: 12, +2 engine column naming tests)
-- Phase 18 regression: **72 passed** (base: 9, engine: 14, fisher: 22, stage: 21 + 8)
-- Total at phase completion: 1,445 tests (post beta+SE switch)
-
-## Post-Verification Updates
-
-### Beta+SE Switch (commit 48a6e68)
-Burden tests switched from OR to beta+SE output matching SKAT/SAIGE-GENE convention. Per-unit burden OR was misleadingly close to 1.0 due to Beta(MAF;1,25) weights contributing ~24 units per variant. Changes: `se` field added to TestResult, `effect_column_names()` polymorphism added (Fisher keeps `_or`, burden uses `_beta`/`_se`), logistic burden removes `np.exp()` conversion. GCKD validated: PKD1 beta=0.054 (p=4.7e-39), PKD2 beta=0.079 (p=7.6e-20).
-
-### GT Column Recovery Fix (commit 6d71d01)
-Fixed pre-existing pipeline bug where association stage couldn't find per-sample GT columns when gene_burden_analysis (same pipeline level) had already reconstructed the packed GT column. Added fallback to `context.variants_df`.
+- Phase 19 tests: **99 passed** (covariates: 17, genotype_matrix: 33, weights: 23, logistic_burden: 15, linear_burden: 11)
+- Phase 18 regression: **72 passed** (base: 9, engine: 12, fisher: 22, stage: 21 + 8)
+- Total at phase completion: 1,441 tests (per 19-03-SUMMARY.md)
 
 ---
 
