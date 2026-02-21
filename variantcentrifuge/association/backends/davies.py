@@ -98,6 +98,50 @@ def _try_load_davies() -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _liu_params(
+    lambdas: np.ndarray,
+) -> tuple[float, float, float, float, float, float]:
+    """
+    Compute Liu moment-matching parameters (R: ``Get_Liu_Params_Mod_Lambda``).
+
+    Parameters
+    ----------
+    lambdas : np.ndarray
+        Positive eigenvalues.
+
+    Returns
+    -------
+    (mu_q, sigma_q, mu_x, sigma_x, ll, d)
+        mu_q, sigma_q : mean/sd of the quadratic form Q
+        mu_x, sigma_x : mean/sd of the matched non-central chi-squared
+        ll : degrees of freedom
+        d : non-centrality parameter
+    """
+    c1 = float(np.sum(lambdas))
+    c2 = float(np.sum(lambdas**2))
+    c3 = float(np.sum(lambdas**3))
+    c4 = float(np.sum(lambdas**4))
+
+    mu_q = c1
+    sigma_q = np.sqrt(2.0 * c2)
+    s1 = c3 / c2**1.5
+    s2 = c4 / c2**2.0
+
+    if s1**2 > s2:
+        a = 1.0 / (s1 - np.sqrt(s1**2 - s2))
+        d = s1 * a**3 - a**2
+        ll = a**2 - 2.0 * d
+    else:
+        ll = 1.0 / s2
+        a = np.sqrt(ll)
+        d = 0.0
+
+    mu_x = ll + d
+    sigma_x = np.sqrt(2.0) * a
+
+    return mu_q, sigma_q, mu_x, sigma_x, ll, d
+
+
 def _liu_pvalue(q: float, lambdas: np.ndarray) -> float:
     """
     Compute P[Q > q] by Liu moment-matching (Liu et al. 2009).
