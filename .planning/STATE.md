@@ -11,8 +11,8 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 Phase: 21 — Pure Python SKAT Backend
 Plan: 3/3 complete
-Status: Phase 21 complete — verified, gap fixes applied (Davies CDF→survival, lim=1M, rank-deficient output)
-Last activity: 2026-02-21 — Phase 21 verified and gap fixes committed
+Status: Phase 21 complete — SKAT-O perfected with full Lee et al. (2012) algorithm, validated on GCKD cohort
+Last activity: 2026-02-21 — SKAT-O exact implementation committed (analytical R.M^{1/2}, omnibus integration)
 
 Progress: ██████████████░░░░░░░ ~65% (Phases 18-21 complete, 2 phases remaining)
 
@@ -82,17 +82,21 @@ Progress: ██████████████░░░░░░░ ~65% (
 | IMPL-24 | CFFI set_source header must use extern "C" brackets for C++/C linkage bridging | 21-01 | Without extern "C" in the CFFI wrapper's forward declaration, C++ name mangling makes qfc() unresolvable at link time |
 | IMPL-25 | qfc.cpp R headers replaced with standard C++ headers (math identical) | 21-01 | <R.h> and "Rmath.h" were included but unused; standalone compilation requires standard headers only |
 | IMPL-26 | compute_pvalue() uses proactive saddlepoint at p<=1e-5 even when Davies ifault=0 | 21-01 | GMMAT pattern: Davies can produce false convergence near integration singularity for extreme p-values |
-| IMPL-27 | SKAT-O uses minimum-p approach over rho grid (not full SKAT-O integration) | 21-02 | Full SKAT-O omnibus p requires integrating over joint distribution; min-p is conservative approximation sufficient for Phase 21 |
+| IMPL-27 | ~~SKAT-O uses minimum-p approach~~ RESOLVED: Full Lee et al. (2012) SKAT-O implemented | 21-02, post-verify | Analytical R.M^{1/2} eigenvalue computation + omnibus chi2(1) integration; matches R SKAT exactly on GCKD cohort |
 | IMPL-28 | _parse_weights_beta moved to shared tests/_utils.py to prevent rpy2 transitive import | 21-02 | If it stayed in skat_r.py, importing it from skat_python.py would transitively import rpy2 |
 | IMPL-29 | Backend-aware swap in from_names() runs BEFORE unknown-name check | 21-02 | Critical ordering: 'skat' must resolve to correct class before validation; swap changes registry[skat] target |
 | IMPL-30 | Davies C ext returns CDF not SF for some eigenvalue/Q combinations | 21-03 | qfc() returns ~1.0 for large Q where true p is small; fallback chain handles via saddlepoint/Liu; tests use _liu_pvalue directly for chi2 ground-truth validation |
 | FIX-05 | Zero-variant guard added before matrix_rank in _test_skat/_test_skato | 21-03 | np.linalg.matrix_rank raises ValueError on (n,0) matrices; guard returns p_value=None,skip_reason=rank_deficient |
+| FIX-06 | SKAT projection: project Z_tilde (not G_w) through hat matrix; eigenvalues /2 | 21 post-verify | R SKAT projects diag(phi)@G_w, not G_w; K <- W/2 halves eigenvalues to match Q=score'score/2 |
+| FIX-07 | Davies compute_pvalue matches R Get_PValue.Lambda: acc=1e-6, lim=10000, keep non-converged | 21 post-verify | R SKAT uses acc=1e-6 and lim=10000 (not 1e-9/1M); non-converged Davies kept if 0<p<=1 |
+| IMPL-31 | SKAT-O eigenvalues via analytical R.M^{1/2} (not Cholesky) | 21 post-verify | R.M = (1-rho)*I + rho*J has known eigenvalues; sqrt computed analytically avoiding Cholesky instability at high rho; handles rho=1.0 |
+| IMPL-32 | R's rho >= 0.999 capping applied in SKAT-O eigenvalue loop | 21 post-verify | R SKAT caps rho at 0.999 to avoid rank-deficient correlation matrix |
 
 ### Architecture Invariants (from research)
 
 - R backend: parallel_safe=False; rpy2 calls only from main thread (segfault risk otherwise)
 - Binary traits: always SKATBinary — never continuous-trait SKAT on binary phenotypes
-- Davies defaults: acc=1e-9, lim=100_000 (GENESIS/SKATh recommendation for tighter accuracy)
+- Davies defaults: davies_pvalue() uses acc=1e-9, lim=1_000_000; compute_pvalue() (SKAT) uses acc=1e-6, lim=10_000 matching R SKAT Get_PValue.Lambda
 - Covariate alignment: always reindex to vcf_samples order; assert no NaN after reindex
 - FDR strategy: single pass on ACAT-O p-values across all genes (not per-test)
 - Genotype matrix: never stored in PipelineContext (5K samples x 50K variants = 1.6 GB)
@@ -116,7 +120,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-21T08:43:11Z
-Stopped at: Completed 21-03-PLAN.md — Phase 21 complete (84 unit tests for Python SKAT backend)
+Last session: 2026-02-21
+Stopped at: SKAT-O perfected — full Lee et al. (2012) with analytical R.M^{1/2}, GCKD-validated
 Resume file: None
 Next: Execute Phase 22 (ACAT-O + Diagnostics)

@@ -100,7 +100,7 @@ Each task was committed atomically:
 
 ## Decisions Made
 
-- **[IMPL-25] SKAT-O uses minimum-p approach over rho grid** (not full SKAT-O integration). The full SKAT-O omnibus p requires integrating over the joint distribution of p_rho values under the null, which requires complex numerical integration. The minimum-p approach (p_omnibus = min(p_rho)) is a conservative approximation sufficient for Phase 21. Can refine in Phase 23 if needed.
+- **[IMPL-25] ~~SKAT-O uses minimum-p approach~~ SUPERSEDED.** Full Lee et al. (2012) SKAT-O implemented post-verification (commit fc62e2c). Uses analytical R.M^{1/2} eigenvalue computation, SKAT_Optimal_Param decomposition, per-rho Davies→Liu p-values with Q-scale inversion, and omnibus chi-squared(1) integration. Matches R SKAT exactly on GCKD cohort (0.0000 log10 diff for PKD1/PKD2).
 
 - **[IMPL-26] _parse_weights_beta moved to shared _utils.py**. If it stayed in skat_r.py, importing it from skat_python.py would transitively import rpy2 (via the RSKATBackend import at the top of skat_r.py). Moving to _utils.py prevents this and follows the principle of minimal coupling.
 
@@ -140,7 +140,7 @@ None — plan executed smoothly. All verifications passed on first attempt.
 ## Next Phase Readiness
 
 - PythonSKATBackend is feature-complete and ready for validation testing in Plan 21-03
-- The minimum-p SKAT-O approximation in _test_skato() is noted as a simplification — Plan 21-03 tests should verify it produces reasonable results vs R SKAT
+- ~~The minimum-p SKAT-O approximation~~ SUPERSEDED: Full Lee et al. SKAT-O implemented post-verification (commit fc62e2c)
 - All engine registry and factory wiring complete; Plan 21-03 can test --skat-backend python end-to-end
 
 ---
