@@ -27,7 +27,17 @@ def __getattr__(name: str) -> object:
         from variantcentrifuge.association.tests.skat_r import RSKATTest
 
         return RSKATTest
+    if name == "PurePythonSKATTest":
+        from variantcentrifuge.association.tests.skat_python import PurePythonSKATTest
+
+        return PurePythonSKATTest
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-__all__ = ["FisherExactTest", "LinearBurdenTest", "LogisticBurdenTest", "RSKATTest"]
+__all__ = [
+    "FisherExactTest",
+    "LinearBurdenTest",
+    "LogisticBurdenTest",
+    "PurePythonSKATTest",
+    "RSKATTest",
+]

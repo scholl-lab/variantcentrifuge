@@ -6,7 +6,7 @@ SKAT backend factory and public API for the backends subpackage.
 Usage
 -----
 >>> from variantcentrifuge.association.backends import get_skat_backend
->>> backend = get_skat_backend("r")
+>>> backend = get_skat_backend("python")
 >>> backend.detect_environment()
 >>> backend.log_environment()
 
@@ -35,9 +35,9 @@ def get_skat_backend(backend_name: str) -> SKATBackend:
     backend_name : str
         Backend selector:
         - ``"r"``      — RSKATBackend (R SKAT package via rpy2). Phase 20.
-        - ``"python"`` — Pure Python SKAT backend. Phase 21 (not yet implemented).
+        - ``"python"`` — PythonSKATBackend (pure Python via numpy/scipy/statsmodels). Phase 21.
         - ``"auto"``   — Try ``"r"`` first; fall back to ``"python"`` if R is
-                         unavailable. Raises ImportError if neither is available.
+                         unavailable. The Python backend is always available.
 
     Returns
     -------
@@ -48,9 +48,6 @@ def get_skat_backend(backend_name: str) -> SKATBackend:
     ------
     ValueError
         If ``backend_name`` is not one of the recognised values.
-    NotImplementedError
-        If ``backend_name`` is ``"python"`` (Phase 21) or if ``"auto"`` mode
-        finds no available backend.
     ImportError
         Propagated from RSKATBackend.detect_environment() when the R backend
         is explicitly requested but R or SKAT is not installed. In ``"auto"``
@@ -69,14 +66,12 @@ def get_skat_backend(backend_name: str) -> SKATBackend:
         return RSKATBackend()
 
     if backend_name == "python":
-        raise NotImplementedError(
-            "Pure Python SKAT backend is not yet implemented. "
-            "It is planned for Phase 21 of the v0.15.0 milestone. "
-            "Use backend_name='r' for R-based SKAT."
-        )
+        from variantcentrifuge.association.backends.python_backend import PythonSKATBackend
+
+        return PythonSKATBackend()
 
     if backend_name == "auto":
-        # Try R first; fall through to Python on ImportError
+        # Try R first; fall through to Python on ImportError / RuntimeError
         try:
             from variantcentrifuge.association.backends.r_backend import RSKATBackend
 
@@ -94,15 +89,10 @@ def get_skat_backend(backend_name: str) -> SKATBackend:
         except Exception:
             pass
 
-        # Fall back to Python backend (will raise NotImplementedError until Phase 21)
-        raise NotImplementedError(
-            "auto backend: R backend (rpy2) is not available, and the pure Python "
-            "SKAT backend is not yet implemented (Phase 21). "
-            "To use SKAT, install R and rpy2:\n"
-            "  1. Install R >= 4.0: https://www.r-project.org/\n"
-            "  2. Install SKAT in R: install.packages('SKAT')\n"
-            "  3. Install rpy2: pip install 'rpy2>=3.5.0'"
-        )
+        # R backend unavailable — fall back to Python backend (always available)
+        from variantcentrifuge.association.backends.python_backend import PythonSKATBackend
+
+        return PythonSKATBackend()
 
     raise ValueError(
         f"Unknown SKAT backend: '{backend_name}'. Valid values: 'r', 'python', 'auto'."

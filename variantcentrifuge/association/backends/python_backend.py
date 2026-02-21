@@ -36,6 +36,11 @@ For each rho, kernel = (1-rho)*K_skat + rho*K_burden; p_min approach used.
 Thread safety
 -------------
 PythonSKATBackend is thread-safe — pure Python/numpy, no R/rpy2 restrictions.
+
+Variable naming note
+--------------------
+Scientific math variables (design matrix, kernels, eigenvalues) use descriptive
+names to comply with ruff N-series naming rules while keeping code readable.
 """
 
 from __future__ import annotations
@@ -121,9 +126,7 @@ class PythonSKATBackend(SKATBackend):
         # Probe Davies C extension (non-fatal)
         self._davies_available = _try_load_davies()
         if not self._davies_available:
-            logger.info(
-                "Davies C extension unavailable; will use saddlepoint/Liu fallback"
-            )
+            logger.info("Davies C extension unavailable; will use saddlepoint/Liu fallback")
 
     def log_environment(self) -> None:
         """
@@ -131,11 +134,12 @@ class PythonSKATBackend(SKATBackend):
 
         Should be called after detect_environment() succeeds.
         """
+        davies_status = "available" if self._davies_available else "unavailable (using fallback)"
         logger.info(
             f"Python SKAT backend: numpy={self._numpy_version}, "
             f"scipy={self._scipy_version}, "
             f"statsmodels={self._statsmodels_version}, "
-            f"davies_c_ext={'available' if self._davies_available else 'unavailable (using saddlepoint/Liu)'}"
+            f"davies_c_ext={davies_status}"
         )
 
     def fit_null_model(
@@ -166,40 +170,36 @@ class PythonSKATBackend(SKATBackend):
         """
         import statsmodels.api as sm
 
-        n = len(phenotype)
+        n_obs = len(phenotype)
 
         # Build design matrix: covariates + intercept
         if covariates is not None and covariates.ndim == 2 and covariates.shape[1] > 0:
-            X = sm.add_constant(covariates, prepend=True, has_constant="add")
+            design_matrix = sm.add_constant(covariates, prepend=True, has_constant="add")
         else:
             # Intercept only
-            X = np.ones((n, 1), dtype=np.float64)
+            design_matrix = np.ones((n_obs, 1), dtype=np.float64)
 
-        # Select GLM family
-        if trait_type == "binary":
-            family = sm.families.Binomial()
-        else:
-            family = sm.families.Gaussian()
+        # Select GLM family based on trait type
+        family = sm.families.Binomial() if trait_type == "binary" else sm.families.Gaussian()
 
         # Fit the null model
-        glm = sm.GLM(phenotype, X, family=family)
-        result = glm.fit()
+        glm = sm.GLM(phenotype, design_matrix, family=family)
+        fit_result = glm.fit()
 
         # Extract response residuals: y - mu_hat (NOT deviance or Pearson)
-        residuals = np.asarray(result.resid_response, dtype=np.float64)
+        residuals = np.asarray(fit_result.resid_response, dtype=np.float64)
 
         # Variance estimate
-        if trait_type == "quantitative":
-            sigma2 = float(np.var(residuals, ddof=1))
-        else:
-            # Binary trait: sigma2 = 1.0 by SKAT convention
-            sigma2 = 1.0
+        sigma2 = (
+            float(np.var(residuals, ddof=1))
+            if trait_type == "quantitative"
+            else 1.0  # Binary trait: sigma2 = 1.0 by SKAT convention
+        )
 
-        mu_hat = np.asarray(result.fittedvalues, dtype=np.float64)
+        mu_hat = np.asarray(fit_result.fittedvalues, dtype=np.float64)
 
         logger.debug(
-            f"Null model fit: trait_type={trait_type}, n_samples={n}, "
-            f"sigma2={sigma2:.6f}"
+            f"Null model fit: trait_type={trait_type}, n_samples={n_obs}, sigma2={sigma2:.6f}"
         )
 
         # Reset tracking for this cohort
@@ -207,9 +207,9 @@ class PythonSKATBackend(SKATBackend):
         self._start_time = time.time()
 
         return NullModelResult(
-            model=result,
+            model=fit_result,
             trait_type=trait_type,
-            n_samples=n,
+            n_samples=n_obs,
             adjustment=False,
             extra={
                 "residuals": residuals,
@@ -269,10 +269,49 @@ class PythonSKATBackend(SKATBackend):
         )
         return result
 
+    def _compute_eigenvalues_filtered(
+        self,
+        kernel: np.ndarray,
+        sigma2: float,
+    ) -> np.ndarray:
+        """
+        Compute filtered eigenvalues of a SKAT kernel matrix.
+
+        Uses scipy.linalg.eigh(driver='evr') matching R's DSYEVR Lapack routine.
+        Applies threshold = mean(positive_eigenvalues) / 100_000 (matches R SKAT).
+
+        Parameters
+        ----------
+        kernel : np.ndarray, shape (n_samples, n_samples)
+            Symmetric kernel matrix (e.g. ZW @ ZW.T).
+        sigma2 : float
+            Variance estimate from null model.
+
+        Returns
+        -------
+        np.ndarray
+            Filtered eigenvalues (positive and above threshold). Empty array if none pass.
+        """
+        lambdas_all = scipy.linalg.eigh(
+            kernel / (2.0 * sigma2),
+            eigvals_only=True,
+            driver="evr",
+        )
+
+        # Filter eigenvalues (matches R SKAT exactly):
+        # 1. Take positive eigenvalues
+        # 2. threshold = mean(positive) / 100_000
+        # 3. Keep lambdas > threshold
+        pos = lambdas_all[lambdas_all >= 0]
+        if len(pos) == 0:
+            return np.array([], dtype=np.float64)
+        threshold = pos.mean() / 100_000.0
+        return lambdas_all[lambdas_all > threshold]
+
     def _test_skat(
         self,
         gene: str,
-        Z: np.ndarray,
+        geno: np.ndarray,
         null_model: NullModelResult,
         weights_beta: tuple[float, float],
     ) -> dict[str, Any]:
@@ -283,7 +322,7 @@ class PythonSKATBackend(SKATBackend):
         ----------
         gene : str
             Gene symbol (for logging).
-        Z : np.ndarray, shape (n_samples, n_variants)
+        geno : np.ndarray, shape (n_samples, n_variants)
             Genotype dosage matrix.
         null_model : NullModelResult
             Fitted null model (contains residuals and sigma2 in extra).
@@ -294,13 +333,13 @@ class PythonSKATBackend(SKATBackend):
         -------
         dict with SKAT result fields.
         """
-        n_samples, n_variants = Z.shape
+        _n_samples, n_variants = geno.shape
         residuals: np.ndarray = null_model.extra["residuals"]
         sigma2: float = null_model.extra["sigma2"]
         a1, a2 = weights_beta
 
         # Rank check on FULL matrix BEFORE any eigenvalue filtering
-        rank = int(np.linalg.matrix_rank(Z))
+        rank = int(np.linalg.matrix_rank(geno))
         if rank < 2:
             logger.debug(f"Gene {gene}: rank={rank} < 2; skipping (rank_deficient)")
             return {
@@ -315,47 +354,24 @@ class PythonSKATBackend(SKATBackend):
             }
 
         # Compute MAFs and Beta weights
-        mafs = Z.mean(axis=0) / 2.0
+        mafs = geno.mean(axis=0) / 2.0
         weights = beta_maf_weights(mafs, a=a1, b=a2)
 
-        # Weighted genotype matrix via broadcasting (memory-efficient vs Z @ diag(w))
-        ZW = Z * weights[np.newaxis, :]
+        # Weighted genotype matrix via broadcasting (memory-efficient vs geno @ diag(w))
+        geno_weighted = geno * weights[np.newaxis, :]
 
         # Score statistic: Q = 0.5 * (ZW^T r)^T (ZW^T r)
-        Zr = ZW.T @ residuals  # shape: (n_variants,)
-        Q = float(Zr @ Zr) / 2.0
+        score_vec = geno_weighted.T @ residuals  # shape: (n_variants,)
+        q_stat = float(score_vec @ score_vec) / 2.0
 
-        # Kernel matrix K = ZW ZW^T / (2 * sigma2) — shape: (n_samples, n_samples)
-        # Use eigh(driver='evr') matching R's DSYEVR
-        K = ZW @ ZW.T
-        lambdas_all = scipy.linalg.eigh(
-            K / (2.0 * sigma2),
-            eigvals_only=True,
-            driver="evr",
-        )
+        # Kernel matrix: ZW @ ZW^T
+        kernel = geno_weighted @ geno_weighted.T
 
-        # Eigenvalue filtering (matches R SKAT exactly):
-        # 1. Take positive eigenvalues
-        # 2. threshold = mean(positive) / 100_000
-        # 3. Keep lambdas > threshold
-        pos = lambdas_all[lambdas_all >= 0]
-        if len(pos) == 0:
-            logger.debug(f"Gene {gene}: no positive eigenvalues; returning p=1.0")
-            return {
-                "p_value": 1.0,
-                "rho": None,
-                "n_variants": n_variants,
-                "n_marker_test": n_variants,
-                "warnings": [],
-                "p_method": "liu",
-                "p_converged": False,
-                "skip_reason": None,
-            }
-        threshold = pos.mean() / 100_000.0
-        lambdas = lambdas_all[lambdas_all > threshold]
+        # Filtered eigenvalues
+        lambdas = self._compute_eigenvalues_filtered(kernel, sigma2)
 
         if len(lambdas) == 0:
-            logger.debug(f"Gene {gene}: all eigenvalues below threshold; returning p=1.0")
+            logger.debug(f"Gene {gene}: no eigenvalues above threshold; returning p=1.0")
             return {
                 "p_value": 1.0,
                 "rho": None,
@@ -368,9 +384,9 @@ class PythonSKATBackend(SKATBackend):
             }
 
         # Compute p-value via three-tier chain
-        p_value, p_method, p_converged = compute_pvalue(Q, lambdas)
+        p_value, p_method, p_converged = compute_pvalue(q_stat, lambdas)
 
-        # Map NaN to None (degenerate case)
+        # Map NaN/Inf to None (degenerate case)
         p_out: float | None = None if (np.isnan(p_value) or np.isinf(p_value)) else float(p_value)
 
         return {
@@ -387,7 +403,7 @@ class PythonSKATBackend(SKATBackend):
     def _test_burden(
         self,
         gene: str,
-        Z: np.ndarray,
+        geno: np.ndarray,
         null_model: NullModelResult,
         weights_beta: tuple[float, float],
     ) -> dict[str, Any]:
@@ -401,7 +417,7 @@ class PythonSKATBackend(SKATBackend):
         ----------
         gene : str
             Gene symbol (for logging).
-        Z : np.ndarray, shape (n_samples, n_variants)
+        geno : np.ndarray, shape (n_samples, n_variants)
             Genotype dosage matrix.
         null_model : NullModelResult
             Fitted null model.
@@ -412,23 +428,23 @@ class PythonSKATBackend(SKATBackend):
         -------
         dict with burden result fields.
         """
-        n_samples, n_variants = Z.shape
+        _n_samples, n_variants = geno.shape
         residuals: np.ndarray = null_model.extra["residuals"]
         sigma2: float = null_model.extra["sigma2"]
         a1, a2 = weights_beta
 
         # Compute MAFs and Beta weights
-        mafs = Z.mean(axis=0) / 2.0
+        mafs = geno.mean(axis=0) / 2.0
         weights = beta_maf_weights(mafs, a=a1, b=a2)
 
-        # Collapse to burden score per sample
-        burden = Z @ weights  # shape: (n_samples,)
+        # Collapse to burden score per sample: b = geno @ weights
+        burden = geno @ weights  # shape: (n_samples,)
 
-        # Score test: T = r^T burden; Var(T) = sigma2 * ||burden||^2
-        T = float(residuals @ burden)
-        V = sigma2 * float(burden @ burden)
+        # Score test: score = r^T b; Var(score) = sigma2 * ||b||^2
+        score = float(residuals @ burden)
+        variance = sigma2 * float(burden @ burden)
 
-        if V <= 0.0:
+        if variance <= 0.0:
             return {
                 "p_value": None,
                 "rho": None,
@@ -440,7 +456,7 @@ class PythonSKATBackend(SKATBackend):
                 "skip_reason": "zero_variance",
             }
 
-        z_stat = T / np.sqrt(V)
+        z_stat = score / np.sqrt(variance)
         p_value = float(2.0 * scipy.stats.norm.sf(abs(z_stat)))
 
         return {
@@ -457,7 +473,7 @@ class PythonSKATBackend(SKATBackend):
     def _test_skato(
         self,
         gene: str,
-        Z: np.ndarray,
+        geno: np.ndarray,
         null_model: NullModelResult,
         weights_beta: tuple[float, float],
     ) -> dict[str, Any]:
@@ -477,7 +493,7 @@ class PythonSKATBackend(SKATBackend):
         ----------
         gene : str
             Gene symbol (for logging).
-        Z : np.ndarray, shape (n_samples, n_variants)
+        geno : np.ndarray, shape (n_samples, n_variants)
             Genotype dosage matrix.
         null_model : NullModelResult
             Fitted null model.
@@ -488,13 +504,13 @@ class PythonSKATBackend(SKATBackend):
         -------
         dict with SKAT-O result fields including optimal rho.
         """
-        n_samples, n_variants = Z.shape
+        _n_samples, n_variants = geno.shape
         residuals: np.ndarray = null_model.extra["residuals"]
         sigma2: float = null_model.extra["sigma2"]
         a1, a2 = weights_beta
 
         # Rank check on full matrix
-        rank = int(np.linalg.matrix_rank(Z))
+        rank = int(np.linalg.matrix_rank(geno))
         if rank < 2:
             logger.debug(f"Gene {gene} (SKAT-O): rank={rank} < 2; skipping (rank_deficient)")
             return {
@@ -509,24 +525,24 @@ class PythonSKATBackend(SKATBackend):
             }
 
         # Compute weights
-        mafs = Z.mean(axis=0) / 2.0
+        mafs = geno.mean(axis=0) / 2.0
         weights = beta_maf_weights(mafs, a=a1, b=a2)
 
         # Weighted genotype matrix
-        ZW = Z * weights[np.newaxis, :]
+        geno_weighted = geno * weights[np.newaxis, :]
 
-        # SKAT kernel matrix
-        K_skat = ZW @ ZW.T  # (n_samples, n_samples)
+        # SKAT kernel matrix: geno_weighted @ geno_weighted^T
+        kernel_skat = geno_weighted @ geno_weighted.T
 
-        # Burden kernel: outer product of burden vector
-        burden = Z @ weights  # (n_samples,)
-        K_burden = np.outer(burden, burden)  # (n_samples, n_samples)
+        # Burden vector and burden kernel: outer product
+        burden = geno @ weights  # (n_samples,)
+        kernel_burden = np.outer(burden, burden)
 
-        # Score vectors
-        Zr = ZW.T @ residuals  # (n_variants,) for SKAT Q
-        Q_skat = float(Zr @ Zr) / 2.0
-        T_burden = float(residuals @ burden)
-        Q_burden = T_burden**2 / 2.0
+        # Score vectors for SKAT and burden components
+        score_skat_vec = geno_weighted.T @ residuals  # (n_variants,)
+        q_skat = float(score_skat_vec @ score_skat_vec) / 2.0
+        score_burden = float(residuals @ burden)
+        q_burden = score_burden**2 / 2.0
 
         best_p: float | None = None
         best_rho: float = 0.0
@@ -534,30 +550,18 @@ class PythonSKATBackend(SKATBackend):
         best_p_converged: bool = False
 
         for rho in _SKATO_RHO_GRID:
-            # Combined test statistic
-            Q_rho = (1.0 - rho) * Q_skat + rho * Q_burden
+            # Combined test statistic for this rho
+            q_rho = (1.0 - rho) * q_skat + rho * q_burden
 
             # Combined kernel for this rho
-            K_rho = (1.0 - rho) * K_skat + rho * K_burden
+            kernel_rho = (1.0 - rho) * kernel_skat + rho * kernel_burden
 
-            # Eigenvalues of combined kernel
-            lambdas_all_rho = scipy.linalg.eigh(
-                K_rho / (2.0 * sigma2),
-                eigvals_only=True,
-                driver="evr",
-            )
-
-            # Filter eigenvalues (same logic as _test_skat)
-            pos_rho = lambdas_all_rho[lambdas_all_rho >= 0]
-            if len(pos_rho) == 0:
-                continue
-            threshold_rho = pos_rho.mean() / 100_000.0
-            lambdas_rho = lambdas_all_rho[lambdas_all_rho > threshold_rho]
-
+            # Filtered eigenvalues
+            lambdas_rho = self._compute_eigenvalues_filtered(kernel_rho, sigma2)
             if len(lambdas_rho) == 0:
                 continue
 
-            p_rho, p_method_rho, p_converged_rho = compute_pvalue(Q_rho, lambdas_rho)
+            p_rho, p_method_rho, p_converged_rho = compute_pvalue(q_rho, lambdas_rho)
 
             if np.isnan(p_rho) or np.isinf(p_rho):
                 continue
@@ -571,11 +575,10 @@ class PythonSKATBackend(SKATBackend):
         if best_p is None:
             # All rho values failed — fall back to pure SKAT
             logger.warning(f"Gene {gene}: SKAT-O failed for all rho values; falling back to SKAT")
-            return self._test_skat(gene, Z, null_model, weights_beta)
+            return self._test_skat(gene, geno, null_model, weights_beta)
 
         logger.debug(
-            f"Gene {gene} SKAT-O: optimal rho={best_rho}, p={best_p}, "
-            f"p_method={best_p_method}"
+            f"Gene {gene} SKAT-O: optimal rho={best_rho}, p={best_p}, p_method={best_p_method}"
         )
 
         return {
@@ -597,7 +600,6 @@ class PythonSKATBackend(SKATBackend):
         """
         elapsed = time.time() - self._start_time
         logger.info(
-            f"PythonSKATBackend.cleanup: {self._genes_processed} genes processed "
-            f"in {elapsed:.1f}s"
+            f"PythonSKATBackend.cleanup: {self._genes_processed} genes processed in {elapsed:.1f}s"
         )
         logger.debug("Python SKAT cleanup (no-op)")

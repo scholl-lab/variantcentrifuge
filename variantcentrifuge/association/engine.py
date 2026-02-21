@@ -46,6 +46,7 @@ def _build_registry() -> dict[str, type[AssociationTest]]:
     from variantcentrifuge.association.tests.fisher import FisherExactTest
     from variantcentrifuge.association.tests.linear_burden import LinearBurdenTest
     from variantcentrifuge.association.tests.logistic_burden import LogisticBurdenTest
+    from variantcentrifuge.association.tests.skat_python import PurePythonSKATTest
     from variantcentrifuge.association.tests.skat_r import RSKATTest
 
     return {
@@ -53,6 +54,7 @@ def _build_registry() -> dict[str, type[AssociationTest]]:
         "logistic_burden": LogisticBurdenTest,
         "linear_burden": LinearBurdenTest,
         "skat": RSKATTest,
+        "skat_python": PurePythonSKATTest,
     }
 
 
@@ -108,6 +110,27 @@ class AssociationEngine:
             (before any data processing) by check_dependencies().
         """
         registry = _build_registry()
+
+        # Backend-aware swap: --skat-backend python routes "skat" to PurePythonSKATTest.
+        # This runs BEFORE the unknown-name check so that "skat" resolves correctly.
+        skat_backend = getattr(config, "skat_backend", "r")
+        if skat_backend == "python":
+            from variantcentrifuge.association.tests.skat_python import PurePythonSKATTest
+
+            registry["skat"] = PurePythonSKATTest
+        elif skat_backend == "auto":
+            # Try R first; if rpy2 unavailable, fall back to Python
+            try:
+                from variantcentrifuge.association.backends import get_skat_backend
+
+                get_skat_backend("r")  # probe R availability (lightweight import check)
+                # If we reach here, R backend is potentially available; keep RSKATTest
+            except (ImportError, RuntimeError, Exception):
+                from variantcentrifuge.association.tests.skat_python import PurePythonSKATTest
+
+                registry["skat"] = PurePythonSKATTest
+                logger.info("R/rpy2 unavailable; using Python SKAT backend (auto mode)")
+
         available = sorted(registry.keys())
 
         unknown = [name for name in test_names if name not in registry]

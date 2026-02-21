@@ -1,35 +1,39 @@
-# File: variantcentrifuge/association/tests/skat_r.py
-# Location: variantcentrifuge/variantcentrifuge/association/tests/skat_r.py
+# File: variantcentrifuge/association/tests/skat_python.py
+# Location: variantcentrifuge/variantcentrifuge/association/tests/skat_python.py
 """
-RSKATTest — AssociationTest wrapper for the R SKAT backend.
+PurePythonSKATTest — AssociationTest wrapper for the pure Python SKAT backend.
 
-Wraps RSKATBackend to integrate R-based SKAT into the AssociationEngine
-framework. Registered in the engine registry as ``"skat"``.
+Wraps PythonSKATBackend to integrate pure-Python SKAT into the AssociationEngine
+framework. Registered in the engine registry as ``"skat_python"`` (explicit) and
+as a swap target for ``"skat"`` when ``--skat-backend python`` is specified.
+
+This class follows the same structural pattern as RSKATTest (skat_r.py) but:
+- Uses PythonSKATBackend instead of RSKATBackend
+- Is thread-safe (Python SKAT is pure numpy/scipy)
+- Has no R heap monitoring (no R process involved)
+- Includes p_method and p_converged in TestResult.extra
 
 SKAT has no effect size, standard error, or confidence interval — it only
 produces a p-value (and optionally rho from SKAT-O). The engine's None-effect
-guard handles the all-None ``effect_column_names()`` return without creating
-malformed column names like ``skat_None``.
+guard handles the all-None ``effect_column_names()`` return.
 
 Null model lifecycle
 --------------------
-The SKAT null model is fit once on the full cohort (all samples, phenotype +
-covariates) and then reused for all genes. RSKATTest caches the null model
-as ``self._null_model`` after the first gene call. This is safe because the
-null model does not depend on the variant data — it depends only on the
-phenotype, covariates, and trait type.
+The null model is fit once on the first gene call (lazy) and cached as
+``self._null_model``. This is safe because the null model does not depend
+on the variant data — only on the phenotype, covariates, and trait type.
 
 Thread safety
 -------------
-RSKATBackend is not thread-safe (rpy2 restriction). The stage that uses
-RSKATTest must declare ``parallel_safe=False``.
+PythonSKATBackend is thread-safe. The stage using PurePythonSKATTest does
+NOT need to declare ``parallel_safe=False`` (unlike RSKATTest).
 
 Lifecycle hooks
 ---------------
 The engine calls ``prepare(n_genes)`` before the gene loop and ``finalize()``
-after. RSKATTest uses these for:
-  - prepare(): large panel warning, log interval computation, start message
-  - finalize(): total timing summary, backend cleanup (R gc())
+after. PurePythonSKATTest uses these for:
+  - prepare(): log interval computation, start message
+  - finalize(): total timing summary, backend cleanup (no-op for Python backend)
 """
 
 from __future__ import annotations
@@ -40,25 +44,22 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from variantcentrifuge.association.backends.r_backend import RSKATBackend
 from variantcentrifuge.association.base import AssociationConfig, AssociationTest, TestResult
-from variantcentrifuge.association.tests._utils import (
-    parse_weights_beta as _parse_weights_beta_shared,
-)
+from variantcentrifuge.association.tests._utils import parse_weights_beta
 
 if TYPE_CHECKING:
     from variantcentrifuge.association.backends.base import NullModelResult
+    from variantcentrifuge.association.backends.python_backend import PythonSKATBackend
 
 logger = logging.getLogger("variantcentrifuge")
 
 
-class RSKATTest(AssociationTest):
+class PurePythonSKATTest(AssociationTest):
     """
-    SKAT association test using the R SKAT package via rpy2.
+    SKAT association test using the pure Python backend (numpy/scipy/statsmodels).
 
-    Registered in the engine as ``"skat"``. Uses RSKATBackend for all R
-    interaction; this class handles the AssociationTest protocol (lifecycle,
-    null model caching, result packing).
+    Registered in the engine as ``"skat_python"`` (explicit) and used as the
+    ``"skat"`` implementation when ``--skat-backend python`` is specified.
 
     Parameters
     ----------
@@ -67,19 +68,19 @@ class RSKATTest(AssociationTest):
     Raises
     ------
     ImportError
-        From check_dependencies() if rpy2 is not importable or the R SKAT
-        package is not installed.
+        From check_dependencies() if required Python libraries are missing
+        (should not occur in normal variantcentrifuge installations).
 
     Examples
     --------
     This test is typically used through the engine, not instantiated directly:
 
-    >>> engine = AssociationEngine.from_names(["skat"], config)
+    >>> engine = AssociationEngine.from_names(["skat_python"], config)
     >>> result_df = engine.run_all(gene_burden_data)
     """
 
     def __init__(self) -> None:
-        self._backend: RSKATBackend | None = None
+        self._backend: PythonSKATBackend | None = None
         self._null_model: NullModelResult | None = None
 
         # Lifecycle tracking (set by prepare())
@@ -95,25 +96,18 @@ class RSKATTest(AssociationTest):
 
     def check_dependencies(self) -> None:
         """
-        Verify that rpy2 is importable and the R SKAT package is installed.
+        Verify that the Python SKAT backend dependencies are available.
 
-        Calls RSKATBackend.detect_environment() eagerly so that users get a
-        clear error (with R_HOME and install instructions) before any data
-        processing begins.
+        Calls PythonSKATBackend.detect_environment() eagerly so that users
+        get clear diagnostics before any data processing begins.
 
-        Raises
-        ------
-        ImportError
-            If rpy2 is not installed, R is not found (R_HOME misconfigured),
-            or the SKAT package is not installed in R.
+        The Python backend never raises (numpy/scipy/statsmodels are required
+        variantcentrifuge dependencies). This method still calls detect_environment()
+        to initialize internal state and log environment info.
         """
         from variantcentrifuge.association.backends import get_skat_backend
 
-        # RSKATTest is always backed by the R backend — the "r" name is
-        # hard-coded here because this class IS the R SKAT test. The engine
-        # registry maps "skat" -> RSKATTest; an auto-selected Python backend
-        # would be a separate test class (Phase 21).
-        backend = get_skat_backend("r")
+        backend = get_skat_backend("python")
         backend.detect_environment()
         backend.log_environment()
         self._backend = backend  # type: ignore[assignment]
@@ -142,9 +136,7 @@ class RSKATTest(AssociationTest):
         """
         Called by the engine before the gene loop with total gene count.
 
-        Sets up progress logging parameters and emits pre-run messages:
-        - WARNING if gene_count > LARGE_PANEL_THRESHOLD (>2000 genes)
-        - INFO log announcing start: "R SKAT: beginning analysis of N genes"
+        Sets up progress logging parameters and emits a start message at INFO level.
 
         Parameters
         ----------
@@ -156,24 +148,16 @@ class RSKATTest(AssociationTest):
         self._log_interval = max(10, min(50, gene_count // 10)) if gene_count > 0 else 50
         self._start_time = time.time()
 
-        if gene_count > RSKATBackend.LARGE_PANEL_THRESHOLD:
-            logger.warning(
-                f"R SKAT: large gene panel ({gene_count} genes > "
-                f"{RSKATBackend.LARGE_PANEL_THRESHOLD} threshold). "
-                "Memory usage will be monitored. Consider splitting the panel "
-                "if R heap warnings appear."
-            )
-
-        logger.info(f"R SKAT: beginning analysis of {gene_count} genes")
+        logger.info(f"Python SKAT: beginning analysis of {gene_count} genes")
 
     def finalize(self) -> None:
         """
         Called by the engine after the gene loop completes.
 
-        Logs aggregate timing summary and triggers R backend cleanup (R gc()).
+        Logs aggregate timing summary and calls backend cleanup (no-op for Python backend).
         """
         elapsed = time.time() - self._start_time
-        logger.info(f"R SKAT complete: {self._genes_processed} genes in {elapsed:.1f}s")
+        logger.info(f"Python SKAT complete: {self._genes_processed} genes in {elapsed:.1f}s")
         if self._backend is not None:
             self._backend.cleanup()
 
@@ -184,11 +168,11 @@ class RSKATTest(AssociationTest):
         config: AssociationConfig,
     ) -> TestResult:
         """
-        Run SKAT for a single gene.
+        Run SKAT for a single gene using the pure Python backend.
 
         Fits the null model on the first call (lazy), then reuses it for all
         subsequent genes. The genotype matrix, phenotype, and covariate matrix
-        are extracted from ``contingency_data`` (same keys as logistic_burden).
+        are extracted from ``contingency_data``.
 
         Parameters
         ----------
@@ -209,7 +193,8 @@ class RSKATTest(AssociationTest):
         TestResult
             p_value=None when test is skipped (no variants, no genotype matrix).
             effect_size=None, se=None, ci_lower=None, ci_upper=None (SKAT has
-            no effect size). extra contains SKAT-specific metadata.
+            no effect size). extra contains SKAT-specific metadata including
+            p_method, p_converged, and skip_reason.
 
         Notes
         -----
@@ -235,7 +220,7 @@ class RSKATTest(AssociationTest):
                 n_cases=n_cases,
                 n_controls=n_controls,
                 n_variants=n_variants,
-                extra={"skat_warnings": ["NO_GENOTYPE_MATRIX"]},
+                extra={"skat_warnings": "NO_GENOTYPE_MATRIX"},
             )
 
         geno: np.ndarray = contingency_data["genotype_matrix"]
@@ -255,13 +240,13 @@ class RSKATTest(AssociationTest):
                 n_cases=n_cases,
                 n_controls=n_controls,
                 n_variants=n_variants,
-                extra={"skat_warnings": ["NO_PHENOTYPE_OR_EMPTY_MATRIX"]},
+                extra={"skat_warnings": "NO_PHENOTYPE_OR_EMPTY_MATRIX"},
             )
 
         # Backend must have been initialised by check_dependencies()
         if self._backend is None:
             raise RuntimeError(
-                "RSKATTest.run() called without check_dependencies(). "
+                "PurePythonSKATTest.run() called without check_dependencies(). "
                 "Use AssociationEngine.from_names() which calls check_dependencies() "
                 "at construction time."
             )
@@ -275,7 +260,7 @@ class RSKATTest(AssociationTest):
             )
 
         # Parse weight parameters from config (e.g. "beta:1,25" -> (1.0, 25.0))
-        weights_beta = _parse_weights_beta(config.variant_weights)
+        weights_beta = parse_weights_beta(config.variant_weights)
 
         result = self._backend.test_gene(
             gene=gene,
@@ -285,25 +270,32 @@ class RSKATTest(AssociationTest):
             weights_beta=weights_beta,
         )
 
-        # Increment local counter (backend also tracks, but we need per-test tracking)
+        # Increment local counter
         self._genes_processed += 1
-
-        # Periodic GC + heap monitoring (every GC_INTERVAL genes)
-        if self._genes_processed % RSKATBackend.GC_INTERVAL == 0:
-            self._backend._run_r_gc()
-            heap_mb = self._backend._check_r_heap()
-            if heap_mb is not None and heap_mb > RSKATBackend.R_HEAP_WARNING_GB * 1024.0:
-                logger.warning(
-                    f"R heap usage {heap_mb / 1024.0:.1f} GB exceeds "
-                    f"{RSKATBackend.R_HEAP_WARNING_GB} GB threshold"
-                )
 
         # Progress logging at INFO level every log_interval genes
         if self._total_genes > 0 and self._genes_processed % self._log_interval == 0:
             pct = 100.0 * self._genes_processed / self._total_genes
             logger.info(
-                f"SKAT progress: {self._genes_processed}/{self._total_genes} genes ({pct:.0f}%)"
+                f"Python SKAT progress: "
+                f"{self._genes_processed}/{self._total_genes} genes ({pct:.0f}%)"
             )
+
+        # Build extra dict with Python backend-specific metadata
+        warnings_raw = result.get("warnings", [])
+        warnings_str: str | None = "; ".join(warnings_raw) if warnings_raw else None
+        skip_reason = result.get("skip_reason")
+
+        extra: dict[str, Any] = {
+            "skat_o_rho": result.get("rho"),
+            "skat_warnings": warnings_str,
+            "skat_method": config.skat_method,
+            "skat_n_marker_test": result.get("n_marker_test"),
+            "skat_p_method": result.get("p_method"),
+            "skat_p_converged": result.get("p_converged"),
+        }
+        if skip_reason is not None:
+            extra["skat_skip_reason"] = skip_reason
 
         return TestResult(
             gene=gene,
@@ -317,39 +309,5 @@ class RSKATTest(AssociationTest):
             n_cases=n_cases,
             n_controls=n_controls,
             n_variants=result.get("n_variants", n_variants),
-            extra={
-                "skat_o_rho": result.get("rho"),
-                "skat_warnings": "; ".join(result.get("warnings", [])) or None,
-                "skat_method": config.skat_method,
-                "skat_n_marker_test": result.get("n_marker_test"),
-            },
+            extra=extra,
         )
-
-
-def _parse_weights_beta(variant_weights: str) -> tuple[float, float]:
-    """
-    Parse weight specification string to Beta distribution parameters.
-
-    Delegates to the shared implementation in
-    ``variantcentrifuge.association.tests._utils.parse_weights_beta``.
-    Kept here as a module-level name for backward compatibility with any
-    code that imports it directly from this module.
-
-    Parameters
-    ----------
-    variant_weights : str
-        Weight scheme, e.g. ``"beta:1,25"``, ``"uniform"``, or any string.
-
-    Returns
-    -------
-    tuple of (float, float)
-        Beta distribution parameters (a1, a2).
-
-    Examples
-    --------
-    >>> _parse_weights_beta("beta:1,25")
-    (1.0, 25.0)
-    >>> _parse_weights_beta("uniform")
-    (1.0, 1.0)
-    """
-    return _parse_weights_beta_shared(variant_weights)
