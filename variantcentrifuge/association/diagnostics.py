@@ -222,6 +222,78 @@ def compute_per_gene_warnings(
     return warnings
 
 
+def write_qq_plot(
+    qq_data: pd.DataFrame,
+    output_path: str | Path,
+) -> bool:
+    """Write QQ plot as PNG. Returns True if successful, False if matplotlib absent.
+
+    Uses lazy import with matplotlib.use("Agg") for headless HPC environments.
+    The Agg backend MUST be set before importing matplotlib.pyplot to avoid
+    display errors on systems without a graphical environment.
+
+    Parameters
+    ----------
+    qq_data : pd.DataFrame
+        QQ data with columns: test, expected_neg_log10_p, observed_neg_log10_p.
+        Typically produced by concatenating compute_qq_data() results across tests.
+    output_path : str | Path
+        Output file path (e.g. /path/to/diagnostics/qq_plot.png).
+
+    Returns
+    -------
+    bool
+        True if plot was written successfully, False if matplotlib is not
+        installed or qq_data is empty.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")  # headless HPC — MUST be before pyplot import
+        import matplotlib.pyplot as plt
+    except ImportError:
+        logger.info("matplotlib not installed — QQ plot skipped")
+        return False
+
+    if qq_data.empty:
+        logger.info("No QQ data available — QQ plot skipped")
+        return False
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    # Plot each test as a separate series
+    for test_name, group in qq_data.groupby("test"):
+        ax.scatter(
+            group["expected_neg_log10_p"],
+            group["observed_neg_log10_p"],
+            s=4,
+            alpha=0.6,
+            label=str(test_name),
+        )
+
+    # Identity line: expected == observed under the null hypothesis
+    max_val = (
+        max(
+            qq_data["expected_neg_log10_p"].max(),
+            qq_data["observed_neg_log10_p"].max(),
+        )
+        + 0.5
+    )
+    ax.plot([0, max_val], [0, max_val], "k--", linewidth=0.8, label="Expected")
+
+    ax.set_xlabel("Expected -log10(p)")
+    ax.set_ylabel("Observed -log10(p)")
+    ax.set_title("QQ Plot")
+    ax.legend(fontsize=8, loc="upper left")
+    fig.tight_layout()
+
+    plt.savefig(str(output_path), dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    logger.info(f"QQ plot written to {output_path}")
+    return True
+
+
 def write_diagnostics(
     results_df: pd.DataFrame,
     diagnostics_dir: str | Path,
@@ -353,5 +425,11 @@ def write_diagnostics(
 
     summary_path = diag_dir / "summary.txt"
     summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    # ------------------------------------------------------------------
+    # Optional QQ plot PNG (DIAG-04): requires matplotlib; skipped if absent
+    # ------------------------------------------------------------------
+    qq_plot_path = diag_dir / "qq_plot.png"
+    write_qq_plot(qq_combined, qq_plot_path)
 
     logger.info(f"Diagnostics written to {diag_dir}")
