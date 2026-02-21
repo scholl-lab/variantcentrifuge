@@ -224,14 +224,18 @@ class AssociationEngine:
         rows = []
         for gene_data in sorted_data:
             gene = gene_data.get("GENE", "")
-            # Include gene if at least one test has a real result
+            # Include gene if it has a result or a skip reason (rank-deficient)
             any_result = any(results_by_test[tn][gene].p_value is not None for tn in self._tests)
-            if not any_result:
+            any_skip = any(
+                results_by_test[tn][gene].extra.get("skat_skip_reason") for tn in self._tests
+            )
+            if not any_result and not any_skip:
                 continue
 
-            # Use metadata from the first test result that has data
+            # Use metadata from first result with data, or first for skipped
             first_result = next(
-                r for tn in self._tests if (r := results_by_test[tn][gene]).p_value is not None
+                (r for tn in self._tests if (r := results_by_test[tn][gene]).p_value is not None),
+                next(results_by_test[tn][gene] for tn in self._tests),
             )
 
             row: dict[str, Any] = {

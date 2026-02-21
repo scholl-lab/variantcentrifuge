@@ -238,7 +238,7 @@ def davies_pvalue(
     q: float,
     lambdas: np.ndarray,
     acc: float = 1e-9,
-    lim: int = 100_000,
+    lim: int = 1_000_000,
 ) -> tuple[float | None, int]:
     """
     Compute P[Q > q] using the Davies qfc() C++ extension via CFFI.
@@ -252,7 +252,7 @@ def davies_pvalue(
     acc : float
         Maximum absolute error for the Davies integration. Default: 1e-9.
     lim : int
-        Maximum number of integration terms. Default: 100_000.
+        Maximum number of integration terms. Default: 1_000_000.
 
     Returns
     -------
@@ -284,7 +284,9 @@ def davies_pvalue(
 
     lib.qfc(lb1, nc1, n1, r1, sigma, c1, lim1, acc_arr, trace, ifault, res)
 
-    p_value = float(res[0])
+    # qfc returns the CDF P[Q <= q]; convert to survival P[Q > q] = 1 - CDF
+    # (matches R CompQuadForm::davies which returns Qq = 1 - qfc_result)
+    p_value = 1.0 - float(res[0])
     fault = int(ifault[0])
     return p_value, fault
 
@@ -298,7 +300,7 @@ def compute_pvalue(
     q: float,
     lambdas: np.ndarray,
     acc: float = 1e-9,
-    lim: int = 100_000,
+    lim: int = 1_000_000,
 ) -> tuple[float, str, bool]:
     """
     Compute P[Q > q] using the three-tier Davies -> saddlepoint -> Liu chain.

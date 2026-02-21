@@ -393,11 +393,11 @@ class TestGoldenValues:
         null = backend.fit_null_model(phenotype, None, _GENE_A_TRAIT)
         result = backend.test_gene("GENE_A", geno, null, "SKAT", (1.0, 25.0))
         p = result["p_value"]
-        # Under null, p should be non-trivial (not < 0.001)
-        # Exact value pinned: 0.03526162417669121 (captured 2026-02-21)
+        # Under null, p should be large (no signal => Q small relative to null dist)
+        # Exact value pinned: 0.9647383758233088 (re-captured after Davies CDF fix)
         if p is not None:
-            assert p == pytest.approx(0.03526162417669121, rel=1e-4), (
-                f"Gene A SKAT p-value drifted: expected ~0.035, got {p:.8f}"
+            assert p == pytest.approx(0.9647383758233088, rel=1e-4), (
+                f"Gene A SKAT p-value drifted: expected ~0.965, got {p:.8f}"
             )
 
     def test_golden_gene_c_quantitative(self, backend):
