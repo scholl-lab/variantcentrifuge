@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 23 — PCA + Functional Weights + Allelic Series + JSON Config
-Plan: 2/4 complete
-Status: In progress — Phase 23 Plan 02 complete: CADD/REVEL functional weights, CLI args, stage integration, 45 tests, 1776 passing
-Last activity: 2026-02-21 — Completed 23-02-PLAN.md (functional weights)
+Plan: 3/4 complete
+Status: In progress — Phase 23 Plan 03 complete: COAST allelic series test, classify_variants, ACAT-O integration, 43 tests, 1819 passing
+Last activity: 2026-02-21 — Completed 23-03-PLAN.md (COAST allelic series test)
 
-Progress: █████████████████░░░░ ~85% (Phases 18-22 complete, Phase 23 Plan 2/4 done)
+Progress: █████████████████░░░░ ~88% (Phases 18-22 complete, Phase 23 Plan 3/4 done)
 
 ## Milestone Overview
 
@@ -105,6 +105,10 @@ Progress: █████████████████░░░░ ~85% (
 | IMPL-44 | Site-filter mask replicated in stage for annotation alignment | 23-02 | build_genotype_matrix applies keep_variants_mask internally; stage replicates same logic via parse_gt_to_dosage when len(mafs) < len(gene_df) to align annotation arrays |
 | IMPL-45 | combined_weights prefers CADD over REVEL when both provided | 23-02 | Higher CADD phred = more damaging; CADD is primary functional score, REVEL secondary |
 | IMPL-46 | Annotation extraction conditional on weight spec in ("cadd","revel","combined") | 23-02 | Zero overhead for beta:*/uniform specs; extraction only runs when functional annotations are actually needed |
+| IMPL-47 | classify_variants returns include_mask: missense without SIFT/PolyPhen gets code 0, excluded from COAST only | 23-03 | Preserves SKAT/burden power while enforcing COAST ordered-alternative assumption |
+| IMPL-48 | gene_df stored in gene_data dict (reset_index) for COASTTest annotation column access | 23-03 | COASTTest needs per-variant EFFECT/IMPACT/SIFT/PolyPhen columns not in standard aggregation keys |
+| IMPL-49 | Annotation/genotype mismatch skips gene with p_value=None | 23-03 | Site-filter removes variants from build_genotype_matrix but gene_df has all variants; shape check detects misalignment |
+| IMPL-50 | p_value=None when any COAST category (BMV/DMV/PTV) missing | 23-03 | Ordered-alternative test requires all 3 categories; missing any produces spurious or undefined results |
 
 ### Architecture Invariants (from research)
 
@@ -134,7 +138,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-21
-Stopped at: Completed 23-02-PLAN.md (functional weights — cadd_weights, revel_weights, combined_weights, stage integration, 45 tests)
+Last session: 2026-02-21T22:52:30Z
+Stopped at: Completed 23-03-PLAN.md (COAST allelic series test — classify_variants, COASTTest, engine registration, ACAT-O integration, 43 tests, 1819 passing)
 Resume file: None
-Next: Execute Phase 23 Plan 03 (allelic series — COAST test)
+Next: Execute Phase 23 Plan 04 (JSON config)
