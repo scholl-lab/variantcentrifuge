@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 22 — ACAT-O + Diagnostics
-Plan: 3/3 complete
-Status: Phase 22 complete and verified — ACAT-O omnibus, ARCH-03 FDR, diagnostics module, 1249 tests passing
-Last activity: 2026-02-21 — Phase 22 verified; ROADMAP criteria updated for spec clarifications
+Phase: 23 — PCA + Functional Weights + Allelic Series + JSON Config
+Plan: 1/4 complete
+Status: In progress — Phase 23 Plan 01 complete: PCA file parsing, PCAComputationStage, CLI args, 35 tests, 1432 passing
+Last activity: 2026-02-21 — Completed 23-01-PLAN.md (PCA integration)
 
-Progress: ████████████████░░░░░ ~80% (Phases 18-22 complete, Phase 23 pending)
+Progress: █████████████████░░░░ ~83% (Phases 18-22 complete, Phase 23 Plan 1/4 done)
 
 ## Milestone Overview
 
@@ -97,6 +97,10 @@ Progress: ████████████████░░░░░ ~80% (
 | IMPL-36 | gene_burden_data dicts use "GENE" (uppercase) key; results_df column is "gene" (lowercase) | 22-02 | All three aggregation paths set uppercase key; engine sets lowercase column name; lookup uses .get("GENE", .get("gene", "")) for robustness |
 | IMPL-37 | QQ data sorted ascending by expected_neg_log10_p (non-significant end first) | 22-02 | Smallest expected values (bottom-left of QQ plot) come first; matches sequential rendering convention |
 | IMPL-38 | _EXPECTED_CHI2_MEDIAN hardcoded (not computed at import) | 22-02 | chi2.ppf(0.5, df=1) = 0.45493642311957174; avoids scipy cold import overhead at module load |
+| IMPL-39 | PCA matrix merged inline into local covariate_matrix — not stored in context | 23-01 | Follows genotype matrix memory invariant (never in PipelineContext); feeds gene_data["covariate_matrix"] naturally |
+| IMPL-40 | Missing AKT binary raises ToolNotFoundError (hard error, not skip) | 23-01 | Silent skip would let users believe AKT ran when it didn't; hard error surfaces misconfiguration immediately |
+| IMPL-41 | PLINK eigenvec always uses IID (column 2) not FID (column 1) | 23-01 | FID is family ID, not sample-level identifier; IID matches VCF sample names |
+| IMPL-42 | PCA format detection via first-line heuristics (column count + numeric checks) | 23-01 | Three-way detection: #FID/FID header, two non-numeric columns (PLINK nohdr), one non-numeric column (AKT/generic) |
 
 ### Architecture Invariants (from research)
 
@@ -127,6 +131,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-21
-Stopped at: Phase 22 complete and verified
+Stopped at: Completed 23-01-PLAN.md (PCA integration — load_pca_file, PCAComputationStage, CLI args, 35 tests)
 Resume file: None
-Next: Plan and execute Phase 23 (PCA + Functional Weights + Allelic Series + JSON Config)
+Next: Execute Phase 23 Plan 02 (functional weights: CADD/REVEL-based variant weights)
