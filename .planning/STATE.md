@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 21 — Pure Python SKAT Backend
-Plan: 3/3 complete — Phase 21 COMPLETE
-Status: Phase complete — davies.py, PythonSKATBackend, PurePythonSKATTest, factory/registry, and 84 unit tests all delivered
-Last activity: 2026-02-21 — Completed 21-03-PLAN.md (unit tests for Python SKAT backend)
+Plan: 3/3 complete
+Status: Phase 21 complete — verified, gap fixes applied (Davies CDF→survival, lim=1M, rank-deficient output)
+Last activity: 2026-02-21 — Phase 21 verified and gap fixes committed
 
 Progress: ██████████████░░░░░░░ ~65% (Phases 18-21 complete, 2 phases remaining)
 

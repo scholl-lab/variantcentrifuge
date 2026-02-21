@@ -43,12 +43,12 @@
 - [x] **SKAT-02**: SKATBinary used by default for binary traits (never continuous-trait SKAT on binary phenotypes)
 - [x] **SKAT-03**: Small-sample moment adjustment (SKAT_Null_Model_MomentAdjust) as R backend default
 - [x] **SKAT-04**: SKAT-O with rho grid search and method="optimal.adj" correction
-- [ ] **SKAT-05**: Pure Python SKAT backend validated against R within 10% relative difference on log10(p)
-- [ ] **SKAT-06**: Davies method via ctypes-compiled qfc.c with corrected defaults (acc=1e-9, lim=10^6)
-- [ ] **SKAT-07**: Fallback chain: Davies -> saddlepoint -> Liu moment-matching; p_method recorded in output
+- [x] **SKAT-05**: Pure Python SKAT backend validated against R within 10% relative difference on log10(p)
+- [x] **SKAT-06**: Davies method via ctypes-compiled qfc.c with corrected defaults (acc=1e-9, lim=10^6)
+- [x] **SKAT-07**: Fallback chain: Davies -> saddlepoint -> Liu moment-matching; p_method recorded in output
 - [x] **SKAT-08**: R backend declares parallel_safe=False; rpy2 calls only from main thread
 - [x] **SKAT-09**: R memory management: explicit del + rpy2 gc() every 100 genes
-- [ ] **SKAT-10**: Eigenvalue stability: scipy.linalg.eigh, threshold max(eigenvalues, 0), skip if matrix_rank < 2
+- [x] **SKAT-10**: Eigenvalue stability: scipy.linalg.eigh, threshold max(eigenvalues, 0), skip if matrix_rank < 2
 
 ### Omnibus Tests
 
@@ -131,10 +131,10 @@
 | SKAT-04 | Phase 20 | Complete |
 | SKAT-08 | Phase 20 | Complete |
 | SKAT-09 | Phase 20 | Complete |
-| SKAT-05 | Phase 21 | Pending |
-| SKAT-06 | Phase 21 | Pending |
-| SKAT-07 | Phase 21 | Pending |
-| SKAT-10 | Phase 21 | Pending |
+| SKAT-05 | Phase 21 | Complete |
+| SKAT-06 | Phase 21 | Complete |
+| SKAT-07 | Phase 21 | Complete |
+| SKAT-10 | Phase 21 | Complete |
 | OMNI-01 | Phase 22 | Pending |
 | OMNI-02 | Phase 22 | Pending |
 | OMNI-03 | Phase 22 | Pending |

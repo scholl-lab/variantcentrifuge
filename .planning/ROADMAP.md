@@ -133,9 +133,9 @@ Plans:
 
 **Plans:** 3 plans
 Plans:
-- [ ] 21-01-PLAN.md — davies.py p-value layer (Liu + Kuonen + Davies fallback chain), qfc.cpp bundling, CFFI build script, pyproject.toml hatchling-to-setuptools migration
-- [ ] 21-02-PLAN.md — PythonSKATBackend (null model, score test, SKAT-O rho grid), PurePythonSKATTest wrapper, factory/registry wiring
-- [ ] 21-03-PLAN.md — Unit tests: p-value math validation, backend behavior tests, analytical reference comparisons
+- [x] 21-01-PLAN.md — davies.py p-value layer (Liu + Kuonen + Davies fallback chain), qfc.cpp bundling, CFFI build script, pyproject.toml hatchling-to-setuptools migration
+- [x] 21-02-PLAN.md — PythonSKATBackend (null model, score test, SKAT-O rho grid), PurePythonSKATTest wrapper, factory/registry wiring
+- [x] 21-03-PLAN.md — Unit tests: p-value math validation, backend behavior tests, analytical reference comparisons
 
 **Success Criteria:**
 
@@ -214,6 +214,6 @@ Plans:
 | 18. Foundation — Core Abstractions and Fisher Refactor | v0.15.0 | 4/4 | Complete | 2026-02-19 |
 | 19. Covariate System and Burden Tests | v0.15.0 | 3/3 | Complete | 2026-02-20 |
 | 20. R SKAT Backend | v0.15.0 | 3/3 | Complete | 2026-02-20 |
-| 21. Pure Python SKAT Backend | v0.15.0 | 0/3 | Pending | — |
+| 21. Pure Python SKAT Backend | v0.15.0 | 3/3 | Complete | 2026-02-21 |
 | 22. ACAT-O and Diagnostics | v0.15.0 | 0/3 | Pending | — |
 | 23. PCA Integration, Functional Weights, Allelic Series, and JSON Config | v0.15.0 | 0/4 | Pending | — |
