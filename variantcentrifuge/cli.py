@@ -478,7 +478,19 @@ def create_parser() -> argparse.ArgumentParser:
         help=(
             "Variant weighting scheme for burden tests. "
             "'beta:a,b' = Beta(MAF;a,b) density (default: 'beta:1,25', SKAT convention). "
-            "'uniform' = equal weights."
+            "'uniform' = equal weights. "
+            "'cadd' = Beta(MAF) x CADD_phred/40. "
+            "'revel' = Beta(MAF) x REVEL_score. "
+            "'combined' = Beta(MAF) x functional score (CADD preferred)."
+        ),
+    )
+    stats_group.add_argument(
+        "--variant-weight-params",
+        type=str,
+        default=None,
+        help=(
+            "JSON string of extra weight parameters, e.g. "
+            "'{\"cadd_cap\": 30}'. Overrides default weight parameters."
         ),
     )
     # Phase 23: PCA arguments
@@ -1128,6 +1140,23 @@ def main() -> int:
     )
     cfg["trait_type"] = getattr(args, "trait_type", "binary")
     cfg["variant_weights"] = getattr(args, "variant_weights", "beta:1,25")
+    # Phase 23: Parse --variant-weight-params JSON string
+    _vwp_raw = getattr(args, "variant_weight_params", None)
+    if _vwp_raw:
+        import json as _json
+
+        try:
+            cfg["variant_weight_params"] = _json.loads(_vwp_raw)
+        except (ValueError, TypeError) as _e:
+            import sys as _sys
+
+            print(
+                f"error: --variant-weight-params: invalid JSON: {_e}",
+                file=_sys.stderr,
+            )
+            _sys.exit(2)
+    else:
+        cfg["variant_weight_params"] = None
     cfg["diagnostics_output"] = getattr(args, "diagnostics_output", None)
     # Phase 23: PCA configuration
     cfg["pca_file"] = getattr(args, "pca_file", None)

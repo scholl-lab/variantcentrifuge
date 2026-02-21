@@ -122,6 +122,9 @@ class AssociationConfig:
     variant_weights: str = "beta:1,25"
     """Weight scheme: "beta:a,b" (Beta MAF weights, SKAT convention) or "uniform"."""
 
+    variant_weight_params: dict | None = None
+    """Extra parameters for weight schemes (e.g. {'cadd_cap': 40.0})."""
+
     missing_site_threshold: float = 0.10
     """Variants with >threshold fraction missing site-wide are excluded before imputation."""
 
