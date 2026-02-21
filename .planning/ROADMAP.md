@@ -155,10 +155,11 @@ Plans:
 
 **Requirements:** OMNI-01, OMNI-02, OMNI-03, DIAG-01, DIAG-02, DIAG-03, DIAG-05, DIAG-06
 
-**Plans:** 3 plans estimated
-- 22-01: association/tests/acat.py — ACAT-V Cauchy combination of marginal score test p-values per gene; ACAT-O combining burden + SKAT + ACAT-V p-values; single FDR applied to ACAT-O across all genes (not per-test)
-- 22-02: association/diagnostics.py — lambda_GC per test (median chi2 / 0.4549); QQ data TSV (observed vs expected -log10(p)); per-gene TSV with all standard output columns; CLI arg --diagnostics-output; sample size warnings when n_cases < 200, case:control > 1:20, or case_carriers < 10 per gene
-- 22-03: Tests validating ACAT-O Cauchy formula against published values; lambda_GC within [0.95, 1.05] on permuted null phenotype; output TSV column completeness check
+**Plans:** 3 plans
+Plans:
+- [ ] 22-01-PLAN.md — ACAT Cauchy combination (acat.py), ACAT-O post-loop engine integration, FDR strategy change to ACAT-O only (ARCH-03)
+- [ ] 22-02-PLAN.md — Diagnostics module (lambda_GC, QQ data, sample size warnings, summary.txt), --diagnostics-output CLI arg, stage integration
+- [ ] 22-03-PLAN.md — Tests: ACAT formula validation against published values, lambda_GC calibration, engine ACAT-O integration, diagnostics output verification
 
 **Success Criteria:**
 
