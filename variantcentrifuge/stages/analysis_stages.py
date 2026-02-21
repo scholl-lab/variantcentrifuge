@@ -2131,6 +2131,7 @@ class AssociationAnalysisStage(Stage):
             categorical_covariates=context.config.get("categorical_covariates"),
             trait_type=context.config.get("trait_type", "binary"),
             variant_weights=context.config.get("variant_weights", "beta:1,25"),
+            variant_weight_params=context.config.get("variant_weight_params"),
             diagnostics_output=context.config.get("diagnostics_output"),
             min_cases=context.config.get("association_min_cases", 200),
             max_case_control_ratio=context.config.get("association_max_case_control_ratio", 20.0),
@@ -2384,6 +2385,70 @@ class AssociationAnalysisStage(Stage):
                 else:
                     gene_data["genotype_matrix"] = geno
                     gene_data["variant_mafs"] = mafs
+
+                # Phase 23: Extract functional annotation columns for CADD/REVEL weight schemes
+                # (WEIGHT-05). Arrays must align with variant_mafs (post site-filter length).
+                if assoc_config.variant_weights in ("cadd", "revel", "combined"):
+                    _cadd_col = next(
+                        (
+                            c
+                            for c in gene_df.columns
+                            if c.lower() in ("dbnsfp_cadd_phred", "cadd_phred")
+                        ),
+                        None,
+                    )
+                    _revel_col = next(
+                        (
+                            c
+                            for c in gene_df.columns
+                            if c.lower() in ("dbnsfp_revel_score", "revel_score")
+                        ),
+                        None,
+                    )
+                    _effect_col = next(
+                        (c for c in gene_df.columns if c.upper() in ("EFFECT", "ANN_0__EFFECT")),
+                        None,
+                    )
+                    # Align annotations with variant_mafs (build_genotype_matrix applies
+                    # a site missing-rate filter; replicate it here for correct alignment).
+                    # The filter marks variants with >missing_site_threshold missing GTs.
+                    # Missing GTs are identified by parse_gt_to_dosage returning None,
+                    # i.e. strings like "./.", ".|.", ".", or empty.
+                    _n_df = len(gene_df)
+                    _n_kept = len(gene_data["variant_mafs"])
+                    if _n_kept < _n_df:
+                        from ..association.genotype_matrix import parse_gt_to_dosage as _pgd
+
+                        _gt_cols_list = list(gt_columns_for_matrix)
+                        _n_samples_gt = len(_gt_cols_list)
+                        _keep_mask_ann = np.ones(_n_df, dtype=bool)
+                        for _vi, (_, _row) in enumerate(gene_df.iterrows()):
+                            _n_miss = sum(
+                                1
+                                for _col in _gt_cols_list
+                                if _pgd(str(_row.get(_col) or ""))[0] is None
+                            )
+                            _miss_frac = _n_miss / _n_samples_gt if _n_samples_gt > 0 else 0.0
+                            if _miss_frac > assoc_config.missing_site_threshold:
+                                _keep_mask_ann[_vi] = False
+                    else:
+                        _keep_mask_ann = None
+
+                    if _cadd_col:
+                        _vals = gene_df[_cadd_col].values
+                        gene_data["cadd_scores"] = (
+                            _vals[_keep_mask_ann] if _keep_mask_ann is not None else _vals
+                        )
+                    if _revel_col:
+                        _vals = gene_df[_revel_col].values
+                        gene_data["revel_scores"] = (
+                            _vals[_keep_mask_ann] if _keep_mask_ann is not None else _vals
+                        )
+                    if _effect_col:
+                        _vals = gene_df[_effect_col].values
+                        gene_data["variant_effects"] = (
+                            _vals[_keep_mask_ann] if _keep_mask_ann is not None else _vals
+                        )
 
                 gene_data["phenotype_vector"] = pv
                 gene_data["covariate_matrix"] = cm

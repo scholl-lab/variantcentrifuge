@@ -328,7 +328,14 @@ class LogisticBurdenTest(AssociationTest):
             )
 
         # Compute weighted burden score per sample: (n_samples,)
-        weights = get_weights(mafs, config.variant_weights)
+        weights = get_weights(
+            mafs,
+            config.variant_weights,
+            cadd_scores=contingency_data.get("cadd_scores"),
+            revel_scores=contingency_data.get("revel_scores"),
+            variant_effects=contingency_data.get("variant_effects"),
+            weight_params=config.variant_weight_params,
+        )
         burden = geno @ weights
 
         # Build design matrix: [intercept, burden, covariates...]
