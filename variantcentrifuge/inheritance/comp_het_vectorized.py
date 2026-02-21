@@ -119,7 +119,9 @@ def analyze_gene_for_compound_het_vectorized(
 
     # Analyze each sample
     for sample_id in sample_list:
-        # Handle missing pedigree data
+        # Handle missing pedigree data — callers (analyzer.py, parallel_analyzer.py)
+        # pre-populate pedigree_data before calling this function; this fallback
+        # remains for direct callers that skip pre-population.
         if sample_id not in pedigree_data:
             pedigree_data[sample_id] = {
                 "sample_id": sample_id,

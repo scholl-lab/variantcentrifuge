@@ -5,17 +5,14 @@ This module provides a parallel implementation of inheritance analysis
 that processes genes concurrently for compound heterozygous detection.
 """
 
-import json
 import logging
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import pandas as pd
 
-from .analyzer import create_inheritance_details
+from .analyzer import _finalize_inheritance_patterns
 from .comp_het_vectorized import analyze_gene_for_compound_het_vectorized
-from .prioritizer import prioritize_patterns
-from .segregation_checker import calculate_segregation_score
 from .vectorized_deducer import vectorized_deduce_patterns
 
 logger = logging.getLogger(__name__)
@@ -30,7 +27,7 @@ def _process_gene_group(
     """
     Process a single gene's variants for compound heterozygous patterns.
 
-    This function is designed to be run in a worker process.
+    This function is designed to be run in a worker thread.
 
     Parameters
     ----------
@@ -115,6 +112,17 @@ def analyze_inheritance_parallel(
         f"across {len(sample_list)} samples"
     )
 
+    # Pre-populate pedigree_data for unknown samples to prevent thread race
+    # condition in comp_het_vectorized.py (which mutates the dict for missing samples)
+    for sample_id in sample_list:
+        if sample_id not in pedigree_data:
+            pedigree_data[sample_id] = {
+                "sample_id": sample_id,
+                "father_id": "0",
+                "mother_id": "0",
+                "affected_status": "2",
+            }
+
     # Create a copy to avoid fragmentation
     df = df.copy()
     df["_inheritance_patterns"] = None
@@ -181,37 +189,40 @@ def analyze_inheritance_parallel(
                 f"in parallel ({n_workers} workers, largest gene: {max_gene_size} variants)"
             )
 
-            # Process genes in parallel
-            with ProcessPoolExecutor(max_workers=n_workers) as executor:
-                # Submit all gene processing tasks
-                future_to_gene = {
-                    executor.submit(
-                        _process_gene_group,
-                        gene,
-                        gene_df,
-                        pedigree_data,
-                        sample_list,
-                    ): gene
-                    for gene, gene_df in genes_with_multiple_variants
-                }
-
-                # Collect results as they complete
+            # Process genes in parallel using threads (NumPy releases GIL)
+            batch_size = min(4 * n_workers, 500)
+            with ThreadPoolExecutor(max_workers=n_workers) as executor:
                 completed = 0
-                for future in as_completed(future_to_gene):
-                    gene = future_to_gene[future]
-                    try:
-                        gene_name, comp_het_results = future.result()
-                        if comp_het_results:
-                            comp_het_results_by_gene[gene_name] = comp_het_results
-                            logger.debug(
-                                f"Found compound het patterns in gene {gene_name}: "
-                                f"{len(comp_het_results)} variants"
-                            )
-                        completed += 1
-                        if completed % 100 == 0:
-                            logger.info(f"Processed {completed}/{num_genes} genes")
-                    except Exception as e:
-                        logger.error(f"Error processing gene {gene}: {e}")
+                # Submit in batches to bound concurrent work
+                for batch_start in range(0, num_genes, batch_size):
+                    batch = genes_with_multiple_variants[batch_start : batch_start + batch_size]
+                    future_to_gene = {
+                        executor.submit(
+                            _process_gene_group,
+                            gene,
+                            gene_df,
+                            pedigree_data,
+                            sample_list,
+                        ): gene
+                        for gene, gene_df in batch
+                    }
+
+                    # Collect results as they complete
+                    for future in as_completed(future_to_gene):
+                        gene = future_to_gene[future]
+                        try:
+                            gene_name, comp_het_results = future.result()
+                            if comp_het_results:
+                                comp_het_results_by_gene[gene_name] = comp_het_results
+                                logger.debug(
+                                    f"Found compound het patterns in gene {gene_name}: "
+                                    f"{len(comp_het_results)} variants"
+                                )
+                            completed += 1
+                            if completed % 100 == 0:
+                                logger.info(f"Processed {completed}/{num_genes} genes")
+                        except Exception as e:
+                            logger.error(f"Error processing gene {gene}: {e}")
     else:
         # Fall back to sequential processing
         logger.info("Pass 2: Analyzing compound heterozygous patterns sequentially")
@@ -274,66 +285,11 @@ def analyze_inheritance_parallel(
 
     pass_times["apply_comp_het_results"] = time.time() - apply_start
 
-    # Pass 3: Prioritize and Finalize (optimized)
+    # Pass 3: Prioritize and Finalize
     pass3_start = time.time()
     logger.info("Pass 3: Prioritizing patterns and creating final output")
 
-    # Pre-extract column data to avoid repeated df.at[] lookups
-    all_inheritance_patterns = df["_inheritance_patterns"].tolist()
-    all_comp_het_info = df["_comp_het_info"].tolist()
-
-    # Pre-compute whether segregation is needed
-    needs_segregation = bool(pedigree_data and len(pedigree_data) > 1)
-
-    # Accumulate results in lists for bulk assignment
-    inheritance_patterns_result = []
-    inheritance_details_result = []
-
-    # Use iterrows since we need Series for create_inheritance_details
-    for idx_pos, (_df_idx, row_series) in enumerate(df.iterrows()):
-        # Get patterns from pre-extracted list
-        patterns_list = list(all_inheritance_patterns[idx_pos] or [])
-        comp_info = all_comp_het_info[idx_pos]
-
-        # Add compound het patterns if applicable
-        if comp_info:
-            for _sample_id, info in comp_info.items():
-                if info.get("is_compound_het"):
-                    comp_het_type = info.get("comp_het_type", "compound_heterozygous")
-                    is_not_negative = comp_het_type != "not_compound_heterozygous"
-                    if is_not_negative and comp_het_type not in patterns_list:
-                        patterns_list.append(comp_het_type)
-
-        # Calculate segregation scores if needed
-        segregation_results = None
-        if needs_segregation:
-            row_dict = row_series.to_dict()
-            segregation_results = calculate_segregation_score(
-                patterns_list, row_dict, pedigree_data, sample_list
-            )
-
-        # Prioritize patterns
-        best_pattern, confidence = prioritize_patterns(patterns_list, segregation_results)
-
-        # Create detailed inheritance information
-        details = create_inheritance_details(
-            row_series,
-            best_pattern,
-            patterns_list,
-            confidence,
-            comp_info,
-            pedigree_data,
-            sample_list,
-            segregation_results,
-        )
-
-        # Accumulate results
-        inheritance_patterns_result.append(best_pattern)
-        inheritance_details_result.append(json.dumps(details))
-
-    # Assign results in bulk (avoids per-row df.at[] overhead)
-    df["Inheritance_Pattern"] = inheritance_patterns_result
-    df["Inheritance_Details"] = inheritance_details_result
+    _finalize_inheritance_patterns(df, pedigree_data, sample_list)
 
     pass_times["prioritization"] = time.time() - pass3_start
 

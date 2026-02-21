@@ -135,7 +135,7 @@ class TestParallelInheritanceAnalyzer:
         assert "Inheritance_Pattern" in result.columns
         assert len(result) == len(sample_df)
 
-    @patch("variantcentrifuge.inheritance.parallel_analyzer.ProcessPoolExecutor")
+    @patch("variantcentrifuge.inheritance.parallel_analyzer.ThreadPoolExecutor")
     def test_parallel_execution(self, mock_executor_class, sample_df, pedigree_data):
         """Test that parallel execution is used when appropriate."""
         sample_list = ["proband", "mother", "father"]
@@ -301,3 +301,79 @@ class TestParallelInheritanceAnalyzer:
         except ImportError:
             # Vectorized implementation not available, skip comparison
             pytest.skip("Vectorized implementation not available")
+
+    def test_pedigree_pre_population_for_unknown_samples(self, sample_df, pedigree_data):
+        """Test that unknown samples get pre-populated in pedigree_data."""
+        sample_list = ["proband", "mother", "father", "unknown_sample"]
+
+        # Add unknown_sample column to DataFrame
+        sample_df["unknown_sample"] = ["0/1", "0/0", "0/1", "0/0", "0/1", "0/0"]
+
+        # unknown_sample is not in pedigree_data yet
+        assert "unknown_sample" not in pedigree_data
+
+        result = analyze_inheritance_parallel(
+            sample_df,
+            pedigree_data,
+            sample_list,
+            n_workers=1,
+        )
+
+        # unknown_sample should now be pre-populated in pedigree_data
+        assert "unknown_sample" in pedigree_data
+        assert pedigree_data["unknown_sample"]["sample_id"] == "unknown_sample"
+        assert pedigree_data["unknown_sample"]["affected_status"] == "2"
+
+        assert "Inheritance_Pattern" in result.columns
+
+    def test_thread_safety_concurrent_execution(self, pedigree_data):
+        """Test that concurrent thread execution produces correct results."""
+        # Create a larger dataset to ensure parallel path is exercised
+        n_genes = 20
+        data = {
+            "CHROM": [],
+            "POS": [],
+            "REF": [],
+            "ALT": [],
+            "GENE": [],
+            "proband": [],
+            "mother": [],
+            "father": [],
+        }
+        for i in range(n_genes):
+            gene = f"GENE{i}"
+            for j in range(3):
+                data["CHROM"].append("chr1")
+                data["POS"].append(i * 1000 + j * 100)
+                data["REF"].append("A")
+                data["ALT"].append("T")
+                data["GENE"].append(gene)
+                data["proband"].append("0/1")
+                data["mother"].append("0/1" if j % 2 == 0 else "0/0")
+                data["father"].append("0/0" if j % 2 == 0 else "0/1")
+
+        df = pd.DataFrame(data)
+        sample_list = ["proband", "mother", "father"]
+
+        # Run with multiple workers
+        result_parallel = analyze_inheritance_parallel(
+            df,
+            pedigree_data.copy(),
+            sample_list,
+            n_workers=4,
+            min_variants_for_parallel=1,
+        )
+
+        # Run sequentially for comparison
+        result_sequential = analyze_inheritance_parallel(
+            df,
+            pedigree_data.copy(),
+            sample_list,
+            n_workers=1,
+            min_variants_for_parallel=100000,  # Force sequential
+        )
+
+        # Results should match
+        assert result_parallel["Inheritance_Pattern"].tolist() == (
+            result_sequential["Inheritance_Pattern"].tolist()
+        )
