@@ -139,6 +139,19 @@ class AssociationConfig:
     skat_method: str = "SKAT"
     """SKAT variant to run: "SKAT" (default), "Burden" (burden-only), or "SKATO" (omnibus)."""
 
+    # Phase 22: ACAT-O + diagnostics fields
+    min_cases: int = 200
+    """Cohort-level warning threshold: warn if n_cases < this value."""
+
+    max_case_control_ratio: float = 20.0
+    """Cohort-level warning threshold: warn if n_controls/n_cases > this value."""
+
+    min_case_carriers: int = 10
+    """Per-gene warning threshold: flag genes with case_carriers < this value."""
+
+    diagnostics_output: str | None = None
+    """Path to diagnostics output directory. None = no diagnostics output."""
+
 
 class AssociationTest(ABC):
     """

@@ -31,6 +31,12 @@ def __getattr__(name: str) -> object:
         from variantcentrifuge.association.tests.skat_python import PurePythonSKATTest
 
         return PurePythonSKATTest
+    if name in ("cauchy_combination", "compute_acat_o"):
+        from variantcentrifuge.association.tests.acat import cauchy_combination, compute_acat_o
+
+        if name == "cauchy_combination":
+            return cauchy_combination
+        return compute_acat_o
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -40,4 +46,6 @@ __all__ = [
     "LogisticBurdenTest",
     "PurePythonSKATTest",
     "RSKATTest",
+    "cauchy_combination",
+    "compute_acat_o",
 ]
