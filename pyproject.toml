@@ -77,6 +77,7 @@ markers = [
     "prioritizer: Tests for pattern prioritization",
     "gene_burden: Tests for gene burden analysis",
     "performance: Performance benchmark tests",
+    "coast: COAST allelic series tests",
 ]
 # Live console logging disabled by default for performance.
 # Enable when needed: pytest --log-cli-level=INFO

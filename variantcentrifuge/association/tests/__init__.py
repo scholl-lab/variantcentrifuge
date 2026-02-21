@@ -31,6 +31,10 @@ def __getattr__(name: str) -> object:
         from variantcentrifuge.association.tests.skat_python import PurePythonSKATTest
 
         return PurePythonSKATTest
+    if name == "COASTTest":
+        from variantcentrifuge.association.tests.allelic_series import COASTTest
+
+        return COASTTest
     if name in ("cauchy_combination", "compute_acat_o"):
         from variantcentrifuge.association.tests.acat import cauchy_combination, compute_acat_o
 
@@ -41,6 +45,7 @@ def __getattr__(name: str) -> object:
 
 
 __all__ = [
+    "COASTTest",
     "FisherExactTest",
     "LinearBurdenTest",
     "LogisticBurdenTest",

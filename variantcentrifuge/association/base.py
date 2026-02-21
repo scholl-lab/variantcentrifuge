@@ -165,6 +165,10 @@ class AssociationConfig:
     pca_components: int = 10
     """Number of principal components to use. Default: 10. Warn if >20."""
 
+    # Phase 23: COAST allelic series fields
+    coast_weights: list[float] | None = None
+    """Category weights for COAST allelic series (default: [1.0, 2.0, 3.0] for BMV, DMV, PTV)."""
+
 
 class AssociationTest(ABC):
     """

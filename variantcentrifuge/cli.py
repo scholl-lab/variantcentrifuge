@@ -417,7 +417,7 @@ def create_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Comma-separated list of association tests to run (default: fisher). "
-            "Available: fisher, logistic_burden, linear_burden"
+            "Available: fisher, logistic_burden, linear_burden, skat, skat_python, coast"
         ),
     )
     stats_group.add_argument(
@@ -491,6 +491,16 @@ def create_parser() -> argparse.ArgumentParser:
         help=(
             "JSON string of extra weight parameters, e.g. "
             "'{\"cadd_cap\": 30}'. Overrides default weight parameters."
+        ),
+    )
+    # Phase 23: COAST allelic series weights
+    stats_group.add_argument(
+        "--coast-weights",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated category weights for COAST allelic series test "
+            "(BMV, DMV, PTV). Default: '1,2,3'. Example: '1,4,9' for quadratic scaling."
         ),
     )
     # Phase 23: PCA arguments
@@ -1162,6 +1172,30 @@ def main() -> int:
     cfg["pca_file"] = getattr(args, "pca_file", None)
     cfg["pca_tool"] = getattr(args, "pca_tool", None)
     cfg["pca_components"] = getattr(args, "pca_components", 10)
+    # Phase 23: COAST weights — parse comma-separated floats
+    _coast_weights_raw = getattr(args, "coast_weights", None)
+    if _coast_weights_raw:
+        try:
+            _coast_weights_parsed = [float(x) for x in _coast_weights_raw.split(",")]
+            if len(_coast_weights_parsed) != 3:
+                import sys as _sys
+
+                print(
+                    "error: --coast-weights must have exactly 3 values (BMV, DMV, PTV)",
+                    file=_sys.stderr,
+                )
+                _sys.exit(2)
+            cfg["coast_weights"] = _coast_weights_parsed
+        except ValueError as _e:
+            import sys as _sys
+
+            print(
+                f"error: --coast-weights values must be numeric: {_e}",
+                file=_sys.stderr,
+            )
+            _sys.exit(2)
+    else:
+        cfg["coast_weights"] = None
 
     # Handle add_chr configuration
     if args.add_chr:
