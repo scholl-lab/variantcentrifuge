@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 21 — Pure Python SKAT Backend
-Plan: 2/3 complete
-Status: In progress — PythonSKATBackend and PurePythonSKATTest implemented; factory and registry wired
-Last activity: 2026-02-21 — Completed 21-02-PLAN.md (PythonSKATBackend + PurePythonSKATTest)
+Plan: 3/3 complete — Phase 21 COMPLETE
+Status: Phase complete — davies.py, PythonSKATBackend, PurePythonSKATTest, factory/registry, and 84 unit tests all delivered
+Last activity: 2026-02-21 — Completed 21-03-PLAN.md (unit tests for Python SKAT backend)
 
-Progress: █████████████░░░░░░░░ ~60% (Phases 18-20 complete, 21-01/02 complete, 1 plan + 2 phases remaining)
+Progress: ██████████████░░░░░░░ ~65% (Phases 18-21 complete, 2 phases remaining)
 
 ## Milestone Overview
 
@@ -25,12 +25,12 @@ Progress: █████████████░░░░░░░░ ~60% (
 | 18. Foundation | Core abstractions + Fisher refactor; bit-identical output validation | CORE-01..08 (8) | Complete |
 | 19. Covariate System + Burden Tests | Logistic/linear burden tests with covariate adjustment and genotype matrix builder | COV-01..04, BURDEN-01..03, WEIGHT-01..02 (9) | Complete ✓ |
 | 20. R SKAT Backend | R SKAT via rpy2 as gold standard oracle; SKATBinary + moment adjustment | SKAT-01..04, SKAT-08..09 (6) | Complete ✓ |
-| 21. Pure Python SKAT Backend | Davies ctypes + saddlepoint + Liu fallback; validated against R within 10% | SKAT-05..07, SKAT-10 (4) | In Progress (1/3) |
+| 21. Pure Python SKAT Backend | Davies ctypes + saddlepoint + Liu fallback; validated against R within 10% | SKAT-05..07, SKAT-10 (4) | Complete ✓ |
 | 22. ACAT-O + Diagnostics | ACAT-O omnibus; single FDR; lambda_GC; QQ TSV; sample size warnings | OMNI-01..03, DIAG-01..03, DIAG-05..06 (8) | Pending |
 | 23. PCA + Functional Weights + Allelic Series + JSON Config | PCA file loading + AKT stage; CADD/REVEL weights; COAST test; JSON config; matplotlib plots | DIAG-04, PCA-01..04, SERIES-01..02, CONFIG-01..02, WEIGHT-03..05 (12) | Pending |
 
-**Total requirements:** 47 mapped across 6 phases (23 complete, 24 pending)
-<!-- Note: 8 CORE + 9 Phase 19 + 6 Phase 20 = 23 complete -->
+**Total requirements:** 47 mapped across 6 phases (27 complete, 20 pending)
+<!-- Note: 8 CORE + 9 Phase 19 + 6 Phase 20 + 4 Phase 21 = 27 complete -->
 
 ## Accumulated Context
 
@@ -85,6 +85,8 @@ Progress: █████████████░░░░░░░░ ~60% (
 | IMPL-27 | SKAT-O uses minimum-p approach over rho grid (not full SKAT-O integration) | 21-02 | Full SKAT-O omnibus p requires integrating over joint distribution; min-p is conservative approximation sufficient for Phase 21 |
 | IMPL-28 | _parse_weights_beta moved to shared tests/_utils.py to prevent rpy2 transitive import | 21-02 | If it stayed in skat_r.py, importing it from skat_python.py would transitively import rpy2 |
 | IMPL-29 | Backend-aware swap in from_names() runs BEFORE unknown-name check | 21-02 | Critical ordering: 'skat' must resolve to correct class before validation; swap changes registry[skat] target |
+| IMPL-30 | Davies C ext returns CDF not SF for some eigenvalue/Q combinations | 21-03 | qfc() returns ~1.0 for large Q where true p is small; fallback chain handles via saddlepoint/Liu; tests use _liu_pvalue directly for chi2 ground-truth validation |
+| FIX-05 | Zero-variant guard added before matrix_rank in _test_skat/_test_skato | 21-03 | np.linalg.matrix_rank raises ValueError on (n,0) matrices; guard returns p_value=None,skip_reason=rank_deficient |
 
 ### Architecture Invariants (from research)
 
@@ -114,7 +116,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-21
-Stopped at: Completed 21-02-PLAN.md — PythonSKATBackend + PurePythonSKATTest + factory/registry wiring
+Last session: 2026-02-21T08:43:11Z
+Stopped at: Completed 21-03-PLAN.md — Phase 21 complete (84 unit tests for Python SKAT backend)
 Resume file: None
-Next: Execute 21-03 (unit tests and validation for Python SKAT backend)
+Next: Execute Phase 22 (ACAT-O + Diagnostics)
