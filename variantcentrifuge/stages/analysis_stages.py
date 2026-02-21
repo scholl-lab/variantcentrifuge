@@ -2135,6 +2135,10 @@ class AssociationAnalysisStage(Stage):
             min_cases=context.config.get("association_min_cases", 200),
             max_case_control_ratio=context.config.get("association_max_case_control_ratio", 20.0),
             min_case_carriers=context.config.get("association_min_case_carriers", 10),
+            # Phase 23: PCA fields
+            pca_file=context.config.get("pca_file"),
+            pca_tool=context.config.get("pca_tool"),
+            pca_components=context.config.get("pca_components", 10),
         )
         logger.info(f"Association analysis: trait type = {assoc_config.trait_type}")
 
@@ -2229,10 +2233,11 @@ class AssociationAnalysisStage(Stage):
         # Phase 19: Load covariates once (if covariate_file provided)
         # ------------------------------------------------------------------
         covariate_matrix = None
+        covariate_col_names: list[str] = []
         if assoc_config.covariate_file and vcf_samples_list:
             from ..association.covariates import load_covariates
 
-            covariate_matrix, cov_names = load_covariates(
+            covariate_matrix, covariate_col_names = load_covariates(
                 assoc_config.covariate_file,
                 vcf_samples_list,
                 assoc_config.covariate_columns,
@@ -2240,7 +2245,29 @@ class AssociationAnalysisStage(Stage):
             )
             logger.info(
                 f"Association analysis: loaded {covariate_matrix.shape[1]} "
-                f"covariate(s): {cov_names}"
+                f"covariate(s): {covariate_col_names}"
+            )
+
+        # ------------------------------------------------------------------
+        # Phase 23: Load PCA file and merge with covariates inline
+        # ------------------------------------------------------------------
+        pca_file = assoc_config.pca_file
+        if pca_file and vcf_samples_list:
+            from ..association.pca import load_pca_file, merge_pca_covariates
+
+            n_pcs = assoc_config.pca_components
+            pca_matrix, pca_col_names = load_pca_file(
+                pca_file, vcf_samples_list, n_components=n_pcs
+            )
+            covariate_matrix, covariate_col_names = merge_pca_covariates(
+                pca_matrix,
+                pca_col_names,
+                covariate_matrix,
+                covariate_col_names,
+            )
+            logger.info(
+                f"PCA: merged {len(pca_col_names)} PCs with existing covariates "
+                f"-> {len(covariate_col_names)} total columns"
             )
 
         # ------------------------------------------------------------------

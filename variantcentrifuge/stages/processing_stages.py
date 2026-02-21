@@ -2069,3 +2069,69 @@ class DataSortingStage(Stage):
         if context.extracted_tsv:
             return [context.extracted_tsv]
         return []
+
+
+class PCAComputationStage(Stage):
+    """Run AKT PCA on the pre-filtered VCF and store the output path in context."""
+
+    @property
+    def name(self) -> str:
+        """Return the stage name."""
+        return "pca_computation"
+
+    @property
+    def description(self) -> str:
+        """Return a description of what this stage does."""
+        return "Compute principal components via AKT (population stratification correction)"
+
+    @property
+    def dependencies(self) -> set[str]:
+        """Return the set of stage names this stage depends on."""
+        return {"bcftools_prefilter"}
+
+    @property
+    def parallel_safe(self) -> bool:
+        """Return whether this stage can run in parallel with others."""
+        return True  # subprocess only — no rpy2 or shared state
+
+    def _process(self, context: PipelineContext) -> PipelineContext:
+        """Invoke AKT PCA and write eigenvec output to workspace."""
+        pca_tool = context.config.get("pca_tool")
+        if pca_tool is None:
+            logger.debug("pca_computation: pca_tool not set — skipping AKT PCA computation")
+            return context
+
+        # Only "akt" is supported for now
+        if shutil.which("akt") is None:
+            raise ToolNotFoundError("akt", self.name)
+
+        vcf_file = context.config.get("vcf_file") or context.config.get("input_vcf")
+        if not vcf_file:
+            raise ValueError("pca_computation: no VCF file found in context.config")
+
+        n_components = int(context.config.get("pca_components", 10))
+        cmd = ["akt", "pca", vcf_file, "-N", str(n_components)]
+        logger.info("pca_computation: running AKT PCA: %s", " ".join(cmd))
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        except subprocess.CalledProcessError as exc:
+            logger.error(
+                "pca_computation: AKT PCA failed (returncode=%d): %s",
+                exc.returncode,
+                exc.stderr,
+            )
+            raise
+
+        # Write AKT stdout to intermediate file
+        output_path = str(context.workspace.get_intermediate_path("pca_eigenvec.txt"))
+        with open(output_path, "w") as fh:
+            fh.write(result.stdout)
+
+        context.config["pca_file"] = output_path
+        logger.info(
+            "pca_computation: AKT PCA complete — %d components written to %s",
+            n_components,
+            output_path,
+        )
+        return context

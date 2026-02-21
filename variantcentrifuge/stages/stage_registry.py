@@ -451,6 +451,7 @@ def _register_processing_stages():
         MultiAllelicSplitStage,
         ParallelCompleteProcessingStage,
         ParallelVariantExtractionStage,
+        PCAComputationStage,
         PhenotypeIntegrationStage,
         SnpSiftFilterStage,
         StreamingDataProcessingStage,
@@ -477,6 +478,7 @@ def _register_processing_stages():
     register_stage(ExtraColumnRemovalStage, "processing", ["column_cleanup", "cleanup"], 2.0)
     register_stage(StreamingDataProcessingStage, "processing", ["streaming_processing"], 30.0)
     register_stage(ParallelCompleteProcessingStage, "processing", ["parallel_processing"], 60.0)
+    register_stage(PCAComputationStage, "processing", ["pca_computation", "pca"], 15.0)
 
 
 def _register_analysis_stages():
