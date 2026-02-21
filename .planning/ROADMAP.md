@@ -179,18 +179,19 @@ Plans:
 
 **Requirements:** DIAG-04, PCA-01, PCA-02, PCA-03, PCA-04, SERIES-01, SERIES-02, CONFIG-01, CONFIG-02, WEIGHT-03, WEIGHT-04, WEIGHT-05
 
-**Plans:** 4 plans estimated
-- 23-01: association/pca.py — PLINK .eigenvec parser, AKT output parser, generic TSV parser; sample ID alignment validation; PCAComputationStage in processing_stages.py wrapping akt subprocess; CLI args --pca-file, --pca-tool, --pca-components; covariates.py updated to merge PCA eigenvectors; warn if >20 components requested
-- 23-02: Functional weights — weights/functional_weights.py with CADD-normalized and REVEL-based schemes; weights/combined.py for Beta(MAF) x functional score; CLI arg --variant-weights cadd/revel/combined with --variant-weight-params
-- 23-03: COAST allelic series test — tests/allelic_series.py classifying variants as BMV/DMV/PTV from PolyPhen/SIFT columns; ordered alternative test; configurable category weights (default w=1,2,3)
-- 23-04: JSON config mode — association/config.py JSON loader mapping all CLI options to AssociationConfig fields; CLI arg --association-config; optional matplotlib QQ plot PNG/SVG in diagnostics.py with lazy import and matplotlib.use("Agg") for headless HPC
+**Plans:** 4 plans
+Plans:
+- [ ] 23-01-PLAN.md — PCA file parsing (PLINK .eigenvec, AKT, generic TSV), PCAComputationStage, CLI args, covariate merge
+- [ ] 23-02-PLAN.md — Functional weights (CADD-normalized, REVEL-based, combined Beta(MAF) x functional), CLI args, stage integration
+- [ ] 23-03-PLAN.md — COAST allelic series test (BMV/DMV/PTV classification, R AllelicSeries wrapper, engine + ACAT-O integration)
+- [ ] 23-04-PLAN.md — JSON config mode (association section in config.json, validation, CLI override) + matplotlib QQ plot
 
 **Success Criteria:**
 
 1. Providing `--pca-file pca.eigenvec` merges the requested number of PCs as additional covariate columns, with sample alignment verified against VCF sample order; requesting >20 PCs triggers a logged warning
-2. Running `--pca-tool akt` invokes AKT as a pipeline stage, stores eigenvectors in context, and uses them in subsequent association tests — when AKT is not in PATH, the stage skips gracefully with an informative warning
+2. Running `--pca-tool akt` invokes AKT as a pipeline stage, stores eigenvectors in context, and uses them in subsequent association tests — when AKT is not in PATH, the stage raises a hard error (ToolNotFoundError)
 3. Setting `--variant-weights cadd` applies CADD-normalized weights to variants, and `--variant-weights combined` applies Beta(MAF) x CADD weights; both produce different p-values than uniform weights on the same data, confirming the weights are applied
-4. Running `--association-config config.json` with a valid JSON file produces the same results as passing equivalent CLI flags directly — the JSON config is a complete alternative to CLI args for all association options
+4. Adding an `"association"` section to the existing config.json (loaded via `-c/--config`) produces the same results as passing equivalent CLI flags directly — CLI values override JSON values
 5. When matplotlib is installed, `--diagnostics-output` produces a QQ plot PNG in addition to the data TSV; when matplotlib is absent, the pipeline completes without error and logs a single INFO message noting the plot was skipped
 
 ---
