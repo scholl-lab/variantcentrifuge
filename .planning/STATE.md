@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 23 — PCA + Functional Weights + Allelic Series + JSON Config
-Plan: 1/4 complete
-Status: In progress — Phase 23 Plan 01 complete: PCA file parsing, PCAComputationStage, CLI args, 35 tests, 1432 passing
-Last activity: 2026-02-21 — Completed 23-01-PLAN.md (PCA integration)
+Plan: 2/4 complete
+Status: In progress — Phase 23 Plan 02 complete: CADD/REVEL functional weights, CLI args, stage integration, 45 tests, 1776 passing
+Last activity: 2026-02-21 — Completed 23-02-PLAN.md (functional weights)
 
-Progress: █████████████████░░░░ ~83% (Phases 18-22 complete, Phase 23 Plan 1/4 done)
+Progress: █████████████████░░░░ ~85% (Phases 18-22 complete, Phase 23 Plan 2/4 done)
 
 ## Milestone Overview
 
@@ -101,6 +101,10 @@ Progress: █████████████████░░░░ ~83% (
 | IMPL-40 | Missing AKT binary raises ToolNotFoundError (hard error, not skip) | 23-01 | Silent skip would let users believe AKT ran when it didn't; hard error surfaces misconfiguration immediately |
 | IMPL-41 | PLINK eigenvec always uses IID (column 2) not FID (column 1) | 23-01 | FID is family ID, not sample-level identifier; IID matches VCF sample names |
 | IMPL-42 | PCA format detection via first-line heuristics (column count + numeric checks) | 23-01 | Three-way detection: #FID/FID header, two non-numeric columns (PLINK nohdr), one non-numeric column (AKT/generic) |
+| IMPL-43 | Keyword-only kwargs on get_weights() for backward compatibility | 23-02 | cadd_scores/revel_scores/variant_effects/weight_params added as keyword-only with None defaults; all existing callers `get_weights(mafs, spec)` unchanged |
+| IMPL-44 | Site-filter mask replicated in stage for annotation alignment | 23-02 | build_genotype_matrix applies keep_variants_mask internally; stage replicates same logic via parse_gt_to_dosage when len(mafs) < len(gene_df) to align annotation arrays |
+| IMPL-45 | combined_weights prefers CADD over REVEL when both provided | 23-02 | Higher CADD phred = more damaging; CADD is primary functional score, REVEL secondary |
+| IMPL-46 | Annotation extraction conditional on weight spec in ("cadd","revel","combined") | 23-02 | Zero overhead for beta:*/uniform specs; extraction only runs when functional annotations are actually needed |
 
 ### Architecture Invariants (from research)
 
@@ -131,6 +135,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-21
-Stopped at: Completed 23-01-PLAN.md (PCA integration — load_pca_file, PCAComputationStage, CLI args, 35 tests)
+Stopped at: Completed 23-02-PLAN.md (functional weights — cadd_weights, revel_weights, combined_weights, stage integration, 45 tests)
 Resume file: None
-Next: Execute Phase 23 Plan 02 (functional weights: CADD/REVEL-based variant weights)
+Next: Execute Phase 23 Plan 03 (allelic series — COAST test)
