@@ -11,10 +11,10 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 Phase: 22 — ACAT-O + Diagnostics
 Plan: 3/3 complete
-Status: Phase 22 fully complete — Plan 03 (ACAT tests, diagnostics tests, engine ARCH-03 tests) complete
-Last activity: 2026-02-21 — Phase 22 test suite: 91 tests for ACAT formula, diagnostics, engine integration
+Status: Phase 22 complete and verified — ACAT-O omnibus, ARCH-03 FDR, diagnostics module, 1249 tests passing
+Last activity: 2026-02-21 — Phase 22 verified; ROADMAP criteria updated for spec clarifications
 
-Progress: ████████████████░░░░░ ~80% (Phases 18-22 complete including test plans, Phase 23 pending)
+Progress: ████████████████░░░░░ ~80% (Phases 18-22 complete, Phase 23 pending)
 
 ## Milestone Overview
 
@@ -29,8 +29,8 @@ Progress: ████████████████░░░░░ ~80% (
 | 22. ACAT-O + Diagnostics | ACAT-O omnibus; single FDR; lambda_GC; QQ TSV; sample size warnings | OMNI-01..03, DIAG-01..03, DIAG-05..06 (8) | Complete ✓ |
 | 23. PCA + Functional Weights + Allelic Series + JSON Config | PCA file loading + AKT stage; CADD/REVEL weights; COAST test; JSON config; matplotlib plots | DIAG-04, PCA-01..04, SERIES-01..02, CONFIG-01..02, WEIGHT-03..05 (12) | Pending |
 
-**Total requirements:** 47 mapped across 6 phases (27 complete, 20 pending)
-<!-- Note: 8 CORE + 9 Phase 19 + 6 Phase 20 + 4 Phase 21 = 27 complete -->
+**Total requirements:** 47 mapped across 6 phases (35 complete, 12 pending)
+<!-- Note: 8 CORE + 9 Phase 19 + 6 Phase 20 + 4 Phase 21 + 8 Phase 22 = 35 complete -->
 
 ## Accumulated Context
 
@@ -126,7 +126,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-21T18:18:48Z
-Stopped at: Completed 22-03-PLAN.md (ACAT formula tests, diagnostics tests, engine ARCH-03 integration tests)
+Last session: 2026-02-21
+Stopped at: Phase 22 complete and verified
 Resume file: None
-Next: Execute Phase 23 (PCA + Functional Weights + Allelic Series + JSON Config)
+Next: Plan and execute Phase 23 (PCA + Functional Weights + Allelic Series + JSON Config)

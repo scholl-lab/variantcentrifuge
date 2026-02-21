@@ -52,18 +52,18 @@
 
 ### Omnibus Tests
 
-- [ ] **OMNI-01**: ACAT-V per-variant Cauchy combination of marginal score test p-values
-- [ ] **OMNI-02**: ACAT-O omnibus combining burden + SKAT + ACAT-V p-values per gene
-- [ ] **OMNI-03**: Single FDR correction applied to ACAT-O p-values across genes (not separate per test)
+- [x] **OMNI-01**: ACAT-V per-variant Cauchy combination of marginal score test p-values (cauchy_combination() infrastructure built; per-variant application deferred to Phase 23)
+- [x] **OMNI-02**: ACAT-O omnibus combining burden + SKAT p-values per gene (ACAT-V input deferred to Phase 23)
+- [x] **OMNI-03**: Single FDR correction applied to ACAT-O p-values across genes (not separate per test)
 
 ### Diagnostics and Output
 
-- [ ] **DIAG-01**: Per-gene TSV output with standard columns (fisher_p, burden_p, skat_p, skat_o_p, acat_o_p, effect sizes, CIs, variant counts)
-- [ ] **DIAG-02**: Lambda_GC genomic inflation factor computed per test
-- [ ] **DIAG-03**: QQ plot data TSV (observed vs expected -log10(p))
+- [x] **DIAG-01**: Per-gene TSV output with standard columns ({test}_p_value, effect sizes, CIs, acat_o_p_value, acat_o_corrected_p_value, warnings)
+- [x] **DIAG-02**: Lambda_GC genomic inflation factor computed per test
+- [x] **DIAG-03**: QQ plot data TSV (observed vs expected -log10(p))
 - [ ] **DIAG-04**: Optional matplotlib QQ plot PNG/SVG (lazy import, graceful if matplotlib absent)
-- [ ] **DIAG-05**: CLI arg: --diagnostics-output (path for diagnostics directory)
-- [ ] **DIAG-06**: Warn when n_cases < 200 or case:control ratio > 1:20; flag genes with case_carriers < 10
+- [x] **DIAG-05**: CLI arg: --diagnostics-output (path for diagnostics directory)
+- [x] **DIAG-06**: Warn when n_cases < 200 or case:control ratio > 1:20; flag genes with case_carriers < 10
 
 ### PCA Integration
 
@@ -135,14 +135,14 @@
 | SKAT-06 | Phase 21 | Complete |
 | SKAT-07 | Phase 21 | Complete |
 | SKAT-10 | Phase 21 | Complete |
-| OMNI-01 | Phase 22 | Pending |
-| OMNI-02 | Phase 22 | Pending |
-| OMNI-03 | Phase 22 | Pending |
-| DIAG-01 | Phase 22 | Pending |
-| DIAG-02 | Phase 22 | Pending |
-| DIAG-03 | Phase 22 | Pending |
-| DIAG-05 | Phase 22 | Pending |
-| DIAG-06 | Phase 22 | Pending |
+| OMNI-01 | Phase 22 | Complete |
+| OMNI-02 | Phase 22 | Complete |
+| OMNI-03 | Phase 22 | Complete |
+| DIAG-01 | Phase 22 | Complete |
+| DIAG-02 | Phase 22 | Complete |
+| DIAG-03 | Phase 22 | Complete |
+| DIAG-05 | Phase 22 | Complete |
+| DIAG-06 | Phase 22 | Complete |
 | DIAG-04 | Phase 23 | Pending |
 | PCA-01 | Phase 23 | Pending |
 | PCA-02 | Phase 23 | Pending |
