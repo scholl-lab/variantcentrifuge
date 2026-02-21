@@ -338,9 +338,8 @@ class TestKnownValues:
         mafs = geno.mean(axis=0) / 2.0
         weights = beta_maf_weights(mafs, a=1.0, b=25.0)
         geno_w = geno * weights[np.newaxis, :]
-        kernel = geno_w @ geno_w.T
 
-        lambdas = backend._compute_eigenvalues_filtered(kernel, null.extra["sigma2"])
+        lambdas = backend._compute_eigenvalues_filtered(geno_w, null)
 
         # All filtered eigenvalues must be positive and above the threshold
         if len(lambdas) > 0:
@@ -394,10 +393,10 @@ class TestGoldenValues:
         result = backend.test_gene("GENE_A", geno, null, "SKAT", (1.0, 25.0))
         p = result["p_value"]
         # Under null, p should be large (no signal => Q small relative to null dist)
-        # Exact value pinned: 0.9647383758233088 (re-captured after Davies CDF fix)
+        # Value: 0.519 (projection-adjusted eigenvalues / 2, R-compat Davies params)
         if p is not None:
-            assert p == pytest.approx(0.9647383758233088, rel=1e-4), (
-                f"Gene A SKAT p-value drifted: expected ~0.965, got {p:.8f}"
+            assert p == pytest.approx(0.5192992314098306, rel=1e-4), (
+                f"Gene A SKAT p-value drifted: expected ~0.519, got {p:.8f}"
             )
 
     def test_golden_gene_c_quantitative(self, backend):

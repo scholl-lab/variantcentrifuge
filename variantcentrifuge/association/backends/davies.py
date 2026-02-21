@@ -299,13 +299,17 @@ def davies_pvalue(
 def compute_pvalue(
     q: float,
     lambdas: np.ndarray,
-    acc: float = 1e-9,
-    lim: int = 1_000_000,
+    acc: float = 1e-6,
+    lim: int = 10_000,
 ) -> tuple[float, str, bool]:
     """
-    Compute P[Q > q] using the three-tier Davies -> saddlepoint -> Liu chain.
+    Compute P[Q > q] using R SKAT-compatible Davies -> Liu fallback chain.
 
-    Implements the GENESIS/GMMAT hybrid fallback triggering strategy.
+    Matches R SKAT package ``Get_PValue.Lambda`` behavior:
+    - Davies called with acc=1e-6, lim=10000 (R defaults)
+    - If Davies ifault != 0 but 0 < p <= 1: keep Davies result (non-converged)
+    - If p > 1 or p <= 0: fall back to Liu moment-matching
+    - Single eigenvalue: always use Liu
 
     Parameters
     ----------
@@ -314,9 +318,9 @@ def compute_pvalue(
     lambdas : np.ndarray
         Filtered positive eigenvalues of the score kernel matrix.
     acc : float
-        Davies integration accuracy. Default: 1e-9.
+        Davies integration accuracy. Default: 1e-6 (matches R SKAT).
     lim : int
-        Davies integration term limit. Default: 100_000.
+        Davies integration term limit. Default: 10_000 (matches R SKAT).
 
     Returns
     -------
@@ -331,36 +335,45 @@ def compute_pvalue(
 
     # Edge case: non-positive test statistic — tail probability is ~1
     if q <= 0.0:
-        p_sp = _kuonen_pvalue(q, lambdas)
-        if p_sp is not None:
-            return p_sp, "saddlepoint", False
-        return 1.0, "liu", False
+        return float(_liu_pvalue(q, lambdas)), "liu", False
+
+    # R SKAT: single eigenvalue always uses Liu
+    if len(lambdas) == 1:
+        return float(_liu_pvalue(q, lambdas)), "liu", False
+
+    # Always compute Liu as fallback (matches R SKAT Get_PValue.Lambda)
+    p_liu = float(_liu_pvalue(q, lambdas))
 
     # --- Tier 1: Davies (requires compiled _qfc extension) ---
     if _try_load_davies():
         p_davies, ifault = davies_pvalue(q, lambdas, acc=acc, lim=lim)
 
-        needs_fallback = (
-            p_davies is None
-            or ifault > 0
-            or p_davies >= 1.0
-            or p_davies < _EPS1000
-            or p_davies <= _PROACTIVE_THRESHOLD
-        )
+        if p_davies is not None:
+            # R SKAT logic: keep Davies result if in valid range,
+            # even if ifault != 0 (mark as non-converged)
+            is_converged = ifault == 0
+            p_val = float(p_davies)
 
-        if not needs_fallback:
-            assert p_davies is not None
-            return float(p_davies), "davies", True
+            # R: if p > 1 or p <= 0, fall back to Liu
+            if p_val > 1.0 or p_val <= 0.0:
+                logger.info(
+                    "Davies p=%s out of range (ifault=%d); using Liu fallback (p=%s)",
+                    p_val,
+                    ifault,
+                    p_liu,
+                )
+                return p_liu, "liu", False
 
-        logger.info(
-            "Davies fallback triggered: ifault=%d, p=%s (thresholds: >=1.0 | <%.2e | <=%.2e)",
-            ifault,
-            p_davies,
-            _EPS1000,
-            _PROACTIVE_THRESHOLD,
-        )
+            if not is_converged:
+                logger.debug(
+                    "Davies ifault=%d but p=%s in range; keeping (non-converged)",
+                    ifault,
+                    p_val,
+                )
 
-    # --- Tier 2: Kuonen Lugannani-Rice saddlepoint ---
+            return p_val, "davies", is_converged
+
+    # --- Davies unavailable: use saddlepoint -> Liu chain ---
     p_sp = _kuonen_pvalue(q, lambdas)
     if p_sp is not None and 0.0 < p_sp < 1.0:
         return float(p_sp), "saddlepoint", False
@@ -368,15 +381,15 @@ def compute_pvalue(
     if p_sp is None:
         logger.info(
             "Saddlepoint not applicable (q=%.6g <= mean(lambdas)=%.6g or brentq failed); "
-            "using Liu moment-matching (last resort).",
+            "using Liu moment-matching.",
             q,
             float(np.sum(lambdas)),
         )
     else:
         logger.info(
-            "Saddlepoint returned out-of-range p=%s; using Liu moment-matching (last resort).",
+            "Saddlepoint returned out-of-range p=%s; using Liu moment-matching.",
             p_sp,
         )
 
     # --- Tier 3: Liu moment-matching (last resort, always returns a value) ---
-    return float(_liu_pvalue(q, lambdas)), "liu", False
+    return p_liu, "liu", False

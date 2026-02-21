@@ -154,6 +154,10 @@ class PythonSKATBackend(SKATBackend):
         Uses Binomial family for binary traits, Gaussian for quantitative.
         Extracts resid_response (y - mu_hat), matching R SKAT convention.
 
+        For binary traits, also precomputes the projection half-matrix
+        (``proj_half``) needed for the R SKAT-compatible eigenvalue
+        computation (see ``_compute_eigenvalues_filtered``).
+
         Parameters
         ----------
         phenotype : np.ndarray, shape (n_samples,)
@@ -166,7 +170,8 @@ class PythonSKATBackend(SKATBackend):
         Returns
         -------
         NullModelResult
-            Contains fitted model with residuals and sigma2 in extra dict.
+            Contains fitted model with residuals, sigma2, mu_hat, and
+            design_matrix in extra dict.
         """
         import statsmodels.api as sm
 
@@ -215,6 +220,7 @@ class PythonSKATBackend(SKATBackend):
                 "residuals": residuals,
                 "sigma2": sigma2,
                 "mu_hat": mu_hat,
+                "design_matrix": design_matrix,
             },
         )
 
@@ -253,11 +259,13 @@ class PythonSKATBackend(SKATBackend):
         n_variants = genotype_matrix.shape[1]
 
         method_upper = method.upper()
+        # Map R SKAT method names to our internal names
+        # "optimal.adj" and "optimal" are R's names for SKAT-O
         if method_upper == "SKAT":
             result = self._test_skat(gene, genotype_matrix, null_model, weights_beta)
         elif method_upper == "BURDEN":
             result = self._test_burden(gene, genotype_matrix, null_model, weights_beta)
-        elif method_upper == "SKATO":
+        elif method_upper in ("SKATO", "OPTIMAL.ADJ", "OPTIMAL"):
             result = self._test_skato(gene, genotype_matrix, null_model, weights_beta)
         else:
             logger.warning(f"Unknown SKAT method '{method}' for gene {gene}; using SKAT")
@@ -271,32 +279,85 @@ class PythonSKATBackend(SKATBackend):
 
     def _compute_eigenvalues_filtered(
         self,
-        kernel: np.ndarray,
-        sigma2: float,
+        geno_weighted: np.ndarray,
+        null_model: NullModelResult,
     ) -> np.ndarray:
         """
         Compute filtered eigenvalues of a SKAT kernel matrix.
+
+        For binary traits, uses R SKAT's projection-adjusted approach:
+        ``phi = sqrt(mu*(1-mu))``, then projects the weighted genotype matrix
+        through the hat matrix in phi-space before computing eigenvalues. This
+        accounts for variance heterogeneity across observations.
+
+        For quantitative traits, uses the simple ``kernel / (2*sigma2)`` scaling.
 
         Uses scipy.linalg.eigh(driver='evr') matching R's DSYEVR Lapack routine.
         Applies threshold = mean(positive_eigenvalues) / 100_000 (matches R SKAT).
 
         Parameters
         ----------
-        kernel : np.ndarray, shape (n_samples, n_samples)
-            Symmetric kernel matrix (e.g. ZW @ ZW.T).
-        sigma2 : float
-            Variance estimate from null model.
+        geno_weighted : np.ndarray, shape (n_samples, n_variants)
+            Weighted genotype matrix (G * W).
+        null_model : NullModelResult
+            Fitted null model containing mu_hat, sigma2, design_matrix.
 
         Returns
         -------
         np.ndarray
-            Filtered eigenvalues (positive and above threshold). Empty array if none pass.
+            Filtered eigenvalues (positive and above threshold). Empty array
+            if none pass.
         """
-        lambdas_all = scipy.linalg.eigh(
-            kernel / (2.0 * sigma2),
-            eigvals_only=True,
-            driver="evr",
-        )
+        sigma2: float = null_model.extra["sigma2"]
+        trait_type: str = null_model.trait_type
+
+        if trait_type == "binary":
+            # R SKAT projection approach for binary traits:
+            # phi = sqrt(mu * (1-mu))  — per-observation weight
+            # phi_X = diag(phi) @ X    — weighted design matrix
+            # hat_phi = phi_X @ inv(phi_X' phi_X) @ phi_X'
+            # Z_adj = diag(phi) @ G_w - hat_phi @ G_w
+            # eigenvalues of Z_adj' @ Z_adj (smaller dimension)
+            mu_hat: np.ndarray = null_model.extra["mu_hat"]
+            design_x: np.ndarray = null_model.extra["design_matrix"]
+
+            variance = mu_hat * (1.0 - mu_hat)
+            phi = np.sqrt(variance)
+
+            # Weighted design matrix in phi-space
+            phi_x = phi[:, np.newaxis] * design_x  # (n_samples, k)
+
+            # Z_tilde = diag(phi) @ G_w — the genotype in phi-space
+            z_tilde = phi[:, np.newaxis] * geno_weighted
+
+            # Project out covariate effects without forming nxn hat matrix:
+            # hat_phi @ Z_tilde = phi_X @ inv(phi_X'phi_X) @ phi_X' @ Z_tilde
+            phi_xtx = phi_x.T @ phi_x  # (k, k) — small
+            phi_xtx_inv = np.linalg.inv(phi_xtx)
+            projected = phi_x @ (phi_xtx_inv @ (phi_x.T @ z_tilde))
+
+            # Adjusted genotype matrix: (I - hat_phi) @ Z_tilde
+            z_adj = z_tilde - projected
+
+            # Eigenvalues of W.1/2 where W.1 = Z_adj' @ Z_adj
+            # R SKAT: K <- W/2 then Get_Lambda(K). The /2 matches the
+            # Q = score'score/2 convention so that Q ~ sum(lambda_i chi2_1).
+            n_variants = geno_weighted.shape[1]
+            eig_mat = z_adj.T @ z_adj if n_variants <= geno_weighted.shape[0] else z_adj @ z_adj.T
+
+            lambdas_all = scipy.linalg.eigh(
+                eig_mat / 2.0,
+                eigvals_only=True,
+                driver="evr",
+            )
+        else:
+            # Quantitative traits: simple scaling
+            kernel = geno_weighted @ geno_weighted.T
+            lambdas_all = scipy.linalg.eigh(
+                kernel / (2.0 * sigma2),
+                eigvals_only=True,
+                driver="evr",
+            )
 
         # Filter eigenvalues (matches R SKAT exactly):
         # 1. Take positive eigenvalues
@@ -335,7 +396,6 @@ class PythonSKATBackend(SKATBackend):
         """
         _n_samples, n_variants = geno.shape
         residuals: np.ndarray = null_model.extra["residuals"]
-        sigma2: float = null_model.extra["sigma2"]
         a1, a2 = weights_beta
 
         # Guard: zero-variant matrix cannot be tested
@@ -378,11 +438,8 @@ class PythonSKATBackend(SKATBackend):
         score_vec = geno_weighted.T @ residuals  # shape: (n_variants,)
         q_stat = float(score_vec @ score_vec) / 2.0
 
-        # Kernel matrix: ZW @ ZW^T
-        kernel = geno_weighted @ geno_weighted.T
-
-        # Filtered eigenvalues
-        lambdas = self._compute_eigenvalues_filtered(kernel, sigma2)
+        # Filtered eigenvalues (projection-adjusted for binary traits)
+        lambdas = self._compute_eigenvalues_filtered(geno_weighted, null_model)
 
         if len(lambdas) == 0:
             logger.debug(f"Gene {gene}: no eigenvalues above threshold; returning p=1.0")
@@ -520,7 +577,6 @@ class PythonSKATBackend(SKATBackend):
         """
         _n_samples, n_variants = geno.shape
         residuals: np.ndarray = null_model.extra["residuals"]
-        sigma2: float = null_model.extra["sigma2"]
         a1, a2 = weights_beta
 
         # Guard: zero-variant matrix cannot be tested
@@ -559,12 +615,8 @@ class PythonSKATBackend(SKATBackend):
         # Weighted genotype matrix
         geno_weighted = geno * weights[np.newaxis, :]
 
-        # SKAT kernel matrix: geno_weighted @ geno_weighted^T
-        kernel_skat = geno_weighted @ geno_weighted.T
-
-        # Burden vector and burden kernel: outer product
+        # Burden vector: sum of weighted genotypes per sample
         burden = geno @ weights  # (n_samples,)
-        kernel_burden = np.outer(burden, burden)
 
         # Score vectors for SKAT and burden components
         score_skat_vec = geno_weighted.T @ residuals  # (n_variants,)
@@ -581,11 +633,26 @@ class PythonSKATBackend(SKATBackend):
             # Combined test statistic for this rho
             q_rho = (1.0 - rho) * q_skat + rho * q_burden
 
-            # Combined kernel for this rho
-            kernel_rho = (1.0 - rho) * kernel_skat + rho * kernel_burden
+            # Combined weighted genotype for eigenvalue computation:
+            # K_rho = (1-rho)*K_skat + rho*K_burden
+            # K_skat = G_w @ G_w^T, K_burden = burden @ burden^T
+            # Build the combined "genotype" matrix whose outer product = K_rho
+            # G_rho = [sqrt(1-rho)*G_w | sqrt(rho)*burden]
+            sqrt_rho = np.sqrt(rho) if rho > 0 else 0.0
+            sqrt_1mrho = np.sqrt(1.0 - rho)
+            geno_rho = (
+                np.column_stack(
+                    [
+                        sqrt_1mrho * geno_weighted,
+                        sqrt_rho * burden[:, np.newaxis],
+                    ]
+                )
+                if rho > 0
+                else geno_weighted
+            )
 
-            # Filtered eigenvalues
-            lambdas_rho = self._compute_eigenvalues_filtered(kernel_rho, sigma2)
+            # Filtered eigenvalues (projection-adjusted for binary traits)
+            lambdas_rho = self._compute_eigenvalues_filtered(geno_rho, null_model)
             if len(lambdas_rho) == 0:
                 continue
 
