@@ -28,7 +28,7 @@ Examples
 from __future__ import annotations
 
 import logging
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
 from scipy.stats import cauchy
@@ -68,9 +68,9 @@ def cauchy_combination(
     Notes
     -----
     The Cauchy statistic is:
-        T = sum(w_i * tan((0.5 - p_i) * pi))
+        t_stat = sum(w_i * tan((0.5 - p_i) * pi))
     where w_i are normalized weights (sum to 1). The combined p-value is:
-        p_combined = 1 - CDF_Cauchy(T) = SF_Cauchy(T)
+        p_combined = 1 - CDF_Cauchy(t_stat) = SF_Cauchy(t_stat)
 
     For p_i < _TINY_P_THRESHOLD, the approximation tan((0.5 - p) * pi) ≈ 1/(p*pi)
     is used (numerically equivalent but avoids overflow).
@@ -112,12 +112,9 @@ def cauchy_combination(
         return float(p_valid[0])
 
     # Normalize weights to sum to 1
+    # All-zero weights: fall back to equal weighting
     w_sum = w_valid.sum()
-    if w_sum <= 0:
-        # All-zero weights: fall back to equal weighting
-        w_valid = np.ones(n_valid, dtype=float) / n_valid
-    else:
-        w_valid = w_valid / w_sum
+    w_valid = np.ones(n_valid, dtype=float) / n_valid if w_sum <= 0 else w_valid / w_sum
 
     # Compute Cauchy transforms with numerical stability guard
     # For p < _TINY_P_THRESHOLD: use approximation 1/(p*pi) (Liu & Xie 2020)
@@ -129,11 +126,11 @@ def cauchy_combination(
     if (~tiny_mask).any():
         transforms[~tiny_mask] = np.tan((0.5 - p_valid[~tiny_mask]) * np.pi)
 
-    # Weighted Cauchy statistic
-    T = float(np.dot(w_valid, transforms))
+    # Weighted Cauchy statistic (named t_stat; T is conventional in literature)
+    t_stat = float(np.dot(w_valid, transforms))
 
     # Combined p-value: survival function of standard Cauchy distribution
-    p_combined = float(np.clip(cauchy.sf(T), 0.0, 1.0))
+    p_combined = float(np.clip(cauchy.sf(t_stat), 0.0, 1.0))
     return p_combined
 
 

@@ -12,7 +12,6 @@ import pytest
 
 from variantcentrifuge.association.tests.acat import cauchy_combination, compute_acat_o
 
-
 # ---------------------------------------------------------------------------
 # Numerical accuracy tests
 # ---------------------------------------------------------------------------

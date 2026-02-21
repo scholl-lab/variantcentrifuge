@@ -71,9 +71,7 @@ def compute_lambda_gc(p_values: list[float | None]) -> float | None:
 
     n_valid = len(valid)
     if n_valid < 100:
-        logger.warning(
-            f"lambda_GC computed on {n_valid} tests — unreliable for n < 100"
-        )
+        logger.warning(f"lambda_GC computed on {n_valid} tests — unreliable for n < 100")
 
     # Convert p-values to chi2(df=1) statistics via survival function inverse
     chi2_obs = chi2_dist.isf(valid, df=1)
@@ -103,9 +101,7 @@ def compute_qq_data(p_values: list[float | None], test_name: str) -> pd.DataFram
         Columns: "test", "expected_neg_log10_p", "observed_neg_log10_p".
         Empty DataFrame with same columns if no valid p-values.
     """
-    _empty = pd.DataFrame(
-        columns=["test", "expected_neg_log10_p", "observed_neg_log10_p"]
-    )
+    _empty = pd.DataFrame(columns=["test", "expected_neg_log10_p", "observed_neg_log10_p"])
 
     valid = np.array(
         [p for p in p_values if p is not None and not np.isnan(p)],
@@ -145,7 +141,7 @@ def compute_qq_data(p_values: list[float | None], test_name: str) -> pd.DataFram
 def emit_sample_size_warnings(
     n_cases: int,
     n_controls: int,
-    config: "AssociationConfig",
+    config: AssociationConfig,
 ) -> list[str]:
     """
     Check cohort-level sample size and balance; emit warnings and return flag strings.
@@ -193,7 +189,7 @@ def emit_sample_size_warnings(
 def compute_per_gene_warnings(
     gene: str,
     case_carriers: int,
-    config: "AssociationConfig",
+    config: AssociationConfig,
 ) -> list[str]:
     """
     Compute per-gene warnings based on carrier counts.
@@ -290,9 +286,7 @@ def write_diagnostics(
         n_valid = sum(1 for p in p_values if p is not None and not np.isnan(p))
 
         if lam is not None:
-            lambda_rows.append(
-                {"test_name": tid, "lambda_gc": lam, "n_tests": n_valid}
-            )
+            lambda_rows.append({"test_name": tid, "lambda_gc": lam, "n_tests": n_valid})
 
         qq_df = compute_qq_data(p_values, test_name=tid)
         if not qq_df.empty:
@@ -310,9 +304,7 @@ def write_diagnostics(
     if qq_frames:
         qq_combined = pd.concat(qq_frames, ignore_index=True)
     else:
-        qq_combined = pd.DataFrame(
-            columns=["test", "expected_neg_log10_p", "observed_neg_log10_p"]
-        )
+        qq_combined = pd.DataFrame(columns=["test", "expected_neg_log10_p", "observed_neg_log10_p"])
     qq_combined.to_csv(diag_dir / "qq_data.tsv", sep="\t", index=False)
 
     # ------------------------------------------------------------------
@@ -322,7 +314,7 @@ def write_diagnostics(
         "Association Analysis Diagnostics Summary",
         "=" * 42,
         "",
-        f"Sample sizes:",
+        "Sample sizes:",
         f"  n_cases    = {n_cases}",
         f"  n_controls = {n_controls}",
         "",
