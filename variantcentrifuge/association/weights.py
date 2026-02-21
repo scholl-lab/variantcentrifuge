@@ -95,7 +95,7 @@ def beta_maf_weights(
     avoid numerical edge issues at 0 and 1.
     """
     maf_clipped = np.clip(np.asarray(mafs, dtype=np.float64), 1e-8, 1 - 1e-8)
-    return _beta_dist.pdf(maf_clipped, a=a, b=b)
+    return np.asarray(_beta_dist.pdf(maf_clipped, a=a, b=b), dtype=np.float64)
 
 
 def uniform_weights(n_variants: int) -> np.ndarray:
@@ -211,13 +211,14 @@ def cadd_weights(
     """
     maf_w = beta_maf_weights(np.asarray(mafs, dtype=np.float64))
     scores_f = _parse_scores_to_float(np.asarray(cadd_scores, dtype=object))
+    assert scores_f is not None
     nan_mask = np.isnan(scores_f)
 
     functional = np.where(nan_mask, 1.0, np.minimum(scores_f / cap, 1.0))
 
     _log_missing_score_counts(nan_mask, variant_effects, "CADD")
 
-    return maf_w * functional
+    return np.asarray(maf_w * functional, dtype=np.float64)
 
 
 def revel_weights(
@@ -248,13 +249,14 @@ def revel_weights(
     """
     maf_w = beta_maf_weights(np.asarray(mafs, dtype=np.float64))
     scores_f = _parse_scores_to_float(np.asarray(revel_scores, dtype=object))
+    assert scores_f is not None
     nan_mask = np.isnan(scores_f)
 
     functional = np.where(nan_mask, 1.0, scores_f)
 
     _log_missing_score_counts(nan_mask, variant_effects, "REVEL")
 
-    return maf_w * functional
+    return np.asarray(maf_w * functional, dtype=np.float64)
 
 
 def combined_weights(

@@ -390,6 +390,9 @@ def perform_gene_burden_analysis(
     use_gt_aggregation = has_case_ctrl and not use_column_aggregation and "GT" in df.columns
 
     if use_column_aggregation:
+        assert case_samples is not None
+        assert control_samples is not None
+        assert vcf_samples is not None
         logger.info(
             f"Using column-based aggregation for gene burden "
             f"({len(gt_columns)} GT columns, "
@@ -399,6 +402,8 @@ def perform_gene_burden_analysis(
             df, case_samples, control_samples, vcf_samples, gt_columns
         )
     elif use_gt_aggregation:
+        assert case_samples is not None
+        assert control_samples is not None
         logger.info(
             "Using packed GT string collapsing for gene burden "
             f"({len(case_samples)} cases, {len(control_samples)} controls)"
@@ -504,7 +509,7 @@ def perform_gene_burden_analysis(
     results_df = pd.DataFrame(results)
 
     # Multiple testing correction
-    pvals = results_df["raw_p_value"].values
+    pvals: np.ndarray[Any, Any] = np.asarray(results_df["raw_p_value"].values, dtype=float)
     if _apply_correction is not None:
         corrected_pvals = _apply_correction(pvals, correction_method)
     elif smm is not None:

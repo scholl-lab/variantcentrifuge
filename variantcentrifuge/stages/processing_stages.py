@@ -17,7 +17,7 @@ import shutil
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 from smart_open import smart_open
@@ -1030,7 +1030,7 @@ class PhenotypeIntegrationStage(Stage):
 
         # Read input TSV
         compression = "gzip" if str(input_tsv).endswith(".gz") else None
-        df = pd.read_csv(input_tsv, sep="\t", dtype=str, compression=compression)
+        df = pd.read_csv(input_tsv, sep="\t", dtype=str, compression=cast(Any, compression))
 
         # Phase 11: Check for per-sample columns (bcftools output) vs packed GT column
         # Per-sample columns are sample IDs directly (from context.vcf_samples)
@@ -1041,7 +1041,7 @@ class PhenotypeIntegrationStage(Stage):
         if has_sample_columns:
             # Phase 11: Use per-sample columns directly
             logger.debug("Using per-sample GT columns for phenotype extraction")
-            df["Phenotypes"] = df.apply(
+            df["Phenotypes"] = df.apply(  # type: ignore[call-overload]
                 lambda row: extract_phenotypes_from_sample_columns(
                     row, context.vcf_samples, context.phenotype_data
                 ),
@@ -1050,8 +1050,9 @@ class PhenotypeIntegrationStage(Stage):
         elif "GT" in df.columns:
             # Backwards compatibility: Use packed GT column (from genotype replacement)
             logger.debug("Using packed GT column for phenotype extraction (legacy mode)")
+            phenotype_data: dict[str, set[str]] = context.phenotype_data or {}
             df["Phenotypes"] = df["GT"].apply(
-                lambda gt_val: extract_phenotypes_for_gt_row(gt_val, context.phenotype_data)
+                lambda gt_val: extract_phenotypes_for_gt_row(gt_val, phenotype_data)
             )
         else:
             logger.warning("No GT column or per-sample columns found, cannot add phenotype data")
@@ -1059,7 +1060,7 @@ class PhenotypeIntegrationStage(Stage):
 
         # Write output
         compression = "gzip" if str(output_tsv).endswith(".gz") else None
-        df.to_csv(output_tsv, sep="\t", index=False, compression=compression)
+        df.to_csv(output_tsv, sep="\t", index=False, compression=cast(Any, compression))
 
         context.phenotypes_added_tsv = output_tsv
         context.data = output_tsv
@@ -1119,7 +1120,7 @@ class ExtraColumnRemovalStage(Stage):
 
         # Read, remove columns, and write
         compression = "gzip" if str(input_tsv).endswith(".gz") else None
-        df = pd.read_csv(input_tsv, sep="\t", dtype=str, compression=compression)
+        df = pd.read_csv(input_tsv, sep="\t", dtype=str, compression=cast(Any, compression))
 
         # Remove columns that exist
         existing_cols = [col for col in columns_to_remove if col in df.columns]
@@ -1129,7 +1130,7 @@ class ExtraColumnRemovalStage(Stage):
 
         # Write output
         compression = "gzip" if str(output_tsv).endswith(".gz") else None
-        df.to_csv(output_tsv, sep="\t", index=False, compression=compression)
+        df.to_csv(output_tsv, sep="\t", index=False, compression=cast(Any, compression))
 
         context.extra_columns_removed_tsv = output_tsv
         context.data = output_tsv

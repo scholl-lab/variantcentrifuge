@@ -483,6 +483,7 @@ def _add_json_annotations_as_columns(
     for row in df.itertuples(index=True):
         # Convert row to Series for _extract_genes_from_row
         row_series = df.loc[row.Index]
+        assert isinstance(row_series, pd.Series)
         variant_genes = _extract_genes_from_row(row_series)
         row_annotations = {}
         # Find the first gene in the list that has an entry in our JSON data

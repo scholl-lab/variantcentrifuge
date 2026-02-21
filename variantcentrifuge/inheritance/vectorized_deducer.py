@@ -388,8 +388,8 @@ def _check_dominant_vectorized(
 
     if father_id and father_gts is not None:
         father_affected = np.bool_(is_affected(father_id, pedigree_data))
-        father_has_variant_mask = father_gts > 0
-        father_data_complete = father_gts != -1
+        father_has_variant_mask = father_gts > 0  # type: ignore[assignment]
+        father_data_complete = father_gts != -1  # type: ignore[assignment]
 
     # Check mother contribution
     mother_has_variant_mask = np.zeros(len(sample_gts), dtype=bool)
@@ -398,8 +398,8 @@ def _check_dominant_vectorized(
 
     if mother_id and mother_gts is not None:
         mother_affected = np.bool_(is_affected(mother_id, pedigree_data))
-        mother_has_variant_mask = mother_gts > 0
-        mother_data_complete = mother_gts != -1
+        mother_has_variant_mask = mother_gts > 0  # type: ignore[assignment]
+        mother_data_complete = mother_gts != -1  # type: ignore[assignment]
 
     # Classic dominant: at least one parent affected and has variant
     classic_ad_mask = has_variant_mask & (
@@ -459,15 +459,15 @@ def _check_recessive_vectorized(
     father_data_complete = np.ones(len(sample_gts), dtype=bool)
 
     if father_id and father_gts is not None:
-        father_carrier_mask = father_gts > 0
-        father_data_complete = father_gts != -1
+        father_carrier_mask = father_gts > 0  # type: ignore[assignment]
+        father_data_complete = father_gts != -1  # type: ignore[assignment]
 
     mother_carrier_mask = np.zeros(len(sample_gts), dtype=bool)
     mother_data_complete = np.ones(len(sample_gts), dtype=bool)
 
     if mother_id and mother_gts is not None:
-        mother_carrier_mask = mother_gts > 0
-        mother_data_complete = mother_gts != -1
+        mother_carrier_mask = mother_gts > 0  # type: ignore[assignment]
+        mother_data_complete = mother_gts != -1  # type: ignore[assignment]
 
     # Classic recessive: both parents are carriers
     classic_ar_mask = hom_alt_mask & father_carrier_mask & mother_carrier_mask
@@ -602,7 +602,7 @@ def _check_xlr_male_vectorized(
         # Father check: males can't pass X to sons, so father must NOT have variant
         father_violates_mask = np.zeros(len(sample_gts), dtype=bool)
         if father_id and father_id in sample_list and father_gts is not None:
-            father_violates_mask = father_gts > 0
+            father_violates_mask = father_gts > 0  # type: ignore[assignment]
 
         # Classic XLR: mother has variant, father doesn't (or no father data)
         classic_xlr_mask = male_xlr_base_mask & mother_has_variant_mask & ~father_violates_mask
@@ -650,15 +650,15 @@ def _check_xlr_female_vectorized(
     father_missing_mask = np.ones(len(sample_gts), dtype=bool)
 
     if father_id and father_id in sample_list and father_gts is not None:
-        father_has_mask = father_gts > 0
-        father_missing_mask = father_gts == -1
+        father_has_mask = father_gts > 0  # type: ignore[assignment]
+        father_missing_mask = father_gts == -1  # type: ignore[assignment]
 
     mother_has_mask = np.zeros(len(sample_gts), dtype=bool)
     mother_missing_mask = np.ones(len(sample_gts), dtype=bool)
 
     if mother_id and mother_id in sample_list and mother_gts is not None:
-        mother_has_mask = mother_gts > 0
-        mother_missing_mask = mother_gts == -1
+        mother_has_mask = mother_gts > 0  # type: ignore[assignment]
+        mother_missing_mask = mother_gts == -1  # type: ignore[assignment]
 
     # Classic XLR: both parents have variant
     classic_xlr_mask = female_xlr_base_mask & father_has_mask & mother_has_mask

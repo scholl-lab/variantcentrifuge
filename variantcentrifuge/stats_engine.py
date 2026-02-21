@@ -326,21 +326,17 @@ class StatsEngine:
                     result = grouped.size()
                 else:
                     # General case - apply expression to each group
+                    _expr: str = expression
+                    _name: str = name
+                    _fn: Any = lambda group_df, e=_expr, n=_name: self._safe_eval(  # noqa: E731
+                        group_df, e, f"gene stat '{n}'"
+                    )
                     try:
                         # Try with include_groups for newer pandas versions
-                        result = grouped.apply(
-                            lambda group_df, expression=expression, name=name: self._safe_eval(
-                                group_df, expression, f"gene stat '{name}'"
-                            ),
-                            include_groups=False,
-                        )
+                        result = grouped.apply(_fn, include_groups=False)
                     except TypeError:
                         # Fall back for older pandas versions
-                        result = grouped.apply(
-                            lambda group_df, expression=expression, name=name: self._safe_eval(
-                                group_df, expression, f"gene stat '{name}'"
-                            )
-                        )
+                        result = grouped.apply(_fn)
 
                 gene_stats[name] = result
 
@@ -407,21 +403,17 @@ class StatsEngine:
                 if "size()" in expression:
                     result = grouped.size()
                 else:
+                    _expr2: str = expression
+                    _name2: str = name
+                    _fn2: Any = lambda group_df, e=_expr2, n=_name2: self._safe_eval(  # noqa: E731
+                        group_df, e, f"grouped stat '{n}'"
+                    )
                     try:
                         # Try with include_groups for newer pandas versions
-                        result = grouped.apply(
-                            lambda group_df, expression=expression, name=name: self._safe_eval(
-                                group_df, expression, f"grouped stat '{name}'"
-                            ),
-                            include_groups=False,
-                        )
+                        result = grouped.apply(_fn2, include_groups=False)
                     except TypeError:
                         # Fall back for older pandas versions
-                        result = grouped.apply(
-                            lambda group_df, expression=expression, name=name: self._safe_eval(
-                                group_df, expression, f"grouped stat '{name}'"
-                            )
-                        )
+                        result = grouped.apply(_fn2)
 
                 # Format output
                 if output_format == "pivot" and len(groupby_cols) == 2:

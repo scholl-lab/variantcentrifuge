@@ -14,7 +14,7 @@ import json
 import logging
 import os
 import re
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 from openpyxl import load_workbook
@@ -62,7 +62,13 @@ def convert_to_excel(tsv_file: str, cfg: dict[str, Any], df: pd.DataFrame | None
         }
 
         # Read with low_memory=False to handle mixed types gracefully and suppress warnings
-        df = pd.read_csv(tsv_file, sep="\t", na_values="NA", dtype=genomic_dtypes, low_memory=False)
+        df = pd.read_csv(
+            tsv_file,
+            sep="\t",
+            na_values="NA",
+            dtype=cast(Any, genomic_dtypes),
+            low_memory=False,
+        )
 
     # Log whether we have data or just headers
     if len(df) == 0:
@@ -469,7 +475,7 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
     # MODIFIED: Start of empty report generation
     # Create summary information, handling the empty case properly
     num_variants = len(df) if not df.empty else 0
-    unique_genes = df["GENE"].unique() if not df.empty and "GENE" in df.columns else []
+    unique_genes: Any = df["GENE"].unique() if not df.empty and "GENE" in df.columns else []
     num_genes = len(unique_genes)
 
     impact_counts = {}

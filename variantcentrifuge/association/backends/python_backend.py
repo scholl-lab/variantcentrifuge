@@ -85,7 +85,7 @@ def _get_lambda(kernel_mat: np.ndarray) -> np.ndarray:
     if len(pos) == 0:
         return np.array([], dtype=np.float64)
     threshold = pos.mean() / 100_000.0
-    return lambdas_all[lambdas_all > threshold]
+    return np.asarray(lambdas_all[lambdas_all > threshold], dtype=np.float64)
 
 
 def _skato_optimal_param(z1: np.ndarray, rho_grid: list[float]) -> dict[str, Any]:
@@ -315,7 +315,7 @@ def _skato_integrate_davies(
     if np.isnan(integral):
         return _skato_integrate_liu(pmin_q, param, rho_grid, pmin)
 
-    pvalue = 1.0 - integral
+    pvalue: float = 1.0 - float(integral)
 
     # Bonferroni guard: p should be <= pmin * n_rho
     if pmin * len(rho_grid) < pvalue:
@@ -354,7 +354,7 @@ def _skato_integrate_liu(
 
     integral, _err = scipy.integrate.quad(integrand, 0, 40, limit=2000, epsabs=1e-25)
 
-    pvalue = 1.0 - integral
+    pvalue: float = 1.0 - float(integral)
 
     if pmin * len(rho_grid) < pvalue:
         pvalue = pmin * len(rho_grid)
@@ -769,7 +769,7 @@ class PythonSKATBackend(SKATBackend):
         if len(pos) == 0:
             return np.array([], dtype=np.float64)
         threshold = pos.mean() / 100_000.0
-        return lambdas_all[lambdas_all > threshold]
+        return np.asarray(lambdas_all[lambdas_all > threshold], dtype=np.float64)
 
     def _test_skat(
         self,
@@ -1059,7 +1059,7 @@ class PythonSKATBackend(SKATBackend):
             xtx_inv = np.linalg.inv(xtx)
             z1_adj = geno_weighted - design_x @ (xtx_inv @ (design_x.T @ geno_weighted))
             # For linear, divide Q by sigma2 (R: Q.all / s2)
-            q_rho = q_rho / sigma2
+            q_rho /= sigma2
 
         # Z1 / sqrt(2) — matches R's call: SKAT_Optimal_Get_Pvalue(Q.all, Z1/sqrt(2), ...)
         z1_half = z1_adj / np.sqrt(2.0)

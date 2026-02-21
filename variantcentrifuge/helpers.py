@@ -17,7 +17,7 @@ import re
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -925,7 +925,7 @@ def read_sequencing_manifest(file_path: str) -> dict[str, dict[str, str]]:
     Dict[str, Dict[str, str]]
         Mapping of sample IDs to metadata dictionaries
     """
-    result: dict[str, dict[str, str]] = {}
+    result: dict[str, dict[str, Any]] = {}
     if not os.path.exists(file_path):
         logger.warning(f"Manifest file not found: {file_path}")
         return result
@@ -944,7 +944,7 @@ def read_sequencing_manifest(file_path: str) -> dict[str, dict[str, str]]:
             sample_id = getattr(row, id_col, None)
             if sample_id and not pd.isna(sample_id):
                 # Convert namedtuple to dict for metadata storage
-                result[str(sample_id)] = df.loc[row.Index].to_dict()
+                result[str(sample_id)] = cast(dict[str, Any], df.loc[row.Index].to_dict())
 
         logger.info(f"Loaded metadata for {len(result)} samples from {file_path}")
         return result

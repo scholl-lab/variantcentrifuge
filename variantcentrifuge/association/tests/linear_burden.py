@@ -62,7 +62,7 @@ class LinearBurdenTest(AssociationTest):
         """Short identifier for test registry and output column prefixes."""
         return "linear_burden"
 
-    def effect_column_names(self) -> dict[str, str]:
+    def effect_column_names(self) -> dict[str, str | None]:
         """Beta/SE column naming for linear burden (OLS coefficient scale)."""
         return {
             "effect": "beta",
@@ -168,6 +168,7 @@ class LinearBurdenTest(AssociationTest):
             and covariate_matrix.shape[1] > 0
         )
         if has_covariates:
+            assert covariate_matrix is not None
             design = np.column_stack([design, covariate_matrix])
 
         # Carrier statistics (useful for downstream interpretation)

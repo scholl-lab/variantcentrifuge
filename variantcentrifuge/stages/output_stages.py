@@ -19,6 +19,7 @@ import sys
 import tarfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any, cast
 
 import pandas as pd
 
@@ -225,7 +226,7 @@ class VariantIdentifierStage(Stage):
         if custom_annotations_requested and "Custom_Annotation" not in df.columns:
             # Find a good position for it - after GT column if it exists
             if "GT" in df.columns:
-                gt_pos = int(df.columns.get_loc("GT")) + 1
+                gt_pos = int(cast(Any, df.columns.get_loc("GT"))) + 1
                 df.insert(gt_pos, "Custom_Annotation", "")
             else:
                 df["Custom_Annotation"] = ""
@@ -643,7 +644,7 @@ class TSVOutputStage(Stage):
             if not str(output_path).endswith(".gz"):
                 output_path = Path(str(output_path) + ".gz")
 
-        df.to_csv(output_path, sep="\t", index=False, na_rep="", compression=compression)
+        df.to_csv(output_path, sep="\t", index=False, na_rep="", compression=cast(Any, compression))
 
         logger.info(f"Successfully wrote output to: {output_path}")
 

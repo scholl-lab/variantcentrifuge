@@ -226,7 +226,7 @@ class RSKATBackend(SKATBackend):
         # Step 4: Extract version strings
         import rpy2
 
-        self._rpy2_version = str(rpy2.__version__)
+        self._rpy2_version = str(rpy2.__version__)  # type: ignore[attr-defined]
 
         import rpy2.robjects as ro
 

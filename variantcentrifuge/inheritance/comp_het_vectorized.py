@@ -138,7 +138,7 @@ def analyze_gene_for_compound_het_vectorized(
 
     # Pre-compute or slice variant keys for deduplicated rows
     if variant_keys is not None:
-        unique_keys: np.ndarray = variant_keys[dedup_mask.values]
+        unique_keys: np.ndarray = variant_keys[dedup_mask.values]  # type: ignore[index]
     else:
         unique_keys = build_variant_keys_array(gene_df_unique)
 
@@ -368,15 +368,11 @@ def build_variant_keys_array(df: pd.DataFrame) -> np.ndarray:
     np.ndarray
         1-D object array of variant key strings.
     """
-    return (
-        df["CHROM"].astype(str).values
-        + ":"
-        + df["POS"].astype(str).values
-        + ":"
-        + df["REF"].astype(str).values
-        + ">"
-        + df["ALT"].astype(str).values
-    )
+    chrom = np.asarray(df["CHROM"].astype(str).values, dtype=object)
+    pos = np.asarray(df["POS"].astype(str).values, dtype=object)
+    ref = np.asarray(df["REF"].astype(str).values, dtype=object)
+    alt = np.asarray(df["ALT"].astype(str).values, dtype=object)
+    return chrom + ":" + pos + ":" + ref + ">" + alt  # type: ignore[no-any-return]
 
 
 def create_variant_key_fast(df: pd.DataFrame, idx: int) -> str:

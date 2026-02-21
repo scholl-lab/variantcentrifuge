@@ -79,7 +79,7 @@ def _firth_loglik(beta: np.ndarray, y: np.ndarray, x: np.ndarray) -> float:
     sign, logdet = np.linalg.slogdet(xtwx)
     if sign <= 0:
         return ll
-    return ll + 0.5 * logdet
+    return float(ll + 0.5 * logdet)
 
 
 def _firth_logistic(
@@ -240,7 +240,7 @@ class LogisticBurdenTest(AssociationTest):
         """Short identifier for test registry and output column prefixes."""
         return "logistic_burden"
 
-    def effect_column_names(self) -> dict[str, str]:
+    def effect_column_names(self) -> dict[str, str | None]:
         """Beta/SE column naming for logistic burden (log-odds scale)."""
         return {
             "effect": "beta",
@@ -346,6 +346,7 @@ class LogisticBurdenTest(AssociationTest):
             and covariate_matrix.shape[1] > 0
         )
         if has_covariates:
+            assert covariate_matrix is not None
             design = np.column_stack([design, covariate_matrix])
 
         # Carrier statistics

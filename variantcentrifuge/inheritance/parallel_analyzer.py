@@ -240,7 +240,7 @@ def analyze_inheritance_parallel(
                     future_to_gene = {
                         executor.submit(
                             _process_gene_group,
-                            gene,
+                            str(gene),
                             gene_df,
                             pedigree_data,
                             sample_list,
@@ -267,7 +267,7 @@ def analyze_inheritance_parallel(
                             if completed % 100 == 0:
                                 logger.info(f"Processed {completed}/{num_genes} genes")
                         except Exception as e:
-                            logger.error(f"Error processing gene {gene}: {e}")
+                            logger.error(f"Error processing gene {gene!r}: {e}")
     else:
         # Fall back to sequential processing
         logger.info("Pass 2: Analyzing compound heterozygous patterns sequentially")
@@ -293,9 +293,9 @@ def analyze_inheritance_parallel(
                     )
 
                     if comp_het_results:
-                        comp_het_results_by_gene[gene] = comp_het_results
+                        comp_het_results_by_gene[str(gene)] = comp_het_results
                 except Exception as e:
-                    logger.error(f"Error processing gene {gene}: {e}")
+                    logger.error(f"Error processing gene {gene!r}: {e}")
 
     pass_times["compound_het_analysis"] = time.time() - pass2_start
 
@@ -317,7 +317,7 @@ def analyze_inheritance_parallel(
 
         for gene, gene_results in comp_het_results_by_gene.items():
             gene_mask = genes == gene
-            if not gene_mask.any():
+            if not np.any(gene_mask):
                 continue
 
             gene_variant_keys = variant_keys_series[gene_mask]

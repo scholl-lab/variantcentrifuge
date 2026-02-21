@@ -228,7 +228,7 @@ class AssociationTest(ABC):
         """
         ...
 
-    def effect_column_names(self) -> dict[str, str]:
+    def effect_column_names(self) -> dict[str, str | None]:
         """
         Column name suffixes for this test's effect size output.
 

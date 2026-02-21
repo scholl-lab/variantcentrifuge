@@ -14,7 +14,7 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pandas as pd
 
@@ -160,7 +160,7 @@ def create_sample_columns_from_gt_vectorized(
                         for row in sample_entries.itertuples(index=False):
                             original_idx = getattr(row, "original_index", None)
                             genotype = getattr(row, "genotype", "")
-                            df_copy.loc[original_idx, sample_id] = genotype
+                            df_copy.loc[original_idx, sample_id] = genotype  # type: ignore[index]
 
         logger.debug(
             f"Created {len(vcf_samples)} sample columns from replaced genotypes using "
@@ -1585,7 +1585,7 @@ class VariantAnalysisStage(Stage):
         else:
             compression = None
 
-        df.to_csv(temp_tsv, sep="\t", index=False, compression=compression)
+        df.to_csv(temp_tsv, sep="\t", index=False, compression=cast(Any, compression))
 
         logger.info("Running variant-level analysis")
 
@@ -2014,7 +2014,9 @@ class GeneBurdenAnalysisStage(Stage):
         else:
             compression = None
 
-        burden_results.to_csv(burden_output, sep="\t", index=False, compression=compression)
+        burden_results.to_csv(
+            burden_output, sep="\t", index=False, compression=cast(Any, compression)
+        )
         logger.info(f"Wrote gene burden results to {burden_output}")
 
         return context
@@ -2545,6 +2547,7 @@ class AssociationAnalysisStage(Stage):
                 f"({len(gt_columns)} GT columns, "
                 f"{len(case_set)} cases, {len(control_set)} controls)"
             )
+            assert vcf_samples_list is not None
             gene_burden_data = _aggregate_gene_burden_from_columns(
                 df, case_set, control_set, vcf_samples_list, gt_columns
             )
@@ -2741,7 +2744,7 @@ class AssociationAnalysisStage(Stage):
         else:
             compression = None
 
-        results_df.to_csv(assoc_output, sep="\t", index=False, compression=compression)
+        results_df.to_csv(assoc_output, sep="\t", index=False, compression=cast(Any, compression))
         logger.info(f"Wrote association results to {assoc_output}")
 
         # ------------------------------------------------------------------
@@ -3126,7 +3129,7 @@ class ChunkedAnalysisStage(Stage):
                 compression = None
 
             context.current_dataframe.to_csv(
-                chunked_output_path, sep="\t", index=False, compression=compression
+                chunked_output_path, sep="\t", index=False, compression=cast(Any, compression)
             )
 
             # Update context paths for downstream stages
@@ -3171,7 +3174,7 @@ class ChunkedAnalysisStage(Stage):
         )
         logger.info(f"Loaded {len(chunks)} chunks for parallel processing")
 
-        output_chunks = [None] * len(chunks)  # Pre-allocate to maintain order
+        output_chunks: list[pd.DataFrame] = [pd.DataFrame()] * len(chunks)
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all chunks for processing
