@@ -109,9 +109,9 @@ Plans:
 
 **Plans:** 3 plans
 Plans:
-- [ ] 20-01-PLAN.md — Backend ABC, RSKATBackend skeleton with R/SKAT detection, engine None-effect guard fix, RSKATTest wrapper
-- [ ] 20-02-PLAN.md — RSKATBackend core: fit_null_model (Adjustment=TRUE), test_gene (SKATBinary/SKAT dispatch, SKAT-O), R memory management, stage integration
-- [ ] 20-03-PLAN.md — Unit tests: mocked rpy2 backend tests, RSKATTest wrapper tests, engine SKAT integration tests
+- [x] 20-01-PLAN.md — Backend ABC, RSKATBackend skeleton with R/SKAT detection, engine None-effect guard fix, RSKATTest wrapper
+- [x] 20-02-PLAN.md — RSKATBackend core: fit_null_model (Adjustment=TRUE), test_gene (SKATBinary/SKAT dispatch, SKAT-O), R memory management, stage integration
+- [x] 20-03-PLAN.md — Unit tests: mocked rpy2 backend tests, RSKATTest wrapper tests, engine SKAT integration tests
 
 **Success Criteria:**
 
@@ -125,23 +125,24 @@ Plans:
 
 #### Phase 21: Pure Python SKAT Backend
 
-**Goal:** Users without R can run SKAT and SKAT-O via a pure Python implementation that matches R output within 10% relative difference on log10(p), using Davies ctypes for exact p-values with a Liu moment-matching fallback when compilation is unavailable.
+**Goal:** Users without R can run SKAT and SKAT-O via a pure Python implementation that matches R output within tiered tolerance, using Davies CFFI for exact p-values with Kuonen saddlepoint and Liu moment-matching fallbacks.
 
 **Dependencies:** Phase 20 (R backend as correctness oracle; must run both backends simultaneously for validation)
 
 **Requirements:** SKAT-05, SKAT-06, SKAT-07, SKAT-10
 
-**Plans:** 3 plans estimated
-- 21-01: backends/davies.py — Liu moment-matching fallback first (pure scipy, always available); then ctypes lazy compilation of bundled qfc.c with acc=1e-9, lim=10^6; fallback chain: Davies -> saddlepoint -> Liu; p_method metadata in every result; data/qfc.c bundled source; pyproject.toml artifacts field
-- 21-02: backends/python_backend.py PythonSKATBackend — score test (SKAT linear/logistic formulation from null model residuals); SKAT eigenvalue computation with scipy.linalg.eigh, threshold max(eigenvalues,0), skip if matrix_rank < 2; SKAT-O rho grid search only after SKAT validates against R
-- 21-03: Validation test suite comparing Python vs R p-values across 50+ genes on same synthetic fixtures — assert 10% relative difference on log10(p) for p > 0.001; document expected larger divergence for p < 0.001 in test comments
+**Plans:** 3 plans
+Plans:
+- [ ] 21-01-PLAN.md — davies.py p-value layer (Liu + Kuonen + Davies fallback chain), qfc.cpp bundling, CFFI build script, pyproject.toml hatchling-to-setuptools migration
+- [ ] 21-02-PLAN.md — PythonSKATBackend (null model, score test, SKAT-O rho grid), PurePythonSKATTest wrapper, factory/registry wiring
+- [ ] 21-03-PLAN.md — Unit tests: p-value math validation, backend behavior tests, analytical reference comparisons
 
 **Success Criteria:**
 
-1. Python SKAT p-values are within 10% relative difference of R SKAT p-values on log10(p) scale for p-values greater than 0.001, validated across at least 50 synthetic genes
-2. Davies ctypes compilation succeeds on both Linux and Windows; when gcc is absent, Liu moment-matching activates automatically and the `p_method` column records "liu"
+1. Python SKAT p-values are within tiered tolerance of R (< 1e-4 relative for p > 1e-4; < 0.05 on log10 for p <= 1e-4), validated across synthetic genes
+2. Davies CFFI compilation succeeds on Linux; when gcc is absent, Liu moment-matching activates automatically and the `p_method` column records "liu"
 3. The `p_method` output column records "davies", "saddlepoint", or "liu" for every gene, giving users visibility into which numerical method was used
-4. SKAT skips genes where the kernel matrix rank is less than 2 rather than returning a spurious p-value, and reports `p_value=NA` with a diagnostic warning for those genes
+4. SKAT skips genes where the kernel matrix rank is less than 2 rather than returning a spurious p-value, and reports `p_value=NA` with a diagnostic skip_reason
 5. Running `--skat-backend python` without R installed completes successfully and produces association results — the entire pipeline is functional without any R dependency
 
 ---
