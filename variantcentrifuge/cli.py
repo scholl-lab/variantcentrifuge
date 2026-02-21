@@ -481,6 +481,25 @@ def create_parser() -> argparse.ArgumentParser:
             "'uniform' = equal weights."
         ),
     )
+    # Phase 23: PCA arguments
+    stats_group.add_argument(
+        "--pca-file",
+        type=str,
+        default=None,
+        help="Path to pre-computed PCA file (PLINK .eigenvec, AKT output, or generic TSV).",
+    )
+    stats_group.add_argument(
+        "--pca-tool",
+        choices=["akt"],
+        default=None,
+        help="PCA computation tool. 'akt' invokes AKT as a pipeline stage.",
+    )
+    stats_group.add_argument(
+        "--pca-components",
+        type=int,
+        default=10,
+        help="Number of principal components (default: 10). Warn if >20.",
+    )
     # Inheritance Analysis
     inheritance_group = parser.add_argument_group("Inheritance Analysis")
     inheritance_group.add_argument(
@@ -1110,6 +1129,10 @@ def main() -> int:
     cfg["trait_type"] = getattr(args, "trait_type", "binary")
     cfg["variant_weights"] = getattr(args, "variant_weights", "beta:1,25")
     cfg["diagnostics_output"] = getattr(args, "diagnostics_output", None)
+    # Phase 23: PCA configuration
+    cfg["pca_file"] = getattr(args, "pca_file", None)
+    cfg["pca_tool"] = getattr(args, "pca_tool", None)
+    cfg["pca_components"] = getattr(args, "pca_components", 10)
 
     # Handle add_chr configuration
     if args.add_chr:
@@ -1255,6 +1278,12 @@ def main() -> int:
     # Diagnostics output only makes sense with association analysis
     if getattr(args, "diagnostics_output", None) and not args.perform_association:
         parser.error("--diagnostics-output requires --perform-association to be set")
+
+    # PCA args only make sense with association analysis
+    if getattr(args, "pca_file", None) and not args.perform_association:
+        parser.error("--pca-file requires --perform-association to be set")
+    if getattr(args, "pca_tool", None) and not args.perform_association:
+        parser.error("--pca-tool requires --perform-association to be set")
 
     # Trait type / test compatibility check
     trait_type = getattr(args, "trait_type", "binary")

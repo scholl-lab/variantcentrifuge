@@ -152,6 +152,16 @@ class AssociationConfig:
     diagnostics_output: str | None = None
     """Path to diagnostics output directory. None = no diagnostics output."""
 
+    # Phase 23: PCA integration fields
+    pca_file: str | None = None
+    """Path to pre-computed PCA file (PLINK .eigenvec, AKT output, or generic TSV)."""
+
+    pca_tool: str | None = None
+    """PCA computation tool: 'akt' to invoke AKT as subprocess. None = pre-computed file only."""
+
+    pca_components: int = 10
+    """Number of principal components to use. Default: 10. Warn if >20."""
+
 
 class AssociationTest(ABC):
     """
