@@ -112,7 +112,12 @@ class TestAssociationEngineRunAll:
         assert len(result) == 1
 
     def test_run_all_output_columns(self, default_config):
-        """run_all output contains all expected columns."""
+        """run_all output contains all expected columns.
+
+        ARCH-03: Primary tests no longer have corrected_p_value columns.
+        FDR is applied only to ACAT-O, which appears as acat_o_p_value and
+        acat_o_corrected_p_value.
+        """
         gene_data = [
             _make_gene_data(
                 "BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3
@@ -127,12 +132,16 @@ class TestAssociationEngineRunAll:
             "n_controls",
             "n_variants",
             "fisher_p_value",
-            "fisher_corrected_p_value",
+            # ARCH-03: no fisher_corrected_p_value — FDR applied to ACAT-O only
+            "acat_o_p_value",
+            "acat_o_corrected_p_value",
             "fisher_or",
             "fisher_or_ci_lower",
             "fisher_or_ci_upper",
         }
         assert expected_cols.issubset(set(result.columns))
+        # Primary test must NOT have a corrected_p_value column (ARCH-03)
+        assert "fisher_corrected_p_value" not in result.columns
 
     def test_run_all_multiple_genes_returns_sorted(self, default_config):
         """run_all with multiple genes returns them sorted alphabetically by gene."""
@@ -191,7 +200,12 @@ class TestAssociationEngineRunAll:
         assert result.empty
 
     def test_run_all_corrected_p_values_populated(self, default_config):
-        """run_all populates corrected p-values for all genes."""
+        """run_all populates ACAT-O corrected p-values for all genes.
+
+        ARCH-03: FDR is applied only to ACAT-O p-values (not per-test).
+        Primary test p-values (fisher_p_value) are raw/uncorrected.
+        acat_o_corrected_p_value is populated after correction.
+        """
         gene_data = [
             _make_gene_data(
                 "BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3
@@ -203,8 +217,12 @@ class TestAssociationEngineRunAll:
         engine = AssociationEngine.from_names(["fisher"], default_config)
         result = engine.run_all(gene_data)
 
-        # All corrected p-values must be non-None (correction was applied)
-        assert result["fisher_corrected_p_value"].notna().all()
+        # ACAT-O corrected p-values must be non-None (correction was applied)
+        assert result["acat_o_corrected_p_value"].notna().all()
+        # Primary test p-values are raw (no per-test FDR per ARCH-03)
+        assert "fisher_corrected_p_value" not in result.columns
+        # Fisher raw p-values are present
+        assert result["fisher_p_value"].notna().all()
 
     def test_run_all_sort_order_reverse_input_still_alphabetical(self, default_config):
         """Input in reverse alpha order -> output still alphabetical."""

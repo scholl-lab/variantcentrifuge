@@ -170,7 +170,11 @@ class TestSKATColumnStructure:
             )
 
     def test_engine_skat_has_p_value_columns(self):
-        """Engine produces skat_p_value and skat_corrected_p_value columns."""
+        """Engine produces skat_p_value and ACAT-O corrected p-value columns.
+
+        ARCH-03: Primary test (skat) has no corrected_p_value column.
+        FDR is applied only to ACAT-O omnibus p-values.
+        """
         mock_skat = _make_mock_skat_test()
         engine = _make_engine_with_mock_skat(mock_skat)
 
@@ -181,7 +185,10 @@ class TestSKATColumnStructure:
         result = engine.run_all(gene_data)
 
         assert "skat_p_value" in result.columns
-        assert "skat_corrected_p_value" in result.columns
+        # ARCH-03: no per-test corrected column; ACAT-O is the single FDR-corrected output
+        assert "skat_corrected_p_value" not in result.columns
+        assert "acat_o_p_value" in result.columns
+        assert "acat_o_corrected_p_value" in result.columns
 
     def test_engine_skat_extra_columns_written(self):
         """Extra SKAT columns (skat_o_rho, skat_method) are written to output."""
@@ -300,7 +307,11 @@ class TestSKATCorrectionBehavior:
     """Tests for multiple testing correction with SKAT."""
 
     def test_engine_skat_none_pvalue_excluded_from_correction(self):
-        """Gene with p_value=None gets corrected_p_value=None; others get corrected."""
+        """Gene with p_value=None is excluded from ACAT-O FDR; others get corrected.
+
+        ARCH-03: FDR correction applied to ACAT-O p-values only.
+        Genes where all primary tests returned None are excluded from output entirely.
+        """
         mock_skat = _make_mock_skat_test(
             p_value_default=0.05,
             skip_genes=["EMPTY_GENE"],
@@ -314,22 +325,25 @@ class TestSKATCorrectionBehavior:
             _make_gene_burden_data("EMPTY_GENE", include_genotype_matrix=False),
         ]
 
-        # Wrap mock's run to return None for EMPTY_GENE (skip)
         result = engine.run_all(gene_data)
 
         # EMPTY_GENE is excluded from output (p_value=None → no row)
         if "EMPTY_GENE" in result["gene"].values:
             empty_row = result[result["gene"] == "EMPTY_GENE"].iloc[0]
-            assert empty_row["skat_corrected_p_value"] is None or np.isnan(
-                float(empty_row["skat_corrected_p_value"])
+            # ACAT-O for a skipped gene should be None (no primary p-values)
+            assert empty_row["acat_o_p_value"] is None or np.isnan(
+                float(empty_row["acat_o_p_value"])
             )
 
-        # Genes with real p-values get corrected
+        # Genes with real p-values get corrected ACAT-O values
         tested_genes = result[result["skat_p_value"].notna()]
-        assert tested_genes["skat_corrected_p_value"].notna().all()
+        assert tested_genes["acat_o_corrected_p_value"].notna().all()
 
     def test_engine_skat_corrected_pvalues_populated(self):
-        """skat_corrected_p_value is populated for all tested genes."""
+        """acat_o_corrected_p_value is populated for all tested genes.
+
+        ARCH-03: FDR is applied to ACAT-O p-values, not per-test p-values.
+        """
         mock_skat = _make_mock_skat_test(p_value_default=0.04)
         engine = _make_engine_with_mock_skat(mock_skat)
 
@@ -340,7 +354,9 @@ class TestSKATCorrectionBehavior:
         ]
         result = engine.run_all(gene_data)
 
-        assert result["skat_corrected_p_value"].notna().all()
+        assert result["acat_o_corrected_p_value"].notna().all()
+        # No per-test corrected column (ARCH-03)
+        assert "skat_corrected_p_value" not in result.columns
 
     def test_engine_skat_genes_sorted_alphabetically(self):
         """Engine outputs genes in alphabetical order for deterministic correction."""
@@ -444,7 +460,10 @@ class TestSKATColumnCount:
 
     def test_skat_only_output_columns(self):
         """SKAT-only engine produces exactly: gene, n_cases, n_controls, n_variants,
-        skat_p_value, skat_corrected_p_value, plus all extra keys."""
+        skat_p_value, plus all extra keys, plus acat_o_p_value and acat_o_corrected_p_value.
+
+        ARCH-03: No skat_corrected_p_value column. FDR applied to ACAT-O only.
+        """
         extra = {
             "skat_o_rho": 0.0,
             "skat_method": "SKAT",
@@ -463,7 +482,9 @@ class TestSKATColumnCount:
             "n_controls",
             "n_variants",
             "skat_p_value",
-            "skat_corrected_p_value",
+            # ARCH-03: no skat_corrected_p_value; ACAT-O is the single corrected output
+            "acat_o_p_value",
+            "acat_o_corrected_p_value",
             "skat_o_rho",
             "skat_method",
             "skat_warnings",

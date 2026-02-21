@@ -184,7 +184,12 @@ class TestFisherBitIdentitySamplesMode:
             assert row["fisher_or"] == expected_or, f"OR mismatch for {gene_name}"
 
     def test_bit_identity_corrected_p_values_match_direct_smm(self):
-        """Corrected p-values match direct smm.multipletests on same raw p-values."""
+        """ACAT-O corrected p-values match direct smm.multipletests on ACAT-O raw p-values.
+
+        ARCH-03: FDR is applied only to ACAT-O p-values (not per-test).
+        With a single test (fisher), ACAT-O p-values are pass-throughs of fisher p-values,
+        so the corrected ACAT-O values match FDR of fisher p-values directly.
+        """
         import statsmodels.stats.multitest as smm
 
         genes = [
@@ -202,12 +207,15 @@ class TestFisherBitIdentitySamplesMode:
         engine = AssociationEngine.from_names(["fisher"], config)
         result_df = engine.run_all(genes)
 
-        # Compute expected corrected values from raw p-values
-        raw_pvals = result_df["fisher_p_value"].values
-        expected_corrected = smm.multipletests(raw_pvals, method="fdr_bh")[1]
+        # Primary test has no corrected_p_value column (ARCH-03)
+        assert "fisher_corrected_p_value" not in result_df.columns
+
+        # ACAT-O corrected values should match FDR applied to ACAT-O raw p-values
+        raw_acat_pvals = result_df["acat_o_p_value"].values
+        expected_corrected = smm.multipletests(raw_acat_pvals, method="fdr_bh")[1]
 
         np.testing.assert_array_almost_equal(
-            result_df["fisher_corrected_p_value"].values,
+            result_df["acat_o_corrected_p_value"].values,
             expected_corrected,
             decimal=15,
         )
