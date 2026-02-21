@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 21 — Pure Python SKAT Backend
-Plan: 3/3 complete
-Status: Phase 21 complete — SKAT-O perfected with full Lee et al. (2012) algorithm, validated on GCKD cohort
-Last activity: 2026-02-21 — SKAT-O exact implementation committed (analytical R.M^{1/2}, omnibus integration)
+Phase: 22 — ACAT-O + Diagnostics
+Plan: 1/2 complete
+Status: In progress — Plan 01 (ACAT-O Cauchy combination + ARCH-03 FDR) complete
+Last activity: 2026-02-21 — ACAT-O engine integration committed (cauchy_combination, _compute_acat_o, single FDR)
 
-Progress: ██████████████░░░░░░░ ~65% (Phases 18-21 complete, 2 phases remaining)
+Progress: ███████████████░░░░░░ ~70% (Phases 18-21 complete, Phase 22 in progress)
 
 ## Milestone Overview
 
@@ -91,6 +91,9 @@ Progress: ██████████████░░░░░░░ ~65% (
 | FIX-07 | Davies compute_pvalue matches R Get_PValue.Lambda: acc=1e-6, lim=10000, keep non-converged | 21 post-verify | R SKAT uses acc=1e-6 and lim=10000 (not 1e-9/1M); non-converged Davies kept if 0<p<=1 |
 | IMPL-31 | SKAT-O eigenvalues via analytical R.M^{1/2} (not Cholesky) | 21 post-verify | R.M = (1-rho)*I + rho*J has known eigenvalues; sqrt computed analytically avoiding Cholesky instability at high rho; handles rho=1.0 |
 | IMPL-32 | R's rho >= 0.999 capping applied in SKAT-O eigenvalue loop | 21 post-verify | R SKAT caps rho at 0.999 to avoid rank-deficient correlation matrix |
+| IMPL-33 | cauchy_combination() uses 1/(p*pi) approximation for p < 1e-16 | 22-01 | tan((0.5-p)*pi) overflows to ±inf for tiny p; approximation is numerically equivalent (Liu & Xie 2020 Section 2.2) |
+| IMPL-34 | ACAT-O NOT in _TEST_REGISTRY — post-loop meta-test only | 22-01 | ACAT-O has no genotype input; it combines primary test results; adding to registry would allow nonsensical from_names(['acat_o']) calls |
+| IMPL-35 | Single valid p-value returns as pass-through in cauchy_combination() | 22-01 | k=1 case per CONTEXT.md decision; one test p-value is informative enough to surface without modification |
 
 ### Architecture Invariants (from research)
 
@@ -121,6 +124,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-21
-Stopped at: SKAT-O perfected — full Lee et al. (2012) with analytical R.M^{1/2}, GCKD-validated
+Stopped at: Completed 22-01-PLAN.md (ACAT-O Cauchy combination + ARCH-03 FDR strategy)
 Resume file: None
-Next: Execute Phase 22 (ACAT-O + Diagnostics)
+Next: Execute Phase 22 Plan 02 (Diagnostics: lambda_GC, QQ data TSV, sample size warnings, summary.txt)
