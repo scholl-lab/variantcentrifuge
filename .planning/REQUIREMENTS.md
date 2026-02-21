@@ -33,9 +33,9 @@
 
 - [x] **WEIGHT-01**: Beta(MAF; 1, 25) weights as default (scipy.stats.beta.pdf)
 - [x] **WEIGHT-02**: Uniform weights option (backward compatible with current behavior)
-- [ ] **WEIGHT-03**: Functional weights from annotation columns (CADD-normalized, REVEL-based)
-- [ ] **WEIGHT-04**: Combined weights: Beta(MAF) x functional score
-- [ ] **WEIGHT-05**: CLI args: --variant-weights (beta/uniform/cadd/revel/combined), --variant-weight-params
+- [x] **WEIGHT-03**: Functional weights from annotation columns (CADD-normalized, REVEL-based)
+- [x] **WEIGHT-04**: Combined weights: Beta(MAF) x functional score
+- [x] **WEIGHT-05**: CLI args: --variant-weights (beta/uniform/cadd/revel/combined), --variant-weight-params
 
 ### SKAT/SKAT-O
 
@@ -61,26 +61,26 @@
 - [x] **DIAG-01**: Per-gene TSV output with standard columns ({test}_p_value, effect sizes, CIs, acat_o_p_value, acat_o_corrected_p_value, warnings)
 - [x] **DIAG-02**: Lambda_GC genomic inflation factor computed per test
 - [x] **DIAG-03**: QQ plot data TSV (observed vs expected -log10(p))
-- [ ] **DIAG-04**: Optional matplotlib QQ plot PNG/SVG (lazy import, graceful if matplotlib absent)
+- [x] **DIAG-04**: Optional matplotlib QQ plot PNG/SVG (lazy import, graceful if matplotlib absent)
 - [x] **DIAG-05**: CLI arg: --diagnostics-output (path for diagnostics directory)
 - [x] **DIAG-06**: Warn when n_cases < 200 or case:control ratio > 1:20; flag genes with case_carriers < 10
 
 ### PCA Integration
 
-- [ ] **PCA-01**: PCA file loading supporting PLINK .eigenvec, AKT output, and generic TSV formats
-- [ ] **PCA-02**: PCA components merged as covariates (default 10 PCs; warn if >20)
-- [ ] **PCA-03**: AKT wrapper as PCAComputationStage in pipeline (optional, requires akt in PATH)
-- [ ] **PCA-04**: CLI args: --pca-file, --pca-tool akt, --pca-components
+- [x] **PCA-01**: PCA file loading supporting PLINK .eigenvec, AKT output, and generic TSV formats
+- [x] **PCA-02**: PCA components merged as covariates (default 10 PCs; warn if >20)
+- [x] **PCA-03**: AKT wrapper as PCAComputationStage in pipeline (optional, requires akt in PATH)
+- [x] **PCA-04**: CLI args: --pca-file, --pca-tool akt, --pca-components
 
 ### Allelic Series
 
-- [ ] **SERIES-01**: COAST allelic series test with BMV/DMV/PTV variant classification from PolyPhen/SIFT annotations
-- [ ] **SERIES-02**: Configurable variant category weights (default w=1,2,3 for BMV/DMV/PTV)
+- [x] **SERIES-01**: COAST allelic series test with BMV/DMV/PTV variant classification from PolyPhen/SIFT annotations
+- [x] **SERIES-02**: Configurable variant category weights (default w=1,2,3 for BMV/DMV/PTV)
 
 ### Configuration
 
-- [ ] **CONFIG-01**: JSON config mode for association analysis (--association-config file.json)
-- [ ] **CONFIG-02**: Config supports all CLI association options as JSON fields
+- [x] **CONFIG-01**: JSON config mode for association analysis (--association-config file.json)
+- [x] **CONFIG-02**: Config supports all CLI association options as JSON fields
 
 ## Future Requirements
 
@@ -143,18 +143,18 @@
 | DIAG-03 | Phase 22 | Complete |
 | DIAG-05 | Phase 22 | Complete |
 | DIAG-06 | Phase 22 | Complete |
-| DIAG-04 | Phase 23 | Pending |
-| PCA-01 | Phase 23 | Pending |
-| PCA-02 | Phase 23 | Pending |
-| PCA-03 | Phase 23 | Pending |
-| PCA-04 | Phase 23 | Pending |
-| SERIES-01 | Phase 23 | Pending |
-| SERIES-02 | Phase 23 | Pending |
-| CONFIG-01 | Phase 23 | Pending |
-| CONFIG-02 | Phase 23 | Pending |
-| WEIGHT-03 | Phase 23 | Pending |
-| WEIGHT-04 | Phase 23 | Pending |
-| WEIGHT-05 | Phase 23 | Pending |
+| DIAG-04 | Phase 23 | Complete |
+| PCA-01 | Phase 23 | Complete |
+| PCA-02 | Phase 23 | Complete |
+| PCA-03 | Phase 23 | Complete |
+| PCA-04 | Phase 23 | Complete |
+| SERIES-01 | Phase 23 | Complete |
+| SERIES-02 | Phase 23 | Complete |
+| CONFIG-01 | Phase 23 | Complete |
+| CONFIG-02 | Phase 23 | Complete |
+| WEIGHT-03 | Phase 23 | Complete |
+| WEIGHT-04 | Phase 23 | Complete |
+| WEIGHT-05 | Phase 23 | Complete |
 
 **Coverage:**
 - v1 requirements: 47 total
@@ -163,4 +163,4 @@
 
 ---
 *Requirements defined: 2026-02-19*
-*Last updated: 2026-02-20 — Phase 19 requirements marked Complete*
+*Last updated: 2026-02-21 — Phase 23 requirements marked Complete; all 47 requirements complete*

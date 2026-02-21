@@ -181,10 +181,10 @@ Plans:
 
 **Plans:** 4 plans
 Plans:
-- [ ] 23-01-PLAN.md — PCA file parsing (PLINK .eigenvec, AKT, generic TSV), PCAComputationStage, CLI args, covariate merge
-- [ ] 23-02-PLAN.md — Functional weights (CADD-normalized, REVEL-based, combined Beta(MAF) x functional), CLI args, stage integration
-- [ ] 23-03-PLAN.md — COAST allelic series test (BMV/DMV/PTV classification, R AllelicSeries wrapper, engine + ACAT-O integration)
-- [ ] 23-04-PLAN.md — JSON config mode (association section in config.json, validation, CLI override) + matplotlib QQ plot
+- [x] 23-01-PLAN.md — PCA file parsing (PLINK .eigenvec, AKT, generic TSV), PCAComputationStage, CLI args, covariate merge
+- [x] 23-02-PLAN.md — Functional weights (CADD-normalized, REVEL-based, combined Beta(MAF) x functional), CLI args, stage integration
+- [x] 23-03-PLAN.md — COAST allelic series test (BMV/DMV/PTV classification, R AllelicSeries wrapper, engine + ACAT-O integration)
+- [x] 23-04-PLAN.md — JSON config mode (association section in config.json, validation, CLI override) + matplotlib QQ plot
 
 **Success Criteria:**
 
@@ -218,4 +218,4 @@ Plans:
 | 20. R SKAT Backend | v0.15.0 | 3/3 | Complete | 2026-02-20 |
 | 21. Pure Python SKAT Backend | v0.15.0 | 3/3 | Complete | 2026-02-21 |
 | 22. ACAT-O and Diagnostics | v0.15.0 | 3/3 | Complete | 2026-02-21 |
-| 23. PCA Integration, Functional Weights, Allelic Series, and JSON Config | v0.15.0 | 0/4 | Pending | — |
+| 23. PCA Integration, Functional Weights, Allelic Series, and JSON Config | v0.15.0 | 4/4 | Complete | 2026-02-21 |
