@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 22 — ACAT-O + Diagnostics
-Plan: 1/2 complete
-Status: In progress — Plan 01 (ACAT-O Cauchy combination + ARCH-03 FDR) complete
-Last activity: 2026-02-21 — ACAT-O engine integration committed (cauchy_combination, _compute_acat_o, single FDR)
+Plan: 2/2 complete
+Status: Phase complete — Plan 02 (Diagnostics: lambda_GC, QQ data, sample size warnings) complete
+Last activity: 2026-02-21 — Phase 22 complete: diagnostics module + CLI integration committed
 
-Progress: ███████████████░░░░░░ ~70% (Phases 18-21 complete, Phase 22 in progress)
+Progress: ████████████████░░░░░ ~75% (Phases 18-22 complete, Phase 23 pending)
 
 ## Milestone Overview
 
@@ -26,7 +26,7 @@ Progress: ███████████████░░░░░░ ~70% (
 | 19. Covariate System + Burden Tests | Logistic/linear burden tests with covariate adjustment and genotype matrix builder | COV-01..04, BURDEN-01..03, WEIGHT-01..02 (9) | Complete ✓ |
 | 20. R SKAT Backend | R SKAT via rpy2 as gold standard oracle; SKATBinary + moment adjustment | SKAT-01..04, SKAT-08..09 (6) | Complete ✓ |
 | 21. Pure Python SKAT Backend | Davies ctypes + saddlepoint + Liu fallback; validated against R within 10% | SKAT-05..07, SKAT-10 (4) | Complete ✓ |
-| 22. ACAT-O + Diagnostics | ACAT-O omnibus; single FDR; lambda_GC; QQ TSV; sample size warnings | OMNI-01..03, DIAG-01..03, DIAG-05..06 (8) | Pending |
+| 22. ACAT-O + Diagnostics | ACAT-O omnibus; single FDR; lambda_GC; QQ TSV; sample size warnings | OMNI-01..03, DIAG-01..03, DIAG-05..06 (8) | Complete ✓ |
 | 23. PCA + Functional Weights + Allelic Series + JSON Config | PCA file loading + AKT stage; CADD/REVEL weights; COAST test; JSON config; matplotlib plots | DIAG-04, PCA-01..04, SERIES-01..02, CONFIG-01..02, WEIGHT-03..05 (12) | Pending |
 
 **Total requirements:** 47 mapped across 6 phases (27 complete, 20 pending)
@@ -94,6 +94,9 @@ Progress: ███████████████░░░░░░ ~70% (
 | IMPL-33 | cauchy_combination() uses 1/(p*pi) approximation for p < 1e-16 | 22-01 | tan((0.5-p)*pi) overflows to ±inf for tiny p; approximation is numerically equivalent (Liu & Xie 2020 Section 2.2) |
 | IMPL-34 | ACAT-O NOT in _TEST_REGISTRY — post-loop meta-test only | 22-01 | ACAT-O has no genotype input; it combines primary test results; adding to registry would allow nonsensical from_names(['acat_o']) calls |
 | IMPL-35 | Single valid p-value returns as pass-through in cauchy_combination() | 22-01 | k=1 case per CONTEXT.md decision; one test p-value is informative enough to surface without modification |
+| IMPL-36 | gene_burden_data dicts use "GENE" (uppercase) key; results_df column is "gene" (lowercase) | 22-02 | All three aggregation paths set uppercase key; engine sets lowercase column name; lookup uses .get("GENE", .get("gene", "")) for robustness |
+| IMPL-37 | QQ data sorted ascending by expected_neg_log10_p (non-significant end first) | 22-02 | Smallest expected values (bottom-left of QQ plot) come first; matches sequential rendering convention |
+| IMPL-38 | _EXPECTED_CHI2_MEDIAN hardcoded (not computed at import) | 22-02 | chi2.ppf(0.5, df=1) = 0.45493642311957174; avoids scipy cold import overhead at module load |
 
 ### Architecture Invariants (from research)
 
@@ -123,7 +126,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-21
-Stopped at: Completed 22-01-PLAN.md (ACAT-O Cauchy combination + ARCH-03 FDR strategy)
+Last session: 2026-02-21T18:04:15Z
+Stopped at: Completed 22-02-PLAN.md (Diagnostics: lambda_GC, QQ data, sample size warnings, summary.txt)
 Resume file: None
-Next: Execute Phase 22 Plan 02 (Diagnostics: lambda_GC, QQ data TSV, sample size warnings, summary.txt)
+Next: Execute Phase 23 (PCA + Functional Weights + Allelic Series + JSON Config)
