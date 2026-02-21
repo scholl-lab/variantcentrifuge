@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 20 — R SKAT Backend
-Plan: 3/3 complete
-Status: Phase 20 complete — verified (4/5 criteria pass; Python fallback is Phase 21 scope)
-Last activity: 2026-02-20 — Phase 20 verified and finalized
+Phase: 21 — Pure Python SKAT Backend
+Plan: 1/3 complete
+Status: In progress — p-value layer (davies.py) and build system migration complete
+Last activity: 2026-02-21 — Completed 21-01-PLAN.md (davies.py + setuptools migration)
 
-Progress: ██████████░░░░░░░░░░░ ~50% (Phases 18-20 complete, 3 phases remaining)
+Progress: ████████████░░░░░░░░░ ~55% (Phases 18-20 complete, 21-01 complete, 2 plans + 2 phases remaining)
 
 ## Milestone Overview
 
@@ -25,7 +25,7 @@ Progress: ██████████░░░░░░░░░░░ ~50% (
 | 18. Foundation | Core abstractions + Fisher refactor; bit-identical output validation | CORE-01..08 (8) | Complete |
 | 19. Covariate System + Burden Tests | Logistic/linear burden tests with covariate adjustment and genotype matrix builder | COV-01..04, BURDEN-01..03, WEIGHT-01..02 (9) | Complete ✓ |
 | 20. R SKAT Backend | R SKAT via rpy2 as gold standard oracle; SKATBinary + moment adjustment | SKAT-01..04, SKAT-08..09 (6) | Complete ✓ |
-| 21. Pure Python SKAT Backend | Davies ctypes + saddlepoint + Liu fallback; validated against R within 10% | SKAT-05..07, SKAT-10 (4) | Pending |
+| 21. Pure Python SKAT Backend | Davies ctypes + saddlepoint + Liu fallback; validated against R within 10% | SKAT-05..07, SKAT-10 (4) | In Progress (1/3) |
 | 22. ACAT-O + Diagnostics | ACAT-O omnibus; single FDR; lambda_GC; QQ TSV; sample size warnings | OMNI-01..03, DIAG-01..03, DIAG-05..06 (8) | Pending |
 | 23. PCA + Functional Weights + Allelic Series + JSON Config | PCA file loading + AKT stage; CADD/REVEL weights; COAST test; JSON config; matplotlib plots | DIAG-04, PCA-01..04, SERIES-01..02, CONFIG-01..02, WEIGHT-03..05 (12) | Pending |
 
@@ -75,12 +75,19 @@ Progress: ██████████░░░░░░░░░░░ ~50% (
 | IMPL-23 | parallel_safe=False on AssociationAnalysisStage is unconditional | 20-02 | Not gated on skat_backend config; rpy2 safety applies regardless of test mix in same invocation |
 | TEST-05 | rpy2 mock hierarchy requires parent attribute linking: mock_rpy2.robjects = mock_ro | 20-03 | bare sys.modules injection fails for nested submodule imports inside method bodies; parent mock attribute must point to child mock |
 | TEST-06 | NA_Real sentinel: create unique object() per test; inject via sys.modules rpy2.rinterface.NA_Real | 20-03 | identity check `p_val_r is NA_Real` requires same object; fresh sentinel per test prevents cross-test contamination |
+| FIX-01 | rpy2 3.6.x removed `rpy2.__version__`; use `importlib.metadata.version("rpy2")` | 20 (live) | rpy2 3.6.4 raises AttributeError on `rpy2.__version__`; importlib.metadata is stdlib since 3.8 |
+| FIX-02 | R cleanup pattern must be `'^\\\\._vc_'` not `'\\._vc_'` | 20 (live) | Unescaped dot in regex matches any char; caret anchors to variable name start |
+| FIX-03 | SKAT-O rho: `param$rho_est` is optimal rho; `param$rho` is the search grid | 20 (live) | `param$rho[0]` always returns 0.0 (first grid value); `param$rho_est` is the actual estimate |
+| FIX-04 | Remove `.tolist()` before `FloatVector()` — numpy arrays accepted directly | 20 (live) | Unnecessary copy; rpy2 FloatVector accepts numpy arrays natively |
+| IMPL-24 | CFFI set_source header must use extern "C" brackets for C++/C linkage bridging | 21-01 | Without extern "C" in the CFFI wrapper's forward declaration, C++ name mangling makes qfc() unresolvable at link time |
+| IMPL-25 | qfc.cpp R headers replaced with standard C++ headers (math identical) | 21-01 | <R.h> and "Rmath.h" were included but unused; standalone compilation requires standard headers only |
+| IMPL-26 | compute_pvalue() uses proactive saddlepoint at p<=1e-5 even when Davies ifault=0 | 21-01 | GMMAT pattern: Davies can produce false convergence near integration singularity for extreme p-values |
 
 ### Architecture Invariants (from research)
 
 - R backend: parallel_safe=False; rpy2 calls only from main thread (segfault risk otherwise)
 - Binary traits: always SKATBinary — never continuous-trait SKAT on binary phenotypes
-- Davies defaults: acc=1e-9, lim=10^6 (corrected from Liu et al. 2016)
+- Davies defaults: acc=1e-9, lim=100_000 (GENESIS/SKATh recommendation for tighter accuracy)
 - Covariate alignment: always reindex to vcf_samples order; assert no NaN after reindex
 - FDR strategy: single pass on ACAT-O p-values across all genes (not per-test)
 - Genotype matrix: never stored in PipelineContext (5K samples x 50K variants = 1.6 GB)
@@ -89,12 +96,13 @@ Progress: ██████████░░░░░░░░░░░ ~50% (
 - apply_correction([]) returns empty array (statsmodels multipletests raises ZeroDivisionError on empty; guarded in correction.py)
 - Firth NR fallback: self-contained 130-line Newton-Raphson; no external package; step-halving on penalized log-likelihood
 - Separation detection: both mle_retvals['converged']==False AND bse.max()>100 needed (statsmodels may not raise exception)
+- P-value computation: always through compute_pvalue() — never call Liu/Kuonen directly in SKAT backend code
 
 ### Pending Todos
 
 - **DEPR-01** (backlog): Deprecate classic pipeline mode (`pipeline.py`) in favor of stage-based pipeline (`pipeline_core/`). See archived REQUIREMENTS.md Future Requirements.
 - ~~**RESEARCH-01** (before Phase 20): Validate whether parallel_safe=False on the stage is sufficient for rpy2 thread safety~~ — RESOLVED: parallel_safe=False + _assert_main_thread() guard confirmed sufficient (unit tests verify RuntimeError from worker threads)
-- **RESEARCH-02** (before Phase 21): Saddlepoint approximation algorithm for middle tier of Davies fallback chain — not in scipy stdlib; need reference from fastSKAT (PMC4375394) before implementation.
+- ~~**RESEARCH-02** (before Phase 21): Saddlepoint approximation algorithm for middle tier of Davies fallback chain~~ — RESOLVED: Kuonen Lugannani-Rice saddlepoint implemented in 21-01 from GENESIS variantSetTests.R reference
 - ~~**COLUMN-01** (Phase 22): Rename `linear_burden_or` column to `linear_burden_beta`~~ — DONE (resolved via effect_column_names() in commit 48a6e68)
 
 ### Blockers/Concerns
@@ -103,7 +111,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-20
-Stopped at: Phase 20 complete — verified, 72 SKAT unit tests, 1084 total tests passing
+Last session: 2026-02-21
+Stopped at: Completed 21-01-PLAN.md — davies.py p-value layer + setuptools build migration
 Resume file: None
-Next: `/gsd:discuss-phase 21`
+Next: Execute 21-02 (PythonSKATBackend implementation)
