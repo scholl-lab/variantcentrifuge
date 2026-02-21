@@ -9,10 +9,14 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from .analyzer import _finalize_inheritance_patterns
-from .comp_het_vectorized import analyze_gene_for_compound_het_vectorized
+from .comp_het_vectorized import (
+    analyze_gene_for_compound_het_vectorized,
+    build_variant_keys_array,
+)
 from .vectorized_deducer import vectorized_deduce_patterns
 
 logger = logging.getLogger(__name__)
@@ -23,6 +27,10 @@ def _process_gene_group(
     gene_df: pd.DataFrame,
     pedigree_data: dict[str, dict[str, Any]],
     sample_list: list[str],
+    gt_matrix: np.ndarray | None = None,
+    sample_to_idx: dict[str, int] | None = None,
+    gene_row_indices: np.ndarray | None = None,
+    variant_keys: np.ndarray | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Process a single gene's variants for compound heterozygous patterns.
@@ -39,6 +47,14 @@ def _process_gene_group(
         Pedigree information
     sample_list : List[str]
         List of sample IDs
+    gt_matrix : np.ndarray, optional
+        Pre-built genotype matrix from Pass 1 (read-only, thread-safe).
+    sample_to_idx : Dict[str, int], optional
+        Sample-to-column mapping for gt_matrix.
+    gene_row_indices : np.ndarray, optional
+        Row indices into gt_matrix for this gene.
+    variant_keys : np.ndarray, optional
+        Pre-computed variant key strings for this gene's rows.
 
     Returns
     -------
@@ -51,8 +67,16 @@ def _process_gene_group(
     if len(gene_df) <= 1:
         return gene, {}
 
-    # Use vectorized implementation
-    comp_het_results = analyze_gene_for_compound_het_vectorized(gene_df, pedigree_data, sample_list)
+    # Use vectorized implementation with optional pre-built matrix
+    comp_het_results = analyze_gene_for_compound_het_vectorized(
+        gene_df,
+        pedigree_data,
+        sample_list,
+        gt_matrix=gt_matrix,
+        sample_to_idx=sample_to_idx,
+        gene_row_indices=gene_row_indices,
+        variant_keys=variant_keys,
+    )
 
     return gene, comp_het_results
 
@@ -134,10 +158,25 @@ def analyze_inheritance_parallel(
     pass_times = {}
 
     # Pass 1: Per-Variant Pattern Deduction (vectorized)
+    # Request genotype matrix back so Pass 2 can reuse it (avoids redundant encoding)
     pass1_start = time.time()
     logger.info("Pass 1: Deducing inheritance patterns per variant (vectorized)")
-    df["_inheritance_patterns"] = vectorized_deduce_patterns(df, pedigree_data, sample_list)
+    pass1_result = vectorized_deduce_patterns(
+        df, pedigree_data, sample_list, return_genotype_matrix=True
+    )
+    if isinstance(pass1_result, tuple):
+        patterns_list_all, gt_matrix, sample_to_idx = pass1_result
+    else:
+        patterns_list_all = pass1_result
+        gt_matrix, sample_to_idx = None, None
+    df["_inheritance_patterns"] = patterns_list_all
     pass_times["pattern_deduction"] = time.time() - pass1_start
+
+    # Build positional row index array for slicing the genotype matrix per-gene
+    row_positions = np.arange(len(df))
+
+    # Pre-compute variant keys for all rows (reused per-gene and for result application)
+    all_variant_keys = build_variant_keys_array(df)
 
     # Pass 2: Compound Heterozygous Analysis (PARALLEL)
     pass2_start = time.time()
@@ -163,11 +202,13 @@ def analyze_inheritance_parallel(
     if use_parallel and "GENE" in df.columns:
         # Group by gene
         gene_groups = df.groupby("GENE", observed=True)
-        genes_with_multiple_variants = [
-            (gene, group_df)
-            for gene, group_df in gene_groups
-            if len(group_df) > 1 and not pd.isna(gene) and gene != ""
-        ]
+        genes_with_multiple_variants = []
+        for gene, group_df in gene_groups:
+            if len(group_df) > 1 and not pd.isna(gene) and gene != "":
+                gene_iloc = df.index.get_indexer(group_df.index)
+                gene_row_idx = row_positions[gene_iloc]
+                gene_vkeys = all_variant_keys[gene_iloc]
+                genes_with_multiple_variants.append((gene, group_df, gene_row_idx, gene_vkeys))
 
         num_genes = len(genes_with_multiple_variants)
         if num_genes > 0:
@@ -203,8 +244,12 @@ def analyze_inheritance_parallel(
                             gene_df,
                             pedigree_data,
                             sample_list,
+                            gt_matrix,
+                            sample_to_idx,
+                            gene_row_idx,
+                            gene_vkeys,
                         ): gene
-                        for gene, gene_df in batch
+                        for gene, gene_df, gene_row_idx, gene_vkeys in batch
                     }
 
                     # Collect results as they complete
@@ -233,9 +278,18 @@ def analyze_inheritance_parallel(
                     continue
 
                 try:
-                    # Use vectorized implementation
+                    gene_iloc = df.index.get_indexer(gene_df.index)
+                    gene_row_idx = row_positions[gene_iloc]
+                    gene_vkeys = all_variant_keys[gene_iloc]
+
                     comp_het_results = analyze_gene_for_compound_het_vectorized(
-                        gene_df, pedigree_data, sample_list
+                        gene_df,
+                        pedigree_data,
+                        sample_list,
+                        gt_matrix=gt_matrix,
+                        sample_to_idx=sample_to_idx,
+                        gene_row_indices=gene_row_idx,
+                        variant_keys=gene_vkeys,
                     )
 
                     if comp_het_results:
@@ -245,19 +299,11 @@ def analyze_inheritance_parallel(
 
     pass_times["compound_het_analysis"] = time.time() - pass2_start
 
-    # Apply compound het results to DataFrame (vectorized)
+    # Apply compound het results to DataFrame — batch assignment
     apply_start = time.time()
     if comp_het_results_by_gene:
-        # Build variant keys for all rows at once
-        variant_keys = (
-            df["CHROM"].astype(str)
-            + ":"
-            + df["POS"].astype(str)
-            + ":"
-            + df["REF"].astype(str)
-            + ">"
-            + df["ALT"].astype(str)
-        )
+        # Reuse pre-computed variant keys
+        variant_keys_series = pd.Series(all_variant_keys, index=df.index)
 
         # Get genes array - handle categorical dtype
         if isinstance(df["GENE"].dtype, pd.CategoricalDtype):
@@ -265,23 +311,29 @@ def analyze_inheritance_parallel(
         else:
             genes = df["GENE"].values.astype(str)
 
-        # Apply comp het results per gene
+        # Collect all (index, info) pairs, then assign
+        batch_indices: list[int] = []
+        batch_values: list[dict] = []
+
         for gene, gene_results in comp_het_results_by_gene.items():
             gene_mask = genes == gene
             if not gene_mask.any():
                 continue
 
-            # Get variant keys for this gene
-            gene_variant_keys = variant_keys[gene_mask]
+            gene_variant_keys = variant_keys_series[gene_mask]
 
-            # For each variant in gene_results, find matching rows
             for vk, info in gene_results.items():
                 vk_mask = gene_variant_keys == vk
                 if vk_mask.any():
-                    # Get matching indices in the original DataFrame
-                    matching_indices = df.index[gene_mask][vk_mask]
+                    matching_indices = gene_variant_keys.index[vk_mask]
                     for idx in matching_indices:
-                        df.at[idx, "_comp_het_info"] = info
+                        batch_indices.append(idx)
+                        batch_values.append(info)
+
+        # Single batch assignment
+        if batch_indices:
+            for i, idx in enumerate(batch_indices):
+                df.at[idx, "_comp_het_info"] = batch_values[i]
 
     pass_times["apply_comp_het_results"] = time.time() - apply_start
 

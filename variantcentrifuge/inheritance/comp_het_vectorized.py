@@ -71,7 +71,13 @@ def encode_genotypes(genotype_series: pd.Series) -> np.ndarray:
 
 
 def analyze_gene_for_compound_het_vectorized(
-    gene_df: pd.DataFrame, pedigree_data: dict[str, dict[str, Any]], sample_list: list[str]
+    gene_df: pd.DataFrame,
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+    gt_matrix: np.ndarray | None = None,
+    sample_to_idx: dict[str, int] | None = None,
+    gene_row_indices: np.ndarray | None = None,
+    variant_keys: np.ndarray | None = None,
 ) -> dict[str, dict[str, Any]]:
     """
     Vectorized analysis of compound heterozygous patterns in a gene.
@@ -87,6 +93,19 @@ def analyze_gene_for_compound_het_vectorized(
         Pedigree information
     sample_list : List[str]
         List of sample IDs to analyze
+    gt_matrix : np.ndarray, optional
+        Pre-built genotype matrix (n_total_variants x n_samples) from Pass 1.
+        When provided with sample_to_idx and gene_row_indices, skips internal
+        encode_genotypes() calls for a major performance improvement.
+    sample_to_idx : Dict[str, int], optional
+        Mapping from sample ID to column index in gt_matrix.
+    gene_row_indices : np.ndarray, optional
+        Row indices into gt_matrix for this gene's variants (positional,
+        matching gene_df row order).
+    variant_keys : np.ndarray, optional
+        Pre-computed variant key strings for gene_df rows (from
+        ``build_variant_keys_array``).  When provided, avoids per-row
+        ``create_variant_key_fast`` calls.
 
     Returns
     -------
@@ -108,17 +127,51 @@ def analyze_gene_for_compound_het_vectorized(
     # Get gene name
     gene_name = gene_df_unique.iloc[0].get("GENE", "Unknown")
 
-    # Pre-encode all genotypes for all samples at once (using deduplicated DataFrame)
-    genotype_matrix = {}
-    for sample_id in sample_list:
-        if sample_id in gene_df_unique.columns:
-            genotype_matrix[sample_id] = encode_genotypes(gene_df_unique[sample_id])
-        else:
-            # Sample not in data, use missing values
-            genotype_matrix[sample_id] = np.full(len(gene_df_unique), -1, dtype=np.int8)
+    # Build per-sample genotype arrays: reuse pre-built matrix when available
+    has_prebuilt = (
+        gt_matrix is not None and sample_to_idx is not None and gene_row_indices is not None
+    )
+    genotype_matrix: dict[str, np.ndarray] = {}
 
-    # Analyze each sample
-    for sample_id in sample_list:
+    # Dedup mask (computed once, reused for gt_matrix slicing and variant_keys)
+    dedup_mask = ~gene_df.duplicated(subset=["CHROM", "POS", "REF", "ALT"])
+
+    # Pre-compute or slice variant keys for deduplicated rows
+    if variant_keys is not None:
+        unique_keys: np.ndarray = variant_keys[dedup_mask.values]
+    else:
+        unique_keys = build_variant_keys_array(gene_df_unique)
+
+    if has_prebuilt:
+        # Apply same dedup mask to row indices so shapes stay aligned
+        kept_indices = gene_row_indices[dedup_mask.values]  # type: ignore[index]
+        for sample_id in sample_list:
+            if sample_id in sample_to_idx:  # type: ignore[operator]
+                genotype_matrix[sample_id] = gt_matrix[kept_indices, sample_to_idx[sample_id]]  # type: ignore[index]
+            else:
+                genotype_matrix[sample_id] = np.full(len(gene_df_unique), -1, dtype=np.int8)
+    else:
+        for sample_id in sample_list:
+            if sample_id in gene_df_unique.columns:
+                genotype_matrix[sample_id] = encode_genotypes(gene_df_unique[sample_id])
+            else:
+                genotype_matrix[sample_id] = np.full(len(gene_df_unique), -1, dtype=np.int8)
+
+    # Vectorized candidate detection: build (n_vars x n_samples) het matrix,
+    # find samples with >=2 het variants, then only loop over those.
+    sample_ids_present = [s for s in sample_list if s in genotype_matrix]
+    if sample_ids_present:
+        gene_gt_mat = np.column_stack(
+            [genotype_matrix[s] for s in sample_ids_present]
+        )  # (n_vars, n_candidate_samples)
+        het_mat = gene_gt_mat == 1  # bool mask
+        het_counts = het_mat.sum(axis=0)  # per-sample het count
+        candidate_mask = het_counts >= 2
+        candidate_samples = [sample_ids_present[i] for i in np.where(candidate_mask)[0]]
+    else:
+        candidate_samples = []
+
+    for sample_id in candidate_samples:
         # Handle missing pedigree data — callers (analyzer.py, parallel_analyzer.py)
         # pre-populate pedigree_data before calling this function; this fallback
         # remains for direct callers that skip pre-population.
@@ -131,15 +184,11 @@ def analyze_gene_for_compound_het_vectorized(
             }
 
         # Get encoded genotypes for this sample
-        sample_genotypes = genotype_matrix.get(sample_id, np.array([]))
+        sample_genotypes = genotype_matrix[sample_id]
 
         # Find heterozygous variants (encoded as 1)
         het_mask = sample_genotypes == 1
         het_indices = np.where(het_mask)[0]
-
-        # Skip if fewer than 2 heterozygous variants
-        if len(het_indices) < 2:
-            continue
 
         # Get parent information
         father_id, mother_id = get_parents(sample_id, pedigree_data)
@@ -195,12 +244,10 @@ def analyze_gene_for_compound_het_vectorized(
 
         # Store results based on the new partner structure
         for result_var_idx, partner_indices in partners_by_variant_idx.items():
-            var_key = create_variant_key_fast(gene_df_unique, result_var_idx)
+            var_key = unique_keys[result_var_idx]
 
             # Create list of partner variant keys
-            partner_keys = [
-                create_variant_key_fast(gene_df_unique, pidx) for pidx in partner_indices
-            ]
+            partner_keys = [unique_keys[pidx] for pidx in partner_indices]
 
             # Determine compound het type based on data availability
             if has_father and has_mother:
@@ -301,6 +348,35 @@ def find_potential_partners_vectorized(
             partners_by_variant[int(var_idx)] = potential_partners
 
     return partners_by_variant
+
+
+def build_variant_keys_array(df: pd.DataFrame) -> np.ndarray:
+    """
+    Pre-compute variant keys for all rows in a DataFrame.
+
+    Returns a 1-D object array of strings (``"chr:pos:ref>alt"``).
+    Callers can slice this array per-gene instead of calling
+    ``create_variant_key_fast`` per row.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with CHROM, POS, REF, ALT columns.
+
+    Returns
+    -------
+    np.ndarray
+        1-D object array of variant key strings.
+    """
+    return (
+        df["CHROM"].astype(str).values
+        + ":"
+        + df["POS"].astype(str).values
+        + ":"
+        + df["REF"].astype(str).values
+        + ">"
+        + df["ALT"].astype(str).values
+    )
 
 
 def create_variant_key_fast(df: pd.DataFrame, idx: int) -> str:

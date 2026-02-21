@@ -10,9 +10,13 @@ import logging
 import time
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
-from .comp_het_vectorized import analyze_gene_for_compound_het_vectorized
+from .comp_het_vectorized import (
+    analyze_gene_for_compound_het_vectorized,
+    build_variant_keys_array,
+)
 from .prioritizer import get_pattern_description, prioritize_patterns
 from .segregation_checker import calculate_segregation_score
 from .vectorized_deducer import vectorized_deduce_patterns
@@ -86,9 +90,18 @@ def analyze_inheritance(
     df["Inheritance_Details"] = "{}"
 
     # Pass 1: Per-Variant Pattern Deduction (vectorized)
+    # Request genotype matrix back so Pass 2 can reuse it (avoids redundant encoding)
     logger.info("Pass 1: Deducing inheritance patterns per variant (vectorized)")
     t_pass1_start = time.monotonic()
-    df["_inheritance_patterns"] = vectorized_deduce_patterns(df, pedigree_data, sample_list)
+    pass1_result = vectorized_deduce_patterns(
+        df, pedigree_data, sample_list, return_genotype_matrix=True
+    )
+    if isinstance(pass1_result, tuple):
+        patterns_list_all, gt_matrix, sample_to_idx = pass1_result
+    else:
+        patterns_list_all = pass1_result
+        gt_matrix, sample_to_idx = None, None
+    df["_inheritance_patterns"] = patterns_list_all
     t_pass1 = time.monotonic() - t_pass1_start
     logger.info(
         f"Pass 1 completed in {t_pass1:.2f}s ({len(df)} variants, {len(sample_list)} samples)"
@@ -97,6 +110,12 @@ def analyze_inheritance(
     # Pass 2: Compound Heterozygous Analysis
     logger.info("Pass 2: Analyzing compound heterozygous patterns")
     t_pass2_start = time.monotonic()
+
+    # Build positional row index array for slicing the genotype matrix per-gene
+    row_positions = np.arange(len(df))
+
+    # Pre-compute variant keys for all rows (reused per-gene and for result application)
+    all_variant_keys = build_variant_keys_array(df)
 
     # Group by gene and analyze
     comp_het_results_by_gene = {}
@@ -111,9 +130,22 @@ def analyze_inheritance(
             if len(gene_df) > 1:
                 logger.debug(f"Analyzing gene {gene} with {len(gene_df)} variants for compound het")
 
-            # Use vectorized implementation
+            # Get positional indices for this gene's rows in the full DataFrame
+            gene_iloc = df.index.get_indexer(gene_df.index)
+            gene_row_idx = row_positions[gene_iloc]
+
+            # Slice pre-computed variant keys for this gene
+            gene_vkeys = all_variant_keys[gene_iloc]
+
+            # Use vectorized implementation with pre-built matrix
             comp_het_results = analyze_gene_for_compound_het_vectorized(
-                gene_df, pedigree_data, sample_list
+                gene_df,
+                pedigree_data,
+                sample_list,
+                gt_matrix=gt_matrix,
+                sample_to_idx=sample_to_idx,
+                gene_row_indices=gene_row_idx,
+                variant_keys=gene_vkeys,
             )
 
             if comp_het_results:
@@ -129,18 +161,10 @@ def analyze_inheritance(
         f"({n_genes_with_comphet} genes with compound het patterns)"
     )
 
-    # Apply compound het results to DataFrame (vectorized)
+    # Apply compound het results to DataFrame — batch assignment
     if comp_het_results_by_gene:
-        # Build variant keys for all rows at once
-        variant_keys = (
-            df["CHROM"].astype(str)
-            + ":"
-            + df["POS"].astype(str)
-            + ":"
-            + df["REF"].astype(str)
-            + ">"
-            + df["ALT"].astype(str)
-        )
+        # Reuse pre-computed variant keys (already a numpy string array)
+        variant_keys_series = pd.Series(all_variant_keys, index=df.index)
 
         # Get genes array - handle categorical dtype
         if isinstance(df["GENE"].dtype, pd.CategoricalDtype):
@@ -148,23 +172,31 @@ def analyze_inheritance(
         else:
             genes = df["GENE"].values.astype(str)
 
-        # Apply comp het results per gene
+        # Collect all (index, info) pairs, then assign in one pass
+        batch_indices: list[int] = []
+        batch_values: list[dict] = []
+
         for gene, gene_results in comp_het_results_by_gene.items():
             gene_mask = genes == gene
             if not gene_mask.any():
                 continue
 
             # Get variant keys for this gene
-            gene_variant_keys = variant_keys[gene_mask]
+            gene_variant_keys = variant_keys_series[gene_mask]
 
             # For each variant in gene_results, find matching rows
             for vk, info in gene_results.items():
                 vk_mask = gene_variant_keys == vk
                 if vk_mask.any():
-                    # Get matching indices in the original DataFrame
-                    matching_indices = df.index[gene_mask][vk_mask]
+                    matching_indices = gene_variant_keys.index[vk_mask]
                     for idx in matching_indices:
-                        df.at[idx, "_comp_het_info"] = info
+                        batch_indices.append(idx)
+                        batch_values.append(info)
+
+        # Single batch assignment
+        if batch_indices:
+            for i, idx in enumerate(batch_indices):
+                df.at[idx, "_comp_het_info"] = batch_values[i]
 
     t_pass2_total = time.monotonic() - t_pass2_start
     logger.info(f"Pass 2 total (analysis + apply) completed in {t_pass2_total:.2f}s")
@@ -256,12 +288,13 @@ def _finalize_inheritance_patterns(
 
         best_pattern, confidence = prioritize_patterns(patterns_list, segregation_results)
 
-        # Build a lightweight Series with only sample columns for
-        # create_inheritance_details (which only accesses sample genotypes)
-        row_series = pd.Series({col: sample_col_data[col][idx] for col in sample_cols_present})
+        # Pass a dict instead of pd.Series — create_inheritance_details
+        # only uses `sample_id in row` and `row[sample_id]`, both of
+        # which work on dicts.  Eliminates 294k Series allocations.
+        row_dict = {col: sample_col_data[col][idx] for col in sample_cols_present}
 
         details = create_inheritance_details(
-            row_series,
+            row_dict,
             best_pattern,
             patterns_list,
             confidence,
@@ -279,7 +312,7 @@ def _finalize_inheritance_patterns(
 
 
 def create_inheritance_details(
-    row: pd.Series,
+    row: dict[str, Any] | pd.Series,
     best_pattern: str,
     all_patterns: list[str],
     confidence: float,
@@ -293,8 +326,9 @@ def create_inheritance_details(
 
     Parameters
     ----------
-    row : pd.Series
-        Variant row
+    row : dict or pd.Series
+        Variant row (only sample genotype columns are accessed via
+        ``sample_id in row`` and ``row[sample_id]``)
     best_pattern : str
         The prioritized pattern
     all_patterns : List[str]
@@ -331,8 +365,11 @@ def create_inheritance_details(
         if sample_id not in row:
             continue
 
-        gt = str(row[sample_id])
-        if gt in ["./.", "0/0"] or pd.isna(gt):
+        raw_gt = row[sample_id]
+        if raw_gt is None or pd.isna(raw_gt):
+            continue
+        gt = str(raw_gt)
+        if gt in ["./.", "0/0"]:
             continue
 
         sample_info = {

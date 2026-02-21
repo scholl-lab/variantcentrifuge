@@ -26,8 +26,11 @@ logger = logging.getLogger(__name__)
 
 
 def vectorized_deduce_patterns(
-    df: pd.DataFrame, pedigree_data: dict[str, dict[str, Any]], sample_list: list[str]
-) -> list[list[str]]:
+    df: pd.DataFrame,
+    pedigree_data: dict[str, dict[str, Any]],
+    sample_list: list[str],
+    return_genotype_matrix: bool = False,
+) -> list[list[str]] | tuple[list[list[str]], np.ndarray, dict[str, int]]:
     """
     Vectorized inheritance pattern deduction for ALL variants at once.
 
@@ -42,12 +45,17 @@ def vectorized_deduce_patterns(
         Pedigree information dictionary
     sample_list : List[str]
         List of sample IDs to analyze
+    return_genotype_matrix : bool, optional
+        If True, also return the genotype matrix and sample-to-index mapping
+        built during Pass 1 so they can be reused by Pass 2 (compound het).
 
     Returns
     -------
-    List[List[str]]
+    List[List[str]] or Tuple[List[List[str]], np.ndarray, Dict[str, int]]
         List of pattern lists (one per variant), matching the output
-        format of the original deduce_patterns_for_variant
+        format of the original deduce_patterns_for_variant.
+        When return_genotype_matrix is True, returns a tuple of
+        (patterns, gt_matrix, sample_to_idx).
     """
     t_start = time.monotonic()
     n_variants = len(df)
@@ -57,7 +65,11 @@ def vectorized_deduce_patterns(
 
     # Handle single sample / no pedigree case
     if not pedigree_data or len(sample_list) == 1:
-        return _deduce_single_sample_patterns_vectorized(df, sample_list, n_variants)
+        patterns = _deduce_single_sample_patterns_vectorized(df, sample_list, n_variants)
+        if return_genotype_matrix:
+            gt_matrix, sample_to_idx = _build_genotype_matrix(df, sample_list)
+            return patterns, gt_matrix, sample_to_idx
+        return patterns
 
     # Step 1: Build genotype matrix (n_variants x n_samples)
     # This encodes ALL sample genotypes ONCE before pattern checking
@@ -204,6 +216,8 @@ def vectorized_deduce_patterns(
         f"(matrix={t_matrix:.3f}s, patterns={t_patterns:.3f}s)"
     )
 
+    if return_genotype_matrix:
+        return patterns_per_variant, gt_matrix, sample_to_idx
     return patterns_per_variant
 
 
