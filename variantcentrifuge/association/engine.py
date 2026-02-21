@@ -49,11 +49,13 @@ logger = logging.getLogger("variantcentrifuge")
 # Phase 20: + "skat" (R backend)
 # Phase 21: + "skat_python" (pure Python backend)
 # Phase 22: ACAT-O is a meta-test; NOT in registry (computed post-loop).
+# Phase 23: + "coast" (R AllelicSeries COAST allelic series test)
 _TEST_REGISTRY: dict[str, type[AssociationTest]] = {}
 
 
 def _build_registry() -> dict[str, type[AssociationTest]]:
     """Build the test registry lazily to avoid circular imports at module load."""
+    from variantcentrifuge.association.tests.allelic_series import COASTTest
     from variantcentrifuge.association.tests.fisher import FisherExactTest
     from variantcentrifuge.association.tests.linear_burden import LinearBurdenTest
     from variantcentrifuge.association.tests.logistic_burden import LogisticBurdenTest
@@ -66,6 +68,7 @@ def _build_registry() -> dict[str, type[AssociationTest]]:
         "linear_burden": LinearBurdenTest,
         "skat": RSKATTest,
         "skat_python": PurePythonSKATTest,
+        "coast": COASTTest,
     }
 
 

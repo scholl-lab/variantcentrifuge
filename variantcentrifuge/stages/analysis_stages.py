@@ -2140,6 +2140,8 @@ class AssociationAnalysisStage(Stage):
             pca_file=context.config.get("pca_file"),
             pca_tool=context.config.get("pca_tool"),
             pca_components=context.config.get("pca_components", 10),
+            # Phase 23: COAST allelic series weights
+            coast_weights=context.config.get("coast_weights"),
         )
         logger.info(f"Association analysis: trait type = {assoc_config.trait_type}")
 
@@ -2167,7 +2169,8 @@ class AssociationAnalysisStage(Stage):
         # building. reconstruct_gt_column drops per-sample columns, so we
         # must save them first.
         needs_regression = any(
-            t in test_names for t in ("logistic_burden", "linear_burden", "skat", "skat_python")
+            t in test_names
+            for t in ("logistic_burden", "linear_burden", "skat", "skat_python", "coast")
         )
         df_with_per_sample_gt: pd.DataFrame | None = None
         if "GT" not in df.columns and context.vcf_samples:
@@ -2453,6 +2456,12 @@ class AssociationAnalysisStage(Stage):
                 gene_data["phenotype_vector"] = pv
                 gene_data["covariate_matrix"] = cm
                 gene_data["vcf_samples"] = vcf_samples_list
+
+                # Phase 23: Provide gene_df for COAST annotation column access.
+                # Store the original (pre-filter) df; COASTTest uses it for EFFECT/IMPACT
+                # and auto-detected SIFT/PolyPhen columns. COASTTest handles alignment
+                # mismatch detection via shape check against genotype_matrix.
+                gene_data["gene_df"] = gene_df.reset_index(drop=True)
 
             # Release the per-sample GT DataFrame (can be large with many samples)
             del df_with_per_sample_gt, gt_source_df
