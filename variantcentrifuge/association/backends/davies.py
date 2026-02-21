@@ -196,34 +196,35 @@ def _kuonen_pvalue(q: float, lambdas: np.ndarray) -> float | None:
 
     t_max = 0.4999 / lam_pos.max()  # slightly inside singularity at 1/(2*lam_max)
 
-    def K(t: float) -> float:
+    # CGF and derivatives for Q = sum(lambda_j * chi2_1)
+    def cgf(t: float) -> float:
+        """Cumulant generating function K(t)."""
         return float(-0.5 * np.sum(np.log(1.0 - 2.0 * t * lambdas)))
 
-    def Kprime(t: float) -> float:
+    def cgf_prime(t: float) -> float:
+        """First derivative K'(t) = E[Q] at t."""
         return float(np.sum(lambdas / (1.0 - 2.0 * t * lambdas)))
 
-    def Kdprime(t: float) -> float:
+    def cgf_dprime(t: float) -> float:
+        """Second derivative K''(t)."""
         return float(2.0 * np.sum(lambdas**2 / (1.0 - 2.0 * t * lambdas) ** 2))
 
     # Mean of Q: K'(0) = sum(lambdas)
-    mu = Kprime(0.0)
+    mu = cgf_prime(0.0)
     if q <= mu:
         # Saddlepoint requires q > mean for upper-tail computation
         return None
 
     try:
-        t_hat = brentq(lambda t: Kprime(t) - q, 1e-10, t_max, xtol=1e-12)
+        t_hat = brentq(lambda t: cgf_prime(t) - q, 1e-10, t_max, xtol=1e-12)
     except ValueError:
         return None
 
-    w = float(np.sign(t_hat) * np.sqrt(2.0 * (t_hat * q - K(t_hat))))
-    u = float(t_hat * np.sqrt(Kdprime(t_hat)))
+    w = float(np.sign(t_hat) * np.sqrt(2.0 * (t_hat * q - cgf(t_hat))))
+    u = float(t_hat * np.sqrt(cgf_dprime(t_hat)))
 
-    # Near-singularity guard: when u ~ 0 use simple normal approximation
-    if abs(u) < 1e-8:
-        p = float(norm.sf(w))
-    else:
-        p = float(norm.sf(w + np.log(u / w) / w))
+    # Near-singularity guard: when u ~ 0 use simple normal approximation (SIM108)
+    p = float(norm.sf(w)) if abs(u) < 1e-8 else float(norm.sf(w + np.log(u / w) / w))
 
     return p if 0.0 < p < 1.0 else None
 
@@ -350,8 +351,7 @@ def compute_pvalue(
             return float(p_davies), "davies", True
 
         logger.info(
-            "Davies fallback triggered: ifault=%d, p=%s "
-            "(thresholds: >=1.0 | <%.2e | <=%.2e)",
+            "Davies fallback triggered: ifault=%d, p=%s (thresholds: >=1.0 | <%.2e | <=%.2e)",
             ifault,
             p_davies,
             _EPS1000,
