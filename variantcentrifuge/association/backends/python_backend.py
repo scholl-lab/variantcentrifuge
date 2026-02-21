@@ -338,6 +338,20 @@ class PythonSKATBackend(SKATBackend):
         sigma2: float = null_model.extra["sigma2"]
         a1, a2 = weights_beta
 
+        # Guard: zero-variant matrix cannot be tested
+        if n_variants == 0:
+            logger.debug(f"Gene {gene}: n_variants=0; returning p_value=None")
+            return {
+                "p_value": None,
+                "rho": None,
+                "n_variants": 0,
+                "n_marker_test": 0,
+                "warnings": [],
+                "p_method": None,
+                "p_converged": False,
+                "skip_reason": "rank_deficient",
+            }
+
         # Rank check on FULL matrix BEFORE any eigenvalue filtering
         rank = int(np.linalg.matrix_rank(geno))
         if rank < 2:
@@ -508,6 +522,20 @@ class PythonSKATBackend(SKATBackend):
         residuals: np.ndarray = null_model.extra["residuals"]
         sigma2: float = null_model.extra["sigma2"]
         a1, a2 = weights_beta
+
+        # Guard: zero-variant matrix cannot be tested
+        if n_variants == 0:
+            logger.debug(f"Gene {gene} (SKAT-O): n_variants=0; returning p_value=None")
+            return {
+                "p_value": None,
+                "rho": None,
+                "n_variants": 0,
+                "n_marker_test": 0,
+                "warnings": [],
+                "p_method": None,
+                "p_converged": False,
+                "skip_reason": "rank_deficient",
+            }
 
         # Rank check on full matrix
         rank = int(np.linalg.matrix_rank(geno))
