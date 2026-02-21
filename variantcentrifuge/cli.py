@@ -463,6 +463,15 @@ def create_parser() -> argparse.ArgumentParser:
         ),
     )
     stats_group.add_argument(
+        "--diagnostics-output",
+        type=str,
+        default=None,
+        help=(
+            "Path to directory for diagnostics output (lambda_GC, QQ data, summary). "
+            "Created automatically if it does not exist."
+        ),
+    )
+    stats_group.add_argument(
         "--variant-weights",
         type=str,
         default="beta:1,25",
@@ -1100,6 +1109,7 @@ def main() -> int:
     )
     cfg["trait_type"] = getattr(args, "trait_type", "binary")
     cfg["variant_weights"] = getattr(args, "variant_weights", "beta:1,25")
+    cfg["diagnostics_output"] = getattr(args, "diagnostics_output", None)
 
     # Handle add_chr configuration
     if args.add_chr:
@@ -1241,6 +1251,10 @@ def main() -> int:
     # Covariate file only makes sense with association analysis
     if getattr(args, "covariate_file", None) and not args.perform_association:
         parser.error("--covariate-file requires --perform-association to be set")
+
+    # Diagnostics output only makes sense with association analysis
+    if getattr(args, "diagnostics_output", None) and not args.perform_association:
+        parser.error("--diagnostics-output requires --perform-association to be set")
 
     # Trait type / test compatibility check
     trait_type = getattr(args, "trait_type", "binary")

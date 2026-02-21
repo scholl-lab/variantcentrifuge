@@ -2118,6 +2118,7 @@ class AssociationAnalysisStage(Stage):
             return context
 
         # Build AssociationConfig from context (Phase 19: includes covariate/trait/weight fields)
+        # Phase 22: includes diagnostics_output and sample size warning thresholds
         assoc_config = AssociationConfig(
             correction_method=context.config.get("correction_method", "fdr"),
             gene_burden_mode=context.config.get("gene_burden_mode", "samples"),
@@ -2130,6 +2131,10 @@ class AssociationAnalysisStage(Stage):
             categorical_covariates=context.config.get("categorical_covariates"),
             trait_type=context.config.get("trait_type", "binary"),
             variant_weights=context.config.get("variant_weights", "beta:1,25"),
+            diagnostics_output=context.config.get("diagnostics_output"),
+            min_cases=context.config.get("association_min_cases", 200),
+            max_case_control_ratio=context.config.get("association_max_case_control_ratio", 20.0),
+            min_case_carriers=context.config.get("association_min_case_carriers", 10),
         )
         logger.info(f"Association analysis: trait type = {assoc_config.trait_type}")
 
@@ -2360,12 +2365,30 @@ class AssociationAnalysisStage(Stage):
             # Release the per-sample GT DataFrame (can be large with many samples)
             del df_with_per_sample_gt, gt_source_df
 
+        # Phase 22: Build gene lookup for per-gene warnings BEFORE engine.run_all()
+        # gene_burden_data dicts use "GENE" (uppercase) as the gene key
+        gene_data_by_gene = {d.get("GENE", d.get("gene", "")): d for d in gene_burden_data}
+
         # Run association tests
         results_df = engine.run_all(gene_burden_data)
 
         if results_df.empty:
             logger.warning("Association analysis produced no results.")
             return context
+
+        # ------------------------------------------------------------------
+        # Phase 22: Per-gene warnings column
+        # ------------------------------------------------------------------
+        from ..association.diagnostics import compute_per_gene_warnings
+
+        warnings_by_gene: dict[str, str] = {}
+        for gene in results_df["gene"].unique():
+            gdata = gene_data_by_gene.get(gene, {})
+            case_carriers = gdata.get("proband_carrier_count", 0)
+            gene_warnings = compute_per_gene_warnings(gene, case_carriers, assoc_config)
+            if gene_warnings:
+                warnings_by_gene[gene] = ";".join(gene_warnings)
+        results_df["warnings"] = results_df["gene"].map(warnings_by_gene).fillna("")
 
         # Write results to output file
         assoc_output = context.config.get("association_output")
@@ -2386,6 +2409,24 @@ class AssociationAnalysisStage(Stage):
 
         results_df.to_csv(assoc_output, sep="\t", index=False, compression=compression)
         logger.info(f"Wrote association results to {assoc_output}")
+
+        # ------------------------------------------------------------------
+        # Phase 22: Write diagnostics if requested
+        # ------------------------------------------------------------------
+        if assoc_config.diagnostics_output:
+            from ..association.diagnostics import emit_sample_size_warnings, write_diagnostics
+
+            cohort_warnings = emit_sample_size_warnings(
+                n_cases_total, n_controls_total, assoc_config
+            )
+            write_diagnostics(
+                results_df=results_df,
+                diagnostics_dir=assoc_config.diagnostics_output,
+                test_names=test_names,
+                n_cases=n_cases_total,
+                n_controls=n_controls_total,
+                cohort_warnings=cohort_warnings,
+            )
 
         # Store results in context
         context.association_results = results_df
