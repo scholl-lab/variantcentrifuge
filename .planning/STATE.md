@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 22 — ACAT-O + Diagnostics
-Plan: 2/2 complete
-Status: Phase complete — Plan 02 (Diagnostics: lambda_GC, QQ data, sample size warnings) complete
-Last activity: 2026-02-21 — Phase 22 complete: diagnostics module + CLI integration committed
+Plan: 3/3 complete
+Status: Phase 22 fully complete — Plan 03 (ACAT tests, diagnostics tests, engine ARCH-03 tests) complete
+Last activity: 2026-02-21 — Phase 22 test suite: 91 tests for ACAT formula, diagnostics, engine integration
 
-Progress: ████████████████░░░░░ ~75% (Phases 18-22 complete, Phase 23 pending)
+Progress: ████████████████░░░░░ ~80% (Phases 18-22 complete including test plans, Phase 23 pending)
 
 ## Milestone Overview
 
@@ -126,7 +126,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-21T18:04:15Z
-Stopped at: Completed 22-02-PLAN.md (Diagnostics: lambda_GC, QQ data, sample size warnings, summary.txt)
+Last session: 2026-02-21T18:18:48Z
+Stopped at: Completed 22-03-PLAN.md (ACAT formula tests, diagnostics tests, engine ARCH-03 integration tests)
 Resume file: None
 Next: Execute Phase 23 (PCA + Functional Weights + Allelic Series + JSON Config)
