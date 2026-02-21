@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 21 — Pure Python SKAT Backend
-Plan: 1/3 complete
-Status: In progress — p-value layer (davies.py) and build system migration complete
-Last activity: 2026-02-21 — Completed 21-01-PLAN.md (davies.py + setuptools migration)
+Plan: 2/3 complete
+Status: In progress — PythonSKATBackend and PurePythonSKATTest implemented; factory and registry wired
+Last activity: 2026-02-21 — Completed 21-02-PLAN.md (PythonSKATBackend + PurePythonSKATTest)
 
-Progress: ████████████░░░░░░░░░ ~55% (Phases 18-20 complete, 21-01 complete, 2 plans + 2 phases remaining)
+Progress: █████████████░░░░░░░░ ~60% (Phases 18-20 complete, 21-01/02 complete, 1 plan + 2 phases remaining)
 
 ## Milestone Overview
 
@@ -82,6 +82,9 @@ Progress: ████████████░░░░░░░░░ ~55% (
 | IMPL-24 | CFFI set_source header must use extern "C" brackets for C++/C linkage bridging | 21-01 | Without extern "C" in the CFFI wrapper's forward declaration, C++ name mangling makes qfc() unresolvable at link time |
 | IMPL-25 | qfc.cpp R headers replaced with standard C++ headers (math identical) | 21-01 | <R.h> and "Rmath.h" were included but unused; standalone compilation requires standard headers only |
 | IMPL-26 | compute_pvalue() uses proactive saddlepoint at p<=1e-5 even when Davies ifault=0 | 21-01 | GMMAT pattern: Davies can produce false convergence near integration singularity for extreme p-values |
+| IMPL-27 | SKAT-O uses minimum-p approach over rho grid (not full SKAT-O integration) | 21-02 | Full SKAT-O omnibus p requires integrating over joint distribution; min-p is conservative approximation sufficient for Phase 21 |
+| IMPL-28 | _parse_weights_beta moved to shared tests/_utils.py to prevent rpy2 transitive import | 21-02 | If it stayed in skat_r.py, importing it from skat_python.py would transitively import rpy2 |
+| IMPL-29 | Backend-aware swap in from_names() runs BEFORE unknown-name check | 21-02 | Critical ordering: 'skat' must resolve to correct class before validation; swap changes registry[skat] target |
 
 ### Architecture Invariants (from research)
 
@@ -112,6 +115,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-21
-Stopped at: Completed 21-01-PLAN.md — davies.py p-value layer + setuptools build migration
+Stopped at: Completed 21-02-PLAN.md — PythonSKATBackend + PurePythonSKATTest + factory/registry wiring
 Resume file: None
-Next: Execute 21-02 (PythonSKATBackend implementation)
+Next: Execute 21-03 (unit tests and validation for Python SKAT backend)
