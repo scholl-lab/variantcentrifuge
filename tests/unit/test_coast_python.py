@@ -54,21 +54,9 @@ def _make_3cat_gene_df(n_bmv: int = 3, n_dmv: int = 3, n_ptv: int = 3) -> pd.Dat
         + ["missense_variant"] * n_dmv  # DMV: missense + deleterious
         + ["frameshift_variant"] * n_ptv  # PTV: frameshift + HIGH
     )
-    impacts = (
-        ["MODERATE"] * n_bmv
-        + ["MODERATE"] * n_dmv
-        + ["HIGH"] * n_ptv
-    )
-    sift = (
-        ["tolerated"] * n_bmv
-        + ["deleterious"] * n_dmv
-        + ["."] * n_ptv
-    )
-    polyphen = (
-        ["benign"] * n_bmv
-        + ["probably_damaging"] * n_dmv
-        + ["."] * n_ptv
-    )
+    impacts = ["MODERATE"] * n_bmv + ["MODERATE"] * n_dmv + ["HIGH"] * n_ptv
+    sift = ["tolerated"] * n_bmv + ["deleterious"] * n_dmv + ["."] * n_ptv
+    polyphen = ["benign"] * n_bmv + ["probably_damaging"] * n_dmv + ["."] * n_ptv
     return _make_gene_df(effects, impacts, sift, polyphen)
 
 
@@ -90,9 +78,7 @@ def _make_coast_contingency_data(
     n_variants = n_bmv + n_dmv + n_ptv
     rng = np.random.default_rng(seed)
 
-    geno = rng.choice([0, 1, 2], size=(n_samples, n_variants), p=[0.6, 0.3, 0.1]).astype(
-        np.float64
-    )
+    geno = rng.choice([0, 1, 2], size=(n_samples, n_variants), p=[0.6, 0.3, 0.1]).astype(np.float64)
 
     if trait_type == "binary":
         n_cases = n_samples // 2
@@ -226,9 +212,7 @@ class TestCOASTBurdenAggregation:
         n_bmv = geno[:, 0] + geno[:, 1]
         n_dmv = geno[:, 2] + geno[:, 3]
         n_ptv = geno[:, 4] + geno[:, 5]
-        expected = np.maximum.reduce(
-            [1.0 * n_bmv, 2.0 * n_dmv, 3.0 * n_ptv]
-        )[:, np.newaxis]
+        expected = np.maximum.reduce([1.0 * n_bmv, 2.0 * n_dmv, 3.0 * n_ptv])[:, np.newaxis]
         np.testing.assert_allclose(result, expected, err_msg="Weighted max mismatch")
 
     def test_empty_category_yields_zero_column(self):
@@ -588,9 +572,7 @@ class TestCOASTOmnibus:
         assert r1["p_value"] == r2["p_value"], (
             f"Non-deterministic omnibus p: {r1['p_value']} != {r2['p_value']}"
         )
-        assert r1["burden_p_values"] == r2["burden_p_values"], (
-            "Non-deterministic burden p-values"
-        )
+        assert r1["burden_p_values"] == r2["burden_p_values"], "Non-deterministic burden p-values"
 
     def test_null_phenotype_moderate_mean_p(self):
         """
@@ -821,9 +803,7 @@ class TestPurePythonCOASTTestLifecycle:
         test.check_dependencies()
         test.prepare(1)
 
-        contingency_data, config = _make_coast_contingency_data(
-            trait_type="quantitative", seed=200
-        )
+        contingency_data, config = _make_coast_contingency_data(trait_type="quantitative", seed=200)
         result = test.run("QUANT_GENE", contingency_data, config)
         test.finalize()
 

@@ -160,8 +160,7 @@ def _make_scenario_data(
             ptv_cols = range(n_b + n_d, k)
             for j in ptv_cols:
                 geno[case_idx, j] = np.minimum(
-                    geno[case_idx, j]
-                    + rng.binomial(1, 0.5, len(case_idx)).astype(float),
+                    geno[case_idx, j] + rng.binomial(1, 0.5, len(case_idx)).astype(float),
                     2.0,
                 )
     else:
@@ -273,12 +272,8 @@ class TestCOASTRReferenceValidation:
         assert r1["p_value"] == r2["p_value"], (
             f"Non-deterministic omnibus p: {r1['p_value']} != {r2['p_value']}"
         )
-        assert r1["burden_p_values"] == r2["burden_p_values"], (
-            "Non-deterministic burden p-values"
-        )
-        assert r1["skat_p_value"] == r2["skat_p_value"], (
-            "Non-deterministic SKAT p-value"
-        )
+        assert r1["burden_p_values"] == r2["burden_p_values"], "Non-deterministic burden p-values"
+        assert r1["skat_p_value"] == r2["skat_p_value"], "Non-deterministic SKAT p-value"
 
     def test_scenario_1_binary_null_p_valid(self, scenario_1_result):
         """Scenario 1 (binary null): omnibus p in (0, 1] (valid p-value)."""
@@ -357,9 +352,7 @@ class TestCOASTRReferenceValidation:
             k_per_cat=_SCENARIO_5_K_PER_CAT,
             trait_type="binary",
         )
-        assert geno.shape == (_SCENARIO_5_N, 3), (
-            f"Expected (100, 3) genotype, got {geno.shape}"
-        )
+        assert geno.shape == (_SCENARIO_5_N, 3), f"Expected (100, 3) genotype, got {geno.shape}"
         result = _run_coast(geno, anno, pheno, trait_type="binary")
         p = result["p_value"]
         assert p is not None, "Expected a p-value for single-variant-per-category scenario"
@@ -623,6 +616,5 @@ class TestCOASTRegressionValues:
         if p1 is not None and p2 is not None and p1 > 0 and p2 > 0:
             log10_diff = abs(math.log10(p1) - math.log10(p2))
             assert log10_diff < 0.5, (
-                f"Tier 2 tolerance violation: "
-                f"p1={p1:.6e}, p2={p2:.6e}, log10_diff={log10_diff:.4f}"
+                f"Tier 2 tolerance violation: p1={p1:.6e}, p2={p2:.6e}, log10_diff={log10_diff:.4f}"
             )
