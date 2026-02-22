@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 25 — Python Default Backends and Quick Wins
+Phase: 26 — Association Testing Documentation
 Plan: 2/2 complete (phase complete)
 Status: Phase complete
-Last activity: 2026-02-22 — Completed 25-01-PLAN.md — Python defaults, R deprecation, saddlepoint fallback
+Last activity: 2026-02-22 — Completed 26-02-PLAN.md — API stub, cross-references, changelog, README
 
-Progress: ███████████████████░░ 75% (Phases 18-25 complete, 26-27 remaining)
+Progress: ████████████████████░ 90% (Phases 18-26 complete, 27 remaining)
 
 ## Milestone Overview
 
@@ -30,7 +30,7 @@ Progress: ███████████████████░░ 75% (P
 | 23. PCA + Functional Weights + Allelic Series + JSON Config | PCA file loading + AKT stage; CADD/REVEL weights; COAST test; JSON config; matplotlib plots | DIAG-04, PCA-01..04, SERIES-01..02, CONFIG-01..02, WEIGHT-03..05 (12) | Complete ✓ |
 | 24. Pure Python COAST Backend | Pure Python COAST matching R AllelicSeries; parallel_safe=True; no R dependency | COAST-PY-01..05 (5) | Complete ✓ |
 | 25. Python Default + Quick Wins | Python default backends, R deprecated, saddlepoint fallback, ACAT-V | — | Complete ✓ |
-| 26. Documentation | Association testing guide, update existing docs, API stubs, changelog | TBD | Not planned |
+| 26. Documentation | Association testing guide, update existing docs, API stubs, changelog | TBD | Complete ✓ |
 | 27. Performance Optimizations | Gene parallelization, Davies caching, single eigendecomposition | TBD | Not planned |
 
 **Total requirements:** 52 mapped across 7 phases (52 complete); phases 25-27 requirements TBD
@@ -168,7 +168,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-22T19:00:00Z – 2026-02-22T20:30:00Z
-Stopped at: Phase 25 real-data validation complete (GCKD cohort, 3 genes, Python backend confirmed)
+Last session: 2026-02-22T19:58:21Z – 2026-02-22T20:01:00Z
+Stopped at: Completed 26-02-PLAN.md — association API stub, cross-references, changelog, README
 Resume file: None
-Next: Phase 26 — Association Testing Documentation (run /gsd:plan-phase 26)
+Next: Phase 27 — Association Performance Optimizations
