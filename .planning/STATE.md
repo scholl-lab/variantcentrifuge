@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 24 — Pure Python COAST Backend
-Plan: 1/1 complete (plan 01 only; additional plans may follow for registry integration)
-Status: In progress — Plan 01 complete
-Last activity: 2026-02-22 — Completed 24-01-PLAN.md (PythonCOASTBackend + PurePythonCOASTTest)
+Plan: 2/3 complete (plans 01, 02 done; plan 03 is validation tests)
+Status: In progress — Plan 02 complete
+Last activity: 2026-02-22 — Completed 24-02-PLAN.md (--coast-backend CLI + engine registry wiring)
 
-Progress: █████████████████████░ 97% (Phases 18-23 complete, Phase 24 plan 01 complete)
+Progress: █████████████████████░ 98% (Phases 18-23 complete, Phase 24 plans 01-02 complete)
 
 ## Milestone Overview
 
@@ -118,6 +118,9 @@ Progress: █████████████████████░ 97%
 | IMPL-56 | Allelic SKAT variance = aaf*(1-aaf) NOT 2*aaf*(1-aaf) | 24-01 | Matches AllelicSeries R source; factor of 2 absorbed by Q=score'score/2 convention |
 | IMPL-57 | coast_burden_p_value in extra = Cauchy of 6 burden components (not 7-way omnibus) | 24-01 | Preserves COASTTest output contract; downstream expects standalone burden sub-summary |
 | IMPL-58 | PurePythonCOASTTest fits null model lazily via PythonSKATBackend.fit_null_model() | 24-01 | Same pattern as PurePythonSKATTest; cohort-level singleton avoids repeated fitting |
+| IMPL-59 | COAST backend swap placement: after SKAT swap, before unknown-name check | 24-02 | Follows IMPL-29; "coast" must resolve to correct class before validation |
+| IMPL-60 | COAST auto mode probes both rpy2 AND AllelicSeries importr() | 24-02 | rpy2 presence alone doesn't guarantee AllelicSeries is installed; SKAT auto only checks rpy2 |
+| IMPL-61 | coast_backend uses nullable=False in _get() (same as skat_backend) | 24-02 | CLI always writes the key with its default; non-nullable is correct for typed string fields |
 
 ### Architecture Invariants (from research)
 
@@ -147,7 +150,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-22T02:55:39Z – 2026-02-22T03:00:00Z
-Stopped at: Completed 24-01-PLAN.md — PythonCOASTBackend + PurePythonCOASTTest implemented
+Last session: 2026-02-22T03:03:52Z – 2026-02-22T03:07:00Z
+Stopped at: Completed 24-02-PLAN.md — --coast-backend CLI + engine registry wiring
 Resume file: None
-Next: Phase 24 plan 02 (engine/registry integration + validation tests)
+Next: Phase 24 plan 03 (validation tests for backend selection)
