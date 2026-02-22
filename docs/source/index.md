@@ -19,7 +19,7 @@ VariantCentrifuge addresses the critical challenges in clinical variant interpre
 - **Custom Variant Scoring:** Apply configurable scoring algorithms for variant prioritization
 
 ### Comprehensive Analysis Tools
-- **Gene Burden Testing:** Statistical analysis for case-control studies using Fisher's exact test
+- **Association Testing:** Modular framework with Fisher's exact, SKAT-O, COAST allelic series, logistic/linear burden regression, ACAT-O omnibus combination, covariate adjustment, PCA for population stratification, and functional variant weights
 - **Compound Heterozygous Detection:** Optimized algorithm (10-50x faster) for identifying compound het variants
 - **Multi-Sample Support:** Analyze families, trios, and cohorts with pedigree files
 - **Performance Optimization:** Handle large VCF files with chunked processing and parallel execution
@@ -69,6 +69,7 @@ guides/rare_disease_workflow
 guides/cancer_analysis
 guides/inheritance_analysis
 guides/cohort_analysis
+guides/association_testing
 guides/variant_scoring
 guides/custom_filters
 user-guide/privacy_and_pseudonymization

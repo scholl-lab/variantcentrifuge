@@ -286,3 +286,36 @@ docker run --rm -v ./data:/data ghcr.io/scholl-lab/variantcentrifuge:latest \
 ```
 
 See the [Docker installation guide](installation.md#method-4-docker-recommended-for-quick-setup) for complete setup instructions.
+
+## Association Testing
+
+### How do I run a gene burden test with covariate adjustment?
+
+Use `--perform-association` with `--covariate-file` instead of (or in addition to) `--perform-gene-burden`:
+
+```bash
+variantcentrifuge \
+  --gene-file target_genes.txt \
+  --vcf-file cohort.vcf.gz \
+  --perform-association \
+  --association-tests logistic_burden \
+  --covariate-file covariates.tsv \
+  --covariates age,sex,batch \
+  --case-samples-file cases.txt \
+  --control-samples-file controls.txt \
+  --output-file burden_results.tsv
+```
+
+The covariate file should be a TSV or CSV with sample IDs in the first column and covariate values in subsequent columns (header required). Logistic burden regression fits a weighted burden score as the predictor with covariates, reporting beta coefficients and standard errors. For quantitative traits, use `--trait-type quantitative` with `--association-tests linear_burden`. See the [Association Testing Guide](guides/association_testing.md) for full details.
+
+### What is ACAT-O and why should I use `acat_o_corrected_p_value`?
+
+ACAT-O (Aggregated Cauchy Association Test — Omnibus) combines p-values from multiple association tests per gene into a single omnibus p-value using the Cauchy combination method (Liu and Xie, 2020). It is robust to the unknown correlation between tests and does not require simulation.
+
+When you run multiple tests (e.g., `--association-tests fisher,logistic_burden,skat_o`), each test may capture different genetic architectures: Fisher detects dominant carrier effects, burden tests detect directional cumulative effects, and SKAT-O detects heterogeneous effects without sign constraints. ACAT-O combines evidence from all active tests into a single per-gene p-value. A single Benjamini-Hochberg FDR correction is applied to `acat_o_p_value` across all genes to produce `acat_o_corrected_p_value`. This is the primary significance measure to report; individual test p-values serve for diagnostic signal decomposition only. See the [Association Testing Guide](guides/association_testing.md) for the test selection reference table.
+
+### Do I need R installed for SKAT or COAST?
+
+No. Since v0.15.0, the default backend for both SKAT (`--skat-backend python`) and COAST (`--coast-backend python`) is a pure Python implementation using numpy and scipy. No R or rpy2 installation is required.
+
+The R backends (`--skat-backend r`, `--coast-backend r`) are deprecated as of v0.15.0 and may be removed in a future release. They require rpy2, the SKAT R package, and (for COAST) the AllelicSeries R package. If you have existing workflows relying on the R backends, migrate to the Python backends — the p-values agree within 10% on real data. See the [Association Testing Guide](guides/association_testing.md) for backend migration details.
