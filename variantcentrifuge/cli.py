@@ -509,6 +509,17 @@ def create_parser() -> argparse.ArgumentParser:
             "(BMV, DMV, PTV). Default: '1,2,3'. Example: '1,4,9' for quadratic scaling."
         ),
     )
+    # Phase 27: Gene-level parallelization
+    stats_group.add_argument(
+        "--association-workers",
+        type=int,
+        default=1,
+        help=(
+            "Number of parallel worker processes for association analysis. "
+            "Default: 1 (sequential). Set to -1 for auto (os.cpu_count()). "
+            "Only effective with Python backends (R backend is not parallel-safe)."
+        ),
+    )
     # Phase 23: PCA arguments
     stats_group.add_argument(
         "--pca-file",
@@ -1203,6 +1214,7 @@ def main() -> int:
             _sys.exit(2)
     else:
         cfg["coast_weights"] = None
+    cfg["association_workers"] = getattr(args, "association_workers", 1)
 
     # Handle add_chr configuration
     if args.add_chr:

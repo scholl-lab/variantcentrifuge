@@ -2069,6 +2069,7 @@ VALID_ASSOCIATION_KEYS: frozenset[str] = frozenset(
         "missing_site_threshold",
         "missing_sample_threshold",
         "firth_max_iter",
+        "association_workers",
     }
 )
 
@@ -2114,7 +2115,13 @@ def _validate_association_config_dict(d: dict) -> None:
         "confidence_interval_method",
         "diagnostics_output",
     }
-    int_keys = {"pca_components", "min_cases", "min_case_carriers", "firth_max_iter"}
+    int_keys = {
+        "pca_components",
+        "min_cases",
+        "min_case_carriers",
+        "firth_max_iter",
+        "association_workers",
+    }
     float_keys = {
         "max_case_control_ratio",
         "confidence_interval_alpha",
@@ -2288,6 +2295,7 @@ def _build_assoc_config_from_context(context: "PipelineContext") -> AssociationC
         pca_tool=_get("pca_tool", default=None, nullable=True),
         pca_components=_get("pca_components", default=10, nullable=False),
         coast_weights=_get("coast_weights", default=None, nullable=True),
+        association_workers=_get("association_workers", default=1, nullable=False),
     )
 
 

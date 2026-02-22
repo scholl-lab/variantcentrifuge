@@ -173,6 +173,12 @@ class AssociationConfig:
     coast_backend: str = "python"
     """COAST computation backend: "python" (default), "r" (deprecated, R via rpy2), or "auto"."""
 
+    # Phase 27: Gene-level parallelization
+    association_workers: int = 1
+    """Number of parallel worker processes for gene-level association analysis.
+    Default: 1 (sequential). Set > 1 for parallel execution via ProcessPoolExecutor.
+    Set -1 for os.cpu_count(). Only effective when all registered tests have parallel_safe=True."""
+
 
 class AssociationTest(ABC):
     """
