@@ -2050,6 +2050,7 @@ VALID_ASSOCIATION_KEYS: frozenset[str] = frozenset(
         "variant_weight_params",
         "skat_backend",
         "skat_method",
+        "coast_backend",
         "covariate_file",
         "covariate_columns",
         "categorical_covariates",
@@ -2106,6 +2107,7 @@ def _validate_association_config_dict(d: dict) -> None:
         "variant_weights",
         "skat_backend",
         "skat_method",
+        "coast_backend",
         "covariate_file",
         "pca_file",
         "pca_tool",
@@ -2152,6 +2154,10 @@ def _validate_association_config_dict(d: dict) -> None:
         errors.append(f"'trait_type' must be 'binary' or 'quantitative', got '{d['trait_type']}'")
     if "skat_backend" in d and d["skat_backend"] not in ("auto", "r", "python"):
         errors.append(f"'skat_backend' must be 'auto', 'r', or 'python', got '{d['skat_backend']}'")
+    if "coast_backend" in d and d["coast_backend"] not in ("auto", "r", "python"):
+        errors.append(
+            f"'coast_backend' must be 'auto', 'r', or 'python', got '{d['coast_backend']}'"
+        )
 
     if errors:
         raise ValueError(
@@ -2263,6 +2269,7 @@ def _build_assoc_config_from_context(context: "PipelineContext") -> AssociationC
         firth_max_iter=_get("firth_max_iter", default=25, nullable=False),
         skat_backend=_get("skat_backend", default="auto", nullable=False),
         skat_method=_get("skat_method", default="SKAT", nullable=False),
+        coast_backend=_get("coast_backend", default="auto", nullable=False),
         min_cases=_get("association_min_cases", json_key="min_cases", default=200, nullable=False),
         max_case_control_ratio=_get(
             "association_max_case_control_ratio",
