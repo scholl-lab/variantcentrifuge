@@ -147,6 +147,31 @@ class AssociationEngine:
                 registry["skat"] = PurePythonSKATTest
                 logger.info("R/rpy2 unavailable; using Python SKAT backend (auto mode)")
 
+        # Backend-aware swap: --coast-backend python routes "coast" to PurePythonCOASTTest.
+        # This runs BEFORE the unknown-name check so that "coast" resolves correctly.
+        coast_backend = getattr(config, "coast_backend", "auto")
+        if coast_backend == "python":
+            from variantcentrifuge.association.tests.allelic_series_python import (
+                PurePythonCOASTTest,
+            )
+
+            registry["coast"] = PurePythonCOASTTest
+        elif coast_backend == "auto":
+            # Try R first; if rpy2/AllelicSeries unavailable, fall back to Python
+            try:
+                import rpy2.robjects  # noqa: F401
+                from rpy2.robjects.packages import importr
+
+                importr("AllelicSeries")
+                # If we reach here, R backend is available; keep COASTTest
+            except (ImportError, RuntimeError, Exception):
+                from variantcentrifuge.association.tests.allelic_series_python import (
+                    PurePythonCOASTTest,
+                )
+
+                registry["coast"] = PurePythonCOASTTest
+                logger.info("R/AllelicSeries unavailable; using Python COAST backend (auto mode)")
+
         available = sorted(registry.keys())
 
         unknown = [name for name in test_names if name not in registry]

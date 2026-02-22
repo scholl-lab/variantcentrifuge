@@ -169,6 +169,10 @@ class AssociationConfig:
     coast_weights: list[float] | None = None
     """Category weights for COAST allelic series (default: [1.0, 2.0, 3.0] for BMV, DMV, PTV)."""
 
+    # Phase 24: Pure Python COAST backend
+    coast_backend: str = "auto"
+    """COAST computation backend: "r" (R via rpy2), "python", or "auto" (try r first)."""
+
 
 class AssociationTest(ABC):
     """
