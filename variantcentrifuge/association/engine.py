@@ -34,6 +34,7 @@ Shared columns (gene-level metadata, not test-specific):
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import pandas as pd
@@ -70,6 +71,43 @@ def _build_registry() -> dict[str, type[AssociationTest]]:
         "skat_python": PurePythonSKATTest,
         "coast": COASTTest,
     }
+
+
+def _worker_initializer() -> None:
+    """Set BLAS thread counts to 1 in worker processes to prevent oversubscription."""
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["OMP_NUM_THREADS"] = "1"
+
+
+def _run_gene_worker(
+    args: tuple[str, dict, bytes, AssociationConfig],
+) -> tuple[str, dict[str, TestResult]]:
+    """Process a single gene in a subprocess worker.
+
+    Called by ProcessPoolExecutor. Receives pre-pickled test instances
+    (with null models already fitted) to avoid redundant null model fitting
+    in each worker.
+
+    Parameters
+    ----------
+    args : tuple
+        (gene_name, gene_data_dict, pickled_tests_bytes, config)
+
+    Returns
+    -------
+    tuple
+        (gene_name, dict mapping test_name -> TestResult)
+    """
+    import pickle
+
+    gene, gene_data, pickled_tests, config = args
+    tests: dict[str, AssociationTest] = pickle.loads(pickled_tests)
+    results: dict[str, TestResult] = {}
+    for test_name, test in tests.items():
+        result = test.run(gene, gene_data, config)
+        results[test_name] = result
+    return gene, results
 
 
 class AssociationEngine:
@@ -311,14 +349,78 @@ class AssociationEngine:
         for test in self._tests.values():
             test.prepare(len(sorted_data))
 
-        for gene_data in sorted_data:
-            gene = gene_data.get("GENE", "")
+        # Determine whether to use parallel execution (Phase 27)
+        n_workers = self._config.association_workers
+        all_parallel_safe = all(
+            getattr(test, "parallel_safe", False) for test in self._tests.values()
+        )
+        use_parallel = n_workers != 1 and all_parallel_safe and len(sorted_data) > 1
+
+        if n_workers != 1 and not all_parallel_safe:
+            logger.warning(
+                "association_workers=%d requested but not all tests are parallel_safe "
+                "(falling back to sequential). Non-parallel tests: %s",
+                n_workers,
+                [n for n, t in self._tests.items() if not getattr(t, "parallel_safe", False)],
+            )
+
+        if use_parallel:
+            # Run first gene sequentially to trigger lazy null model fitting
+            # (SKAT/COAST tests fit null model on first call and cache it).
+            first_gene_data = sorted_data[0]
+            first_gene = first_gene_data.get("GENE", "")
             for test_name, test in self._tests.items():
-                result = test.run(gene, gene_data, self._config)
-                results_by_test[test_name][gene] = result
+                result = test.run(first_gene, first_gene_data, self._config)
+                results_by_test[test_name][first_gene] = result
                 logger.debug(
-                    f"Gene {gene} | {test_name}: p={result.p_value}, OR={result.effect_size}"
+                    f"Gene {first_gene} | {test_name}: p={result.p_value}, "
+                    f"OR={result.effect_size}"
                 )
+
+            # Pickle test instances now that null models are fitted
+            import concurrent.futures
+            import pickle
+
+            pickled_tests = pickle.dumps(self._tests)
+
+            # Dispatch remaining genes to worker processes
+            remaining = sorted_data[1:]
+            if remaining:
+                actual_workers = os.cpu_count() if n_workers == -1 else n_workers
+                # Don't over-provision workers for small remaining panels
+                if len(remaining) < actual_workers * 2:
+                    actual_workers = max(1, len(remaining) // 2)
+
+                logger.info(
+                    f"Parallel association: {actual_workers} workers for "
+                    f"{len(remaining)} remaining genes"
+                )
+
+                args_list = [
+                    (gd.get("GENE", ""), gd, pickled_tests, self._config)
+                    for gd in remaining
+                ]
+                with concurrent.futures.ProcessPoolExecutor(
+                    max_workers=actual_workers,
+                    initializer=_worker_initializer,
+                ) as executor:
+                    for gene, gene_results in executor.map(_run_gene_worker, args_list):
+                        for test_name, result in gene_results.items():
+                            results_by_test[test_name][gene] = result
+                            logger.debug(
+                                f"Gene {gene} | {test_name}: p={result.p_value}, "
+                                f"OR={result.effect_size}"
+                            )
+        else:
+            # Sequential gene loop (default path or fallback)
+            for gene_data in sorted_data:
+                gene = gene_data.get("GENE", "")
+                for test_name, test in self._tests.items():
+                    result = test.run(gene, gene_data, self._config)
+                    results_by_test[test_name][gene] = result
+                    logger.debug(
+                        f"Gene {gene} | {test_name}: p={result.p_value}, OR={result.effect_size}"
+                    )
 
         # Lifecycle hook: finalize() after gene loop (allows timing summary, cleanup)
         for test in self._tests.values():
