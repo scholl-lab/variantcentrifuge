@@ -54,6 +54,8 @@ class FisherExactTest(AssociationTest):
     sharing the same scipy/statsmodels calls with the same parameters.
     """
 
+    parallel_safe: bool = True  # Thread-safe -- pure scipy/statsmodels, no R
+
     @property
     def name(self) -> str:
         """Short identifier used in test registry and output column prefixes."""

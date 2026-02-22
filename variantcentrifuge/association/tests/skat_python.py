@@ -81,6 +81,8 @@ class PurePythonSKATTest(AssociationTest):
     >>> result_df = engine.run_all(gene_burden_data)
     """
 
+    parallel_safe: bool = True  # Thread-safe -- pure numpy/scipy, no R
+
     def __init__(self) -> None:
         self._backend: PythonSKATBackend | None = None
         self._null_model: NullModelResult | None = None

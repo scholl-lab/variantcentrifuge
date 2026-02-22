@@ -235,6 +235,8 @@ class LogisticBurdenTest(AssociationTest):
     ``p_value=None`` with warning code ``NO_GENOTYPE_MATRIX``.
     """
 
+    parallel_safe: bool = True  # Thread-safe -- pure statsmodels, no R
+
     @property
     def name(self) -> str:
         """Short identifier for test registry and output column prefixes."""
