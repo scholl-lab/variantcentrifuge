@@ -31,7 +31,7 @@ Progress: ███████████████████████ 
 | 24. Pure Python COAST Backend | Pure Python COAST matching R AllelicSeries; parallel_safe=True; no R dependency | COAST-PY-01..05 (5) | Complete ✓ |
 | 25. Python Default + Quick Wins | Python default backends, R deprecated, saddlepoint fallback, ACAT-V | — | Complete ✓ |
 | 26. Documentation | Association testing guide, update existing docs, API stubs, changelog | TBD | Complete ✓ |
-| 27. Performance Optimizations | Gene parallelization, Davies caching, single eigendecomposition | TBD | Not planned |
+| 27. Performance Optimizations | GL quadrature (46x SKAT-O), ProcessPoolExecutor gene parallelization | — | Complete ✓ |
 
 **Total requirements:** 52 mapped across 7 phases (52 complete); phases 25-27 requirements TBD
 

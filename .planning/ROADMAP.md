@@ -277,9 +277,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 27-01-PLAN.md — GL quadrature in SKAT-O integration + parallel_safe attributes on all Python test classes
-- [ ] 27-02-PLAN.md — --association-workers CLI arg, AssociationConfig field, stage config builder plumbing
-- [ ] 27-03-PLAN.md — ProcessPoolExecutor parallel gene loop in engine.run_all() with null model pre-fitting
+- [x] 27-01-PLAN.md — GL quadrature in SKAT-O integration + parallel_safe attributes on all Python test classes
+- [x] 27-02-PLAN.md — --association-workers CLI arg, AssociationConfig field, stage config builder plumbing
+- [x] 27-03-PLAN.md — ProcessPoolExecutor parallel gene loop in engine.run_all() with null model pre-fitting
 
 **Details:**
 - `--association-workers N` CLI arg with ProcessPoolExecutor (OPENBLAS_NUM_THREADS=1 per worker)
@@ -317,4 +317,4 @@ Plans:
 | 24. Pure Python COAST Backend | v0.15.0 | 3/3 | Complete | 2026-02-22 |
 | 25. Python Default Backends and Quick Wins | v0.15.0 | 2/2 | Complete | 2026-02-22 |
 | 26. Association Testing Documentation | v0.15.0 | 2/2 | Complete | 2026-02-22 |
-| 27. Association Performance Optimizations | v0.15.0 | 0/3 | Planned | — |
+| 27. Association Performance Optimizations | v0.15.0 | 3/3 | Complete | 2026-02-22 |
