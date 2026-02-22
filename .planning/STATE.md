@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 26 — Association Testing Documentation
-Plan: 2/2 complete (phase complete)
-Status: Phase complete
-Last activity: 2026-02-22 — Completed phase 26 — association testing guide (843 lines), API stubs, cross-references, changelog, README
+Phase: 27 — Association Performance Optimizations
+Plan: 1/3 complete
+Status: In progress
+Last activity: 2026-02-22 — Completed 27-01: GL quadrature (46x speedup) + parallel_safe attributes on Python-backend tests
 
-Progress: █████████████████████░ 85% (Phases 18-26 complete, 27 remaining)
+Progress: █████████████████████░ 87% (Phases 18-26 complete, 27-01 complete, 27-02 and 27-03 remaining)
 
 ## Milestone Overview
 
@@ -133,6 +133,9 @@ Progress: █████████████████████░ 85%
 | IMPL-67 | Out-of-range saddlepoint fallback only in compute_pvalue (no proactive threshold) | 25-01 | IMPL-26 proactive threshold deferred; Phase 25 scope = out-of-range fallback only |
 | IMPL-68 | acat_v_p=None in ALL early-return extra dicts in PurePythonSKATTest.run() | 25-02 | Key always present regardless of code path; prevents KeyError when engine reads res.extra |
 | IMPL-69 | ACAT-V block in engine: AFTER test_pvals collection loop, BEFORE compute_acat_o() call | 25-02 | Critical ordering — if inserted after compute_acat_o(), ACAT-V is silently dropped from omnibus |
+| PERF-01 | 128-node GL quadrature for SKAT-O omnibus integration; bounds [0,40] matching R upper=40 | 27-01 | 46x speedup (379ms -> 8ms per gene); 128 nodes sufficient for smooth SKAT-O integrands |
+| PERF-02 | chi2(1) singularity at x=0 precludes direct GL accuracy validation; use exp(-x/20) instead | 27-01 | chi2(1) pdf diverges at x=0; GL achieves 1e-10 on smooth functions; SKAT-O integrand cancels singularity via (1-cdf) factor |
+| ARCH-05 | parallel_safe=True on all Python-backend test classes (Fisher, LogisticBurden, LinearBurden, PurePythonSKAT) | 27-01 | Prerequisite for Plan 02 ProcessPoolExecutor dispatch; R-backend classes retain parallel_safe=False |
 
 ### Architecture Invariants (from research)
 
@@ -168,7 +171,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-22T20:30:00Z – 2026-02-22T21:00:00Z
-Stopped at: Phase 26 complete — all documentation delivered and verified
+Last session: 2026-02-22T20:13:50Z – 2026-02-22T20:23:07Z
+Stopped at: Completed 27-01-PLAN.md — GL quadrature + parallel_safe attributes
 Resume file: None
-Next: Phase 27 — Association Performance Optimizations (run /gsd:execute-phase 27)
+Next: Phase 27 Plan 02 — Gene parallelization via ProcessPoolExecutor (run /gsd:execute-phase 27)
