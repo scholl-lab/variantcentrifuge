@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 24 — Pure Python COAST Backend
-Plan: 3/3 complete (all plans done)
-Status: PHASE COMPLETE — Milestone v0.15.0 complete
-Last activity: 2026-02-22 — Completed 24-03-PLAN.md (R golden script + validation tests)
+Phase: 25 — Python Default Backends and Quick Wins
+Plan: 1/2 complete (plan 02 done)
+Status: In progress
+Last activity: 2026-02-22 — Completed 25-02-PLAN.md — ACAT-V per-variant score test
 
-Progress: ██████████████████████ 100% (Phases 18-24 complete)
+Progress: ██████████████████░░░ 72% (Phases 18-24 complete, 25-02 done, 25-01 + 26-27 remaining)
 
 ## Milestone Overview
 
@@ -29,9 +29,11 @@ Progress: ██████████████████████ 100
 | 22. ACAT-O + Diagnostics | ACAT-O omnibus; single FDR; lambda_GC; QQ TSV; sample size warnings | OMNI-01..03, DIAG-01..03, DIAG-05..06 (8) | Complete ✓ |
 | 23. PCA + Functional Weights + Allelic Series + JSON Config | PCA file loading + AKT stage; CADD/REVEL weights; COAST test; JSON config; matplotlib plots | DIAG-04, PCA-01..04, SERIES-01..02, CONFIG-01..02, WEIGHT-03..05 (12) | Complete ✓ |
 | 24. Pure Python COAST Backend | Pure Python COAST matching R AllelicSeries; parallel_safe=True; no R dependency | COAST-PY-01..05 (5) | Complete ✓ |
+| 25. Python Default + Quick Wins | Python default backends, R deprecated, saddlepoint fallback, ACAT-V | TBD | Not planned |
+| 26. Documentation | Association testing guide, update existing docs, API stubs, changelog | TBD | Not planned |
+| 27. Performance Optimizations | Gene parallelization, Davies caching, single eigendecomposition | TBD | Not planned |
 
-**Total requirements:** 52 mapped across 7 phases (52 complete)
-<!-- Note: 8 CORE + 9 Phase 19 + 6 Phase 20 + 4 Phase 21 + 8 Phase 22 + 12 Phase 23 + 5 Phase 24 = 52 complete -->
+**Total requirements:** 52 mapped across 7 phases (52 complete); phases 25-27 requirements TBD
 
 ## Accumulated Context
 
@@ -123,6 +125,10 @@ Progress: ██████████████████████ 100
 | IMPL-61 | coast_backend uses nullable=False in _get() (same as skat_backend) | 24-02 | CLI always writes the key with its default; non-nullable is correct for typed string fields |
 | TEST-07 | Predictor/phenotype must use different seeds in _run_burden_test tests | 24-03 | Identical seeds produce identical arrays via numpy.random.default_rng; perfect correlation gives p=0.0 which is valid but misleading; different seeds ensure independent predictor/phenotype |
 | TEST-08 | Engine _tests is dict[str, AssociationTest] not list; access via ["coast"] not [0] | 24-03 | AssociationEngine.__init__ builds {t.name: t} dict; list-style access causes KeyError |
+| IMPL-62 | compute_acat_v uses single-pass loop: vectorized score/variance, per-variant loop for valid pairs | 25-02 | Clear filtering logic; avoids intermediate array allocation for edge case handling |
+| IMPL-63 | mu_hat: np.ndarray \| None; all uses guarded by binary+not-None check inside compute_acat_v | 25-02 | Quantitative path always uses sigma2*I regardless of mu_hat; None is valid for quantitative |
+| IMPL-64 | acat_v_p=None in ALL early-return extra dicts in PurePythonSKATTest.run() | 25-02 | Key always present regardless of code path; prevents KeyError when engine reads res.extra |
+| IMPL-65 | ACAT-V block in engine: AFTER test_pvals collection loop, BEFORE compute_acat_o() call | 25-02 | Critical ordering — if inserted after compute_acat_o(), ACAT-V is silently dropped from omnibus |
 
 ### Architecture Invariants (from research)
 
@@ -139,6 +145,12 @@ Progress: ██████████████████████ 100
 - Separation detection: both mle_retvals['converged']==False AND bse.max()>100 needed (statsmodels may not raise exception)
 - P-value computation: always through compute_pvalue() — never call Liu/Kuonen directly in SKAT backend code
 
+### Roadmap Evolution
+
+- Phase 25 added: Python Default Backends and Quick Wins (swap defaults, R deprecation, saddlepoint fallback, ACAT-V)
+- Phase 26 added: Association Testing Documentation (guide, existing docs update, API stubs, changelog)
+- Phase 27 added: Association Performance Optimizations (gene parallelization, Davies caching, single eigendecomposition)
+
 ### Pending Todos
 
 - **DEPR-01** (backlog): Deprecate classic pipeline mode (`pipeline.py`) in favor of stage-based pipeline (`pipeline_core/`). See archived REQUIREMENTS.md Future Requirements.
@@ -152,7 +164,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-22T03:07:00Z – 2026-02-22T03:30:00Z
-Stopped at: Completed 24-03-PLAN.md — R golden script + COAST validation tests (PHASE COMPLETE)
+Last session: 2026-02-22T18:21:17Z – 2026-02-22T18:50:00Z
+Stopped at: Completed 25-02-PLAN.md — ACAT-V per-variant score test implementation
 Resume file: None
-Next: Milestone v0.15.0 complete. No further phases planned.
+Next: Phase 25 plan 01 (Python default backends + R deprecation) — run /gsd:execute-phase 25-01
