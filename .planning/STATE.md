@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 27 — Association Performance Optimizations
-Plan: 2/3 complete
-Status: In progress
-Last activity: 2026-02-22 — Completed 27-02: association_workers config plumbing (CLI arg, AssociationConfig field, stage builder, unit tests)
+Plan: 3/3 complete
+Status: Phase complete — v0.15.0 code-complete
+Last activity: 2026-02-22 — Completed 27-03: Gene-level parallelization via ProcessPoolExecutor
 
-Progress: ██████████████████████░ 88% (Phases 18-26 complete, 27-01 and 27-02 complete, 27-03 remaining)
+Progress: ███████████████████████ 100% (All phases 18-27 complete)
 
 ## Milestone Overview
 
@@ -137,6 +137,10 @@ Progress: ██████████████████████░ 
 | PERF-01 | 128-node GL quadrature for SKAT-O omnibus integration; bounds [0,40] matching R upper=40 | 27-01 | 46x speedup (379ms -> 8ms per gene); 128 nodes sufficient for smooth SKAT-O integrands |
 | PERF-02 | chi2(1) singularity at x=0 precludes direct GL accuracy validation; use exp(-x/20) instead | 27-01 | chi2(1) pdf diverges at x=0; GL achieves 1e-10 on smooth functions; SKAT-O integrand cancels singularity via (1-cdf) factor |
 | ARCH-05 | parallel_safe=True on all Python-backend test classes (Fisher, LogisticBurden, LinearBurden, PurePythonSKAT) | 27-01 | Prerequisite for Plan 02 ProcessPoolExecutor dispatch; R-backend classes retain parallel_safe=False |
+| PERF-03 | First gene runs sequentially before parallel dispatch to trigger lazy null model fitting | 27-03 | SKAT/COAST fit null models lazily on first run(); pre-fitting before pickle avoids redundant fitting in each worker |
+| PERF-04 | Worker initializer sets OPENBLAS/MKL/OMP NUM_THREADS=1 | 27-03 | Prevents N_workers * BLAS_threads oversubscription causing CPU thrashing on multi-core machines |
+| PERF-05 | use_parallel requires: n_workers != 1 AND all_parallel_safe AND len(sorted_data) > 1 | 27-03 | Single-gene panels skip parallel overhead; R-backend tests fall back to sequential with warning |
+| PERF-06 | Worker under-provisioning guard: actual_workers = max(1, len(remaining)//2) when remaining < actual_workers * 2 | 27-03 | Prevents spawning more workers than useful for small remaining panels |
 
 ### Architecture Invariants (from research)
 
@@ -172,7 +176,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-22T20:14:28Z – 2026-02-22T20:30:00Z
-Stopped at: Completed 27-02-PLAN.md — association_workers config plumbing (CLI arg, AssociationConfig field, stage builder, unit tests)
+Last session: 2026-02-22T20:27:09Z – 2026-02-22T20:37:50Z
+Stopped at: Completed 27-03-PLAN.md — Gene-level parallelization via ProcessPoolExecutor
 Resume file: None
-Next: Phase 27 Plan 03 — Gene-level parallelization via ProcessPoolExecutor (run /gsd:execute-phase 27)
+Next: v0.15.0 is code-complete. All phases 18-27 done. Ready for release preparation or new milestone.
