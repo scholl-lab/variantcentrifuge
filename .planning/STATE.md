@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 24 — Pure Python COAST Backend
-Plan: 2/3 complete (plans 01, 02 done; plan 03 is validation tests)
-Status: In progress — Plan 02 complete
-Last activity: 2026-02-22 — Completed 24-02-PLAN.md (--coast-backend CLI + engine registry wiring)
+Plan: 3/3 complete (all plans done)
+Status: PHASE COMPLETE — Milestone v0.15.0 complete
+Last activity: 2026-02-22 — Completed 24-03-PLAN.md (R golden script + validation tests)
 
-Progress: █████████████████████░ 98% (Phases 18-23 complete, Phase 24 plans 01-02 complete)
+Progress: ██████████████████████ 100% (Phases 18-24 complete)
 
 ## Milestone Overview
 
@@ -28,10 +28,10 @@ Progress: █████████████████████░ 98%
 | 21. Pure Python SKAT Backend | Davies ctypes + saddlepoint + Liu fallback; validated against R within 10% | SKAT-05..07, SKAT-10 (4) | Complete ✓ |
 | 22. ACAT-O + Diagnostics | ACAT-O omnibus; single FDR; lambda_GC; QQ TSV; sample size warnings | OMNI-01..03, DIAG-01..03, DIAG-05..06 (8) | Complete ✓ |
 | 23. PCA + Functional Weights + Allelic Series + JSON Config | PCA file loading + AKT stage; CADD/REVEL weights; COAST test; JSON config; matplotlib plots | DIAG-04, PCA-01..04, SERIES-01..02, CONFIG-01..02, WEIGHT-03..05 (12) | Complete ✓ |
-| 24. Pure Python COAST Backend | Pure Python COAST matching R AllelicSeries; parallel_safe=True; no R dependency | COAST-PY-01..05 (5) | In progress (plan 01 complete) |
+| 24. Pure Python COAST Backend | Pure Python COAST matching R AllelicSeries; parallel_safe=True; no R dependency | COAST-PY-01..05 (5) | Complete ✓ |
 
-**Total requirements:** 52 mapped across 7 phases (47 complete, 5 in progress)
-<!-- Note: 8 CORE + 9 Phase 19 + 6 Phase 20 + 4 Phase 21 + 8 Phase 22 + 12 Phase 23 = 47 complete; 5 Phase 24 in progress -->
+**Total requirements:** 52 mapped across 7 phases (52 complete)
+<!-- Note: 8 CORE + 9 Phase 19 + 6 Phase 20 + 4 Phase 21 + 8 Phase 22 + 12 Phase 23 + 5 Phase 24 = 52 complete -->
 
 ## Accumulated Context
 
@@ -121,6 +121,8 @@ Progress: █████████████████████░ 98%
 | IMPL-59 | COAST backend swap placement: after SKAT swap, before unknown-name check | 24-02 | Follows IMPL-29; "coast" must resolve to correct class before validation |
 | IMPL-60 | COAST auto mode probes both rpy2 AND AllelicSeries importr() | 24-02 | rpy2 presence alone doesn't guarantee AllelicSeries is installed; SKAT auto only checks rpy2 |
 | IMPL-61 | coast_backend uses nullable=False in _get() (same as skat_backend) | 24-02 | CLI always writes the key with its default; non-nullable is correct for typed string fields |
+| TEST-07 | Predictor/phenotype must use different seeds in _run_burden_test tests | 24-03 | Identical seeds produce identical arrays via numpy.random.default_rng; perfect correlation gives p=0.0 which is valid but misleading; different seeds ensure independent predictor/phenotype |
+| TEST-08 | Engine _tests is dict[str, AssociationTest] not list; access via ["coast"] not [0] | 24-03 | AssociationEngine.__init__ builds {t.name: t} dict; list-style access causes KeyError |
 
 ### Architecture Invariants (from research)
 
@@ -150,7 +152,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-22T03:03:52Z – 2026-02-22T03:07:00Z
-Stopped at: Completed 24-02-PLAN.md — --coast-backend CLI + engine registry wiring
+Last session: 2026-02-22T03:07:00Z – 2026-02-22T03:30:00Z
+Stopped at: Completed 24-03-PLAN.md — R golden script + COAST validation tests (PHASE COMPLETE)
 Resume file: None
-Next: Phase 24 plan 03 (validation tests for backend selection)
+Next: Milestone v0.15.0 complete. No further phases planned.
