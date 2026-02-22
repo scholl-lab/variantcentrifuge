@@ -349,11 +349,12 @@ def compute_pvalue(
     """
     Compute P[Q > q] using R SKAT-compatible Davies -> Liu fallback chain.
 
-    Matches R SKAT package ``Get_PValue.Lambda`` behavior:
+    Matches R SKAT package ``Get_PValue.Lambda`` behavior with enhanced fallback:
     - Davies called with acc=1e-6, lim=10000 (R defaults)
     - If Davies ifault != 0 but 0 < p <= 1: keep Davies result (non-converged)
-    - If p > 1 or p <= 0: fall back to Liu moment-matching
+    - If p > 1 or p <= 0: try saddlepoint first, then Liu moment-matching
     - Single eigenvalue: always use Liu
+    - Three-tier chain when Davies available: Davies -> saddlepoint -> Liu
 
     Parameters
     ----------
@@ -398,10 +399,20 @@ def compute_pvalue(
             is_converged = ifault == 0
             p_val = float(p_davies)
 
-            # R: if p > 1 or p <= 0, fall back to Liu
+            # Davies out of range: try saddlepoint first, then Liu
             if p_val > 1.0 or p_val <= 0.0:
+                p_sp = _kuonen_pvalue(q, lambdas)
+                if p_sp is not None and 0.0 < p_sp < 1.0:
+                    logger.info(
+                        "Davies p=%s out of range (ifault=%d); using saddlepoint fallback (p=%s)",
+                        p_val,
+                        ifault,
+                        p_sp,
+                    )
+                    return float(p_sp), "saddlepoint", False
                 logger.info(
-                    "Davies p=%s out of range (ifault=%d); using Liu fallback (p=%s)",
+                    "Davies p=%s out of range (ifault=%d); "
+                    "saddlepoint also failed; using Liu fallback (p=%s)",
                     p_val,
                     ifault,
                     p_liu,
