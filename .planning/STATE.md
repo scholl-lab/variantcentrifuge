@@ -18,7 +18,7 @@ Progress: ██████████████████████ 100
 
 ## Milestone Overview
 
-**v0.15.0 — Modular Rare Variant Association Framework** (Phases 18-23)
+**v0.15.0 — Modular Rare Variant Association Framework** (Phases 18-24)
 
 | Phase | Goal | Requirements | Status |
 |-------|------|--------------|--------|

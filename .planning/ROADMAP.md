@@ -206,9 +206,9 @@ Plans:
 
 **Plans:** 3 plans
 Plans:
-- [ ] 24-01-PLAN.md — PythonCOASTBackend (6 burden + 1 allelic SKAT + Cauchy omnibus) and PurePythonCOASTTest wrapper
-- [ ] 24-02-PLAN.md — Engine/registry coast backend swap, AssociationConfig coast_backend field, CLI --coast-backend argument
-- [ ] 24-03-PLAN.md — R golden file generation script, unit tests for backend math, R reference comparison tests
+- [x] 24-01-PLAN.md — PythonCOASTBackend (6 burden + 1 allelic SKAT + Cauchy omnibus) and PurePythonCOASTTest wrapper
+- [x] 24-02-PLAN.md — Engine/registry coast backend swap, AssociationConfig coast_backend field, CLI --coast-backend argument
+- [x] 24-03-PLAN.md — R golden file generation script, unit tests for backend math, R reference comparison tests
 
 **Success Criteria:**
 
@@ -245,4 +245,4 @@ Plans:
 | 21. Pure Python SKAT Backend | v0.15.0 | 3/3 | Complete | 2026-02-21 |
 | 22. ACAT-O and Diagnostics | v0.15.0 | 3/3 | Complete | 2026-02-21 |
 | 23. PCA Integration, Functional Weights, Allelic Series, and JSON Config | v0.15.0 | 4/4 | Complete | 2026-02-21 |
-| 24. Pure Python COAST Backend | v0.15.0 | 0/3 | Planned | — |
+| 24. Pure Python COAST Backend | v0.15.0 | 3/3 | Complete | 2026-02-22 |
