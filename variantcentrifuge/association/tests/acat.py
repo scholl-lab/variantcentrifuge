@@ -31,7 +31,7 @@ import logging
 from collections.abc import Sequence
 
 import numpy as np
-from scipy.stats import cauchy
+from scipy.stats import cauchy, norm
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -143,6 +143,77 @@ def cauchy_combination(
     # Combined p-value: survival function of standard Cauchy distribution
     p_combined = float(np.clip(cauchy.sf(t_stat), 0.0, 1.0))
     return p_combined
+
+
+def compute_acat_v(
+    geno: np.ndarray,
+    residuals: np.ndarray,
+    trait_type: str,
+    sigma2: float,
+    mu_hat: np.ndarray | None,
+    weights: np.ndarray,
+) -> float | None:
+    """
+    ACAT-V per-variant score test (Liu & Xie 2020, STAARpipeline).
+
+    Computes marginal score test p-values for each variant and combines
+    them via Cauchy combination with Beta(MAF) weights. Powerful when
+    only a small fraction of variants are causal.
+
+    Parameters
+    ----------
+    geno : np.ndarray, shape (n_samples, n_variants)
+        Genotype dosage matrix (0/1/2). No NaN.
+    residuals : np.ndarray, shape (n_samples,)
+        Null model residuals (y - mu_hat).
+    trait_type : str
+        "binary" or "quantitative".
+    sigma2 : float
+        Variance estimate from null model.
+    mu_hat : np.ndarray | None, shape (n_samples,)
+        Fitted values from null model. Required for binary traits;
+        may be None for quantitative traits (sigma2 is used instead).
+    weights : np.ndarray, shape (n_variants,)
+        Per-variant weights (typically Beta(MAF; 1, 25)).
+
+    Returns
+    -------
+    float | None
+        Combined ACAT-V p-value, or None if no valid per-variant p-values.
+    """
+    _n_samples, n_variants = geno.shape
+    if n_variants == 0:
+        return None
+
+    # Per-variant score statistics: S_j = G_j' @ residuals
+    score_vec = geno.T @ residuals  # shape: (n_variants,)
+
+    # Per-variant variance: V_j = G_j' @ V @ G_j
+    # Binary: V = diag(mu*(1-mu)), so V_j = sum(G_j^2 * mu*(1-mu))
+    # Quantitative: V = sigma2 * I, so V_j = sigma2 * sum(G_j^2)
+    if trait_type == "binary" and mu_hat is not None:
+        var_weights = mu_hat * (1.0 - mu_hat)  # (n_samples,)
+        var_vec = np.sum(geno**2 * var_weights[:, np.newaxis], axis=0)  # (n_variants,)
+    else:
+        var_vec = sigma2 * np.sum(geno**2, axis=0)  # (n_variants,)
+
+    # Single-pass: compute per-variant z-statistics, p-values, and collect
+    # valid (p, weight) pairs in one loop
+    valid_p: list[float] = []
+    valid_w: list[float] = []
+    for j in range(n_variants):
+        if var_vec[j] <= 0.0:
+            continue  # skip zero-variance variants (monomorphic)
+        z_j = score_vec[j] / np.sqrt(var_vec[j])
+        p_j = 2.0 * float(norm.sf(abs(z_j)))
+        if 0.0 < p_j < 1.0:
+            valid_p.append(p_j)
+            valid_w.append(float(weights[j]))
+
+    if not valid_p:
+        return None
+
+    return cauchy_combination(valid_p, valid_w)
 
 
 def compute_acat_o(test_p_values: dict[str, float | None]) -> float | None:

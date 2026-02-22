@@ -46,6 +46,8 @@ import numpy as np
 
 from variantcentrifuge.association.base import AssociationConfig, AssociationTest, TestResult
 from variantcentrifuge.association.tests._utils import parse_weights_beta
+from variantcentrifuge.association.tests.acat import compute_acat_v
+from variantcentrifuge.association.weights import beta_maf_weights
 
 if TYPE_CHECKING:
     from variantcentrifuge.association.backends.base import NullModelResult
@@ -220,7 +222,7 @@ class PurePythonSKATTest(AssociationTest):
                 n_cases=n_cases,
                 n_controls=n_controls,
                 n_variants=n_variants,
-                extra={"skat_warnings": "NO_GENOTYPE_MATRIX"},
+                extra={"skat_warnings": "NO_GENOTYPE_MATRIX", "acat_v_p": None},
             )
 
         geno: np.ndarray = contingency_data["genotype_matrix"]
@@ -240,7 +242,7 @@ class PurePythonSKATTest(AssociationTest):
                 n_cases=n_cases,
                 n_controls=n_controls,
                 n_variants=n_variants,
-                extra={"skat_warnings": "NO_PHENOTYPE_OR_EMPTY_MATRIX"},
+                extra={"skat_warnings": "NO_PHENOTYPE_OR_EMPTY_MATRIX", "acat_v_p": None},
             )
 
         # Backend must have been initialised by check_dependencies()
@@ -270,6 +272,20 @@ class PurePythonSKATTest(AssociationTest):
             weights_beta=weights_beta,
         )
 
+        # Compute ACAT-V per-variant score test (Phase 25)
+        # Uses same Beta(MAF) weights as SKAT for consistency.
+        mafs = geno.mean(axis=0) / 2.0
+        a1, a2 = weights_beta
+        acat_v_weights = beta_maf_weights(mafs, a=a1, b=a2)
+        acat_v_p = compute_acat_v(
+            geno=geno,
+            residuals=self._null_model.extra["residuals"],
+            trait_type=config.trait_type,
+            sigma2=self._null_model.extra["sigma2"],
+            mu_hat=self._null_model.extra.get("mu_hat"),  # None for quantitative
+            weights=acat_v_weights,
+        )
+
         # Increment local counter
         self._genes_processed += 1
 
@@ -293,6 +309,7 @@ class PurePythonSKATTest(AssociationTest):
             "skat_n_marker_test": result.get("n_marker_test"),
             "skat_p_method": result.get("p_method"),
             "skat_p_converged": result.get("p_converged"),
+            "acat_v_p": acat_v_p,
         }
         if skip_reason is not None:
             extra["skat_skip_reason"] = skip_reason

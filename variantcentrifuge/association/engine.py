@@ -127,50 +127,25 @@ class AssociationEngine:
         """
         registry = _build_registry()
 
-        # Backend-aware swap: --skat-backend python routes "skat" to PurePythonSKATTest.
+        # Backend-aware swap: --skat-backend python/auto routes "skat" to PurePythonSKATTest.
         # This runs BEFORE the unknown-name check so that "skat" resolves correctly.
-        skat_backend = getattr(config, "skat_backend", "r")
-        if skat_backend == "python":
+        # "auto" and "python" follow identical code paths (unified pattern).
+        skat_backend = getattr(config, "skat_backend", "python")
+        if skat_backend in ("python", "auto"):
             from variantcentrifuge.association.tests.skat_python import PurePythonSKATTest
 
             registry["skat"] = PurePythonSKATTest
-        elif skat_backend == "auto":
-            # Try R first; if rpy2 unavailable, fall back to Python
-            try:
-                from variantcentrifuge.association.backends import get_skat_backend
 
-                get_skat_backend("r")  # probe R availability (lightweight import check)
-                # If we reach here, R backend is potentially available; keep RSKATTest
-            except (ImportError, RuntimeError, Exception):
-                from variantcentrifuge.association.tests.skat_python import PurePythonSKATTest
-
-                registry["skat"] = PurePythonSKATTest
-                logger.info("R/rpy2 unavailable; using Python SKAT backend (auto mode)")
-
-        # Backend-aware swap: --coast-backend python routes "coast" to PurePythonCOASTTest.
+        # Backend-aware swap: --coast-backend python/auto routes "coast" to PurePythonCOASTTest.
         # This runs BEFORE the unknown-name check so that "coast" resolves correctly.
-        coast_backend = getattr(config, "coast_backend", "auto")
-        if coast_backend == "python":
+        # "auto" and "python" follow identical code paths (unified pattern).
+        coast_backend = getattr(config, "coast_backend", "python")
+        if coast_backend in ("python", "auto"):
             from variantcentrifuge.association.tests.allelic_series_python import (
                 PurePythonCOASTTest,
             )
 
             registry["coast"] = PurePythonCOASTTest
-        elif coast_backend == "auto":
-            # Try R first; if rpy2/AllelicSeries unavailable, fall back to Python
-            try:
-                import rpy2.robjects  # noqa: F401
-                from rpy2.robjects.packages import importr
-
-                importr("AllelicSeries")
-                # If we reach here, R backend is available; keep COASTTest
-            except (ImportError, RuntimeError, Exception):
-                from variantcentrifuge.association.tests.allelic_series_python import (
-                    PurePythonCOASTTest,
-                )
-
-                registry["coast"] = PurePythonCOASTTest
-                logger.info("R/AllelicSeries unavailable; using Python COAST backend (auto mode)")
 
         available = sorted(registry.keys())
 
@@ -233,6 +208,18 @@ class AssociationEngine:
             for test_name in self._tests:
                 res = results_by_test[test_name].get(gene)
                 test_pvals[test_name] = res.p_value if res is not None else None
+
+            # Include ACAT-V if available from SKAT test (Phase 25)
+            # ACAT-V is NOT a primary test — it's a per-variant score test stored
+            # in the SKAT result's extra dict. Adding it to the ACAT-O omnibus
+            # improves power for sparse signals.
+            for test_name in self._tests:
+                res = results_by_test[test_name].get(gene)
+                if res is not None and "acat_v_p" in res.extra:
+                    acat_v_p = res.extra["acat_v_p"]
+                    if acat_v_p is not None:
+                        test_pvals["acat_v"] = acat_v_p
+                    break  # only one SKAT test can produce ACAT-V
 
             # Combine p-values via Cauchy formula
             acat_p = compute_acat_o(test_pvals)
