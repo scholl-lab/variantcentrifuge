@@ -5,7 +5,7 @@
 - SHIPPED **v0.12.1 Baseline** — Phases 1-5 (shipped 2026-02-14, pre-GSD)
 - SHIPPED **v0.13.0 Performance Optimization** — Phases 6-12 (shipped 2026-02-16) — [archive](milestones/v0.13.0-ROADMAP.md)
 - SHIPPED **v0.14.0 Report UX Overhaul** — Phases 13-17 (shipped 2026-02-19)
-- ACTIVE **v0.15.0 Modular Rare Variant Association Framework** — Phases 18-24
+- ACTIVE **v0.15.0 Modular Rare Variant Association Framework** — Phases 18-29
 
 ## Phases
 
@@ -291,6 +291,53 @@ Plans:
 
 ---
 
+#### Phase 28: Tech Debt Cleanup
+
+**Goal:** Fix accumulated tech debt from milestone audit: add missing `parallel_safe` class attributes, expose JSON-only config fields as CLI args (`--skat-method`, `--min-cases`, `--max-case-control-ratio`, `--min-case-carriers`), and correct ROADMAP criterion typo.
+
+**Dependencies:** Phase 27 (all feature work complete)
+
+**Gap Closure:** Closes tech debt items from v0.15.0-MILESTONE-AUDIT.md
+
+**Plans:** 2 plans
+Plans:
+- [ ] 28-01-PLAN.md — RSKATTest parallel_safe attribute + ROADMAP criterion typo fix
+- [ ] 28-02-PLAN.md — CLI args for skat_method and diagnostic thresholds (min_cases, max_case_control_ratio, min_case_carriers)
+
+**Success Criteria:**
+
+1. RSKATTest has explicit `parallel_safe: bool = False` class attribute in both skat_r.py files
+2. `--skat-method` CLI arg selects SKAT method (skat/skato/burden) with JSON config override
+3. `--min-cases`, `--max-case-control-ratio`, `--min-case-carriers` CLI args control diagnostic thresholds
+4. ROADMAP Phase 22 criterion correctly references `lambda_gc.tsv` (not `.txt`)
+5. All existing tests pass; new tests cover CLI arg propagation
+
+---
+
+#### Phase 29: Classic Pipeline Deprecation and Removal
+
+**Goal:** Remove the legacy classic pipeline (`pipeline.py`) and make the stage-based pipeline the sole execution path, eliminating the `--use-new-pipeline` flag and resolving DEPR-01 backlog item.
+
+**Dependencies:** Phase 28 (tech debt cleared first)
+
+**Gap Closure:** Resolves DEPR-01 backlog item; eliminates classic pipeline PCA gap from audit
+
+**Plans:** 3 plans
+Plans:
+- [ ] 29-01-PLAN.md — Remove pipeline.py and classic pipeline codepath from cli.py; make stage-based pipeline the default
+- [ ] 29-02-PLAN.md — Remove --use-new-pipeline flag, update CLI help, update config references
+- [ ] 29-03-PLAN.md — Update tests, docs, and CLAUDE.md; remove classic pipeline test fixtures
+
+**Success Criteria:**
+
+1. `pipeline.py` is deleted; `cli.py` routes directly to `pipeline_core/` runner
+2. `--use-new-pipeline` flag is removed; stage-based pipeline runs by default with no flag
+3. All features previously exclusive to stage-based pipeline (PCA computation, association analysis) work without any pipeline selection flag
+4. All existing tests pass after classic pipeline removal; tests referencing classic pipeline are updated or removed
+5. CLAUDE.md, README, and docs updated to reflect single pipeline architecture
+
+---
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -318,3 +365,5 @@ Plans:
 | 25. Python Default Backends and Quick Wins | v0.15.0 | 2/2 | Complete | 2026-02-22 |
 | 26. Association Testing Documentation | v0.15.0 | 2/2 | Complete | 2026-02-22 |
 | 27. Association Performance Optimizations | v0.15.0 | 3/3 | Complete | 2026-02-22 |
+| 28. Tech Debt Cleanup | v0.15.0 | 0/2 | Pending | — |
+| 29. Classic Pipeline Deprecation and Removal | v0.15.0 | 0/3 | Pending | — |

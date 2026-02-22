@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 27 — Association Performance Optimizations
-Plan: 3/3 complete
-Status: Phase complete — v0.15.0 code-complete
-Last activity: 2026-02-22 — Completed 27-03: Gene-level parallelization via ProcessPoolExecutor
+Phase: 28 — Tech Debt Cleanup
+Plan: 0/2 complete
+Status: Not started — awaiting planning
+Last activity: 2026-02-22 — Gap closure phases 28-29 added from milestone audit
 
-Progress: ███████████████████████ 100% (All phases 18-27 complete)
+Progress: ████████████████████░░░ 83% (Phases 18-27 complete; 28-29 pending)
 
 ## Milestone Overview
 
@@ -32,6 +32,8 @@ Progress: ███████████████████████ 
 | 25. Python Default + Quick Wins | Python default backends, R deprecated, saddlepoint fallback, ACAT-V | — | Complete ✓ |
 | 26. Documentation | Association testing guide, update existing docs, API stubs, changelog | TBD | Complete ✓ |
 | 27. Performance Optimizations | GL quadrature (46x SKAT-O), ProcessPoolExecutor gene parallelization | — | Complete ✓ |
+| 28. Tech Debt Cleanup | RSKATTest attribute, CLI args for skat_method + diagnostic thresholds | Audit gaps | Pending |
+| 29. Classic Pipeline Deprecation | Remove pipeline.py, make stage-based default, remove --use-new-pipeline | DEPR-01 | Pending |
 
 **Total requirements:** 52 mapped across 7 phases (52 complete); phases 25-27 requirements TBD
 
@@ -179,4 +181,4 @@ None.
 Last session: 2026-02-22T20:27:09Z – 2026-02-22T20:37:50Z
 Stopped at: Completed 27-03-PLAN.md — Gene-level parallelization via ProcessPoolExecutor
 Resume file: None
-Next: v0.15.0 is code-complete. All phases 18-27 done. Ready for release preparation or new milestone.
+Next: Plan Phase 28 (Tech Debt Cleanup). Then Phase 29 (Classic Pipeline Deprecation). After both complete, re-audit and complete milestone.
