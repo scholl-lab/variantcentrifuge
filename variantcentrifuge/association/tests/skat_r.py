@@ -54,6 +54,7 @@ logger = logging.getLogger("variantcentrifuge")
 
 class RSKATTest(AssociationTest):
     """
+    # DEPRECATED
     SKAT association test using the R SKAT package via rpy2.
 
     Registered in the engine as ``"skat"``. Uses RSKATBackend for all R
@@ -79,6 +80,14 @@ class RSKATTest(AssociationTest):
     """
 
     def __init__(self) -> None:
+        import warnings
+
+        warnings.warn(
+            "RSKATTest (R SKAT backend) is deprecated and will be removed in v0.17.0. "
+            "Use --skat-backend python (default).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._backend: RSKATBackend | None = None
         self._null_model: NullModelResult | None = None
 

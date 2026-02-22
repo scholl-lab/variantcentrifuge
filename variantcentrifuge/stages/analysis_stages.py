@@ -2267,9 +2267,9 @@ def _build_assoc_config_from_context(context: "PipelineContext") -> AssociationC
         missing_site_threshold=_get("missing_site_threshold", default=0.10, nullable=False),
         missing_sample_threshold=_get("missing_sample_threshold", default=0.80, nullable=False),
         firth_max_iter=_get("firth_max_iter", default=25, nullable=False),
-        skat_backend=_get("skat_backend", default="auto", nullable=False),
+        skat_backend=_get("skat_backend", default="python", nullable=False),
         skat_method=_get("skat_method", default="SKAT", nullable=False),
-        coast_backend=_get("coast_backend", default="auto", nullable=False),
+        coast_backend=_get("coast_backend", default="python", nullable=False),
         min_cases=_get("association_min_cases", json_key="min_cases", default=200, nullable=False),
         max_case_control_ratio=_get(
             "association_max_case_control_ratio",

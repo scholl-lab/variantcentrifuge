@@ -136,8 +136,8 @@ class AssociationConfig:
 
     # Phase 20: R SKAT backend fields
     # All optional; backward compatible with Phase 18-19 workflows.
-    skat_backend: str = "auto"
-    """SKAT computation backend: "r" (R via rpy2), "python" (Phase 21), or "auto" (try r first)."""
+    skat_backend: str = "python"
+    """SKAT computation backend: "python" (default), "r" (deprecated, R via rpy2), or "auto"."""
 
     skat_method: str = "SKAT"
     """SKAT variant to run: "SKAT" (default), "Burden" (burden-only), or "SKATO" (omnibus)."""
@@ -170,8 +170,8 @@ class AssociationConfig:
     """Category weights for COAST allelic series (default: [1.0, 2.0, 3.0] for BMV, DMV, PTV)."""
 
     # Phase 24: Pure Python COAST backend
-    coast_backend: str = "auto"
-    """COAST computation backend: "r" (R via rpy2), "python", or "auto" (try r first)."""
+    coast_backend: str = "python"
+    """COAST computation backend: "python" (default), "r" (deprecated, R via rpy2), or "auto"."""
 
 
 class AssociationTest(ABC):

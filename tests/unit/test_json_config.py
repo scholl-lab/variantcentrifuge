@@ -183,7 +183,7 @@ class TestBuildAssocConfigFromContext:
         assert config.max_case_control_ratio == 20.0
         assert config.min_case_carriers == 10
         assert config.pca_components == 10
-        assert config.skat_backend == "auto"
+        assert config.skat_backend == "python"
         assert config.skat_method == "SKAT"
         assert config.covariate_file is None
         assert config.diagnostics_output is None

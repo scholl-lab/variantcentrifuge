@@ -245,6 +245,7 @@ def classify_variants(
 
 class COASTTest(AssociationTest):
     """
+    # DEPRECATED
     COAST allelic series test via R AllelicSeries::COAST().
 
     Registered in the engine as ``"coast"``. Classifies variants into
@@ -276,6 +277,14 @@ class COASTTest(AssociationTest):
     parallel_safe: bool = False  # rpy2 restriction: main thread only
 
     def __init__(self) -> None:
+        import warnings
+
+        warnings.warn(
+            "COASTTest (R COAST backend) is deprecated and will be removed in v0.17.0. "
+            "Use --coast-backend python (default).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         # Lifecycle tracking (set by prepare())
         self._total_genes: int = 0
         self._log_interval: int = 50

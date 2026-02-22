@@ -423,14 +423,14 @@ def create_parser() -> argparse.ArgumentParser:
     stats_group.add_argument(
         "--skat-backend",
         choices=["auto", "r", "python"],
-        default="auto",
-        help="SKAT computation backend: auto (prefer R, fall back to Python), r, or python",
+        default="python",
+        help="SKAT computation backend: python (default), r (deprecated), or auto",
     )
     stats_group.add_argument(
         "--coast-backend",
         choices=["auto", "r", "python"],
-        default="auto",
-        help=("COAST computation backend: auto (prefer R, fall back to Python), r, or python"),
+        default="python",
+        help="COAST computation backend: python (default), r (deprecated), or auto",
     )
     stats_group.add_argument(
         "--covariate-file",
@@ -1142,8 +1142,8 @@ def main() -> int:
         cfg["association_tests"] = [t.strip() for t in args.association_tests.split(",")]
     else:
         cfg["association_tests"] = ["fisher"] if args.perform_association else []
-    cfg["skat_backend"] = getattr(args, "skat_backend", "auto")
-    cfg["coast_backend"] = getattr(args, "coast_backend", "auto")
+    cfg["skat_backend"] = getattr(args, "skat_backend", "python")
+    cfg["coast_backend"] = getattr(args, "coast_backend", "python")
 
     # Phase 19: Covariate and regression configuration
     cfg["covariate_file"] = getattr(args, "covariate_file", None)
