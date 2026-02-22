@@ -8,6 +8,9 @@ variantcentrifuge.association.tests.acat.
 
 from __future__ import annotations
 
+import math
+
+import numpy as np
 import pytest
 
 from variantcentrifuge.association.tests.acat import cauchy_combination, compute_acat_o
@@ -64,8 +67,6 @@ class TestCauchyCombinationNumerical:
         Tests the 1/(p*pi) branch for tiny p-values (Liu & Xie 2020 Section 2.2).
         The result must be a finite number in [0, 1].
         """
-        import math
-
         result = cauchy_combination([1e-20, 0.5])
         assert result is not None
         assert not math.isnan(result)
@@ -173,8 +174,6 @@ class TestCauchyCombinationEdgeCases:
 
     def test_cauchy_with_nan_filtered(self):
         """NaN values are filtered the same as None values."""
-        import math
-
         result_with_nan = cauchy_combination([0.01, float("nan"), 0.05])
         result_clean = cauchy_combination([0.01, 0.05])
         assert result_with_nan is not None
@@ -238,3 +237,63 @@ class TestComputeAcatO:
         acat_result = compute_acat_o(test_pvals)
         direct_result = cauchy_combination(list(test_pvals.values()))
         assert acat_result == pytest.approx(direct_result, rel=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# Extreme p-value underflow tests
+# ---------------------------------------------------------------------------
+
+
+class TestCauchyCombinationUnderflow:
+    """Verify cauchy_combination handles extreme p-values without NaN/inf."""
+
+    def test_all_components_at_1e_300(self):
+        """All p-values at 1e-300 should produce a finite, very small result."""
+        result = cauchy_combination([1e-300, 1e-300, 1e-300])
+        assert result is not None
+        assert np.isfinite(result)
+        assert 0.0 <= result <= 1.0
+        assert result < 1e-10  # must be very significant
+
+    def test_mix_of_extreme_and_moderate(self):
+        """Mix of 1e-300 and 0.5 should produce a finite small result."""
+        result = cauchy_combination([1e-300, 0.5, 0.5])
+        assert result is not None
+        assert np.isfinite(result)
+        assert 0.0 <= result <= 1.0
+        assert result < 0.1
+
+    def test_p_zero_exact_does_not_crash(self):
+        """p=0.0 exactly should not produce NaN — clamped to smallest float."""
+        result = cauchy_combination([0.0, 0.5])
+        assert result is not None
+        assert np.isfinite(result)
+        assert 0.0 <= result <= 1.0
+
+    def test_p_zero_all_does_not_crash(self):
+        """All p=0.0 should not produce NaN."""
+        result = cauchy_combination([0.0, 0.0, 0.0])
+        assert result is not None
+        assert np.isfinite(result)
+        assert 0.0 <= result <= 1.0
+
+    def test_weighted_extreme_p_values(self):
+        """Weighted Cauchy with extreme p-values should be finite."""
+        result = cauchy_combination(
+            [1e-300, 1e-200, 0.01, 0.5],
+            weights=[1.0, 1.0, 1.0, 1.0],
+        )
+        assert result is not None
+        assert np.isfinite(result)
+        assert 0.0 <= result <= 1.0
+
+    def test_coast_7_component_extreme(self):
+        """Simulate COAST 7-component omnibus with some extreme p-values."""
+        # Weights matching COAST: [1,1,1,1,1,1,6] (50% burden, 50% SKAT)
+        weights = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 6.0]
+        p_values = [0.01, 0.05, 0.001, 0.1, 0.005, 0.02, 1e-200]
+        result = cauchy_combination(p_values, weights=weights)
+        assert result is not None
+        assert np.isfinite(result)
+        assert 0.0 <= result <= 1.0
+        assert result < 0.01  # SKAT at 1e-200 should dominate

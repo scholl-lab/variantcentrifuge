@@ -116,6 +116,9 @@ def cauchy_combination(
     w_sum = w_valid.sum()
     w_valid = np.ones(n_valid, dtype=float) / n_valid if w_sum <= 0 else w_valid / w_sum
 
+    # Clamp p=0.0 to smallest representable positive float to avoid 1/0 = inf
+    p_valid = np.clip(p_valid, np.finfo(float).tiny, None)
+
     # Compute Cauchy transforms with numerical stability guard
     # For p < _TINY_P_THRESHOLD: use approximation 1/(p*pi) (Liu & Xie 2020)
     # For p >= _TINY_P_THRESHOLD: use exact tan((0.5 - p) * pi)
@@ -128,6 +131,14 @@ def cauchy_combination(
 
     # Weighted Cauchy statistic (named t_stat; T is conventional in literature)
     t_stat = float(np.dot(w_valid, transforms))
+
+    # Guard against inf/NaN from extreme transforms — fall back to min-p Bonferroni
+    if not np.isfinite(t_stat):
+        logger.debug(
+            "cauchy_combination: t_stat is %s, falling back to min-p * n Bonferroni",
+            t_stat,
+        )
+        return float(np.clip(np.min(p_valid) * n_valid, 0.0, 1.0))
 
     # Combined p-value: survival function of standard Cauchy distribution
     p_combined = float(np.clip(cauchy.sf(t_stat), 0.0, 1.0))
