@@ -762,16 +762,23 @@ class PhenotypeCaseControlAssignmentStage(Stage):
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Assign case/control samples based on phenotype data if no explicit assignments exist."""
-        # Check if case/control samples are already explicitly assigned
-        existing_case_samples = context.config.get("case_samples", [])
-        existing_control_samples = context.config.get("control_samples", [])
+        # Check if case/control samples are already explicitly assigned.
+        # Use `or []` to handle None values (CLI sets case_samples=None when
+        # --case-samples is not used, but --case-samples-file may still load them
+        # via SampleConfigLoadingStage).
+        existing_case_samples = context.config.get("case_samples") or []
+        existing_control_samples = context.config.get("control_samples") or []
         case_samples_file = context.config.get("case_samples_file")
         control_samples_file = context.config.get("control_samples_file")
 
-        # Skip if explicit case/control samples are already assigned (not files)
+        # Skip if case/control samples are already assigned (by SampleConfigLoadingStage
+        # or by explicit --case-samples CLI argument)
         if existing_case_samples or existing_control_samples:
-            logger.debug(
-                "Explicit case/control assignments exist, skipping case/control assignment"
+            logger.info(
+                "Case/control samples already assigned (%d cases, %d controls), "
+                "skipping re-assignment",
+                len(existing_case_samples),
+                len(existing_control_samples),
             )
             return context
 
@@ -1253,6 +1260,17 @@ class PhenotypeCaseControlAssignmentStage(Stage):
             # Both files provided - use intersection
             final_case_samples = case_in_vcf
             final_control_samples = control_in_vcf
+
+        # Guard: do not overwrite existing assignments with empty results.
+        # This can happen when VCF samples haven't been fully parsed yet
+        # or when sample name formats don't match between file and VCF.
+        if not final_case_samples and not final_control_samples:
+            logger.warning(
+                "File-based assignment produced 0 cases and 0 controls "
+                "(no sample names matched VCF samples). "
+                "Preserving any previously loaded case/control assignments."
+            )
+            return context
 
         # Update configuration with classified samples
         context.config["case_samples"] = list(final_case_samples)
