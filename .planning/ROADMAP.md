@@ -255,8 +255,8 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 26-01-PLAN.md — Comprehensive association testing user guide (quick start, test descriptions, covariates/PCA/weights, diagnostics, JSON config, troubleshooting)
-- [ ] 26-02-PLAN.md — API reference stubs, cross-references in existing docs (usage, cohort, FAQ, index), changelog, README
+- [x] 26-01-PLAN.md — Comprehensive association testing user guide (quick start, test descriptions, covariates/PCA/weights, diagnostics, JSON config, troubleshooting)
+- [x] 26-02-PLAN.md — API reference stubs, cross-references in existing docs (usage, cohort, FAQ, index), changelog, README
 
 **Details:**
 - New `docs/source/guides/association_testing.md` with quick start, test descriptions, covariate/PCA/weight guides
@@ -316,5 +316,5 @@ Plans:
 | 23. PCA Integration, Functional Weights, Allelic Series, and JSON Config | v0.15.0 | 4/4 | Complete | 2026-02-21 |
 | 24. Pure Python COAST Backend | v0.15.0 | 3/3 | Complete | 2026-02-22 |
 | 25. Python Default Backends and Quick Wins | v0.15.0 | 2/2 | Complete | 2026-02-22 |
-| 26. Association Testing Documentation | v0.15.0 | 0/2 | Planned | — |
+| 26. Association Testing Documentation | v0.15.0 | 2/2 | Complete | 2026-02-22 |
 | 27. Association Performance Optimizations | v0.15.0 | 0/3 | Planned | — |
