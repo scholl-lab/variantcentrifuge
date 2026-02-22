@@ -20,6 +20,7 @@ checkpoint
 
 analyze_variants
 gene_burden
+association
 stats
 scoring
 ```
@@ -78,6 +79,7 @@ gene_bed
 
 - **{doc}`analyze_variants`** - Variant-level analysis and gene burden testing
 - **{doc}`gene_burden`** - Statistical methods for gene burden analysis
+- **{doc}`association`** - Modular rare variant association testing framework (SKAT-O, COAST, burden, ACAT-O)
 - **{doc}`stats`** - Summary statistics and data aggregation
 - **{doc}`scoring`** - Custom variant scoring with configurable formulas
 
