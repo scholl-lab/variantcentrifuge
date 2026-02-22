@@ -688,15 +688,36 @@ class TestCOASTRunWithMockedR:
     """Tests for COASTTest.run() with mocked rpy2/AllelicSeries."""
 
     def _build_mock_coast_result(self, burden_p: float, skat_p: float, omni_p: float) -> MagicMock:
-        """Build a mock R COAST result with a Pvals slot."""
+        """Build a mock R COAST result with a Pvals slot (data.frame format)."""
         mock_result = MagicMock()
 
-        mock_pvals = MagicMock()
-        mock_pvals.names = ["Burden", "SKAT", "Omni"]
-        # Make it iterable
-        mock_pvals.__iter__ = MagicMock(return_value=iter([burden_p, skat_p, omni_p]))
+        # AllelicSeries COAST returns Pvals as a data.frame with columns:
+        #   test (str), type (str), pval (numeric)
+        test_names = [
+            "baseline",
+            "ind",
+            "max_count",
+            "max_ind",
+            "sum_count",
+            "sum_ind",
+            "allelic_skat",
+            "omni",
+        ]
+        pval_values = [burden_p, burden_p, burden_p, burden_p, burden_p, burden_p, skat_p, omni_p]
 
-        # slots["Pvals"] returns mock_pvals
+        mock_pvals = MagicMock()
+
+        def rx2_side_effect(col_name: str):
+            if col_name == "test":
+                return test_names
+            elif col_name == "pval":
+                return pval_values
+            return MagicMock()
+
+        mock_pvals.rx2 = MagicMock(side_effect=rx2_side_effect)
+        mock_pvals.names = test_names
+        mock_pvals.__iter__ = MagicMock(return_value=iter(pval_values))
+
         mock_result.slots = {"Pvals": mock_pvals}
         return mock_result
 

@@ -118,10 +118,20 @@ run_scenario <- function(
               seed, n, n_bmv, n_dmv, n_ptv, trait_type, signal))
   cat(sprintf("# Weights: [%s]\n", paste(weights, collapse=", ")))
 
-  if (!is.null(pvals)) {
+  if (!is.null(pvals) && is.data.frame(pvals)) {
+    # COAST() returns a data.frame with columns: test, type, pval
+    pval_names <- pvals$test
+    pval_values <- pvals$pval
+    cat(sprintf("_R_GOLDEN_%s = {\n", toupper(gsub("[^A-Za-z0-9]", "_", scenario_name))))
+    for (i in seq_along(pval_values)) {
+      cat(sprintf('    "%s": %.15e,\n', pval_names[i], as.numeric(pval_values[i])))
+    }
+    cat("}\n\n")
+  } else if (!is.null(pvals)) {
+    # Fallback for other return formats
     pval_names <- names(pvals)
+    pvals <- unlist(pvals, use.names = FALSE)
     if (is.null(pval_names)) {
-      # Fallback: use positional names
       pval_names <- paste0("component_", seq_along(pvals))
     }
     cat(sprintf("_R_GOLDEN_%s = {\n", toupper(gsub("[^A-Za-z0-9]", "_", scenario_name))))
