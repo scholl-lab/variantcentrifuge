@@ -14,11 +14,12 @@ Layer 1 — Burden component (6 tests):
   - Max: 1-df regression on maximum weighted category score
   Continuous traits: OLS (Wald). Binary traits: LRT (deviance difference).
 
-Layer 2 — Allelic SKAT (1 test):
-  Standard SKAT score test with annotation-aware weights:
+Layer 2 — Allelic SKAT-O (1 test):
+  SKAT-Optimal (Lee et al. 2012) with annotation-aware weights:
     w_j = sqrt(coast_weight_{A_j} / (aaf_j * (1 - aaf_j)))
-  where A_j is the annotation category of variant j. P-values via Davies →
-  saddlepoint → Liu fallback (identical to PythonSKATBackend).
+  where A_j is the annotation category of variant j. SKAT-O optimises over
+  a rho grid [0, 0.01, ..., 1] blending SKAT (rho=0) and burden (rho=1).
+  This matches R AllelicSeries::ASKAT() which calls SKAT::SKAT(method="SKATO").
 
 Layer 3 — Cauchy omnibus (1 combined p-value):
   7 component p-values combined via cauchy_combination() with weights
@@ -269,7 +270,7 @@ class PythonCOASTBackend:
 
     Implements the full COAST algorithm (McCaw et al. AJHG 2023):
     - 6 burden tests (3 models x 2 encodings)
-    - 1 allelic SKAT test
+    - 1 allelic SKAT-O test
     - Cauchy combination of all 7 p-values
 
     The null model (from PythonSKATBackend.fit_null_model()) is passed in
@@ -298,10 +299,12 @@ class PythonCOASTBackend:
         null_model: NullModelResult,
     ) -> float:
         """
-        Run the allelic series SKAT component.
+        Run the allelic series SKAT-O component.
 
-        Score statistic: Q = (G_weighted' r)' (G_weighted' r) / 2
-        Eigenvalues via PythonSKATBackend._compute_eigenvalues_filtered().
+        R AllelicSeries::ASKAT() uses SKAT::SKAT(method="SKATO"), which runs
+        SKAT-Optimal (Lee et al. 2012) — an optimized blend of SKAT and burden
+        over a rho grid.  This method mirrors that behaviour using the existing
+        ``_skato_get_pvalue`` infrastructure from PythonSKATBackend.
 
         Parameters
         ----------
@@ -315,35 +318,73 @@ class PythonCOASTBackend:
         Returns
         -------
         float
-            P-value for the allelic SKAT component (1.0 if degenerate).
+            P-value for the allelic SKAT-O component (1.0 if degenerate).
         """
-        from variantcentrifuge.association.backends.davies import compute_pvalue
+        from variantcentrifuge.association.backends.python_backend import (
+            _SKATO_RHO_GRID,
+            _skato_get_pvalue,
+        )
 
-        self._ensure_skat_backend()
-        assert self._skat_backend is not None  # mypy guard
+        n_variants = geno_filtered.shape[1]
+        if n_variants == 0:
+            return 1.0
 
         residuals: np.ndarray = null_model.extra["residuals"]
+        trait_type: str = null_model.trait_type
 
-        # Apply per-variant weights
+        # Apply per-variant allelic-series weights
         geno_weighted = geno_filtered * skat_weights[np.newaxis, :]
 
-        # Score statistic: Q = r' G_weighted G_weighted' r / 2
+        # Rank check — SKAT-O needs rank >= 2
+        rank = int(np.linalg.matrix_rank(geno_weighted))
+        if rank < 2:
+            logger.debug("PythonCOASTBackend allelic SKAT-O: rank < 2; p=1.0")
+            return 1.0
+
+        # ── Step 1: Compute Q_rho for each rho ──
         score_vec = geno_weighted.T @ residuals  # (n_variants,)
-        q_stat = float(score_vec @ score_vec) / 2.0
+        score_sum = float(np.sum(score_vec))
 
-        # Eigenvalues via PythonSKATBackend's projection-adjusted method
-        lambdas = self._skat_backend._compute_eigenvalues_filtered(geno_weighted, null_model)
+        q_rho = np.zeros(len(_SKATO_RHO_GRID), dtype=np.float64)
+        for i, rho in enumerate(_SKATO_RHO_GRID):
+            q1 = (1.0 - rho) * float(score_vec @ score_vec)
+            q2 = rho * score_sum**2
+            q_rho[i] = (q1 + q2) / 2.0
 
-        if len(lambdas) == 0:
-            logger.debug("PythonCOASTBackend allelic SKAT: no eigenvalues above threshold; p=1.0")
+        # ── Step 2: Build projection-adjusted Z1 ──
+        if trait_type == "binary":
+            mu_hat: np.ndarray = null_model.extra["mu_hat"]
+            design_x: np.ndarray = null_model.extra["design_matrix"]
+            pi_1 = mu_hat * (1.0 - mu_hat)
+            sqrt_pi = np.sqrt(pi_1)
+
+            z_phi = geno_weighted * sqrt_pi[:, np.newaxis]
+            x_phi = design_x * sqrt_pi[:, np.newaxis]
+            x_pi = design_x * pi_1[:, np.newaxis]
+            xtx_pi = x_phi.T @ x_phi
+            xtx_pi_inv = np.linalg.inv(xtx_pi)
+            z1_adj = z_phi - x_phi @ (xtx_pi_inv @ (x_pi.T @ geno_weighted))
+        else:
+            design_x = null_model.extra["design_matrix"]
+            sigma2: float = null_model.extra["sigma2"]
+            xtx = design_x.T @ design_x
+            xtx_inv = np.linalg.inv(xtx)
+            z1_adj = geno_weighted - design_x @ (xtx_inv @ (design_x.T @ geno_weighted))
+            q_rho /= sigma2
+
+        z1_half = z1_adj / np.sqrt(2.0)
+
+        # ── Step 3-5: Full SKAT-O omnibus p-value ──
+        pvalue, pval_each = _skato_get_pvalue(q_rho, z1_half, _SKATO_RHO_GRID)
+
+        best_idx = int(np.argmin(pval_each))
+        best_rho = _SKATO_RHO_GRID[best_idx]
+        logger.debug(f"PythonCOASTBackend allelic SKAT-O: p={pvalue:.6e}, rho={best_rho:.3f}")
+
+        if np.isnan(pvalue) or np.isinf(pvalue):
             return 1.0
 
-        p_value, _method, _converged = compute_pvalue(q_stat, lambdas)
-
-        if np.isnan(p_value) or np.isinf(p_value):
-            return 1.0
-
-        return float(np.clip(p_value, 0.0, 1.0))
+        return float(np.clip(pvalue, 0.0, 1.0))
 
     def test_gene(
         self,

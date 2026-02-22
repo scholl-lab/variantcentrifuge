@@ -65,10 +65,12 @@ PTV_EFFECTS = frozenset(
 )
 MISSENSE_EFFECT = "missense_variant"
 
-SIFT_DAMAGING = frozenset({"deleterious"})
-POLYPHEN_DAMAGING = frozenset({"probably_damaging", "possibly_damaging"})
-SIFT_BENIGN = frozenset({"tolerated"})
-POLYPHEN_BENIGN = frozenset({"benign"})
+# dbNSFP uses single-letter codes: D=damaging/deleterious, T=tolerated, B=benign,
+# P=possibly_damaging. Full words used in some annotation pipelines.
+SIFT_DAMAGING = frozenset({"deleterious", "D"})
+POLYPHEN_DAMAGING = frozenset({"probably_damaging", "possibly_damaging", "D", "P"})
+SIFT_BENIGN = frozenset({"tolerated", "T"})
+POLYPHEN_BENIGN = frozenset({"benign", "B"})
 
 # Possible column names for SIFT predictions (tried in order)
 SIFT_COLUMN_CANDIDATES = ["dbNSFP_SIFT_pred", "SIFT_pred", "sift_pred"]
@@ -166,8 +168,9 @@ def classify_variants(
         return annotation_codes, np.zeros(n, dtype=bool)
 
     # Extract effect and impact series
-    effect_series = gene_df[effect_col].fillna("").astype(str)
-    impact_series = gene_df[impact_col].fillna("").astype(str)
+    # Convert to object dtype first to handle Categorical columns safely
+    effect_series = gene_df[effect_col].astype(object).fillna("").astype(str)
+    impact_series = gene_df[impact_col].astype(object).fillna("").astype(str)
 
     # Helper: extract first prediction value from potentially multi-value cell
     # dbNSFP fields can be e.g. "deleterious;tolerated" — take first non-null
@@ -201,12 +204,12 @@ def classify_variants(
     polyphen_benign = np.zeros(n, dtype=bool)
 
     if sift_col is not None:
-        sift_series = gene_df[sift_col].fillna("").astype(str)
+        sift_series = gene_df[sift_col].astype(object).fillna("").astype(str)
         sift_damaging = _get_pred(sift_series, SIFT_DAMAGING)
         sift_benign = _get_pred(sift_series, SIFT_BENIGN)
 
     if polyphen_col is not None:
-        polyphen_series = gene_df[polyphen_col].fillna("").astype(str)
+        polyphen_series = gene_df[polyphen_col].astype(object).fillna("").astype(str)
         polyphen_damaging = _get_pred(polyphen_series, POLYPHEN_DAMAGING)
         polyphen_benign = _get_pred(polyphen_series, POLYPHEN_BENIGN)
 
@@ -578,7 +581,9 @@ class COASTTest(AssociationTest):
                 config=config,
             )
         except Exception as exc:
-            logger.error(f"COAST [{gene}]: R AllelicSeries::COAST() failed: {exc}")
+            logger.error(
+                f"COAST [{gene}]: R AllelicSeries::COAST() failed: {type(exc).__name__}: {exc!r}"
+            )
             return TestResult(
                 gene=gene,
                 test_name=self.name,
@@ -679,10 +684,7 @@ class COASTTest(AssociationTest):
             Three p-values from COAST Pvals slot.
         """
         import rpy2.robjects as ro
-        import rpy2.robjects.numpy2ri as numpy2ri
         from rpy2.robjects.packages import importr
-
-        numpy2ri.activate()
 
         allelic_series = importr("AllelicSeries")
 
@@ -723,31 +725,52 @@ class COASTTest(AssociationTest):
             is_pheno_binary=r_is_binary,
         )
 
-        # Extract p-values from Pvals slot
+        # Extract p-values from Pvals slot.
+        # AllelicSeries COAST() returns Pvals as a data.frame with columns:
+        #   test (str), type (str), pval (numeric)
+        # Rows: baseline, ind, max_count, max_ind, sum_count, sum_ind,
+        #        allelic_skat, omni
         pvals_slot = result.slots["Pvals"]
 
-        # pvals_slot is an R named numeric vector; convert to Python dict
-        pvals_names = list(pvals_slot.names) if hasattr(pvals_slot, "names") else []
-        pvals_values = list(pvals_slot)
-
+        # Convert R data.frame to Python dict keyed by test name
         pvals_dict: dict[str, float | None] = {}
-        for name, val in zip(pvals_names, pvals_values, strict=False):
-            try:
-                import rpy2.rinterface as ri
+        try:
+            # R data.frame columns accessible by name
+            test_names = list(pvals_slot.rx2("test"))
+            pval_values = list(pvals_slot.rx2("pval"))
+            import rpy2.rinterface as ri
 
-                if val is ri.NA_Real:
-                    pvals_dict[name] = None
+            for name, val in zip(test_names, pval_values, strict=False):
+                if hasattr(ri, "NA_Real") and val is ri.NA_Real:
+                    pvals_dict[str(name)] = None
+                elif hasattr(val, "__float__"):
+                    pvals_dict[str(name)] = float(val)
                 else:
-                    pvals_dict[name] = float(val)
-            except Exception:
-                pvals_dict[name] = float(val) if val is not None else None
+                    pvals_dict[str(name)] = float(val) if val is not None else None
+        except Exception:
+            # Fallback: try as named vector (older AllelicSeries versions)
+            pvals_names = list(pvals_slot.names) if hasattr(pvals_slot, "names") else []
+            pvals_values = list(pvals_slot)
+            for name, val in zip(pvals_names, pvals_values, strict=False):
+                try:
+                    pvals_dict[str(name)] = float(val) if val is not None else None
+                except (TypeError, ValueError):
+                    pvals_dict[str(name)] = None
 
-        # Map to burden/skat/omnibus — key names depend on AllelicSeries version
-        # Common keys: "Burden", "SKAT", "Omni" or "Burden_p", "SKAT_p", "Omni_p"
-        burden_p = _extract_pval(pvals_dict, ["Burden", "Burden_p", "burden", "burden_p"])
-        skat_p = _extract_pval(pvals_dict, ["SKAT", "SKAT_p", "skat", "skat_p"])
+        logger.debug(f"COAST R Pvals: {pvals_dict}")
+
+        # Map to burden/skat/omnibus using AllelicSeries test names
+        burden_p = _extract_pval(
+            pvals_dict,
+            ["Burden", "Burden_p", "burden", "burden_p", "baseline"],
+        )
+        skat_p = _extract_pval(
+            pvals_dict,
+            ["SKAT", "SKAT_p", "skat", "skat_p", "allelic_skat"],
+        )
         omnibus_p = _extract_pval(
-            pvals_dict, ["Omni", "Omni_p", "omni", "omni_p", "Omnibus", "omnibus"]
+            pvals_dict,
+            ["Omni", "Omni_p", "omni", "omni_p", "Omnibus", "omnibus"],
         )
 
         # If omnibus not found separately, try O key
