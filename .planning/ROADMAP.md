@@ -270,20 +270,22 @@ Plans:
 
 #### Phase 27: Association Performance Optimizations
 
-**Goal:** Gene-level parallelization via ProcessPoolExecutor, Davies cache/interpolation in omnibus integration, and single eigendecomposition for SKAT-O deliver 3-10x speedup for multi-gene panels without changing results.
+**Goal:** 128-node Gauss-Legendre quadrature replaces adaptive quad in SKAT-O integration (46x speedup), gene-level parallelization via ProcessPoolExecutor with --association-workers delivers ~Nx wall-clock speedup for multi-gene panels, all without changing statistical results.
 
 **Dependencies:** Phase 25 (quick wins applied first), Phase 26 (docs before perf, so perf doesn't block release)
 
-**Plans:** 0 plans
+**Plans:** 3 plans
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 27 to break down)
+- [ ] 27-01-PLAN.md — GL quadrature in SKAT-O integration + parallel_safe attributes on all Python test classes
+- [ ] 27-02-PLAN.md — --association-workers CLI arg, AssociationConfig field, stage config builder plumbing
+- [ ] 27-03-PLAN.md — ProcessPoolExecutor parallel gene loop in engine.run_all() with null model pre-fitting
 
 **Details:**
 - `--association-workers N` CLI arg with ProcessPoolExecutor (OPENBLAS_NUM_THREADS=1 per worker)
-- Davies grid interpolation or fixed Gauss-Legendre quadrature in omnibus integration
-- Single eigendecomposition of A=Z1'Z1, algebraic transform for each rho
-- Optional: sparse genotype matrices for cohorts > 10K samples
+- Fixed 128-node Gauss-Legendre quadrature replaces scipy.integrate.quad (46x measured speedup)
+- Single eigendecomposition SKIPPED (benchmarked as slower for p < 100 variants)
+- Sparse genotype matrices SKIPPED (not beneficial for typical cohort sizes)
 
 **Reference:** [ASSOCIATION_REMAINING_WORK.md](../ASSOCIATION_REMAINING_WORK.md) — Part 3
 
@@ -315,4 +317,4 @@ Plans:
 | 24. Pure Python COAST Backend | v0.15.0 | 3/3 | Complete | 2026-02-22 |
 | 25. Python Default Backends and Quick Wins | v0.15.0 | 2/2 | Complete | 2026-02-22 |
 | 26. Association Testing Documentation | v0.15.0 | 0/2 | Planned | — |
-| 27. Association Performance Optimizations | v0.15.0 | 0/0 | Not planned | — |
+| 27. Association Performance Optimizations | v0.15.0 | 0/3 | Planned | — |
