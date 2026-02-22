@@ -373,8 +373,7 @@ class AssociationEngine:
                 result = test.run(first_gene, first_gene_data, self._config)
                 results_by_test[test_name][first_gene] = result
                 logger.debug(
-                    f"Gene {first_gene} | {test_name}: p={result.p_value}, "
-                    f"OR={result.effect_size}"
+                    f"Gene {first_gene} | {test_name}: p={result.p_value}, OR={result.effect_size}"
                 )
 
             # Pickle test instances now that null models are fitted
@@ -397,8 +396,7 @@ class AssociationEngine:
                 )
 
                 args_list = [
-                    (gd.get("GENE", ""), gd, pickled_tests, self._config)
-                    for gd in remaining
+                    (gd.get("GENE", ""), gd, pickled_tests, self._config) for gd in remaining
                 ]
                 with concurrent.futures.ProcessPoolExecutor(
                     max_workers=actual_workers,
