@@ -272,8 +272,9 @@ def _skato_integrate_davies(
 
     def integrand(x: float) -> float:
         """Integrand: P(Q_min > threshold | chi2=x) * dchisq(x)."""
-        # R caps rho at 0.999; avoid division by zero for rho=1
-        valid = rho_arr < 0.999
+        # Avoid division by zero for rho=1.0 (rho is already capped to
+        # 0.999 upstream in _skato_get_pvalue, matching R).
+        valid = rho_arr < 1.0
         if not np.any(valid):
             return 0.0
 
@@ -388,6 +389,18 @@ def _skato_get_pvalue(
     n_rho = len(rho_grid)
     n_variants = z1_half.shape[1]
 
+    # Cap rho at 0.999 globally (matches R SKAT_Optimal_Logistic which caps
+    # r.all before computing Q, eigenvalues, tau, and per-rho p-values).
+    rho_capped = [min(r, 0.999) for r in rho_grid]
+
+    # Recompute Q for any capped rho values. Q is linear in rho:
+    #   q_rho[i] = (1-rho_i) * q_rho[0] + rho_i * q_rho[-1]
+    # because Q(rho) = ((1-rho)*Q_SKAT + rho*Q_Burden) / 2.
+    if rho_capped != list(rho_grid):
+        q_skat_half = q_rho[0]  # Q_SKAT / 2 (at rho=0)
+        q_burden_half = q_rho[-1]  # Q_Burden / 2 (at rho=1)
+        q_rho = np.array([(1 - r) * q_skat_half + r * q_burden_half for r in rho_capped])
+
     # Base kernel: A = Z1_half' @ Z1_half (p x p)
     a_mat = z1_half.T @ z1_half
 
@@ -405,23 +418,15 @@ def _skato_get_pvalue(
     # eigenvalues as L @ A @ L' (the Cholesky approach) but avoids numerical
     # instability from standard Cholesky on near-singular correlation matrices.
     # This also works at rho=1 where Cholesky fails (rank-1 matrix).
-    #
-    # R caps rho >= 0.999 to 0.999 in SKAT_Optimal_Logistic to avoid exact
-    # rank deficiency:
-    #   IDX <- which(r.all >= 0.999)
-    #   if(length(IDX) > 0) { r.all[IDX] <- 0.999 }
 
     # Column sums of A (needed for the J @ A @ J term)
     a_col_sums = a_mat.sum(axis=0)  # (p,) — each entry is sum of column j
     a_row_sums = a_mat.sum(axis=1)  # (p,) — each entry is sum of row i
 
     lambda_all: list[np.ndarray] = []
-    for _i, rho in enumerate(rho_grid):
-        # Cap rho at 0.999 (matches R SKAT)
-        rho_eff = min(rho, 0.999)
-
-        s = np.sqrt(1.0 - rho_eff)
-        lam_burden = 1.0 - rho_eff + n_variants * rho_eff
+    for _i, rho in enumerate(rho_capped):
+        s = np.sqrt(1.0 - rho)
+        lam_burden = 1.0 - rho + n_variants * rho
         s_burden = np.sqrt(lam_burden)
         delta = (s_burden - s) / n_variants
 
@@ -439,21 +444,21 @@ def _skato_get_pvalue(
 
         lambda_all.append(_get_lambda(k_sym))
 
-    # Mixture parameters for omnibus integration
-    param = _skato_optimal_param(z1_half, rho_grid)
+    # Mixture parameters for omnibus integration (uses capped rho for tau)
+    param = _skato_optimal_param(z1_half, rho_capped)
 
     # Per-rho p-values and inverted quantiles
     q_all_2d = q_rho[np.newaxis, :]  # (1, n_rho)
-    pmin, pval, pmin_q = _skato_each_q(param, q_all_2d, rho_grid, lambda_all)
+    pmin, pval, pmin_q = _skato_each_q(param, q_all_2d, rho_capped, lambda_all)
 
     p_min_scalar = float(pmin[0])
     pval_each = pval[0, :]
 
     # Omnibus p-value via Davies integration
-    pvalue = _skato_integrate_davies(pmin_q[0, :], param, rho_grid, p_min_scalar)
+    pvalue = _skato_integrate_davies(pmin_q[0, :], param, rho_capped, p_min_scalar)
 
     # Correction: SKAT-O p should be <= min(per-rho p) * multiplier
-    multi = 3 if len(rho_grid) >= 3 else 2
+    multi = 3 if len(rho_capped) >= 3 else 2
     pval_each_pos = pval_each[pval_each > 0]
 
     if pvalue <= 0 or len(pval_each_pos) < n_rho:
