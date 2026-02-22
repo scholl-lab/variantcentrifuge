@@ -204,7 +204,7 @@ For modular rare variant association testing beyond the basic Fisher's exact tes
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--perform-association` | `false` | Run the modular association testing framework |
-| `--association-tests TESTS` | `fisher` | Comma-separated tests: `fisher`, `logistic_burden`, `linear_burden`, `skat`, `skat_o`, `coast` |
+| `--association-tests TESTS` | `fisher` | Comma-separated tests: `fisher`, `logistic_burden`, `linear_burden`, `skat`, `coast` |
 | `--skat-backend BACKEND` | `python` | SKAT backend: `python` (default, thread-safe) or `r` (deprecated) |
 | `--coast-backend BACKEND` | `python` | COAST backend: `python` (default) or `r` (deprecated) |
 | `--covariate-file PATH` | — | TSV/CSV covariate file (first column = sample ID, header required) |
@@ -215,7 +215,7 @@ For modular rare variant association testing beyond the basic Fisher's exact tes
 | `--pca-tool TOOL` | — | Set to `akt` to invoke AKT subprocess for PCA computation |
 | `--pca-components N` | `10` | Number of PCA components to include as covariates |
 | `--variant-weights SCHEME` | `beta:1,25` | Variant weight scheme: `beta:a,b`, `uniform`, `cadd`, `revel`, `combined` |
-| `--variant-weight-params JSON` | — | JSON string of weight scheme parameters (e.g., `'{"alpha": 1, "beta": 25}'`) |
+| `--variant-weight-params JSON` | — | JSON string of weight scheme parameters (e.g., `'{"cadd_cap": 30}'`) |
 | `--coast-weights WEIGHTS` | — | COAST category weights as comma-separated floats (BMV,DMV,PTV) |
 | `--diagnostics-output DIR` | — | Directory for diagnostics output: `lambda_gc.tsv`, `qq_data.tsv`, `summary.txt` |
 

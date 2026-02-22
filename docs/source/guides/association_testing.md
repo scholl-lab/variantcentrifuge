@@ -367,14 +367,14 @@ COAST classifies qualifying variants into three categories:
 
 | Category | Code | Criteria |
 |----------|------|---------|
-| **PTV** (Protein-Truncating) | 3 | HIGH impact OR stop_gained, frameshift, splice_acceptor/donor variant |
-| **DMV** (Deleterious Missense) | 2 | Missense + (SIFT: D) + (PolyPhen: P or D) |
-| **BMV** (Benign Missense) | 1 | Missense + (SIFT: T) + (PolyPhen: B) |
+| **PTV** (Protein-Truncating) | 3 | HIGH impact AND effect in {stop_gained, frameshift_variant, splice_acceptor_variant, splice_donor_variant} |
+| **DMV** (Deleterious Missense) | 2 | Missense + (SIFT: D OR PolyPhen: P/D) — either prediction suffices |
+| **BMV** (Benign Missense) | 1 | Missense + (SIFT: T) + (PolyPhen: B) — both required |
 | Unclassified | 0 | Missense without SIFT/PolyPhen predictions — excluded from COAST only |
 
 Annotation columns tried (first found wins):
-- SIFT: `dbNSFP_SIFT_pred`, `SIFT_pred`
-- PolyPhen: `dbNSFP_Polyphen2_HDIV_pred`, `PolyPhen_pred`
+- SIFT: `dbNSFP_SIFT_pred`, `SIFT_pred`, `sift_pred`
+- PolyPhen: `dbNSFP_Polyphen2_HDIV_pred`, `dbNSFP_Polyphen2_HVAR_pred`, `Polyphen2_HDIV_pred`, `Polyphen2_HVAR_pred`, `polyphen2_hdiv_pred`
 
 Unclassified variants (code 0) are excluded from COAST but remain in SKAT and burden tests.
 
@@ -595,7 +595,7 @@ Use this for reproducible analyses or when parameters are too numerous for the c
 }
 ```
 
-### All Valid Keys
+### All 27 Valid Keys
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -622,6 +622,9 @@ Use this for reproducible analyses or when parameters are too numerous for the c
 | `continuity_correction` | float | `0.5` | Haldane-Anscombe continuity correction for zero cells in Fisher |
 | `missing_site_threshold` | float | `0.10` | Exclude variants with >10% missing genotypes site-wide |
 | `missing_sample_threshold` | float | `0.80` | Exclude samples with >80% missing genotypes |
+| `skat_method` | str | `"SKAT"` | SKAT variant: `"SKAT"` (default), `"Burden"`, or `"SKATO"` (omnibus) |
+| `confidence_interval_method` | str | `"normal_approx"` | Odds ratio CI method: tries score → normal → logit in sequence |
+| `association_workers` | int | `1` | Number of parallel workers for association testing |
 | `firth_max_iter` | int | `25` | Newton-Raphson iterations for Firth penalised likelihood |
 
 ### Precedence
@@ -695,7 +698,7 @@ logged.
 
 ### Low Sample Size Warnings
 
-**Warning in `warnings` column:** `LOW_CASE_COUNT`, `LOW_CARRIER_COUNT`, `HIGH_CASE_CONTROL_RATIO`
+**Warning in `warnings` column:** `LOW_CASE_COUNT`, `LOW_CARRIER_COUNT`, `IMBALANCED_COHORT`
 
 These are triggered by thresholds in `AssociationConfig`:
 
@@ -745,7 +748,7 @@ If `n_tests < 100`, the lambda_GC estimate is flagged as unreliable — do not o
 
 ### COAST Fails: `NO_CLASSIFIABLE_VARIANTS`
 
-**In `warnings` column:** `coast_p_value` = `None`, warning contains `NO_CLASSIFIABLE_VARIANTS`
+**In output:** `coast_p_value` = `None`, and `coast_skip_reason` extra key contains `NO_CLASSIFIABLE_VARIANTS`
 
 **What happened:** All variants in this gene received classification code 0 — they are missense
 variants without SIFT or PolyPhen predictions. COAST requires at least one BMV, DMV, and PTV.
@@ -780,7 +783,7 @@ Ensure the first column of `covariates.tsv` matches these names exactly.
 
 **What you see:** `acat_o_p_value` is identical to `fisher_p_value` for all genes.
 
-**This is correct behaviour.** When only one test is active, the Cauchy combination of a single
+**This is correct behavior.** When only one test is active, the Cauchy combination of a single
 p-value returns that p-value unchanged (pass-through). FDR correction still runs across genes.
 
 To get a true omnibus combination, enable multiple tests:

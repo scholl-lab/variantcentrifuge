@@ -32,7 +32,6 @@ scoring
 
 filters
 extractor
-replacer
 converter
 ```
 
@@ -62,7 +61,6 @@ links
 :maxdepth: 1
 
 phenotype
-phenotype_filter
 gene_bed
 ```
 
@@ -87,7 +85,6 @@ gene_bed
 
 - **{doc}`filters`** - SnpSift-based variant filtering operations
 - **{doc}`extractor`** - VCF field extraction utilities
-- **{doc}`replacer`** - Genotype replacement with sample IDs
 - **{doc}`converter`** - TSV to Excel conversion and formatting
 
 ### Utilities
@@ -105,5 +102,4 @@ gene_bed
 ### Data Integration
 
 - **{doc}`phenotype`** - Phenotype data loading and integration
-- **{doc}`phenotype_filter`** - Phenotype-based filtering operations
 - **{doc}`gene_bed`** - Gene coordinate processing and BED file generation
