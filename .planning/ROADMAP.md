@@ -222,6 +222,72 @@ Plans:
 
 ---
 
+#### Phase 25: Python Default Backends and Quick Wins
+
+**Goal:** Python backends become the default for SKAT and COAST (R deprecated with opt-in), saddlepoint-before-Liu fallback improves extreme tail accuracy, and ACAT-V per-variant score test completes the ACAT-O omnibus.
+
+**Dependencies:** Phase 24 (Python COAST backend validated), Phase 21 (Python SKAT backend validated)
+
+**Plans:** 2 plans
+
+Plans:
+- [ ] 25-01-PLAN.md — Default backend swap (Python-first), R deprecation warnings, saddlepoint-before-Liu fallback
+- [ ] 25-02-PLAN.md — ACAT-V per-variant score test and ACAT-O integration
+
+**Success Criteria:**
+
+1. `--skat-backend auto` and `--coast-backend auto` use Python by default (no R probe)
+2. Explicit `--skat-backend r` and `--coast-backend r` still work, emitting DeprecationWarning
+3. Davies out-of-range p-values fall back to saddlepoint before Liu
+4. ACAT-V per-variant score test feeds into ACAT-O omnibus combination
+5. All existing tests pass with new defaults; new tests cover defaults, deprecation, fallback, and ACAT-V
+
+**Reference:** [ASSOCIATION_REMAINING_WORK.md](../ASSOCIATION_REMAINING_WORK.md) — Parts 1 and 3.1/3.6
+
+---
+
+#### Phase 26: Association Testing Documentation
+
+**Goal:** Users have a comprehensive guide covering all association testing functionality (SKAT-O, COAST, burden tests, ACAT-O, covariates, PCA, weights, diagnostics), existing docs are updated to reference the new framework, and API reference stubs are generated.
+
+**Dependencies:** Phase 25 (default backends finalized before documenting)
+
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 26 to break down)
+
+**Details:**
+- New `docs/source/guides/association_testing.md` with quick start, test descriptions, covariate/PCA/weight guides
+- Update `usage.md`, `cohort_analysis.md`, `faq.md`, `index.md`, `README.md`
+- API reference stubs for `variantcentrifuge.association` module
+- v0.15.0 changelog entry
+
+**Reference:** [ASSOCIATION_REMAINING_WORK.md](../ASSOCIATION_REMAINING_WORK.md) — Part 2
+
+---
+
+#### Phase 27: Association Performance Optimizations
+
+**Goal:** Gene-level parallelization via ProcessPoolExecutor, Davies cache/interpolation in omnibus integration, and single eigendecomposition for SKAT-O deliver 3-10x speedup for multi-gene panels without changing results.
+
+**Dependencies:** Phase 25 (quick wins applied first), Phase 26 (docs before perf, so perf doesn't block release)
+
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 27 to break down)
+
+**Details:**
+- `--association-workers N` CLI arg with ProcessPoolExecutor (OPENBLAS_NUM_THREADS=1 per worker)
+- Davies grid interpolation or fixed Gauss-Legendre quadrature in omnibus integration
+- Single eigendecomposition of A=Z1'Z1, algebraic transform for each rho
+- Optional: sparse genotype matrices for cohorts > 10K samples
+
+**Reference:** [ASSOCIATION_REMAINING_WORK.md](../ASSOCIATION_REMAINING_WORK.md) — Part 3
+
+---
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -246,3 +312,6 @@ Plans:
 | 22. ACAT-O and Diagnostics | v0.15.0 | 3/3 | Complete | 2026-02-21 |
 | 23. PCA Integration, Functional Weights, Allelic Series, and JSON Config | v0.15.0 | 4/4 | Complete | 2026-02-21 |
 | 24. Pure Python COAST Backend | v0.15.0 | 3/3 | Complete | 2026-02-22 |
+| 25. Python Default Backends and Quick Wins | v0.15.0 | 0/2 | Planned | — |
+| 26. Association Testing Documentation | v0.15.0 | 0/0 | Not planned | — |
+| 27. Association Performance Optimizations | v0.15.0 | 0/0 | Not planned | — |
