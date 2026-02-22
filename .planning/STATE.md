@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 23 — PCA + Functional Weights + Allelic Series + JSON Config
-Plan: 4/4 complete
-Status: Phase complete — Phase 23 Plan 04 complete: JSON config mode + matplotlib QQ plot, 35 new tests, 1854 passing
-Last activity: 2026-02-22 — Completed 23-04-PLAN.md (JSON config + QQ plot)
+Phase: 24 — Pure Python COAST Backend
+Plan: 1/1 complete (plan 01 only; additional plans may follow for registry integration)
+Status: In progress — Plan 01 complete
+Last activity: 2026-02-22 — Completed 24-01-PLAN.md (PythonCOASTBackend + PurePythonCOASTTest)
 
-Progress: █████████████████████ 100% (Phases 18-23 all complete — v0.15.0 milestone done)
+Progress: █████████████████████░ 97% (Phases 18-23 complete, Phase 24 plan 01 complete)
 
 ## Milestone Overview
 
@@ -28,9 +28,10 @@ Progress: █████████████████████ 100% (
 | 21. Pure Python SKAT Backend | Davies ctypes + saddlepoint + Liu fallback; validated against R within 10% | SKAT-05..07, SKAT-10 (4) | Complete ✓ |
 | 22. ACAT-O + Diagnostics | ACAT-O omnibus; single FDR; lambda_GC; QQ TSV; sample size warnings | OMNI-01..03, DIAG-01..03, DIAG-05..06 (8) | Complete ✓ |
 | 23. PCA + Functional Weights + Allelic Series + JSON Config | PCA file loading + AKT stage; CADD/REVEL weights; COAST test; JSON config; matplotlib plots | DIAG-04, PCA-01..04, SERIES-01..02, CONFIG-01..02, WEIGHT-03..05 (12) | Complete ✓ |
+| 24. Pure Python COAST Backend | Pure Python COAST matching R AllelicSeries; parallel_safe=True; no R dependency | COAST-PY-01..05 (5) | In progress (plan 01 complete) |
 
-**Total requirements:** 47 mapped across 6 phases (47 complete, 0 pending)
-<!-- Note: 8 CORE + 9 Phase 19 + 6 Phase 20 + 4 Phase 21 + 8 Phase 22 + 12 Phase 23 = 47 complete -->
+**Total requirements:** 52 mapped across 7 phases (47 complete, 5 in progress)
+<!-- Note: 8 CORE + 9 Phase 19 + 6 Phase 20 + 4 Phase 21 + 8 Phase 22 + 12 Phase 23 = 47 complete; 5 Phase 24 in progress -->
 
 ## Accumulated Context
 
@@ -113,6 +114,10 @@ Progress: █████████████████████ 100% (
 | IMPL-52 | nullable=True/False in _get() closure: None in context.config means "not set" for nullable; key presence for non-nullable | 23-04 | Correctly handles distinction between CLI writing None (flag absent) vs CLI writing non-None (flag set) |
 | IMPL-53 | matplotlib mock uses sys.modules["matplotlib"]=None; not builtins.__import__ patch | 23-04 | builtins.__import__ patch causes RecursionError via pandas internal imports during write_diagnostics |
 | IMPL-54 | association_tests not in AssociationConfig; read with JSON fallback separately in _process() | 23-04 | Test names feed AssociationEngine not AssociationConfig; separate resolution with or-chain fallback |
+| IMPL-55 | Baseline 3-df burden uses uniform weights [1,1,1]; sum/max use coast_weights | 24-01 | Matches R AllelicSeries: baseline tests per-category effect equality without ordering assumption |
+| IMPL-56 | Allelic SKAT variance = aaf*(1-aaf) NOT 2*aaf*(1-aaf) | 24-01 | Matches AllelicSeries R source; factor of 2 absorbed by Q=score'score/2 convention |
+| IMPL-57 | coast_burden_p_value in extra = Cauchy of 6 burden components (not 7-way omnibus) | 24-01 | Preserves COASTTest output contract; downstream expects standalone burden sub-summary |
+| IMPL-58 | PurePythonCOASTTest fits null model lazily via PythonSKATBackend.fit_null_model() | 24-01 | Same pattern as PurePythonSKATTest; cohort-level singleton avoids repeated fitting |
 
 ### Architecture Invariants (from research)
 
@@ -142,7 +147,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-22T02:54:08Z
-Stopped at: Completed 23-04-PLAN.md (JSON config mode + matplotlib QQ plot — 35 new tests, 1854 passing)
+Last session: 2026-02-22T02:55:39Z – 2026-02-22T03:00:00Z
+Stopped at: Completed 24-01-PLAN.md — PythonCOASTBackend + PurePythonCOASTTest implemented
 Resume file: None
-Next: v0.15.0 milestone complete — ready for release tagging
+Next: Phase 24 plan 02 (engine/registry integration + validation tests)
