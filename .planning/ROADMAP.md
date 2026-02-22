@@ -231,8 +231,8 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 25-01-PLAN.md — Default backend swap (Python-first), R deprecation warnings, saddlepoint-before-Liu fallback
-- [ ] 25-02-PLAN.md — ACAT-V per-variant score test and ACAT-O integration
+- [x] 25-01-PLAN.md — Default backend swap (Python-first), R deprecation warnings, saddlepoint-before-Liu fallback
+- [x] 25-02-PLAN.md — ACAT-V per-variant score test and ACAT-O integration
 
 **Success Criteria:**
 
@@ -312,6 +312,6 @@ Plans:
 | 22. ACAT-O and Diagnostics | v0.15.0 | 3/3 | Complete | 2026-02-21 |
 | 23. PCA Integration, Functional Weights, Allelic Series, and JSON Config | v0.15.0 | 4/4 | Complete | 2026-02-21 |
 | 24. Pure Python COAST Backend | v0.15.0 | 3/3 | Complete | 2026-02-22 |
-| 25. Python Default Backends and Quick Wins | v0.15.0 | 0/2 | Planned | — |
+| 25. Python Default Backends and Quick Wins | v0.15.0 | 2/2 | Complete | 2026-02-22 |
 | 26. Association Testing Documentation | v0.15.0 | 0/0 | Not planned | — |
 | 27. Association Performance Optimizations | v0.15.0 | 0/0 | Not planned | — |

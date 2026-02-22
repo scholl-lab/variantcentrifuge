@@ -29,7 +29,7 @@ Progress: ███████████████████░░ 75% (P
 | 22. ACAT-O + Diagnostics | ACAT-O omnibus; single FDR; lambda_GC; QQ TSV; sample size warnings | OMNI-01..03, DIAG-01..03, DIAG-05..06 (8) | Complete ✓ |
 | 23. PCA + Functional Weights + Allelic Series + JSON Config | PCA file loading + AKT stage; CADD/REVEL weights; COAST test; JSON config; matplotlib plots | DIAG-04, PCA-01..04, SERIES-01..02, CONFIG-01..02, WEIGHT-03..05 (12) | Complete ✓ |
 | 24. Pure Python COAST Backend | Pure Python COAST matching R AllelicSeries; parallel_safe=True; no R dependency | COAST-PY-01..05 (5) | Complete ✓ |
-| 25. Python Default + Quick Wins | Python default backends, R deprecated, saddlepoint fallback, ACAT-V | TBD | Not planned |
+| 25. Python Default + Quick Wins | Python default backends, R deprecated, saddlepoint fallback, ACAT-V | — | Complete ✓ |
 | 26. Documentation | Association testing guide, update existing docs, API stubs, changelog | TBD | Not planned |
 | 27. Performance Optimizations | Gene parallelization, Davies caching, single eigendecomposition | TBD | Not planned |
 
@@ -131,8 +131,8 @@ Progress: ███████████████████░░ 75% (P
 | IMPL-65 | Unified in("python","auto") pattern in engine.py for backend swap | 25-01 | Single code path for auto and python avoids divergence if default changes later |
 | IMPL-66 | DeprecationWarning only on RSKATTest/COASTTest __init__, not RSKATBackend | 25-01 | RSKATTest.check_dependencies() constructs RSKATBackend — would double-warn if both had warnings |
 | IMPL-67 | Out-of-range saddlepoint fallback only in compute_pvalue (no proactive threshold) | 25-01 | IMPL-26 proactive threshold deferred; Phase 25 scope = out-of-range fallback only |
-| IMPL-64 | acat_v_p=None in ALL early-return extra dicts in PurePythonSKATTest.run() | 25-02 | Key always present regardless of code path; prevents KeyError when engine reads res.extra |
-| IMPL-65 | ACAT-V block in engine: AFTER test_pvals collection loop, BEFORE compute_acat_o() call | 25-02 | Critical ordering — if inserted after compute_acat_o(), ACAT-V is silently dropped from omnibus |
+| IMPL-68 | acat_v_p=None in ALL early-return extra dicts in PurePythonSKATTest.run() | 25-02 | Key always present regardless of code path; prevents KeyError when engine reads res.extra |
+| IMPL-69 | ACAT-V block in engine: AFTER test_pvals collection loop, BEFORE compute_acat_o() call | 25-02 | Critical ordering — if inserted after compute_acat_o(), ACAT-V is silently dropped from omnibus |
 
 ### Architecture Invariants (from research)
 
@@ -168,8 +168,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-22T19:00:00Z – 2026-02-22T19:30:00Z
-Stopped at: Completed 25-01-PLAN.md — Python defaults, R deprecation, saddlepoint fallback (Phase 25 complete)
+Last session: 2026-02-22T19:00:00Z – 2026-02-22T20:00:00Z
+Stopped at: Completed Phase 25 — Python Default Backends and Quick Wins (PHASE COMPLETE)
 Resume file: None
-Next: Phase 26 — Association Testing Documentation
-Next: Phase 25 plan 01 (Python default backends + R deprecation) — run /gsd:execute-phase 25-01
+Next: Phase 26 — Association Testing Documentation (run /gsd:plan-phase 26)
