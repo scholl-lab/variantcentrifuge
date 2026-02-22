@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 25 — Python Default Backends and Quick Wins
-Plan: 1/2 complete (plan 02 done)
-Status: In progress
-Last activity: 2026-02-22 — Completed 25-02-PLAN.md — ACAT-V per-variant score test
+Plan: 2/2 complete (phase complete)
+Status: Phase complete
+Last activity: 2026-02-22 — Completed 25-01-PLAN.md — Python defaults, R deprecation, saddlepoint fallback
 
-Progress: ██████████████████░░░ 72% (Phases 18-24 complete, 25-02 done, 25-01 + 26-27 remaining)
+Progress: ███████████████████░░ 75% (Phases 18-25 complete, 26-27 remaining)
 
 ## Milestone Overview
 
@@ -127,6 +127,10 @@ Progress: ██████████████████░░░ 72% (P
 | TEST-08 | Engine _tests is dict[str, AssociationTest] not list; access via ["coast"] not [0] | 24-03 | AssociationEngine.__init__ builds {t.name: t} dict; list-style access causes KeyError |
 | IMPL-62 | compute_acat_v uses single-pass loop: vectorized score/variance, per-variant loop for valid pairs | 25-02 | Clear filtering logic; avoids intermediate array allocation for edge case handling |
 | IMPL-63 | mu_hat: np.ndarray \| None; all uses guarded by binary+not-None check inside compute_acat_v | 25-02 | Quantitative path always uses sigma2*I regardless of mu_hat; None is valid for quantitative |
+| IMPL-64 | auto backend selector maps directly to PythonSKATBackend (no R probe) | 25-01 | R probe was expensive and error-prone; Python is always available |
+| IMPL-65 | Unified in("python","auto") pattern in engine.py for backend swap | 25-01 | Single code path for auto and python avoids divergence if default changes later |
+| IMPL-66 | DeprecationWarning only on RSKATTest/COASTTest __init__, not RSKATBackend | 25-01 | RSKATTest.check_dependencies() constructs RSKATBackend — would double-warn if both had warnings |
+| IMPL-67 | Out-of-range saddlepoint fallback only in compute_pvalue (no proactive threshold) | 25-01 | IMPL-26 proactive threshold deferred; Phase 25 scope = out-of-range fallback only |
 | IMPL-64 | acat_v_p=None in ALL early-return extra dicts in PurePythonSKATTest.run() | 25-02 | Key always present regardless of code path; prevents KeyError when engine reads res.extra |
 | IMPL-65 | ACAT-V block in engine: AFTER test_pvals collection loop, BEFORE compute_acat_o() call | 25-02 | Critical ordering — if inserted after compute_acat_o(), ACAT-V is silently dropped from omnibus |
 
@@ -164,7 +168,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-22T18:21:17Z – 2026-02-22T18:50:00Z
-Stopped at: Completed 25-02-PLAN.md — ACAT-V per-variant score test implementation
+Last session: 2026-02-22T19:00:00Z – 2026-02-22T19:30:00Z
+Stopped at: Completed 25-01-PLAN.md — Python defaults, R deprecation, saddlepoint fallback (Phase 25 complete)
 Resume file: None
+Next: Phase 26 — Association Testing Documentation
 Next: Phase 25 plan 01 (Python default backends + R deprecation) — run /gsd:execute-phase 25-01
