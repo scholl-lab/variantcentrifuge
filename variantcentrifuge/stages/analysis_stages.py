@@ -2405,6 +2405,42 @@ class AssociationAnalysisStage(Stage):
             logger.error("DataFrame missing required 'GENE' column for association analysis")
             return context
 
+        # Phase 24: Validate required columns for COAST allelic series test.
+        # COAST needs annotation columns to classify variants into BMV/DMV/PTV.
+        # Without them, all variants get code 0 (ineligible) and COAST returns
+        # meaningless results silently.
+        if "coast" in test_names:
+            _coast_required = [
+                "ANN_0__EFFECT",
+                "ANN_0__IMPACT",
+                "dbNSFP_SIFT_pred",
+                "dbNSFP_Polyphen2_HDIV_pred",
+            ]
+            # Also check unsanitized column names (pre-Phase 8 sanitization)
+            _coast_required_alt = [
+                "ANN[0].EFFECT",
+                "ANN[0].IMPACT",
+                "dbNSFP_SIFT_pred",
+                "dbNSFP_Polyphen2_HDIV_pred",
+            ]
+            missing = [
+                f
+                for f, f_alt in zip(_coast_required, _coast_required_alt)
+                if f not in df.columns and f_alt not in df.columns
+            ]
+            if missing:
+                logger.error(
+                    "COAST allelic series test requires columns %s but they are "
+                    "missing from the data. Add them to --fields (e.g., "
+                    "'ANN[0].EFFECT,ANN[0].IMPACT,dbNSFP_SIFT_pred,"
+                    "dbNSFP_Polyphen2_HDIV_pred'). Skipping COAST.",
+                    missing,
+                )
+                test_names = [t for t in test_names if t != "coast"]
+                if not test_names:
+                    return context
+                engine = AssociationEngine.from_names(test_names, assoc_config)
+
         # Phase 11: Reconstruct packed GT column if missing.
         # Phase 19: When regression tests need per-sample GT columns, keep a
         # reference to the pre-reconstruction DataFrame for genotype matrix
