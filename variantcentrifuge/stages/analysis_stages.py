@@ -2425,7 +2425,7 @@ class AssociationAnalysisStage(Stage):
             ]
             missing = [
                 f
-                for f, f_alt in zip(_coast_required, _coast_required_alt)
+                for f, f_alt in zip(_coast_required, _coast_required_alt, strict=True)
                 if f not in df.columns and f_alt not in df.columns
             ]
             if missing:

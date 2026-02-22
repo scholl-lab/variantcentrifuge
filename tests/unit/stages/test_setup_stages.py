@@ -705,9 +705,10 @@ class TestPhenotypeCaseControlAssignmentStage:
 
         # Should NOT have overwritten with empty lists — original None preserved
         # or at least not set to empty non-None lists
-        case = result.config.get("case_samples")
-        control = result.config.get("control_samples")
+        case_result = result.config.get("case_samples")
+        control_result = result.config.get("control_samples")
         # The guard prevents overwriting: either None (original) or not empty
-        if case is not None:
-            # If it was set, it should not be empty
-            assert len(case) > 0 or case is None
+        if case_result is not None:
+            assert len(case_result) > 0
+        if control_result is not None:
+            assert len(control_result) > 0
