@@ -5,7 +5,7 @@
 - SHIPPED **v0.12.1 Baseline** — Phases 1-5 (shipped 2026-02-14, pre-GSD)
 - SHIPPED **v0.13.0 Performance Optimization** — Phases 6-12 (shipped 2026-02-16) — [archive](milestones/v0.13.0-ROADMAP.md)
 - SHIPPED **v0.14.0 Report UX Overhaul** — Phases 13-17 (shipped 2026-02-19)
-- ACTIVE **v0.15.0 Modular Rare Variant Association Framework** — Phases 18-23
+- ACTIVE **v0.15.0 Modular Rare Variant Association Framework** — Phases 18-24
 
 ## Phases
 
@@ -44,7 +44,7 @@ Full details: [milestones/v0.13.0-ROADMAP.md](milestones/v0.13.0-ROADMAP.md)
 
 </details>
 
-### v0.15.0 Modular Rare Variant Association Framework (Phases 18-23)
+### v0.15.0 Modular Rare Variant Association Framework (Phases 18-24)
 
 Upgrade the existing Fisher's exact gene burden pipeline to a multi-test association engine supporting SKAT, SKAT-O, ACAT-O, logistic/linear burden tests, covariate adjustment, PCA integration, and variant weighting — all backward compatible with existing `--perform-gene-burden` behavior.
 
@@ -196,6 +196,32 @@ Plans:
 
 ---
 
+#### Phase 24: Pure Python COAST Backend
+
+**Goal:** Users without R can run the COAST allelic series test via a pure Python implementation that matches R AllelicSeries::COAST() output within tiered tolerance, reusing existing SKAT, burden regression, and Cauchy combination infrastructure — enabling `parallel_safe=True` and eliminating the R/rpy2 dependency for COAST.
+
+**Dependencies:** Phase 23 (R COAST wrapper as correctness oracle; classify_variants infrastructure), Phase 21 (Python SKAT backend for score test reuse), Phase 19 (burden regression infrastructure)
+
+**Requirements:** COAST-PY-01, COAST-PY-02, COAST-PY-03, COAST-PY-04, COAST-PY-05
+
+**Plans:** 3 plans
+Plans:
+- [ ] 24-01-PLAN.md — PythonCOASTBackend (6 burden + 1 allelic SKAT + Cauchy omnibus) and PurePythonCOASTTest wrapper
+- [ ] 24-02-PLAN.md — Engine/registry coast backend swap, AssociationConfig coast_backend field, CLI --coast-backend argument
+- [ ] 24-03-PLAN.md — R golden file generation script, unit tests for backend math, R reference comparison tests
+
+**Success Criteria:**
+
+1. `--coast-backend python` produces p-values within tiered tolerance of R `AllelicSeries::COAST()` (< 1e-4 relative for p > 1e-4; < 0.05 on log10 for p <= 1e-4)
+2. `--coast-backend python` works without R installed — the entire COAST pipeline is functional without any R dependency
+3. `PurePythonCOASTTest` declares `parallel_safe=True` (thread-safe, no rpy2)
+4. All existing COAST tests pass with Python backend; no regression in other test results (Fisher, burden, SKAT, ACAT-O)
+5. Backend selection via `--coast-backend python|r|auto` mirrors the SKAT backend pattern; `auto` tries R first, falls back to Python
+
+**Reference:** [PURE_PYTHON_COAST_PLAN.md](../PURE_PYTHON_COAST_PLAN.md)
+
+---
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -219,3 +245,4 @@ Plans:
 | 21. Pure Python SKAT Backend | v0.15.0 | 3/3 | Complete | 2026-02-21 |
 | 22. ACAT-O and Diagnostics | v0.15.0 | 3/3 | Complete | 2026-02-21 |
 | 23. PCA Integration, Functional Weights, Allelic Series, and JSON Config | v0.15.0 | 4/4 | Complete | 2026-02-21 |
+| 24. Pure Python COAST Backend | v0.15.0 | 0/3 | Planned | — |
