@@ -1356,7 +1356,12 @@ def main() -> int:
 
         if _vcf_fields:
             if fields:
-                _field_list = [f.strip() for f in fields.split(",")]
+                # fields_to_extract uses space-separated format; --fields uses commas.
+                # Support both by splitting on commas first, then whitespace.
+                if "," in fields:
+                    _field_list = [f.strip() for f in fields.split(",")]
+                else:
+                    _field_list = fields.split()
                 _injected = []
                 for _rf in _vcf_fields:
                     if _rf not in _field_list:
@@ -1366,9 +1371,11 @@ def main() -> int:
                     logger.info(
                         f"COAST auto-injected fields for '{_coast_model}' model: {_injected}"
                     )
-                fields = ",".join(_field_list)
+                # Rejoin using the same delimiter as the input
+                _sep = "," if "," in fields else " "
+                fields = _sep.join(_field_list)
             else:
-                fields = ",".join(_vcf_fields)
+                fields = " ".join(_vcf_fields)
                 logger.info(
                     f"COAST set extraction fields for '{_coast_model}' model: {_vcf_fields}"
                 )

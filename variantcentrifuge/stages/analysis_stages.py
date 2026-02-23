@@ -2336,14 +2336,18 @@ class AssociationAnalysisStage(Stage):
                 or _coast_model == "sift_polyphen"
             )
             if _is_sift_model:
-                _coast_base_required.extend([
-                    ("dbNSFP_SIFT_pred", "dbNSFP_SIFT_pred"),
-                    ("dbNSFP_Polyphen2_HDIV_pred", "dbNSFP_Polyphen2_HDIV_pred"),
-                ])
+                _coast_base_required.extend(
+                    [
+                        ("dbNSFP_SIFT_pred", "dbNSFP_SIFT_pred"),
+                        ("dbNSFP_Polyphen2_HDIV_pred", "dbNSFP_Polyphen2_HDIV_pred"),
+                    ]
+                )
             elif _coast_model.endswith("cadd") or _coast_model == "cadd":
-                _coast_base_required.extend([
-                    ("dbNSFP_CADD_phred", "dbNSFP_CADD_phred"),
-                ])
+                _coast_base_required.extend(
+                    [
+                        ("dbNSFP_CADD_phred", "dbNSFP_CADD_phred"),
+                    ]
+                )
             missing = [
                 san
                 for san, alt in _coast_base_required

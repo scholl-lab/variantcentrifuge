@@ -297,6 +297,42 @@ def test_auto_field_injection_skips_existing_fields():
     assert injected == ["dbNSFP_Polyphen2_HDIV_pred"]
 
 
+@pytest.mark.unit
+def test_auto_field_injection_space_separated_fields():
+    """Auto-injection works when fields_to_extract uses space separators (config.json format)."""
+    # config.json uses space-separated fields; --fields CLI uses commas
+    existing_fields = "CHROM POS REF ALT ANN[0].GENE ANN[0].EFFECT ANN[0].IMPACT GEN[*].GT"
+    required_vcf_fields = [
+        "ANN[0].EFFECT",
+        "ANN[0].IMPACT",
+        "dbNSFP_SIFT_pred",
+        "dbNSFP_Polyphen2_HDIV_pred",
+    ]
+
+    # Replicate the fixed cli.py injection logic
+    if "," in existing_fields:
+        field_list = [f.strip() for f in existing_fields.split(",")]
+    else:
+        field_list = existing_fields.split()
+    injected = []
+    for rf in required_vcf_fields:
+        if rf not in field_list:
+            field_list.append(rf)
+            injected.append(rf)
+
+    # ANN[0].EFFECT and ANN[0].IMPACT already present — not injected
+    assert injected == ["dbNSFP_SIFT_pred", "dbNSFP_Polyphen2_HDIV_pred"]
+    # Original space-separated fields are split correctly
+    assert field_list[0] == "CHROM"
+    assert "ANN[0].GENE" in field_list
+    assert "GEN[*].GT" in field_list
+    # Rejoin with space separator
+    sep = "," if "," in existing_fields else " "
+    result = sep.join(field_list)
+    assert "dbNSFP_SIFT_pred" in result
+    assert "," not in result  # space-separated input stays space-separated
+
+
 # ---------------------------------------------------------------------------
 # CADD_COLUMN_CANDIDATES constant (COAST-07)
 # ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ status: passed
 score: 5/5 must-haves verified
 gaps: []
 post_verification_fix: "Added vcf_fields list to variable_assignment_config.json, updated cli.py injection to read from vcf_fields, made analysis_stages.py validation model-aware. Commit 5641221."
+real_data_validation: "Tested on GCKD cohort (22GB VCF, ~5000 samples). 3 runs: 7-gene sift_polyphen (4 genes, 0 None), 7-gene CADD (7 genes, 0 None), 500-gene sift_polyphen (444 genes, 0 None). Found and fixed auto-field injection delimiter mismatch (space vs comma in fields_to_extract)."
 ---
 
 # Phase 31: COAST Fix Verification Report
