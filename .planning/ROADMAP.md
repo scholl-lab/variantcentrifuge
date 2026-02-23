@@ -316,25 +316,25 @@ Plans:
 
 #### Phase 29: Classic Pipeline Deprecation and Removal
 
-**Goal:** Remove the legacy classic pipeline (`pipeline.py`) and make the stage-based pipeline the sole execution path, eliminating the `--use-new-pipeline` flag and resolving DEPR-01 backlog item.
+**Goal:** Clean up vestigial "classic pipeline" and "refactored" naming from the codebase. Research confirmed pipeline.py IS the stage-based pipeline (no classic code path remains). This phase removes the phantom `--use-new-pipeline` flag from tests/docs, renames `run_refactored_pipeline` to `run_pipeline`, and updates documentation to describe a single pipeline architecture.
 
 **Dependencies:** Phase 28 (tech debt cleared first)
 
-**Gap Closure:** Resolves DEPR-01 backlog item; eliminates classic pipeline PCA gap from audit
+**Gap Closure:** Resolves DEPR-01 backlog item; eliminates classic pipeline documentation gap from audit
 
 **Plans:** 3 plans
 Plans:
-- [ ] 29-01-PLAN.md — Remove pipeline.py and classic pipeline codepath from cli.py; make stage-based pipeline the default
-- [ ] 29-02-PLAN.md — Remove --use-new-pipeline flag, update CLI help, update config references
-- [ ] 29-03-PLAN.md — Update tests, docs, and CLAUDE.md; remove classic pipeline test fixtures
+- [ ] 29-01-PLAN.md — Rename run_refactored_pipeline to run_pipeline in pipeline.py and cli.py; update test imports
+- [ ] 29-02-PLAN.md — Remove --use-new-pipeline references from all test files and fixture docs
+- [ ] 29-03-PLAN.md — Update CLAUDE.md and README.md to describe single pipeline architecture
 
 **Success Criteria:**
 
-1. `pipeline.py` is deleted; `cli.py` routes directly to `pipeline_core/` runner
-2. `--use-new-pipeline` flag is removed; stage-based pipeline runs by default with no flag
-3. All features previously exclusive to stage-based pipeline (PCA computation, association analysis) work without any pipeline selection flag
-4. All existing tests pass after classic pipeline removal; tests referencing classic pipeline are updated or removed
-5. CLAUDE.md, README, and docs updated to reflect single pipeline architecture
+1. `run_refactored_pipeline` renamed to `run_pipeline` in pipeline.py; cli.py imports and calls `run_pipeline`
+2. Zero references to `--use-new-pipeline` in any test file, fixture, or documentation
+3. pipeline.py docstring describes stage-based pipeline (no "refactored" or "classic" language)
+4. All existing tests pass after renaming; no behavioral changes
+5. CLAUDE.md, README updated to reflect single pipeline architecture (no "Two Pipeline Modes")
 
 ---
 
