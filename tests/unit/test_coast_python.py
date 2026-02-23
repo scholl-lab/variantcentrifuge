@@ -720,8 +720,14 @@ class TestPurePythonCOASTTestLifecycle:
         assert "coast_skip_reason" in result.extra
         assert "NO_GENOTYPE_MATRIX" in result.extra["coast_skip_reason"]
 
-    def test_missing_categories_returns_none(self):
-        """Only PTV variants (no BMV/DMV): p_value=None with skip_reason."""
+    def test_partial_categories_proceeds(self):
+        """
+        Only PTV variants (no BMV/DMV): COAST-03 partial-category fallback.
+
+        With the COAST-03 fix, COAST proceeds when at least 1 category is present.
+        p_value is numeric (not None), coast_status == 'partial', and
+        coast_missing_categories reports BMV and DMV.
+        """
         from variantcentrifuge.association.base import AssociationConfig
 
         test = PurePythonCOASTTest()
@@ -753,11 +759,14 @@ class TestPurePythonCOASTTestLifecycle:
         result = test.run("PTV_ONLY_GENE", contingency_data, config)
         test.finalize()
 
-        assert result.p_value is None
-        assert "coast_skip_reason" in result.extra
-        # BMV and DMV should be missing
-        skip_reason = result.extra["coast_skip_reason"]
-        assert "MISSING_CATEGORIES" in skip_reason
+        # COAST-03: partial-category fallback -- test should proceed, not skip
+        assert result.p_value is not None, (
+            "COAST-03: expected numeric p_value for partial COAST (PTV-only gene)"
+        )
+        assert result.extra.get("coast_status") == "partial"
+        missing_cats = result.extra.get("coast_missing_categories", "")
+        assert "BMV" in missing_cats
+        assert "DMV" in missing_cats
         assert result.extra.get("coast_n_bmv") == 0
         assert result.extra.get("coast_n_dmv") == 0
         assert result.extra.get("coast_n_ptv") == 3
