@@ -520,6 +520,43 @@ def create_parser() -> argparse.ArgumentParser:
             "Only effective with Python backends (R backend is not parallel-safe)."
         ),
     )
+    # Phase 28: SKAT method and diagnostic thresholds
+    stats_group.add_argument(
+        "--skat-method",
+        choices=["SKAT", "Burden", "SKATO"],
+        default="SKAT",
+        help=(
+            "SKAT method variant: 'SKAT' (default), 'Burden' (burden-only), "
+            "or 'SKATO' (SKAT-O omnibus). Requires SKAT test in --association-tests."
+        ),
+    )
+    stats_group.add_argument(
+        "--min-cases",
+        type=int,
+        default=200,
+        help=(
+            "Minimum number of cases for diagnostics warning. "
+            "Default: 200. Warns when n_cases < this value."
+        ),
+    )
+    stats_group.add_argument(
+        "--max-case-control-ratio",
+        type=float,
+        default=20.0,
+        help=(
+            "Maximum case:control ratio for diagnostics warning. "
+            "Default: 20.0. Warns when n_controls/n_cases > this value."
+        ),
+    )
+    stats_group.add_argument(
+        "--min-case-carriers",
+        type=int,
+        default=10,
+        help=(
+            "Minimum case carrier count per gene for diagnostics warning. "
+            "Default: 10. Flags genes where case_carriers < this value."
+        ),
+    )
     # Phase 23: PCA arguments
     stats_group.add_argument(
         "--pca-file",
@@ -1215,6 +1252,11 @@ def main() -> int:
     else:
         cfg["coast_weights"] = None
     cfg["association_workers"] = getattr(args, "association_workers", 1)
+    # Phase 28: SKAT method and diagnostic thresholds
+    cfg["skat_method"] = getattr(args, "skat_method", "SKAT")
+    cfg["association_min_cases"] = getattr(args, "min_cases", 200)
+    cfg["association_max_case_control_ratio"] = getattr(args, "max_case_control_ratio", 20.0)
+    cfg["association_min_case_carriers"] = getattr(args, "min_case_carriers", 10)
 
     # Handle add_chr configuration
     if args.add_chr:
