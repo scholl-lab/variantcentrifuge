@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
-**Current focus:** v0.16.0 — Association Hardening & Multi-Cohort Features (Phase 30)
+**Current focus:** v0.16.0 — Association Hardening & Multi-Cohort Features (Phase 31)
 
 ## Current Position
 
-Phase: 30 of 36 (Dead Code Cleanup)
+Phase: 30 of 36 (Dead Code Cleanup — Complete)
 Plan: 1 of 10 (across v0.16.0)
-Status: In progress
-Last activity: 2026-02-23 — Completed 30-01-PLAN.md (dead stage class removal)
+Status: Phase 30 complete, ready for Phase 31
+Last activity: 2026-02-23 — Phase 30 verified and complete
 
 Progress: █░░░░░░░░░ 10%
 
@@ -26,7 +26,7 @@ Progress: █░░░░░░░░░ 10%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 30 — Dead Code Cleanup | 1 done | 4 plans est. | ~19 min |
+| 30 — Dead Code Cleanup | 1/1 done | ~19 min | ~19 min |
 
 *Updated after each plan completion*
 
@@ -61,6 +61,6 @@ Progress: █░░░░░░░░░ 10%
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 30-01-PLAN.md (dead stage class removal + naming normalization)
+Stopped at: Phase 30 complete — verified, roadmap updated
 Resume file: None
-Next: Continue Phase 30 plans (30-02 through 30-04)
+Next: /gsd:plan-phase 31

@@ -55,12 +55,12 @@
 
 ### Dead Code Cleanup (#88)
 
-- [ ] **CLEAN-01**: 8 dead stage classes removed from processing_stages.py, analysis_stages.py, output_stages.py
-- [ ] **CLEAN-02**: Corresponding `register_stage()` calls removed from stage_registry.py
-- [ ] **CLEAN-03**: Corresponding imports and `__all__` entries removed from stages/__init__.py
-- [ ] **CLEAN-04**: `"refactored_pipeline"` default strings replaced with `"pipeline"` in pipeline.py and runner.py
-- [ ] **CLEAN-05**: "Old pipeline" comments (~15 occurrences) reworded or removed
-- [ ] **CLEAN-06**: "Refactored" docstrings updated in error_handling.py and analyze_variants.py
+- [x] **CLEAN-01**: 8 dead stage classes removed from processing_stages.py, analysis_stages.py, output_stages.py
+- [x] **CLEAN-02**: Corresponding `register_stage()` calls removed from stage_registry.py
+- [x] **CLEAN-03**: Corresponding imports and `__all__` entries removed from stages/__init__.py
+- [x] **CLEAN-04**: `"refactored_pipeline"` default strings replaced with `"pipeline"` in pipeline.py and runner.py
+- [x] **CLEAN-05**: "Old pipeline" comments (~15 occurrences) reworded or removed
+- [x] **CLEAN-06**: "Refactored" docstrings updated in error_handling.py and analyze_variants.py
 
 ### Tech Debt
 
@@ -123,17 +123,17 @@
 | PERF-01 | Phase 36 | Pending |
 | PERF-02 | Phase 36 | Pending |
 | PERF-03 | Phase 36 | Pending |
-| CLEAN-01 | Phase 30 | Pending |
-| CLEAN-02 | Phase 30 | Pending |
-| CLEAN-03 | Phase 30 | Pending |
-| CLEAN-04 | Phase 30 | Pending |
-| CLEAN-05 | Phase 30 | Pending |
-| CLEAN-06 | Phase 30 | Pending |
+| CLEAN-01 | Phase 30 | Complete |
+| CLEAN-02 | Phase 30 | Complete |
+| CLEAN-03 | Phase 30 | Complete |
+| CLEAN-04 | Phase 30 | Complete |
+| CLEAN-05 | Phase 30 | Complete |
+| CLEAN-06 | Phase 30 | Complete |
 | TD-02 | Phase 34 | Pending |
 | TD-03 | Phase 34 | Pending |
 | TD-04 | Phase 34 | Pending |
 | TD-05 | Phase 34 | Pending |
-| TD-06 | Phase 30 | Pending (same change as CLEAN-04) |
+| TD-06 | Phase 30 | Complete (same change as CLEAN-04) |
 
 **Coverage:**
 - v1 requirements: 41 total

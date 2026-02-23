@@ -28,7 +28,7 @@ See MILESTONES.md for details.
 
 **Milestone Goal:** Harden the v0.15.0 association framework for real-world multi-cohort use — fix COAST p=None bugs that block scientific validation, add gene-level FDR priors, case-confidence sample weighting, BED region restriction, and sparse matrix support. Every new feature is backward-compatible; existing CLI and output formats unchanged.
 
-- [ ] **Phase 30: Dead Code Cleanup** — Remove 8 vestigial stage classes and normalize legacy naming artifacts
+- [x] **Phase 30: Dead Code Cleanup** — Remove 8 vestigial stage classes and normalize legacy naming artifacts
 - [ ] **Phase 31: COAST Fix** — Fix genotype matrix reconstruction, partial-category fallback, and configurable classification scoring
 - [ ] **Phase 32: Region Restriction and PCA Wiring** — Add BED-based region prefilter and wire PCAComputationStage into the pipeline
 - [ ] **Phase 33: Gene-Level FDR Weighting** — Implement weighted Benjamini-Hochberg with per-gene biological priors
@@ -57,7 +57,7 @@ See MILESTONES.md for details.
 **Plans:** 1 plan
 
 Plans:
-- [ ] 30-01-PLAN.md — Remove dead stage classes, synchronize registry/imports, normalize naming artifacts
+- [x] 30-01-PLAN.md — Remove dead stage classes, synchronize registry/imports, normalize naming artifacts
 
 ---
 
@@ -201,7 +201,7 @@ Note: Phases 32 and 33 are independent of Phase 31 and of each other; they may b
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 30. Dead Code Cleanup | v0.16.0 | 0/1 | Not started | - |
+| 30. Dead Code Cleanup | v0.16.0 | 1/1 | Complete | 2026-02-23 |
 | 31. COAST Fix | v0.16.0 | 0/2 | Not started | - |
 | 32. Region Restriction and PCA Wiring | v0.16.0 | 0/2 | Not started | - |
 | 33. Gene-Level FDR Weighting | v0.16.0 | 0/1 | Not started | - |
