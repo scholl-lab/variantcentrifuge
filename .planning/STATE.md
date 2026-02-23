@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 28 — Tech Debt Cleanup
-Plan: 0/2 complete
-Status: Not started — awaiting planning
-Last activity: 2026-02-22 — Gap closure phases 28-29 added from milestone audit
+Plan: 1/2 complete
+Status: In progress
+Last activity: 2026-02-23 — Completed 28-01-PLAN.md (RSKATTest parallel_safe + lambda_gc gap)
 
-Progress: ████████████████████░░░ 83% (Phases 18-27 complete; 28-29 pending)
+Progress: ████████████████████░░░ 85% (Phases 18-27 complete; 28-01 complete; 28-02 and 29 pending)
 
 ## Milestone Overview
 
@@ -143,6 +143,7 @@ Progress: ████████████████████░░░ 
 | PERF-04 | Worker initializer sets OPENBLAS/MKL/OMP NUM_THREADS=1 | 27-03 | Prevents N_workers * BLAS_threads oversubscription causing CPU thrashing on multi-core machines |
 | PERF-05 | use_parallel requires: n_workers != 1 AND all_parallel_safe AND len(sorted_data) > 1 | 27-03 | Single-gene panels skip parallel overhead; R-backend tests fall back to sequential with warning |
 | PERF-06 | Worker under-provisioning guard: actual_workers = max(1, len(remaining)//2) when remaining < actual_workers * 2 | 27-03 | Prevents spawning more workers than useful for small remaining panels |
+| TECH-01 | `parallel_safe: bool = False` as class attribute (not instance) in RSKATTest | 28-01 | Matches pattern of all other subclasses; engine uses getattr() so class-level is semantically correct |
 
 ### Architecture Invariants (from research)
 
@@ -178,7 +179,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-22T20:27:09Z – 2026-02-22T20:37:50Z
-Stopped at: Completed 27-03-PLAN.md — Gene-level parallelization via ProcessPoolExecutor
+Last session: 2026-02-23T06:33:51Z – 2026-02-23T06:38:40Z
+Stopped at: Completed 28-01-PLAN.md — RSKATTest parallel_safe attribute + lambda_gc verification gap
 Resume file: None
+Next: 28-02-PLAN.md (CLI args for skat_method and diagnostic thresholds)
 Next: Plan Phase 28 (Tech Debt Cleanup). Then Phase 29 (Classic Pipeline Deprecation). After both complete, re-audit and complete milestone.
