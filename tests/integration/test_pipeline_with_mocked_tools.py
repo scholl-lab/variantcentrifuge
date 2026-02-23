@@ -12,7 +12,7 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-from variantcentrifuge.pipeline import build_pipeline_stages, run_refactored_pipeline
+from variantcentrifuge.pipeline import build_pipeline_stages, run_pipeline
 
 
 class MockedToolsTestCase:
@@ -222,7 +222,7 @@ class TestBasicPipelineFlow(MockedToolsTestCase):
             ),
         ):
             # Run pipeline
-            run_refactored_pipeline(args)
+            run_pipeline(args)
 
         # Verify stages were built correctly
         stages = build_pipeline_stages(args)
@@ -290,7 +290,7 @@ class TestErrorHandling(MockedToolsTestCase):
 
         # Should raise an error
         with pytest.raises(Exception) as exc_info:
-            run_refactored_pipeline(args)
+            run_pipeline(args)
 
         # Check for either the original error message or the stage execution error
         error_msg = str(exc_info.value)
@@ -341,7 +341,7 @@ class TestErrorHandling(MockedToolsTestCase):
 
         # Should handle error gracefully
         with pytest.raises(Exception) as exc_info:
-            run_refactored_pipeline(args)
+            run_pipeline(args)
 
         # Check for error related to VCF processing
         error_msg = str(exc_info.value)
@@ -487,7 +487,7 @@ class TestParallelProcessing(MockedToolsTestCase):
             ),
         ):
             # Run pipeline
-            run_refactored_pipeline(args)
+            run_pipeline(args)
 
         # Verify parallel extraction stage was used
         stages = build_pipeline_stages(args)
@@ -621,7 +621,7 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
             ),
         ):
             # Run pipeline
-            run_refactored_pipeline(args)
+            run_pipeline(args)
 
         # Verify bcftools was called with the prefilter
         view_calls = [call for call in bcftools_calls if "view" in call]
@@ -745,7 +745,7 @@ class TestBCFToolsPrefilter(MockedToolsTestCase):
             ),
         ):
             # Run pipeline
-            run_refactored_pipeline(args)
+            run_pipeline(args)
 
         # Verify the complex expression was passed correctly
         view_calls = [call for call in bcftools_calls if "view" in call]

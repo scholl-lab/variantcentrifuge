@@ -22,7 +22,7 @@ Maintains previous functionality, CLI interface, and output format.
 import io
 import logging
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -305,7 +305,7 @@ def analyze_variants(lines: Iterator[str], cfg: dict[str, Any]) -> Iterator[str]
         # Apply compression to gene burden output
         use_compression = "gzip" if str(burden_output_file).endswith(".gz") else None
         gene_burden_results.to_csv(
-            burden_output_file, sep="\t", index=False, compression=use_compression
+            burden_output_file, sep="\t", index=False, compression=cast(Any, use_compression)
         )
 
         # Yield burden results as output

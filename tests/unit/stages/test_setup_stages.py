@@ -646,3 +646,69 @@ class TestPhenotypeCaseControlAssignmentStage:
         """Test parallel safety."""
         stage = PhenotypeCaseControlAssignmentStage()
         assert stage.parallel_safe is True
+
+    def test_preserves_samples_loaded_by_sample_config_stage(self, context):
+        """Samples loaded by SampleConfigLoadingStage should not be overwritten.
+
+        Regression test: when --case-samples-file is used, SampleConfigLoadingStage
+        loads samples into context.config["case_samples"]. PhenotypeCaseControlAssignmentStage
+        must detect these and skip re-assignment.
+        """
+        # Simulate SampleConfigLoadingStage having loaded samples
+        context.config["case_samples"] = ["S001", "S002"]
+        context.config["control_samples"] = ["S003", "S004"]
+        # Also set the file path (as CLI would)
+        context.config["case_samples_file"] = "/tmp/cases.txt"
+        context.config["control_samples_file"] = "/tmp/controls.txt"
+
+        context.mark_complete("phenotype_loading")
+        context.mark_complete("sample_config_loading")
+
+        stage = PhenotypeCaseControlAssignmentStage()
+        result = stage(context)
+
+        # Samples must be preserved, not overwritten
+        assert result.config["case_samples"] == ["S001", "S002"]
+        assert result.config["control_samples"] == ["S003", "S004"]
+
+    def test_file_based_assignment_no_overwrite_on_empty_intersection(self, context):
+        """File-based assignment should not overwrite with empty results.
+
+        When VCF sample names don't match file sample names (e.g., due to
+        format differences), _handle_file_based_assignment returns empty sets.
+        It should NOT overwrite previously loaded assignments.
+        """
+        import tempfile
+
+        # Clear existing phenotype criteria to allow file-based path
+        context.config["case_phenotypes"] = []
+        context.config["control_phenotypes"] = []
+        context.config["case_samples"] = None  # CLI default when --case-samples not used
+        context.config["control_samples"] = None
+
+        # Create temp files with sample names that DON'T match VCF samples
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("NONEXISTENT_SAMPLE_1\nNONEXISTENT_SAMPLE_2\n")
+            case_file = f.name
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("NONEXISTENT_SAMPLE_3\nNONEXISTENT_SAMPLE_4\n")
+            control_file = f.name
+
+        context.config["case_samples_file"] = case_file
+        context.config["control_samples_file"] = control_file
+
+        context.mark_complete("phenotype_loading")
+        context.mark_complete("sample_config_loading")
+
+        stage = PhenotypeCaseControlAssignmentStage()
+        result = stage(context)
+
+        # Should NOT have overwritten with empty lists — original None preserved
+        # or at least not set to empty non-None lists
+        case_result = result.config.get("case_samples")
+        control_result = result.config.get("control_samples")
+        # The guard prevents overwriting: either None (original) or not empty
+        if case_result is not None:
+            assert len(case_result) > 0
+        if control_result is not None:
+            assert len(control_result) > 0

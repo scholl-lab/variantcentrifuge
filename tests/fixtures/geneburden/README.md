@@ -69,8 +69,7 @@ python -m variantcentrifuge.cli \
   --control-samples-file control_samples.txt \
   --perform-gene-burden \
   --preset high_or_moderate \
-  --output-file results.tsv \
-  --use-new-pipeline
+  --output-file results.tsv
 ```
 
 ## Test Scenarios
@@ -83,8 +82,7 @@ python -m variantcentrifuge.cli \
   --case-samples CASE_001,CASE_002,CASE_003 \
   --control-samples CTRL_001,CTRL_002,CTRL_003 \
   --perform-gene-burden \
-  --preset high_or_moderate \
-  --use-new-pipeline
+  --preset high_or_moderate
 ```
 
 ### Scenario 2: Sample Files
@@ -95,8 +93,7 @@ python -m variantcentrifuge.cli \
   --case-samples-file case_samples.txt \
   --control-samples-file control_samples.txt \
   --perform-gene-burden \
-  --preset high_or_moderate \
-  --use-new-pipeline
+  --preset high_or_moderate
 ```
 
 ### Scenario 3: HPO-based Classification
@@ -110,8 +107,7 @@ python -m variantcentrifuge.cli \
   --case-phenotypes HP:0000113,HP:0000003,HP:0000107 \
   --control-phenotypes HP:0000001,HP:0032101 \
   --perform-gene-burden \
-  --preset high_or_moderate \
-  --use-new-pipeline
+  --preset high_or_moderate
 ```
 
 ### Scenario 4: HPO Term Files
@@ -125,8 +121,7 @@ python -m variantcentrifuge.cli \
   --case-phenotypes-file case_hpo_terms.txt \
   --control-phenotypes-file control_hpo_terms.txt \
   --perform-gene-burden \
-  --preset high_or_moderate \
-  --use-new-pipeline
+  --preset high_or_moderate
 ```
 
 ## Expected Results

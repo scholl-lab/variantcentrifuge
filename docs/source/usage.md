@@ -197,6 +197,30 @@ Inheritance analysis is triggered when `--ped` or `--inheritance-mode` is specif
 | `--stats-output-file PATH` | — | File to write analysis statistics |
 | `--stats-config PATH` | — | Path to custom statistics configuration JSON |
 
+### Association Testing
+
+For modular rare variant association testing beyond the basic Fisher's exact test in `--perform-gene-burden`:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--perform-association` | `false` | Run the modular association testing framework |
+| `--association-tests TESTS` | `fisher` | Comma-separated tests: `fisher`, `logistic_burden`, `linear_burden`, `skat`, `coast` |
+| `--skat-backend BACKEND` | `python` | SKAT backend: `python` (default, thread-safe) or `r` (deprecated) |
+| `--coast-backend BACKEND` | `python` | COAST backend: `python` (default) or `r` (deprecated) |
+| `--covariate-file PATH` | — | TSV/CSV covariate file (first column = sample ID, header required) |
+| `--covariates NAMES` | — | Comma-separated covariate column names to include (default: all columns) |
+| `--categorical-covariates NAMES` | — | Comma-separated columns to treat as categorical (auto-detected otherwise) |
+| `--trait-type TYPE` | `binary` | Trait type for burden tests: `binary` or `quantitative` |
+| `--pca-file PATH` | — | PCA file (PLINK `.eigenvec`, AKT output, or generic TSV) |
+| `--pca-tool TOOL` | — | Set to `akt` to invoke AKT subprocess for PCA computation |
+| `--pca-components N` | `10` | Number of PCA components to include as covariates |
+| `--variant-weights SCHEME` | `beta:1,25` | Variant weight scheme: `beta:a,b`, `uniform`, `cadd`, `revel`, `combined` |
+| `--variant-weight-params JSON` | — | JSON string of weight scheme parameters (e.g., `'{"cadd_cap": 30}'`) |
+| `--coast-weights WEIGHTS` | — | COAST category weights as comma-separated floats (BMV,DMV,PTV) |
+| `--diagnostics-output DIR` | — | Directory for diagnostics output: `lambda_gc.tsv`, `qq_data.tsv`, `summary.txt` |
+
+For detailed usage, test selection guidance, and examples, see the [Association Testing Guide](guides/association_testing.md).
+
 ### Scoring & Custom Annotations
 
 | Flag | Default | Description |

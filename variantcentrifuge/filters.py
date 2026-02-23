@@ -29,7 +29,7 @@ TSV-based filtering:
 import logging
 import os
 import tempfile
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -567,14 +567,18 @@ def filter_tsv_with_expression(
         # Read the TSV file
         compression = "gzip" if input_tsv.endswith(".gz") else None
         df = pd.read_csv(
-            input_tsv, sep="\t", dtype=str, keep_default_na=False, compression=compression
+            input_tsv,
+            sep="\t",
+            dtype=str,
+            keep_default_na=False,
+            compression=cast(Any, compression),
         )
         initial_count = len(df)
 
         if initial_count == 0:
             logger.warning("Input TSV is empty, writing empty output")
             compression_out = "gzip" if output_tsv.endswith(".gz") else None
-            df.to_csv(output_tsv, sep="\t", index=False, compression=compression_out)
+            df.to_csv(output_tsv, sep="\t", index=False, compression=cast(Any, compression_out))
             return
 
         if not pandas_query:
@@ -606,7 +610,7 @@ def filter_tsv_with_expression(
             logger.error(f"Failed to apply filter expression: {e}")
             logger.info("Writing unfiltered data to output")
             compression_out = "gzip" if output_tsv.endswith(".gz") else None
-            df.to_csv(output_tsv, sep="\t", index=False, compression=compression_out)
+            df.to_csv(output_tsv, sep="\t", index=False, compression=cast(Any, compression_out))
             return
 
         final_count = len(filtered_df)
@@ -616,7 +620,9 @@ def filter_tsv_with_expression(
 
         # Write the filtered data
         compression_out = "gzip" if output_tsv.endswith(".gz") else None
-        filtered_df.to_csv(output_tsv, sep="\t", index=False, compression=compression_out)
+        filtered_df.to_csv(
+            output_tsv, sep="\t", index=False, compression=cast(Any, compression_out)
+        )
 
     except Exception as e:
         logger.error(f"Error in TSV filtering: {e}")

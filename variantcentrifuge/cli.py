@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import load_config
-from .pipeline import run_refactored_pipeline
+from .pipeline import run_pipeline
 from .validators import (
     validate_mandatory_parameters,
     validate_phenotype_file,
@@ -404,6 +404,177 @@ def create_parser() -> argparse.ArgumentParser:
     stats_group.add_argument(
         "--stats-config",
         help="Path to custom statistics configuration JSON file. If not provided, uses default statistics.",
+    )
+    # Association Analysis
+    stats_group.add_argument(
+        "--perform-association",
+        action="store_true",
+        help="Perform association analysis using the modular association framework",
+    )
+    stats_group.add_argument(
+        "--association-tests",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated list of association tests to run (default: fisher). "
+            "Available: fisher, logistic_burden, linear_burden, skat, skat_python, coast"
+        ),
+    )
+    stats_group.add_argument(
+        "--skat-backend",
+        choices=["auto", "r", "python"],
+        default="python",
+        help="SKAT computation backend: python (default), r (deprecated), or auto",
+    )
+    stats_group.add_argument(
+        "--coast-backend",
+        choices=["auto", "r", "python"],
+        default="python",
+        help="COAST computation backend: python (default), r (deprecated), or auto",
+    )
+    stats_group.add_argument(
+        "--covariate-file",
+        type=str,
+        default=None,
+        help=(
+            "Path to covariate file (TSV/CSV). First column = sample ID, "
+            "remaining columns = covariates. Required when using logistic_burden or linear_burden."
+        ),
+    )
+    stats_group.add_argument(
+        "--covariates",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated covariate column names to use from the covariate file. "
+            "Default: all columns."
+        ),
+    )
+    stats_group.add_argument(
+        "--categorical-covariates",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated column names to force-treat as categorical (one-hot encoded). "
+            "Default: auto-detect (non-numeric columns with <=5 unique values)."
+        ),
+    )
+    stats_group.add_argument(
+        "--trait-type",
+        choices=["binary", "quantitative"],
+        default="binary",
+        help=(
+            "Phenotype type for burden tests. 'binary' uses logistic regression with "
+            "Firth fallback; 'quantitative' uses OLS. Default: binary."
+        ),
+    )
+    stats_group.add_argument(
+        "--diagnostics-output",
+        type=str,
+        default=None,
+        help=(
+            "Path to directory for diagnostics output (lambda_GC, QQ data, summary). "
+            "Created automatically if it does not exist."
+        ),
+    )
+    stats_group.add_argument(
+        "--variant-weights",
+        type=str,
+        default="beta:1,25",
+        help=(
+            "Variant weighting scheme for burden tests. "
+            "'beta:a,b' = Beta(MAF;a,b) density (default: 'beta:1,25', SKAT convention). "
+            "'uniform' = equal weights. "
+            "'cadd' = Beta(MAF) x CADD_phred/40. "
+            "'revel' = Beta(MAF) x REVEL_score. "
+            "'combined' = Beta(MAF) x functional score (CADD preferred)."
+        ),
+    )
+    stats_group.add_argument(
+        "--variant-weight-params",
+        type=str,
+        default=None,
+        help=(
+            "JSON string of extra weight parameters, e.g. "
+            "'{\"cadd_cap\": 30}'. Overrides default weight parameters."
+        ),
+    )
+    # Phase 23: COAST allelic series weights
+    stats_group.add_argument(
+        "--coast-weights",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated category weights for COAST allelic series test "
+            "(BMV, DMV, PTV). Default: '1,2,3'. Example: '1,4,9' for quadratic scaling."
+        ),
+    )
+    # Phase 27: Gene-level parallelization
+    stats_group.add_argument(
+        "--association-workers",
+        type=int,
+        default=1,
+        help=(
+            "Number of parallel worker processes for association analysis. "
+            "Default: 1 (sequential). Set to -1 for auto (os.cpu_count()). "
+            "Only effective with Python backends (R backend is not parallel-safe)."
+        ),
+    )
+    # Phase 28: SKAT method and diagnostic thresholds
+    stats_group.add_argument(
+        "--skat-method",
+        choices=["SKAT", "Burden", "SKATO"],
+        default="SKAT",
+        help=(
+            "SKAT method variant: 'SKAT' (default), 'Burden' (burden-only), "
+            "or 'SKATO' (SKAT-O omnibus). Requires SKAT test in --association-tests."
+        ),
+    )
+    stats_group.add_argument(
+        "--min-cases",
+        type=int,
+        default=200,
+        help=(
+            "Minimum number of cases for diagnostics warning. "
+            "Default: 200. Warns when n_cases < this value."
+        ),
+    )
+    stats_group.add_argument(
+        "--max-case-control-ratio",
+        type=float,
+        default=20.0,
+        help=(
+            "Maximum case:control ratio for diagnostics warning. "
+            "Default: 20.0. Warns when n_controls/n_cases > this value."
+        ),
+    )
+    stats_group.add_argument(
+        "--min-case-carriers",
+        type=int,
+        default=10,
+        help=(
+            "Minimum case carrier count per gene for diagnostics warning. "
+            "Default: 10. Flags genes where case_carriers < this value."
+        ),
+    )
+    # Phase 23: PCA arguments
+    stats_group.add_argument(
+        "--pca-file",
+        type=str,
+        default=None,
+        help="Path to pre-computed PCA file (PLINK .eigenvec, AKT output, or generic TSV).",
+    )
+    stats_group.add_argument(
+        "--pca-tool",
+        choices=["akt"],
+        default=None,
+        help="PCA computation tool. 'akt' invokes AKT as a pipeline stage.",
+    )
+    stats_group.add_argument(
+        "--pca-components",
+        type=int,
+        default=10,
+        help="Number of principal components (default: 10). Warn if >20.",
     )
     # Inheritance Analysis
     inheritance_group = parser.add_argument_group("Inheritance Analysis")
@@ -1013,6 +1184,80 @@ def main() -> int:
     cfg["gene_burden_mode"] = args.gene_burden_mode
     cfg["correction_method"] = args.correction_method
 
+    # Association analysis configuration
+    cfg["perform_association"] = args.perform_association
+    if args.association_tests:
+        cfg["association_tests"] = [t.strip() for t in args.association_tests.split(",")]
+    else:
+        cfg["association_tests"] = ["fisher"] if args.perform_association else []
+    cfg["skat_backend"] = getattr(args, "skat_backend", "python")
+    cfg["coast_backend"] = getattr(args, "coast_backend", "python")
+
+    # Phase 19: Covariate and regression configuration
+    cfg["covariate_file"] = getattr(args, "covariate_file", None)
+    covariates_arg = getattr(args, "covariates", None)
+    cfg["covariate_columns"] = (
+        [c.strip() for c in covariates_arg.split(",")] if covariates_arg else None
+    )
+    cat_cov_arg = getattr(args, "categorical_covariates", None)
+    cfg["categorical_covariates"] = (
+        [c.strip() for c in cat_cov_arg.split(",")] if cat_cov_arg else None
+    )
+    cfg["trait_type"] = getattr(args, "trait_type", "binary")
+    cfg["variant_weights"] = getattr(args, "variant_weights", "beta:1,25")
+    # Phase 23: Parse --variant-weight-params JSON string
+    _vwp_raw = getattr(args, "variant_weight_params", None)
+    if _vwp_raw:
+        import json as _json
+
+        try:
+            cfg["variant_weight_params"] = _json.loads(_vwp_raw)
+        except (ValueError, TypeError) as _e:
+            import sys as _sys
+
+            print(
+                f"error: --variant-weight-params: invalid JSON: {_e}",
+                file=_sys.stderr,
+            )
+            _sys.exit(2)
+    else:
+        cfg["variant_weight_params"] = None
+    cfg["diagnostics_output"] = getattr(args, "diagnostics_output", None)
+    # Phase 23: PCA configuration
+    cfg["pca_file"] = getattr(args, "pca_file", None)
+    cfg["pca_tool"] = getattr(args, "pca_tool", None)
+    cfg["pca_components"] = getattr(args, "pca_components", 10)
+    # Phase 23: COAST weights — parse comma-separated floats
+    _coast_weights_raw = getattr(args, "coast_weights", None)
+    if _coast_weights_raw:
+        try:
+            _coast_weights_parsed = [float(x) for x in _coast_weights_raw.split(",")]
+            if len(_coast_weights_parsed) != 3:
+                import sys as _sys
+
+                print(
+                    "error: --coast-weights must have exactly 3 values (BMV, DMV, PTV)",
+                    file=_sys.stderr,
+                )
+                _sys.exit(2)
+            cfg["coast_weights"] = _coast_weights_parsed
+        except ValueError as _e:
+            import sys as _sys
+
+            print(
+                f"error: --coast-weights values must be numeric: {_e}",
+                file=_sys.stderr,
+            )
+            _sys.exit(2)
+    else:
+        cfg["coast_weights"] = None
+    cfg["association_workers"] = getattr(args, "association_workers", 1)
+    # Phase 28: SKAT method and diagnostic thresholds
+    cfg["skat_method"] = getattr(args, "skat_method", "SKAT")
+    cfg["association_min_cases"] = getattr(args, "min_cases", 200)
+    cfg["association_max_case_control_ratio"] = getattr(args, "max_case_control_ratio", 20.0)
+    cfg["association_min_case_carriers"] = getattr(args, "min_case_carriers", 10)
+
     # Handle add_chr configuration
     if args.add_chr:
         cfg["add_chr"] = True
@@ -1145,6 +1390,35 @@ def main() -> int:
     if args.json_gene_mapping and not args.annotate_json_genes:
         logger.error("--json-gene-mapping requires --annotate-json-genes to be provided.")
         sys.exit(1)
+
+    # Validate association analysis arguments
+    if args.association_tests and not args.perform_association:
+        parser.error("--association-tests requires --perform-association to be set")
+
+    # Covariate file only makes sense with association analysis
+    if getattr(args, "covariate_file", None) and not args.perform_association:
+        parser.error("--covariate-file requires --perform-association to be set")
+
+    # Diagnostics output only makes sense with association analysis
+    if getattr(args, "diagnostics_output", None) and not args.perform_association:
+        parser.error("--diagnostics-output requires --perform-association to be set")
+
+    # PCA args only make sense with association analysis
+    if getattr(args, "pca_file", None) and not args.perform_association:
+        parser.error("--pca-file requires --perform-association to be set")
+    if getattr(args, "pca_tool", None) and not args.perform_association:
+        parser.error("--pca-tool requires --perform-association to be set")
+
+    # Trait type / test compatibility check
+    trait_type = getattr(args, "trait_type", "binary")
+    if trait_type == "quantitative" and args.association_tests:
+        test_list = [t.strip() for t in args.association_tests.split(",")]
+        if "logistic_burden" in test_list:
+            parser.error(
+                "--trait-type quantitative is incompatible with logistic_burden "
+                "(logistic regression is for binary traits only). "
+                "Use linear_burden for quantitative traits."
+            )
 
     # Inheritance analysis configuration
     cfg["ped_file"] = args.ped
@@ -1388,7 +1662,7 @@ def main() -> int:
         if not hasattr(refactored_args, "start_time"):
             refactored_args.start_time = start_time
 
-        run_refactored_pipeline(refactored_args)  # type: ignore[arg-type]
+        run_pipeline(refactored_args)  # type: ignore[arg-type]
         return 0
     except SystemExit as e:
         return int(e.code) if e.code is not None else 1

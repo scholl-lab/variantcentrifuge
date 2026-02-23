@@ -31,14 +31,12 @@ make clean                          # Remove build artifacts
 
 ## Architecture
 
-### Two Pipeline Modes
-The tool has two pipeline architectures selectable at runtime:
-1. **Classic Pipeline** (default) — `pipeline.py` calls into processing modules directly
-2. **Stage-Based Pipeline** (`--use-new-pipeline`) — `pipeline_core/` framework with 40+ modular stages
+### Pipeline Architecture
+The tool uses a stage-based pipeline architecture invoked through `variantcentrifuge.cli:main`:
+- **`pipeline.py`** — Builds and runs the stage-based pipeline using `PipelineRunner`, `PipelineContext`, and registered stages from `pipeline_core/`
+- **`pipeline_core/`** — Framework with 40+ modular stages, dependency graph analysis, parallel execution
 
-Both are invoked through a single entry point: `variantcentrifuge.cli:main`.
-
-### Stage-Based Pipeline (pipeline_core/)
+### Pipeline Core (pipeline_core/)
 - **`runner.py`** — PipelineRunner: dependency graph analysis, topological sort, parallel execution via ThreadPoolExecutor/ProcessPoolExecutor, checkpoint integration
 - **`context.py`** — PipelineContext: thread-safe dataclass carrying args, config, workspace, data artifacts, completed stages between all stages
 - **`stage.py`** — Abstract base Stage class all stages inherit from; declares dependencies, parallel-safety, estimated runtime

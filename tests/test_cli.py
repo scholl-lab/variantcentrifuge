@@ -57,7 +57,7 @@ class TestShowCheckpointStatus:
             mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
     def test_show_checkpoint_status_with_new_pipeline_flag(self, tmp_path):
-        """Test --show-checkpoint-status with --use-new-pipeline flag."""
+        """Test --show-checkpoint-status with stage-based pipeline."""
         with (
             patch(
                 "sys.argv",
@@ -173,7 +173,7 @@ class TestShowCheckpointStatus:
             mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 
     def test_show_checkpoint_status_flag_precedence(self, tmp_path):
-        """Test that --use-new-pipeline flag takes precedence over config file."""
+        """Test that stage-based pipeline is used regardless of config file settings."""
         # Create a config file with new pipeline disabled
         config_file = tmp_path / "config.json"
         config_data = {"reference": "GRCh38.99"}

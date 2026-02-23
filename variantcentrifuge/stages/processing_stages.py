@@ -17,7 +17,7 @@ import shutil
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 from smart_open import smart_open
@@ -1030,7 +1030,7 @@ class PhenotypeIntegrationStage(Stage):
 
         # Read input TSV
         compression = "gzip" if str(input_tsv).endswith(".gz") else None
-        df = pd.read_csv(input_tsv, sep="\t", dtype=str, compression=compression)
+        df = pd.read_csv(input_tsv, sep="\t", dtype=str, compression=cast(Any, compression))
 
         # Phase 11: Check for per-sample columns (bcftools output) vs packed GT column
         # Per-sample columns are sample IDs directly (from context.vcf_samples)
@@ -1041,7 +1041,7 @@ class PhenotypeIntegrationStage(Stage):
         if has_sample_columns:
             # Phase 11: Use per-sample columns directly
             logger.debug("Using per-sample GT columns for phenotype extraction")
-            df["Phenotypes"] = df.apply(
+            df["Phenotypes"] = df.apply(  # type: ignore[call-overload]
                 lambda row: extract_phenotypes_from_sample_columns(
                     row, context.vcf_samples, context.phenotype_data
                 ),
@@ -1050,8 +1050,9 @@ class PhenotypeIntegrationStage(Stage):
         elif "GT" in df.columns:
             # Backwards compatibility: Use packed GT column (from genotype replacement)
             logger.debug("Using packed GT column for phenotype extraction (legacy mode)")
+            phenotype_data: dict[str, set[str]] = context.phenotype_data or {}
             df["Phenotypes"] = df["GT"].apply(
-                lambda gt_val: extract_phenotypes_for_gt_row(gt_val, context.phenotype_data)
+                lambda gt_val: extract_phenotypes_for_gt_row(gt_val, phenotype_data)
             )
         else:
             logger.warning("No GT column or per-sample columns found, cannot add phenotype data")
@@ -1059,7 +1060,7 @@ class PhenotypeIntegrationStage(Stage):
 
         # Write output
         compression = "gzip" if str(output_tsv).endswith(".gz") else None
-        df.to_csv(output_tsv, sep="\t", index=False, compression=compression)
+        df.to_csv(output_tsv, sep="\t", index=False, compression=cast(Any, compression))
 
         context.phenotypes_added_tsv = output_tsv
         context.data = output_tsv
@@ -1119,7 +1120,7 @@ class ExtraColumnRemovalStage(Stage):
 
         # Read, remove columns, and write
         compression = "gzip" if str(input_tsv).endswith(".gz") else None
-        df = pd.read_csv(input_tsv, sep="\t", dtype=str, compression=compression)
+        df = pd.read_csv(input_tsv, sep="\t", dtype=str, compression=cast(Any, compression))
 
         # Remove columns that exist
         existing_cols = [col for col in columns_to_remove if col in df.columns]
@@ -1129,7 +1130,7 @@ class ExtraColumnRemovalStage(Stage):
 
         # Write output
         compression = "gzip" if str(output_tsv).endswith(".gz") else None
-        df.to_csv(output_tsv, sep="\t", index=False, compression=compression)
+        df.to_csv(output_tsv, sep="\t", index=False, compression=cast(Any, compression))
 
         context.extra_columns_removed_tsv = output_tsv
         context.data = output_tsv
@@ -2069,3 +2070,69 @@ class DataSortingStage(Stage):
         if context.extracted_tsv:
             return [context.extracted_tsv]
         return []
+
+
+class PCAComputationStage(Stage):
+    """Run AKT PCA on the pre-filtered VCF and store the output path in context."""
+
+    @property
+    def name(self) -> str:
+        """Return the stage name."""
+        return "pca_computation"
+
+    @property
+    def description(self) -> str:
+        """Return a description of what this stage does."""
+        return "Compute principal components via AKT (population stratification correction)"
+
+    @property
+    def dependencies(self) -> set[str]:
+        """Return the set of stage names this stage depends on."""
+        return {"bcftools_prefilter"}
+
+    @property
+    def parallel_safe(self) -> bool:
+        """Return whether this stage can run in parallel with others."""
+        return True  # subprocess only — no rpy2 or shared state
+
+    def _process(self, context: PipelineContext) -> PipelineContext:
+        """Invoke AKT PCA and write eigenvec output to workspace."""
+        pca_tool = context.config.get("pca_tool")
+        if pca_tool is None:
+            logger.debug("pca_computation: pca_tool not set — skipping AKT PCA computation")
+            return context
+
+        # Only "akt" is supported for now
+        if shutil.which("akt") is None:
+            raise ToolNotFoundError("akt", self.name)
+
+        vcf_file = context.config.get("vcf_file") or context.config.get("input_vcf")
+        if not vcf_file:
+            raise ValueError("pca_computation: no VCF file found in context.config")
+
+        n_components = int(context.config.get("pca_components", 10))
+        cmd = ["akt", "pca", vcf_file, "-N", str(n_components)]
+        logger.info("pca_computation: running AKT PCA: %s", " ".join(cmd))
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        except subprocess.CalledProcessError as exc:
+            logger.error(
+                "pca_computation: AKT PCA failed (returncode=%d): %s",
+                exc.returncode,
+                exc.stderr,
+            )
+            raise
+
+        # Write AKT stdout to intermediate file
+        output_path = str(context.workspace.get_intermediate_path("pca_eigenvec.txt"))
+        with open(output_path, "w") as fh:
+            fh.write(result.stdout)
+
+        context.config["pca_file"] = output_path
+        logger.info(
+            "pca_computation: AKT PCA complete — %d components written to %s",
+            n_components,
+            output_path,
+        )
+        return context

@@ -8,7 +8,7 @@ pattern deduction, compound heterozygous analysis, and pattern prioritization.
 import json
 import logging
 import time
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -178,7 +178,7 @@ def analyze_inheritance(
 
         for gene, gene_results in comp_het_results_by_gene.items():
             gene_mask = genes == gene
-            if not gene_mask.any():
+            if not np.any(gene_mask):
                 continue
 
             # Get variant keys for this gene
@@ -433,22 +433,23 @@ def get_inheritance_summary(df: pd.DataFrame) -> dict[str, Any]:
 
             # Count high confidence patterns
             if details.get("confidence", 0) > 0.8:
-                summary["high_confidence_patterns"] += 1
+                hcp = cast(int, summary["high_confidence_patterns"])
+                summary["high_confidence_patterns"] = hcp + 1
 
             # Track compound het genes
             for sample in details.get("samples_with_pattern", []):
                 if "compound_het_gene" in sample:
-                    summary["compound_het_genes"].add(sample["compound_het_gene"])
+                    cast(set, summary["compound_het_genes"]).add(sample["compound_het_gene"])
 
             # Count de novo
             if getattr(row, "Inheritance_Pattern", "") == "de_novo":
-                summary["de_novo_variants"] += 1
+                summary["de_novo_variants"] = cast(int, summary["de_novo_variants"]) + 1
 
         except (json.JSONDecodeError, KeyError, AttributeError):
             continue
 
-    summary["compound_het_genes"] = list(summary["compound_het_genes"])
-    summary["compound_het_gene_count"] = len(summary["compound_het_genes"])
+    summary["compound_het_genes"] = list(cast(set, summary["compound_het_genes"]))
+    summary["compound_het_gene_count"] = len(list(cast(set, summary["compound_het_genes"])))
 
     return summary
 

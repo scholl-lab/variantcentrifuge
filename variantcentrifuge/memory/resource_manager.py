@@ -208,7 +208,7 @@ class ResourceManager:
         try:
             physical_cores = psutil.cpu_count(logical=False)
             if physical_cores is not None and physical_cores > 0:
-                return physical_cores
+                return int(physical_cores)
         except Exception as e:
             logger.debug(f"psutil.cpu_count(logical=False) failed: {e}")
 

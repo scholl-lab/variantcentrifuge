@@ -79,7 +79,6 @@ class TestGeneBurdenDirectSamples:
                 tmpdir,
                 "--output-file",
                 "results.tsv",
-                "--use-new-pipeline",
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -117,7 +116,6 @@ class TestGeneBurdenDirectSamples:
                 tmpdir,
                 "--output-file",
                 "results.tsv",
-                "--use-new-pipeline",
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -161,7 +159,6 @@ class TestGeneBurdenPhenotypeBased:
                 tmpdir,
                 "--output-file",
                 "results.tsv",
-                "--use-new-pipeline",
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -199,7 +196,6 @@ class TestGeneBurdenPhenotypeBased:
                 tmpdir,
                 "--output-file",
                 "results.tsv",
-                "--use-new-pipeline",
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -239,7 +235,6 @@ class TestGeneBurdenPhenotypeBased:
                 tmpdir,
                 "--output-file",
                 "results.tsv",
-                "--use-new-pipeline",
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -274,7 +269,6 @@ class TestGeneBurdenValidation:
                 tmpdir,
                 "--output-file",
                 "results.tsv",
-                "--use-new-pipeline",
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -322,7 +316,6 @@ class TestGeneBurdenErrorHandling:
                 tmpdir,
                 "--output-file",
                 "results.tsv",
-                "--use-new-pipeline",
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -357,7 +350,6 @@ class TestGeneBurdenErrorHandling:
                 tmpdir,
                 "--output-file",
                 "results.tsv",
-                "--use-new-pipeline",
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True)

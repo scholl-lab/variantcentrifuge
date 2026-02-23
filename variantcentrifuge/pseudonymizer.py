@@ -14,6 +14,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from typing import Any, cast
 
 import pandas as pd
 
@@ -287,7 +288,13 @@ class SamplePseudonymizer:
 
         # Apply compression if output path ends with .gz
         compression = "gzip" if str(output_path).endswith(".gz") else None
-        ped_df.to_csv(output_path, sep="\t", header=False, index=False, compression=compression)
+        ped_df.to_csv(
+            output_path,
+            sep="\t",
+            header=False,
+            index=False,
+            compression=cast(Any, compression),
+        )
         logger.info(f"Pseudonymized PED file saved to {output_path}")
 
     def save_mapping(self, filepath: str, include_metadata: bool = True):
@@ -305,7 +312,7 @@ class SamplePseudonymizer:
 
         # Save primary mapping with compression if path ends with .gz
         compression = "gzip" if str(filepath).endswith(".gz") else None
-        map_df.to_csv(filepath, sep="\t", index=False, compression=compression)
+        map_df.to_csv(filepath, sep="\t", index=False, compression=cast(Any, compression))
 
         # Save metadata if requested
         if include_metadata:

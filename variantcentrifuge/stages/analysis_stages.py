@@ -14,15 +14,23 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pandas as pd
 
 from ..analyze_variants import analyze_variants
 from ..annotator import annotate_dataframe_with_features, load_custom_features
+from ..association.base import AssociationConfig
+from ..association.engine import AssociationEngine
 from ..dataframe_optimizer import load_optimized_dataframe, should_use_memory_passthrough
 from ..filters import filter_final_tsv_by_genotype
-from ..gene_burden import perform_gene_burden_analysis
+from ..gene_burden import (
+    _aggregate_gene_burden_from_columns,
+    _aggregate_gene_burden_from_gt,
+    _aggregate_gene_burden_legacy,
+    _find_gt_columns,
+    perform_gene_burden_analysis,
+)
 from ..inheritance import analyze_inheritance
 from ..pipeline_core import PipelineContext, Stage
 from ..scoring import apply_scoring
@@ -152,7 +160,7 @@ def create_sample_columns_from_gt_vectorized(
                         for row in sample_entries.itertuples(index=False):
                             original_idx = getattr(row, "original_index", None)
                             genotype = getattr(row, "genotype", "")
-                            df_copy.loc[original_idx, sample_id] = genotype
+                            df_copy.loc[original_idx, sample_id] = genotype  # type: ignore[index]
 
         logger.debug(
             f"Created {len(vcf_samples)} sample columns from replaced genotypes using "
@@ -441,10 +449,7 @@ def handle_inheritance_analysis_error(
         - Optionally adds Inheritance_Details column if needed for scoring
         - Maintains DataFrame schema consistency
     """
-    logger.warning(
-        f"Inheritance analysis failed ({context_description}): {error}. "
-        "All variants will have Inheritance_Pattern='error' and inheritance_score=0.0."
-    )
+    logger.error(f"Error in {context_description}: {error}")
 
     # Add error-state inheritance columns to maintain schema
     df = df.copy()
@@ -1580,7 +1585,7 @@ class VariantAnalysisStage(Stage):
         else:
             compression = None
 
-        df.to_csv(temp_tsv, sep="\t", index=False, compression=compression)
+        df.to_csv(temp_tsv, sep="\t", index=False, compression=cast(Any, compression))
 
         logger.info("Running variant-level analysis")
 
@@ -2009,7 +2014,9 @@ class GeneBurdenAnalysisStage(Stage):
         else:
             compression = None
 
-        burden_results.to_csv(burden_output, sep="\t", index=False, compression=compression)
+        burden_results.to_csv(
+            burden_output, sep="\t", index=False, compression=cast(Any, compression)
+        )
         logger.info(f"Wrote gene burden results to {burden_output}")
 
         return context
@@ -2026,6 +2033,813 @@ class GeneBurdenAnalysisStage(Stage):
             burden_output = context.config["gene_burden_output"]
             if Path(burden_output).exists():
                 return [Path(burden_output)]
+        return []
+
+
+# ---------------------------------------------------------------------------
+# JSON config support for association analysis (Phase 23 Plan 04)
+# ---------------------------------------------------------------------------
+
+# Valid keys for the "association" section in config.json
+VALID_ASSOCIATION_KEYS: frozenset[str] = frozenset(
+    {
+        "correction_method",
+        "gene_burden_mode",
+        "trait_type",
+        "variant_weights",
+        "variant_weight_params",
+        "skat_backend",
+        "skat_method",
+        "coast_backend",
+        "covariate_file",
+        "covariate_columns",
+        "categorical_covariates",
+        "pca_file",
+        "pca_tool",
+        "pca_components",
+        "coast_weights",
+        "association_tests",
+        "min_cases",
+        "max_case_control_ratio",
+        "min_case_carriers",
+        "diagnostics_output",
+        "confidence_interval_method",
+        "confidence_interval_alpha",
+        "continuity_correction",
+        "missing_site_threshold",
+        "missing_sample_threshold",
+        "firth_max_iter",
+        "association_workers",
+    }
+)
+
+
+def _validate_association_config_dict(d: dict) -> None:
+    """Validate association config dict. Raises ValueError listing ALL invalid keys/values.
+
+    Performs two levels of validation:
+    1. Unknown keys — any key not in VALID_ASSOCIATION_KEYS is rejected.
+    2. Type and enum validation — known keys must have the correct Python type.
+
+    All errors are collected before raising so the user sees everything wrong
+    in a single error message (fail-fast but complete).
+
+    Parameters
+    ----------
+    d : dict
+        The "association" sub-dict from config.json.
+
+    Raises
+    ------
+    ValueError
+        If any validation errors are found; message lists all errors.
+    """
+    errors: list[str] = []
+
+    unknown = sorted(set(d) - VALID_ASSOCIATION_KEYS)
+    if unknown:
+        errors.append(f"Unknown keys: {unknown}")
+
+    # Type validation sets (intersection with actual keys avoids KeyError)
+    str_keys = {
+        "correction_method",
+        "gene_burden_mode",
+        "trait_type",
+        "variant_weights",
+        "skat_backend",
+        "skat_method",
+        "coast_backend",
+        "covariate_file",
+        "pca_file",
+        "pca_tool",
+        "confidence_interval_method",
+        "diagnostics_output",
+    }
+    int_keys = {
+        "pca_components",
+        "min_cases",
+        "min_case_carriers",
+        "firth_max_iter",
+        "association_workers",
+    }
+    float_keys = {
+        "max_case_control_ratio",
+        "confidence_interval_alpha",
+        "continuity_correction",
+        "missing_site_threshold",
+        "missing_sample_threshold",
+    }
+    list_str_keys = {"covariate_columns", "categorical_covariates", "association_tests"}
+    list_float_keys = {"coast_weights"}
+
+    for key in str_keys & set(d):
+        if d[key] is not None and not isinstance(d[key], str):
+            errors.append(f"'{key}' must be a string, got {type(d[key]).__name__}")
+
+    for key in int_keys & set(d):
+        if not isinstance(d[key], int):
+            errors.append(f"'{key}' must be an integer, got {type(d[key]).__name__}")
+
+    for key in float_keys & set(d):
+        if not isinstance(d[key], (int, float)):
+            errors.append(f"'{key}' must be a number, got {type(d[key]).__name__}")
+
+    for key in list_str_keys & set(d):
+        if d[key] is not None and not isinstance(d[key], list):
+            errors.append(f"'{key}' must be a list, got {type(d[key]).__name__}")
+
+    for key in list_float_keys & set(d):
+        if d[key] is not None and not isinstance(d[key], list):
+            errors.append(f"'{key}' must be a list, got {type(d[key]).__name__}")
+
+    # Enum-like value validation
+    if "correction_method" in d and d["correction_method"] not in ("fdr", "bonferroni"):
+        errors.append(
+            f"'correction_method' must be 'fdr' or 'bonferroni', got '{d['correction_method']}'"
+        )
+    if "trait_type" in d and d["trait_type"] not in ("binary", "quantitative"):
+        errors.append(f"'trait_type' must be 'binary' or 'quantitative', got '{d['trait_type']}'")
+    if "skat_backend" in d and d["skat_backend"] not in ("auto", "r", "python"):
+        errors.append(f"'skat_backend' must be 'auto', 'r', or 'python', got '{d['skat_backend']}'")
+    if "coast_backend" in d and d["coast_backend"] not in ("auto", "r", "python"):
+        errors.append(
+            f"'coast_backend' must be 'auto', 'r', or 'python', got '{d['coast_backend']}'"
+        )
+
+    if errors:
+        raise ValueError(
+            f"Invalid 'association' config section ({len(errors)} error(s)):\n"
+            + "\n".join(f"  - {e}" for e in errors)
+        )
+
+
+def _build_assoc_config_from_context(context: "PipelineContext") -> AssociationConfig:
+    """Build AssociationConfig from PipelineContext with JSON config + CLI override precedence.
+
+    Precedence (highest to lowest):
+    1. CLI-set values — keys set directly in context.config by cli.py
+    2. JSON association section — context.config["association"] from config.json
+    3. AssociationConfig field defaults
+
+    The "association" section in config.json is validated at call time with
+    _validate_association_config_dict(). If the section is invalid, a ValueError
+    is raised immediately (fail-fast before any processing).
+
+    Parameters
+    ----------
+    context : PipelineContext
+        Pipeline context carrying context.config (the merged config dict from
+        config.json + CLI arguments, as built by setup_stages.ConfigurationLoadingStage
+        and cli.py).
+
+    Returns
+    -------
+    AssociationConfig
+        Fully populated configuration with correct precedence applied.
+    """
+    cfg = context.config
+
+    # Load and validate the JSON "association" sub-section (may be absent)
+    json_assoc: dict = cfg.get("association", {}) or {}
+    if json_assoc:
+        _validate_association_config_dict(json_assoc)
+
+    # Helper: resolve field value with CLI > JSON > default precedence.
+    # CLI keys are stored directly in context.config by cli.py. If the CLI key
+    # is present (not None for nullable fields, not equal to default for typed
+    # fields), the CLI value wins. The JSON association section fills gaps.
+    # Finally, AssociationConfig field defaults apply.
+    #
+    # CLI-set detection strategy: if the key exists in cfg AND the value is
+    # not None (for optional fields) or is non-None, it was set by the CLI.
+    # For fields with non-None defaults (e.g. variant_weights="beta:1,25"),
+    # we cannot distinguish CLI-set from JSON-filled, so CLI always wins when
+    # present in cfg (the CLI parser always writes the key, even for defaults).
+    # This is correct: if a user explicitly runs the CLI they get CLI semantics.
+
+    def _get(
+        cli_key: str,
+        json_key: str | None = None,
+        default: Any = None,
+        nullable: bool = True,
+    ) -> Any:
+        """Resolve a config field with CLI > JSON > default precedence.
+
+        Parameters
+        ----------
+        cli_key : str
+            Key in context.config set by cli.py.
+        json_key : str | None
+            Key in json_assoc (association section). If None, uses cli_key.
+        default : Any
+            Default value if neither CLI nor JSON provides a value.
+        nullable : bool
+            If True, None in context.config means "not set by CLI" and JSON
+            can override. If False (non-nullable typed field), the CLI value
+            always wins when the key is present.
+        """
+        jk = json_key if json_key is not None else cli_key
+        cli_val = cfg.get(cli_key)
+        json_val = json_assoc.get(jk)
+
+        if nullable:
+            # For nullable fields: None means "not set"; prefer first non-None value
+            if cli_val is not None:
+                return cli_val
+            if json_val is not None:
+                return json_val
+            return default
+        else:
+            # For non-nullable fields: CLI key being present means CLI wins
+            if cli_key in cfg:
+                return cli_val
+            if jk in json_assoc:
+                return json_val
+            return default
+
+    return AssociationConfig(
+        correction_method=_get("correction_method", default="fdr", nullable=False),
+        gene_burden_mode=_get("gene_burden_mode", default="samples", nullable=False),
+        confidence_interval_method=_get(
+            "confidence_interval_method", default="normal_approx", nullable=False
+        ),
+        confidence_interval_alpha=_get("confidence_interval_alpha", default=0.05, nullable=False),
+        continuity_correction=_get("continuity_correction", default=0.5, nullable=False),
+        covariate_file=_get("covariate_file", default=None, nullable=True),
+        covariate_columns=_get("covariate_columns", default=None, nullable=True),
+        categorical_covariates=_get("categorical_covariates", default=None, nullable=True),
+        trait_type=_get("trait_type", default="binary", nullable=False),
+        variant_weights=_get("variant_weights", default="beta:1,25", nullable=False),
+        variant_weight_params=_get("variant_weight_params", default=None, nullable=True),
+        missing_site_threshold=_get("missing_site_threshold", default=0.10, nullable=False),
+        missing_sample_threshold=_get("missing_sample_threshold", default=0.80, nullable=False),
+        firth_max_iter=_get("firth_max_iter", default=25, nullable=False),
+        skat_backend=_get("skat_backend", default="python", nullable=False),
+        skat_method=_get("skat_method", default="SKAT", nullable=False),
+        coast_backend=_get("coast_backend", default="python", nullable=False),
+        min_cases=_get("association_min_cases", json_key="min_cases", default=200, nullable=False),
+        max_case_control_ratio=_get(
+            "association_max_case_control_ratio",
+            json_key="max_case_control_ratio",
+            default=20.0,
+            nullable=False,
+        ),
+        min_case_carriers=_get(
+            "association_min_case_carriers",
+            json_key="min_case_carriers",
+            default=10,
+            nullable=False,
+        ),
+        diagnostics_output=_get("diagnostics_output", default=None, nullable=True),
+        pca_file=_get("pca_file", default=None, nullable=True),
+        pca_tool=_get("pca_tool", default=None, nullable=True),
+        pca_components=_get("pca_components", default=10, nullable=False),
+        coast_weights=_get("coast_weights", default=None, nullable=True),
+        association_workers=_get("association_workers", default=1, nullable=False),
+    )
+
+
+class AssociationAnalysisStage(Stage):
+    """Perform association analysis using the modular AssociationEngine framework."""
+
+    @property
+    def name(self) -> str:
+        """Return the stage name."""
+        return "association_analysis"
+
+    @property
+    def description(self) -> str:
+        """Return a description of what this stage does."""
+        return "Perform association analysis"
+
+    @property
+    def dependencies(self) -> set[str]:
+        """Return the set of stage names this stage depends on."""
+        return {"dataframe_loading", "sample_config_loading"}
+
+    @property
+    def soft_dependencies(self) -> set[str]:
+        """Return the set of stage names that should run before if present."""
+        return {"custom_annotation"}
+
+    @property
+    def parallel_safe(self) -> bool:
+        """Return False — rpy2/R SKAT backend is not thread-safe (SKAT-08).
+
+        rpy2 is not thread-safe. Calling rpy2 functions from a ThreadPoolExecutor
+        worker thread causes segfaults with no Python traceback. This explicit
+        property documents the SKAT-08 requirement and prevents parallel execution
+        regardless of which tests are active.
+        """
+        return False
+
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Handle the case where this stage is skipped by checkpoint system.
+
+        When this stage is skipped, we need to restore the association output file path
+        so that subsequent stages can find the results.
+        """
+        if not context.config.get("perform_association"):
+            return context
+
+        # Try to find existing association output file
+        assoc_output = context.config.get("association_output")
+        if not assoc_output:
+            output_dir = context.config.get("output_dir", "output")
+            base_name = context.config.get("output_file_base", "association_results")
+
+            default_path = Path(output_dir) / f"{base_name}.association.tsv"
+            default_path_gz = Path(str(default_path) + ".gz")
+
+            if default_path_gz.exists():
+                assoc_output = str(default_path_gz)
+                context.config["association_output"] = assoc_output
+                logger.info(f"Restored association output file path: {assoc_output}")
+            elif default_path.exists():
+                assoc_output = str(default_path)
+                context.config["association_output"] = assoc_output
+                logger.info(f"Restored association output file path: {assoc_output}")
+            else:
+                logger.warning("Association output file not found during checkpoint skip")
+
+        return context
+
+    def _process(self, context: PipelineContext) -> PipelineContext:
+        """Perform association analysis."""
+        if not context.config.get("perform_association"):
+            logger.debug("Association analysis not requested")
+            return context
+
+        # Check required inputs
+        case_samples = context.config.get("case_samples", [])
+        control_samples = context.config.get("control_samples", [])
+
+        if not case_samples or not control_samples:
+            logger.warning(
+                f"Case/control samples not defined for association analysis: "
+                f"case_samples={len(case_samples) if case_samples else 0}, "
+                f"control_samples={len(control_samples) if control_samples else 0}"
+            )
+            return context
+
+        # Build AssociationConfig from context (Phase 23: JSON config + CLI override support).
+        # Validates "association" section from config.json, applies CLI > JSON > default
+        # precedence, and returns a fully populated AssociationConfig.
+        assoc_config = _build_assoc_config_from_context(context)
+        logger.info(f"Association analysis: trait type = {assoc_config.trait_type}")
+
+        # Get test names with JSON config fallback.
+        # CLI writes "association_tests" directly to context.config; JSON config
+        # stores it under context.config["association"]["association_tests"].
+        _json_assoc = context.config.get("association", {}) or {}
+        test_names: list[str] = (
+            context.config.get("association_tests")
+            or _json_assoc.get("association_tests")
+            or ["fisher"]
+        )
+
+        # Eager dependency check: instantiate engine (also calls check_dependencies per test)
+        engine = AssociationEngine.from_names(test_names, assoc_config)
+
+        # Get DataFrame
+        df = context.current_dataframe
+        if df is None:
+            df = context.variants_df
+        if df is None or df.empty:
+            logger.warning("No DataFrame loaded for association analysis")
+            return context
+
+        if "GENE" not in df.columns:
+            logger.error("DataFrame missing required 'GENE' column for association analysis")
+            return context
+
+        # Phase 24: Validate required columns for COAST allelic series test.
+        # COAST needs annotation columns to classify variants into BMV/DMV/PTV.
+        # Without them, all variants get code 0 (ineligible) and COAST returns
+        # meaningless results silently.
+        if "coast" in test_names:
+            _coast_required = [
+                "ANN_0__EFFECT",
+                "ANN_0__IMPACT",
+                "dbNSFP_SIFT_pred",
+                "dbNSFP_Polyphen2_HDIV_pred",
+            ]
+            # Also check unsanitized column names (pre-Phase 8 sanitization)
+            _coast_required_alt = [
+                "ANN[0].EFFECT",
+                "ANN[0].IMPACT",
+                "dbNSFP_SIFT_pred",
+                "dbNSFP_Polyphen2_HDIV_pred",
+            ]
+            missing = [
+                f
+                for f, f_alt in zip(_coast_required, _coast_required_alt, strict=True)
+                if f not in df.columns and f_alt not in df.columns
+            ]
+            if missing:
+                logger.error(
+                    "COAST allelic series test requires columns %s but they are "
+                    "missing from the data. Add them to --fields (e.g., "
+                    "'ANN[0].EFFECT,ANN[0].IMPACT,dbNSFP_SIFT_pred,"
+                    "dbNSFP_Polyphen2_HDIV_pred'). Skipping COAST.",
+                    missing,
+                )
+                test_names = [t for t in test_names if t != "coast"]
+                if not test_names:
+                    return context
+                engine = AssociationEngine.from_names(test_names, assoc_config)
+
+        # Phase 11: Reconstruct packed GT column if missing.
+        # Phase 19: When regression tests need per-sample GT columns, keep a
+        # reference to the pre-reconstruction DataFrame for genotype matrix
+        # building. reconstruct_gt_column drops per-sample columns, so we
+        # must save them first.
+        needs_regression = any(
+            t in test_names
+            for t in ("logistic_burden", "linear_burden", "skat", "skat_python", "coast")
+        )
+        df_with_per_sample_gt: pd.DataFrame | None = None
+        if "GT" not in df.columns and context.vcf_samples:
+            from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
+
+            gt_cols = _find_per_sample_gt_columns(df)
+            if gt_cols:
+                # Save DataFrame with per-sample GT columns for genotype matrix
+                if needs_regression:
+                    df_with_per_sample_gt = df
+                logger.info("Reconstructing GT column for association analysis")
+                df = reconstruct_gt_column(df.copy(), context.vcf_samples)
+                context.current_dataframe = df
+        elif "GT" in df.columns and needs_regression and context.vcf_samples:
+            # GT already reconstructed (e.g. by gene_burden_analysis at same level).
+            # Try variants_df as fallback source for per-sample GT columns.
+            from ..stages.output_stages import _find_per_sample_gt_columns
+
+            fallback_df = context.variants_df
+            if fallback_df is not None:
+                gt_cols_fb = _find_per_sample_gt_columns(fallback_df)
+                if gt_cols_fb:
+                    logger.info(
+                        f"Association analysis: recovered {len(gt_cols_fb)} "
+                        "per-sample GT columns from variants_df for genotype matrix"
+                    )
+                    df_with_per_sample_gt = fallback_df
+
+        # Determine aggregation strategy (same priority as perform_gene_burden_analysis)
+        case_set = set(case_samples)
+        control_set = set(control_samples)
+        vcf_samples_list = list(context.vcf_samples) if context.vcf_samples else None
+
+        # ------------------------------------------------------------------
+        # Phase 19: Tiered sample size warnings (CONTEXT.md)
+        # ------------------------------------------------------------------
+        n_cases_total = len(case_samples)
+        n_controls_total = len(control_samples)
+        if n_cases_total < 10:
+            logger.error(
+                f"Association analysis: only {n_cases_total} case(s) found — "
+                "fewer than 10 cases produces invalid results. Aborting."
+            )
+            return context
+        if n_cases_total < 50:
+            logger.warning(
+                f"Association analysis: only {n_cases_total} case(s) — "
+                "fewer than 50 cases provides no practical power for regression tests"
+            )
+        elif n_cases_total < 200:
+            logger.warning(
+                f"Association analysis: {n_cases_total} case(s) — "
+                "fewer than 200 cases is underpowered for SKAT; interpret results with caution"
+            )
+        if n_controls_total > 0 and n_cases_total > 0:
+            ratio = n_controls_total / n_cases_total
+            if ratio > 20:
+                logger.warning(
+                    f"Association analysis: case:control ratio is 1:{ratio:.0f} — "
+                    "exceeds 1:20; Type I error inflation risk without SPA/Firth correction"
+                )
+
+        # ------------------------------------------------------------------
+        # Phase 19: Load covariates once (if covariate_file provided)
+        # ------------------------------------------------------------------
+        covariate_matrix = None
+        covariate_col_names: list[str] = []
+        if assoc_config.covariate_file and vcf_samples_list:
+            from ..association.covariates import load_covariates
+
+            covariate_matrix, covariate_col_names = load_covariates(
+                assoc_config.covariate_file,
+                vcf_samples_list,
+                assoc_config.covariate_columns,
+                assoc_config.categorical_covariates,
+            )
+            logger.info(
+                f"Association analysis: loaded {covariate_matrix.shape[1]} "
+                f"covariate(s): {covariate_col_names}"
+            )
+
+        # ------------------------------------------------------------------
+        # Phase 23: Load PCA file and merge with covariates inline
+        # ------------------------------------------------------------------
+        pca_file = assoc_config.pca_file
+        if pca_file and vcf_samples_list:
+            from ..association.pca import load_pca_file, merge_pca_covariates
+
+            n_pcs = assoc_config.pca_components
+            pca_matrix, pca_col_names = load_pca_file(
+                pca_file, vcf_samples_list, n_components=n_pcs
+            )
+            covariate_matrix, covariate_col_names = merge_pca_covariates(
+                pca_matrix,
+                pca_col_names,
+                covariate_matrix,
+                covariate_col_names,
+            )
+            logger.info(
+                f"PCA: merged {len(pca_col_names)} PCs with existing covariates "
+                f"-> {len(covariate_col_names)} total columns"
+            )
+
+        # ------------------------------------------------------------------
+        # Phase 19: Build phenotype vector once (0=control, 1=case)
+        # ------------------------------------------------------------------
+        import numpy as np
+
+        phenotype_vector = None
+        if vcf_samples_list:
+            case_set_all = set(case_samples)
+            phenotype_vector = np.array(
+                [1.0 if s in case_set_all else 0.0 for s in vcf_samples_list],
+                dtype=float,
+            )
+            n_pv_cases = int(phenotype_vector.sum())
+            n_pv_controls = int((1.0 - phenotype_vector).sum())
+            logger.info(
+                f"Association analysis: phenotype vector built — "
+                f"{n_pv_cases} cases, {n_pv_controls} controls"
+            )
+
+        # ------------------------------------------------------------------
+        # Standard aggregation (existing paths — unchanged)
+        # ------------------------------------------------------------------
+        has_case_ctrl = True  # already checked above
+        gt_columns = _find_gt_columns(df)
+        use_column_aggregation = bool(
+            has_case_ctrl
+            and gt_columns
+            and vcf_samples_list
+            and len(gt_columns) <= len(vcf_samples_list)
+        )
+        use_gt_aggregation = has_case_ctrl and not use_column_aggregation and "GT" in df.columns
+
+        if use_column_aggregation:
+            logger.info(
+                f"Association analysis: using column-based aggregation "
+                f"({len(gt_columns)} GT columns, "
+                f"{len(case_set)} cases, {len(control_set)} controls)"
+            )
+            assert vcf_samples_list is not None
+            gene_burden_data = _aggregate_gene_burden_from_columns(
+                df, case_set, control_set, vcf_samples_list, gt_columns
+            )
+        elif use_gt_aggregation:
+            logger.info(
+                "Association analysis: using packed GT string collapsing "
+                f"({len(case_set)} cases, {len(control_set)} controls)"
+            )
+            gene_burden_data = _aggregate_gene_burden_from_gt(df, case_set, control_set)
+        else:
+            logger.info("Association analysis: using pre-computed per-variant counts (legacy mode)")
+            gene_burden_data = _aggregate_gene_burden_legacy(df)
+
+        if not gene_burden_data:
+            logger.warning("No genes found with variant data for association analysis.")
+            return context
+
+        # ------------------------------------------------------------------
+        # Phase 19: Augment gene_burden_data with genotype matrix for
+        # regression tests (logistic_burden, linear_burden, skat, skat_python)
+        # Backward compatible: FisherExactTest ignores the new keys.
+        #
+        # Use df_with_per_sample_gt when available (per-sample GT columns
+        # were dropped by reconstruct_gt_column for the aggregation step).
+        # Fall back to gt_columns from current df if columns still present.
+        # ------------------------------------------------------------------
+        gt_source_df = df_with_per_sample_gt if df_with_per_sample_gt is not None else df
+        gt_columns_for_matrix = _find_gt_columns(gt_source_df)
+        if needs_regression and gt_columns_for_matrix and vcf_samples_list:
+            from ..association.genotype_matrix import build_genotype_matrix
+
+            is_binary = assoc_config.trait_type == "binary"
+            for gene_data in gene_burden_data:
+                gene_name = gene_data.get("GENE", "")
+                gene_df = gt_source_df[gt_source_df["GENE"] == gene_name]
+                if gene_df.empty:
+                    gene_data["genotype_matrix"] = np.zeros((len(vcf_samples_list), 0), dtype=float)
+                    gene_data["variant_mafs"] = np.zeros(0, dtype=float)
+                    gene_data["phenotype_vector"] = phenotype_vector
+                    gene_data["covariate_matrix"] = covariate_matrix
+                    continue
+
+                geno, mafs, sample_mask, gt_warnings = build_genotype_matrix(
+                    gene_df,
+                    vcf_samples_list,
+                    gt_columns_for_matrix,
+                    is_binary=is_binary,
+                    missing_site_threshold=assoc_config.missing_site_threshold,
+                    missing_sample_threshold=assoc_config.missing_sample_threshold,
+                    phenotype_vector=phenotype_vector,
+                )
+                for w in gt_warnings:
+                    logger.warning(f"Gene {gene_name}: {w}")
+
+                # Apply sample mask to phenotype and covariates if any high-missing samples
+                if not all(sample_mask):
+                    mask_arr = np.array(sample_mask, dtype=bool)
+                    pv = phenotype_vector[mask_arr] if phenotype_vector is not None else None
+                    cm = covariate_matrix[mask_arr] if covariate_matrix is not None else None
+                    geno = geno[mask_arr]
+                else:
+                    pv = phenotype_vector
+                    cm = covariate_matrix
+
+                # Per-gene MAC check: skip regression if < 5 minor allele copies
+                total_mac = int(geno.sum()) if geno.size > 0 else 0
+                if total_mac < 5:
+                    logger.debug(
+                        f"Gene {gene_name}: MAC={total_mac} < 5 — "
+                        "regression will report NA (insufficient data)"
+                    )
+                    gene_data["genotype_matrix"] = np.zeros((geno.shape[0], 0), dtype=float)
+                    gene_data["variant_mafs"] = np.zeros(0, dtype=float)
+                else:
+                    gene_data["genotype_matrix"] = geno
+                    gene_data["variant_mafs"] = mafs
+
+                # Phase 23: Extract functional annotation columns for CADD/REVEL weight schemes
+                # (WEIGHT-05). Arrays must align with variant_mafs (post site-filter length).
+                if assoc_config.variant_weights in ("cadd", "revel", "combined"):
+                    _cadd_col = next(
+                        (
+                            c
+                            for c in gene_df.columns
+                            if c.lower() in ("dbnsfp_cadd_phred", "cadd_phred")
+                        ),
+                        None,
+                    )
+                    _revel_col = next(
+                        (
+                            c
+                            for c in gene_df.columns
+                            if c.lower() in ("dbnsfp_revel_score", "revel_score")
+                        ),
+                        None,
+                    )
+                    _effect_col = next(
+                        (c for c in gene_df.columns if c.upper() in ("EFFECT", "ANN_0__EFFECT")),
+                        None,
+                    )
+                    # Align annotations with variant_mafs (build_genotype_matrix applies
+                    # a site missing-rate filter; replicate it here for correct alignment).
+                    # The filter marks variants with >missing_site_threshold missing GTs.
+                    # Missing GTs are identified by parse_gt_to_dosage returning None,
+                    # i.e. strings like "./.", ".|.", ".", or empty.
+                    _n_df = len(gene_df)
+                    _n_kept = len(gene_data["variant_mafs"])
+                    if _n_kept < _n_df:
+                        from ..association.genotype_matrix import parse_gt_to_dosage as _pgd
+
+                        _gt_cols_list = list(gt_columns_for_matrix)
+                        _n_samples_gt = len(_gt_cols_list)
+                        _keep_mask_ann = np.ones(_n_df, dtype=bool)
+                        for _vi, (_, _row) in enumerate(gene_df.iterrows()):
+                            _n_miss = sum(
+                                1
+                                for _col in _gt_cols_list
+                                if _pgd(str(_row.get(_col) or ""))[0] is None
+                            )
+                            _miss_frac = _n_miss / _n_samples_gt if _n_samples_gt > 0 else 0.0
+                            if _miss_frac > assoc_config.missing_site_threshold:
+                                _keep_mask_ann[_vi] = False
+                    else:
+                        _keep_mask_ann = None
+
+                    if _cadd_col:
+                        _vals = gene_df[_cadd_col].values
+                        gene_data["cadd_scores"] = (
+                            _vals[_keep_mask_ann] if _keep_mask_ann is not None else _vals
+                        )
+                    if _revel_col:
+                        _vals = gene_df[_revel_col].values
+                        gene_data["revel_scores"] = (
+                            _vals[_keep_mask_ann] if _keep_mask_ann is not None else _vals
+                        )
+                    if _effect_col:
+                        _vals = gene_df[_effect_col].values
+                        gene_data["variant_effects"] = (
+                            _vals[_keep_mask_ann] if _keep_mask_ann is not None else _vals
+                        )
+
+                gene_data["phenotype_vector"] = pv
+                gene_data["covariate_matrix"] = cm
+                gene_data["vcf_samples"] = vcf_samples_list
+
+                # Phase 23: Provide gene_df for COAST annotation column access.
+                # Store the original (pre-filter) df; COASTTest uses it for EFFECT/IMPACT
+                # and auto-detected SIFT/PolyPhen columns. COASTTest handles alignment
+                # mismatch detection via shape check against genotype_matrix.
+                gene_data["gene_df"] = gene_df.reset_index(drop=True)
+
+            # Release the per-sample GT DataFrame (can be large with many samples)
+            del df_with_per_sample_gt, gt_source_df
+
+        # Phase 22: Build gene lookup for per-gene warnings BEFORE engine.run_all()
+        # gene_burden_data dicts use "GENE" (uppercase) as the gene key
+        gene_data_by_gene = {d.get("GENE", d.get("gene", "")): d for d in gene_burden_data}
+
+        # Run association tests
+        results_df = engine.run_all(gene_burden_data)
+
+        if results_df.empty:
+            logger.warning("Association analysis produced no results.")
+            return context
+
+        # ------------------------------------------------------------------
+        # Phase 22: Per-gene warnings column
+        # ------------------------------------------------------------------
+        from ..association.diagnostics import compute_per_gene_warnings
+
+        warnings_by_gene: dict[str, str] = {}
+        for gene in results_df["gene"].unique():
+            gdata = gene_data_by_gene.get(gene, {})
+            case_carriers = gdata.get("proband_carrier_count", 0)
+            gene_warnings = compute_per_gene_warnings(gene, case_carriers, assoc_config)
+            if gene_warnings:
+                warnings_by_gene[gene] = ";".join(gene_warnings)
+        results_df["warnings"] = results_df["gene"].map(warnings_by_gene).fillna("")
+
+        # Write results to output file
+        assoc_output = context.config.get("association_output")
+        if not assoc_output:
+            output_dir = context.config.get("output_dir", "output")
+            base_name = context.config.get("output_file_base", "association_results")
+            assoc_output = str(Path(output_dir) / f"{base_name}.association.tsv")
+            context.config["association_output"] = assoc_output
+
+        # Apply compression based on configuration
+        use_compression = context.config.get("gzip_intermediates", True)
+        if use_compression and not str(assoc_output).endswith(".gz"):
+            assoc_output = str(assoc_output) + ".gz"
+            context.config["association_output"] = assoc_output
+            compression = "gzip"
+        else:
+            compression = None
+
+        results_df.to_csv(assoc_output, sep="\t", index=False, compression=cast(Any, compression))
+        logger.info(f"Wrote association results to {assoc_output}")
+
+        # ------------------------------------------------------------------
+        # Phase 22: Write diagnostics if requested
+        # ------------------------------------------------------------------
+        if assoc_config.diagnostics_output:
+            from ..association.diagnostics import emit_sample_size_warnings, write_diagnostics
+
+            cohort_warnings = emit_sample_size_warnings(
+                n_cases_total, n_controls_total, assoc_config
+            )
+            write_diagnostics(
+                results_df=results_df,
+                diagnostics_dir=assoc_config.diagnostics_output,
+                test_names=test_names,
+                n_cases=n_cases_total,
+                n_controls=n_controls_total,
+                cohort_warnings=cohort_warnings,
+            )
+
+        # Store results in context
+        context.association_results = results_df
+
+        # Log summary
+        n_genes = len(results_df)
+        # Count significant genes across any corrected p-value column
+        corr_cols = [c for c in results_df.columns if c.endswith("_corrected_p_value")]
+        n_sig = int((results_df[corr_cols].min(axis=1) < 0.05).sum()) if corr_cols else 0
+        logger.info(
+            f"Association analysis: {n_genes} genes tested, {n_sig} significant (FDR < 0.05)"
+        )
+
+        return context
+
+    def get_input_files(self, context: PipelineContext) -> list[Path]:
+        """Return input files for checkpoint tracking."""
+        return []
+
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
+        """Return output files for checkpoint tracking."""
+        if hasattr(context, "config") and context.config.get("association_output"):
+            assoc_output = context.config["association_output"]
+            if Path(assoc_output).exists():
+                return [Path(assoc_output)]
         return []
 
 
@@ -2366,7 +3180,7 @@ class ChunkedAnalysisStage(Stage):
                 compression = None
 
             context.current_dataframe.to_csv(
-                chunked_output_path, sep="\t", index=False, compression=compression
+                chunked_output_path, sep="\t", index=False, compression=cast(Any, compression)
             )
 
             # Update context paths for downstream stages
@@ -2411,7 +3225,7 @@ class ChunkedAnalysisStage(Stage):
         )
         logger.info(f"Loaded {len(chunks)} chunks for parallel processing")
 
-        output_chunks = [None] * len(chunks)  # Pre-allocate to maintain order
+        output_chunks: list[pd.DataFrame] = [pd.DataFrame()] * len(chunks)
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all chunks for processing

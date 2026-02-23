@@ -10,7 +10,7 @@ from variantcentrifuge.cli import main
 class TestCLIDebugLogging:
     """Test CLI debug logging functionality."""
 
-    @patch("variantcentrifuge.cli.run_refactored_pipeline")
+    @patch("variantcentrifuge.cli.run_pipeline")
     @patch("variantcentrifuge.cli.validate_vcf_file")
     @patch("variantcentrifuge.cli.validate_mandatory_parameters")
     def test_command_line_logging_in_debug_mode(
@@ -73,7 +73,7 @@ class TestCLIDebugLogging:
         working_dir_messages = [msg for msg in debug_messages if "Working directory:" in msg]
         assert len(working_dir_messages) == 1
 
-    @patch("variantcentrifuge.cli.run_refactored_pipeline")
+    @patch("variantcentrifuge.cli.run_pipeline")
     @patch("variantcentrifuge.cli.validate_vcf_file")
     @patch("variantcentrifuge.cli.validate_mandatory_parameters")
     def test_no_command_line_logging_in_info_mode(

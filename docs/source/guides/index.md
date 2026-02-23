@@ -47,6 +47,7 @@ rare_disease_workflow
 cancer_analysis
 inheritance_analysis
 cohort_analysis
+association_testing
 variant_scoring
 custom_filters
 ../user-guide/privacy_and_pseudonymization

@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes._
 
+## [0.15.0] - 2026-02-22
+
+### Added
+- **Modular association testing framework** with pluggable test architecture:
+  - Fisher's exact test with carrier/allele modes, odds ratio, and 95% CI
+  - Logistic burden regression for binary traits with Firth fallback for separation
+  - Linear burden regression for quantitative traits (OLS)
+  - SKAT and SKAT-O with pure Python backend (numpy/scipy, thread-safe); R backend deprecated
+  - COAST allelic series test (BMV/DMV/PTV categories); pure Python backend default
+  - ACAT-O per-gene omnibus via Cauchy combination; ACAT-V per-variant score within SKAT
+- **Covariate system**: TSV/CSV covariate files with auto-detected delimiter and categorical encoding
+- **PCA integration**: PLINK `.eigenvec`, AKT output, and generic TSV formats; optional AKT subprocess
+- **Variant weights**: Beta(MAF), uniform, CADD, REVEL, and combined functional weight schemes
+- **Diagnostics**: Genomic inflation factor (lambda_GC), QQ data TSV, optional matplotlib QQ plot
+- **JSON config**: `"association"` section in config.json with validation and CLI override precedence
+- **Single FDR strategy**: Benjamini-Hochberg correction on ACAT-O p-values only (not per-test)
+- **Association testing guide**: Comprehensive user documentation with examples and troubleshooting
+
 ## [0.14.0] - 2026-02-18
 
 ### Added

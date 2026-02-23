@@ -1,8 +1,8 @@
 """
-Refactored pipeline using the new Stage architecture.
+Stage-based pipeline orchestration.
 
-This module demonstrates how to use the refactored pipeline stages
-to replace the monolithic pipeline.py functionality.
+This module builds and runs the stage-based pipeline using PipelineRunner,
+PipelineContext, and registered Stage subclasses from pipeline_core/.
 """
 
 import argparse
@@ -17,6 +17,7 @@ from .pipeline_core.runner import PipelineRunner
 from .pipeline_core.stage import Stage
 from .pipeline_core.workspace import Workspace
 from .stages.analysis_stages import (
+    AssociationAnalysisStage,
     ChunkedAnalysisStage,
     ClinVarPM5Stage,
     CustomAnnotationStage,
@@ -281,6 +282,9 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     if hasattr(args, "perform_gene_burden") and args.perform_gene_burden:
         stages.append(GeneBurdenAnalysisStage())
 
+    if hasattr(args, "perform_association") and args.perform_association:
+        stages.append(AssociationAnalysisStage())
+
     # ClinVar PM5 annotation (when lookup table is provided)
     if config.get("clinvar_pm5_lookup") or getattr(args, "clinvar_pm5_lookup", None):
         stages.append(ClinVarPM5Stage())
@@ -362,8 +366,8 @@ def create_stages_from_config(config: dict) -> list[Stage]:
     return build_pipeline_stages(args)
 
 
-def run_refactored_pipeline(args: argparse.Namespace) -> None:
-    """Run the refactored pipeline with the new architecture.
+def run_pipeline(args: argparse.Namespace) -> None:
+    """Run the stage-based pipeline.
 
     Parameters
     ----------
@@ -560,26 +564,3 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
     finally:
         # Always clean temp files
         workspace.cleanup(keep_intermediates=True)
-
-
-def main():
-    """Show example main function demonstrating how to use the refactored pipeline."""
-    # This would normally come from CLI parsing
-    args = argparse.Namespace(
-        vcf_file="example.vcf",
-        gene_name="BRCA1 BRCA2",
-        output_dir="output",
-        threads=4,
-        filter="QUAL >= 30",
-        extract=["CHROM", "POS", "REF", "ALT", "QUAL"],
-        replace_genotypes=True,
-        html_report=True,
-        xlsx=True,
-        enable_checkpoint=True,
-    )
-
-    run_refactored_pipeline(args)
-
-
-if __name__ == "__main__":
-    main()

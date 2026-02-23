@@ -113,6 +113,10 @@ variantcentrifuge \
     --output-file cohort_gene_burden.tsv
 ```
 
+### Advanced Association Testing
+
+For statistical tests beyond Fisher's exact test — including SKAT-O, COAST allelic series, logistic/linear burden regression with covariate adjustment, PCA integration for population stratification, and ACAT-O omnibus combination — see the [Association Testing Guide](association_testing.md). The association framework accepts the same phenotype-derived case/control sample lists and supports all gene burden collapsing modes available in `--perform-gene-burden`.
+
 ### Custom Cohort Configurations
 
 Create cohort-specific configuration files:

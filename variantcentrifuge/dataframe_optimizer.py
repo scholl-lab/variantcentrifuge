@@ -324,7 +324,7 @@ def load_optimized_dataframe(
     df = pd.read_csv(file_path, **read_kwargs)
 
     # Step 4: Sanitize columns if requested
-    column_rename_map = {}
+    column_rename_map: dict[str, str] = {}
     if sanitize_columns:
         df, column_rename_map = rename_invalid_identifiers(df)
 
@@ -367,7 +367,7 @@ def get_column_rename_map(context: Any) -> dict[str, str]:
     ...     df.rename(columns=reverse_map, inplace=True)
     """
     if hasattr(context, "column_rename_map"):
-        return context.column_rename_map
+        return dict(context.column_rename_map)
     else:
         logger.debug("No column_rename_map found in context")
         return {}
