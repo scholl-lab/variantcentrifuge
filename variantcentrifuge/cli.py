@@ -575,25 +575,25 @@ def create_parser() -> argparse.ArgumentParser:
             "Default: 10. Flags genes where case_carriers < this value."
         ),
     )
-    # Phase 23: PCA arguments
+    # Phase 32: Unified PCA argument (replaces --pca-file and --pca-tool)
     stats_group.add_argument(
-        "--pca-file",
-        type=str,
+        "--pca",
+        dest="pca",
         default=None,
-        help="Path to pre-computed PCA file (PLINK .eigenvec, AKT output, or generic TSV).",
-    )
-    stats_group.add_argument(
-        "--pca-tool",
-        choices=["akt"],
-        default=None,
-        help="PCA computation tool. 'akt' invokes AKT as a pipeline stage.",
+        help=(
+            "PCA eigenvectors: path to pre-computed file (PLINK .eigenvec, AKT output, "
+            "or generic TSV), or 'akt' to compute via AKT as a pipeline stage."
+        ),
     )
     stats_group.add_argument(
         "--pca-components",
         type=int,
         default=10,
-        help="Number of principal components (default: 10). Warn if >20.",
+        help="Number of principal components to use as covariates (default: 10).",
     )
+    # Deprecated aliases (backward compatibility — hidden from help)
+    stats_group.add_argument("--pca-file", dest="pca", help=argparse.SUPPRESS, default=None)
+    stats_group.add_argument("--pca-tool", dest="pca", help=argparse.SUPPRESS, default=None)
     # Inheritance Analysis
     inheritance_group = parser.add_argument_group("Inheritance Analysis")
     inheritance_group.add_argument(
@@ -1245,9 +1245,8 @@ def main() -> int:
     cfg["diagnostics_output"] = getattr(args, "diagnostics_output", None)
     # Phase 32: Region restriction
     cfg["regions_bed"] = getattr(args, "regions_bed", None)
-    # Phase 23: PCA configuration
-    cfg["pca_file"] = getattr(args, "pca_file", None)
-    cfg["pca_tool"] = getattr(args, "pca_tool", None)
+    # Phase 32: Unified PCA configuration (--pca replaces --pca-file/--pca-tool)
+    cfg["pca"] = getattr(args, "pca", None)
     cfg["pca_components"] = getattr(args, "pca_components", 10)
     # Phase 23: COAST weights — parse comma-separated floats
     _coast_weights_raw = getattr(args, "coast_weights", None)
@@ -1495,11 +1494,9 @@ def main() -> int:
     if getattr(args, "diagnostics_output", None) and not args.perform_association:
         parser.error("--diagnostics-output requires --perform-association to be set")
 
-    # PCA args only make sense with association analysis
-    if getattr(args, "pca_file", None) and not args.perform_association:
-        parser.error("--pca-file requires --perform-association to be set")
-    if getattr(args, "pca_tool", None) and not args.perform_association:
-        parser.error("--pca-tool requires --perform-association to be set")
+    # PCA arg only makes sense with association analysis
+    if getattr(args, "pca", None) and not args.perform_association:
+        parser.error("--pca requires --perform-association to be set")
 
     # Trait type / test compatibility check
     trait_type = getattr(args, "trait_type", "binary")

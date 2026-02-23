@@ -1956,6 +1956,7 @@ VALID_ASSOCIATION_KEYS: frozenset[str] = frozenset(
         "covariate_file",
         "covariate_columns",
         "categorical_covariates",
+        "pca",
         "pca_file",
         "pca_tool",
         "pca_components",

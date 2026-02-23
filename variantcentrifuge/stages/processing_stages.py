@@ -1464,3 +1464,89 @@ class DataSortingStage(Stage):
         if context.extracted_tsv:
             return [context.extracted_tsv]
         return []
+
+
+class PCAComputationStage(Stage):
+    """Compute or load PCA eigenvectors for association covariate adjustment."""
+
+    @property
+    def name(self) -> str:
+        """Return the stage name."""
+        return "pca_computation"
+
+    @property
+    def description(self) -> str:
+        """Return a description of what this stage does."""
+        return "Compute or load PCA eigenvectors"
+
+    @property
+    def dependencies(self) -> set[str]:
+        """Return the set of stage names this stage depends on."""
+        return {"sample_config_loading", "configuration_loading"}
+
+    @property
+    def parallel_safe(self) -> bool:
+        """Return False — AKT subprocess is not thread-safe."""
+        return False
+
+    def _process(self, context: PipelineContext) -> PipelineContext:
+        """Compute or load PCA eigenvectors."""
+        pca_arg = context.config.get("pca")
+        if not pca_arg:
+            return context
+
+        n_components = context.config.get("pca_components", 10)
+
+        if os.path.isfile(pca_arg):
+            pca_file = pca_arg
+            logger.info(f"PCA: using pre-computed eigenvectors from {pca_file}")
+        elif pca_arg == "akt":
+            pca_file = self._run_akt(context, n_components)
+        else:
+            raise ValueError(
+                f"--pca argument '{pca_arg}' is neither a valid file path "
+                "nor a recognized tool name ('akt')."
+            )
+
+        # Store pca_file in config so _build_assoc_config_from_context picks it up
+        context.config["pca_file"] = pca_file
+        context.mark_complete(self.name, result={"pca_file": pca_file})
+        return context
+
+    def _run_akt(self, context: PipelineContext, n_components: int) -> str:
+        """Run AKT PCA computation and return path to eigenvector file."""
+        vcf_file = context.config.get("vcf_file")
+        if not vcf_file:
+            raise ValueError("--pca akt requires a VCF file (--vcf-file)")
+
+        output_path = context.workspace.get_intermediate_path(
+            f"{context.workspace.base_name}.pca.eigenvec"
+        )
+
+        # Simple cache: reuse if output exists and is non-empty
+        if output_path.exists() and output_path.stat().st_size > 0:
+            logger.info(f"PCA: reusing cached eigenvectors from {output_path}")
+            return str(output_path)
+
+        cmd = ["akt", "pca", vcf_file, "-o", str(output_path), "-n", str(n_components)]
+        logger.info(f"Running AKT PCA: {' '.join(cmd)}")
+
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(
+                f"AKT PCA failed (exit code {e.returncode}): {e.stderr}"
+            ) from e
+        except FileNotFoundError as e:
+            raise RuntimeError(
+                "AKT not found in PATH. Install akt or use --pca <eigenvec_file> "
+                "to supply pre-computed eigenvectors."
+            ) from e
+
+        if not output_path.exists() or output_path.stat().st_size == 0:
+            raise RuntimeError(
+                "AKT PCA completed but produced no output. "
+                "Check that the VCF has sufficient samples and variants."
+            )
+
+        return str(output_path)
