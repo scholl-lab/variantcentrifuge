@@ -54,10 +54,10 @@ See MILESTONES.md for details.
 3. No "old pipeline" or "Refactored" comments or docstrings remain in error_handling.py, analyze_variants.py, or pipeline stage files
 4. Stage registry imports and `__all__` entries are consistent — no reference to removed stage class names exists anywhere in the codebase
 
-**Plans:** TBD
+**Plans:** 1 plan
 
 Plans:
-- [ ] 30-01: Remove dead stage classes and synchronize registry and imports
+- [ ] 30-01-PLAN.md — Remove dead stage classes, synchronize registry/imports, normalize naming artifacts
 
 ---
 
