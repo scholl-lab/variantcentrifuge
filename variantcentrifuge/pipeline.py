@@ -564,4 +564,3 @@ def run_pipeline(args: argparse.Namespace) -> None:
     finally:
         # Always clean temp files
         workspace.cleanup(keep_intermediates=True)
-
