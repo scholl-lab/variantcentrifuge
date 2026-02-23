@@ -23,7 +23,7 @@ VariantCentrifuge combines gene-centric region extraction, multi-tier filtering 
 - Cohort aggregation across multiple samples
 - Field profiles for switching annotation database versions (e.g., dbNSFP v4/v5)
 - Docker image with all bioinformatics dependencies included
-- Stage-based pipeline architecture with parallel execution (`--use-new-pipeline`)
+- Stage-based pipeline architecture with parallel execution
 
 ## Installation
 
