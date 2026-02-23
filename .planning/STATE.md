@@ -5,21 +5,21 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
-**Current focus:** v0.16.0 — Association Hardening & Multi-Cohort Features (Phase 31 COMPLETE)
+**Current focus:** v0.16.0 — Association Hardening & Multi-Cohort Features (Phase 32 COMPLETE)
 
 ## Current Position
 
-Phase: 31 of 36 (COAST Fix — COMPLETE)
-Plan: 3 of 10 (across v0.16.0)
-Status: Phase 31 complete — ready for Phase 32
-Last activity: 2026-02-23 — Completed 31-02-PLAN.md (COAST-02, COAST-04, COAST-05, COAST-06, COAST-07)
+Phase: 32 of 36 (Region Restriction + PCA Wiring — COMPLETE)
+Plan: 5 of 10 (across v0.16.0)
+Status: Phase 32 complete — ready for Phase 33
+Last activity: 2026-02-23 — Completed 32-02-PLAN.md (PCA wiring, unified --pca flag, PCAComputationStage)
 
-Progress: ███░░░░░░░ 30%
+Progress: █████░░░░░ 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed (v0.16.0): 3
+- Total plans completed (v0.16.0): 5
 - Prior milestone (v0.15.0): 35 plans, 12 phases, 5 days
 
 **By Phase:**
@@ -28,6 +28,7 @@ Progress: ███░░░░░░░ 30%
 |-------|-------|-------|----------|
 | 30 — Dead Code Cleanup | 1/1 done | ~19 min | ~19 min |
 | 31 — COAST Fix | 2/2 done | ~26 min | ~13 min |
+| 32 — Region Restriction + PCA Wiring | 2/2 done | ~44 min | ~22 min |
 
 *Updated after each plan completion*
 
@@ -49,6 +50,10 @@ Progress: ███░░░░░░░ 30%
 - [31-02] coast_classification in AssociationConfig stores absolute path (None = hardcoded logic); cli.py resolves model name to path
 - [31-02] Auto-injection filters out COAST_* internal names from vcf_fields (built-in models use normalized columns, not raw VCF fields)
 - [31-02] diagnostics_rows parameter added to classify_variants() — ready for Phase 35 diagnostics wiring but not yet connected to file output
+- [32-01] --regions-bed CLI flag added; RegionRestrictionStage wired into GeneBedCreationStage via _intersect_with_restriction_bed
+- [32-02] --pca unified flag auto-detects file path vs 'akt' tool name; --pca-file/--pca-tool are hidden deprecated aliases via dest='pca'
+- [32-02] PCAComputationStage sets cfg['pca_file'] for compat with _build_assoc_config_from_context; AssociationAnalysisStage uses setdefault to not override explicit config
+- [32-02] AKT cache: skip subprocess if {base_name}.pca.eigenvec already exists and is non-empty
 
 ### Architecture Invariants
 
@@ -60,6 +65,7 @@ Progress: ███░░░░░░░ 30%
 - Weighted BH: weights MUST be renormalized to mean=1.0 at load time (Genovese 2006 FDR guarantee)
 - Case-confidence weights: must be applied to null model (var_weights in GLM), not to residuals post-hoc
 - COAST classification: model_dir=None → hardcoded SIFT/PolyPhen; model_dir=path → formula engine
+- PCA stage handoff: PCAComputationStage sets context.config['pca_file'] AND marks complete with result dict; AssociationAnalysisStage reads both
 
 ### Blockers/Concerns
 
@@ -70,7 +76,7 @@ Progress: ███░░░░░░░ 30%
 
 ## Session Continuity
 
-Last session: 2026-02-23T18:24:14Z
-Stopped at: Completed 31-02-PLAN.md — COAST-02/04/05/06/07 (classification configs, effect resolution, CLI option)
+Last session: 2026-02-23T20:53:47Z
+Stopped at: Completed 32-02-PLAN.md — PCA wiring, unified --pca flag, PCAComputationStage
 Resume file: None
-Next: Phase 32 — Region Restriction + PCA Wiring
+Next: Phase 33+ — FDR Weighting / Case-Confidence
