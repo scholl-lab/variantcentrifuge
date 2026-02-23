@@ -76,7 +76,9 @@ Progress: █████░░░░░ 50%
 
 ## Session Continuity
 
-Last session: 2026-02-23T20:53:47Z
-Stopped at: Completed 32-02-PLAN.md — PCA wiring, unified --pca flag, PCAComputationStage
+Last session: 2026-02-23T20:55:09Z
+Stopped at: Completed 32-01-PLAN.md — --regions-bed CLI flag, GeneBedCreationStage BED intersection, chr-mismatch detection
 Resume file: None
 Next: Phase 33+ — FDR Weighting / Case-Confidence
+
+Note: Phase 32 both plans (01 Region Restriction + 02 PCA Wiring) are complete as of this session.
