@@ -7,13 +7,13 @@
 
 ### COAST Fix (#87)
 
-- [ ] **COAST-01**: Genotype matrix is available to all regression-based tests (SKAT, burden, COAST) when per-sample GT columns exist in the DataFrame
-- [ ] **COAST-02**: When `--association-tests coast` is specified, SIFT and PolyPhen annotation fields are auto-injected into field extraction
-- [ ] **COAST-03**: COAST test produces valid p-values when 1 or 2 of 3 variant categories (BMV/DMV/PTV) are missing, with a warning logged (matching R AllelicSeries behavior)
-- [ ] **COAST-04**: COAST classification handles SnpEff "&"-concatenated effect strings (e.g., `stop_gained&splice_region_variant`)
-- [ ] **COAST-05**: User can select a COAST classification model via `--coast-classification <model-name>` (default: `sift_polyphen`)
-- [ ] **COAST-06**: A `scoring/coast_classification/` config defines BMV/DMV/PTV thresholds as configuration, supporting SIFT+PolyPhen, CADD-based, and REVEL-based classification strategies
-- [ ] **COAST-07**: Multi-transcript annotation conflicts use configurable resolution strategy (default: majority-vote) in the classification scoring model
+- [x] **COAST-01**: Genotype matrix is available to all regression-based tests (SKAT, burden, COAST) when per-sample GT columns exist in the DataFrame
+- [x] **COAST-02**: When `--association-tests coast` is specified, SIFT and PolyPhen annotation fields are auto-injected into field extraction
+- [x] **COAST-03**: COAST test produces valid p-values when 1 or 2 of 3 variant categories (BMV/DMV/PTV) are missing, with a warning logged (matching R AllelicSeries behavior)
+- [x] **COAST-04**: COAST classification handles SnpEff "&"-concatenated effect strings (e.g., `stop_gained&splice_region_variant`)
+- [x] **COAST-05**: User can select a COAST classification model via `--coast-classification <model-name>` (default: `sift_polyphen`)
+- [x] **COAST-06**: A `scoring/coast_classification/` config defines BMV/DMV/PTV thresholds as configuration, supporting SIFT+PolyPhen, CADD-based, and REVEL-based classification strategies
+- [x] **COAST-07**: Multi-transcript annotation conflicts use configurable resolution strategy (default: majority-vote) in the classification scoring model
 
 ### Gene-Level FDR Weighting (#86)
 
@@ -93,13 +93,13 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| COAST-01 | Phase 31 | Pending |
-| COAST-02 | Phase 31 | Pending |
-| COAST-03 | Phase 31 | Pending |
-| COAST-04 | Phase 31 | Pending |
-| COAST-05 | Phase 31 | Pending |
-| COAST-06 | Phase 31 | Pending |
-| COAST-07 | Phase 31 | Pending |
+| COAST-01 | Phase 31 | Complete |
+| COAST-02 | Phase 31 | Complete |
+| COAST-03 | Phase 31 | Complete |
+| COAST-04 | Phase 31 | Complete |
+| COAST-05 | Phase 31 | Complete |
+| COAST-06 | Phase 31 | Complete |
+| COAST-07 | Phase 31 | Complete |
 | FDR-01 | Phase 33 | Pending |
 | FDR-02 | Phase 33 | Pending |
 | FDR-03 | Phase 33 | Pending |
@@ -142,4 +142,4 @@
 
 ---
 *Requirements defined: 2026-02-23*
-*Last updated: 2026-02-23 — traceability complete after roadmap creation*
+*Last updated: 2026-02-23 — Phase 31 COAST requirements marked Complete*

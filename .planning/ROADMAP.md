@@ -29,7 +29,7 @@ See MILESTONES.md for details.
 **Milestone Goal:** Harden the v0.15.0 association framework for real-world multi-cohort use — fix COAST p=None bugs that block scientific validation, add gene-level FDR priors, case-confidence sample weighting, BED region restriction, and sparse matrix support. Every new feature is backward-compatible; existing CLI and output formats unchanged.
 
 - [x] **Phase 30: Dead Code Cleanup** — Remove 8 vestigial stage classes and normalize legacy naming artifacts
-- [ ] **Phase 31: COAST Fix** — Fix genotype matrix reconstruction, partial-category fallback, and configurable classification scoring
+- [x] **Phase 31: COAST Fix** — Fix genotype matrix reconstruction, partial-category fallback, and configurable classification scoring
 - [ ] **Phase 32: Region Restriction and PCA Wiring** — Add BED-based region prefilter and wire PCAComputationStage into the pipeline
 - [ ] **Phase 33: Gene-Level FDR Weighting** — Implement weighted Benjamini-Hochberg with per-gene biological priors
 - [ ] **Phase 34: Tech Debt** — Fix association config mapping, generate COAST golden values, fix column naming, clarify diagnostics
@@ -79,8 +79,8 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 31-01-PLAN.md — Fix genotype matrix fallback (COAST-01) and partial-category logic (COAST-03)
-- [ ] 31-02-PLAN.md — Fix &-concatenated effect strings, configurable classification scoring, auto-field injection (COAST-02, COAST-04, COAST-05, COAST-06, COAST-07)
+- [x] 31-01-PLAN.md — Fix genotype matrix fallback (COAST-01) and partial-category logic (COAST-03)
+- [x] 31-02-PLAN.md — Fix &-concatenated effect strings, configurable classification scoring, auto-field injection (COAST-02, COAST-04, COAST-05, COAST-06, COAST-07)
 
 ---
 
@@ -202,7 +202,7 @@ Note: Phases 32 and 33 are independent of Phase 31 and of each other; they may b
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 30. Dead Code Cleanup | v0.16.0 | 1/1 | Complete | 2026-02-23 |
-| 31. COAST Fix | v0.16.0 | 0/2 | Not started | - |
+| 31. COAST Fix | v0.16.0 | 2/2 | Complete | 2026-02-23 |
 | 32. Region Restriction and PCA Wiring | v0.16.0 | 0/2 | Not started | - |
 | 33. Gene-Level FDR Weighting | v0.16.0 | 0/1 | Not started | - |
 | 34. Tech Debt | v0.16.0 | 0/1 | Not started | - |
