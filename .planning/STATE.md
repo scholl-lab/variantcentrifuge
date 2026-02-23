@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 28 — Tech Debt Cleanup
-Plan: 2/2 complete
-Status: Phase complete — Phase 29 pending
-Last activity: 2026-02-23 — Completed 28-02-PLAN.md (CLI args for skat_method + diagnostic thresholds)
+Phase: 29 — Classic Pipeline Deprecation and Removal
+Plan: 3/3 complete
+Status: Phase complete — Milestone v0.15.0 all phases complete
+Last activity: 2026-02-23 — Completed 29-03-PLAN.md (Documentation cleanup: CLAUDE.md and README.md updated for single pipeline)
 
-Progress: █████████████████████░░ 88% (Phases 18-28 complete; 29 pending)
+Progress: ███████████████████████ 100% (Phases 18-29 all complete)
 
 ## Milestone Overview
 
@@ -32,8 +32,8 @@ Progress: █████████████████████░░ 
 | 25. Python Default + Quick Wins | Python default backends, R deprecated, saddlepoint fallback, ACAT-V | — | Complete ✓ |
 | 26. Documentation | Association testing guide, update existing docs, API stubs, changelog | TBD | Complete ✓ |
 | 27. Performance Optimizations | GL quadrature (46x SKAT-O), ProcessPoolExecutor gene parallelization | — | Complete ✓ |
-| 28. Tech Debt Cleanup | RSKATTest attribute, CLI args for skat_method + diagnostic thresholds | Audit gaps | Pending |
-| 29. Classic Pipeline Deprecation | Remove pipeline.py, make stage-based default, remove --use-new-pipeline | DEPR-01 | Pending |
+| 28. Tech Debt Cleanup | RSKATTest attribute, CLI args for skat_method + diagnostic thresholds | Audit gaps | Complete ✓ |
+| 29. Classic Pipeline Deprecation | Remove classic pipeline, pipeline.py IS stage-based, remove --use-new-pipeline, update docs | DEPR-01 | Complete ✓ |
 
 **Total requirements:** 52 mapped across 7 phases (52 complete); phases 25-27 requirements TBD
 
@@ -170,7 +170,7 @@ Progress: █████████████████████░░ 
 
 ### Pending Todos
 
-- **DEPR-01** (backlog): Deprecate classic pipeline mode (`pipeline.py`) in favor of stage-based pipeline (`pipeline_core/`). See archived REQUIREMENTS.md Future Requirements.
+- ~~**DEPR-01** (backlog): Deprecate classic pipeline mode (`pipeline.py`) in favor of stage-based pipeline (`pipeline_core/`)~~ — RESOLVED: Phase 29 complete; classic pipeline removed, pipeline.py IS the stage-based pipeline, --use-new-pipeline removed, docs updated.
 - ~~**RESEARCH-01** (before Phase 20): Validate whether parallel_safe=False on the stage is sufficient for rpy2 thread safety~~ — RESOLVED: parallel_safe=False + _assert_main_thread() guard confirmed sufficient (unit tests verify RuntimeError from worker threads)
 - ~~**RESEARCH-02** (before Phase 21): Saddlepoint approximation algorithm for middle tier of Davies fallback chain~~ — RESOLVED: Kuonen Lugannani-Rice saddlepoint implemented in 21-01 from GENESIS variantSetTests.R reference
 - ~~**COLUMN-01** (Phase 22): Rename `linear_burden_or` column to `linear_burden_beta`~~ — DONE (resolved via effect_column_names() in commit 48a6e68)
@@ -181,8 +181,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-23T06:34:38Z – 2026-02-23T06:38:51Z
-Stopped at: Completed 28-02-PLAN.md — CLI args for --skat-method, --min-cases, --max-case-control-ratio, --min-case-carriers
+Last session: 2026-02-23T06:39:20Z – 2026-02-23T06:40:27Z
+Stopped at: Completed 29-03-PLAN.md — Documentation cleanup: CLAUDE.md and README.md updated for single pipeline architecture
 Resume file: None
-Next: 28-02-PLAN.md (CLI args for skat_method and diagnostic thresholds)
+Next: All phases complete. Audit milestone v0.15.0 and prepare release.
 Next: Plan Phase 28 (Tech Debt Cleanup). Then Phase 29 (Classic Pipeline Deprecation). After both complete, re-audit and complete milestone.
