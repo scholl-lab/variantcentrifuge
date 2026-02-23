@@ -433,6 +433,16 @@ def create_parser() -> argparse.ArgumentParser:
         help="COAST computation backend: python (default), r (deprecated), or auto",
     )
     stats_group.add_argument(
+        "--coast-classification",
+        type=str,
+        default="sift_polyphen",
+        help=(
+            "COAST classification model for BMV/DMV/PTV assignment. "
+            "Built-in models: 'sift_polyphen' (default), 'cadd'. "
+            "Custom models: provide directory name under scoring/coast_classification/."
+        ),
+    )
+    stats_group.add_argument(
         "--covariate-file",
         type=str,
         default=None,
@@ -1192,6 +1202,8 @@ def main() -> int:
         cfg["association_tests"] = ["fisher"] if args.perform_association else []
     cfg["skat_backend"] = getattr(args, "skat_backend", "python")
     cfg["coast_backend"] = getattr(args, "coast_backend", "python")
+    # coast_classification: resolved to absolute path later during auto-field injection
+    cfg["coast_classification"] = None
 
     # Phase 19: Covariate and regression configuration
     cfg["covariate_file"] = getattr(args, "covariate_file", None)
@@ -1305,6 +1317,65 @@ def main() -> int:
 
         cfg["igv_reference"] = args.igv_reference
     # MODIFIED: End of local IGV FASTA feature
+
+    # COAST auto-field injection (COAST-02, COAST-05)
+    # When COAST is one of the selected association tests, auto-inject annotation fields
+    # required by the selected classification model into the field extraction list.
+    _association_tests = cfg.get("association_tests", [])
+    if "coast" in _association_tests:
+        import json as _json
+        import os as _os
+
+        _coast_model = getattr(args, "coast_classification", "sift_polyphen")
+        # Resolve scoring base dir: package is at variantcentrifuge/, scoring/ is one level up
+        _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
+        _scoring_base = _os.path.join(_os.path.dirname(_pkg_dir), "scoring")
+        if not _os.path.isdir(_scoring_base):
+            _scoring_base = _os.path.join(_os.getcwd(), "scoring")
+        _coast_model_dir = _os.path.join(_scoring_base, "coast_classification", _coast_model)
+        if not _os.path.isdir(_coast_model_dir):
+            logger.error(
+                f"COAST classification model not found: {_coast_model_dir}. "
+                f"Available models are in scoring/coast_classification/."
+            )
+            sys.exit(1)
+
+        # Read required VCF fields from variable_assignment_config
+        _var_config_path = _os.path.join(_coast_model_dir, "variable_assignment_config.json")
+        try:
+            with open(_var_config_path, encoding="utf-8") as _f:
+                _var_config = _json.load(_f)
+        except (OSError, _json.JSONDecodeError) as _e:
+            logger.error(f"COAST: failed to read variable_assignment_config: {_e}")
+            sys.exit(1)
+
+        # Collect real field names (skip _comment keys)
+        _required_fields = [k for k in _var_config.get("variables", {}) if not k.startswith("_")]
+        # Filter out internal COAST_* normalized names (not actual VCF fields)
+        _vcf_fields = [f for f in _required_fields if not f.startswith("COAST_")]
+
+        if _vcf_fields:
+            if fields:
+                _field_list = [f.strip() for f in fields.split(",")]
+                _injected = []
+                for _rf in _vcf_fields:
+                    if _rf not in _field_list:
+                        _field_list.append(_rf)
+                        _injected.append(_rf)
+                if _injected:
+                    logger.info(
+                        f"COAST auto-injected fields for '{_coast_model}' model: {_injected}"
+                    )
+                fields = ",".join(_field_list)
+            else:
+                fields = ",".join(_vcf_fields)
+                logger.info(
+                    f"COAST set extraction fields for '{_coast_model}' model: {_vcf_fields}"
+                )
+
+        # Store resolved absolute path in cfg for AssociationConfig propagation
+        cfg["coast_classification"] = _coast_model_dir
+        logger.debug(f"COAST classification model resolved to: {_coast_model_dir}")
 
     # Update reference/filters/fields
     cfg["reference"] = reference

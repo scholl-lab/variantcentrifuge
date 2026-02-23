@@ -204,9 +204,7 @@ def _classify_via_formula_engine(
     # CADD (for cadd model)
     for candidate in CADD_COLUMN_CANDIDATES:
         if candidate in cols:
-            cadd_raw = gene_df[candidate].astype(object).where(
-                gene_df[candidate].notna(), other=0
-            )
+            cadd_raw = gene_df[candidate].astype(object).where(gene_df[candidate].notna(), other=0)
             work["COAST_CADD"] = pd.to_numeric(cadd_raw, errors="coerce").fillna(0.0)
             break
     if "COAST_CADD" not in work.columns:
@@ -362,9 +360,7 @@ def classify_variants(
     # Extract effect and impact series
     # Convert to object dtype first to handle Categorical columns safely
     # Apply _resolve_effect to handle '&'-concatenated multi-transcript annotations (COAST-04)
-    effect_series = (
-        gene_df[effect_col].astype(object).fillna("").astype(str).map(_resolve_effect)
-    )
+    effect_series = gene_df[effect_col].astype(object).fillna("").astype(str).map(_resolve_effect)
     impact_series = gene_df[impact_col].astype(object).fillna("").astype(str)
 
     # Helper: extract first prediction value from potentially multi-value cell
