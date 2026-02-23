@@ -489,7 +489,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
         if hasattr(args, key) and getattr(args, key) is not None and key not in initial_config:
             initial_config[key] = getattr(args, key)
 
-    # Map igv argument to igv_enabled for consistency with old pipeline
+    # Map igv argument to igv_enabled for backward compatibility
     if hasattr(args, "igv"):
         initial_config["igv_enabled"] = args.igv
 
@@ -506,7 +506,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
         )
 
         # Initialize checkpoint with current pipeline version and config
-        pipeline_version = initial_config.get("pipeline_version", "refactored_pipeline")
+        pipeline_version = initial_config.get("pipeline_version", "pipeline")
 
         # Handle checkpoint state initialization/loading
         is_resuming = initial_config.get("resume", False) or initial_config.get("resume_from")

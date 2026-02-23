@@ -182,7 +182,7 @@ class VariantIdentifierStage(Stage):
             logger.warning("No DataFrame for variant identifier generation")
             return context
 
-        # Use VAR_ID to match old pipeline
+        # Use VAR_ID as the variant identifier column
         id_column = "VAR_ID"
         if id_column in df.columns:
             logger.debug(f"Variant ID column '{id_column}' already exists")
@@ -190,7 +190,7 @@ class VariantIdentifierStage(Stage):
 
         logger.info("Generating variant identifiers")
 
-        # Generate IDs based on key fields with hash like old pipeline
+        # Generate IDs based on key fields with hash
         key_fields = ["CHROM", "POS", "REF", "ALT"]
         if all(field in df.columns for field in key_fields):
             import hashlib
@@ -240,7 +240,7 @@ class VariantIdentifierStage(Stage):
 
         input_file = Path(context.data)
         output_file = context.workspace.get_intermediate_path("with_variant_ids.tsv.gz")
-        id_column = "VAR_ID"  # Match the old pipeline
+        id_column = "VAR_ID"  # Default variant identifier column
 
         logger.info(f"Adding variant IDs in streaming mode: {input_file} -> {output_file}")
 
@@ -737,7 +737,7 @@ class ExcelReportStage(Stage):
             shutil.move(xlsx_file, str(output_path))
             xlsx_file = str(output_path)
 
-        # Add additional sheets like the old pipeline does
+        # Add additional sheets (summary, statistics, metadata)
         self._add_additional_sheets(xlsx_file, context)
 
         # Finalize Excel file with formatting and IGV links
@@ -749,7 +749,7 @@ class ExcelReportStage(Stage):
         return context
 
     def _add_additional_sheets(self, xlsx_file: str, context: PipelineContext) -> None:
-        """Add additional sheets to the Excel file like the old pipeline does."""
+        """Add additional sheets to the Excel file."""
         logger.info("Adding additional sheets to Excel file")
 
         # Debug: Print all report paths and config settings
@@ -1024,12 +1024,12 @@ class MetadataGenerationStage(Stage):
             logger.debug("Metadata generation disabled")
             return context
 
-        # Create TSV metadata file like the old pipeline
+        # Create TSV metadata file
         metadata_path = context.workspace.get_output_path("_metadata", ".tsv")
 
         logger.info(f"Generating metadata: {metadata_path}")
 
-        # Write metadata in TSV format like the old pipeline
+        # Write metadata in TSV format
         with open(metadata_path, "w", encoding="utf-8") as mf:
             mf.write("Parameter\tValue\n")
 

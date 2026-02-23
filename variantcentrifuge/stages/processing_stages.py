@@ -720,7 +720,7 @@ class ExtraColumnRemovalStage(Stage):
 class ParallelCompleteProcessingStage(Stage):
     """Run complete processing pipeline in parallel for each BED chunk.
 
-    This stage replicates the old pipeline's behavior where each chunk
+    This stage processes each chunk
     is processed completely (extraction -> filtering -> field extraction)
     in parallel, then the TSV results are merged.
     """
@@ -1318,7 +1318,7 @@ class DataSortingStage(Stage):
 
         logger.info(f"Sorting TSV by gene column '{gene_column}' for efficient processing")
 
-        # Use the sort function from old pipeline
+        # Use the standard sort function
         self._sort_tsv_by_gene(
             input_file=str(context.extracted_tsv),
             output_file=str(sorted_tsv),

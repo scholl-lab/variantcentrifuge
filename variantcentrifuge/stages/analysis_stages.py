@@ -1275,7 +1275,7 @@ class StatisticsGenerationStage(Stage):
         # Write stats if output file specified or create default path
         stats_output = context.config.get("stats_output_file")
         if not stats_output and not context.config.get("no_stats"):
-            # Create default stats file path like the old pipeline does
+            # Create default stats file path
             stats_output = context.workspace.get_intermediate_path("statistics.tsv")
             logger.debug(f"Created default statistics output path: {stats_output}")
 

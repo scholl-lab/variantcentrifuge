@@ -116,7 +116,7 @@ class PipelineRunner:
                 # Clean up any stale running stages first
                 context.checkpoint_state.cleanup_stale_stages()
 
-                pipeline_version = context.config.get("pipeline_version", "refactored_pipeline")
+                pipeline_version = context.config.get("pipeline_version", "pipeline")
                 if context.checkpoint_state.can_resume(context.config, pipeline_version):
                     logger.info("Resume mode: Checking pipeline state...")
                     logger.info(context.checkpoint_state.get_summary())

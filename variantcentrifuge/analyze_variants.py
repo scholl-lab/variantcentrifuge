@@ -4,7 +4,7 @@
 """
 Variant analysis module for gene burden and other statistics.
 
-Refactored to be more modular:
+Modular design:
 - Basic and comprehensive stats computations moved to stats.py.
 - Gene burden analysis moved to gene_burden.py.
 - Helper functions moved to helpers.py.
