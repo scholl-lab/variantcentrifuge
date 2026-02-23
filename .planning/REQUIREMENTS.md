@@ -93,53 +93,53 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| COAST-01 | — | Pending |
-| COAST-02 | — | Pending |
-| COAST-03 | — | Pending |
-| COAST-04 | — | Pending |
-| COAST-05 | — | Pending |
-| COAST-06 | — | Pending |
-| COAST-07 | — | Pending |
-| FDR-01 | — | Pending |
-| FDR-02 | — | Pending |
-| FDR-03 | — | Pending |
-| FDR-04 | — | Pending |
-| FDR-05 | — | Pending |
-| FDR-06 | — | Pending |
-| CONF-01 | — | Pending |
-| CONF-02 | — | Pending |
-| CONF-03 | — | Pending |
-| CONF-04 | — | Pending |
-| CONF-05 | — | Pending |
-| CONF-06 | — | Pending |
-| CONF-07 | — | Pending |
-| REGION-01 | — | Pending |
-| REGION-02 | — | Pending |
-| REGION-03 | — | Pending |
-| REGION-04 | — | Pending |
-| PCA-01 | — | Pending |
-| PCA-02 | — | Pending |
-| PCA-03 | — | Pending |
-| PERF-01 | — | Pending |
-| PERF-02 | — | Pending |
-| PERF-03 | — | Pending |
-| CLEAN-01 | — | Pending |
-| CLEAN-02 | — | Pending |
-| CLEAN-03 | — | Pending |
-| CLEAN-04 | — | Pending |
-| CLEAN-05 | — | Pending |
-| CLEAN-06 | — | Pending |
-| TD-02 | — | Pending |
-| TD-03 | — | Pending |
-| TD-04 | — | Pending |
-| TD-05 | — | Pending |
-| TD-06 | — | Pending |
+| COAST-01 | Phase 31 | Pending |
+| COAST-02 | Phase 31 | Pending |
+| COAST-03 | Phase 31 | Pending |
+| COAST-04 | Phase 31 | Pending |
+| COAST-05 | Phase 31 | Pending |
+| COAST-06 | Phase 31 | Pending |
+| COAST-07 | Phase 31 | Pending |
+| FDR-01 | Phase 33 | Pending |
+| FDR-02 | Phase 33 | Pending |
+| FDR-03 | Phase 33 | Pending |
+| FDR-04 | Phase 33 | Pending |
+| FDR-05 | Phase 33 | Pending |
+| FDR-06 | Phase 33 | Pending |
+| CONF-01 | Phase 35 | Pending |
+| CONF-02 | Phase 35 | Pending |
+| CONF-03 | Phase 35 | Pending |
+| CONF-04 | Phase 35 | Pending |
+| CONF-05 | Phase 35 | Pending |
+| CONF-06 | Phase 35 | Pending |
+| CONF-07 | Phase 35 | Pending |
+| REGION-01 | Phase 32 | Pending |
+| REGION-02 | Phase 32 | Pending |
+| REGION-03 | Phase 32 | Pending |
+| REGION-04 | Phase 32 | Pending |
+| PCA-01 | Phase 32 | Pending |
+| PCA-02 | Phase 32 | Pending |
+| PCA-03 | Phase 32 | Pending |
+| PERF-01 | Phase 36 | Pending |
+| PERF-02 | Phase 36 | Pending |
+| PERF-03 | Phase 36 | Pending |
+| CLEAN-01 | Phase 30 | Pending |
+| CLEAN-02 | Phase 30 | Pending |
+| CLEAN-03 | Phase 30 | Pending |
+| CLEAN-04 | Phase 30 | Pending |
+| CLEAN-05 | Phase 30 | Pending |
+| CLEAN-06 | Phase 30 | Pending |
+| TD-02 | Phase 34 | Pending |
+| TD-03 | Phase 34 | Pending |
+| TD-04 | Phase 34 | Pending |
+| TD-05 | Phase 34 | Pending |
+| TD-06 | Phase 30 | Pending (same change as CLEAN-04) |
 
 **Coverage:**
 - v1 requirements: 41 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 41
+- Mapped to phases: 41
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-23*
-*Last updated: 2026-02-23 after initial definition*
+*Last updated: 2026-02-23 — traceability complete after roadmap creation*
