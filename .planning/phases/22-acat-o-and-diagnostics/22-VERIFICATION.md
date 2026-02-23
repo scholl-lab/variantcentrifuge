@@ -1,8 +1,9 @@
 ---
 phase: 22-acat-o-and-diagnostics
 verified: 2026-02-21T18:27:35Z
+updated: 2026-02-23T06:33:51Z
 status: gaps_found
-score: 3/5 must-haves verified
+score: 3/5 must-haves verified (Gap 2 resolved in Phase 28)
 gaps:
   - truth: "The per-gene association TSV contains all standard columns including skat_o_p, and explicit carrier counts"
     status: failed
@@ -16,14 +17,12 @@ gaps:
       - "Either a dedicated skat_o_p_value column when skat_method=SKATO, or documentation that skat_p_value serves as skat_o_p when SKATO method is configured"
       - "Explicit proband_carrier_count and control_carrier_count columns in engine output (or confirmation that 'table' extra satisfies DIAG-01)"
 
-  - truth: "The --diagnostics-output directory contains lambda_gc.txt (criterion specifies .txt extension)"
-    status: failed
-    reason: "ROADMAP success criterion #3 specifies lambda_gc.txt but the implementation creates lambda_gc.tsv. The CONTEXT.md decision specifies .tsv, so this may be a criterion typo, but as written the criterion is not met."
+  - truth: "The --diagnostics-output directory contains lambda_gc.tsv"
+    status: resolved
+    reason: "ROADMAP criterion #3 now correctly says lambda_gc.tsv. Implementation creates lambda_gc.tsv. No mismatch. Resolved in Phase 28: gap was a documentation artifact."
     artifacts:
       - path: "variantcentrifuge/association/diagnostics.py"
-        issue: "write_diagnostics() creates lambda_gc.tsv at line 299, not lambda_gc.txt as criterion #3 requires"
-    missing:
-      - "Either rename lambda_gc.tsv to lambda_gc.txt, or update ROADMAP criterion #3 to say lambda_gc.tsv"
+        issue: "None — write_diagnostics() creates lambda_gc.tsv matching ROADMAP criterion #3"
 
   - truth: "Lambda_GC computed on a permuted null phenotype falls within [0.95, 1.05] for Fisher, burden, and SKAT tests"
     status: failed
@@ -53,11 +52,11 @@ gaps:
 |---|-------|--------|----------|
 | 1 | Per-gene TSV has all standard columns (fisher_p, burden_p, skat_p, skat_o_p, acat_o_p, effect sizes, CIs, variant/carrier counts) | FAILED | No skat_o_p_value column; carrier counts not explicit; see gap detail |
 | 2 | ACAT-O computed via single Cauchy combination per gene, single FDR pass across all genes | VERIFIED | engine._compute_acat_o() post-loop confirmed; apply_correction on acat_o only; 91 tests pass |
-| 3 | --diagnostics-output creates lambda_gc.txt (criterion) / lambda_gc.tsv (implementation), qq_data.tsv, summary.txt | PARTIAL | lambda_gc.tsv exists (not .txt as criterion requires), qq_data.tsv and summary.txt confirmed |
+| 3 | --diagnostics-output creates lambda_gc.tsv, qq_data.tsv, summary.txt | VERIFIED | lambda_gc.tsv exists and matches ROADMAP criterion #3 (says .tsv); qq_data.tsv and summary.txt confirmed. Gap 2 resolved in Phase 28. |
 | 4 | Pipeline warns on case_carriers < 10, n_cases < 200, ratio > 1:20, flags genes in TSV | VERIFIED | compute_per_gene_warnings(), emit_sample_size_warnings() confirmed; warnings column in results_df |
 | 5 | Lambda_GC on permuted null within [0.95, 1.05] for Fisher, burden, SKAT | FAILED | Fisher's exact test is conservative; lambda_GC ~0.84 on null, not within [0.95, 1.05] |
 
-**Score:** 2/5 truths fully verified (truth 2 and 4); 1/5 partially verified (truth 3)
+**Score:** 3/5 truths fully verified (truth 2, 3, and 4); Gap 2 (criterion 3) resolved in Phase 28
 
 ### Required Artifacts
 
@@ -121,7 +120,7 @@ Three gaps block full criterion compliance:
 
 **Gap 1 (DIAG-01 / Criterion 1): No distinct skat_o_p_value column.** DIAG-01 and criterion #1 list `skat_o_p` as a required column name. The implementation uses `skat_p_value` for the SKAT test p-value regardless of whether `skat_method` is SKAT, SKATO, or Burden. This is a naming gap: the column that serves as `skat_o_p` when `skat_method=SKATO` is named `skat_p_value`, not `skat_o_p_value`. This gap is primarily a specification vs implementation mismatch — the p-value is computed and stored, just under a different column name than DIAG-01 specifies. Additionally, carrier counts (proband/control) are not explicit output columns.
 
-**Gap 2 (Criterion 3): lambda_gc.tsv vs lambda_gc.txt.** The ROADMAP criterion says `lambda_gc.txt` but the implementation creates `lambda_gc.tsv`. The CONTEXT.md decision explicitly chose `.tsv`. This is likely a typo in the ROADMAP criterion, but as written it fails the criterion. Resolution: update ROADMAP criterion #3 to say `lambda_gc.tsv`.
+**Gap 2 (Criterion 3): lambda_gc.tsv vs lambda_gc.txt. RESOLVED in Phase 28.** The original verification noted ROADMAP criterion #3 said `lambda_gc.txt` while the implementation created `lambda_gc.tsv`. On re-inspection (Phase 28), ROADMAP criterion #3 at line 168 already says `lambda_gc.tsv`. The gap was a documentation artifact — the ROADMAP was already correct. No code or ROADMAP change needed. Criterion 3 is now VERIFIED.
 
 **Gap 3 (Criterion 5): lambda_GC [0.95, 1.05] on permuted null.** Fisher's exact test is inherently conservative — its p-values are sub-uniform under the null, and lambda_GC consistently falls around 0.84-0.85, not within [0.95, 1.05]. The criterion as written cannot be met for Fisher's exact test. Score-based tests (logistic burden, SKAT) may meet this criterion but no end-to-end test validates it. Resolution options: (a) restrict criterion #5 to score-based tests only, excluding Fisher; (b) add end-to-end permuted null test for burden/SKAT tests; (c) clarify that criterion #5 is a calibration property of score tests, not Fisher.
 
