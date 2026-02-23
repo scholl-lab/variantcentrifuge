@@ -79,6 +79,8 @@ class RSKATTest(AssociationTest):
     >>> result_df = engine.run_all(gene_burden_data)
     """
 
+    parallel_safe: bool = False  # rpy2 restriction: main thread only
+
     def __init__(self) -> None:
         import warnings
 
