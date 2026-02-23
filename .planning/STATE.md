@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-23)
 
 ## Current Position
 
-Phase: 30 of 36 (Dead Code Cleanup — Complete)
-Plan: 1 of 10 (across v0.16.0)
-Status: Phase 30 complete, ready for Phase 31
-Last activity: 2026-02-23 — Phase 30 verified and complete
+Phase: 31 of 36 (COAST Fix — In progress)
+Plan: 2 of 10 (across v0.16.0)
+Status: In progress — Phase 31 Plan 01 complete
+Last activity: 2026-02-23 — Completed 31-01-PLAN.md (COAST-01 + COAST-03 fixes)
 
-Progress: █░░░░░░░░░ 10%
+Progress: ██░░░░░░░░ 20%
 
 ## Performance Metrics
 
@@ -27,6 +27,7 @@ Progress: █░░░░░░░░░ 10%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 30 — Dead Code Cleanup | 1/1 done | ~19 min | ~19 min |
+| 31 — COAST Fix | 1/2 done | ~9 min | ~9 min |
 
 *Updated after each plan completion*
 
@@ -41,6 +42,9 @@ Progress: █░░░░░░░░░ 10%
 - [30-01] PCAComputationStage removed from processing_stages.py; PCA wiring belongs in Phase 32
 - [30-01] test_pca.py kept (tests association/pca.py module); only TestPcaComputationStage class removed
 - [30-01] ParallelCompleteProcessingStage.mark_complete no longer marks "parallel_variant_extraction" — tests updated
+- [31-01] COAST-03: skip threshold changed from "any category missing" to "ALL categories missing" — matches R reference (insitro/AllelicSeries drop_empty=TRUE)
+- [31-01] coast_status ('complete'/'partial'/'skipped') added to TestResult.extra for diagnostic transparency
+- [31-01] GT matrix fallback order: variants_df first, then current df (variants_df preferred as it preserves pre-reconstruction state)
 
 ### Architecture Invariants
 
@@ -60,7 +64,7 @@ Progress: █░░░░░░░░░ 10%
 
 ## Session Continuity
 
-Last session: 2026-02-23
-Stopped at: Phase 30 complete — verified, roadmap updated
+Last session: 2026-02-23T18:03:02Z
+Stopped at: Completed 31-01-PLAN.md — COAST-01 and COAST-03 fixes
 Resume file: None
-Next: /gsd:plan-phase 31
+Next: Execute 31-02-PLAN.md (remaining COAST fixes)
