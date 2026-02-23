@@ -7,7 +7,7 @@ tags: [docs, association-testing, api-reference, changelog, sphinx, myst]
 # Dependency graph
 requires:
   - phase: 26-01
-    provides: association_testing.md guide that cross-references point to
+    provides: association_testing.md guide that the cross-references point to
   - phase: 18-25
     provides: implemented association testing framework (AssociationConfig, AssociationEngine, all tests)
 provides:

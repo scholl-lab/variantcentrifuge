@@ -1,14 +1,16 @@
-# Association Framework — Remaining Work & Polish Plan
+# Association Framework — Remaining Work & Polish Plan (Archived)
 
-**Date:** 2026-02-22 (updated)
-**Scope:** Post-Phase 24 work to finalize v0.15.0 milestone
+**Date:** 2026-02-22 (historical snapshot)
+**Scope:** Records post-Phase 24 planning for the v0.15.0 milestone (now shipped)
 **Consolidates:** ASSOCIATION-FRAMEWORK-DESIGN.md (open items), SKAT_OPTIMIZATION_PLAN.md (all 7 opts)
+
+> **Note:** v0.15.0 shipped 2026-02-23. This document is retained as a historical planning record. For current project status, see `.planning/MILESTONES.md` and `.planning/STATE.md`.
 
 ---
 
 ## Current State
 
-Phases 18-26 are complete. Phase 27 is in progress (2/3 plans done).
+All phases (18-29) are complete. v0.15.0 shipped 2026-02-23.
 
 The association framework is **functionally complete and documented**:
 - 6 tests: Fisher, logistic burden, linear burden, SKAT, SKAT-O, COAST
@@ -46,20 +48,18 @@ Done in Phase 26. Fact-checked and corrected in post-phase review.
 
 ---
 
-## Part 3: Performance Optimizations — IN PROGRESS (Phase 27)
+## Part 3: Performance Optimizations — COMPLETE ✅
 
 ### 3.1 Saddlepoint Before Liu Fallback — COMPLETE ✅
 
 Done in Phase 25.
 
-### 3.2 Gene-Level Parallelization — IN PROGRESS
+### 3.2 Gene-Level Parallelization — COMPLETE ✅
 
-Phase 27 plans 01 + 02 complete:
+Done in Phase 27:
 - ✅ 27-01: Gauss-Legendre quadrature for SKAT-O integration + `parallel_safe=True` on all Python-backend tests
 - ✅ 27-02: `--association-workers` CLI arg, `AssociationConfig.association_workers` field, stage builder plumbing, unit tests
-
-Remaining:
-- ⬜ 27-03: Actual `ProcessPoolExecutor` implementation in `engine.py`, BLAS thread pinning, worker initializer, integration tests
+- ✅ 27-03: `ProcessPoolExecutor` implementation in `engine.py`, BLAS thread pinning, worker initializer, integration tests
 
 ### 3.3 Cache/Interpolate Davies in Omnibus Integration — SUPERSEDED
 
@@ -102,11 +102,7 @@ Not in scope for v0.15.0. Would require SAIGE-style sparse GRM support.
 
 ## Remaining Work for v0.15.0
 
-| # | Task | Status | Phase |
-|---|------|--------|-------|
-| 27-03 | ProcessPoolExecutor in engine.py | ⬜ Not started | 27 |
-
-**After 27-03 completes:** Phase 27 verification → milestone audit → v0.15.0 release.
+All tasks complete. v0.15.0 shipped 2026-02-23.
 
 ---
 

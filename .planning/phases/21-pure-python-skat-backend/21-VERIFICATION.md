@@ -10,7 +10,7 @@ gaps: []
 
 **Phase Goal:** Users without R can run SKAT and SKAT-O via a pure Python implementation that matches R output within tiered tolerance, using Davies CFFI for exact p-values with Kuonen saddlepoint and Liu moment-matching fallbacks.
 **Verified:** 2026-02-21T10:30:00Z
-**Status:** gaps_found
+**Status:** passed
 **Re-verification:** No — initial verification
 
 ## Goal Achievement

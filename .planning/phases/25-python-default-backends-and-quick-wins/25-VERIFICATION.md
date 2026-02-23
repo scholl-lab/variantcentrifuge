@@ -26,8 +26,8 @@ gaps: []
 | 5 | Davies out-of-range p-values fall back to saddlepoint before Liu | VERIFIED | `davies.py` lines 403-420: out-of-range block calls `_kuonen_pvalue` before falling to `p_liu` |
 | 6 | ACAT-V per-variant score test is computed for each gene with SKAT results | VERIFIED | `skat_python.py` lines 275-287: `compute_acat_v()` called after `test_gene()`, result in `acat_v_p` |
 | 7 | ACAT-V p-value feeds into ACAT-O omnibus combination | VERIFIED | `engine.py` lines 212-222: ACAT-V block inserted after collection loop, before `compute_acat_o()` call |
-| 8 | All existing tests pass with new defaults | VERIFIED | 1521 unit tests pass (136s run) including all pre-existing tests |
-| 9 | New tests cover defaults, deprecation, fallback, and ACAT-V | VERIFIED | 3 new test files: `test_backend_defaults.py` (14 tests), `test_davies_fallback.py` (11 tests), `test_acat_v.py` (11 tests); all 36 pass |
+| 8 | All existing tests pass with new defaults | VERIFIED | 1558 unit tests pass (136s run) including all pre-existing tests |
+| 9 | New tests cover defaults, deprecation, fallback, and ACAT-V | VERIFIED | 3 new test files: `test_backend_defaults.py` (14 tests), `test_davies_fallback.py` (11 tests), `test_acat_v.py` (12 tests); all 37 pass |
 
 **Score:** 9/9 truths verified
 
@@ -70,7 +70,7 @@ None. All success criteria are fully verifiable programmatically:
 - `DeprecationWarning` content verified by 14 warning-capture tests
 - Saddlepoint fallback verified by 11 mock-based tests
 - ACAT-V wiring verified by end-to-end test in `test_pure_python_skat_stores_acat_v_in_extra`
-- 1521 unit tests pass with no regressions
+- 1558 unit tests pass with no regressions
 
 ### Gaps Summary
 
