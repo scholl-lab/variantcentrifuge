@@ -124,6 +124,14 @@ def create_parser() -> argparse.ArgumentParser:
             "For example: a file where each line is a transcript like NM_007294.4"
         ),
     )
+    gene_group.add_argument(
+        "--regions-bed",
+        help=(
+            "BED file to restrict variant extraction to specified regions (e.g., capture kit BED). "
+            "The gene BED is intersected with this file before variant extraction."
+        ),
+        default=None,
+    )
 
     # Filtering & Annotation
     filter_group = parser.add_argument_group("Filtering & Annotation")
@@ -1235,6 +1243,8 @@ def main() -> int:
     else:
         cfg["variant_weight_params"] = None
     cfg["diagnostics_output"] = getattr(args, "diagnostics_output", None)
+    # Phase 32: Region restriction
+    cfg["regions_bed"] = getattr(args, "regions_bed", None)
     # Phase 23: PCA configuration
     cfg["pca_file"] = getattr(args, "pca_file", None)
     cfg["pca_tool"] = getattr(args, "pca_tool", None)
@@ -1468,6 +1478,10 @@ def main() -> int:
     if args.json_gene_mapping and not args.annotate_json_genes:
         logger.error("--json-gene-mapping requires --annotate-json-genes to be provided.")
         sys.exit(1)
+
+    # Validate --regions-bed file existence
+    if getattr(args, "regions_bed", None) and not Path(args.regions_bed).is_file():
+        parser.error(f"--regions-bed file not found: {args.regions_bed}")
 
     # Validate association analysis arguments
     if args.association_tests and not args.perform_association:
