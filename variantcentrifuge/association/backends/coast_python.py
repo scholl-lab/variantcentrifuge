@@ -127,7 +127,7 @@ def _aggregate_by_category(
     if method == "max":
         # Element-wise max of weighted categories: max(w1*N1, w2*N2, w3*N3)
         weighted_cats = cat_matrix * w_arr[np.newaxis, :]  # (n_samples, 3)
-        max_vals = weighted_cats.max(axis=1)  # (n_samples,)
+        max_vals: np.ndarray = weighted_cats.max(axis=1)  # (n_samples,)
         return max_vals[:, np.newaxis]  # (n_samples, 1)
 
     raise ValueError(f"Unknown aggregation method: {method!r}. Expected 'none', 'sum', or 'max'.")
@@ -261,7 +261,8 @@ def _compute_allelic_skat_weights(
     variance = aaf * (1.0 - aaf)
     variance = np.maximum(variance, _MIN_VARIANT_VARIANCE)
 
-    return np.sqrt(cat_weights / variance)
+    result: np.ndarray = np.sqrt(cat_weights / variance)
+    return result
 
 
 class PythonCOASTBackend:

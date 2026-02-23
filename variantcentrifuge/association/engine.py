@@ -385,7 +385,7 @@ class AssociationEngine:
             # Dispatch remaining genes to worker processes
             remaining = sorted_data[1:]
             if remaining:
-                actual_workers = os.cpu_count() if n_workers == -1 else n_workers
+                actual_workers = (os.cpu_count() or 1) if n_workers == -1 else n_workers
                 # Don't over-provision workers for small remaining panels
                 if len(remaining) < actual_workers * 2:
                     actual_workers = max(1, len(remaining) // 2)
