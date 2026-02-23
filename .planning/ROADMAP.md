@@ -301,8 +301,8 @@ Plans:
 
 **Plans:** 2 plans
 Plans:
-- [ ] 28-01-PLAN.md — RSKATTest parallel_safe attribute + ROADMAP criterion typo fix
-- [ ] 28-02-PLAN.md — CLI args for skat_method and diagnostic thresholds (min_cases, max_case_control_ratio, min_case_carriers)
+- [x] 28-01-PLAN.md — RSKATTest parallel_safe attribute + ROADMAP criterion typo fix
+- [x] 28-02-PLAN.md — CLI args for skat_method and diagnostic thresholds (min_cases, max_case_control_ratio, min_case_carriers)
 
 **Success Criteria:**
 
@@ -324,9 +324,9 @@ Plans:
 
 **Plans:** 3 plans
 Plans:
-- [ ] 29-01-PLAN.md — Rename run_refactored_pipeline to run_pipeline in pipeline.py and cli.py; update test imports
-- [ ] 29-02-PLAN.md — Remove --use-new-pipeline references from all test files and fixture docs
-- [ ] 29-03-PLAN.md — Update CLAUDE.md and README.md to describe single pipeline architecture
+- [x] 29-01-PLAN.md — Rename run_refactored_pipeline to run_pipeline in pipeline.py and cli.py; update test imports
+- [x] 29-02-PLAN.md — Remove --use-new-pipeline references from all test files and fixture docs
+- [x] 29-03-PLAN.md — Update CLAUDE.md and README.md to describe single pipeline architecture
 
 **Success Criteria:**
 
@@ -365,5 +365,5 @@ Plans:
 | 25. Python Default Backends and Quick Wins | v0.15.0 | 2/2 | Complete | 2026-02-22 |
 | 26. Association Testing Documentation | v0.15.0 | 2/2 | Complete | 2026-02-22 |
 | 27. Association Performance Optimizations | v0.15.0 | 3/3 | Complete | 2026-02-22 |
-| 28. Tech Debt Cleanup | v0.15.0 | 0/2 | Pending | — |
-| 29. Classic Pipeline Deprecation and Removal | v0.15.0 | 0/3 | Pending | — |
+| 28. Tech Debt Cleanup | v0.15.0 | 2/2 | Complete | 2026-02-23 |
+| 29. Classic Pipeline Deprecation and Removal | v0.15.0 | 3/3 | Complete | 2026-02-23 |
