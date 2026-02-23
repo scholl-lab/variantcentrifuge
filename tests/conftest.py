@@ -173,7 +173,6 @@ def gene_burden_cmd_template():
             str(output_dir),
             "--output-file",
             output_file,
-            "--use-new-pipeline",
         ]
 
         if case_samples_file and control_samples_file:
