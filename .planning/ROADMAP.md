@@ -76,11 +76,11 @@ Plans:
 4. User can specify `--coast-classification cadd` and the pipeline uses CADD-score thresholds for BMV/DMV/PTV classification without error
 5. A `scoring/coast_classification/` config with BMV/DMV/PTV thresholds exists and is the authoritative source for classification logic
 
-**Plans:** TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 31-01: Fix genotype matrix reconstruction (Path C fallback) and partial-category fallback
-- [ ] 31-02: Fix &-concatenated effect strings and build configurable classification scoring model
+- [ ] 31-01-PLAN.md — Fix genotype matrix fallback (COAST-01) and partial-category logic (COAST-03)
+- [ ] 31-02-PLAN.md — Fix &-concatenated effect strings, configurable classification scoring, auto-field injection (COAST-02, COAST-04, COAST-05, COAST-06, COAST-07)
 
 ---
 
