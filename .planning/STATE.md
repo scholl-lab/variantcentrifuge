@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 28 — Tech Debt Cleanup
-Plan: 1/2 complete
-Status: In progress
-Last activity: 2026-02-23 — Completed 28-01-PLAN.md (RSKATTest parallel_safe + lambda_gc gap)
+Plan: 2/2 complete
+Status: Phase complete — Phase 29 pending
+Last activity: 2026-02-23 — Completed 28-02-PLAN.md (CLI args for skat_method + diagnostic thresholds)
 
-Progress: ████████████████████░░░ 85% (Phases 18-27 complete; 28-01 complete; 28-02 and 29 pending)
+Progress: █████████████████████░░ 88% (Phases 18-28 complete; 29 pending)
 
 ## Milestone Overview
 
@@ -136,6 +136,8 @@ Progress: ████████████████████░░░ 
 | IMPL-68 | acat_v_p=None in ALL early-return extra dicts in PurePythonSKATTest.run() | 25-02 | Key always present regardless of code path; prevents KeyError when engine reads res.extra |
 | IMPL-69 | ACAT-V block in engine: AFTER test_pvals collection loop, BEFORE compute_acat_o() call | 25-02 | Critical ordering — if inserted after compute_acat_o(), ACAT-V is silently dropped from omnibus |
 | IMPL-70 | association_workers uses nullable=False in _get() (same as coast_backend, skat_backend) | 27-02 | CLI always writes the key with its default (1); non-nullable is correct for typed int fields |
+| IMPL-71 | skat_method cfg key has no association_ prefix; diagnostic thresholds have association_ prefix | 28-02 | Matches exact cli_key parameter in existing _get() calls in _build_assoc_config_from_context |
+| IMPL-72 | Always-write pattern for all four new CLI association args | 28-02 | Matches skat_backend/coast_backend/association_workers; _get() nullable=False handles precedence correctly |
 | PERF-01 | 128-node GL quadrature for SKAT-O omnibus integration; bounds [0,40] matching R upper=40 | 27-01 | 46x speedup (379ms -> 8ms per gene); 128 nodes sufficient for smooth SKAT-O integrands |
 | PERF-02 | chi2(1) singularity at x=0 precludes direct GL accuracy validation; use exp(-x/20) instead | 27-01 | chi2(1) pdf diverges at x=0; GL achieves 1e-10 on smooth functions; SKAT-O integrand cancels singularity via (1-cdf) factor |
 | ARCH-05 | parallel_safe=True on all Python-backend test classes (Fisher, LogisticBurden, LinearBurden, PurePythonSKAT) | 27-01 | Prerequisite for Plan 02 ProcessPoolExecutor dispatch; R-backend classes retain parallel_safe=False |
@@ -179,8 +181,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-23T06:33:51Z – 2026-02-23T06:38:40Z
-Stopped at: Completed 28-01-PLAN.md — RSKATTest parallel_safe attribute + lambda_gc verification gap
+Last session: 2026-02-23T06:34:38Z – 2026-02-23T06:38:51Z
+Stopped at: Completed 28-02-PLAN.md — CLI args for --skat-method, --min-cases, --max-case-control-ratio, --min-case-carriers
 Resume file: None
 Next: 28-02-PLAN.md (CLI args for skat_method and diagnostic thresholds)
 Next: Plan Phase 28 (Tech Debt Cleanup). Then Phase 29 (Classic Pipeline Deprecation). After both complete, re-audit and complete milestone.
