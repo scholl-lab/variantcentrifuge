@@ -20,6 +20,14 @@ import pytest
 
 from variantcentrifuge.association.diagnostics import write_diagnostics, write_qq_plot
 
+# Check if matplotlib is available (optional dependency)
+try:
+    import matplotlib  # noqa: F401
+
+    HAS_MATPLOTLIB = True
+except ImportError:
+    HAS_MATPLOTLIB = False
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -75,6 +83,7 @@ def minimal_results_df() -> pd.DataFrame:
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not HAS_MATPLOTLIB, reason="matplotlib not installed")
 class TestWriteQQPlotWithMatplotlib:
     """write_qq_plot() when matplotlib is installed."""
 
@@ -232,6 +241,7 @@ class TestWriteQQPlotEmptyData:
 class TestWriteDiagnosticsQQPlot:
     """write_diagnostics() produces qq_plot.png alongside existing TSV files."""
 
+    @pytest.mark.skipif(not HAS_MATPLOTLIB, reason="matplotlib not installed")
     def test_produces_qq_plot_alongside_tsv(self, minimal_results_df, tmp_path):
         """write_diagnostics() writes qq_plot.png, lambda_gc.tsv, qq_data.tsv, summary.txt."""
         diag_dir = tmp_path / "diagnostics"
