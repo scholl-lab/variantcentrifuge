@@ -14,7 +14,6 @@ from variantcentrifuge.stages.analysis_stages import (
     DataFrameLoadingStage,
     GeneBurdenAnalysisStage,
     InheritanceAnalysisStage,
-    ParallelAnalysisOrchestrator,
     StatisticsGenerationStage,
     VariantAnalysisStage,
     VariantScoringStage,
@@ -370,38 +369,6 @@ class TestChunkedAnalysisStage:
         # In the actual implementation, chunked processing happens
         # and results are written to file, not stored in DataFrame
         assert result == base_context  # Context is returned as-is
-
-
-class TestParallelAnalysisOrchestrator:
-    """Test the ParallelAnalysisOrchestrator."""
-
-    def test_single_threaded(self, base_context):
-        """Test single-threaded execution."""
-        base_context.config = {"threads": 1}
-        base_context.current_dataframe = pd.DataFrame(
-            {"Gene": ["BRCA1", "TP53"], "Variant": ["c.100A>T", "c.200G>A"]}
-        )
-
-        stage = ParallelAnalysisOrchestrator()
-
-        result = stage._process(base_context)
-
-        # Should process without error (simplified implementation)
-        assert result == base_context
-
-    def test_parallel_execution(self, base_context):
-        """Test parallel analysis execution."""
-        base_context.config = {"threads": 4}
-        base_context.current_dataframe = pd.DataFrame(
-            {"Gene": ["BRCA1", "TP53", "KRAS", "EGFR"], "Variant": ["var1", "var2", "var3", "var4"]}
-        )
-
-        stage = ParallelAnalysisOrchestrator()
-
-        result = stage._process(base_context)
-
-        # Should process without error (simplified implementation)
-        assert result == base_context
 
 
 class TestVariantAnalysisStage:

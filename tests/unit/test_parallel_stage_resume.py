@@ -9,73 +9,7 @@ import pytest
 from variantcentrifuge.pipeline_core.context import PipelineContext
 from variantcentrifuge.stages.processing_stages import (
     ParallelCompleteProcessingStage,
-    ParallelVariantExtractionStage,
 )
-
-
-class TestParallelVariantExtractionStage:
-    """Test parallel variant extraction stage resume functionality."""
-
-    def test_validate_existing_chunk_valid_vcf(self, tmp_path):
-        """Test validation of valid VCF chunk."""
-        stage = ParallelVariantExtractionStage()
-
-        chunk_path = tmp_path / "valid.vcf.gz"
-        with gzip.open(str(chunk_path), "wt") as f:
-            f.write("##fileformat=VCFv4.2\n")
-            f.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
-            f.write("chr1\t1000\t.\tA\tT\t30\tPASS\t.\n")
-
-        assert stage._validate_existing_chunk(chunk_path) is True
-
-    def test_validate_existing_chunk_empty_file(self, tmp_path):
-        """Test validation rejects empty files."""
-        stage = ParallelVariantExtractionStage()
-
-        chunk_path = tmp_path / "empty.vcf.gz"
-        chunk_path.write_bytes(b"")
-
-        assert stage._validate_existing_chunk(chunk_path) is False
-
-    def test_validate_existing_chunk_nonexistent(self):
-        """Test validation rejects nonexistent files."""
-        stage = ParallelVariantExtractionStage()
-        chunk_path = Path("/tmp/nonexistent_file.vcf.gz")
-        assert stage._validate_existing_chunk(chunk_path) is False
-
-    def test_validate_existing_chunk_invalid_header(self, tmp_path):
-        """Test validation rejects files with invalid VCF headers."""
-        stage = ParallelVariantExtractionStage()
-
-        chunk_path = tmp_path / "invalid.vcf.gz"
-        with gzip.open(str(chunk_path), "wt") as f:
-            f.write("This is not a VCF file\n")
-            f.write("Invalid content\n")
-
-        assert stage._validate_existing_chunk(chunk_path) is False
-
-    def test_handle_checkpoint_skip(self):
-        """Test checkpoint skip handler restores context correctly."""
-        stage = ParallelVariantExtractionStage()
-
-        # Mock context and workspace
-        context = Mock(spec=PipelineContext)
-        context.workspace = Mock()
-        context.workspace.base_name = "test"
-        context.workspace.get_intermediate_path = Mock()
-
-        expected_vcf = Path("/tmp/test.variants.vcf.gz")
-        context.workspace.get_intermediate_path.return_value = expected_vcf
-
-        # Mock the file exists
-        with patch.object(Path, "exists", return_value=True):
-            result = stage._handle_checkpoint_skip(context)
-
-        # Verify context was updated
-        assert result == context
-        assert context.extracted_vcf == expected_vcf
-        assert context.data == expected_vcf
-        context.mark_complete.assert_called_once_with("variant_extraction")
 
 
 class TestParallelCompleteProcessingStage:
@@ -141,7 +75,6 @@ class TestParallelCompleteProcessingStage:
         # Verify all stages marked complete
         expected_calls = [
             ("variant_extraction",),
-            ("parallel_variant_extraction",),
             ("snpsift_filtering",),
             ("field_extraction",),
         ]

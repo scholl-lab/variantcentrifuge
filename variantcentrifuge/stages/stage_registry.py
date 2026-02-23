@@ -443,30 +443,22 @@ def _register_setup_stages():
 def _register_processing_stages():
     """Register all processing stages."""
     from .processing_stages import (
-        BCFToolsPrefilterStage,
         ExtraColumnRemovalStage,
         FieldExtractionStage,
         GeneBedCreationStage,
         GenotypeReplacementStage,
         MultiAllelicSplitStage,
         ParallelCompleteProcessingStage,
-        ParallelVariantExtractionStage,
-        PCAComputationStage,
         PhenotypeIntegrationStage,
         SnpSiftFilterStage,
-        StreamingDataProcessingStage,
-        TranscriptFilterStage,
         VariantExtractionStage,
     )
 
     register_stage(GeneBedCreationStage, "processing", ["gene_bed", "bed_creation"], 10.0)
     register_stage(VariantExtractionStage, "processing", ["extraction", "variant_extraction"], 30.0)
-    register_stage(ParallelVariantExtractionStage, "processing", ["parallel_extraction"], 20.0)
-    register_stage(BCFToolsPrefilterStage, "processing", ["bcftools_prefilter", "prefilter"], 15.0)
     register_stage(
         MultiAllelicSplitStage, "processing", ["split_multiallelic", "multiallelic"], 20.0
     )
-    register_stage(TranscriptFilterStage, "processing", ["transcript_filter"], 10.0)
     register_stage(SnpSiftFilterStage, "processing", ["snpsift_filter", "filter"], 25.0)
     register_stage(FieldExtractionStage, "processing", ["field_extraction", "extract_fields"], 15.0)
     # Deprecated (Phase 11): Stage no-ops immediately, GT reconstruction deferred to output time.
@@ -476,9 +468,7 @@ def _register_processing_stages():
     )
     register_stage(PhenotypeIntegrationStage, "processing", ["phenotype_integration"], 5.0)
     register_stage(ExtraColumnRemovalStage, "processing", ["column_cleanup", "cleanup"], 2.0)
-    register_stage(StreamingDataProcessingStage, "processing", ["streaming_processing"], 30.0)
     register_stage(ParallelCompleteProcessingStage, "processing", ["parallel_processing"], 60.0)
-    register_stage(PCAComputationStage, "processing", ["pca_computation", "pca"], 15.0)
 
 
 def _register_analysis_stages():
@@ -489,9 +479,7 @@ def _register_analysis_stages():
         CustomAnnotationStage,
         DataFrameLoadingStage,
         GeneBurdenAnalysisStage,
-        GenotypeFilterStage,
         InheritanceAnalysisStage,
-        ParallelAnalysisOrchestrator,
         StatisticsGenerationStage,
         VariantAnalysisStage,
         VariantScoringStage,
@@ -503,7 +491,6 @@ def _register_analysis_stages():
         InheritanceAnalysisStage, "analysis", ["inheritance_analysis", "inheritance"], 20.0
     )
     register_stage(VariantScoringStage, "analysis", ["variant_scoring", "scoring"], 15.0)
-    register_stage(GenotypeFilterStage, "analysis", ["genotype_filter"], 5.0)
     register_stage(StatisticsGenerationStage, "analysis", ["statistics_generation", "stats"], 10.0)
     register_stage(VariantAnalysisStage, "analysis", ["variant_analysis", "analysis"], 25.0)
     register_stage(GeneBurdenAnalysisStage, "analysis", ["gene_burden", "burden_analysis"], 30.0)
@@ -511,7 +498,6 @@ def _register_analysis_stages():
         AssociationAnalysisStage, "analysis", ["association_analysis", "association"], 30.0
     )
     register_stage(ChunkedAnalysisStage, "analysis", ["chunked_analysis"], 60.0)
-    register_stage(ParallelAnalysisOrchestrator, "analysis", ["analysis_orchestrator"], 45.0)
 
 
 def _register_output_stages():
@@ -523,7 +509,6 @@ def _register_output_stages():
         HTMLReportStage,
         IGVReportStage,
         MetadataGenerationStage,
-        ParallelReportGenerationStage,
         PseudonymizationStage,
         TSVOutputStage,
         VariantIdentifierStage,
@@ -538,4 +523,3 @@ def _register_output_stages():
     register_stage(IGVReportStage, "output", ["igv_report", "igv"], 20.0)
     register_stage(MetadataGenerationStage, "output", ["metadata_generation", "metadata"], 2.0)
     register_stage(ArchiveCreationStage, "output", ["archive_creation", "archive"], 10.0)
-    register_stage(ParallelReportGenerationStage, "output", ["parallel_reports"], 25.0)

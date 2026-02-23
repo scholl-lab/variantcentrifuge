@@ -17,7 +17,6 @@ import json
 import logging
 import sys
 import tarfile
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, cast
 
@@ -1119,74 +1118,4 @@ class ArchiveCreationStage(Stage):
         )
 
         context.report_paths["archive"] = archive_path
-        return context
-
-
-class ParallelReportGenerationStage(Stage):
-    """Generate all reports in parallel."""
-
-    @property
-    def name(self) -> str:
-        """Return the stage name."""
-        return "parallel_report_generation"
-
-    @property
-    def description(self) -> str:
-        """Return a description of what this stage does."""
-        return "Generate all reports in parallel"
-
-    @property
-    def dependencies(self) -> set[str]:
-        """Return the set of stage names this stage depends on."""
-        return {"tsv_output"}
-
-    @property
-    def parallel_safe(self) -> bool:
-        """Return whether this stage can run in parallel with others."""
-        return False  # Manages its own parallelism
-
-    def _process(self, context: PipelineContext) -> PipelineContext:
-        """Generate all requested reports in parallel."""
-        # Check which reports are requested
-        reports_to_generate: list[tuple[str, Stage]] = []
-
-        if context.config.get("xlsx") or context.config.get("excel"):
-            reports_to_generate.append(("excel", ExcelReportStage()))
-
-        if context.config.get("html_report"):
-            reports_to_generate.append(("html", HTMLReportStage()))
-
-        if context.config.get("igv_enabled"):
-            reports_to_generate.append(("igv", IGVReportStage()))
-
-        if not context.config.get("no_metadata"):
-            reports_to_generate.append(("metadata", MetadataGenerationStage()))
-
-        if not reports_to_generate:
-            logger.debug("No reports to generate")
-            return context
-
-        if len(reports_to_generate) == 1:
-            # Just run the single report
-            _, stage = reports_to_generate[0]
-            return stage._process(context)
-
-        logger.info(f"Generating {len(reports_to_generate)} reports in parallel")
-
-        # Run reports in parallel
-        with ThreadPoolExecutor(max_workers=len(reports_to_generate)) as executor:
-            futures = {}
-            for report_type, stage in reports_to_generate:
-                future = executor.submit(stage._process, context)
-                futures[future] = report_type
-
-            # Wait for completion
-            for future in as_completed(futures):
-                report_type = futures[future]
-                try:
-                    future.result()
-                    logger.debug(f"Completed {report_type} report generation")
-                except Exception as e:
-                    logger.error(f"Failed to generate {report_type} report: {e}")
-
         return context

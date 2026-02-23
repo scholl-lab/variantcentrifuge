@@ -104,7 +104,6 @@ class TestParallelCompleteProcessingStage:
         # Verify results
         assert result is context
         assert context.is_complete("variant_extraction")
-        assert context.is_complete("parallel_variant_extraction")
         assert context.is_complete("snpsift_filtering")
         assert context.is_complete("field_extraction")
 

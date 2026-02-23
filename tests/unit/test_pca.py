@@ -13,13 +13,11 @@ Covers:
 - Missing sample raises ValueError
 - merge_pca_covariates() with None covariate matrix
 - merge_pca_covariates() with existing covariate matrix
-- PCAComputationStage raises ToolNotFoundError when akt not in PATH
 """
 
 from __future__ import annotations
 
 import textwrap
-from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -348,106 +346,3 @@ class TestMergePcaCovariates:
         pca = np.zeros((2, 3))
         _, names = merge_pca_covariates(pca, ["PC1", "PC2", "PC3"], cov, ["COVAR1"])
         assert names == ["COVAR1", "PC1", "PC2", "PC3"]
-
-
-# ---------------------------------------------------------------------------
-# PCAComputationStage: ToolNotFoundError when akt not in PATH
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestPcaComputationStage:
-    def _make_context(self, pca_tool="akt", pca_components=10):
-        """Build a minimal PipelineContext mock for PCAComputationStage."""
-        ctx = MagicMock()
-        ctx.config = {
-            "pca_tool": pca_tool,
-            "pca_components": pca_components,
-            "vcf_file": "/fake/input.vcf.gz",
-        }
-        return ctx
-
-    def test_skip_when_pca_tool_none(self):
-        """Stage returns context unchanged when pca_tool is None."""
-        from variantcentrifuge.stages.processing_stages import PCAComputationStage
-
-        stage = PCAComputationStage()
-        ctx = self._make_context(pca_tool=None)
-        result = stage._process(ctx)
-        assert result is ctx
-
-    def test_raises_tool_not_found_when_akt_missing(self):
-        """ToolNotFoundError raised (hard error) when akt is not in PATH."""
-        from variantcentrifuge.pipeline_core.error_handling import ToolNotFoundError
-        from variantcentrifuge.stages.processing_stages import PCAComputationStage
-
-        stage = PCAComputationStage()
-        ctx = self._make_context(pca_tool="akt")
-
-        with patch("shutil.which", return_value=None), pytest.raises(ToolNotFoundError):
-            stage._process(ctx)
-
-    def test_akt_command_called_when_akt_present(self, tmp_path):
-        """When akt is in PATH, subprocess.run is called with correct args."""
-        from variantcentrifuge.stages.processing_stages import PCAComputationStage
-
-        stage = PCAComputationStage()
-        ctx = self._make_context(pca_tool="akt", pca_components=5)
-        intermediate_dir = tmp_path / "intermediate"
-        intermediate_dir.mkdir()
-        ctx.workspace.get_intermediate_path.return_value = intermediate_dir / "pca_eigenvec.txt"
-
-        mock_result = MagicMock()
-        mock_result.stdout = "SAMPLE_A 0.1 0.2\nSAMPLE_B 0.3 0.4\n"
-        mock_result.returncode = 0
-
-        with (
-            patch("shutil.which", return_value="/usr/bin/akt"),
-            patch("subprocess.run", return_value=mock_result) as mock_run,
-        ):
-            stage._process(ctx)
-
-        call_args = mock_run.call_args[0][0]
-        assert call_args[0] == "akt"
-        assert call_args[1] == "pca"
-        assert "-N" in call_args
-        assert "5" in call_args
-
-    def test_called_process_error_is_re_raised(self, tmp_path):
-        """CalledProcessError from AKT is logged and re-raised."""
-        import subprocess
-
-        from variantcentrifuge.stages.processing_stages import PCAComputationStage
-
-        stage = PCAComputationStage()
-        ctx = self._make_context(pca_tool="akt")
-
-        exc = subprocess.CalledProcessError(1, ["akt", "pca"], stderr="error from akt")
-        with (
-            patch("shutil.which", return_value="/usr/bin/akt"),
-            patch("subprocess.run", side_effect=exc),
-            pytest.raises(subprocess.CalledProcessError),
-        ):
-            stage._process(ctx)
-
-    def test_pca_file_stored_in_context_config(self, tmp_path):
-        """After successful AKT run, pca_file is set in context.config."""
-        from variantcentrifuge.stages.processing_stages import PCAComputationStage
-
-        stage = PCAComputationStage()
-        ctx = self._make_context(pca_tool="akt")
-        out_path = tmp_path / "intermediate" / "pca_eigenvec.txt"
-        out_path.parent.mkdir()
-        ctx.workspace.get_intermediate_path.return_value = out_path
-
-        mock_result = MagicMock()
-        mock_result.stdout = "SAMPLE_A 0.1 0.2\n"
-        mock_result.returncode = 0
-
-        with (
-            patch("shutil.which", return_value="/usr/bin/akt"),
-            patch("subprocess.run", return_value=mock_result),
-        ):
-            stage._process(ctx)
-
-        assert ctx.config["pca_file"] == str(out_path)
