@@ -291,6 +291,11 @@ class COASTTest(AssociationTest):
         self._genes_processed: int = 0
         self._start_time: float = 0.0
 
+        # Category-level counters (set by prepare(), incremented in run())
+        self._n_complete: int = 0
+        self._n_partial: int = 0
+        self._n_skipped: int = 0
+
     @property
     def name(self) -> str:
         """Short identifier for this test used in registry lookup and column prefixes."""
@@ -360,6 +365,9 @@ class COASTTest(AssociationTest):
         self._genes_processed = 0
         self._log_interval = max(10, min(50, gene_count // 10)) if gene_count > 0 else 50
         self._start_time = time.time()
+        self._n_complete = 0
+        self._n_partial = 0
+        self._n_skipped = 0
 
         logger.info(f"COAST: beginning allelic series analysis of {gene_count} genes")
 
@@ -370,7 +378,13 @@ class COASTTest(AssociationTest):
         Logs aggregate timing summary and triggers R garbage collection.
         """
         elapsed = time.time() - self._start_time
+        n_tested = self._n_complete + self._n_partial
         logger.info(f"COAST complete: {self._genes_processed} genes in {elapsed:.1f}s")
+        logger.info(
+            f"COAST: {n_tested} genes tested "
+            f"({self._n_complete} complete, {self._n_partial} partial, "
+            f"{self._n_skipped} skipped)"
+        )
 
         # Final R gc() to free heap
         try:
@@ -547,19 +561,12 @@ class COASTTest(AssociationTest):
         n_dmv = int(np.sum(anno_filtered == 2))
         n_ptv = int(np.sum(anno_filtered == 3))
 
-        # Require all 3 categories to be present for COAST
-        if n_bmv == 0 or n_dmv == 0 or n_ptv == 0:
-            missing = []
-            if n_bmv == 0:
-                missing.append("BMV")
-            if n_dmv == 0:
-                missing.append("DMV")
-            if n_ptv == 0:
-                missing.append("PTV")
-            logger.debug(
-                f"COAST [{gene}]: skipping — missing categories: {', '.join(missing)} "
-                f"(BMV={n_bmv}, DMV={n_dmv}, PTV={n_ptv})"
-            )
+        # Partial-category logic: skip only when ALL categories are empty
+        missing = [cat for cat, n in [("BMV", n_bmv), ("DMV", n_dmv), ("PTV", n_ptv)] if n == 0]
+        present = [cat for cat, n in [("BMV", n_bmv), ("DMV", n_dmv), ("PTV", n_ptv)] if n > 0]
+
+        if len(present) == 0:
+            self._n_skipped += 1
             return TestResult(
                 gene=gene,
                 test_name=self.name,
@@ -573,11 +580,19 @@ class COASTTest(AssociationTest):
                 n_controls=n_controls,
                 n_variants=n_variants,
                 extra={
-                    "coast_skip_reason": f"MISSING_CATEGORIES:{','.join(missing)}",
-                    "coast_n_bmv": n_bmv,
-                    "coast_n_dmv": n_dmv,
-                    "coast_n_ptv": n_ptv,
+                    "coast_skip_reason": "ALL_CATEGORIES_EMPTY",
+                    "coast_n_bmv": 0,
+                    "coast_n_dmv": 0,
+                    "coast_n_ptv": 0,
+                    "coast_status": "skipped",
                 },
+            )
+
+        coast_status = "complete" if not missing else "partial"
+        if missing:
+            logger.debug(
+                f"COAST [{gene}]: partial -- missing {', '.join(missing)} "
+                f"(BMV={n_bmv}, DMV={n_dmv}, PTV={n_ptv})"
             )
 
         # Run R AllelicSeries::COAST()
@@ -615,6 +630,10 @@ class COASTTest(AssociationTest):
 
         # Increment counter and periodic GC
         self._genes_processed += 1
+        if coast_status == "complete":
+            self._n_complete += 1
+        else:
+            self._n_partial += 1
         if self._genes_processed % _GC_INTERVAL == 0:
             try:
                 import rpy2.robjects as ro
@@ -630,6 +649,17 @@ class COASTTest(AssociationTest):
                 f"COAST progress: {self._genes_processed}/{self._total_genes} genes ({pct:.0f}%)"
             )
 
+        extra_base: dict[str, Any] = {
+            "coast_burden_p_value": burden_p,
+            "coast_skat_p_value": skat_p,
+            "coast_n_bmv": n_bmv,
+            "coast_n_dmv": n_dmv,
+            "coast_n_ptv": n_ptv,
+            "coast_status": coast_status,
+        }
+        if missing:
+            extra_base["coast_missing_categories"] = ",".join(missing)
+
         return TestResult(
             gene=gene,
             test_name=self.name,
@@ -642,13 +672,7 @@ class COASTTest(AssociationTest):
             n_cases=n_cases,
             n_controls=n_controls,
             n_variants=n_variants,
-            extra={
-                "coast_burden_p_value": burden_p,
-                "coast_skat_p_value": skat_p,
-                "coast_n_bmv": n_bmv,
-                "coast_n_dmv": n_dmv,
-                "coast_n_ptv": n_ptv,
-            },
+            extra=extra_base,
         )
 
     def _find_column(self, gene_df: Any, candidates: list[str], label: str) -> str | None:

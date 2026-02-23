@@ -2378,14 +2378,22 @@ class AssociationAnalysisStage(Stage):
             from ..stages.output_stages import _find_per_sample_gt_columns
 
             fallback_df = context.variants_df
-            if fallback_df is not None:
-                gt_cols_fb = _find_per_sample_gt_columns(fallback_df)
-                if gt_cols_fb:
+            gt_cols_fb = _find_per_sample_gt_columns(fallback_df) if fallback_df is not None else []
+            if gt_cols_fb:
+                logger.info(
+                    f"Association analysis: recovered {len(gt_cols_fb)} "
+                    "per-sample GT columns from variants_df for genotype matrix"
+                )
+                df_with_per_sample_gt = fallback_df
+            else:
+                # df itself may still have per-sample GT columns alongside the packed GT string
+                gt_cols_df = _find_per_sample_gt_columns(df)
+                if gt_cols_df:
                     logger.info(
-                        f"Association analysis: recovered {len(gt_cols_fb)} "
-                        "per-sample GT columns from variants_df for genotype matrix"
+                        f"Association analysis: recovered {len(gt_cols_df)} "
+                        "per-sample GT columns from current DataFrame for genotype matrix"
                     )
-                    df_with_per_sample_gt = fallback_df
+                    df_with_per_sample_gt = df
 
         # Determine aggregation strategy (same priority as perform_gene_burden_analysis)
         case_set = set(case_samples)
@@ -2520,7 +2528,7 @@ class AssociationAnalysisStage(Stage):
 
         # ------------------------------------------------------------------
         # Phase 19: Augment gene_burden_data with genotype matrix for
-        # regression tests (logistic_burden, linear_burden, skat, skat_python)
+        # regression tests (logistic_burden, linear_burden, skat, skat_python, coast)
         # Backward compatible: FisherExactTest ignores the new keys.
         #
         # Use df_with_per_sample_gt when available (per-sample GT columns
