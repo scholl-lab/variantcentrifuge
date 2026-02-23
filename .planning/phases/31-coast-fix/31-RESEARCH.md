@@ -6,11 +6,17 @@
 
 ## Summary
 
-Phase 31 fixes five distinct problems in the existing COAST implementation and adds two new features (auto-field injection and configurable classification models). All work is internal to the association testing subsystem: `variantcentrifuge/association/tests/allelic_series*.py`, `variantcentrifuge/association/backends/coast_python.py`, and `variantcentrifuge/stages/analysis_stages.py`.
+Phase 31 fixes five distinct problems in the existing COAST implementation and adds two new features
+(auto-field injection and configurable classification models). All work is internal to the association
+testing subsystem: `variantcentrifuge/association/tests/allelic_series*.py`,
+`variantcentrifuge/association/backends/coast_python.py`, and `variantcentrifuge/stages/analysis_stages.py`.
 
-The codebase already has the entire scaffold in place. The bugs are small and localized. The new features (COAST-02, COAST-05, COAST-06, COAST-07) require the most new code but reuse the existing scoring formula engine (`scoring.py`) and CLI pattern from `--coast-backend`.
+The codebase already has the entire scaffold in place. The bugs are small and localized. The new
+features (COAST-02, COAST-05, COAST-06, COAST-07) require the most new code but reuse the existing
+scoring formula engine (`scoring.py`) and CLI pattern from `--coast-backend`.
 
-**Primary recommendation:** Fix the five bugs first (COAST-01 through COAST-04), then add the three new features (COAST-02, COAST-05/COAST-06/COAST-07) as independent units.
+**Primary recommendation:** Fix the five bugs first (COAST-01 through COAST-04), then add the three
+new features (COAST-02, COAST-05/COAST-06/COAST-07) as independent units.
 
 ## Bug Inventory
 
@@ -42,9 +48,16 @@ if needs_regression and gt_columns_for_matrix and vcf_samples_list:
     # build genotype matrix...
 ```
 
-**The failure mode:** When `df` already has GT reconstructed (branch 2 applies) but `context.variants_df` is None or has no per-sample GT columns, `df_with_per_sample_gt` stays None. Then `gt_source_df = df` — but `df` has had its per-sample GT columns replaced by the packed GT string column by `reconstruct_gt_column`. So `_find_gt_columns(df)` finds zero columns, the `if needs_regression and gt_columns_for_matrix` guard fires False, and no genotype matrix is ever added to `gene_data`. COAST then returns `NO_GENOTYPE_MATRIX` for every gene.
+**The failure mode:** When `df` already has GT reconstructed (branch 2 applies) but
+`context.variants_df` is None or has no per-sample GT columns, `df_with_per_sample_gt` stays None.
+Then `gt_source_df = df` — but `df` has had its per-sample GT columns replaced by the packed GT
+string column by `reconstruct_gt_column`. So `_find_gt_columns(df)` finds zero columns, the
+`if needs_regression and gt_columns_for_matrix` guard fires False, and no genotype matrix is ever
+added to `gene_data`. COAST then returns `NO_GENOTYPE_MATRIX` for every gene.
 
-**Fix strategy:** The fallback in branch 2 must also check `df` itself before giving up. When `context.variants_df` has no GT columns but `df` still has per-sample GT columns (before any reconstruction), save `df` as the source. The correct guard should be:
+**Fix strategy:** The fallback in branch 2 must also check `df` itself before giving up. When
+`context.variants_df` has no GT columns but `df` still has per-sample GT columns (before any
+reconstruction), save `df` as the source. The correct guard should be:
 
 ```python
 elif "GT" in df.columns and needs_regression and context.vcf_samples:
@@ -60,7 +73,8 @@ elif "GT" in df.columns and needs_regression and context.vcf_samples:
             df_with_per_sample_gt = df
 ```
 
-Additionally, the comment in the per-gene loop (line 2523) still says "logistic_burden, linear_burden, skat, skat_python" — it should include "coast".
+Additionally, the comment in the per-gene loop (line 2523) still says
+"logistic_burden, linear_burden, skat, skat_python" — it should include "coast".
 
 ### COAST-03: Partial-Category Fallback
 
@@ -72,15 +86,37 @@ if n_bmv == 0 or n_dmv == 0 or n_ptv == 0:
     # ... return TestResult(p_value=None, extra={"coast_skip_reason": "MISSING_CATEGORIES:..."})
 ```
 
-**R reference behavior (from `insitro/AllelicSeries` source):**
+**R reference behavior — verified from `insitro/AllelicSeries` source (2026-02-23):**
 
-The `Aggregator()` function uses `drop_empty=TRUE` (default) to remove zero-sum columns before regression. This means:
-- 1 or 2 missing categories: drop those columns, run COAST on remaining, return valid p-value
-- All categories empty: return NA (which maps to our `p_value=None` / `coast_skip_reason`)
+The `Aggregator()` function in `allelic_series.R` uses `drop_empty=TRUE` (default). Source-verified
+behavior:
 
-The impact is enormous: in real cohorts most genes lack all 3 categories. Currently they all get `p_value=None`. After the fix, genes with 1 or 2 categories will produce valid (reduced-power) p-values.
+```r
+# Inside Aggregator():
+if (drop_empty) {
+  col_sums <- apply(out, 2, sum)
+  out <- out[, col_sums > 0, drop = FALSE]
+  if (ncol(out) == 0) {
+    warning("No non-zero variant classes after weighting.")
+    return(NA)
+  }
+}
+```
 
-**Fix in `coast_python.py` — `_aggregate_by_category`:** After building `cat_matrix`, the function already fills zero columns for absent categories. The downstream burden test functions need to handle rank-deficient matrices (already tested). No change needed in `_aggregate_by_category` itself.
+- **1 or 2 missing categories:** those columns are dropped, COAST runs on remaining categories,
+  returns valid (reduced-power) p-value
+- **All categories empty:** returns NA → COAST propagates NA immediately via
+  `if (is.na(burden_results$base$pval)) {return(NA)}`
+
+The Python code's "all 3 required" guard is incorrect — it maps to the "all empty" NA case, not
+the "any missing" case. The impact is enormous: in real cohorts most genes lack all 3 categories.
+Currently they all get `p_value=None`. After the fix, genes with 1 or 2 categories produce valid
+(reduced-power) p-values.
+
+**Fix in `coast_python.py` — `_aggregate_by_category`:** No change needed. The function already
+fills zero columns for absent categories (lines 109-111: `if np.any(variant_mask):` correctly
+sets only present categories). The downstream burden test functions handle rank-deficient matrices
+via `try/except` in `_run_burden_test`.
 
 **Fix in `allelic_series_python.py` (and `allelic_series.py`) — `run()` method:**
 
@@ -97,7 +133,7 @@ present = [cat for cat, n in [("BMV", n_bmv), ("DMV", n_dmv), ("PTV", n_ptv)] if
 
 if len(present) == 0:
     # All categories empty — skip (existing behavior)
-    return TestResult(p_value=None, extra={"coast_skip_reason": "NO_CLASSIFIABLE_VARIANTS", ...})
+    return TestResult(p_value=None, extra={"coast_skip_reason": "ALL_CATEGORIES_EMPTY", ...})
 
 # Run COAST with whatever categories are present (drop_empty equivalent)
 coast_status = "complete" if len(missing) == 0 else "partial"
@@ -105,7 +141,9 @@ if missing:
     logger.debug(f"COAST [{gene}]: partial — missing {', '.join(missing)} ...")
 ```
 
-The `_aggregate_by_category` already handles missing categories by leaving those columns as zeros. The R equivalent of "drop_empty" maps to the existing zero-column behavior in burden tests — rank-deficient matrices already fall through gracefully via the `try/except` in `_run_burden_test`.
+The `_aggregate_by_category` already handles missing categories by leaving those columns as zeros.
+The R equivalent of "drop_empty" maps to the existing zero-column behavior in burden tests —
+rank-deficient matrices already fall through gracefully via the `try/except` in `_run_burden_test`.
 
 **Extra dict additions:**
 ```python
@@ -137,9 +175,11 @@ is_ptv_effect = effect_series.str.strip().isin(PTV_EFFECTS)
 is_missense = effect_series.str.strip() == MISSENSE_EFFECT
 ```
 
-SnpEff emits multi-transcript effects as `"stop_gained&splice_region_variant"` when a variant affects multiple transcripts. The `isin()` and `==` checks fail on these concatenated strings.
+SnpEff emits multi-transcript effects as `"stop_gained&splice_region_variant"` when a variant
+affects multiple transcripts. The `isin()` and `==` checks fail on these concatenated strings.
 
-**Fix strategy:** Split on `"&"` and check if ANY part matches. The decision (per CONTEXT.md) is to use split-and-prioritize: split on `"&"`, take the highest-priority effect.
+**Fix strategy:** Split on `"&"` and check if ANY part matches. The decision (per CONTEXT.md) is
+to use split-and-prioritize: split on `"&"`, take the highest-priority effect.
 
 Priority order (highest first):
 1. PTV effects: stop_gained, frameshift_variant, splice_acceptor_variant, splice_donor_variant
@@ -149,6 +189,8 @@ Priority order (highest first):
 ```python
 def _resolve_effect(effect_str: str) -> str:
     """Resolve '&'-concatenated SnpEff effect string to single highest-priority effect."""
+    if "&" not in effect_str:
+        return effect_str  # fast path for common case
     parts = [p.strip() for p in effect_str.split("&")]
     # PTV takes priority
     for part in parts:
@@ -166,7 +208,9 @@ Then in `classify_variants()`:
 effect_series = gene_df[effect_col].astype(object).fillna("").astype(str).map(_resolve_effect)
 ```
 
-This ensures `"stop_gained&splice_region_variant"` resolves to `"stop_gained"` (PTV), while `"missense_variant&splice_region_variant"` resolves to `"missense_variant"` (missense, then classified by SIFT/PolyPhen).
+This ensures `"stop_gained&splice_region_variant"` resolves to `"stop_gained"` (PTV), while
+`"missense_variant&splice_region_variant"` resolves to `"missense_variant"` (missense, then
+classified by SIFT/PolyPhen).
 
 Logging at DEBUG per the decisions.
 
@@ -174,13 +218,17 @@ Logging at DEBUG per the decisions.
 
 ### COAST-02: Auto-Field Injection
 
-**Where injection happens:** In `analysis_stages.py` `GeneBurdenAnalysisStage.run()` **before** `FieldExtractionStage` runs — the injection must happen at the config level so SnpSift/bcftools extracts the fields.
+**Where injection happens:** In `analysis_stages.py` before `FieldExtractionStage` runs — the
+injection must happen at the config level so bcftools query extracts the fields.
 
-**The challenge:** The fields are injected into `context.config["fields_to_extract"]` which has already been set. The injection must happen before `FieldExtractionStage` executes, i.e., during pipeline setup or in an early stage.
+**The challenge:** `FieldExtractionStage._process()` reads `context.config["fields_to_extract"]`
+(line 386 of `processing_stages.py`). `AssociationAnalysisStage` runs AFTER field extraction.
+The current COAST column check at lines 2322-2352 of `analysis_stages.py` only logs an ERROR
+and removes "coast" from the test list — it cannot go back and re-extract.
 
-**Recommended approach:** Inject in a new early-pipeline step or in `GeneBurdenAnalysisStage` as a pre-check that modifies `context.config["fields_to_extract"]` if COAST is in the test list. This requires that `GeneBurdenAnalysisStage` runs BEFORE `FieldExtractionStage`. Looking at the pipeline order, the analysis stage runs after extraction.
-
-**Correct injection point:** In `cli.py`'s `main()` function, after `fields` is resolved but before the pipeline runs. Alternatively, as a new `CoastFieldInjectionStage` that runs before `FieldExtractionStage`.
+**Correct injection point:** In `cli.py` `main()` function, after `fields` is resolved but before
+the pipeline runs. The classification model's `variable_assignment_config.json` keys (left side)
+are the VCF field names to inject.
 
 **Fields needed by the default (`sift_polyphen`) model:**
 - `ANN[0].EFFECT` (EFFECT)
@@ -192,8 +240,6 @@ Logging at DEBUG per the decisions.
 - `ANN[0].EFFECT` (EFFECT)
 - `ANN[0].IMPACT` (IMPACT)
 - `dbNSFP_CADD_phred`
-
-The `variable_assignment_config.json` maps VCF field names (left side) to internal variable names. The keys on the left are the field names to inject.
 
 **Injection pattern** (reusing `ensure_fields_in_extract`):
 
@@ -214,13 +260,15 @@ if "coast" in test_names:
     logger.info(f"COAST auto-injected fields: {required_fields}")
 ```
 
-**Where VCF field checking exists:** `variantcentrifuge/vcf_utils.py` or similar — check for `parse_vcf_header` usage in CLI.
+**Where VCF field checking exists:** `variantcentrifuge/vcf_utils.py` or similar — check for
+`parse_vcf_header` usage in CLI.
 
 ### COAST-05/COAST-06: Classification Model Selection and Config
 
 **New CLI option:** `--coast-classification <model-name>` (default: `sift_polyphen`)
 
-Pattern: identical to `--coast-backend python/r/auto`. Add to `argparse` in `cli.py`, propagate to `cfg["coast_classification"]`, propagate to `AssociationConfig`.
+Pattern: identical to `--coast-backend python/r/auto`. Add to `argparse` in `cli.py`, propagate
+to `cfg["coast_classification"]`, propagate to `AssociationConfig`.
 
 **New config directory structure:**
 
@@ -237,7 +285,12 @@ scoring/coast_classification/
     └── formula_config.json
 ```
 
-**Formula engine reuse:** The existing `read_scoring_config()` + `apply_scoring()` in `scoring.py` works on per-row DataFrames. For COAST classification, the formula outputs a single integer column (0/1/2/3) per variant row.
+Note: the `scoring/` directory is at the **repo root** (not inside the `variantcentrifuge/` Python
+package). Existing configs in `scoring/nephro_candidate_score/` confirm this location.
+
+**Formula engine reuse:** The existing `read_scoring_config()` + `apply_scoring()` in `scoring.py`
+works on per-row DataFrames. For COAST classification, the formula outputs a single integer column
+(`coast_category`: 0/1/2/3) per variant row.
 
 **sift_polyphen formula_config.json example:**
 
@@ -277,6 +330,8 @@ scoring/coast_classification/
 ```
 
 Note: The formula engine uses `pandas.eval` with `engine="python"` and allows series method calls.
+The `&`-string issue is handled by pre-resolving the `effect` column with `_resolve_effect()` before
+passing `gene_df` to `apply_scoring()`.
 
 **sift_polyphen variable_assignment_config.json:**
 
@@ -304,8 +359,8 @@ Note: The formula engine uses `pandas.eval` with `engine="python"` and allows se
 ```
 
 **cadd formula_config.json (CADD thresholds from literature):**
-- BMV: missense AND 0 < CADD_phred < 15 (below damaging threshold)
-- DMV: missense AND CADD_phred >= 15 (Kircher 2014 threshold)
+- BMV: missense AND 0 < CADD_phred < 15 (below damaging threshold, Kircher 2014)
+- DMV: missense AND CADD_phred >= 15 (at or above damaging threshold)
 - PTV: HIGH impact + PTV effects (same as default)
 
 ```json
@@ -331,21 +386,33 @@ Note: The formula engine uses `pandas.eval` with `engine="python"` and allows se
 }
 ```
 
-**Integration in `classify_variants()`:** The function needs to accept an optional `model_dir` parameter. When provided, it calls `read_scoring_config(model_dir)` + `apply_scoring(gene_df, config)` and reads the `coast_category` output column. When not provided, it uses the hardcoded logic (backward compat) or defaults to the `sift_polyphen` model.
+**Integration in `classify_variants()`:** The function needs to accept an optional `model_dir`
+parameter. When provided, it calls `read_scoring_config(model_dir)` + `apply_scoring(gene_df, config)`
+and reads the `coast_category` output column. When not provided, it uses the hardcoded logic
+(backward compat) or defaults to the `sift_polyphen` model.
 
-**Formula engine limitation:** `apply_scoring()` renames columns for evaluation and renames them back. It expects all input columns to be in the DataFrame. Since we're classifying per variant (gene_df already has all annotation columns), this works naturally. The output column `coast_category` will be an integer 0/1/2/3.
+**Formula engine output dtype:** `apply_scoring()` converts results via `pd.to_numeric()`, so
+`coast_category` becomes float64 (0.0, 1.0, 2.0, 3.0). Cast after calling:
+`anno_codes = gene_df["coast_category"].fillna(0).astype(int).to_numpy()`.
 
 ### COAST-07: Multi-Transcript Resolution Strategy
 
-Per CONTEXT.md, this is handled by the `_resolve_effect()` function in COAST-04 above. The model config can declare a `resolution_strategy` key (default: `majority_vote` or `priority_order`). For simplicity and correctness, priority-order (PTV > missense > other) is recommended since it matches how SnpEff annotation priority works.
+Per CONTEXT.md, this is handled by the `_resolve_effect()` function in COAST-04 above. The model
+config can declare a `resolution_strategy` key (default: `priority_order`). For simplicity and
+correctness, priority-order (PTV > missense > other) is recommended since it matches how SnpEff
+annotation priority works.
 
-The formula configs handle this implicitly: by using `isin()` on the pre-resolved effect string, if the classification model config itself calls `_resolve_effect()` before classification. Since formula eval uses pandas operations on strings, the `&`-split resolution must happen before passing to the formula engine.
+The formula configs handle this implicitly: by using `isin()` on the pre-resolved effect string,
+if the classification model config itself calls `_resolve_effect()` before classification. Since
+formula eval uses pandas operations on strings, the `&`-split resolution must happen before
+passing to the formula engine.
 
 ### COAST Diagnostics: `coast_classification.tsv`
 
 When `--diagnostics-output` is set, write a per-variant TSV audit file.
 
-**Column order:** `gene`, `variant_id`, `original_effect`, `resolved_effect`, `assigned_category`, `score_used`
+**Column order:** `gene`, `variant_id`, `original_effect`, `resolved_effect`, `assigned_category`,
+`score_used`
 
 Where `variant_id` = `CHROM:POS:REF:ALT` assembled from columns or a `VARIANT_ID` column if present.
 `score_used` = name of classification model used (e.g., `"sift_polyphen"`).
@@ -354,7 +421,8 @@ Where `variant_id` = `CHROM:POS:REF:ALT` assembled from columns or a `VARIANT_ID
 
 ### Existing Pattern: Scoring Formula Engine
 
-The scoring engine (`scoring.py`) runs `pandas.eval()` with `engine="python"` on a per-row DataFrame. It:
+The scoring engine (`scoring.py`) runs `pandas.eval()` with `engine="python"` on a per-row
+DataFrame. It:
 1. Reads `variable_assignment_config.json` (column mapping + defaults)
 2. Renames columns to variable names
 3. Evaluates each formula in sequence (results become new columns)
@@ -363,13 +431,18 @@ The scoring engine (`scoring.py`) runs `pandas.eval()` with `engine="python"` on
 
 COAST classification reuses this with one output column: `coast_category` (int 0/1/2/3).
 
-**Constraint:** The formula engine uses `scored_df.eval()`, which means string operations need `.str.` method calls, not direct operations. The existing formulas in `nephro_candidate_score` use `str.contains()` which is valid.
+**Constraint:** The formula engine uses `scored_df.eval()`, which means string operations need
+`.str.` method calls, not direct operations. The existing formulas in `nephro_candidate_score`
+use `str.contains()` which is valid.
 
-**Constraint:** The `output_scores` list in `formula_config.json` controls which intermediate columns are kept. For COAST classification, only `coast_category` should be in `output_scores` — all intermediate boolean columns (`is_ptv`, `is_missense`, etc.) will be dropped.
+**Constraint:** The `output_scores` list in `formula_config.json` controls which intermediate
+columns are kept. For COAST classification, only `coast_category` should be in `output_scores` —
+all intermediate boolean columns (`is_ptv`, `is_missense`, etc.) will be dropped.
 
 ### Existing Pattern: CLI Option Propagation
 
-New CLI option → `cfg["key"]` in `cli.py` → `AssociationConfig.field` → accessible in test via `getattr(config, "field", default)`.
+New CLI option → `cfg["key"]` in `cli.py` → `AssociationConfig.field` → accessible in test via
+`getattr(config, "field", default)`.
 
 Existing examples:
 - `--coast-backend` → `cfg["coast_backend"]` → `AssociationConfig.coast_backend`
@@ -380,14 +453,16 @@ New option follows same pattern:
 
 ### Existing Pattern: TestResult Extra Dict
 
-All COAST-specific output goes into `extra` dict on `TestResult`. The engine writes all extra keys directly to the output DataFrame (engine.py lines 498-499):
+All COAST-specific output goes into `extra` dict on `TestResult`. The engine writes all extra
+keys directly to the output DataFrame (engine.py lines 498-499):
 
 ```python
 for extra_key, extra_val in res.extra.items():
     row[extra_key] = extra_val
 ```
 
-New extra keys (`coast_status`, `coast_missing_categories`) will automatically appear in association output.
+New extra keys (`coast_status`, `coast_missing_categories`) will automatically appear in
+association output.
 
 ## Don't Hand-Roll
 
@@ -403,39 +478,73 @@ New extra keys (`coast_status`, `coast_missing_categories`) will automatically a
 
 ### Pitfall 1: Formula Engine Categorical Columns
 
-**What goes wrong:** When `gene_df` has EFFECT as a pandas Categorical column (memory optimization), `pandas.eval()` with string operations like `.isin()` can fail or behave unexpectedly.
+**What goes wrong:** When `gene_df` has EFFECT as a pandas Categorical column (memory optimization),
+`pandas.eval()` with string operations like `.isin()` can fail or behave unexpectedly.
 
-**How to avoid:** The existing `classify_variants()` already handles this: `effect_series = gene_df[effect_col].astype(object).fillna("").astype(str)`. The formula configs should document that inputs may be Categorical.
+**How to avoid:** The existing `classify_variants()` already handles this:
+`effect_series = gene_df[effect_col].astype(object).fillna("").astype(str)`. The formula configs
+should document that inputs may be Categorical.
 
-**Alternative:** In the scoring integration, pre-cast string columns to `object` dtype before calling `apply_scoring()`.
+**Alternative:** In the scoring integration, pre-cast string columns to `object` dtype before
+calling `apply_scoring()`.
 
 ### Pitfall 2: Partial-Category Burden Tests with Zero-Variance Predictors
 
-**What goes wrong:** When only PTV category is present, the baseline 3-df test gets a 3-column predictor where columns 0 and 1 (BMV, DMV) are all zeros. Logistic regression will fail to converge or produce degenerate F-tests.
+**What goes wrong:** When only PTV category is present, the baseline 3-df test gets a 3-column
+predictor where columns 0 and 1 (BMV, DMV) are all zeros. Logistic regression will fail to converge
+or produce degenerate F-tests.
 
-**How to avoid:** The `_run_burden_test()` function wraps fits in `try/except` and returns `None` on failure. The Cauchy combination in `cauchy_combination()` skips `None` values. So degenerate columns produce `None` p-values which are silently excluded from the omnibus — this is correct behavior. **No additional code needed.**
+**How to avoid:** The `_run_burden_test()` function wraps fits in `try/except` and returns `None`
+on failure. The Cauchy combination in `cauchy_combination()` skips `None` values. So degenerate
+columns produce `None` p-values which are silently excluded from the omnibus — this is correct
+behavior. **No additional code needed.**
 
-**Warning sign:** Very high omnibus p-values when only 1 category present — this is expected (reduced power).
+**Warning sign:** Very high omnibus p-values when only 1 category present — this is expected
+(reduced power).
 
 ### Pitfall 3: Genotype Matrix / gene_df Dimension Mismatch After Partial Classification
 
-**What goes wrong:** When `build_genotype_matrix()` applies the missing-site filter and drops some variants, `geno.shape[1]` < `len(gene_df)`. The current `ANNOTATION_GENOTYPE_MISMATCH` check skips the gene in this case.
+**What goes wrong:** When `build_genotype_matrix()` applies the missing-site filter and drops some
+variants, `geno.shape[1]` < `len(gene_df)`. The current `ANNOTATION_GENOTYPE_MISMATCH` check skips
+the gene in this case.
 
-**Note:** This existing check is correct and should remain. The partial-category fix does NOT touch this check. The dimension mismatch is a separate issue from missing categories.
+**Note:** This existing check is correct and should remain. The partial-category fix does NOT touch
+this check. The dimension mismatch is a separate issue from missing categories.
 
 ### Pitfall 4: Formula Config with Missing Columns Causes Silent Default
 
-**What goes wrong:** When a user requests the CADD classification model but their VCF has no CADD annotations, `apply_scoring()` creates the column with `default: 0.0`. All variants get CADD=0, which means all missense variants become BMV (CADD < 15). This silently produces wrong results.
+**What goes wrong:** When a user requests the CADD classification model but their VCF has no CADD
+annotations, `apply_scoring()` creates the column with `default: 0.0`. All variants get CADD=0,
+which means all missense variants become BMV (CADD < 15). This silently produces wrong results.
 
-**How to avoid:** The auto-field injection step (COAST-02) must check VCF header fields BEFORE pipeline runs. If CADD fields are missing from the VCF, fail early with a clear error: `"COAST classification model 'cadd' requires 'dbNSFP_CADD_phred' which is not in the VCF. Add CADD annotations or use --coast-classification sift_polyphen"`.
+**How to avoid:** The auto-field injection step (COAST-02) must check VCF header fields BEFORE
+pipeline runs. If CADD fields are missing from the VCF, fail early with a clear error:
+`"COAST classification model 'cadd' requires 'dbNSFP_CADD_phred' which is not in the VCF. Add
+CADD annotations or use --coast-classification sift_polyphen"`.
 
-**Implementation:** Use `parse_vcf_header()` (already in CLI for `--show-vcf-annotations`) to get available fields, cross-reference against `variable_assignment_config.json` keys.
+**Implementation:** Use `parse_vcf_header()` (already in CLI for `--show-vcf-annotations`) to get
+available fields, cross-reference against `variable_assignment_config.json` keys.
 
 ### Pitfall 5: apply_scoring() Output Column Dtype
 
-**What goes wrong:** The formula engine wraps results: `pd.to_numeric(scored_df[score_name], errors="coerce")`. The `coast_category` column becomes float64 (0.0, 1.0, 2.0, 3.0). The existing code uses `anno_filtered == 1` (integer comparison), which works with float equality but is fragile.
+**What goes wrong:** The formula engine wraps results: `pd.to_numeric(scored_df[score_name],
+errors="coerce")`. The `coast_category` column becomes float64 (0.0, 1.0, 2.0, 3.0). The existing
+code uses `anno_filtered == 1` (integer comparison), which works with float equality but is fragile.
 
-**How to avoid:** After calling `apply_scoring()`, cast the output column: `anno_codes = gene_df["coast_category"].fillna(0).astype(int).to_numpy()`.
+**How to avoid:** After calling `apply_scoring()`, cast the output column:
+`anno_codes = gene_df["coast_category"].fillna(0).astype(int).to_numpy()`.
+
+### Pitfall 6: Field Injection Timing
+
+**What goes wrong:** Injecting required COAST fields AFTER `FieldExtractionStage` has already run
+means the VCF is not re-queried and SIFT/PolyPhen data is absent.
+
+**Why it happens:** `AssociationAnalysisStage` runs after field extraction; current COAST validation
+at line 2322 only logs an error but cannot go back and re-extract.
+
+**How to avoid:** Inject fields in `cli.py` `main()` before pipeline execution.
+
+**Warning signs:** `classify_variants()` logs "no SIFT or PolyPhen columns found" error.
 
 ## Code Examples
 
@@ -536,41 +645,68 @@ logger.info(
 | Hardcoded classify_variants() | Formula engine config (Phase 31) | This phase | Configurable classification |
 | Skip on missing categories | Partial-category fallback (Phase 31) | This phase | Valid p-values for real cohorts |
 
-**Deprecated (in this phase):** The hardcoded `classify_variants()` logic in `allelic_series.py` is migrated to formula config. The function itself is kept for backward compatibility but delegates to the formula engine when a model config is available.
+**Deprecated (in this phase):** The hardcoded `classify_variants()` logic in `allelic_series.py`
+is migrated to formula config. The function itself is kept for backward compatibility but delegates
+to the formula engine when a model config is available.
 
 ## Open Questions
 
 1. **FieldExtractionStage timing for auto-injection**
    - What we know: `fields_to_extract` is set in `cli.py` and passed to the extraction stage
    - What's unclear: Whether injecting in `cli.py` vs. a pre-extraction stage is better
-   - Recommendation: Inject in `cli.py` `main()` after `fields` is resolved (before `validate_mandatory_parameters`). This is the simplest path — no new stage needed.
+   - Recommendation: Inject in `cli.py` `main()` after `fields` is resolved (before
+     `validate_mandatory_parameters`). This is the simplest path — no new stage needed.
 
-2. **Formula engine &-string handling in CADD model**
-   - What we know: The formula engine evaluates on the raw `effect` column, which may contain `"stop_gained&splice_region_variant"`
-   - What's unclear: Whether formulas using `.isin()` or `==` will fail on &-strings
-   - Recommendation: Pre-resolve `effect` column with `_resolve_effect()` before passing gene_df to `apply_scoring()`, so formula configs don't need to handle concatenated strings.
+2. **Formula engine `&`-string handling in CADD model**
+   - What we know: The formula engine evaluates on the raw `effect` column, which may contain
+     `"stop_gained&splice_region_variant"`
+   - What's unclear: Whether formulas using `.isin()` or `==` will fail on `&`-strings
+   - Recommendation: Pre-resolve `effect` column with `_resolve_effect()` before passing `gene_df`
+     to `apply_scoring()`, so formula configs don't need to handle concatenated strings.
 
 3. **diagnostics_output directory vs. file path**
    - What we know: `diagnostics_output` in `AssociationConfig` is currently a path to a directory
-   - What's unclear: Whether to write `coast_classification.tsv` inside that directory or to a fixed path
-   - Recommendation: Write to `{diagnostics_output}/coast_classification.tsv` (consistent with existing diagnostics pattern).
+   - What's unclear: Whether to write `coast_classification.tsv` inside that directory or fixed path
+   - Recommendation: Write to `{diagnostics_output}/coast_classification.tsv` (consistent with
+     existing diagnostics pattern).
+
+4. **scoring/ directory path resolution at runtime**
+   - What we know: `scoring/` is at the repo root, not inside the `variantcentrifuge/` Python package
+   - What's unclear: How the path is resolved when the package is installed as a wheel (not in-tree)
+   - Recommendation: Check how existing scoring configs (`nephro_candidate_score/`) are located at
+     runtime. Look at `cli.py` and `VariantScoringStage` for the path-resolution pattern.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- Direct codebase inspection: `variantcentrifuge/association/tests/allelic_series.py` — classify_variants(), COASTTest.run()
-- Direct codebase inspection: `variantcentrifuge/association/tests/allelic_series_python.py` — PurePythonCOASTTest.run()
-- Direct codebase inspection: `variantcentrifuge/association/backends/coast_python.py` — PythonCOASTBackend, _aggregate_by_category
-- Direct codebase inspection: `variantcentrifuge/stages/analysis_stages.py` lines 2354-2653 — genotype matrix construction
-- Direct codebase inspection: `variantcentrifuge/scoring.py` — formula engine
-- Direct codebase inspection: `variantcentrifuge/association/base.py` — AssociationConfig, TestResult
+- Direct codebase inspection: `variantcentrifuge/association/tests/allelic_series.py` —
+  `classify_variants()`, `COASTTest.run()`, `PTV_EFFECTS`, `SIFT_COLUMN_CANDIDATES`,
+  `POLYPHEN_COLUMN_CANDIDATES`
+- Direct codebase inspection: `variantcentrifuge/association/tests/allelic_series_python.py` —
+  `PurePythonCOASTTest.run()` full read
+- Direct codebase inspection: `variantcentrifuge/association/backends/coast_python.py` —
+  `PythonCOASTBackend`, `_aggregate_by_category` full read
+- Direct codebase inspection: `variantcentrifuge/stages/analysis_stages.py` lines 2204-2680 —
+  `AssociationAnalysisStage._process()`, GT reconstruction, genotype matrix augmentation
+- Direct codebase inspection: `variantcentrifuge/scoring.py` — `read_scoring_config()`,
+  `apply_scoring()` full read
+- Direct codebase inspection: `variantcentrifuge/association/base.py` lines 140-181 —
+  `AssociationConfig` dataclass
+- Direct codebase inspection: `scoring/nephro_candidate_score/formula_config.json` and
+  `variable_assignment_config.json` — format reference
+- Direct codebase inspection: `variantcentrifuge/association/engine.py` — backend swap pattern,
+  extra dict writing to output DataFrame
 
 ### Secondary (MEDIUM confidence)
-- WebFetch of insitro/AllelicSeries R source (`allelic_series.R`): Confirmed `Aggregator(drop_empty=TRUE)` behavior — empty categories dropped before regression, COAST returns NA only when all categories empty
-- CRAN AllelicSeries documentation: Confirmed partial category handling intent
+- WebFetch of `insitro/AllelicSeries` R source via GitHub API (`allelic_series.R`): Confirmed
+  `Aggregator(drop_empty=TRUE)` behavior — empty categories dropped before regression, COAST returns
+  NA only when all categories empty. COAST propagates NA on all-empty baseline burden test.
+  (Fetched 2026-02-23)
 
 ### Tertiary (LOW confidence)
-- WebSearch for AllelicSeries behavior: confirmed partial category support exists but full source code not directly read
+- CADD threshold of 15 for DMV/BMV split — community practice in rare variant analysis, not from
+  a single authoritative source. Configurable in the JSON, so the specific value matters less than
+  the infrastructure.
 
 ## Metadata
 
@@ -578,8 +714,11 @@ logger.info(
 - Bug identification (COAST-01, COAST-03, COAST-04): HIGH — traced through source code
 - Fix implementations: HIGH — patterns follow existing code exactly
 - Formula engine config design (COAST-06): HIGH — reuses existing scoring engine
-- Auto-injection implementation (COAST-02): MEDIUM — field injection point needs validation against full pipeline execution path
-- R reference partial-category behavior: MEDIUM — confirmed via WebFetch but not verified against live R execution
+- Auto-injection implementation (COAST-02): MEDIUM — field injection point needs validation
+  against full pipeline execution path
+- R reference partial-category behavior: MEDIUM — confirmed via WebFetch but not verified against
+  live R execution
+- CADD thresholds: LOW — literature-informed default, user-configurable anyway
 
 **Research date:** 2026-02-23
 **Valid until:** 2026-03-23 (30 days — stable codebase)
