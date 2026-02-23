@@ -47,6 +47,7 @@ from .stages.processing_stages import (
     GenotypeReplacementStage,
     MultiAllelicSplitStage,
     ParallelCompleteProcessingStage,
+    PCAComputationStage,
     PhenotypeIntegrationStage,
     SnpSiftFilterStage,
     VariantExtractionStage,
@@ -282,6 +283,11 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     if hasattr(args, "perform_gene_burden") and args.perform_gene_burden:
         stages.append(GeneBurdenAnalysisStage())
 
+    # PCA computation stage (Phase 32) — runs before association analysis
+    pca_arg = getattr(args, "pca", None) or config.get("pca")
+    if pca_arg:
+        stages.append(PCAComputationStage())
+
     if hasattr(args, "perform_association") and args.perform_association:
         stages.append(AssociationAnalysisStage())
 
@@ -361,6 +367,7 @@ def create_stages_from_config(config: dict) -> list[Stage]:
     args.html_report = config.get("html_report", False)
     args.igv_report = config.get("igv_report", False)
     args.archive_results = config.get("archive_results", False)
+    args.pca = config.get("pca")
 
     # Use the existing build_pipeline_stages function
     return build_pipeline_stages(args)

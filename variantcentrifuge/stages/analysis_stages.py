@@ -2224,7 +2224,7 @@ class AssociationAnalysisStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
-        return {"custom_annotation"}
+        return {"custom_annotation", "pca_computation"}
 
     @property
     def parallel_safe(self) -> bool:
@@ -2285,6 +2285,14 @@ class AssociationAnalysisStage(Stage):
                 f"control_samples={len(control_samples) if control_samples else 0}"
             )
             return context
+
+        # PCA-02: pick up pca_file from PCAComputationStage result (Phase 32)
+        pca_result = context.get_result("pca_computation")
+        if pca_result and isinstance(pca_result, dict):
+            pca_file_from_stage = pca_result.get("pca_file")
+            if pca_file_from_stage:
+                context.config.setdefault("pca_file", pca_file_from_stage)
+                logger.debug(f"Association: PCA file from pipeline stage: {pca_file_from_stage}")
 
         # Build AssociationConfig from context (Phase 23: JSON config + CLI override support).
         # Validates "association" section from config.json, applies CLI > JSON > default

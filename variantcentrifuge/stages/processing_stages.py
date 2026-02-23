@@ -132,7 +132,138 @@ class GeneBedCreationStage(Stage):
             context.gene_bed_file = Path(bed_file)
             logger.info(f"Created BED file: {bed_file}")
 
+            # Region restriction: intersect gene BED with restriction BED
+            regions_bed = context.config.get("regions_bed")
+            if regions_bed:
+                context.gene_bed_file = self._intersect_with_restriction_bed(
+                    context.gene_bed_file, regions_bed, context
+                )
+                logger.info(f"Gene BED restricted to regions: {context.gene_bed_file}")
+
             return context
+
+    def _read_chromosomes(self, bed_file: Path) -> set[str]:
+        """Read chromosome names from the first column of a BED file.
+
+        Parameters
+        ----------
+        bed_file : Path
+            Path to BED file.
+
+        Returns
+        -------
+        set[str]
+            Set of chromosome names found (comment lines skipped).
+        """
+        chromosomes: set[str] = set()
+        with open(bed_file) as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if not line or line.startswith(("#", "track", "browser")):
+                    continue
+                chrom = line.split("\t")[0]
+                if chrom:
+                    chromosomes.add(chrom)
+        return chromosomes
+
+    def _count_regions(self, bed_file: Path) -> int:
+        """Count non-comment, non-empty lines in a BED file.
+
+        Parameters
+        ----------
+        bed_file : Path
+            Path to BED file.
+
+        Returns
+        -------
+        int
+            Number of data lines.
+        """
+        count = 0
+        with open(bed_file) as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if not line or line.startswith(("#", "track", "browser")):
+                    continue
+                count += 1
+        return count
+
+    def _intersect_with_restriction_bed(
+        self, gene_bed: Path, restriction_bed: str, context: PipelineContext
+    ) -> Path:
+        """Intersect gene BED with a restriction BED file (e.g., capture kit).
+
+        Parameters
+        ----------
+        gene_bed : Path
+            Path to the gene BED file.
+        restriction_bed : str
+            Path to the restriction BED file.
+        context : PipelineContext
+            Pipeline context for workspace access.
+
+        Returns
+        -------
+        Path
+            Path to the intersected BED file.
+
+        Raises
+        ------
+        FileNotFoundError
+            If restriction BED file does not exist.
+        ValueError
+            If chromosome naming mismatch detected, or if intersection is empty.
+        """
+        restriction_path = Path(restriction_bed)
+        if not restriction_path.is_file():
+            raise FileNotFoundError(f"Restriction BED file not found: {restriction_bed}")
+
+        # Detect chr-prefix mismatch
+        gene_chroms = self._read_chromosomes(gene_bed)
+        restriction_chroms = self._read_chromosomes(restriction_path)
+
+        if gene_chroms and restriction_chroms:
+            gene_has_chr = any(c.startswith("chr") for c in gene_chroms)
+            restriction_has_chr = any(c.startswith("chr") for c in restriction_chroms)
+            if gene_has_chr != restriction_has_chr:
+                raise ValueError(
+                    "Chromosome naming mismatch between gene BED and restriction BED: "
+                    f"gene BED {'has' if gene_has_chr else 'lacks'} 'chr' prefix "
+                    f"(e.g., {next(iter(gene_chroms))}), "
+                    f"restriction BED {'has' if restriction_has_chr else 'lacks'} 'chr' prefix "
+                    f"(e.g., {next(iter(restriction_chroms))}). "
+                    "Ensure both files use the same chromosome naming convention."
+                )
+
+        # Count original regions for logging
+        orig_count = self._count_regions(gene_bed)
+
+        # Run bedtools intersect
+        out_path = context.workspace.get_intermediate_path(
+            f"{context.workspace.base_name}.restricted.bed"
+        )
+        with open(out_path, "w") as out_f:
+            subprocess.run(
+                ["bedtools", "intersect", "-a", str(gene_bed), "-b", str(restriction_bed)],
+                stdout=out_f,
+                check=True,
+            )
+
+        # Check result is non-empty
+        if out_path.stat().st_size == 0:
+            raise ValueError(
+                f"Intersection of gene BED with restriction BED produced no regions. "
+                f"Gene BED: {gene_bed}, Restriction BED: {restriction_bed}. "
+                "Check that both files cover overlapping genomic regions."
+            )
+
+        new_count = self._count_regions(out_path)
+        logger.info(
+            f"Region restriction: {new_count} of {orig_count} gene regions retained "
+            f"after intersection with {restriction_bed}"
+        )
+
+        return out_path
 
     def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return the generated BED file."""
@@ -1534,9 +1665,7 @@ class PCAComputationStage(Stage):
         try:
             subprocess.run(cmd, capture_output=True, text=True, check=True)
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(
-                f"AKT PCA failed (exit code {e.returncode}): {e.stderr}"
-            ) from e
+            raise RuntimeError(f"AKT PCA failed (exit code {e.returncode}): {e.stderr}") from e
         except FileNotFoundError as e:
             raise RuntimeError(
                 "AKT not found in PATH. Install akt or use --pca <eigenvec_file> "
