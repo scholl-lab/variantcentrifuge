@@ -1349,10 +1349,10 @@ def main() -> int:
             logger.error(f"COAST: failed to read variable_assignment_config: {_e}")
             sys.exit(1)
 
-        # Collect real field names (skip _comment keys)
-        _required_fields = [k for k in _var_config.get("variables", {}) if not k.startswith("_")]
-        # Filter out internal COAST_* normalized names (not actual VCF fields)
-        _vcf_fields = [f for f in _required_fields if not f.startswith("COAST_")]
+        # Read vcf_fields list (actual VCF annotation field names for auto-injection).
+        # The "variables" keys are internal COAST_* names used by the formula engine,
+        # not VCF field names, so we use the explicit vcf_fields list instead.
+        _vcf_fields = _var_config.get("vcf_fields", [])
 
         if _vcf_fields:
             if fields:

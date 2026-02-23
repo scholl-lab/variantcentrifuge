@@ -5,5 +5,10 @@
     "COAST_EFFECT": "effect|default:''",
     "COAST_IMPACT": "impact|default:''",
     "COAST_CADD": "cadd_phred|default:0.0"
-  }
+  },
+  "vcf_fields": [
+    "ANN[0].EFFECT",
+    "ANN[0].IMPACT",
+    "dbNSFP_CADD_phred"
+  ]
 }

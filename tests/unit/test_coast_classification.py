@@ -241,7 +241,7 @@ def test_coast_classification_cli_option_cadd():
 
 @pytest.mark.unit
 def test_auto_field_injection_sift_polyphen(sift_polyphen_model_dir):
-    """Auto-injection appends SIFT/PolyPhen fields when COAST is selected."""
+    """Auto-injection reads vcf_fields and injects SIFT/PolyPhen VCF fields."""
     # Simulate the injection logic from cli.py
     import json
 
@@ -249,14 +249,15 @@ def test_auto_field_injection_sift_polyphen(sift_polyphen_model_dir):
     with open(var_config_path) as f:
         var_config = json.load(f)
 
-    # Collect real field names (skip _comment keys, skip COAST_* internal names)
-    required_fields = [k for k in var_config.get("variables", {}) if not k.startswith("_")]
-    vcf_fields = [f for f in required_fields if not f.startswith("COAST_")]
+    # Read vcf_fields list (actual VCF annotation field names for auto-injection)
+    vcf_fields = var_config.get("vcf_fields", [])
 
-    # The sift_polyphen model should NOT produce raw VCF field names
-    # (they are COAST_EFFECT, COAST_IMPACT, etc. - all internal)
-    # So vcf_fields should be empty for normalized configs
-    assert isinstance(vcf_fields, list)
+    # The sift_polyphen model should list the actual VCF fields for injection
+    assert "ANN[0].EFFECT" in vcf_fields
+    assert "ANN[0].IMPACT" in vcf_fields
+    assert "dbNSFP_SIFT_pred" in vcf_fields
+    assert "dbNSFP_Polyphen2_HDIV_pred" in vcf_fields
+    assert len(vcf_fields) == 4
 
 
 @pytest.mark.unit

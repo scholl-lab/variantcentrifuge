@@ -6,5 +6,11 @@
     "COAST_IMPACT": "impact|default:''",
     "COAST_SIFT": "sift_pred|default:''",
     "COAST_POLYPHEN": "polyphen_pred|default:''"
-  }
+  },
+  "vcf_fields": [
+    "ANN[0].EFFECT",
+    "ANN[0].IMPACT",
+    "dbNSFP_SIFT_pred",
+    "dbNSFP_Polyphen2_HDIV_pred"
+  ]
 }

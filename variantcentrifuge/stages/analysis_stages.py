@@ -2316,35 +2316,44 @@ class AssociationAnalysisStage(Stage):
             logger.error("DataFrame missing required 'GENE' column for association analysis")
             return context
 
-        # Phase 24: Validate required columns for COAST allelic series test.
+        # Phase 24/31: Validate required columns for COAST allelic series test.
         # COAST needs annotation columns to classify variants into BMV/DMV/PTV.
-        # Without them, all variants get code 0 (ineligible) and COAST returns
-        # meaningless results silently.
+        # Required columns depend on the classification model selected:
+        #   sift_polyphen (default): EFFECT, IMPACT, SIFT_pred, Polyphen2_HDIV_pred
+        #   cadd: EFFECT, IMPACT, CADD_phred
+        # The cli.py auto-injection should have added these fields, but validate
+        # that at least EFFECT and IMPACT are present (needed by all models).
         if "coast" in test_names:
-            _coast_required = [
-                "ANN_0__EFFECT",
-                "ANN_0__IMPACT",
-                "dbNSFP_SIFT_pred",
-                "dbNSFP_Polyphen2_HDIV_pred",
+            _coast_base_required = [
+                ("ANN_0__EFFECT", "ANN[0].EFFECT"),
+                ("ANN_0__IMPACT", "ANN[0].IMPACT"),
             ]
-            # Also check unsanitized column names (pre-Phase 8 sanitization)
-            _coast_required_alt = [
-                "ANN[0].EFFECT",
-                "ANN[0].IMPACT",
-                "dbNSFP_SIFT_pred",
-                "dbNSFP_Polyphen2_HDIV_pred",
-            ]
+            # For sift_polyphen model (default), also check SIFT/PolyPhen
+            _coast_model = getattr(assoc_config, "coast_classification", None) or ""
+            _is_sift_model = (
+                not _coast_model
+                or _coast_model.endswith("sift_polyphen")
+                or _coast_model == "sift_polyphen"
+            )
+            if _is_sift_model:
+                _coast_base_required.extend([
+                    ("dbNSFP_SIFT_pred", "dbNSFP_SIFT_pred"),
+                    ("dbNSFP_Polyphen2_HDIV_pred", "dbNSFP_Polyphen2_HDIV_pred"),
+                ])
+            elif _coast_model.endswith("cadd") or _coast_model == "cadd":
+                _coast_base_required.extend([
+                    ("dbNSFP_CADD_phred", "dbNSFP_CADD_phred"),
+                ])
             missing = [
-                f
-                for f, f_alt in zip(_coast_required, _coast_required_alt, strict=True)
-                if f not in df.columns and f_alt not in df.columns
+                san
+                for san, alt in _coast_base_required
+                if san not in df.columns and alt not in df.columns
             ]
             if missing:
                 logger.error(
                     "COAST allelic series test requires columns %s but they are "
-                    "missing from the data. Add them to --fields (e.g., "
-                    "'ANN[0].EFFECT,ANN[0].IMPACT,dbNSFP_SIFT_pred,"
-                    "dbNSFP_Polyphen2_HDIV_pred'). Skipping COAST.",
+                    "missing from the data. Use --coast-classification to select "
+                    "a model, or add required fields to --fields. Skipping COAST.",
                     missing,
                 )
                 test_names = [t for t in test_names if t != "coast"]
