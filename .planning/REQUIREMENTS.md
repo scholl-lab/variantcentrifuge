@@ -36,16 +36,16 @@
 
 ### Region Restriction (#84)
 
-- [ ] **REGION-01**: User can restrict variant extraction to a BED file via `--restrict-regions <bed_file>`
-- [ ] **REGION-02**: The gene BED is intersected with the restriction BED via `bedtools intersect` before `bcftools view -R`
-- [ ] **REGION-03**: Chromosome naming mismatches between BED files are detected and reported as an error
-- [ ] **REGION-04**: The intersection happens once before chunk splitting (all chunks respect the restriction)
+- [x] **REGION-01**: User can restrict variant extraction to a BED file via `--regions-bed <bed_file>`
+- [x] **REGION-02**: The gene BED is intersected with the restriction BED via `bedtools intersect` before `bcftools view -R`
+- [x] **REGION-03**: Chromosome naming mismatches between BED files are detected and reported as an error
+- [x] **REGION-04**: The intersection happens once before chunk splitting (all chunks respect the restriction)
 
 ### PCA Pipeline Integration (TD-01)
 
-- [ ] **PCA-01**: `PCAComputationStage` is wired into `pipeline.py` and executes when `--pca-tool` is set
-- [ ] **PCA-02**: PCA eigenvectors computed by the stage are available to `AssociationAnalysisStage` via `context.stage_results`
-- [ ] **PCA-03**: `--pca-tool akt` runs AKT via subprocess and produces eigenvec output
+- [x] **PCA-01**: `PCAComputationStage` is wired into `pipeline.py` and executes when `--pca` is set
+- [x] **PCA-02**: PCA eigenvectors computed by the stage are available to `AssociationAnalysisStage` via `context.stage_results`
+- [x] **PCA-03**: `--pca akt` runs AKT via subprocess and produces eigenvec output
 
 ### Performance Optimization
 
@@ -113,13 +113,13 @@
 | CONF-05 | Phase 35 | Pending |
 | CONF-06 | Phase 35 | Pending |
 | CONF-07 | Phase 35 | Pending |
-| REGION-01 | Phase 32 | Pending |
-| REGION-02 | Phase 32 | Pending |
-| REGION-03 | Phase 32 | Pending |
-| REGION-04 | Phase 32 | Pending |
-| PCA-01 | Phase 32 | Pending |
-| PCA-02 | Phase 32 | Pending |
-| PCA-03 | Phase 32 | Pending |
+| REGION-01 | Phase 32 | Complete |
+| REGION-02 | Phase 32 | Complete |
+| REGION-03 | Phase 32 | Complete |
+| REGION-04 | Phase 32 | Complete |
+| PCA-01 | Phase 32 | Complete |
+| PCA-02 | Phase 32 | Complete |
+| PCA-03 | Phase 32 | Complete |
 | PERF-01 | Phase 36 | Pending |
 | PERF-02 | Phase 36 | Pending |
 | PERF-03 | Phase 36 | Pending |
@@ -142,4 +142,4 @@
 
 ---
 *Requirements defined: 2026-02-23*
-*Last updated: 2026-02-23 — Phase 31 COAST requirements marked Complete*
+*Last updated: 2026-02-23 — Phase 32 REGION/PCA requirements marked Complete*

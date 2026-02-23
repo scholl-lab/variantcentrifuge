@@ -30,7 +30,7 @@ See MILESTONES.md for details.
 
 - [x] **Phase 30: Dead Code Cleanup** — Remove 8 vestigial stage classes and normalize legacy naming artifacts
 - [x] **Phase 31: COAST Fix** — Fix genotype matrix reconstruction, partial-category fallback, and configurable classification scoring
-- [ ] **Phase 32: Region Restriction and PCA Wiring** — Add BED-based region prefilter and wire PCAComputationStage into the pipeline
+- [x] **Phase 32: Region Restriction and PCA Wiring** — Add BED-based region prefilter and wire PCAComputationStage into the pipeline
 - [ ] **Phase 33: Gene-Level FDR Weighting** — Implement weighted Benjamini-Hochberg with per-gene biological priors
 - [ ] **Phase 34: Tech Debt** — Fix association config mapping, generate COAST golden values, fix column naming, clarify diagnostics
 - [ ] **Phase 35: Case-Confidence Weights** — Add per-sample confidence weights to burden and SKAT null models
@@ -101,8 +101,8 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 32-01-PLAN.md — Add --regions-bed CLI flag and BED intersection in GeneBedCreationStage with chr mismatch detection
-- [ ] 32-02-PLAN.md — Add PCAComputationStage, unified --pca CLI flag, pipeline wiring, AssociationAnalysisStage integration
+- [x] 32-01-PLAN.md — Add --regions-bed CLI flag and BED intersection in GeneBedCreationStage with chr mismatch detection
+- [x] 32-02-PLAN.md — Add PCAComputationStage, unified --pca CLI flag, pipeline wiring, AssociationAnalysisStage integration
 
 ---
 
@@ -203,7 +203,7 @@ Note: Phases 32 and 33 are independent of Phase 31 and of each other; they may b
 |-------|-----------|----------------|--------|-----------|
 | 30. Dead Code Cleanup | v0.16.0 | 1/1 | Complete | 2026-02-23 |
 | 31. COAST Fix | v0.16.0 | 2/2 | Complete | 2026-02-23 |
-| 32. Region Restriction and PCA Wiring | v0.16.0 | 0/2 | Not started | - |
+| 32. Region Restriction and PCA Wiring | v0.16.0 | 2/2 | Complete | 2026-02-23 |
 | 33. Gene-Level FDR Weighting | v0.16.0 | 0/1 | Not started | - |
 | 34. Tech Debt | v0.16.0 | 0/1 | Not started | - |
 | 35. Case-Confidence Weights | v0.16.0 | 0/2 | Not started | - |
