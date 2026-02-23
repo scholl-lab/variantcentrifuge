@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import load_config
-from .pipeline import run_refactored_pipeline
+from .pipeline import run_pipeline
 from .validators import (
     validate_mandatory_parameters,
     validate_phenotype_file,
@@ -1662,7 +1662,7 @@ def main() -> int:
         if not hasattr(refactored_args, "start_time"):
             refactored_args.start_time = start_time
 
-        run_refactored_pipeline(refactored_args)  # type: ignore[arg-type]
+        run_pipeline(refactored_args)  # type: ignore[arg-type]
         return 0
     except SystemExit as e:
         return int(e.code) if e.code is not None else 1

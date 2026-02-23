@@ -1,8 +1,8 @@
 """
-Refactored pipeline using the new Stage architecture.
+Stage-based pipeline orchestration.
 
-This module demonstrates how to use the refactored pipeline stages
-to replace the monolithic pipeline.py functionality.
+This module builds and runs the stage-based pipeline using PipelineRunner,
+PipelineContext, and registered Stage subclasses from pipeline_core/.
 """
 
 import argparse
@@ -366,8 +366,8 @@ def create_stages_from_config(config: dict) -> list[Stage]:
     return build_pipeline_stages(args)
 
 
-def run_refactored_pipeline(args: argparse.Namespace) -> None:
-    """Run the refactored pipeline with the new architecture.
+def run_pipeline(args: argparse.Namespace) -> None:
+    """Run the stage-based pipeline.
 
     Parameters
     ----------
@@ -565,25 +565,3 @@ def run_refactored_pipeline(args: argparse.Namespace) -> None:
         # Always clean temp files
         workspace.cleanup(keep_intermediates=True)
 
-
-def main():
-    """Show example main function demonstrating how to use the refactored pipeline."""
-    # This would normally come from CLI parsing
-    args = argparse.Namespace(
-        vcf_file="example.vcf",
-        gene_name="BRCA1 BRCA2",
-        output_dir="output",
-        threads=4,
-        filter="QUAL >= 30",
-        extract=["CHROM", "POS", "REF", "ALT", "QUAL"],
-        replace_genotypes=True,
-        html_report=True,
-        xlsx=True,
-        enable_checkpoint=True,
-    )
-
-    run_refactored_pipeline(args)
-
-
-if __name__ == "__main__":
-    main()
