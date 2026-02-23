@@ -47,7 +47,31 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 
 ### Active
 
-(No active requirements — next milestone not yet started)
+#### v0.16.0 — Association Hardening & Multi-Cohort Features
+
+**Bug Fixes:**
+- Fix COAST genotype matrix availability for regression-based tests (#87)
+- Auto-inject SIFT/PolyPhen fields when COAST is requested (#87)
+- Relax COAST 3-category requirement to match R AllelicSeries behavior (#87)
+- Create configurable COAST classification scoring model (#87)
+
+**New Features:**
+- Gene-level prior weighting for FDR correction: weighted BH, optional IHW (#86)
+- `--case-confidence` flag for weighted case/control status (#85)
+- `--restrict-regions` flag for BED-based region restriction in prefilter (#84)
+- Wire PCAComputationStage into pipeline.py (TD-01)
+
+**Performance:**
+- Single eigendecomposition for SKAT-O (~5x eigenvalue step speedup)
+- Sparse genotype matrices for large rare-variant cohorts
+
+**Cleanup/Tech Debt:**
+- Remove 8 dead stage classes, vestigial naming, old pipeline comments (#88)
+- Fix create_stages_from_config() association mapping (TD-02)
+- Generate COAST R golden values for validation (TD-03)
+- Fix skat_o_p column naming (TD-04)
+- Clarify Fisher lambda_GC criterion (TD-05)
+- Remove "refactored_pipeline" checkpoint strings (TD-06)
 
 ### Out of Scope
 
@@ -62,7 +86,7 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 
 ## Context
 
-- Current version: v0.15.0
+- Current version: v0.15.0 (v0.16.0 in development)
 - Tech stack: Python 3.10+, pandas, NumPy, openpyxl, xlsxwriter, bcftools, SnpSift, scipy, statsmodels
 - Source: 38,948 LOC Python; Tests: 53,970 LOC Python
 - Pipeline time reduced from 10+ hours to under 1 hour on large cohorts (>10x improvement) — v0.13.0
@@ -103,4 +127,4 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 | Clean reimplementation for FisherExactTest | Correct coupling direction for future gene_burden deprecation | ✓ Good |
 
 ---
-*Last updated: 2026-02-23 after v0.15.0 milestone*
+*Last updated: 2026-02-23 after v0.16.0 milestone start*

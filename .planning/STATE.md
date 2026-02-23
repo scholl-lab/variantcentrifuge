@@ -5,22 +5,22 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
-**Current focus:** Planning next milestone
+**Current focus:** v0.16.0 — Association Hardening & Multi-Cohort Features
 
 ## Current Position
 
-Phase: 29 of 29 (v0.15.0 complete)
-Plan: N/A
-Status: Milestone v0.15.0 shipped — ready for next milestone
-Last activity: 2026-02-23 — v0.15.0 milestone complete
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-02-23 — Milestone v0.16.0 started
 
-Progress: ████████████████████████ 100% (v0.15.0 shipped)
+Progress: ░░░░░░░░░░ 0%
 
 ## Accumulated Context
 
 ### Decisions
 
-(Cleared at milestone — full log in PROJECT.md Key Decisions table and milestones/v0.15.0-ROADMAP.md)
+(New milestone — decisions logged as they're made)
 
 ### Architecture Invariants
 
@@ -36,7 +36,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-23 — v0.15.0 milestone completion
-Stopped at: Milestone archived
+Last session: 2026-02-23 — v0.16.0 milestone initialization
+Stopped at: Requirements definition
 Resume file: None
-Next: `/gsd:new-milestone` for next milestone (requires `/clear` first for fresh context)
+Next: Define requirements → create roadmap
