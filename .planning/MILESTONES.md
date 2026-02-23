@@ -1,5 +1,56 @@
 # Project Milestones: VariantCentrifuge
 
+## v0.15.0 Modular Rare Variant Association Framework (Shipped: 2026-02-23)
+
+**Delivered:** Multi-test rare variant association engine with SKAT-O, COAST, burden tests, ACAT-O omnibus, covariate/PCA adjustment, and pure Python backends — backward compatible with existing gene burden pipeline.
+
+**Phases completed:** 18-29 (35 plans total)
+
+**Key accomplishments:**
+
+- Built modular AssociationTest framework with Fisher, logistic/linear burden, SKAT-O, COAST, and ACAT-O omnibus tests running simultaneously with unified output schema
+- Implemented pure Python SKAT and COAST backends matching R reference output, eliminating R dependency as default; achieved 46x SKAT-O speedup via Gauss-Legendre quadrature
+- Added covariate adjustment with sample alignment validation, PCA integration (PLINK/AKT file formats), and functional variant weights (CADD/REVEL/Beta-MAF)
+- Created ACAT-O/ACAT-V omnibus combination with Cauchy method and single FDR correction strategy across genes
+- Built diagnostics module with lambda-GC, QQ plot data/visualization, sample size warnings, and per-gene carrier count warnings
+- Added ProcessPoolExecutor gene-level parallelization, JSON config mode, and 20 CLI args for reproducible HPC workflows
+
+**Stats:**
+
+- 210 files created/modified
+- 92,918 lines of Python (38,948 source + 53,970 tests)
+- 12 phases, 35 plans, 214 commits
+- 5 days from start to ship (2026-02-19 → 2026-02-23)
+
+**Git range:** `feat(18-01)` → `docs(29)`
+
+**What's next:** TBD — candidates include real-world test datasets, report generation validation, CI benchmark integration
+
+---
+
+## v0.14.0 Report UX Overhaul (Shipped: 2026-02-19)
+
+**Delivered:** Complete HTML report overhaul with modern JS stack, semantic color coding, table redesign, column-level filtering, accessibility, and print/PDF support.
+
+**Phases completed:** 13-17 (15 plans total)
+
+**Key accomplishments:**
+
+- Modernized JS stack with DataTables v2 (jQuery-optional)
+- Implemented semantic color coding for variant significance
+- Redesigned table layout with expandable rows
+- Added column-level filtering and visualization
+- Added accessibility features and print/PDF optimization
+
+**Stats:**
+
+- 5 phases, 15 plans
+- 4 days (2026-02-16 → 2026-02-19)
+
+**Git range:** Phases 13-17
+
+---
+
 ## v0.13.0 Performance Optimization (Shipped: 2026-02-16)
 
 **Delivered:** Reduced large cohort pipeline time from 10+ hours to under 1 hour through systematic optimization of DataFrame operations, inheritance analysis vectorization, I/O elimination, and pipeline-wide resource management.
