@@ -93,16 +93,16 @@ Plans:
 **Requirements:** REGION-01, REGION-02, REGION-03, REGION-04, PCA-01, PCA-02, PCA-03
 
 **Success Criteria** (what must be TRUE):
-1. Passing `--restrict-regions capture_kit.bed` restricts bcftools variant extraction to those regions; variants outside the BED do not appear in any output
+1. Passing `--regions-bed capture_kit.bed` restricts bcftools variant extraction to those regions; variants outside the BED do not appear in any output
 2. If chromosome naming mismatches between the restriction BED and the VCF are detected, the pipeline exits with a clear error message (not silent 0-variant output)
-3. When `--pca-tool akt` is set, PCA eigenvectors are computed automatically during the pipeline run and appear as covariates in association test output without any additional user steps
+3. When `--pca akt` is set, PCA eigenvectors are computed automatically during the pipeline run and appear as covariates in association test output without any additional user steps
 4. The restriction BED intersection happens once, upstream of chunk splitting, so all gene chunks respect the same region mask
 
-**Plans:** TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 32-01: Implement --restrict-regions BED prefilter in GeneBedCreationStage
-- [ ] 32-02: Wire PCAComputationStage into pipeline.py
+- [ ] 32-01-PLAN.md — Add --regions-bed CLI flag and BED intersection in GeneBedCreationStage with chr mismatch detection
+- [ ] 32-02-PLAN.md — Add PCAComputationStage, unified --pca CLI flag, pipeline wiring, AssociationAnalysisStage integration
 
 ---
 
