@@ -1,0 +1,28 @@
+{
+  "_comment": "COAST classification formula template. Must produce a 'coast_category' column.",
+  "_comment_codes": "coast_category values: 0=unclassified, 1=BMV, 2=DMV, 3=PTV",
+  "_comment_output": "output_scores must include 'coast_category' -- required by classify_variants().",
+  "output_scores": ["coast_category"],
+  "formulas": [
+    {
+      "_comment": "Step 1: Classify PTV (code 3) -- HIGH impact AND effect is a truncating variant",
+      "is_ptv": "(impact == 'HIGH') & effect.isin(['stop_gained', 'frameshift_variant', 'splice_acceptor_variant', 'splice_donor_variant'])"
+    },
+    {
+      "_comment": "Step 2: Classify missense variants",
+      "is_missense": "effect == 'missense_variant'"
+    },
+    {
+      "_comment": "Step 3: Define DMV (damaging missense, code 2) using your annotation of choice",
+      "is_dmv": "is_missense & (impact == 'MODERATE')"
+    },
+    {
+      "_comment": "Step 4: Define BMV (benign missense, code 1) using your annotation of choice",
+      "is_bmv": "is_missense & ~is_dmv"
+    },
+    {
+      "_comment": "Step 5: Combine into final coast_category (PTV overrides DMV/BMV)",
+      "coast_category": "is_ptv * 3 + is_dmv * 2 + is_bmv * 1"
+    }
+  ]
+}

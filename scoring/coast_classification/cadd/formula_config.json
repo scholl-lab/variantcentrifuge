@@ -1,0 +1,20 @@
+{
+  "output_scores": ["coast_category"],
+  "formulas": [
+    {
+      "is_ptv": "(impact == 'HIGH') & effect.isin(['stop_gained', 'frameshift_variant', 'splice_acceptor_variant', 'splice_donor_variant'])"
+    },
+    {
+      "is_missense": "effect == 'missense_variant'"
+    },
+    {
+      "is_dmv": "is_missense & (cadd_phred >= 15)"
+    },
+    {
+      "is_bmv": "is_missense & (cadd_phred > 0) & (cadd_phred < 15)"
+    },
+    {
+      "coast_category": "is_ptv * 3 + is_dmv * 2 + is_bmv * 1"
+    }
+  ]
+}

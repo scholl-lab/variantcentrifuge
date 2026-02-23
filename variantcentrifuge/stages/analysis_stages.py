@@ -2198,6 +2198,7 @@ def _build_assoc_config_from_context(context: "PipelineContext") -> AssociationC
         pca_components=_get("pca_components", default=10, nullable=False),
         coast_weights=_get("coast_weights", default=None, nullable=True),
         association_workers=_get("association_workers", default=1, nullable=False),
+        coast_classification=_get("coast_classification", default=None, nullable=True),
     )
 
 

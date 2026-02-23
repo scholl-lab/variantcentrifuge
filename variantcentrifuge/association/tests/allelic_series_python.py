@@ -304,7 +304,11 @@ class PurePythonCOASTTest(AssociationTest):
             )
 
         # ── Classify variants into COAST categories ───────────────────────────────
-        anno_codes, include_mask = classify_variants(gene_df, effect_col, impact_col)
+        # Pass model_dir when coast_classification config is set
+        coast_model_dir = getattr(config, "coast_classification", None)
+        anno_codes, include_mask = classify_variants(
+            gene_df, effect_col, impact_col, model_dir=coast_model_dir
+        )
 
         # ── Guard: annotation/genotype dimension alignment ────────────────────────
         if len(anno_codes) != geno.shape[1]:

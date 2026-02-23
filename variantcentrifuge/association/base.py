@@ -173,6 +173,12 @@ class AssociationConfig:
     coast_backend: str = "python"
     """COAST computation backend: "python" (default), "r" (deprecated, R via rpy2), or "auto"."""
 
+    # Phase 31: Configurable COAST classification model
+    coast_classification: str | None = None
+    """Absolute path to a scoring/coast_classification/<model>/ directory.
+    None = use built-in SIFT/PolyPhen hardcoded logic (backward-compatible default).
+    Set by cli.py after resolving --coast-classification model name to a path."""
+
     # Phase 27: Gene-level parallelization
     association_workers: int = 1
     """Number of parallel worker processes for gene-level association analysis.

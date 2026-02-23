@@ -1,0 +1,9 @@
+{
+  "_comment": "Keys are normalized column names as prepared by classify_variants() before calling apply_scoring().",
+  "_comment_normalization": "classify_variants() creates COAST_EFFECT and COAST_IMPACT columns before calling apply_scoring(). Add COAST_SIFT, COAST_POLYPHEN, or COAST_CADD if needed.",
+  "_comment_format": "Values are 'variable_name|default:fallback_value' where variable_name is used in formula_config.json formulas.",
+  "variables": {
+    "COAST_EFFECT": "effect|default:''",
+    "COAST_IMPACT": "impact|default:''"
+  }
+}
