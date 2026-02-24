@@ -348,6 +348,23 @@ def create_stages_from_config(config: dict) -> list[Stage]:
     -------
     List[Stage]
         List of stages for the current configuration
+
+    Notes
+    -----
+    Config key to stage mapping (keys not listed here have no stage effect):
+
+    ======================= ===========================
+    Config key              Stage(s) activated
+    ======================= ===========================
+    scoring_config_path     VariantScoringStage
+    ped_file                PedigreeLoadingStage
+    no_stats                StatisticsGenerationStage (suppressed when True)
+    perform_gene_burden     GeneBurdenAnalysisStage
+    perform_association     AssociationAnalysisStage
+    xlsx                    ExcelReportStage
+    html_report             HTMLReportStage
+    igv                     IGVReportStage
+    ======================= ===========================
     """
     # Convert config dict to a minimal args namespace for compatibility
     args = argparse.Namespace()
@@ -365,9 +382,15 @@ def create_stages_from_config(config: dict) -> list[Stage]:
     args.pseudonymize = config.get("pseudonymize", False)
     args.xlsx = config.get("xlsx", False)
     args.html_report = config.get("html_report", False)
-    args.igv_report = config.get("igv_report", False)
+    # Note: build_pipeline_stages checks args.igv (not args.igv_report)
+    args.igv = config.get("igv", False)
     args.archive_results = config.get("archive_results", False)
     args.pca = config.get("pca")
+
+    # Analysis stage activation flags — previously missing, causing silent no-ops
+    args.no_stats = config.get("no_stats", False)
+    args.perform_gene_burden = config.get("perform_gene_burden", False)
+    args.perform_association = config.get("perform_association", False)
 
     # Use the existing build_pipeline_stages function
     return build_pipeline_stages(args)
