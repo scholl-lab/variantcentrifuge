@@ -179,6 +179,14 @@ class AssociationConfig:
     None = use built-in SIFT/PolyPhen hardcoded logic (backward-compatible default).
     Set by cli.py after resolving --coast-classification model name to a path."""
 
+    # Phase 33: Gene-level FDR weighting
+    gene_prior_weights: str | None = None
+    """Path to gene-to-weight TSV file for weighted BH FDR correction.
+    None = standard (unweighted) BH/Bonferroni (backward-compatible default)."""
+
+    gene_prior_weight_column: str = "weight"
+    """Column name in the weight file containing weight values. Default: 'weight'."""
+
     # Phase 27: Gene-level parallelization
     association_workers: int = 1
     """Number of parallel worker processes for gene-level association analysis.

@@ -433,3 +433,124 @@ def write_diagnostics(
     write_qq_plot(qq_combined, qq_plot_path)
 
     logger.info(f"Diagnostics written to {diag_dir}")
+
+
+def write_fdr_weight_diagnostics(
+    genes: list[str],
+    raw_weights: dict[str, float],
+    normalized_weights: np.ndarray,
+    unweighted_corrected: np.ndarray,
+    weighted_corrected: np.ndarray,
+    fdr_threshold: float,
+    diagnostics_dir: str | Path,
+) -> None:
+    """
+    Write per-gene FDR weight diagnostics file.
+
+    Creates ``fdr_weight_diagnostics.tsv`` in the diagnostics directory with
+    one row per gene, detailing raw weight, normalized weight, unweighted q-value,
+    weighted q-value, and whether significance changed at the given threshold.
+
+    Parameters
+    ----------
+    genes : list of str
+        Gene names aligned 1:1 with ``normalized_weights``, ``unweighted_corrected``,
+        and ``weighted_corrected``.
+    raw_weights : dict[str, float]
+        Mapping from gene name to raw (pre-normalization) weight from the weight file.
+        Genes not in the map received the default weight=1.0.
+    normalized_weights : np.ndarray
+        Per-gene normalized weights (mean=1.0) aligned with ``genes``.
+    unweighted_corrected : np.ndarray
+        Unweighted BH/Bonferroni corrected q-values aligned with ``genes``.
+    weighted_corrected : np.ndarray
+        Weighted BH/Bonferroni corrected q-values aligned with ``genes``.
+    fdr_threshold : float
+        Significance threshold (e.g. 0.05) used to classify significance changes.
+    diagnostics_dir : str or Path
+        Directory to write the output file. Created if it does not exist.
+    """
+    diag_dir = Path(diagnostics_dir)
+    diag_dir.mkdir(parents=True, exist_ok=True)
+
+    m = len(genes)
+    rows: list[dict] = []
+    n_gained = 0
+    n_lost = 0
+    n_with_file_weight = 0
+
+    for i, gene in enumerate(genes):
+        raw_w = raw_weights.get(gene, 1.0)
+        if gene in raw_weights:
+            n_with_file_weight += 1
+        norm_w = float(normalized_weights[i])
+        unw_q = float(unweighted_corrected[i])
+        wt_q = float(weighted_corrected[i])
+
+        was_sig = unw_q < fdr_threshold
+        is_sig = wt_q < fdr_threshold
+
+        if not was_sig and is_sig:
+            change = "gained"
+            n_gained += 1
+        elif was_sig and not is_sig:
+            change = "lost"
+            n_lost += 1
+        else:
+            change = ""
+
+        rows.append(
+            {
+                "gene": gene,
+                "raw_weight": raw_w,
+                "normalized_weight": norm_w,
+                "unweighted_q": unw_q,
+                "weighted_q": wt_q,
+                "significance_change": change,
+            }
+        )
+
+    diag_df = pd.DataFrame(
+        rows,
+        columns=[
+            "gene",
+            "raw_weight",
+            "normalized_weight",
+            "unweighted_q",
+            "weighted_q",
+            "significance_change",
+        ],
+    )
+    out_path = diag_dir / "fdr_weight_diagnostics.tsv"
+    diag_df.to_csv(out_path, sep="\t", index=False)
+
+    # Summary log
+    logger.info(
+        f"FDR weighting impact: {n_gained} genes gained significance, "
+        f"{n_lost} genes lost significance (threshold={fdr_threshold})"
+    )
+
+    # Weight distribution log
+    norm_arr = np.asarray(normalized_weights, dtype=float)
+    if len(norm_arr) > 0:
+        logger.info(
+            f"Normalized weight distribution (n={m}): "
+            f"min={float(norm_arr.min()):.3f}, "
+            f"max={float(norm_arr.max()):.3f}, "
+            f"median={float(np.median(norm_arr)):.3f}, "
+            f"mean={float(norm_arr.mean()):.3f}"
+        )
+
+    # Coverage log
+    n_default = m - n_with_file_weight
+    logger.info(
+        f"FDR weight coverage: {n_with_file_weight} genes with weights from file, "
+        f"{n_default} genes at default weight=1.0"
+    )
+
+    # Effective number of tests
+    if len(norm_arr) > 0 and (norm_arr**2).sum() > 0:
+        n_eff = float(norm_arr.sum() ** 2 / (norm_arr**2).sum())
+        logger.info(f"Effective number of tests (sum(w)^2/sum(w^2)): {n_eff:.1f}")
+
+    logger.info(f"FDR weight diagnostics written to {out_path}")
