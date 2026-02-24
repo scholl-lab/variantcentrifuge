@@ -129,6 +129,18 @@ BRCA1 2.0
 TTN   0.5
 ```
 
+## Post-Phase Additions
+
+- **User-facing documentation** added to `docs/source/guides/association_testing.md` (commit `9c93fd8`):
+  - New "Tuning: Gene-Level FDR Weighting" section (~150 lines)
+  - Covers: weighted BH theory, weight file format, how to derive weights (pLI/LOEUF, GWAS, gene panels), CLI flags, output columns, diagnostics, coverage warnings
+  - JSON config reference updated with `gene_prior_weights` and `gene_prior_weight_column` keys
+  - Comprehensive example updated to include `--gene-prior-weights`
+- **Real-data validation** on GCKD cohort (5125 samples, 174 genes, logistic_burden + weighted FDR):
+  - PKD1 significant (p=3.18e-6, weighted q=0.000193, weight=2.87)
+  - PKD2/IFT140 tested and weighted but not significant
+  - `fdr_weight` column and `fdr_weight_diagnostics.tsv` confirmed in output
+
 ## Next Phase Readiness
 
 - Phase 33 Plan 01 complete — weighted BH fully operational
