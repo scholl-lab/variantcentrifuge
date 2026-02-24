@@ -1,8 +1,8 @@
 # Association Testing Guide
 
-This guide covers all association testing functionality in VariantCentrifuge v0.15.0, including
-Fisher's exact test, logistic and linear burden tests, SKAT/SKAT-O, COAST (allelic series), and
-the ACAT-O omnibus. It assumes VariantCentrifuge is already installed and you have a multi-sample
+This guide covers all association testing functionality in VariantCentrifuge v0.16.0, including
+Fisher's exact test, logistic and linear burden tests, SKAT/SKAT-O, COAST (allelic series),
+the ACAT-O omnibus, and gene-level FDR weighting. It assumes VariantCentrifuge is already installed and you have a multi-sample
 VCF annotated with functional predictions and population allele frequencies.
 
 ---
@@ -547,6 +547,186 @@ lambda_GC and rely on individual gene results directly.
 
 ---
 
+## Tuning: Gene-Level FDR Weighting
+
+By default, Benjamini-Hochberg FDR correction treats all genes equally. When you have prior
+biological knowledge about which genes are more likely to be associated with your phenotype, you
+can provide per-gene weights to increase statistical power for those genes while maintaining
+overall FDR control.
+
+This implements the **weighted Benjamini-Hochberg** procedure (Genovese et al. 2006), which
+divides each gene's p-value by its weight before BH ranking. Genes with higher weights are
+effectively given a larger share of the FDR budget, making them easier to detect. The overall
+FDR guarantee is preserved as long as weights average to 1.0, which VariantCentrifuge enforces
+automatically through renormalization.
+
+### How It Works
+
+1. You provide a TSV file mapping gene names to positive weights (higher = more likely relevant)
+2. At correction time, weights are renormalized so their mean across *tested* genes equals 1.0
+3. Each gene's ACAT-O p-value is divided by its normalized weight before BH ranking
+4. Genes absent from the weight file receive weight 1.0 (neutral)
+
+The net effect: high-weight genes become easier to call significant, low-weight genes become
+harder, and unweighted genes are slightly penalized to compensate. If your priors are correct,
+you gain power. If wrong, you lose some — but FDR is still controlled at the stated level.
+
+### Weight File Format
+
+A two-column TSV with a header row. The first column is the gene name (must match gene names in
+the association output exactly), and the second column is the weight (positive number):
+
+```
+gene	weight
+PKD1	3.0
+PKD2	2.5
+IFT140	2.0
+BRCA1	1.8
+BRCA2	1.8
+TP53	1.5
+TTN	0.5
+```
+
+Weights do not need to sum or average to any particular value — renormalization is automatic. A
+weight of 2.0 means "I believe this gene is twice as likely to matter as a typical gene." A
+weight below 1.0 means "this gene is less likely to matter" (e.g., TTN, which produces many
+rare variants due to its size but is often a nuisance signal).
+
+### Deriving Weights
+
+There is no single correct way to derive weights. The choice depends on your study and what
+prior information is available. Here are practical approaches:
+
+**Gene constraint scores (recommended starting point):**
+Use gnomAD pLI or LOEUF scores, which quantify how intolerant a gene is to loss-of-function
+variation. Highly constrained genes are more likely to be disease-relevant:
+
+```python
+# Example: convert pLI to weights
+# pLI ranges from 0 to 1; higher = more constrained
+import pandas as pd
+df = pd.read_csv("gnomad_constraint.tsv", sep="\t")
+df["weight"] = 1.0 + 2.0 * df["pLI"]  # range: 1.0 to 3.0
+df[["gene", "weight"]].to_csv("gene_weights.tsv", sep="\t", index=False)
+```
+
+**GWAS proximity:**
+Genes near genome-wide significant GWAS loci for your phenotype get higher weights:
+
+```
+gene	weight
+PKD1	3.0    # GWAS hit for kidney disease
+PKD2	2.5    # GWAS hit for kidney disease
+UMOD	2.0    # GWAS hit for kidney function
+APOL1	2.0    # Known risk gene in specific populations
+```
+
+**Clinical gene panels:**
+Genes on an established diagnostic panel for your phenotype get higher weights, non-panel genes
+get neutral or lower weights:
+
+```python
+panel_genes = set(open("panel_genes.txt").read().split())
+# Panel genes: weight 2.0, others: weight 1.0
+weights = {g: 2.0 if g in panel_genes else 1.0 for g in all_genes}
+```
+
+**Literature-based:**
+Manually assign weights based on published evidence. This is subjective but often the most
+practical approach for small targeted studies.
+
+**Combining sources:**
+Multiply independent evidence sources (each normalized to mean ~1.0):
+
+```python
+weight = pli_weight * panel_weight * gwas_weight
+```
+
+:::{tip}
+Keep weights moderate (0.5–5.0 range). Extreme weights (e.g., 100) concentrate nearly all FDR
+budget on one gene and leave almost nothing for discoveries in other genes. If you are certain
+a gene is causal, you probably do not need a statistical test for it.
+:::
+
+:::{warning}
+A weight of 0 is not allowed (division by zero). Use a small positive value like 0.1 if you
+want to strongly down-weight a gene.
+:::
+
+### CLI Flags
+
+```bash
+--gene-prior-weights weights.tsv         # Path to gene-weight TSV file
+--gene-prior-weight-column weight        # Column name for weights (default: "weight")
+```
+
+### CLI Example
+
+```bash
+variantcentrifuge \
+  --gene-file genes.txt \
+  --vcf-file input.vcf.gz \
+  --phenotype-file phenotypes.tsv \
+  --phenotype-sample-column sample_id \
+  --phenotype-value-column case_control \
+  --perform-association \
+  --association-tests logistic_burden \
+  --correction-method fdr \
+  --gene-prior-weights gene_weights.tsv \
+  --diagnostics-output diagnostics/ \
+  --output-file results.tsv
+```
+
+### Output
+
+When `--gene-prior-weights` is provided, the association output gains one additional column:
+
+| Column | Description |
+|--------|-------------|
+| `fdr_weight` | Normalized weight used for this gene (after renormalization to mean=1.0) |
+
+When `--gene-prior-weights` is **not** provided, the `fdr_weight` column is absent (backward
+compatible).
+
+### Diagnostics
+
+When both `--gene-prior-weights` and `--diagnostics-output` are set, an additional diagnostics
+file is written:
+
+**`fdr_weight_diagnostics.tsv`** — per-gene breakdown:
+
+| Column | Description |
+|--------|-------------|
+| `gene` | Gene name |
+| `raw_weight` | Weight from the input file (1.0 if absent) |
+| `normalized_weight` | Weight after renormalization to mean=1.0 |
+| `unweighted_q` | q-value without weighting (standard BH) |
+| `weighted_q` | q-value with weighting (weighted BH) |
+| `significance_change` | `gained` if newly significant, `lost` if no longer significant, blank if unchanged |
+
+The `significance_change` column highlights genes where weighting changed the significance
+call at FDR < 0.05. This is the primary way to assess the impact of your weight choices.
+
+### Coverage Warnings
+
+If more than 50% of tested genes are absent from the weight file, a warning is logged:
+
+```
+WARNING: 85% of tested genes (148/174) are missing from gene weight file — weights may not be informative
+```
+
+This is not an error — missing genes receive weight 1.0 (neutral) — but it suggests the weight
+file may be too narrow to meaningfully redistribute FDR budget.
+
+### Effective Number of Tests
+
+The diagnostics output includes the effective number of tests, computed as
+`sum(w)^2 / sum(w^2)`. When all weights are equal, this equals the actual number of tests. When
+weights vary, it is lower, reflecting the reduced multiple testing burden from concentrating
+power on fewer genes. This metric helps assess how much the weights deviate from uniform.
+
+---
+
 ## Tuning: JSON Config
 
 All association parameters can be set via the main JSON config file (passed with `-c`/`--config`).
@@ -575,6 +755,9 @@ Use this for reproducible analyses or when parameters are too numerous for the c
 
     "coast_weights": [1, 2, 3],
 
+    "gene_prior_weights": "gene_weights.tsv",
+    "gene_prior_weight_column": "weight",
+
     "skat_backend": "python",
     "coast_backend": "python",
 
@@ -595,7 +778,7 @@ Use this for reproducible analyses or when parameters are too numerous for the c
 }
 ```
 
-### All 27 Valid Keys
+### All 29 Valid Keys
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -612,6 +795,8 @@ Use this for reproducible analyses or when parameters are too numerous for the c
 | `variant_weights` | str | `"beta:1,25"` | Weight scheme: `beta:a,b`, `uniform`, `cadd`, `revel`, `combined` |
 | `variant_weight_params` | dict | `null` | Extra weight params, e.g. `{"cadd_cap": 30}` |
 | `coast_weights` | list of float | `[1,2,3]` | COAST category weights: `[BMV, DMV, PTV]` |
+| `gene_prior_weights` | str | `null` | Path to gene-weight TSV for weighted FDR correction |
+| `gene_prior_weight_column` | str | `"weight"` | Column name in gene-weight file containing weights |
 | `skat_backend` | str | `"python"` | `"python"`, `"auto"`, or `"r"` (deprecated) |
 | `coast_backend` | str | `"python"` | `"python"`, `"auto"`, or `"r"` (deprecated) |
 | `diagnostics_output` | str | `null` | Path to diagnostics directory |
@@ -802,7 +987,7 @@ itself — the association results go to a separate `.association.tsv` file).
 ## Comprehensive Example
 
 The following command runs Fisher, logistic burden, SKAT-O, and COAST together with
-covariate adjustment, PCA, functional weights, and diagnostics:
+covariate adjustment, PCA, functional weights, gene-level FDR weighting, and diagnostics:
 
 ```bash
 variantcentrifuge \
@@ -821,6 +1006,7 @@ variantcentrifuge \
   --pca-components 10 \
   --variant-weights beta:1,25 \
   --coast-weights 1,2,3 \
+  --gene-prior-weights gene_weights.tsv \
   --diagnostics-output diagnostics/ \
   --output-file results.tsv
 ```
@@ -828,12 +1014,13 @@ variantcentrifuge \
 Expected output files:
 
 ```
-results.association.tsv       # Gene-level association results
+results.association.tsv       # Gene-level association results (includes fdr_weight column)
 diagnostics/
   lambda_gc.tsv               # Genomic inflation factors
   qq_data.tsv                 # QQ plot data
   summary.txt                 # Human-readable summary
   qq_plot.png                 # QQ plot (if matplotlib installed)
+  fdr_weight_diagnostics.tsv  # Per-gene weight impact analysis (when --gene-prior-weights set)
 ```
 
 Representative output (first 3 columns omitted for brevity):
