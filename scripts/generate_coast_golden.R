@@ -310,11 +310,25 @@ gckd_geno <- function(seed, n, k_bmv, k_dmv, k_ptv, n_cases,
   list(geno = geno, anno = anno, pheno = pheno)
 }
 
-# Helper to run COAST on GCKD-derived data and print golden value
+# Output directory for fixture files (genotype matrices shared with Python tests)
+FIXTURE_DIR <- file.path("tests", "fixtures", "coast_golden")
+if (!dir.exists(FIXTURE_DIR)) dir.create(FIXTURE_DIR, recursive = TRUE)
+
+# Helper to run COAST on GCKD-derived data, print golden value, and export matrices
 run_gckd_scenario <- function(scenario_name, description, seed, n, k_bmv, k_dmv, k_ptv,
                                n_cases, weights = c(1, 2, 3), trait_type = "binary") {
   dat <- gckd_geno(seed, n, k_bmv, k_dmv, k_ptv, n_cases)
   is_binary <- (trait_type == "binary")
+
+  # Export matrices as CSV for Python test consumption (same data = comparable p-values)
+  write.csv(dat$geno, file.path(FIXTURE_DIR, paste0(scenario_name, "_geno.csv")),
+            row.names = FALSE)
+  write.csv(data.frame(pheno = dat$pheno),
+            file.path(FIXTURE_DIR, paste0(scenario_name, "_pheno.csv")),
+            row.names = FALSE)
+  write.csv(data.frame(anno = dat$anno),
+            file.path(FIXTURE_DIR, paste0(scenario_name, "_anno.csv")),
+            row.names = FALSE)
 
   result <- tryCatch({
     COAST(
@@ -446,6 +460,16 @@ cat("# GCKD Scenario G5: Tied scores across categories (equal MAF)\n")
   anno_g5 <- c(rep(1L, k_bmv), rep(2L, k_dmv), rep(3L, k_ptv))
   pheno_g5 <- rep(0L, n)
   pheno_g5[sample.int(n, n_cases)] <- 1L
+
+  # Export G5 matrices
+  write.csv(geno_g5, file.path(FIXTURE_DIR, "gckd_g5_tied_scores_geno.csv"),
+            row.names = FALSE)
+  write.csv(data.frame(pheno = pheno_g5),
+            file.path(FIXTURE_DIR, "gckd_g5_tied_scores_pheno.csv"),
+            row.names = FALSE)
+  write.csv(data.frame(anno = anno_g5),
+            file.path(FIXTURE_DIR, "gckd_g5_tied_scores_anno.csv"),
+            row.names = FALSE)
 
   cat("# GCKD Scenario G5: Tied scores across categories (equal MAF = 0.010)\n")
   cat("# Description: Equal MAF for BMV/DMV/PTV simulates tied SIFT/PolyPhen boundary\n")
