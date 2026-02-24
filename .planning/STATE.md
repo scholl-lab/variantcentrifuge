@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
-**Current focus:** v0.16.0 — Association Hardening & Multi-Cohort Features (Phase 33 COMPLETE)
+**Current focus:** v0.16.0 — Association Hardening & Multi-Cohort Features (Phase 34 in progress)
 
 ## Current Position
 
-Phase: 33 of 36 (Gene-Level FDR Weighting — COMPLETE)
-Plan: 6 of 10 (across v0.16.0)
-Status: Phase 33 complete — ready for Phase 34
-Last activity: 2026-02-24 — Completed 33-01-PLAN.md (weighted BH, --gene-prior-weights CLI, fdr_weight column)
+Phase: 34 of 36 (Tech Debt — Plan 1 of N complete)
+Plan: 7 of 10 (across v0.16.0)
+Status: In progress — Phase 34 plan 01 complete
+Last activity: 2026-02-24 — Completed 34-01-PLAN.md (config key mapping fix, lambda_GC docs)
 
-Progress: ██████░░░░ 60%
+Progress: ███████░░░ 70%
 
 ## Performance Metrics
 
@@ -28,6 +28,7 @@ Progress: ██████░░░░ 60%
 |-------|-------|-------|----------|
 | 30 — Dead Code Cleanup | 1/1 done | ~19 min | ~19 min |
 | 31 — COAST Fix | 2/2 done | ~26 min | ~13 min |
+| 34 — Tech Debt | 1/? done | ~8 min | ~8 min |
 | 32 — Region Restriction + PCA Wiring | 2/2 done | ~44 min | ~22 min |
 | 33 — Gene-Level FDR Weighting | 1/1 done | ~12 min | ~12 min |
 
@@ -60,6 +61,8 @@ Progress: ██████░░░░ 60%
 - [33-01] Weight loading and weighted correction stay in engine.run_all(), not AssociationAnalysisStage — engine owns all correction logic
 - [33-01] write_fdr_weight_diagnostics() called from engine when both gene_prior_weights AND diagnostics_output are set
 - [33-01] IHW not implemented — no flag, no stub, no error message (Python-first policy; IHW deferred to backlog)
+- [34-01] create_stages_from_config() now maps perform_association, perform_gene_burden, no_stats, and igv correctly; was silently ignoring them before
+- [34-01] Fisher lambda_GC in write_diagnostics() is diagnostic-only — must not be used to correct Fisher p-values (exact test, not asymptotic)
 
 ### Architecture Invariants
 
@@ -82,7 +85,7 @@ Progress: ██████░░░░ 60%
 
 ## Session Continuity
 
-Last session: 2026-02-24
-Stopped at: Phase 33 complete — all plans executed and verified
+Last session: 2026-02-24T20:42:51Z
+Stopped at: Phase 34 plan 01 complete
 Resume file: None
-Next: Phase 34 — Tech Debt
+Next: Continue Phase 34 — Tech Debt (remaining plans)
