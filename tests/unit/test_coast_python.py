@@ -683,8 +683,8 @@ class TestPurePythonCOASTTestLifecycle:
         if result.p_value is not None:
             # Full run: check all expected keys
             expected_keys = {
-                "coast_burden_p_value",
-                "coast_skat_p_value",
+                "coast_burden_pvalue",
+                "coast_skat_pvalue",
                 "coast_n_bmv",
                 "coast_n_dmv",
                 "coast_n_ptv",

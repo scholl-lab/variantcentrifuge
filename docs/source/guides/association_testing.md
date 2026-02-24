@@ -25,13 +25,13 @@ variantcentrifuge \
 Output: `results.association.tsv` with columns:
 
 ```
-gene  n_cases  n_controls  n_variants  fisher_p_value  fisher_or  fisher_or_ci_lower  fisher_or_ci_upper  acat_o_p_value  acat_o_corrected_p_value  warnings
+gene  n_cases  n_controls  n_variants  fisher_pvalue  fisher_or  fisher_or_ci_lower  fisher_or_ci_upper  acat_o_pvalue  acat_o_qvalue  warnings
 GENE1 312      488         7           0.00031         3.82       1.87                7.78                0.00031         0.0047
 GENE2 312      488         3           0.41            1.23       0.74                2.05                0.41            1.0
 ...
 ```
 
-**Primary significance measure:** `acat_o_corrected_p_value` — this is the FDR-corrected omnibus
+**Primary significance measure:** `acat_o_qvalue` — this is the FDR-corrected omnibus
 p-value. Use it for all significance decisions.
 
 ---
@@ -174,7 +174,7 @@ variantcentrifuge \
 
 | Column | Description |
 |--------|-------------|
-| `fisher_p_value` | Raw (uncorrected) Fisher p-value |
+| `fisher_pvalue` | Raw (uncorrected) Fisher p-value |
 | `fisher_or` | Odds ratio |
 | `fisher_or_ci_lower` | OR 95% CI lower bound |
 | `fisher_or_ci_upper` | OR 95% CI upper bound |
@@ -233,7 +233,7 @@ variantcentrifuge \
 
 | Column | Description |
 |--------|-------------|
-| `logistic_burden_p_value` | Raw p-value |
+| `logistic_burden_pvalue` | Raw p-value |
 | `logistic_burden_beta` | Beta coefficient (log-odds per unit burden) |
 | `logistic_burden_se` | Standard error of beta |
 | `logistic_burden_beta_ci_lower` | Beta 95% CI lower bound |
@@ -277,7 +277,7 @@ variantcentrifuge \
 
 | Column | Description |
 |--------|-------------|
-| `linear_burden_p_value` | Raw p-value |
+| `linear_burden_pvalue` | Raw p-value |
 | `linear_burden_beta` | Beta coefficient |
 | `linear_burden_se` | Standard error |
 | `linear_burden_beta_ci_lower` | Beta 95% CI lower bound |
@@ -331,7 +331,7 @@ variantcentrifuge \
 
 | Column | Description |
 |--------|-------------|
-| `skat_p_value` | Raw SKAT-O p-value |
+| `skat_pvalue` | Raw SKAT-O p-value |
 | `skat_o_rho` | Optimal rho (mixing parameter between SKAT and burden) |
 | `acat_v_p` | ACAT-V per-variant score (internal; feeds ACAT-O) |
 
@@ -412,9 +412,9 @@ variantcentrifuge \
 
 | Column | Description |
 |--------|-------------|
-| `coast_p_value` | Raw COAST omnibus p-value |
-| `coast_burden_p_value` | Cauchy of the 6 burden components |
-| `coast_skat_p_value` | Allelic SKAT p-value |
+| `coast_pvalue` | Raw COAST omnibus p-value |
+| `coast_burden_pvalue` | Cauchy of the 6 burden components |
+| `coast_skat_pvalue` | Allelic SKAT p-value |
 | `coast_n_bmv` | Number of BMV variants |
 | `coast_n_dmv` | Number of DMV variants |
 | `coast_n_ptv` | Number of PTV variants |
@@ -436,24 +436,24 @@ selected tests have run. When SKAT is active, ACAT-V is also included in the com
 ### FDR Correction Strategy
 
 A **single** Benjamini-Hochberg FDR correction pass is applied to the ACAT-O p-values across all
-genes. Individual test p-values (`fisher_p_value`, `skat_p_value`, etc.) are **not** corrected.
+genes. Individual test p-values (`fisher_pvalue`, `skat_pvalue`, etc.) are **not** corrected.
 
 :::{warning}
 Do not apply additional correction to individual test p-values, and do not apply FDR separately
 per test. Both approaches are statistically incorrect given this design. Use
-`acat_o_corrected_p_value` as your primary significance measure.
+`acat_o_qvalue` as your primary significance measure.
 :::
 
 ### Output Columns
 
 | Column | Description |
 |--------|-------------|
-| `acat_o_p_value` | Raw (uncorrected) ACAT-O omnibus p-value |
-| `acat_o_corrected_p_value` | FDR-corrected (Benjamini-Hochberg) ACAT-O p-value |
+| `acat_o_pvalue` | Raw (uncorrected) ACAT-O omnibus p-value |
+| `acat_o_qvalue` | FDR-corrected (Benjamini-Hochberg) ACAT-O p-value |
 
 ### Pass-Through Behaviour
 
-When only one test is active, `acat_o_p_value` equals that test's raw p-value (pass-through).
+When only one test is active, `acat_o_pvalue` equals that test's raw p-value (pass-through).
 FDR correction is still applied across genes. This is by design — the omnibus is always a safe
 primary measure.
 
@@ -898,7 +898,7 @@ still runs — these are warnings, not failures.
 
 ### Logistic Burden Convergence Failure
 
-**Warning:** `FIRTH_CONVERGE_FAIL` in the `warnings` column, `logistic_burden_p_value` = `None`
+**Warning:** `FIRTH_CONVERGE_FAIL` in the `warnings` column, `logistic_burden_pvalue` = `None`
 
 **What happened:** Both standard logistic regression and Firth penalised likelihood failed to
 converge for this gene. Common cause: extreme imbalance (all carriers are cases), tiny carrier
@@ -933,7 +933,7 @@ If `n_tests < 100`, the lambda_GC estimate is flagged as unreliable — do not o
 
 ### COAST Fails: `NO_CLASSIFIABLE_VARIANTS`
 
-**In output:** `coast_p_value` = `None`, and `coast_skip_reason` extra key contains `NO_CLASSIFIABLE_VARIANTS`
+**In output:** `coast_pvalue` = `None`, and `coast_skip_reason` extra key contains `NO_CLASSIFIABLE_VARIANTS`
 
 **What happened:** All variants in this gene received classification code 0 — they are missense
 variants without SIFT or PolyPhen predictions. COAST requires at least one BMV, DMV, and PTV.
@@ -966,7 +966,7 @@ Ensure the first column of `covariates.tsv` matches these names exactly.
 
 ### ACAT-O Equals Single Test P-value
 
-**What you see:** `acat_o_p_value` is identical to `fisher_p_value` for all genes.
+**What you see:** `acat_o_pvalue` is identical to `fisher_pvalue` for all genes.
 
 **This is correct behavior.** When only one test is active, the Cauchy combination of a single
 p-value returns that p-value unchanged (pass-through). FDR correction still runs across genes.
@@ -1026,7 +1026,7 @@ diagnostics/
 Representative output (first 3 columns omitted for brevity):
 
 ```
-gene    n_cases  n_controls  n_variants  fisher_p_value  ...  acat_o_corrected_p_value  warnings
+gene    n_cases  n_controls  n_variants  fisher_pvalue  ...  acat_o_qvalue  warnings
 GENE1   312      488         7           0.00031             0.0047
 GENE2   312      488         3           0.41                1.0
 GENE3   312      488         12          8.2e-06             1.2e-04             LOW_CARRIER_COUNT

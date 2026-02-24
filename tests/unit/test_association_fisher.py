@@ -180,7 +180,7 @@ class TestFisherBitIdentitySamplesMode:
             expected_or, expected_pval = _run_fisher_direct(table)
 
             row = result_df[result_df["gene"] == gene_name].iloc[0]
-            assert row["fisher_p_value"] == expected_pval, f"p_value mismatch for {gene_name}"
+            assert row["fisher_pvalue"] == expected_pval, f"p_value mismatch for {gene_name}"
             assert row["fisher_or"] == expected_or, f"OR mismatch for {gene_name}"
 
     def test_bit_identity_corrected_p_values_match_direct_smm(self):
@@ -211,11 +211,11 @@ class TestFisherBitIdentitySamplesMode:
         assert "fisher_corrected_p_value" not in result_df.columns
 
         # ACAT-O corrected values should match FDR applied to ACAT-O raw p-values
-        raw_acat_pvals = result_df["acat_o_p_value"].values
+        raw_acat_pvals = result_df["acat_o_pvalue"].values
         expected_corrected = smm.multipletests(raw_acat_pvals, method="fdr_bh")[1]
 
         np.testing.assert_array_almost_equal(
-            result_df["acat_o_corrected_p_value"].values,
+            result_df["acat_o_qvalue"].values,
             expected_corrected,
             decimal=15,
         )

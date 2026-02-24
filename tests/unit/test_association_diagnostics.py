@@ -325,7 +325,7 @@ class TestWriteDiagnostics:
         genes = [f"GENE{i}" for i in range(n_genes)]
         fisher_p = list(rng.uniform(0.001, 0.9, size=n_genes))
         acat_p = list(rng.uniform(0.001, 0.9, size=n_genes))
-        return pd.DataFrame({"gene": genes, "fisher_p_value": fisher_p, "acat_o_p_value": acat_p})
+        return pd.DataFrame({"gene": genes, "fisher_pvalue": fisher_p, "acat_o_pvalue": acat_p})
 
     def test_write_diagnostics_creates_files(self, tmp_path):
         """write_diagnostics creates all three output files."""
@@ -491,7 +491,7 @@ class TestStageDiagnosticsIntegration:
 
         Simulates the exact sequence AssociationAnalysisStage uses:
         1. Read config.diagnostics_output path
-        2. Build results_df from engine output (with fisher_p_value + acat_o_p_value)
+        2. Build results_df from engine output (with fisher_pvalue + acat_o_pvalue)
         3. Call write_diagnostics() with all required parameters
         4. Assert all three files exist in the specified directory
         5. Assert file contents are meaningful
@@ -516,10 +516,10 @@ class TestStageDiagnosticsIntegration:
                 "n_cases": [300] * n_genes,
                 "n_controls": [300] * n_genes,
                 "n_variants": [3, 2, 5, 1, 4],
-                "fisher_p_value": fisher_p,
+                "fisher_pvalue": fisher_p,
                 "fisher_or": [1.5, 2.0, 0.8, 1.2, 3.1],
-                "acat_o_p_value": acat_p,
-                "acat_o_corrected_p_value": list(rng.uniform(0.01, 0.9, size=n_genes)),
+                "acat_o_pvalue": acat_p,
+                "acat_o_qvalue": list(rng.uniform(0.01, 0.9, size=n_genes)),
             }
         )
 
@@ -581,8 +581,8 @@ class TestStageDiagnosticsIntegration:
         results_df = pd.DataFrame(
             {
                 "gene": genes,
-                "fisher_p_value": list(rng.uniform(0.001, 0.9, size=n_genes)),
-                "acat_o_p_value": list(rng.uniform(0.001, 0.9, size=n_genes)),
+                "fisher_pvalue": list(rng.uniform(0.001, 0.9, size=n_genes)),
+                "acat_o_pvalue": list(rng.uniform(0.001, 0.9, size=n_genes)),
                 # Two genes with warnings, two without
                 "warnings": ["LOW_CARRIER_COUNT", "", "LOW_CARRIER_COUNT", ""],
             }

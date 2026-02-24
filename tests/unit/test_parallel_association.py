@@ -133,7 +133,7 @@ def test_parallel_fallback_on_unsafe_test() -> None:
 
     # Still produces valid output (sequential fallback works)
     assert len(df) == 3
-    assert "unsafe_test_p_value" in df.columns
+    assert "unsafe_test_pvalue" in df.columns
 
 
 @pytest.mark.unit
@@ -150,9 +150,9 @@ def test_parallel_single_gene_stays_sequential() -> None:
     df = engine.run_all(genes)
     assert len(df) == 1
     assert df["gene"].iloc[0] == "GENE0"
-    assert "fisher_p_value" in df.columns
+    assert "fisher_pvalue" in df.columns
     # p_value should be a valid float (not None)
-    assert df["fisher_p_value"].iloc[0] is not None
+    assert df["fisher_pvalue"].iloc[0] is not None
 
 
 @pytest.mark.unit

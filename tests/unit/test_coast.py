@@ -837,8 +837,8 @@ class TestCOASTRunWithMockedR:
             result = test.run("BRCA1", data, config)
 
         extra = result.extra
-        assert "coast_burden_p_value" in extra
-        assert "coast_skat_p_value" in extra
+        assert "coast_burden_pvalue" in extra
+        assert "coast_skat_pvalue" in extra
         assert "coast_n_bmv" in extra
         assert "coast_n_dmv" in extra
         assert "coast_n_ptv" in extra
@@ -1018,8 +1018,8 @@ class TestCOASTEngineRegistration:
         registry = _build_registry()
         assert registry["coast"] is COASTTest
 
-    def test_acat_o_includes_coast_p_value(self):
-        """When coast is a registered test, ACAT-O combines coast_p_value."""
+    def test_acat_o_includes_coast_pvalue(self):
+        """When coast is a registered test, ACAT-O combines coast_pvalue."""
         from variantcentrifuge.association.base import AssociationConfig, TestResult
         from variantcentrifuge.association.engine import AssociationEngine
 
@@ -1046,7 +1046,7 @@ class TestCOASTEngineRegistration:
             n_cases=30,
             n_controls=30,
             n_variants=5,
-            extra={"coast_burden_p_value": 0.05, "coast_skat_p_value": 0.02},
+            extra={"coast_burden_pvalue": 0.05, "coast_skat_pvalue": 0.02},
         )
         mock_coast.prepare = MagicMock()
         mock_coast.finalize = MagicMock()
@@ -1069,15 +1069,15 @@ class TestCOASTEngineRegistration:
         result_df = engine.run_all(gene_data)
 
         # ACAT-O should have combined the coast p-value
-        assert "acat_o_p_value" in result_df.columns
+        assert "acat_o_pvalue" in result_df.columns
         # With only one test (coast), ACAT-O = coast p-value (single p-value pass-through)
-        assert result_df["acat_o_p_value"].iloc[0] is not None
-        # coast_p_value column should be present
-        assert "coast_p_value" in result_df.columns
-        assert result_df["coast_p_value"].iloc[0] == pytest.approx(0.01)
+        assert result_df["acat_o_pvalue"].iloc[0] is not None
+        # coast_pvalue column should be present
+        assert "coast_pvalue" in result_df.columns
+        assert result_df["coast_pvalue"].iloc[0] == pytest.approx(0.01)
 
     def test_coast_extra_columns_in_engine_output(self):
-        """coast_burden_p_value, coast_skat_p_value, coast_n_* appear in engine output."""
+        """coast_burden_pvalue, coast_skat_pvalue, coast_n_* appear in engine output."""
         from variantcentrifuge.association.base import AssociationConfig, TestResult
         from variantcentrifuge.association.engine import AssociationEngine
 
@@ -1104,8 +1104,8 @@ class TestCOASTEngineRegistration:
             n_controls=30,
             n_variants=5,
             extra={
-                "coast_burden_p_value": 0.05,
-                "coast_skat_p_value": 0.02,
+                "coast_burden_pvalue": 0.05,
+                "coast_skat_pvalue": 0.02,
                 "coast_n_bmv": 1,
                 "coast_n_dmv": 2,
                 "coast_n_ptv": 2,
@@ -1131,14 +1131,14 @@ class TestCOASTEngineRegistration:
 
         result_df = engine.run_all(gene_data)
 
-        assert "coast_burden_p_value" in result_df.columns
-        assert "coast_skat_p_value" in result_df.columns
+        assert "coast_burden_pvalue" in result_df.columns
+        assert "coast_skat_pvalue" in result_df.columns
         assert "coast_n_bmv" in result_df.columns
         assert "coast_n_dmv" in result_df.columns
         assert "coast_n_ptv" in result_df.columns
         row = result_df.iloc[0]
-        assert row["coast_burden_p_value"] == pytest.approx(0.05)
-        assert row["coast_skat_p_value"] == pytest.approx(0.02)
+        assert row["coast_burden_pvalue"] == pytest.approx(0.05)
+        assert row["coast_skat_pvalue"] == pytest.approx(0.02)
         assert row["coast_n_bmv"] == 1
         assert row["coast_n_dmv"] == 2
         assert row["coast_n_ptv"] == 2

@@ -233,7 +233,7 @@ class TestAssociationAnalysisStageRun:
 
         df = result.association_results
         assert "gene" in df.columns
-        assert "fisher_p_value" in df.columns
+        assert "fisher_pvalue" in df.columns
         assert "fisher_or" in df.columns
 
     def test_association_config_key_used_not_perform_gene_burden(
