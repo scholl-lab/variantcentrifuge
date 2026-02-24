@@ -56,6 +56,29 @@ def compute_lambda_gc(p_values: list[float | None]) -> float | None:
     -------
     float | None
         lambda_GC, or None if fewer than 2 valid p-values are available.
+
+    Notes
+    -----
+    **Fisher's exact test exemption:** Fisher p-values must NOT be corrected
+    via lambda_GC. Fisher's exact test is a permutation-based exact test, not
+    an asymptotic chi2 approximation — the GC correction formula assumes the
+    chi2(1) asymptotic distribution and is statistically invalid for exact
+    tests. This function computes lambda_GC for Fisher as a *diagnostic only*;
+    callers must not apply lambda_GC correction to Fisher p-values.
+
+    **Applicable tests:** GC correction is valid only for score-based
+    asymptotic tests (e.g., SKAT, burden) whose statistics follow chi2(1)
+    under the null.
+
+    **Inflation thresholds (approximate guidance):**
+    - lambda_GC ~ 1.0: well-calibrated
+    - lambda_GC > 1.2: notable inflation — investigate population stratification
+      or cryptic relatedness before interpreting results
+
+    **Over-correction risk:** In studies with genuine rare-variant signal or
+    small sample sizes, lambda_GC deflation from true associations can reduce
+    power (Devlin & Roeder 1999, Gorroochurn et al. 2025). Use GC correction
+    only when inflation is clearly present and attributable to confounding.
     """
     # Filter out None and NaN
     valid = np.array(
@@ -348,6 +371,10 @@ def write_diagnostics(
 
     # ------------------------------------------------------------------
     # Compute lambda_GC and QQ data per test
+    # Note: lambda_GC for Fisher is included here as a diagnostic metric
+    # only. Do NOT use it to inflate-correct Fisher p-values — Fisher's
+    # exact test is not asymptotic and GC correction is statistically
+    # invalid for exact tests. See compute_lambda_gc() Notes for details.
     # ------------------------------------------------------------------
     lambda_rows: list[dict] = []
     qq_frames: list[pd.DataFrame] = []
