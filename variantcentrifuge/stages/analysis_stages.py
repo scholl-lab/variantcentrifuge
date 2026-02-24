@@ -1973,6 +1973,8 @@ VALID_ASSOCIATION_KEYS: frozenset[str] = frozenset(
         "missing_sample_threshold",
         "firth_max_iter",
         "association_workers",
+        "gene_prior_weights",
+        "gene_prior_weight_column",
     }
 )
 
@@ -2017,6 +2019,8 @@ def _validate_association_config_dict(d: dict) -> None:
         "pca_tool",
         "confidence_interval_method",
         "diagnostics_output",
+        "gene_prior_weights",
+        "gene_prior_weight_column",
     }
     int_keys = {
         "pca_components",
@@ -2200,6 +2204,8 @@ def _build_assoc_config_from_context(context: "PipelineContext") -> AssociationC
         coast_weights=_get("coast_weights", default=None, nullable=True),
         association_workers=_get("association_workers", default=1, nullable=False),
         coast_classification=_get("coast_classification", default=None, nullable=True),
+        gene_prior_weights=_get("gene_prior_weights", default=None, nullable=True),
+        gene_prior_weight_column=_get("gene_prior_weight_column", default="weight", nullable=False),
     )
 
 

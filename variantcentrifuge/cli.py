@@ -600,6 +600,21 @@ def create_parser() -> argparse.ArgumentParser:
             "Without this, --pca akt uses --force to run on all sites."
         ),
     )
+    # Phase 33: Gene-level FDR weighting
+    stats_group.add_argument(
+        "--gene-prior-weights",
+        default=None,
+        help=(
+            "TSV file with per-gene weights for weighted Benjamini-Hochberg FDR correction. "
+            "First column: gene name, weight column (default: 'weight'): positive float. "
+            "Genes not in the file receive weight=1.0. Activates weighted BH automatically."
+        ),
+    )
+    stats_group.add_argument(
+        "--gene-prior-weight-column",
+        default="weight",
+        help="Column name in the gene weight file containing weight values (default: 'weight')",
+    )
     # Deprecated aliases (backward compatibility — hidden from help)
     stats_group.add_argument("--pca-file", dest="pca", help=argparse.SUPPRESS, default=None)
     stats_group.add_argument("--pca-tool", dest="pca", help=argparse.SUPPRESS, default=None)
@@ -1285,6 +1300,12 @@ def main() -> int:
     cfg["association_workers"] = getattr(args, "association_workers", 1)
     # Phase 28: SKAT method and diagnostic thresholds
     cfg["skat_method"] = getattr(args, "skat_method", "SKAT")
+    # Phase 33: Gene-level FDR weighting
+    _gpw = getattr(args, "gene_prior_weights", None)
+    if _gpw and not Path(_gpw).is_file():
+        parser.error(f"--gene-prior-weights file not found: {_gpw}")
+    cfg["gene_prior_weights"] = _gpw
+    cfg["gene_prior_weight_column"] = getattr(args, "gene_prior_weight_column", "weight")
     cfg["association_min_cases"] = getattr(args, "min_cases", 200)
     cfg["association_max_case_control_ratio"] = getattr(args, "max_case_control_ratio", 20.0)
     cfg["association_min_case_carriers"] = getattr(args, "min_case_carriers", 10)
