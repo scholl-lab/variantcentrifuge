@@ -31,7 +31,7 @@ See MILESTONES.md for details.
 - [x] **Phase 30: Dead Code Cleanup** — Remove 8 vestigial stage classes and normalize legacy naming artifacts
 - [x] **Phase 31: COAST Fix** — Fix genotype matrix reconstruction, partial-category fallback, and configurable classification scoring
 - [x] **Phase 32: Region Restriction and PCA Wiring** — Add BED-based region prefilter and wire PCAComputationStage into the pipeline
-- [ ] **Phase 33: Gene-Level FDR Weighting** — Implement weighted Benjamini-Hochberg with per-gene biological priors
+- [x] **Phase 33: Gene-Level FDR Weighting** — Implement weighted Benjamini-Hochberg with per-gene biological priors
 - [ ] **Phase 34: Tech Debt** — Fix association config mapping, generate COAST golden values, fix column naming, clarify diagnostics
 - [ ] **Phase 35: Case-Confidence Weights** — Add per-sample confidence weights to burden and SKAT null models
 - [ ] **Phase 36: Performance — Sparse Genotype Matrices** — Add opt-in sparse matrix path for large rare-variant cohorts
@@ -124,7 +124,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 33-01-PLAN.md — Implement weighted BH in correction.py, CLI flag, weight file loader, and diagnostics
+- [x] 33-01-PLAN.md — Implement weighted BH in correction.py, CLI flag, weight file loader, and diagnostics
 
 ---
 
@@ -204,7 +204,7 @@ Note: Phases 32 and 33 are independent of Phase 31 and of each other; they may b
 | 30. Dead Code Cleanup | v0.16.0 | 1/1 | Complete | 2026-02-23 |
 | 31. COAST Fix | v0.16.0 | 2/2 | Complete | 2026-02-23 |
 | 32. Region Restriction and PCA Wiring | v0.16.0 | 2/2 | Complete | 2026-02-23 |
-| 33. Gene-Level FDR Weighting | v0.16.0 | 0/1 | Not started | - |
+| 33. Gene-Level FDR Weighting | v0.16.0 | 1/1 | Complete | 2026-02-24 |
 | 34. Tech Debt | v0.16.0 | 0/1 | Not started | - |
 | 35. Case-Confidence Weights | v0.16.0 | 0/2 | Not started | - |
 | 36. Performance — Sparse Genotype Matrices | v0.16.0 | 0/1 | Not started | - |

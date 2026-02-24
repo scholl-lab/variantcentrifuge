@@ -5,13 +5,13 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
-**Current focus:** v0.16.0 — Association Hardening & Multi-Cohort Features (Phase 33 in progress)
+**Current focus:** v0.16.0 — Association Hardening & Multi-Cohort Features (Phase 33 COMPLETE)
 
 ## Current Position
 
-Phase: 33 of 36 (Gene-Level FDR Weighting — Plan 01 COMPLETE)
+Phase: 33 of 36 (Gene-Level FDR Weighting — COMPLETE)
 Plan: 6 of 10 (across v0.16.0)
-Status: Phase 33 plan 01 complete — ready for next plan or phase
+Status: Phase 33 complete — ready for Phase 34
 Last activity: 2026-02-24 — Completed 33-01-PLAN.md (weighted BH, --gene-prior-weights CLI, fdr_weight column)
 
 Progress: ██████░░░░ 60%
@@ -82,9 +82,7 @@ Progress: ██████░░░░ 60%
 
 ## Session Continuity
 
-Last session: 2026-02-24T08:00:50Z
-Stopped at: Completed 33-01-PLAN.md — weighted BH correction, --gene-prior-weights CLI, engine wiring, fdr_weight column
+Last session: 2026-02-24
+Stopped at: Phase 33 complete — all plans executed and verified
 Resume file: None
-Next: Phase 34+ — Case Confidence / remaining v0.16.0 phases
-
-Note: Phase 33 has only 1 plan (33-01), which is now complete.
+Next: Phase 34 — Tech Debt

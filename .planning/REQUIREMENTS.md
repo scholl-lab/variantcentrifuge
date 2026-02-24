@@ -17,12 +17,12 @@
 
 ### Gene-Level FDR Weighting (#86)
 
-- [ ] **FDR-01**: User can provide a gene-to-weight TSV file via `--gene-prior-weights <file>` for weighted FDR correction
-- [ ] **FDR-02**: Weighted BH (Genovese 2006) is applied when weights are provided: p-values adjusted by gene weight, weights renormalized to average=1.0
-- [ ] **FDR-03**: Genes absent from the weight file receive weight=1.0 (neutral); warning emitted if >50% of tested genes are missing
+- [x] **FDR-01**: User can provide a gene-to-weight TSV file via `--gene-prior-weights <file>` for weighted FDR correction
+- [x] **FDR-02**: Weighted BH (Genovese 2006) is applied when weights are provided: p-values adjusted by gene weight, weights renormalized to average=1.0
+- [x] **FDR-03**: Genes absent from the weight file receive weight=1.0 (neutral); warning emitted if >50% of tested genes are missing
 - [ ] **FDR-04**: IHW (Independent Hypothesis Weighting) is available via `--gene-prior-method ihw` when rpy2 and Bioconductor IHW package are installed
-- [ ] **FDR-05**: Effective number of tests (`sum(w)^2 / sum(w^2)`) is reported in diagnostics output
-- [ ] **FDR-06**: When `--gene-prior-weights` is not provided, all genes receive equal weight (identical to current plain BH/Bonferroni)
+- [x] **FDR-05**: Effective number of tests (`sum(w)^2 / sum(w^2)`) is reported in diagnostics output
+- [x] **FDR-06**: When `--gene-prior-weights` is not provided, all genes receive equal weight (identical to current plain BH/Bonferroni)
 
 ### Case-Confidence Weights (#85)
 
@@ -100,12 +100,12 @@
 | COAST-05 | Phase 31 | Complete |
 | COAST-06 | Phase 31 | Complete |
 | COAST-07 | Phase 31 | Complete |
-| FDR-01 | Phase 33 | Pending |
-| FDR-02 | Phase 33 | Pending |
-| FDR-03 | Phase 33 | Pending |
-| FDR-04 | Phase 33 | Pending |
-| FDR-05 | Phase 33 | Pending |
-| FDR-06 | Phase 33 | Pending |
+| FDR-01 | Phase 33 | Complete |
+| FDR-02 | Phase 33 | Complete |
+| FDR-03 | Phase 33 | Complete |
+| FDR-04 | Phase 33 | Excluded (IHW deferred) |
+| FDR-05 | Phase 33 | Complete |
+| FDR-06 | Phase 33 | Complete |
 | CONF-01 | Phase 35 | Pending |
 | CONF-02 | Phase 35 | Pending |
 | CONF-03 | Phase 35 | Pending |
@@ -142,4 +142,4 @@
 
 ---
 *Requirements defined: 2026-02-23*
-*Last updated: 2026-02-23 — Phase 32 REGION/PCA requirements marked Complete*
+*Last updated: 2026-02-24 — Phase 33 FDR requirements marked Complete (FDR-04 IHW excluded)*
