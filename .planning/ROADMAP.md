@@ -139,13 +139,15 @@ Plans:
 **Success Criteria** (what must be TRUE):
 1. `create_stages_from_config()` correctly activates association and gene burden stages when the corresponding config dict keys are set (confirmed by integration test)
 2. COAST R golden p-values are hardcoded in the test file and a CI test asserts Python output is within 10% relative difference
-3. SKAT-O results output uses `skat_o_p_value` as the column name (not a variant of `skat_o_p`)
+3. SKAT-O results output uses `skat_o_pvalue` as the column name (not a variant of `skat_o_p`)
 4. The Fisher lambda_GC behavior is documented in code comments: excluded from Fisher p-values, applied only to score-based tests (SKAT, burden)
 
-**Plans:** TBD
+**Plans:** 3 plans
 
 Plans:
-- [ ] 34-01: Fix create_stages_from_config mapping, generate COAST golden values, fix skat_o column name, document lambda_GC
+- [ ] 34-01-PLAN.md — Fix create_stages_from_config mapping (TD-02) and document lambda_GC Fisher exemption (TD-05)
+- [ ] 34-02-PLAN.md — Standardize column naming: _pvalue/_qvalue convention across engine, diagnostics, tests, and docs (TD-04)
+- [ ] 34-03-PLAN.md — Generate COAST R golden values from GCKD data and add 10% tolerance comparison test (TD-03)
 
 ---
 
@@ -205,6 +207,6 @@ Note: Phases 32 and 33 are independent of Phase 31 and of each other; they may b
 | 31. COAST Fix | v0.16.0 | 2/2 | Complete | 2026-02-23 |
 | 32. Region Restriction and PCA Wiring | v0.16.0 | 2/2 | Complete | 2026-02-23 |
 | 33. Gene-Level FDR Weighting | v0.16.0 | 1/1 | Complete | 2026-02-24 |
-| 34. Tech Debt | v0.16.0 | 0/1 | Not started | - |
+| 34. Tech Debt | v0.16.0 | 0/3 | Not started | - |
 | 35. Case-Confidence Weights | v0.16.0 | 0/2 | Not started | - |
 | 36. Performance — Sparse Genotype Matrices | v0.16.0 | 0/1 | Not started | - |
