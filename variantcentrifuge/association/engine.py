@@ -9,7 +9,7 @@ applies a single round of multiple testing correction to ACAT-O p-values
 (ARCH-03), and returns a wide-format DataFrame with one row per gene.
 
 Column naming convention: {test_name}_{field}, e.g.:
-  fisher_p_value, fisher_or,
+  fisher_pvalue, fisher_or,
   fisher_or_ci_lower, fisher_or_ci_upper
 
 Effect size column names are test-aware (via AssociationTest.effect_column_names()):
@@ -18,8 +18,11 @@ Effect size column names are test-aware (via AssociationTest.effect_column_names
     logistic_burden_beta_ci_lower, logistic_burden_beta_ci_upper
 
 ACAT-O columns (Phase 22):
-  acat_o_p_value          — raw omnibus Cauchy combination of per-test p-values
-  acat_o_corrected_p_value — FDR/Bonferroni corrected across all genes
+  acat_o_pvalue  — raw omnibus Cauchy combination of per-test p-values
+  acat_o_qvalue  — FDR/Bonferroni corrected across all genes
+
+SKAT-O note: when skat_method="SKATO", the skat_pvalue column is renamed to
+  skat_o_pvalue to distinguish SKAT-O from the plain SKAT result.
 
 FDR strategy (ARCH-03):
   Single correction pass on ACAT-O p-values only. Individual test p-values
@@ -309,7 +312,7 @@ class AssociationEngine:
         Run all registered tests across all genes and return wide-format results.
 
         FDR correction (ARCH-03): applied only to ACAT-O p-values across all
-        genes. Primary test columns (fisher_p_value, burden_p_value, etc.) are
+        genes. Primary test columns (fisher_pvalue, burden_pvalue, etc.) are
         uncorrected — they are diagnostic signal decomposition, not independent
         hypotheses. corrected_p_value on primary TestResults is always None.
 
@@ -326,9 +329,9 @@ class AssociationEngine:
             Wide-format results. One row per gene that has at least one test
             result (genes where all tests returned p_value=None are excluded).
             Columns: gene, n_cases, n_controls, n_variants, then per-test
-            columns: {test}_p_value (uncorrected), plus test-aware effect
+            columns: {test}_pvalue (uncorrected), plus test-aware effect
             columns (e.g. fisher_or or logistic_burden_beta), and finally
-            acat_o_p_value and acat_o_corrected_p_value.
+            acat_o_pvalue and acat_o_qvalue.
         """
         if not gene_burden_data:
             logger.warning("No gene burden data provided to AssociationEngine.")
@@ -535,7 +538,7 @@ class AssociationEngine:
             for test_name, test in self._tests.items():
                 res = results_by_test[test_name][gene]
                 col_names = test.effect_column_names()
-                row[f"{test_name}_p_value"] = res.p_value
+                row[f"{test_name}_pvalue"] = res.p_value
                 # Primary test corrected_p_value is always None (ARCH-03)
                 # It is written for schema completeness but remains None.
                 # None-effect guard: skip column creation when effect/CI names are None.
@@ -557,10 +560,16 @@ class AssociationEngine:
                 for extra_key, extra_val in res.extra.items():
                     row[extra_key] = extra_val
 
+                # SKAT-O post-processing: rename skat_pvalue -> skat_o_pvalue when
+                # skat_method is SKATO. The skat_method key is stored in res.extra
+                # and already written to the row above.
+                if res.extra.get("skat_method") == "SKATO" and f"{test_name}_pvalue" in row:
+                    row[f"{test_name}_o_pvalue"] = row.pop(f"{test_name}_pvalue")
+
             # ACAT-O columns (Phase 22) — omnibus significance measure
             acat_res = acat_o_results.get(gene)
-            row["acat_o_p_value"] = acat_res.p_value if acat_res is not None else None
-            row["acat_o_corrected_p_value"] = (
+            row["acat_o_pvalue"] = acat_res.p_value if acat_res is not None else None
+            row["acat_o_qvalue"] = (
                 acat_res.corrected_p_value if acat_res is not None else None
             )
 
@@ -575,7 +584,7 @@ class AssociationEngine:
             return pd.DataFrame()
 
         result_df = pd.DataFrame(rows)
-        n_sig = (result_df.get("acat_o_corrected_p_value", pd.Series(dtype=float)) < 0.05).sum()
+        n_sig = (result_df.get("acat_o_qvalue", pd.Series(dtype=float)) < 0.05).sum()
         logger.info(
             f"Association analysis complete: {len(result_df)} genes tested, "
             f"{n_sig} significant (ACAT-O corrected p < 0.05)"

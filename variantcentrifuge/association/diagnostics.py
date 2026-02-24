@@ -337,8 +337,8 @@ def write_diagnostics(
     ----------
     results_df : pd.DataFrame
         Association results DataFrame from engine.run_all(). Must have a "gene"
-        column plus p-value columns named ``{test_name}_p_value`` and optionally
-        ``acat_o_p_value``.
+        column plus p-value columns named ``{test_name}_pvalue`` and optionally
+        ``acat_o_pvalue``.
     diagnostics_dir : str | Path
         Directory to write output files. Created if it does not exist.
     test_names : list[str]
@@ -356,16 +356,16 @@ def write_diagnostics(
     # ------------------------------------------------------------------
     # Determine which p-value columns are present in results_df
     # ------------------------------------------------------------------
-    # Primary tests: {test_name}_p_value
-    # ACAT-O: acat_o_p_value (always added if ACAT-O was run)
+    # Primary tests: {test_name}_pvalue
+    # ACAT-O: acat_o_pvalue (always added if ACAT-O was run)
     all_test_ids: list[str] = list(test_names)
-    if "acat_o_p_value" in results_df.columns and "acat_o" not in all_test_ids:
+    if "acat_o_pvalue" in results_df.columns and "acat_o" not in all_test_ids:
         all_test_ids.append("acat_o")
 
     # Build mapping: test_id -> column name
     p_col_map: dict[str, str] = {}
     for tid in all_test_ids:
-        col = f"{tid}_p_value"
+        col = f"{tid}_pvalue"
         if col in results_df.columns:
             p_col_map[tid] = col
 

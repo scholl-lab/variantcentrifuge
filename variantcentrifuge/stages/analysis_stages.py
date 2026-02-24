@@ -2764,7 +2764,7 @@ class AssociationAnalysisStage(Stage):
         # Log summary
         n_genes = len(results_df)
         # Count significant genes across any corrected p-value column
-        corr_cols = [c for c in results_df.columns if c.endswith("_corrected_p_value")]
+        corr_cols = [c for c in results_df.columns if c.endswith("_qvalue")]
         n_sig = int((results_df[corr_cols].min(axis=1) < 0.05).sum()) if corr_cols else 0
         logger.info(
             f"Association analysis: {n_genes} genes tested, {n_sig} significant (FDR < 0.05)"

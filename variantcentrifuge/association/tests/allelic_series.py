@@ -616,7 +616,7 @@ class COASTTest(AssociationTest):
         TestResult
             p_value=None when test is skipped (missing variant categories,
             no genotype matrix, or insufficient data).
-            extra contains: coast_burden_p_value, coast_skat_p_value,
+            extra contains: coast_burden_pvalue, coast_skat_pvalue,
             coast_n_bmv, coast_n_dmv, coast_n_ptv.
         """
         n_cases = int(contingency_data.get("proband_count", 0))
@@ -845,8 +845,8 @@ class COASTTest(AssociationTest):
             )
 
         extra_base: dict[str, Any] = {
-            "coast_burden_p_value": burden_p,
-            "coast_skat_p_value": skat_p,
+            "coast_burden_pvalue": burden_p,
+            "coast_skat_pvalue": skat_p,
             "coast_n_bmv": n_bmv,
             "coast_n_dmv": n_dmv,
             "coast_n_ptv": n_ptv,

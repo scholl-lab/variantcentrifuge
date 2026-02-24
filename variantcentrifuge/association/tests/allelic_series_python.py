@@ -37,8 +37,8 @@ The run() method replicates ALL skip-condition guards from COASTTest.run():
 Output extra dict
 -----------------
 Matches COASTTest output keys for downstream consumers (engine, diagnostics):
-  - coast_burden_p_value: Cauchy combination of 6 burden component p-values
-  - coast_skat_p_value: allelic SKAT p-value
+  - coast_burden_pvalue: Cauchy combination of 6 burden component p-values
+  - coast_skat_pvalue: allelic SKAT p-value
   - coast_n_bmv, coast_n_dmv, coast_n_ptv: variant counts per category
 
 Thread safety
@@ -216,7 +216,7 @@ class PurePythonCOASTTest(AssociationTest):
         TestResult
             p_value=None when test is skipped (missing variant categories,
             no genotype matrix, or insufficient data).
-            extra contains: coast_burden_p_value, coast_skat_p_value,
+            extra contains: coast_burden_pvalue, coast_skat_pvalue,
             coast_n_bmv, coast_n_dmv, coast_n_ptv.
         """
         n_cases = int(contingency_data.get("proband_count", 0))
@@ -459,18 +459,18 @@ class PurePythonCOASTTest(AssociationTest):
                 f"{self._genes_processed}/{self._total_genes} genes ({pct:.0f}%)"
             )
 
-        # ── Compute coast_burden_p_value as Cauchy of 6 burden components ─────────
+        # ── Compute coast_burden_pvalue as Cauchy of 6 burden components ──────────
         # This mirrors the convention expected by downstream consumers (engine, diagnostics).
         # The omnibus p_value already combines all 7 (6 burden + 1 SKAT); the extra
-        # coast_burden_p_value provides a standalone summary of the burden sub-test.
+        # coast_burden_pvalue provides a standalone summary of the burden sub-test.
         from variantcentrifuge.association.tests.acat import cauchy_combination
 
         burden_p_values: list[float | None] = result.get("burden_p_values", [])
         coast_burden_p = cauchy_combination(burden_p_values) if burden_p_values else None
 
         extra_base: dict[str, Any] = {
-            "coast_burden_p_value": coast_burden_p,
-            "coast_skat_p_value": result.get("skat_p_value"),
+            "coast_burden_pvalue": coast_burden_p,
+            "coast_skat_pvalue": result.get("skat_p_value"),
             "coast_n_bmv": n_bmv,
             "coast_n_dmv": n_dmv,
             "coast_n_ptv": n_ptv,
