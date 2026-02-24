@@ -90,6 +90,7 @@ def load_pca_file(
     filepath: str,
     vcf_samples: Sequence[str],
     n_components: int = 10,
+    remove_sample_substring: str | None = None,
 ) -> tuple[np.ndarray, list[str]]:
     """Load a PCA file and return a sample-aligned PC matrix.
 
@@ -140,6 +141,8 @@ def load_pca_file(
         sep: str | None = "\t"
     elif ext == ".csv":
         sep = ","
+    elif ext == ".eigenvec":
+        sep = None  # whitespace — PLINK and AKT both use mixed tab+space
     else:
         try:
             with open(filepath) as fh:
@@ -208,6 +211,10 @@ def load_pca_file(
 
     # Ensure index is string
     df.index = df.index.astype(str)
+
+    # Apply sample substring removal to match VCF sample name processing
+    if remove_sample_substring:
+        df.index = df.index.str.replace(remove_sample_substring, "", regex=False)
 
     # 4. Select only numeric columns (drop any remaining string columns)
     numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]

@@ -720,14 +720,47 @@ class TestPCAComputationStage:
         )
 
         def fake_run(cmd, capture_output, text, check):
-            # Simulate AKT creating the output file
-            expected_output.write_text("FID\tIID\tPC1\nsample1\tsample1\t0.1\n")
+            # Simulate AKT returning eigenvec data on stdout
+            import subprocess as sp
+
+            return sp.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout="sample1\t0.1\t0.2\t0.3\n",
+                stderr="",
+            )
 
         with patch("subprocess.run", side_effect=fake_run):
             result = stage._process(context)
 
         assert result.config["pca_file"] == str(expected_output)
         assert "pca_computation" in result.completed_stages
+
+    def test_pca_akt_with_sites(self, stage, context, tmp_path):
+        """When pca_sites is set, -R is used instead of --force."""
+        context.config["pca"] = "akt"
+        context.config["vcf_file"] = "test.vcf"
+        context.config["pca_sites"] = "/path/to/sites.vcf.gz"
+
+        captured_cmd = []
+
+        def fake_run(cmd, capture_output, text, check):
+            import subprocess as sp
+
+            captured_cmd.extend(cmd)
+            return sp.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout="sample1\t0.1\t0.2\t0.3\n",
+                stderr="",
+            )
+
+        with patch("subprocess.run", side_effect=fake_run):
+            stage._process(context)
+
+        assert "-R" in captured_cmd
+        assert "/path/to/sites.vcf.gz" in captured_cmd
+        assert "--force" not in captured_cmd
 
     def test_pca_akt_cache_reuse(self, stage, context, tmp_path):
         """If cached eigenvec file already exists, subprocess.run is NOT called."""
@@ -793,5 +826,4 @@ class TestPCAComputationStage:
         """PCAComputationStage has expected name, dependencies, and parallel_safe."""
         assert stage.name == "pca_computation"
         assert "configuration_loading" in stage.dependencies
-        assert "sample_config_loading" in stage.dependencies
-        assert stage.parallel_safe is False
+        assert stage.parallel_safe is True

@@ -591,6 +591,15 @@ def create_parser() -> argparse.ArgumentParser:
         default=10,
         help="Number of principal components to use as covariates (default: 10).",
     )
+    stats_group.add_argument(
+        "--pca-sites",
+        default=None,
+        help=(
+            "VCF/BCF with sites to restrict AKT PCA computation (passed as -R to akt). "
+            "Use the wes.grch37.vcf.gz or wgs.grch37.vcf.gz files shipped with AKT. "
+            "Without this, --pca akt uses --force to run on all sites."
+        ),
+    )
     # Deprecated aliases (backward compatibility — hidden from help)
     stats_group.add_argument("--pca-file", dest="pca", help=argparse.SUPPRESS, default=None)
     stats_group.add_argument("--pca-tool", dest="pca", help=argparse.SUPPRESS, default=None)
@@ -1248,6 +1257,7 @@ def main() -> int:
     # Phase 32: Unified PCA configuration (--pca replaces --pca-file/--pca-tool)
     cfg["pca"] = getattr(args, "pca", None)
     cfg["pca_components"] = getattr(args, "pca_components", 10)
+    cfg["pca_sites"] = getattr(args, "pca_sites", None)
     # Phase 23: COAST weights — parse comma-separated floats
     _coast_weights_raw = getattr(args, "coast_weights", None)
     if _coast_weights_raw:

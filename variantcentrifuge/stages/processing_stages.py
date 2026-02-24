@@ -1613,12 +1613,12 @@ class PCAComputationStage(Stage):
     @property
     def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
-        return {"sample_config_loading", "configuration_loading"}
+        return {"configuration_loading"}
 
     @property
     def parallel_safe(self) -> bool:
-        """Return False — AKT subprocess is not thread-safe."""
-        return False
+        """PCA writes to its own file — safe to run alongside other stages."""
+        return True
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Compute or load PCA eigenvectors."""
@@ -1659,11 +1659,17 @@ class PCAComputationStage(Stage):
             logger.info(f"PCA: reusing cached eigenvectors from {output_path}")
             return str(output_path)
 
-        cmd = ["akt", "pca", vcf_file, "-o", str(output_path), "-n", str(n_components)]
+        pca_sites = context.config.get("pca_sites")
+        cmd = ["akt", "pca", vcf_file, "-N", str(n_components)]
+        if pca_sites:
+            cmd.extend(["-R", pca_sites])
+        else:
+            cmd.append("--force")
         logger.info(f"Running AKT PCA: {' '.join(cmd)}")
 
         try:
-            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            output_path.write_text(result.stdout)
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"AKT PCA failed (exit code {e.returncode}): {e.stderr}") from e
         except FileNotFoundError as e:

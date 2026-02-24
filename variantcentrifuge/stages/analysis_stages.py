@@ -2480,7 +2480,10 @@ class AssociationAnalysisStage(Stage):
 
             n_pcs = assoc_config.pca_components
             pca_matrix, pca_col_names = load_pca_file(
-                pca_file, vcf_samples_list, n_components=n_pcs
+                pca_file,
+                vcf_samples_list,
+                n_components=n_pcs,
+                remove_sample_substring=context.config.get("remove_sample_substring"),
             )
             covariate_matrix, covariate_col_names = merge_pca_covariates(
                 pca_matrix,
