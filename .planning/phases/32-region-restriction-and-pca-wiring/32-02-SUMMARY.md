@@ -12,12 +12,15 @@ requires:
     provides: pca.py module with load_pca_file/merge_pca_covariates and AssociationConfig.pca_file
 
 provides:
-  - PCAComputationStage class in processing_stages.py with AKT subprocess and file pass-through
+  - PCAComputationStage class in processing_stages.py with AKT subprocess (stdout capture) and file pass-through
   - Unified --pca CLI flag replacing --pca-file and --pca-tool with backward compat aliases
+  - --pca-sites CLI flag to restrict AKT PCA to sites VCF (passed as -R to akt)
   - PCAComputationStage wired into build_pipeline_stages before AssociationAnalysisStage
+  - PCA runs at Level 1 (depends only on configuration_loading, parallel_safe=True)
   - AssociationAnalysisStage reads pca_file from pca_computation stage result
+  - load_pca_file supports .eigenvec whitespace-delimited format and remove_sample_substring
   - "pca" added to VALID_ASSOCIATION_KEYS for JSON config support
-  - 9 unit tests covering all PCA stage code paths
+  - 10 unit tests covering all PCA stage code paths (including --pca-sites)
 
 affects:
   - phase: 35-weighted-coast-and-diagnostics
@@ -47,10 +50,15 @@ key-decisions:
   - "AssociationAnalysisStage uses setdefault so explicit pca_file= in config.json still overrides stage result"
   - "Cache reuse: skip AKT subprocess if output eigenvec file already exists and is non-empty"
   - "pca_computation added as soft_dependency not hard dependency (PCA optional feature)"
+  - "AKT uses -R (regions) for sites restriction, NOT -W (weight projection onto pre-computed PCs)"
+  - "AKT stdout captured for eigenvectors (not -o flag); stderr for logging"
+  - "PCA depends only on configuration_loading (Level 1) — runs in parallel with gene_bed_creation"
+  - "remove_sample_substring applied to PCA sample IDs to match VCF sample name processing"
 
 patterns-established:
   - "Stage output handoff: stage sets context.config['pca_file'] AND marks complete with result dict"
   - "Downstream stage reads result via context.get_result() and uses setdefault to not override explicit config"
+  - "AKT PCA: stdout = eigenvectors, -o = loadings VCF, stderr = log header"
 
 # Metrics
 duration: 22min
@@ -71,16 +79,27 @@ completed: 2026-02-23
 
 ## Accomplishments
 
-- PCAComputationStage added to processing_stages.py with `_run_akt` subprocess invocation, pre-computed file pass-through, and output caching
+- PCAComputationStage added to processing_stages.py with `_run_akt` subprocess invocation (stdout capture), pre-computed file pass-through, and output caching
 - Unified `--pca` CLI flag replaces `--pca-file` and `--pca-tool`; deprecated aliases use `argparse dest='pca'` for zero-friction backward compatibility
+- `--pca-sites` CLI flag restricts AKT PCA to sites VCF (passed as `-R` to akt); without it, `--force` runs on all sites
+- PCA stage moved to Level 1 (depends only on `configuration_loading`, `parallel_safe=True`) — runs concurrently with gene_bed_creation, before heavy chunk processing
 - PCAComputationStage wired into `build_pipeline_stages()` before AssociationAnalysisStage; added to `create_stages_from_config()` for JSON config support
 - AssociationAnalysisStage picks up `pca_file` from `pca_computation` stage result via soft dependency; uses `setdefault` to not override explicit config
-- 9 unit tests cover all PCA stage paths (file, akt, cache, invalid, errors, properties)
+- `load_pca_file` supports `.eigenvec` whitespace-delimited format and `remove_sample_substring` for VCF sample name matching
+- 10 unit tests cover all PCA stage paths (file, akt, akt+sites, cache, invalid, errors, properties)
+
+## Real-Data Validation (GCKD, 5125 samples, 3 genes)
+
+- **Pre-computed eigenvec**: 127s pipeline, 480MB peak, 10 genes tested, 1 significant
+- **AKT inline (`--pca akt --pca-sites wes.grch37.vcf.gz`)**: 2013s total (31.5m AKT + 2m pipeline), 476MB peak, 9 genes tested, 1 significant
+- **AKT memory profile**: linear scan 377MB→643MB, SVD spike to 1.38GB, drop to 3MB
+- **AKT site matching**: 30770/31920 markers from 1000G Phase 3 WES sites VCF
 
 ## Task Commits
 
 1. **Task 1: Create PCAComputationStage and unify --pca CLI flag** - `29e411d` (feat)
 2. **Task 2: Wire PCAComputationStage into pipeline and AssociationAnalysisStage** - `0136034` (feat)
+3. **Task 3: Add --pca-sites, fix AKT stdout capture, optimize stage ordering** - `885148d` (feat)
 
 **Plan metadata:** (committed with summary)
 
@@ -128,7 +147,8 @@ None - no external service configuration required. AKT tool must be in PATH when
 
 ## Next Phase Readiness
 
-- PCA wiring complete: `--pca akt` auto-computes eigenvectors; `--pca /path/file` uses pre-computed file
+- PCA wiring complete and validated on real data: `--pca akt --pca-sites <vcf>` computes eigenvectors with site restriction; `--pca /path/file` uses pre-computed file
+- AKT runs at Level 1 in parallel with gene_bed_creation — no memory contention with chunk processing
 - Phase 32 plans complete (01: region restriction, 02: PCA wiring)
 - Ready for Phase 33+ (FDR weighting, case-confidence)
 - No blockers introduced
