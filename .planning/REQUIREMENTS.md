@@ -64,10 +64,10 @@
 
 ### Tech Debt
 
-- [ ] **TD-02**: `create_stages_from_config()` maps `perform_association` and `perform_gene_burden` keys from config dict
-- [ ] **TD-03**: COAST R golden values generated and hardcoded in test file for Python-vs-R comparison
-- [ ] **TD-04**: SKAT-O output uses `skat_o_p_value` column name when `skat_method=SKATO`
-- [ ] **TD-05**: Fisher lambda_GC criterion clarified in ROADMAP (excluded from Fisher, applied to score-based tests)
+- [x] **TD-02**: `create_stages_from_config()` maps `perform_association` and `perform_gene_burden` keys from config dict
+- [x] **TD-03**: COAST R golden values generated and hardcoded in test file for Python-vs-R comparison
+- [x] **TD-04**: SKAT-O output uses `skat_o_p_value` column name when `skat_method=SKATO`
+- [x] **TD-05**: Fisher lambda_GC criterion clarified in ROADMAP (excluded from Fisher, applied to score-based tests)
 - [ ] **TD-06**: Internal `"refactored_pipeline"` checkpoint strings replaced (covered by CLEAN-04)
 
 ## v2 Requirements
@@ -129,10 +129,10 @@
 | CLEAN-04 | Phase 30 | Complete |
 | CLEAN-05 | Phase 30 | Complete |
 | CLEAN-06 | Phase 30 | Complete |
-| TD-02 | Phase 34 | Pending |
-| TD-03 | Phase 34 | Pending |
-| TD-04 | Phase 34 | Pending |
-| TD-05 | Phase 34 | Pending |
+| TD-02 | Phase 34 | Complete |
+| TD-03 | Phase 34 | Complete |
+| TD-04 | Phase 34 | Complete |
+| TD-05 | Phase 34 | Complete |
 | TD-06 | Phase 30 | Complete (same change as CLEAN-04) |
 
 **Coverage:**

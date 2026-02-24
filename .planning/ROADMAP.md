@@ -32,7 +32,7 @@ See MILESTONES.md for details.
 - [x] **Phase 31: COAST Fix** — Fix genotype matrix reconstruction, partial-category fallback, and configurable classification scoring
 - [x] **Phase 32: Region Restriction and PCA Wiring** — Add BED-based region prefilter and wire PCAComputationStage into the pipeline
 - [x] **Phase 33: Gene-Level FDR Weighting** — Implement weighted Benjamini-Hochberg with per-gene biological priors
-- [ ] **Phase 34: Tech Debt** — Fix association config mapping, generate COAST golden values, fix column naming, clarify diagnostics
+- [x] **Phase 34: Tech Debt** — Fix association config mapping, generate COAST golden values, fix column naming, clarify diagnostics
 - [ ] **Phase 35: Case-Confidence Weights** — Add per-sample confidence weights to burden and SKAT null models
 - [ ] **Phase 36: Performance — Sparse Genotype Matrices** — Add opt-in sparse matrix path for large rare-variant cohorts
 
@@ -145,9 +145,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 34-01-PLAN.md — Fix create_stages_from_config mapping (TD-02) and document lambda_GC Fisher exemption (TD-05)
-- [ ] 34-02-PLAN.md — Standardize column naming: _pvalue/_qvalue convention across engine, diagnostics, tests, and docs (TD-04)
-- [ ] 34-03-PLAN.md — Generate COAST R golden values from GCKD data and add 10% tolerance comparison test (TD-03)
+- [x] 34-01-PLAN.md — Fix create_stages_from_config mapping (TD-02) and document lambda_GC Fisher exemption (TD-05)
+- [x] 34-02-PLAN.md — Standardize column naming: _pvalue/_qvalue convention across engine, diagnostics, tests, and docs (TD-04)
+- [x] 34-03-PLAN.md — Generate COAST R golden values from GCKD data and add 10% tolerance comparison test (TD-03)
 
 ---
 
@@ -207,6 +207,6 @@ Note: Phases 32 and 33 are independent of Phase 31 and of each other; they may b
 | 31. COAST Fix | v0.16.0 | 2/2 | Complete | 2026-02-23 |
 | 32. Region Restriction and PCA Wiring | v0.16.0 | 2/2 | Complete | 2026-02-23 |
 | 33. Gene-Level FDR Weighting | v0.16.0 | 1/1 | Complete | 2026-02-24 |
-| 34. Tech Debt | v0.16.0 | 0/3 | Not started | - |
+| 34. Tech Debt | v0.16.0 | 3/3 | Complete | 2026-02-24 |
 | 35. Case-Confidence Weights | v0.16.0 | 0/2 | Not started | - |
 | 36. Performance — Sparse Genotype Matrices | v0.16.0 | 0/1 | Not started | - |
