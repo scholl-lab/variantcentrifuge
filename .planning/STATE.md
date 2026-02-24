@@ -5,21 +5,21 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
-**Current focus:** v0.16.0 — Association Hardening & Multi-Cohort Features (Phase 32 COMPLETE)
+**Current focus:** v0.16.0 — Association Hardening & Multi-Cohort Features (Phase 33 in progress)
 
 ## Current Position
 
-Phase: 32 of 36 (Region Restriction + PCA Wiring — COMPLETE)
-Plan: 5 of 10 (across v0.16.0)
-Status: Phase 32 complete — ready for Phase 33
-Last activity: 2026-02-23 — Completed 32-02-PLAN.md (PCA wiring, unified --pca flag, PCAComputationStage)
+Phase: 33 of 36 (Gene-Level FDR Weighting — Plan 01 COMPLETE)
+Plan: 6 of 10 (across v0.16.0)
+Status: Phase 33 plan 01 complete — ready for next plan or phase
+Last activity: 2026-02-24 — Completed 33-01-PLAN.md (weighted BH, --gene-prior-weights CLI, fdr_weight column)
 
-Progress: █████░░░░░ 50%
+Progress: ██████░░░░ 60%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed (v0.16.0): 5
+- Total plans completed (v0.16.0): 6
 - Prior milestone (v0.15.0): 35 plans, 12 phases, 5 days
 
 **By Phase:**
@@ -29,6 +29,7 @@ Progress: █████░░░░░ 50%
 | 30 — Dead Code Cleanup | 1/1 done | ~19 min | ~19 min |
 | 31 — COAST Fix | 2/2 done | ~26 min | ~13 min |
 | 32 — Region Restriction + PCA Wiring | 2/2 done | ~44 min | ~22 min |
+| 33 — Gene-Level FDR Weighting | 1/1 done | ~12 min | ~12 min |
 
 *Updated after each plan completion*
 
@@ -54,6 +55,11 @@ Progress: █████░░░░░ 50%
 - [32-02] --pca unified flag auto-detects file path vs 'akt' tool name; --pca-file/--pca-tool are hidden deprecated aliases via dest='pca'
 - [32-02] PCAComputationStage sets cfg['pca_file'] for compat with _build_assoc_config_from_context; AssociationAnalysisStage uses setdefault to not override explicit config
 - [32-02] AKT cache: skip subprocess if {base_name}.pca.eigenvec already exists and is non-empty
+- [33-01] Weighted BH renormalization happens at correction time (inside apply_weighted_correction), not at load time — allows reuse across different testable gene subsets
+- [33-01] fdr_weight column shows NORMALIZED weights (post-renormalization), not raw file weights; column absent when --gene-prior-weights not used (backward compatible)
+- [33-01] Weight loading and weighted correction stay in engine.run_all(), not AssociationAnalysisStage — engine owns all correction logic
+- [33-01] write_fdr_weight_diagnostics() called from engine when both gene_prior_weights AND diagnostics_output are set
+- [33-01] IHW not implemented — no flag, no stub, no error message (Python-first policy; IHW deferred to backlog)
 
 ### Architecture Invariants
 
@@ -62,7 +68,7 @@ Progress: █████░░░░░ 50%
 - FDR strategy: single pass on ACAT-O p-values across all genes (not per-test)
 - Genotype matrix: never stored in PipelineContext (memory constraint)
 - P-value computation: always through compute_pvalue() — never call Liu/Kuonen directly
-- Weighted BH: weights MUST be renormalized to mean=1.0 at load time (Genovese 2006 FDR guarantee)
+- Weighted BH: weights renormalized to mean=1.0 at correction time using testable genes subset (Genovese 2006 FDR guarantee)
 - Case-confidence weights: must be applied to null model (var_weights in GLM), not to residuals post-hoc
 - COAST classification: model_dir=None → hardcoded SIFT/PolyPhen; model_dir=path → formula engine
 - PCA stage handoff: PCAComputationStage sets context.config['pca_file'] AND marks complete with result dict; AssociationAnalysisStage reads both
@@ -76,9 +82,9 @@ Progress: █████░░░░░ 50%
 
 ## Session Continuity
 
-Last session: 2026-02-23T20:55:09Z
-Stopped at: Completed 32-01-PLAN.md — --regions-bed CLI flag, GeneBedCreationStage BED intersection, chr-mismatch detection
+Last session: 2026-02-24T08:00:50Z
+Stopped at: Completed 33-01-PLAN.md — weighted BH correction, --gene-prior-weights CLI, engine wiring, fdr_weight column
 Resume file: None
-Next: Phase 33+ — FDR Weighting / Case-Confidence
+Next: Phase 34+ — Case Confidence / remaining v0.16.0 phases
 
-Note: Phase 32 both plans (01 Region Restriction + 02 PCA Wiring) are complete as of this session.
+Note: Phase 33 has only 1 plan (33-01), which is now complete.
