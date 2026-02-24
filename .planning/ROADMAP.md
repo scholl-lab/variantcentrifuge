@@ -112,19 +112,19 @@ Plans:
 
 **Depends on:** Nothing (standalone; pure correction.py addition)
 
-**Requirements:** FDR-01, FDR-02, FDR-03, FDR-04, FDR-05, FDR-06
+**Requirements:** FDR-01, FDR-02, FDR-03, FDR-05, FDR-06 (FDR-04 IHW excluded per context discussion)
 
 **Success Criteria** (what must be TRUE):
 1. Passing `--gene-prior-weights weights.tsv` applies weighted BH with weights renormalized to mean=1.0 internally; the q-values differ from unweighted BH in proportion to weight variation
 2. Genes absent from the weight file receive weight=1.0 (neutral); if more than 50% of tested genes are missing from the file, a warning is emitted
 3. Effective number of tests (`sum(w)^2 / sum(w^2)`) appears in diagnostics output
 4. Running without `--gene-prior-weights` produces identical results to the current plain BH (backward compatible)
-5. IHW (`--gene-prior-method ihw`) is accepted as a CLI flag and produces a clear error when rpy2/Bioconductor IHW is not installed, not a silent fallback
+5. IHW is NOT implemented in this phase — no CLI flag, no stub, no error message (per CONTEXT.md decision)
 
-**Plans:** TBD
+**Plans:** 1 plan
 
 Plans:
-- [ ] 33-01: Implement weighted BH in correction.py, CLI flag, weight file loader, and diagnostics
+- [ ] 33-01-PLAN.md — Implement weighted BH in correction.py, CLI flag, weight file loader, and diagnostics
 
 ---
 
