@@ -526,6 +526,11 @@ def run_pipeline(args: argparse.Namespace) -> None:
     # Create pipeline context
     context = PipelineContext(args=args, config=initial_config, workspace=workspace)
 
+    # Fix 4: Initialize shared ResourceManager once for all stages
+    from .memory import ResourceManager
+
+    context.resource_manager = ResourceManager(config=initial_config)
+
     # Initialize checkpoint system if enabled
     if initial_config.get("enable_checkpoint", False):
         from .checkpoint import PipelineState

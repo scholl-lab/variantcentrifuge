@@ -17,6 +17,7 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from .workspace import Workspace
+    from ..memory.resource_manager import ResourceManager
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +167,9 @@ class PipelineContext:
 
     # Checkpoint state (if enabled)
     checkpoint_state: Any | None = None
+
+    # Shared resource manager for memory/CPU allocation (Fix 4)
+    resource_manager: "ResourceManager | None" = None
 
     # Thread safety lock for parallel stages
     _lock: PicklableLock = field(default_factory=PicklableLock, init=False, repr=False)
