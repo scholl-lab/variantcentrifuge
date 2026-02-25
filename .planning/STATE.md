@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-23)
 ## Current Position
 
 Phase: 37 of 37 (Association Resource Management — IN PROGRESS)
-Plan: 11 of 14 (across v0.16.0, 37 has 3 plans)
-Status: In progress — 37-01 complete (1/3 plans in phase 37)
-Last activity: 2026-02-25 — Completed 37-01-PLAN.md (shared ResourceManager)
+Plan: 12 of 14 (across v0.16.0, 37 has 3 plans)
+Status: In progress — 37-02 complete (2/3 plans in phase 37)
+Last activity: 2026-02-25 — Completed 37-02-PLAN.md (GT column lifecycle fix)
 
-Progress: ██████████░░░ 85% (phases 30-34 done, phase 37 in progress)
+Progress: ██████████░░░ 88% (phases 30-34 done, phase 37 in progress 2/3)
 
 ## Performance Metrics
 
@@ -74,6 +74,10 @@ Progress: ██████████░░░ 85% (phases 30-34 done, phase 
 - [37-01] Fallback pattern (if rm is None: rm = ResourceManager(...)) kept in all 4 analysis_stages.py locations for test compatibility
 - [37-01] cli.py and filters.py ResourceManager instances untouched — they run before PipelineContext exists
 - [37-01] parallel_analyzer.py untouched — receives DataFrame not PipelineContext
+- [37-02] GT Lifecycle Invariant: per-sample GEN_N__GT columns must survive in context.current_dataframe through ALL analysis stages (VariantAnalysis, GeneBurden, Association)
+- [37-02] VariantAnalysisStage re-attaches GT via key-column merge (CHROM/POS/REF/ALT/GENE) after analyze_variants — safe against row reordering/filtering
+- [37-02] _find_gt_columns in gene_burden.py is now an import alias for _find_per_sample_gt_columns from output_stages — single canonical implementation
+- [37-02] AssociationAnalysisStage context.variants_df recovery fallback removed; per-sample cols directly available (Fix 5)
 
 ### Architecture Invariants
 
@@ -87,6 +91,7 @@ Progress: ██████████░░░ 85% (phases 30-34 done, phase 
 - Case-confidence weights: must be applied to null model (var_weights in GLM), not to residuals post-hoc
 - COAST classification: model_dir=None → hardcoded SIFT/PolyPhen; model_dir=path → formula engine
 - PCA stage handoff: PCAComputationStage sets context.config['pca_file'] AND marks complete with result dict; AssociationAnalysisStage reads both
+- GT Lifecycle Invariant: per-sample GEN_N__GT columns survive through all analysis stages; reconstruct_gt_column only called on local copies (never writes back to context)
 
 ### Blockers/Concerns
 
@@ -98,7 +103,6 @@ Progress: ██████████░░░ 85% (phases 30-34 done, phase 
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 37-01-PLAN.md (shared ResourceManager on PipelineContext)
+Stopped at: Completed 37-02-PLAN.md (GT column lifecycle fix, PERF-05)
 Resume file: None
-Next: 37-02-PLAN.md (genotype matrix streaming, Fix 5)
-Next: Phase 35 — Case-Confidence Weights
+Next: 37-03-PLAN.md (context.variants_df memory reduction, Fix 4/6)
