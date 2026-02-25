@@ -110,4 +110,4 @@ Progress: █████████████ 100% (all phases 30-34, 37 don
 Last session: 2026-02-25
 Stopped at: Completed 37-03-PLAN.md (streaming genotype matrix builder, PERF-06)
 Resume file: None
-Next: v0.16.0 milestone complete — all 14 plans across phases 30-34 and 37 done
+Next: Phase 35 — Case-Confidence Weights (or audit milestone if skipping 35/36)

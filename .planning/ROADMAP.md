@@ -35,7 +35,7 @@ See MILESTONES.md for details.
 - [x] **Phase 34: Tech Debt** — Fix association config mapping, generate COAST golden values, fix column naming, clarify diagnostics
 - [ ] **Phase 35: Case-Confidence Weights** — Add per-sample confidence weights to burden and SKAT null models
 - [ ] **Phase 36: Performance — Sparse Genotype Matrices** — Add opt-in sparse matrix path for large rare-variant cohorts
-- [ ] **Phase 37: Association Resource Management & Memory Streaming** — Shared ResourceManager in PipelineContext, eliminate GT column drop/recover antipattern, stream genotype matrices to prevent OOM
+- [x] **Phase 37: Association Resource Management & Memory Streaming** — Shared ResourceManager in PipelineContext, eliminate GT column drop/recover antipattern, stream genotype matrices to prevent OOM
 
 ---
 
@@ -213,9 +213,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 37-01-PLAN.md — Shared ResourceManager in PipelineContext (PERF-04)
-- [ ] 37-02-PLAN.md — GT lifecycle cleanup: eliminate drop/recover antipattern (PERF-05)
-- [ ] 37-03-PLAN.md — Streaming genotype matrix construction per-gene (PERF-06)
+- [x] 37-01-PLAN.md — Shared ResourceManager in PipelineContext (PERF-04)
+- [x] 37-02-PLAN.md — GT lifecycle cleanup: eliminate drop/recover antipattern (PERF-05)
+- [x] 37-03-PLAN.md — Streaming genotype matrix construction per-gene (PERF-06)
 
 **Details:**
 See `.planning/association-performance-investigation.md` for full analysis.
@@ -239,4 +239,4 @@ Note: Phases 32 and 33 are independent of Phase 31 and of each other; they may b
 | 34. Tech Debt | v0.16.0 | 3/3 | Complete | 2026-02-24 |
 | 35. Case-Confidence Weights | v0.16.0 | 0/2 | Not started | - |
 | 36. Performance — Sparse Genotype Matrices | v0.16.0 | 0/1 | Not started | - |
-| 37. Association Resource Management & Memory Streaming | v0.16.0 | 0/3 | Not started | - |
+| 37. Association Resource Management & Memory Streaming | v0.16.0 | 3/3 | Complete | 2026-02-25 |
