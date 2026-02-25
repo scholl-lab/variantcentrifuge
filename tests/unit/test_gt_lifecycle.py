@@ -1,4 +1,5 @@
 """Tests for GT column lifecycle through analysis stages (Fix 5)."""
+
 import pandas as pd
 import pytest
 
