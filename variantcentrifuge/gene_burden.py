@@ -28,6 +28,8 @@ from typing import Any
 
 import pandas as pd
 
+from .stages.output_stages import _find_per_sample_gt_columns as _find_gt_columns
+
 try:
     from scipy.stats import fisher_exact
 except ImportError:
@@ -311,22 +313,6 @@ def _aggregate_gene_burden_from_gt(
         )
 
     return gene_burden_data
-
-
-def _find_gt_columns(df: pd.DataFrame) -> list[str]:
-    """Find per-sample GT columns in DataFrame.
-
-    Matches columns like GEN_0__GT (sanitized) or GEN[0].GT (original).
-    Returns them sorted by sample index.
-    """
-    import re
-
-    gt_cols = []
-    for col in df.columns:
-        if re.match(r"^GEN[_\[](\d+)[_\]\.]+(GT)$", col):
-            gt_cols.append(col)
-    gt_cols.sort(key=lambda c: int(re.search(r"(\d+)", c).group(1)))  # type: ignore[union-attr]
-    return gt_cols
 
 
 def perform_gene_burden_analysis(

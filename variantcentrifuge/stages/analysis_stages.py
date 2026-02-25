@@ -29,11 +29,11 @@ from ..gene_burden import (
     _aggregate_gene_burden_legacy,
     perform_gene_burden_analysis,
 )
-from ..stages.output_stages import _find_per_sample_gt_columns
 from ..inheritance import analyze_inheritance
 from ..pipeline_core import PipelineContext, Stage
 from ..scoring import apply_scoring
 from ..stats_engine import StatsEngine
+from .output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
 
 logger = logging.getLogger(__name__)
 
@@ -1003,8 +1003,6 @@ class InheritanceAnalysisStage(Stage):
 
         elif not sample_columns_exist:
             # Phase 11: per-sample GT columns (GEN_N__GT) from bcftools query
-            from ..stages.output_stages import _find_per_sample_gt_columns
-
             gt_cols = _find_per_sample_gt_columns(df)
             if gt_cols:
                 n = min(len(gt_cols), len(vcf_samples))
@@ -1464,8 +1462,6 @@ class VariantAnalysisStage(Stage):
         # re-attached to context.current_dataframe after analysis. The reconstruction
         # step packs them into a single GT string (needed by analyze_variants), but
         # downstream stages (AssociationAnalysisStage) need the per-sample columns.
-        from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
-
         _original_gt_cols = _find_per_sample_gt_columns(df)
         _gt_backup: pd.DataFrame | None = None
         if _original_gt_cols:
@@ -1884,8 +1880,6 @@ class GeneBurdenAnalysisStage(Stage):
         # must survive in context for downstream AssociationAnalysisStage.
         df_for_burden = df
         if "GT" not in df.columns and context.vcf_samples:
-            from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
-
             gt_cols = _find_per_sample_gt_columns(df)
             if gt_cols:
                 logger.info("Reconstructing GT column for gene burden analysis (local copy only)")
@@ -2461,8 +2455,6 @@ class AssociationAnalysisStage(Stage):
         # Fix 5: Per-sample GT columns are now always present in context.current_dataframe
         # (preserved by VariantAnalysisStage and GeneBurdenAnalysisStage via local-copy
         # reconstruction). No recovery from context.variants_df needed.
-        from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
-
         needs_regression = any(
             t in test_names
             for t in ("logistic_burden", "linear_burden", "skat", "skat_python", "coast")
