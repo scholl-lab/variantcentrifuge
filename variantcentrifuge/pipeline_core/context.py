@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 
 if TYPE_CHECKING:
-    from .workspace import Workspace
     from ..memory.resource_manager import ResourceManager
+    from .workspace import Workspace
 
 logger = logging.getLogger(__name__)
 

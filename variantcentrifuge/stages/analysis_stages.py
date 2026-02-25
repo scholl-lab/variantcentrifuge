@@ -27,9 +27,9 @@ from ..gene_burden import (
     _aggregate_gene_burden_from_columns,
     _aggregate_gene_burden_from_gt,
     _aggregate_gene_burden_legacy,
-    _find_gt_columns,
     perform_gene_burden_analysis,
 )
+from ..stages.output_stages import _find_per_sample_gt_columns
 from ..inheritance import analyze_inheritance
 from ..pipeline_core import PipelineContext, Stage
 from ..scoring import apply_scoring
@@ -2581,7 +2581,7 @@ class AssociationAnalysisStage(Stage):
         # Standard aggregation (existing paths — unchanged)
         # ------------------------------------------------------------------
         has_case_ctrl = True  # already checked above
-        gt_columns = _find_gt_columns(df)
+        gt_columns = _find_per_sample_gt_columns(df)
         use_column_aggregation = bool(
             has_case_ctrl
             and gt_columns
@@ -2624,7 +2624,7 @@ class AssociationAnalysisStage(Stage):
         # Fall back to gt_columns from current df if columns still present.
         # ------------------------------------------------------------------
         gt_source_df = df_with_per_sample_gt if df_with_per_sample_gt is not None else df
-        gt_columns_for_matrix = _find_gt_columns(gt_source_df)
+        gt_columns_for_matrix = _find_per_sample_gt_columns(gt_source_df)
         if needs_regression and gt_columns_for_matrix and vcf_samples_list:
             from ..association.genotype_matrix import build_genotype_matrix
 
