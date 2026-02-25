@@ -925,9 +925,11 @@ class InheritanceAnalysisStage(Stage):
         assert df is not None, "DataFrame must not be None for inheritance analysis"
 
         # Use ResourceManager to decide processing strategy
-        from ..memory import ResourceManager
+        rm = context.resource_manager
+        if rm is None:
+            from ..memory import ResourceManager
 
-        rm = ResourceManager(config=context.config)
+            rm = ResourceManager(config=context.config)
 
         # Calculate optimal chunk size and worker count
         chunk_size = rm.auto_chunk_size(len(df), len(vcf_samples))
@@ -1458,17 +1460,28 @@ class VariantAnalysisStage(Stage):
             "control_phenotypes": context.config.get("control_phenotypes") or [],
         }
 
+        # Fix 5: Save per-sample GT columns BEFORE reconstruction so they can be
+        # re-attached to context.current_dataframe after analysis. The reconstruction
+        # step packs them into a single GT string (needed by analyze_variants), but
+        # downstream stages (AssociationAnalysisStage) need the per-sample columns.
+        from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
+
+        _original_gt_cols = _find_per_sample_gt_columns(df)
+        _gt_backup: pd.DataFrame | None = None
+        if _original_gt_cols:
+            # Save per-sample GT columns keyed by variant identity for later re-attachment
+            _key_cols_for_gt = [
+                c for c in ["CHROM", "POS", "REF", "ALT", "GENE"] if c in df.columns
+            ]
+            _gt_backup = df[_key_cols_for_gt + _original_gt_cols].copy()
+
         # Phase 11: Reconstruct packed GT column for analyze_variants if needed.
         # analyze_variants expects a packed GT column ("Sample1(0/1);Sample2(1/1)").
         # With Phase 11, we have per-sample GEN_N__GT columns instead.
-        if "GT" not in df.columns and context.vcf_samples:
-            from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
-
-            gt_cols = _find_per_sample_gt_columns(df)
-            if gt_cols:
-                logger.info("Reconstructing GT column for variant analysis")
-                # Work on a copy to avoid modifying the original DataFrame
-                df = reconstruct_gt_column(df.copy(), context.vcf_samples)
+        if "GT" not in df.columns and context.vcf_samples and _original_gt_cols:
+            logger.info("Reconstructing GT column for variant analysis (local copy only)")
+            # Work on a copy to avoid modifying the original DataFrame
+            df = reconstruct_gt_column(df.copy(), context.vcf_samples)
 
         # Restore original column names before writing temp TSV.
         # analyze_variants expects unsanitized names (GENE, not ANN_0__GENE).
@@ -1626,6 +1639,48 @@ class VariantAnalysisStage(Stage):
 
             context.current_dataframe = analysis_df
             logger.info(f"Variant analysis complete: {len(analysis_df)} variants analyzed")
+
+            # Fix 5: Re-attach per-sample GT columns that were dropped during
+            # reconstruct_gt_column. Use key-column merge for safety (handles
+            # row reordering/filtering by analyze_variants).
+            if (
+                _gt_backup is not None
+                and _original_gt_cols
+                and not _find_per_sample_gt_columns(context.current_dataframe)
+            ):
+                # Build merge keys — use sanitized names if column_rename_map is active
+                _merge_keys = _key_cols_for_gt
+                if context.column_rename_map:
+                    _merge_keys = [context.column_rename_map.get(k, k) for k in _key_cols_for_gt]
+                    _gt_backup = _gt_backup.rename(columns=context.column_rename_map)
+                # Only merge if key columns exist in both DataFrames
+                _keys_in_result = [
+                    k
+                    for k in _merge_keys
+                    if k in context.current_dataframe.columns and k in _gt_backup.columns
+                ]
+                if _keys_in_result:
+                    context.current_dataframe = context.current_dataframe.merge(
+                        _gt_backup,
+                        on=_keys_in_result,
+                        how="left",
+                        suffixes=("", "_gt_dup"),
+                    )
+                    # Drop any duplicate columns created by merge
+                    _dup_cols = [
+                        c for c in context.current_dataframe.columns if c.endswith("_gt_dup")
+                    ]
+                    if _dup_cols:
+                        context.current_dataframe = context.current_dataframe.drop(
+                            columns=_dup_cols
+                        )
+                    logger.info(
+                        f"Re-attached {len(_original_gt_cols)} per-sample GT columns via key merge"
+                    )
+                else:
+                    logger.warning(
+                        "Cannot re-attach per-sample GT columns: no matching key columns"
+                    )
 
             # Final check: Verify if inheritance columns survived
             final_inheritance_cols = [
@@ -1824,17 +1879,19 @@ class GeneBurdenAnalysisStage(Stage):
             logger.debug(f"Available columns: {list(df.columns)[:20]}...")
             return context
 
-        # Phase 11: Reconstruct packed GT column if missing
+        # Fix 5: Reconstruct packed GT column on a LOCAL copy only.
+        # Do NOT write back to context.current_dataframe — per-sample GT columns
+        # must survive in context for downstream AssociationAnalysisStage.
+        df_for_burden = df
         if "GT" not in df.columns and context.vcf_samples:
             from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
 
             gt_cols = _find_per_sample_gt_columns(df)
             if gt_cols:
-                logger.info("Reconstructing GT column for gene burden analysis")
-                df = reconstruct_gt_column(df.copy(), context.vcf_samples)
-                context.current_dataframe = df
+                logger.info("Reconstructing GT column for gene burden analysis (local copy only)")
+                df_for_burden = reconstruct_gt_column(df.copy(), context.vcf_samples)
 
-        if "GT" not in df.columns:
+        if "GT" not in df_for_burden.columns:
             logger.error("DataFrame missing required 'GT' column for gene burden analysis")
             return context
 
@@ -1867,7 +1924,7 @@ class GeneBurdenAnalysisStage(Stage):
 
         _t_cc = _time.monotonic()
         df_with_counts = assign_case_control_counts(
-            df=df,
+            df=df_for_burden,
             case_samples=set(case_samples),
             control_samples=set(control_samples),
             all_samples=all_vcf_samples,  # This should be ALL samples in VCF
@@ -2080,6 +2137,27 @@ def _validate_association_config_dict(d: dict) -> None:
         )
 
 
+def _resolve_association_workers(cfg: dict, _get) -> int:
+    """Resolve association_workers from CLI/JSON/auto.
+
+    0 (default) means auto-allocate from --threads. -1 means all CPU cores.
+    Explicit positive values are used directly.
+    """
+    raw = _get("association_workers", default=0, nullable=False)
+    if raw == 0:
+        # Auto: derive from --threads
+        threads = int(cfg.get("threads", 1))
+        logger.info(f"Association workers auto-allocated from --threads: {threads}")
+        return threads
+    if raw == -1:
+        import os
+
+        cpus = os.cpu_count() or 1
+        logger.info(f"Association workers auto-detected: {cpus} CPU cores")
+        return cpus
+    return int(raw)
+
+
 def _build_assoc_config_from_context(context: "PipelineContext") -> AssociationConfig:
     """Build AssociationConfig from PipelineContext with JSON config + CLI override precedence.
 
@@ -2202,7 +2280,7 @@ def _build_assoc_config_from_context(context: "PipelineContext") -> AssociationC
         pca_tool=_get("pca_tool", default=None, nullable=True),
         pca_components=_get("pca_components", default=10, nullable=False),
         coast_weights=_get("coast_weights", default=None, nullable=True),
-        association_workers=_get("association_workers", default=1, nullable=False),
+        association_workers=_resolve_association_workers(cfg, _get),
         coast_classification=_get("coast_classification", default=None, nullable=True),
         gene_prior_weights=_get("gene_prior_weights", default=None, nullable=True),
         gene_prior_weight_column=_get("gene_prior_weight_column", default="weight", nullable=False),
@@ -2380,49 +2458,27 @@ class AssociationAnalysisStage(Stage):
                     return context
                 engine = AssociationEngine.from_names(test_names, assoc_config)
 
-        # Phase 11: Reconstruct packed GT column if missing.
-        # Phase 19: When regression tests need per-sample GT columns, keep a
-        # reference to the pre-reconstruction DataFrame for genotype matrix
-        # building. reconstruct_gt_column drops per-sample columns, so we
-        # must save them first.
+        # Fix 5: Per-sample GT columns are now always present in context.current_dataframe
+        # (preserved by VariantAnalysisStage and GeneBurdenAnalysisStage via local-copy
+        # reconstruction). No recovery from context.variants_df needed.
+        from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
+
         needs_regression = any(
             t in test_names
             for t in ("logistic_burden", "linear_burden", "skat", "skat_python", "coast")
         )
+
+        # Per-sample GT columns are directly available (Fix 5 preserves them)
         df_with_per_sample_gt: pd.DataFrame | None = None
-        if "GT" not in df.columns and context.vcf_samples:
-            from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
+        gt_cols = _find_per_sample_gt_columns(df)
+        if needs_regression and gt_cols:
+            df_with_per_sample_gt = df
 
-            gt_cols = _find_per_sample_gt_columns(df)
-            if gt_cols:
-                # Save DataFrame with per-sample GT columns for genotype matrix
-                if needs_regression:
-                    df_with_per_sample_gt = df
-                logger.info("Reconstructing GT column for association analysis")
-                df = reconstruct_gt_column(df.copy(), context.vcf_samples)
-                context.current_dataframe = df
-        elif "GT" in df.columns and needs_regression and context.vcf_samples:
-            # GT already reconstructed (e.g. by gene_burden_analysis at same level).
-            # Try variants_df as fallback source for per-sample GT columns.
-            from ..stages.output_stages import _find_per_sample_gt_columns
-
-            fallback_df = context.variants_df
-            gt_cols_fb = _find_per_sample_gt_columns(fallback_df) if fallback_df is not None else []
-            if gt_cols_fb:
-                logger.info(
-                    f"Association analysis: recovered {len(gt_cols_fb)} "
-                    "per-sample GT columns from variants_df for genotype matrix"
-                )
-                df_with_per_sample_gt = fallback_df
-            else:
-                # df itself may still have per-sample GT columns alongside the packed GT string
-                gt_cols_df = _find_per_sample_gt_columns(df)
-                if gt_cols_df:
-                    logger.info(
-                        f"Association analysis: recovered {len(gt_cols_df)} "
-                        "per-sample GT columns from current DataFrame for genotype matrix"
-                    )
-                    df_with_per_sample_gt = df
+        # Reconstruct packed GT for aggregation functions that need it (local copy only)
+        if "GT" not in df.columns and context.vcf_samples and gt_cols:
+            logger.info("Reconstructing GT column for association aggregation (local copy only)")
+            df = reconstruct_gt_column(df.copy(), context.vcf_samples)
+        # DO NOT assign df back to context.current_dataframe — per-sample cols must be preserved
 
         # Determine aggregation strategy (same priority as perform_gene_burden_analysis)
         case_set = set(case_samples)
@@ -2573,9 +2629,16 @@ class AssociationAnalysisStage(Stage):
             from ..association.genotype_matrix import build_genotype_matrix
 
             is_binary = assoc_config.trait_type == "binary"
+            # Pre-compute gene groups for O(1) per-gene lookup instead of
+            # O(n_rows) scan per gene. With 5K genes x 200K rows this avoids
+            # ~1 billion comparisons.
+            _gene_groups = gt_source_df.groupby("GENE")
             for gene_data in gene_burden_data:
                 gene_name = gene_data.get("GENE", "")
-                gene_df = gt_source_df[gt_source_df["GENE"] == gene_name]
+                try:
+                    gene_df = _gene_groups.get_group(gene_name)
+                except KeyError:
+                    gene_df = gt_source_df.iloc[0:0]
                 if gene_df.empty:
                     gene_data["genotype_matrix"] = np.zeros((len(vcf_samples_list), 0), dtype=float)
                     gene_data["variant_mafs"] = np.zeros(0, dtype=float)
@@ -2643,26 +2706,25 @@ class AssociationAnalysisStage(Stage):
                     )
                     # Align annotations with variant_mafs (build_genotype_matrix applies
                     # a site missing-rate filter; replicate it here for correct alignment).
-                    # The filter marks variants with >missing_site_threshold missing GTs.
-                    # Missing GTs are identified by parse_gt_to_dosage returning None,
-                    # i.e. strings like "./.", ".|.", ".", or empty.
+                    # Vectorized: count missing GTs per variant using pandas isin() instead
+                    # of per-cell parse_gt_to_dosage() calls.
                     _n_df = len(gene_df)
                     _n_kept = len(gene_data["variant_mafs"])
                     if _n_kept < _n_df:
-                        from ..association.genotype_matrix import parse_gt_to_dosage as _pgd
-
                         _gt_cols_list = list(gt_columns_for_matrix)
                         _n_samples_gt = len(_gt_cols_list)
-                        _keep_mask_ann = np.ones(_n_df, dtype=bool)
-                        for _vi, (_, _row) in enumerate(gene_df.iterrows()):
-                            _n_miss = sum(
-                                1
-                                for _col in _gt_cols_list
-                                if _pgd(str(_row.get(_col) or ""))[0] is None
-                            )
-                            _miss_frac = _n_miss / _n_samples_gt if _n_samples_gt > 0 else 0.0
-                            if _miss_frac > assoc_config.missing_site_threshold:
-                                _keep_mask_ann[_vi] = False
+                        # Missing GT values: ./., .|., ., empty, None, partial (./1, 1/.)
+                        # Vectorized: count NaN/missing per variant across all GT columns
+                        _gt_sub = gene_df[_gt_cols_list].fillna("./.").astype(str)
+                        _gt_norm = _gt_sub.apply(lambda col: col.str.replace("|", "/", regex=False))
+                        # A GT is missing if it contains "." as an allele
+                        _is_missing = _gt_norm.apply(
+                            lambda col: col.str.contains(r"(?:^|\/)\.(?:\/|$)", regex=True, na=True)
+                        )
+                        _miss_frac_per_variant = _is_missing.sum(axis=1) / _n_samples_gt
+                        _keep_mask_ann = (
+                            _miss_frac_per_variant <= assoc_config.missing_site_threshold
+                        ).values
                     else:
                         _keep_mask_ann = None
 
@@ -2990,7 +3052,6 @@ class ChunkedAnalysisStage(Stage):
         self._setup_inheritance_config(context)
 
         # Auto-detect chunk size using ResourceManager
-        from ..memory import ResourceManager
 
         # Get sample count from inheritance config or estimate
         inheritance_config = context.config.get("inheritance_analysis_config", {})
@@ -3001,7 +3062,11 @@ class ChunkedAnalysisStage(Stage):
         # Use a conservative estimate based on file size if exact count unavailable
         total_variants = 100000  # Conservative default for chunk sizing
 
-        rm = ResourceManager(config=context.config)
+        rm = context.resource_manager
+        if rm is None:
+            from ..memory import ResourceManager
+
+            rm = ResourceManager(config=context.config)
         chunk_size = rm.auto_chunk_size(total_variants, num_samples)
 
         # Determine input file
@@ -3459,9 +3524,11 @@ class ChunkedAnalysisStage(Stage):
         try:
             # Use ResourceManager if context available
             if context and hasattr(context, "config"):
-                from ..memory import ResourceManager
+                rm = getattr(context, "resource_manager", None)
+                if rm is None:
+                    from ..memory import ResourceManager
 
-                rm = ResourceManager(config=context.config)
+                    rm = ResourceManager(config=context.config)
                 # Use conservative estimate for total variants
                 # (actual count determined during processing)
                 total_variants = 100000  # Conservative estimate for chunking
@@ -3729,9 +3796,11 @@ class ChunkedAnalysisStage(Stage):
                 return chunk_df
 
             # Use ResourceManager for memory safety check
-            from ..memory import ResourceManager
+            rm = context.resource_manager
+            if rm is None:
+                from ..memory import ResourceManager
 
-            rm = ResourceManager(config=context.config)
+                rm = ResourceManager(config=context.config)
             estimated_memory_gb = rm.estimate_memory(len(chunk_df), len(vcf_samples))
             safe_memory_gb = rm.memory_gb * rm.memory_safety_factor
 
