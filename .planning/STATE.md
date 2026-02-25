@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
-**Current focus:** v0.16.0 — Association Hardening & Multi-Cohort Features (Phase 34 complete, Phase 35 next)
+**Current focus:** v0.16.0 — Association Hardening & Multi-Cohort Features (Phase 37 in progress)
 
 ## Current Position
 
-Phase: 34 of 36 (Tech Debt — COMPLETE)
-Plan: 10 of 10 (across v0.16.0)
-Status: Complete — Phase 34 verified (4/4 must-haves)
-Last activity: 2026-02-24 — Completed Phase 34 (Tech Debt)
+Phase: 37 of 37 (Association Resource Management — IN PROGRESS)
+Plan: 11 of 14 (across v0.16.0, 37 has 3 plans)
+Status: In progress — 37-01 complete (1/3 plans in phase 37)
+Last activity: 2026-02-25 — Completed 37-01-PLAN.md (shared ResourceManager)
 
-Progress: ██████████ 100% (phases 30-34)
+Progress: ██████████░░░ 85% (phases 30-34 done, phase 37 in progress)
 
 ## Performance Metrics
 
@@ -31,6 +31,7 @@ Progress: ██████████ 100% (phases 30-34)
 | 34 — Tech Debt | 3/3 done | ~30 min | ~10 min |
 | 32 — Region Restriction + PCA Wiring | 2/2 done | ~44 min | ~22 min |
 | 33 — Gene-Level FDR Weighting | 1/1 done | ~12 min | ~12 min |
+| 37 — Association Resource Management | 1/3 done | ~17 min so far | ~17 min |
 
 *Updated after each plan completion*
 
@@ -68,13 +69,19 @@ Progress: ██████████ 100% (phases 30-34)
 - [34-02] Internal backend dict keys (skat_p_value in coast_python.py, burden_p_values) intentionally NOT renamed — they are backend-private
 - [34-03] COAST golden values: Python self-regression at 1e-6 tolerance (not R comparison at 10%); R/Python diverge 20-117% on edge cases due to different SKAT kernels
 - [34-03] Fixture-based approach: R exports genotype matrices as CSV → Python loads identical data; eliminates RNG mismatch
+- [Roadmap] Phase 37 added: Association Resource Management & Memory Streaming (Fix 4/5/6 from performance investigation)
+- [37-01] resource_manager absent from merge_from() — parallel context merges must not overwrite parent's initialized ResourceManager
+- [37-01] Fallback pattern (if rm is None: rm = ResourceManager(...)) kept in all 4 analysis_stages.py locations for test compatibility
+- [37-01] cli.py and filters.py ResourceManager instances untouched — they run before PipelineContext exists
+- [37-01] parallel_analyzer.py untouched — receives DataFrame not PipelineContext
 
 ### Architecture Invariants
 
+- ResourceManager: initialized once in pipeline.py, shared via context.resource_manager; fallback pattern in stages for test compatibility
 - R backend: parallel_safe=False; rpy2 calls only from main thread
 - Binary traits: always SKATBinary — never continuous-trait SKAT on binary phenotypes
 - FDR strategy: single pass on ACAT-O p-values across all genes (not per-test)
-- Genotype matrix: never stored in PipelineContext (memory constraint)
+- Genotype matrix: streamed per-gene (build-test-discard), never stored in PipelineContext (memory constraint); Phase 37 formalizes this
 - P-value computation: always through compute_pvalue() — never call Liu/Kuonen directly
 - Weighted BH: weights renormalized to mean=1.0 at correction time using testable genes subset (Genovese 2006 FDR guarantee)
 - Case-confidence weights: must be applied to null model (var_weights in GLM), not to residuals post-hoc
@@ -90,7 +97,8 @@ Progress: ██████████ 100% (phases 30-34)
 
 ## Session Continuity
 
-Last session: 2026-02-24
-Stopped at: Phase 34 complete
+Last session: 2026-02-25
+Stopped at: Completed 37-01-PLAN.md (shared ResourceManager on PipelineContext)
 Resume file: None
+Next: 37-02-PLAN.md (genotype matrix streaming, Fix 5)
 Next: Phase 35 — Case-Confidence Weights
