@@ -372,12 +372,33 @@ class AssociationEngine:
             # (SKAT/COAST tests fit null model on first call and cache it).
             first_gene_data = sorted_data[0]
             first_gene = first_gene_data.get("GENE", "")
+
+            # PERF-06: Invoke lazy builder for first gene before sequential run
+            if (
+                "_genotype_matrix_builder" in first_gene_data
+                and "genotype_matrix" not in first_gene_data
+            ):
+                _builder = first_gene_data.pop("_genotype_matrix_builder")
+                _result = _builder()
+                first_gene_data["genotype_matrix"] = _result["genotype_matrix"]
+                first_gene_data["variant_mafs"] = _result["variant_mafs"]
+                first_gene_data["phenotype_vector"] = _result["phenotype_vector"]
+                first_gene_data["covariate_matrix"] = _result["covariate_matrix"]
+                for _w in _result.get("gt_warnings", []):
+                    logger.warning(f"Gene {first_gene}: {_w}")
+                if _result.get("mac_filtered"):
+                    logger.debug(f"Gene {first_gene}: MAC < 5 — regression will report NA")
+
             for test_name, test in self._tests.items():
                 result = test.run(first_gene, first_gene_data, self._config)
                 results_by_test[test_name][first_gene] = result
                 logger.debug(
                     f"Gene {first_gene} | {test_name}: p={result.p_value}, OR={result.effect_size}"
                 )
+
+            # PERF-06: Discard first gene matrix after tests complete
+            first_gene_data.pop("genotype_matrix", None)
+            first_gene_data.pop("variant_mafs", None)
 
             # Pickle test instances now that null models are fitted
             import concurrent.futures
@@ -398,6 +419,23 @@ class AssociationEngine:
                     f"{len(remaining)} remaining genes"
                 )
 
+                # PERF-06: Build matrices eagerly before pickling for worker dispatch.
+                # Builders capture gene_df which would be large to pickle alongside matrix;
+                # building here avoids sending both builder (with gene_df) and matrix to workers.
+                for gd in remaining:
+                    if "_genotype_matrix_builder" in gd and "genotype_matrix" not in gd:
+                        _builder = gd.pop("_genotype_matrix_builder")
+                        _result = _builder()
+                        gd["genotype_matrix"] = _result["genotype_matrix"]
+                        gd["variant_mafs"] = _result["variant_mafs"]
+                        gd["phenotype_vector"] = _result["phenotype_vector"]
+                        gd["covariate_matrix"] = _result["covariate_matrix"]
+                        _gene = gd.get("GENE", "")
+                        for _w in _result.get("gt_warnings", []):
+                            logger.warning(f"Gene {_gene}: {_w}")
+                        if _result.get("mac_filtered"):
+                            logger.debug(f"Gene {_gene}: MAC < 5 — regression will report NA")
+
                 args_list = [
                     (gd.get("GENE", ""), gd, pickled_tests, self._config) for gd in remaining
                 ]
@@ -412,16 +450,40 @@ class AssociationEngine:
                                 f"Gene {gene} | {test_name}: p={result.p_value}, "
                                 f"OR={result.effect_size}"
                             )
+
+                # PERF-06: Discard matrices after parallel batch completes
+                for gd in remaining:
+                    gd.pop("genotype_matrix", None)
+                    gd.pop("variant_mafs", None)
         else:
             # Sequential gene loop (default path or fallback)
             for gene_data in sorted_data:
                 gene = gene_data.get("GENE", "")
+
+                # PERF-06: Invoke lazy builder if present (per-gene, O(1) peak memory)
+                if "_genotype_matrix_builder" in gene_data and "genotype_matrix" not in gene_data:
+                    builder = gene_data.pop("_genotype_matrix_builder")
+                    result = builder()
+                    gene_data["genotype_matrix"] = result["genotype_matrix"]
+                    gene_data["variant_mafs"] = result["variant_mafs"]
+                    gene_data["phenotype_vector"] = result["phenotype_vector"]
+                    gene_data["covariate_matrix"] = result["covariate_matrix"]
+                    for w in result.get("gt_warnings", []):
+                        logger.warning(f"Gene {gene}: {w}")
+                    if result.get("mac_filtered"):
+                        logger.debug(f"Gene {gene}: MAC < 5 — regression will report NA")
+
                 for test_name, test in self._tests.items():
                     result = test.run(gene, gene_data, self._config)
                     results_by_test[test_name][gene] = result
                     logger.debug(
                         f"Gene {gene} | {test_name}: p={result.p_value}, OR={result.effect_size}"
                     )
+
+                # PERF-06: Discard matrix after all tests for this gene complete
+                gene_data.pop("genotype_matrix", None)
+                gene_data.pop("variant_mafs", None)
+                # Keep phenotype_vector and covariate_matrix — shared references, not per-gene
 
         # Lifecycle hook: finalize() after gene loop (allows timing summary, cleanup)
         for test in self._tests.values():

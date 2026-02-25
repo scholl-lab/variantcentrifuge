@@ -2760,14 +2760,10 @@ class AssociationAnalysisStage(Stage):
                         # Missing GT values: ./., .|., ., empty, None, partial (./1, 1/.)
                         # Vectorized: count NaN/missing per variant across all GT columns
                         _gt_sub = gene_df[_gt_cols_list].fillna("./.").astype(str)
-                        _gt_norm = _gt_sub.apply(
-                            lambda col: col.str.replace("|", "/", regex=False)
-                        )
+                        _gt_norm = _gt_sub.apply(lambda col: col.str.replace("|", "/", regex=False))
                         # A GT is missing if it contains "." as an allele
                         _is_missing = _gt_norm.apply(
-                            lambda col: col.str.contains(
-                                r"(?:^|\/)\.(?:\/|$)", regex=True, na=True
-                            )
+                            lambda col: col.str.contains(r"(?:^|\/)\.(?:\/|$)", regex=True, na=True)
                         )
                         _miss_frac_per_variant = _is_missing.sum(axis=1) / _n_samples_gt
                         _keep_mask_ann: np.ndarray | None = (
