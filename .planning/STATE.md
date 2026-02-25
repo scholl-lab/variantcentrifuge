@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
-**Current focus:** v0.16.0 — Association Hardening & Multi-Cohort Features (Phase 37 in progress)
+**Current focus:** v0.16.0 — Association Hardening & Multi-Cohort Features (Phase 37 COMPLETE)
 
 ## Current Position
 
-Phase: 37 of 37 (Association Resource Management — IN PROGRESS)
-Plan: 12 of 14 (across v0.16.0, 37 has 3 plans)
-Status: In progress — 37-02 complete (2/3 plans in phase 37)
-Last activity: 2026-02-25 — Completed 37-02-PLAN.md (GT column lifecycle fix)
+Phase: 37 of 37 (Association Resource Management — COMPLETE)
+Plan: 14 of 14 (across v0.16.0, all plans done)
+Status: Phase 37 complete — 37-03 complete (3/3 plans in phase 37)
+Last activity: 2026-02-25 — Completed 37-03-PLAN.md (streaming genotype matrix builder, PERF-06)
 
-Progress: ██████████░░░ 88% (phases 30-34 done, phase 37 in progress 2/3)
+Progress: █████████████ 100% (all phases 30-34, 37 done)
 
 ## Performance Metrics
 
@@ -31,7 +31,7 @@ Progress: ██████████░░░ 88% (phases 30-34 done, phase 
 | 34 — Tech Debt | 3/3 done | ~30 min | ~10 min |
 | 32 — Region Restriction + PCA Wiring | 2/2 done | ~44 min | ~22 min |
 | 33 — Gene-Level FDR Weighting | 1/1 done | ~12 min | ~12 min |
-| 37 — Association Resource Management | 1/3 done | ~17 min so far | ~17 min |
+| 37 — Association Resource Management | 3/3 done | ~17+37+74 min = ~128 min | ~43 min |
 
 *Updated after each plan completion*
 
@@ -78,6 +78,11 @@ Progress: ██████████░░░ 88% (phases 30-34 done, phase 
 - [37-02] VariantAnalysisStage re-attaches GT via key-column merge (CHROM/POS/REF/ALT/GENE) after analyze_variants — safe against row reordering/filtering
 - [37-02] _find_gt_columns in gene_burden.py is now an import alias for _find_per_sample_gt_columns from output_stages — single canonical implementation
 - [37-02] AssociationAnalysisStage context.variants_df recovery fallback removed; per-sample cols directly available (Fix 5)
+- [37-03] _GenotypeMatrixBuilder is a module-level dataclass (not nested) — required for picklability with ProcessPoolExecutor
+- [37-03] Sequential path: build per-gene, discard after tests — O(1) peak memory for genotype matrices
+- [37-03] Parallel path: build eagerly for all remaining genes before dispatch — avoids pickling both builder (with gene_df) and matrix to workers
+- [37-03] CADD/REVEL annotation extraction stays in the loop; site filter mask computed independently (no pre-built matrix needed)
+- [37-03] phenotype_vector and covariate_matrix retained after matrix discard — shared references, not per-gene copies
 
 ### Architecture Invariants
 
@@ -85,7 +90,7 @@ Progress: ██████████░░░ 88% (phases 30-34 done, phase 
 - R backend: parallel_safe=False; rpy2 calls only from main thread
 - Binary traits: always SKATBinary — never continuous-trait SKAT on binary phenotypes
 - FDR strategy: single pass on ACAT-O p-values across all genes (not per-test)
-- Genotype matrix: streamed per-gene (build-test-discard), never stored in PipelineContext (memory constraint); Phase 37 formalizes this
+- Genotype matrix: streamed per-gene via _GenotypeMatrixBuilder (build-test-discard); peak memory O(1 gene); formalized in Phase 37-03
 - P-value computation: always through compute_pvalue() — never call Liu/Kuonen directly
 - Weighted BH: weights renormalized to mean=1.0 at correction time using testable genes subset (Genovese 2006 FDR guarantee)
 - Case-confidence weights: must be applied to null model (var_weights in GLM), not to residuals post-hoc
@@ -103,6 +108,6 @@ Progress: ██████████░░░ 88% (phases 30-34 done, phase 
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 37-02-PLAN.md (GT column lifecycle fix, PERF-05)
+Stopped at: Completed 37-03-PLAN.md (streaming genotype matrix builder, PERF-06)
 Resume file: None
-Next: 37-03-PLAN.md (context.variants_df memory reduction, Fix 4/6)
+Next: v0.16.0 milestone complete — all 14 plans across phases 30-34 and 37 done
