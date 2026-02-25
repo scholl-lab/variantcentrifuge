@@ -6,7 +6,7 @@
 - [x] **v0.13.0 Performance Optimization** - Phases 6-12 (shipped 2026-02-16)
 - [x] **v0.14.0 Report UX Overhaul** - Phases 13-17 (shipped 2026-02-19)
 - [x] **v0.15.0 Modular Rare Variant Association Framework** - Phases 18-29 (shipped 2026-02-23)
-- [ ] **v0.16.0 Association Hardening & Multi-Cohort Features** - Phases 30-36 (in progress)
+- [ ] **v0.16.0 Association Hardening & Multi-Cohort Features** - Phases 30-37 (in progress)
 
 ## Phases
 
@@ -35,6 +35,7 @@ See MILESTONES.md for details.
 - [x] **Phase 34: Tech Debt** — Fix association config mapping, generate COAST golden values, fix column naming, clarify diagnostics
 - [ ] **Phase 35: Case-Confidence Weights** — Add per-sample confidence weights to burden and SKAT null models
 - [ ] **Phase 36: Performance — Sparse Genotype Matrices** — Add opt-in sparse matrix path for large rare-variant cohorts
+- [ ] **Phase 37: Association Resource Management & Memory Streaming** — Shared ResourceManager in PipelineContext, eliminate GT column drop/recover antipattern, stream genotype matrices to prevent OOM
 
 ---
 
@@ -195,9 +196,37 @@ Plans:
 
 ---
 
+### Phase 37: Association Resource Management & Memory Streaming
+
+**Goal:** The pipeline has a single shared ResourceManager in PipelineContext used by all stages, the GT column drop/recover antipattern is eliminated so genotype data flows cleanly through analysis stages, and genotype matrices are streamed per-gene (build-test-discard) to prevent OOM on large panels.
+
+**Depends on:** Phase 34 (builds on Fix 1-3 already applied to genotype_matrix.py, analysis_stages.py, cli.py)
+
+**Requirements:** PERF-04, PERF-05, PERF-06
+
+**Success Criteria** (what must be TRUE):
+1. All stages use `context.resource_manager.auto_workers()` for thread/worker allocation — no stage creates its own ResourceManager instance
+2. Per-sample GT columns are preserved through analysis stages and only dropped at output time (TSV/Excel); no reconstruct/recover cycle exists
+3. Genotype matrices are built per-gene inside the association engine loop and released after test execution — peak memory for 5K genes x 5K samples stays under 8 GB (vs 21+ GB before)
+4. Running without `--association-workers` uses the `--threads` value (already implemented); ResourceManager gates all parallelism decisions
+
+**Plans:** 3 plans
+
+Plans:
+- [ ] 37-01-PLAN.md — Shared ResourceManager in PipelineContext (PERF-04)
+- [ ] 37-02-PLAN.md — GT lifecycle cleanup: eliminate drop/recover antipattern (PERF-05)
+- [ ] 37-03-PLAN.md — Streaming genotype matrix construction per-gene (PERF-06)
+
+**Details:**
+See `.planning/association-performance-investigation.md` for full analysis.
+Fixes 1-3 (vectorize GT parsing, groupby, auto-workers) already applied.
+This phase covers Fix 4 (shared ResourceManager), Fix 5 (GT lifecycle), Fix 6 (streaming matrices).
+
+---
+
 ## Progress
 
-**Execution Order:** 30 → 31 → 32 → 33 → 34 → 35 → 36
+**Execution Order:** 30 -> 31 -> 32 -> 33 -> 34 -> 35 -> 36 -> 37
 
 Note: Phases 32 and 33 are independent of Phase 31 and of each other; they may be developed in parallel if needed.
 
@@ -210,3 +239,4 @@ Note: Phases 32 and 33 are independent of Phase 31 and of each other; they may b
 | 34. Tech Debt | v0.16.0 | 3/3 | Complete | 2026-02-24 |
 | 35. Case-Confidence Weights | v0.16.0 | 0/2 | Not started | - |
 | 36. Performance — Sparse Genotype Matrices | v0.16.0 | 0/1 | Not started | - |
+| 37. Association Resource Management & Memory Streaming | v0.16.0 | 0/3 | Not started | - |
