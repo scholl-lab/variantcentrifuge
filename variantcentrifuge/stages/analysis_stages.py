@@ -13,9 +13,11 @@ This module contains stages that perform analysis on the extracted data:
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, cast
 
+import numpy as np
 import pandas as pd
 
 from ..analyze_variants import analyze_variants
@@ -36,6 +38,81 @@ from ..stats_engine import StatsEngine
 from .output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _GenotypeMatrixBuilder:
+    """Picklable lazy builder for per-gene genotype matrices (PERF-06).
+
+    Instead of pre-building all matrices, this callable is stored in gene_data
+    and invoked by the engine just before running tests. The matrix is discarded
+    after test execution, keeping peak memory at O(1 gene).
+    """
+
+    gene_df: pd.DataFrame
+    vcf_samples: list[str]
+    gt_columns: list[str]
+    is_binary: bool
+    missing_site_threshold: float
+    missing_sample_threshold: float
+    phenotype_vector: "np.ndarray | None"
+    covariate_matrix: "np.ndarray | None"
+
+    def __call__(self) -> dict[str, Any]:
+        """Build genotype matrix and apply sample mask + MAC check.
+
+        Returns dict with keys: genotype_matrix, variant_mafs,
+        phenotype_vector, covariate_matrix, gt_warnings, mac_filtered.
+        """
+        from ..association.genotype_matrix import build_genotype_matrix
+
+        if self.gene_df.empty:
+            n_samples = len(self.vcf_samples)
+            return {
+                "genotype_matrix": np.zeros((n_samples, 0), dtype=float),
+                "variant_mafs": np.zeros(0, dtype=float),
+                "phenotype_vector": self.phenotype_vector,
+                "covariate_matrix": self.covariate_matrix,
+                "gt_warnings": [],
+                "mac_filtered": False,
+            }
+
+        geno, mafs, sample_mask, gt_warnings = build_genotype_matrix(
+            self.gene_df,
+            self.vcf_samples,
+            self.gt_columns,
+            is_binary=self.is_binary,
+            missing_site_threshold=self.missing_site_threshold,
+            missing_sample_threshold=self.missing_sample_threshold,
+            phenotype_vector=self.phenotype_vector,
+        )
+
+        # Apply sample mask to phenotype and covariates
+        pv = self.phenotype_vector
+        cm = self.covariate_matrix
+        if not all(sample_mask):
+            mask_arr = np.array(sample_mask, dtype=bool)
+            pv = pv[mask_arr] if pv is not None else None
+            cm = cm[mask_arr] if cm is not None else None
+            geno = geno[mask_arr]
+
+        # Per-gene MAC check: skip regression if < 5 minor allele copies
+        mac_filtered = False
+        total_mac = int(geno.sum()) if geno.size > 0 else 0
+        if total_mac < 5:
+            geno = np.zeros((geno.shape[0], 0), dtype=float)
+            mafs = np.zeros(0, dtype=float)
+            mac_filtered = True
+
+        return {
+            "genotype_matrix": geno,
+            "variant_mafs": mafs,
+            "phenotype_vector": pv,
+            "covariate_matrix": cm,
+            "gt_warnings": gt_warnings,
+            "mac_filtered": mac_filtered,
+        }
+
 
 # Standard column aliases: sanitized name -> canonical short name.
 # When ANN[0].GENE is sanitized to ANN_0__GENE, downstream stages still expect "GENE".
@@ -2611,6 +2688,11 @@ class AssociationAnalysisStage(Stage):
         # regression tests (logistic_burden, linear_burden, skat, skat_python, coast)
         # Backward compatible: FisherExactTest ignores the new keys.
         #
+        # PERF-06: Lazy builder pattern — store a _GenotypeMatrixBuilder per gene
+        # instead of pre-building all matrices. The engine invokes each builder
+        # just before running tests and discards the matrix after, keeping peak
+        # memory at O(1 gene) rather than O(all genes).
+        #
         # Use df_with_per_sample_gt when available (per-sample GT columns
         # were dropped by reconstruct_gt_column for the aggregation step).
         # Fall back to gt_columns from current df if columns still present.
@@ -2618,8 +2700,6 @@ class AssociationAnalysisStage(Stage):
         gt_source_df = df_with_per_sample_gt if df_with_per_sample_gt is not None else df
         gt_columns_for_matrix = _find_per_sample_gt_columns(gt_source_df)
         if needs_regression and gt_columns_for_matrix and vcf_samples_list:
-            from ..association.genotype_matrix import build_genotype_matrix
-
             is_binary = assoc_config.trait_type == "binary"
             # Pre-compute gene groups for O(1) per-gene lookup instead of
             # O(n_rows) scan per gene. With 5K genes x 200K rows this avoids
@@ -2631,50 +2711,23 @@ class AssociationAnalysisStage(Stage):
                     gene_df = _gene_groups.get_group(gene_name)
                 except KeyError:
                     gene_df = gt_source_df.iloc[0:0]
-                if gene_df.empty:
-                    gene_data["genotype_matrix"] = np.zeros((len(vcf_samples_list), 0), dtype=float)
-                    gene_data["variant_mafs"] = np.zeros(0, dtype=float)
-                    gene_data["phenotype_vector"] = phenotype_vector
-                    gene_data["covariate_matrix"] = covariate_matrix
-                    continue
 
-                geno, mafs, sample_mask, gt_warnings = build_genotype_matrix(
-                    gene_df,
-                    vcf_samples_list,
-                    gt_columns_for_matrix,
+                # Store lazy builder instead of pre-built matrix (PERF-06)
+                builder = _GenotypeMatrixBuilder(
+                    gene_df=gene_df,
+                    vcf_samples=vcf_samples_list,
+                    gt_columns=gt_columns_for_matrix,
                     is_binary=is_binary,
                     missing_site_threshold=assoc_config.missing_site_threshold,
                     missing_sample_threshold=assoc_config.missing_sample_threshold,
                     phenotype_vector=phenotype_vector,
+                    covariate_matrix=covariate_matrix,
                 )
-                for w in gt_warnings:
-                    logger.warning(f"Gene {gene_name}: {w}")
-
-                # Apply sample mask to phenotype and covariates if any high-missing samples
-                if not all(sample_mask):
-                    mask_arr = np.array(sample_mask, dtype=bool)
-                    pv = phenotype_vector[mask_arr] if phenotype_vector is not None else None
-                    cm = covariate_matrix[mask_arr] if covariate_matrix is not None else None
-                    geno = geno[mask_arr]
-                else:
-                    pv = phenotype_vector
-                    cm = covariate_matrix
-
-                # Per-gene MAC check: skip regression if < 5 minor allele copies
-                total_mac = int(geno.sum()) if geno.size > 0 else 0
-                if total_mac < 5:
-                    logger.debug(
-                        f"Gene {gene_name}: MAC={total_mac} < 5 — "
-                        "regression will report NA (insufficient data)"
-                    )
-                    gene_data["genotype_matrix"] = np.zeros((geno.shape[0], 0), dtype=float)
-                    gene_data["variant_mafs"] = np.zeros(0, dtype=float)
-                else:
-                    gene_data["genotype_matrix"] = geno
-                    gene_data["variant_mafs"] = mafs
+                gene_data["_genotype_matrix_builder"] = builder
 
                 # Phase 23: Extract functional annotation columns for CADD/REVEL weight schemes
                 # (WEIGHT-05). Arrays must align with variant_mafs (post site-filter length).
+                # Annotation extraction is cheap and needed regardless of lazy building.
                 if assoc_config.variant_weights in ("cadd", "revel", "combined"):
                     _cadd_col = next(
                         (
@@ -2700,23 +2753,29 @@ class AssociationAnalysisStage(Stage):
                     # a site missing-rate filter; replicate it here for correct alignment).
                     # Vectorized: count missing GTs per variant using pandas isin() instead
                     # of per-cell parse_gt_to_dosage() calls.
+                    _gt_cols_list = list(gt_columns_for_matrix)
+                    _n_samples_gt = len(_gt_cols_list)
                     _n_df = len(gene_df)
-                    _n_kept = len(gene_data["variant_mafs"])
-                    if _n_kept < _n_df:
-                        _gt_cols_list = list(gt_columns_for_matrix)
-                        _n_samples_gt = len(_gt_cols_list)
+                    if _n_df > 0 and _n_samples_gt > 0:
                         # Missing GT values: ./., .|., ., empty, None, partial (./1, 1/.)
                         # Vectorized: count NaN/missing per variant across all GT columns
                         _gt_sub = gene_df[_gt_cols_list].fillna("./.").astype(str)
-                        _gt_norm = _gt_sub.apply(lambda col: col.str.replace("|", "/", regex=False))
+                        _gt_norm = _gt_sub.apply(
+                            lambda col: col.str.replace("|", "/", regex=False)
+                        )
                         # A GT is missing if it contains "." as an allele
                         _is_missing = _gt_norm.apply(
-                            lambda col: col.str.contains(r"(?:^|\/)\.(?:\/|$)", regex=True, na=True)
+                            lambda col: col.str.contains(
+                                r"(?:^|\/)\.(?:\/|$)", regex=True, na=True
+                            )
                         )
                         _miss_frac_per_variant = _is_missing.sum(axis=1) / _n_samples_gt
-                        _keep_mask_ann = (
+                        _keep_mask_ann: np.ndarray | None = (
                             _miss_frac_per_variant <= assoc_config.missing_site_threshold
                         ).values
+                        # Only apply mask if some variants are filtered out
+                        if bool(_keep_mask_ann.all()):
+                            _keep_mask_ann = None
                     else:
                         _keep_mask_ann = None
 
@@ -2736,8 +2795,6 @@ class AssociationAnalysisStage(Stage):
                             _vals[_keep_mask_ann] if _keep_mask_ann is not None else _vals
                         )
 
-                gene_data["phenotype_vector"] = pv
-                gene_data["covariate_matrix"] = cm
                 gene_data["vcf_samples"] = vcf_samples_list
 
                 # Phase 23: Provide gene_df for COAST annotation column access.
