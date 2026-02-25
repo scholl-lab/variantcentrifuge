@@ -331,9 +331,7 @@ class TestSKATCorrectionBehavior:
         if "EMPTY_GENE" in result["gene"].values:
             empty_row = result[result["gene"] == "EMPTY_GENE"].iloc[0]
             # ACAT-O for a skipped gene should be None (no primary p-values)
-            assert empty_row["acat_o_pvalue"] is None or np.isnan(
-                float(empty_row["acat_o_pvalue"])
-            )
+            assert empty_row["acat_o_pvalue"] is None or np.isnan(float(empty_row["acat_o_pvalue"]))
 
         # Genes with real p-values get corrected ACAT-O values
         tested_genes = result[result["skat_pvalue"].notna()]

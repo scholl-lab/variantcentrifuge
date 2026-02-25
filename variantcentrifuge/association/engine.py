@@ -569,9 +569,7 @@ class AssociationEngine:
             # ACAT-O columns (Phase 22) — omnibus significance measure
             acat_res = acat_o_results.get(gene)
             row["acat_o_pvalue"] = acat_res.p_value if acat_res is not None else None
-            row["acat_o_qvalue"] = (
-                acat_res.corrected_p_value if acat_res is not None else None
-            )
+            row["acat_o_qvalue"] = acat_res.corrected_p_value if acat_res is not None else None
 
             # Phase 33: fdr_weight column — only added when weighted BH is active
             if fdr_weights_by_gene:

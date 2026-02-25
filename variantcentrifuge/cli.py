@@ -531,10 +531,11 @@ def create_parser() -> argparse.ArgumentParser:
     stats_group.add_argument(
         "--association-workers",
         type=int,
-        default=1,
+        default=0,
         help=(
             "Number of parallel worker processes for association analysis. "
-            "Default: 1 (sequential). Set to -1 for auto (os.cpu_count()). "
+            "Default: 0 (auto — uses --threads value). Set to 1 for sequential, "
+            "-1 for all cores. "
             "Only effective with Python backends (R backend is not parallel-safe)."
         ),
     )
@@ -1297,7 +1298,9 @@ def main() -> int:
             _sys.exit(2)
     else:
         cfg["coast_weights"] = None
-    cfg["association_workers"] = getattr(args, "association_workers", 1)
+    # Association workers: 0/None = auto-allocate from --threads (default)
+    _aw = getattr(args, "association_workers", 0)
+    cfg["association_workers"] = _aw if _aw else 0
     # Phase 28: SKAT method and diagnostic thresholds
     cfg["skat_method"] = getattr(args, "skat_method", "SKAT")
     # Phase 33: Gene-level FDR weighting

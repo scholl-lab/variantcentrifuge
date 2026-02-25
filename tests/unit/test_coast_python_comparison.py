@@ -834,8 +834,7 @@ def _load_gckd_fixture(
 
     if not geno_path.exists():
         pytest.skip(
-            f"GCKD fixture not found: {geno_path}. "
-            "Run: Rscript scripts/generate_coast_golden.R"
+            f"GCKD fixture not found: {geno_path}. Run: Rscript scripts/generate_coast_golden.R"
         )
 
     geno = pd.read_csv(geno_path).values.astype(np.float64)

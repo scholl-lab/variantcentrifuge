@@ -367,9 +367,7 @@ class TestAssociationEngineAcatO:
         result = engine.run_all(gene_data)
 
         assert "acat_o_pvalue" in result.columns, "acat_o_pvalue column missing from output"
-        assert "acat_o_qvalue" in result.columns, (
-            "acat_o_qvalue column missing from output"
-        )
+        assert "acat_o_qvalue" in result.columns, "acat_o_qvalue column missing from output"
 
     def test_engine_acat_o_single_test_passthrough(self, default_config):
         """With only fisher test, acat_o_pvalue equals fisher_pvalue (k=1 pass-through).

@@ -34,6 +34,70 @@ import pandas as pd
 logger = logging.getLogger("variantcentrifuge")
 
 
+def _vectorized_parse_gt_columns(
+    gene_df: pd.DataFrame,
+    gt_columns_list: list[str],
+) -> tuple[np.ndarray, int]:
+    """Parse all GT columns to a dosage matrix using vectorized pandas operations.
+
+    Replaces the nested iterrows() loop with column-wise vectorized string matching.
+    Produces identical results to per-cell parse_gt_to_dosage() calls.
+
+    Parameters
+    ----------
+    gene_df : pd.DataFrame
+        Per-gene DataFrame with GT string columns.
+    gt_columns_list : list[str]
+        Ordered GT column names (one per sample).
+
+    Returns
+    -------
+    raw : np.ndarray, shape (n_variants, n_samples), float64
+        Dosage matrix. NaN for missing genotypes.
+    multi_allelic_count : int
+        Total number of multi-allelic genotype entries detected.
+    """
+    n_variants = len(gene_df)
+    n_samples = len(gt_columns_list)
+    raw = np.full((n_variants, n_samples), np.nan, dtype=np.float64)
+    multi_allelic_count = 0
+
+    for s_idx, col in enumerate(gt_columns_list):
+        # Get column as string series, normalize separator
+        gt_series = gene_df[col].fillna("./.").astype(str).str.replace("|", "/", regex=False)
+
+        # Standard diploid genotypes — exact match for speed
+        m_00 = gt_series == "0/0"
+        m_01 = (gt_series == "0/1") | (gt_series == "1/0")
+        m_11 = gt_series == "1/1"
+
+        # Multi-allelic: any allele > 1 (e.g. 1/2, 0/2, 2/2, 0/3)
+        # Match patterns like X/Y where X or Y is >= 2
+        multi_mask = gt_series.str.match(r"^[0-9]+/[0-9]+$", na=False) & ~(m_00 | m_01 | m_11)
+        # Filter: only flag as multi if actually contains allele > 1
+        if multi_mask.any():
+            # Further check: split and verify any allele > 1
+            candidates = gt_series[multi_mask]
+            left = candidates.str.split("/").str[0]
+            right = candidates.str.split("/").str[1]
+            truly_multi = (left.astype(int) > 1) | (right.astype(int) > 1)
+            # Update mask — keep only truly multi-allelic
+            multi_idx = multi_mask[multi_mask].index
+            not_truly = multi_idx[~truly_multi.values]
+            multi_mask.loc[not_truly] = False
+            multi_allelic_count += int(truly_multi.sum())
+
+        # Assign dosages
+        col_dosage = np.full(n_variants, np.nan, dtype=np.float64)
+        col_dosage[m_00.values] = 0.0
+        col_dosage[m_01.values] = 1.0
+        col_dosage[m_11.values] = 2.0
+        col_dosage[multi_mask.values] = 1.0  # het-equivalent for multi-allelic
+        raw[:, s_idx] = col_dosage
+
+    return raw, multi_allelic_count
+
+
 def parse_gt_to_dosage(gt: str | None) -> tuple[int | None, bool]:
     """
     Parse a VCF GT string to additive dosage and a multi-allelic flag.
@@ -161,23 +225,14 @@ def build_genotype_matrix(
     vcf_samples_list = list(vcf_samples)
     gt_columns_list = list(gt_columns)
     n_samples = len(vcf_samples_list)
-    n_variants = len(gene_df)
     warnings_list: list[str] = []
 
     # ------------------------------------------------------------------ #
     # Step 1: Parse raw dosages -> (n_variants, n_samples), NaN=missing   #
+    # Vectorized: processes one GT column at a time using pandas string    #
+    # ops instead of per-cell Python function calls.                       #
     # ------------------------------------------------------------------ #
-    raw = np.full((n_variants, n_samples), np.nan, dtype=np.float64)
-    multi_allelic_count = 0
-
-    for v_idx, (_, row) in enumerate(gene_df.iterrows()):
-        for s_idx, col in enumerate(gt_columns_list):
-            gt_val = row.get(col, "./.")
-            dosage, is_multi = parse_gt_to_dosage(str(gt_val) if gt_val is not None else "")
-            if dosage is not None:
-                raw[v_idx, s_idx] = float(dosage)
-            if is_multi:
-                multi_allelic_count += 1
+    raw, multi_allelic_count = _vectorized_parse_gt_columns(gene_df, gt_columns_list)
 
     if multi_allelic_count > 0:
         warnings_list.append(
