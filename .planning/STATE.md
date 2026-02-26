@@ -10,13 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-26)
 ## Current Position
 
 Phase: 38 — Codebase Cleanup
-Plan: —
-Status: Roadmap defined, ready to plan Phase 38
-Last activity: 2026-02-26 — Roadmap created for v0.17.0
+Plan: 03 of N (in progress)
+Status: In progress — Plan 38-03 complete
+Last activity: 2026-02-26 — Completed 38-03-PLAN.md (missing stage exports + TODO cleanup)
 
-Progress: ░░░░░░░░░░░░░░░░ 0% (0/2 phases complete)
-
-Next: `/gsd:plan-phase 38`
+Progress: ░░░░░░░░░░░░░░░░ (phase in progress)
 
 ## Performance Metrics
 
@@ -29,7 +27,10 @@ Next: `/gsd:plan-phase 38`
 
 ### Decisions
 
-(New milestone — no decisions yet)
+| Plan  | Decision | Rationale |
+|-------|----------|-----------|
+| 38-03 | stages/__init__.py __all__ sorted alphabetically (no section comments) | ruff RUF022 requires isort-style sort; section comments break it; imports at top of file already group by module |
+| 38-03 | TODO intelligent batching replaced with deferred-work NOTE | Current fixed-size batching is sufficient; explicit note sets expectation to revisit at ~100 stages |
 
 ### Architecture Invariants
 
@@ -45,11 +46,11 @@ Next: `/gsd:plan-phase 38`
 
 ### Blockers/Concerns
 
-(None)
+- Pre-existing test failures in test_inheritance/ (create_inheritance_details, adjust_pattern_score) and test_chunked_loading from prior 38-01/38-02 work; need resolution before CI is fully green
 
 ## Session Continuity
 
-Last session: 2026-02-26
-Stopped at: Roadmap created for v0.17.0
+Last session: 2026-02-26T17:21:22Z
+Stopped at: Completed 38-03-PLAN.md (missing stage exports + TODO cleanup)
 Resume file: None
-Next: Plan and execute Phase 38 (Codebase Cleanup)
+Next: Continue Phase 38 remaining plans
