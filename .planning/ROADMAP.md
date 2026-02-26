@@ -67,9 +67,15 @@ Plans:
 
 **Requirements:** PERF-01, PERF-02
 
+**Plans:** 2 plans
+
+Plans:
+- [ ] 39-01-PLAN.md — Synthetic benchmark script and baseline capture
+- [ ] 39-02-PLAN.md — Core optimization (pre-dispatch dedup, pedigree arrays, numpy-only workers, batch size env var)
+
 **Success Criteria:**
 
-1. `parallel_analyzer.py` uses ProcessPoolExecutor (or Numba) for compound het Pass 2 instead of ThreadPoolExecutor; the change is visible in the source.
+1. `parallel_analyzer.py` eliminates GIL contention in compound het Pass 2 workers by pre-dispatching DataFrame operations and pre-computing pedigree arrays as NumPy integer arrays; workers receive only NumPy arrays in the hot path.
 2. A benchmark or test demonstrates measurable wall-time speedup when compound het analysis runs on a multi-gene dataset with 2+ available CPU cores.
 3. All existing compound het tests pass without modification — no behavioral change in pairing logic or output.
 4. The implementation handles edge cases (single gene, gene with no het variants, 1 CPU) without error or regression.
@@ -89,4 +95,4 @@ Plans:
 | 36. Performance — Sparse Genotype Matrices | v0.16.0 | 0/1 | Deferred | - |
 | 37. Association Resource Management & Memory Streaming | v0.16.0 | 3/3 | Complete | 2026-02-25 |
 | 38. Codebase Cleanup | v0.17.0 | 3/3 | Complete | 2026-02-26 |
-| 39. Compound Het Parallelization | v0.17.0 | 0/1 | Pending | - |
+| 39. Compound Het Parallelization | v0.17.0 | 0/2 | Pending | - |
