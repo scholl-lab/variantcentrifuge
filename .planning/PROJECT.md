@@ -55,7 +55,15 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 
 ### Active
 
-(No active milestone — next milestone TBD)
+**Current Milestone: v0.17.0 — Tech Debt Cleanup & Compound Het Parallelization**
+
+**Goal:** Eliminate dead code, fix stale documentation, clean up minor tech debt, and parallelize the GIL-bound compound het pass for ~8-16x speedup on large cohorts.
+
+**Target features:**
+- Compound het Pass 2 parallelization (ThreadPoolExecutor → ProcessPoolExecutor or Numba)
+- Dead code removal: stage_info.py, --coast-backend r, ~9 dead inheritance functions, redundant CLI flag
+- Stale docs: faq.md removed flags, association_testing.md column name, changelog.md classic pipeline ref
+- Minor cleanup: stale docstrings/comments, missing __all__ exports, dead test methods, leftover TODOs
 
 ### Out of Scope
 
@@ -70,7 +78,7 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 
 ## Context
 
-- Current version: v0.16.0
+- Current version: v0.16.0 (v0.17.0 in development)
 - Tech stack: Python 3.10+, pandas, NumPy, openpyxl, xlsxwriter, bcftools, SnpSift, scipy, statsmodels
 - Source: 39,208 LOC Python; Tests: 55,604 LOC Python
 - Pipeline time reduced from 10+ hours to under 1 hour on large cohorts (>10x improvement) — v0.13.0
@@ -121,4 +129,4 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 | Sparse matrices deferred (streaming solves OOM) | Centering destroys sparsity for SKAT; benefit only at 10K+ samples | ✓ Good |
 
 ---
-*Last updated: 2026-02-26 after v0.16.0 milestone completion*
+*Last updated: 2026-02-26 after v0.17.0 milestone start*

@@ -5,18 +5,18 @@
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
-**Current focus:** Planning next milestone
+**Current focus:** v0.17.0 — Tech Debt Cleanup & Compound Het Parallelization
 
 ## Current Position
 
-Phase: 37 of 37 (all phases complete)
-Plan: N/A
-Status: v0.16.0 shipped; next milestone TBD
-Last activity: 2026-02-26 — v0.16.0 milestone completed and archived
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-02-26 — Milestone v0.17.0 started
 
-Progress: ████████████████ 100% (milestone shipped)
+Progress: ░░░░░░░░░░░░░░░░ 0%
 
-Next: `/gsd:new-milestone`
+Next: Define requirements → create roadmap
 
 ## Performance Metrics
 
@@ -29,7 +29,7 @@ Next: `/gsd:new-milestone`
 
 ### Decisions
 
-(Cleared on milestone completion — see .planning/milestones/v0.16.0-ROADMAP.md for full decision log)
+(New milestone — no decisions yet)
 
 ### Architecture Invariants
 
@@ -45,11 +45,11 @@ Next: `/gsd:new-milestone`
 
 ### Blockers/Concerns
 
-(None — milestone shipped clean)
+(None)
 
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: v0.16.0 milestone complete
+Stopped at: Defining requirements for v0.17.0
 Resume file: None
-Next: /gsd:new-milestone
+Next: Complete requirements → roadmap
