@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-02-26)
 ## Current Position
 
 Phase: 38 — Codebase Cleanup
-Plan: 03 of N (in progress)
-Status: In progress — Plan 38-03 complete
-Last activity: 2026-02-26 — Completed 38-03-PLAN.md (missing stage exports + TODO cleanup)
+Plan: 01 complete (re-executed); 02, 03 already complete
+Status: In progress — Plan 38-01 dead code removal finalized
+Last activity: 2026-02-26 — Completed 38-01-PLAN.md (dead code removal — stage_info.py, 11 dead functions, CLI cleanup)
 
 Progress: ░░░░░░░░░░░░░░░░ (phase in progress)
 
@@ -29,9 +29,10 @@ Progress: ░░░░░░░░░░░░░░░░ (phase in progress)
 
 | Plan  | Decision | Rationale |
 |-------|----------|-----------|
-| 38-02 | Restored removed public functions as new implementations (not revert) | Plan-01 renamed/removed them but tests import them; new implementations maintain contract |
+| 38-01 | create_inheritance_details renamed to _create_inheritance_details | Internal helper with no external callers; underscore prefix signals private |
+| 38-01 | Public alias create_inheritance_details removed | After test cleanup no callers remain; alias was added by 38-02 as temp bridge |
+| 38-01 | PATTERN_CATEGORIES/_PATTERN_CATEGORIES removed with get_pattern_category | Constant had only one consumer (the deleted function) |
 | 38-02 | filter_by_inheritance_pattern extended with min_confidence kwarg | Test expected confidence threshold filtering; added as optional param |
-| 38-02 | Public alias pattern: create_inheritance_details = _create_inheritance_details | API stability — tests and external callers import public name |
 | 38-03 | stages/__init__.py __all__ sorted alphabetically (no section comments) | ruff RUF022 requires isort-style sort; section comments break it; imports at top of file already group by module |
 | 38-03 | TODO intelligent batching replaced with deferred-work NOTE | Current fixed-size batching is sufficient; explicit note sets expectation to revisit at ~100 stages |
 
@@ -49,11 +50,11 @@ Progress: ░░░░░░░░░░░░░░░░ (phase in progress)
 
 ### Blockers/Concerns
 
-(None — test failures from plan-01 API removals resolved by plan-02: 2066 tests passing)
+(None — dead functions fully removed; all 2066 tests passing; make ci-check clean)
 
 ## Session Continuity
 
-Last session: 2026-02-26T17:35:00Z
-Stopped at: Completed 38-02-PLAN.md (stale docs + comment cleanup; inheritance API restored)
+Last session: 2026-02-26T17:34:24Z
+Stopped at: Completed 38-01-PLAN.md (dead code removal — source + tests fully cleaned)
 Resume file: None
-Next: Continue Phase 38 remaining plans
+Next: Continue Phase 38 remaining plans (38-02 and 38-03 already complete by prior agents)
