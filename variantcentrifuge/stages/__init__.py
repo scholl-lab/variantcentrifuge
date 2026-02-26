@@ -9,12 +9,15 @@ This package contains all stage implementations organized by category:
 """
 
 from .analysis_stages import (
+    AssociationAnalysisStage,
     ChunkedAnalysisStage,
+    ClinVarPM5Stage,
     CustomAnnotationStage,
     DataFrameLoadingStage,
     GeneBurdenAnalysisStage,
     InheritanceAnalysisStage,
     StatisticsGenerationStage,
+    VariantAnalysisStage,
     VariantScoringStage,
 )
 from .output_stages import (
@@ -29,11 +32,14 @@ from .output_stages import (
     VariantIdentifierStage,
 )
 from .processing_stages import (
+    DataSortingStage,
     ExtraColumnRemovalStage,
     FieldExtractionStage,
     GeneBedCreationStage,
     GenotypeReplacementStage,
     MultiAllelicSplitStage,
+    ParallelCompleteProcessingStage,
+    PCAComputationStage,
     PhenotypeIntegrationStage,
     SnpSiftFilterStage,
     VariantExtractionStage,
@@ -53,17 +59,17 @@ from .setup_stages import (
 __all__ = [
     "AnnotationConfigLoadingStage",
     "ArchiveCreationStage",
+    "AssociationAnalysisStage",
     "ChunkedAnalysisStage",
-    # Setup stages
+    "ClinVarPM5Stage",
     "ConfigurationLoadingStage",
     "CustomAnnotationStage",
-    # Analysis stages
     "DataFrameLoadingStage",
+    "DataSortingStage",
     "ExcelReportStage",
     "ExtraColumnRemovalStage",
     "FieldExtractionStage",
     "FinalFilteringStage",
-    # Processing stages
     "GeneBedCreationStage",
     "GeneBurdenAnalysisStage",
     "GenotypeReplacementStage",
@@ -72,6 +78,8 @@ __all__ = [
     "InheritanceAnalysisStage",
     "MetadataGenerationStage",
     "MultiAllelicSplitStage",
+    "PCAComputationStage",
+    "ParallelCompleteProcessingStage",
     "PedigreeLoadingStage",
     "PhenotypeCaseControlAssignmentStage",
     "PhenotypeIntegrationStage",
@@ -82,8 +90,8 @@ __all__ = [
     "SnpSiftFilterStage",
     "StatisticsGenerationStage",
     "TSVOutputStage",
+    "VariantAnalysisStage",
     "VariantExtractionStage",
-    # Output stages
     "VariantIdentifierStage",
     "VariantScoringStage",
 ]

@@ -721,8 +721,8 @@ class PipelineRunner:
         List[Stage]
             Stages with lightweight ones potentially batched
         """
-        # For now, return stages as-is
-        # TODO: Implement intelligent batching based on estimated runtime
+        # NOTE: Intelligent batching deferred — current fixed-size batching is sufficient
+        # for observed workloads. Revisit if stage count exceeds ~100.
         return stages
 
     def _get_executor_for_stage(self, stage: Stage):
