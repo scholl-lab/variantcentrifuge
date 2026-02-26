@@ -277,6 +277,173 @@ def analyze_gene_for_compound_het_vectorized(
     return comp_het_results
 
 
+def _process_gene_group_arrays(
+    gene: str,
+    n_unique: int,
+    gene_row_indices: np.ndarray,
+    variant_keys: np.ndarray,
+    gt_matrix: np.ndarray,
+    sample_to_idx: dict[str, int],
+    father_idx_arr: np.ndarray,
+    mother_idx_arr: np.ndarray,
+    affected_arr: np.ndarray,
+    sample_list: list[str],
+) -> tuple[str, dict[str, Any]]:
+    """
+    Numpy-only worker for parallel compound het analysis.
+
+    This function is the parallel-path equivalent of
+    ``analyze_gene_for_compound_het_vectorized``.  It receives only NumPy
+    arrays (no DataFrame references) and uses pre-computed pedigree integer
+    arrays instead of ``get_parents``/``is_affected`` dict lookups.
+
+    The data is already deduplicated by the caller (parallel_analyzer.py)
+    before dispatch, so no ``drop_duplicates`` or ``duplicated`` calls are
+    made here.
+
+    Parameters
+    ----------
+    gene : str
+        Gene name.
+    n_unique : int
+        Number of unique (deduplicated) variants for this gene.
+    gene_row_indices : np.ndarray
+        Row positions (into gt_matrix) for the deduplicated variants,
+        in variant order.
+    variant_keys : np.ndarray
+        Pre-computed variant key strings corresponding to gene_row_indices.
+    gt_matrix : np.ndarray
+        Full genotype matrix (n_total_variants x n_samples, int8, read-only).
+    sample_to_idx : dict[str, int]
+        Mapping from sample ID to column index in gt_matrix.
+    father_idx_arr : np.ndarray (int32)
+        Father column index for each sample (-1 if none).  Indexed by
+        position in sample_list.
+    mother_idx_arr : np.ndarray (int32)
+        Mother column index for each sample (-1 if none).  Indexed by
+        position in sample_list.
+    affected_arr : np.ndarray (int8)
+        1 if sample is affected, else 0.  Indexed by position in sample_list.
+    sample_list : list[str]
+        Ordered list of sample IDs (defines indexing for the arrays above).
+
+    Returns
+    -------
+    tuple[str, dict[str, Any]]
+        (gene_name, comp_het_results) where comp_het_results maps variant
+        keys to per-sample compound het info dicts.
+    """
+    comp_het_results: dict[str, dict[str, Any]] = {}
+
+    if n_unique < 2:
+        return gene, comp_het_results
+
+    # Slice genotype matrix for this gene's deduplicated rows
+    # Shape: (n_unique, n_samples) — read-only slice (view into gt_matrix)
+    gene_gt_block = gt_matrix[gene_row_indices, :]  # (n_unique, n_samples)
+
+    # --- Candidate sample detection (vectorized) ---
+    # Build het matrix for all samples present in sample_to_idx
+    sample_indices_in_matrix = [sample_to_idx[s] for s in sample_list if s in sample_to_idx]
+    sample_ids_present = [s for s in sample_list if s in sample_to_idx]
+
+    if not sample_ids_present:
+        return gene, comp_het_results
+
+    # (n_unique, n_candidate_samples)
+    gene_gt_mat = gene_gt_block[:, sample_indices_in_matrix]
+    het_mat = gene_gt_mat == 1  # bool mask
+    het_counts = het_mat.sum(axis=0)  # per-sample het count
+    candidate_mask = het_counts >= 2
+    candidate_sample_ids = [sample_ids_present[i] for i in np.where(candidate_mask)[0]]
+
+    for sample_id in candidate_sample_ids:
+        sample_pos = sample_list.index(sample_id)  # position in sample_list
+        sample_col = sample_to_idx[sample_id]  # column in gt_matrix
+
+        sample_genotypes = gene_gt_block[:, sample_col]
+
+        # Find heterozygous variants
+        het_mask = sample_genotypes == 1
+        het_indices = np.where(het_mask)[0]
+
+        # Pedigree lookups via pre-computed arrays (O(1), no dict access)
+        father_col = int(father_idx_arr[sample_pos])  # -1 if no father
+        mother_col = int(mother_idx_arr[sample_pos])  # -1 if no mother
+        is_sample_affected = bool(affected_arr[sample_pos] == 1)
+
+        has_father = father_col >= 0
+        has_mother = mother_col >= 0
+
+        partners_by_variant_idx: dict[int, list[int]] = {}
+
+        if has_father and has_mother:
+            # Case 1: Both parents present
+            father_genotypes = gene_gt_block[:, father_col]
+            mother_genotypes = gene_gt_block[:, mother_col]
+            partners_by_variant_idx = find_potential_partners_vectorized(
+                het_indices, father_genotypes, mother_genotypes
+            )
+
+        elif has_father or has_mother:
+            # Case 2: Exactly one parent present
+            known_col = father_col if has_father else mother_col
+            parent_gts = gene_gt_block[:, known_col]
+            parent_het_gts = parent_gts[het_indices]
+            from_known_parent_mask = parent_het_gts > 0
+
+            for i, var_idx in enumerate(het_indices):
+                if from_known_parent_mask[i]:
+                    partner_mask = ~from_known_parent_mask.copy()
+                else:
+                    partner_mask = from_known_parent_mask.copy()
+                partner_mask[i] = False
+                partner_positions = np.where(partner_mask)[0]
+                if len(partner_positions) > 0:
+                    partners_by_variant_idx[int(var_idx)] = het_indices[
+                        partner_positions
+                    ].tolist()  # type: ignore[assignment]
+
+        else:
+            # Case 3: No parental data
+            if is_sample_affected:
+                for i, var_idx in enumerate(het_indices):
+                    partners = np.delete(het_indices, i)
+                    if len(partners) > 0:
+                        partners_by_variant_idx[int(var_idx)] = partners.tolist()  # type: ignore[assignment]
+
+        # Determine comp het type
+        if has_father and has_mother:
+            comp_het_type = "compound_heterozygous"
+            inheritance_type = "trans"
+        elif has_father or has_mother:
+            comp_het_type = "compound_heterozygous_possible_missing_parents"
+            inheritance_type = "unknown"
+        else:
+            comp_het_type = "compound_heterozygous_possible_no_pedigree"
+            inheritance_type = "unknown"
+
+        # Store results
+        for result_var_idx, partner_indices in partners_by_variant_idx.items():
+            var_key = variant_keys[result_var_idx]
+            partner_keys = [variant_keys[pidx] for pidx in partner_indices]
+
+            comp_het_info = {
+                "sample_id": sample_id,
+                "gene": gene,
+                "partner_variants": partner_keys,
+                "is_compound_het": True,
+                "comp_het_type": comp_het_type,
+                "inheritance_type": inheritance_type,
+            }
+
+            if var_key not in comp_het_results:
+                comp_het_results[var_key] = {}
+            comp_het_results[var_key][sample_id] = comp_het_info
+
+    return gene, comp_het_results
+
+
 def find_potential_partners_vectorized(
     het_indices: np.ndarray, father_genotypes: np.ndarray, mother_genotypes: np.ndarray
 ) -> dict[int, list[int]]:
