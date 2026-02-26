@@ -16,7 +16,7 @@ from variantcentrifuge.pipeline import build_pipeline_stages
 
 
 class TestInheritanceAnalysis:
-    """Test inheritance analysis in the refactored pipeline."""
+    """Test inheritance analysis in the stage-based pipeline."""
 
     @pytest.fixture
     def setup_files(self):

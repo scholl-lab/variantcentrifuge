@@ -127,7 +127,7 @@ class ConfigurationLoadingStage(Stage):
                 f"Converted fields_to_extract to extract list with {len(config['extract'])} fields"
             )
 
-        # Parse phenotype arguments from CLI (matching original pipeline logic)
+        # Parse phenotype arguments from CLI
         # This fixes the bug where phenotype-based case/control assignment doesn't work
         case_hpo_terms = []
         control_hpo_terms = []

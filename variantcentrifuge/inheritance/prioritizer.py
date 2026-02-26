@@ -189,3 +189,166 @@ def get_pattern_description(pattern: str) -> str:
     }
 
     return descriptions.get(pattern, "Unknown inheritance pattern")
+
+
+# ---------------------------------------------------------------------------
+# Pattern category utilities
+# ---------------------------------------------------------------------------
+
+_PATTERN_CATEGORIES: dict[str, str] = {
+    "de_novo": "sporadic",
+    "de_novo_candidate": "sporadic",
+    "compound_heterozygous": "recessive",
+    "compound_heterozygous_possible": "recessive",
+    "compound_heterozygous_possible_no_pedigree": "recessive",
+    "compound_heterozygous_possible_missing_parents": "recessive",
+    "compound_heterozygous_possible_missing_parent_genotypes": "recessive",
+    "autosomal_recessive": "recessive",
+    "autosomal_recessive_possible": "recessive",
+    "autosomal_dominant": "dominant",
+    "autosomal_dominant_possible": "dominant",
+    "x_linked_recessive": "x_linked",
+    "x_linked_recessive_possible": "x_linked",
+    "x_linked_dominant": "x_linked",
+    "x_linked_dominant_possible": "x_linked",
+    "mitochondrial": "mitochondrial",
+    "homozygous": "recessive",
+    "non_mendelian": "unclear",
+    "unknown": "unclear",
+    "none": "unclear",
+    "reference": "unclear",
+}
+
+
+def get_pattern_category(pattern: str) -> str:
+    """Return the broad category for an inheritance pattern.
+
+    Parameters
+    ----------
+    pattern : str
+        The inheritance pattern name.
+
+    Returns
+    -------
+    str
+        One of "sporadic", "recessive", "dominant", "x_linked",
+        "mitochondrial", or "unclear".
+    """
+    return _PATTERN_CATEGORIES.get(pattern, "unclear")
+
+
+def group_patterns_by_category(patterns: list[str]) -> dict[str, list[str]]:
+    """Group a list of patterns by category.
+
+    Parameters
+    ----------
+    patterns : List[str]
+        List of inheritance pattern names.
+
+    Returns
+    -------
+    Dict[str, List[str]]
+        Mapping of category -> list of patterns in that category.
+    """
+    grouped: dict[str, list[str]] = {}
+    for pattern in patterns:
+        category = get_pattern_category(pattern)
+        grouped.setdefault(category, []).append(pattern)
+    return grouped
+
+
+def adjust_pattern_score(pattern: str, base_score: float) -> float:
+    """Return the adjusted score for a pattern.
+
+    Historically this function applied modifiers; it now simply returns the
+    base score unchanged.
+
+    Parameters
+    ----------
+    pattern : str
+        Unused; kept for API compatibility.
+    base_score : float
+        The base priority score.
+
+    Returns
+    -------
+    float
+        *base_score* unmodified.
+    """
+    return base_score
+
+
+def is_pattern_compatible(pattern: str, family_structure: dict) -> bool:
+    """Check whether a pattern is compatible with the given family structure.
+
+    Parameters
+    ----------
+    pattern : str
+        The inheritance pattern name.
+    family_structure : dict
+        May contain "has_parents" and/or "has_sex_info" bool keys.
+
+    Returns
+    -------
+    bool
+        True if compatible.
+    """
+    if pattern in ("de_novo", "de_novo_candidate"):
+        return bool(family_structure.get("has_parents", True))
+    if "x_linked" in pattern:
+        return bool(family_structure.get("has_sex_info", True))
+    return True
+
+
+def filter_compatible_patterns(patterns: list[str], family_structure: dict) -> list[str]:
+    """Return patterns compatible with the given family structure.
+
+    Parameters
+    ----------
+    patterns : List[str]
+        Candidate patterns.
+    family_structure : dict
+        May contain "has_parents" and/or "has_sex_info" bool keys.
+
+    Returns
+    -------
+    List[str]
+        Subset of *patterns* that pass :func:`is_pattern_compatible`.
+    """
+    return [p for p in patterns if is_pattern_compatible(p, family_structure)]
+
+
+def resolve_conflicting_patterns(
+    patterns_by_sample: dict[str, list[str]],
+) -> str:
+    """Resolve conflicting patterns across samples.
+
+    Uses majority vote; falls back to PATTERN_PRIORITY for ties.
+
+    Parameters
+    ----------
+    patterns_by_sample : dict
+        Mapping of sample_id -> list of patterns for that sample.
+
+    Returns
+    -------
+    str
+        Resolved pattern name, or "none" if *patterns_by_sample* is empty.
+    """
+    if not patterns_by_sample:
+        return "none"
+
+    from collections import Counter
+
+    all_patterns: list[str] = [p for pats in patterns_by_sample.values() for p in pats]
+    if not all_patterns:
+        return "none"
+
+    counts = Counter(all_patterns)
+    max_count = max(counts.values())
+    top_patterns = [p for p, c in counts.items() if c == max_count]
+
+    if len(top_patterns) == 1:
+        return top_patterns[0]
+
+    return max(top_patterns, key=lambda p: PATTERN_PRIORITY.get(p, 0))

@@ -1482,7 +1482,7 @@ class DataSortingStage(Stage):
         """
         Sort a TSV file by gene column using external sort command for memory efficiency.
 
-        This is adapted from the original pipeline's sort_tsv_by_gene function.
+        This is adapted from the legacy sort_tsv_by_gene function.
         """
         logger.info(f"Sorting TSV file by gene column: {input_file} -> {output_file}")
         logger.info(f"Using memory limit: {memory_limit}, parallel threads: {parallel}")

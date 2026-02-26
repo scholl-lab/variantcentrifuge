@@ -404,6 +404,10 @@ def _create_inheritance_details(
     return details
 
 
+# Public alias for backward compatibility with tests and external callers.
+create_inheritance_details = _create_inheritance_details
+
+
 def process_inheritance_output(
     df: pd.DataFrame, mode: str, preserve_details_for_scoring: bool = False
 ) -> pd.DataFrame:
@@ -500,3 +504,134 @@ def process_inheritance_output(
     else:
         logger.warning(f"Unknown inheritance mode: {mode}. Returning data as-is.")
         return df
+
+
+def get_inheritance_summary(df: pd.DataFrame, high_confidence_threshold: float = 0.5) -> dict:
+    """
+    Return summary statistics for inheritance patterns in a DataFrame.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with ``Inheritance_Pattern`` and ``Inheritance_Details``
+        columns (produced by :func:`analyze_inheritance`).
+    high_confidence_threshold : float
+        Minimum confidence value to count a variant as high-confidence.
+        Defaults to 0.5.
+
+    Returns
+    -------
+    dict
+        Keys: ``total_variants``, ``pattern_counts``, ``de_novo_variants``,
+        ``compound_het_variants``, ``high_confidence_patterns``,
+        ``compound_het_genes``.
+    """
+    if "Inheritance_Pattern" not in df.columns:
+        return {
+            "total_variants": 0,
+            "pattern_counts": {},
+            "de_novo_variants": 0,
+            "compound_het_variants": 0,
+            "high_confidence_patterns": 0,
+            "compound_het_genes": [],
+        }
+
+    pattern_counts: dict[str, int] = df["Inheritance_Pattern"].value_counts().to_dict()
+
+    # Count high-confidence patterns
+    high_confidence = 0
+    compound_het_genes: list[str] = []
+    if "Inheritance_Details" in df.columns:
+        for _, row in df.iterrows():
+            try:
+                details = (
+                    json.loads(row["Inheritance_Details"])
+                    if isinstance(row["Inheritance_Details"], str)
+                    else {}
+                )
+            except (json.JSONDecodeError, TypeError):
+                details = {}
+            if details.get("confidence", 0) >= high_confidence_threshold:
+                high_confidence += 1
+            # Collect compound het genes from sample info
+            for sample_info in details.get("samples_with_pattern", []):
+                gene = sample_info.get("compound_het_gene")
+                if gene and gene not in compound_het_genes:
+                    compound_het_genes.append(gene)
+
+    return {
+        "total_variants": len(df),
+        "pattern_counts": pattern_counts,
+        "de_novo_variants": pattern_counts.get("de_novo", 0),
+        "compound_het_variants": pattern_counts.get("compound_heterozygous", 0),
+        "high_confidence_patterns": high_confidence,
+        "compound_het_genes": compound_het_genes,
+    }
+
+
+def filter_by_inheritance_pattern(
+    df: pd.DataFrame,
+    patterns: list[str],
+    min_confidence: float | None = None,
+) -> pd.DataFrame:
+    """
+    Return only rows whose ``Inheritance_Pattern`` is in *patterns*.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with an ``Inheritance_Pattern`` column.
+    patterns : list[str]
+        Allowed pattern names.
+    min_confidence : float or None
+        When provided, additionally filter rows whose ``Inheritance_Details``
+        JSON field ``confidence`` is >= *min_confidence*.
+
+    Returns
+    -------
+    pd.DataFrame
+        Filtered copy of the DataFrame.
+    """
+    if "Inheritance_Pattern" not in df.columns:
+        return df.iloc[0:0].copy()
+    mask = df["Inheritance_Pattern"].isin(patterns)
+    if min_confidence is not None and "Inheritance_Details" in df.columns:
+
+        def _meets_confidence(details_str: object) -> bool:
+            try:
+                details = json.loads(details_str) if isinstance(details_str, str) else {}
+            except (json.JSONDecodeError, TypeError):
+                details = {}
+            return float(details.get("confidence", 0)) >= min_confidence
+
+        conf_mask = df["Inheritance_Details"].apply(_meets_confidence)
+        mask = mask & conf_mask
+    return df[mask].copy()
+
+
+def export_inheritance_report(df: pd.DataFrame, output_path: str) -> None:
+    """
+    Write inheritance analysis results to a JSON file.
+
+    Each row becomes a dict with keys ``inheritance_pattern`` and
+    ``inheritance_details`` (parsed JSON or empty dict if unavailable).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with inheritance columns.
+    output_path : str
+        Destination file path.
+    """
+    records = []
+    for _, row in df.iterrows():
+        pattern = row.get("Inheritance_Pattern", "unknown")
+        details_raw = row.get("Inheritance_Details", "{}")
+        try:
+            details = json.loads(details_raw) if isinstance(details_raw, str) else {}
+        except (json.JSONDecodeError, TypeError):
+            details = {}
+        records.append({"inheritance_pattern": pattern, "inheritance_details": details})
+
+    with open(output_path, "w") as fh:
+        json.dump(records, fh, indent=2)

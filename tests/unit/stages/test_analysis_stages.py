@@ -64,12 +64,12 @@ class TestDataFrameLoadingStage:
         assert list(result.current_dataframe.columns) == ["col1", "col2", "col3"]
 
     def test_chunked_loading(self, base_context, tmp_path):
-        """Test chunked loading for large files."""
+        """Test chunked loading when force_chunked_processing is set."""
         # Create test file
         test_file = tmp_path / "test.tsv"
         test_file.write_text("col1\tcol2\n" + "\n".join(f"val{i}\tdata{i}" for i in range(100)))
 
-        base_context.config = {"chunks": 10}
+        base_context.config = {"force_chunked_processing": True}
         base_context.data = test_file
 
         stage = DataFrameLoadingStage()

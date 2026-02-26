@@ -1,4 +1,4 @@
-"""Basic integration test for the refactored pipeline."""
+"""Basic integration test for the stage-based pipeline."""
 
 import tempfile
 from pathlib import Path

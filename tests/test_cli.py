@@ -168,7 +168,7 @@ class TestShowCheckpointStatus:
                 main()
 
             assert exc_info.value.code == 0
-            # Should fall back to original pipeline when config loading fails
+            # Should fall back to default behavior when config loading fails
             mock_print.assert_any_call("Checking checkpoint status for stage-based pipeline...")
             mock_print.assert_any_call(f"No checkpoint state found in {tmp_path}")
 

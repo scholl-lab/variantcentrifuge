@@ -420,7 +420,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
         getattr(args, "gene_name", "") or "", getattr(args, "gene_file", None), logger
     )
 
-    # Compute base name like the original pipeline
+    # Compute base name from VCF file and gene name
     vcf_file = getattr(args, "vcf_file", "")
     base_name = compute_base_name(vcf_file, gene_name)
 
