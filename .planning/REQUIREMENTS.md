@@ -12,27 +12,27 @@
 
 ### Dead Code
 
-- [ ] **DEAD-01**: `stage_info.py` module deleted (509 lines, never imported)
-- [ ] **DEAD-02**: `--coast-backend r` choice removed from CLI (no implementation exists)
-- [ ] **DEAD-03**: Dead inheritance functions removed from `prioritizer.py` (5 functions)
-- [ ] **DEAD-04**: Dead inheritance functions removed from `analyzer.py` (4 functions)
-- [ ] **DEAD-05**: Redundant `--gzip-intermediates` flag fixed or removed
+- [x] **DEAD-01**: `stage_info.py` module deleted (509 lines, never imported)
+- [x] **DEAD-02**: `--coast-backend r` choice removed from CLI (no implementation exists)
+- [x] **DEAD-03**: Dead inheritance functions removed from `prioritizer.py` (5 functions)
+- [x] **DEAD-04**: Dead inheritance functions removed from `analyzer.py` (4 functions)
+- [x] **DEAD-05**: Redundant `--gzip-intermediates` flag fixed or removed
 
 ### Documentation
 
-- [ ] **DOCS-01**: `faq.md` references to 4 removed CLI flags corrected
-- [ ] **DOCS-02**: `association_testing.md` column name corrected (skat_pvalue → skat_o_pvalue)
-- [ ] **DOCS-03**: `changelog.md` classic pipeline reference updated
+- [x] **DOCS-01**: `faq.md` references to 4 removed CLI flags corrected
+- [x] **DOCS-02**: `association_testing.md` column name corrected (skat_pvalue → skat_o_pvalue)
+- [x] **DOCS-03**: `changelog.md` classic pipeline reference updated
 
 ### Cleanup
 
-- [ ] **CLEAN-01**: Stale "refactored pipeline" docstrings updated in 3 integration tests
-- [ ] **CLEAN-02**: Stale "original pipeline" comments updated in 3 source files
-- [ ] **CLEAN-03**: Missing `__all__` exports added to `stages/__init__.py`
-- [ ] **CLEAN-04**: Dead integration test methods removed (TestBCFToolsPrefilter, test_parallel_variant_extraction)
-- [ ] **CLEAN-05**: TODO(12-02) legacy chunking check resolved
-- [ ] **CLEAN-06**: TODO intelligent batching resolved or documented as deferred
-- [ ] **CLEAN-07**: TD-05 Fisher lambda_GC doc clarification addressed
+- [x] **CLEAN-01**: Stale "refactored pipeline" docstrings updated in 3 integration tests
+- [x] **CLEAN-02**: Stale "original pipeline" comments updated in 3 source files
+- [x] **CLEAN-03**: Missing `__all__` exports added to `stages/__init__.py`
+- [x] **CLEAN-04**: Dead integration test methods removed (TestBCFToolsPrefilter, test_parallel_variant_extraction)
+- [x] **CLEAN-05**: TODO(12-02) legacy chunking check resolved
+- [x] **CLEAN-06**: TODO intelligent batching resolved or documented as deferred
+- [x] **CLEAN-07**: TD-05 Fisher lambda_GC doc clarification addressed
 
 ## Future Requirements
 
@@ -64,21 +64,21 @@
 |-------------|-------|--------|
 | PERF-01 | Phase 39 | Pending |
 | PERF-02 | Phase 39 | Pending |
-| DEAD-01 | Phase 38 | Pending |
-| DEAD-02 | Phase 38 | Pending |
-| DEAD-03 | Phase 38 | Pending |
-| DEAD-04 | Phase 38 | Pending |
-| DEAD-05 | Phase 38 | Pending |
-| DOCS-01 | Phase 38 | Pending |
-| DOCS-02 | Phase 38 | Pending |
-| DOCS-03 | Phase 38 | Pending |
-| CLEAN-01 | Phase 38 | Pending |
-| CLEAN-02 | Phase 38 | Pending |
-| CLEAN-03 | Phase 38 | Pending |
-| CLEAN-04 | Phase 38 | Pending |
-| CLEAN-05 | Phase 38 | Pending |
-| CLEAN-06 | Phase 38 | Pending |
-| CLEAN-07 | Phase 38 | Pending |
+| DEAD-01 | Phase 38 | Complete |
+| DEAD-02 | Phase 38 | Complete |
+| DEAD-03 | Phase 38 | Complete |
+| DEAD-04 | Phase 38 | Complete |
+| DEAD-05 | Phase 38 | Complete |
+| DOCS-01 | Phase 38 | Complete |
+| DOCS-02 | Phase 38 | Complete |
+| DOCS-03 | Phase 38 | Complete |
+| CLEAN-01 | Phase 38 | Complete |
+| CLEAN-02 | Phase 38 | Complete |
+| CLEAN-03 | Phase 38 | Complete |
+| CLEAN-04 | Phase 38 | Complete |
+| CLEAN-05 | Phase 38 | Complete |
+| CLEAN-06 | Phase 38 | Complete |
+| CLEAN-07 | Phase 38 | Complete |
 
 **Coverage:**
 - v0.17.0 requirements: 16 total
@@ -87,4 +87,4 @@
 
 ---
 *Requirements defined: 2026-02-26*
-*Last updated: 2026-02-26 after roadmap creation*
+*Last updated: 2026-02-26 after Phase 38 completion*
