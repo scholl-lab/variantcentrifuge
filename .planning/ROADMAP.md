@@ -7,6 +7,7 @@
 - [x] **v0.14.0 Report UX Overhaul** - Phases 13-17 (shipped 2026-02-19)
 - [x] **v0.15.0 Modular Rare Variant Association Framework** - Phases 18-29 (shipped 2026-02-23)
 - [x] **v0.16.0 Association Hardening & Multi-Cohort Features** - Phases 30-37 (shipped 2026-02-26)
+- [ ] **v0.17.0 Tech Debt Cleanup & Compound Het Parallelization** - Phases 38-39 (in progress)
 
 ## Phases
 
@@ -25,6 +26,49 @@ See MILESTONES.md for details.
 
 ---
 
+## v0.17.0 — Tech Debt Cleanup & Compound Het Parallelization
+
+**Goal:** Eliminate dead code, correct stale documentation, resolve minor tech debt, and parallelize the GIL-bound compound het pass for measurable speedup on multi-core systems.
+
+**Scope:** 16 requirements across 4 categories (Performance, Dead Code, Documentation, Cleanup). The cleanup work is entirely low-risk and behaviorally inert. The compound het parallelization is the single complex item and is isolated to its own phase.
+
+---
+
+### Phase 38: Codebase Cleanup
+
+**Goal:** The codebase contains no dead code, stale documentation, or unresolved minor tech debt — any developer reading the source sees accurate, current state.
+
+**Dependencies:** None (independent of Phase 39)
+
+**Requirements:** DEAD-01, DEAD-02, DEAD-03, DEAD-04, DEAD-05, DOCS-01, DOCS-02, DOCS-03, CLEAN-01, CLEAN-02, CLEAN-03, CLEAN-04, CLEAN-05, CLEAN-06, CLEAN-07
+
+**Success Criteria:**
+
+1. `stage_info.py` is deleted and no import of it exists anywhere in the codebase; all tests still pass.
+2. `--coast-backend r` is not present in CLI help output or argument choices; attempting to pass it raises an argument error.
+3. The dead functions identified in `prioritizer.py` (5 functions) and `analyzer.py` (4 functions) are removed and no call sites reference them.
+4. `docs/faq.md`, `docs/association_testing.md`, and `docs/changelog.md` accurately reflect the current CLI interface and column naming — no references to removed flags or outdated column names remain.
+5. `make ci-check` passes with zero lint errors and zero test failures after all cleanup is applied.
+
+---
+
+### Phase 39: Compound Het Parallelization
+
+**Goal:** Users running large cohorts on multi-core machines get measurably faster compound het analysis — the GIL-bound Pass 2 loop replaced by true parallelism.
+
+**Dependencies:** Phase 38 (clean codebase as starting point, no functional dependency)
+
+**Requirements:** PERF-01, PERF-02
+
+**Success Criteria:**
+
+1. `parallel_analyzer.py` uses ProcessPoolExecutor (or Numba) for compound het Pass 2 instead of ThreadPoolExecutor; the change is visible in the source.
+2. A benchmark or test demonstrates measurable wall-time speedup when compound het analysis runs on a multi-gene dataset with 2+ available CPU cores.
+3. All existing compound het tests pass without modification — no behavioral change in pairing logic or output.
+4. The implementation handles edge cases (single gene, gene with no het variants, 1 CPU) without error or regression.
+
+---
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -37,3 +81,5 @@ See MILESTONES.md for details.
 | 35. Case-Confidence Weights | v0.16.0 | 0/2 | Deferred | - |
 | 36. Performance — Sparse Genotype Matrices | v0.16.0 | 0/1 | Deferred | - |
 | 37. Association Resource Management & Memory Streaming | v0.16.0 | 3/3 | Complete | 2026-02-25 |
+| 38. Codebase Cleanup | v0.17.0 | 0/1 | Pending | - |
+| 39. Compound Het Parallelization | v0.17.0 | 0/1 | Pending | - |

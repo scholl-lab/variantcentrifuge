@@ -62,29 +62,29 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PERF-01 | TBD | Pending |
-| PERF-02 | TBD | Pending |
-| DEAD-01 | TBD | Pending |
-| DEAD-02 | TBD | Pending |
-| DEAD-03 | TBD | Pending |
-| DEAD-04 | TBD | Pending |
-| DEAD-05 | TBD | Pending |
-| DOCS-01 | TBD | Pending |
-| DOCS-02 | TBD | Pending |
-| DOCS-03 | TBD | Pending |
-| CLEAN-01 | TBD | Pending |
-| CLEAN-02 | TBD | Pending |
-| CLEAN-03 | TBD | Pending |
-| CLEAN-04 | TBD | Pending |
-| CLEAN-05 | TBD | Pending |
-| CLEAN-06 | TBD | Pending |
-| CLEAN-07 | TBD | Pending |
+| PERF-01 | Phase 39 | Pending |
+| PERF-02 | Phase 39 | Pending |
+| DEAD-01 | Phase 38 | Pending |
+| DEAD-02 | Phase 38 | Pending |
+| DEAD-03 | Phase 38 | Pending |
+| DEAD-04 | Phase 38 | Pending |
+| DEAD-05 | Phase 38 | Pending |
+| DOCS-01 | Phase 38 | Pending |
+| DOCS-02 | Phase 38 | Pending |
+| DOCS-03 | Phase 38 | Pending |
+| CLEAN-01 | Phase 38 | Pending |
+| CLEAN-02 | Phase 38 | Pending |
+| CLEAN-03 | Phase 38 | Pending |
+| CLEAN-04 | Phase 38 | Pending |
+| CLEAN-05 | Phase 38 | Pending |
+| CLEAN-06 | Phase 38 | Pending |
+| CLEAN-07 | Phase 38 | Pending |
 
 **Coverage:**
 - v0.17.0 requirements: 16 total
-- Mapped to phases: 0
-- Unmapped: 16 ⚠️
+- Mapped to phases: 16
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-26*
-*Last updated: 2026-02-26 after initial definition*
+*Last updated: 2026-02-26 after roadmap creation*
