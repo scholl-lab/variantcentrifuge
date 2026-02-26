@@ -7,8 +7,8 @@
 
 ### Performance
 
-- [ ] **PERF-01**: Compound het Pass 2 uses ProcessPoolExecutor or Numba instead of GIL-bound ThreadPoolExecutor
-- [ ] **PERF-02**: Compound het parallelization achieves measurable speedup on multi-core systems
+- [x] **PERF-01**: Compound het Pass 2 eliminates GIL contention via pre-dispatch dedup, pedigree arrays, and numpy-only workers
+- [x] **PERF-02**: Compound het parallelization achieves measurable speedup on multi-core systems
 
 ### Dead Code
 
@@ -62,8 +62,8 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PERF-01 | Phase 39 | Pending |
-| PERF-02 | Phase 39 | Pending |
+| PERF-01 | Phase 39 | Complete |
+| PERF-02 | Phase 39 | Complete |
 | DEAD-01 | Phase 38 | Complete |
 | DEAD-02 | Phase 38 | Complete |
 | DEAD-03 | Phase 38 | Complete |
@@ -87,4 +87,4 @@
 
 ---
 *Requirements defined: 2026-02-26*
-*Last updated: 2026-02-26 after Phase 38 completion*
+*Last updated: 2026-02-26 after Phase 39 completion*
