@@ -9,14 +9,14 @@ See: .planning/PROJECT.md (updated 2026-02-26)
 
 ## Current Position
 
-Phase: 39 — Compound Het Parallelization — In Progress
-Plan: 1/2 complete
-Status: Plan 39-01 complete
-Last activity: 2026-02-26 — Completed 39-01-PLAN.md (benchmark + baseline)
+Phase: 39 — Compound Het Parallelization — Complete
+Plan: 2/2 complete
+Status: v0.17.0 milestone complete — all phases shipped
+Last activity: 2026-02-26 — Completed 39-02-PLAN.md (GIL contention optimization)
 
-Progress: ██████████░░░░░░ 56% (1.5/2 phases complete, 4/5 plans done)
+Progress: ████████████████ 100% (2/2 phases complete, 5/5 plans done)
 
-Next: Execute Phase 39 Plan 02 (optimization)
+Next: New milestone via /gsd:new-milestone
 
 ## Performance Metrics
 
@@ -37,6 +37,9 @@ Next: Execute Phase 39 Plan 02 (optimization)
 | 38-03 | TODO intelligent batching replaced with deferred-work NOTE | Current fixed-size batching sufficient; revisit at ~100 stages |
 | 39-01 | Benchmark measures total wall-time (all 3 passes), not isolated Pass 2 | Pass 1+3 fast relative to Pass 2 for large datasets; total time is reasonable proxy |
 | 39-01 | Baseline confirms GIL contention: parallel 0.21x-0.92x vs sequential pre-optimization | Empirical evidence supports CONTEXT.md hypothesis; optimization target: parallel >= sequential |
+| 39-02 | Pre-dispatch dedup in main thread eliminates per-worker drop_duplicates() call | DataFrame ops must happen before dispatch to avoid GIL contention |
+| 39-02 | Pedigree arrays (int32/int8) indexed by sample position replace dict.get() in workers | O(1) array lookup vs O(1) dict lookup, but arrays release GIL unlike Python dicts |
+| 39-02 | eff_sample_to_idx defensive fallback instead of assert for None gt_matrix | Avoids AssertionError in edge case where vectorized_deduce_patterns doesn't return tuple |
 
 ### Architecture Invariants
 
@@ -56,7 +59,7 @@ Next: Execute Phase 39 Plan 02 (optimization)
 
 ## Session Continuity
 
-Last session: 2026-02-26 22:02Z
-Stopped at: Completed 39-01-PLAN.md (benchmark created, baseline captured)
+Last session: 2026-02-26 22:20Z
+Stopped at: Completed 39-02-PLAN.md (GIL contention optimization, v0.17.0 shipped)
 Resume file: None
-Next: Execute Phase 39 Plan 02 (GIL contention optimization)
+Next: New milestone via /gsd:new-milestone
