@@ -48,7 +48,7 @@ _No unreleased changes._
 ## [0.13.1] - 2026-02-16
 
 ### Fixed
-- Resource auto-detection across classic and stage-based pipeline modes
+- Resource auto-detection across pipeline modes
 
 ## [0.13.0] - 2026-02-16
 

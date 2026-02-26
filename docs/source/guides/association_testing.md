@@ -331,7 +331,7 @@ variantcentrifuge \
 
 | Column | Description |
 |--------|-------------|
-| `skat_pvalue` | Raw SKAT-O p-value |
+| `skat_o_pvalue` | Raw SKAT-O p-value |
 | `skat_o_rho` | Optimal rho (mixing parameter between SKAT and burden) |
 | `acat_v_p` | ACAT-V per-variant score (internal; feeds ACAT-O) |
 
@@ -436,7 +436,7 @@ selected tests have run. When SKAT is active, ACAT-V is also included in the com
 ### FDR Correction Strategy
 
 A **single** Benjamini-Hochberg FDR correction pass is applied to the ACAT-O p-values across all
-genes. Individual test p-values (`fisher_pvalue`, `skat_pvalue`, etc.) are **not** corrected.
+genes. Individual test p-values (`fisher_pvalue`, `skat_o_pvalue`, etc.) are **not** corrected.
 
 :::{warning}
 Do not apply additional correction to individual test p-values, and do not apply FDR separately
@@ -543,6 +543,12 @@ to the expected median (0.455 for chi2 with 1 df):
 :::{note}
 lambda_GC is unreliable when fewer than 100 genes were tested. For small gene panels, skip
 lambda_GC and rely on individual gene results directly.
+:::
+
+:::{note}
+For Fisher's exact test, lambda_GC is computed as a diagnostic indicator only — it is **not**
+used to correct or adjust Fisher p-values. Use it to detect gross calibration issues, not as a
+correction factor.
 :::
 
 ---

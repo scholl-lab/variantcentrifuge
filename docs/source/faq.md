@@ -141,33 +141,29 @@ variantcentrifuge \
 
 Several optimization strategies:
 
-1. **Pre-filter with bcftools:**
+1. **Pre-filter with bcftools during extraction:**
    ```bash
-   variantcentrifuge --bcftools-filter "QUAL>=30" ...
+   variantcentrifuge --bcftools-prefilter "QUAL>=30" ...
    ```
 
-2. **Use chunked processing:**
+2. **Keep intermediate files uncompressed** (default) or compress them:
    ```bash
-   variantcentrifuge --chunks 1000 ...
+   # Intermediate files are gzip-compressed by default; skip compression for speed:
+   variantcentrifuge --no-gzip-intermediates ...
    ```
 
-3. **Compress intermediate files:**
+3. **Set memory limit** for sort operations on large files:
    ```bash
-   variantcentrifuge --gzip-intermediates ...
-   ```
-
-4. **Focus on specific regions:**
-   ```bash
-   variantcentrifuge --interval-expansion 0 ...
+   variantcentrifuge --sort-memory 4G ...
    ```
 
 ### What's the maximum VCF file size VariantCentrifuge can handle?
 
 There's no hard limit, but performance considerations apply:
 - Files <1GB: Process normally
-- Files 1-10GB: Use chunking (`--chunks 5000`)
-- Files >10GB: Pre-filter with bcftools and use chunking
-- Memory usage scales with number of samples and variants per chunk
+- Files 1-10GB: Pre-filter with `--bcftools-prefilter` and increase `--sort-memory`
+- Files >10GB: Pre-filter aggressively and consider running per-gene batches via the Snakemake workflow
+- Memory usage scales with number of samples and variants per gene
 
 ## Troubleshooting
 
@@ -176,12 +172,12 @@ There's no hard limit, but performance considerations apply:
 Common reasons:
 1. Variants filtered by quality or coverage thresholds
 2. Gene name mismatches (check gene symbol aliases)
-3. Variants outside gene boundaries (adjust `--interval-expansion`)
+3. Variants outside gene boundaries (adjust `--interval-padding`)
 4. Filter criteria too stringent
 
 Debug with:
 ```bash
-variantcentrifuge --no-filtering --keep-intermediates ...
+variantcentrifuge --keep-intermediates ...
 ```
 
 ### How do I debug inheritance pattern detection?
