@@ -7,7 +7,6 @@ based on clinical significance and pattern reliability.
 
 import logging
 from collections.abc import Mapping
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -38,35 +37,6 @@ PATTERN_PRIORITY = {
     "unknown": 10,  # Pattern unclear
     "reference": 5,  # No variant
     "none": 0,  # No pattern
-}
-
-# Pattern categories for grouping
-PATTERN_CATEGORIES = {
-    # Confirmed patterns
-    "de_novo": "sporadic",
-    "compound_heterozygous": "recessive",
-    "autosomal_recessive": "recessive",
-    "x_linked_recessive": "x_linked",
-    "x_linked_dominant": "x_linked",
-    "autosomal_dominant": "dominant",
-    "mitochondrial": "maternal",
-    # Possible patterns
-    "de_novo_candidate": "sporadic",
-    "compound_heterozygous_possible": "recessive",
-    "compound_heterozygous_possible_no_pedigree": "recessive",
-    "compound_heterozygous_possible_missing_parents": "recessive",
-    "compound_heterozygous_possible_missing_parent_genotypes": "recessive",
-    "autosomal_recessive_possible": "recessive",
-    "x_linked_recessive_possible": "x_linked",
-    "x_linked_dominant_possible": "x_linked",
-    "autosomal_dominant_possible": "dominant",
-    # Single sample patterns
-    "homozygous": "recessive",
-    "reference": "none",
-    # Other patterns
-    "non_mendelian": "complex",
-    "unknown": "unclear",
-    "none": "none",
 }
 
 
@@ -130,31 +100,6 @@ def prioritize_patterns(
     return (best_pattern[0], confidence)
 
 
-def adjust_pattern_score(
-    pattern: str,
-    base_score: float,
-) -> float:
-    """
-    Adjust pattern score based on additional evidence.
-
-    Note: This function is preserved for backwards compatibility but
-    currently just returns the base score without adjustment.
-
-    Parameters
-    ----------
-    pattern : str
-        The inheritance pattern
-    base_score : float
-        Base priority score
-
-    Returns
-    -------
-    float
-        Adjusted score (currently just returns base_score)
-    """
-    return base_score
-
-
 def calculate_confidence(pattern_scores: Mapping[str, int | float], best_pattern: str) -> float:
     """
     Calculate confidence score based on pattern score distribution.
@@ -193,47 +138,6 @@ def calculate_confidence(pattern_scores: Mapping[str, int | float], best_pattern
     confidence = min((score_separation / 50.0) * (best_score / 100.0), 1.0)
 
     return round(confidence, 2)
-
-
-def get_pattern_category(pattern: str) -> str:
-    """
-    Get the category for an inheritance pattern.
-
-    Parameters
-    ----------
-    pattern : str
-        The inheritance pattern
-
-    Returns
-    -------
-    str
-        Pattern category
-    """
-    return PATTERN_CATEGORIES.get(pattern, "unclear")
-
-
-def group_patterns_by_category(patterns: list[str]) -> dict[str, list[str]]:
-    """
-    Group patterns by their categories.
-
-    Parameters
-    ----------
-    patterns : List[str]
-        List of inheritance patterns
-
-    Returns
-    -------
-    Dict[str, List[str]]
-        Dictionary mapping categories to patterns
-    """
-    grouped: dict[str, list[str]] = {}
-    for pattern in patterns:
-        category = get_pattern_category(pattern)
-        if category not in grouped:
-            grouped[category] = []
-        grouped[category].append(pattern)
-
-    return grouped
 
 
 def get_pattern_description(pattern: str) -> str:
@@ -285,104 +189,3 @@ def get_pattern_description(pattern: str) -> str:
     }
 
     return descriptions.get(pattern, "Unknown inheritance pattern")
-
-
-def resolve_conflicting_patterns(
-    patterns_by_sample: dict[str, list[str]], variant_info: dict[str, Any] | None = None
-) -> str:
-    """
-    Resolve conflicting inheritance patterns across samples.
-
-    Parameters
-    ----------
-    patterns_by_sample : Dict[str, List[str]]
-        Dictionary mapping sample IDs to their patterns
-    variant_info : Optional[Dict[str, Any]]
-        Optional variant information
-
-    Returns
-    -------
-    str
-        The most likely overall pattern
-    """
-    # Collect all patterns
-    all_patterns = []
-    for patterns in patterns_by_sample.values():
-        all_patterns.extend(patterns)
-
-    if not all_patterns:
-        return "none"
-
-    # Count pattern occurrences
-    pattern_counts: dict[str, int] = {}
-    for pattern in all_patterns:
-        pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
-
-    # If one pattern dominates, use it
-    total_count = len(all_patterns)
-    for pattern, count in pattern_counts.items():
-        if count / total_count > 0.5:  # More than 50% agreement
-            return pattern
-
-    # Otherwise, prioritize based on pattern priority
-    unique_patterns = list(set(all_patterns))
-    best_pattern, _ = prioritize_patterns(unique_patterns)
-
-    return best_pattern
-
-
-def filter_compatible_patterns(patterns: list[str], family_structure: dict[str, Any]) -> list[str]:
-    """
-    Filter patterns based on family structure compatibility.
-
-    Parameters
-    ----------
-    patterns : List[str]
-        List of potential patterns
-    family_structure : Dict[str, Any]
-        Information about family structure
-
-    Returns
-    -------
-    List[str]
-        List of patterns compatible with family structure
-    """
-    compatible = []
-
-    for pattern in patterns:
-        if is_pattern_compatible(pattern, family_structure):
-            compatible.append(pattern)
-
-    # If no patterns are compatible, return original list
-    return compatible if compatible else patterns
-
-
-def is_pattern_compatible(pattern: str, family_structure: dict[str, Any]) -> bool:
-    """
-    Check if a pattern is compatible with family structure.
-
-    Parameters
-    ----------
-    pattern : str
-        The inheritance pattern
-    family_structure : Dict[str, Any]
-        Family structure information
-
-    Returns
-    -------
-    bool
-        True if compatible
-    """
-    # De novo requires parents
-    if pattern == "de_novo":
-        return bool(family_structure.get("has_parents", False))
-
-    # X-linked patterns require known sex
-    if pattern in ["x_linked_recessive", "x_linked_dominant"]:
-        return bool(family_structure.get("has_sex_info", False))
-
-    # Compound het benefits from parent data
-    if pattern == "compound_heterozygous":
-        return True  # Can be inferred even without parents
-
-    return True

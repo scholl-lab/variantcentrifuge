@@ -757,11 +757,6 @@ class DataFrameLoadingStage(Stage):
         if context.config.get("force_chunked_processing"):
             return True
 
-        # TODO(12-02): Remove this check after migrating to ResourceManager auto-detection
-        # Check explicit chunking request (legacy config key, removed from CLI in 12-01)
-        if context.config.get("chunks"):
-            return True
-
         # Memory-aware chunking decision
         try:
             # Get sample count for memory estimation
@@ -2196,10 +2191,8 @@ def _validate_association_config_dict(d: dict) -> None:
         errors.append(f"'trait_type' must be 'binary' or 'quantitative', got '{d['trait_type']}'")
     if "skat_backend" in d and d["skat_backend"] not in ("auto", "r", "python"):
         errors.append(f"'skat_backend' must be 'auto', 'r', or 'python', got '{d['skat_backend']}'")
-    if "coast_backend" in d and d["coast_backend"] not in ("auto", "r", "python"):
-        errors.append(
-            f"'coast_backend' must be 'auto', 'r', or 'python', got '{d['coast_backend']}'"
-        )
+    if "coast_backend" in d and d["coast_backend"] not in ("auto", "python"):
+        errors.append(f"'coast_backend' must be 'auto' or 'python', got '{d['coast_backend']}'")
 
     if errors:
         raise ValueError(

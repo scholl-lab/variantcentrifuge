@@ -8,7 +8,7 @@ pattern deduction, compound heterozygous analysis, and pattern prioritization.
 import json
 import logging
 import time
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -293,7 +293,7 @@ def _finalize_inheritance_patterns(
         # which work on dicts.  Eliminates 294k Series allocations.
         row_dict = {col: sample_col_data[col][idx] for col in sample_cols_present}
 
-        details = create_inheritance_details(
+        details = _create_inheritance_details(
             row_dict,
             best_pattern,
             patterns_list,
@@ -311,7 +311,7 @@ def _finalize_inheritance_patterns(
     df["Inheritance_Details"] = inheritance_details_result
 
 
-def create_inheritance_details(
+def _create_inheritance_details(
     row: dict[str, Any] | pd.Series,
     best_pattern: str,
     all_patterns: list[str],
@@ -402,132 +402,6 @@ def create_inheritance_details(
     )
 
     return details
-
-
-def get_inheritance_summary(df: pd.DataFrame) -> dict[str, Any]:
-    """
-    Generate a summary of inheritance analysis results.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        DataFrame with inheritance analysis results
-
-    Returns
-    -------
-    Dict[str, Any]
-        Summary dictionary
-    """
-    summary = {
-        "total_variants": len(df),
-        "pattern_counts": df["Inheritance_Pattern"].value_counts().to_dict(),
-        "high_confidence_patterns": 0,
-        "compound_het_genes": set(),
-        "de_novo_variants": 0,
-    }
-
-    # Analyze details
-    for row in df.itertuples(index=False):
-        try:
-            details = json.loads(getattr(row, "Inheritance_Details", "{}"))
-
-            # Count high confidence patterns
-            if details.get("confidence", 0) > 0.8:
-                hcp = cast(int, summary["high_confidence_patterns"])
-                summary["high_confidence_patterns"] = hcp + 1
-
-            # Track compound het genes
-            for sample in details.get("samples_with_pattern", []):
-                if "compound_het_gene" in sample:
-                    cast(set, summary["compound_het_genes"]).add(sample["compound_het_gene"])
-
-            # Count de novo
-            if getattr(row, "Inheritance_Pattern", "") == "de_novo":
-                summary["de_novo_variants"] = cast(int, summary["de_novo_variants"]) + 1
-
-        except (json.JSONDecodeError, KeyError, AttributeError):
-            continue
-
-    summary["compound_het_genes"] = list(cast(set, summary["compound_het_genes"]))
-    summary["compound_het_gene_count"] = len(list(cast(set, summary["compound_het_genes"])))
-
-    return summary
-
-
-def filter_by_inheritance_pattern(
-    df: pd.DataFrame, patterns: list[str], min_confidence: float | None = None
-) -> pd.DataFrame:
-    """
-    Filter DataFrame by inheritance patterns.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        DataFrame with inheritance analysis
-    patterns : List[str]
-        List of patterns to include
-    min_confidence : Optional[float]
-        Minimum confidence threshold
-
-    Returns
-    -------
-    pd.DataFrame
-        Filtered DataFrame
-    """
-    # Filter by pattern
-    mask = df["Inheritance_Pattern"].isin(patterns)
-
-    # Optionally filter by confidence
-    if min_confidence is not None:
-        confidence_mask = df["Inheritance_Details"].apply(
-            lambda x: json.loads(x).get("confidence", 0) >= min_confidence
-        )
-        mask = mask & confidence_mask
-
-    return df[mask].copy()
-
-
-def export_inheritance_report(
-    df: pd.DataFrame, output_path: str, sample_list: list[str] | None = None
-) -> None:
-    """
-    Export a detailed inheritance report.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        DataFrame with inheritance analysis
-    output_path : str
-        Path for output file
-    sample_list : Optional[List[str]]
-        Optional subset of samples to include
-    """
-    report_data = []
-
-    for row in df.itertuples(index=False):
-        variant_info = {
-            "chromosome": getattr(row, "CHROM", ""),
-            "position": getattr(row, "POS", ""),
-            "reference": getattr(row, "REF", ""),
-            "alternate": getattr(row, "ALT", ""),
-            "gene": getattr(row, "GENE", ""),
-            "impact": getattr(row, "IMPACT", ""),
-            "inheritance_pattern": getattr(row, "Inheritance_Pattern", ""),
-        }
-
-        try:
-            details = json.loads(getattr(row, "Inheritance_Details", "{}"))
-            variant_info.update(details)
-        except (json.JSONDecodeError, KeyError, AttributeError):
-            pass
-
-        report_data.append(variant_info)
-
-    # Save as JSON
-    with open(output_path, "w") as f:
-        json.dump(report_data, f, indent=2)
-
-    logger.info(f"Inheritance report saved to {output_path}")
 
 
 def process_inheritance_output(

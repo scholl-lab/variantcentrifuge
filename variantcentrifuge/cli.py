@@ -436,9 +436,9 @@ def create_parser() -> argparse.ArgumentParser:
     )
     stats_group.add_argument(
         "--coast-backend",
-        choices=["auto", "r", "python"],
+        choices=["auto", "python"],
         default="python",
-        help="COAST computation backend: python (default), r (deprecated), or auto",
+        help="COAST computation backend: python (default) or auto",
     )
     stats_group.add_argument(
         "--coast-classification",
@@ -936,18 +936,11 @@ def create_parser() -> argparse.ArgumentParser:
     # Miscellaneous Options
     misc_group = parser.add_argument_group("Miscellaneous Options")
     misc_group.add_argument(
-        "--gzip-intermediates",
-        action="store_true",
-        default=True,
-        help="Compress intermediate TSV files with gzip to save disk space. "
-        "Uses fast compression (level 1) to optimize I/O performance while reducing disk usage. "
-        "Use --no-gzip-intermediates to disable.",
-    )
-    misc_group.add_argument(
         "--no-gzip-intermediates",
         dest="gzip_intermediates",
         action="store_false",
-        help="Disable compression of intermediate TSV files.",
+        default=True,
+        help="Disable compression of intermediate TSV files (compression is enabled by default).",
     )
     return parser
 
