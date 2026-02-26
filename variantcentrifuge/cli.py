@@ -124,6 +124,14 @@ def create_parser() -> argparse.ArgumentParser:
             "For example: a file where each line is a transcript like NM_007294.4"
         ),
     )
+    gene_group.add_argument(
+        "--regions-bed",
+        help=(
+            "BED file to restrict variant extraction to specified regions (e.g., capture kit BED). "
+            "The gene BED is intersected with this file before variant extraction."
+        ),
+        default=None,
+    )
 
     # Filtering & Annotation
     filter_group = parser.add_argument_group("Filtering & Annotation")
@@ -433,6 +441,16 @@ def create_parser() -> argparse.ArgumentParser:
         help="COAST computation backend: python (default), r (deprecated), or auto",
     )
     stats_group.add_argument(
+        "--coast-classification",
+        type=str,
+        default="sift_polyphen",
+        help=(
+            "COAST classification model for BMV/DMV/PTV assignment. "
+            "Built-in models: 'sift_polyphen' (default), 'cadd'. "
+            "Custom models: provide directory name under scoring/coast_classification/."
+        ),
+    )
+    stats_group.add_argument(
         "--covariate-file",
         type=str,
         default=None,
@@ -513,10 +531,11 @@ def create_parser() -> argparse.ArgumentParser:
     stats_group.add_argument(
         "--association-workers",
         type=int,
-        default=1,
+        default=0,
         help=(
             "Number of parallel worker processes for association analysis. "
-            "Default: 1 (sequential). Set to -1 for auto (os.cpu_count()). "
+            "Default: 0 (auto — uses --threads value). Set to 1 for sequential, "
+            "-1 for all cores. "
             "Only effective with Python backends (R backend is not parallel-safe)."
         ),
     )
@@ -557,25 +576,49 @@ def create_parser() -> argparse.ArgumentParser:
             "Default: 10. Flags genes where case_carriers < this value."
         ),
     )
-    # Phase 23: PCA arguments
+    # Phase 32: Unified PCA argument (replaces --pca-file and --pca-tool)
     stats_group.add_argument(
-        "--pca-file",
-        type=str,
+        "--pca",
+        dest="pca",
         default=None,
-        help="Path to pre-computed PCA file (PLINK .eigenvec, AKT output, or generic TSV).",
-    )
-    stats_group.add_argument(
-        "--pca-tool",
-        choices=["akt"],
-        default=None,
-        help="PCA computation tool. 'akt' invokes AKT as a pipeline stage.",
+        help=(
+            "PCA eigenvectors: path to pre-computed file (PLINK .eigenvec, AKT output, "
+            "or generic TSV), or 'akt' to compute via AKT as a pipeline stage."
+        ),
     )
     stats_group.add_argument(
         "--pca-components",
         type=int,
         default=10,
-        help="Number of principal components (default: 10). Warn if >20.",
+        help="Number of principal components to use as covariates (default: 10).",
     )
+    stats_group.add_argument(
+        "--pca-sites",
+        default=None,
+        help=(
+            "VCF/BCF with sites to restrict AKT PCA computation (passed as -R to akt). "
+            "Use the wes.grch37.vcf.gz or wgs.grch37.vcf.gz files shipped with AKT. "
+            "Without this, --pca akt uses --force to run on all sites."
+        ),
+    )
+    # Phase 33: Gene-level FDR weighting
+    stats_group.add_argument(
+        "--gene-prior-weights",
+        default=None,
+        help=(
+            "TSV file with per-gene weights for weighted Benjamini-Hochberg FDR correction. "
+            "First column: gene name, weight column (default: 'weight'): positive float. "
+            "Genes not in the file receive weight=1.0. Activates weighted BH automatically."
+        ),
+    )
+    stats_group.add_argument(
+        "--gene-prior-weight-column",
+        default="weight",
+        help="Column name in the gene weight file containing weight values (default: 'weight')",
+    )
+    # Deprecated aliases (backward compatibility — hidden from help)
+    stats_group.add_argument("--pca-file", dest="pca", help=argparse.SUPPRESS, default=None)
+    stats_group.add_argument("--pca-tool", dest="pca", help=argparse.SUPPRESS, default=None)
     # Inheritance Analysis
     inheritance_group = parser.add_argument_group("Inheritance Analysis")
     inheritance_group.add_argument(
@@ -1192,6 +1235,8 @@ def main() -> int:
         cfg["association_tests"] = ["fisher"] if args.perform_association else []
     cfg["skat_backend"] = getattr(args, "skat_backend", "python")
     cfg["coast_backend"] = getattr(args, "coast_backend", "python")
+    # coast_classification: resolved to absolute path later during auto-field injection
+    cfg["coast_classification"] = None
 
     # Phase 19: Covariate and regression configuration
     cfg["covariate_file"] = getattr(args, "covariate_file", None)
@@ -1223,10 +1268,12 @@ def main() -> int:
     else:
         cfg["variant_weight_params"] = None
     cfg["diagnostics_output"] = getattr(args, "diagnostics_output", None)
-    # Phase 23: PCA configuration
-    cfg["pca_file"] = getattr(args, "pca_file", None)
-    cfg["pca_tool"] = getattr(args, "pca_tool", None)
+    # Phase 32: Region restriction
+    cfg["regions_bed"] = getattr(args, "regions_bed", None)
+    # Phase 32: Unified PCA configuration (--pca replaces --pca-file/--pca-tool)
+    cfg["pca"] = getattr(args, "pca", None)
     cfg["pca_components"] = getattr(args, "pca_components", 10)
+    cfg["pca_sites"] = getattr(args, "pca_sites", None)
     # Phase 23: COAST weights — parse comma-separated floats
     _coast_weights_raw = getattr(args, "coast_weights", None)
     if _coast_weights_raw:
@@ -1251,9 +1298,17 @@ def main() -> int:
             _sys.exit(2)
     else:
         cfg["coast_weights"] = None
-    cfg["association_workers"] = getattr(args, "association_workers", 1)
+    # Association workers: 0/None = auto-allocate from --threads (default)
+    _aw = getattr(args, "association_workers", 0)
+    cfg["association_workers"] = _aw if _aw else 0
     # Phase 28: SKAT method and diagnostic thresholds
     cfg["skat_method"] = getattr(args, "skat_method", "SKAT")
+    # Phase 33: Gene-level FDR weighting
+    _gpw = getattr(args, "gene_prior_weights", None)
+    if _gpw and not Path(_gpw).is_file():
+        parser.error(f"--gene-prior-weights file not found: {_gpw}")
+    cfg["gene_prior_weights"] = _gpw
+    cfg["gene_prior_weight_column"] = getattr(args, "gene_prior_weight_column", "weight")
     cfg["association_min_cases"] = getattr(args, "min_cases", 200)
     cfg["association_max_case_control_ratio"] = getattr(args, "max_case_control_ratio", 20.0)
     cfg["association_min_case_carriers"] = getattr(args, "min_case_carriers", 10)
@@ -1305,6 +1360,72 @@ def main() -> int:
 
         cfg["igv_reference"] = args.igv_reference
     # MODIFIED: End of local IGV FASTA feature
+
+    # COAST auto-field injection (COAST-02, COAST-05)
+    # When COAST is one of the selected association tests, auto-inject annotation fields
+    # required by the selected classification model into the field extraction list.
+    _association_tests = cfg.get("association_tests", [])
+    if "coast" in _association_tests:
+        import json as _json
+        import os as _os
+
+        _coast_model = getattr(args, "coast_classification", "sift_polyphen")
+        # Resolve scoring base dir: package is at variantcentrifuge/, scoring/ is one level up
+        _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
+        _scoring_base = _os.path.join(_os.path.dirname(_pkg_dir), "scoring")
+        if not _os.path.isdir(_scoring_base):
+            _scoring_base = _os.path.join(_os.getcwd(), "scoring")
+        _coast_model_dir = _os.path.join(_scoring_base, "coast_classification", _coast_model)
+        if not _os.path.isdir(_coast_model_dir):
+            logger.error(
+                f"COAST classification model not found: {_coast_model_dir}. "
+                f"Available models are in scoring/coast_classification/."
+            )
+            sys.exit(1)
+
+        # Read required VCF fields from variable_assignment_config
+        _var_config_path = _os.path.join(_coast_model_dir, "variable_assignment_config.json")
+        try:
+            with open(_var_config_path, encoding="utf-8") as _f:
+                _var_config = _json.load(_f)
+        except (OSError, _json.JSONDecodeError) as _e:
+            logger.error(f"COAST: failed to read variable_assignment_config: {_e}")
+            sys.exit(1)
+
+        # Read vcf_fields list (actual VCF annotation field names for auto-injection).
+        # The "variables" keys are internal COAST_* names used by the formula engine,
+        # not VCF field names, so we use the explicit vcf_fields list instead.
+        _vcf_fields = _var_config.get("vcf_fields", [])
+
+        if _vcf_fields:
+            if fields:
+                # fields_to_extract uses space-separated format; --fields uses commas.
+                # Support both by splitting on commas first, then whitespace.
+                if "," in fields:
+                    _field_list = [f.strip() for f in fields.split(",")]
+                else:
+                    _field_list = fields.split()
+                _injected = []
+                for _rf in _vcf_fields:
+                    if _rf not in _field_list:
+                        _field_list.append(_rf)
+                        _injected.append(_rf)
+                if _injected:
+                    logger.info(
+                        f"COAST auto-injected fields for '{_coast_model}' model: {_injected}"
+                    )
+                # Rejoin using the same delimiter as the input
+                _sep = "," if "," in fields else " "
+                fields = _sep.join(_field_list)
+            else:
+                fields = " ".join(_vcf_fields)
+                logger.info(
+                    f"COAST set extraction fields for '{_coast_model}' model: {_vcf_fields}"
+                )
+
+        # Store resolved absolute path in cfg for AssociationConfig propagation
+        cfg["coast_classification"] = _coast_model_dir
+        logger.debug(f"COAST classification model resolved to: {_coast_model_dir}")
 
     # Update reference/filters/fields
     cfg["reference"] = reference
@@ -1391,6 +1512,10 @@ def main() -> int:
         logger.error("--json-gene-mapping requires --annotate-json-genes to be provided.")
         sys.exit(1)
 
+    # Validate --regions-bed file existence
+    if getattr(args, "regions_bed", None) and not Path(args.regions_bed).is_file():
+        parser.error(f"--regions-bed file not found: {args.regions_bed}")
+
     # Validate association analysis arguments
     if args.association_tests and not args.perform_association:
         parser.error("--association-tests requires --perform-association to be set")
@@ -1403,11 +1528,9 @@ def main() -> int:
     if getattr(args, "diagnostics_output", None) and not args.perform_association:
         parser.error("--diagnostics-output requires --perform-association to be set")
 
-    # PCA args only make sense with association analysis
-    if getattr(args, "pca_file", None) and not args.perform_association:
-        parser.error("--pca-file requires --perform-association to be set")
-    if getattr(args, "pca_tool", None) and not args.perform_association:
-        parser.error("--pca-tool requires --perform-association to be set")
+    # PCA arg only makes sense with association analysis
+    if getattr(args, "pca", None) and not args.perform_association:
+        parser.error("--pca requires --perform-association to be set")
 
     # Trait type / test compatibility check
     trait_type = getattr(args, "trait_type", "binary")

@@ -1,0 +1,14 @@
+{
+  "_comment": "Keys are normalized column names as prepared by classify_variants() before calling apply_scoring().",
+  "_comment_normalization": "classify_variants() renames effect_col -> COAST_EFFECT, impact_col -> COAST_IMPACT, cadd_col -> COAST_CADD before calling apply_scoring().",
+  "variables": {
+    "COAST_EFFECT": "effect|default:''",
+    "COAST_IMPACT": "impact|default:''",
+    "COAST_CADD": "cadd_phred|default:0.0"
+  },
+  "vcf_fields": [
+    "ANN[0].EFFECT",
+    "ANN[0].IMPACT",
+    "dbNSFP_CADD_phred"
+  ]
+}

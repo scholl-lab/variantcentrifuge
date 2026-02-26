@@ -1,7 +1,7 @@
 # Feature Landscape — Modular Rare Variant Association Framework
 
 **Domain:** Rare variant association testing for genomic sequencing studies
-**Researched:** 2026-02-19
+**Researched:** 2026-02-19 (v0.15.0), updated 2026-02-23 (v0.16.0)
 **Target:** Adding association testing to variantcentrifuge (nephrology lab, ~5,000 samples, multi-sample VCF)
 **Existing baseline:** Fisher's exact test with FDR/Bonferroni correction in `gene_burden.py`
 
@@ -322,7 +322,394 @@ adjustment for binary traits — this should be the default when R backend is us
 
 ---
 
-## Sources
+# v0.16.0 Addendum: Association Hardening and Multi-Cohort Features
+
+**Researched:** 2026-02-23
+**Scope:** Features NEW to v0.16.0. The sections above document the v0.15.0 foundation (already built). This section documents what v0.16.0 adds on top.
+
+---
+
+## v0.16.0 Feature 1: Weighted FDR Correction (Issue #86)
+
+### How Comparable Tools Handle It
+
+The standard genomic approach has two distinct layers:
+
+**Layer A — Static weighted BH (Genovese et al. 2006)**
+- Assigns per-hypothesis non-negative weights `w_i` such that `sum(w_i) == n_hypotheses`.
+- Computes weighted p-values: `p_i_weighted = p_i / w_i`.
+- Applies standard BH to weighted p-values.
+- FDR is controlled at nominal alpha when `sum(w) == n`.
+- Used when: weights are pre-specified from biological priors (gene-level GWAS signal, pathway membership, clinical gene list).
+- Reference: Genovese, Roeder & Wasserman (2006); PMC3458887
+
+**Layer B — IHW (Ignatiadis et al. Nature Methods 2016)**
+- Data-driven weight assignment using a covariate independent of p-values under H0 but informative of power.
+- Splits hypotheses into strata by covariate, subdivides into cross-validation folds to prevent overfitting.
+- Learns per-stratum weights; applies weighted BH.
+- Used when: a good covariate exists (MAF, gene expression, pathway score) and cohort is large enough for cross-validation (typically >1000 tests).
+- Available as Bioconductor `IHW` R package. No mature Python equivalent.
+- Reference: PMC4930141; Nature Methods 10.1038/nmeth.3885
+
+**Applied to rare variant association (Huang et al. Genes 2022, PMC8872452):**
+- Gene-level ML prediction score used as IHW covariate. Concentrates FDR budget on high-prior genes.
+- Reported 109% more discoveries at FDR alpha=0.3 for schizophrenia data.
+- Recommended covariate types: gene expression in disease-relevant tissue, GWAS locus membership, pathway risk scores, gene-level constraint (pLI/LOEUF).
+
+### Current State in VariantCentrifuge
+
+`correction.py` implements flat BH and Bonferroni only. No weighting mechanism exists.
+
+### Table Stakes for v0.16.0
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Static weighted BH (Genovese) | Standard approach; `statsmodels.stats.multitest.multipletests` accepts `weights` kwarg | Low | ~10-20 lines added to `correction.py`. Verified: statsmodels >= 0.14 supports `weights` parameter. |
+| Per-gene weight file loader | Mechanism to supply biological prior weights | Low-Med | Add `--fdr-weight-file` flag; TSV format (gene, weight); normalize to sum=n internally before passing to `multipletests` |
+
+### Differentiators for v0.16.0
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| IHW integration (optional, R) | Up to 2x discovery improvement when good covariate exists; state-of-art in biobank studies | Medium | Wrap IHW R package via rpy2. Add `--fdr-method ihw --ihw-covariate <col>` where covariate comes from the output table (e.g., n_variants, mean_maf, or a user-supplied column). |
+| Built-in covariate diagnostic | Show covariate-to-pvalue correlation so users know whether IHW will help | Low | Spearman correlation of each numeric output column vs p-values; flagged in diagnostics output |
+
+### Anti-Features for v0.16.0
+
+| Anti-Feature | Why Avoid | What to Do Instead |
+|--------------|-----------|-------------------|
+| Mandatory biological priors | Most users won't have them; blocks basic usage | Make weights optional; default is flat BH (unchanged behavior) |
+| IHW from scratch in Python | Active research area; subtle cross-validation correctness requirements | Wrap IHW R package via rpy2; graceful fallback to weighted BH if R/IHW absent |
+| Separate FDR per test type | Running BH separately for SKAT vs burden pools inflates discovery | Apply correction jointly across all genes for each test type, or use omnibus p-value as the correction target |
+
+**Dependencies:** `correction.py` `apply_correction()` — add `weights` parameter. `gene_burden.py` — thread optional weight vector. No new external tools required for weighted BH.
+
+---
+
+## v0.16.0 Feature 2: Sample-Level Case-Confidence Weights (Issue #85)
+
+### How Comparable Tools Handle It
+
+**REGENIE and SAIGE:** Neither natively supports case-confidence weights for uncertain binary phenotypes. They treat binary phenotype as hard 0/1. Standard workarounds:
+1. **Liability threshold model** — convert binary phenotype to continuous liability score (e.g., from EHR probability), then run as quantitative trait. Recent application: Nature Genetics 2025 (10.1038/s41588-025-02370-4).
+2. **Super-normal control design** — tighten control inclusion criteria to remove borderline cases. Shown to recover power under moderate-to-high misclassification (medRxiv 2025.12.14).
+
+**Weighted logistic regression:**
+- Technically sound: down-weight samples with uncertain diagnosis using `sample_weight` in the logistic regression.
+- `statsmodels.Logit` does NOT support per-sample weights. `sklearn.LogisticRegression` supports `sample_weight` in `fit()`.
+- For SKAT the weighting modifies the score vector: `S = G^T * (w * residuals)` — requires modifying null model residuals and eigenvalue recomputation. Research-grade modification, not off-the-shelf.
+- No established reference implementation in a published genomics tool as of research date.
+
+**Current state in VariantCentrifuge:** Binary phenotype only, hard 0/1. No weighting path.
+
+### Table Stakes for v0.16.0
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Weighted logistic burden (binary path) | Enables case-confidence in burden tests; sklearn has clean support | Medium | Use `sklearn.LogisticRegression(solver='lbfgs', sample_weight=...)` for weighted path. Add `--sample-weight-file` flag (TSV: sample_id, weight). |
+| Liability/continuous proxy mode documentation | Best-practice workaround when SKAT weighting is not available | Low | Already possible via `--trait-type quantitative`; needs documentation. |
+
+### Differentiators for v0.16.0
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Weighted SKAT (per-sample weights in score) | Statistically correct handling of uncertain phenotypes in kernel tests | High | Modify `S = G^T * (sqrt(w) * residuals)` and recompute null model with weighted GLM. Flag as experimental. Requires numerical validation. |
+| Sample-weight QC report | ESS (effective sample size = (sum w)^2 / sum w^2); warns when ESS << N | Low-Med | Standard in survey statistics; prevents silent power loss |
+
+### Anti-Features for v0.16.0
+
+| Anti-Feature | Why Avoid | What to Do Instead |
+|--------------|-----------|-------------------|
+| Conflating sample weights with FDR weights | These are different layers (data vs. correction) | Keep sample-weight file and FDR-weight file as separate CLI flags |
+| Frequency-based sample weighting | No theoretical basis in phenotype uncertainty | Use case-confidence directly; MAF weights belong to variant weighting |
+| Modifying phenotype vector in-place | Destroys auditability | Keep original phenotype array; pass weights as separate vector |
+
+**Dependencies:** `logistic_burden.py` — add `sample_weight` parameter; `python_backend.py` `fit_null_model()` — add weighted GLM path (deferred for SKAT). New CLI flag `--sample-weight-file`.
+
+---
+
+## v0.16.0 Feature 3: COAST Classification Fix and Scoring Model (Issue #87)
+
+### How the Reference Implementation Classifies Variants
+
+COAST (McCaw et al. AJHG 2023, PMC10432147) uses three canonical categories:
+
+**PTV (Protein Truncating Variant):**
+- Effect types: `stop_gained`, `frameshift_variant`, `splice_acceptor_variant`, `splice_donor_variant`
+- Filtered by LOFTEE to remove low-confidence LoF
+
+**DMV (Damaging Missense Variant):**
+- Effect: `missense_variant`
+- PolyPhen-2 "probably damaging" OR "possibly damaging"
+- AND SIFT "deleterious" OR "deleterious low confidence"
+- Note: the original paper uses OR logic for at least one tool predicting damaging
+
+**BMV (Benign Missense Variant):**
+- Effect: `missense_variant`
+- PolyPhen-2 "benign" AND SIFT "tolerated" OR "tolerated low confidence"
+- Both tools must agree on benign
+
+**CADD/REVEL:** NOT used in the reference COAST classification scheme. The `AllelicSeries` CRAN vignette confirms annotation codes are user-supplied; COAST does not dictate classification methodology. CADD and REVEL are discussed as potential extensions for continuous severity.
+
+### Current State in VariantCentrifuge
+
+`allelic_series.py` `classify_variants()` is **correctly implemented** matching the reference:
+- PTV: HIGH impact + PTV effects (correct)
+- DMV: missense + OR(SIFT-damaging, PolyPhen-damaging) (correct)
+- BMV: missense + AND(SIFT-benign, PolyPhen-benign) (correct)
+
+**The real COAST bug** is NOT classification. Root causes of `p=None` for all genes:
+1. **Strict 3-category gate** (lines 551-581 of `allelic_series.py`): genes missing any one of BMV/DMV/PTV return `None`. In real cohorts most genes lack one category.
+2. **gene_df alignment**: `contingency_data` may not carry `gene_df` correctly through the Python COAST path, triggering `coast_skip_reason: NO_GENE_DF` or `ANNOTATION_GENOTYPE_MISMATCH`.
+
+### Table Stakes for v0.16.0
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Configurable BMV/DMV/PTV classification criteria | COAST annotation is user-supplied by design; different annotation pipelines differ | Medium | Add `--coast-classification-config` JSON: define which effect types map to which category, which SIFT/PolyPhen values are damaging/benign |
+| Partial-category COAST fallback | Most real genes have only 2 of 3 categories; returning None for all is not useful | Medium | When only 2 categories present: run 2-category allelic series test or drop the missing category and test with available ones |
+| CADD score as optional DMV classifier | Single-source classification when PolyPhen/SIFT unavailable; CADD>20 is standard DMV threshold in the field | Low-Med | Add `--coast-cadd-threshold`; classify missense as DMV if CADD>=threshold, BMV if below |
+| REVEL as optional DMV classifier | REVEL outperforms SIFT+PolyPhen for missense pathogenicity; REVEL>=0.5 is standard threshold | Low-Med | Add `--coast-revel-threshold`; same structure as CADD |
+| gene_df wiring audit and fix | Core bug: genotype matrix build must preserve gene_df row alignment | High | Audit why `ANNOTATION_GENOTYPE_MISMATCH` occurs; fix row alignment between `gene_df` and genotype matrix columns in `engine.py` + `genotype_matrix.py` |
+
+### Differentiators for v0.16.0
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| N-category COAST support | AllelicSeries accepts arbitrary integer annotation levels; enable >3 categories for fine-grained severity | Medium | Allow user to map annotation values to integer codes 1..k; python backend handles arbitrary k |
+| LOFTEE flag integration | Removes low-confidence LoF from PTVs; reduces false positives in PTV category | Low | Add LOFTEE column detection; exclude LOFTEE_HC=LC variants from PTV |
+
+### Anti-Features for v0.16.0
+
+| Anti-Feature | Why Avoid | What to Do Instead |
+|--------------|-----------|-------------------|
+| Hard 3-category gate as only COAST mode | Returns p=None for most real-world genes; defeats the purpose | Return None only when zero classifiable variants; use partial-category test for 1-2 categories |
+| Recomputing SIFT/PolyPhen from sequence | Tool is post-annotation analysis framework | Accept pre-computed annotations from SnpEff/dbNSFP columns |
+| CADD-only classification replacing SIFT/PolyPhen | Changes results vs. reference; poor for reproducibility | Treat CADD as supplementary fallback when SIFT/PolyPhen absent, not primary classifier |
+
+**Dependencies:** `allelic_series.py` `classify_variants()` + `coast_python.py` `PythonCOASTBackend` + `engine.py` `contingency_data` assembly + `genotype_matrix.py` row ordering.
+
+---
+
+## v0.16.0 Feature 4: Region Restriction in Prefilter (Issue #84)
+
+### How Comparable Tools Handle It
+
+BED-file region restriction is a standard prefilter step in all VCF pipelines:
+
+**bcftools native approach:**
+- `bcftools view --regions-file <bed> input.vcf.gz` requires bgzipped + tabix-indexed VCF
+- BED coordinates are 0-based half-open; VCF coordinates are 1-based — bcftools handles this conversion
+- Known issue: `--regions-file` can produce duplicates for overlapping BED intervals (bcftools GitHub issue #221); use `--regions-file` not `--targets-file` for exact intersection without memory issues
+- Streaming: if BED is bgzipped + tabix-indexed (.tbi), bcftools streams efficiently; uncompressed BED is loaded into memory entirely
+
+**Cross-cohort use case:**
+- Restricting to shared genomic regions captured in ALL cohorts reduces false negatives from differential capture
+- Standard in multi-cohort analysis: compute intersection of capture kits, apply as prefilter BED
+
+### Current State in VariantCentrifuge
+
+`BCFtoolsPrefilterStage` applies expression-based filtering (`bcftools view -i "..."`) but does NOT support `--regions-file`. Gene extraction uses a gene BED for bcftools view (coordinate-based) but this is the gene-selection BED, not a user-supplied region restriction.
+
+### Table Stakes for v0.16.0
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| `--regions-bed` CLI flag | Standard cross-cohort analysis requirement; bcftools native, trivial to add | Low | Prepend `bcftools view -R <bed>` (or `--regions-file <bed>`) before expression filter; can combine with existing `--bcftools-prefilter` |
+| BED format validation | bcftools is finicky about 0-based coords; silent errors are common | Low | Validate BED has 3 columns; warn if chromosomes don't match VCF contigs |
+| Tabix index detection | Streaming via tabix is faster for large BEDs | Low | Check `<bed>.tbi` exists; log whether streaming or in-memory mode |
+
+### Differentiators for v0.16.0
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Capture kit intersection utility | Compute BED intersection of N cohort capture kits before analysis; enables reproducible multi-cohort runs | Medium | Wrapper around `bedtools multiinter -i *.bed | awk '$4==N'`; document as separate utility script |
+
+### Anti-Features for v0.16.0
+
+| Anti-Feature | Why Avoid | What to Do Instead |
+|--------------|-----------|-------------------|
+| Merging region BED with gene BED internally | Creates confusing behavior; output genes depend on intersection ordering | Apply region BED as pre-step; gene BED as subsequent step; keep logically separate |
+| Requiring tabix-indexed BED | Not all users have tabix installed | Support both; index just speeds things up |
+| Region restriction on output TSV (post-extraction) | Very wasteful; must be applied at VCF-level | Apply at bcftools view level, before SnpSift |
+
+**Dependencies:** `BCFtoolsPrefilterStage` — add `--regions-file` flag to bcftools invocation. `extract_variants()` in `filters.py` — thread regions-file through. No new external tools; bcftools already required.
+
+---
+
+## v0.16.0 Feature 5: Single Eigendecomposition for SKAT-O Optimization
+
+### How Reference Implementations Handle It
+
+SKAT-O requires eigendecomposition of the kernel matrix once per gene. The dominant cost is kernel matrix formation and projection-adjusted Z1 computation.
+
+**SAIGE-GENE+ optimization (Nature Genetics 2022):** 1,407x speedup achieved by:
+1. Sparse genotype matrix (see Feature 6)
+2. Reusing eigenvalues across Burden/SKAT/SKAT-O — all tests share the same kernel
+3. Precomputing projection-adjusted Z1_adj once, reusing across the rho grid
+
+**Current VariantCentrifuge Python backend:**
+- `_get_lambda()` in `python_backend.py` called per rho value in SKAT-O via `_skato_optimal_param()`.
+- Z1_half decomposition computed at SKAT-O call time; not shared with standard SKAT call.
+
+### Table Stakes for v0.16.0
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Profiling to confirm bottleneck | Must verify eigendecomposition is actually the bottleneck before optimizing | Low | Add `--profile-association` timing flag; check whether kernel formation or eigendecomposition dominates at n=5125 |
+
+### Differentiators for v0.16.0
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Shared Z1_adj across rho values | Avoids recomputing projection within the rho grid loop | Low-Med | Refactor `_skato_optimal_param()` to accept pre-projected Z1_adj; verify numerical equivalence |
+| Shared null model residuals across SKAT/SKAT-O/COAST | Null model fit is O(n^3) once; already shared — confirm wiring is correct | Low | Audit whether `fit_null_model()` is called once per cohort vs. once per gene |
+
+### Anti-Features for v0.16.0
+
+| Anti-Feature | Why Avoid | What to Do Instead |
+|--------------|-----------|-------------------|
+| Caching eigenvalues across different genes | Gene matrices have different shapes; would be wrong | Cache only within a single gene's multi-test run |
+| Pre-computing all gene kernels before testing | Memory O(n_genes * n_variants^2); infeasible genome-wide | Compute per-gene, free after test |
+
+**Dependencies:** `python_backend.py` `test_gene()` and `_skato_optimal_param()` — internal refactor. `coast_python.py` `_run_allelic_skat()` — shares `_skato_get_pvalue` infrastructure.
+
+---
+
+## v0.16.0 Feature 6: Sparse Genotype Matrices
+
+### When Sparsity Pays Off
+
+Rare variant genotype matrices are inherently sparse: MAF < 1-5% means >95% of entries are 0 (hom-ref). After imputation, missing values are imputed to `round(2*MAF)` = 0 when MAF < 0.25 (always true for rare variants), preserving sparsity.
+
+**Measured density figures from literature:**
+- At n=50,000 WES samples, 96% of loci have ALT allele frequency < 0.1% (spVCF paper, Bioinformatics 2021)
+- SKAT with MAF < 1%: expected density approximately 0.01 (1% non-zero entries)
+- scipy sparse matrix breaks even around 20-25% density; clearly beneficial below 10%
+
+**SAIGE-GENE+ (Nature Genetics 2022):** Sparse genotype matrix reduced memory from 65 GB to 2.1 GB for TTN gene in UK Biobank.
+
+**R SKAT package:** Supports sparse matrix format (confirmed in SKAT 2.0+ CRAN PDF, July 2025).
+
+**Practical threshold for GCKD (n=5,125):**
+- Typical gene: 5-50 rare variants at MAF < 1%; density ~0.01-0.02
+- scipy CSR sparse IS beneficial for memory at this scale
+- For a 5125x50 matrix at 1% density: ~2MB dense vs ~0.3MB sparse
+- Sparse format breakeven: `n_samples * n_variants > ~50,000` cells AND density < 20%
+- At GCKD scale, sparse is a memory nicety; at UK Biobank scale it is essential
+
+### Table Stakes for v0.16.0
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| scipy.sparse CSR option in `build_genotype_matrix` | Memory efficiency for large cohorts; R SKAT already supports it | Medium | Add `sparse=True` parameter; return `scipy.sparse.csr_matrix`. Most numpy ops need `.toarray()` — profile overhead before full commitment |
+| Sparse-aware SKAT kernel computation | `K = G.T @ G` works identically for sparse or dense scipy matrices | Low-Med | Verify `scipy.sparse.csr_matrix @ G` numerical equivalence with dense path via tests |
+
+### Differentiators for v0.16.0
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Automatic sparsity detection | Avoid sparse overhead for small genes; use dense for <50 variants, sparse for >50 at large n | Low | `if n_samples * n_variants > THRESHOLD and density < 0.20: use_sparse = True` |
+| Memory usage diagnostics | Show peak genotype matrix memory per gene; guides whether sparse optimization is warranted | Low | Log at DEBUG: `n_samples x n_variants, density=X%, format=sparse/dense` |
+
+### Anti-Features for v0.16.0
+
+| Anti-Feature | Why Avoid | What to Do Instead |
+|--------------|-----------|-------------------|
+| Forcing sparse for all genes | For small genes (5-10 variants), sparse overhead exceeds benefit; adds conversion cost | Threshold-based auto-selection based on density * size |
+| Persisting sparse matrices to disk between stages | The entire point of sparse is fast in-memory ops; serialization adds overhead | Keep as in-memory objects within the gene loop |
+| Sparse format in COAST burden tests | COAST aggregates by category using small dense ops; sparse adds complexity without benefit | Dense in COAST; sparse only for SKAT kernel computation |
+
+**Dependencies:** `genotype_matrix.py` `build_genotype_matrix()` — add optional sparse return. `python_backend.py` — SKAT kernel `Z1 @ Z1.T` and score `G.T @ residuals` can be sparse-aware. `coast_python.py` — do NOT convert to sparse.
+
+---
+
+## v0.16.0 Feature 7: PCAComputationStage Wiring (AKT/PLINK Integration)
+
+### Current State
+
+`pca.py` `load_pca_file()` reads pre-computed PCA files in three formats (PLINK `.eigenvec` with/without header, AKT stdout). Must be provided via `--pca-file`. No stage computes PCA.
+
+### What Comparable Tools Do
+
+- **REGENIE:** Requires pre-computed PCA as covariates; users run PLINK2 `--pca` separately
+- **SAIGE-GENE+:** Provides a PCA step as a separate tool (`createSparseGRM.R`)
+- **STAARpipeline:** Accepts pre-computed GRM/PCA
+- **Convention:** PCA is computed once per cohort because it requires common variants (MAF > 5%), not the rare variants being tested
+
+### Table Stakes for v0.16.0
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Documentation of PLINK2 PCA workflow | Most users will use pre-computed PCA; clear instructions needed | Low | Document in CLI help: which `plink2 --pca` command to run, what `--pca-file` format to use |
+| Optional PCAComputationStage (plink2 wrapper) | Removes need for manual PLINK2 invocation when a VCF + sample list is available | High | Requires separate common-variant VCF input (rare variant VCF is wrong for PCA). Add `--pca-compute-vcf` flag. Calls `plink2 --pca`. |
+
+### Anti-Features for v0.16.0
+
+| Anti-Feature | Why Avoid | What to Do Instead |
+|--------------|-----------|-------------------|
+| PCA from rare variant VCF | Rare variants are poor for PCA (sparse, no LD structure) | Require separate common-variant VCF or pre-computed PC file |
+| Implementing PCA computation in Python | Well-solved by PLINK2 | Wrap `plink2 --pca` via subprocess |
+
+**Dependencies:** `pca.py` `load_pca_file()` — already correct. New external tool dependency: `plink2` (optional; fails gracefully). New CLI flag `--pca-compute-vcf`.
+
+---
+
+## v0.16.0 MVP Recommendation
+
+### Must Ship (Table Stakes — fix real bugs and enable primary use cases)
+
+1. **COAST gene_df alignment fix** — Core bug causing p=None; targeted fix to engine/contingency_data wiring
+2. **COAST partial-category fallback** — Eliminates the "all None" problem for real cohorts
+3. **COAST configurable classification** — Allow CADD/REVEL when SIFT/PolyPhen unavailable
+4. **Weighted BH (static, Genovese)** — Low-complexity, high-value; statsmodels already supports it
+5. **Per-gene weight file** — Input mechanism for #4; simple TSV loader
+6. **`--regions-bed` prefilter** — Essential for cross-cohort analysis; bcftools-native, trivial
+
+### Defer to Post-MVP (Differentiators — harder or need validation)
+
+1. **IHW integration** — R/rpy2 dependency, cross-validation complexity; separate sub-milestone
+2. **Weighted SKAT (per-sample phenotype weights)** — Research-grade; needs numerical validation
+3. **Sparse genotype matrices** — Memory nicety at GCKD scale; defer until cohort grows or performance becomes a bottleneck
+4. **PCAComputationStage** — Documentation gap, not a bug; users can run PLINK2 manually
+5. **Single eigendecomposition optimization** — Profile first; current code may already be fine
+
+---
+
+## v0.16.0 Confidence Assessment
+
+| Feature Area | Confidence | Basis |
+|--------------|------------|-------|
+| Weighted BH (Genovese) | HIGH | PMC3458887, statsmodels docs verified |
+| IHW covariate approach | HIGH | PMC4930141, PMC8872452, Bioconductor IHW vignette |
+| COAST classification reference | HIGH | PMC10432147, CRAN vignette confirming user-supplied annotations |
+| COAST p=None root cause | HIGH | Direct code reading of allelic_series.py lines 551-581 |
+| bcftools --regions-file behavior | HIGH | Official bcftools docs; known issue #221 verified |
+| Sparse matrix breakeven density | MEDIUM | spVCF paper; SKAT R package docs; general CSR literature |
+| Case-confidence weighted SKAT | LOW | No reference implementation found; theoretical extension only |
+| SKAT-O eigendecomposition sharing | MEDIUM | SAIGE-GENE+ paper; direct code reading of python_backend.py |
+
+---
+
+## Sources (v0.16.0 Addendum)
+
+- Genovese, Roeder & Wasserman (2006) weighted BH: [PMC3458887](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3458887/)
+- Ignatiadis et al. IHW (Nature Methods 2016): [PMC4930141](https://pmc.ncbi.nlm.nih.gov/articles/PMC4930141/) | [Nature Methods](https://www.nature.com/articles/nmeth.3885)
+- Huang et al. gene-level IHW for rare variants (Genes 2022): [PMC8872452](https://pmc.ncbi.nlm.nih.gov/articles/PMC8872452/)
+- Bioconductor IHW package vignette: [bioconductor.org/packages/IHW](https://bioconductor.org/packages/release/bioc/vignettes/IHW/inst/doc/introduction_to_ihw.html)
+- McCaw et al. COAST (AJHG 2023): [PMC10432147](https://pmc.ncbi.nlm.nih.gov/articles/PMC10432147/)
+- AllelicSeries CRAN vignette (annotation codes user-supplied): [cran.r-project.org](https://cran.r-project.org/web/packages/AllelicSeries/vignettes/coast.html)
+- SAIGE-GENE+ sparse matrix performance (Nature Genetics 2022): [Nature Genetics](https://www.nature.com/articles/s41588-022-01178-w)
+- spVCF sparse genotype matrix paper (Bioinformatics 2021): [Oxford Academic](https://academic.oup.com/bioinformatics/article/36/22-23/5537/6029516)
+- bcftools regions-file documentation: [samtools.github.io](https://samtools.github.io/bcftools/bcftools.html)
+- REGENIE overview and binary trait handling: [rgcgithub.github.io/regenie](https://rgcgithub.github.io/regenie/overview/)
+- Meta-SAIGE multi-cohort analysis (Nature Genetics 2025): [Nature Genetics](https://www.nature.com/articles/s41588-025-02403-y)
+- Phenotype misclassification SuperControl (medRxiv 2025): [medRxiv](https://www.medrxiv.org/content/10.64898/2025.12.14.25342213v1.full)
+- Liability threshold model GWAS (Nature Genetics 2025): [Nature Genetics](https://www.nature.com/articles/s41588-025-02370-4)
+- STAARpipeline functional annotation categories (Nature Methods 2022): [Nature Methods](https://www.nature.com/articles/s41592-022-01641-w)
+- Weighted multiple testing in genomics (BioData Mining 2012): [PMC3458887](https://biodatamining.biomedcentral.com/articles/10.1186/1756-0381-5-4)
+
+## Sources (v0.15.0 baseline, carried forward)
 
 - [SKAT R Package Documentation — RDocumentation](https://www.rdocumentation.org/packages/SKAT/versions/2.0.1/topics/SKAT) — HIGH
 - [SKAT original paper: Wu et al. 2011 — PMC3135811](https://pmc.ncbi.nlm.nih.gov/articles/PMC3135811/) — HIGH

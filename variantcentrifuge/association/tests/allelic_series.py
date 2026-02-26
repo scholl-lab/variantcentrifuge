@@ -91,8 +91,173 @@ EFFECT_COLUMN_CANDIDATES = ["EFFECT", "ANN_0__EFFECT", "effect", "ann_0__effect"
 # Possible IMPACT column names (tried in order)
 IMPACT_COLUMN_CANDIDATES = ["IMPACT", "ANN_0__IMPACT", "impact", "ann_0__impact"]
 
+# Possible CADD phred column names (tried in order)
+CADD_COLUMN_CANDIDATES = ["dbNSFP_CADD_phred", "CADD_phred", "cadd_phred", "CADD_PHRED"]
+
 # COAST-specific R GC interval (same as RSKATTest)
 _GC_INTERVAL = 100
+
+
+# ---------------------------------------------------------------------------
+# Effect string resolution (COAST-04 / COAST-07)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_effect(effect_str: str) -> str:
+    """Resolve '&'-concatenated SnpEff effect string to single highest-priority effect.
+
+    Priority: PTV effects > missense_variant > first part.
+    This handles multi-transcript annotations like 'stop_gained&splice_region_variant'.
+
+    Parameters
+    ----------
+    effect_str : str
+        Raw SnpEff effect string, possibly containing '&'-delimited multi-transcript
+        annotations (e.g. 'stop_gained&splice_region_variant').
+
+    Returns
+    -------
+    str
+        The single highest-priority effect. Returns the input unchanged if no '&'
+        is present (fast path).
+    """
+    if "&" not in effect_str:
+        return effect_str
+    parts = [p.strip() for p in effect_str.split("&")]
+    for part in parts:
+        if part in PTV_EFFECTS:
+            return part
+    if MISSENSE_EFFECT in parts:
+        return MISSENSE_EFFECT
+    return parts[0] if parts else effect_str
+
+
+# ---------------------------------------------------------------------------
+# Formula engine classification helper (COAST-06)
+# ---------------------------------------------------------------------------
+
+
+def _classify_via_formula_engine(
+    gene_df: Any,
+    effect_col: str,
+    impact_col: str,
+    model_dir: str,
+    diagnostics_rows: list | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Classify variants using a scoring formula engine config directory.
+
+    Builds a normalized copy of gene_df with standard column names
+    (COAST_EFFECT, COAST_IMPACT, COAST_SIFT, COAST_POLYPHEN, COAST_CADD),
+    then calls read_scoring_config() + apply_scoring() to compute coast_category.
+
+    Parameters
+    ----------
+    gene_df : pd.DataFrame
+        Per-variant DataFrame for one gene.
+    effect_col : str
+        Detected effect column name in gene_df.
+    impact_col : str
+        Detected impact column name in gene_df.
+    model_dir : str
+        Absolute path to the scoring config directory.
+    diagnostics_rows : list | None
+        If not None, per-variant diagnostic dicts are appended here.
+
+    Returns
+    -------
+    annotation_codes : np.ndarray of int
+    include_mask : np.ndarray of bool
+    """
+    import os
+
+    import pandas as pd
+
+    from variantcentrifuge.scoring import apply_scoring, read_scoring_config
+
+    n = len(gene_df)
+
+    # Build normalized working copy with standard column names
+    work = pd.DataFrame(index=gene_df.index)
+
+    # Effect column: resolve '&'-concatenated strings (COAST-04)
+    work["COAST_EFFECT"] = (
+        gene_df[effect_col].astype(object).fillna("").astype(str).map(_resolve_effect)
+    )
+    work["COAST_IMPACT"] = gene_df[impact_col].astype(object).fillna("").astype(str)
+
+    # SIFT and PolyPhen (for sift_polyphen model)
+    cols = set(gene_df.columns)
+    for candidate in SIFT_COLUMN_CANDIDATES:
+        if candidate in cols:
+            work["COAST_SIFT"] = gene_df[candidate].astype(object).fillna("").astype(str)
+            break
+    if "COAST_SIFT" not in work.columns:
+        work["COAST_SIFT"] = ""
+
+    for candidate in POLYPHEN_COLUMN_CANDIDATES:
+        if candidate in cols:
+            work["COAST_POLYPHEN"] = gene_df[candidate].astype(object).fillna("").astype(str)
+            break
+    if "COAST_POLYPHEN" not in work.columns:
+        work["COAST_POLYPHEN"] = ""
+
+    # CADD (for cadd model)
+    for candidate in CADD_COLUMN_CANDIDATES:
+        if candidate in cols:
+            cadd_raw = gene_df[candidate].astype(object).where(gene_df[candidate].notna(), other=0)
+            work["COAST_CADD"] = pd.to_numeric(cadd_raw, errors="coerce").fillna(0.0)
+            break
+    if "COAST_CADD" not in work.columns:
+        work["COAST_CADD"] = 0.0
+
+    # Load and apply scoring config
+    try:
+        scoring_config = read_scoring_config(model_dir)
+    except Exception as exc:
+        logger.error(f"classify_variants: failed to load model from '{model_dir}': {exc}")
+        return np.zeros(n, dtype=int), np.zeros(n, dtype=bool)
+
+    try:
+        scored = apply_scoring(work, scoring_config)
+    except Exception as exc:
+        logger.error(f"classify_variants: apply_scoring failed for model '{model_dir}': {exc}")
+        return np.zeros(n, dtype=int), np.zeros(n, dtype=bool)
+
+    if "coast_category" not in scored.columns:
+        logger.error(
+            f"classify_variants: model '{model_dir}' did not produce 'coast_category' column. "
+            f"Available columns: {list(scored.columns)}"
+        )
+        return np.zeros(n, dtype=int), np.zeros(n, dtype=bool)
+
+    annotation_codes = scored["coast_category"].fillna(0).astype(int).to_numpy()
+    include_mask = annotation_codes > 0
+
+    # Diagnostics (optional)
+    if diagnostics_rows is not None:
+        model_name = os.path.basename(model_dir)
+        original_effects = gene_df[effect_col].astype(object).fillna("").astype(str)
+        resolved_effects = work["COAST_EFFECT"]
+        for i in range(n):
+            idx_val = gene_df.index[i]
+            row = gene_df.iloc[i]
+            chrom = str(row.get("CHROM", row.get("chrom", idx_val)))
+            pos = str(row.get("POS", row.get("pos", "")))
+            ref = str(row.get("REF", row.get("ref", "")))
+            alt = str(row.get("ALT", row.get("alt", "")))
+            variant_id = f"{chrom}:{pos}:{ref}:{alt}" if pos else str(idx_val)
+            diagnostics_rows.append(
+                {
+                    "gene": row.get("GENE", row.get("gene", "")),
+                    "variant_id": variant_id,
+                    "original_effect": original_effects.iloc[i],
+                    "resolved_effect": resolved_effects.iloc[i],
+                    "assigned_category": int(annotation_codes[i]),
+                    "model_name": model_name,
+                }
+            )
+
+    return annotation_codes, include_mask
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +269,8 @@ def classify_variants(
     gene_df: Any,
     effect_col: str,
     impact_col: str,
+    model_dir: str | None = None,
+    diagnostics_rows: list | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Classify variants into COAST categories (BMV/DMV/PTV/unclassified).
@@ -120,6 +287,14 @@ def classify_variants(
         Column name for variant effect (e.g. "EFFECT" or "ANN_0__EFFECT").
     impact_col : str
         Column name for variant impact (e.g. "IMPACT" or "ANN_0__IMPACT").
+    model_dir : str | None
+        Path to a scoring/coast_classification/<model>/ directory. When provided,
+        delegates classification to the scoring formula engine (read_scoring_config +
+        apply_scoring). When None, uses the built-in SIFT/PolyPhen hardcoded logic.
+    diagnostics_rows : list | None
+        If provided (not None), per-variant diagnostic dicts are appended here.
+        Each dict contains: gene, variant_id, original_effect, resolved_effect,
+        assigned_category, model_name.
 
     Returns
     -------
@@ -135,13 +310,28 @@ def classify_variants(
     are excluded from COAST only. They are still used by SKAT/burden via the
     standard genotype matrix path.
 
-    If no SIFT or PolyPhen columns are found at all, logs an error and
+    '&'-concatenated SnpEff multi-transcript effects are resolved via
+    _resolve_effect() before classification (COAST-04/COAST-07).
+
+    If no SIFT or PolyPhen columns are found at all (default path), logs an error and
     returns all-zero codes with all-False include mask.
     """
     import pandas as pd
 
     n = len(gene_df)
     annotation_codes = np.zeros(n, dtype=int)
+
+    if model_dir is not None:
+        # ── Formula engine path (COAST-06) ──────────────────────────────────────
+        return _classify_via_formula_engine(
+            gene_df=gene_df,
+            effect_col=effect_col,
+            impact_col=impact_col,
+            model_dir=model_dir,
+            diagnostics_rows=diagnostics_rows,
+        )
+
+    # ── Default SIFT/PolyPhen hardcoded path ─────────────────────────────────
 
     # Auto-detect SIFT and PolyPhen column names
     cols = set(gene_df.columns)
@@ -169,7 +359,8 @@ def classify_variants(
 
     # Extract effect and impact series
     # Convert to object dtype first to handle Categorical columns safely
-    effect_series = gene_df[effect_col].astype(object).fillna("").astype(str)
+    # Apply _resolve_effect to handle '&'-concatenated multi-transcript annotations (COAST-04)
+    effect_series = gene_df[effect_col].astype(object).fillna("").astype(str).map(_resolve_effect)
     impact_series = gene_df[impact_col].astype(object).fillna("").astype(str)
 
     # Helper: extract first prediction value from potentially multi-value cell
@@ -291,6 +482,11 @@ class COASTTest(AssociationTest):
         self._genes_processed: int = 0
         self._start_time: float = 0.0
 
+        # Category-level counters (set by prepare(), incremented in run())
+        self._n_complete: int = 0
+        self._n_partial: int = 0
+        self._n_skipped: int = 0
+
     @property
     def name(self) -> str:
         """Short identifier for this test used in registry lookup and column prefixes."""
@@ -360,6 +556,9 @@ class COASTTest(AssociationTest):
         self._genes_processed = 0
         self._log_interval = max(10, min(50, gene_count // 10)) if gene_count > 0 else 50
         self._start_time = time.time()
+        self._n_complete = 0
+        self._n_partial = 0
+        self._n_skipped = 0
 
         logger.info(f"COAST: beginning allelic series analysis of {gene_count} genes")
 
@@ -370,7 +569,13 @@ class COASTTest(AssociationTest):
         Logs aggregate timing summary and triggers R garbage collection.
         """
         elapsed = time.time() - self._start_time
+        n_tested = self._n_complete + self._n_partial
         logger.info(f"COAST complete: {self._genes_processed} genes in {elapsed:.1f}s")
+        logger.info(
+            f"COAST: {n_tested} genes tested "
+            f"({self._n_complete} complete, {self._n_partial} partial, "
+            f"{self._n_skipped} skipped)"
+        )
 
         # Final R gc() to free heap
         try:
@@ -411,7 +616,7 @@ class COASTTest(AssociationTest):
         TestResult
             p_value=None when test is skipped (missing variant categories,
             no genotype matrix, or insufficient data).
-            extra contains: coast_burden_p_value, coast_skat_p_value,
+            extra contains: coast_burden_pvalue, coast_skat_pvalue,
             coast_n_bmv, coast_n_dmv, coast_n_ptv.
         """
         n_cases = int(contingency_data.get("proband_count", 0))
@@ -497,7 +702,11 @@ class COASTTest(AssociationTest):
             )
 
         # Classify variants into COAST categories
-        anno_codes, include_mask = classify_variants(gene_df, effect_col, impact_col)
+        # Pass model_dir when coast_classification config is set
+        coast_model_dir = getattr(config, "coast_classification", None)
+        anno_codes, include_mask = classify_variants(
+            gene_df, effect_col, impact_col, model_dir=coast_model_dir
+        )
 
         # Check if gene_df length aligns with genotype matrix columns
         # (gene_df may be a subset due to site filtering in genotype matrix builder)
@@ -547,19 +756,12 @@ class COASTTest(AssociationTest):
         n_dmv = int(np.sum(anno_filtered == 2))
         n_ptv = int(np.sum(anno_filtered == 3))
 
-        # Require all 3 categories to be present for COAST
-        if n_bmv == 0 or n_dmv == 0 or n_ptv == 0:
-            missing = []
-            if n_bmv == 0:
-                missing.append("BMV")
-            if n_dmv == 0:
-                missing.append("DMV")
-            if n_ptv == 0:
-                missing.append("PTV")
-            logger.debug(
-                f"COAST [{gene}]: skipping — missing categories: {', '.join(missing)} "
-                f"(BMV={n_bmv}, DMV={n_dmv}, PTV={n_ptv})"
-            )
+        # Partial-category logic: skip only when ALL categories are empty
+        missing = [cat for cat, n in [("BMV", n_bmv), ("DMV", n_dmv), ("PTV", n_ptv)] if n == 0]
+        present = [cat for cat, n in [("BMV", n_bmv), ("DMV", n_dmv), ("PTV", n_ptv)] if n > 0]
+
+        if len(present) == 0:
+            self._n_skipped += 1
             return TestResult(
                 gene=gene,
                 test_name=self.name,
@@ -573,11 +775,19 @@ class COASTTest(AssociationTest):
                 n_controls=n_controls,
                 n_variants=n_variants,
                 extra={
-                    "coast_skip_reason": f"MISSING_CATEGORIES:{','.join(missing)}",
-                    "coast_n_bmv": n_bmv,
-                    "coast_n_dmv": n_dmv,
-                    "coast_n_ptv": n_ptv,
+                    "coast_skip_reason": "ALL_CATEGORIES_EMPTY",
+                    "coast_n_bmv": 0,
+                    "coast_n_dmv": 0,
+                    "coast_n_ptv": 0,
+                    "coast_status": "skipped",
                 },
+            )
+
+        coast_status = "complete" if not missing else "partial"
+        if missing:
+            logger.debug(
+                f"COAST [{gene}]: partial -- missing {', '.join(missing)} "
+                f"(BMV={n_bmv}, DMV={n_dmv}, PTV={n_ptv})"
             )
 
         # Run R AllelicSeries::COAST()
@@ -615,6 +825,10 @@ class COASTTest(AssociationTest):
 
         # Increment counter and periodic GC
         self._genes_processed += 1
+        if coast_status == "complete":
+            self._n_complete += 1
+        else:
+            self._n_partial += 1
         if self._genes_processed % _GC_INTERVAL == 0:
             try:
                 import rpy2.robjects as ro
@@ -630,6 +844,17 @@ class COASTTest(AssociationTest):
                 f"COAST progress: {self._genes_processed}/{self._total_genes} genes ({pct:.0f}%)"
             )
 
+        extra_base: dict[str, Any] = {
+            "coast_burden_pvalue": burden_p,
+            "coast_skat_pvalue": skat_p,
+            "coast_n_bmv": n_bmv,
+            "coast_n_dmv": n_dmv,
+            "coast_n_ptv": n_ptv,
+            "coast_status": coast_status,
+        }
+        if missing:
+            extra_base["coast_missing_categories"] = ",".join(missing)
+
         return TestResult(
             gene=gene,
             test_name=self.name,
@@ -642,13 +867,7 @@ class COASTTest(AssociationTest):
             n_cases=n_cases,
             n_controls=n_controls,
             n_variants=n_variants,
-            extra={
-                "coast_burden_p_value": burden_p,
-                "coast_skat_p_value": skat_p,
-                "coast_n_bmv": n_bmv,
-                "coast_n_dmv": n_dmv,
-                "coast_n_ptv": n_ptv,
-            },
+            extra=extra_base,
         )
 
     def _find_column(self, gene_df: Any, candidates: list[str], label: str) -> str | None:

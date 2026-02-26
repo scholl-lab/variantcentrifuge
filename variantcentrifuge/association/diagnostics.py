@@ -56,6 +56,29 @@ def compute_lambda_gc(p_values: list[float | None]) -> float | None:
     -------
     float | None
         lambda_GC, or None if fewer than 2 valid p-values are available.
+
+    Notes
+    -----
+    **Fisher's exact test exemption:** Fisher p-values must NOT be corrected
+    via lambda_GC. Fisher's exact test is a permutation-based exact test, not
+    an asymptotic chi2 approximation — the GC correction formula assumes the
+    chi2(1) asymptotic distribution and is statistically invalid for exact
+    tests. This function computes lambda_GC for Fisher as a *diagnostic only*;
+    callers must not apply lambda_GC correction to Fisher p-values.
+
+    **Applicable tests:** GC correction is valid only for score-based
+    asymptotic tests (e.g., SKAT, burden) whose statistics follow chi2(1)
+    under the null.
+
+    **Inflation thresholds (approximate guidance):**
+    - lambda_GC ~ 1.0: well-calibrated
+    - lambda_GC > 1.2: notable inflation — investigate population stratification
+      or cryptic relatedness before interpreting results
+
+    **Over-correction risk:** In studies with genuine rare-variant signal or
+    small sample sizes, lambda_GC deflation from true associations can reduce
+    power (Devlin & Roeder 1999, Gorroochurn et al. 2025). Use GC correction
+    only when inflation is clearly present and attributable to confounding.
     """
     # Filter out None and NaN
     valid = np.array(
@@ -314,8 +337,8 @@ def write_diagnostics(
     ----------
     results_df : pd.DataFrame
         Association results DataFrame from engine.run_all(). Must have a "gene"
-        column plus p-value columns named ``{test_name}_p_value`` and optionally
-        ``acat_o_p_value``.
+        column plus p-value columns named ``{test_name}_pvalue`` and optionally
+        ``acat_o_pvalue``.
     diagnostics_dir : str | Path
         Directory to write output files. Created if it does not exist.
     test_names : list[str]
@@ -333,21 +356,25 @@ def write_diagnostics(
     # ------------------------------------------------------------------
     # Determine which p-value columns are present in results_df
     # ------------------------------------------------------------------
-    # Primary tests: {test_name}_p_value
-    # ACAT-O: acat_o_p_value (always added if ACAT-O was run)
+    # Primary tests: {test_name}_pvalue
+    # ACAT-O: acat_o_pvalue (always added if ACAT-O was run)
     all_test_ids: list[str] = list(test_names)
-    if "acat_o_p_value" in results_df.columns and "acat_o" not in all_test_ids:
+    if "acat_o_pvalue" in results_df.columns and "acat_o" not in all_test_ids:
         all_test_ids.append("acat_o")
 
     # Build mapping: test_id -> column name
     p_col_map: dict[str, str] = {}
     for tid in all_test_ids:
-        col = f"{tid}_p_value"
+        col = f"{tid}_pvalue"
         if col in results_df.columns:
             p_col_map[tid] = col
 
     # ------------------------------------------------------------------
     # Compute lambda_GC and QQ data per test
+    # Note: lambda_GC for Fisher is included here as a diagnostic metric
+    # only. Do NOT use it to inflate-correct Fisher p-values — Fisher's
+    # exact test is not asymptotic and GC correction is statistically
+    # invalid for exact tests. See compute_lambda_gc() Notes for details.
     # ------------------------------------------------------------------
     lambda_rows: list[dict] = []
     qq_frames: list[pd.DataFrame] = []
@@ -433,3 +460,124 @@ def write_diagnostics(
     write_qq_plot(qq_combined, qq_plot_path)
 
     logger.info(f"Diagnostics written to {diag_dir}")
+
+
+def write_fdr_weight_diagnostics(
+    genes: list[str],
+    raw_weights: dict[str, float],
+    normalized_weights: np.ndarray,
+    unweighted_corrected: np.ndarray,
+    weighted_corrected: np.ndarray,
+    fdr_threshold: float,
+    diagnostics_dir: str | Path,
+) -> None:
+    """
+    Write per-gene FDR weight diagnostics file.
+
+    Creates ``fdr_weight_diagnostics.tsv`` in the diagnostics directory with
+    one row per gene, detailing raw weight, normalized weight, unweighted q-value,
+    weighted q-value, and whether significance changed at the given threshold.
+
+    Parameters
+    ----------
+    genes : list of str
+        Gene names aligned 1:1 with ``normalized_weights``, ``unweighted_corrected``,
+        and ``weighted_corrected``.
+    raw_weights : dict[str, float]
+        Mapping from gene name to raw (pre-normalization) weight from the weight file.
+        Genes not in the map received the default weight=1.0.
+    normalized_weights : np.ndarray
+        Per-gene normalized weights (mean=1.0) aligned with ``genes``.
+    unweighted_corrected : np.ndarray
+        Unweighted BH/Bonferroni corrected q-values aligned with ``genes``.
+    weighted_corrected : np.ndarray
+        Weighted BH/Bonferroni corrected q-values aligned with ``genes``.
+    fdr_threshold : float
+        Significance threshold (e.g. 0.05) used to classify significance changes.
+    diagnostics_dir : str or Path
+        Directory to write the output file. Created if it does not exist.
+    """
+    diag_dir = Path(diagnostics_dir)
+    diag_dir.mkdir(parents=True, exist_ok=True)
+
+    m = len(genes)
+    rows: list[dict] = []
+    n_gained = 0
+    n_lost = 0
+    n_with_file_weight = 0
+
+    for i, gene in enumerate(genes):
+        raw_w = raw_weights.get(gene, 1.0)
+        if gene in raw_weights:
+            n_with_file_weight += 1
+        norm_w = float(normalized_weights[i])
+        unw_q = float(unweighted_corrected[i])
+        wt_q = float(weighted_corrected[i])
+
+        was_sig = unw_q < fdr_threshold
+        is_sig = wt_q < fdr_threshold
+
+        if not was_sig and is_sig:
+            change = "gained"
+            n_gained += 1
+        elif was_sig and not is_sig:
+            change = "lost"
+            n_lost += 1
+        else:
+            change = ""
+
+        rows.append(
+            {
+                "gene": gene,
+                "raw_weight": raw_w,
+                "normalized_weight": norm_w,
+                "unweighted_q": unw_q,
+                "weighted_q": wt_q,
+                "significance_change": change,
+            }
+        )
+
+    diag_df = pd.DataFrame(
+        rows,
+        columns=[
+            "gene",
+            "raw_weight",
+            "normalized_weight",
+            "unweighted_q",
+            "weighted_q",
+            "significance_change",
+        ],
+    )
+    out_path = diag_dir / "fdr_weight_diagnostics.tsv"
+    diag_df.to_csv(out_path, sep="\t", index=False)
+
+    # Summary log
+    logger.info(
+        f"FDR weighting impact: {n_gained} genes gained significance, "
+        f"{n_lost} genes lost significance (threshold={fdr_threshold})"
+    )
+
+    # Weight distribution log
+    norm_arr = np.asarray(normalized_weights, dtype=float)
+    if len(norm_arr) > 0:
+        logger.info(
+            f"Normalized weight distribution (n={m}): "
+            f"min={float(norm_arr.min()):.3f}, "
+            f"max={float(norm_arr.max()):.3f}, "
+            f"median={float(np.median(norm_arr)):.3f}, "
+            f"mean={float(norm_arr.mean()):.3f}"
+        )
+
+    # Coverage log
+    n_default = m - n_with_file_weight
+    logger.info(
+        f"FDR weight coverage: {n_with_file_weight} genes with weights from file, "
+        f"{n_default} genes at default weight=1.0"
+    )
+
+    # Effective number of tests
+    if len(norm_arr) > 0 and (norm_arr**2).sum() > 0:
+        n_eff = float(norm_arr.sum() ** 2 / (norm_arr**2).sum())
+        logger.info(f"Effective number of tests (sum(w)^2/sum(w^2)): {n_eff:.1f}")
+
+    logger.info(f"FDR weight diagnostics written to {out_path}")

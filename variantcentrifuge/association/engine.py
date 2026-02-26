@@ -9,7 +9,7 @@ applies a single round of multiple testing correction to ACAT-O p-values
 (ARCH-03), and returns a wide-format DataFrame with one row per gene.
 
 Column naming convention: {test_name}_{field}, e.g.:
-  fisher_p_value, fisher_or,
+  fisher_pvalue, fisher_or,
   fisher_or_ci_lower, fisher_or_ci_upper
 
 Effect size column names are test-aware (via AssociationTest.effect_column_names()):
@@ -18,8 +18,11 @@ Effect size column names are test-aware (via AssociationTest.effect_column_names
     logistic_burden_beta_ci_lower, logistic_burden_beta_ci_upper
 
 ACAT-O columns (Phase 22):
-  acat_o_p_value          — raw omnibus Cauchy combination of per-test p-values
-  acat_o_corrected_p_value — FDR/Bonferroni corrected across all genes
+  acat_o_pvalue  — raw omnibus Cauchy combination of per-test p-values
+  acat_o_qvalue  — FDR/Bonferroni corrected across all genes
+
+SKAT-O note: when skat_method="SKATO", the skat_pvalue column is renamed to
+  skat_o_pvalue to distinguish SKAT-O from the plain SKAT result.
 
 FDR strategy (ARCH-03):
   Single correction pass on ACAT-O p-values only. Individual test p-values
@@ -309,7 +312,7 @@ class AssociationEngine:
         Run all registered tests across all genes and return wide-format results.
 
         FDR correction (ARCH-03): applied only to ACAT-O p-values across all
-        genes. Primary test columns (fisher_p_value, burden_p_value, etc.) are
+        genes. Primary test columns (fisher_pvalue, burden_pvalue, etc.) are
         uncorrected — they are diagnostic signal decomposition, not independent
         hypotheses. corrected_p_value on primary TestResults is always None.
 
@@ -326,9 +329,9 @@ class AssociationEngine:
             Wide-format results. One row per gene that has at least one test
             result (genes where all tests returned p_value=None are excluded).
             Columns: gene, n_cases, n_controls, n_variants, then per-test
-            columns: {test}_p_value (uncorrected), plus test-aware effect
+            columns: {test}_pvalue (uncorrected), plus test-aware effect
             columns (e.g. fisher_or or logistic_burden_beta), and finally
-            acat_o_p_value and acat_o_corrected_p_value.
+            acat_o_pvalue and acat_o_qvalue.
         """
         if not gene_burden_data:
             logger.warning("No gene burden data provided to AssociationEngine.")
@@ -369,12 +372,33 @@ class AssociationEngine:
             # (SKAT/COAST tests fit null model on first call and cache it).
             first_gene_data = sorted_data[0]
             first_gene = first_gene_data.get("GENE", "")
+
+            # PERF-06: Invoke lazy builder for first gene before sequential run
+            if (
+                "_genotype_matrix_builder" in first_gene_data
+                and "genotype_matrix" not in first_gene_data
+            ):
+                _builder = first_gene_data.pop("_genotype_matrix_builder")
+                _result = _builder()
+                first_gene_data["genotype_matrix"] = _result["genotype_matrix"]
+                first_gene_data["variant_mafs"] = _result["variant_mafs"]
+                first_gene_data["phenotype_vector"] = _result["phenotype_vector"]
+                first_gene_data["covariate_matrix"] = _result["covariate_matrix"]
+                for _w in _result.get("gt_warnings", []):
+                    logger.warning(f"Gene {first_gene}: {_w}")
+                if _result.get("mac_filtered"):
+                    logger.debug(f"Gene {first_gene}: MAC < 5 — regression will report NA")
+
             for test_name, test in self._tests.items():
                 result = test.run(first_gene, first_gene_data, self._config)
                 results_by_test[test_name][first_gene] = result
                 logger.debug(
                     f"Gene {first_gene} | {test_name}: p={result.p_value}, OR={result.effect_size}"
                 )
+
+            # PERF-06: Discard first gene matrix after tests complete
+            first_gene_data.pop("genotype_matrix", None)
+            first_gene_data.pop("variant_mafs", None)
 
             # Pickle test instances now that null models are fitted
             import concurrent.futures
@@ -395,6 +419,23 @@ class AssociationEngine:
                     f"{len(remaining)} remaining genes"
                 )
 
+                # PERF-06: Build matrices eagerly before pickling for worker dispatch.
+                # Builders capture gene_df which would be large to pickle alongside matrix;
+                # building here avoids sending both builder (with gene_df) and matrix to workers.
+                for gd in remaining:
+                    if "_genotype_matrix_builder" in gd and "genotype_matrix" not in gd:
+                        _builder = gd.pop("_genotype_matrix_builder")
+                        _result = _builder()
+                        gd["genotype_matrix"] = _result["genotype_matrix"]
+                        gd["variant_mafs"] = _result["variant_mafs"]
+                        gd["phenotype_vector"] = _result["phenotype_vector"]
+                        gd["covariate_matrix"] = _result["covariate_matrix"]
+                        _gene = gd.get("GENE", "")
+                        for _w in _result.get("gt_warnings", []):
+                            logger.warning(f"Gene {_gene}: {_w}")
+                        if _result.get("mac_filtered"):
+                            logger.debug(f"Gene {_gene}: MAC < 5 — regression will report NA")
+
                 args_list = [
                     (gd.get("GENE", ""), gd, pickled_tests, self._config) for gd in remaining
                 ]
@@ -409,16 +450,40 @@ class AssociationEngine:
                                 f"Gene {gene} | {test_name}: p={result.p_value}, "
                                 f"OR={result.effect_size}"
                             )
+
+                # PERF-06: Discard matrices after parallel batch completes
+                for gd in remaining:
+                    gd.pop("genotype_matrix", None)
+                    gd.pop("variant_mafs", None)
         else:
             # Sequential gene loop (default path or fallback)
             for gene_data in sorted_data:
                 gene = gene_data.get("GENE", "")
+
+                # PERF-06: Invoke lazy builder if present (per-gene, O(1) peak memory)
+                if "_genotype_matrix_builder" in gene_data and "genotype_matrix" not in gene_data:
+                    builder = gene_data.pop("_genotype_matrix_builder")
+                    result = builder()
+                    gene_data["genotype_matrix"] = result["genotype_matrix"]
+                    gene_data["variant_mafs"] = result["variant_mafs"]
+                    gene_data["phenotype_vector"] = result["phenotype_vector"]
+                    gene_data["covariate_matrix"] = result["covariate_matrix"]
+                    for w in result.get("gt_warnings", []):
+                        logger.warning(f"Gene {gene}: {w}")
+                    if result.get("mac_filtered"):
+                        logger.debug(f"Gene {gene}: MAC < 5 — regression will report NA")
+
                 for test_name, test in self._tests.items():
                     result = test.run(gene, gene_data, self._config)
                     results_by_test[test_name][gene] = result
                     logger.debug(
                         f"Gene {gene} | {test_name}: p={result.p_value}, OR={result.effect_size}"
                     )
+
+                # PERF-06: Discard matrix after all tests for this gene complete
+                gene_data.pop("genotype_matrix", None)
+                gene_data.pop("variant_mafs", None)
+                # Keep phenotype_vector and covariate_matrix — shared references, not per-gene
 
         # Lifecycle hook: finalize() after gene loop (allows timing summary, cleanup)
         for test in self._tests.values():
@@ -439,12 +504,71 @@ class AssociationEngine:
             for g in gene_order
             if acat_o_results.get(g) is not None and acat_o_results[g].p_value is not None
         ]
+
+        # Phase 33: weighted or unweighted correction path
+        fdr_weights_by_gene: dict[str, float] = {}
+        unweighted_corrected_by_gene: dict[str, float] = {}
+        weighted_norm_arr: list[float] = []
+
         if testable_genes:
             raw_pvals: list[float] = [
                 acat_o_results[g].p_value  # type: ignore[misc]
                 for g in testable_genes
             ]
-            corrected = apply_correction(raw_pvals, self._config.correction_method)
+
+            use_weighted = bool(getattr(self._config, "gene_prior_weights", None))
+
+            if use_weighted:
+                from variantcentrifuge.association.correction import (
+                    apply_weighted_correction,
+                    load_gene_weights,
+                )
+
+                weight_col = getattr(self._config, "gene_prior_weight_column", "weight")
+                weight_map = load_gene_weights(
+                    self._config.gene_prior_weights,  # type: ignore[arg-type]
+                    weight_col,
+                )
+
+                # Unweighted for diagnostics comparison
+                unweighted = apply_correction(raw_pvals, self._config.correction_method)
+                for g, uw in zip(testable_genes, unweighted, strict=True):
+                    unweighted_corrected_by_gene[g] = float(uw)
+
+                corrected, norm_w = apply_weighted_correction(
+                    raw_pvals, testable_genes, weight_map, self._config.correction_method
+                )
+                weighted_norm_arr = norm_w.tolist()
+                for g, nw in zip(testable_genes, norm_w, strict=True):
+                    fdr_weights_by_gene[g] = float(nw)
+
+                # Write diagnostics if requested (Phase 33)
+                diag_out = getattr(self._config, "diagnostics_output", None)
+                if diag_out and len(testable_genes) > 1:
+                    import numpy as _np
+
+                    from variantcentrifuge.association.diagnostics import (
+                        write_fdr_weight_diagnostics,
+                    )
+
+                    write_fdr_weight_diagnostics(
+                        genes=testable_genes,
+                        raw_weights=weight_map,
+                        normalized_weights=_np.asarray(weighted_norm_arr, dtype=float),
+                        unweighted_corrected=_np.asarray(
+                            [unweighted_corrected_by_gene[g] for g in testable_genes],
+                            dtype=float,
+                        ),
+                        weighted_corrected=_np.asarray(
+                            [float(corrected[i]) for i in range(len(testable_genes))],
+                            dtype=float,
+                        ),
+                        fdr_threshold=0.05,
+                        diagnostics_dir=diag_out,
+                    )
+            else:
+                corrected = apply_correction(raw_pvals, self._config.correction_method)
+
             for gene, corr_p in zip(testable_genes, corrected, strict=True):
                 acat_o_results[gene].corrected_p_value = float(corr_p)
 
@@ -476,7 +600,7 @@ class AssociationEngine:
             for test_name, test in self._tests.items():
                 res = results_by_test[test_name][gene]
                 col_names = test.effect_column_names()
-                row[f"{test_name}_p_value"] = res.p_value
+                row[f"{test_name}_pvalue"] = res.p_value
                 # Primary test corrected_p_value is always None (ARCH-03)
                 # It is written for schema completeness but remains None.
                 # None-effect guard: skip column creation when effect/CI names are None.
@@ -498,12 +622,20 @@ class AssociationEngine:
                 for extra_key, extra_val in res.extra.items():
                     row[extra_key] = extra_val
 
+                # SKAT-O post-processing: rename skat_pvalue -> skat_o_pvalue when
+                # skat_method is SKATO. The skat_method key is stored in res.extra
+                # and already written to the row above.
+                if res.extra.get("skat_method") == "SKATO" and f"{test_name}_pvalue" in row:
+                    row[f"{test_name}_o_pvalue"] = row.pop(f"{test_name}_pvalue")
+
             # ACAT-O columns (Phase 22) — omnibus significance measure
             acat_res = acat_o_results.get(gene)
-            row["acat_o_p_value"] = acat_res.p_value if acat_res is not None else None
-            row["acat_o_corrected_p_value"] = (
-                acat_res.corrected_p_value if acat_res is not None else None
-            )
+            row["acat_o_pvalue"] = acat_res.p_value if acat_res is not None else None
+            row["acat_o_qvalue"] = acat_res.corrected_p_value if acat_res is not None else None
+
+            # Phase 33: fdr_weight column — only added when weighted BH is active
+            if fdr_weights_by_gene:
+                row["fdr_weight"] = fdr_weights_by_gene.get(gene, 1.0)
 
             rows.append(row)
 
@@ -512,7 +644,7 @@ class AssociationEngine:
             return pd.DataFrame()
 
         result_df = pd.DataFrame(rows)
-        n_sig = (result_df.get("acat_o_corrected_p_value", pd.Series(dtype=float)) < 0.05).sum()
+        n_sig = (result_df.get("acat_o_qvalue", pd.Series(dtype=float)) < 0.05).sum()
         logger.info(
             f"Association analysis complete: {len(result_df)} genes tested, "
             f"{n_sig} significant (ACAT-O corrected p < 0.05)"

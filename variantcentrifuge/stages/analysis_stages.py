@@ -13,9 +13,11 @@ This module contains stages that perform analysis on the extracted data:
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, cast
 
+import numpy as np
 import pandas as pd
 
 from ..analyze_variants import analyze_variants
@@ -23,20 +25,94 @@ from ..annotator import annotate_dataframe_with_features, load_custom_features
 from ..association.base import AssociationConfig
 from ..association.engine import AssociationEngine
 from ..dataframe_optimizer import load_optimized_dataframe, should_use_memory_passthrough
-from ..filters import filter_final_tsv_by_genotype
 from ..gene_burden import (
     _aggregate_gene_burden_from_columns,
     _aggregate_gene_burden_from_gt,
     _aggregate_gene_burden_legacy,
-    _find_gt_columns,
     perform_gene_burden_analysis,
 )
 from ..inheritance import analyze_inheritance
 from ..pipeline_core import PipelineContext, Stage
 from ..scoring import apply_scoring
 from ..stats_engine import StatsEngine
+from .output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _GenotypeMatrixBuilder:
+    """Picklable lazy builder for per-gene genotype matrices (PERF-06).
+
+    Instead of pre-building all matrices, this callable is stored in gene_data
+    and invoked by the engine just before running tests. The matrix is discarded
+    after test execution, keeping peak memory at O(1 gene).
+    """
+
+    gene_df: pd.DataFrame
+    vcf_samples: list[str]
+    gt_columns: list[str]
+    is_binary: bool
+    missing_site_threshold: float
+    missing_sample_threshold: float
+    phenotype_vector: "np.ndarray | None"
+    covariate_matrix: "np.ndarray | None"
+
+    def __call__(self) -> dict[str, Any]:
+        """Build genotype matrix and apply sample mask + MAC check.
+
+        Returns dict with keys: genotype_matrix, variant_mafs,
+        phenotype_vector, covariate_matrix, gt_warnings, mac_filtered.
+        """
+        from ..association.genotype_matrix import build_genotype_matrix
+
+        if self.gene_df.empty:
+            n_samples = len(self.vcf_samples)
+            return {
+                "genotype_matrix": np.zeros((n_samples, 0), dtype=float),
+                "variant_mafs": np.zeros(0, dtype=float),
+                "phenotype_vector": self.phenotype_vector,
+                "covariate_matrix": self.covariate_matrix,
+                "gt_warnings": [],
+                "mac_filtered": False,
+            }
+
+        geno, mafs, sample_mask, gt_warnings = build_genotype_matrix(
+            self.gene_df,
+            self.vcf_samples,
+            self.gt_columns,
+            is_binary=self.is_binary,
+            missing_site_threshold=self.missing_site_threshold,
+            missing_sample_threshold=self.missing_sample_threshold,
+            phenotype_vector=self.phenotype_vector,
+        )
+
+        # Apply sample mask to phenotype and covariates
+        pv = self.phenotype_vector
+        cm = self.covariate_matrix
+        if not all(sample_mask):
+            mask_arr = np.array(sample_mask, dtype=bool)
+            pv = pv[mask_arr] if pv is not None else None
+            cm = cm[mask_arr] if cm is not None else None
+            geno = geno[mask_arr]
+
+        # Per-gene MAC check: skip regression if < 5 minor allele copies
+        mac_filtered = False
+        total_mac = int(geno.sum()) if geno.size > 0 else 0
+        if total_mac < 5:
+            geno = np.zeros((geno.shape[0], 0), dtype=float)
+            mafs = np.zeros(0, dtype=float)
+            mac_filtered = True
+
+        return {
+            "genotype_matrix": geno,
+            "variant_mafs": mafs,
+            "phenotype_vector": pv,
+            "covariate_matrix": cm,
+            "gt_warnings": gt_warnings,
+            "mac_filtered": mac_filtered,
+        }
+
 
 # Standard column aliases: sanitized name -> canonical short name.
 # When ANN[0].GENE is sanitized to ANN_0__GENE, downstream stages still expect "GENE".
@@ -926,9 +1002,11 @@ class InheritanceAnalysisStage(Stage):
         assert df is not None, "DataFrame must not be None for inheritance analysis"
 
         # Use ResourceManager to decide processing strategy
-        from ..memory import ResourceManager
+        rm = context.resource_manager
+        if rm is None:
+            from ..memory import ResourceManager
 
-        rm = ResourceManager(config=context.config)
+            rm = ResourceManager(config=context.config)
 
         # Calculate optimal chunk size and worker count
         chunk_size = rm.auto_chunk_size(len(df), len(vcf_samples))
@@ -1002,8 +1080,6 @@ class InheritanceAnalysisStage(Stage):
 
         elif not sample_columns_exist:
             # Phase 11: per-sample GT columns (GEN_N__GT) from bcftools query
-            from ..stages.output_stages import _find_per_sample_gt_columns
-
             gt_cols = _find_per_sample_gt_columns(df)
             if gt_cols:
                 n = min(len(gt_cols), len(vcf_samples))
@@ -1189,102 +1265,6 @@ class VariantScoringStage(Stage):
         return context
 
 
-class GenotypeFilterStage(Stage):
-    """Filter variants by genotype patterns."""
-
-    @property
-    def name(self) -> str:
-        """Return the stage name."""
-        return "genotype_filtering"
-
-    @property
-    def description(self) -> str:
-        """Return a description of what this stage does."""
-        return "Filter variants by genotype patterns"
-
-    @property
-    def dependencies(self) -> set[str]:
-        """Return the set of stage names this stage depends on."""
-        # Must run after dataframe is loaded and scored
-        return {"dataframe_loading", "variant_scoring"}
-
-    def _process(self, context: PipelineContext) -> PipelineContext:
-        """Apply genotype filtering if requested."""
-        # Check if genotype filtering is requested
-        genotype_filter = context.config.get("genotype_filter")
-        gene_genotype_file = context.config.get("gene_genotype_file")
-
-        if not genotype_filter and not gene_genotype_file:
-            logger.debug("No genotype filtering requested")
-            return context
-
-        df = context.current_dataframe
-        if df is None:
-            logger.warning("No DataFrame loaded for genotype filtering")
-            return context
-
-        # Parse genotype modes
-        genotype_modes = set()
-        if genotype_filter:
-            genotype_modes = {g.strip() for g in genotype_filter.split(",") if g.strip()}
-
-        logger.info(f"Applying genotype filtering with modes: {genotype_modes}")
-        if gene_genotype_file:
-            logger.info(f"Using gene-specific genotype file: {gene_genotype_file}")
-
-        # Save DataFrame to temporary file for filtering
-        import tempfile
-
-        # Use compressed temporary files for genotype filtering to save space
-        use_compression = context.config.get("gzip_intermediates", True)
-        suffix = ".tsv.gz" if use_compression else ".tsv"
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False) as tmp_input:
-            if use_compression:
-                # For compressed files, write without pandas compression first
-                import gzip
-
-                tmp_input.close()  # Close the file handle
-                with gzip.open(tmp_input.name, "wt", compresslevel=1) as gz_file:
-                    df.to_csv(gz_file, sep="\t", index=False)
-                tmp_input_path = tmp_input.name
-            else:
-                df.to_csv(tmp_input.name, sep="\t", index=False)
-                tmp_input_path = tmp_input.name
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False) as tmp_output:
-            tmp_output_path = tmp_output.name
-
-        try:
-            # Apply genotype filtering
-            filter_final_tsv_by_genotype(
-                input_tsv=tmp_input_path,
-                output_tsv=tmp_output_path,
-                global_genotypes=genotype_modes,
-                gene_genotype_file=gene_genotype_file,
-            )
-
-            # Load filtered results back into DataFrame
-            filtered_df = pd.read_csv(tmp_output_path, sep="\t", low_memory=False)
-
-            logger.info(f"Genotype filtering: {len(df)} → {len(filtered_df)} variants")
-
-            # Update context with filtered DataFrame
-            context.current_dataframe = filtered_df
-
-        finally:
-            # Clean up temporary files
-            import os
-
-            try:
-                os.unlink(tmp_input_path)
-                os.unlink(tmp_output_path)
-            except OSError:
-                pass
-
-        return context
-
-
 class StatisticsGenerationStage(Stage):
     """Generate summary statistics."""
 
@@ -1372,7 +1352,7 @@ class StatisticsGenerationStage(Stage):
         # Write stats if output file specified or create default path
         stats_output = context.config.get("stats_output_file")
         if not stats_output and not context.config.get("no_stats"):
-            # Create default stats file path like the old pipeline does
+            # Create default stats file path
             stats_output = context.workspace.get_intermediate_path("statistics.tsv")
             logger.debug(f"Created default statistics output path: {stats_output}")
 
@@ -1506,9 +1486,8 @@ class VariantAnalysisStage(Stage):
         # Note: variant_identifier should run AFTER this stage, not before,
         # because analyze_variants creates a new DataFrame
         # Run after custom_annotation to ensure deterministic column ordering
-        # Run after genotype filtering if present
         # CRITICAL: Run after inheritance_analysis to preserve inheritance columns
-        return {"custom_annotation", "genotype_filtering", "inheritance_analysis"}
+        return {"custom_annotation", "inheritance_analysis"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Run variant analysis."""
@@ -1556,17 +1535,26 @@ class VariantAnalysisStage(Stage):
             "control_phenotypes": context.config.get("control_phenotypes") or [],
         }
 
+        # Fix 5: Save per-sample GT columns BEFORE reconstruction so they can be
+        # re-attached to context.current_dataframe after analysis. The reconstruction
+        # step packs them into a single GT string (needed by analyze_variants), but
+        # downstream stages (AssociationAnalysisStage) need the per-sample columns.
+        _original_gt_cols = _find_per_sample_gt_columns(df)
+        _gt_backup: pd.DataFrame | None = None
+        if _original_gt_cols:
+            # Save per-sample GT columns keyed by variant identity for later re-attachment
+            _key_cols_for_gt = [
+                c for c in ["CHROM", "POS", "REF", "ALT", "GENE"] if c in df.columns
+            ]
+            _gt_backup = df[_key_cols_for_gt + _original_gt_cols].copy()
+
         # Phase 11: Reconstruct packed GT column for analyze_variants if needed.
         # analyze_variants expects a packed GT column ("Sample1(0/1);Sample2(1/1)").
         # With Phase 11, we have per-sample GEN_N__GT columns instead.
-        if "GT" not in df.columns and context.vcf_samples:
-            from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
-
-            gt_cols = _find_per_sample_gt_columns(df)
-            if gt_cols:
-                logger.info("Reconstructing GT column for variant analysis")
-                # Work on a copy to avoid modifying the original DataFrame
-                df = reconstruct_gt_column(df.copy(), context.vcf_samples)
+        if "GT" not in df.columns and context.vcf_samples and _original_gt_cols:
+            logger.info("Reconstructing GT column for variant analysis (local copy only)")
+            # Work on a copy to avoid modifying the original DataFrame
+            df = reconstruct_gt_column(df.copy(), context.vcf_samples)
 
         # Restore original column names before writing temp TSV.
         # analyze_variants expects unsanitized names (GENE, not ANN_0__GENE).
@@ -1724,6 +1712,48 @@ class VariantAnalysisStage(Stage):
 
             context.current_dataframe = analysis_df
             logger.info(f"Variant analysis complete: {len(analysis_df)} variants analyzed")
+
+            # Fix 5: Re-attach per-sample GT columns that were dropped during
+            # reconstruct_gt_column. Use key-column merge for safety (handles
+            # row reordering/filtering by analyze_variants).
+            if (
+                _gt_backup is not None
+                and _original_gt_cols
+                and not _find_per_sample_gt_columns(context.current_dataframe)
+            ):
+                # Build merge keys — use sanitized names if column_rename_map is active
+                _merge_keys = _key_cols_for_gt
+                if context.column_rename_map:
+                    _merge_keys = [context.column_rename_map.get(k, k) for k in _key_cols_for_gt]
+                    _gt_backup = _gt_backup.rename(columns=context.column_rename_map)
+                # Only merge if key columns exist in both DataFrames
+                _keys_in_result = [
+                    k
+                    for k in _merge_keys
+                    if k in context.current_dataframe.columns and k in _gt_backup.columns
+                ]
+                if _keys_in_result:
+                    context.current_dataframe = context.current_dataframe.merge(
+                        _gt_backup,
+                        on=_keys_in_result,
+                        how="left",
+                        suffixes=("", "_gt_dup"),
+                    )
+                    # Drop any duplicate columns created by merge
+                    _dup_cols = [
+                        c for c in context.current_dataframe.columns if c.endswith("_gt_dup")
+                    ]
+                    if _dup_cols:
+                        context.current_dataframe = context.current_dataframe.drop(
+                            columns=_dup_cols
+                        )
+                    logger.info(
+                        f"Re-attached {len(_original_gt_cols)} per-sample GT columns via key merge"
+                    )
+                else:
+                    logger.warning(
+                        "Cannot re-attach per-sample GT columns: no matching key columns"
+                    )
 
             # Final check: Verify if inheritance columns survived
             final_inheritance_cols = [
@@ -1922,17 +1952,17 @@ class GeneBurdenAnalysisStage(Stage):
             logger.debug(f"Available columns: {list(df.columns)[:20]}...")
             return context
 
-        # Phase 11: Reconstruct packed GT column if missing
+        # Fix 5: Reconstruct packed GT column on a LOCAL copy only.
+        # Do NOT write back to context.current_dataframe — per-sample GT columns
+        # must survive in context for downstream AssociationAnalysisStage.
+        df_for_burden = df
         if "GT" not in df.columns and context.vcf_samples:
-            from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
-
             gt_cols = _find_per_sample_gt_columns(df)
             if gt_cols:
-                logger.info("Reconstructing GT column for gene burden analysis")
-                df = reconstruct_gt_column(df.copy(), context.vcf_samples)
-                context.current_dataframe = df
+                logger.info("Reconstructing GT column for gene burden analysis (local copy only)")
+                df_for_burden = reconstruct_gt_column(df.copy(), context.vcf_samples)
 
-        if "GT" not in df.columns:
+        if "GT" not in df_for_burden.columns:
             logger.error("DataFrame missing required 'GT' column for gene burden analysis")
             return context
 
@@ -1965,7 +1995,7 @@ class GeneBurdenAnalysisStage(Stage):
 
         _t_cc = _time.monotonic()
         df_with_counts = assign_case_control_counts(
-            df=df,
+            df=df_for_burden,
             case_samples=set(case_samples),
             control_samples=set(control_samples),
             all_samples=all_vcf_samples,  # This should be ALL samples in VCF
@@ -2054,6 +2084,7 @@ VALID_ASSOCIATION_KEYS: frozenset[str] = frozenset(
         "covariate_file",
         "covariate_columns",
         "categorical_covariates",
+        "pca",
         "pca_file",
         "pca_tool",
         "pca_components",
@@ -2070,6 +2101,8 @@ VALID_ASSOCIATION_KEYS: frozenset[str] = frozenset(
         "missing_sample_threshold",
         "firth_max_iter",
         "association_workers",
+        "gene_prior_weights",
+        "gene_prior_weight_column",
     }
 )
 
@@ -2114,6 +2147,8 @@ def _validate_association_config_dict(d: dict) -> None:
         "pca_tool",
         "confidence_interval_method",
         "diagnostics_output",
+        "gene_prior_weights",
+        "gene_prior_weight_column",
     }
     int_keys = {
         "pca_components",
@@ -2171,6 +2206,27 @@ def _validate_association_config_dict(d: dict) -> None:
             f"Invalid 'association' config section ({len(errors)} error(s)):\n"
             + "\n".join(f"  - {e}" for e in errors)
         )
+
+
+def _resolve_association_workers(cfg: dict, _get) -> int:
+    """Resolve association_workers from CLI/JSON/auto.
+
+    0 (default) means auto-allocate from --threads. -1 means all CPU cores.
+    Explicit positive values are used directly.
+    """
+    raw = _get("association_workers", default=0, nullable=False)
+    if raw == 0:
+        # Auto: derive from --threads
+        threads = int(cfg.get("threads", 1))
+        logger.info(f"Association workers auto-allocated from --threads: {threads}")
+        return threads
+    if raw == -1:
+        import os
+
+        cpus = os.cpu_count() or 1
+        logger.info(f"Association workers auto-detected: {cpus} CPU cores")
+        return cpus
+    return int(raw)
 
 
 def _build_assoc_config_from_context(context: "PipelineContext") -> AssociationConfig:
@@ -2295,7 +2351,10 @@ def _build_assoc_config_from_context(context: "PipelineContext") -> AssociationC
         pca_tool=_get("pca_tool", default=None, nullable=True),
         pca_components=_get("pca_components", default=10, nullable=False),
         coast_weights=_get("coast_weights", default=None, nullable=True),
-        association_workers=_get("association_workers", default=1, nullable=False),
+        association_workers=_resolve_association_workers(cfg, _get),
+        coast_classification=_get("coast_classification", default=None, nullable=True),
+        gene_prior_weights=_get("gene_prior_weights", default=None, nullable=True),
+        gene_prior_weight_column=_get("gene_prior_weight_column", default="weight", nullable=False),
     )
 
 
@@ -2320,7 +2379,7 @@ class AssociationAnalysisStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
-        return {"custom_annotation"}
+        return {"custom_annotation", "pca_computation"}
 
     @property
     def parallel_safe(self) -> bool:
@@ -2382,6 +2441,14 @@ class AssociationAnalysisStage(Stage):
             )
             return context
 
+        # PCA-02: pick up pca_file from PCAComputationStage result (Phase 32)
+        pca_result = context.get_result("pca_computation")
+        if pca_result and isinstance(pca_result, dict):
+            pca_file_from_stage = pca_result.get("pca_file")
+            if pca_file_from_stage:
+                context.config.setdefault("pca_file", pca_file_from_stage)
+                logger.debug(f"Association: PCA file from pipeline stage: {pca_file_from_stage}")
+
         # Build AssociationConfig from context (Phase 23: JSON config + CLI override support).
         # Validates "association" section from config.json, applies CLI > JSON > default
         # precedence, and returns a fully populated AssociationConfig.
@@ -2413,35 +2480,48 @@ class AssociationAnalysisStage(Stage):
             logger.error("DataFrame missing required 'GENE' column for association analysis")
             return context
 
-        # Phase 24: Validate required columns for COAST allelic series test.
+        # Phase 24/31: Validate required columns for COAST allelic series test.
         # COAST needs annotation columns to classify variants into BMV/DMV/PTV.
-        # Without them, all variants get code 0 (ineligible) and COAST returns
-        # meaningless results silently.
+        # Required columns depend on the classification model selected:
+        #   sift_polyphen (default): EFFECT, IMPACT, SIFT_pred, Polyphen2_HDIV_pred
+        #   cadd: EFFECT, IMPACT, CADD_phred
+        # The cli.py auto-injection should have added these fields, but validate
+        # that at least EFFECT and IMPACT are present (needed by all models).
         if "coast" in test_names:
-            _coast_required = [
-                "ANN_0__EFFECT",
-                "ANN_0__IMPACT",
-                "dbNSFP_SIFT_pred",
-                "dbNSFP_Polyphen2_HDIV_pred",
+            _coast_base_required = [
+                ("ANN_0__EFFECT", "ANN[0].EFFECT"),
+                ("ANN_0__IMPACT", "ANN[0].IMPACT"),
             ]
-            # Also check unsanitized column names (pre-Phase 8 sanitization)
-            _coast_required_alt = [
-                "ANN[0].EFFECT",
-                "ANN[0].IMPACT",
-                "dbNSFP_SIFT_pred",
-                "dbNSFP_Polyphen2_HDIV_pred",
-            ]
+            # For sift_polyphen model (default), also check SIFT/PolyPhen
+            _coast_model = getattr(assoc_config, "coast_classification", None) or ""
+            _is_sift_model = (
+                not _coast_model
+                or _coast_model.endswith("sift_polyphen")
+                or _coast_model == "sift_polyphen"
+            )
+            if _is_sift_model:
+                _coast_base_required.extend(
+                    [
+                        ("dbNSFP_SIFT_pred", "dbNSFP_SIFT_pred"),
+                        ("dbNSFP_Polyphen2_HDIV_pred", "dbNSFP_Polyphen2_HDIV_pred"),
+                    ]
+                )
+            elif _coast_model.endswith("cadd") or _coast_model == "cadd":
+                _coast_base_required.extend(
+                    [
+                        ("dbNSFP_CADD_phred", "dbNSFP_CADD_phred"),
+                    ]
+                )
             missing = [
-                f
-                for f, f_alt in zip(_coast_required, _coast_required_alt, strict=True)
-                if f not in df.columns and f_alt not in df.columns
+                san
+                for san, alt in _coast_base_required
+                if san not in df.columns and alt not in df.columns
             ]
             if missing:
                 logger.error(
                     "COAST allelic series test requires columns %s but they are "
-                    "missing from the data. Add them to --fields (e.g., "
-                    "'ANN[0].EFFECT,ANN[0].IMPACT,dbNSFP_SIFT_pred,"
-                    "dbNSFP_Polyphen2_HDIV_pred'). Skipping COAST.",
+                    "missing from the data. Use --coast-classification to select "
+                    "a model, or add required fields to --fields. Skipping COAST.",
                     missing,
                 )
                 test_names = [t for t in test_names if t != "coast"]
@@ -2449,41 +2529,25 @@ class AssociationAnalysisStage(Stage):
                     return context
                 engine = AssociationEngine.from_names(test_names, assoc_config)
 
-        # Phase 11: Reconstruct packed GT column if missing.
-        # Phase 19: When regression tests need per-sample GT columns, keep a
-        # reference to the pre-reconstruction DataFrame for genotype matrix
-        # building. reconstruct_gt_column drops per-sample columns, so we
-        # must save them first.
+        # Fix 5: Per-sample GT columns are now always present in context.current_dataframe
+        # (preserved by VariantAnalysisStage and GeneBurdenAnalysisStage via local-copy
+        # reconstruction). No recovery from context.variants_df needed.
         needs_regression = any(
             t in test_names
             for t in ("logistic_burden", "linear_burden", "skat", "skat_python", "coast")
         )
+
+        # Per-sample GT columns are directly available (Fix 5 preserves them)
         df_with_per_sample_gt: pd.DataFrame | None = None
-        if "GT" not in df.columns and context.vcf_samples:
-            from ..stages.output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
+        gt_cols = _find_per_sample_gt_columns(df)
+        if needs_regression and gt_cols:
+            df_with_per_sample_gt = df
 
-            gt_cols = _find_per_sample_gt_columns(df)
-            if gt_cols:
-                # Save DataFrame with per-sample GT columns for genotype matrix
-                if needs_regression:
-                    df_with_per_sample_gt = df
-                logger.info("Reconstructing GT column for association analysis")
-                df = reconstruct_gt_column(df.copy(), context.vcf_samples)
-                context.current_dataframe = df
-        elif "GT" in df.columns and needs_regression and context.vcf_samples:
-            # GT already reconstructed (e.g. by gene_burden_analysis at same level).
-            # Try variants_df as fallback source for per-sample GT columns.
-            from ..stages.output_stages import _find_per_sample_gt_columns
-
-            fallback_df = context.variants_df
-            if fallback_df is not None:
-                gt_cols_fb = _find_per_sample_gt_columns(fallback_df)
-                if gt_cols_fb:
-                    logger.info(
-                        f"Association analysis: recovered {len(gt_cols_fb)} "
-                        "per-sample GT columns from variants_df for genotype matrix"
-                    )
-                    df_with_per_sample_gt = fallback_df
+        # Reconstruct packed GT for aggregation functions that need it (local copy only)
+        if "GT" not in df.columns and context.vcf_samples and gt_cols:
+            logger.info("Reconstructing GT column for association aggregation (local copy only)")
+            df = reconstruct_gt_column(df.copy(), context.vcf_samples)
+        # DO NOT assign df back to context.current_dataframe — per-sample cols must be preserved
 
         # Determine aggregation strategy (same priority as perform_gene_burden_analysis)
         case_set = set(case_samples)
@@ -2547,7 +2611,10 @@ class AssociationAnalysisStage(Stage):
 
             n_pcs = assoc_config.pca_components
             pca_matrix, pca_col_names = load_pca_file(
-                pca_file, vcf_samples_list, n_components=n_pcs
+                pca_file,
+                vcf_samples_list,
+                n_components=n_pcs,
+                remove_sample_substring=context.config.get("remove_sample_substring"),
             )
             covariate_matrix, covariate_col_names = merge_pca_covariates(
                 pca_matrix,
@@ -2583,7 +2650,7 @@ class AssociationAnalysisStage(Stage):
         # Standard aggregation (existing paths — unchanged)
         # ------------------------------------------------------------------
         has_case_ctrl = True  # already checked above
-        gt_columns = _find_gt_columns(df)
+        gt_columns = _find_per_sample_gt_columns(df)
         use_column_aggregation = bool(
             has_case_ctrl
             and gt_columns
@@ -2618,66 +2685,49 @@ class AssociationAnalysisStage(Stage):
 
         # ------------------------------------------------------------------
         # Phase 19: Augment gene_burden_data with genotype matrix for
-        # regression tests (logistic_burden, linear_burden, skat, skat_python)
+        # regression tests (logistic_burden, linear_burden, skat, skat_python, coast)
         # Backward compatible: FisherExactTest ignores the new keys.
+        #
+        # PERF-06: Lazy builder pattern — store a _GenotypeMatrixBuilder per gene
+        # instead of pre-building all matrices. The engine invokes each builder
+        # just before running tests and discards the matrix after, keeping peak
+        # memory at O(1 gene) rather than O(all genes).
         #
         # Use df_with_per_sample_gt when available (per-sample GT columns
         # were dropped by reconstruct_gt_column for the aggregation step).
         # Fall back to gt_columns from current df if columns still present.
         # ------------------------------------------------------------------
         gt_source_df = df_with_per_sample_gt if df_with_per_sample_gt is not None else df
-        gt_columns_for_matrix = _find_gt_columns(gt_source_df)
+        gt_columns_for_matrix = _find_per_sample_gt_columns(gt_source_df)
         if needs_regression and gt_columns_for_matrix and vcf_samples_list:
-            from ..association.genotype_matrix import build_genotype_matrix
-
             is_binary = assoc_config.trait_type == "binary"
+            # Pre-compute gene groups for O(1) per-gene lookup instead of
+            # O(n_rows) scan per gene. With 5K genes x 200K rows this avoids
+            # ~1 billion comparisons.
+            _gene_groups = gt_source_df.groupby("GENE")
             for gene_data in gene_burden_data:
                 gene_name = gene_data.get("GENE", "")
-                gene_df = gt_source_df[gt_source_df["GENE"] == gene_name]
-                if gene_df.empty:
-                    gene_data["genotype_matrix"] = np.zeros((len(vcf_samples_list), 0), dtype=float)
-                    gene_data["variant_mafs"] = np.zeros(0, dtype=float)
-                    gene_data["phenotype_vector"] = phenotype_vector
-                    gene_data["covariate_matrix"] = covariate_matrix
-                    continue
+                try:
+                    gene_df = _gene_groups.get_group(gene_name)
+                except KeyError:
+                    gene_df = gt_source_df.iloc[0:0]
 
-                geno, mafs, sample_mask, gt_warnings = build_genotype_matrix(
-                    gene_df,
-                    vcf_samples_list,
-                    gt_columns_for_matrix,
+                # Store lazy builder instead of pre-built matrix (PERF-06)
+                builder = _GenotypeMatrixBuilder(
+                    gene_df=gene_df,
+                    vcf_samples=vcf_samples_list,
+                    gt_columns=gt_columns_for_matrix,
                     is_binary=is_binary,
                     missing_site_threshold=assoc_config.missing_site_threshold,
                     missing_sample_threshold=assoc_config.missing_sample_threshold,
                     phenotype_vector=phenotype_vector,
+                    covariate_matrix=covariate_matrix,
                 )
-                for w in gt_warnings:
-                    logger.warning(f"Gene {gene_name}: {w}")
-
-                # Apply sample mask to phenotype and covariates if any high-missing samples
-                if not all(sample_mask):
-                    mask_arr = np.array(sample_mask, dtype=bool)
-                    pv = phenotype_vector[mask_arr] if phenotype_vector is not None else None
-                    cm = covariate_matrix[mask_arr] if covariate_matrix is not None else None
-                    geno = geno[mask_arr]
-                else:
-                    pv = phenotype_vector
-                    cm = covariate_matrix
-
-                # Per-gene MAC check: skip regression if < 5 minor allele copies
-                total_mac = int(geno.sum()) if geno.size > 0 else 0
-                if total_mac < 5:
-                    logger.debug(
-                        f"Gene {gene_name}: MAC={total_mac} < 5 — "
-                        "regression will report NA (insufficient data)"
-                    )
-                    gene_data["genotype_matrix"] = np.zeros((geno.shape[0], 0), dtype=float)
-                    gene_data["variant_mafs"] = np.zeros(0, dtype=float)
-                else:
-                    gene_data["genotype_matrix"] = geno
-                    gene_data["variant_mafs"] = mafs
+                gene_data["_genotype_matrix_builder"] = builder
 
                 # Phase 23: Extract functional annotation columns for CADD/REVEL weight schemes
                 # (WEIGHT-05). Arrays must align with variant_mafs (post site-filter length).
+                # Annotation extraction is cheap and needed regardless of lazy building.
                 if assoc_config.variant_weights in ("cadd", "revel", "combined"):
                     _cadd_col = next(
                         (
@@ -2701,26 +2751,27 @@ class AssociationAnalysisStage(Stage):
                     )
                     # Align annotations with variant_mafs (build_genotype_matrix applies
                     # a site missing-rate filter; replicate it here for correct alignment).
-                    # The filter marks variants with >missing_site_threshold missing GTs.
-                    # Missing GTs are identified by parse_gt_to_dosage returning None,
-                    # i.e. strings like "./.", ".|.", ".", or empty.
+                    # Vectorized: count missing GTs per variant using pandas isin() instead
+                    # of per-cell parse_gt_to_dosage() calls.
+                    _gt_cols_list = list(gt_columns_for_matrix)
+                    _n_samples_gt = len(_gt_cols_list)
                     _n_df = len(gene_df)
-                    _n_kept = len(gene_data["variant_mafs"])
-                    if _n_kept < _n_df:
-                        from ..association.genotype_matrix import parse_gt_to_dosage as _pgd
-
-                        _gt_cols_list = list(gt_columns_for_matrix)
-                        _n_samples_gt = len(_gt_cols_list)
-                        _keep_mask_ann = np.ones(_n_df, dtype=bool)
-                        for _vi, (_, _row) in enumerate(gene_df.iterrows()):
-                            _n_miss = sum(
-                                1
-                                for _col in _gt_cols_list
-                                if _pgd(str(_row.get(_col) or ""))[0] is None
-                            )
-                            _miss_frac = _n_miss / _n_samples_gt if _n_samples_gt > 0 else 0.0
-                            if _miss_frac > assoc_config.missing_site_threshold:
-                                _keep_mask_ann[_vi] = False
+                    if _n_df > 0 and _n_samples_gt > 0:
+                        # Missing GT values: ./., .|., ., empty, None, partial (./1, 1/.)
+                        # Vectorized: count NaN/missing per variant across all GT columns
+                        _gt_sub = gene_df[_gt_cols_list].fillna("./.").astype(str)
+                        _gt_norm = _gt_sub.apply(lambda col: col.str.replace("|", "/", regex=False))
+                        # A GT is missing if it contains "." as an allele
+                        _is_missing = _gt_norm.apply(
+                            lambda col: col.str.contains(r"(?:^|\/)\.(?:\/|$)", regex=True, na=True)
+                        )
+                        _miss_frac_per_variant = _is_missing.sum(axis=1) / _n_samples_gt
+                        _keep_mask_ann: np.ndarray | None = (
+                            _miss_frac_per_variant <= assoc_config.missing_site_threshold
+                        ).values
+                        # Only apply mask if some variants are filtered out
+                        if bool(_keep_mask_ann.all()):
+                            _keep_mask_ann = None
                     else:
                         _keep_mask_ann = None
 
@@ -2740,8 +2791,6 @@ class AssociationAnalysisStage(Stage):
                             _vals[_keep_mask_ann] if _keep_mask_ann is not None else _vals
                         )
 
-                gene_data["phenotype_vector"] = pv
-                gene_data["covariate_matrix"] = cm
                 gene_data["vcf_samples"] = vcf_samples_list
 
                 # Phase 23: Provide gene_df for COAST annotation column access.
@@ -2822,7 +2871,7 @@ class AssociationAnalysisStage(Stage):
         # Log summary
         n_genes = len(results_df)
         # Count significant genes across any corrected p-value column
-        corr_cols = [c for c in results_df.columns if c.endswith("_corrected_p_value")]
+        corr_cols = [c for c in results_df.columns if c.endswith("_qvalue")]
         n_sig = int((results_df[corr_cols].min(axis=1) < 0.05).sum()) if corr_cols else 0
         logger.info(
             f"Association analysis: {n_genes} genes tested, {n_sig} significant (FDR < 0.05)"
@@ -3048,7 +3097,6 @@ class ChunkedAnalysisStage(Stage):
         self._setup_inheritance_config(context)
 
         # Auto-detect chunk size using ResourceManager
-        from ..memory import ResourceManager
 
         # Get sample count from inheritance config or estimate
         inheritance_config = context.config.get("inheritance_analysis_config", {})
@@ -3059,7 +3107,11 @@ class ChunkedAnalysisStage(Stage):
         # Use a conservative estimate based on file size if exact count unavailable
         total_variants = 100000  # Conservative default for chunk sizing
 
-        rm = ResourceManager(config=context.config)
+        rm = context.resource_manager
+        if rm is None:
+            from ..memory import ResourceManager
+
+            rm = ResourceManager(config=context.config)
         chunk_size = rm.auto_chunk_size(total_variants, num_samples)
 
         # Determine input file
@@ -3517,9 +3569,11 @@ class ChunkedAnalysisStage(Stage):
         try:
             # Use ResourceManager if context available
             if context and hasattr(context, "config"):
-                from ..memory import ResourceManager
+                rm = getattr(context, "resource_manager", None)
+                if rm is None:
+                    from ..memory import ResourceManager
 
-                rm = ResourceManager(config=context.config)
+                    rm = ResourceManager(config=context.config)
                 # Use conservative estimate for total variants
                 # (actual count determined during processing)
                 total_variants = 100000  # Conservative estimate for chunking
@@ -3787,9 +3841,11 @@ class ChunkedAnalysisStage(Stage):
                 return chunk_df
 
             # Use ResourceManager for memory safety check
-            from ..memory import ResourceManager
+            rm = context.resource_manager
+            if rm is None:
+                from ..memory import ResourceManager
 
-            rm = ResourceManager(config=context.config)
+                rm = ResourceManager(config=context.config)
             estimated_memory_gb = rm.estimate_memory(len(chunk_df), len(vcf_samples))
             safe_memory_gb = rm.memory_gb * rm.memory_safety_factor
 
@@ -3962,201 +4018,3 @@ class ChunkedAnalysisStage(Stage):
         """Return output files for checkpoint tracking."""
         # ChunkedAnalysisStage processes data in memory, no direct file outputs
         return []
-
-
-class ParallelAnalysisOrchestrator(Stage):
-    """Orchestrate parallel analysis of independent genes."""
-
-    @property
-    def name(self) -> str:
-        """Return the stage name."""
-        return "parallel_analysis"
-
-    @property
-    def description(self) -> str:
-        """Return a description of what this stage does."""
-        return "Run analysis in parallel by gene"
-
-    @property
-    def dependencies(self) -> set[str]:
-        """Return the set of stage names this stage depends on."""
-        # Can run after basic data loading
-        return {"dataframe_loading", "custom_annotation"}
-
-    @property
-    def parallel_safe(self) -> bool:
-        """Return whether this stage can run in parallel with others."""
-        # This stage manages its own parallelism
-        return False
-
-    def _process(self, context: PipelineContext) -> PipelineContext:
-        """Run analysis in parallel by gene."""
-        if not context.config.get("parallel_analysis"):
-            logger.debug("Parallel analysis not enabled")
-            return context
-
-        df = context.current_dataframe
-        if df is None:
-            logger.warning("No DataFrame loaded for parallel analysis")
-            return context
-
-        threads = context.config.get("threads", 1)
-        if threads <= 1:
-            logger.debug("Thread count <= 1, skipping parallel analysis")
-            return context
-
-        gene_column = context.config.get("gene_column", "GENE")
-
-        # Find the gene column if not specified
-        if gene_column not in df.columns:
-            for col in ["GENE", "Gene", "gene", "SYMBOL", "ANN[*].GENE", "EFF[*].GENE"]:
-                if col in df.columns:
-                    gene_column = col
-                    break
-            else:
-                logger.warning("No gene column found, cannot perform parallel analysis by gene")
-                return context
-
-        unique_genes = df[gene_column].unique()
-        num_genes = len(unique_genes)
-
-        logger.info(f"Running parallel analysis for {num_genes} genes using {threads} threads")
-
-        # Import required modules
-        from concurrent.futures import ProcessPoolExecutor, as_completed
-
-        # Split DataFrame by gene
-        gene_groups = df.groupby(gene_column, observed=True)
-
-        # Prepare analysis configuration
-        analysis_cfg = {
-            "add_variant_id": context.config.get("add_variant_id", True),
-            "perform_gene_burden": context.config.get("perform_gene_burden", False),
-            "custom_gene_list": context.config.get("custom_gene_list"),
-            "case_samples_file": context.config.get("case_samples_file"),
-            "control_samples_file": context.config.get("control_samples_file"),
-            "vcf_samples": context.vcf_samples,
-            "aggregate_operation": context.config.get("aggregate_operation", "max"),
-            "aggregate_column": context.config.get("aggregate_column"),
-            "sample_values": context.config.get("sample_values", {}),
-        }
-
-        # Track successful and failed genes
-        successful_results = []
-        failed_genes = []
-
-        # Process genes in parallel
-        with ProcessPoolExecutor(max_workers=threads) as executor:
-            # Submit tasks
-            futures = {}
-            for gene_name, gene_df in gene_groups:
-                future = executor.submit(
-                    self._process_gene_group,
-                    gene_name,
-                    gene_df,
-                    context.pedigree_data,
-                    context.scoring_config,
-                    analysis_cfg,
-                    context.config.get("skip_analysis", False),
-                )
-                futures[future] = gene_name
-
-            # Process results as they complete
-            try:
-                for future in as_completed(futures):
-                    gene_name = futures[future]
-                    try:
-                        result_df = future.result()
-                        if result_df is not None:
-                            successful_results.append(result_df)
-                            logger.debug(f"Successfully processed gene: {gene_name}")
-                    except Exception as e:
-                        logger.error(f"Failed to process gene {gene_name}: {e!s}")
-                        failed_genes.append(gene_name)
-                        # Don't cancel other tasks, continue processing
-
-            except KeyboardInterrupt:
-                logger.warning("Parallel processing interrupted by user")
-                # Cancel remaining futures
-                for future in futures:
-                    future.cancel()
-                raise
-
-        # Merge results
-        if successful_results:
-            logger.info(
-                f"Merging results from {len(successful_results)} successfully processed genes"
-            )
-            context.current_dataframe = pd.concat(successful_results, ignore_index=True)
-
-            # Restore original column order
-            original_columns = df.columns.tolist()
-            current_columns = context.current_dataframe.columns.tolist()
-            # Add any new columns at the end
-            new_columns = [col for col in current_columns if col not in original_columns]
-            ordered_columns = original_columns + new_columns
-            # Only reorder columns that exist in the result
-            ordered_columns = [col for col in ordered_columns if col in current_columns]
-            context.current_dataframe = context.current_dataframe[ordered_columns]
-
-            if failed_genes:
-                logger.warning(
-                    f"Failed to process {len(failed_genes)} genes: {', '.join(failed_genes[:10])}"
-                )
-                if len(failed_genes) > 10:
-                    logger.warning(f"... and {len(failed_genes) - 10} more")
-        else:
-            logger.error("No genes were successfully processed")
-            context.current_dataframe = df  # Keep original data
-
-        logger.info(
-            f"Parallel analysis completed: {len(successful_results)}/{num_genes} genes processed"
-        )
-        return context
-
-    @staticmethod
-    def _process_gene_group(
-        gene_name: str,
-        gene_df: pd.DataFrame,
-        pedigree_data: dict | None,
-        scoring_config: dict | None,
-        analysis_cfg: dict,
-        skip_analysis: bool,
-    ) -> pd.DataFrame:
-        """Process a single gene's variants (runs in worker process)."""
-        import io
-
-        from variantcentrifuge.analyze_variants import analyze_variants
-        from variantcentrifuge.scoring import apply_scoring
-
-        # Make a copy to avoid modifying the original
-        result_df = gene_df.copy()
-
-        try:
-            # Apply scoring if configured
-            if scoring_config:
-                result_df = apply_scoring(result_df, scoring_config)
-
-            # Apply analysis if not skipped
-            if not skip_analysis:
-                # Convert DataFrame to lines for analyze_variants function
-                tsv_lines = result_df.to_csv(sep="\t", index=False)
-                lines_iter = iter(tsv_lines.strip().split("\n"))
-
-                # Call analyze_variants and collect results
-                result_lines = list(analyze_variants(lines_iter, analysis_cfg))
-
-                # Convert back to DataFrame
-                if result_lines:
-                    result_text = "\n".join(result_lines)
-                    result_df = pd.read_csv(io.StringIO(result_text), sep="\t", dtype=str)
-
-            return result_df
-
-        except Exception as e:
-            # Log error and re-raise
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error processing gene {gene_name}: {e!s}")
-            raise

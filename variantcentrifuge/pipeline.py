@@ -47,6 +47,7 @@ from .stages.processing_stages import (
     GenotypeReplacementStage,
     MultiAllelicSplitStage,
     ParallelCompleteProcessingStage,
+    PCAComputationStage,
     PhenotypeIntegrationStage,
     SnpSiftFilterStage,
     VariantExtractionStage,
@@ -282,6 +283,11 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     if hasattr(args, "perform_gene_burden") and args.perform_gene_burden:
         stages.append(GeneBurdenAnalysisStage())
 
+    # PCA computation stage (Phase 32) — runs before association analysis
+    pca_arg = getattr(args, "pca", None) or config.get("pca")
+    if pca_arg:
+        stages.append(PCAComputationStage())
+
     if hasattr(args, "perform_association") and args.perform_association:
         stages.append(AssociationAnalysisStage())
 
@@ -342,6 +348,23 @@ def create_stages_from_config(config: dict) -> list[Stage]:
     -------
     List[Stage]
         List of stages for the current configuration
+
+    Notes
+    -----
+    Config key to stage mapping (keys not listed here have no stage effect):
+
+    ======================= ===========================
+    Config key              Stage(s) activated
+    ======================= ===========================
+    scoring_config_path     VariantScoringStage
+    ped_file                PedigreeLoadingStage
+    no_stats                StatisticsGenerationStage (suppressed when True)
+    perform_gene_burden     GeneBurdenAnalysisStage
+    perform_association     AssociationAnalysisStage
+    xlsx                    ExcelReportStage
+    html_report             HTMLReportStage
+    igv                     IGVReportStage
+    ======================= ===========================
     """
     # Convert config dict to a minimal args namespace for compatibility
     args = argparse.Namespace()
@@ -359,8 +382,15 @@ def create_stages_from_config(config: dict) -> list[Stage]:
     args.pseudonymize = config.get("pseudonymize", False)
     args.xlsx = config.get("xlsx", False)
     args.html_report = config.get("html_report", False)
-    args.igv_report = config.get("igv_report", False)
+    # Note: build_pipeline_stages checks args.igv (not args.igv_report)
+    args.igv = config.get("igv", False)
     args.archive_results = config.get("archive_results", False)
+    args.pca = config.get("pca")
+
+    # Analysis stage activation flags — previously missing, causing silent no-ops
+    args.no_stats = config.get("no_stats", False)
+    args.perform_gene_burden = config.get("perform_gene_burden", False)
+    args.perform_association = config.get("perform_association", False)
 
     # Use the existing build_pipeline_stages function
     return build_pipeline_stages(args)
@@ -489,12 +519,17 @@ def run_pipeline(args: argparse.Namespace) -> None:
         if hasattr(args, key) and getattr(args, key) is not None and key not in initial_config:
             initial_config[key] = getattr(args, key)
 
-    # Map igv argument to igv_enabled for consistency with old pipeline
+    # Map igv argument to igv_enabled for backward compatibility
     if hasattr(args, "igv"):
         initial_config["igv_enabled"] = args.igv
 
     # Create pipeline context
     context = PipelineContext(args=args, config=initial_config, workspace=workspace)
+
+    # Fix 4: Initialize shared ResourceManager once for all stages
+    from .memory import ResourceManager
+
+    context.resource_manager = ResourceManager(config=initial_config)
 
     # Initialize checkpoint system if enabled
     if initial_config.get("enable_checkpoint", False):
@@ -506,7 +541,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
         )
 
         # Initialize checkpoint with current pipeline version and config
-        pipeline_version = initial_config.get("pipeline_version", "refactored_pipeline")
+        pipeline_version = initial_config.get("pipeline_version", "pipeline")
 
         # Handle checkpoint state initialization/loading
         is_resuming = initial_config.get("resume", False) or initial_config.get("resume_from")

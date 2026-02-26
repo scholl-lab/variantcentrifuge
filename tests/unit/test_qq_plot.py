@@ -72,7 +72,7 @@ def minimal_results_df() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "gene": [f"GENE{i}" for i in range(20)],
-            "fisher_p_value": p_vals,
+            "fisher_pvalue": p_vals,
         }
     )
 

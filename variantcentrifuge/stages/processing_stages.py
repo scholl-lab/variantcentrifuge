@@ -34,7 +34,7 @@ from ..pipeline_core.error_handling import (
     retry_on_failure,
     validate_file_exists,
 )
-from ..utils import ensure_fields_in_extract, run_command, split_bed_file
+from ..utils import ensure_fields_in_extract, split_bed_file
 from ..vcf_eff_one_per_line import process_vcf_file as split_snpeff_annotations
 
 logger = logging.getLogger(__name__)
@@ -132,7 +132,138 @@ class GeneBedCreationStage(Stage):
             context.gene_bed_file = Path(bed_file)
             logger.info(f"Created BED file: {bed_file}")
 
+            # Region restriction: intersect gene BED with restriction BED
+            regions_bed = context.config.get("regions_bed")
+            if regions_bed:
+                context.gene_bed_file = self._intersect_with_restriction_bed(
+                    context.gene_bed_file, regions_bed, context
+                )
+                logger.info(f"Gene BED restricted to regions: {context.gene_bed_file}")
+
             return context
+
+    def _read_chromosomes(self, bed_file: Path) -> set[str]:
+        """Read chromosome names from the first column of a BED file.
+
+        Parameters
+        ----------
+        bed_file : Path
+            Path to BED file.
+
+        Returns
+        -------
+        set[str]
+            Set of chromosome names found (comment lines skipped).
+        """
+        chromosomes: set[str] = set()
+        with open(bed_file) as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if not line or line.startswith(("#", "track", "browser")):
+                    continue
+                chrom = line.split("\t")[0]
+                if chrom:
+                    chromosomes.add(chrom)
+        return chromosomes
+
+    def _count_regions(self, bed_file: Path) -> int:
+        """Count non-comment, non-empty lines in a BED file.
+
+        Parameters
+        ----------
+        bed_file : Path
+            Path to BED file.
+
+        Returns
+        -------
+        int
+            Number of data lines.
+        """
+        count = 0
+        with open(bed_file) as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if not line or line.startswith(("#", "track", "browser")):
+                    continue
+                count += 1
+        return count
+
+    def _intersect_with_restriction_bed(
+        self, gene_bed: Path, restriction_bed: str, context: PipelineContext
+    ) -> Path:
+        """Intersect gene BED with a restriction BED file (e.g., capture kit).
+
+        Parameters
+        ----------
+        gene_bed : Path
+            Path to the gene BED file.
+        restriction_bed : str
+            Path to the restriction BED file.
+        context : PipelineContext
+            Pipeline context for workspace access.
+
+        Returns
+        -------
+        Path
+            Path to the intersected BED file.
+
+        Raises
+        ------
+        FileNotFoundError
+            If restriction BED file does not exist.
+        ValueError
+            If chromosome naming mismatch detected, or if intersection is empty.
+        """
+        restriction_path = Path(restriction_bed)
+        if not restriction_path.is_file():
+            raise FileNotFoundError(f"Restriction BED file not found: {restriction_bed}")
+
+        # Detect chr-prefix mismatch
+        gene_chroms = self._read_chromosomes(gene_bed)
+        restriction_chroms = self._read_chromosomes(restriction_path)
+
+        if gene_chroms and restriction_chroms:
+            gene_has_chr = any(c.startswith("chr") for c in gene_chroms)
+            restriction_has_chr = any(c.startswith("chr") for c in restriction_chroms)
+            if gene_has_chr != restriction_has_chr:
+                raise ValueError(
+                    "Chromosome naming mismatch between gene BED and restriction BED: "
+                    f"gene BED {'has' if gene_has_chr else 'lacks'} 'chr' prefix "
+                    f"(e.g., {next(iter(gene_chroms))}), "
+                    f"restriction BED {'has' if restriction_has_chr else 'lacks'} 'chr' prefix "
+                    f"(e.g., {next(iter(restriction_chroms))}). "
+                    "Ensure both files use the same chromosome naming convention."
+                )
+
+        # Count original regions for logging
+        orig_count = self._count_regions(gene_bed)
+
+        # Run bedtools intersect
+        out_path = context.workspace.get_intermediate_path(
+            f"{context.workspace.base_name}.restricted.bed"
+        )
+        with open(out_path, "w") as out_f:
+            subprocess.run(
+                ["bedtools", "intersect", "-a", str(gene_bed), "-b", str(restriction_bed)],
+                stdout=out_f,
+                check=True,
+            )
+
+        # Check result is non-empty
+        if out_path.stat().st_size == 0:
+            raise ValueError(
+                f"Intersection of gene BED with restriction BED produced no regions. "
+                f"Gene BED: {gene_bed}, Restriction BED: {restriction_bed}. "
+                "Check that both files cover overlapping genomic regions."
+            )
+
+        new_count = self._count_regions(out_path)
+        logger.info(
+            f"Region restriction: {new_count} of {orig_count} gene regions retained "
+            f"after intersection with {restriction_bed}"
+        )
+
+        return out_path
 
     def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return the generated BED file."""
@@ -224,327 +355,6 @@ class VariantExtractionStage(Stage):
         return []
 
 
-class ParallelVariantExtractionStage(Stage):
-    """Extract variants in parallel by splitting BED file into chunks."""
-
-    @property
-    def name(self) -> str:
-        """Return the stage name."""
-        return "parallel_variant_extraction"
-
-    @property
-    def description(self) -> str:
-        """Return a description of what this stage does."""
-        return "Extract variants in parallel using multiple genomic regions"
-
-    @property
-    def dependencies(self) -> set[str]:
-        """Return the set of stage names this stage depends on."""
-        return {"gene_bed_creation"}
-
-    @property
-    def parallel_safe(self) -> bool:
-        """Return whether this stage can run in parallel with others."""
-        # This stage manages its own parallelism internally
-        return False
-
-    @property
-    def estimated_runtime(self) -> float:
-        """Return the estimated runtime in seconds."""
-        return 30.0  # Typically takes longer
-
-    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
-        """Handle the case where this stage is skipped by checkpoint system.
-
-        When this stage is skipped, we need to restore the expected output
-        and mark dependent stages as complete.
-        """
-        # Reconstruct the expected merged VCF file path
-        expected_vcf = context.workspace.get_intermediate_path(
-            f"{context.workspace.base_name}.variants.vcf.gz"
-        )
-
-        if expected_vcf.exists():
-            logger.info(f"Restored parallel variant extraction output: {expected_vcf}")
-            context.extracted_vcf = expected_vcf
-            context.data = expected_vcf
-
-            # Mark variant_extraction as complete for dependent stages
-            context.mark_complete("variant_extraction")
-        else:
-            logger.warning(f"Expected VCF file not found during checkpoint skip: {expected_vcf}")
-
-        return context
-
-    def _process(self, context: PipelineContext) -> PipelineContext:
-        """Extract variants in parallel by processing BED chunks."""
-        threads = context.config.get("threads", 1)
-
-        if threads <= 1:
-            # Fall back to single-threaded extraction
-            logger.info("Thread count <= 1, using single-threaded extraction")
-            extractor = VariantExtractionStage()
-            return extractor._process(context)
-
-        # Split BED file into chunks
-        if context.gene_bed_file is None:
-            raise ValueError("gene_bed_file is required for parallel variant extraction")
-        bed_chunks = self._split_bed_file(context.gene_bed_file, threads)
-        logger.info(f"Split BED file into {len(bed_chunks)} chunks for parallel processing")
-
-        # Process chunks in parallel (with automatic substep detection)
-        chunk_outputs = self._process_chunks_parallel(context, bed_chunks)
-
-        # Merge results
-        merged_output = self._merge_chunk_outputs(context, chunk_outputs)
-
-        context.extracted_vcf = merged_output
-        context.data = merged_output
-
-        # Cleanup chunks
-        self._cleanup_chunks(bed_chunks, chunk_outputs)
-
-        # Mark variant_extraction as complete so field_extraction can proceed
-        context.mark_complete("variant_extraction")
-
-        return context
-
-    def _split_bed_file(self, bed_file: Path, n_chunks: int) -> list[Path]:
-        """Split BED file into roughly equal chunks."""
-        chunk_dir = bed_file.parent / "chunks"
-        chunk_dir.mkdir(exist_ok=True)
-
-        chunks = split_bed_file(str(bed_file), n_chunks, str(chunk_dir))
-        return [Path(chunk) for chunk in chunks]
-
-    def _validate_existing_chunk(self, chunk_path: Path, fallback_on_error: bool = True) -> bool:
-        """Validate that an existing chunk file is complete and valid.
-
-        Parameters
-        ----------
-        chunk_path : Path
-            Path to the chunk file to validate
-        fallback_on_error : bool
-            If True, validation errors result in False (file will be reprocessed)
-            If False, validation errors raise exceptions
-
-        Returns
-        -------
-        bool
-            True if file is valid, False if invalid or missing
-        """
-        if not chunk_path.exists():
-            logger.debug(f"Chunk {chunk_path} does not exist")
-            return False
-
-        try:
-            # Size check (must be > 0)
-            stat = chunk_path.stat()
-            if stat.st_size == 0:
-                logger.debug(f"Chunk {chunk_path} is empty, invalid")
-                return False
-
-            # For VCF files, try basic validation
-            if chunk_path.suffix == ".gz" and chunk_path.name.endswith(".vcf.gz"):
-                try:
-                    # Quick check - try to read the first few lines
-                    import gzip
-
-                    with gzip.open(chunk_path, "rt") as f:
-                        first_line = f.readline()
-                        if not first_line.startswith("##fileformat=VCF"):
-                            logger.debug(f"Chunk {chunk_path} has invalid VCF header")
-                            return False
-                except Exception as e:
-                    logger.debug(f"Chunk {chunk_path} failed VCF header validation: {e}")
-                    if not fallback_on_error:
-                        raise
-                    return False
-
-            logger.debug(f"Chunk {chunk_path} is valid (size: {stat.st_size} bytes)")
-            return True
-
-        except Exception as e:
-            logger.warning(f"Error validating chunk {chunk_path}: {e}")
-            if not fallback_on_error:
-                raise
-            return False
-
-    def _process_chunks_parallel(
-        self, context: PipelineContext, bed_chunks: list[Path]
-    ) -> list[Path]:
-        """Process BED chunks in parallel with automatic substep detection."""
-        vcf_file = context.config["vcf_file"]
-        threads = context.config.get("threads", 1)
-
-        # Phase 1: Check for existing valid chunks
-        chunks_to_process = []
-        existing_outputs = []
-
-        for i, chunk_bed in enumerate(bed_chunks):
-            expected_output = context.workspace.get_temp_path(f"chunk_{i}.variants.vcf.gz")
-
-            if self._validate_existing_chunk(expected_output):
-                logger.info(f"Reusing existing chunk {i}: {expected_output.name}")
-                existing_outputs.append(expected_output)
-            else:
-                logger.info(f"Processing missing/invalid chunk {i}")
-                chunks_to_process.append((i, chunk_bed, expected_output))
-
-        # Phase 2: Process only missing chunks
-        new_outputs = []
-        if chunks_to_process:
-            # Each worker gets limited threads
-            threads_per_worker = max(1, threads // len(chunks_to_process))
-
-            # Prepare config for extract_variants
-            extract_config = {
-                "threads": threads_per_worker,
-                "bcftools_prefilter": context.config.get("bcftools_prefilter"),
-            }
-
-            logger.info(
-                f"Processing {len(chunks_to_process)} missing chunks out of {len(bed_chunks)} total"
-            )
-
-            with ProcessPoolExecutor(max_workers=len(chunks_to_process)) as executor:
-                # Submit jobs for missing chunks only
-                future_to_chunk = {}
-                for i, chunk_bed, output_vcf in chunks_to_process:
-                    future = executor.submit(
-                        extract_variants,
-                        vcf_file=vcf_file,
-                        bed_file=str(chunk_bed),
-                        cfg=extract_config,
-                        output_file=str(output_vcf),
-                    )
-                    future_to_chunk[future] = (i, chunk_bed, output_vcf)
-
-                # Collect results
-                for future in as_completed(future_to_chunk):
-                    i, chunk_bed, output_vcf = future_to_chunk[future]
-                    try:
-                        future.result()  # Raises any exceptions
-                        new_outputs.append(output_vcf)
-                        logger.debug(f"Completed extraction for chunk {i}: {chunk_bed.name}")
-                    except Exception as e:
-                        logger.error(f"Failed to process chunk {chunk_bed}: {e}")
-                        raise
-        else:
-            logger.info("All chunks already exist and are valid - no processing needed")
-
-        # Phase 3: Combine existing and new outputs, maintaining order
-        all_outputs = []
-        for i in range(len(bed_chunks)):
-            expected_output = context.workspace.get_temp_path(f"chunk_{i}.variants.vcf.gz")
-            all_outputs.append(expected_output)
-
-        return all_outputs
-
-    def _merge_chunk_outputs(self, context: PipelineContext, chunk_outputs: list[Path]) -> Path:
-        """Merge VCF chunks into a single file."""
-        output_vcf = context.workspace.get_intermediate_path(
-            f"{context.workspace.base_name}.variants.vcf.gz"
-        )
-
-        if len(chunk_outputs) == 1:
-            # Just move the single file
-            shutil.move(str(chunk_outputs[0]), str(output_vcf))
-        else:
-            # Merge with bcftools
-            cmd = [
-                "bcftools",
-                "concat",
-                "-a",  # Allow overlaps
-                "-Oz",  # Output compressed
-                "-o",
-                str(output_vcf),
-            ] + [str(f) for f in chunk_outputs]
-
-            run_command(cmd)
-
-            # Index the merged file
-            run_command(["bcftools", "index", str(output_vcf)])
-
-        logger.info(f"Merged {len(chunk_outputs)} chunks into {output_vcf}")
-        return output_vcf
-
-    def _cleanup_chunks(self, bed_chunks: list[Path], vcf_chunks: list[Path]) -> None:
-        """Clean up temporary chunk files."""
-        for chunk in bed_chunks + vcf_chunks:
-            if chunk.exists():
-                chunk.unlink()
-
-        # Remove chunks directory if empty
-        if bed_chunks and bed_chunks[0].parent.name == "chunks":
-            chunk_dir = bed_chunks[0].parent
-            if chunk_dir.exists() and not any(chunk_dir.iterdir()):
-                chunk_dir.rmdir()
-
-
-class BCFToolsPrefilterStage(Stage):
-    """Apply bcftools pre-filtering for performance optimization.
-
-    Note: This stage is typically not needed as pre-filtering is applied
-    during the variant extraction stage for better performance.
-    This remains here for cases where separate filtering is needed.
-    """
-
-    @property
-    def name(self) -> str:
-        """Return the stage name."""
-        return "bcftools_prefilter"
-
-    @property
-    def description(self) -> str:
-        """Return a description of what this stage does."""
-        return "Apply bcftools filter expression"
-
-    @property
-    def dependencies(self) -> set[str]:
-        """Return the set of stage names this stage depends on."""
-        return {"variant_extraction", "parallel_variant_extraction"}
-
-    def _process(self, context: PipelineContext) -> PipelineContext:
-        """Apply bcftools filter if specified."""
-        bcftools_prefilter = context.config.get("bcftools_prefilter")
-
-        if not bcftools_prefilter:
-            logger.debug("No bcftools prefilter specified, skipping")
-            return context
-
-        # Note: This is typically applied during extraction for efficiency
-        # This stage is here for cases where we need a separate filtering step
-        logger.info(f"Applying bcftools prefilter: {bcftools_prefilter}")
-
-        input_vcf = context.extracted_vcf or context.data
-        output_vcf = context.workspace.get_intermediate_path(
-            f"{context.workspace.base_name}.bcftools_filtered.vcf.gz"
-        )
-
-        cmd = [
-            "bcftools",
-            "view",
-            "-i",
-            bcftools_prefilter,
-            "-Oz",
-            "-o",
-            str(output_vcf),
-            str(input_vcf),
-        ]
-
-        run_command(cmd)
-        run_command(["bcftools", "index", str(output_vcf)])
-
-        context.bcftools_filtered_vcf = output_vcf  # type: ignore[attr-defined]
-        context.filtered_vcf = output_vcf
-        # Only update context.data if we haven't extracted to TSV yet
-        if not hasattr(context, "extracted_tsv"):
-            context.data = output_vcf
-
-        return context
-
-
 class MultiAllelicSplitStage(Stage):
     """Split multi-allelic SNPeff annotations into one per line."""
 
@@ -596,105 +406,6 @@ class MultiAllelicSplitStage(Stage):
         return context
 
 
-class TranscriptFilterStage(Stage):
-    """Filter variants by transcript IDs using SnpSift."""
-
-    @property
-    def name(self) -> str:
-        """Return the stage name."""
-        return "transcript_filtering"
-
-    @property
-    def description(self) -> str:
-        """Return a description of what this stage does."""
-        return "Filter variants by transcript IDs"
-
-    @property
-    def dependencies(self) -> set[str]:
-        """Return the set of stage names this stage depends on."""
-        # Must run after multiallelic split to ensure proper annotation structure
-        return {"multiallelic_split", "variant_extraction"}
-
-    @property
-    def soft_dependencies(self) -> set[str]:
-        """Return the set of stage names that should run before if present."""
-        # Run after bcftools prefilter if present
-        return {"bcftools_prefilter"}
-
-    @property
-    def parallel_safe(self) -> bool:
-        """Return whether this stage can run in parallel with others."""
-        return True  # Safe - independent transformation, creates new file
-
-    def _process(self, context: PipelineContext) -> PipelineContext:
-        """Apply transcript filtering if requested."""
-        # Parse transcripts from config
-        transcripts = []
-
-        # Get transcript list from config
-        transcript_list = context.config.get("transcript_list")
-        if transcript_list:
-            transcripts.extend([t.strip() for t in transcript_list.split(",") if t.strip()])
-
-        # Get transcript file from config
-        transcript_file = context.config.get("transcript_file")
-        if transcript_file:
-            if not os.path.exists(transcript_file):
-                logger.error(f"Transcript file not found: {transcript_file}")
-                return context
-
-            logger.debug(f"Reading transcript file: {transcript_file}")
-            with open(transcript_file, encoding="utf-8") as tf:
-                for line in tf:
-                    tr = line.strip()
-                    if tr:
-                        transcripts.append(tr)
-
-        # Remove duplicates
-        transcripts = list(set(transcripts))
-
-        # If no transcripts specified, skip filtering
-        if not transcripts:
-            logger.debug("No transcripts specified for filtering")
-            return context
-
-        logger.info(f"Filtering for {len(transcripts)} transcript(s)")
-
-        # Determine input VCF
-        input_vcf = (
-            getattr(context, "split_annotations_vcf", None)
-            or getattr(context, "filtered_vcf", None)
-            or getattr(context, "extracted_vcf", None)
-            or context.data
-        )
-
-        # Create transcript filter expression
-        or_clauses = [f"(EFF[*].TRID = '{tr}')" for tr in transcripts]
-        transcript_filter_expr = " | ".join(or_clauses)
-
-        # Generate output filename
-        output_vcf = context.workspace.get_intermediate_path(
-            f"{context.workspace.base_name}.transcript_filtered.vcf.gz"
-        )
-
-        logger.debug(f"Applying transcript filter: {transcript_filter_expr}")
-
-        # Apply transcript filter using SnpSift
-        apply_snpsift_filter(
-            variant_file=str(input_vcf),
-            filter_string=transcript_filter_expr,
-            output_file=str(output_vcf),
-            cfg=context.config,
-        )
-
-        # Update context with filtered VCF
-        context.transcript_filtered_vcf = output_vcf  # type: ignore[attr-defined]
-        context.data = output_vcf
-
-        logger.info(f"Transcript filtering completed: {output_vcf}")
-        return context
-
-
 class SnpSiftFilterStage(Stage):
     """Apply SnpSift filter expressions."""
 
@@ -718,8 +429,8 @@ class SnpSiftFilterStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
-        # Run after either extraction stage
-        return {"variant_extraction", "parallel_variant_extraction"}
+        # Run after variant extraction
+        return {"variant_extraction"}
 
     def _split_before_filter(self, context: PipelineContext) -> bool:
         """Check if we should split before filtering."""
@@ -787,7 +498,7 @@ class FieldExtractionStage(Stage):
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Prefer to run after filtering if it exists
-        return {"snpsift_filtering", "transcript_filtering"}
+        return {"snpsift_filtering"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Extract fields to TSV format."""
@@ -1137,194 +848,10 @@ class ExtraColumnRemovalStage(Stage):
         return context
 
 
-class StreamingDataProcessingStage(Stage):
-    """Single-pass streaming processing for memory efficiency."""
-
-    @property
-    def name(self) -> str:
-        """Return the stage name."""
-        return "streaming_processing"
-
-    @property
-    def description(self) -> str:
-        """Return a description of what this stage does."""
-        return "Stream process large files in a single pass"
-
-    @property
-    def dependencies(self) -> set[str]:
-        """Return the set of stage names this stage depends on."""
-        # Can replace the separate genotype/phenotype/column stages
-        return {"field_extraction"}
-
-    @property
-    def parallel_safe(self) -> bool:
-        """Return whether this stage can run in parallel with others."""
-        return False  # Streaming is inherently sequential
-
-    @property
-    def memory_efficient(self) -> bool:
-        """Return whether this stage processes data in a memory-efficient manner."""
-        return True  # Processes file line-by-line without loading entire content
-
-    def _process(self, context: PipelineContext) -> PipelineContext:
-        """Process file in streaming fashion for memory efficiency."""
-        # Check if we should use streaming
-        if not context.config.get("use_streaming_processing"):
-            logger.debug("Streaming processing not enabled")
-            return context
-
-        input_file = context.data
-        output_file = context.workspace.get_intermediate_path(
-            f"{context.workspace.base_name}.processed.tsv"
-        )
-
-        # Handle compression
-        if context.config.get("gzip_intermediates"):
-            output_file = Path(str(output_file) + ".gz")
-
-        logger.info("Processing file in streaming mode for memory efficiency")
-
-        # Get processing parameters
-        replace_genotypes = context.config.get("replace_genotypes", False)
-        samples = context.vcf_samples if replace_genotypes else []
-        phenotypes = context.phenotype_data if context.phenotype_data else {}
-        columns_to_remove = context.config.get("extra_columns_to_remove", [])
-
-        # Stream process the file
-        self._stream_process_file(
-            input_file=input_file,
-            output_file=output_file,
-            samples=samples,
-            phenotypes=phenotypes,
-            columns_to_remove=columns_to_remove,
-            missing_string=context.config.get("missing_string", "./."),
-        )
-
-        context.data = output_file
-        return context
-
-    def _stream_process_file(
-        self,
-        input_file: Path,
-        output_file: Path,
-        samples: list[str],
-        phenotypes: dict[str, str],
-        columns_to_remove: list[str],
-        missing_string: str,
-    ) -> None:
-        """Stream process file line by line."""
-
-        # Validate input file
-        input_file = validate_file_exists(input_file, self.name)
-
-        # Ensure output directory exists
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # Determine compression
-        in_compressed = str(input_file).endswith(".gz")
-        out_compressed = str(output_file).endswith(".gz")
-
-        try:
-            # Open files with proper error handling
-            try:
-                in_fh_obj = gzip.open(input_file, "rt") if in_compressed else open(input_file)  # noqa: SIM115 - used in `with` below, try/except needed for error mapping
-            except OSError as e:
-                raise FileFormatError(str(input_file), "readable TSV file", self.name) from e
-
-            try:
-                out_fh_obj = (
-                    gzip.open(output_file, "wt") if out_compressed else open(output_file, "w")  # noqa: SIM115 - used in `with` below
-                )
-            except OSError as e:
-                in_fh_obj.close()
-                raise PermissionError(f"Cannot write to output file: {output_file}") from e
-
-            with in_fh_obj as in_fh, out_fh_obj as out_fh:
-                # Process header
-                header = in_fh.readline().strip()
-                if not header:
-                    raise FileFormatError(str(input_file), "TSV file with header", self.name)
-
-                columns = header.split("\t")
-
-                # Find columns to process
-                gt_columns = [i for i, col in enumerate(columns) if col.endswith(".GT")]
-                columns_to_remove_idx = [
-                    i for i, col in enumerate(columns) if col in columns_to_remove
-                ]
-
-                # Update header
-                new_columns = []
-                for i, col in enumerate(columns):
-                    if i in columns_to_remove_idx:
-                        continue
-                    if samples and i < len(columns) and columns[i].endswith(".GT"):
-                        # Replace with sample name
-                        sample_idx = gt_columns.index(i)
-                        if sample_idx < len(samples):
-                            new_columns.append(samples[sample_idx])
-                        else:
-                            new_columns.append(col)
-                    else:
-                        new_columns.append(col)
-
-                # Add phenotype column if needed
-                if phenotypes:
-                    new_columns.append("Phenotypes")
-
-                # Write header
-                out_fh.write("\t".join(new_columns) + "\n")
-
-                # Process data lines
-                for line in in_fh:
-                    fields = line.strip().split("\t")
-
-                    # Build new row
-                    new_fields = []
-                    for i, field in enumerate(fields):
-                        if i in columns_to_remove_idx:
-                            continue
-
-                        if samples and i in gt_columns:
-                            # Replace genotype encoding
-                            if field in ("0/1", "1/0", "0|1", "1|0"):
-                                new_fields.append("het")
-                            elif field in ["1/1", "1|1"]:
-                                new_fields.append("hom")
-                            elif field in ["0/0", "0|0"]:
-                                new_fields.append("ref")
-                            elif field == missing_string:
-                                new_fields.append("missing")
-                            else:
-                                new_fields.append(field)
-                        else:
-                            new_fields.append(field)
-
-                    # Add phenotypes if needed
-                    if phenotypes:
-                        pheno_values = []
-                        for sample in samples:
-                            pheno_values.append(phenotypes.get(sample, ""))
-                        new_fields.append(";".join(pheno_values))
-
-                    # Write line
-                    out_fh.write("\t".join(new_fields) + "\n")
-
-        except Exception as e:
-            logger.error(f"Error during streaming processing: {e}")
-            # Clean up partial output file
-            if output_file.exists():
-                with contextlib.suppress(Exception):
-                    output_file.unlink()
-            raise
-
-        logger.info(f"Streaming processing complete: {output_file}")
-
-
 class ParallelCompleteProcessingStage(Stage):
     """Run complete processing pipeline in parallel for each BED chunk.
 
-    This stage replicates the old pipeline's behavior where each chunk
+    This stage processes each chunk
     is processed completely (extraction -> filtering -> field extraction)
     in parallel, then the TSV results are merged.
     """
@@ -1444,7 +971,6 @@ class ParallelCompleteProcessingStage(Stage):
 
         # Mark all the stages this stage would have completed
         context.mark_complete("variant_extraction")
-        context.mark_complete("parallel_variant_extraction")
         context.mark_complete("snpsift_filtering")
         context.mark_complete("field_extraction")
 
@@ -1488,7 +1014,6 @@ class ParallelCompleteProcessingStage(Stage):
 
         # Mark stages as complete so they don't run again
         context.mark_complete("variant_extraction")
-        context.mark_complete("parallel_variant_extraction")
         context.mark_complete("snpsift_filtering")
         context.mark_complete("field_extraction")
 
@@ -1924,7 +1449,7 @@ class DataSortingStage(Stage):
 
         logger.info(f"Sorting TSV by gene column '{gene_column}' for efficient processing")
 
-        # Use the sort function from old pipeline
+        # Use the standard sort function
         self._sort_tsv_by_gene(
             input_file=str(context.extracted_tsv),
             output_file=str(sorted_tsv),
@@ -2073,7 +1598,7 @@ class DataSortingStage(Stage):
 
 
 class PCAComputationStage(Stage):
-    """Run AKT PCA on the pre-filtered VCF and store the output path in context."""
+    """Compute or load PCA eigenvectors for association covariate adjustment."""
 
     @property
     def name(self) -> str:
@@ -2083,56 +1608,80 @@ class PCAComputationStage(Stage):
     @property
     def description(self) -> str:
         """Return a description of what this stage does."""
-        return "Compute principal components via AKT (population stratification correction)"
+        return "Compute or load PCA eigenvectors"
 
     @property
     def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
-        return {"bcftools_prefilter"}
+        return {"configuration_loading"}
 
     @property
     def parallel_safe(self) -> bool:
-        """Return whether this stage can run in parallel with others."""
-        return True  # subprocess only — no rpy2 or shared state
+        """PCA writes to its own file — safe to run alongside other stages."""
+        return True
 
     def _process(self, context: PipelineContext) -> PipelineContext:
-        """Invoke AKT PCA and write eigenvec output to workspace."""
-        pca_tool = context.config.get("pca_tool")
-        if pca_tool is None:
-            logger.debug("pca_computation: pca_tool not set — skipping AKT PCA computation")
+        """Compute or load PCA eigenvectors."""
+        pca_arg = context.config.get("pca")
+        if not pca_arg:
             return context
 
-        # Only "akt" is supported for now
-        if shutil.which("akt") is None:
-            raise ToolNotFoundError("akt", self.name)
+        n_components = context.config.get("pca_components", 10)
 
-        vcf_file = context.config.get("vcf_file") or context.config.get("input_vcf")
+        if os.path.isfile(pca_arg):
+            pca_file = pca_arg
+            logger.info(f"PCA: using pre-computed eigenvectors from {pca_file}")
+        elif pca_arg == "akt":
+            pca_file = self._run_akt(context, n_components)
+        else:
+            raise ValueError(
+                f"--pca argument '{pca_arg}' is neither a valid file path "
+                "nor a recognized tool name ('akt')."
+            )
+
+        # Store pca_file in config so _build_assoc_config_from_context picks it up
+        context.config["pca_file"] = pca_file
+        context.mark_complete(self.name, result={"pca_file": pca_file})
+        return context
+
+    def _run_akt(self, context: PipelineContext, n_components: int) -> str:
+        """Run AKT PCA computation and return path to eigenvector file."""
+        vcf_file = context.config.get("vcf_file")
         if not vcf_file:
-            raise ValueError("pca_computation: no VCF file found in context.config")
+            raise ValueError("--pca akt requires a VCF file (--vcf-file)")
 
-        n_components = int(context.config.get("pca_components", 10))
+        output_path = context.workspace.get_intermediate_path(
+            f"{context.workspace.base_name}.pca.eigenvec"
+        )
+
+        # Simple cache: reuse if output exists and is non-empty
+        if output_path.exists() and output_path.stat().st_size > 0:
+            logger.info(f"PCA: reusing cached eigenvectors from {output_path}")
+            return str(output_path)
+
+        pca_sites = context.config.get("pca_sites")
         cmd = ["akt", "pca", vcf_file, "-N", str(n_components)]
-        logger.info("pca_computation: running AKT PCA: %s", " ".join(cmd))
+        if pca_sites:
+            cmd.extend(["-R", pca_sites])
+        else:
+            cmd.append("--force")
+        logger.info(f"Running AKT PCA: {' '.join(cmd)}")
 
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        except subprocess.CalledProcessError as exc:
-            logger.error(
-                "pca_computation: AKT PCA failed (returncode=%d): %s",
-                exc.returncode,
-                exc.stderr,
+            output_path.write_text(result.stdout)
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"AKT PCA failed (exit code {e.returncode}): {e.stderr}") from e
+        except FileNotFoundError as e:
+            raise RuntimeError(
+                "AKT not found in PATH. Install akt or use --pca <eigenvec_file> "
+                "to supply pre-computed eigenvectors."
+            ) from e
+
+        if not output_path.exists() or output_path.stat().st_size == 0:
+            raise RuntimeError(
+                "AKT PCA completed but produced no output. "
+                "Check that the VCF has sufficient samples and variants."
             )
-            raise
 
-        # Write AKT stdout to intermediate file
-        output_path = str(context.workspace.get_intermediate_path("pca_eigenvec.txt"))
-        with open(output_path, "w") as fh:
-            fh.write(result.stdout)
-
-        context.config["pca_file"] = output_path
-        logger.info(
-            "pca_computation: AKT PCA complete — %d components written to %s",
-            n_components,
-            output_path,
-        )
-        return context
+        return str(output_path)

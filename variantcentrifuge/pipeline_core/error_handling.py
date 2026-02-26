@@ -1,5 +1,5 @@
 """
-Enhanced error handling utilities for the refactored pipeline.
+Enhanced error handling utilities for the pipeline.
 
 This module provides error handling utilities including:
 - Custom exception classes for different error types

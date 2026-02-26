@@ -1,552 +1,372 @@
-# Technology Stack: Modular Rare Variant Association Framework
+# Stack Research: v0.16.0 Association Hardening & Multi-Cohort Features
 
-**Project:** variantcentrifuge — modular association framework milestone
-**Researched:** 2026-02-19
-**Scope:** Stack additions only. Existing stack (pandas, numpy, scipy, statsmodels) is validated and not re-researched.
-
----
-
-## Critical Constraint: SciPy and Python 3.10
-
-**This constraint shapes every dependency decision in this milestone.**
-
-SciPy 1.16 dropped Python 3.10 support. SciPy 1.15.x is the last series supporting Python 3.10. The current `pyproject.toml` declares `requires-python = ">=3.10"` and pins no scipy upper bound, meaning a fresh install on Python 3.10 will resolve to scipy 1.15.x, while Python 3.11+ gets scipy 1.17.x.
-
-**Decision required before roadmap phase 1:**
-
-- **Option A:** Pin `scipy>=1.13,<1.16` — maintains Python 3.10 support, locks to older scipy
-- **Option B:** Bump `requires-python = ">=3.11"` — cleans up the constraint, uses current scipy (1.17.0), aligns with HPC Python 3.11 prevalence
-
-**Recommendation: Option B.** HPC clusters (the primary deployment target) have Python 3.11+ as standard by 2025. scipy 1.17.0 (released January 10, 2026) includes performance improvements relevant to linalg operations used in SKAT kernel computation. The association framework adds new mathematical complexity that benefits from a current scipy baseline.
-
-| scipy version | Python support | Status |
-|--------------|---------------|--------|
-| 1.15.3 (last 3.10-compatible) | 3.10–3.13 | Maintenance only |
-| 1.17.0 (current) | 3.11–3.14 | Active development |
+**Project:** VariantCentrifuge
+**Researched:** 2026-02-23
+**Scope:** Stack additions/changes ONLY for NEW v0.16.0 features. Existing stack
+(scipy 1.14.1, statsmodels 0.14.4, numpy 2.2.6, pandas, rpy2>=3.6.4) is validated
+and not re-evaluated here.
 
 ---
 
-## New Dependencies Required
+## Current Pinned Versions (Installed as of v0.15.0)
 
-### 1. rpy2 — R Bridge for SKAT Backend
+| Library | Installed | Role |
+|---------|-----------|------|
+| scipy | 1.14.1 | linalg, stats, sparse |
+| numpy | 2.2.6 | array operations |
+| statsmodels | 0.14.4 | GLM null model, multipletests |
 
-**Recommended version:** `rpy2>=3.6.4`
-**Current release:** 3.6.4 (September 26, 2025)
-**Confidence:** HIGH (verified PyPI)
+---
 
-**What it provides:** Embeds R in the Python process and exposes R packages as Python objects. The SKAT/SKAT-O R package (leelabsg/SKAT on CRAN) is the canonical, peer-reviewed implementation with 10+ years of validation in the literature. Calling it via rpy2 gives the pure-Python fallback a validated reference point.
+## Feature 1: Gene-Level Prior Weighting for FDR
 
-**Python compatibility:** 3.8–3.13 (verified via PyPI classifiers).
+### Weighted Benjamini-Hochberg
 
-**R compatibility:**
-- rpy2 3.6.0 fixed the `Rcomplex` C-API definition mismatch for R 4.3+ (in API mode). This was a source of subtle correctness bugs in earlier rpy2 with newer R.
-- R 4.4 has one known issue: on CentOS 7 / RHEL 7 only, BLAS linker errors occur during `pip install rpy2`. Workaround: `export LD_LIBRARY_PATH=/opt/R/4.4.0/lib/R/lib` before installation. Modern Linux (Ubuntu 22+, RHEL 8/9) and macOS are unaffected. This is a build-time installation issue, not a runtime correctness bug.
-- rpy2 3.6.1 fixed Windows initialization callback ordering; Windows users need 3.6.1 minimum.
+**Verdict: No new dependency. Implement directly in numpy (~12 lines).**
 
-**Graceful fallback — correct pattern:**
+`statsmodels.stats.multitest.multipletests` does NOT have a `weights` parameter.
+Confirmed against statsmodels 0.15.0 dev documentation. Parameters accepted: `pvals`,
+`alpha`, `method`, `maxiter`, `is_sorted`, `returnsorted` — no weights.
+
+`scipy.stats.false_discovery_control` (added in scipy 1.11) also has no weights parameter.
+
+Weighted BH is a short, well-understood algorithm (Genovese et al. 2006):
+
+1. Normalize weights to sum to `m` (number of tests): `w_norm = w * m / sum(w)`
+2. Scale p-values: `p_adj_input = p * m / w_norm` (equivalent: `p / (w / sum(w))`)
+3. Apply standard BH to scaled p-values
+4. Cap at 1.0
+
+This is ~12 lines of numpy. No new dependency is warranted.
+
+**Integration point:** Extend `variantcentrifuge/association/correction.py`.
+Add `apply_weighted_bh(pvals, weights)` alongside existing `apply_correction()`.
+The `weights` array should represent gene-level priors (e.g., derived from pathway
+membership, prior association evidence, or gene size). Weights are normalized
+internally — callers pass un-normalized priors.
+
+**Confidence:** HIGH. Verified against statsmodels and scipy official documentation.
+
+### IHW (Independent Hypothesis Weighting)
+
+**Verdict: No Python implementation exists. Do NOT add for v0.16.0.**
+
+IHW exists only as a Bioconductor R package (current: Bioconductor 3.20). As of
+February 2026, there is no maintained Python port on PyPI or conda-forge.
+
+The IHW algorithm requires iterative isotonic regression optimization and cross-validation
+folds — approximately 200 lines of non-trivial statistical code with its own test burden.
+Implementing it from scratch risks divergence from the canonical Bioconductor version.
+
+| Option | Assessment |
+|--------|-----------|
+| Skip for v0.16.0 | Recommended. Weighted BH covers 90% of the use case with zero risk. |
+| rpy2 bridge | Possible via existing optional `rpy2>=3.6.4`. Adds R + Bioconductor install requirement. Viable if demanded. |
+| Custom Python port | Not recommended. Maintenance burden, correctness risk. |
+
+**Recommendation:** Weighted BH with configurable gene-level priors is sufficient for
+v0.16.0. Document IHW as a future rpy2-bridge option if users request it.
+
+---
+
+## Feature 2: Sample-Level Case-Confidence Weights
+
+### Weighted GLM Null Model
+
+**Verdict: No new dependency. `statsmodels.GLM` already supports sample weights.**
+
+`statsmodels.GLM` accepts two weight parameters, confirmed in statsmodels 0.15.0 docs:
+
+| Parameter | Type | Use Case |
+|-----------|------|----------|
+| `freq_weights` | 1D integer array | Replicate observations by count |
+| `var_weights` | 1D float array | Analytic/inverse-variance weights |
+
+For case-confidence weights (continuous values in (0, 1] representing certainty of
+case/control status), `var_weights` is the correct parameter. An observation with
+higher confidence gets lower variance and therefore more weight in the fit.
+
+**Usage (no backend changes needed for the GLM itself):**
 
 ```python
-# association_backends/skat_r_backend.py
-
-_SKAT_R_AVAILABLE: bool = False
-_SKAT_R_ERROR: str | None = None
-_skat_r_pkg = None
-
-try:
-    import rpy2.robjects as _robjects
-    from rpy2.robjects.packages import importr as _importr
-    from rpy2.robjects import numpy2ri as _numpy2ri
-
-    # importr("SKAT") triggers both R initialization AND SKAT package load.
-    # Catches: R not in PATH, R not installed, SKAT R package not installed.
-    _skat_r_pkg = _importr("SKAT")
-    _numpy2ri.activate()
-    _SKAT_R_AVAILABLE = True
-except Exception as e:
-    # Broad except is intentional: rpy2 raises RRuntimeError, OSError,
-    # and ImportError depending on failure mode.
-    _SKAT_R_ERROR = str(e)
-```
-
-**Critical:** Never use `except ImportError` alone. R initialization failures raise `OSError` (R binary not found) or `rpy2.rinterface.embedded.RRuntimeError` (R found but SKAT package missing). The broad `except Exception` is required.
-
-**Calling SKAT from rpy2:**
-
-```python
-import numpy as np
-import rpy2.robjects as ro
-from rpy2.robjects.packages import importr
-from rpy2.robjects import numpy2ri
-
-numpy2ri.activate()
-skat = importr("SKAT")
-
-# Build null model (outcome ~ covariates, no genotypes)
-null_model = skat.SKAT_Null_Model(
-    ro.Formula("y ~ age + sex + PC1 + PC2"),
-    data=ro_dataframe,          # rpy2 DataFrame
-    out_type="D",               # "D"=dichotomous, "C"=continuous
+glm = sm.GLM(
+    phenotype,
+    design_matrix,
+    family=sm.families.Binomial(),
+    var_weights=case_confidence_weights,  # shape (n_samples,), values in (0, 1]
 )
-
-# SKAT-O test (optimal combination of SKAT + burden)
-result = skat.SKAT(
-    Z_matrix,                   # n_samples x n_variants numpy array, auto-converted
-    null_model,
-    method="SKATO",
-    weights_beta=ro.FloatVector([1, 25]),  # MAF weighting
-)
-p_value = float(result.rx2("p.value")[0])
+fit_result = glm.fit()
 ```
 
-**Declare as optional dependency:**
+**Official caveat:** "Using weights is not verified yet for all possible options and
+results." Robust covariance types (HC0, HC3) are unverified. Standard covariance
+(the default used by the null model) is verified.
 
-```toml
-[project.optional-dependencies]
-association = [
-    "rpy2>=3.6.4",
-    "matplotlib>=3.10",
-]
+**Integration point:** `PythonSKATBackend.fit_null_model()` in
+`variantcentrifuge/association/backends/python_backend.py`. Add optional
+`sample_weights: np.ndarray | None = None` parameter to `fit_null_model()`. When
+provided, pass as `var_weights=sample_weights` to `sm.GLM`. The fitted `mu_hat`
+and residuals propagate through to `test_gene()` unchanged — the eigenvalue
+computation uses fitted values which will reflect the weighting automatically.
+
+### Weighted SKAT Score Statistic
+
+For SKAT with per-sample weights, the score statistic is modified per the SKAT
+literature (Wu et al. 2011):
+
+```
+Q_w = r_w^T G W_v G^T r_w / 2
 ```
 
-Do NOT add rpy2 to required dependencies. Users without R get the pure-Python SKAT fallback.
+Where `r_w = sqrt(sample_weights) * residuals` and the kernel eigenvalues are
+computed on `Z_w = diag(sqrt(sample_weights)) @ G_weighted`. This is pure numpy
+broadcasting — no new dependencies.
+
+**Confidence:** HIGH for `statsmodels.GLM` `var_weights` (verified in docs).
+MEDIUM for weighted SKAT score modification (literature-based, requires validation
+against R SKAT reference implementation).
 
 ---
 
-### 2. C Extension for Davies Method (qfc.c) via ctypes
+## Feature 3: COAST Classification Scoring (Configurable SIFT/PolyPhen/CADD/REVEL)
 
-**Recommendation: ctypes (stdlib), NOT cffi, NOT hatch-cython compilation.**
-**Confidence:** HIGH for ctypes pattern; MEDIUM for cross-platform build strategy.
+**Verdict: No new dependency. Extend existing `weights.py` and `coast_python.py`.**
 
-**Why Davies method matters:** The mixture-of-chi-squared p-value for SKAT is computed by inverting the characteristic function numerically. Davies' method (implemented in qfc.c, sourced from CompQuadForm R package) is the near-exact approach used by SKAT-R. The Liu moment-matching fallback (see section 3) is acceptable when qfc is unavailable, but Davies gives better accuracy for small p-values (< 1e-6).
+COAST classification maps per-variant annotations to severity tiers. The existing
+`weights.py` already handles CADD/REVEL functional scoring with fallback logic.
+SIFT and PolyPhen-2 annotation fields are available as dbNSFP columns already
+extracted by SnpSift into the gene DataFrame.
 
-**qfc function signature** (from CompQuadForm R package source, verified 2026-02-19):
+The classification logic is pure Python/numpy: threshold lookups against annotation
+columns with configurable cutoffs. No new library is needed.
 
-```c
-void qfc(double *lambdas,    // eigenvalue array (input)
-         double *noncentral,  // non-centrality parameters (input)
-         int    *df,          // degrees of freedom array (input)
-         int    *r,           // number of terms/eigenvalues (input)
-         double *sigma,       // sigma parameter (input)
-         double *q,           // quantile / test statistic (input)
-         int    *lim,         // iteration limit (input)
-         double *acc,         // accuracy threshold (input)
-         double *trace,       // 7-element output trace array (output)
-         int    *ifault,      // fault indicator: 0=ok (output)
-         double *res);        // CDF value: p = 1 - res (output)
-```
-
-**Why ctypes over cffi:**
-- ctypes is stdlib — zero additional dependency
-- qfc has exactly one function with a fixed, well-documented signature
-- cffi advantages (C header parsing, API mode performance) irrelevant for a single stable function
-- cffi's build complexity (needs gcc at import time in API mode) defeats the purpose
-
-**Why NOT compile at install time via hatchling:**
-- Requires gcc/MSVC at `pip install` time — fails silently on HPC environments without build tools
-- Wheel platform tagging becomes complex (manylinux vs. platform-specific)
-- One C function is not worth the CI/CD complexity of cibuildwheel
-
-**Recommended strategy: Runtime lazy compilation with Liu fallback**
-
-```python
-# association_backends/davies_method.py
-
-import ctypes
-import logging
-import subprocess
-import sys
-import tempfile
-from pathlib import Path
-
-log = logging.getLogger(__name__)
-
-_QFC_LIB: ctypes.CDLL | None = None
-_QFC_AVAILABLE: bool = False
-
-
-def _get_qfc_source() -> Path:
-    """Locate bundled qfc.c source file."""
-    import importlib.resources
-    ref = importlib.resources.files("variantcentrifuge.data").joinpath("qfc.c")
-    # Copy to temp dir if inside a zip (editable installs work directly)
-    with importlib.resources.as_file(ref) as p:
-        return p
-
-
-def _try_compile_qfc() -> str | None:
-    """Attempt to compile qfc.c at runtime. Returns path to shared library or None."""
-    src = _get_qfc_source()
-    suffix = {
-        "win32": ".dll",
-        "darwin": ".dylib",
-    }.get(sys.platform, ".so")
-
-    out_dir = Path(tempfile.mkdtemp())
-    out = out_dir / f"qfc{suffix}"
-
-    if sys.platform == "win32":
-        cmd = ["cl.exe", "/LD", f"/Fe:{out}", str(src)]
-    else:
-        cmd = ["gcc", "-O2", "-shared", "-fPIC", "-o", str(out), str(src), "-lm"]
-
-    try:
-        subprocess.run(cmd, check=True, capture_output=True, timeout=30)
-        return str(out)
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as e:
-        log.debug("qfc.c compilation failed: %s. Will use Liu fallback.", e)
-        return None
-
-
-def load_qfc() -> bool:
-    """Load qfc shared library. Returns True if successful."""
-    global _QFC_LIB, _QFC_AVAILABLE
-    if _QFC_AVAILABLE:
-        return True
-
-    lib_path = _try_compile_qfc()
-    if lib_path is None:
-        return False
-
-    try:
-        lib = ctypes.CDLL(lib_path)
-        lib.qfc.restype = None
-        lib.qfc.argtypes = [
-            ctypes.POINTER(ctypes.c_double),  # lambdas
-            ctypes.POINTER(ctypes.c_double),  # noncentral
-            ctypes.POINTER(ctypes.c_int),     # df
-            ctypes.POINTER(ctypes.c_int),     # r (n_terms)
-            ctypes.POINTER(ctypes.c_double),  # sigma
-            ctypes.POINTER(ctypes.c_double),  # q (test statistic)
-            ctypes.POINTER(ctypes.c_int),     # lim
-            ctypes.POINTER(ctypes.c_double),  # acc
-            ctypes.POINTER(ctypes.c_double),  # trace[7]
-            ctypes.POINTER(ctypes.c_int),     # ifault
-            ctypes.POINTER(ctypes.c_double),  # res
-        ]
-        _QFC_LIB = lib
-        _QFC_AVAILABLE = True
-        return True
-    except OSError as e:
-        log.debug("Failed to load compiled qfc: %s", e)
-        return False
-```
-
-**Ship qfc.c in the package under `variantcentrifuge/data/`:**
-
-```toml
-# pyproject.toml
-[tool.hatch.build.targets.wheel]
-packages = ["variantcentrifuge"]
-artifacts = ["variantcentrifuge/data/*.c"]
-```
-
-**Graceful degradation path:**
-1. Try Davies (qfc.c via ctypes) — most accurate
-2. Fall back to Liu moment-matching (pure scipy) — acceptable for p > 1e-8
-3. Log which method was used in result metadata
+**Integration point:** Add `coast_classification_weights()` to
+`variantcentrifuge/association/weights.py`. Classification thresholds (e.g.,
+SIFT < 0.05 = damaging, PolyPhen-2 > 0.908 = probably_damaging) should be
+configurable via a new `coast_classification_config.json` under
+`variantcentrifuge/scoring/coast_classification/`, parallel to the existing
+`nephro_candidate_score/` pattern.
 
 ---
 
-### 3. scipy.stats — Liu Moment-Matching (No New Dependency)
+## Feature 4: Sparse Genotype Matrices for Large Cohorts
 
-**No new scipy dependency required.** scipy is already required.
+### Recommended Format: `scipy.sparse.csr_array`
 
-scipy does NOT implement Davies' method or Liu moment-matching natively. There is no `scipy.stats.mixture_chi2` or equivalent. These must be implemented using scipy primitives.
+**Verdict: Use `scipy.sparse.csr_array`. Available in currently installed scipy 1.14.1.
+No new dependency.**
 
-**Liu 2009 moment-matching — pure scipy implementation:**
+`csr_array` is available as of scipy 1.7 (new array API, confirmed present in scipy 1.14.1
+from `import scipy.sparse; scipy.sparse.csr_array` — works without error).
 
-```python
-import numpy as np
-from scipy.stats import ncx2, norm
+**Format comparison for SKAT genotype matrix (n_samples x n_variants):**
 
+| Format | G @ r (score vec) | G * w (variant weights) | Build from dosage data | Notes |
+|--------|-------------------|------------------------|------------------------|-------|
+| `csr_array` | Optimal (`@` op) | Efficient via `diags(w)` | Via `coo_array.tocsr()` | **Recommended** |
+| `csc_array` | Slow | Fast column ops | Via `coo_array.tocsc()` | Use only if column-slice dominant |
+| `coo_array` | Slow | Slow | Direct construction | Construction only, convert before use |
+| dense `np.ndarray` | Fast (BLAS) | Fast (broadcasting) | Direct | Better for small windows (<200 samples x 2000 variants) |
 
-def liu_pvalue(q_stat: float, eigenvalues: np.ndarray) -> float:
-    """
-    Liu 2009 moment-matching approximation for mixture-of-chi-squared p-values.
-    Used as fallback when Davies/qfc compilation is unavailable.
-
-    Reference: Liu H et al. (2009) Am J Hum Genet 85:726-733.
-    """
-    lam = np.asarray(eigenvalues, dtype=float)
-    c1 = lam.sum()
-    c2 = (lam**2).sum()
-    c3 = (lam**3).sum()
-    c4 = (lam**4).sum()
-
-    s1 = c3 / (c2**1.5)
-    s2 = c4 / (c2**2)
-
-    if s1**2 > s2:
-        # Non-central chi-squared approximation
-        a = 1.0 / (s1 - np.sqrt(s1**2 - s2))
-        d = s1 * a**3 - a**2
-        l = a**2 - 2 * d
-        # Standardize test statistic to matched distribution
-        q_std = (q_stat - (c1 - l)) / np.sqrt(2 * c2) * np.sqrt(2 * l) + d
-        p = float(1.0 - ncx2.cdf(q_std, df=1, nc=d))
-    else:
-        # Normal approximation when moments don't match chi-squared form
-        mu = c1
-        sigma = np.sqrt(2 * c2)
-        p = float(1.0 - norm.cdf((q_stat - mu) / sigma))
-
-    return max(p, 1e-300)  # Clamp to avoid log(0) downstream
-```
-
-`scipy.stats.ncx2` and `scipy.stats.norm` are stable since scipy 0.9 — no version constraint beyond the existing `scipy` requirement.
-
-**scipy.linalg for SKAT kernel eigenvalues:**
+**Key SKAT operation in sparse form:**
 
 ```python
-from scipy.linalg import eigh
+from scipy.sparse import csr_array, diags
 
-# SKAT score statistic: Q = y^T K y (where K = Z W Z^T)
-# P-value requires eigenvalues of P^(1/2) K P^(1/2)
-# P = projection matrix from null model
-eigenvalues, _ = eigh(kernel_matrix)   # eigh for symmetric matrices (faster than eig)
-eigenvalues = eigenvalues[eigenvalues > 1e-10]  # Trim near-zero eigenvalues
+# G: csr_array, shape (n_samples, n_variants)
+# weights: np.ndarray, shape (n_variants,)
+# residuals: np.ndarray, shape (n_samples,)
+
+# Score vector — central SKAT Q computation (G_weighted.T @ residuals)
+W_diag = diags(weights)          # (n_variants, n_variants) diagonal sparse
+G_weighted = G @ W_diag          # csr @ dia -> csr, efficient
+score_vec = G_weighted.T @ residuals  # csr.T @ dense -> dense, optimal for CSR
+
+# Q statistic
+q_stat = float(score_vec @ score_vec) / 2.0
 ```
 
-`scipy.linalg.eigh` is the correct function for symmetric/Hermitian matrices (faster than `eig`, guaranteed real eigenvalues). This is stable across scipy 1.x.
+**API note — new array vs legacy matrix interface:**
+
+scipy 1.14+ recommends `csr_array` (new array API) over `csr_matrix` (legacy).
+Key difference: `*` is element-wise in the new API (NumPy semantics). Use `@` for
+matrix multiplication. From scipy 1.15 release notes: "sparse.linalg and sparse.csgraph
+now work with sparse arrays" — confirming that linear algebra operations are compatible
+with the new API in the version immediately after currently installed scipy.
+
+**Sparsity and breakeven analysis:**
+
+For rare variants (MAF < 1%), expected carrier fraction ≈ 2*MAF ≈ 2% of entries are
+non-zero. Memory comparison at float64:
+
+| Cohort Size | Variants/Gene | Dense Memory | Sparse Memory (2% fill) | Ratio |
+|-------------|---------------|-------------|------------------------|-------|
+| 200 samples | 100 | 160 KB | ~7 KB | 23x |
+| 1,000 samples | 1,000 | 8 MB | ~330 KB | 24x |
+| 5,000 samples | 5,000 | 200 MB | ~8 MB | 25x |
+
+Dense is faster for small matrices (BLAS-optimized contiguous memory). Sparse wins
+on memory and is competitive on speed only when fill fraction < ~10%.
+
+**Recommendation:** Implement sparse as an opt-in path controlled by a CLI flag
+(`--sparse-genotype-matrix`) and/or an automatic threshold (enable sparse when
+`n_samples * n_variants > 500_000`). Do NOT make sparse the default for v0.16.0 —
+profiling data is needed first.
+
+**Integration point:** `build_genotype_matrix()` in
+`variantcentrifuge/association/genotype_matrix.py`. Add `sparse: bool = False`
+parameter. When `True`, return `scipy.sparse.csr_array` instead of `np.ndarray`.
+The SKAT backends need a type branch to handle both.
+
+**Confidence:** HIGH for format choice and API availability. MEDIUM for breakeven
+threshold (based on typical sparsity estimate, not benchmarked on this codebase).
 
 ---
 
-### 4. statsmodels — Burden Tests with Covariates (No New Dependency)
+## Feature 5: Single Eigendecomposition Optimization for SKAT-O
 
-**No new statsmodels dependency required.** statsmodels 0.14.6 (released December 5, 2025) is current.
+**Verdict: Algorithmic change only. No new dependency. Defer to post-profiling.**
 
-**Current stable API for logistic burden test:**
+### Current Behavior (v0.15.0)
 
-```python
-import numpy as np
-import statsmodels.api as sm
-from statsmodels.discrete.discrete_model import Logit
-from scipy.stats import chi2
+`_skato_get_pvalue()` in `python_backend.py` calls `_get_lambda(k_sym)` once per
+rho in the fixed 7-point grid, totaling 7 `scipy.linalg.eigh(driver='evr')` calls
+per gene. The analytical `R.M^{1/2}` approach already avoids Cholesky instability.
 
-# Build design matrix: [intercept, burden, cov1, cov2, ...]
-X_full = sm.add_constant(np.column_stack([burden_score, covariates]))
-X_null = sm.add_constant(covariates)
+### Potential Optimization
 
-# Fit models
-result_full = Logit(y_binary, X_full).fit(disp=False)
-result_null = Logit(y_binary, X_null).fit(disp=False)
+The base kernel `A = Z1_half.T @ Z1_half` is rho-independent. Computing `eigh(A)` once
+and using rank-1 eigenvalue perturbation theory for each rho mixture could reduce
+eigendecompositions from 7 to 1 per gene.
 
-# Wald test for burden coefficient (index 1, after intercept)
-r_matrix = np.zeros((1, X_full.shape[1]))
-r_matrix[0, 1] = 1.0
-wald = result_full.wald_test(r_matrix, scalar=True)
-wald_pval = float(wald.pvalue)
+### Why This Should Be Deferred
 
-# Likelihood ratio test (preferred for GLMs)
-lrt_stat = 2.0 * (result_full.llf - result_null.llf)
-lrt_pval = float(chi2.sf(lrt_stat, df=1))
-```
+From the v0.15.0 performance analysis (issue #76):
 
-**Known API change to be aware of:** `wald_test(scalar=True)` is the forward-compatible form. The `scalar` parameter was added in 0.14.x. Before 0.14, the test statistic was returned as a numpy array; after 0.15, the default will switch to scalar. Pass `scalar=True` explicitly in all new association code.
+| Stage | Wall Time | Fraction |
+|-------|-----------|----------|
+| field_extraction (SnpSift) | 9,664s | 26% |
+| genotype_replacement | 25,293s | 69% |
+| All other stages | ~1,400s | 5% |
 
-**Linear regression (continuous trait):**
+SKAT-O eigendecomposition on typical gene windows (p = 5–50 variants) involves
+`eigh()` on a `(50, 50)` matrix — this takes ~10 microseconds. Even at 20,000 genes,
+7 calls per gene = 140,000 calls * 10µs = 1.4 seconds total. This is not a measurable
+bottleneck.
 
-```python
-from statsmodels.regression.linear_model import OLS
-
-X_full = sm.add_constant(np.column_stack([burden_score, covariates]))
-result = OLS(y_continuous, X_full).fit()
-burden_pval = result.pvalues[1]   # Index 1 = burden coefficient
-burden_ci = result.conf_int()[1]  # 95% CI for burden
-```
+**Recommendation:** Note the optimization opportunity in a code comment. Implement
+only after profiling shows SKAT-O eigendecomposition as a real bottleneck (i.e., after
+the genotype_replacement bottleneck is addressed in a future milestone).
 
 ---
 
-### 5. Build System — Hatchling (No Change for MVP)
+## Feature 6: PCAComputationStage Wiring (AKT/PLINK2 Subprocess)
 
-**Stay with hatchling as-is for the MVP phase.** No hatch-cython required.
+**Verdict: No new Python dependency. Subprocess pattern already established in pipeline.**
 
-The qfc.c compilation happens at runtime via subprocess (see section 2), so no build-time C toolchain dependency is needed. Hatchling's wheel target already supports arbitrary data files via `artifacts`.
+### Current State
 
-**Minimal pyproject.toml changes:**
+`variantcentrifuge/association/pca.py` already parses PCA output from three formats:
+- PLINK `.eigenvec` with/without header
+- AKT stdout / generic TSV
 
-```toml
-[project.optional-dependencies]
-dev = [
-    # ... existing unchanged ...
-]
-association = [
-    "rpy2>=3.6.4",
-    "matplotlib>=3.10",
-]
+PCA file loading (`load_pca_file()`) and covariate merging (`merge_pca_covariates()`)
+are fully implemented. What is missing: a pipeline stage that computes the PCA
+file from the VCF before loading.
 
-[tool.hatch.build.targets.wheel]
-packages = ["variantcentrifuge"]
-artifacts = ["variantcentrifuge/data/*.c"]  # Include qfc.c source
-```
+### Tool Choice: AKT as Primary, PLINK2 as Alternative
 
-**Future consideration (post-MVP):** If the association framework gains traction and users report compilation failures in HPC environments, add cibuildwheel to CI to ship pre-compiled platform wheels containing a compiled `_qfc.so`. This avoids runtime gcc requirement. The module interface remains identical; only the loading path changes (load pre-built SO instead of compiling).
+| Tool | Input | Notes |
+|------|-------|-------|
+| AKT | VCF directly | BCFtools plugin. Likely available if bcftools is installed. PCA output already parsed by `pca.py`. |
+| PLINK2 | VCF or PLINK binary | Widely used in GWAS. Requires conversion step for VCF input. |
 
----
+AKT is the right first implementation: it takes a VCF directly (no intermediate
+conversion), its output format is already handled by the parser, and it follows the
+same external-tool pattern as bcftools in the pipeline.
 
-### 6. matplotlib — Diagnostic Plots (Optional)
+PLINK2 is a reasonable second backend for cohorts already in PLINK format.
 
-**Recommended version:** `matplotlib>=3.10`
-**Current release:** 3.10.8 (December 10, 2025)
-**Python compatibility:** 3.10+ — aligned with project minimum.
-**Confidence:** HIGH (verified PyPI)
+**No new Python dependencies.** AKT and PLINK2 are external binaries, same pattern
+as bcftools/SnpSift. Document as optional external tools, not Python packages.
 
-**Declare as optional** under `association` extra (see section 5). Never import at module level.
+**Integration point:** New `PCAComputationStage` in `variantcentrifuge/stages/analysis_stages.py`
+(or a dedicated `stages/pca_stages.py`). The stage:
 
-**Correct lazy import pattern for HPC (no display server):**
+1. Declares dependency on `ConfigurationLoadingStage`
+2. Runs `akt pca <vcf> ...` or `plink2 --pca ...` via `subprocess.run()`
+3. Writes PCA output to workspace
+4. Sets `context.pca_file_path` for downstream consumption by `GeneBurdenAnalysisStage`
 
-```python
-# association_plots.py
+Follow the subprocess exception handling pattern from `BCFToolsPrefilterStage` in
+`processing_stages.py`.
 
-def _require_matplotlib():
-    """Lazy import with backend configuration for headless environments."""
-    try:
-        import matplotlib
-        matplotlib.use("Agg")          # Must be set before pyplot import
-        import matplotlib.pyplot as plt
-        return plt
-    except ImportError:
-        raise ImportError(
-            "matplotlib is required for diagnostic plots.\n"
-            "Install with: pip install variantcentrifuge[association]"
-        ) from None
-
-
-def plot_qq(p_values: np.ndarray, output_path: str) -> None:
-    """QQ plot for p-value calibration assessment."""
-    plt = _require_matplotlib()
-    # ... implementation
-    plt.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close()
-```
-
-**Do not use `import matplotlib.pyplot as plt` at module level.** Module-level pyplot import:
-1. Adds ~100ms startup cost to every invocation (even `variantcentrifuge --help`)
-2. Raises `_tkinter.TclError` on headless HPC nodes without `$DISPLAY`
-
-`matplotlib.use("Agg")` must be called before `import matplotlib.pyplot` to select the non-interactive backend. It has no effect if called after pyplot is imported.
+**Confidence:** HIGH for subprocess approach and AKT format compatibility. MEDIUM
+for AKT command-line API stability (AKT is a BCFtools plugin with less formal
+versioning than PLINK2).
 
 ---
 
-### 7. momentchi2 — Do Not Add
+## Summary: Net Stack Changes for v0.16.0
 
-**Decision: Reject.**
-**Confidence:** HIGH
+**Zero new Python package dependencies required.**
 
-momentchi2 (PyPI: `momentchi2`, GitHub: `deanbodenham/momentchi2py`) implements Hall-Buckley-Eagleson (HBE) and Lindsay-Pilla-Basak (LPB) moment-matching methods.
+| Feature | Change | Confidence |
+|---------|--------|-----------|
+| Weighted BH | Add `apply_weighted_bh()` to `correction.py` (numpy only) | HIGH |
+| IHW | Defer; use rpy2 bridge later if needed | HIGH |
+| Weighted GLM null model | Use existing `statsmodels.GLM(var_weights=...)` | HIGH |
+| Weighted SKAT score | Numpy broadcasting extension to `_test_skat()` | MEDIUM |
+| COAST classification | Extend `weights.py` + new config JSON | HIGH |
+| Sparse genotype matrix | `scipy.sparse.csr_array` (in scipy 1.14.1) opt-in | HIGH |
+| SKAT-O single eigh | Defer; document as future optimization | HIGH |
+| PCA computation stage | New stage using subprocess (AKT/PLINK2 as external tools) | MEDIUM |
 
-**Why not:**
-- Last commit: August 24, 2021. Zero GitHub releases published.
-- Implements moment-matching methods that overlap completely with the Liu 2009 method implemented directly via scipy (section 3)
-- For SKAT p-values, Liu performs equivalently to HBE for p > 1e-8 (the range that matters clinically)
-- Adds an unmaintained transitive dependency for capability already achievable in 20 lines of scipy code
+### Version Pinning
 
-**Use instead:** Direct Liu moment-matching implementation (section 3) using `scipy.stats.ncx2` and `scipy.stats.norm`. This is what the SKAT R package itself uses as its Davies fallback.
+No version bumps required for any new feature. The installed stack (scipy 1.14.1,
+statsmodels 0.14.4) supports all needed APIs:
+
+- `scipy.sparse.csr_array`: available since scipy 1.7, confirmed in 1.14.1
+- `statsmodels.GLM(var_weights=...)`: available since statsmodels 0.9.0
+- `statsmodels.stats.multitest.multipletests`: no `weights` param, confirmed; weighted BH implemented in numpy instead
+
+**If scipy is bumped in the future:**
+- scipy 1.15.0 adds full `sparse.linalg` compatibility with the new array API
+- scipy 1.16.0 requires Python 3.11+ — do not bump to 1.16 while `requires-python = ">=3.10"`
 
 ---
 
 ## What NOT to Add
 
-| Library | Why Not |
-|---------|---------|
-| momentchi2 | Unmaintained since 2021; Liu via scipy is equivalent |
-| cffi | No advantage over ctypes for one stable C function |
-| hatch-cython | Adds build-time gcc requirement; runtime compile approach is more portable |
-| pybind11 / Cython | Overkill for single qfc function; ctypes is sufficient |
-| pystatgen/limix | Heavy dependencies (BLAS, MKL), poor Windows support; the framework's own implementations suffice |
-| polars | Not relevant to association statistics |
-
----
-
-## Full pyproject.toml Delta
-
-```toml
-# ADDITIONS to pyproject.toml for association framework milestone
-
-[project.optional-dependencies]
-dev = [
-    # ... existing unchanged ...
-]
-association = [                    # NEW extra
-    "rpy2>=3.6.4",
-    "matplotlib>=3.10",
-]
-
-[tool.hatch.build.targets.wheel]
-packages = ["variantcentrifuge"]
-artifacts = ["variantcentrifuge/data/*.c"]   # NEW: include qfc.c source
-
-# CONSIDER: bump requires-python to ">=3.11" to allow scipy>=1.16
-# Current: requires-python = ">=3.10"
-# Impact: allows unpinned scipy on current versions
-```
-
-No changes to required `[project.dependencies]` — rpy2 and matplotlib are optional extras.
-
----
-
-## Integration with Existing Stack
-
-| New Capability | Uses Existing | Adds New |
-|---------------|---------------|----------|
-| SKAT-R backend | — | rpy2>=3.6.4 (optional) |
-| SKAT pure-Python kernel | numpy, scipy.linalg.eigh | qfc.c via ctypes (runtime) |
-| Davies p-value | ctypes stdlib | qfc.c C source (bundled) |
-| Liu p-value fallback | scipy.stats.ncx2, norm | nothing |
-| Logistic burden test | statsmodels Logit | nothing |
-| Linear burden test | statsmodels OLS | nothing |
-| Wald/LRT tests | statsmodels, scipy.stats.chi2 | nothing |
-| QQ/Manhattan plots | — | matplotlib>=3.10 (optional) |
-| ACAT-O combination | scipy.stats.cauchy | nothing |
-
----
-
-## Cross-Platform Considerations
-
-| Component | Linux | macOS | Windows | Notes |
-|-----------|-------|-------|---------|-------|
-| rpy2 | OK (Ubuntu 20+) | OK | Harder | R must be in PATH; Windows needs R on PATH explicitly |
-| qfc.c runtime compile | gcc required | clang required | cl.exe (MSVC) required | Falls back to Liu if unavailable |
-| matplotlib Agg backend | OK headless | OK | OK | No display server needed |
-| scipy/statsmodels | OK | OK | OK | Pre-built wheels on all platforms |
-
-**Windows qfc compilation:** MSVC (`cl.exe`) is used on Windows. Many Windows development environments (VS Code with C++ extension, Visual Studio) include it. HPC environments running Windows are rare; Linux is the dominant HPC OS. The Liu fallback is the practical Windows path.
-
-**macOS:** clang is pre-installed via Xcode command line tools (`xcode-select --install`). qfc.c compiles successfully on macOS with `-shared -fPIC`.
-
----
-
-## Confidence Assessment
-
-| Area | Confidence | Source |
-|------|------------|--------|
-| rpy2 version/compatibility | HIGH | PyPI (3.6.4), GitHub issues verified |
-| rpy2 R 4.4 issues | HIGH | GitHub issue #1107, confirmed scope (CentOS 7 only) |
-| qfc.c function signature | HIGH | CompQuadForm R package source (rdrr.io) |
-| ctypes vs cffi decision | HIGH | Technical analysis; ctypes stdlib advantage clear |
-| scipy version constraint | HIGH | scipy release notes, PyPI metadata verified |
-| Liu moment-matching | HIGH | Published algorithm (Liu 2009); scipy primitives verified |
-| statsmodels API | HIGH | Official docs (0.14.4 stable, 0.15.0 dev), wald_test scalar note |
-| matplotlib version | HIGH | PyPI (3.10.8 verified) |
-| momentchi2 abandonment | HIGH | GitHub (last commit 2021, zero releases) |
-| hatchling data files | MEDIUM | Official docs + hatch-cython PyPI; artifacts field behavior not tested in this project |
+| Considered | Reason to Reject |
+|------------|-----------------|
+| Any IHW Python package | None exist on PyPI as of February 2026 |
+| `scikit-allel` | ~50MB dep; `scipy.sparse.csr_array` already handles the sparse genotype matrix need |
+| `plink2` Python bindings | No stable Python bindings exist; subprocess is the correct pattern |
+| `polars` | Pandas deeply embedded; mixed-frame code would be a maintenance burden |
+| New rpy2 version bump | Current `rpy2>=3.6.4` constraint is sufficient |
+| `pyarrow` version bump | Already pinned `pyarrow>=14.0`; no new association feature needs a newer version |
 
 ---
 
 ## Sources
 
-- rpy2 PyPI (version 3.6.4, Python 3.8–3.13): https://pypi.org/project/rpy2/
-- rpy2 changelog (R 4.3+ Rcomplex fix in 3.6.0): https://rpy2.github.io/doc/latest/html/changes.html
-- rpy2 R 4.4 CentOS 7 issue: https://github.com/rpy2/rpy2/issues/1107
-- rpy2 introduction (importr pattern, R initialization at import): https://rpy2.github.io/doc/latest/html/introduction.html
-- statsmodels PyPI (0.14.6, December 2025): https://pypi.org/project/statsmodels/
-- statsmodels wald_test API (scalar parameter note): https://www.statsmodels.org/stable/generated/statsmodels.discrete.discrete_model.LogitResults.wald_test.html
-- scipy PyPI (1.17.0, January 2026): https://pypi.org/project/SciPy/
-- scipy 1.15.0 release notes (last Python 3.10 version): https://docs.scipy.org/doc/scipy-1.16.1/release/1.15.0-notes.html
-- scipy Python 3.10 drop tracking: https://github.com/scipy/scipy/issues/22881
-- matplotlib PyPI (3.10.8, December 2025): https://pypi.org/project/matplotlib/
-- momentchi2py GitHub (last commit August 2021): https://github.com/deanbodenham/momentchi2py
-- CompQuadForm Davies R source (qfc signature): https://rdrr.io/cran/CompQuadForm/src/R/davies.R
-- hatch-cython PyPI (0.6.0, C file support confirmed): https://pypi.org/project/hatch-cython/
-- SKAT R package (p-value methods, Davies + Liu fallback): https://cran.r-project.org/web/packages/SKAT/vignettes/SKAT.pdf
-- CFFI documentation (ABI vs API mode tradeoffs): https://cffi.readthedocs.io/en/latest/goals.html
+- statsmodels GLM `var_weights` documentation (verified 0.15.0):
+  https://www.statsmodels.org/dev/generated/statsmodels.genmod.generalized_linear_model.GLM.html
+- statsmodels `multipletests` — no weights parameter (verified 0.15.0):
+  https://www.statsmodels.org/dev/generated/statsmodels.stats.multitest.multipletests.html
+- scipy `false_discovery_control` — no weights parameter (verified 1.17.0):
+  https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.false_discovery_control.html
+- scipy sparse docs — CSR recommendation, new array API (1.17.0):
+  https://docs.scipy.org/doc/scipy/reference/sparse.html
+- scipy 1.15.0 release notes — `sparse.linalg` array API compatibility:
+  https://docs.scipy.org/doc/scipy-1.15.0/release/1.15.0-notes.html
+- scipy 1.16.0 release notes — Python 3.11+ requirement:
+  https://docs.scipy.org/doc/scipy/release/1.16.0-notes.html
+- IHW Bioconductor (R only, no Python port, current release 3.20):
+  https://bioconductor.org/packages/3.20/bioc/html/IHW.html
+- IHW GitHub (nignatiadis/IHW — R only):
+  https://github.com/nignatiadis/IHW
+- statsmodels weighted GLM examples:
+  https://www.statsmodels.org/dev/examples/notebooks/generated/glm_weights.html

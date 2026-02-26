@@ -37,8 +37,8 @@ The run() method replicates ALL skip-condition guards from COASTTest.run():
 Output extra dict
 -----------------
 Matches COASTTest output keys for downstream consumers (engine, diagnostics):
-  - coast_burden_p_value: Cauchy combination of 6 burden component p-values
-  - coast_skat_p_value: allelic SKAT p-value
+  - coast_burden_pvalue: Cauchy combination of 6 burden component p-values
+  - coast_skat_pvalue: allelic SKAT p-value
   - coast_n_bmv, coast_n_dmv, coast_n_ptv: variant counts per category
 
 Thread safety
@@ -105,6 +105,11 @@ class PurePythonCOASTTest(AssociationTest):
         self._genes_processed: int = 0
         self._start_time: float = 0.0
 
+        # Category-level counters (set by prepare(), incremented in run())
+        self._n_complete: int = 0
+        self._n_partial: int = 0
+        self._n_skipped: int = 0
+
     @property
     def name(self) -> str:
         """Short identifier for this test -- same as COASTTest for registry swap."""
@@ -159,6 +164,9 @@ class PurePythonCOASTTest(AssociationTest):
         self._genes_processed = 0
         self._log_interval = max(10, min(50, gene_count // 10)) if gene_count > 0 else 50
         self._start_time = time.time()
+        self._n_complete = 0
+        self._n_partial = 0
+        self._n_skipped = 0
 
         logger.info(f"Python COAST: beginning allelic series analysis of {gene_count} genes")
 
@@ -169,7 +177,13 @@ class PurePythonCOASTTest(AssociationTest):
         Logs aggregate timing summary. No R gc() (pure Python backend).
         """
         elapsed = time.time() - self._start_time
+        n_tested = self._n_complete + self._n_partial
         logger.info(f"Python COAST complete: {self._genes_processed} genes in {elapsed:.1f}s")
+        logger.info(
+            f"COAST: {n_tested} genes tested "
+            f"({self._n_complete} complete, {self._n_partial} partial, "
+            f"{self._n_skipped} skipped)"
+        )
 
     def run(
         self,
@@ -202,7 +216,7 @@ class PurePythonCOASTTest(AssociationTest):
         TestResult
             p_value=None when test is skipped (missing variant categories,
             no genotype matrix, or insufficient data).
-            extra contains: coast_burden_p_value, coast_skat_p_value,
+            extra contains: coast_burden_pvalue, coast_skat_pvalue,
             coast_n_bmv, coast_n_dmv, coast_n_ptv.
         """
         n_cases = int(contingency_data.get("proband_count", 0))
@@ -290,7 +304,11 @@ class PurePythonCOASTTest(AssociationTest):
             )
 
         # ── Classify variants into COAST categories ───────────────────────────────
-        anno_codes, include_mask = classify_variants(gene_df, effect_col, impact_col)
+        # Pass model_dir when coast_classification config is set
+        coast_model_dir = getattr(config, "coast_classification", None)
+        anno_codes, include_mask = classify_variants(
+            gene_df, effect_col, impact_col, model_dir=coast_model_dir
+        )
 
         # ── Guard: annotation/genotype dimension alignment ────────────────────────
         if len(anno_codes) != geno.shape[1]:
@@ -339,19 +357,12 @@ class PurePythonCOASTTest(AssociationTest):
         n_dmv = int(np.sum(anno_filtered == 2))
         n_ptv = int(np.sum(anno_filtered == 3))
 
-        # ── Guard: all 3 categories required ─────────────────────────────────────
-        if n_bmv == 0 or n_dmv == 0 or n_ptv == 0:
-            missing = []
-            if n_bmv == 0:
-                missing.append("BMV")
-            if n_dmv == 0:
-                missing.append("DMV")
-            if n_ptv == 0:
-                missing.append("PTV")
-            logger.debug(
-                f"Python COAST [{gene}]: skipping -- missing categories: {', '.join(missing)} "
-                f"(BMV={n_bmv}, DMV={n_dmv}, PTV={n_ptv})"
-            )
+        # ── Partial-category logic: skip only when ALL categories are empty ───────
+        missing = [cat for cat, n in [("BMV", n_bmv), ("DMV", n_dmv), ("PTV", n_ptv)] if n == 0]
+        present = [cat for cat, n in [("BMV", n_bmv), ("DMV", n_dmv), ("PTV", n_ptv)] if n > 0]
+
+        if len(present) == 0:
+            self._n_skipped += 1
             return TestResult(
                 gene=gene,
                 test_name=self.name,
@@ -365,11 +376,19 @@ class PurePythonCOASTTest(AssociationTest):
                 n_controls=n_controls,
                 n_variants=n_variants,
                 extra={
-                    "coast_skip_reason": f"MISSING_CATEGORIES:{','.join(missing)}",
-                    "coast_n_bmv": n_bmv,
-                    "coast_n_dmv": n_dmv,
-                    "coast_n_ptv": n_ptv,
+                    "coast_skip_reason": "ALL_CATEGORIES_EMPTY",
+                    "coast_n_bmv": 0,
+                    "coast_n_dmv": 0,
+                    "coast_n_ptv": 0,
+                    "coast_status": "skipped",
                 },
+            )
+
+        coast_status = "complete" if not missing else "partial"
+        if missing:
+            logger.debug(
+                f"Python COAST [{gene}]: partial -- missing {', '.join(missing)} "
+                f"(BMV={n_bmv}, DMV={n_dmv}, PTV={n_ptv})"
             )
 
         # Backend must have been initialized by check_dependencies()
@@ -429,6 +448,10 @@ class PurePythonCOASTTest(AssociationTest):
 
         # ── Increment counter and progress logging ────────────────────────────────
         self._genes_processed += 1
+        if coast_status == "complete":
+            self._n_complete += 1
+        else:
+            self._n_partial += 1
         if self._total_genes > 0 and self._genes_processed % self._log_interval == 0:
             pct = 100.0 * self._genes_processed / self._total_genes
             logger.info(
@@ -436,14 +459,25 @@ class PurePythonCOASTTest(AssociationTest):
                 f"{self._genes_processed}/{self._total_genes} genes ({pct:.0f}%)"
             )
 
-        # ── Compute coast_burden_p_value as Cauchy of 6 burden components ─────────
+        # ── Compute coast_burden_pvalue as Cauchy of 6 burden components ──────────
         # This mirrors the convention expected by downstream consumers (engine, diagnostics).
         # The omnibus p_value already combines all 7 (6 burden + 1 SKAT); the extra
-        # coast_burden_p_value provides a standalone summary of the burden sub-test.
+        # coast_burden_pvalue provides a standalone summary of the burden sub-test.
         from variantcentrifuge.association.tests.acat import cauchy_combination
 
         burden_p_values: list[float | None] = result.get("burden_p_values", [])
         coast_burden_p = cauchy_combination(burden_p_values) if burden_p_values else None
+
+        extra_base: dict[str, Any] = {
+            "coast_burden_pvalue": coast_burden_p,
+            "coast_skat_pvalue": result.get("skat_p_value"),
+            "coast_n_bmv": n_bmv,
+            "coast_n_dmv": n_dmv,
+            "coast_n_ptv": n_ptv,
+            "coast_status": coast_status,
+        }
+        if missing:
+            extra_base["coast_missing_categories"] = ",".join(missing)
 
         return TestResult(
             gene=gene,
@@ -457,13 +491,7 @@ class PurePythonCOASTTest(AssociationTest):
             n_cases=n_cases,
             n_controls=n_controls,
             n_variants=n_variants,
-            extra={
-                "coast_burden_p_value": coast_burden_p,
-                "coast_skat_p_value": result.get("skat_p_value"),
-                "coast_n_bmv": n_bmv,
-                "coast_n_dmv": n_dmv,
-                "coast_n_ptv": n_ptv,
-            },
+            extra=extra_base,
         )
 
 

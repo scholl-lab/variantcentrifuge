@@ -1,0 +1,32 @@
+{
+  "output_scores": ["coast_category"],
+  "formulas": [
+    {
+      "is_ptv": "(impact == 'HIGH') & effect.isin(['stop_gained', 'frameshift_variant', 'splice_acceptor_variant', 'splice_donor_variant'])"
+    },
+    {
+      "is_missense": "effect == 'missense_variant'"
+    },
+    {
+      "sift_dam": "sift_pred.str.contains('deleterious|^D$', na=False, regex=True)"
+    },
+    {
+      "polyphen_dam": "polyphen_pred.str.contains('probably_damaging|possibly_damaging|^D$|^P$', na=False, regex=True)"
+    },
+    {
+      "sift_ben": "sift_pred.str.contains('tolerated|^T$', na=False, regex=True)"
+    },
+    {
+      "polyphen_ben": "polyphen_pred.str.contains('benign|^B$', na=False, regex=True)"
+    },
+    {
+      "is_dmv": "is_missense & (sift_dam | polyphen_dam)"
+    },
+    {
+      "is_bmv": "is_missense & sift_ben & polyphen_ben"
+    },
+    {
+      "coast_category": "is_ptv * 3 + is_dmv * 2 + is_bmv * 1"
+    }
+  ]
+}
