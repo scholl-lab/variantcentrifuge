@@ -29,6 +29,9 @@ Progress: ░░░░░░░░░░░░░░░░ (phase in progress)
 
 | Plan  | Decision | Rationale |
 |-------|----------|-----------|
+| 38-02 | Restored removed public functions as new implementations (not revert) | Plan-01 renamed/removed them but tests import them; new implementations maintain contract |
+| 38-02 | filter_by_inheritance_pattern extended with min_confidence kwarg | Test expected confidence threshold filtering; added as optional param |
+| 38-02 | Public alias pattern: create_inheritance_details = _create_inheritance_details | API stability — tests and external callers import public name |
 | 38-03 | stages/__init__.py __all__ sorted alphabetically (no section comments) | ruff RUF022 requires isort-style sort; section comments break it; imports at top of file already group by module |
 | 38-03 | TODO intelligent batching replaced with deferred-work NOTE | Current fixed-size batching is sufficient; explicit note sets expectation to revisit at ~100 stages |
 
@@ -46,11 +49,11 @@ Progress: ░░░░░░░░░░░░░░░░ (phase in progress)
 
 ### Blockers/Concerns
 
-- Pre-existing test failures in test_inheritance/ (create_inheritance_details, adjust_pattern_score) and test_chunked_loading from prior 38-01/38-02 work; need resolution before CI is fully green
+(None — test failures from plan-01 API removals resolved by plan-02: 2066 tests passing)
 
 ## Session Continuity
 
-Last session: 2026-02-26T17:21:22Z
-Stopped at: Completed 38-03-PLAN.md (missing stage exports + TODO cleanup)
+Last session: 2026-02-26T17:35:00Z
+Stopped at: Completed 38-02-PLAN.md (stale docs + comment cleanup; inheritance API restored)
 Resume file: None
 Next: Continue Phase 38 remaining plans
