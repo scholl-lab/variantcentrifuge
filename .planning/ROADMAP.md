@@ -7,7 +7,7 @@
 - [x] **v0.14.0 Report UX Overhaul** - Phases 13-17 (shipped 2026-02-19)
 - [x] **v0.15.0 Modular Rare Variant Association Framework** - Phases 18-29 (shipped 2026-02-23)
 - [x] **v0.16.0 Association Hardening & Multi-Cohort Features** - Phases 30-37 (shipped 2026-02-26)
-- [ ] **v0.17.0 Tech Debt Cleanup & Compound Het Parallelization** - Phases 38-39 (in progress)
+- [x] **v0.17.0 Tech Debt Cleanup & Compound Het Parallelization** - Phases 38-39 (shipped 2026-02-26)
 
 ## Phases
 
@@ -70,8 +70,8 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 39-01-PLAN.md — Synthetic benchmark script and baseline capture
-- [ ] 39-02-PLAN.md — Core optimization (pre-dispatch dedup, pedigree arrays, numpy-only workers, batch size env var)
+- [x] 39-01-PLAN.md — Synthetic benchmark script and baseline capture
+- [x] 39-02-PLAN.md — Core optimization (pre-dispatch dedup, pedigree arrays, numpy-only workers, batch size env var)
 
 **Success Criteria:**
 
@@ -95,4 +95,4 @@ Plans:
 | 36. Performance — Sparse Genotype Matrices | v0.16.0 | 0/1 | Deferred | - |
 | 37. Association Resource Management & Memory Streaming | v0.16.0 | 3/3 | Complete | 2026-02-25 |
 | 38. Codebase Cleanup | v0.17.0 | 3/3 | Complete | 2026-02-26 |
-| 39. Compound Het Parallelization | v0.17.0 | 0/2 | Pending | - |
+| 39. Compound Het Parallelization | v0.17.0 | 2/2 | Complete | 2026-02-26 |

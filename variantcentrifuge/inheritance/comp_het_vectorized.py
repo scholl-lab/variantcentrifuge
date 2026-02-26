@@ -400,9 +400,7 @@ def _process_gene_group_arrays(
                 partner_mask[i] = False
                 partner_positions = np.where(partner_mask)[0]
                 if len(partner_positions) > 0:
-                    partners_by_variant_idx[int(var_idx)] = het_indices[
-                        partner_positions
-                    ].tolist()  # type: ignore[assignment]
+                    partners_by_variant_idx[int(var_idx)] = het_indices[partner_positions].tolist()  # type: ignore[assignment]
 
         else:
             # Case 3: No parental data
