@@ -21,13 +21,14 @@ _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-import numpy as np
+import numpy as np  # noqa: I001
 import pandas as pd
 
 
 # ---------------------------------------------------------------------------
 # Synthetic data generation
 # ---------------------------------------------------------------------------
+
 
 def _generate_skewed_genes(
     n_genes: int,
@@ -166,6 +167,7 @@ def generate_benchmark_data(
 # Benchmark runner
 # ---------------------------------------------------------------------------
 
+
 def _time_call(fn, n_runs: int = 3) -> tuple[float, float, float]:
     """Run fn n_runs times, return (median, min, max) wall-times in seconds."""
     times = []
@@ -262,10 +264,7 @@ def _print_table(
     print()
     print("Compound Het Pass 2 Benchmark")
     print("=" * 60)
-    print(
-        f"Dataset: {n_genes} genes, {n_variants} variants, "
-        f"{n_samples} samples ({n_trios} trios)"
-    )
+    print(f"Dataset: {n_genes} genes, {n_variants} variants, {n_samples} samples ({n_trios} trios)")
     print()
 
     col_label = 44
@@ -307,6 +306,7 @@ def _print_table(
 # Main entry point
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     n_genes = 1000
     n_variants = 10_000
@@ -316,8 +316,11 @@ def main() -> None:
 
     n_trios = max(1, n_samples // 3)
 
-    print(f"Generating synthetic dataset: {n_genes} genes, {n_variants} variants, "
-          f"{n_samples} samples ({n_trios} trios) ...", flush=True)
+    print(
+        f"Generating synthetic dataset: {n_genes} genes, {n_variants} variants, "
+        f"{n_samples} samples ({n_trios} trios) ...",
+        flush=True,
+    )
     t0 = time.perf_counter()
     df, pedigree_data, sample_list = generate_benchmark_data(
         n_genes=n_genes,
