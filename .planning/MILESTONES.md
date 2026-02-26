@@ -1,5 +1,33 @@
 # Project Milestones: VariantCentrifuge
 
+## v0.16.0 Association Hardening & Multi-Cohort Features (Shipped: 2026-02-26)
+
+**Delivered:** Hardened the v0.15.0 association framework for real-world use — fixed COAST p=None bugs, added BED region restriction, PCA pipeline wiring, weighted FDR correction, and streaming genotype matrices to prevent OOM on large gene panels.
+
+**Phases completed:** 30-37 (12 plans total; Phases 35+36 deferred)
+
+**Key accomplishments:**
+
+- Fixed COAST producing p=None on partial-category genes with configurable classification scoring (3 models) and multi-transcript effect resolution
+- Added --regions-bed BED-based region restriction with chromosome mismatch detection
+- Wired PCAComputationStage with unified --pca flag (file or AKT autodetect)
+- Implemented Genovese 2006 weighted Benjamini-Hochberg FDR correction with per-gene biological priors
+- Standardized association column naming (_pvalue/_qvalue), added COAST golden value regression tests, fixed config mapping bugs
+- Streaming genotype matrices (build-test-discard) with shared ResourceManager — O(1 gene) peak memory
+
+**Stats:**
+
+- 62 files created/modified
+- 94,812 lines of Python (39,208 source + 55,604 tests)
+- 6 phases, 12 plans (2 phases deferred)
+- 3 days from start to ship (2026-02-23 → 2026-02-26)
+
+**Git range:** `docs(30)` → `docs(37)`
+
+**What's next:** TBD — candidates include case-confidence weights (#85), sparse matrices, real-world test datasets (#60), report validation (#61)
+
+---
+
 ## v0.15.0 Modular Rare Variant Association Framework (Shipped: 2026-02-23)
 
 **Delivered:** Multi-test rare variant association engine with SKAT-O, COAST, burden tests, ACAT-O omnibus, covariate/PCA adjustment, and pure Python backends — backward compatible with existing gene burden pipeline.

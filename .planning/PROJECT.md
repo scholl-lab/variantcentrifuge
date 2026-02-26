@@ -44,34 +44,18 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 - JSON config mode for association analysis — v0.15.0
 - Compiled Davies method (qfc.c via ctypes) with saddlepoint/Liu fallback chain — v0.15.0
 - 2001 tests passing, 0 failures, cross-platform (Windows + Linux)
+- COAST fix: partial-category fallback, configurable classification scoring (3 models), multi-transcript resolution — v0.16.0
+- BED-based region restriction (`--regions-bed`) with chromosome mismatch detection — v0.16.0
+- PCA pipeline integration: unified `--pca` flag (file or AKT autodetect) — v0.16.0
+- Weighted Benjamini-Hochberg FDR correction with per-gene biological priors (`--gene-prior-weights`) — v0.16.0
+- Association column naming standardized (_pvalue/_qvalue), COAST golden value regression tests — v0.16.0
+- Shared ResourceManager in PipelineContext, GT column lifecycle fix, streaming genotype matrices (build-test-discard) — v0.16.0
+- Dead code cleanup: 8 vestigial stage classes removed, naming normalized — v0.16.0
+- 2228 tests passing, 0 failures, cross-platform (Windows + Linux) — v0.16.0
 
 ### Active
 
-#### v0.16.0 — Association Hardening & Multi-Cohort Features
-
-**Bug Fixes:**
-- Fix COAST genotype matrix availability for regression-based tests (#87)
-- Auto-inject SIFT/PolyPhen fields when COAST is requested (#87)
-- Relax COAST 3-category requirement to match R AllelicSeries behavior (#87)
-- Create configurable COAST classification scoring model (#87)
-
-**New Features:**
-- Gene-level prior weighting for FDR correction: weighted BH, optional IHW (#86)
-- `--case-confidence` flag for weighted case/control status (#85)
-- `--restrict-regions` flag for BED-based region restriction in prefilter (#84)
-- Wire PCAComputationStage into pipeline.py (TD-01)
-
-**Performance:**
-- Single eigendecomposition for SKAT-O (~5x eigenvalue step speedup)
-- Sparse genotype matrices for large rare-variant cohorts
-
-**Cleanup/Tech Debt:**
-- Remove 8 dead stage classes, vestigial naming, old pipeline comments (#88)
-- Fix create_stages_from_config() association mapping (TD-02)
-- Generate COAST R golden values for validation (TD-03)
-- Fix skat_o_p column naming (TD-04)
-- Clarify Fisher lambda_GC criterion (TD-05)
-- Remove "refactored_pipeline" checkpoint strings (TD-06)
+(No active milestone — next milestone TBD)
 
 ### Out of Scope
 
@@ -86,12 +70,13 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 
 ## Context
 
-- Current version: v0.15.0 (v0.16.0 in development)
+- Current version: v0.16.0
 - Tech stack: Python 3.10+, pandas, NumPy, openpyxl, xlsxwriter, bcftools, SnpSift, scipy, statsmodels
-- Source: 38,948 LOC Python; Tests: 53,970 LOC Python
+- Source: 39,208 LOC Python; Tests: 55,604 LOC Python
 - Pipeline time reduced from 10+ hours to under 1 hour on large cohorts (>10x improvement) — v0.13.0
 - Individual HTML report overhauled with modern JS stack, semantic colors, filtering, accessibility — v0.14.0
 - Association framework validated on GCKD cohort (5,125 samples): PKD1 Fisher p=4.7e-39, SKAT p=3.47e-17 — v0.15.0
+- Association hardened for real-world use: COAST partial-category fix, BED region restriction, weighted FDR, streaming matrices — v0.16.0
 - GCKD cohort (5,125 samples) is the primary validation dataset
 
 ## Constraints
@@ -125,6 +110,15 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 | GL quadrature for SKAT-O | 46x speedup; 128 nodes sufficient for smooth integrands | ✓ Good |
 | ProcessPoolExecutor for gene parallelization | Near-linear speedup; BLAS thread control prevents oversubscription | ✓ Good |
 | Clean reimplementation for FisherExactTest | Correct coupling direction for future gene_burden deprecation | ✓ Good |
+| COAST partial-category: ALL missing = skip | Matches R AllelicSeries drop_empty=TRUE; 1-2 categories still testable | ✓ Good |
+| Configurable COAST classification via formula engine | Supports SIFT/PolyPhen, CADD, REVEL strategies without code changes | ✓ Good |
+| Weighted BH renormalization at correction time | Allows weight reuse across different testable gene subsets | ✓ Good |
+| GT lifecycle invariant through analysis stages | Eliminates fragile drop/recover antipattern; local copies only | ✓ Good |
+| Streaming genotype matrices (build-test-discard) | O(1 gene) peak memory; prevents OOM on large gene panels | ✓ Good |
+| Shared ResourceManager in PipelineContext | Single psutil probe; stages use context instead of creating their own | ✓ Good |
+| IHW deferred (no Python implementation) | Python-first policy; R-only feature not worth rpy2 dependency | ✓ Good |
+| Case-confidence deferred (HPO infra needed) | File-only mode too narrow; wait for HPO infrastructure | — Pending |
+| Sparse matrices deferred (streaming solves OOM) | Centering destroys sparsity for SKAT; benefit only at 10K+ samples | ✓ Good |
 
 ---
-*Last updated: 2026-02-23 after v0.16.0 milestone start*
+*Last updated: 2026-02-26 after v0.16.0 milestone completion*

@@ -2,87 +2,34 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-23)
+See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
-**Current focus:** v0.16.0 — Association Hardening & Multi-Cohort Features (Phase 37 COMPLETE)
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: 37 of 37 (Association Resource Management — COMPLETE)
-Plan: 14 of 14 (across v0.16.0, all plans done)
-Status: Phase 37 complete — 37-03 complete (3/3 plans in phase 37)
-Last activity: 2026-02-25 — Completed 37-03-PLAN.md (streaming genotype matrix builder, PERF-06)
+Phase: 37 of 37 (all phases complete)
+Plan: N/A
+Status: v0.16.0 shipped; next milestone TBD
+Last activity: 2026-02-26 — v0.16.0 milestone completed and archived
 
-Progress: █████████████ 100% (all phases 30-34, 37 done)
+Progress: ████████████████ 100% (milestone shipped)
+
+Next: `/gsd:new-milestone`
 
 ## Performance Metrics
 
-**Velocity:**
-- Total plans completed (v0.16.0): 10
-- Prior milestone (v0.15.0): 35 plans, 12 phases, 5 days
-
-**By Phase:**
-
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 30 — Dead Code Cleanup | 1/1 done | ~19 min | ~19 min |
-| 31 — COAST Fix | 2/2 done | ~26 min | ~13 min |
-| 34 — Tech Debt | 3/3 done | ~30 min | ~10 min |
-| 32 — Region Restriction + PCA Wiring | 2/2 done | ~44 min | ~22 min |
-| 33 — Gene-Level FDR Weighting | 1/1 done | ~12 min | ~12 min |
-| 37 — Association Resource Management | 3/3 done | ~17+37+74 min = ~128 min | ~43 min |
-
-*Updated after each plan completion*
+**Milestone velocity (v0.16.0):**
+- 6 active phases, 12 plans, 3 days (2026-02-23 → 2026-02-26)
+- 62 files changed, 6,372 insertions, 2,251 deletions
+- 227 new tests (2,001 → 2,228)
 
 ## Accumulated Context
 
 ### Decisions
 
-- [Roadmap] TD-06 maps to Phase 30 (covered by CLEAN-04; same change, not double-counted)
-- [Roadmap] Phase 32 groups Region Restriction + PCA Wiring (both standalone, both small)
-- [Roadmap] Phase 35 depends on Phase 31 (COAST path must work before weighted COAST runs are validated)
-- [Roadmap] Phase 36 last — opt-in sparse matrices have lowest urgency at 5K-sample GCKD scale
-- [30-01] PCAComputationStage removed from processing_stages.py; PCA wiring belongs in Phase 32
-- [30-01] test_pca.py kept (tests association/pca.py module); only TestPcaComputationStage class removed
-- [30-01] ParallelCompleteProcessingStage.mark_complete no longer marks "parallel_variant_extraction" — tests updated
-- [31-01] COAST-03: skip threshold changed from "any category missing" to "ALL categories missing" — matches R reference (insitro/AllelicSeries drop_empty=TRUE)
-- [31-01] coast_status ('complete'/'partial'/'skipped') added to TestResult.extra for diagnostic transparency
-- [31-01] GT matrix fallback order: variants_df first, then current df (variants_df preferred as it preserves pre-reconstruction state)
-- [31-02] COAST classification configs use COAST_* normalized column names; classify_variants() normalizes before apply_scoring()
-- [31-02] coast_classification in AssociationConfig stores absolute path (None = hardcoded logic); cli.py resolves model name to path
-- [31-02] Auto-injection filters out COAST_* internal names from vcf_fields (built-in models use normalized columns, not raw VCF fields)
-- [31-02] diagnostics_rows parameter added to classify_variants() — ready for Phase 35 diagnostics wiring but not yet connected to file output
-- [32-01] --regions-bed CLI flag added; RegionRestrictionStage wired into GeneBedCreationStage via _intersect_with_restriction_bed
-- [32-02] --pca unified flag auto-detects file path vs 'akt' tool name; --pca-file/--pca-tool are hidden deprecated aliases via dest='pca'
-- [32-02] PCAComputationStage sets cfg['pca_file'] for compat with _build_assoc_config_from_context; AssociationAnalysisStage uses setdefault to not override explicit config
-- [32-02] AKT cache: skip subprocess if {base_name}.pca.eigenvec already exists and is non-empty
-- [33-01] Weighted BH renormalization happens at correction time (inside apply_weighted_correction), not at load time — allows reuse across different testable gene subsets
-- [33-01] fdr_weight column shows NORMALIZED weights (post-renormalization), not raw file weights; column absent when --gene-prior-weights not used (backward compatible)
-- [33-01] Weight loading and weighted correction stay in engine.run_all(), not AssociationAnalysisStage — engine owns all correction logic
-- [33-01] write_fdr_weight_diagnostics() called from engine when both gene_prior_weights AND diagnostics_output are set
-- [33-01] IHW not implemented — no flag, no stub, no error message (Python-first policy; IHW deferred to backlog)
-- [34-01] create_stages_from_config() now maps perform_association, perform_gene_burden, no_stats, and igv correctly; was silently ignoring them before
-- [34-01] Fisher lambda_GC in write_diagnostics() is diagnostic-only — must not be used to correct Fisher p-values (exact test, not asymptotic)
-- [34-02] Association DataFrame columns use _pvalue suffix (not _p_value); corrected column is acat_o_qvalue (not acat_o_corrected_p_value)
-- [34-02] SKAT-O produces skat_o_pvalue when skat_method=SKATO; generated by post-processing in engine row builder
-- [34-02] Internal backend dict keys (skat_p_value in coast_python.py, burden_p_values) intentionally NOT renamed — they are backend-private
-- [34-03] COAST golden values: Python self-regression at 1e-6 tolerance (not R comparison at 10%); R/Python diverge 20-117% on edge cases due to different SKAT kernels
-- [34-03] Fixture-based approach: R exports genotype matrices as CSV → Python loads identical data; eliminates RNG mismatch
-- [Roadmap] Phase 37 added: Association Resource Management & Memory Streaming (Fix 4/5/6 from performance investigation)
-- [37-01] resource_manager absent from merge_from() — parallel context merges must not overwrite parent's initialized ResourceManager
-- [37-01] Fallback pattern (if rm is None: rm = ResourceManager(...)) kept in all 4 analysis_stages.py locations for test compatibility
-- [37-01] cli.py and filters.py ResourceManager instances untouched — they run before PipelineContext exists
-- [37-01] parallel_analyzer.py untouched — receives DataFrame not PipelineContext
-- [37-02] GT Lifecycle Invariant: per-sample GEN_N__GT columns must survive in context.current_dataframe through ALL analysis stages (VariantAnalysis, GeneBurden, Association)
-- [37-02] VariantAnalysisStage re-attaches GT via key-column merge (CHROM/POS/REF/ALT/GENE) after analyze_variants — safe against row reordering/filtering
-- [37-02] _find_gt_columns in gene_burden.py is now an import alias for _find_per_sample_gt_columns from output_stages — single canonical implementation
-- [37-02] AssociationAnalysisStage context.variants_df recovery fallback removed; per-sample cols directly available (Fix 5)
-- [37-03] _GenotypeMatrixBuilder is a module-level dataclass (not nested) — required for picklability with ProcessPoolExecutor
-- [37-03] Sequential path: build per-gene, discard after tests — O(1) peak memory for genotype matrices
-- [37-03] Parallel path: build eagerly for all remaining genes before dispatch — avoids pickling both builder (with gene_df) and matrix to workers
-- [37-03] CADD/REVEL annotation extraction stays in the loop; site filter mask computed independently (no pre-built matrix needed)
-- [37-03] phenotype_vector and covariate_matrix retained after matrix discard — shared references, not per-gene copies
+(Cleared on milestone completion — see .planning/milestones/v0.16.0-ROADMAP.md for full decision log)
 
 ### Architecture Invariants
 
@@ -90,24 +37,19 @@ Progress: █████████████ 100% (all phases 30-34, 37 don
 - R backend: parallel_safe=False; rpy2 calls only from main thread
 - Binary traits: always SKATBinary — never continuous-trait SKAT on binary phenotypes
 - FDR strategy: single pass on ACAT-O p-values across all genes (not per-test)
-- Genotype matrix: streamed per-gene via _GenotypeMatrixBuilder (build-test-discard); peak memory O(1 gene); formalized in Phase 37-03
+- Genotype matrix: streamed per-gene via _GenotypeMatrixBuilder (build-test-discard); peak memory O(1 gene)
 - P-value computation: always through compute_pvalue() — never call Liu/Kuonen directly
-- Weighted BH: weights renormalized to mean=1.0 at correction time using testable genes subset (Genovese 2006 FDR guarantee)
-- Case-confidence weights: must be applied to null model (var_weights in GLM), not to residuals post-hoc
+- Weighted BH: weights renormalized to mean=1.0 at correction time using testable genes subset
 - COAST classification: model_dir=None → hardcoded SIFT/PolyPhen; model_dir=path → formula engine
-- PCA stage handoff: PCAComputationStage sets context.config['pca_file'] AND marks complete with result dict; AssociationAnalysisStage reads both
-- GT Lifecycle Invariant: per-sample GEN_N__GT columns survive through all analysis stages; reconstruct_gt_column only called on local copies (never writes back to context)
+- GT Lifecycle Invariant: per-sample GEN_N__GT columns survive through all analysis stages; reconstruct_gt_column only called on local copies
 
 ### Blockers/Concerns
 
-- [Phase 35] Weighted SKAT phi adjustment is MEDIUM confidence — validate with permutation before shipping
-- [Phase 35] diagnostics_rows in classify_variants() is ready but not wired to file output — Phase 35 should complete this
-- [Phase 36] SKAT-O "single eigendecomposition" intent is ambiguous — clarify before implementing (may already be done)
-- [Phase 36] Sparse matrix breakeven threshold (500K cells, <20% density) is an estimate; profile on GCKD first
+(None — milestone shipped clean)
 
 ## Session Continuity
 
-Last session: 2026-02-25
-Stopped at: Completed 37-03-PLAN.md (streaming genotype matrix builder, PERF-06)
+Last session: 2026-02-26
+Stopped at: v0.16.0 milestone complete
 Resume file: None
-Next: Phase 35 — Case-Confidence Weights (or audit milestone if skipping 35/36)
+Next: /gsd:new-milestone
