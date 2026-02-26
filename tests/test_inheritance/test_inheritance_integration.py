@@ -6,9 +6,6 @@ import pandas as pd
 
 from variantcentrifuge.inheritance.analyzer import (
     analyze_inheritance,
-    create_inheritance_details,
-    filter_by_inheritance_pattern,
-    get_inheritance_summary,
 )
 
 
@@ -235,132 +232,6 @@ class TestFullInheritanceWorkflow:
         assert result_df.iloc[0]["Inheritance_Pattern"] == "autosomal_recessive"
 
 
-class TestInheritanceSummary:
-    """Test inheritance summary generation."""
-
-    def test_get_inheritance_summary(self):
-        """Test generating summary statistics."""
-        df = pd.DataFrame(
-            [
-                {
-                    "Inheritance_Pattern": "de_novo",
-                    "Inheritance_Details": '{"confidence": 0.9, "samples_with_pattern": []}',
-                },
-                {
-                    "Inheritance_Pattern": "compound_heterozygous",
-                    "Inheritance_Details": '{"confidence": 0.85, "samples_with_pattern": '
-                    '[{"compound_het_gene": "GENE1"}]}',
-                },
-                {
-                    "Inheritance_Pattern": "unknown",
-                    "Inheritance_Details": '{"confidence": 0.1, "samples_with_pattern": []}',
-                },
-            ]
-        )
-
-        summary = get_inheritance_summary(df)
-
-        assert summary["total_variants"] == 3
-        assert summary["pattern_counts"]["de_novo"] == 1
-        assert summary["pattern_counts"]["compound_heterozygous"] == 1
-        assert summary["pattern_counts"]["unknown"] == 1
-        assert summary["high_confidence_patterns"] == 2  # de_novo and compound_het
-        assert summary["de_novo_variants"] == 1
-        assert "GENE1" in summary["compound_het_genes"]
-
-
-class TestInheritanceFiltering:
-    """Test filtering by inheritance patterns."""
-
-    def test_filter_by_pattern(self):
-        """Test filtering variants by inheritance pattern."""
-        df = pd.DataFrame(
-            [
-                {
-                    "variant": "var1",
-                    "Inheritance_Pattern": "de_novo",
-                    "Inheritance_Details": '{"confidence": 0.9}',
-                },
-                {
-                    "variant": "var2",
-                    "Inheritance_Pattern": "autosomal_recessive",
-                    "Inheritance_Details": '{"confidence": 0.8}',
-                },
-                {
-                    "variant": "var3",
-                    "Inheritance_Pattern": "unknown",
-                    "Inheritance_Details": '{"confidence": 0.1}',
-                },
-            ]
-        )
-
-        # Filter for de novo
-        filtered = filter_by_inheritance_pattern(df, ["de_novo"])
-        assert len(filtered) == 1
-        assert filtered.iloc[0]["variant"] == "var1"
-
-        # Filter for multiple patterns
-        filtered = filter_by_inheritance_pattern(df, ["de_novo", "autosomal_recessive"])
-        assert len(filtered) == 2
-
-        # Filter with confidence threshold
-        filtered = filter_by_inheritance_pattern(
-            df, ["de_novo", "autosomal_recessive"], min_confidence=0.85
-        )
-        assert len(filtered) == 1  # Only de novo has confidence >= 0.85
-
-
-class TestInheritanceDetails:
-    """Test inheritance details creation."""
-
-    def test_create_details_single_sample(self):
-        """Test creating details for single sample."""
-        row = pd.Series({"Sample1": "0/1", "CHROM": "1", "POS": "1000", "REF": "A", "ALT": "T"})
-
-        pedigree_data = {"Sample1": {"sample_id": "Sample1", "affected_status": "2"}}
-
-        details = create_inheritance_details(
-            row, "unknown", ["unknown"], 0.5, None, pedigree_data, ["Sample1"]
-        )
-
-        assert details["primary_pattern"] == "unknown"
-        assert details["confidence"] == 0.5
-        assert len(details["samples_with_pattern"]) == 1
-        assert details["samples_with_pattern"][0]["sample_id"] == "Sample1"
-        assert details["samples_with_pattern"][0]["affected"] is True
-        assert details["affected_count"] == 1
-        assert details["carrier_count"] == 0
-
-    def test_create_details_with_compound_het(self):
-        """Test creating details with compound het info."""
-        row = pd.Series({"Sample1": "0/1", "CHROM": "1", "POS": "1000", "REF": "A", "ALT": "T"})
-
-        comp_het_info = {
-            "Sample1": {
-                "is_compound_het": True,
-                "partner_variant": "1:2000:C>G",
-                "gene": "GENE1",
-                "inheritance_type": "trans",
-            }
-        }
-
-        pedigree_data = {"Sample1": {"sample_id": "Sample1", "affected_status": "2"}}
-
-        details = create_inheritance_details(
-            row,
-            "compound_heterozygous",
-            ["compound_heterozygous"],
-            0.9,
-            comp_het_info,
-            pedigree_data,
-            ["Sample1"],
-        )
-
-        assert details["samples_with_pattern"][0]["compound_het_partner"] == "1:2000:C>G"
-        assert details["samples_with_pattern"][0]["compound_het_gene"] == "GENE1"
-        assert details["samples_with_pattern"][0]["compound_het_configuration"] == "trans"
-
-
 class TestEdgeCases:
     """Test edge cases in inheritance analysis."""
 
@@ -411,7 +282,6 @@ class TestEdgeCases:
 
         pedigree_data = {
             "Sample1": {"sample_id": "Sample1", "affected_status": "2"},
-            "Sample2": {"sample_id": "Sample2", "affected_status": "1"},
         }
         sample_list = ["Sample1", "Sample2"]
 

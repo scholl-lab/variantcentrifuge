@@ -71,11 +71,6 @@ class TestAssociationConfigDefaults:
         config = AssociationConfig(skat_backend="r")
         assert config.skat_backend == "r"
 
-    def test_config_coast_backend_can_be_set_to_r(self):
-        """coast_backend can be set to 'r' for explicit R backend use."""
-        config = AssociationConfig(coast_backend="r")
-        assert config.coast_backend == "r"
-
     def test_config_skat_backend_auto_still_accepted(self):
         """'auto' is still a valid value for skat_backend (backward compat)."""
         config = AssociationConfig(skat_backend="auto")

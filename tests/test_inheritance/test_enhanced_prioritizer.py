@@ -2,14 +2,9 @@
 
 from variantcentrifuge.inheritance.prioritizer import (
     PATTERN_PRIORITY,
-    adjust_pattern_score,
     calculate_confidence,
-    filter_compatible_patterns,
-    get_pattern_category,
     get_pattern_description,
-    group_patterns_by_category,
     prioritize_patterns,
-    resolve_conflicting_patterns,
 )
 
 
@@ -65,46 +60,6 @@ class TestPatternPrioritization:
         )
 
 
-class TestScoreAdjustment:
-    """Test pattern score adjustments."""
-
-    def test_adjust_score_with_segregation(self):
-        """Test score adjustment based on segregation."""
-        base_score = 50
-
-        # adjust_pattern_score now just returns base score
-        score1 = adjust_pattern_score("pattern1", base_score)
-        assert score1 == base_score
-
-        score2 = adjust_pattern_score("pattern2", base_score)
-        assert score2 == base_score
-
-    def test_adjust_score_with_variant_info(self):
-        """Test score adjustment based on variant information."""
-        base_score = 50
-
-        # adjust_pattern_score now just returns base score
-        score = adjust_pattern_score("de_novo", base_score)
-        assert score == base_score
-
-        score = adjust_pattern_score("autosomal_recessive", base_score)
-        assert score == base_score
-
-        score = adjust_pattern_score("de_novo", base_score)
-        assert score == base_score
-
-    def test_adjust_score_with_sample_info(self):
-        """Test score adjustment based on sample information."""
-        base_score = 50
-
-        # adjust_pattern_score now just returns base score
-        score = adjust_pattern_score("x_linked_recessive", base_score)
-        assert score == base_score
-
-        score = adjust_pattern_score("autosomal_dominant", base_score)
-        assert score == base_score
-
-
 class TestConfidenceCalculation:
     """Test confidence score calculation."""
 
@@ -133,37 +88,6 @@ class TestConfidenceCalculation:
         assert confidence < 0.3  # Low confidence due to close scores
 
 
-class TestPatternCategories:
-    """Test pattern categorization."""
-
-    def test_get_pattern_category(self):
-        """Test getting category for patterns."""
-        assert get_pattern_category("de_novo") == "sporadic"
-        assert get_pattern_category("compound_heterozygous") == "recessive"
-        assert get_pattern_category("autosomal_dominant") == "dominant"
-        assert get_pattern_category("unknown") == "unclear"
-        assert get_pattern_category("nonexistent_pattern") == "unclear"  # Default
-
-    def test_group_patterns_by_category(self):
-        """Test grouping patterns by category."""
-        patterns = [
-            "de_novo",
-            "compound_heterozygous",
-            "autosomal_recessive",
-            "autosomal_dominant",
-            "unknown",
-        ]
-
-        grouped = group_patterns_by_category(patterns)
-
-        assert "sporadic" in grouped
-        assert "de_novo" in grouped["sporadic"]
-        assert "recessive" in grouped
-        assert len(grouped["recessive"]) == 2  # compound_het and recessive
-        assert "dominant" in grouped
-        assert "unclear" in grouped
-
-
 class TestPatternDescriptions:
     """Test pattern description generation."""
 
@@ -174,66 +98,6 @@ class TestPatternDescriptions:
         assert "two different mutations" in desc or "compound" in desc
         assert "single sample" in get_pattern_description("homozygous").lower()
         assert get_pattern_description("nonexistent") == "Unknown inheritance pattern"
-
-
-class TestConflictResolution:
-    """Test resolving conflicting patterns across samples."""
-
-    def test_resolve_unanimous_patterns(self):
-        """Test when all samples agree on pattern."""
-        patterns_by_sample = {
-            "sample1": ["de_novo"],
-            "sample2": ["de_novo"],
-            "sample3": ["de_novo"],
-        }
-
-        result = resolve_conflicting_patterns(patterns_by_sample)
-        assert result == "de_novo"
-
-    def test_resolve_majority_patterns(self):
-        """Test when majority agrees on pattern."""
-        patterns_by_sample = {
-            "sample1": ["autosomal_recessive"],
-            "sample2": ["autosomal_recessive"],
-            "sample3": ["unknown"],
-            "sample4": ["autosomal_recessive"],
-        }
-
-        result = resolve_conflicting_patterns(patterns_by_sample)
-        assert result == "autosomal_recessive"  # 3 out of 4
-
-    def test_resolve_no_consensus(self):
-        """Test when no clear consensus."""
-        patterns_by_sample = {
-            "sample1": ["de_novo"],
-            "sample2": ["autosomal_dominant"],
-            "sample3": ["autosomal_recessive"],
-            "sample4": ["unknown"],
-        }
-
-        result = resolve_conflicting_patterns(patterns_by_sample)
-        # Should use priority to resolve
-        assert result in ["de_novo", "autosomal_dominant", "autosomal_recessive"]
-
-
-class TestPatternFiltering:
-    """Test filtering patterns by compatibility."""
-
-    def test_filter_compatible_patterns(self):
-        """Test filtering patterns based on family structure."""
-        patterns = ["de_novo", "autosomal_dominant", "x_linked_recessive"]
-
-        # Family with parents
-        family_structure = {"has_parents": True, "has_sex_info": True}
-        filtered = filter_compatible_patterns(patterns, family_structure)
-        assert "de_novo" in filtered  # Requires parents
-        assert "x_linked_recessive" in filtered  # Requires sex info
-
-        # Single sample (no parents)
-        family_structure = {"has_parents": False, "has_sex_info": False}
-        filtered = filter_compatible_patterns(patterns, family_structure)
-        assert "de_novo" not in filtered  # Can't determine de novo without parents
-        assert "autosomal_dominant" in filtered  # Still compatible
 
 
 class TestPriorityValues:

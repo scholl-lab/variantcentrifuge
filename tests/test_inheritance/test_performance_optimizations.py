@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from variantcentrifuge.inheritance.analyzer import create_inheritance_details
+from variantcentrifuge.inheritance.analyzer import _create_inheritance_details
 from variantcentrifuge.inheritance.comp_het_vectorized import (
     analyze_gene_for_compound_het_vectorized,
     build_variant_keys_array,
@@ -260,7 +260,7 @@ class TestCompHetWithPrebuiltMatrix:
 
 
 class TestCreateInheritanceDetailsDict:
-    """Test that create_inheritance_details works with dict input."""
+    """Test that _create_inheritance_details works with dict input."""
 
     def test_dict_input_produces_same_output(self, trio_pedigree, sample_list):
         """Dict produces identical output to pd.Series."""
@@ -269,7 +269,7 @@ class TestCreateInheritanceDetailsDict:
         series_input = pd.Series(row_data)
         dict_input = row_data
 
-        details_series = create_inheritance_details(
+        details_series = _create_inheritance_details(
             series_input,
             "autosomal_dominant_possible",
             ["autosomal_dominant_possible"],
@@ -278,7 +278,7 @@ class TestCreateInheritanceDetailsDict:
             trio_pedigree,
             sample_list,
         )
-        details_dict = create_inheritance_details(
+        details_dict = _create_inheritance_details(
             dict_input,
             "autosomal_dominant_possible",
             ["autosomal_dominant_possible"],
@@ -294,7 +294,7 @@ class TestCreateInheritanceDetailsDict:
         """Dict with None values (missing genotypes) doesn't crash."""
         row_data = {"child": "0/1", "father": None, "mother": "0/1"}
 
-        details = create_inheritance_details(
+        details = _create_inheritance_details(
             row_data,
             "unknown",
             ["unknown"],

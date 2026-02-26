@@ -7,10 +7,6 @@ import pytest
 
 from variantcentrifuge.inheritance.analyzer import (
     analyze_inheritance,
-    create_inheritance_details,
-    export_inheritance_report,
-    filter_by_inheritance_pattern,
-    get_inheritance_summary,
     process_inheritance_output,
 )
 
@@ -163,82 +159,6 @@ class TestInheritanceAnalyzer:
         assert "Inheritance_Pattern" in result_df.columns
         assert "Inheritance_Details" in result_df.columns
         assert len(result_df) == 0
-
-    def test_create_inheritance_details(self, trio_pedigree):
-        """Test inheritance details creation."""
-        row = pd.Series({"father": "0/1", "mother": "0/1", "child": "1/1"})
-
-        all_patterns = ["autosomal_recessive"]
-        best_pattern = "autosomal_recessive"
-        confidence = 0.9
-        comp_het_info = None
-        sample_list = ["father", "mother", "child"]
-
-        details = create_inheritance_details(
-            row, best_pattern, all_patterns, confidence, comp_het_info, trio_pedigree, sample_list
-        )
-
-        assert details["primary_pattern"] == "autosomal_recessive"
-        assert details["confidence"] == 0.9
-        assert len(details["samples_with_pattern"]) == 3
-        assert details["affected_count"] == 1
-        assert details["carrier_count"] == 2
-
-    def test_get_inheritance_summary(self, de_novo_variants_df, trio_pedigree):
-        """Test summary generation."""
-        sample_list = ["father", "mother", "child"]
-        result_df = analyze_inheritance(de_novo_variants_df, trio_pedigree, sample_list)
-
-        summary = get_inheritance_summary(result_df)
-
-        assert summary["total_variants"] == 2
-        assert summary["pattern_counts"]["de_novo"] == 2
-        assert summary["de_novo_variants"] == 2
-
-    def test_filter_by_inheritance_pattern(self, trio_pedigree):
-        """Test filtering by inheritance pattern."""
-        # Create mixed DataFrame
-        data = {
-            "CHROM": ["chr1", "chr2", "chr3"],
-            "POS": [1000, 2000, 3000],
-            "REF": ["A", "G", "C"],
-            "ALT": ["T", "C", "G"],
-            "GENE": ["GENE1", "GENE2", "GENE3"],
-            "father": ["0/0", "0/1", "0/0"],
-            "mother": ["0/0", "0/1", "0/0"],
-            "child": ["0/1", "1/1", "0/0"],
-        }
-        df = pd.DataFrame(data)
-        sample_list = ["father", "mother", "child"]
-
-        result_df = analyze_inheritance(df, trio_pedigree, sample_list)
-
-        # Filter for de novo only
-        de_novo_df = filter_by_inheritance_pattern(result_df, ["de_novo"])
-        assert len(de_novo_df) == 1
-        assert de_novo_df.iloc[0]["POS"] == 1000
-
-        # Filter for recessive patterns
-        recessive_df = filter_by_inheritance_pattern(
-            result_df, ["autosomal_recessive", "compound_heterozygous"]
-        )
-        assert len(recessive_df) == 1
-        assert recessive_df.iloc[0]["POS"] == 2000
-
-    def test_export_inheritance_report(self, de_novo_variants_df, trio_pedigree, tmp_path):
-        """Test report export."""
-        sample_list = ["father", "mother", "child"]
-        result_df = analyze_inheritance(de_novo_variants_df, trio_pedigree, sample_list)
-
-        report_file = tmp_path / "inheritance_report.json"
-        export_inheritance_report(result_df, str(report_file))
-
-        # Read back and verify
-        with open(str(report_file)) as rf:
-            report_data = json.load(rf)
-
-        assert len(report_data) == 2
-        assert all(item["inheritance_pattern"] == "de_novo" for item in report_data)
 
     def test_missing_gene_column(self, trio_pedigree):
         """Test handling of missing GENE column."""
