@@ -42,6 +42,13 @@ See MILESTONES.md for details.
 
 **Requirements:** DEAD-01, DEAD-02, DEAD-03, DEAD-04, DEAD-05, DOCS-01, DOCS-02, DOCS-03, CLEAN-01, CLEAN-02, CLEAN-03, CLEAN-04, CLEAN-05, CLEAN-06, CLEAN-07
 
+**Plans:** 3 plans
+
+Plans:
+- [ ] 38-01-PLAN.md — Dead code removal (DEAD-01 through DEAD-05, CLEAN-04, CLEAN-05)
+- [ ] 38-02-PLAN.md — Documentation and comment fixes (DOCS-01, DOCS-02, DOCS-03, CLEAN-01, CLEAN-02, CLEAN-07)
+- [ ] 38-03-PLAN.md — Code cleanup (CLEAN-03, CLEAN-06)
+
 **Success Criteria:**
 
 1. `stage_info.py` is deleted and no import of it exists anywhere in the codebase; all tests still pass.
@@ -81,5 +88,5 @@ See MILESTONES.md for details.
 | 35. Case-Confidence Weights | v0.16.0 | 0/2 | Deferred | - |
 | 36. Performance — Sparse Genotype Matrices | v0.16.0 | 0/1 | Deferred | - |
 | 37. Association Resource Management & Memory Streaming | v0.16.0 | 3/3 | Complete | 2026-02-25 |
-| 38. Codebase Cleanup | v0.17.0 | 0/1 | Pending | - |
+| 38. Codebase Cleanup | v0.17.0 | 0/3 | Planned | - |
 | 39. Compound Het Parallelization | v0.17.0 | 0/1 | Pending | - |
