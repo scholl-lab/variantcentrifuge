@@ -71,14 +71,9 @@ Plans:
 
 Plans:
 - [x] 39-01-PLAN.md — Synthetic benchmark script and baseline capture
-- [x] 39-02-PLAN.md — Core optimization (pre-dispatch dedup, pedigree arrays, numpy-only workers, batch size env var)
+- [x] 39-02-PLAN.md — Core optimization (attempted, reverted after real-data regression)
 
-**Success Criteria:**
-
-1. `parallel_analyzer.py` eliminates GIL contention in compound het Pass 2 workers by pre-dispatching DataFrame operations and pre-computing pedigree arrays as NumPy integer arrays; workers receive only NumPy arrays in the hot path.
-2. A benchmark or test demonstrates measurable wall-time speedup when compound het analysis runs on a multi-gene dataset with 2+ available CPU cores.
-3. All existing compound het tests pass without modification — no behavioral change in pairing logic or output.
-4. The implementation handles edge cases (single gene, gene with no het variants, 1 CPU) without error or regression.
+**Outcome:** Optimization reverted. Real-data benchmarking (502 genes, 5125 samples) showed the numpy-only worker was 2x slower than the original DataFrame-based worker. Net code change: `_get_batch_size()` env var override added. See STATE.md post-mortem.
 
 ---
 
@@ -95,4 +90,4 @@ Plans:
 | 36. Performance — Sparse Genotype Matrices | v0.16.0 | 0/1 | Deferred | - |
 | 37. Association Resource Management & Memory Streaming | v0.16.0 | 3/3 | Complete | 2026-02-25 |
 | 38. Codebase Cleanup | v0.17.0 | 3/3 | Complete | 2026-02-26 |
-| 39. Compound Het Parallelization | v0.17.0 | 2/2 | Complete | 2026-02-26 |
+| 39. Compound Het Parallelization | v0.17.0 | 2/2 | Reverted | 2026-02-27 |

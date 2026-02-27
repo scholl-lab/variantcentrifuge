@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-26)
 
 ## Current Position
 
-Phase: 39 — Compound Het Parallelization — Complete
-Plan: 2/2 complete
-Status: v0.17.0 milestone complete — all phases shipped
-Last activity: 2026-02-26 — Completed 39-02-PLAN.md (GIL contention optimization)
+Phase: 39 — Compound Het Parallelization — Reverted
+Plan: 2/2 executed, optimization reverted after real-data regression
+Status: v0.17.0 milestone complete — Phase 38 shipped, Phase 39 reverted
+Last activity: 2026-02-27 — Reverted 39-02 array-based worker (2x slower on 502-gene GCKD benchmark)
 
-Progress: ████████████████ 100% (2/2 phases complete, 5/5 plans done)
+Progress: ████████████████ 100% (2/2 phases done, Phase 39 outcome: no net code change)
 
 Next: New milestone via /gsd:new-milestone
 
@@ -59,7 +59,16 @@ Next: New milestone via /gsd:new-milestone
 
 ## Session Continuity
 
-Last session: 2026-02-26 22:20Z
-Stopped at: Completed 39-02-PLAN.md (GIL contention optimization, v0.17.0 shipped)
+Last session: 2026-02-27 09:55Z
+Stopped at: Reverted Phase 39 optimization after real-data benchmarking showed 2x regression
 Resume file: None
 Next: New milestone via /gsd:new-milestone
+
+### Phase 39 Post-Mortem
+
+The numpy-only `_process_gene_group_arrays` worker was 2x slower than the original
+DataFrame-based `_process_gene_group` on real data (502 genes, 5125 samples, GCKD cohort).
+Root causes: 2D fancy indexing creates cache-unfriendly copies, per-sample Python loops
+negate vectorization gains, memory bus saturation under 8 ThreadPoolExecutor workers.
+Synthetic benchmarks (1000 genes, 50 samples) showed improvement but did not predict
+real-world behavior with 5000+ samples. Lesson: always benchmark with production-scale data.
