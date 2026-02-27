@@ -2,44 +2,28 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-26)
+See: .planning/PROJECT.md (updated 2026-02-27)
 
 **Core value:** Accurate inheritance pattern deduction and variant prioritization from multi-sample VCFs with configurable gene panels, scoring models, and output formats
-**Current focus:** v0.17.0 — Tech Debt Cleanup & Compound Het Parallelization
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: 39 — Compound Het Parallelization — Reverted
-Plan: 2/2 executed, optimization reverted after real-data regression
-Status: v0.17.0 milestone complete — Phase 38 shipped, Phase 39 reverted
-Last activity: 2026-02-27 — Reverted 39-02 array-based worker (2x slower on 502-gene GCKD benchmark)
-
-Progress: ████████████████ 100% (2/2 phases done, Phase 39 outcome: no net code change)
+Phase: None — v0.17.0 complete
+Plan: N/A
+Status: Ready for next milestone
+Last activity: 2026-02-27 — v0.17.0 milestone archived
 
 Next: New milestone via /gsd:new-milestone
 
 ## Performance Metrics
 
-**Milestone velocity (v0.16.0):**
-- 6 active phases, 12 plans, 3 days (2026-02-23 → 2026-02-26)
-- 62 files changed, 6,372 insertions, 2,251 deletions
-- 227 new tests (2,001 → 2,228)
+**Milestone velocity (v0.17.0):**
+- 2 phases, 5 plans, 2 days (2026-02-26 → 2026-02-27)
+- 45 files changed, 3,214 insertions, 1,580 deletions
+- 14/16 requirements shipped (2 intentionally abandoned)
 
 ## Accumulated Context
-
-### Decisions
-
-| Plan  | Decision | Rationale |
-|-------|----------|-----------|
-| 38-01 | create_inheritance_details renamed to _create_inheritance_details | Internal helper with no external callers; underscore prefix signals private |
-| 38-01 | PATTERN_CATEGORIES removed with get_pattern_category | Constant had only one consumer (the deleted function) |
-| 38-03 | stages/__init__.py __all__ sorted alphabetically | ruff RUF022 requires isort-style sort |
-| 38-03 | TODO intelligent batching replaced with deferred-work NOTE | Current fixed-size batching sufficient; revisit at ~100 stages |
-| 39-01 | Benchmark measures total wall-time (all 3 passes), not isolated Pass 2 | Pass 1+3 fast relative to Pass 2 for large datasets; total time is reasonable proxy |
-| 39-01 | Baseline confirms GIL contention: parallel 0.21x-0.92x vs sequential pre-optimization | Empirical evidence supports CONTEXT.md hypothesis; optimization target: parallel >= sequential |
-| 39-02 | Pre-dispatch dedup in main thread eliminates per-worker drop_duplicates() call | DataFrame ops must happen before dispatch to avoid GIL contention |
-| 39-02 | Pedigree arrays (int32/int8) indexed by sample position replace dict.get() in workers | O(1) array lookup vs O(1) dict lookup, but arrays release GIL unlike Python dicts |
-| 39-02 | eff_sample_to_idx defensive fallback instead of assert for None gt_matrix | Avoids AssertionError in edge case where vectorized_deduce_patterns doesn't return tuple |
 
 ### Architecture Invariants
 
@@ -59,16 +43,7 @@ Next: New milestone via /gsd:new-milestone
 
 ## Session Continuity
 
-Last session: 2026-02-27 09:55Z
-Stopped at: Reverted Phase 39 optimization after real-data benchmarking showed 2x regression
+Last session: 2026-02-27
+Stopped at: v0.17.0 milestone archived
 Resume file: None
 Next: New milestone via /gsd:new-milestone
-
-### Phase 39 Post-Mortem
-
-The numpy-only `_process_gene_group_arrays` worker was 2x slower than the original
-DataFrame-based `_process_gene_group` on real data (502 genes, 5125 samples, GCKD cohort).
-Root causes: 2D fancy indexing creates cache-unfriendly copies, per-sample Python loops
-negate vectorization gains, memory bus saturation under 8 ThreadPoolExecutor workers.
-Synthetic benchmarks (1000 genes, 50 samples) showed improvement but did not predict
-real-world behavior with 5000+ samples. Lesson: always benchmark with production-scale data.

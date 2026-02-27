@@ -1,5 +1,33 @@
 # Project Milestones: VariantCentrifuge
 
+## v0.17.0 Tech Debt Cleanup & Compound Het Parallelization (Shipped: 2026-02-27)
+
+**Delivered:** Cleaned dead code (509-line module, 11 dead functions), fixed stale documentation, resolved minor tech debt. Compound het parallelization attempted and reverted after real-data regression — lesson: always benchmark with production-scale data.
+
+**Phases completed:** 38-39 (5 plans total; Phase 39 optimization reverted)
+
+**Key accomplishments:**
+
+- Deleted `stage_info.py` (509 lines dead code) and 11 dead inheritance functions from prioritizer/analyzer
+- Removed `--coast-backend r` CLI choice and fixed `--gzip-intermediates` flag confusion
+- Corrected stale docs: faq.md removed flags, association_testing.md column name, changelog.md classic pipeline ref
+- Added 6 missing `__all__` exports to `stages/__init__.py`, resolved stale TODOs
+- Created compound het parallelization benchmark suite (retained for future optimization)
+- Post-mortem: numpy-only workers 2x slower on real data (5125 samples) despite synthetic benchmark gains
+
+**Stats:**
+
+- 45 files created/modified
+- 93,390 lines of Python (38,407 source + 54,983 tests)
+- 2 phases, 5 plans (1 phase reverted)
+- 2 days from start to ship (2026-02-26 → 2026-02-27)
+
+**Git range:** `docs(38)` → `docs(39)`
+
+**What's next:** TBD — candidates include case-confidence weights (#85), real-world test datasets (#60), report validation (#61)
+
+---
+
 ## v0.16.0 Association Hardening & Multi-Cohort Features (Shipped: 2026-02-26)
 
 **Delivered:** Hardened the v0.15.0 association framework for real-world use — fixed COAST p=None bugs, added BED region restriction, PCA pipeline wiring, weighted FDR correction, and streaming genotype matrices to prevent OOM on large gene panels.
