@@ -7,8 +7,8 @@
 
 ### Performance
 
-- [x] **PERF-01**: Compound het Pass 2 eliminates GIL contention via pre-dispatch dedup, pedigree arrays, and numpy-only workers
-- [x] **PERF-02**: Compound het parallelization achieves measurable speedup on multi-core systems
+- [ ] **PERF-01**: Compound het Pass 2 eliminates GIL contention via pre-dispatch dedup, pedigree arrays, and numpy-only workers — *Reverted: 2x regression on real data*
+- [ ] **PERF-02**: Compound het parallelization achieves measurable speedup on multi-core systems — *Reverted: synthetic benchmarks did not predict real-world behavior*
 
 ### Dead Code
 
