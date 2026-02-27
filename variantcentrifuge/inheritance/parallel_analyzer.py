@@ -15,67 +15,12 @@ import pandas as pd
 
 from .analyzer import _finalize_inheritance_patterns
 from .comp_het_vectorized import (
-    _process_gene_group_arrays,
     analyze_gene_for_compound_het_vectorized,
     build_variant_keys_array,
 )
 from .vectorized_deducer import vectorized_deduce_patterns
 
 logger = logging.getLogger(__name__)
-
-
-def build_pedigree_arrays(
-    sample_list: list[str],
-    pedigree_data: dict[str, dict[str, Any]],
-    sample_to_idx: dict[str, int],
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Pre-compute pedigree arrays for fast worker-side lookups.
-
-    Builds integer arrays indexed by sample position (same order as sample_list)
-    so workers can do O(1) array lookups instead of dict.get() calls.
-
-    Parameters
-    ----------
-    sample_list : list[str]
-        Ordered list of sample IDs (defines array positions).
-    pedigree_data : dict[str, dict[str, Any]]
-        Pedigree information keyed by sample ID.
-    sample_to_idx : dict[str, int]
-        Mapping from sample ID to column index in the genotype matrix.
-
-    Returns
-    -------
-    father_idx_arr : np.ndarray (int32)
-        Index of each sample's father in sample_list (-1 if none/missing).
-    mother_idx_arr : np.ndarray (int32)
-        Index of each sample's mother in sample_list (-1 if none/missing).
-    affected_arr : np.ndarray (int8)
-        1 if sample is affected (status "2"), else 0.
-    """
-    n = len(sample_list)
-    father_idx_arr = np.full(n, -1, dtype=np.int32)
-    mother_idx_arr = np.full(n, -1, dtype=np.int32)
-    affected_arr = np.zeros(n, dtype=np.int8)
-
-    for i, sample_id in enumerate(sample_list):
-        ped = pedigree_data.get(sample_id, {})
-
-        # Affected status
-        if ped.get("affected_status") == "2":
-            affected_arr[i] = 1
-
-        # Father
-        father_id = ped.get("father_id", "0")
-        if father_id and father_id != "0" and father_id in sample_to_idx:
-            father_idx_arr[i] = sample_to_idx[father_id]
-
-        # Mother
-        mother_id = ped.get("mother_id", "0")
-        if mother_id and mother_id != "0" and mother_id in sample_to_idx:
-            mother_idx_arr[i] = sample_to_idx[mother_id]
-
-    return father_idx_arr, mother_idx_arr, affected_arr
 
 
 def _get_batch_size(n_workers: int) -> int:
@@ -291,32 +236,23 @@ def analyze_inheritance_parallel(
     )
 
     if use_parallel and "GENE" in df.columns:
-        # Group by gene — pre-dispatch deduplication in the main thread so
-        # workers receive only NumPy arrays (no DataFrame references).
+        # Group by gene
         gene_groups = df.groupby("GENE", observed=True)
-        # Each entry: (gene_name_str, n_unique, gene_row_idx_deduped, gene_vkeys_deduped)
-        genes_to_dispatch: list[tuple[str, int, np.ndarray, np.ndarray]] = []
+        genes_with_multiple_variants = []
         for gene, group_df in gene_groups:
-            if pd.isna(gene) or gene == "":
-                continue
-            gene_iloc = df.index.get_indexer(group_df.index)
-            # Dedup in main thread — reuse all_variant_keys for positional mask
-            dedup_mask = ~group_df.duplicated(subset=["CHROM", "POS", "REF", "ALT"])
-            n_unique = int(dedup_mask.sum())
-            if n_unique < 2:
-                continue
-            dedup_iloc = gene_iloc[dedup_mask.values]
-            gene_row_idx_deduped = row_positions[dedup_iloc]
-            gene_vkeys_deduped = all_variant_keys[dedup_iloc]
-            genes_to_dispatch.append(
-                (str(gene), n_unique, gene_row_idx_deduped, gene_vkeys_deduped)
-            )
+            if len(group_df) > 1 and not pd.isna(gene) and gene != "":
+                gene_iloc = df.index.get_indexer(group_df.index)
+                gene_row_idx = row_positions[gene_iloc]
+                gene_vkeys = all_variant_keys[gene_iloc]
+                genes_with_multiple_variants.append((gene, group_df, gene_row_idx, gene_vkeys))
 
-        num_genes = len(genes_to_dispatch)
+        num_genes = len(genes_with_multiple_variants)
         if num_genes > 0:
-            # Sort by n_unique descending (largest genes first for load balancing)
-            genes_to_dispatch.sort(key=lambda x: x[1], reverse=True)
-            max_gene_size = genes_to_dispatch[0][1]
+            # Sort genes by variant count descending (largest first for load balancing)
+            genes_with_multiple_variants.sort(key=lambda x: len(x[1]), reverse=True)
+            max_gene_size = (
+                len(genes_with_multiple_variants[0][1]) if genes_with_multiple_variants else 0
+            )
 
             # Auto-detect worker count if not specified
             if n_workers is None:
@@ -324,14 +260,6 @@ def analyze_inheritance_parallel(
                 n_workers = rm.auto_workers(
                     task_count=num_genes, memory_per_task_gb=memory_per_gene_gb
                 )
-
-            # Build pedigree arrays once in main thread — workers use array lookups
-            # instead of dict.get() calls (O(1), no lock contention).
-            # sample_to_idx is guaranteed non-None when gt_matrix is returned from Pass 1.
-            eff_sample_to_idx: dict[str, int] = sample_to_idx if sample_to_idx is not None else {}
-            father_idx_arr, mother_idx_arr, affected_arr = build_pedigree_arrays(
-                sample_list, pedigree_data, eff_sample_to_idx
-            )
 
             logger.info(
                 f"Pass 2: Analyzing {num_genes} genes for compound heterozygous patterns "
@@ -344,40 +272,38 @@ def analyze_inheritance_parallel(
                 completed = 0
                 # Submit in batches to bound concurrent work
                 for batch_start in range(0, num_genes, batch_size):
-                    batch = genes_to_dispatch[batch_start : batch_start + batch_size]
+                    batch = genes_with_multiple_variants[batch_start : batch_start + batch_size]
                     future_to_gene = {
                         executor.submit(
-                            _process_gene_group_arrays,
-                            gene_name,
-                            n_unique,
+                            _process_gene_group,
+                            str(gene),
+                            gene_df,
+                            pedigree_data,
+                            sample_list,
+                            gt_matrix,
+                            sample_to_idx,
                             gene_row_idx,
                             gene_vkeys,
-                            gt_matrix,
-                            eff_sample_to_idx,
-                            father_idx_arr,
-                            mother_idx_arr,
-                            affected_arr,
-                            sample_list,
-                        ): gene_name
-                        for gene_name, n_unique, gene_row_idx, gene_vkeys in batch
+                        ): gene
+                        for gene, gene_df, gene_row_idx, gene_vkeys in batch
                     }
 
                     # Collect results as they complete
                     for future in as_completed(future_to_gene):
-                        gene_name_key = future_to_gene[future]
+                        gene = future_to_gene[future]
                         try:
-                            result_gene_name, comp_het_results = future.result()
+                            gene_name, comp_het_results = future.result()
                             if comp_het_results:
-                                comp_het_results_by_gene[result_gene_name] = comp_het_results
+                                comp_het_results_by_gene[gene_name] = comp_het_results
                                 logger.debug(
-                                    f"Found compound het patterns in gene {result_gene_name}: "
+                                    f"Found compound het patterns in gene {gene_name}: "
                                     f"{len(comp_het_results)} variants"
                                 )
                             completed += 1
                             if completed % 100 == 0:
                                 logger.info(f"Processed {completed}/{num_genes} genes")
                         except Exception as e:
-                            logger.error(f"Error processing gene {gene_name_key!r}: {e}")
+                            logger.error(f"Error processing gene {gene!r}: {e}")
     else:
         # Fall back to sequential processing
         logger.info("Pass 2: Analyzing compound heterozygous patterns sequentially")
