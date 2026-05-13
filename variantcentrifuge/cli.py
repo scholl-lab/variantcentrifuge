@@ -121,7 +121,8 @@ def create_parser() -> argparse.ArgumentParser:
         "--transcript-file",
         help=(
             "Path to a file containing transcript IDs, one per line. "
-            "For example: a file where each line is a transcript like NM_007294.4"
+            "Use this for MANE-only extraction by providing a MANE Select transcript list "
+            "matching the transcript ID namespace in the VCF, e.g. RefSeq NM_* or Ensembl ENST*."
         ),
     )
     gene_group.add_argument(
@@ -1198,6 +1199,9 @@ def main() -> int:
     # Validate mandatory parameters
     validate_mandatory_parameters(reference, filters, fields)
     validate_vcf_file(args.vcf_file, logger)
+    if args.transcript_file and not Path(args.transcript_file).is_file():
+        logger.error(f"Transcript file not found: {args.transcript_file}")
+        sys.exit(1)
 
     if args.phenotype_file and (
         args.phenotype_sample_column is None or args.phenotype_value_column is None

@@ -34,6 +34,7 @@ from ..pipeline_core.error_handling import (
     retry_on_failure,
     validate_file_exists,
 )
+from ..transcript_filter import filter_vcf_to_transcripts, load_transcript_ids
 from ..utils import ensure_fields_in_extract, split_bed_file
 from ..vcf_eff_one_per_line import process_vcf_file as split_snpeff_annotations
 
@@ -381,14 +382,12 @@ class MultiAllelicSplitStage(Stage):
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Split SNPeff annotations if requested."""
-        if not context.config.get("snpeff_split_by_transcript"):
+        splitting_mode = context.config.get("snpeff_splitting_mode")
+        if not splitting_mode:
             logger.debug("SNPeff transcript splitting not requested")
             return context
 
-        # Determine when to split
-        split_before = context.config.get("snpeff_split_before_filter", True)
-        if split_before and context.is_complete("snpsift_filtering"):
-            # Already filtered, don't split again
+        if splitting_mode == "before_filters" and context.is_complete("snpsift_filtering"):
             return context
 
         input_vcf = context.filtered_vcf or context.extracted_vcf or context.data
@@ -471,6 +470,64 @@ class SnpSiftFilterStage(Stage):
         if not hasattr(context, "extracted_tsv"):
             context.data = output_vcf
 
+        return context
+
+
+class TranscriptFilterStage(Stage):
+    """Filter SnpEff ANN annotations to requested transcript IDs."""
+
+    @property
+    def name(self) -> str:
+        """Return the stage name."""
+        return "transcript_filtering"
+
+    @property
+    def description(self) -> str:
+        """Return a description of what this stage does."""
+        return "Filter ANN annotations by transcript ID"
+
+    @property
+    def dependencies(self) -> set[str]:
+        """Return the set of stage names this stage depends on."""
+        return {"variant_extraction"}
+
+    @property
+    def soft_dependencies(self) -> set[str]:
+        """Return the set of stage names that should run before if present."""
+        return {"snpsift_filtering", "multiallelic_split"}
+
+    def _process(self, context: PipelineContext) -> PipelineContext:
+        """Filter VCF ANN entries to requested transcript IDs."""
+        transcript_ids = load_transcript_ids(
+            context.config.get("transcript_list"),
+            context.config.get("transcript_file"),
+        )
+        if not transcript_ids:
+            logger.debug("No transcript filtering requested")
+            return context
+
+        input_vcf = (
+            getattr(context, "split_annotations_vcf", None)
+            or getattr(context, "filtered_vcf", None)
+            or getattr(context, "extracted_vcf", None)
+            or context.data
+        )
+        if not input_vcf:
+            raise ValueError("No input VCF available for transcript filtering")
+
+        output_vcf = context.workspace.get_intermediate_path(
+            f"{context.workspace.base_name}.transcript_filtered.vcf.gz"
+        )
+        filter_vcf_to_transcripts(
+            str(input_vcf),
+            str(output_vcf),
+            transcript_ids,
+            index_output=True,
+        )
+
+        context.transcript_filtered_vcf = output_vcf  # type: ignore[attr-defined]
+        if not getattr(context, "extracted_tsv", None):
+            context.data = output_vcf
         return context
 
 
@@ -1097,6 +1154,20 @@ class ParallelCompleteProcessingStage(Stage):
             else:
                 filtered_vcf = chunk_vcf
             filter_time = time.time() - filter_start
+
+        transcript_ids = load_transcript_ids(
+            config.get("transcript_list"),
+            config.get("transcript_file"),
+        )
+        if transcript_ids:
+            transcript_filtered_vcf = intermediate_dir / f"{chunk_base}.transcript_filtered.vcf.gz"
+            filter_vcf_to_transcripts(
+                str(filtered_vcf),
+                str(transcript_filtered_vcf),
+                transcript_ids,
+                index_output=True,
+            )
+            filtered_vcf = transcript_filtered_vcf
 
         # Step 3: Extract fields to TSV
         field_extract_start = time.time()

@@ -50,6 +50,7 @@ from .stages.processing_stages import (
     PCAComputationStage,
     PhenotypeIntegrationStage,
     SnpSiftFilterStage,
+    TranscriptFilterStage,
     VariantExtractionStage,
 )
 from .stages.setup_stages import (
@@ -191,12 +192,15 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
         stages.append(VariantExtractionStage())
 
         # Optional processing stages
-        if hasattr(args, "snpeff_split_by_transcript") and args.snpeff_split_by_transcript:
+        if config.get("snpeff_splitting_mode"):
             stages.append(MultiAllelicSplitStage())
 
         # Add SnpSift filtering stage (it will check config for filters at runtime)
         if not getattr(args, "late_filtering", False):
             stages.append(SnpSiftFilterStage())
+
+        if config.get("transcript_list") or config.get("transcript_file"):
+            stages.append(TranscriptFilterStage())
 
         # Field extraction
         stages.append(FieldExtractionStage())

@@ -328,6 +328,68 @@ tabix -p vcf database.vcf.gz
 bcftools annotate --check-ref e -a custom_annotations.vcf.gz ...
 ```
 
+## Transcript-Specific Extraction and MANE
+
+VariantCentrifuge can restrict SnpEff `ANN` extraction to defined transcript IDs:
+
+```bash
+variantcentrifuge \
+  --gene-file genes.txt \
+  --vcf-file annotated.vcf.gz \
+  --transcript-file mane_refseq_transcripts.txt \
+  --fields "CHROM POS REF ALT ANN[0].GENE ANN[0].FEATUREID ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P GEN[*].GT" \
+  --output-file mane_only.tsv
+```
+
+The transcript file must match the transcript namespace present in `ANN[0].FEATUREID`.
+For SnpEff RefSeq annotations this is typically `NM_*`; for Ensembl/GENCODE annotations
+this is typically `ENST*`. Transcript versions matter: `NM_000059.4` and
+`NM_000059.3` are different IDs.
+
+### MANE transcript lists
+
+For GRCh38, use the official NCBI MANE summary file. It contains both RefSeq and
+Ensembl transcript accessions:
+
+```bash
+curl -L -o MANE.GRCh38.v1.5.summary.txt.gz \
+  https://ftp.ncbi.nlm.nih.gov/refseq/MANE/MANE_human/release_1.5/MANE.GRCh38.v1.5.summary.txt.gz
+
+# RefSeq IDs for SnpEff RefSeq annotations
+zcat MANE.GRCh38.v1.5.summary.txt.gz \
+  | awk -F'\t' 'NR > 1 && $10 == "MANE Select" {print $6}' \
+  > mane_select_refseq_transcripts.txt
+
+# Ensembl IDs for Ensembl/GENCODE annotations
+zcat MANE.GRCh38.v1.5.summary.txt.gz \
+  | awk -F'\t' 'NR > 1 && $10 == "MANE Select" {print $8}' \
+  > mane_select_ensembl_transcripts.txt
+```
+
+For GRCh37/hg19, there is no separate MANE release equivalent to the GRCh38 MANE
+summary. MANE is defined on GRCh38, although NCBI provides mappings to GRCh37 for
+clinical interpretation. For GRCh37 RefSeq-annotated VCFs, use the GRCh37 RefSeq
+Select set instead:
+
+```bash
+curl -L -o GCF_000001405.25_GRCh37.p13_genomic.gff.gz \
+  https://ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/annotation_releases/GCF_000001405.25-RS_2024_09/GCF_000001405.25_GRCh37.p13_genomic.gff.gz
+
+zcat GCF_000001405.25_GRCh37.p13_genomic.gff.gz \
+  | awk -F'\t' '$3 == "mRNA" && $9 ~ /tag=RefSeq Select/ {
+      match($9, /transcript_id=([^;]+)/, a);
+      if (a[1] != "") print a[1]
+    }' \
+  | sort -u \
+  > grch37_refseq_select_transcripts.txt
+```
+
+SnpEff also supports MANE-aware upstream annotation for GRCh38 with MANE-specific
+databases such as `GRCh38.mane.1.2.refseq` and `GRCh38.mane.1.2.ensembl`, and can
+restrict annotation with `-onlyTr` or `-tag MANE_Select`. VariantCentrifuge does not
+infer MANE status from gene symbols alone; provide a transcript list that matches the
+VCF's annotation source.
+
 ## Custom Gene Annotations with VariantCentrifuge
 
 In addition to standard VCF annotations, VariantCentrifuge provides built-in functionality to add custom annotations during analysis. These annotations are applied after variant extraction and are included in the final output.

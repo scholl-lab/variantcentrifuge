@@ -175,7 +175,7 @@ class TestMultiAllelicSplitStage:
 
     def test_split_not_requested(self, base_context):
         """Test when splitting is not requested."""
-        base_context.config = {"snpeff_split_by_transcript": False}
+        base_context.config = {"snpeff_splitting_mode": None}
         base_context.data = Path("/tmp/input.vcf.gz")
 
         stage = MultiAllelicSplitStage()
@@ -190,10 +190,7 @@ class TestMultiAllelicSplitStage:
         input_vcf = tmp_path / "input.vcf.gz"
         input_vcf.touch()
 
-        base_context.config = {
-            "snpeff_split_by_transcript": True,
-            "snpeff_split_before_filter": True,
-        }
+        base_context.config = {"snpeff_splitting_mode": "before_filters"}
         base_context.data = input_vcf
         base_context.extracted_vcf = input_vcf
 
@@ -217,10 +214,7 @@ class TestMultiAllelicSplitStage:
         filtered_vcf = tmp_path / "filtered.vcf.gz"
         filtered_vcf.touch()
 
-        base_context.config = {
-            "snpeff_split_by_transcript": True,
-            "snpeff_split_before_filter": False,
-        }
+        base_context.config = {"snpeff_splitting_mode": "after_filters"}
         base_context.filtered_vcf = filtered_vcf
         base_context.data = filtered_vcf
 
