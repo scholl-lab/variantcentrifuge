@@ -539,6 +539,48 @@ class TestTSVOutputStage:
         assert stage.dependencies == {"dataframe_loading", "variant_identifier"}
         assert stage.soft_dependencies == {"variant_scoring", "final_filtering", "pseudonymization"}
 
+    def test_tsv_output_drops_raw_gt_columns_when_packed_gt_exists(self, context):
+        """Final TSV should not leak raw GEN[N].GT columns by default."""
+        context.vcf_samples = ["Sample1", "Sample2"]
+        context.current_dataframe = pd.DataFrame(
+            {
+                "CHROM": ["chr1"],
+                "POS": [100],
+                "GT": ["Sample1(0/1)"],
+                "GEN[0].GT": ["0/1"],
+                "GEN[1].GT": ["0/0"],
+            }
+        )
+
+        stage = TSVOutputStage()
+        result = stage(context)
+
+        output_df = pd.read_csv(result.final_output_path, sep="\t")
+        assert list(output_df.columns) == ["CHROM", "POS", "GT"]
+        assert "GEN[0].GT" not in result.current_dataframe.columns
+        assert "GEN[1].GT" not in result.current_dataframe.columns
+
+    def test_tsv_output_keeps_raw_gt_columns_with_no_replacement(self, context):
+        """--no-replacement explicitly preserves raw per-sample GT output."""
+        context.config["no_replacement"] = True
+        context.vcf_samples = ["Sample1", "Sample2"]
+        context.current_dataframe = pd.DataFrame(
+            {
+                "CHROM": ["chr1"],
+                "POS": [100],
+                "GT": ["Sample1(0/1)"],
+                "GEN[0].GT": ["0/1"],
+                "GEN[1].GT": ["0/0"],
+            }
+        )
+
+        stage = TSVOutputStage()
+        result = stage(context)
+
+        output_df = pd.read_csv(result.final_output_path, sep="\t")
+        assert "GEN[0].GT" in output_df.columns
+        assert "GEN[1].GT" in output_df.columns
+
 
 class TestExcelReportStage:
     """Test ExcelReportStage."""
@@ -662,6 +704,40 @@ class TestExcelReportStage:
         )
         assert "nephro_candidate_score" in passed_df.columns
         assert "ngs" in passed_df.columns
+
+    @patch("variantcentrifuge.stages.output_stages.finalize_excel_file")
+    @patch("variantcentrifuge.stages.output_stages.convert_to_excel")
+    def test_excel_output_drops_raw_gt_columns_when_packed_gt_exists(
+        self, mock_convert, mock_finalize, context
+    ):
+        """Final Excel DataFrame should not include raw GEN[N].GT columns by default."""
+        context.vcf_samples = ["Sample1", "Sample2"]
+        context.current_dataframe = pd.DataFrame(
+            {
+                "CHROM": ["chr1"],
+                "POS": [100],
+                "GT": ["Sample1(0/1)"],
+                "GEN[0].GT": ["0/1"],
+                "GEN[1].GT": ["0/0"],
+            }
+        )
+        context.mark_complete("tsv_output")
+        context.mark_complete("metadata_generation")
+        context.mark_complete("statistics_generation")
+        context.final_output_path = context.workspace.output_dir / "output.tsv"
+        context.final_output_path.touch()
+
+        expected_excel_path = str(context.workspace.output_dir / "output.xlsx")
+        mock_convert.return_value = expected_excel_path
+        Path(expected_excel_path).touch()
+
+        stage = ExcelReportStage()
+        stage(context)
+
+        passed_df = mock_convert.call_args.kwargs.get("df")
+        assert passed_df is not None
+        assert list(passed_df.columns) == ["CHROM", "POS", "GT"]
+        mock_finalize.assert_called_once()
 
 
 class TestHTMLReportStage:

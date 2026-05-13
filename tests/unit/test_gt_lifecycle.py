@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from variantcentrifuge.stages.output_stages import (
+    _collapse_per_sample_gt_columns_for_output,
     _find_per_sample_gt_columns,
     reconstruct_gt_column,
 )
@@ -111,3 +112,56 @@ class TestGtColumnsConsolidation:
 
         df = pd.DataFrame({"GENE": ["A"], "CHROM": ["1"]})
         assert _find_gt_columns(df) == []
+
+
+@pytest.mark.unit
+class TestCollapsePerSampleGtColumnsForOutput:
+    """Regression tests for final output GT column cleanup."""
+
+    def test_existing_packed_gt_drops_raw_columns_by_default(self):
+        df = pd.DataFrame(
+            {
+                "CHROM": ["1"],
+                "POS": [100],
+                "GT": ["Sample1(0/1)"],
+                "GEN[0].GT": ["0/1"],
+                "GEN[1].GT": ["0/0"],
+            }
+        )
+
+        result = _collapse_per_sample_gt_columns_for_output(df, ["Sample1", "Sample2"])
+
+        assert list(result.columns) == ["CHROM", "POS", "GT"]
+
+    def test_no_replacement_keeps_raw_columns(self):
+        df = pd.DataFrame(
+            {
+                "CHROM": ["1"],
+                "POS": [100],
+                "GT": ["Sample1(0/1)"],
+                "GEN[0].GT": ["0/1"],
+                "GEN[1].GT": ["0/0"],
+            }
+        )
+
+        result = _collapse_per_sample_gt_columns_for_output(
+            df, ["Sample1", "Sample2"], no_replacement=True
+        )
+
+        assert "GEN[0].GT" in result.columns
+        assert "GEN[1].GT" in result.columns
+
+    def test_missing_packed_gt_reconstructs_and_drops_raw_columns(self):
+        df = pd.DataFrame(
+            {
+                "CHROM": ["1"],
+                "POS": [100],
+                "GEN_0__GT": ["0/1"],
+                "GEN_1__GT": ["0/0"],
+            }
+        )
+
+        result = _collapse_per_sample_gt_columns_for_output(df, ["Sample1", "Sample2"])
+
+        assert list(result.columns) == ["CHROM", "POS", "GT"]
+        assert result.loc[0, "GT"] == "Sample1(0/1)"

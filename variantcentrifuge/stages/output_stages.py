@@ -129,6 +129,38 @@ def reconstruct_gt_column(df: pd.DataFrame, vcf_samples: list[str]) -> pd.DataFr
     return df
 
 
+def _collapse_per_sample_gt_columns_for_output(
+    df: pd.DataFrame,
+    vcf_samples: list[str] | None,
+    *,
+    no_replacement: bool = False,
+) -> pd.DataFrame:
+    """Remove raw per-sample GT columns from final outputs unless explicitly requested.
+
+    Analysis stages may keep GEN[N].GT columns for burden/association logic. Final
+    TSV/Excel output should expose only the packed GT representation by default.
+    """
+    if no_replacement:
+        return df
+
+    gt_cols = _find_per_sample_gt_columns(df)
+    if not gt_cols:
+        return df
+
+    if "GT" not in df.columns:
+        if vcf_samples:
+            return reconstruct_gt_column(df, vcf_samples)
+        logger.warning(
+            "Per-sample GT columns found in final output but VCF sample names are "
+            "unavailable; leaving columns unchanged"
+        )
+        return df
+
+    df = df.drop(columns=gt_cols)
+    logger.info(f"Dropped {len(gt_cols)} per-sample GT columns from final output")
+    return df
+
+
 class VariantIdentifierStage(Stage):
     """Generate unique variant identifiers."""
 
@@ -570,12 +602,14 @@ class TSVOutputStage(Stage):
             logger.error("No data to write")
             return context
 
-        # Phase 11: Reconstruct GT column from per-sample columns if needed
-        if context.vcf_samples and "GT" not in df.columns:
-            gt_cols = _find_per_sample_gt_columns(df)
-            if gt_cols:
-                df = reconstruct_gt_column(df, context.vcf_samples)
-                context.current_dataframe = df
+        # Phase 11: Keep per-sample GT columns available for analysis, but collapse
+        # them out of final materialized outputs unless users requested raw output.
+        df = _collapse_per_sample_gt_columns_for_output(
+            df,
+            context.vcf_samples,
+            no_replacement=context.config.get("no_replacement", False),
+        )
+        context.current_dataframe = df
 
         # Determine output path
         output_file = context.config.get("output_file")
@@ -708,16 +742,16 @@ class ExcelReportStage(Stage):
         )
         if source_df is not None:
             excel_df = source_df.copy()
+            excel_df = _collapse_per_sample_gt_columns_for_output(
+                excel_df,
+                context.vcf_samples,
+                no_replacement=context.config.get("no_replacement", False),
+            )
             # Drop internal cache columns before Excel output
             cache_cols = [c for c in excel_df.columns if c.startswith("_")]
             if cache_cols:
                 excel_df = excel_df.drop(columns=cache_cols)
                 logger.debug(f"Dropped {len(cache_cols)} cache columns: {cache_cols}")
-            # Phase 11: Reconstruct GT column from per-sample columns if needed
-            if context.vcf_samples and "GT" not in excel_df.columns:
-                gt_cols = _find_per_sample_gt_columns(excel_df)
-                if gt_cols:
-                    excel_df = reconstruct_gt_column(excel_df, context.vcf_samples)
             # Restore original column names for Excel output
             if context.column_rename_map:
                 reverse_map = {v: k for k, v in context.column_rename_map.items()}
