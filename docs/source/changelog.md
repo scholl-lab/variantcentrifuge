@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes._
 
-## [0.16.2] - 2026-05-13
+## [0.17.1] - 2026-05-13
 
 ### Fixed
 - Apply `--transcript-list` and `--transcript-file` to extracted SnpEff `ANN` transcript annotations, including MANE transcript filtering.
