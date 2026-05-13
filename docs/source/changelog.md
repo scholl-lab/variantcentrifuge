@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes._
 
+## [0.17.2] - 2026-05-14
+
+### Fixed
+- Prevent raw per-sample `GEN[N].GT` columns from leaking into final TSV and Excel outputs by default after variant analysis re-attaches them for downstream burden/association stages.
+- Preserve explicit `--no-replacement` behavior so users can still request raw per-sample genotype columns in final outputs.
+
 ## [0.17.1] - 2026-05-13
 
 ### Fixed
