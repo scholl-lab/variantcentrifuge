@@ -83,7 +83,8 @@ def _vectorized_parse_gt_columns(
             truly_multi = (left.astype(int) > 1) | (right.astype(int) > 1)
             # Update mask — keep only truly multi-allelic
             multi_idx = multi_mask[multi_mask].index
-            not_truly = multi_idx[~truly_multi.values]
+            truly_multi_values = truly_multi.to_numpy(dtype=bool)
+            not_truly = multi_idx[~truly_multi_values]
             multi_mask.loc[not_truly] = False
             multi_allelic_count += int(truly_multi.sum())
 

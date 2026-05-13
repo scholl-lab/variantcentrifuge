@@ -2763,7 +2763,7 @@ class AssociationAnalysisStage(Stage):
                             _miss_frac_per_variant <= assoc_config.missing_site_threshold
                         ).values
                         # Only apply mask if some variants are filtered out
-                        if bool(_keep_mask_ann.all()):
+                        if _keep_mask_ann is not None and bool(_keep_mask_ann.all()):
                             _keep_mask_ann = None
                     else:
                         _keep_mask_ann = None

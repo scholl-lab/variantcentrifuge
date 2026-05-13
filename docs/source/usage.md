@@ -92,8 +92,8 @@ flowchart TD
 |------|---------|-------------|
 | `-g` / `--gene-name GENES` | — | Gene name(s) (space-separated string) |
 | `-G` / `--gene-file PATH` | — | File with gene names, one per line |
-| `--transcript-list IDS` | — | Comma-separated transcript IDs to filter for (e.g., `NM_007294.4,NM_000059.4`) |
-| `--transcript-file PATH` | — | File with transcript IDs, one per line |
+| `--transcript-list IDS` | — | Comma-separated transcript IDs. Matching `ANN` entries are retained and become `ANN[0]` for extraction |
+| `--transcript-file PATH` | — | File with transcript IDs, one per line. Use GRCh38 MANE Select lists for GRCh38 VCFs; use GRCh37 RefSeq Select lists for hg19/GRCh37 RefSeq VCFs |
 
 ### Filtering Options
 

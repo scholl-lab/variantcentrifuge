@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Fixed
+- Apply `--transcript-list` and `--transcript-file` to extracted SnpEff `ANN` transcript annotations, including MANE transcript filtering.
+- Preserve multiallelic split ordering across transcript filtering and SnpSift filtering pipeline stages.
+- Recompress transcript-filtered VCF outputs with `bcftools` when indexing is requested.
 
 ## [0.15.0] - 2026-02-22
 

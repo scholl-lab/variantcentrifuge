@@ -11,6 +11,19 @@ of the duplicate argument parser bug and ensure all critical parameters work.
 import subprocess
 
 
+def test_transcript_filtering_parameters_are_documented():
+    from variantcentrifuge.cli import create_parser
+
+    parser = create_parser()
+    help_text = parser.format_help()
+
+    assert "--transcript-list" in help_text
+    assert "--transcript-file" in help_text
+    assert "MANE" in help_text
+    assert "GRCh37" in help_text
+    assert "RefSeq Select" in help_text
+
+
 class TestCriticalArgumentParsing:
     """Tests for critical CLI parameters that must always work."""
 

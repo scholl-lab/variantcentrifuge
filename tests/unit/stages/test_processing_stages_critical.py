@@ -10,6 +10,7 @@ from variantcentrifuge.pipeline_core.context import PipelineContext
 from variantcentrifuge.pipeline_core.workspace import Workspace
 from variantcentrifuge.stages.processing_stages import (
     ExtraColumnRemovalStage,
+    FieldExtractionStage,
     MultiAllelicSplitStage,
     SnpSiftFilterStage,
 )
@@ -102,13 +103,30 @@ chr1\t200\t.\tG\tC\t100\tPASS\t.\tGT:DP\t0/0:12\t0/1:18
 
         # Verify output paths updated
         assert result.filtered_vcf.name == "test.filtered.vcf.gz"
-        # The implementation incorrectly uses hasattr which always returns True for dataclass
-        # attributes. So context.data won't be updated. This is a bug in the implementation,
-        # but for now test the actual behavior
-        assert result.data == input_vcf  # Bug: data is not updated due to hasattr check
-        # But filtered_vcf should still be set correctly
+        assert result.data == result.filtered_vcf
         expected_path = base_context.workspace.intermediate_dir / "test.filtered.vcf.gz"
         assert result.filtered_vcf == expected_path
+
+    @patch("variantcentrifuge.stages.processing_stages.apply_snpsift_filter")
+    def test_filtering_uses_split_vcf_when_split_before_filters(
+        self, mock_apply_filter, base_context, tmp_path
+    ):
+        """Test before-filter split output feeds SnpSift filtering."""
+        extracted_vcf = tmp_path / "extracted.vcf.gz"
+        split_vcf = tmp_path / "split.vcf.gz"
+        extracted_vcf.touch()
+        split_vcf.touch()
+
+        base_context.config = {"filter": "(ANN[*].IMPACT has 'HIGH')"}
+        base_context.extracted_vcf = extracted_vcf
+        base_context.split_annotations_vcf = split_vcf
+        base_context.data = split_vcf
+
+        stage = SnpSiftFilterStage(split_before_filtering=True)
+        stage._process(base_context)
+
+        mock_apply_filter.assert_called_once()
+        assert mock_apply_filter.call_args.args[0] == str(split_vcf)
 
     @patch("variantcentrifuge.stages.processing_stages.apply_snpsift_filter")
     def test_complex_filter_expression(self, mock_apply_filter, base_context, tmp_path):
@@ -175,7 +193,7 @@ class TestMultiAllelicSplitStage:
 
     def test_split_not_requested(self, base_context):
         """Test when splitting is not requested."""
-        base_context.config = {"snpeff_split_by_transcript": False}
+        base_context.config = {"snpeff_splitting_mode": None}
         base_context.data = Path("/tmp/input.vcf.gz")
 
         stage = MultiAllelicSplitStage()
@@ -190,10 +208,7 @@ class TestMultiAllelicSplitStage:
         input_vcf = tmp_path / "input.vcf.gz"
         input_vcf.touch()
 
-        base_context.config = {
-            "snpeff_split_by_transcript": True,
-            "snpeff_split_before_filter": True,
-        }
+        base_context.config = {"snpeff_splitting_mode": "before_filters"}
         base_context.data = input_vcf
         base_context.extracted_vcf = input_vcf
 
@@ -205,11 +220,9 @@ class TestMultiAllelicSplitStage:
         assert str(input_vcf) in mock_split.call_args[0]
 
         # Verify output path
-        # Same hasattr bug - data won't be updated
-        assert result.data == input_vcf  # Bug: data is not updated due to hasattr check
-        # But split_annotations_vcf should be set
         assert hasattr(result, "split_annotations_vcf")
         assert result.split_annotations_vcf.name == "test.split_annotations.vcf.gz"
+        assert result.data == result.split_annotations_vcf
 
     @patch("variantcentrifuge.stages.processing_stages.split_snpeff_annotations")
     def test_split_after_filtering(self, mock_split, base_context, tmp_path):
@@ -217,10 +230,7 @@ class TestMultiAllelicSplitStage:
         filtered_vcf = tmp_path / "filtered.vcf.gz"
         filtered_vcf.touch()
 
-        base_context.config = {
-            "snpeff_split_by_transcript": True,
-            "snpeff_split_before_filter": False,
-        }
+        base_context.config = {"snpeff_splitting_mode": "after_filters"}
         base_context.filtered_vcf = filtered_vcf
         base_context.data = filtered_vcf
 
@@ -237,7 +247,41 @@ class TestMultiAllelicSplitStage:
     def test_parallel_safe_property(self, base_context):
         """Test that this stage is marked as parallel safe."""
         stage = MultiAllelicSplitStage()
-        assert stage.parallel_safe is True
+        assert stage.parallel_safe is False
+
+    def test_split_mode_dependencies(self):
+        """Test split/filter ordering dependencies are encoded by mode."""
+        assert "snpsift_filtering" not in MultiAllelicSplitStage("before_filters").dependencies
+        assert "snpsift_filtering" in MultiAllelicSplitStage("after_filters").dependencies
+        assert (
+            "multiallelic_split"
+            in SnpSiftFilterStage(split_before_filtering=True).soft_dependencies
+        )
+
+
+class TestFieldExtractionStage:
+    """Test VCF path selection for field extraction."""
+
+    @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
+    def test_field_extraction_uses_split_vcf_after_filters(
+        self, mock_extract_fields, base_context, tmp_path
+    ):
+        """Test after-filter split output is used for extraction."""
+        filtered_vcf = tmp_path / "filtered.vcf.gz"
+        split_vcf = tmp_path / "split.vcf.gz"
+        filtered_vcf.touch()
+        split_vcf.touch()
+        base_context.config = {
+            "fields_to_extract": "CHROM POS ANN[0].FEATUREID",
+            "snpeff_splitting_mode": "after_filters",
+        }
+        base_context.filtered_vcf = filtered_vcf
+        base_context.split_annotations_vcf = split_vcf
+
+        FieldExtractionStage()._process(base_context)
+
+        mock_extract_fields.assert_called_once()
+        assert mock_extract_fields.call_args.kwargs["variant_file"] == str(split_vcf)
 
 
 class TestExtraColumnRemovalStage:
