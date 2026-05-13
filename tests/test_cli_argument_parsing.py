@@ -20,6 +20,8 @@ def test_transcript_filtering_parameters_are_documented():
     assert "--transcript-list" in help_text
     assert "--transcript-file" in help_text
     assert "MANE" in help_text
+    assert "GRCh37" in help_text
+    assert "RefSeq Select" in help_text
 
 
 class TestCriticalArgumentParsing:

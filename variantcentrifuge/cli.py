@@ -121,8 +121,9 @@ def create_parser() -> argparse.ArgumentParser:
         "--transcript-file",
         help=(
             "Path to a file containing transcript IDs, one per line. "
-            "Use this for MANE-only extraction by providing a MANE Select transcript list "
-            "matching the transcript ID namespace in the VCF, e.g. RefSeq NM_* or Ensembl ENST*."
+            "For GRCh38, use MANE Select transcript lists matching the VCF namespace "
+            "(RefSeq NM_* or Ensembl ENST*). For hg19/GRCh37 RefSeq annotations, use "
+            "a GRCh37 RefSeq Select transcript list because MANE is defined on GRCh38."
         ),
     )
     gene_group.add_argument(
