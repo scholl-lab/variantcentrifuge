@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import gzip
 import logging
+import os
 import subprocess
+import tempfile
 from contextlib import ExitStack
 from pathlib import Path
 from typing import TextIO
@@ -109,10 +111,22 @@ def filter_vcf_to_transcripts(
 ) -> int:
     """Write a VCF containing only records with matching ANN transcript IDs."""
     kept_records = 0
+    output_path = Path(output_vcf)
+    write_path = output_path
+    temp_uncompressed: Path | None = None
 
     with ExitStack() as stack:
         input_handle = stack.enter_context(_open_text(input_vcf))
-        if output_vcf.endswith(".gz"):
+        if index_output and output_vcf.endswith(".gz"):
+            fd, temp_name = tempfile.mkstemp(
+                dir=output_path.parent,
+                suffix=".vcf",
+            )
+            os.close(fd)
+            temp_uncompressed = Path(temp_name)
+            output_handle = stack.enter_context(temp_uncompressed.open("w", encoding="utf-8"))
+            write_path = temp_uncompressed
+        elif output_vcf.endswith(".gz"):
             output_handle = stack.enter_context(
                 gzip.open(output_vcf, "wt", encoding="utf-8", compresslevel=1)
             )
@@ -128,7 +142,15 @@ def filter_vcf_to_transcripts(
             output_handle.write(filtered)
 
     if index_output and output_vcf.endswith(".gz"):
-        subprocess.run(["bcftools", "index", "-f", output_vcf], check=True)
+        try:
+            subprocess.run(
+                ["bcftools", "view", "-Oz", "-o", output_vcf, str(write_path)],
+                check=True,
+            )
+            subprocess.run(["bcftools", "index", "-f", output_vcf], check=True)
+        finally:
+            if temp_uncompressed is not None:
+                temp_uncompressed.unlink(missing_ok=True)
 
     logger.info(
         "Transcript filtering retained %d records for %d transcript IDs",

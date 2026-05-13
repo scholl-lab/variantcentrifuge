@@ -359,6 +359,11 @@ class VariantExtractionStage(Stage):
 class MultiAllelicSplitStage(Stage):
     """Split multi-allelic SNPeff annotations into one per line."""
 
+    def __init__(self, splitting_mode: str | None = None):
+        """Initialize with the requested split timing mode."""
+        super().__init__()
+        self.splitting_mode = splitting_mode
+
     @property
     def name(self) -> str:
         """Return the stage name."""
@@ -372,25 +377,27 @@ class MultiAllelicSplitStage(Stage):
     @property
     def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
-        # Must run after variant extraction but before field extraction
-        return {"variant_extraction"}
+        deps = {"variant_extraction"}
+        if self.splitting_mode == "after_filters":
+            deps.add("snpsift_filtering")
+        return deps
 
     @property
     def parallel_safe(self) -> bool:
         """Return whether this stage can run in parallel with others."""
-        return True  # Safe - independent transformation, creates new file
+        return False
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Split SNPeff annotations if requested."""
-        splitting_mode = context.config.get("snpeff_splitting_mode")
+        splitting_mode = self.splitting_mode or context.config.get("snpeff_splitting_mode")
         if not splitting_mode:
             logger.debug("SNPeff transcript splitting not requested")
             return context
 
-        if splitting_mode == "before_filters" and context.is_complete("snpsift_filtering"):
-            return context
-
-        input_vcf = context.filtered_vcf or context.extracted_vcf or context.data
+        if splitting_mode == "after_filters":
+            input_vcf = context.filtered_vcf or context.data
+        else:
+            input_vcf = context.extracted_vcf or context.data
         output_vcf = context.workspace.get_intermediate_path(
             f"{context.workspace.base_name}.split_annotations.vcf.gz"
         )
@@ -400,13 +407,18 @@ class MultiAllelicSplitStage(Stage):
 
         context.split_annotations_vcf = output_vcf  # type: ignore[attr-defined]
         # Only update context.data if we haven't extracted to TSV yet
-        if not hasattr(context, "extracted_tsv"):
+        if not getattr(context, "extracted_tsv", None):
             context.data = output_vcf
         return context
 
 
 class SnpSiftFilterStage(Stage):
     """Apply SnpSift filter expressions."""
+
+    def __init__(self, split_before_filtering: bool = False):
+        """Initialize with whether split annotations should feed filtering."""
+        super().__init__()
+        self.split_before_filtering = split_before_filtering
 
     @property
     def name(self) -> str:
@@ -429,7 +441,10 @@ class SnpSiftFilterStage(Stage):
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Run after variant extraction
-        return {"variant_extraction"}
+        deps = {"variant_extraction"}
+        if self.split_before_filtering:
+            deps.add("multiallelic_split")
+        return deps
 
     def _split_before_filter(self, context: PipelineContext) -> bool:
         """Check if we should split before filtering."""
@@ -447,7 +462,15 @@ class SnpSiftFilterStage(Stage):
             return context
 
         # Get input VCF from context (set by variant extraction stage)
-        input_vcf = getattr(context, "extracted_vcf", None) or context.data
+        input_vcf = (
+            (
+                getattr(context, "split_annotations_vcf", None)
+                if self.split_before_filtering
+                else None
+            )
+            or getattr(context, "extracted_vcf", None)
+            or context.data
+        )
         if not input_vcf:
             logger.error("No input VCF available for filtering")
             return context
@@ -467,7 +490,7 @@ class SnpSiftFilterStage(Stage):
 
         context.filtered_vcf = output_vcf
         # Only update context.data if we haven't extracted to TSV yet
-        if not hasattr(context, "extracted_tsv"):
+        if not getattr(context, "extracted_tsv", None):
             context.data = output_vcf
 
         return context
@@ -506,12 +529,20 @@ class TranscriptFilterStage(Stage):
             logger.debug("No transcript filtering requested")
             return context
 
-        input_vcf = (
-            getattr(context, "split_annotations_vcf", None)
-            or getattr(context, "filtered_vcf", None)
-            or getattr(context, "extracted_vcf", None)
-            or context.data
-        )
+        if context.config.get("snpeff_splitting_mode") == "after_filters":
+            input_vcf = (
+                getattr(context, "split_annotations_vcf", None)
+                or getattr(context, "filtered_vcf", None)
+                or getattr(context, "extracted_vcf", None)
+                or context.data
+            )
+        else:
+            input_vcf = (
+                getattr(context, "filtered_vcf", None)
+                or getattr(context, "split_annotations_vcf", None)
+                or getattr(context, "extracted_vcf", None)
+                or context.data
+            )
         if not input_vcf:
             raise ValueError("No input VCF available for transcript filtering")
 
@@ -522,7 +553,7 @@ class TranscriptFilterStage(Stage):
             str(input_vcf),
             str(output_vcf),
             transcript_ids,
-            index_output=True,
+            index_output=False,
         )
 
         context.transcript_filtered_vcf = output_vcf  # type: ignore[attr-defined]
@@ -560,13 +591,22 @@ class FieldExtractionStage(Stage):
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Extract fields to TSV format."""
         # Use the most recent VCF in the processing chain
-        input_vcf = (
-            getattr(context, "transcript_filtered_vcf", None)
-            or getattr(context, "filtered_vcf", None)
-            or getattr(context, "split_annotations_vcf", None)
-            or getattr(context, "extracted_vcf", None)
-            or context.data
-        )
+        if context.config.get("snpeff_splitting_mode") == "after_filters":
+            input_vcf = (
+                getattr(context, "transcript_filtered_vcf", None)
+                or getattr(context, "split_annotations_vcf", None)
+                or getattr(context, "filtered_vcf", None)
+                or getattr(context, "extracted_vcf", None)
+                or context.data
+            )
+        else:
+            input_vcf = (
+                getattr(context, "transcript_filtered_vcf", None)
+                or getattr(context, "filtered_vcf", None)
+                or getattr(context, "split_annotations_vcf", None)
+                or getattr(context, "extracted_vcf", None)
+                or context.data
+            )
 
         logger.debug(f"Using VCF for field extraction: {input_vcf}")
 
@@ -1155,17 +1195,19 @@ class ParallelCompleteProcessingStage(Stage):
                 filtered_vcf = chunk_vcf
             filter_time = time.time() - filter_start
 
-        transcript_ids = load_transcript_ids(
-            config.get("transcript_list"),
-            config.get("transcript_file"),
-        )
+        transcript_ids = config.get("transcript_ids")
+        if transcript_ids is None:
+            transcript_ids = load_transcript_ids(
+                config.get("transcript_list"),
+                config.get("transcript_file"),
+            )
         if transcript_ids:
             transcript_filtered_vcf = intermediate_dir / f"{chunk_base}.transcript_filtered.vcf.gz"
             filter_vcf_to_transcripts(
                 str(filtered_vcf),
                 str(transcript_filtered_vcf),
                 transcript_ids,
-                index_output=True,
+                index_output=False,
             )
             filtered_vcf = transcript_filtered_vcf
 
@@ -1262,6 +1304,10 @@ class ParallelCompleteProcessingStage(Stage):
                 "extract_fields_separator": context.config.get("extract_fields_separator", ","),
                 "gzip_intermediates": use_compression,
                 "vcf_samples": context.vcf_samples,
+                "transcript_ids": load_transcript_ids(
+                    context.config.get("transcript_list"),
+                    context.config.get("transcript_file"),
+                ),
             }
 
             # Use a manager to share the subtask times dict across processes

@@ -1,5 +1,6 @@
 import gzip
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -128,3 +129,35 @@ def test_filter_vcf_to_transcripts_writes_only_matching_records(tmp_path: Path) 
     assert "#CHROM" in text
     assert "NM_keep.1" in text
     assert "NM_other.1" not in text
+
+
+@patch("variantcentrifuge.transcript_filter.subprocess.run")
+def test_filter_vcf_to_transcripts_uses_bcftools_bgzip_when_indexing(
+    mock_run,
+    tmp_path: Path,
+) -> None:
+    input_vcf = tmp_path / "input.vcf"
+    output_vcf = tmp_path / "output.vcf.gz"
+    input_vcf.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"
+        "1\t100\t.\tA\tG\t.\tPASS\t"
+        "ANN=G|missense_variant|MODERATE|GENE|GENE|transcript|NM_keep.1|"
+        "protein_coding||||||||\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+
+    count = filter_vcf_to_transcripts(
+        str(input_vcf),
+        str(output_vcf),
+        {"NM_keep.1"},
+        index_output=True,
+    )
+
+    assert count == 1
+    assert mock_run.call_count == 2
+    view_call = mock_run.call_args_list[0].args[0]
+    index_call = mock_run.call_args_list[1].args[0]
+    assert view_call[:4] == ["bcftools", "view", "-Oz", "-o"]
+    assert view_call[4] == str(output_vcf)
+    assert index_call == ["bcftools", "index", "-f", str(output_vcf)]

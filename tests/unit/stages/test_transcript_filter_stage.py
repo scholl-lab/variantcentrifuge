@@ -50,5 +50,6 @@ def test_transcript_filter_uses_extracted_vcf_and_sets_context(
     mock_filter.assert_called_once()
     assert mock_filter.call_args.args[0] == str(input_vcf)
     assert mock_filter.call_args.args[2] == {"NM_000059.4", "NM_007294.4"}
+    assert mock_filter.call_args.kwargs["index_output"] is False
     assert result.transcript_filtered_vcf.name == "sample.transcript_filtered.vcf.gz"
     assert result.data == result.transcript_filtered_vcf
