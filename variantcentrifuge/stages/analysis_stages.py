@@ -24,6 +24,7 @@ from ..analyze_variants import analyze_variants
 from ..annotator import annotate_dataframe_with_features, load_custom_features
 from ..association.base import AssociationConfig
 from ..association.engine import AssociationEngine
+from ..association.weights import resolve_score_weight_column
 from ..dataframe_optimizer import load_optimized_dataframe, should_use_memory_passthrough
 from ..gene_burden import (
     _aggregate_gene_burden_from_columns,
@@ -157,6 +158,18 @@ class _GenotypeMatrixBuilder:
         }
         result.update(annotation_payload)
         return result
+
+
+def _find_cadd_column(df: pd.DataFrame) -> str | None:
+    return next((c for c in df.columns if c.lower() in ("dbnsfp_cadd_phred", "cadd_phred")), None)
+
+
+def _find_revel_column(df: pd.DataFrame) -> str | None:
+    return next((c for c in df.columns if c.lower() in ("dbnsfp_revel_score", "revel_score")), None)
+
+
+def _find_effect_column(df: pd.DataFrame) -> str | None:
+    return next((c for c in df.columns if c.upper() in ("EFFECT", "ANN_0__EFFECT")), None)
 
 
 # Standard column aliases: sanitized name -> canonical short name.
@@ -2537,6 +2550,22 @@ class AssociationAnalysisStage(Stage):
             logger.error("DataFrame missing required 'GENE' column for association analysis")
             return context
 
+        score_weight_column = resolve_score_weight_column(
+            assoc_config.variant_weights,
+            assoc_config.variant_weight_column,
+        )
+        if score_weight_column is not None and score_weight_column not in df.columns:
+            raise ValueError(
+                f"Requested variant weight column '{score_weight_column}' is missing from "
+                "the association input DataFrame."
+            )
+
+        needs_functional_annotations = assoc_config.variant_weights in {
+            "cadd",
+            "revel",
+            "combined",
+        }
+
         # Phase 24/31: Validate required columns for COAST allelic series test.
         # COAST needs annotation columns to classify variants into BMV/DMV/PTV.
         # Required columns depend on the classification model selected:
@@ -2769,6 +2798,14 @@ class AssociationAnalysisStage(Stage):
                 except KeyError:
                     gene_df = gt_source_df.iloc[0:0]
 
+                cadd_column = _find_cadd_column(gene_df) if needs_functional_annotations else None
+                revel_column = _find_revel_column(gene_df) if needs_functional_annotations else None
+                effect_column = (
+                    _find_effect_column(gene_df)
+                    if needs_functional_annotations or score_weight_column is not None
+                    else None
+                )
+
                 # Store lazy builder instead of pre-built matrix (PERF-06)
                 builder = _GenotypeMatrixBuilder(
                     gene_df=gene_df,
@@ -2779,74 +2816,12 @@ class AssociationAnalysisStage(Stage):
                     missing_sample_threshold=assoc_config.missing_sample_threshold,
                     phenotype_vector=phenotype_vector,
                     covariate_matrix=covariate_matrix,
+                    score_column=score_weight_column,
+                    cadd_column=cadd_column,
+                    revel_column=revel_column,
+                    effect_column=effect_column,
                 )
                 gene_data["_genotype_matrix_builder"] = builder
-
-                # Phase 23: Extract functional annotation columns for CADD/REVEL weight schemes
-                # (WEIGHT-05). Arrays must align with variant_mafs (post site-filter length).
-                # Annotation extraction is cheap and needed regardless of lazy building.
-                if assoc_config.variant_weights in ("cadd", "revel", "combined"):
-                    _cadd_col = next(
-                        (
-                            c
-                            for c in gene_df.columns
-                            if c.lower() in ("dbnsfp_cadd_phred", "cadd_phred")
-                        ),
-                        None,
-                    )
-                    _revel_col = next(
-                        (
-                            c
-                            for c in gene_df.columns
-                            if c.lower() in ("dbnsfp_revel_score", "revel_score")
-                        ),
-                        None,
-                    )
-                    _effect_col = next(
-                        (c for c in gene_df.columns if c.upper() in ("EFFECT", "ANN_0__EFFECT")),
-                        None,
-                    )
-                    # Align annotations with variant_mafs (build_genotype_matrix applies
-                    # a site missing-rate filter; replicate it here for correct alignment).
-                    # Vectorized: count missing GTs per variant using pandas isin() instead
-                    # of per-cell parse_gt_to_dosage() calls.
-                    _gt_cols_list = list(gt_columns_for_matrix)
-                    _n_samples_gt = len(_gt_cols_list)
-                    _n_df = len(gene_df)
-                    if _n_df > 0 and _n_samples_gt > 0:
-                        # Missing GT values: ./., .|., ., empty, None, partial (./1, 1/.)
-                        # Vectorized: count NaN/missing per variant across all GT columns
-                        _gt_sub = gene_df[_gt_cols_list].fillna("./.").astype(str)
-                        _gt_norm = _gt_sub.apply(lambda col: col.str.replace("|", "/", regex=False))
-                        # A GT is missing if it contains "." as an allele
-                        _is_missing = _gt_norm.apply(
-                            lambda col: col.str.contains(r"(?:^|\/)\.(?:\/|$)", regex=True, na=True)
-                        )
-                        _miss_frac_per_variant = _is_missing.sum(axis=1) / _n_samples_gt
-                        _keep_mask_ann: np.ndarray | None = (
-                            _miss_frac_per_variant <= assoc_config.missing_site_threshold
-                        ).values
-                        # Only apply mask if some variants are filtered out
-                        if _keep_mask_ann is not None and bool(_keep_mask_ann.all()):
-                            _keep_mask_ann = None
-                    else:
-                        _keep_mask_ann = None
-
-                    if _cadd_col:
-                        _vals = gene_df[_cadd_col].values
-                        gene_data["cadd_scores"] = (
-                            _vals[_keep_mask_ann] if _keep_mask_ann is not None else _vals
-                        )
-                    if _revel_col:
-                        _vals = gene_df[_revel_col].values
-                        gene_data["revel_scores"] = (
-                            _vals[_keep_mask_ann] if _keep_mask_ann is not None else _vals
-                        )
-                    if _effect_col:
-                        _vals = gene_df[_effect_col].values
-                        gene_data["variant_effects"] = (
-                            _vals[_keep_mask_ann] if _keep_mask_ann is not None else _vals
-                        )
 
                 gene_data["vcf_samples"] = vcf_samples_list
 
