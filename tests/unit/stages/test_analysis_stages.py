@@ -18,6 +18,7 @@ from variantcentrifuge.stages.analysis_stages import (
     VariantAnalysisStage,
     VariantScoringStage,
 )
+from variantcentrifuge.stages.setup_stages import AnnotationConfigLoadingStage
 
 
 @pytest.fixture
@@ -137,6 +138,48 @@ class TestCustomAnnotationStage:
         assert mock_load.called
         assert mock_annotate.called
         assert "Custom_Annotation" in result.current_dataframe.columns
+
+    def test_canonical_bed_config_reaches_custom_annotation(self, base_context, tmp_path):
+        """Canonical BED config should annotate variants through setup loading."""
+        bed_file = tmp_path / "GIAB_TANDEM_REPEAT.bed"
+        bed_file.write_text("chr1\t99\t101\tTR\n")
+        base_context.config["annotate_bed_files"] = [str(bed_file)]
+        base_context.config["annotate_bed"] = []
+        base_context.current_dataframe = pd.DataFrame(
+            [
+                {"CHROM": "chr1", "POS": 100, "REF": "C", "ALT": "A", "GENE": "HTT"},
+                {"CHROM": "chr1", "POS": 500, "REF": "G", "ALT": "T", "GENE": "PKD1"},
+            ]
+        )
+
+        AnnotationConfigLoadingStage()._process(base_context)
+        result = CustomAnnotationStage()._process(base_context)
+
+        annotations = result.current_dataframe["Custom_Annotation"]
+        assert "Custom_Annotation" in result.current_dataframe.columns
+        assert "Region=TR_GIAB_TANDEM_REPEAT" in annotations.iloc[0]
+        assert annotations.iloc[1] == ""
+
+    def test_canonical_gene_list_config_reaches_custom_annotation(self, base_context, tmp_path):
+        """Canonical gene-list config should annotate variants through setup loading."""
+        gene_file = tmp_path / "repeat_review_genes.txt"
+        gene_file.write_text("HTT\n")
+        base_context.config["annotate_gene_lists"] = [str(gene_file)]
+        base_context.config["annotate_gene_list"] = []
+        base_context.current_dataframe = pd.DataFrame(
+            [
+                {"CHROM": "chr1", "POS": 100, "REF": "C", "ALT": "A", "GENE": "HTT"},
+                {"CHROM": "chr1", "POS": 500, "REF": "G", "ALT": "T", "GENE": "PKD1"},
+            ]
+        )
+
+        AnnotationConfigLoadingStage()._process(base_context)
+        result = CustomAnnotationStage()._process(base_context)
+
+        annotations = result.current_dataframe["Custom_Annotation"]
+        assert "Custom_Annotation" in result.current_dataframe.columns
+        assert "InGeneList=repeat_review_genes" in annotations.iloc[0]
+        assert annotations.iloc[1] == ""
 
 
 class TestInheritanceAnalysisStage:

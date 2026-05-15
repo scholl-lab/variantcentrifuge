@@ -8,7 +8,7 @@ scoring configurations, and other setup tasks that can run in parallel.
 import logging
 import os
 
-from ..config import load_config
+from ..config import load_config, normalize_annotation_config
 from ..helpers import get_vcf_samples
 from ..ped_reader import read_pedigree
 from ..phenotype import load_phenotypes
@@ -454,9 +454,10 @@ class AnnotationConfigLoadingStage(Stage):
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Load all annotation configurations."""
         annotations = {}
+        normalize_annotation_config(context.config)
 
         # Load BED file annotations
-        bed_files = context.config.get("annotate_bed", [])
+        bed_files = context.config.get("annotate_bed_files", [])
         if bed_files:
             if isinstance(bed_files, str):
                 bed_files = [bed_files]
@@ -464,7 +465,7 @@ class AnnotationConfigLoadingStage(Stage):
             logger.info(f"Configured {len(bed_files)} BED file annotations")
 
         # Load gene list annotations
-        gene_lists = context.config.get("annotate_gene_list", [])
+        gene_lists = context.config.get("annotate_gene_lists", [])
         if gene_lists:
             if isinstance(gene_lists, str):
                 gene_lists = [gene_lists]
@@ -491,9 +492,10 @@ class AnnotationConfigLoadingStage(Stage):
         configurations that would have been loaded during normal execution.
         """
         annotations = {}
+        normalize_annotation_config(context.config)
 
         # Restore BED file annotations
-        bed_files = context.config.get("annotate_bed", [])
+        bed_files = context.config.get("annotate_bed_files", [])
         if bed_files:
             if isinstance(bed_files, str):
                 bed_files = [bed_files]
@@ -501,7 +503,7 @@ class AnnotationConfigLoadingStage(Stage):
             logger.debug(f"Restored {len(bed_files)} BED file annotations (checkpoint skip)")
 
         # Restore gene list annotations
-        gene_lists = context.config.get("annotate_gene_list", [])
+        gene_lists = context.config.get("annotate_gene_lists", [])
         if gene_lists:
             if isinstance(gene_lists, str):
                 gene_lists = [gene_lists]

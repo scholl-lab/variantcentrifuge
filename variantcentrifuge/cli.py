@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .config import load_config
+from .config import load_config, normalize_annotation_config
 from .pipeline import run_pipeline
 from .validators import (
     validate_mandatory_parameters,
@@ -1501,6 +1501,7 @@ def main() -> int:
     # Note: args.annotate_gene_list is already handled above as "annotate_gene_list_files"
     # We'll map it to the new unified system
     cfg["annotate_gene_lists"] = args.annotate_gene_list
+    normalize_annotation_config(cfg)
 
     # Validate unified annotation arguments
     if args.annotate_json_genes and not args.json_gene_mapping:

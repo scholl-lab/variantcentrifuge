@@ -17,7 +17,9 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
+
+from .config import normalize_annotation_config
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -191,6 +193,65 @@ class PipelineState:
 
     STATE_FILE_NAME = ".variantcentrifuge_state.json"
     STATE_VERSION = "1.0"
+    _RELEVANT_CONFIG_KEYS: ClassVar[tuple[str, ...]] = (
+        "gene_name",
+        "gene_file",
+        "vcf_file",
+        "output_file",
+        "preset",
+        "filters",
+        "fields",
+        "threads",
+        "no_replacement",
+        "late_filtering",
+        "chunk_size",
+        "samples_file",
+        "bcftools_prefilter",
+        "final_filter",
+        "scoring_config_path",
+        "ped",
+        "inheritance_mode",
+        "annotate_bed_files",
+        "annotate_gene_lists",
+        "annotate_json_genes",
+    )
+    _CANONICAL_ANNOTATION_KEYS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "annotate_bed_files",
+            "annotate_gene_lists",
+        }
+    )
+    _LEGACY_RELEVANT_CONFIG_KEYS: ClassVar[tuple[str, ...]] = (
+        "gene_name",
+        "gene_file",
+        "vcf_file",
+        "output_file",
+        "preset",
+        "filters",
+        "fields",
+        "threads",
+        "no_replacement",
+        "late_filtering",
+        "chunk_size",
+        "samples_file",
+        "bcftools_prefilter",
+        "final_filter",
+        "scoring_config_path",
+        "ped",
+        "inheritance_mode",
+        "annotate_bed",
+        "annotate_gene_list",
+        "annotate_json_genes",
+    )
+    _ANNOTATION_ALIAS_KEYS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "annotate_bed",
+            "annotate_bed_files",
+            "annotate_gene_list",
+            "annotate_gene_list_files",
+            "annotate_gene_lists",
+        }
+    )
 
     def __init__(self, output_dir: str, enable_checksum: bool = False):
         """Initialize pipeline state manager.
@@ -319,8 +380,8 @@ class PipelineState:
             return False
 
         # Check configuration hash
-        current_hash = self._hash_configuration(configuration)
-        if self.state.get("configuration_hash") != current_hash:
+        current_hashes = self._resume_configuration_hashes(configuration)
+        if self.state.get("configuration_hash") not in current_hashes:
             logger.warning("Configuration has changed, cannot resume")
             return False
 
@@ -803,35 +864,63 @@ class PipelineState:
 
     def _hash_configuration(self, config: dict[str, Any]) -> str:
         """Create a hash of the configuration for change detection."""
-        # Select relevant configuration keys that affect pipeline behavior
-        relevant_keys = [
-            "gene_name",
-            "gene_file",
-            "vcf_file",
-            "output_file",
-            "preset",
-            "filters",
-            "fields",
-            "threads",
-            "no_replacement",
-            "late_filtering",
-            "chunk_size",
-            "samples_file",
-            "bcftools_prefilter",
-            "final_filter",
-            "scoring_config_path",
-            "ped",
-            "inheritance_mode",
-            "annotate_bed",
-            "annotate_gene_list",
-            "annotate_json_genes",
-        ]
+        config = normalize_annotation_config(config.copy())
 
-        relevant_config = {k: v for k, v in config.items() if k in relevant_keys and v is not None}
+        relevant_config = {
+            k: v
+            for k, v in config.items()
+            if k in self._RELEVANT_CONFIG_KEYS
+            and v is not None
+            and not (k in self._CANONICAL_ANNOTATION_KEYS and not v)
+        }
 
         # Sort for consistent hashing
         config_str = json.dumps(relevant_config, sort_keys=True)
         return hashlib.sha256(config_str.encode()).hexdigest()
+
+    def _resume_configuration_hashes(self, config: dict[str, Any]) -> set[str]:
+        """Return current and legacy-equivalent config hashes accepted for resume."""
+        hashes = {self._hash_configuration(config)}
+        hashes.update(
+            self._hash_legacy_configuration(candidate)
+            for candidate in self._legacy_annotation_equivalent_configs(config)
+        )
+        return hashes
+
+    def _hash_legacy_configuration(self, config: dict[str, Any]) -> str:
+        """Create the pre-normalization checkpoint hash for compatibility."""
+        relevant_config = {
+            k: v
+            for k, v in config.items()
+            if k in self._LEGACY_RELEVANT_CONFIG_KEYS and v is not None
+        }
+
+        config_str = json.dumps(relevant_config, sort_keys=True)
+        return hashlib.sha256(config_str.encode()).hexdigest()
+
+    def _legacy_annotation_equivalent_configs(self, config: dict[str, Any]) -> list[dict[str, Any]]:
+        """Build legacy-key configs that represent the normalized annotation behavior."""
+        normalized = normalize_annotation_config(config.copy())
+        base_config = config.copy()
+        for key in self._ANNOTATION_ALIAS_KEYS:
+            base_config.pop(key, None)
+
+        bed_files = normalized.get("annotate_bed_files", [])
+        gene_lists = normalized.get("annotate_gene_lists", [])
+
+        bed_options = [{"annotate_bed": bed_files}] if bed_files else [{}, {"annotate_bed": []}]
+        gene_options = (
+            [{"annotate_gene_list": gene_lists}] if gene_lists else [{}, {"annotate_gene_list": []}]
+        )
+
+        legacy_configs = []
+        for bed_option in bed_options:
+            for gene_option in gene_options:
+                candidate = base_config.copy()
+                candidate.update(bed_option)
+                candidate.update(gene_option)
+                legacy_configs.append(candidate)
+        return legacy_configs
 
     def cleanup_stale_stages(self) -> None:
         """Clean up stages that were left in 'running' state from previous pipeline runs."""

@@ -130,7 +130,7 @@ def test_pipeline_with_gene_list_annotation(sample_vcf_file, gene_lists, test_da
     minimal_pipeline_test()
 
 
-def test_cli_with_gene_list_annotation(sample_vcf_file, gene_lists, test_data_dir, monkeypatch):
+def test_cli_gene_list_integration(sample_vcf_file, gene_lists, test_data_dir, monkeypatch):
     """Test that the CLI correctly handles gene list annotation."""
     from variantcentrifuge.cli import main
 
@@ -182,7 +182,11 @@ def test_cli_with_gene_list_annotation(sample_vcf_file, gene_lists, test_data_di
         cfg = run_pipeline_calls[0]
 
         assert "annotate_gene_list_files" in cfg
+        assert "annotate_gene_lists" in cfg
+        assert "annotate_gene_list" in cfg
         assert len(cfg["annotate_gene_list_files"]) == 2
+        assert cfg["annotate_gene_lists"] == cfg["annotate_gene_list_files"]
+        assert cfg["annotate_gene_list"] == cfg["annotate_gene_list_files"]
         assert gene_lists["cancer_genes"] in cfg["annotate_gene_list_files"]
         assert gene_lists["apc_genes"] in cfg["annotate_gene_list_files"]
 

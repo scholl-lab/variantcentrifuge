@@ -222,6 +222,36 @@ class TestAnnotationConfigLoadingStage:
         assert len(result.annotation_configs["bed_files"]) == 1
         assert len(result.annotation_configs["gene_lists"]) == 1
 
+    def test_annotation_loading_from_canonical_keys(self, context):
+        """Canonical annotation keys must load into annotation_configs."""
+        bed_file = context.config["annotate_bed"][0]
+        gene_list = context.config["annotate_gene_list"][0]
+        context.config["annotate_bed"] = []
+        context.config["annotate_gene_list"] = []
+        context.config["annotate_bed_files"] = [bed_file]
+        context.config["annotate_gene_lists"] = [gene_list]
+
+        stage = AnnotationConfigLoadingStage()
+        result = stage(context)
+
+        assert result.annotation_configs["bed_files"] == [bed_file]
+        assert result.annotation_configs["gene_lists"] == [gene_list]
+
+    def test_checkpoint_skip_restores_canonical_annotation_keys(self, context):
+        """Checkpoint skip restore must use canonical annotation keys."""
+        bed_file = context.config["annotate_bed"][0]
+        gene_list = context.config["annotate_gene_list"][0]
+        context.config["annotate_bed"] = []
+        context.config["annotate_gene_list"] = []
+        context.config["annotate_bed_files"] = [bed_file]
+        context.config["annotate_gene_lists"] = [gene_list]
+
+        stage = AnnotationConfigLoadingStage()
+        result = stage._handle_checkpoint_skip(context)
+
+        assert result.annotation_configs["bed_files"] == [bed_file]
+        assert result.annotation_configs["gene_lists"] == [gene_list]
+
     def test_json_gene_annotation(self, context):
         """Test JSON gene annotation loading."""
         # Create temp JSON file
