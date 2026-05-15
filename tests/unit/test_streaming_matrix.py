@@ -228,3 +228,105 @@ class TestEngineBuilderConsumption:
         result_df = engine.run_all(gene_data)
         assert result_df is not None
         assert len(result_df) >= 0  # may be empty if no testable variants
+
+
+def test_builder_aligns_score_values_with_real_keep_mask():
+    from variantcentrifuge.stages.analysis_stages import _GenotypeMatrixBuilder
+
+    df = pd.DataFrame(
+        {
+            "GENE": ["A", "A", "A"],
+            "nephro_candidate_score": [1.0, 99.0, 7.0],
+            "GEN_0__GT": ["0/1", "./.", "1/1"],
+            "GEN_1__GT": ["0/1", "./.", "0/1"],
+            "GEN_2__GT": ["0/1", "0/0", "0/1"],
+            "GEN_3__GT": ["0/1", "0/0", "0/0"],
+        }
+    )
+    builder = _GenotypeMatrixBuilder(
+        gene_df=df,
+        vcf_samples=["S1", "S2", "S3", "S4"],
+        gt_columns=["GEN_0__GT", "GEN_1__GT", "GEN_2__GT", "GEN_3__GT"],
+        is_binary=True,
+        missing_site_threshold=0.25,
+        missing_sample_threshold=0.80,
+        phenotype_vector=np.array([1, 1, 0, 0]),
+        covariate_matrix=None,
+        score_column="nephro_candidate_score",
+    )
+
+    result = builder()
+
+    assert result["genotype_matrix"].shape[1] == 2
+    np.testing.assert_array_equal(result["score_values"], np.array([1.0, 7.0], dtype=object))
+    assert result["variant_weight_column"] == "nephro_candidate_score"
+
+
+def test_builder_aligns_functional_annotation_arrays_with_real_keep_mask():
+    from variantcentrifuge.stages.analysis_stages import _GenotypeMatrixBuilder
+
+    df = pd.DataFrame(
+        {
+            "GENE": ["A", "A", "A"],
+            "dbNSFP_CADD_phred": [30.0, 99.0, 12.0],
+            "dbNSFP_REVEL_score": [0.9, 0.1, 0.4],
+            "ANN_0__EFFECT": ["missense_variant", "stop_gained", "frameshift_variant"],
+            "GEN_0__GT": ["0/1", "./.", "1/1"],
+            "GEN_1__GT": ["0/1", "./.", "0/1"],
+            "GEN_2__GT": ["0/1", "0/0", "0/1"],
+            "GEN_3__GT": ["0/1", "0/0", "0/0"],
+        }
+    )
+    builder = _GenotypeMatrixBuilder(
+        gene_df=df,
+        vcf_samples=["S1", "S2", "S3", "S4"],
+        gt_columns=["GEN_0__GT", "GEN_1__GT", "GEN_2__GT", "GEN_3__GT"],
+        is_binary=True,
+        missing_site_threshold=0.25,
+        missing_sample_threshold=0.80,
+        phenotype_vector=np.array([1, 1, 0, 0]),
+        covariate_matrix=None,
+        cadd_column="dbNSFP_CADD_phred",
+        revel_column="dbNSFP_REVEL_score",
+        effect_column="ANN_0__EFFECT",
+    )
+
+    result = builder()
+
+    np.testing.assert_array_equal(result["cadd_scores"], np.array([30.0, 12.0], dtype=object))
+    np.testing.assert_array_equal(result["revel_scores"], np.array([0.9, 0.4], dtype=object))
+    np.testing.assert_array_equal(
+        result["variant_effects"],
+        np.array(["missense_variant", "frameshift_variant"], dtype=object),
+    )
+
+
+def test_builder_uses_parser_keep_mask_for_malformed_genotypes():
+    from variantcentrifuge.stages.analysis_stages import _GenotypeMatrixBuilder
+
+    df = pd.DataFrame(
+        {
+            "GENE": ["A", "A", "A"],
+            "nephro_candidate_score": [1.0, 99.0, 7.0],
+            "GEN_0__GT": ["0/1", "0/x", "1/1"],
+            "GEN_1__GT": ["0/1", "0/x", "0/1"],
+            "GEN_2__GT": ["0/1", "0/x", "0/1"],
+            "GEN_3__GT": ["0/1", "0/x", "0/0"],
+        }
+    )
+    builder = _GenotypeMatrixBuilder(
+        gene_df=df,
+        vcf_samples=["S1", "S2", "S3", "S4"],
+        gt_columns=["GEN_0__GT", "GEN_1__GT", "GEN_2__GT", "GEN_3__GT"],
+        is_binary=True,
+        missing_site_threshold=0.25,
+        missing_sample_threshold=0.80,
+        phenotype_vector=np.array([1, 1, 0, 0]),
+        covariate_matrix=None,
+        score_column="nephro_candidate_score",
+    )
+
+    result = builder()
+
+    assert result["genotype_matrix"].shape[1] == 2
+    np.testing.assert_array_equal(result["score_values"], np.array([1.0, 7.0], dtype=object))

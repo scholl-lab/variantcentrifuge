@@ -57,6 +57,44 @@ class _GenotypeMatrixBuilder:
     missing_sample_threshold: float
     phenotype_vector: "np.ndarray | None"
     covariate_matrix: "np.ndarray | None"
+    score_column: str | None = None
+    cadd_column: str | None = None
+    revel_column: str | None = None
+    effect_column: str | None = None
+
+    def _aligned_annotation_payload(self, keep_variants_mask: np.ndarray) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if self.score_column is not None:
+            payload["score_values"] = self.gene_df[self.score_column].to_numpy(dtype=object)[
+                keep_variants_mask
+            ]
+            payload["variant_weight_column"] = self.score_column
+        if self.cadd_column is not None:
+            payload["cadd_scores"] = self.gene_df[self.cadd_column].to_numpy(dtype=object)[
+                keep_variants_mask
+            ]
+        if self.revel_column is not None:
+            payload["revel_scores"] = self.gene_df[self.revel_column].to_numpy(dtype=object)[
+                keep_variants_mask
+            ]
+        if self.effect_column is not None:
+            payload["variant_effects"] = self.gene_df[self.effect_column].to_numpy(dtype=object)[
+                keep_variants_mask
+            ]
+        return payload
+
+    def _empty_annotation_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if self.score_column is not None:
+            payload["score_values"] = np.asarray([], dtype=object)
+            payload["variant_weight_column"] = self.score_column
+        if self.cadd_column is not None:
+            payload["cadd_scores"] = np.asarray([], dtype=object)
+        if self.revel_column is not None:
+            payload["revel_scores"] = np.asarray([], dtype=object)
+        if self.effect_column is not None:
+            payload["variant_effects"] = np.asarray([], dtype=object)
+        return payload
 
     def __call__(self) -> dict[str, Any]:
         """Build genotype matrix and apply sample mask + MAC check.
@@ -68,7 +106,7 @@ class _GenotypeMatrixBuilder:
 
         if self.gene_df.empty:
             n_samples = len(self.vcf_samples)
-            return {
+            result = {
                 "genotype_matrix": np.zeros((n_samples, 0), dtype=float),
                 "variant_mafs": np.zeros(0, dtype=float),
                 "phenotype_vector": self.phenotype_vector,
@@ -76,8 +114,10 @@ class _GenotypeMatrixBuilder:
                 "gt_warnings": [],
                 "mac_filtered": False,
             }
+            result.update(self._empty_annotation_payload())
+            return result
 
-        geno, mafs, sample_mask, gt_warnings = build_genotype_matrix(
+        geno, mafs, sample_mask, gt_warnings, keep_variants_mask = build_genotype_matrix(
             self.gene_df,
             self.vcf_samples,
             self.gt_columns,
@@ -85,7 +125,9 @@ class _GenotypeMatrixBuilder:
             missing_site_threshold=self.missing_site_threshold,
             missing_sample_threshold=self.missing_sample_threshold,
             phenotype_vector=self.phenotype_vector,
+            return_keep_mask=True,
         )
+        annotation_payload = self._aligned_annotation_payload(keep_variants_mask)
 
         # Apply sample mask to phenotype and covariates
         pv = self.phenotype_vector
@@ -102,9 +144,10 @@ class _GenotypeMatrixBuilder:
         if total_mac < 5:
             geno = np.zeros((geno.shape[0], 0), dtype=float)
             mafs = np.zeros(0, dtype=float)
+            annotation_payload = self._empty_annotation_payload()
             mac_filtered = True
 
-        return {
+        result = {
             "genotype_matrix": geno,
             "variant_mafs": mafs,
             "phenotype_vector": pv,
@@ -112,6 +155,8 @@ class _GenotypeMatrixBuilder:
             "gt_warnings": gt_warnings,
             "mac_filtered": mac_filtered,
         }
+        result.update(annotation_payload)
+        return result
 
 
 # Standard column aliases: sanitized name -> canonical short name.
