@@ -31,6 +31,11 @@ from scipy.stats import chi2
 from variantcentrifuge.association.backends.davies import compute_pvalue
 from variantcentrifuge.association.backends.python_backend import PythonSKATBackend
 from variantcentrifuge.association.tests.skat_python import PurePythonSKATTest
+from variantcentrifuge.association.weights import beta_maf_weights
+
+
+def _beta_weights(geno: np.ndarray) -> np.ndarray:
+    return beta_maf_weights(geno.mean(axis=0) / 2.0, a=1.0, b=25.0)
 
 # ---------------------------------------------------------------------------
 # R reference constants
@@ -182,7 +187,7 @@ class TestSelfConsistency:
         p_values = []
         for _ in range(50):
             geno = rng.choice([0, 1, 2], size=(n, 5), p=[0.6, 0.3, 0.1]).astype(np.float64)
-            result = backend.test_gene("GENE", geno, null, "Burden", (1.0, 25.0))
+            result = backend.test_gene("GENE", geno, null, "Burden", weights=_beta_weights(geno))
             if result["p_value"] is not None:
                 p_values.append(result["p_value"])
 
@@ -204,7 +209,7 @@ class TestSelfConsistency:
         geno[50:, :] = rng.choice([0, 1], size=(50, 8), p=[0.8, 0.2]).astype(np.float64)
 
         null = backend.fit_null_model(phenotype, None, "binary")
-        result = backend.test_gene("SIGNAL_GENE", geno, null, "Burden", (1.0, 25.0))
+        result = backend.test_gene("SIGNAL_GENE", geno, null, "Burden", weights=_beta_weights(geno))
 
         p = result["p_value"]
         assert p is not None, "Expected a p-value for strong signal gene"
@@ -224,9 +229,9 @@ class TestSelfConsistency:
         geno = rng.choice([0, 1, 2], size=(n, 8), p=[0.6, 0.3, 0.1]).astype(np.float64)
         null = backend.fit_null_model(phenotype, None, "binary")
 
-        r_skat = backend.test_gene("G", geno, null, "SKAT", (1.0, 25.0))
-        r_burden = backend.test_gene("G", geno, null, "Burden", (1.0, 25.0))
-        r_skato = backend.test_gene("G", geno, null, "SKATO", (1.0, 25.0))
+        r_skat = backend.test_gene("G", geno, null, "SKAT", weights=_beta_weights(geno))
+        r_burden = backend.test_gene("G", geno, null, "Burden", weights=_beta_weights(geno))
+        r_skato = backend.test_gene("G", geno, null, "SKATO", weights=_beta_weights(geno))
 
         p_skat = r_skat["p_value"]
         p_burden = r_burden["p_value"]
@@ -249,8 +254,8 @@ class TestSelfConsistency:
 
         null = backend.fit_null_model(phenotype, None, "binary")
 
-        r1 = backend.test_gene("G", geno, null, "Burden", (1.0, 25.0))
-        r2 = backend.test_gene("G", geno, null, "Burden", (1.0, 25.0))
+        r1 = backend.test_gene("G", geno, null, "Burden", weights=_beta_weights(geno))
+        r2 = backend.test_gene("G", geno, null, "Burden", weights=_beta_weights(geno))
 
         assert r1["p_value"] == r2["p_value"], (
             f"Non-deterministic: {r1['p_value']} != {r2['p_value']}"
@@ -376,7 +381,7 @@ class TestGoldenValues:
             _GENE_A_SEED, _GENE_A_N, _GENE_A_K, _GENE_A_TRAIT, _GENE_A_EFFECT
         )
         null = backend.fit_null_model(phenotype, None, _GENE_A_TRAIT)
-        result = backend.test_gene("GENE_A", geno, null, "Burden", (1.0, 25.0))
+        result = backend.test_gene("GENE_A", geno, null, "Burden", weights=_beta_weights(geno))
         p = result["p_value"]
         assert p is not None, "Gene A should have a valid p-value"
         # Golden value: 0.8166240139405816 (captured 2026-02-21)
@@ -390,7 +395,7 @@ class TestGoldenValues:
             _GENE_A_SEED, _GENE_A_N, _GENE_A_K, _GENE_A_TRAIT, _GENE_A_EFFECT
         )
         null = backend.fit_null_model(phenotype, None, _GENE_A_TRAIT)
-        result = backend.test_gene("GENE_A", geno, null, "SKAT", (1.0, 25.0))
+        result = backend.test_gene("GENE_A", geno, null, "SKAT", weights=_beta_weights(geno))
         p = result["p_value"]
         # Under null, p should be large (no signal => Q small relative to null dist)
         # Value: 0.519 (projection-adjusted eigenvalues / 2, R-compat Davies params)
@@ -405,7 +410,7 @@ class TestGoldenValues:
             _GENE_C_SEED, _GENE_C_N, _GENE_C_K, _GENE_C_TRAIT, _GENE_C_EFFECT
         )
         null = backend.fit_null_model(phenotype, None, _GENE_C_TRAIT)
-        result = backend.test_gene("GENE_C", geno, null, "Burden", (1.0, 25.0))
+        result = backend.test_gene("GENE_C", geno, null, "Burden", weights=_beta_weights(geno))
         p = result["p_value"]
         if p is not None:
             assert 0.0 < p <= 1.0, f"Gene C p-value out of range: {p:.6e}"
@@ -460,7 +465,7 @@ class TestRReferenceValidation:
         """
         phenotype, geno = _make_gene_data(seed, n, k, trait_type, effect)
         null = backend.fit_null_model(phenotype, None, trait_type)
-        result = backend.test_gene("REF_GENE", geno, null, "Burden", (1.0, 25.0))
+        result = backend.test_gene("REF_GENE", geno, null, "Burden", weights=_beta_weights(geno))
 
         p = result["p_value"]
         assert p is not None, f"Expected valid p for seed={seed}"
@@ -491,7 +496,7 @@ class TestRReferenceValidation:
         )
 
         null = backend.fit_null_model(phenotype, None, "binary")
-        result = backend.test_gene("GENE_B", geno, null, "Burden", (1.0, 25.0))
+        result = backend.test_gene("GENE_B", geno, null, "Burden", weights=_beta_weights(geno))
 
         p = result["p_value"]
         assert p is not None, "Expected valid p for strong signal gene"
@@ -508,7 +513,7 @@ class TestRReferenceValidation:
         """SKAT test returns valid p-value for reference genes."""
         phenotype, geno = _make_gene_data(seed, n, k, trait_type, 0.0)
         null = backend.fit_null_model(phenotype, None, trait_type)
-        result = backend.test_gene("REF_GENE", geno, null, "SKAT", (1.0, 25.0))
+        result = backend.test_gene("REF_GENE", geno, null, "SKAT", weights=_beta_weights(geno))
         p = result["p_value"]
         if p is not None:
             assert 0.0 <= p <= 1.0, f"p={p:.6e} out of [0, 1]"
