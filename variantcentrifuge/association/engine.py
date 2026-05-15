@@ -239,6 +239,16 @@ class AssociationEngine:
                     f"Test '{name}' is not available. Available tests: {', '.join(available)}"
                 )
 
+        if skat_backend == "r" and "skat" in test_names:
+            from variantcentrifuge.association.tests.skat_r import _is_r_skat_weight_supported
+
+            if not _is_r_skat_weight_supported(config.variant_weights):
+                raise ValueError(
+                    "R SKAT backend supports only beta:a,b and uniform variant weights. "
+                    f"Got '{config.variant_weights}'. Use --skat-backend python for cadd, revel, "
+                    "combined, score_column, or column:<name> weights."
+                )
+
         tests: list[AssociationTest] = []
         for name in test_names:
             test_cls = registry[name]

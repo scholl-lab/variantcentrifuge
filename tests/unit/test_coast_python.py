@@ -32,6 +32,32 @@ from variantcentrifuge.association.tests.allelic_series_python import PurePython
 # ---------------------------------------------------------------------------
 
 
+def test_python_coast_does_not_require_score_values_for_score_column_variant_weights():
+    from variantcentrifuge.association.base import AssociationConfig
+
+    config = AssociationConfig(
+        trait_type="binary",
+        variant_weights="column:nephro_candidate_score",
+        variant_weight_column="nephro_candidate_score",
+        coast_backend="python",
+    )
+    test = PurePythonCOASTTest()
+    contingency_data = {
+        "genotype_matrix": np.zeros((4, 0), dtype=np.float64),
+        "phenotype_vector": np.array([1.0, 1.0, 0.0, 0.0]),
+        "covariate_matrix": None,
+        "gene_df": pd.DataFrame({"GENE": pd.Series([], dtype=str)}),
+        "proband_count": 2,
+        "control_count": 2,
+        "n_qualifying_variants": 0,
+    }
+
+    result = test.run("GENE1", contingency_data, config)
+
+    assert result.test_name == "coast"
+    assert result.p_value is None
+
+
 def _make_gene_df(
     effects: list[str],
     impacts: list[str],

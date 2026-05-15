@@ -508,3 +508,23 @@ class TestProgressTracking:
 
         result = test.run("GENE1", _make_geno_data("GENE1"), config)
         assert result.test_name == "skat"
+
+
+def test_r_skat_run_rejects_functional_weights_without_r_backend():
+    from variantcentrifuge.association.base import AssociationConfig
+    from variantcentrifuge.association.tests.skat_r import RSKATTest
+
+    config = AssociationConfig(skat_backend="r", variant_weights="cadd")
+    contingency_data = {
+        "genotype_matrix": np.ones((4, 2), dtype=np.float64),
+        "phenotype_vector": np.array([1.0, 1.0, 0.0, 0.0]),
+        "covariate_matrix": None,
+        "proband_count": 2,
+        "control_count": 2,
+        "n_qualifying_variants": 2,
+    }
+
+    test = RSKATTest()
+
+    with pytest.raises(ValueError, match="Use --skat-backend python"):
+        test.run("GENE1", contingency_data, config)

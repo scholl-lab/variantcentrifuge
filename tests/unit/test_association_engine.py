@@ -49,6 +49,16 @@ def _make_gene_data(
     }
 
 
+def test_engine_rejects_r_skat_with_score_column_before_dependency_check():
+    config = AssociationConfig(
+        skat_backend="r",
+        variant_weights="column:nephro_candidate_score",
+    )
+
+    with pytest.raises(ValueError, match="R SKAT backend supports only beta:a,b and uniform"):
+        AssociationEngine.from_names(["skat"], config)
+
+
 # ---------------------------------------------------------------------------
 # from_names() construction tests
 # ---------------------------------------------------------------------------

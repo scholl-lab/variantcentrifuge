@@ -269,6 +269,9 @@ class RSKATTest(AssociationTest):
                 extra={"skat_warnings": ["NO_PHENOTYPE_OR_EMPTY_MATRIX"]},
             )
 
+        if not _is_r_skat_weight_supported(config.variant_weights):
+            _raise_unsupported_r_skat_weight(config.variant_weights)
+
         # Backend must have been initialised by check_dependencies()
         if self._backend is None:
             raise RuntimeError(
@@ -364,3 +367,15 @@ def _parse_weights_beta(variant_weights: str) -> tuple[float, float]:
     (1.0, 1.0)
     """
     return _parse_weights_beta_shared(variant_weights)
+
+
+def _is_r_skat_weight_supported(variant_weights: str) -> bool:
+    return variant_weights == "uniform" or variant_weights.startswith("beta:")
+
+
+def _raise_unsupported_r_skat_weight(variant_weights: str) -> None:
+    raise ValueError(
+        "R SKAT backend supports only beta:a,b and uniform variant weights. "
+        f"Got '{variant_weights}'. Use --skat-backend python for cadd, revel, "
+        "combined, score_column, or column:<name> weights."
+    )
