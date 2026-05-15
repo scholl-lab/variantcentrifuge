@@ -2084,6 +2084,7 @@ VALID_ASSOCIATION_KEYS: frozenset[str] = frozenset(
         "trait_type",
         "variant_weights",
         "variant_weight_params",
+        "variant_weight_column",
         "skat_backend",
         "skat_method",
         "coast_backend",
@@ -2145,6 +2146,7 @@ def _validate_association_config_dict(d: dict) -> None:
         "gene_burden_mode",
         "trait_type",
         "variant_weights",
+        "variant_weight_column",
         "skat_backend",
         "skat_method",
         "coast_backend",
@@ -2172,6 +2174,7 @@ def _validate_association_config_dict(d: dict) -> None:
     }
     list_str_keys = {"covariate_columns", "categorical_covariates", "association_tests"}
     list_float_keys = {"coast_weights"}
+    dict_keys = {"variant_weight_params"}
 
     for key in str_keys & set(d):
         if d[key] is not None and not isinstance(d[key], str):
@@ -2192,6 +2195,10 @@ def _validate_association_config_dict(d: dict) -> None:
     for key in list_float_keys & set(d):
         if d[key] is not None and not isinstance(d[key], list):
             errors.append(f"'{key}' must be a list, got {type(d[key]).__name__}")
+
+    for key in dict_keys & set(d):
+        if d[key] is not None and not isinstance(d[key], dict):
+            errors.append(f"'{key}' must be an object, got {type(d[key]).__name__}")
 
     # Enum-like value validation
     if "correction_method" in d and d["correction_method"] not in ("fdr", "bonferroni"):
@@ -2331,6 +2338,7 @@ def _build_assoc_config_from_context(context: "PipelineContext") -> AssociationC
         trait_type=_get("trait_type", default="binary", nullable=False),
         variant_weights=_get("variant_weights", default="beta:1,25", nullable=False),
         variant_weight_params=_get("variant_weight_params", default=None, nullable=True),
+        variant_weight_column=_get("variant_weight_column", default=None, nullable=True),
         missing_site_threshold=_get("missing_site_threshold", default=0.10, nullable=False),
         missing_sample_threshold=_get("missing_sample_threshold", default=0.80, nullable=False),
         firth_max_iter=_get("firth_max_iter", default=25, nullable=False),

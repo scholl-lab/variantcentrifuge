@@ -200,3 +200,52 @@ def test_cli_skat_method_overrides_json():
     assoc_config = _build_assoc_config_from_context(ctx)
     # CLI wins: SKATO, not Burden
     assert assoc_config.skat_method == "SKATO"
+
+
+@pytest.mark.unit
+def test_variant_weight_column_from_cli_config():
+    ctx = _make_context(
+        {
+            "variant_weights": "score_column",
+            "variant_weight_column": "nephro_candidate_score",
+        }
+    )
+
+    assoc_config = _build_assoc_config_from_context(ctx)
+
+    assert assoc_config.variant_weights == "score_column"
+    assert assoc_config.variant_weight_column == "nephro_candidate_score"
+
+
+@pytest.mark.unit
+def test_variant_weight_column_json_fallback():
+    ctx = _make_context(
+        {
+            "association": {
+                "variant_weights": "score_column",
+                "variant_weight_column": "json_score",
+            }
+        }
+    )
+
+    assoc_config = _build_assoc_config_from_context(ctx)
+
+    assert assoc_config.variant_weights == "score_column"
+    assert assoc_config.variant_weight_column == "json_score"
+
+
+@pytest.mark.unit
+def test_cli_variant_weight_column_overrides_json():
+    ctx = _make_context(
+        {
+            "variant_weight_column": "cli_score",
+            "association": {
+                "variant_weights": "score_column",
+                "variant_weight_column": "json_score",
+            },
+        }
+    )
+
+    assoc_config = _build_assoc_config_from_context(ctx)
+
+    assert assoc_config.variant_weight_column == "cli_score"
