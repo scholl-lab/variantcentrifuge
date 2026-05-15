@@ -330,3 +330,75 @@ def test_builder_uses_parser_keep_mask_for_malformed_genotypes():
 
     assert result["genotype_matrix"].shape[1] == 2
     np.testing.assert_array_equal(result["score_values"], np.array([1.0, 7.0], dtype=object))
+
+
+def test_engine_passes_builder_score_values_to_tests_and_discards_payload():
+    from variantcentrifuge.association.base import AssociationConfig, AssociationTest, TestResult
+    from variantcentrifuge.association.engine import AssociationEngine
+    from variantcentrifuge.stages.analysis_stages import _GenotypeMatrixBuilder
+
+    seen: dict[str, object] = {}
+
+    class RecordingTest(AssociationTest):
+        parallel_safe = True
+
+        @property
+        def name(self) -> str:
+            return "recording"
+
+        def run(self, gene, contingency_data, config):
+            seen["score_values"] = contingency_data.get("score_values")
+            seen["variant_weight_column"] = contingency_data.get("variant_weight_column")
+            return TestResult(
+                gene=gene,
+                test_name=self.name,
+                p_value=1.0,
+                corrected_p_value=None,
+                effect_size=None,
+                ci_lower=None,
+                ci_upper=None,
+                se=None,
+                n_cases=2,
+                n_controls=2,
+                n_variants=2,
+            )
+
+    df = pd.DataFrame(
+        {
+            "GENE": ["A", "A"],
+            "nephro_candidate_score": [2.0, 8.0],
+            "GEN_0__GT": ["0/1", "1/1"],
+            "GEN_1__GT": ["0/1", "0/1"],
+            "GEN_2__GT": ["0/0", "0/1"],
+            "GEN_3__GT": ["0/0", "0/0"],
+        }
+    )
+    builder = _GenotypeMatrixBuilder(
+        gene_df=df,
+        vcf_samples=["S1", "S2", "S3", "S4"],
+        gt_columns=["GEN_0__GT", "GEN_1__GT", "GEN_2__GT", "GEN_3__GT"],
+        is_binary=True,
+        missing_site_threshold=0.25,
+        missing_sample_threshold=0.80,
+        phenotype_vector=np.array([1, 1, 0, 0]),
+        covariate_matrix=None,
+        score_column="nephro_candidate_score",
+    )
+    gene_data = [
+        {
+            "GENE": "A",
+            "proband_count": 2,
+            "control_count": 2,
+            "n_qualifying_variants": 2,
+            "_genotype_matrix_builder": builder,
+        }
+    ]
+
+    engine = AssociationEngine([RecordingTest()], AssociationConfig())
+    result_df = engine.run_all(gene_data)
+
+    assert result_df is not None
+    np.testing.assert_array_equal(seen["score_values"], np.array([2.0, 8.0], dtype=object))
+    assert seen["variant_weight_column"] == "nephro_candidate_score"
+    assert "score_values" not in gene_data[0]
+    assert "variant_weight_column" not in gene_data[0]
