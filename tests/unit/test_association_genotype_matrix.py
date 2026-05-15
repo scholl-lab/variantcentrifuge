@@ -478,6 +478,36 @@ class TestBuildGenotypeMatrixWarnings:
         assert isinstance(sample_mask, list)
         assert isinstance(warnings_list, list)
 
+    def test_build_genotype_matrix_can_return_keep_variants_mask(self) -> None:
+        gt_values = [
+            ["0/1", "0/1", "0/0", "0/0"],
+            ["./.", "./.", "0/0", "0/0"],
+            ["1/1", "0/1", "0/0", "0/0"],
+        ]
+        gene_df, vcf_samples, gt_cols = _make_gene_df(4, 3, gt_values)
+
+        geno, mafs, sample_mask, warnings_list, keep_mask = build_genotype_matrix(
+            gene_df,
+            vcf_samples,
+            gt_cols,
+            missing_site_threshold=0.25,
+            return_keep_mask=True,
+        )
+
+        assert geno.shape == (4, 2)
+        assert len(mafs) == 2
+        assert sample_mask == [True, True, True, True]
+        assert warnings_list == []
+        np.testing.assert_array_equal(keep_mask, np.array([True, False, True]))
+
+    def test_build_genotype_matrix_default_return_shape_stays_four_tuple(self) -> None:
+        gt_values = [["0/1", "0/0"]]
+        gene_df, vcf_samples, gt_cols = _make_gene_df(2, 1, gt_values)
+
+        result = build_genotype_matrix(gene_df, vcf_samples, gt_cols)
+
+        assert len(result) == 4
+
     def test_build_genotype_matrix_differential_missingness_warning(self) -> None:
         """Differential missingness >5% between cases/controls triggers warning."""
         # 10 samples: 5 cases, 5 controls
