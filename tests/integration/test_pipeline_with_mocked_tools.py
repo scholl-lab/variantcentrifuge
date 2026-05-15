@@ -21,9 +21,8 @@ class MockedToolsTestCase:
     @pytest.fixture(autouse=True)
     def setup_mocks(self):
         """Set up mocks for external tools."""
-        self.bcftools_patcher = patch("variantcentrifuge.stages.processing_stages.run_command")
+        self.bcftools_patcher = patch("variantcentrifuge.filters.run_command")
         self.snpeff_patcher = patch("variantcentrifuge.gene_bed.subprocess.run")
-        self.snpsift_patcher = patch("variantcentrifuge.filters.run_command")
         # Patch extract_fields_bcftools (Phase 11: bcftools replaces SnpSift)
         self.extractor_patcher = patch(
             "variantcentrifuge.stages.processing_stages.extract_fields_bcftools"
@@ -31,7 +30,7 @@ class MockedToolsTestCase:
 
         self.mock_bcftools = self.bcftools_patcher.start()
         self.mock_snpeff = self.snpeff_patcher.start()
-        self.mock_snpsift = self.snpsift_patcher.start()
+        self.mock_snpsift = self.mock_bcftools
         self.mock_extractor = self.extractor_patcher.start()
 
         # Configure default behaviors
@@ -41,7 +40,6 @@ class MockedToolsTestCase:
 
         self.bcftools_patcher.stop()
         self.snpeff_patcher.stop()
-        self.snpsift_patcher.stop()
         self.extractor_patcher.stop()
 
     def _configure_tool_mocks(self):
@@ -135,9 +133,13 @@ class MockedToolsTestCase:
 
             return result
 
-        self.mock_bcftools.side_effect = bcftools_side_effect
+        def run_command_side_effect(cmd, *args, **kwargs):
+            if isinstance(cmd, list) and cmd and cmd[0] == "bcftools":
+                return bcftools_side_effect(cmd, *args, **kwargs)
+            return snpsift_side_effect(cmd, *args, **kwargs)
+
+        self.mock_bcftools.side_effect = run_command_side_effect
         self.mock_snpeff.side_effect = snpeff_side_effect
-        self.mock_snpsift.side_effect = snpsift_side_effect
         self.mock_extractor.side_effect = bcftools_extract_side_effect
 
 
@@ -303,10 +305,7 @@ class TestErrorHandling(MockedToolsTestCase):
 
         # Configure bcftools to return error
         def bcftools_error_side_effect(cmd, *args, **kwargs):
-            from variantcentrifuge.utils import CommandError
-
-            # Raise CommandError which is what run_command raises on failure
-            raise CommandError("ERROR: Invalid VCF format")
+            raise RuntimeError("ERROR: Invalid VCF format")
 
         self.mock_bcftools.side_effect = bcftools_error_side_effect
 

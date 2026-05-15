@@ -62,7 +62,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
     general_group.add_argument(
         "--log-level",
-        choices=["DEBUG", "INFO", "WARN", "ERROR"],
+        choices=["DEBUG", "INFO", "WARN", "WARNING", "ERROR"],
         default="INFO",
         help="Set the logging level",
     )
@@ -130,7 +130,8 @@ def create_parser() -> argparse.ArgumentParser:
         "--regions-bed",
         help=(
             "BED file to restrict variant extraction to specified regions (e.g., capture kit BED). "
-            "The gene BED is intersected with this file before variant extraction."
+            "The gene BED is intersected with this file before variant extraction; with "
+            "--gene-name all, the regions BED is used directly."
         ),
         default=None,
     )
@@ -1082,7 +1083,7 @@ def main() -> int:
         status_parser.add_argument("--show-checkpoint-status", action="store_true")
         status_parser.add_argument("--output-dir", default="output", help="Output directory")
         status_parser.add_argument(
-            "--log-level", choices=["DEBUG", "INFO", "WARN", "ERROR"], default="INFO"
+            "--log-level", choices=["DEBUG", "INFO", "WARN", "WARNING", "ERROR"], default="INFO"
         )
         status_parser.add_argument(
             "-c", "--config", help="Path to configuration file", default=None
@@ -1094,6 +1095,7 @@ def main() -> int:
             "DEBUG": logging.DEBUG,
             "INFO": logging.INFO,
             "WARN": logging.WARNING,
+            "WARNING": logging.WARNING,
             "ERROR": logging.ERROR,
         }
         logging.getLogger("variantcentrifuge").setLevel(log_level_map[status_args.log_level])
@@ -1117,6 +1119,7 @@ def main() -> int:
         "DEBUG": logging.DEBUG,
         "INFO": logging.INFO,
         "WARN": logging.WARNING,
+        "WARNING": logging.WARNING,
         "ERROR": logging.ERROR,
     }
     logging.getLogger("variantcentrifuge").setLevel(log_level_map[args.log_level])

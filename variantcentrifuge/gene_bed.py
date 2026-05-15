@@ -19,6 +19,78 @@ import tempfile
 
 logger = logging.getLogger("variantcentrifuge")
 
+_COMMAND_OUTPUT_PREVIEW_CHARS = 4000
+
+
+class GeneBedCommandError(subprocess.CalledProcessError):
+    """CalledProcessError that includes captured command output in its message."""
+
+    def __init__(
+        self,
+        returncode: int,
+        cmd: list[str],
+        *,
+        stdout: str | None = None,
+        stderr: str | None = None,
+        description: str,
+    ) -> None:
+        super().__init__(returncode, cmd, output=stdout, stderr=stderr)
+        self.description = description
+
+    def __str__(self) -> str:
+        parts = [f"{self.description} failed: {super().__str__()}"]
+        if self.stderr:
+            parts.append(f"stderr:\n{self.stderr}")
+        if self.stdout:
+            parts.append(f"stdout:\n{self.stdout}")
+        return "\n".join(parts)
+
+
+def _preview_text(text: str | None, max_chars: int = _COMMAND_OUTPUT_PREVIEW_CHARS) -> str | None:
+    """Return a bounded preview of command output."""
+    if not text:
+        return None
+    text = text.strip()
+    if not text:
+        return None
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars]}... [truncated]"
+
+
+def _preview_file(path: str, max_chars: int = _COMMAND_OUTPUT_PREVIEW_CHARS) -> str | None:
+    """Return a bounded preview of a text file if it contains any output."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            return _preview_text(handle.read(max_chars + 1), max_chars=max_chars)
+    except OSError:
+        return None
+
+
+def _run_command_to_file(cmd: list[str], output_path: str, description: str) -> None:
+    """Run a command with stdout redirected to a file and stderr captured for diagnostics."""
+    try:
+        with open(output_path, "w", encoding="utf-8") as out_f:
+            subprocess.run(
+                cmd,
+                stdout=out_f,
+                stderr=subprocess.PIPE,
+                check=True,
+                text=True,
+            )
+    except subprocess.CalledProcessError as e:
+        stdout_preview = _preview_file(output_path)
+        stderr_preview = _preview_text(e.stderr)
+        error = GeneBedCommandError(
+            e.returncode,
+            e.cmd,
+            stdout=stdout_preview,
+            stderr=stderr_preview,
+            description=description,
+        )
+        logger.error("%s", error)
+        raise error from e
+
 
 def normalize_genes(
     gene_name_str: str | None, gene_file_str: str | None, logger: logging.Logger
@@ -154,29 +226,27 @@ def get_gene_bed(
     os.close(bed_fd)
 
     try:
-        cmd = ["snpEff", "-Xmx8g", "genes2bed", reference, *gene_args]
+        cmd = ["snpEff", "-Xmx8g", "genes2bed"]
         if interval_expand > 0:
             cmd.extend(["-ud", str(interval_expand)])
+        cmd.extend([reference, *gene_args])
 
         logger.info("Running: %s", " ".join(cmd))
-        with open(bed_path, "w", encoding="utf-8") as out_f:
-            subprocess.run(cmd, stdout=out_f, check=True, text=True)
+        _run_command_to_file(cmd, bed_path, "snpEff genes2bed")
         logger.debug("snpEff genes2bed completed, BED file at %s", bed_path)
 
         # Sort the BED file
         sorted_bed = bed_path + ".sorted"
         sort_cmd = ["sortBed", "-i", bed_path]
         logger.debug("Sorting BED file with: %s", " ".join(sort_cmd))
-        with open(sorted_bed, "w", encoding="utf-8") as out_f:
-            subprocess.run(sort_cmd, stdout=out_f, check=True, text=True)
+        _run_command_to_file(sort_cmd, sorted_bed, "sortBed")
         logger.debug("BED sorting completed, sorted file at %s", sorted_bed)
 
         # Merge overlapping intervals to prevent duplicate variant extraction
         merged_bed = sorted_bed + ".merged"
         merge_cmd = ["bedtools", "merge", "-i", sorted_bed]
         logger.debug("Merging overlapping intervals with: %s", " ".join(merge_cmd))
-        with open(merged_bed, "w", encoding="utf-8") as out_f:
-            subprocess.run(merge_cmd, stdout=out_f, check=True, text=True)
+        _run_command_to_file(merge_cmd, merged_bed, "bedtools merge")
         logger.debug("BED merging completed, merged file at %s", merged_bed)
 
         # Clean up intermediate files

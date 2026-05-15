@@ -1,6 +1,7 @@
 """Unit tests for gene BED creation with merging functionality."""
 
 import os
+import subprocess
 import tempfile
 from unittest.mock import patch
 
@@ -27,6 +28,77 @@ chr20	12345000	12347000	OTHER_GENE
 """
         with open(bed_path, "w") as f:
             f.write(overlapping_bed_content)
+
+    def mock_successful_bed_pipeline(self, cmd, **kwargs):
+        """Mock successful genes2bed, sortBed, and bedtools merge calls."""
+        if "genes2bed" in cmd:
+            output_file = kwargs.get("stdout")
+            if hasattr(output_file, "name"):
+                with open(output_file.name, "w") as f:
+                    f.write("16\t2088707\t2135898\tPKD1\n")
+        elif "sortBed" in cmd or ("bedtools" in cmd and "merge" in cmd):
+            input_file = cmd[cmd.index("-i") + 1]
+            output_file = kwargs.get("stdout")
+            if hasattr(output_file, "name"):
+                with open(input_file) as inf, open(output_file.name, "w") as outf:
+                    outf.write(inf.read())
+
+    @patch("subprocess.run")
+    def test_genes2bed_expansion_option_precedes_reference(self, mock_subprocess, temp_dir):
+        """Test that snpEff genes2bed options are placed before positional arguments."""
+        mock_subprocess.side_effect = self.mock_successful_bed_pipeline
+
+        get_gene_bed(
+            reference="GRCh38.p14",
+            gene_name="PKD1",
+            interval_expand=1000,
+            add_chr=False,
+            output_dir=temp_dir,
+        )
+
+        genes2bed_cmd = next(
+            call.args[0] for call in mock_subprocess.call_args_list if "genes2bed" in call.args[0]
+        )
+        assert genes2bed_cmd == [
+            "snpEff",
+            "-Xmx8g",
+            "genes2bed",
+            "-ud",
+            "1000",
+            "GRCh38.p14",
+            "PKD1",
+        ]
+
+    @patch("subprocess.run")
+    def test_genes2bed_failure_includes_captured_output(self, mock_subprocess, temp_dir):
+        """Test that snpEff failures include stderr and partial stdout in the raised error."""
+
+        def mock_run(cmd, **kwargs):
+            if "genes2bed" in cmd:
+                output_file = kwargs.get("stdout")
+                if hasattr(output_file, "write"):
+                    output_file.write("partial bed output\n")
+                raise subprocess.CalledProcessError(
+                    247, cmd, stderr="SnpEff failed without a BED result"
+                )
+            return None
+
+        mock_subprocess.side_effect = mock_run
+
+        with pytest.raises(subprocess.CalledProcessError) as exc_info:
+            get_gene_bed(
+                reference="GRCh38.p14",
+                gene_name="PKD1",
+                interval_expand=1000,
+                add_chr=False,
+                output_dir=temp_dir,
+            )
+
+        error_message = str(exc_info.value)
+        assert "snpEff genes2bed failed" in error_message
+        assert "exit status 247" in error_message
+        assert "stderr:\nSnpEff failed without a BED result" in error_message
+        assert "stdout:\npartial bed output" in error_message
 
     @patch("subprocess.run")
     def test_bed_merging_removes_overlaps(self, mock_subprocess, temp_dir):
