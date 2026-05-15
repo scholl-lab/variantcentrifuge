@@ -66,8 +66,6 @@ from variantcentrifuge.association.backends.davies import (
     compute_pvalue,
     davies_pvalue,
 )
-from variantcentrifuge.association.weights import beta_maf_weights
-
 logger = logging.getLogger("variantcentrifuge")
 
 # Fixed SKAT-O rho search grid (matches R SKAT package default)
@@ -658,7 +656,8 @@ class PythonSKATBackend(SKATBackend):
         genotype_matrix: np.ndarray,
         null_model: NullModelResult,
         method: str,
-        weights_beta: tuple[float, float],
+        weights: np.ndarray | None = None,
+        weights_beta: tuple[float, float] | None = None,
     ) -> dict[str, Any]:
         """
         Run the SKAT test for a single gene.
@@ -675,8 +674,10 @@ class PythonSKATBackend(SKATBackend):
             Fitted null model from fit_null_model().
         method : str
             "SKAT", "Burden", or "SKATO".
-        weights_beta : tuple of (float, float)
-            Beta distribution parameters (a1, a2). SKAT default: (1.0, 25.0).
+        weights : np.ndarray or None
+            Concrete per-variant weights aligned to genotype_matrix columns.
+        weights_beta : tuple of (float, float) or None
+            Deprecated legacy parameter accepted only for API compatibility.
 
         Returns
         -------
@@ -685,25 +686,42 @@ class PythonSKATBackend(SKATBackend):
         """
         self._genes_processed += 1
         n_variants = genotype_matrix.shape[1]
+        weights_arr = self._validate_variant_weights(genotype_matrix, weights)
 
         method_upper = method.upper()
         # Map R SKAT method names to our internal names
         # "optimal.adj" and "optimal" are R's names for SKAT-O
         if method_upper == "SKAT":
-            result = self._test_skat(gene, genotype_matrix, null_model, weights_beta)
+            result = self._test_skat(gene, genotype_matrix, null_model, weights_arr)
         elif method_upper == "BURDEN":
-            result = self._test_burden(gene, genotype_matrix, null_model, weights_beta)
+            result = self._test_burden(gene, genotype_matrix, null_model, weights_arr)
         elif method_upper in ("SKATO", "OPTIMAL.ADJ", "OPTIMAL"):
-            result = self._test_skato(gene, genotype_matrix, null_model, weights_beta)
+            result = self._test_skato(gene, genotype_matrix, null_model, weights_arr)
         else:
             logger.warning(f"Unknown SKAT method '{method}' for gene {gene}; using SKAT")
-            result = self._test_skat(gene, genotype_matrix, null_model, weights_beta)
+            result = self._test_skat(gene, genotype_matrix, null_model, weights_arr)
 
         logger.debug(
             f"Gene {gene}: method={method}, p={result.get('p_value')}, "
             f"n_variants={n_variants}, p_method={result.get('p_method')}"
         )
         return result
+
+    def _validate_variant_weights(
+        self, genotype_matrix: np.ndarray, weights: np.ndarray | None
+    ) -> np.ndarray:
+        if weights is None:
+            raise ValueError("PythonSKATBackend requires concrete variant weights")
+        weights_arr = np.asarray(weights, dtype=np.float64)
+        n_variants = genotype_matrix.shape[1]
+        if len(weights_arr) != n_variants:
+            raise ValueError(
+                f"weights length must match genotype_matrix columns "
+                f"(got {len(weights_arr)} and {n_variants})"
+            )
+        if not np.isfinite(weights_arr).all():
+            raise ValueError("weights must be finite")
+        return weights_arr
 
     def _compute_eigenvalues_filtered(
         self,
@@ -802,7 +820,7 @@ class PythonSKATBackend(SKATBackend):
         gene: str,
         geno: np.ndarray,
         null_model: NullModelResult,
-        weights_beta: tuple[float, float],
+        weights: np.ndarray,
     ) -> dict[str, Any]:
         """
         SKAT score test for a single gene.
@@ -815,8 +833,8 @@ class PythonSKATBackend(SKATBackend):
             Genotype dosage matrix.
         null_model : NullModelResult
             Fitted null model (contains residuals and sigma2 in extra).
-        weights_beta : tuple of (float, float)
-            Beta distribution parameters (a1, a2).
+        weights : np.ndarray
+            Concrete per-variant weights aligned to genotype columns.
 
         Returns
         -------
@@ -824,7 +842,6 @@ class PythonSKATBackend(SKATBackend):
         """
         _n_samples, n_variants = geno.shape
         residuals: np.ndarray = null_model.extra["residuals"]
-        a1, a2 = weights_beta
 
         # Guard: zero-variant matrix cannot be tested
         if n_variants == 0:
@@ -854,10 +871,6 @@ class PythonSKATBackend(SKATBackend):
                 "p_converged": False,
                 "skip_reason": "rank_deficient",
             }
-
-        # Compute MAFs and Beta weights
-        mafs = geno.mean(axis=0) / 2.0
-        weights = beta_maf_weights(mafs, a=a1, b=a2)
 
         # Weighted genotype matrix via broadcasting (memory-efficient vs geno @ diag(w))
         geno_weighted = geno * weights[np.newaxis, :]
@@ -904,7 +917,7 @@ class PythonSKATBackend(SKATBackend):
         gene: str,
         geno: np.ndarray,
         null_model: NullModelResult,
-        weights_beta: tuple[float, float],
+        weights: np.ndarray,
     ) -> dict[str, Any]:
         """
         Burden score test for a single gene.
@@ -920,8 +933,8 @@ class PythonSKATBackend(SKATBackend):
             Genotype dosage matrix.
         null_model : NullModelResult
             Fitted null model.
-        weights_beta : tuple of (float, float)
-            Beta distribution parameters (a1, a2).
+        weights : np.ndarray
+            Concrete per-variant weights aligned to genotype columns.
 
         Returns
         -------
@@ -930,11 +943,6 @@ class PythonSKATBackend(SKATBackend):
         _n_samples, n_variants = geno.shape
         residuals: np.ndarray = null_model.extra["residuals"]
         sigma2: float = null_model.extra["sigma2"]
-        a1, a2 = weights_beta
-
-        # Compute MAFs and Beta weights
-        mafs = geno.mean(axis=0) / 2.0
-        weights = beta_maf_weights(mafs, a=a1, b=a2)
 
         # Collapse to burden score per sample: b = geno @ weights
         burden = geno @ weights  # shape: (n_samples,)
@@ -974,7 +982,7 @@ class PythonSKATBackend(SKATBackend):
         gene: str,
         geno: np.ndarray,
         null_model: NullModelResult,
-        weights_beta: tuple[float, float],
+        weights: np.ndarray,
     ) -> dict[str, Any]:
         """
         SKAT-O (optimal unified SKAT) for a single gene.
@@ -1003,8 +1011,8 @@ class PythonSKATBackend(SKATBackend):
             Genotype dosage matrix.
         null_model : NullModelResult
             Fitted null model.
-        weights_beta : tuple of (float, float)
-            Beta distribution parameters (a1, a2).
+        weights : np.ndarray
+            Concrete per-variant weights aligned to genotype columns.
 
         Returns
         -------
@@ -1013,7 +1021,6 @@ class PythonSKATBackend(SKATBackend):
         _n_samples, n_variants = geno.shape
         residuals: np.ndarray = null_model.extra["residuals"]
         trait_type: str = null_model.trait_type
-        a1, a2 = weights_beta
 
         # Guard: zero-variant matrix cannot be tested
         if n_variants == 0:
@@ -1043,10 +1050,6 @@ class PythonSKATBackend(SKATBackend):
                 "p_converged": False,
                 "skip_reason": "rank_deficient",
             }
-
-        # Compute weights
-        mafs = geno.mean(axis=0) / 2.0
-        weights = beta_maf_weights(mafs, a=a1, b=a2)
 
         # Weighted genotype matrix: Z = geno * weights
         geno_weighted = geno * weights[np.newaxis, :]
