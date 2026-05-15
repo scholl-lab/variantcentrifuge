@@ -54,6 +54,17 @@ class TestVariantIdentifierStage:
         assert variant_ids[1].startswith("var_0002_")
         assert variant_ids[2].startswith("var_0003_")
 
+    def test_adds_custom_annotation_column_for_canonical_annotation_keys(self, context):
+        """Test canonical annotation keys add Custom_Annotation."""
+        context.config["annotate_bed_files"] = ["regions.bed"]
+        context.config["annotate_gene_lists"] = ["genes.txt"]
+        context.config["annotate_bed"] = []
+        context.config["annotate_gene_list"] = []
+
+        result = VariantIdentifierStage()(context)
+
+        assert "Custom_Annotation" in result.current_dataframe.columns
+
     def test_dependencies(self):
         """Test stage dependencies."""
         stage = VariantIdentifierStage()

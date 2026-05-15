@@ -22,6 +22,7 @@ from typing import Any, cast
 
 import pandas as pd
 
+from ..config import normalize_annotation_config
 from ..converter import (
     append_tsv_as_sheet,
     convert_to_excel,
@@ -245,11 +246,13 @@ class VariantIdentifierStage(Stage):
             # Fallback to simple index
             df.insert(0, id_column, [f"var_{i:04d}_0000" for i in range(1, len(df) + 1)])
 
+        normalize_annotation_config(context.config)
+
         # Only add Custom_Annotation column if custom annotations are actually requested
         custom_annotations_requested = any(
             [
-                context.config.get("annotate_bed", []),
-                context.config.get("annotate_gene_list", []),
+                context.config.get("annotate_bed_files", []),
+                context.config.get("annotate_gene_lists", []),
                 context.config.get("annotate_json_genes", []),
             ]
         )

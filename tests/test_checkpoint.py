@@ -163,6 +163,32 @@ class TestPipelineState:
         # Different version - should not be compatible
         assert new_state.can_resume(config, "2.0.0") is False
 
+    def test_pipeline_state_resume_detects_canonical_bed_annotation_change(self, tmp_path):
+        """Test canonical BED annotation config affects resume compatibility."""
+        state = PipelineState(str(tmp_path))
+        config = {"gene_name": "BRCA1", "annotate_bed_files": ["regions_a.bed"]}
+        state.initialize(config, "1.0.0")
+        state.save()
+
+        new_state = PipelineState(str(tmp_path))
+        new_state.load()
+
+        changed_config = {"gene_name": "BRCA1", "annotate_bed_files": ["regions_b.bed"]}
+        assert new_state.can_resume(changed_config, "1.0.0") is False
+
+    def test_pipeline_state_resume_detects_canonical_gene_list_annotation_change(self, tmp_path):
+        """Test canonical gene list annotation config affects resume compatibility."""
+        state = PipelineState(str(tmp_path))
+        config = {"gene_name": "BRCA1", "annotate_gene_lists": ["genes_a.txt"]}
+        state.initialize(config, "1.0.0")
+        state.save()
+
+        new_state = PipelineState(str(tmp_path))
+        new_state.load()
+
+        changed_config = {"gene_name": "BRCA1", "annotate_gene_lists": ["genes_b.txt"]}
+        assert new_state.can_resume(changed_config, "1.0.0") is False
+
     def test_pipeline_state_step_tracking(self, tmp_path):
         """Test step tracking functionality."""
         state = PipelineState(str(tmp_path))

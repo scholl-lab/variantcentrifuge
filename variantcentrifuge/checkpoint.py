@@ -19,6 +19,8 @@ from functools import wraps
 from pathlib import Path
 from typing import Any
 
+from .config import normalize_annotation_config
+
 logger = logging.getLogger("variantcentrifuge")
 
 
@@ -803,6 +805,8 @@ class PipelineState:
 
     def _hash_configuration(self, config: dict[str, Any]) -> str:
         """Create a hash of the configuration for change detection."""
+        config = normalize_annotation_config(config.copy())
+
         # Select relevant configuration keys that affect pipeline behavior
         relevant_keys = [
             "gene_name",
@@ -823,7 +827,10 @@ class PipelineState:
             "ped",
             "inheritance_mode",
             "annotate_bed",
+            "annotate_bed_files",
             "annotate_gene_list",
+            "annotate_gene_list_files",
+            "annotate_gene_lists",
             "annotate_json_genes",
         ]
 
