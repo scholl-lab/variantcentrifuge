@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes._
 
+## [0.17.3] - 2026-05-15
+
+### Fixed
+- Restore and harden custom BED and gene-list annotation config handling so CLI and config-driven runs preserve `Custom_Annotation` behavior across legacy and canonical keys.
+- Preserve checkpoint resume compatibility across annotation config key migration while still invalidating checkpoints when annotation inputs change.
+
 ## [0.17.2] - 2026-05-14
 
 ### Fixed
