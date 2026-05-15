@@ -101,6 +101,15 @@ class GeneBedCreationStage(Stage):
             reference = context.config.get("reference", "GRCh37.75")
             interval_expand = context.config.get("interval_expand", 0)
             add_chr = context.config.get("add_chr", True)
+            regions_bed = context.config.get("regions_bed")
+
+            if regions_bed and normalized_genes.lower().strip() == "all":
+                context.gene_bed_file = validate_file_exists(regions_bed, self.name)
+                logger.info(
+                    "Using regions BED directly because gene selection is 'all': %s",
+                    context.gene_bed_file,
+                )
+                return context
 
             logger.info(f"Creating BED file for genes: {normalized_genes}")
 
@@ -120,21 +129,26 @@ class GeneBedCreationStage(Stage):
             try:
                 bed_file = create_bed()
             except subprocess.CalledProcessError as e:
+                # Check if it's a gene not found error before the broader tool-not-found case.
+                if "not found in database" in str(e):
+                    snpeff_reason = getattr(e, "stderr", None) or str(e)
+                    raise FileFormatError(
+                        normalized_genes,
+                        (
+                            f"valid gene names for {reference}; "
+                            f"snpEff genes2bed reported: {snpeff_reason.strip()}"
+                        ),
+                        self.name,
+                    ) from e
                 # Check if it's a tool not found error
                 if "snpEff" in str(e) and ("not found" in str(e) or "No such file" in str(e)):
                     raise ToolNotFoundError("snpEff", self.name) from e
-                # Check if it's a gene not found error
-                if "not found in database" in str(e):
-                    raise FileFormatError(
-                        normalized_genes, f"valid gene names for {reference}", self.name
-                    ) from e
                 raise
 
             context.gene_bed_file = Path(bed_file)
             logger.info(f"Created BED file: {bed_file}")
 
             # Region restriction: intersect gene BED with restriction BED
-            regions_bed = context.config.get("regions_bed")
             if regions_bed:
                 context.gene_bed_file = self._intersect_with_restriction_bed(
                     context.gene_bed_file, regions_bed, context

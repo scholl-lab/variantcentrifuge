@@ -62,6 +62,26 @@ class TestGeneBedCreationStage:
         assert result.config["normalized_genes"] == "BRCA1 BRCA2"
         assert result.gene_bed_file == Path("/tmp/genes.bed")
 
+    @patch("variantcentrifuge.stages.processing_stages.get_gene_bed")
+    @patch("variantcentrifuge.stages.processing_stages.normalize_genes")
+    def test_regions_bed_with_all_genes_bypasses_gene_bed_creation(
+        self, mock_normalize, mock_get_bed, context, tmp_path
+    ):
+        """Test that --regions-bed with all genes uses the regions BED directly."""
+        regions_bed = tmp_path / "regions.bed"
+        regions_bed.write_text("chr16\t2088707\t2135898\n")
+        context.config["gene_name"] = "all"
+        context.config["regions_bed"] = str(regions_bed)
+        mock_normalize.return_value = "all"
+
+        stage = GeneBedCreationStage()
+        result = stage(context)
+
+        mock_normalize.assert_called_once_with("all", None, ANY)
+        mock_get_bed.assert_not_called()
+        assert result.config["normalized_genes"] == "all"
+        assert result.gene_bed_file == regions_bed
+
     def test_dependencies(self):
         """Test stage dependencies."""
         stage = GeneBedCreationStage()
