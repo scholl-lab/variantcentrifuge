@@ -10,6 +10,7 @@ import pytest
 from variantcentrifuge.pipeline import create_stages_from_config
 from variantcentrifuge.stages.analysis_stages import (
     AssociationAnalysisStage,
+    CustomAnnotationStage,
     GeneBurdenAnalysisStage,
 )
 from variantcentrifuge.stages.output_stages import (
@@ -17,6 +18,7 @@ from variantcentrifuge.stages.output_stages import (
     HTMLReportStage,
     IGVReportStage,
 )
+from variantcentrifuge.stages.setup_stages import AnnotationConfigLoadingStage
 
 
 def _stage_types(config: dict) -> list[type]:
@@ -87,3 +89,30 @@ def test_igv_true_activates_igv_stage():
     """Config with igv=True must include IGVReportStage."""
     stage_types = _stage_types({"igv": True})
     assert IGVReportStage in stage_types
+
+
+@pytest.mark.integration
+def test_canonical_annotate_bed_files_activates_custom_annotation_stages():
+    """Canonical BED config key must activate custom annotation stages."""
+    stage_types = _stage_types({"annotate_bed_files": ["regions.bed"]})
+
+    assert AnnotationConfigLoadingStage in stage_types
+    assert CustomAnnotationStage in stage_types
+
+
+@pytest.mark.integration
+def test_canonical_annotate_gene_lists_activates_custom_annotation_stages():
+    """Canonical gene-list config key must activate custom annotation stages."""
+    stage_types = _stage_types({"annotate_gene_lists": ["genes.txt"]})
+
+    assert AnnotationConfigLoadingStage in stage_types
+    assert CustomAnnotationStage in stage_types
+
+
+@pytest.mark.integration
+def test_gene_list_files_alias_activates_custom_annotation_stages():
+    """Gene-list files alias must activate custom annotation stages."""
+    stage_types = _stage_types({"annotate_gene_list_files": ["genes.txt"]})
+
+    assert AnnotationConfigLoadingStage in stage_types
+    assert CustomAnnotationStage in stage_types

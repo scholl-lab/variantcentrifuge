@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 from typing import Literal
 
-from .config import load_config
+from .config import load_config, normalize_annotation_config
 from .gene_bed import normalize_genes
 from .pipeline_core.context import PipelineContext
 from .pipeline_core.runner import PipelineRunner
@@ -148,6 +148,19 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     # Get config to check for scoring_config_path
     # If args.config is a dict, use it; otherwise check individual args
     config = args.config if hasattr(args, "config") and isinstance(args.config, dict) else {}
+    if isinstance(config, dict):
+        normalize_annotation_config(config)
+
+    annotations_requested = any(
+        [
+            config.get("annotate_bed_files"),
+            config.get("annotate_gene_lists"),
+            config.get("annotate_json_genes"),
+            hasattr(args, "annotate_bed") and args.annotate_bed,
+            hasattr(args, "annotate_gene_list") and args.annotate_gene_list,
+            hasattr(args, "annotate_json_genes") and args.annotate_json_genes,
+        ]
+    )
 
     # Setup stages (can run in parallel)
     # Always add phenotype loading stage - it will skip if no phenotype file is provided
@@ -162,13 +175,7 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     if hasattr(args, "ped_file") and args.ped_file:
         stages.append(PedigreeLoadingStage())
 
-    if any(
-        [
-            hasattr(args, "annotate_bed") and args.annotate_bed,
-            hasattr(args, "annotate_gene_list") and args.annotate_gene_list,
-            hasattr(args, "annotate_json_genes") and args.annotate_json_genes,
-        ]
-    ):
+    if annotations_requested:
         stages.append(AnnotationConfigLoadingStage())
 
     # Always load samples
@@ -229,13 +236,7 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     # This stage will automatically activate when use_chunked_processing is set to True
     stages.append(ChunkedAnalysisStage())
 
-    if any(
-        [
-            hasattr(args, "annotate_bed") and args.annotate_bed,
-            hasattr(args, "annotate_gene_list") and args.annotate_gene_list,
-            hasattr(args, "annotate_json_genes") and args.annotate_json_genes,
-        ]
-    ):
+    if annotations_requested:
         stages.append(CustomAnnotationStage())
 
     # Check both args and config for inheritance settings
@@ -372,6 +373,8 @@ def create_stages_from_config(config: dict) -> list[Stage]:
     igv                     IGVReportStage
     ======================= ===========================
     """
+    config = normalize_annotation_config(config.copy())
+
     # Convert config dict to a minimal args namespace for compatibility
     args = argparse.Namespace()
 
@@ -379,8 +382,8 @@ def create_stages_from_config(config: dict) -> list[Stage]:
     args.config = config
     args.scoring_config_path = config.get("scoring_config_path")
     args.ped_file = config.get("ped_file")
-    args.annotate_bed = config.get("annotate_bed", [])
-    args.annotate_gene_list = config.get("annotate_gene_list", [])
+    args.annotate_bed = config.get("annotate_bed_files", [])
+    args.annotate_gene_list = config.get("annotate_gene_lists", [])
     args.annotate_json_genes = config.get("annotate_json_genes", [])
     args.late_filtering = config.get("late_filtering", False)
     args.genotype_filter = config.get("genotype_filter")
