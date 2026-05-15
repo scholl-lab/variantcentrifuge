@@ -206,6 +206,9 @@ nul
 # Node.js dependencies
 node_modules/
 
+# Local git worktrees
+.worktrees/
+
 # Docker local overrides
 docker-compose.override.yml
 
