@@ -14,6 +14,7 @@ config.json from the package installation directory.
 
 import json
 import os
+from collections.abc import Iterable
 from typing import Any
 
 
@@ -60,4 +61,62 @@ def load_config(config_file: str | None = None) -> dict[str, Any]:
         raise ValueError(
             f"Configuration file must contain a JSON object, got {type(config).__name__}"
         )
+    return config
+
+
+def _annotation_value_as_list(value: Any) -> list[str]:
+    """Normalize annotation config values to a list of non-empty strings."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        stripped = value.strip()
+        return [stripped] if stripped else []
+    if isinstance(value, Iterable):
+        normalized = []
+        for item in value:
+            if item is None:
+                continue
+            item_str = str(item).strip()
+            if item_str:
+                normalized.append(item_str)
+        return normalized
+    item_str = str(value).strip()
+    return [item_str] if item_str else []
+
+
+def _first_non_empty_annotation_value(config: dict[str, Any], keys: list[str]) -> list[str]:
+    """Return the first non-empty normalized annotation value for key aliases."""
+    for key in keys:
+        value = _annotation_value_as_list(config.get(key))
+        if value:
+            return value
+    return []
+
+
+def normalize_annotation_config(config: dict[str, Any]) -> dict[str, Any]:
+    """Normalize custom annotation config aliases in-place.
+
+    Canonical internal keys:
+    - annotate_bed_files
+    - annotate_gene_lists
+
+    Compatibility aliases:
+    - annotate_bed
+    - annotate_gene_list
+    - annotate_gene_list_files
+    """
+    bed_files = _first_non_empty_annotation_value(
+        config,
+        ["annotate_bed_files", "annotate_bed"],
+    )
+    gene_lists = _first_non_empty_annotation_value(
+        config,
+        ["annotate_gene_lists", "annotate_gene_list_files", "annotate_gene_list"],
+    )
+
+    config["annotate_bed_files"] = bed_files
+    config["annotate_bed"] = bed_files
+    config["annotate_gene_lists"] = gene_lists
+    config["annotate_gene_list_files"] = gene_lists
+    config["annotate_gene_list"] = gene_lists
     return config
