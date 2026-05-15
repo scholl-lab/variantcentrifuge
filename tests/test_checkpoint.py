@@ -1,5 +1,7 @@
 """Tests for the checkpoint and resume system."""
 
+import hashlib
+import json
 import os
 import time
 
@@ -188,6 +190,23 @@ class TestPipelineState:
 
         changed_config = {"gene_name": "BRCA1", "annotate_gene_lists": ["genes_b.txt"]}
         assert new_state.can_resume(changed_config, "1.0.0") is False
+
+    def test_pipeline_state_resume_preserves_legacy_no_annotation_hash(self, tmp_path):
+        """Test no-annotation checkpoints remain resumable after annotation normalization."""
+        config = {"gene_name": "BRCA1", "vcf_file": "input.vcf", "filters": "QUAL > 30"}
+        legacy_config_str = json.dumps(config, sort_keys=True)
+        legacy_hash = hashlib.sha256(legacy_config_str.encode()).hexdigest()
+
+        state = PipelineState(str(tmp_path))
+        state.state["pipeline_version"] = "1.0.0"
+        state.state["start_time"] = time.time()
+        state.state["configuration_hash"] = legacy_hash
+        state.save()
+
+        new_state = PipelineState(str(tmp_path))
+        new_state.load()
+
+        assert new_state.can_resume(config, "1.0.0") is True
 
     def test_pipeline_state_step_tracking(self, tmp_path):
         """Test step tracking functionality."""

@@ -833,8 +833,19 @@ class PipelineState:
             "annotate_gene_lists",
             "annotate_json_genes",
         ]
+        annotation_alias_keys = {
+            "annotate_bed",
+            "annotate_bed_files",
+            "annotate_gene_list",
+            "annotate_gene_list_files",
+            "annotate_gene_lists",
+        }
 
-        relevant_config = {k: v for k, v in config.items() if k in relevant_keys and v is not None}
+        relevant_config = {
+            k: v
+            for k, v in config.items()
+            if k in relevant_keys and v is not None and not (k in annotation_alias_keys and not v)
+        }
 
         # Sort for consistent hashing
         config_str = json.dumps(relevant_config, sort_keys=True)
