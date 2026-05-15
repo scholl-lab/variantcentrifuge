@@ -475,6 +475,7 @@ by upweighting likely pathogenic variants.
 | CADD | `cadd` | Beta(MAF) × min(CADD_phred / 40, 1.0); requires `CADD_phred` or `dbNSFP_CADD_phred` |
 | REVEL | `revel` | Beta(MAF) × REVEL_score [0,1]; requires `REVEL_score` or `dbNSFP_REVEL_score` |
 | Combined | `combined` | Beta(MAF) × functional score; prefers CADD, falls back to REVEL |
+| Score column | `column:<name>` or `score_column` | Beta(MAF) × any numeric per-variant score column, or raw score-only weights |
 
 ### CLI Flags
 
@@ -485,6 +486,60 @@ by upweighting likely pathogenic variants.
 
 `--variant-weight-params` accepts a JSON string for scheme-specific tuning. Current supported
 parameter: `cadd_cap` (float, default 40.0) — cap CADD phred score before normalisation.
+
+### Score-Column Variant Weights
+
+Variant-level weights affect each variant's contribution to burden scores and
+SKAT kernels. They are separate from gene-level FDR prior weights, which affect
+multiple-testing correction only.
+
+Use `column:<name>` to reference any numeric per-variant column already present
+in the association input DataFrame:
+
+```bash
+--perform-association \
+--association-tests logistic_burden,skat \
+--variant-weights column:nephro_candidate_score \
+--variant-weight-params '{"score_min":0,"score_max":10,"floor":0.1,"combine_with_beta":true}'
+```
+
+The equivalent friendly form is:
+
+```bash
+--perform-association \
+--association-tests logistic_burden,skat \
+--variant-weights score_column \
+--variant-weight-column nephro_candidate_score \
+--variant-weight-params '{"score_min":0,"score_max":10,"floor":0.1,"combine_with_beta":true}'
+```
+
+Score-column parameters:
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `score_min` | `null` | Lower bound for explicit linear normalization. |
+| `score_max` | `null` | Upper bound for explicit linear normalization. |
+| `floor` | `0.0` | Lower bound after clipping finite normalized scores. |
+| `ceiling` | `1.0` | Upper bound after clipping finite normalized scores. |
+| `combine_with_beta` | `true` | Multiply the functional score by `Beta(MAF; beta_a,beta_b)`. |
+| `missing` | `null` | `neutral` in Beta-combined mode, `floor` in raw score-only mode. |
+| `beta_a` | `1.0` | Beta alpha used when `combine_with_beta=true`. |
+| `beta_b` | `25.0` | Beta beta used when `combine_with_beta=true`. |
+
+When `combine_with_beta=false`, the normalized score itself is the final variant
+weight. In that raw score-only mode, `missing="neutral"` is invalid because
+there is no multiplicative Beta baseline.
+
+Python SKAT, SKAT-O, and ACAT-V use the same resolved weight vector as burden
+tests. For `beta:*`, Python SKAT preserves its historical MAF source:
+`geno.mean(axis=0) / 2.0` after genotype imputation. Python SKAT now honors
+`cadd`, `revel`, and `combined`; earlier versions silently reduced those
+schemes to Beta-only weights in SKAT.
+
+Fisher exact tests ignore variant weights because they use collapsed contingency
+tables. COAST uses its own ordered allelic-series category weights. The
+deprecated R SKAT backend supports only `beta:a,b` and `uniform`; use the
+default Python backend for score-column or functional weights.
 
 ### Fallback Behaviour for Missing Annotations
 
@@ -756,8 +811,14 @@ Use this for reproducible analyses or when parameters are too numerous for the c
     "pca_file": "ancestry.eigenvec",
     "pca_components": 10,
 
-    "variant_weights": "beta:1,25",
-    "variant_weight_params": {"cadd_cap": 40.0},
+    "variant_weights": "score_column",
+    "variant_weight_column": "nephro_candidate_score",
+    "variant_weight_params": {
+      "score_min": 0,
+      "score_max": 10,
+      "floor": 0.1,
+      "combine_with_beta": true
+    },
 
     "coast_weights": [1, 2, 3],
 
@@ -798,7 +859,8 @@ Use this for reproducible analyses or when parameters are too numerous for the c
 | `pca_file` | str | `null` | Pre-computed PCA file (PLINK .eigenvec, AKT, or generic TSV) |
 | `pca_tool` | str | `null` | `"akt"` to invoke AKT as subprocess |
 | `pca_components` | int | `10` | Number of PCs to include (warn if >20) |
-| `variant_weights` | str | `"beta:1,25"` | Weight scheme: `beta:a,b`, `uniform`, `cadd`, `revel`, `combined` |
+| `variant_weights` | str | `"beta:1,25"` | Weight scheme: `beta:a,b`, `uniform`, `cadd`, `revel`, `combined`, `column:<name>`, `score_column` |
+| `variant_weight_column` | str or null | `null` | Score column used when `variant_weights` is `score_column` |
 | `variant_weight_params` | dict | `null` | Extra weight params, e.g. `{"cadd_cap": 30}` |
 | `coast_weights` | list of float | `[1,2,3]` | COAST category weights: `[BMV, DMV, PTV]` |
 | `gene_prior_weights` | str | `null` | Path to gene-weight TSV for weighted FDR correction |
