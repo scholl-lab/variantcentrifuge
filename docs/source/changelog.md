@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes._
 
+## [0.17.4] - 2026-05-15
+
+### Fixed
+- Build `snpEff genes2bed` commands with expansion options before genome and gene positional arguments.
+- Capture and propagate stdout/stderr diagnostics from gene BED subprocess failures.
+- Allow `--regions-bed` with `--gene-name all` to use the supplied BED directly.
+
 ## [0.17.3] - 2026-05-15
 
 ### Fixed
