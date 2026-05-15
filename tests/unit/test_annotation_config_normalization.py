@@ -95,3 +95,11 @@ def test_filters_empty_items_from_annotation_lists():
 
     assert result["annotate_bed_files"] == ["regions.bed"]
     assert result["annotate_gene_lists"] == ["genes.txt"]
+
+
+def test_treats_mapping_annotation_value_as_scalar_not_iterable_keys():
+    cfg = {"annotate_bed_files": {"regions.bed": "repeat_region"}}
+
+    result = normalize_annotation_config(cfg)
+
+    assert result["annotate_bed_files"] == ["{'regions.bed': 'repeat_region'}"]

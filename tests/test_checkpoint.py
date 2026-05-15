@@ -14,6 +14,35 @@ from variantcentrifuge.checkpoint import (
 )
 
 
+def _legacy_checkpoint_hash(config: dict) -> str:
+    """Return the pre-normalization checkpoint hash for a config."""
+    relevant_keys = [
+        "gene_name",
+        "gene_file",
+        "vcf_file",
+        "output_file",
+        "preset",
+        "filters",
+        "fields",
+        "threads",
+        "no_replacement",
+        "late_filtering",
+        "chunk_size",
+        "samples_file",
+        "bcftools_prefilter",
+        "final_filter",
+        "scoring_config_path",
+        "ped",
+        "inheritance_mode",
+        "annotate_bed",
+        "annotate_gene_list",
+        "annotate_json_genes",
+    ]
+    relevant_config = {k: v for k, v in config.items() if k in relevant_keys and v is not None}
+    legacy_config_str = json.dumps(relevant_config, sort_keys=True)
+    return hashlib.sha256(legacy_config_str.encode()).hexdigest()
+
+
 class TestFileInfo:
     """Test FileInfo class."""
 
@@ -194,8 +223,7 @@ class TestPipelineState:
     def test_pipeline_state_resume_preserves_legacy_no_annotation_hash(self, tmp_path):
         """Test no-annotation checkpoints remain resumable after annotation normalization."""
         config = {"gene_name": "BRCA1", "vcf_file": "input.vcf", "filters": "QUAL > 30"}
-        legacy_config_str = json.dumps(config, sort_keys=True)
-        legacy_hash = hashlib.sha256(legacy_config_str.encode()).hexdigest()
+        legacy_hash = _legacy_checkpoint_hash(config)
 
         state = PipelineState(str(tmp_path))
         state.state["pipeline_version"] = "1.0.0"
@@ -207,6 +235,90 @@ class TestPipelineState:
         new_state.load()
 
         assert new_state.can_resume(config, "1.0.0") is True
+
+    def test_pipeline_state_resume_preserves_legacy_empty_annotation_hash(self, tmp_path):
+        """Explicit empty legacy annotation checkpoints remain resumable."""
+        config = {
+            "gene_name": "BRCA1",
+            "vcf_file": "input.vcf",
+            "annotate_bed": [],
+            "annotate_gene_list": [],
+        }
+        legacy_hash = _legacy_checkpoint_hash(config)
+
+        state = PipelineState(str(tmp_path))
+        state.state["pipeline_version"] = "1.0.0"
+        state.state["start_time"] = time.time()
+        state.state["configuration_hash"] = legacy_hash
+        state.save()
+
+        new_state = PipelineState(str(tmp_path))
+        new_state.load()
+
+        assert new_state.can_resume(config, "1.0.0") is True
+
+    def test_pipeline_state_resume_preserves_legacy_bed_annotation_hash(self, tmp_path):
+        """Legacy BED annotation checkpoints resume after migrating to canonical keys."""
+        legacy_config = {"gene_name": "BRCA1", "annotate_bed": ["regions_a.bed"]}
+        legacy_hash = _legacy_checkpoint_hash(legacy_config)
+
+        state = PipelineState(str(tmp_path))
+        state.state["pipeline_version"] = "1.0.0"
+        state.state["start_time"] = time.time()
+        state.state["configuration_hash"] = legacy_hash
+        state.save()
+
+        new_state = PipelineState(str(tmp_path))
+        new_state.load()
+
+        migrated_config = {"gene_name": "BRCA1", "annotate_bed_files": ["regions_a.bed"]}
+        changed_config = {"gene_name": "BRCA1", "annotate_bed_files": ["regions_b.bed"]}
+        assert new_state.can_resume(migrated_config, "1.0.0") is True
+        assert new_state.can_resume(changed_config, "1.0.0") is False
+
+    def test_pipeline_state_resume_preserves_legacy_gene_list_annotation_hash(self, tmp_path):
+        """Legacy gene-list checkpoints resume after migrating to canonical keys."""
+        legacy_config = {"gene_name": "BRCA1", "annotate_gene_list": ["genes_a.txt"]}
+        legacy_hash = _legacy_checkpoint_hash(legacy_config)
+
+        state = PipelineState(str(tmp_path))
+        state.state["pipeline_version"] = "1.0.0"
+        state.state["start_time"] = time.time()
+        state.state["configuration_hash"] = legacy_hash
+        state.save()
+
+        new_state = PipelineState(str(tmp_path))
+        new_state.load()
+
+        migrated_config = {
+            "gene_name": "BRCA1",
+            "annotate_gene_list_files": ["genes_a.txt"],
+        }
+        changed_config = {
+            "gene_name": "BRCA1",
+            "annotate_gene_list_files": ["genes_b.txt"],
+        }
+        assert new_state.can_resume(migrated_config, "1.0.0") is True
+        assert new_state.can_resume(changed_config, "1.0.0") is False
+
+    def test_pipeline_state_resume_rejects_legacy_no_annotation_hash_when_annotation_added(
+        self, tmp_path
+    ):
+        """Legacy no-annotation checkpoints must not resume with new annotations."""
+        legacy_config = {"gene_name": "BRCA1"}
+        legacy_hash = _legacy_checkpoint_hash(legacy_config)
+
+        state = PipelineState(str(tmp_path))
+        state.state["pipeline_version"] = "1.0.0"
+        state.state["start_time"] = time.time()
+        state.state["configuration_hash"] = legacy_hash
+        state.save()
+
+        new_state = PipelineState(str(tmp_path))
+        new_state.load()
+
+        current_config = {"gene_name": "BRCA1", "annotate_bed_files": ["regions_a.bed"]}
+        assert new_state.can_resume(current_config, "1.0.0") is False
 
     def test_pipeline_state_step_tracking(self, tmp_path):
         """Test step tracking functionality."""

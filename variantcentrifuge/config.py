@@ -14,7 +14,6 @@ config.json from the package installation directory.
 
 import json
 import os
-from collections.abc import Iterable
 from typing import Any
 
 
@@ -71,9 +70,10 @@ def _annotation_value_as_list(value: Any) -> list[str]:
     if isinstance(value, str):
         stripped = value.strip()
         return [stripped] if stripped else []
-    if isinstance(value, Iterable):
+    if isinstance(value, (list, tuple, set)):
         normalized = []
-        for item in value:
+        items = sorted(value, key=str) if isinstance(value, set) else value
+        for item in items:
             if item is None:
                 continue
             item_str = str(item).strip()

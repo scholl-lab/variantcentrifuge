@@ -246,14 +246,14 @@ class VariantIdentifierStage(Stage):
             # Fallback to simple index
             df.insert(0, id_column, [f"var_{i:04d}_0000" for i in range(1, len(df) + 1)])
 
-        normalize_annotation_config(context.config)
+        annotation_config = normalize_annotation_config(context.config.copy())
 
         # Only add Custom_Annotation column if custom annotations are actually requested
         custom_annotations_requested = any(
             [
-                context.config.get("annotate_bed_files", []),
-                context.config.get("annotate_gene_lists", []),
-                context.config.get("annotate_json_genes", []),
+                annotation_config.get("annotate_bed_files", []),
+                annotation_config.get("annotate_gene_lists", []),
+                annotation_config.get("annotate_json_genes", []),
             ]
         )
 

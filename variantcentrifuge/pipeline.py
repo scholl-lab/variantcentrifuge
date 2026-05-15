@@ -147,9 +147,8 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
 
     # Get config to check for scoring_config_path
     # If args.config is a dict, use it; otherwise check individual args
-    config = args.config if hasattr(args, "config") and isinstance(args.config, dict) else {}
-    if isinstance(config, dict):
-        normalize_annotation_config(config)
+    raw_config = args.config if hasattr(args, "config") and isinstance(args.config, dict) else {}
+    config = normalize_annotation_config(raw_config.copy()) if raw_config else {}
 
     annotations_requested = any(
         [

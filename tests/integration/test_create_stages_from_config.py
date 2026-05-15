@@ -5,9 +5,11 @@ This tests the TD-02 fix: previously perform_association and perform_gene_burden
 were not mapped, so passing them in config silently had no effect.
 """
 
+import argparse
+
 import pytest
 
-from variantcentrifuge.pipeline import create_stages_from_config
+from variantcentrifuge.pipeline import build_pipeline_stages, create_stages_from_config
 from variantcentrifuge.stages.analysis_stages import (
     AssociationAnalysisStage,
     CustomAnnotationStage,
@@ -114,5 +116,37 @@ def test_gene_list_files_alias_activates_custom_annotation_stages():
     """Gene-list files alias must activate custom annotation stages."""
     stage_types = _stage_types({"annotate_gene_list_files": ["genes.txt"]})
 
+    assert AnnotationConfigLoadingStage in stage_types
+    assert CustomAnnotationStage in stage_types
+
+
+@pytest.mark.integration
+def test_build_pipeline_stages_does_not_mutate_caller_config_dict():
+    """Stage selection may normalize a copy, but must not rewrite args.config."""
+    config = {"annotate_bed": "regions.bed"}
+    original_config = config.copy()
+    args = argparse.Namespace(
+        config=config,
+        annotate_bed=None,
+        annotate_gene_list=None,
+        annotate_json_genes=None,
+        threads=1,
+        late_filtering=False,
+        no_replacement=True,
+        append_extra_sample_fields=None,
+        no_stats=True,
+        perform_gene_burden=False,
+        perform_association=False,
+        xlsx=False,
+        excel=False,
+        html_report=False,
+        igv=False,
+        archive_results=False,
+        pca=None,
+    )
+
+    stage_types = [type(stage) for stage in build_pipeline_stages(args)]
+
+    assert config == original_config
     assert AnnotationConfigLoadingStage in stage_types
     assert CustomAnnotationStage in stage_types
