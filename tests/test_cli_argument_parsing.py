@@ -11,6 +11,46 @@ of the duplicate argument parser bug and ensure all critical parameters work.
 import subprocess
 
 
+def test_cli_annotate_bed_populates_canonical_and_legacy_config_keys(monkeypatch, tmp_path):
+    from variantcentrifuge import cli as cli_module
+
+    captured_configs = []
+
+    def fake_run_pipeline(args):
+        captured_configs.append(args.config.copy())
+
+    vcf = tmp_path / "input.vcf"
+    vcf.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+    bed = tmp_path / "regions.bed"
+    bed.write_text("chr1\t99\t101\tregion\n")
+
+    monkeypatch.setattr(cli_module, "run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "variantcentrifuge",
+            "--vcf-file",
+            str(vcf),
+            "--gene-name",
+            "all",
+            "--filters",
+            "not_artefact",
+            "--annotate-bed",
+            str(bed),
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    exit_code = cli_module.main()
+
+    assert exit_code == 0
+    assert len(captured_configs) == 1
+    cfg = captured_configs[0]
+    assert cfg["annotate_bed_files"] == [str(bed)]
+    assert cfg["annotate_bed"] == [str(bed)]
+
+
 def test_transcript_filtering_parameters_are_documented():
     from variantcentrifuge.cli import create_parser
 
