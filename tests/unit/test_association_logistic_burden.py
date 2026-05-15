@@ -88,6 +88,30 @@ def _make_contingency(
     }
 
 
+def test_logistic_burden_passes_score_values_to_weight_resolver(
+    monkeypatch, synthetic_binary_data
+) -> None:
+    from variantcentrifuge.association import weights as weights_module
+
+    geno, phenotype, mafs = synthetic_binary_data
+    score_values = np.array([0.2, 0.4, 0.6, 0.8, 1.0], dtype=np.float64)
+    seen_kwargs: dict[str, object] = {}
+
+    def fake_get_weights(mafs_arg, weight_spec, **kwargs):
+        seen_kwargs.update(kwargs)
+        return np.ones(len(mafs_arg), dtype=np.float64)
+
+    monkeypatch.setattr(weights_module, "get_weights", fake_get_weights)
+    config = AssociationConfig(variant_weights="column:nephro_candidate_score")
+    contingency = _make_contingency(geno, phenotype, mafs)
+    contingency["score_values"] = score_values
+
+    result = LogisticBurdenTest().run("GENE1", contingency, config)
+
+    assert result.p_value is not None
+    assert seen_kwargs["score_values"] is score_values
+
+
 # ---------------------------------------------------------------------------
 # Manual statsmodels.Logit validation (BURDEN-01)
 # ---------------------------------------------------------------------------
