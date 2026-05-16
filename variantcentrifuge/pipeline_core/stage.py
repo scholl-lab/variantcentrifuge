@@ -90,6 +90,15 @@ class Stage(ABC):
         return False
 
     @property
+    def checkpoint_resume_policy(self) -> str:
+        """How completed checkpoint state should be handled after process restart.
+
+        The conservative default is to recompute because most stages mutate in-memory
+        context state that is not durable across process restarts.
+        """
+        return "recompute"
+
+    @property
     def estimated_runtime(self) -> float:
         """Estimated runtime in seconds for scheduling optimization.
 
@@ -212,6 +221,15 @@ class Stage(ABC):
 
         except Exception as e:
             elapsed = time.time() - start_time
+            if context.checkpoint_state:
+                try:
+                    context.checkpoint_state.fail_step(self.name, str(e))
+                except Exception as checkpoint_error:
+                    logger.warning(
+                        "Failed to record checkpoint failure for stage '%s': %s",
+                        self.name,
+                        checkpoint_error,
+                    )
             logger.error(f"Stage '{self.name}' failed after {elapsed:.1f}s: {e}")
             raise
 

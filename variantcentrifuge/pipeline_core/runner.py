@@ -121,15 +121,8 @@ class PipelineRunner:
                     logger.info("Resume mode: Checking pipeline state...")
                     logger.info(context.checkpoint_state.get_summary())
 
-                    # Mark completed stages as complete in context
-                    for stage in stages:
-                        if context.checkpoint_state.should_skip_step(stage.name):
-                            logger.info(f"Skipping completed stage: {stage.name}")
-                            context.mark_complete(stage.name)
-
-                            # Handle checkpoint skip logic for composite stages
-                            if hasattr(stage, "_handle_checkpoint_skip"):
-                                context = stage._handle_checkpoint_skip(context)
+                    ordered_stages = self._ordered_stages(stages)
+                    context = self._restore_or_recompute_completed_stages(ordered_stages, context)
 
                     assert context.checkpoint_state is not None
                     resume_point = context.checkpoint_state.get_resume_point()
@@ -200,116 +193,116 @@ class PipelineRunner:
         assert context.checkpoint_state is not None, (
             "checkpoint_state required for selective resume"
         )
+        checkpoint_state = context.checkpoint_state
 
         resume_from = context.config.get("resume_from")
         if not resume_from:
             return stages
 
         # Load checkpoint state
-        if not context.checkpoint_state.load():
+        if not checkpoint_state.load():
             raise ValueError("Cannot resume: No checkpoint file found")
 
         # Validate resume point
         stage_names = [stage.name for stage in stages]
-        is_valid, error_msg = context.checkpoint_state.validate_resume_from_stage(
-            resume_from, stage_names
-        )
+        is_valid, error_msg = checkpoint_state.validate_resume_from_stage(resume_from, stage_names)
 
         if not is_valid:
             raise ValueError(f"Cannot resume from '{resume_from}': {error_msg}")
 
-        # Validate dependencies and get stages to execute
-        stages_to_execute = self._get_stages_to_execute_from(resume_from, stages, context)
+        all_stages_ordered = self._ordered_stages(stages)
+        stage_names_ordered = [stage.name for stage in all_stages_ordered]
+        resume_index = stage_names_ordered.index(resume_from)
 
-        # Restart from specified stage - clear completion status for resume stage and all
-        # subsequent stages
-        completed_stages = context.checkpoint_state.get_available_resume_points()
-        current_stage_names = {stage.name for stage in stages}
-        stage_map = {stage.name: stage for stage in stages}
-
-        # Get all stages in execution order to determine which come before/after resume point
-        execution_plan = self._create_execution_plan(stages)
-        all_stages_ordered = []
-        for level in execution_plan:
-            all_stages_ordered.extend(level)
-
-        # Find the index of the resume stage
-        resume_index = None
-        for i, stage in enumerate(all_stages_ordered):
-            if stage.name == resume_from:
-                resume_index = i
-                break
-
-        if resume_index is None:
-            raise ValueError(f"Could not find resume stage '{resume_from}' in execution plan")
-
-        # Determine stages that come before the resume point (these can stay complete)
-        stages_before_resume = {stage.name for stage in all_stages_ordered[:resume_index]}
+        # Restore only durable/restorable prerequisites. A completed volatile
+        # prerequisite cannot be safely trusted after process restart.
+        safe_restart = None
+        for prior_stage in all_stages_ordered[:resume_index]:
+            if prior_stage.checkpoint_resume_policy in {"restore", "skip"}:
+                safe_restart = prior_stage.name
+            if not checkpoint_state.should_skip_step(prior_stage.name):
+                if context.is_complete(prior_stage.name):
+                    continue
+                raise ValueError(
+                    f"Cannot resume from '{resume_from}' safely because prerequisite "
+                    f"stage '{prior_stage.name}' was not completed in the checkpoint. "
+                    f"Resume from '{prior_stage.name}' or an earlier stage."
+                )
+            if prior_stage.checkpoint_resume_policy == "recompute":
+                suggestion = safe_restart or stage_names_ordered[0]
+                raise ValueError(
+                    f"Cannot resume from '{resume_from}' safely because required "
+                    f"DataFrame state from '{prior_stage.name}' is not durable. "
+                    f"Resume from '{suggestion}' to restore durable inputs and "
+                    "re-run in-memory analysis stages."
+                )
+            context = self._restore_completed_stage(prior_stage, context)
 
         # Clear completion status in checkpoint for restart stage and all subsequent stages
-        stages_to_clear = {stage.name for stage in all_stages_ordered[resume_index:]}
-        for stage_name in stages_to_clear:
-            context.checkpoint_state.clear_step_completion(stage_name)
-
-        logger.info(f"Cleared completion status for {len(stages_to_clear)} stages to force restart")
-
-        # Add prerequisite stages that should be considered complete for restart
-        # These are fundamental setup stages that must have completed for pipeline to reach
-        # this point
-        prerequisite_stages = {
-            "configuration_loading",
-            "sample_config_loading",
-            "gene_bed_creation",
-            "pedigree_loading",
-            "phenotype_loading",
-            "scoring_config_loading",
-            "annotation_config_loading",
-        }
-
-        # Mark prerequisite stages as complete if they exist in the pipeline and come before
-        # resume point
-        for prereq_stage in prerequisite_stages:
-            if prereq_stage in stage_map and prereq_stage in stages_before_resume:
-                logger.debug(f"Marking prerequisite stage as complete for restart: {prereq_stage}")
-                context.mark_complete(prereq_stage)
-
-                # Call checkpoint skip logic to restore context data (VCF samples, configs, etc.)
-                stage_instance = stage_map[prereq_stage]
-                if hasattr(stage_instance, "_handle_checkpoint_skip"):
-                    logger.debug(
-                        f"Calling checkpoint skip logic for prerequisite stage: {prereq_stage}"
-                    )
-                    context = stage_instance._handle_checkpoint_skip(context)
-
-        # Mark only stages that come BEFORE the resume point as complete
-        for completed_stage in completed_stages:
-            if completed_stage in stages_before_resume:
-                # Mark stage as complete in context
-                context.mark_complete(completed_stage)
-
-                # For stages that are in the original stages list (before filtering),
-                # call their checkpoint skip logic to restore virtual dependencies
-                if completed_stage in stage_map:
-                    stage_instance = stage_map[completed_stage]
-                    if hasattr(stage_instance, "_handle_checkpoint_skip"):
-                        logger.debug(
-                            f"Calling checkpoint skip logic for completed stage: {completed_stage}"
-                        )
-                        context = stage_instance._handle_checkpoint_skip(context)
-
-                if completed_stage in current_stage_names:
-                    logger.info(f"Marking completed stage as done: {completed_stage}")
-                else:
-                    logger.debug(f"Marking virtual completed stage as done: {completed_stage}")
-            else:
-                # Stage comes at or after resume point - do not mark as complete (force re-run)
-                logger.debug(f"Stage '{completed_stage}' will be re-run (at or after resume point)")
+        self._clear_stage_and_downstream(resume_from, all_stages_ordered, checkpoint_state)
+        stages_to_execute = all_stages_ordered[resume_index:]
 
         logger.info(
             f"Restart mode: Starting from '{resume_from}' with {len(stages_to_execute)} "
             f"stages to execute"
         )
         return stages_to_execute
+
+    def _ordered_stages(self, stages: list[Stage]) -> list[Stage]:
+        """Return stages flattened in dependency execution order."""
+        ordered: list[Stage] = []
+        for level in self._create_execution_plan(stages):
+            ordered.extend(level)
+        return ordered
+
+    def _clear_stage_and_downstream(
+        self, stage_name: str, ordered: list[Stage], checkpoint_state
+    ) -> None:
+        """Clear persisted completion for a stage and every downstream ordered stage."""
+        names = [stage.name for stage in ordered]
+        start = names.index(stage_name)
+        for name in names[start:]:
+            checkpoint_state.clear_step_completion(name, save=False)
+        checkpoint_state.save()
+
+    def _restore_completed_stage(self, stage: Stage, context: PipelineContext) -> PipelineContext:
+        """Restore or skip a completed checkpoint stage according to its policy."""
+        policy = stage.checkpoint_resume_policy
+        if policy == "restore":
+            if not hasattr(stage, "_handle_checkpoint_skip"):
+                raise RuntimeError(
+                    f"Stage '{stage.name}' is restorable but has no checkpoint skip handler"
+                )
+            context = stage._handle_checkpoint_skip(context)
+            context.mark_complete(stage.name)
+        elif policy == "skip":
+            context.mark_complete(stage.name)
+        else:
+            raise RuntimeError(f"Stage '{stage.name}' must be recomputed")
+        return context
+
+    def _restore_or_recompute_completed_stages(
+        self, ordered: list[Stage], context: PipelineContext
+    ) -> PipelineContext:
+        """Restore safe completed stages, then clear volatile state for recomputation."""
+        assert context.checkpoint_state is not None
+        for stage in ordered:
+            if not context.checkpoint_state.should_skip_step(stage.name):
+                continue
+
+            policy = stage.checkpoint_resume_policy
+            if policy in {"restore", "skip"}:
+                logger.info(f"Restoring completed stage from checkpoint: {stage.name}")
+                context = self._restore_completed_stage(stage, context)
+                continue
+
+            logger.info(
+                "Recomputing checkpoint-completed stage '%s' and downstream stages",
+                stage.name,
+            )
+            self._clear_stage_and_downstream(stage.name, ordered, context.checkpoint_state)
+            break
+        return context
 
     def _get_stages_to_execute_from(
         self, resume_from: str, stages: list[Stage], context: PipelineContext

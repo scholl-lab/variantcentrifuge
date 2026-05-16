@@ -67,6 +67,30 @@ from .utils import compute_base_name
 logger = logging.getLogger(__name__)
 
 
+def _validate_requested_outputs(context: PipelineContext) -> None:
+    """Ensure requested user-facing outputs exist before reporting success."""
+    output_file = context.config.get("output_file")
+    if output_file not in (None, "stdout", "-") and (
+        not context.final_output_path or not context.final_output_path.exists()
+    ):
+        raise RuntimeError("Requested TSV output was not written")
+
+    if context.config.get("perform_association"):
+        assoc = context.config.get("association_output")
+        if not assoc or not Path(assoc).exists():
+            raise RuntimeError("Requested association output was not written")
+
+    if context.config.get("perform_gene_burden"):
+        burden = context.config.get("gene_burden_output")
+        if not burden or not Path(burden).exists():
+            raise RuntimeError("Requested gene burden output was not written")
+
+    if context.config.get("xlsx") or context.config.get("excel"):
+        excel = context.report_paths.get("excel")
+        if not excel or not Path(excel).exists():
+            raise RuntimeError("Requested Excel output was not written")
+
+
 def check_scoring_requires_inheritance(args: argparse.Namespace, config: dict) -> bool:
     """Check if scoring configuration requires inheritance analysis.
 
@@ -593,7 +617,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
 
     try:
         # Run pipeline
-        runner.run(stages, context)
+        context = runner.run(stages, context)
+        _validate_requested_outputs(context)
 
         logger.info("Pipeline completed successfully!")
 

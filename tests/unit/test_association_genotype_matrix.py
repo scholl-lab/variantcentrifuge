@@ -235,6 +235,33 @@ class TestBuildGenotypeMatrixBasic:
         assert geno[1, 0] == pytest.approx(1.0)  # 0/1
         assert geno[2, 0] == pytest.approx(2.0)  # 1/1
 
+    def test_build_genotype_matrix_handles_categorical_gt_missing_values(self) -> None:
+        """Categorical GT columns must allow missing values without adding categories."""
+        gene_df = pd.DataFrame(
+            {
+                "GEN_0__GT": pd.Categorical(
+                    ["0/1", None],
+                    categories=["0/0", "0/1", "1/1"],
+                ),
+                "GEN_1__GT": pd.Categorical(
+                    ["0/0", "1/1"],
+                    categories=["0/0", "0/1", "1/1"],
+                ),
+            }
+        )
+
+        geno, _, _, _ = build_genotype_matrix(
+            gene_df,
+            ["SAMPLE_0", "SAMPLE_1"],
+            ["GEN_0__GT", "GEN_1__GT"],
+            is_binary=True,
+            missing_site_threshold=1.0,
+        )
+
+        assert geno.shape == (2, 2)
+        assert not np.isnan(geno).any()
+        assert geno[0, 0] == pytest.approx(1.0)
+
     def test_build_genotype_matrix_maf_computation(self) -> None:
         """MAF computed correctly from observed dosages."""
         # 4 samples: 0/0, 0/1, 0/1, 1/1

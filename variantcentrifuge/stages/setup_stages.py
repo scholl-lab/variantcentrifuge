@@ -96,6 +96,11 @@ class ConfigurationLoadingStage(Stage):
         return "configuration_loading"
 
     @property
+    def checkpoint_resume_policy(self) -> str:
+        """Configuration is already present in the new CLI context."""
+        return "skip"
+
+    @property
     def description(self) -> str:
         """Return a description of what this stage does."""
         return "Load configuration and merge with CLI arguments"
@@ -250,6 +255,11 @@ class PhenotypeLoadingStage(Stage):
         return "phenotype_loading"
 
     @property
+    def checkpoint_resume_policy(self) -> str:
+        """Phenotype data can be restored by the checkpoint skip handler."""
+        return "restore"
+
+    @property
     def description(self) -> str:
         """Return a description of what this stage does."""
         return "Load phenotype data"
@@ -313,8 +323,9 @@ class PhenotypeLoadingStage(Stage):
                 context.config["phenotypes"] = phenotypes  # For compatibility
                 logger.debug(f"Restored phenotypes for {len(phenotypes)} samples (checkpoint skip)")
             else:
-                logger.warning(
-                    f"No phenotype data found during checkpoint skip from {phenotype_file}"
+                raise ValueError(
+                    f"No phenotype data loaded from {phenotype_file}. "
+                    "Check file formatting and column names."
                 )
         else:
             logger.debug("No phenotype configuration found during checkpoint skip")
@@ -329,6 +340,11 @@ class ScoringConfigLoadingStage(Stage):
     def name(self) -> str:
         """Return the stage name."""
         return "scoring_config_loading"
+
+    @property
+    def checkpoint_resume_policy(self) -> str:
+        """Scoring configuration can be restored by the checkpoint skip handler."""
+        return "restore"
 
     @property
     def description(self) -> str:
@@ -382,9 +398,7 @@ class ScoringConfigLoadingStage(Stage):
                     f"{len(scoring_config.get('formulas', {}))} formulas (checkpoint skip)"
                 )
             except Exception as e:
-                logger.warning(
-                    f"Failed to restore scoring configuration during checkpoint skip: {e}"
-                )
+                raise ValueError(f"Failed to restore scoring configuration: {e}") from e
         else:
             logger.debug("No scoring configuration specified during checkpoint skip")
 
@@ -398,6 +412,11 @@ class PedigreeLoadingStage(Stage):
     def name(self) -> str:
         """Return the stage name."""
         return "pedigree_loading"
+
+    @property
+    def checkpoint_resume_policy(self) -> str:
+        """Pedigree data can be restored by the checkpoint skip handler."""
+        return "restore"
 
     @property
     def description(self) -> str:
@@ -458,7 +477,7 @@ class PedigreeLoadingStage(Stage):
                     f"(checkpoint skip)"
                 )
             except Exception as e:
-                logger.warning(f"Failed to restore pedigree file during checkpoint skip: {e}")
+                raise ValueError(f"Failed to restore pedigree file: {e}") from e
         else:
             logger.debug("No pedigree file specified during checkpoint skip")
 
@@ -472,6 +491,11 @@ class AnnotationConfigLoadingStage(Stage):
     def name(self) -> str:
         """Return the stage name."""
         return "annotation_config_loading"
+
+    @property
+    def checkpoint_resume_policy(self) -> str:
+        """Annotation configuration can be restored by the checkpoint skip handler."""
+        return "restore"
 
     @property
     def description(self) -> str:
@@ -567,6 +591,11 @@ class SampleConfigLoadingStage(Stage):
     def name(self) -> str:
         """Return the stage name."""
         return "sample_config_loading"
+
+    @property
+    def checkpoint_resume_policy(self) -> str:
+        """Sample configuration can be restored by the checkpoint skip handler."""
+        return "restore"
 
     @property
     def description(self) -> str:
@@ -709,8 +738,7 @@ class SampleConfigLoadingStage(Stage):
         vcf_file = context.config.get("vcf_file")
 
         if not vcf_file:
-            logger.warning("No VCF file specified in configuration during checkpoint skip")
-            return context
+            raise ValueError("No VCF file specified in configuration during checkpoint skip")
 
         # Restore VCF samples
         logger.debug(f"Restoring VCF samples from {vcf_file} (checkpoint skip)")
@@ -778,6 +806,11 @@ class PhenotypeCaseControlAssignmentStage(Stage):
     def name(self) -> str:
         """Return the stage name."""
         return "phenotype_case_control_assignment"
+
+    @property
+    def checkpoint_resume_policy(self) -> str:
+        """Case/control assignment can be restored by the checkpoint skip handler."""
+        return "restore"
 
     @property
     def description(self) -> str:
@@ -1164,10 +1197,9 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         # Get VCF samples
         vcf_samples = getattr(context, "vcf_samples", [])
         if not vcf_samples:
-            logger.warning(
+            raise ValueError(
                 "No VCF samples found, cannot restore phenotype-based assignment (checkpoint skip)"
             )
-            return context
 
         # Get phenotype file parameters
         phenotype_file = context.config.get("phenotype_file")
@@ -1175,11 +1207,10 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         phenotype_value_column = context.config.get("phenotype_value_column")
 
         if not phenotype_file or not phenotype_sample_column or not phenotype_value_column:
-            logger.warning(
+            raise ValueError(
                 "Missing phenotype file parameters, cannot restore phenotype-based assignment "
                 "(checkpoint skip)"
             )
-            return context
 
         # Re-compute phenotype-based assignments
         try:
@@ -1205,9 +1236,9 @@ class PhenotypeCaseControlAssignmentStage(Stage):
             )
 
         except Exception as e:
-            logger.warning(
+            raise ValueError(
                 f"Failed to restore phenotype-based assignment during checkpoint skip: {e}"
-            )
+            ) from e
 
         return context
 

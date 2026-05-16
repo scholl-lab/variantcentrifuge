@@ -144,9 +144,8 @@ class TestTSVOutputStage:
         context.mark_complete("variant_identifier")
 
         stage = TSVOutputStage()
-        # Should log warning and return
-        result = stage(context)
-        assert result == context
+        with pytest.raises(RuntimeError, match="No data to write"):
+            stage(context)
 
 
 class TestMetadataGenerationStage:

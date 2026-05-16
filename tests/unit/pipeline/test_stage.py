@@ -130,6 +130,19 @@ class TestStage:
         assert "Stage failed!" in str(exc_info.value)
         context.mark_complete.assert_not_called()
 
+    def test_stage_failure_marks_checkpoint_failed(self, context):
+        """Failing stages should record failure in checkpoint state."""
+        stage = FailingStage()
+        context.checkpoint_state = Mock()
+        context.checkpoint_state.should_skip_step.return_value = False
+
+        with pytest.raises(ValueError, match="Stage failed!"):
+            stage(context)
+
+        context.checkpoint_state.start_step.assert_called_once()
+        context.checkpoint_state.fail_step.assert_called_once_with("failing_stage", "Stage failed!")
+        context.checkpoint_state.complete_step.assert_not_called()
+
     @patch("variantcentrifuge.pipeline_core.stage.logger")
     def test_logging(self, mock_logger, context):
         """Test stage execution logging."""

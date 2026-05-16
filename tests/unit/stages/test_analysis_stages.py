@@ -97,6 +97,62 @@ class TestDataFrameLoadingStage:
         assert result.current_dataframe is not None
         assert len(result.current_dataframe) == 1
 
+    def test_parallel_skip_does_not_suppress_dataframe_chunking(self, base_context, tmp_path):
+        """Parallel VCF completion alone should not suppress DataFrame chunking."""
+        test_file = tmp_path / "large.tsv"
+        test_file.write_text("GENE\tCHROM\nBRCA1\tchr1\n")
+        base_context.config = {"parallel_vcf_processing_complete": True}
+        base_context.data = test_file
+
+        stage = DataFrameLoadingStage()
+        with patch.object(stage, "_should_use_chunks", return_value=True):
+            result = stage._handle_checkpoint_skip(base_context)
+
+        assert result.config["use_chunked_processing"] is True
+        assert result.current_dataframe is None
+
+    def test_dataframe_loading_skip_raises_when_no_tsv_available(self, base_context):
+        """Restoring dataframe_loading requires an available TSV artifact."""
+        base_context.data = None
+
+        with pytest.raises(RuntimeError, match="Cannot restore dataframe_loading"):
+            DataFrameLoadingStage()._handle_checkpoint_skip(base_context)
+
+    def test_chunked_analysis_skip_restores_dataframe_from_artifact(self, base_context, tmp_path):
+        """Chunked analysis skip restores the DataFrame from its durable artifact."""
+        chunked_tsv = tmp_path / "chunked.tsv"
+        chunked_tsv.write_text("GENE\tCHROM\nBRCA1\tchr1\n")
+        base_context.chunked_analysis_tsv = chunked_tsv
+
+        result = ChunkedAnalysisStage()._handle_checkpoint_skip(base_context)
+
+        assert result.current_dataframe is not None
+        assert len(result.current_dataframe) == 1
+        assert result.chunked_analysis_tsv == chunked_tsv
+        assert result.config["dataframe_chunked_analysis_complete"] is True
+
+    def test_chunked_analysis_skip_restores_header_only_empty_dataframe(
+        self, base_context, tmp_path
+    ):
+        """Header-only chunked artifacts are valid empty results."""
+        chunked_tsv = tmp_path / "chunked.tsv"
+        chunked_tsv.write_text("GENE\tCHROM\n")
+        base_context.chunked_analysis_tsv = chunked_tsv
+
+        result = ChunkedAnalysisStage()._handle_checkpoint_skip(base_context)
+
+        assert result.current_dataframe is not None
+        assert result.current_dataframe.empty
+        assert list(result.current_dataframe.columns) == ["GENE", "CHROM"]
+        assert result.config["dataframe_chunked_analysis_complete"] is True
+
+    def test_chunked_analysis_skip_raises_when_artifact_missing(self, base_context, tmp_path):
+        """Restoring chunked analysis requires its output artifact."""
+        base_context.chunked_analysis_tsv = tmp_path / "missing.tsv"
+
+        with pytest.raises(RuntimeError, match="Cannot restore chunked_analysis"):
+            ChunkedAnalysisStage()._handle_checkpoint_skip(base_context)
+
 
 class TestCustomAnnotationStage:
     """Test the CustomAnnotationStage."""

@@ -656,6 +656,11 @@ class DataFrameLoadingStage(Stage):
         return "dataframe_loading"
 
     @property
+    def checkpoint_resume_policy(self) -> str:
+        """DataFrame state can be restored from TSV artifacts."""
+        return "restore"
+
+    @property
     def description(self) -> str:
         """Return a description of what this stage does."""
         return "Load data into DataFrame for analysis"
@@ -692,14 +697,14 @@ class DataFrameLoadingStage(Stage):
         # Find the most recent TSV file using the same logic as _process
         input_file = self._find_input_file(context)
 
-        if not input_file:
-            logger.warning("No TSV file found to restore DataFrame during checkpoint skip")
-            return context
+        if not input_file or not Path(input_file).exists():
+            raise RuntimeError(
+                "Cannot restore dataframe_loading from checkpoint: no TSV input file found"
+            )
 
-        # Check if we should use chunked processing - skip if parallel processing done
-        if self._should_use_chunks(context, input_file) and not context.config.get(
-            "chunked_processing_complete"
-        ):
+        # Check if we should use DataFrame chunked analysis.
+        dataframe_chunks_done = context.config.get("dataframe_chunked_analysis_complete", False)
+        if self._should_use_chunks(context, input_file) and not dataframe_chunks_done:
             logger.info("File too large, will use chunked processing (checkpoint skip)")
             context.config["use_chunked_processing"] = True
             # Don't load full DataFrame - chunked stages will handle it
@@ -742,6 +747,10 @@ class DataFrameLoadingStage(Stage):
         else:
             # Fallback to context.data, but verify it's a TSV file
             input_file = context.data
+            if not input_file:
+                raise RuntimeError(
+                    "Cannot restore dataframe_loading from checkpoint: no TSV input file found"
+                )
             if input_file and (
                 str(input_file).endswith(".vcf.gz") or str(input_file).endswith(".vcf")
             ):
@@ -772,10 +781,9 @@ class DataFrameLoadingStage(Stage):
         # Find the input file
         input_file = self._find_input_file(context)
 
-        # Check if we should use chunked processing - skip if parallel processing done
-        if self._should_use_chunks(context, input_file) and not context.config.get(
-            "chunked_processing_complete"
-        ):
+        # Check if we should use DataFrame chunked analysis.
+        dataframe_chunks_done = context.config.get("dataframe_chunked_analysis_complete", False)
+        if self._should_use_chunks(context, input_file) and not dataframe_chunks_done:
             logger.info("File too large, will use chunked processing")
             context.config["use_chunked_processing"] = True
             # Don't load full DataFrame - chunked stages will handle it
@@ -918,6 +926,11 @@ class CustomAnnotationStage(Stage):
         # Annotation config is handled in setup stages if needed
         return {"dataframe_loading"}
 
+    @property
+    def soft_dependencies(self) -> set[str]:
+        """Run after chunked analysis when that stage is active."""
+        return {"chunked_analysis"}
+
     def _has_annotation_config(self) -> bool:
         """Check if annotation config stage exists."""
         return True  # Simplified
@@ -1002,7 +1015,7 @@ class InheritanceAnalysisStage(Stage):
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Prefer to run after custom_annotation if it exists
-        return {"custom_annotation"}
+        return {"custom_annotation", "chunked_analysis"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Calculate inheritance patterns."""
@@ -1017,7 +1030,7 @@ class InheritanceAnalysisStage(Stage):
 
         # Check if using chunked processing - only defer if chunked processing is not complete
         if context.config.get("use_chunked_processing") and not context.config.get(
-            "chunked_processing_complete"
+            "dataframe_chunked_analysis_complete"
         ):
             logger.info(
                 f"Inheritance analysis ({inheritance_mode} mode) "
@@ -1292,7 +1305,7 @@ class VariantScoringStage(Stage):
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Prefer to run after annotations and inheritance if they exist
-        return {"custom_annotation", "inheritance_analysis"}
+        return {"custom_annotation", "inheritance_analysis", "chunked_analysis"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply variant scoring."""
@@ -1302,7 +1315,7 @@ class VariantScoringStage(Stage):
 
         # Check if using chunked processing - only defer if chunked processing is not complete
         if context.config.get("use_chunked_processing") and not context.config.get(
-            "chunked_processing_complete"
+            "dataframe_chunked_analysis_complete"
         ):
             logger.info("Scoring will be applied during chunked processing")
             return context
@@ -1383,15 +1396,14 @@ class StatisticsGenerationStage(Stage):
 
         # Check if using chunked processing - generate statistics after chunks are combined
         if context.config.get("use_chunked_processing") and not context.config.get(
-            "chunked_processing_complete"
+            "dataframe_chunked_analysis_complete"
         ):
             logger.info("Statistics will be generated after chunked processing completes")
             return context
 
         df = context.current_dataframe
         if df is None:
-            logger.warning("No DataFrame loaded for statistics")
-            return context
+            raise RuntimeError("No DataFrame loaded for statistics")
 
         # Get stats config
         stats_config_path = context.config.get("stats_config")
@@ -1543,7 +1555,7 @@ class VariantAnalysisStage(Stage):
         # because analyze_variants creates a new DataFrame
         # Run after custom_annotation to ensure deterministic column ordering
         # CRITICAL: Run after inheritance_analysis to preserve inheritance columns
-        return {"custom_annotation", "inheritance_analysis"}
+        return {"custom_annotation", "inheritance_analysis", "chunked_analysis"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Run variant analysis."""
@@ -1924,7 +1936,7 @@ class GeneBurdenAnalysisStage(Stage):
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Prefer to run after custom_annotation if it exists
-        return {"custom_annotation"}
+        return {"custom_annotation", "chunked_analysis"}
 
     def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
         """Handle the case where this stage is skipped by checkpoint system.
@@ -1959,6 +1971,62 @@ class GeneBurdenAnalysisStage(Stage):
 
         return context
 
+    def _resolve_gene_burden_output(self, context: PipelineContext) -> tuple[str, str | None]:
+        """Resolve and persist the gene burden sidecar output path."""
+        burden_output = context.config.get("gene_burden_output")
+        if not burden_output:
+            output_dir = context.config.get("output_dir", "output")
+            output_file = context.config.get("output_file")
+            if output_file and output_file != "-":
+                output_path = Path(output_file)
+                if not output_path.is_absolute():
+                    output_path = Path(output_dir) / output_path
+                name = output_path.name
+                if name.endswith(".tsv.gz"):
+                    base_name = name[: -len(".tsv.gz")]
+                elif name.endswith(".tsv"):
+                    base_name = name[: -len(".tsv")]
+                else:
+                    base_name = output_path.stem
+                burden_output = str(output_path.with_name(f"{base_name}.gene_burden.tsv"))
+            else:
+                base_name = context.config.get("output_file_base", "gene_burden_results")
+                burden_output = str(Path(output_dir) / f"{base_name}.gene_burden.tsv")
+            context.config["gene_burden_output"] = burden_output
+
+        compression = "gzip" if str(burden_output).endswith(".gz") else None
+        return burden_output, compression
+
+    def _gene_burden_output_columns(self, context: PipelineContext) -> list[str]:
+        """Return the header schema for empty gene burden output."""
+        mode = context.config.get("gene_burden_mode", "alleles")
+        if mode == "samples":
+            return [
+                "GENE",
+                "proband_count",
+                "control_count",
+                "proband_carrier_count",
+                "control_carrier_count",
+                "raw_p_value",
+                "corrected_p_value",
+                "odds_ratio",
+                "or_ci_lower",
+                "or_ci_upper",
+                "n_qualifying_variants",
+            ]
+        return [
+            "GENE",
+            "proband_count",
+            "control_count",
+            "proband_allele_count",
+            "control_allele_count",
+            "raw_p_value",
+            "corrected_p_value",
+            "odds_ratio",
+            "or_ci_lower",
+            "or_ci_upper",
+        ]
+
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Perform gene burden analysis."""
         if not context.config.get("perform_gene_burden"):
@@ -1967,7 +2035,7 @@ class GeneBurdenAnalysisStage(Stage):
 
         # Check if using chunked processing - gene burden should be done after chunks are combined
         if context.config.get("use_chunked_processing") and not context.config.get(
-            "chunked_processing_complete"
+            "dataframe_chunked_analysis_complete"
         ):
             logger.info("Gene burden analysis will be performed after chunked processing completes")
             return context
@@ -1998,8 +2066,13 @@ class GeneBurdenAnalysisStage(Stage):
             return context
 
         df = context.current_dataframe
-        if df is None or df.empty:
-            logger.warning("No DataFrame loaded for gene burden analysis")
+        if df is None:
+            raise RuntimeError("No DataFrame loaded for gene burden analysis")
+        if df.empty:
+            burden_output, compression = self._resolve_gene_burden_output(context)
+            empty = pd.DataFrame(columns=self._gene_burden_output_columns(context))
+            empty.to_csv(burden_output, sep="\t", index=False, compression=cast(Any, compression))
+            context.gene_burden_results = empty
             return context
 
         # Check if DataFrame has required GENE column
@@ -2081,32 +2154,7 @@ class GeneBurdenAnalysisStage(Stage):
         context.gene_burden_results = burden_results
 
         # Write results to output file
-        burden_output = context.config.get("gene_burden_output")
-        if not burden_output:
-            # Create a sidecar next to the requested final output when possible.
-            output_dir = context.config.get("output_dir", "output")
-            output_file = context.config.get("output_file")
-            if output_file and output_file != "-":
-                output_path = Path(output_file)
-                if not output_path.is_absolute():
-                    output_path = Path(output_dir) / output_path
-                name = output_path.name
-                if name.endswith(".tsv.gz"):
-                    base_name = name[: -len(".tsv.gz")]
-                elif name.endswith(".tsv"):
-                    base_name = name[: -len(".tsv")]
-                else:
-                    base_name = output_path.stem
-                burden_output = str(output_path.with_name(f"{base_name}.gene_burden.tsv"))
-            else:
-                base_name = context.config.get("output_file_base", "gene_burden_results")
-                burden_output = str(Path(output_dir) / f"{base_name}.gene_burden.tsv")
-
-            # Save the generated path back into the context for other stages to use.
-            context.config["gene_burden_output"] = burden_output
-
-        # Treat gene burden as a user-facing sidecar output, not an intermediate.
-        compression = "gzip" if str(burden_output).endswith(".gz") else None
+        burden_output, compression = self._resolve_gene_burden_output(context)
 
         burden_results.to_csv(
             burden_output, sep="\t", index=False, compression=cast(Any, compression)
@@ -2460,7 +2508,7 @@ class AssociationAnalysisStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
-        return {"custom_annotation", "pca_computation"}
+        return {"custom_annotation", "pca_computation", "chunked_analysis"}
 
     @property
     def parallel_safe(self) -> bool:
@@ -2504,6 +2552,35 @@ class AssociationAnalysisStage(Stage):
 
         return context
 
+    def _association_output_columns(self, test_names: list[str]) -> list[str]:
+        """Return the header schema for empty association output."""
+        columns = [
+            "gene",
+            "n_cases",
+            "n_controls",
+            "n_variants",
+        ]
+        for test_name in test_names:
+            columns.extend([f"{test_name}_pvalue", f"{test_name}_qvalue"])
+        columns.extend(["primary_test", "primary_pvalue", "primary_qvalue", "warnings"])
+        return list(dict.fromkeys(columns))
+
+    def _resolve_association_output(self, context: PipelineContext) -> tuple[str, str | None]:
+        """Resolve and persist the association sidecar output path."""
+        assoc_output = context.config.get("association_output")
+        if not assoc_output:
+            output_dir = context.config.get("output_dir", "output")
+            base_name = context.config.get("output_file_base", "association_results")
+            assoc_output = str(Path(output_dir) / f"{base_name}.association.tsv")
+            context.config["association_output"] = assoc_output
+
+        use_compression = context.config.get("gzip_intermediates", True)
+        if use_compression and not str(assoc_output).endswith(".gz"):
+            assoc_output = str(assoc_output) + ".gz"
+            context.config["association_output"] = assoc_output
+            return assoc_output, "gzip"
+        return assoc_output, None
+
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Perform association analysis."""
         if not context.config.get("perform_association"):
@@ -2521,6 +2598,14 @@ class AssociationAnalysisStage(Stage):
                 f"control_samples={len(control_samples) if control_samples else 0}"
             )
             return context
+
+        # Get DataFrame before constructing association engines so broken resume state
+        # produces a direct state-restoration error.
+        df = context.current_dataframe
+        if df is None:
+            df = context.variants_df
+        if df is None:
+            raise RuntimeError("No DataFrame loaded for association analysis")
 
         # PCA-02: pick up pca_file from PCAComputationStage result (Phase 32)
         pca_result = context.get_result("pca_computation")
@@ -2546,16 +2631,15 @@ class AssociationAnalysisStage(Stage):
             or ["fisher"]
         )
 
+        if df.empty:
+            assoc_output, compression = self._resolve_association_output(context)
+            empty = pd.DataFrame(columns=self._association_output_columns(test_names))
+            empty.to_csv(assoc_output, sep="\t", index=False, compression=cast(Any, compression))
+            context.association_results = empty
+            return context
+
         # Eager dependency check: instantiate engine (also calls check_dependencies per test)
         engine = AssociationEngine.from_names(test_names, assoc_config)
-
-        # Get DataFrame
-        df = context.current_dataframe
-        if df is None:
-            df = context.variants_df
-        if df is None or df.empty:
-            logger.warning("No DataFrame loaded for association analysis")
-            return context
 
         if "GENE" not in df.columns:
             logger.error("DataFrame missing required 'GENE' column for association analysis")
@@ -2871,21 +2955,7 @@ class AssociationAnalysisStage(Stage):
         results_df["warnings"] = results_df["gene"].map(warnings_by_gene).fillna("")
 
         # Write results to output file
-        assoc_output = context.config.get("association_output")
-        if not assoc_output:
-            output_dir = context.config.get("output_dir", "output")
-            base_name = context.config.get("output_file_base", "association_results")
-            assoc_output = str(Path(output_dir) / f"{base_name}.association.tsv")
-            context.config["association_output"] = assoc_output
-
-        # Apply compression based on configuration
-        use_compression = context.config.get("gzip_intermediates", True)
-        if use_compression and not str(assoc_output).endswith(".gz"):
-            assoc_output = str(assoc_output) + ".gz"
-            context.config["association_output"] = assoc_output
-            compression = "gzip"
-        else:
-            compression = None
+        assoc_output, compression = self._resolve_association_output(context)
 
         results_df.to_csv(assoc_output, sep="\t", index=False, compression=cast(Any, compression))
         logger.info(f"Wrote association results to {assoc_output}")
@@ -3005,6 +3075,11 @@ class ChunkedAnalysisStage(Stage):
         return "chunked_analysis"
 
     @property
+    def checkpoint_resume_policy(self) -> str:
+        """Chunked analysis can restore DataFrame state from its output TSV."""
+        return "restore"
+
+    @property
     def description(self) -> str:
         """Return a description of what this stage does."""
         return "Process large files in memory-efficient chunks"
@@ -3032,6 +3107,39 @@ class ChunkedAnalysisStage(Stage):
             "scoring_config_loading",  # Optional scoring config
             "pedigree_loading",  # Optional pedigree data
         }
+
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Restore chunked DataFrame analysis state from its durable TSV artifact."""
+        chunked_tsv = context.chunked_analysis_tsv
+        if not chunked_tsv:
+            base = context.workspace.get_intermediate_path("chunked_analysis_results.tsv")
+            gz = Path(str(base) + ".gz")
+            chunked_tsv = gz if gz.exists() else base
+
+        if not chunked_tsv or not Path(chunked_tsv).exists():
+            raise RuntimeError(
+                "Cannot restore chunked_analysis from checkpoint: "
+                f"chunked output missing: {chunked_tsv}"
+            )
+
+        compression = "gzip" if str(chunked_tsv).endswith(".gz") else None
+        df, rename_map = load_optimized_dataframe(
+            str(chunked_tsv),
+            sep="\t",
+            compression=compression,
+            on_bad_lines="warn",
+        )
+        context.current_dataframe = df
+        context.column_rename_map = rename_map
+        context.chunked_analysis_tsv = Path(chunked_tsv)
+        context.config["dataframe_chunked_analysis_complete"] = True
+        context.config["use_chunked_processing"] = True
+        logger.info(
+            "Restored %d variants from chunked analysis checkpoint artifact: %s",
+            len(df),
+            chunked_tsv,
+        )
+        return context
 
     def _has_configs(self) -> bool:
         """Check if config stages exist."""
@@ -3160,9 +3268,10 @@ class ChunkedAnalysisStage(Stage):
             input_file = context.genotype_replaced_tsv
         elif context.extracted_tsv:
             input_file = context.extracted_tsv
+        elif context.data:
+            input_file = Path(context.data)
         else:
-            logger.error("No TSV file available for chunked processing")
-            return context
+            raise RuntimeError("No TSV file available for chunked processing")
 
         logger.info(f"Processing {input_file} in chunks of {chunk_size} variants")
 
@@ -3253,7 +3362,8 @@ class ChunkedAnalysisStage(Stage):
                     f"{[len(chunk) if chunk is not None else 'None' for chunk in output_chunks]}"
                 )
                 context.current_dataframe = pd.DataFrame()
-            context.config["chunked_processing_complete"] = True
+            context.config["dataframe_chunked_analysis_complete"] = True
+            context.config.pop("chunked_processing_complete", None)
 
             # Write chunked analysis results to a new TSV file for other stages
             chunked_output_path = context.workspace.get_intermediate_path(
@@ -3280,7 +3390,7 @@ class ChunkedAnalysisStage(Stage):
             )
             logger.info(f"Chunked analysis results written to: {chunked_output_path}")
         else:
-            logger.warning("No chunks were processed")
+            raise RuntimeError("No chunks were processed")
 
         return context
 

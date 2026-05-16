@@ -129,6 +129,16 @@ class TestPhenotypeLoadingStage:
         # Should return unchanged
         assert result.phenotype_data is None
 
+    @patch("variantcentrifuge.stages.setup_stages.load_phenotypes")
+    def test_checkpoint_skip_raises_when_configured_phenotypes_missing(
+        self, mock_load_phenotypes, context
+    ):
+        """Checkpoint restore should fail if configured phenotypes cannot be loaded."""
+        mock_load_phenotypes.return_value = {}
+
+        with pytest.raises(ValueError, match="No phenotype data loaded"):
+            PhenotypeLoadingStage()._handle_checkpoint_skip(context)
+
     def test_parallel_safe(self):
         """Test parallel safety."""
         stage = PhenotypeLoadingStage()
@@ -168,6 +178,16 @@ class TestScoringConfigLoadingStage:
 
         # Should return unchanged
         assert result.scoring_config is None
+
+    @patch("variantcentrifuge.stages.setup_stages.read_scoring_config")
+    def test_checkpoint_skip_raises_when_scoring_restore_fails(
+        self, mock_read_scoring_config, context
+    ):
+        """Checkpoint restore should not swallow configured scoring load failures."""
+        mock_read_scoring_config.side_effect = OSError("missing scoring config")
+
+        with pytest.raises(ValueError, match="Failed to restore scoring configuration"):
+            ScoringConfigLoadingStage()._handle_checkpoint_skip(context)
 
     def test_parallel_safe(self):
         """Test parallel safety."""
@@ -219,6 +239,14 @@ class TestPedigreeLoadingStage:
 
         # Should return unchanged
         assert result.pedigree_data is None
+
+    @patch("variantcentrifuge.stages.setup_stages.read_pedigree")
+    def test_checkpoint_skip_raises_when_pedigree_restore_fails(self, mock_read_pedigree, context):
+        """Checkpoint restore should not swallow configured pedigree load failures."""
+        mock_read_pedigree.side_effect = OSError("missing pedigree")
+
+        with pytest.raises(ValueError, match="Failed to restore pedigree file"):
+            PedigreeLoadingStage()._handle_checkpoint_skip(context)
 
     def test_parallel_safe(self):
         """Test parallel safety."""
@@ -386,6 +414,13 @@ class TestSampleConfigLoadingStage:
         """Test stage dependencies."""
         stage = SampleConfigLoadingStage()
         assert stage.dependencies == {"configuration_loading"}
+
+    def test_checkpoint_skip_raises_without_vcf_file(self, context):
+        """Checkpoint restore should fail when configured VCF input is absent."""
+        context.config["vcf_file"] = None
+
+        with pytest.raises(ValueError, match="No VCF file specified"):
+            SampleConfigLoadingStage()._handle_checkpoint_skip(context)
 
     @patch("variantcentrifuge.stages.setup_stages.get_vcf_samples")
     def test_remove_sample_substring_basic(self, mock_get_samples, context):
@@ -706,6 +741,13 @@ class TestPhenotypeCaseControlAssignmentStage:
         """Test stage dependencies."""
         stage = PhenotypeCaseControlAssignmentStage()
         assert stage.dependencies == {"phenotype_loading", "sample_config_loading"}
+
+    def test_checkpoint_skip_raises_when_phenotype_assignment_state_missing(self, context):
+        """Checkpoint restore should fail if phenotype assignment inputs are incomplete."""
+        context.vcf_samples = []
+
+        with pytest.raises(ValueError, match="No VCF samples found"):
+            PhenotypeCaseControlAssignmentStage()._handle_checkpoint_skip(context)
 
     def test_parallel_safe(self):
         """Test parallel safety."""

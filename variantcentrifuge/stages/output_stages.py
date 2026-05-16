@@ -189,7 +189,7 @@ class VariantIdentifierStage(Stage):
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Should run after variant_analysis because it creates a new DataFrame
-        return {"variant_analysis"}
+        return {"variant_analysis", "chunked_analysis"}
 
     @property
     def parallel_safe(self) -> bool:
@@ -567,7 +567,7 @@ class TSVOutputStage(Stage):
         """Return the set of stage names that should run before if present."""
         # Soft dependencies are optional - if these stages exist, we should run after them
         # This includes all stages that might modify the DataFrame
-        return {"variant_scoring", "final_filtering", "pseudonymization"}
+        return {"variant_scoring", "final_filtering", "pseudonymization", "chunked_analysis"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Write final TSV output."""
@@ -577,6 +577,8 @@ class TSVOutputStage(Stage):
         if context.config.get("use_chunked_processing") and df is None:
             # Check if chunked analysis results are available
             if hasattr(context, "chunked_analysis_tsv") and context.chunked_analysis_tsv:
+                if not Path(context.chunked_analysis_tsv).exists():
+                    raise RuntimeError("No data to write")
                 logger.info(f"Using chunked analysis results from: {context.chunked_analysis_tsv}")
                 # Copy chunked results to final output location
                 output_file = context.config.get("output_file")
@@ -599,11 +601,11 @@ class TSVOutputStage(Stage):
                 output_filename = Path(output_file).name
                 context.final_output_path = context.workspace.output_dir / output_filename
                 logger.info(f"Chunked processing output: {context.final_output_path}")
-            return context
+                return context
+            raise RuntimeError("No data to write")
 
         if df is None:
-            logger.error("No data to write")
-            return context
+            raise RuntimeError("No data to write")
 
         # Phase 11: Keep per-sample GT columns available for analysis, but collapse
         # them out of final materialized outputs unless users requested raw output.
@@ -689,6 +691,10 @@ class TSVOutputStage(Stage):
 
         return context
 
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
+        """Return the final TSV output for checkpoint tracking."""
+        return [context.final_output_path] if context.final_output_path else []
+
 
 class ExcelReportStage(Stage):
     """Generate Excel report with multiple sheets."""
@@ -727,8 +733,7 @@ class ExcelReportStage(Stage):
 
         input_file = context.final_output_path
         if not input_file or not input_file.exists():
-            logger.warning("No input file for Excel generation")
-            return context
+            raise RuntimeError("No input file for Excel generation")
 
         output_path = context.workspace.get_output_path("", ".xlsx")
 
@@ -784,6 +789,11 @@ class ExcelReportStage(Stage):
 
         context.report_paths["excel"] = output_path
         return context
+
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
+        """Return the Excel report for checkpoint tracking."""
+        path = context.report_paths.get("excel")
+        return [path] if path else []
 
     def _add_additional_sheets(self, xlsx_file: str, context: PipelineContext) -> None:
         """Add additional sheets to the Excel file."""
@@ -1108,6 +1118,11 @@ class MetadataGenerationStage(Stage):
 
         context.report_paths["metadata"] = metadata_path
         return context
+
+    def get_output_files(self, context: PipelineContext) -> list[Path]:
+        """Return the metadata report for checkpoint tracking."""
+        path = context.report_paths.get("metadata")
+        return [path] if path else []
 
 
 class ArchiveCreationStage(Stage):

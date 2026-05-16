@@ -149,7 +149,7 @@ class TestAssociationAnalysisStageSkipBehavior:
         assert result.association_results is None
 
     def test_skips_when_dataframe_is_none(self, mock_workspace):
-        """Stage returns context unchanged when no DataFrame is loaded."""
+        """Requested association fails when no DataFrame is loaded."""
         config = {
             "perform_association": True,
             "case_samples": ["CASE1"],
@@ -158,9 +158,9 @@ class TestAssociationAnalysisStageSkipBehavior:
         context = _make_context(config, None, mock_workspace)
 
         stage = AssociationAnalysisStage()
-        result = stage._process(context)
 
-        assert result.association_results is None
+        with pytest.raises(RuntimeError, match="No DataFrame loaded for association analysis"):
+            stage._process(context)
 
 
 # ---------------------------------------------------------------------------

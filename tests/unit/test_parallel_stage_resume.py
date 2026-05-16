@@ -60,6 +60,7 @@ class TestParallelCompleteProcessingStage:
         context.workspace = Mock()
         context.workspace.base_name = "test"
         context.workspace.intermediate_dir = Path("/tmp")
+        context.config = {}
 
         expected_tsv = Path("/tmp/test.extracted.tsv.gz")
 
@@ -80,6 +81,22 @@ class TestParallelCompleteProcessingStage:
         ]
         actual_calls = [call.args for call in context.mark_complete.call_args_list]
         assert actual_calls == expected_calls
+        assert result.config["parallel_vcf_processing_complete"] is True
+        assert "dataframe_chunked_analysis_complete" not in result.config
+
+    def test_handle_checkpoint_skip_raises_for_missing_merged_tsv(self, tmp_path):
+        """Checkpoint skip should fail when the durable merged TSV is unavailable."""
+        stage = ParallelCompleteProcessingStage()
+        context = Mock(spec=PipelineContext)
+        context.workspace = Mock()
+        context.workspace.base_name = "test"
+        context.workspace.intermediate_dir = tmp_path
+        context.config = {}
+
+        with pytest.raises(RuntimeError, match="Cannot restore parallel_complete_processing"):
+            stage._handle_checkpoint_skip(context)
+
+        context.mark_complete.assert_not_called()
 
     @patch(
         "variantcentrifuge.stages.processing_stages.ParallelCompleteProcessingStage"
