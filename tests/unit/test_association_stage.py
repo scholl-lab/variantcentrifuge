@@ -19,6 +19,7 @@ from variantcentrifuge.pipeline_core.workspace import Workspace
 from variantcentrifuge.stages.analysis_stages import (
     AssociationAnalysisStage,
     GeneBurdenAnalysisStage,
+    _count_significant_association_results,
 )
 
 # ---------------------------------------------------------------------------
@@ -225,7 +226,7 @@ class TestAssociationAnalysisStageRun:
     def test_association_results_has_expected_columns(
         self, mock_workspace, minimal_df, case_control_config
     ):
-        """association_results DataFrame has gene, fisher_p_value, fisher_or columns."""
+        """association_results DataFrame has gene, Fisher, and primary result columns."""
         context = _make_context(case_control_config, minimal_df, mock_workspace)
 
         stage = AssociationAnalysisStage()
@@ -234,7 +235,23 @@ class TestAssociationAnalysisStageRun:
         df = result.association_results
         assert "gene" in df.columns
         assert "fisher_pvalue" in df.columns
+        assert "fisher_qvalue" in df.columns
         assert "fisher_or" in df.columns
+        assert "primary_pvalue" in df.columns
+        assert "primary_qvalue" in df.columns
+        assert "acat_o_qvalue" not in df.columns
+
+    def test_summary_significance_count_uses_primary_qvalue(self):
+        """Unweighted aliases must not make the summary disagree with primary q-values."""
+        results_df = pd.DataFrame(
+            {
+                "primary_qvalue": [0.20, 0.08],
+                "fisher_weighted_qvalue": [0.20, 0.08],
+                "fisher_unweighted_qvalue": [0.001, 0.20],
+            }
+        )
+
+        assert _count_significant_association_results(results_df) == 0
 
     def test_association_config_key_used_not_perform_gene_burden(
         self, mock_workspace, minimal_df, tmp_path

@@ -25,14 +25,15 @@ variantcentrifuge \
 Output: `results.association.tsv` with columns:
 
 ```
-gene  n_cases  n_controls  n_variants  fisher_pvalue  fisher_or  fisher_or_ci_lower  fisher_or_ci_upper  acat_o_pvalue  acat_o_qvalue  warnings
-GENE1 312      488         7           0.00031         3.82       1.87                7.78                0.00031         0.0047
-GENE2 312      488         3           0.41            1.23       0.74                2.05                0.41            1.0
+gene  n_cases  n_controls  n_variants  fisher_pvalue  fisher_qvalue  fisher_or  fisher_or_ci_lower  fisher_or_ci_upper  primary_test  primary_pvalue  primary_qvalue  warnings
+GENE1 312      488         7           0.00031         0.0047         3.82       1.87                7.78                fisher        0.00031         0.0047
+GENE2 312      488         3           0.41            1.0            1.23       0.74                2.05                fisher        0.41            1.0
 ...
 ```
 
-**Primary significance measure:** `acat_o_qvalue` — this is the FDR-corrected omnibus
-p-value. Use it for all significance decisions.
+**Primary significance measure:** `primary_qvalue`. For Fisher-only runs this is the same
+value as `fisher_qvalue`; for multi-test runs it is usually the same value as
+`acat_o_qvalue`.
 
 ## Transcript-Selected Consequence Filtering
 
@@ -456,32 +457,39 @@ correlation between test statistics.
 
 **References:** Liu et al. 2019 AJHG; Liu and Xie 2020 JASA.
 
-ACAT-O is **not** a test you activate separately — it is computed automatically after all
-selected tests have run. When SKAT is active, ACAT-V is also included in the combination.
+ACAT-O is **not** a test you activate separately — it is computed automatically after
+multiple selected tests have run. When SKAT is active, ACAT-V is also included in the
+combination.
 
 ### FDR Correction Strategy
 
-A **single** Benjamini-Hochberg FDR correction pass is applied to the ACAT-O p-values across all
-genes. Individual test p-values (`fisher_pvalue`, `skat_o_pvalue`, etc.) are **not** corrected.
+A **single** Benjamini-Hochberg FDR correction pass is applied to the primary p-values across
+all genes. In multi-test and SKAT runs, the primary p-value is ACAT-O. In single-test runs
+such as Fisher-only, the primary p-value is that test's own p-value, and the corrected value is
+also exposed under a test-specific column such as `fisher_qvalue`.
 
 :::{warning}
-Do not apply additional correction to individual test p-values, and do not apply FDR separately
-per test. Both approaches are statistically incorrect given this design. Use
-`acat_o_qvalue` as your primary significance measure.
+Do not apply additional correction to the output p-values, and do not apply FDR separately per
+test. Both approaches are statistically incorrect given this design. Use `primary_qvalue` as
+your primary significance measure.
 :::
 
 ### Output Columns
 
 | Column | Description |
 |--------|-------------|
-| `acat_o_pvalue` | Raw (uncorrected) ACAT-O omnibus p-value |
-| `acat_o_qvalue` | FDR-corrected (Benjamini-Hochberg) ACAT-O p-value |
+| `primary_test` | Name of the result used for correction (`fisher`, `acat_o`, etc.) |
+| `primary_pvalue` | Raw p-value used for the single correction pass |
+| `primary_qvalue` | Corrected primary p-value; use this for significance decisions |
+| `<test>_qvalue` | Corrected p-value for a single-test run, e.g. `fisher_qvalue` |
+| `acat_o_pvalue` | Raw ACAT-O omnibus p-value; present when ACAT-O is the primary result |
+| `acat_o_qvalue` | Corrected ACAT-O p-value; present when ACAT-O is the primary result |
 
 ### Pass-Through Behaviour
 
-When only one test is active, `acat_o_pvalue` equals that test's raw p-value (pass-through).
-FDR correction is still applied across genes. This is by design — the omnibus is always a safe
-primary measure.
+For single-test runs without a real omnibus combination, VariantCentrifuge no longer writes
+ACAT-O pass-through columns. For example, Fisher-only output uses `fisher_pvalue`,
+`fisher_qvalue`, and the generic `primary_*` columns.
 
 ---
 
@@ -795,6 +803,9 @@ file is written:
 
 The `significance_change` column highlights genes where weighting changed the significance
 call at FDR < 0.05. This is the primary way to assess the impact of your weight choices.
+When weighted FDR is active, the main association output also includes explicit weighted and
+unweighted aliases for the primary result, such as `fisher_weighted_qvalue`,
+`fisher_unweighted_qvalue`, `primary_weighted_qvalue`, and `primary_unweighted_qvalue`.
 
 ### Coverage Warnings
 
@@ -1060,12 +1071,14 @@ head vcf_samples.txt
 
 Ensure the first column of `covariates.tsv` matches these names exactly.
 
-### ACAT-O Equals Single Test P-value
+### Missing ACAT-O Columns In Fisher-Only Output
 
-**What you see:** `acat_o_pvalue` is identical to `fisher_pvalue` for all genes.
+**What you see:** Fisher-only output contains `fisher_qvalue` and `primary_qvalue`, but no
+`acat_o_pvalue` or `acat_o_qvalue`.
 
-**This is correct behavior.** When only one test is active, the Cauchy combination of a single
-p-value returns that p-value unchanged (pass-through). FDR correction still runs across genes.
+**This is correct behavior.** ACAT-O columns are written only when ACAT-O is the primary result.
+For Fisher-only runs, the corrected value is the Fisher result, so it is written as
+`fisher_qvalue` and mirrored in `primary_qvalue`.
 
 To get a true omnibus combination, enable multiple tests:
 ```bash
@@ -1074,9 +1087,10 @@ To get a true omnibus combination, enable multiple tests:
 
 ### Missing ACAT-O Columns
 
-ACAT-O columns are always present in the output when `--perform-association` is active. If you
-do not see them, check that the output file is `results.association.tsv` (not `results.tsv`
-itself — the association results go to a separate `.association.tsv` file).
+ACAT-O columns are present for multi-test and SKAT runs. If you expect them but do not see
+them, first check that the output file is `results.association.tsv` (not `results.tsv` itself
+— the association results go to a separate `.association.tsv` file), then check the selected
+tests in `--association-tests`.
 
 ---
 

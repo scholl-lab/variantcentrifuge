@@ -7,6 +7,7 @@ output schema, zero-variant gene skipping, and correction application.
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from variantcentrifuge.association.base import AssociationConfig
@@ -124,9 +125,8 @@ class TestAssociationEngineRunAll:
     def test_run_all_output_columns(self, default_config):
         """run_all output contains all expected columns.
 
-        ARCH-03: Primary tests no longer have corrected_p_value columns.
-        FDR is applied only to ACAT-O, which appears as acat_o_pvalue and
-        acat_o_qvalue.
+        Fisher-only correction is exposed with Fisher-specific and generic
+        primary columns, not ACAT-O pass-through columns.
         """
         gene_data = [
             _make_gene_data(
@@ -142,16 +142,18 @@ class TestAssociationEngineRunAll:
             "n_controls",
             "n_variants",
             "fisher_pvalue",
-            # ARCH-03: no fisher_corrected_pvalue — FDR applied to ACAT-O only
-            "acat_o_pvalue",
-            "acat_o_qvalue",
+            "fisher_qvalue",
             "fisher_or",
             "fisher_or_ci_lower",
             "fisher_or_ci_upper",
+            "primary_test",
+            "primary_pvalue",
+            "primary_qvalue",
         }
         assert expected_cols.issubset(set(result.columns))
-        # Primary test must NOT have a corrected_p_value column (ARCH-03)
         assert "fisher_corrected_pvalue" not in result.columns
+        assert "acat_o_pvalue" not in result.columns
+        assert "acat_o_qvalue" not in result.columns
 
     def test_run_all_multiple_genes_returns_sorted(self, default_config):
         """run_all with multiple genes returns them sorted alphabetically by gene."""
@@ -210,12 +212,7 @@ class TestAssociationEngineRunAll:
         assert result.empty
 
     def test_run_all_corrected_p_values_populated(self, default_config):
-        """run_all populates ACAT-O corrected p-values for all genes.
-
-        ARCH-03: FDR is applied only to ACAT-O p-values (not per-test).
-        Primary test p-values (fisher_pvalue) are raw/uncorrected.
-        acat_o_qvalue is populated after correction.
-        """
+        """run_all populates Fisher-specific and primary q-values for Fisher-only runs."""
         gene_data = [
             _make_gene_data(
                 "BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3
@@ -227,11 +224,11 @@ class TestAssociationEngineRunAll:
         engine = AssociationEngine.from_names(["fisher"], default_config)
         result = engine.run_all(gene_data)
 
-        # ACAT-O corrected p-values must be non-None (correction was applied)
-        assert result["acat_o_qvalue"].notna().all()
-        # Primary test p-values are raw (no per-test FDR per ARCH-03)
+        assert result["fisher_qvalue"].notna().all()
+        assert result["primary_qvalue"].notna().all()
+        np.testing.assert_allclose(result["fisher_qvalue"], result["primary_qvalue"])
         assert "fisher_corrected_pvalue" not in result.columns
-        # Fisher raw p-values are present
+        assert "acat_o_qvalue" not in result.columns
         assert result["fisher_pvalue"].notna().all()
 
     def test_run_all_sort_order_reverse_input_still_alphabetical(self, default_config):
@@ -350,24 +347,16 @@ class TestAssociationEngineColumnNaming:
 
 
 # ---------------------------------------------------------------------------
-# ACAT-O integration tests (Phase 22 / ARCH-03)
+# Primary correction output tests
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
-class TestAssociationEngineAcatO:
-    """Tests for ACAT-O omnibus column presence and FDR strategy (ARCH-03).
+class TestAssociationEnginePrimaryOutput:
+    """Tests for primary p/q-value output naming."""
 
-    These tests verify that:
-    1. acat_o_pvalue and acat_o_qvalue columns are always present
-    2. Primary test corrected_p_value columns are never present (ARCH-03)
-    3. Single-test pass-through: acat_o_pvalue == fisher_pvalue when k=1
-    4. FDR is applied only to ACAT-O (corrected p-values populated for valid genes)
-    5. Zero-variant genes have acat_o_pvalue=None
-    """
-
-    def test_engine_acat_o_columns_present(self, default_config):
-        """run_all with fisher test produces acat_o_pvalue and acat_o_qvalue columns."""
+    def test_engine_fisher_only_uses_fisher_qvalue_not_acat_o(self, default_config):
+        """Fisher-only output does not expose corrected values as ACAT-O."""
         gene_data = [
             _make_gene_data(
                 "BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3
@@ -376,15 +365,14 @@ class TestAssociationEngineAcatO:
         engine = AssociationEngine.from_names(["fisher"], default_config)
         result = engine.run_all(gene_data)
 
-        assert "acat_o_pvalue" in result.columns, "acat_o_pvalue column missing from output"
-        assert "acat_o_qvalue" in result.columns, "acat_o_qvalue column missing from output"
+        assert "fisher_qvalue" in result.columns
+        assert "primary_pvalue" in result.columns
+        assert "primary_qvalue" in result.columns
+        assert "acat_o_pvalue" not in result.columns
+        assert "acat_o_qvalue" not in result.columns
 
-    def test_engine_acat_o_single_test_passthrough(self, default_config):
-        """With only fisher test, acat_o_pvalue equals fisher_pvalue (k=1 pass-through).
-
-        IMPL-35: Single valid p-value passes through cauchy_combination unchanged.
-        When there is only one primary test, ACAT-O is identical to that test's p-value.
-        """
+    def test_engine_fisher_only_primary_pvalue_matches_fisher(self, default_config):
+        """With only Fisher active, primary_pvalue is the Fisher p-value."""
         import pytest
 
         gene_data = [
@@ -396,19 +384,15 @@ class TestAssociationEngineAcatO:
         result = engine.run_all(gene_data)
 
         row = result.iloc[0]
-        assert row["acat_o_pvalue"] is not None
+        assert row["primary_pvalue"] is not None
         assert row["fisher_pvalue"] is not None
-        assert row["acat_o_pvalue"] == pytest.approx(row["fisher_pvalue"], rel=1e-9), (
-            "With k=1 test, acat_o_pvalue should equal fisher_pvalue (pass-through)"
+        assert row["primary_test"] == "fisher"
+        assert row["primary_pvalue"] == pytest.approx(row["fisher_pvalue"], rel=1e-9), (
+            "With only Fisher active, primary_pvalue should equal fisher_pvalue"
         )
 
-    def test_engine_acat_o_fdr_applied(self, default_config):
-        """acat_o_qvalue is not None for genes with valid ACAT-O p-values.
-
-        ARCH-03: FDR is applied to ACAT-O across all genes. After correction,
-        acat_o_qvalue should be populated for every gene that had a
-        valid acat_o_pvalue.
-        """
+    def test_engine_fisher_only_fdr_applied(self, default_config):
+        """fisher_qvalue is populated for genes with valid Fisher p-values."""
         gene_data = [
             _make_gene_data(
                 "BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3
@@ -423,19 +407,67 @@ class TestAssociationEngineAcatO:
         engine = AssociationEngine.from_names(["fisher"], default_config)
         result = engine.run_all(gene_data)
 
-        # All genes that have acat_o_pvalue should also have acat_o_qvalue
-        genes_with_acat_p = result[result["acat_o_pvalue"].notna()]
-        assert len(genes_with_acat_p) > 0, "No genes had valid acat_o_pvalue"
-        assert genes_with_acat_p["acat_o_qvalue"].notna().all(), (
-            "Some genes with valid acat_o_pvalue have None acat_o_qvalue"
+        genes_with_fisher_p = result[result["fisher_pvalue"].notna()]
+        assert len(genes_with_fisher_p) > 0, "No genes had valid fisher_pvalue"
+        assert genes_with_fisher_p["fisher_qvalue"].notna().all()
+        np.testing.assert_allclose(
+            genes_with_fisher_p["fisher_qvalue"],
+            genes_with_fisher_p["primary_qvalue"],
         )
 
-    def test_engine_primary_tests_no_fdr(self, default_config):
-        """Primary test corrected_p_value columns are absent (ARCH-03).
+    def test_engine_fisher_only_weighted_fdr_uses_fisher_named_columns(self, tmp_path):
+        """Regression test for issue #108: weighted Fisher FDR is not named ACAT-O."""
+        import pandas as pd
 
-        FDR is applied only to ACAT-O. Primary test raw p-values exist for
-        diagnostic signal decomposition, but they are NOT independently corrected.
-        """
+        weight_file = tmp_path / "weights.tsv"
+        weight_file.write_text("gene\tweight\nBRCA1\t3.0\nMYH7\t1.0\nTP53\t0.5\n")
+        diagnostics_dir = tmp_path / "diagnostics"
+
+        config = AssociationConfig(
+            correction_method="fdr",
+            gene_burden_mode="samples",
+            gene_prior_weights=str(weight_file),
+            diagnostics_output=str(diagnostics_dir),
+        )
+        gene_data = [
+            _make_gene_data(
+                "TP53", p_carriers=3, c_carriers=0, p_total=100, c_total=200, n_variants=2
+            ),
+            _make_gene_data(
+                "BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3
+            ),
+            _make_gene_data(
+                "MYH7", p_carriers=8, c_carriers=2, p_total=100, c_total=200, n_variants=5
+            ),
+        ]
+
+        result = AssociationEngine.from_names(["fisher"], config).run_all(gene_data)
+
+        assert "fisher_qvalue" in result.columns
+        assert "fisher_weighted_qvalue" in result.columns
+        assert "fisher_unweighted_qvalue" in result.columns
+        assert "primary_qvalue" in result.columns
+        assert "primary_weighted_qvalue" in result.columns
+        assert "primary_unweighted_qvalue" in result.columns
+        assert "fdr_weight" in result.columns
+        assert "acat_o_pvalue" not in result.columns
+        assert "acat_o_qvalue" not in result.columns
+
+        np.testing.assert_allclose(result["primary_pvalue"], result["fisher_pvalue"])
+        np.testing.assert_allclose(result["primary_qvalue"], result["fisher_qvalue"])
+        np.testing.assert_allclose(result["fisher_qvalue"], result["fisher_weighted_qvalue"])
+        np.testing.assert_allclose(
+            result["primary_weighted_qvalue"],
+            result["fisher_weighted_qvalue"],
+        )
+
+        diagnostics = pd.read_csv(diagnostics_dir / "fdr_weight_diagnostics.tsv", sep="\t")
+        merged = result.merge(diagnostics[["gene", "weighted_q", "unweighted_q"]], on="gene")
+        np.testing.assert_allclose(merged["fisher_weighted_qvalue"], merged["weighted_q"])
+        np.testing.assert_allclose(merged["fisher_unweighted_qvalue"], merged["unweighted_q"])
+
+    def test_engine_primary_tests_no_fdr(self, default_config):
+        """Legacy corrected_pvalue column spelling remains absent."""
         gene_data = [
             _make_gene_data(
                 "BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3
@@ -447,13 +479,13 @@ class TestAssociationEngineAcatO:
         engine = AssociationEngine.from_names(["fisher"], default_config)
         result = engine.run_all(gene_data)
 
-        # Fisher must not have a corrected p-value column (ARCH-03)
+        # Fisher q-values are exposed as fisher_qvalue, not a legacy corrected_pvalue column.
         assert "fisher_corrected_pvalue" not in result.columns, (
-            "ARCH-03 violated: fisher_corrected_pvalue should not be in output columns"
+            "fisher_corrected_pvalue should not be in output columns"
         )
 
-    def test_engine_acat_o_none_for_zero_variant_gene(self, default_config):
-        """Gene with 0 variants is excluded from results; no row means no acat_o_pvalue.
+    def test_engine_primary_none_for_zero_variant_gene(self, default_config):
+        """Gene with 0 variants is excluded from results; no row means no primary p-value.
 
         IMPL-02: p_value=None for zero-variant genes (not 1.0). These genes are
         skipped in the engine output entirely (not included as rows with None values).
@@ -476,11 +508,10 @@ class TestAssociationEngineAcatO:
         # Only BRCA1 should be present
         assert len(result) == 1
         assert result.iloc[0]["gene"] == "BRCA1"
-        # BRCA1 has valid acat_o_pvalue
-        assert result.iloc[0]["acat_o_pvalue"] is not None
+        assert result.iloc[0]["primary_pvalue"] is not None
 
-    def test_engine_acat_o_corrected_p_in_range(self, default_config):
-        """acat_o_qvalue values are in [0, 1]."""
+    def test_engine_primary_corrected_p_in_range(self, default_config):
+        """primary_qvalue values are in [0, 1]."""
         gene_data = [
             _make_gene_data(
                 "BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3
@@ -492,11 +523,11 @@ class TestAssociationEngineAcatO:
         engine = AssociationEngine.from_names(["fisher"], default_config)
         result = engine.run_all(gene_data)
 
-        for val in result["acat_o_qvalue"].dropna():
-            assert 0.0 <= val <= 1.0, f"acat_o_qvalue {val} outside [0, 1]"
+        for val in result["primary_qvalue"].dropna():
+            assert 0.0 <= val <= 1.0, f"primary_qvalue {val} outside [0, 1]"
 
-    def test_engine_acat_o_raw_p_in_range(self, default_config):
-        """acat_o_pvalue raw p-values are in [0, 1]."""
+    def test_engine_primary_raw_p_in_range(self, default_config):
+        """primary_pvalue raw p-values are in [0, 1]."""
         gene_data = [
             _make_gene_data(
                 "BRCA1", p_carriers=5, c_carriers=1, p_total=100, c_total=200, n_variants=3
@@ -505,5 +536,5 @@ class TestAssociationEngineAcatO:
         engine = AssociationEngine.from_names(["fisher"], default_config)
         result = engine.run_all(gene_data)
 
-        for val in result["acat_o_pvalue"].dropna():
-            assert 0.0 <= val <= 1.0, f"acat_o_pvalue {val} outside [0, 1]"
+        for val in result["primary_pvalue"].dropna():
+            assert 0.0 <= val <= 1.0, f"primary_pvalue {val} outside [0, 1]"

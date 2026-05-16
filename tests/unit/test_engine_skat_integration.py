@@ -189,6 +189,10 @@ class TestSKATColumnStructure:
         assert "skat_corrected_pvalue" not in result.columns
         assert "acat_o_pvalue" in result.columns
         assert "acat_o_qvalue" in result.columns
+        assert "primary_test" in result.columns
+        assert "primary_pvalue" in result.columns
+        assert "primary_qvalue" in result.columns
+        assert set(result["primary_test"]) == {"acat_o"}
 
     def test_engine_skat_extra_columns_written(self):
         """Extra SKAT columns (skat_o_rho, skat_method) are written to output."""
@@ -483,6 +487,9 @@ class TestSKATColumnCount:
             # ARCH-03: no skat_corrected_pvalue; ACAT-O is the single corrected output
             "acat_o_pvalue",
             "acat_o_qvalue",
+            "primary_test",
+            "primary_pvalue",
+            "primary_qvalue",
             "skat_o_rho",
             "skat_method",
             "skat_warnings",
