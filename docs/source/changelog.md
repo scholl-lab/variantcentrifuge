@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes._
 
+## [0.17.9] - 2026-05-16
+
+### Fixed
+- Honor `--split-snpeff-lines before_filters` in parallel chunk processing so SnpSift consequence predicates are evaluated on split SnpEff rows before transcript selection.
+- Prune SnpEff `LOF` and `NMD` INFO entries on ANN split rows to the retained row's matching gene symbol or gene ID, preventing cross-gene burden and association leakage.
+- Warn and document when transcript-filtered gene burden or association uses record-level `ANN[ANY]`, `LOF[*]`, or `NMD[*]` predicates without `before_filters`.
+
 ## [0.17.8] - 2026-05-16
 
 ### Fixed
