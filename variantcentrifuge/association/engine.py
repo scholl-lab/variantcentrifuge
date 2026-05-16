@@ -4,9 +4,9 @@
 AssociationEngine — orchestrator for multi-test rare variant association.
 
 The engine accepts a list of AssociationTest instances, runs each test on
-every gene in the input data, computes ACAT-O omnibus p-values per gene,
-applies a single round of multiple testing correction to ACAT-O p-values
-(ARCH-03), and returns a wide-format DataFrame with one row per gene.
+every gene in the input data, chooses a primary association p-value per gene,
+applies one round of multiple testing correction to that primary p-value, and
+returns a wide-format DataFrame with one row per gene.
 
 Column naming convention: {test_name}_{field}, e.g.:
   fisher_pvalue, fisher_or,
@@ -21,14 +21,18 @@ ACAT-O columns (Phase 22):
   acat_o_pvalue  — raw omnibus Cauchy combination of per-test p-values
   acat_o_qvalue  — FDR/Bonferroni corrected across all genes
 
+Primary columns:
+  primary_test    — corrected significance target ("fisher", "acat_o", etc.)
+  primary_pvalue  — raw p-value used for multiple testing correction
+  primary_qvalue  — corrected primary p-value
+
 SKAT-O note: when skat_method="SKATO", the skat_pvalue column is renamed to
   skat_o_pvalue to distinguish SKAT-O from the plain SKAT result.
 
-FDR strategy (ARCH-03):
-  Single correction pass on ACAT-O p-values only. Individual test p-values
-  (fisher, burden, skat) remain uncorrected — they exist for diagnostic signal
-  decomposition, not independent hypothesis testing. corrected_p_value on
-  primary TestResult objects is always None.
+FDR strategy:
+  Single correction pass on the primary p-value only. For multi-test runs and
+  SKAT runs this is ACAT-O. For single non-SKAT tests, the primary p-value is
+  the test's own p-value, avoiding misleading ACAT-O aliases for pass-throughs.
 
 Shared columns (gene-level metadata, not test-specific):
   gene, n_cases, n_controls, n_variants
@@ -153,6 +157,13 @@ def _apply_builder_result_to_gene_data(
 def _discard_per_gene_matrix_payload(gene_data: dict[str, Any]) -> None:
     for key in _PER_GENE_MATRIX_PAYLOAD_KEYS:
         gene_data.pop(key, None)
+
+
+def _single_test_output_id(test_name: str, result: TestResult | None) -> str:
+    """Return the user-facing column prefix for a single-test primary result."""
+    if test_name == "skat" and result is not None and result.extra.get("skat_method") == "SKATO":
+        return "skat_o"
+    return test_name
 
 
 class AssociationEngine:
@@ -363,10 +374,9 @@ class AssociationEngine:
         """
         Run all registered tests across all genes and return wide-format results.
 
-        FDR correction (ARCH-03): applied only to ACAT-O p-values across all
-        genes. Primary test columns (fisher_pvalue, burden_pvalue, etc.) are
-        uncorrected — they are diagnostic signal decomposition, not independent
-        hypotheses. corrected_p_value on primary TestResults is always None.
+        FDR correction is applied once to the primary p-value across all genes.
+        Multi-test and SKAT runs use ACAT-O as the primary result. Single
+        non-SKAT runs use the test's own p-value as the primary result.
 
         Parameters
         ----------
@@ -381,9 +391,9 @@ class AssociationEngine:
             Wide-format results. One row per gene that has at least one test
             result (genes where all tests returned p_value=None are excluded).
             Columns: gene, n_cases, n_controls, n_variants, then per-test
-            columns: {test}_pvalue (uncorrected), plus test-aware effect
-            columns (e.g. fisher_or or logistic_burden_beta), and finally
-            acat_o_pvalue and acat_o_qvalue.
+            columns: {test}_pvalue, plus test-aware effect columns (e.g.
+            fisher_or or logistic_burden_beta), and primary_pvalue/primary_qvalue.
+            ACAT-O columns are present only when ACAT-O is the primary result.
         """
         if not gene_burden_data:
             logger.warning("No gene burden data provided to AssociationEngine.")
@@ -517,30 +527,45 @@ class AssociationEngine:
         for test in self._tests.values():
             test.finalize()
 
-        # --- ARCH-03: Single FDR pass on ACAT-O only ---
-        # Primary tests do NOT get corrected_p_value — they are diagnostic decomposition,
-        # not independent hypotheses. ACAT-O is the single omnibus significance measure.
+        if not self._tests:
+            logger.warning("Association analysis: no association tests registered.")
+            return pd.DataFrame()
 
-        # Step 1: Compute ACAT-O p-values (post-loop meta-test)
-        acat_o_results = self._compute_acat_o(results_by_test, sorted_data)
-        results_by_test["acat_o"] = acat_o_results
+        # Single correction pass on the run's primary p-value.
+        #
+        # ACAT-O is the right primary result for multi-test runs. It also stays
+        # primary for SKAT because the engine can include ACAT-V in that omnibus
+        # combination. For single non-SKAT tests, ACAT-O would be a pure
+        # pass-through, so correction is attached to the actual test result
+        # (for example fisher_qvalue) instead of misleading acat_o_* columns.
+        primary_result_id = next(iter(self._tests))
+        write_acat_o = len(self._tests) > 1 or "skat" in self._tests
+        acat_o_results: dict[str, TestResult] = {}
+        correction_results: dict[str, TestResult]
+        if write_acat_o:
+            acat_o_results = self._compute_acat_o(results_by_test, sorted_data)
+            results_by_test["acat_o"] = acat_o_results
+            correction_results = acat_o_results
+            primary_result_id = "acat_o"
+        else:
+            correction_results = results_by_test[primary_result_id]
 
-        # Step 2: Apply FDR correction to ACAT-O p-values only
         gene_order = [d.get("GENE", "") for d in sorted_data]
         testable_genes = [
             g
             for g in gene_order
-            if acat_o_results.get(g) is not None and acat_o_results[g].p_value is not None
+            if correction_results.get(g) is not None and correction_results[g].p_value is not None
         ]
 
         # Phase 33: weighted or unweighted correction path
         fdr_weights_by_gene: dict[str, float] = {}
         unweighted_corrected_by_gene: dict[str, float] = {}
+        weighted_corrected_by_gene: dict[str, float] = {}
         weighted_norm_arr: list[float] = []
 
         if testable_genes:
             raw_pvals: list[float] = [
-                acat_o_results[g].p_value  # type: ignore[misc]
+                correction_results[g].p_value  # type: ignore[misc]
                 for g in testable_genes
             ]
 
@@ -569,6 +594,8 @@ class AssociationEngine:
                 weighted_norm_arr = norm_w.tolist()
                 for g, nw in zip(testable_genes, norm_w, strict=True):
                     fdr_weights_by_gene[g] = float(nw)
+                for g, wt in zip(testable_genes, corrected, strict=True):
+                    weighted_corrected_by_gene[g] = float(wt)
 
                 # Write diagnostics if requested (Phase 33)
                 diag_out = getattr(self._config, "diagnostics_output", None)
@@ -598,7 +625,7 @@ class AssociationEngine:
                 corrected = apply_correction(raw_pvals, self._config.correction_method)
 
             for gene, corr_p in zip(testable_genes, corrected, strict=True):
-                acat_o_results[gene].corrected_p_value = float(corr_p)
+                correction_results[gene].corrected_p_value = float(corr_p)
 
         # Build wide-format DataFrame
         rows = []
@@ -629,8 +656,9 @@ class AssociationEngine:
                 res = results_by_test[test_name][gene]
                 col_names = test.effect_column_names()
                 row[f"{test_name}_pvalue"] = res.p_value
-                # Primary test corrected_p_value is always None (ARCH-03)
-                # It is written for schema completeness but remains None.
+                # Corrected significance is emitted through primary_* columns
+                # and, for single-test runs, through {test}_qvalue aliases.
+                # Do not reintroduce legacy {test}_corrected_pvalue columns.
                 # None-effect guard: skip column creation when effect/CI names are None.
                 # Required for SKAT which has no effect size, SE, or confidence interval.
                 # Without this guard, col_names['effect'] = None would produce
@@ -656,10 +684,41 @@ class AssociationEngine:
                 if res.extra.get("skat_method") == "SKATO" and f"{test_name}_pvalue" in row:
                     row[f"{test_name}_o_pvalue"] = row.pop(f"{test_name}_pvalue")
 
-            # ACAT-O columns (Phase 22) — omnibus significance measure
-            acat_res = acat_o_results.get(gene)
-            row["acat_o_pvalue"] = acat_res.p_value if acat_res is not None else None
-            row["acat_o_qvalue"] = acat_res.corrected_p_value if acat_res is not None else None
+            # Primary significance columns. In single-test pass-through mode,
+            # also expose a test-specific q-value such as fisher_qvalue.
+            primary_res = correction_results.get(gene)
+            primary_output_id = primary_result_id
+            if not write_acat_o:
+                primary_output_id = _single_test_output_id(primary_result_id, primary_res)
+                row[f"{primary_output_id}_qvalue"] = (
+                    primary_res.corrected_p_value if primary_res is not None else None
+                )
+                if weighted_corrected_by_gene:
+                    row[f"{primary_output_id}_weighted_qvalue"] = weighted_corrected_by_gene.get(
+                        gene
+                    )
+                    row[f"{primary_output_id}_unweighted_qvalue"] = (
+                        unweighted_corrected_by_gene.get(gene)
+                    )
+
+            row["primary_test"] = primary_output_id
+            row["primary_pvalue"] = primary_res.p_value if primary_res is not None else None
+            row["primary_qvalue"] = (
+                primary_res.corrected_p_value if primary_res is not None else None
+            )
+            if weighted_corrected_by_gene:
+                row["primary_weighted_qvalue"] = weighted_corrected_by_gene.get(gene)
+                row["primary_unweighted_qvalue"] = unweighted_corrected_by_gene.get(gene)
+
+            # ACAT-O columns are only emitted when ACAT-O is a real primary
+            # result, not for single-test pass-throughs such as Fisher-only.
+            if write_acat_o:
+                acat_res = acat_o_results.get(gene)
+                row["acat_o_pvalue"] = acat_res.p_value if acat_res is not None else None
+                row["acat_o_qvalue"] = acat_res.corrected_p_value if acat_res is not None else None
+                if weighted_corrected_by_gene:
+                    row["acat_o_weighted_qvalue"] = weighted_corrected_by_gene.get(gene)
+                    row["acat_o_unweighted_qvalue"] = unweighted_corrected_by_gene.get(gene)
 
             # Phase 33: fdr_weight column — only added when weighted BH is active
             if fdr_weights_by_gene:
@@ -672,9 +731,9 @@ class AssociationEngine:
             return pd.DataFrame()
 
         result_df = pd.DataFrame(rows)
-        n_sig = (result_df.get("acat_o_qvalue", pd.Series(dtype=float)) < 0.05).sum()
+        n_sig = (result_df.get("primary_qvalue", pd.Series(dtype=float)) < 0.05).sum()
         logger.info(
             f"Association analysis complete: {len(result_df)} genes tested, "
-            f"{n_sig} significant (ACAT-O corrected p < 0.05)"
+            f"{n_sig} significant (primary corrected p < 0.05)"
         )
         return result_df

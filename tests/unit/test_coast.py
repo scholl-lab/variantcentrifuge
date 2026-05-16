@@ -1018,8 +1018,8 @@ class TestCOASTEngineRegistration:
         registry = _build_registry()
         assert registry["coast"] is COASTTest
 
-    def test_acat_o_includes_coast_pvalue(self):
-        """When coast is a registered test, ACAT-O combines coast_pvalue."""
+    def test_single_coast_uses_coast_primary_qvalue(self):
+        """Single-test COAST runs expose the COAST result as primary."""
         from variantcentrifuge.association.base import AssociationConfig, TestResult
         from variantcentrifuge.association.engine import AssociationEngine
 
@@ -1068,13 +1068,14 @@ class TestCOASTEngineRegistration:
 
         result_df = engine.run_all(gene_data)
 
-        # ACAT-O should have combined the coast p-value
-        assert "acat_o_pvalue" in result_df.columns
-        # With only one test (coast), ACAT-O = coast p-value (single p-value pass-through)
-        assert result_df["acat_o_pvalue"].iloc[0] is not None
-        # coast_pvalue column should be present
+        # Single-test COAST output uses the COAST result directly, not ACAT-O pass-through.
+        assert "acat_o_pvalue" not in result_df.columns
         assert "coast_pvalue" in result_df.columns
+        assert "coast_qvalue" in result_df.columns
+        assert "primary_pvalue" in result_df.columns
+        assert "primary_qvalue" in result_df.columns
         assert result_df["coast_pvalue"].iloc[0] == pytest.approx(0.01)
+        assert result_df["primary_pvalue"].iloc[0] == pytest.approx(0.01)
 
     def test_coast_extra_columns_in_engine_output(self):
         """coast_burden_pvalue, coast_skat_pvalue, coast_n_* appear in engine output."""

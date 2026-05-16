@@ -2428,6 +2428,17 @@ def _build_assoc_config_from_context(context: "PipelineContext") -> AssociationC
     )
 
 
+def _count_significant_association_results(
+    results_df: pd.DataFrame,
+    threshold: float = 0.05,
+) -> int:
+    """Count significant association rows using the run's primary corrected p-value."""
+    if "primary_qvalue" in results_df.columns:
+        return int((results_df["primary_qvalue"] < threshold).sum())
+    corr_cols = [c for c in results_df.columns if c.endswith("_qvalue")]
+    return int((results_df[corr_cols].min(axis=1) < threshold).sum()) if corr_cols else 0
+
+
 class AssociationAnalysisStage(Stage):
     """Perform association analysis using the modular AssociationEngine framework."""
 
@@ -2902,9 +2913,7 @@ class AssociationAnalysisStage(Stage):
 
         # Log summary
         n_genes = len(results_df)
-        # Count significant genes across any corrected p-value column
-        corr_cols = [c for c in results_df.columns if c.endswith("_qvalue")]
-        n_sig = int((results_df[corr_cols].min(axis=1) < 0.05).sum()) if corr_cols else 0
+        n_sig = _count_significant_association_results(results_df)
         logger.info(
             f"Association analysis: {n_genes} genes tested, {n_sig} significant (FDR < 0.05)"
         )

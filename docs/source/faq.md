@@ -304,11 +304,11 @@ variantcentrifuge \
 
 The covariate file should be a TSV or CSV with sample IDs in the first column and covariate values in subsequent columns (header required). Logistic burden regression fits a weighted burden score as the predictor with covariates, reporting beta coefficients and standard errors. For quantitative traits, use `--trait-type quantitative` with `--association-tests linear_burden`. See the [Association Testing Guide](guides/association_testing.md) for full details.
 
-### What is ACAT-O and why should I use `acat_o_qvalue`?
+### What is ACAT-O and when should I use `acat_o_qvalue`?
 
 ACAT-O (Aggregated Cauchy Association Test — Omnibus) combines p-values from multiple association tests per gene into a single omnibus p-value using the Cauchy combination method (Liu and Xie, 2020). It is robust to the unknown correlation between tests and does not require simulation.
 
-When you run multiple tests (e.g., `--association-tests fisher,logistic_burden,skat`), each test may capture different genetic architectures: Fisher detects dominant carrier effects, burden tests detect directional cumulative effects, and SKAT-O detects heterogeneous effects without sign constraints. ACAT-O combines evidence from all active tests into a single per-gene p-value. A single Benjamini-Hochberg FDR correction is applied to `acat_o_pvalue` across all genes to produce `acat_o_qvalue`. This is the primary significance measure to report; individual test p-values serve for diagnostic signal decomposition only. See the [Association Testing Guide](guides/association_testing.md) for the test selection reference table.
+When you run multiple tests (e.g., `--association-tests fisher,logistic_burden,skat`), each test may capture different genetic architectures: Fisher detects dominant carrier effects, burden tests detect directional cumulative effects, and SKAT-O detects heterogeneous effects without sign constraints. ACAT-O combines evidence from all active tests into a single per-gene p-value. A single Benjamini-Hochberg FDR correction is applied to the primary p-value across all genes. For multi-test runs, `acat_o_qvalue` is the primary corrected result; for single-test runs such as Fisher-only, use `primary_qvalue` or the test-specific column such as `fisher_qvalue`. See the [Association Testing Guide](guides/association_testing.md) for the test selection reference table.
 
 ### Do I need R installed for SKAT or COAST?
 
