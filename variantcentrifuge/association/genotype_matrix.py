@@ -169,7 +169,11 @@ def build_genotype_matrix(
     missing_site_threshold: float = 0.10,
     missing_sample_threshold: float = 0.80,
     phenotype_vector: np.ndarray | None = None,
-) -> tuple[np.ndarray, np.ndarray, list[bool], list[str]]:
+    return_keep_mask: bool = False,
+) -> (
+    tuple[np.ndarray, np.ndarray, list[bool], list[str]]
+    | tuple[np.ndarray, np.ndarray, list[bool], list[str], np.ndarray]
+):
     """
     Build a fully imputed genotype matrix from a per-gene variant DataFrame.
 
@@ -198,6 +202,9 @@ def build_genotype_matrix(
     phenotype_vector : np.ndarray | None, shape (n_samples,)
         Optional binary phenotype (0/1). When provided, differential
         missingness warnings are computed per variant. Ignored if None.
+    return_keep_mask : bool
+        When True, append the site-level variant keep mask as a fifth return value.
+        Default False preserves the historical four-tuple return.
 
     Returns
     -------
@@ -216,6 +223,8 @@ def build_genotype_matrix(
     warnings_list : list[str]
         Diagnostic messages accumulated during construction (e.g. multi-
         allelic detection, differential missingness).
+    keep_variants_mask : np.ndarray, optional
+        Boolean mask over input rows, returned only when ``return_keep_mask=True``.
 
     Notes
     -----
@@ -310,4 +319,6 @@ def build_genotype_matrix(
     # ------------------------------------------------------------------ #
     geno = geno.T  # shape (n_samples, n_kept_variants)
 
+    if return_keep_mask:
+        return geno, mafs, sample_mask, warnings_list, keep_variants_mask
     return geno, mafs, sample_mask, warnings_list

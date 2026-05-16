@@ -157,6 +157,7 @@ class LinearBurdenTest(AssociationTest):
             config.variant_weights,
             cadd_scores=contingency_data.get("cadd_scores"),
             revel_scores=contingency_data.get("revel_scores"),
+            score_values=contingency_data.get("score_values"),
             variant_effects=contingency_data.get("variant_effects"),
             weight_params=config.variant_weight_params,
         )

@@ -24,6 +24,7 @@ from ..analyze_variants import analyze_variants
 from ..annotator import annotate_dataframe_with_features, load_custom_features
 from ..association.base import AssociationConfig
 from ..association.engine import AssociationEngine
+from ..association.weights import resolve_score_weight_column
 from ..dataframe_optimizer import load_optimized_dataframe, should_use_memory_passthrough
 from ..gene_burden import (
     _aggregate_gene_burden_from_columns,
@@ -57,6 +58,44 @@ class _GenotypeMatrixBuilder:
     missing_sample_threshold: float
     phenotype_vector: "np.ndarray | None"
     covariate_matrix: "np.ndarray | None"
+    score_column: str | None = None
+    cadd_column: str | None = None
+    revel_column: str | None = None
+    effect_column: str | None = None
+
+    def _aligned_annotation_payload(self, keep_variants_mask: np.ndarray) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if self.score_column is not None:
+            payload["score_values"] = self.gene_df[self.score_column].to_numpy(dtype=object)[
+                keep_variants_mask
+            ]
+            payload["variant_weight_column"] = self.score_column
+        if self.cadd_column is not None:
+            payload["cadd_scores"] = self.gene_df[self.cadd_column].to_numpy(dtype=object)[
+                keep_variants_mask
+            ]
+        if self.revel_column is not None:
+            payload["revel_scores"] = self.gene_df[self.revel_column].to_numpy(dtype=object)[
+                keep_variants_mask
+            ]
+        if self.effect_column is not None:
+            payload["variant_effects"] = self.gene_df[self.effect_column].to_numpy(dtype=object)[
+                keep_variants_mask
+            ]
+        return payload
+
+    def _empty_annotation_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if self.score_column is not None:
+            payload["score_values"] = np.asarray([], dtype=object)
+            payload["variant_weight_column"] = self.score_column
+        if self.cadd_column is not None:
+            payload["cadd_scores"] = np.asarray([], dtype=object)
+        if self.revel_column is not None:
+            payload["revel_scores"] = np.asarray([], dtype=object)
+        if self.effect_column is not None:
+            payload["variant_effects"] = np.asarray([], dtype=object)
+        return payload
 
     def __call__(self) -> dict[str, Any]:
         """Build genotype matrix and apply sample mask + MAC check.
@@ -68,7 +107,7 @@ class _GenotypeMatrixBuilder:
 
         if self.gene_df.empty:
             n_samples = len(self.vcf_samples)
-            return {
+            result: dict[str, Any] = {
                 "genotype_matrix": np.zeros((n_samples, 0), dtype=float),
                 "variant_mafs": np.zeros(0, dtype=float),
                 "phenotype_vector": self.phenotype_vector,
@@ -76,16 +115,23 @@ class _GenotypeMatrixBuilder:
                 "gt_warnings": [],
                 "mac_filtered": False,
             }
+            result.update(self._empty_annotation_payload())
+            return result
 
-        geno, mafs, sample_mask, gt_warnings = build_genotype_matrix(
-            self.gene_df,
-            self.vcf_samples,
-            self.gt_columns,
-            is_binary=self.is_binary,
-            missing_site_threshold=self.missing_site_threshold,
-            missing_sample_threshold=self.missing_sample_threshold,
-            phenotype_vector=self.phenotype_vector,
+        geno, mafs, sample_mask, gt_warnings, keep_variants_mask = cast(
+            tuple[np.ndarray, np.ndarray, list[bool], list[str], np.ndarray],
+            build_genotype_matrix(
+                self.gene_df,
+                self.vcf_samples,
+                self.gt_columns,
+                is_binary=self.is_binary,
+                missing_site_threshold=self.missing_site_threshold,
+                missing_sample_threshold=self.missing_sample_threshold,
+                phenotype_vector=self.phenotype_vector,
+                return_keep_mask=True,
+            ),
         )
+        annotation_payload = self._aligned_annotation_payload(keep_variants_mask)
 
         # Apply sample mask to phenotype and covariates
         pv = self.phenotype_vector
@@ -102,9 +148,10 @@ class _GenotypeMatrixBuilder:
         if total_mac < 5:
             geno = np.zeros((geno.shape[0], 0), dtype=float)
             mafs = np.zeros(0, dtype=float)
+            annotation_payload = self._empty_annotation_payload()
             mac_filtered = True
 
-        return {
+        result = {
             "genotype_matrix": geno,
             "variant_mafs": mafs,
             "phenotype_vector": pv,
@@ -112,6 +159,20 @@ class _GenotypeMatrixBuilder:
             "gt_warnings": gt_warnings,
             "mac_filtered": mac_filtered,
         }
+        result.update(annotation_payload)
+        return result
+
+
+def _find_cadd_column(df: pd.DataFrame) -> str | None:
+    return next((c for c in df.columns if c.lower() in ("dbnsfp_cadd_phred", "cadd_phred")), None)
+
+
+def _find_revel_column(df: pd.DataFrame) -> str | None:
+    return next((c for c in df.columns if c.lower() in ("dbnsfp_revel_score", "revel_score")), None)
+
+
+def _find_effect_column(df: pd.DataFrame) -> str | None:
+    return next((c for c in df.columns if c.upper() in ("EFFECT", "ANN_0__EFFECT")), None)
 
 
 # Standard column aliases: sanitized name -> canonical short name.
@@ -2045,10 +2106,7 @@ class GeneBurdenAnalysisStage(Stage):
             context.config["gene_burden_output"] = burden_output
 
         # Treat gene burden as a user-facing sidecar output, not an intermediate.
-        if str(burden_output).endswith(".gz"):
-            compression = "gzip"
-        else:
-            compression = None
+        compression = "gzip" if str(burden_output).endswith(".gz") else None
 
         burden_results.to_csv(
             burden_output, sep="\t", index=False, compression=cast(Any, compression)
@@ -2084,6 +2142,7 @@ VALID_ASSOCIATION_KEYS: frozenset[str] = frozenset(
         "trait_type",
         "variant_weights",
         "variant_weight_params",
+        "variant_weight_column",
         "skat_backend",
         "skat_method",
         "coast_backend",
@@ -2145,6 +2204,7 @@ def _validate_association_config_dict(d: dict) -> None:
         "gene_burden_mode",
         "trait_type",
         "variant_weights",
+        "variant_weight_column",
         "skat_backend",
         "skat_method",
         "coast_backend",
@@ -2172,6 +2232,7 @@ def _validate_association_config_dict(d: dict) -> None:
     }
     list_str_keys = {"covariate_columns", "categorical_covariates", "association_tests"}
     list_float_keys = {"coast_weights"}
+    dict_keys = {"variant_weight_params"}
 
     for key in str_keys & set(d):
         if d[key] is not None and not isinstance(d[key], str):
@@ -2192,6 +2253,10 @@ def _validate_association_config_dict(d: dict) -> None:
     for key in list_float_keys & set(d):
         if d[key] is not None and not isinstance(d[key], list):
             errors.append(f"'{key}' must be a list, got {type(d[key]).__name__}")
+
+    for key in dict_keys & set(d):
+        if d[key] is not None and not isinstance(d[key], dict):
+            errors.append(f"'{key}' must be an object, got {type(d[key]).__name__}")
 
     # Enum-like value validation
     if "correction_method" in d and d["correction_method"] not in ("fdr", "bonferroni"):
@@ -2331,6 +2396,7 @@ def _build_assoc_config_from_context(context: "PipelineContext") -> AssociationC
         trait_type=_get("trait_type", default="binary", nullable=False),
         variant_weights=_get("variant_weights", default="beta:1,25", nullable=False),
         variant_weight_params=_get("variant_weight_params", default=None, nullable=True),
+        variant_weight_column=_get("variant_weight_column", default=None, nullable=True),
         missing_site_threshold=_get("missing_site_threshold", default=0.10, nullable=False),
         missing_sample_threshold=_get("missing_sample_threshold", default=0.80, nullable=False),
         firth_max_iter=_get("firth_max_iter", default=25, nullable=False),
@@ -2483,6 +2549,22 @@ class AssociationAnalysisStage(Stage):
         if "GENE" not in df.columns:
             logger.error("DataFrame missing required 'GENE' column for association analysis")
             return context
+
+        score_weight_column = resolve_score_weight_column(
+            assoc_config.variant_weights,
+            assoc_config.variant_weight_column,
+        )
+        if score_weight_column is not None and score_weight_column not in df.columns:
+            raise ValueError(
+                f"Requested variant weight column '{score_weight_column}' is missing from "
+                "the association input DataFrame."
+            )
+
+        needs_functional_annotations = assoc_config.variant_weights in {
+            "cadd",
+            "revel",
+            "combined",
+        }
 
         # Phase 24/31: Validate required columns for COAST allelic series test.
         # COAST needs annotation columns to classify variants into BMV/DMV/PTV.
@@ -2716,6 +2798,14 @@ class AssociationAnalysisStage(Stage):
                 except KeyError:
                     gene_df = gt_source_df.iloc[0:0]
 
+                cadd_column = _find_cadd_column(gene_df) if needs_functional_annotations else None
+                revel_column = _find_revel_column(gene_df) if needs_functional_annotations else None
+                effect_column = (
+                    _find_effect_column(gene_df)
+                    if needs_functional_annotations or score_weight_column is not None
+                    else None
+                )
+
                 # Store lazy builder instead of pre-built matrix (PERF-06)
                 builder = _GenotypeMatrixBuilder(
                     gene_df=gene_df,
@@ -2726,74 +2816,12 @@ class AssociationAnalysisStage(Stage):
                     missing_sample_threshold=assoc_config.missing_sample_threshold,
                     phenotype_vector=phenotype_vector,
                     covariate_matrix=covariate_matrix,
+                    score_column=score_weight_column,
+                    cadd_column=cadd_column,
+                    revel_column=revel_column,
+                    effect_column=effect_column,
                 )
                 gene_data["_genotype_matrix_builder"] = builder
-
-                # Phase 23: Extract functional annotation columns for CADD/REVEL weight schemes
-                # (WEIGHT-05). Arrays must align with variant_mafs (post site-filter length).
-                # Annotation extraction is cheap and needed regardless of lazy building.
-                if assoc_config.variant_weights in ("cadd", "revel", "combined"):
-                    _cadd_col = next(
-                        (
-                            c
-                            for c in gene_df.columns
-                            if c.lower() in ("dbnsfp_cadd_phred", "cadd_phred")
-                        ),
-                        None,
-                    )
-                    _revel_col = next(
-                        (
-                            c
-                            for c in gene_df.columns
-                            if c.lower() in ("dbnsfp_revel_score", "revel_score")
-                        ),
-                        None,
-                    )
-                    _effect_col = next(
-                        (c for c in gene_df.columns if c.upper() in ("EFFECT", "ANN_0__EFFECT")),
-                        None,
-                    )
-                    # Align annotations with variant_mafs (build_genotype_matrix applies
-                    # a site missing-rate filter; replicate it here for correct alignment).
-                    # Vectorized: count missing GTs per variant using pandas isin() instead
-                    # of per-cell parse_gt_to_dosage() calls.
-                    _gt_cols_list = list(gt_columns_for_matrix)
-                    _n_samples_gt = len(_gt_cols_list)
-                    _n_df = len(gene_df)
-                    if _n_df > 0 and _n_samples_gt > 0:
-                        # Missing GT values: ./., .|., ., empty, None, partial (./1, 1/.)
-                        # Vectorized: count NaN/missing per variant across all GT columns
-                        _gt_sub = gene_df[_gt_cols_list].fillna("./.").astype(str)
-                        _gt_norm = _gt_sub.apply(lambda col: col.str.replace("|", "/", regex=False))
-                        # A GT is missing if it contains "." as an allele
-                        _is_missing = _gt_norm.apply(
-                            lambda col: col.str.contains(r"(?:^|\/)\.(?:\/|$)", regex=True, na=True)
-                        )
-                        _miss_frac_per_variant = _is_missing.sum(axis=1) / _n_samples_gt
-                        _keep_mask_ann: np.ndarray | None = (
-                            _miss_frac_per_variant <= assoc_config.missing_site_threshold
-                        ).values
-                        # Only apply mask if some variants are filtered out
-                        if _keep_mask_ann is not None and bool(_keep_mask_ann.all()):
-                            _keep_mask_ann = None
-                    else:
-                        _keep_mask_ann = None
-
-                    if _cadd_col:
-                        _vals = gene_df[_cadd_col].values
-                        gene_data["cadd_scores"] = (
-                            _vals[_keep_mask_ann] if _keep_mask_ann is not None else _vals
-                        )
-                    if _revel_col:
-                        _vals = gene_df[_revel_col].values
-                        gene_data["revel_scores"] = (
-                            _vals[_keep_mask_ann] if _keep_mask_ann is not None else _vals
-                        )
-                    if _effect_col:
-                        _vals = gene_df[_effect_col].values
-                        gene_data["variant_effects"] = (
-                            _vals[_keep_mask_ann] if _keep_mask_ann is not None else _vals
-                        )
 
                 gene_data["vcf_samples"] = vcf_samples_list
 

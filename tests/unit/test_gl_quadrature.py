@@ -72,6 +72,7 @@ class TestGLQuadratureAccuracy:
         sensible results comparable to the previous adaptive quad approach.
         """
         from variantcentrifuge.association.backends.python_backend import PythonSKATBackend
+        from variantcentrifuge.association.weights import beta_maf_weights
 
         rng = np.random.default_rng(42)
         n, p = 200, 20
@@ -92,11 +93,13 @@ class TestGLQuadratureAccuracy:
         backend.detect_environment()
 
         null_model = backend.fit_null_model(phenotype, None, "binary")
+        weights = beta_maf_weights(geno.mean(axis=0) / 2.0, a=1.0, b=25.0)
         result = backend.test_gene(
             gene="TEST_GENE",
             genotype_matrix=geno,
             null_model=null_model,
             method="SKATO",
+            weights=weights,
             weights_beta=(1.0, 25.0),
         )
 

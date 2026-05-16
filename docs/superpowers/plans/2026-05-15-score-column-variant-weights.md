@@ -1331,8 +1331,6 @@ def test_stage_passes_score_column_to_lazy_builder(monkeypatch, tmp_path):
 
     builder = captured_gene_data[0]["_genotype_matrix_builder"]
     assert builder.score_column == "nephro_candidate_score"
-    assert builder.cadd_column == "dbNSFP_CADD_phred"
-    assert builder.revel_column == "dbNSFP_REVEL_score"
     assert builder.effect_column == "ANN_0__EFFECT"
 
 
@@ -2055,10 +2053,17 @@ burden = geno @ weights
 
 - [ ] **Step 5: Update existing backend tests that call `test_gene()`**
 
-In `tests/unit/test_skat_python_backend.py`, replace calls that pass:
+In `tests/unit/test_skat_python_backend.py`, replace calls that pass a Beta tuple
+either by keyword or positionally:
 
 ```python
 weights_beta=(1.0, 25.0)
+```
+
+or:
+
+```python
+backend.test_gene("GENE1", genotype_matrix, null_model, "SKAT", (1.0, 25.0))
 ```
 
 with:

@@ -125,6 +125,9 @@ class AssociationConfig:
     variant_weight_params: dict | None = None
     """Extra parameters for weight schemes (e.g. {'cadd_cap': 40.0})."""
 
+    variant_weight_column: str | None = None
+    """Column name used when variant_weights='score_column'. None for inline column:<name>."""
+
     missing_site_threshold: float = 0.10
     """Variants with >threshold fraction missing site-wide are excluded before imputation."""
 

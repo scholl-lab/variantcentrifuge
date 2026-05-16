@@ -380,7 +380,8 @@ class RSKATBackend(SKATBackend):
         genotype_matrix: np.ndarray,
         null_model: NullModelResult,
         method: str,
-        weights_beta: tuple[float, float],
+        weights: np.ndarray | None = None,
+        weights_beta: tuple[float, float] | None = None,
     ) -> dict[str, Any]:
         """
         Run SKAT for a single gene.
@@ -428,6 +429,13 @@ class RSKATBackend(SKATBackend):
             Any R-level exception propagates directly (infrastructure failure).
         """
         self._assert_main_thread()
+        if weights_beta is None and isinstance(weights, tuple):
+            weights_beta = weights
+            weights = None
+        if weights is not None:
+            raise ValueError("R SKAT backend does not support explicit variant weights")
+        if weights_beta is None:
+            weights_beta = (1.0, 25.0)
 
         import rpy2.robjects as ro
         from rpy2.rinterface import NA_Real

@@ -512,6 +512,15 @@ def create_parser() -> argparse.ArgumentParser:
         ),
     )
     stats_group.add_argument(
+        "--variant-weight-column",
+        type=str,
+        default=None,
+        help=(
+            "Variant-level numeric score column to use when --variant-weights score_column "
+            "is set. Ignored when --variant-weights uses inline column:<name>."
+        ),
+    )
+    stats_group.add_argument(
         "--variant-weight-params",
         type=str,
         default=None,
@@ -1251,13 +1260,17 @@ def main() -> int:
     )
     cfg["trait_type"] = getattr(args, "trait_type", "binary")
     cfg["variant_weights"] = getattr(args, "variant_weights", "beta:1,25")
+    cfg["variant_weight_column"] = getattr(args, "variant_weight_column", None)
     # Phase 23: Parse --variant-weight-params JSON string
     _vwp_raw = getattr(args, "variant_weight_params", None)
     if _vwp_raw:
         import json as _json
 
         try:
-            cfg["variant_weight_params"] = _json.loads(_vwp_raw)
+            parsed_params = _json.loads(_vwp_raw)
+            if not isinstance(parsed_params, dict):
+                raise TypeError(f"expected a JSON object, got {type(parsed_params).__name__}")
+            cfg["variant_weight_params"] = parsed_params
         except (ValueError, TypeError) as _e:
             import sys as _sys
 
@@ -1521,6 +1534,21 @@ def main() -> int:
     # Validate association analysis arguments
     if args.association_tests and not args.perform_association:
         parser.error("--association-tests requires --perform-association to be set")
+
+    if getattr(args, "variant_weight_column", None) and not args.perform_association:
+        parser.error("--variant-weight-column requires --perform-association to be set")
+
+    if args.perform_association:
+        variant_weights_arg = getattr(args, "variant_weights", "beta:1,25")
+        if variant_weights_arg == "score_column" and not getattr(
+            args, "variant_weight_column", None
+        ):
+            parser.error("--variant-weight-column is required when --variant-weights score_column")
+        if (
+            variant_weights_arg.startswith("column:")
+            and not variant_weights_arg[len("column:") :].strip()
+        ):
+            parser.error("--variant-weights column:<name> requires a non-empty column name")
 
     # Covariate file only makes sense with association analysis
     if getattr(args, "covariate_file", None) and not args.perform_association:

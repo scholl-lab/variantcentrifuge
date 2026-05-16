@@ -159,6 +159,14 @@ class TestValidateAssociationConfigDict:
         # We document this behavior with a passing test (not a bug)
         _validate_association_config_dict({"pca_components": True})
 
+    def test_variant_weight_column_must_be_string_when_present(self):
+        with pytest.raises(ValueError, match="'variant_weight_column' must be a string"):
+            _validate_association_config_dict({"variant_weight_column": ["ncs"]})
+
+    def test_variant_weight_params_must_be_dict_when_present(self):
+        with pytest.raises(ValueError, match="'variant_weight_params' must be an object"):
+            _validate_association_config_dict({"variant_weight_params": ["score_min", 0]})
+
 
 # ---------------------------------------------------------------------------
 # Tests: _build_assoc_config_from_context
@@ -410,3 +418,30 @@ class TestBuildAssocConfigFromContext:
         assert config.min_cases == 999
         assert config.max_case_control_ratio == 5.0
         assert config.min_case_carriers == 3
+
+    def test_variant_weight_column_validated_and_propagated(self):
+        ctx = _make_context(
+            {
+                "association": {
+                    "variant_weights": "score_column",
+                    "variant_weight_column": "nephro_candidate_score",
+                    "variant_weight_params": {
+                        "score_min": 0,
+                        "score_max": 10,
+                        "floor": 0.1,
+                        "combine_with_beta": True,
+                    },
+                }
+            }
+        )
+
+        config = _build_assoc_config_from_context(ctx)
+
+        assert config.variant_weights == "score_column"
+        assert config.variant_weight_column == "nephro_candidate_score"
+        assert config.variant_weight_params == {
+            "score_min": 0,
+            "score_max": 10,
+            "floor": 0.1,
+            "combine_with_beta": True,
+        }

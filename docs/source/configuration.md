@@ -32,6 +32,13 @@ Configuration options with default values:
 - **`gene_burden_mode`** (`str`) - "samples" or "alleles". *Default: "alleles"*
 - **`correction_method`** (`str`) - "fdr" or "bonferroni" for multiple testing correction. *Default: "fdr"*
 
+### Association Score-Column Weights
+
+For score-column variant weights, set `association.variant_weights` to
+`score_column` and set `association.variant_weight_column` to the numeric
+per-variant column name. See the association testing guide for normalization
+parameters.
+
 ### IGV Integration
 
 - **`igv_enabled`** (`bool`) - Enable IGV.js integration. *Default: false*

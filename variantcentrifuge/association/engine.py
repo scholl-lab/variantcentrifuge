@@ -113,6 +113,48 @@ def _run_gene_worker(
     return gene, results
 
 
+_BUILDER_RESULT_KEYS = (
+    "genotype_matrix",
+    "variant_mafs",
+    "phenotype_vector",
+    "covariate_matrix",
+    "score_values",
+    "variant_weight_column",
+    "cadd_scores",
+    "revel_scores",
+    "variant_effects",
+)
+
+_PER_GENE_MATRIX_PAYLOAD_KEYS = (
+    "genotype_matrix",
+    "variant_mafs",
+    "score_values",
+    "variant_weight_column",
+    "cadd_scores",
+    "revel_scores",
+    "variant_effects",
+)
+
+
+def _apply_builder_result_to_gene_data(
+    gene_data: dict[str, Any],
+    result: dict[str, Any],
+    gene: str,
+) -> None:
+    for key in _BUILDER_RESULT_KEYS:
+        if key in result:
+            gene_data[key] = result[key]
+    for warning in result.get("gt_warnings", []):
+        logger.warning(f"Gene {gene}: {warning}")
+    if result.get("mac_filtered"):
+        logger.debug(f"Gene {gene}: MAC < 5 — regression will report NA")
+
+
+def _discard_per_gene_matrix_payload(gene_data: dict[str, Any]) -> None:
+    for key in _PER_GENE_MATRIX_PAYLOAD_KEYS:
+        gene_data.pop(key, None)
+
+
 class AssociationEngine:
     """
     Orchestrates association testing across multiple genes and multiple tests.
@@ -195,6 +237,16 @@ class AssociationEngine:
             for name in unknown:
                 raise ValueError(
                     f"Test '{name}' is not available. Available tests: {', '.join(available)}"
+                )
+
+        if skat_backend == "r" and "skat" in test_names:
+            from variantcentrifuge.association.tests.skat_r import _is_r_skat_weight_supported
+
+            if not _is_r_skat_weight_supported(config.variant_weights):
+                raise ValueError(
+                    "R SKAT backend supports only beta:a,b and uniform variant weights. "
+                    f"Got '{config.variant_weights}'. Use --skat-backend python for cadd, revel, "
+                    "combined, score_column, or column:<name> weights."
                 )
 
         tests: list[AssociationTest] = []
@@ -380,14 +432,7 @@ class AssociationEngine:
             ):
                 _builder = first_gene_data.pop("_genotype_matrix_builder")
                 _result = _builder()
-                first_gene_data["genotype_matrix"] = _result["genotype_matrix"]
-                first_gene_data["variant_mafs"] = _result["variant_mafs"]
-                first_gene_data["phenotype_vector"] = _result["phenotype_vector"]
-                first_gene_data["covariate_matrix"] = _result["covariate_matrix"]
-                for _w in _result.get("gt_warnings", []):
-                    logger.warning(f"Gene {first_gene}: {_w}")
-                if _result.get("mac_filtered"):
-                    logger.debug(f"Gene {first_gene}: MAC < 5 — regression will report NA")
+                _apply_builder_result_to_gene_data(first_gene_data, _result, first_gene)
 
             for test_name, test in self._tests.items():
                 result = test.run(first_gene, first_gene_data, self._config)
@@ -397,8 +442,7 @@ class AssociationEngine:
                 )
 
             # PERF-06: Discard first gene matrix after tests complete
-            first_gene_data.pop("genotype_matrix", None)
-            first_gene_data.pop("variant_mafs", None)
+            _discard_per_gene_matrix_payload(first_gene_data)
 
             # Pickle test instances now that null models are fitted
             import concurrent.futures
@@ -426,15 +470,8 @@ class AssociationEngine:
                     if "_genotype_matrix_builder" in gd and "genotype_matrix" not in gd:
                         _builder = gd.pop("_genotype_matrix_builder")
                         _result = _builder()
-                        gd["genotype_matrix"] = _result["genotype_matrix"]
-                        gd["variant_mafs"] = _result["variant_mafs"]
-                        gd["phenotype_vector"] = _result["phenotype_vector"]
-                        gd["covariate_matrix"] = _result["covariate_matrix"]
                         _gene = gd.get("GENE", "")
-                        for _w in _result.get("gt_warnings", []):
-                            logger.warning(f"Gene {_gene}: {_w}")
-                        if _result.get("mac_filtered"):
-                            logger.debug(f"Gene {_gene}: MAC < 5 — regression will report NA")
+                        _apply_builder_result_to_gene_data(gd, _result, _gene)
 
                 args_list = [
                     (gd.get("GENE", ""), gd, pickled_tests, self._config) for gd in remaining
@@ -453,8 +490,7 @@ class AssociationEngine:
 
                 # PERF-06: Discard matrices after parallel batch completes
                 for gd in remaining:
-                    gd.pop("genotype_matrix", None)
-                    gd.pop("variant_mafs", None)
+                    _discard_per_gene_matrix_payload(gd)
         else:
             # Sequential gene loop (default path or fallback)
             for gene_data in sorted_data:
@@ -464,14 +500,7 @@ class AssociationEngine:
                 if "_genotype_matrix_builder" in gene_data and "genotype_matrix" not in gene_data:
                     builder = gene_data.pop("_genotype_matrix_builder")
                     result = builder()
-                    gene_data["genotype_matrix"] = result["genotype_matrix"]
-                    gene_data["variant_mafs"] = result["variant_mafs"]
-                    gene_data["phenotype_vector"] = result["phenotype_vector"]
-                    gene_data["covariate_matrix"] = result["covariate_matrix"]
-                    for w in result.get("gt_warnings", []):
-                        logger.warning(f"Gene {gene}: {w}")
-                    if result.get("mac_filtered"):
-                        logger.debug(f"Gene {gene}: MAC < 5 — regression will report NA")
+                    _apply_builder_result_to_gene_data(gene_data, result, gene)
 
                 for test_name, test in self._tests.items():
                     result = test.run(gene, gene_data, self._config)
@@ -481,8 +510,7 @@ class AssociationEngine:
                     )
 
                 # PERF-06: Discard matrix after all tests for this gene complete
-                gene_data.pop("genotype_matrix", None)
-                gene_data.pop("variant_mafs", None)
+                _discard_per_gene_matrix_payload(gene_data)
                 # Keep phenotype_vector and covariate_matrix — shared references, not per-gene
 
         # Lifecycle hook: finalize() after gene loop (allows timing summary, cleanup)

@@ -10,6 +10,8 @@ of the duplicate argument parser bug and ensure all critical parameters work.
 
 import subprocess
 
+import pytest
+
 
 def test_cli_annotate_bed_populates_canonical_and_legacy_config_keys(monkeypatch, tmp_path):
     from variantcentrifuge import cli as cli_module
@@ -62,6 +64,118 @@ def test_transcript_filtering_parameters_are_documented():
     assert "MANE" in help_text
     assert "GRCh37" in help_text
     assert "RefSeq Select" in help_text
+
+
+def test_variant_weight_column_cli_populates_config(monkeypatch, tmp_path):
+    from variantcentrifuge import cli as cli_module
+
+    captured_configs = []
+
+    def fake_run_pipeline(args):
+        captured_configs.append(args.config.copy())
+
+    vcf = tmp_path / "input.vcf"
+    vcf.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+
+    monkeypatch.setattr(cli_module, "run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "variantcentrifuge",
+            "--vcf-file",
+            str(vcf),
+            "--gene-name",
+            "all",
+            "--filters",
+            "not_artefact",
+            "--output-dir",
+            str(tmp_path),
+            "--perform-association",
+            "--association-tests",
+            "logistic_burden",
+            "--variant-weights",
+            "score_column",
+            "--variant-weight-column",
+            "nephro_candidate_score",
+            "--variant-weight-params",
+            '{"score_min":0,"score_max":10,"floor":0.1}',
+        ],
+    )
+
+    exit_code = cli_module.main()
+
+    assert exit_code == 0
+    assert captured_configs[0]["variant_weights"] == "score_column"
+    assert captured_configs[0]["variant_weight_column"] == "nephro_candidate_score"
+    assert captured_configs[0]["variant_weight_params"] == {
+        "score_min": 0,
+        "score_max": 10,
+        "floor": 0.1,
+    }
+
+
+def test_variant_weight_params_cli_requires_json_object(monkeypatch, tmp_path):
+    from variantcentrifuge import cli as cli_module
+
+    vcf = tmp_path / "input.vcf"
+    vcf.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "variantcentrifuge",
+            "--vcf-file",
+            str(vcf),
+            "--gene-name",
+            "all",
+            "--filters",
+            "not_artefact",
+            "--output-dir",
+            str(tmp_path),
+            "--perform-association",
+            "--association-tests",
+            "skat",
+            "--variant-weight-params",
+            '["score_min",0]',
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_module.main()
+
+    assert exc_info.value.code == 2
+
+
+def test_score_column_cli_requires_variant_weight_column(monkeypatch, tmp_path):
+    from variantcentrifuge import cli as cli_module
+
+    vcf = tmp_path / "input.vcf"
+    vcf.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "variantcentrifuge",
+            "--vcf-file",
+            str(vcf),
+            "--gene-name",
+            "all",
+            "--filters",
+            "not_artefact",
+            "--output-dir",
+            str(tmp_path),
+            "--perform-association",
+            "--association-tests",
+            "skat",
+            "--variant-weights",
+            "score_column",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_module.main()
+
+    assert exc_info.value.code == 2
 
 
 class TestCriticalArgumentParsing:

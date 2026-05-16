@@ -46,6 +46,27 @@ def _make_gene_data(
     }
 
 
+def test_fisher_ignores_score_column_variant_weights():
+    contingency_data = {
+        "proband_carrier_count": 4,
+        "control_carrier_count": 1,
+        "proband_count": 10,
+        "control_count": 10,
+        "n_qualifying_variants": 3,
+        "score_values": np.array([0.1, 0.5, 1.0]),
+    }
+    config = AssociationConfig(
+        variant_weights="column:nephro_candidate_score",
+        variant_weight_column="nephro_candidate_score",
+    )
+
+    result = FisherExactTest().run("GENE1", contingency_data, config)
+
+    assert result.test_name == "fisher"
+    assert result.p_value is not None
+    assert result.n_variants == 3
+
+
 def _run_fisher_direct(table: list[list[int]]) -> tuple[float, float]:
     """Run scipy.stats.fisher_exact directly — the bit-identical reference."""
     odds_ratio, pval = fisher_exact(table)

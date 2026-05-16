@@ -14,6 +14,8 @@ Provides public functions:
   REVEL scores. REVEL is already in [0, 1]; no normalization needed.
 - ``combined_weights``: Beta(MAF) x functional score. Uses CADD by default;
   falls back to REVEL if CADD is not provided.
+- ``score_column_weights``: Beta(MAF) x arbitrary numeric score-column weights,
+  or raw normalized score weights when combine_with_beta is false.
 - ``get_weights``: String-spec parser that dispatches to any of the above.
 
 Weight spec string format
@@ -46,6 +48,7 @@ A warning is logged listing per-category missing counts.
 from __future__ import annotations
 
 import logging
+from typing import Any, cast
 
 import numpy as np
 from scipy.stats import beta as _beta_dist
@@ -136,6 +139,100 @@ def _parse_scores_to_float(scores: np.ndarray | None) -> np.ndarray | None:
     return result
 
 
+def resolve_score_weight_column(
+    weight_spec: str,
+    variant_weight_column: str | None = None,
+) -> str | None:
+    """Resolve a score-column weight spec to a DataFrame column name."""
+    if weight_spec.startswith("column:"):
+        inline_column = weight_spec[len("column:") :].strip()
+        if not inline_column:
+            raise ValueError("column:<name> requires a non-empty column name")
+        if variant_weight_column:
+            logger.debug(
+                "variant_weights=%r includes inline column %r; ignoring variant_weight_column=%r",
+                weight_spec,
+                inline_column,
+                variant_weight_column,
+            )
+        return inline_column
+
+    if weight_spec == "score_column":
+        if not variant_weight_column:
+            raise ValueError("score_column requires variant_weight_column")
+        return variant_weight_column
+
+    return None
+
+
+_SCORE_WEIGHT_DEFAULTS = {
+    "score_min": None,
+    "score_max": None,
+    "floor": 0.0,
+    "ceiling": 1.0,
+    "combine_with_beta": True,
+    "missing": None,
+    "beta_a": 1.0,
+    "beta_b": 25.0,
+}
+
+
+def _normalize_score_weight_params(weight_params: dict | None) -> dict:
+    if weight_params is not None and not isinstance(weight_params, dict):
+        raise ValueError(
+            f"variant_weight_params must be a dict, got {type(weight_params).__name__}"
+        )
+
+    params = dict(_SCORE_WEIGHT_DEFAULTS)
+    params.update(weight_params or {})
+
+    score_min = params["score_min"]
+    score_max = params["score_max"]
+    if (score_min is None) != (score_max is None):
+        raise ValueError("score_min and score_max must be provided together")
+    score_min_f: float | None = None
+    score_max_f: float | None = None
+    if score_min is not None:
+        score_min_f = float(cast(Any, score_min))
+        score_max_f = float(cast(Any, score_max))
+        if score_min_f >= score_max_f:
+            raise ValueError("score_min must be less than score_max")
+
+    floor = float(cast(Any, params["floor"]))
+    ceiling = float(cast(Any, params["ceiling"]))
+    if floor < 0:
+        raise ValueError("floor must be >= 0")
+    if ceiling <= 0:
+        raise ValueError("ceiling must be > 0")
+    if floor > ceiling:
+        raise ValueError("floor must be <= ceiling")
+
+    beta_a = float(cast(Any, params["beta_a"]))
+    beta_b = float(cast(Any, params["beta_b"]))
+    if beta_a <= 0:
+        raise ValueError("beta_a must be > 0")
+    if beta_b <= 0:
+        raise ValueError("beta_b must be > 0")
+
+    missing = params["missing"]
+    if missing not in (None, "neutral", "floor"):
+        raise ValueError("missing must be one of None, 'neutral', or 'floor'")
+
+    combine_with_beta = bool(params["combine_with_beta"])
+    if missing == "neutral" and not combine_with_beta:
+        raise ValueError("missing='neutral' is invalid when combine_with_beta=false")
+
+    params["floor"] = floor
+    params["ceiling"] = ceiling
+    params["beta_a"] = beta_a
+    params["beta_b"] = beta_b
+    params["combine_with_beta"] = combine_with_beta
+    if score_min_f is not None:
+        params["score_min"] = score_min_f
+        params["score_max"] = score_max_f
+    return params
+
+
 def _log_missing_score_counts(
     nan_mask: np.ndarray,
     variant_effects: np.ndarray | None,
@@ -177,6 +274,38 @@ def _log_missing_score_counts(
         f"{n_lof} LoF (functional=1.0), "
         f"{n_miss} missense (fallback), "
         f"{n_other} other (fallback)"
+    )
+
+
+def _log_missing_score_column_counts(
+    missing_mask: np.ndarray,
+    variant_effects: np.ndarray | None,
+    fallback_description: str,
+) -> None:
+    """Log missing score-column counts without implying functional-score semantics."""
+    n_missing = int(missing_mask.sum())
+    if n_missing == 0:
+        return
+
+    prefix = f"score_column weights: {n_missing} variant(s) had missing or invalid scores"
+    if variant_effects is None:
+        logger.warning("%s (used %s fallback)", prefix, fallback_description)
+        return
+
+    effects_arr = np.asarray(variant_effects, dtype=object)
+    missing_effects = effects_arr[missing_mask]
+
+    n_lof = int(sum(1 for e in missing_effects if e in LOF_EFFECTS))
+    n_miss = int(sum(1 for e in missing_effects if e in MISSENSE_EFFECTS))
+    n_other = n_missing - n_lof - n_miss
+
+    logger.warning(
+        "%s — %d LoF, %d missense, %d other (used %s fallback)",
+        prefix,
+        n_lof,
+        n_miss,
+        n_other,
+        fallback_description,
     )
 
 
@@ -259,6 +388,71 @@ def revel_weights(
     return np.asarray(maf_w * functional, dtype=np.float64)
 
 
+def score_column_weights(
+    mafs: np.ndarray,
+    score_values: np.ndarray,
+    *,
+    variant_effects: np.ndarray | None = None,
+    weight_params: dict | None = None,
+) -> np.ndarray:
+    """Compute weights from an arbitrary numeric variant score column."""
+    mafs_arr = np.asarray(mafs, dtype=np.float64)
+    scores_f = _parse_scores_to_float(np.asarray(score_values, dtype=object))
+    assert scores_f is not None
+
+    if len(mafs_arr) != len(scores_f):
+        raise ValueError(
+            f"score_values and mafs must have the same length "
+            f"(got {len(scores_f)} and {len(mafs_arr)})"
+        )
+
+    params = _normalize_score_weight_params(weight_params)
+    finite_mask = np.isfinite(scores_f)
+    missing_mask = ~finite_mask
+
+    normalized = np.empty(len(scores_f), dtype=np.float64)
+    normalized[:] = np.nan
+
+    if params["score_min"] is not None:
+        score_min = float(params["score_min"])
+        score_max = float(params["score_max"])
+        normalized[finite_mask] = (scores_f[finite_mask] - score_min) / (score_max - score_min)
+    else:
+        normalized[finite_mask] = scores_f[finite_mask]
+        out_of_unit = finite_mask & ((scores_f < 0.0) | (scores_f > 1.0))
+        if bool(out_of_unit.any()):
+            logger.warning(
+                "score_column weights: %d finite score(s) outside [0, 1] without explicit range",
+                int(out_of_unit.sum()),
+            )
+
+    functional = np.clip(normalized, params["floor"], params["ceiling"])
+
+    missing_mode = params["missing"]
+    if missing_mode is None:
+        missing_mode = "neutral" if params["combine_with_beta"] else "floor"
+
+    if missing_mode == "neutral":
+        functional[missing_mask] = 1.0
+        missing_fallback = "neutral weight 1.0"
+    else:
+        functional[missing_mask] = params["floor"]
+        missing_fallback = f"floor={params['floor']}"
+
+    _log_missing_score_column_counts(missing_mask, variant_effects, missing_fallback)
+
+    if bool(missing_mask.all()) and len(missing_mask) > 0:
+        logger.warning(
+            "score_column weights: all score values for this gene are missing or invalid"
+        )
+
+    if params["combine_with_beta"]:
+        maf_w = beta_maf_weights(mafs_arr, a=params["beta_a"], b=params["beta_b"])
+        return np.asarray(maf_w * functional, dtype=np.float64)
+
+    return np.asarray(functional, dtype=np.float64)
+
+
 def combined_weights(
     mafs: np.ndarray,
     cadd_scores: np.ndarray | None = None,
@@ -308,6 +502,7 @@ def get_weights(
     *,
     cadd_scores: np.ndarray | None = None,
     revel_scores: np.ndarray | None = None,
+    score_values: np.ndarray | None = None,
     variant_effects: np.ndarray | None = None,
     weight_params: dict | None = None,
 ) -> np.ndarray:
@@ -380,6 +575,18 @@ def get_weights(
             ) from err
         return beta_maf_weights(mafs_arr, a=a, b=b)
 
+    if weight_spec == "score_column" or weight_spec.startswith("column:"):
+        if weight_spec.startswith("column:") and not weight_spec[len("column:") :].strip():
+            raise ValueError("column:<name> requires a non-empty column name")
+        if score_values is None:
+            raise ValueError(f"weight_spec='{weight_spec}' requires score_values to be provided")
+        return score_column_weights(
+            mafs_arr,
+            score_values,
+            variant_effects=variant_effects,
+            weight_params=weight_params,
+        )
+
     if weight_spec == "cadd":
         if cadd_scores is None:
             raise ValueError(
@@ -409,5 +616,6 @@ def get_weights(
 
     raise ValueError(
         f"Unknown weight spec '{weight_spec}'. Supported specs: "
-        "'beta:a,b', 'uniform', 'cadd', 'revel', 'combined'."
+        "'beta:a,b', 'uniform', 'cadd', 'revel', 'combined', "
+        "'column:<name>', 'score_column'."
     )

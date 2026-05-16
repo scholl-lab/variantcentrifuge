@@ -81,6 +81,29 @@ def _make_contingency(
     }
 
 
+def test_linear_burden_raw_score_only_matches_manual_ols(
+    synthetic_quantitative_data,
+) -> None:
+    geno, phenotype, mafs = synthetic_quantitative_data
+    score_values = np.array([0.2, 0.4, 0.6, 0.8, 1.0], dtype=np.float64)
+    config = AssociationConfig(
+        variant_weights="column:nephro_candidate_score",
+        variant_weight_params={"combine_with_beta": False},
+    )
+
+    burden = geno @ score_values
+    design = sm.add_constant(burden.reshape(-1, 1))
+    fit = sm.OLS(phenotype, design).fit()
+
+    contingency = _make_contingency(geno, phenotype, mafs)
+    contingency["score_values"] = score_values
+    result = LinearBurdenTest().run("GENE1", contingency, config)
+
+    assert result.p_value is not None
+    assert result.p_value == pytest.approx(float(fit.pvalues[1]), rel=1e-6)
+    assert result.effect_size == pytest.approx(float(fit.params[1]), rel=1e-6)
+
+
 # ---------------------------------------------------------------------------
 # Manual statsmodels.OLS validation (BURDEN-02)
 # ---------------------------------------------------------------------------

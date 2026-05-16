@@ -45,9 +45,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from variantcentrifuge.association.base import AssociationConfig, AssociationTest, TestResult
-from variantcentrifuge.association.tests._utils import parse_weights_beta
 from variantcentrifuge.association.tests.acat import compute_acat_v
-from variantcentrifuge.association.weights import beta_maf_weights
+from variantcentrifuge.association.weights import get_weights
 
 if TYPE_CHECKING:
     from variantcentrifuge.association.backends.base import NullModelResult
@@ -263,22 +262,28 @@ class PurePythonSKATTest(AssociationTest):
                 trait_type=config.trait_type,
             )
 
-        # Parse weight parameters from config (e.g. "beta:1,25" -> (1.0, 25.0))
-        weights_beta = parse_weights_beta(config.variant_weights)
+        skat_mafs = geno.mean(axis=0) / 2.0
+        weights = get_weights(
+            skat_mafs,
+            config.variant_weights,
+            cadd_scores=contingency_data.get("cadd_scores"),
+            revel_scores=contingency_data.get("revel_scores"),
+            score_values=contingency_data.get("score_values"),
+            variant_effects=contingency_data.get("variant_effects"),
+            weight_params=config.variant_weight_params,
+        )
 
         result = self._backend.test_gene(
             gene=gene,
             genotype_matrix=geno,
             null_model=self._null_model,
             method=config.skat_method,
-            weights_beta=weights_beta,
+            weights=weights,
         )
 
         # Compute ACAT-V per-variant score test (Phase 25)
-        # Uses same Beta(MAF) weights as SKAT for consistency.
-        mafs = geno.mean(axis=0) / 2.0
-        a1, a2 = weights_beta
-        acat_v_weights = beta_maf_weights(mafs, a=a1, b=a2)
+        # Uses the same resolved variant weights as SKAT for consistency.
+        acat_v_weights = weights
         acat_v_p = compute_acat_v(
             geno=geno,
             residuals=self._null_model.extra["residuals"],

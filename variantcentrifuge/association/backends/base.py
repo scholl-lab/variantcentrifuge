@@ -155,7 +155,8 @@ class SKATBackend(ABC):
         genotype_matrix: np.ndarray,
         null_model: NullModelResult,
         method: str,
-        weights_beta: tuple[float, float],
+        weights: np.ndarray | None = None,
+        weights_beta: tuple[float, float] | None = None,
     ) -> dict[str, Any]:
         """
         Run the SKAT test for a single gene.
@@ -171,9 +172,11 @@ class SKATBackend(ABC):
             Fitted null model from fit_null_model().
         method : str
             SKAT variant: "SKAT" (default), "Burden", or "SKATO".
-        weights_beta : tuple of (float, float)
-            Beta distribution parameters (a1, a2) for variant weights.
-            SKAT convention: (1, 25).
+        weights : np.ndarray or None
+            Concrete per-variant weights aligned to genotype_matrix columns. Python SKAT
+            requires this path.
+        weights_beta : tuple of (float, float) or None
+            Legacy Beta parameters used by the deprecated R backend.
 
         Returns
         -------
