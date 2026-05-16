@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes._
 
+## [0.17.10] - 2026-05-16
+
+### Fixed
+- Expose Fisher-only weighted FDR results under `fisher_qvalue`,
+  `fisher_weighted_qvalue`, and `primary_qvalue` instead of ACAT-O pass-through
+  column names.
+- Count association-stage significance summaries from `primary_qvalue` so
+  weighted and unweighted q-value aliases do not affect the reported number of
+  significant genes.
+
 ## [0.17.9] - 2026-05-16
 
 ### Fixed
