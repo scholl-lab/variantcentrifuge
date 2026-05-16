@@ -1196,24 +1196,35 @@ class ParallelCompleteProcessingStage(Stage):
         )
         extract_time = time.time() - extract_start
 
+        working_vcf = chunk_vcf
+        split_mode = config.get("snpeff_splitting_mode")
+        if split_mode == "before_filters":
+            split_vcf = intermediate_dir / f"{chunk_base}.split_annotations.vcf.gz"
+            split_snpeff_annotations(str(working_vcf), str(split_vcf))
+            working_vcf = split_vcf
+
         # Step 2: Apply SnpSift filter (if not late filtering)
         filter_start = time.time()
         if config.get("late_filtering", False):
-            filtered_vcf = chunk_vcf
+            filtered_vcf = working_vcf
             filter_time = 0.0
         else:
             filtered_vcf = intermediate_dir / f"{chunk_base}.filtered.vcf.gz"
             filter_expr = config.get("filter") or config.get("filters")
             if filter_expr:
                 apply_snpsift_filter(
-                    str(chunk_vcf),
+                    str(working_vcf),
                     filter_expr,
                     {"threads": config.get("threads_per_chunk", 2)},
                     str(filtered_vcf),
                 )
             else:
-                filtered_vcf = chunk_vcf
-            filter_time = time.time() - filter_start
+                filtered_vcf = working_vcf
+        if split_mode == "after_filters":
+            split_vcf = intermediate_dir / f"{chunk_base}.split_annotations.vcf.gz"
+            split_snpeff_annotations(str(filtered_vcf), str(split_vcf))
+            filtered_vcf = split_vcf
+        filter_time = time.time() - filter_start
 
         transcript_ids = config.get("transcript_ids")
         if transcript_ids is None:
@@ -1314,6 +1325,7 @@ class ParallelCompleteProcessingStage(Stage):
                 "threads_per_chunk": threads_per_worker,
                 "bcftools_prefilter": context.config.get("bcftools_prefilter"),
                 "late_filtering": context.config.get("late_filtering", False),
+                "snpeff_splitting_mode": context.config.get("snpeff_splitting_mode"),
                 "filter": context.config.get("filter"),
                 "filters": context.config.get("filters"),
                 "fields_to_extract": context.config.get("fields_to_extract", ""),

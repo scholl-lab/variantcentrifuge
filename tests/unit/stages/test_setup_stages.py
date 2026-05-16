@@ -60,6 +60,41 @@ class TestConfigurationLoadingStage:
         stage = ConfigurationLoadingStage()
         assert stage.parallel_safe is True
 
+    def test_warns_for_transcript_analysis_consequence_filters_without_before_split(self, caplog):
+        """Warn when transcript-selected analysis would use record-level consequence filtering."""
+        context = create_test_context(
+            config={
+                "filters": "(ANN[ANY].IMPACT has 'HIGH')",
+                "transcript_file": "mane.txt",
+                "perform_gene_burden": True,
+                "snpeff_splitting_mode": "after_filters",
+            }
+        )
+
+        stage = ConfigurationLoadingStage()
+        with caplog.at_level("WARNING", logger="variantcentrifuge.stages.setup_stages"):
+            stage(context)
+
+        assert "--split-snpeff-lines before_filters" in caplog.text
+        assert "record before transcript selection" in caplog.text
+
+    def test_no_warning_for_before_split_transcript_analysis_consequence_filters(self, caplog):
+        """before_filters provides row-level consequence qualification."""
+        context = create_test_context(
+            config={
+                "filters": "(ANN[ANY].IMPACT has 'HIGH')",
+                "transcript_file": "mane.txt",
+                "perform_gene_burden": True,
+                "snpeff_splitting_mode": "before_filters",
+            }
+        )
+
+        stage = ConfigurationLoadingStage()
+        with caplog.at_level("WARNING", logger="variantcentrifuge.stages.setup_stages"):
+            stage(context)
+
+        assert "--split-snpeff-lines before_filters" not in caplog.text
+
 
 class TestPhenotypeLoadingStage:
     """Test PhenotypeLoadingStage."""

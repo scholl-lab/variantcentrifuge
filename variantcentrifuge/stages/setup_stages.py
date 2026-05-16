@@ -17,6 +17,8 @@ from ..scoring import read_scoring_config
 
 logger = logging.getLogger(__name__)
 
+ROW_LEVEL_CONSEQUENCE_TOKENS = ("ANN[ANY]", "LOF[*]", "NMD[*]")
+
 
 def load_terms_from_file(file_path: str | None, logger: logging.Logger) -> list[str]:
     """
@@ -55,6 +57,34 @@ def load_terms_from_file(file_path: str | None, logger: logging.Logger) -> list[
                 logger.error(f"File {file_path} is empty or invalid.")
                 raise ValueError(f"File {file_path} is empty or invalid.")
     return terms
+
+
+def _warn_if_record_level_consequence_mode(config: dict) -> None:
+    """Warn when analysis options request row-level semantics from a record-level mode."""
+    if config.get("snpeff_splitting_mode") == "before_filters":
+        return
+
+    transcript_filtering_requested = bool(
+        config.get("transcript_list")
+        or config.get("transcript_file")
+        or config.get("transcript_ids")
+    )
+    analysis_requested = bool(
+        config.get("perform_gene_burden") or config.get("perform_association")
+    )
+    filter_expr = config.get("filter") or config.get("filters") or ""
+    consequence_filter_requested = isinstance(filter_expr, str) and any(
+        token in filter_expr for token in ROW_LEVEL_CONSEQUENCE_TOKENS
+    )
+
+    if transcript_filtering_requested and analysis_requested and consequence_filter_requested:
+        logger.warning(
+            "Transcript-filtered gene burden/association with ANN[ANY], LOF[*], or "
+            "NMD[*] consequence predicates should use --split-snpeff-lines before_filters "
+            "for row-level consequence qualification. Without before_filters, SnpSift "
+            "evaluates those predicates on the original multi-annotation record before "
+            "transcript selection."
+        )
 
 
 class ConfigurationLoadingStage(Stage):
@@ -201,6 +231,8 @@ class ConfigurationLoadingStage(Stage):
         # Update config with parsed lists
         config["case_samples"] = case_samples
         config["control_samples"] = control_samples
+
+        _warn_if_record_level_consequence_mode(config)
 
         # Update context
         context.config = config

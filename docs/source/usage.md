@@ -107,7 +107,18 @@ flowchart TD
 | `--list-field-profiles` | — | List available field profiles and exit |
 | `--late-filtering` | `false` | Apply SnpSift filters after scoring (allows filtering on computed scores) |
 | `--final-filter EXPR` | — | Pandas `query()` expression applied after all annotations and scores |
-| `--split-snpeff-lines MODE` | — | Split multi-annotation lines: `before_filters` or `after_filters`. Omit to skip |
+| `--split-snpeff-lines MODE` | — | Split multi-annotation lines: `before_filters` or `after_filters`. Use `before_filters` for row-level ANN/LOF/NMD consequence filtering with transcript-selected gene burden or association. Omit to skip |
+
+:::{warning}
+When transcript filtering is combined with `--perform-gene-burden` or
+`--perform-association`, consequence filters such as `ANN[ANY]`, `LOF[*]`, and
+`NMD[*]` are row-level only when SnpEff annotations are split before SnpSift:
+`--split-snpeff-lines before_filters`. Without splitting, or with
+`after_filters`, SnpSift evaluates those predicates on the original VCF record
+before transcript selection. That can be useful for record-level filtering, but
+it is not the same as requiring the retained transcript row itself to satisfy
+the consequence predicate.
+:::
 
 ### Tumor-Normal Filtering
 
