@@ -30,7 +30,7 @@ def test_run_command_can_return_completed_process():
         "LexerNoViableAltException('@')",
         "Unknown parameter 'BAD'",
         "INFO field 'ClinVar_CLNSIG' not found",
-        'Exception in thread "main" java.lang.RuntimeException: Cannot parse EffectType \'HIGH\'',
+        "Exception in thread \"main\" java.lang.RuntimeException: Cannot parse EffectType 'HIGH'",
     ],
 )
 def test_snpsift_filter_stderr_parser_diagnostics_raise(stderr):

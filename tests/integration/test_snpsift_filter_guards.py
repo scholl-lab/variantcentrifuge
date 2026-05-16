@@ -12,7 +12,6 @@ from variantcentrifuge.config import load_config
 from variantcentrifuge.field_profile import resolve_profile
 from variantcentrifuge.filters import apply_snpsift_filter
 
-
 pytestmark = pytest.mark.skipif(
     not all(shutil.which(tool) for tool in ("SnpSift", "bgzip", "bcftools")),
     reason="SnpSift, bgzip, and bcftools are required",
@@ -24,9 +23,21 @@ def _write_issue_104_vcf(path: Path) -> None:
         "\n".join(
             [
                 "##fileformat=VCFv4.2",
-                '##INFO=<ID=ANN,Number=.,Type=String,Description="Functional annotations: Allele | Annotation | Annotation_Impact | Gene_Name | Gene_ID | Feature_Type | Feature_ID | Transcript_BioType | Rank | HGVS.c | HGVS.p | cDNA.pos / cDNA.length | CDS.pos / CDS.length | AA.pos / AA.length | Distance | ERRORS / WARNINGS / INFO">',
-                '##INFO=<ID=LOF,Number=.,Type=String,Description="Predicted loss of function effects">',
-                '##INFO=<ID=NMD,Number=.,Type=String,Description="Predicted nonsense mediated decay effects">',
+                (
+                    '##INFO=<ID=ANN,Number=.,Type=String,Description="Functional '
+                    "annotations: Allele | Annotation | Annotation_Impact | Gene_Name | "
+                    "Gene_ID | Feature_Type | Feature_ID | Transcript_BioType | Rank | "
+                    "HGVS.c | HGVS.p | cDNA.pos / cDNA.length | CDS.pos / CDS.length | "
+                    'AA.pos / AA.length | Distance | ERRORS / WARNINGS / INFO">'
+                ),
+                (
+                    '##INFO=<ID=LOF,Number=.,Type=String,Description="Predicted loss of '
+                    'function effects">'
+                ),
+                (
+                    '##INFO=<ID=NMD,Number=.,Type=String,Description="Predicted nonsense '
+                    'mediated decay effects">'
+                ),
                 '##INFO=<ID=dbNSFP_gnomAD4.1_joint_AF,Number=A,Type=Float,Description="AF">',
                 '##INFO=<ID=dbNSFP_gnomAD4.1_joint_AC,Number=A,Type=Integer,Description="AC">',
                 '##INFO=<ID=dbNSFP_clinvar_clnsig,Number=.,Type=String,Description="ClinVar">',
