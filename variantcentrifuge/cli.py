@@ -277,9 +277,11 @@ def create_parser() -> argparse.ArgumentParser:
         help=(
             "If set, run the SNPeff annotation splitter step in one of two modes:\n"
             "  'before_filters' (default if no value is given) => Split lines right after variant extraction;\n"
-            "       recommended if you're also doing transcript filtering, though it can be slower.\n"
+            "       required for row-level ANN/LOF/NMD consequence qualification when combining\n"
+            "       transcript filtering with gene burden or association analysis.\n"
             "  'after_filters' => Only split EFF/ANN lines after the main filter step,\n"
-            "       produces a smaller intermediate file and can be faster for big multi-annotation VCFs.\n\n"
+            "       produces a smaller intermediate file and can be faster for big multi-annotation VCFs,\n"
+            "       but SnpSift consequence predicates are evaluated at record level.\n\n"
             "If omitted, splitting is not performed at all."
         ),
     )

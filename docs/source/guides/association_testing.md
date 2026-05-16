@@ -34,6 +34,32 @@ GENE2 312      488         3           0.41            1.23       0.74          
 **Primary significance measure:** `acat_o_qvalue` — this is the FDR-corrected omnibus
 p-value. Use it for all significance decisions.
 
+## Transcript-Selected Consequence Filtering
+
+When association or gene burden analysis uses a transcript list and consequence
+predicates from SnpEff, make the consequence filter row-level by splitting SnpEff
+annotations before SnpSift:
+
+```bash
+variantcentrifuge \
+  --gene-file genes.txt \
+  --vcf-file input.vcf.gz \
+  --transcript-file mane_select_transcripts.txt \
+  --preset high_or_lof_or_nmd \
+  --split-snpeff-lines before_filters \
+  --perform-association \
+  --output-file results.tsv
+```
+
+This matters for filters that inspect the whole annotation array, such as
+`ANN[ANY].IMPACT`, `LOF[*].PERC`, or `NMD[*].PERC`. In no-split mode, or with
+`--split-snpeff-lines after_filters`, SnpSift evaluates those predicates on the
+original multi-annotation VCF record before transcript selection. A record can
+therefore pass because one gene has a qualifying annotation while transcript
+filtering later retains a different gene. Use `before_filters` when the retained
+row itself must satisfy the consequence predicate before entering burden or
+association analysis.
+
 ---
 
 ## Setup: Covariates

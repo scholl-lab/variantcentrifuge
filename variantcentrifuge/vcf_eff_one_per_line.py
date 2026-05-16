@@ -44,9 +44,43 @@ Command-line arguments:
 import argparse
 import gzip
 import io
+import logging
 import re
 import subprocess
 import sys
+
+logger = logging.getLogger(__name__)
+
+ANN_GENE_NAME_INDEX = 3
+ANN_GENE_ID_INDEX = 4
+
+
+def _ann_gene_keys(ann_entry: str) -> set[str]:
+    """Return non-empty gene name and gene ID keys from a SnpEff ANN entry."""
+    parts = ann_entry.split("|")
+    gene_keys = set()
+    if len(parts) > ANN_GENE_NAME_INDEX and parts[ANN_GENE_NAME_INDEX]:
+        gene_keys.add(parts[ANN_GENE_NAME_INDEX])
+    if len(parts) > ANN_GENE_ID_INDEX and parts[ANN_GENE_ID_INDEX]:
+        gene_keys.add(parts[ANN_GENE_ID_INDEX])
+    return gene_keys
+
+
+def _filter_gene_scoped_info_value(value: str, gene_keys: set[str], info_key: str) -> str | None:
+    """Keep LOF/NMD entries whose gene symbol or ID matches the retained ANN gene."""
+    kept_entries = []
+    for entry in value.split(","):
+        stripped = entry.strip()
+        parts = stripped.strip("()").split("|")
+        if len(parts) < 2:
+            logger.warning("Dropping malformed %s entry from ANN split row: %s", info_key, entry)
+            continue
+        if parts[0] in gene_keys or parts[1] in gene_keys:
+            kept_entries.append(entry)
+
+    if not kept_entries:
+        return None
+    return ",".join(kept_entries)
 
 
 def split_vcf_effects(line: str) -> list[str]:
@@ -78,16 +112,20 @@ def split_vcf_effects(line: str) -> list[str]:
     effs: list[str] = []
     field_name = None
     other_info_parts = []
+    gene_scoped_info_parts: list[tuple[str, str]] = []
 
     for inf in infos:
         match_eff = re.match(r"^(EFF)=(.*)", inf)
         match_ann = re.match(r"^(ANN)=(.*)", inf)
+        match_gene_scoped = re.match(r"^(LOF|NMD)=(.*)", inf)
         if match_eff:
             field_name = match_eff.group(1)
             effs = match_eff.group(2).split(",")
         elif match_ann:
             field_name = match_ann.group(1)
             effs = match_ann.group(2).split(",")
+        elif match_gene_scoped:
+            gene_scoped_info_parts.append((match_gene_scoped.group(1), match_gene_scoped.group(2)))
         else:
             other_info_parts.append(inf)
 
@@ -106,11 +144,21 @@ def split_vcf_effects(line: str) -> list[str]:
     # Reconstruct lines with each effect/annotation on separate lines
     for eff in effs:
         # Build the final INFO field: combine leftover info with the single EFF/ANN
-        new_info = ";".join(filter(None, other_info_parts))
-        if new_info:
-            new_info += f";{field_name}={eff}"
+        new_info_parts = list(filter(None, other_info_parts))
+        if field_name == "ANN":
+            new_info_parts.append(f"{field_name}={eff}")
+            gene_keys = _ann_gene_keys(eff)
+            for info_key, value in gene_scoped_info_parts:
+                filtered_value = _filter_gene_scoped_info_value(value, gene_keys, info_key)
+                if filtered_value is not None:
+                    new_info_parts.append(f"{info_key}={filtered_value}")
         else:
-            new_info = f"{field_name}={eff}"
+            new_info_parts.extend(
+                f"{info_key}={value}" for info_key, value in gene_scoped_info_parts
+            )
+            new_info_parts.append(f"{field_name}={eff}")
+
+        new_info = ";".join(new_info_parts)
 
         new_line = f"{pre_string}\t{new_info}{post_string}"
         split_lines.append(new_line)

@@ -35,6 +35,15 @@ SnpSift uses a Java-like expression syntax:
 "((QUAL >= 30) & (AC[0] <= 5)) | (ClinVar_CLNSIG =~ '[Pp]athogenic')"
 ```
 
+:::{note}
+`ANN[ANY]`, `LOF[*]`, and `NMD[*]` are record-level predicates unless SnpEff
+annotations are split before SnpSift. For transcript-filtered gene burden or
+association analyses where the retained row itself must satisfy a consequence
+filter, use `--split-snpeff-lines before_filters`. The `after_filters` and
+no-split modes can still be useful, but they filter the original
+multi-annotation record before transcript selection.
+:::
+
 ## bcftools Pre-filter Syntax
 
 bcftools uses a different syntax optimized for speed:
