@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes._
 
+## [0.17.7] - 2026-05-16
+
+### Fixed
+- Parse SnpEff `NMD[0].PERC` from the documented percent-affected field instead of returning the NMD gene symbol.
+
 ## [0.17.5] - 2026-05-16
 
 ### Fixed
