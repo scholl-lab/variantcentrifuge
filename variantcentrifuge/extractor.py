@@ -55,9 +55,13 @@ ANN_SUBFIELD_MAP = {
     "ANN[0].AA_LEN": ("AA.pos/AA.length", 13),  # Will need split
 }
 
-# NMD field positions (pipe-delimited, similar to ANN)
+# NMD field positions (pipe-delimited SnpEff LOF/NMD format:
+# Gene | ID | num_transcripts | percent_affected)
 NMD_SUBFIELD_MAP = {
-    "NMD[0].PERC": 0,  # First field is the percentage
+    "NMD[0].GENE": 0,
+    "NMD[0].GENEID": 1,
+    "NMD[0].NUMTR": 2,
+    "NMD[0].PERC": 3,
 }
 
 
@@ -257,8 +261,10 @@ def parse_nmd_subfields(df: pd.DataFrame, fields: list[str]) -> pd.DataFrame:
     if not nmd_fields_needed:
         return df.drop(columns=["NMD"])
 
-    # Take first NMD annotation
+    # Take first NMD annotation and remove SnpEff's surrounding parentheses:
+    # NMD=(GENE|GENEID|NUMTR|PERC)
     first_nmd = df["NMD"].fillna("").str.split(",", n=1).str[0]
+    first_nmd = first_nmd.str.strip().str.replace(r"^\((.*)\)$", r"\1", regex=True)
 
     # Split by pipe
     nmd_split = first_nmd.str.split("|", expand=True)

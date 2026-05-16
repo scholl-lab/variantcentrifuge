@@ -318,13 +318,31 @@ class TestNmdParsing:
 
     def test_parse_nmd_perc(self):
         """Test parsing NMD[0].PERC field."""
-        df = pd.DataFrame({"CHROM": ["chr1"], "POS": ["12345"], "NMD": ["0.95|other|fields"]})
+        df = pd.DataFrame(
+            {"CHROM": ["chr1"], "POS": ["12345"], "NMD": ["(ERMP1|ENSG00000099219|4|0.95)"]}
+        )
 
         fields = ["CHROM", "POS", "NMD[0].PERC"]
 
         result = parse_nmd_subfields(df, fields)
 
         assert "NMD" not in result.columns  # Raw NMD should be removed
+        assert result["NMD[0].PERC"].iloc[0] == "0.95"
+
+    def test_parse_nmd_perc_uses_first_annotation(self):
+        """Test parsing NMD[0].PERC from the first comma-separated NMD entry."""
+        df = pd.DataFrame(
+            {
+                "CHROM": ["chr1"],
+                "POS": ["12345"],
+                "NMD": ["(ERMP1|ENSG00000099219|4|0.95),(LRRC8A|ENSG00000150676|6|0.50)"],
+            }
+        )
+
+        fields = ["CHROM", "POS", "NMD[0].PERC"]
+
+        result = parse_nmd_subfields(df, fields)
+
         assert result["NMD[0].PERC"].iloc[0] == "0.95"
 
     def test_parse_missing_nmd(self):
@@ -335,9 +353,7 @@ class TestNmdParsing:
 
         result = parse_nmd_subfields(df, fields)
 
-        # When NMD is None, fillna("") creates empty string, split returns empty string
-        # This gets normalized to "NA" in the main extract function
-        assert result["NMD[0].PERC"].iloc[0] == ""  # Empty string before normalization
+        assert result["NMD[0].PERC"].iloc[0] == "NA"
 
     def test_no_nmd_column(self):
         """Test when NMD column is not present."""
