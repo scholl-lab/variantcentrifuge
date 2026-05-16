@@ -16,7 +16,7 @@ import os
 import re
 import shutil
 import subprocess
-from typing import Any
+from typing import Any, Literal, overload
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -74,7 +74,21 @@ def smart_open(filename: str, mode: str = "r", encoding: str = "utf-8"):
             return open(filename, mode)
 
 
-def run_command(cmd: list, output_file: str | None = None) -> str:
+@overload
+def run_command(
+    cmd: list, output_file: str | None = None, return_result: Literal[False] = False
+) -> str: ...
+
+
+@overload
+def run_command(
+    cmd: list, output_file: str | None = None, return_result: Literal[True] = True
+) -> subprocess.CompletedProcess[str]: ...
+
+
+def run_command(
+    cmd: list, output_file: str | None = None, return_result: bool = False
+) -> str | subprocess.CompletedProcess[str]:
     """
     Run a shell command and write stdout to output_file if provided, else return stdout.
 
@@ -85,12 +99,15 @@ def run_command(cmd: list, output_file: str | None = None) -> str:
     output_file : str, optional
         Path to a file where stdout should be written. If None,
         returns stdout as a string.
+    return_result : bool, optional
+        If True, return the full CompletedProcess object after a successful run.
 
     Returns
     -------
     str
         If output_file is None, returns the command stdout as a string.
         If output_file is provided, returns output_file after completion.
+        If return_result is True, returns subprocess.CompletedProcess instead.
 
     Raises
     ------
@@ -106,9 +123,16 @@ def run_command(cmd: list, output_file: str | None = None) -> str:
 
     if result.returncode != 0:
         logger.error("Command failed: %s\nError: %s", " ".join(cmd), result.stderr)
-        raise subprocess.CalledProcessError(result.returncode, cmd, result.stderr)
+        raise subprocess.CalledProcessError(
+            result.returncode,
+            cmd,
+            output=result.stdout,
+            stderr=result.stderr,
+        )
     else:
         logger.debug("Command completed successfully.")
+        if return_result:
+            return result
         if output_file:
             return output_file
         else:

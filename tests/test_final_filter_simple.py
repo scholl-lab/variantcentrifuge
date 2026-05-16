@@ -6,8 +6,9 @@ works correctly when integrated into the pipeline flow.
 """
 
 import pandas as pd
+import pytest
 
-from variantcentrifuge.filters import filter_dataframe_with_query
+from variantcentrifuge.filters import filter_dataframe_with_query, filter_tsv_with_expression
 
 
 def test_final_filter_integration():
@@ -102,6 +103,24 @@ def test_final_filter_preserves_all_columns():
     # Check all columns are preserved
     assert list(result.columns) == list(df.columns)
     assert len(result) == 1
+
+
+def test_final_filter_invalid_expression_raises():
+    df = pd.DataFrame({"CHROM": ["chr1"], "score": ["0.1"]})
+
+    with pytest.raises(ValueError, match="Invalid final filter expression"):
+        filter_dataframe_with_query(df, 'CHROM === "chr1"')
+
+
+def test_tsv_filter_invalid_expression_raises(tmp_path):
+    input_tsv = tmp_path / "input.tsv"
+    output_tsv = tmp_path / "output.tsv"
+    input_tsv.write_text("CHROM\tscore\nchr1\t0.1\n")
+
+    with pytest.raises(ValueError, match="Invalid TSV filter expression"):
+        filter_tsv_with_expression(str(input_tsv), str(output_tsv), 'CHROM === "chr1"')
+
+    assert not output_tsv.exists()
 
 
 if __name__ == "__main__":

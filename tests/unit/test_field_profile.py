@@ -355,33 +355,22 @@ class TestResolveProfileWithRealConfig:
         assert "dbNSFP_gnomAD_exomes_AC" in hidden
         assert "dbNSFP_gnomAD_genomes_AC" in hidden
 
-    def test_all_presets_have_balanced_parens(self):
-        """Expanded presets with templates should have balanced parentheses.
-
-        Note: Some presets have pre-existing unbalanced parentheses that are
-        not caused by the field profile system. These are excluded here.
-        """
+    def test_all_resolved_presets_have_balanced_parens_for_each_profile(self):
+        """All built-in presets must remain syntactically composable."""
         from variantcentrifuge.config import load_config
 
-        cfg = load_config()
-        resolve_profile(cfg)
+        for profile in ("dbnsfp4", "dbnsfp5"):
+            cfg = load_config()
+            cfg["field_profile"] = profile
+            resolve_profile(cfg)
 
-        # Pre-existing paren issues (not from field profiles, not template presets)
-        known_unbalanced = {
-            "moderate_and_high_prediction",
-            "high_or_lof_or_nmd",
-            "high_or_pathogenic",
-        }
-
-        for name, expr in cfg["presets"].items():
-            if name in known_unbalanced:
-                continue
-            open_count = expr.count("(")
-            close_count = expr.count(")")
-            assert open_count == close_count, (
-                f"Preset '{name}' has unbalanced parentheses: "
-                f"{open_count} open, {close_count} close"
-            )
+            for name, expr in cfg["presets"].items():
+                open_count = expr.count("(")
+                close_count = expr.count(")")
+                assert open_count == close_count, (
+                    f"Preset '{name}' has unbalanced parentheses under {profile}: "
+                    f"{open_count} opening, {close_count} closing. Expression: {expr}"
+                )
 
     def test_mutect2_preset_expansion(self):
         """mutect2 presets expand gnomAD AC fragments correctly."""

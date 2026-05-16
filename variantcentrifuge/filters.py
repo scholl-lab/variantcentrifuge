@@ -58,6 +58,40 @@ def _snpsift_memory_flag(cfg: dict[str, Any]) -> str:
     return f"-Xmx{memory_gb}g"
 
 
+SNPSIFT_FATAL_STDERR_PATTERNS = (
+    "mismatched input",
+    "missing ')'",
+    "token recognition error",
+    "Error parsing",
+    "Cannot parse",
+    "LexerNoViableAltException",
+    "Unknown parameter",
+    "INFO field",
+    'Exception in thread "main"',
+)
+
+
+def _raise_for_snpsift_filter_stderr(stderr: str | None, filter_string: str) -> None:
+    """Raise when SnpSift reports parser/evaluation diagnostics despite exit code 0."""
+    if not stderr:
+        return
+
+    diagnostic_lines = [
+        line.strip()
+        for line in stderr.splitlines()
+        if any(pattern in line for pattern in SNPSIFT_FATAL_STDERR_PATTERNS)
+    ]
+    if not diagnostic_lines:
+        return
+
+    preview = "\n".join(diagnostic_lines[:5])
+    logger.error("SnpSift filter diagnostics detected:\n%s", preview)
+    raise RuntimeError(
+        "SnpSift filter reported parser diagnostics while exiting successfully. "
+        f"Filter expression: {filter_string}\n{preview}"
+    )
+
+
 def apply_bcftools_prefilter(
     input_vcf: str, output_vcf: str, filter_expression: str, cfg: dict[str, Any]
 ) -> str:
@@ -230,7 +264,8 @@ def apply_snpsift_filter(
         xmx = _snpsift_memory_flag(cfg)
         snpsift_cmd = ["SnpSift", xmx, "filter", filter_string, variant_file]
         logger.debug("Applying SnpSift filter (%s) to produce uncompressed VCF: %s", xmx, tmp_vcf)
-        run_command(snpsift_cmd, output_file=tmp_vcf)
+        result = run_command(snpsift_cmd, output_file=tmp_vcf, return_result=True)
+        _raise_for_snpsift_filter_stderr(result.stderr, filter_string)
 
         # 2) bgzip compress the temporary VCF
         bgzip_cmd = ["bgzip", "-@", threads, "-c", tmp_vcf]
@@ -607,11 +642,9 @@ def filter_tsv_with_expression(
         try:
             filtered_df = df.query(filter_expression)
         except Exception as e:
-            logger.error(f"Failed to apply filter expression: {e}")
-            logger.info("Writing unfiltered data to output")
-            compression_out = "gzip" if output_tsv.endswith(".gz") else None
-            df.to_csv(output_tsv, sep="\t", index=False, compression=cast(Any, compression_out))
-            return
+            message = f"Invalid TSV filter expression '{filter_expression}': {e}"
+            logger.error(message)
+            raise ValueError(message) from e
 
         final_count = len(filtered_df)
         logger.info(
@@ -625,11 +658,11 @@ def filter_tsv_with_expression(
         )
 
     except Exception as e:
-        logger.error(f"Error in TSV filtering: {e}")
-        # Copy input to output on error
-        import shutil
-
-        shutil.copy2(input_tsv, output_tsv)
+        if isinstance(e, ValueError):
+            raise
+        message = f"Error in TSV filtering: {e}"
+        logger.error(message)
+        raise RuntimeError(message) from e
 
 
 def filter_dataframe_with_query(df: pd.DataFrame, filter_expression: str) -> pd.DataFrame:
@@ -672,6 +705,6 @@ def filter_dataframe_with_query(df: pd.DataFrame, filter_expression: str) -> pd.
         return filtered_df
 
     except Exception as e:
-        logger.error(f"Failed to apply final filter expression: {e}")
-        logger.error("Please check your --final-filter syntax. Returning unfiltered data.")
-        return df
+        message = f"Invalid final filter expression '{filter_expression}': {e}"
+        logger.error(message)
+        raise ValueError(message) from e
