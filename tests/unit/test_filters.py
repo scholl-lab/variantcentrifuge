@@ -20,6 +20,14 @@ def test_run_command_can_return_completed_process():
     assert result.stdout.strip() == "ok"
 
 
+def test_run_command_failure_preserves_stderr_on_exception():
+    with pytest.raises(subprocess.CalledProcessError) as exc_info:
+        run_command([sys.executable, "-c", "import sys; sys.stderr.write('bad'); sys.exit(7)"])
+
+    assert exc_info.value.returncode == 7
+    assert exc_info.value.stderr == "bad"
+
+
 @pytest.mark.parametrize(
     "stderr",
     [

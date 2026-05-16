@@ -123,7 +123,12 @@ def run_command(
 
     if result.returncode != 0:
         logger.error("Command failed: %s\nError: %s", " ".join(cmd), result.stderr)
-        raise subprocess.CalledProcessError(result.returncode, cmd, result.stderr)
+        raise subprocess.CalledProcessError(
+            result.returncode,
+            cmd,
+            output=result.stdout,
+            stderr=result.stderr,
+        )
     else:
         logger.debug("Command completed successfully.")
         if return_result:
