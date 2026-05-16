@@ -63,8 +63,10 @@ def _vectorized_parse_gt_columns(
     multi_allelic_count = 0
 
     for s_idx, col in enumerate(gt_columns_list):
-        # Get column as string series, normalize separator
-        gt_series = gene_df[col].fillna("./.").astype(str).str.replace("|", "/", regex=False)
+        # Convert before fillna so categorical GT columns do not need "./."
+        # added as an explicit category.
+        gt_series = gene_df[col].astype(object).fillna("./.").astype(str)
+        gt_series = gt_series.str.replace("|", "/", regex=False)
 
         # Standard diploid genotypes — exact match for speed
         m_00 = gt_series == "0/0"

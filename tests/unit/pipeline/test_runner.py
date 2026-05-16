@@ -281,6 +281,36 @@ class TestPipelineRunner:
         assert any("fast" in call for call in info_calls)
         assert any("slow" in call for call in info_calls)
 
+    def test_selective_resume_rejects_incomplete_prerequisite(self, context):
+        """Selective resume must not skip an incomplete prerequisite stage."""
+        runner = PipelineRunner(enable_checkpoints=True, max_workers=1)
+        context.config = {"resume_from": "target"}
+        checkpoint_state = Mock()
+        checkpoint_state.load.return_value = True
+        checkpoint_state.validate_resume_from_stage.return_value = (True, "")
+        checkpoint_state.should_skip_step.return_value = False
+        context.checkpoint_state = checkpoint_state
+        stages = [
+            MockStage("setup"),
+            MockStage("target", dependencies=["setup"]),
+        ]
+
+        with pytest.raises(ValueError, match="prerequisite stage 'setup' was not completed"):
+            runner.run(stages, context)
+
+    def test_clear_stage_and_downstream_saves_once(self):
+        """Clearing a long checkpoint tail should batch disk persistence."""
+        runner = PipelineRunner()
+        checkpoint_state = Mock()
+        stages = [MockStage("stage1"), MockStage("stage2"), MockStage("stage3")]
+
+        runner._clear_stage_and_downstream("stage2", stages, checkpoint_state)
+
+        assert checkpoint_state.clear_step_completion.call_count == 2
+        checkpoint_state.clear_step_completion.assert_any_call("stage2", save=False)
+        checkpoint_state.clear_step_completion.assert_any_call("stage3", save=False)
+        checkpoint_state.save.assert_called_once()
+
     def test_checkpoint_saving(self, runner, context):
         """Test checkpoint saving during execution."""
         # Enable checkpoints

@@ -535,22 +535,24 @@ class TestTSVOutputStage:
             assert call_args[1]["na_rep"] == ""
 
     def test_missing_dataframe(self, context):
-        """Test handling when no DataFrame available."""
+        """Missing DataFrame should fail requested TSV output."""
         context.current_dataframe = None
 
         stage = TSVOutputStage()
-        result = stage(context)
 
-        # Should return context without error
-        assert result is context
-        # final_output_path should not be set when there's no data
-        assert result.final_output_path is None
+        with pytest.raises(RuntimeError, match="No data to write"):
+            stage(context)
 
     def test_dependencies(self):
         """Test stage dependencies."""
         stage = TSVOutputStage()
         assert stage.dependencies == {"dataframe_loading", "variant_identifier"}
-        assert stage.soft_dependencies == {"variant_scoring", "final_filtering", "pseudonymization"}
+        assert stage.soft_dependencies == {
+            "variant_scoring",
+            "final_filtering",
+            "pseudonymization",
+            "chunked_analysis",
+        }
 
     def test_tsv_output_drops_raw_gt_columns_when_packed_gt_exists(self, context):
         """Final TSV should not leak raw GEN[N].GT columns by default."""

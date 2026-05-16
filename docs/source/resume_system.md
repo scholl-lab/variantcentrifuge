@@ -50,7 +50,8 @@ Each pipeline stage follows this checkpoint lifecycle:
 2. **Process**: Stage performs its main work
 3. **Finalize** (optional): Stage enters `finalizing` state while moving temp files to final locations
 4. **Complete**: Stage finishes, marked as `completed` with output files recorded
-5. **Skip**: On resume, completed stages are skipped and their state is restored
+5. **Resume action**: On resume, completed stages are restored, skipped, or
+   recomputed according to their explicit checkpoint resume policy
 
 ### Atomic File Operations
 
@@ -112,36 +113,93 @@ variantcentrifuge --enable-checkpoint --checkpoint-checksum [other options]
 
 ## Stage Types and Resume Behavior
 
-### File-Based Stages
+Completed checkpoint entries are not all equivalent after a process restart. Some
+stages only produce durable files, while others mutate in-memory DataFrames that no
+longer exist in the resumed process. VariantCentrifuge uses an explicit resume policy
+for each stage:
 
-Stages that produce output files (e.g., `parallel_complete_processing`, `genotype_replacement`):
+- `restore`: the stage may be skipped only after `_handle_checkpoint_skip()` rebuilds
+  the downstream context state from durable artifacts.
+- `skip`: the stage has no downstream runtime state to restore, or is an intentional
+  no-op in the current configuration.
+- `recompute`: the completed checkpoint entry is not trusted after process restart; the
+  stage and downstream stages are re-executed.
+
+The conservative default is `recompute`.
+
+### Durable File Stages
+
+Stages that produce durable output files can be restored only when those files exist and
+validate. Missing expected artifacts abort resume instead of logging a warning and
+continuing.
+
+Example: `parallel_complete_processing` restores the merged extracted TSV and marks the
+constituent extraction/filtering stages complete only after the merged TSV validates:
 
 ```python
-# Example: GenotypeReplacementStage
+# Example: ParallelCompleteProcessingStage
 def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
-    """Restore file paths when stage is skipped."""
-    output_tsv = context.workspace.get_intermediate_path(
-        f"{context.workspace.base_name}.genotype_replaced.tsv.gz"
-    )
-    if output_tsv.exists():
-        context.genotype_replaced_tsv = output_tsv
-        context.data = output_tsv
+    if not merged_tsv.exists() or not self._validate_chunk_tsv(merged_tsv):
+        raise RuntimeError("Cannot restore parallel_complete_processing from checkpoint")
+
+    context.extracted_tsv = merged_tsv
+    context.data = merged_tsv
+    context.config["parallel_vcf_processing_complete"] = True
+    context.mark_complete("variant_extraction")
+    context.mark_complete("field_extraction")
+    context.mark_complete("snpsift_filtering")
     return context
 ```
 
-### Memory-Based Stages
+`GenotypeReplacementStage` is a Phase-11 no-op. Its resume skip is therefore a clean
+no-op and does not require a `genotype_replaced.tsv` file.
 
-Stages that work with DataFrames (e.g., `dataframe_loading`, `custom_annotation`):
+### Restorable Memory Stages
+
+Some memory-based stages can rebuild their runtime state from durable TSV artifacts.
+`dataframe_loading` reloads the current DataFrame when full loading is appropriate, or
+defers to `chunked_analysis` for large files. `chunked_analysis` restores
+`context.current_dataframe` from `chunked_analysis_results.tsv(.gz)`, including
+header-only empty results.
 
 ```python
 # Example: DataFrameLoadingStage
 def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
-    """Restore DataFrame from TSV file when stage is skipped."""
     input_file = self._find_input_file(context)
-    df = pd.read_csv(input_file, sep="\t", dtype=str, compression="gzip")
+    if not input_file or not Path(input_file).exists():
+        raise RuntimeError("Cannot restore dataframe_loading from checkpoint")
+
+    if self._should_use_chunks(context, input_file) and not context.config.get(
+        "dataframe_chunked_analysis_complete", False
+    ):
+        context.config["use_chunked_processing"] = True
+        return context
+
+    df, rename_map = load_optimized_dataframe(str(input_file), sep="\t")
     context.current_dataframe = df
+    context.column_rename_map = rename_map
     return context
 ```
+
+The old `chunked_processing_complete` meaning has been split:
+
+- `parallel_vcf_processing_complete`: VCF chunk extraction/filter/merge is complete.
+- `dataframe_chunked_analysis_complete`: DataFrame chunked analysis has produced a
+  restorable DataFrame TSV.
+
+The parallel VCF flag does not suppress DataFrame chunking.
+
+### Volatile Memory Stages
+
+Stages such as custom annotation, inheritance analysis, variant analysis, scoring,
+final filtering, pseudonymization, and ClinVar PM5 mutate DataFrames in memory without
+durable post-stage DataFrame artifacts. After process restart, these stages are
+recomputed even if the checkpoint says they were completed.
+
+This recompute behavior must clear the persisted checkpoint completion for the first
+volatile stage and all downstream stages, because both `PipelineRunner` and
+`Stage.__call__()` can skip completed checkpoint stages. Clearing only in-memory
+`PipelineContext.completed_stages` is not sufficient.
 
 ### Composite Stages
 
@@ -161,6 +219,17 @@ def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
 
     return context
 ```
+
+### Required Outputs and Empty Results
+
+Requested analysis and output stages fail when required runtime state is missing. For
+example, requested association, gene burden, statistics, TSV output, and Excel output
+do not mark their checkpoint stage complete when `context.current_dataframe` or the
+required TSV artifact is absent.
+
+An empty DataFrame is different from a missing DataFrame. Valid zero-row results produce
+header-only requested outputs, including final TSV, association sidecar, and gene burden
+sidecar files.
 
 ## Resume Validation
 
@@ -274,6 +343,16 @@ variantcentrifuge --gene-name PKD1 --vcf-file input.vcf.gz \
     --enable-checkpoint --resume-from variant_analysis
 ```
 
+`--resume-from STAGE` uses restart semantics: the target stage and all subsequent stages
+are re-executed. The target can be a previously failed or incomplete stage. Before the
+target, the runner restores only safe durable/restorable prerequisites. If the requested
+target depends on volatile in-memory state that cannot be restored, resume fails with an
+earlier safe stage to use instead, such as `--resume-from dataframe_loading`.
+
+For issue #101-style runs, fixing resume state restoration can correctly expose the
+original `association_analysis` failure again. That association categorical genotype
+error is separate from checkpoint resume correctness.
+
 ### Development Workflow
 
 ```bash
@@ -343,6 +422,16 @@ Output file validation failed for step 'stage_name': /path/to/file.tsv
 ```
 
 **Solution**: Check that intermediate files weren't manually deleted. Remove checkpoint file to start fresh.
+
+#### Missing Required Checkpoint Artifact
+
+```
+Cannot restore chunked_analysis from checkpoint: chunked output missing
+```
+
+**Solution**: Resume from an earlier durable stage that can regenerate the missing
+artifact, or start fresh. The pipeline intentionally aborts rather than reporting
+success with missing requested outputs.
 
 #### Corrupted Checkpoint
 
@@ -447,12 +536,12 @@ Stages integrate with the checkpoint system through:
 ```python
 class Stage(ABC):
     def __call__(self, context: PipelineContext) -> PipelineContext:
-        # Check if stage should be skipped
+        # Stage.__call__ has its own checkpoint skip gate. The runner clears
+        # persisted completion first for recompute stages so this gate cannot
+        # skip volatile in-memory work after process restart.
         if context.checkpoint_state.should_skip_step(self.name):
             context.mark_complete(self.name)
-
-            # Restore state if needed
-            if hasattr(self, '_handle_checkpoint_skip'):
+            if hasattr(self, "_handle_checkpoint_skip"):
                 context = self._handle_checkpoint_skip(context)
 
             return context

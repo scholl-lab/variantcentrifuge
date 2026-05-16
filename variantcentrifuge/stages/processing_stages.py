@@ -706,31 +706,14 @@ class GenotypeReplacementStage(Stage):
         """Return the set of stage names this stage depends on."""
         return {"field_extraction", "sample_config_loading"}
 
+    @property
+    def checkpoint_resume_policy(self) -> str:
+        """Phase-11 no-op can be skipped without restoring a file."""
+        return "skip"
+
     def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
-        """Handle the case where this stage is skipped by checkpoint system.
-
-        When this stage is skipped, we need to restore the context paths
-        so that subsequent stages can find the genotype_replaced_tsv file.
-        """
-        # Reconstruct the expected output path
-        output_tsv = context.workspace.get_intermediate_path(
-            f"{context.workspace.base_name}.genotype_replaced.tsv"
-        )
-
-        # Handle gzip compression
-        if context.config.get("gzip_intermediates", True):
-            output_tsv = Path(str(output_tsv) + ".gz")
-
-        # Check if the file exists and restore context
-        if output_tsv.exists():
-            context.genotype_replaced_tsv = output_tsv
-            context.data = output_tsv
-            logger.info(
-                f"Restored genotype_replaced_tsv path to {output_tsv} after checkpoint skip"
-            )
-        else:
-            logger.warning(f"Expected genotype_replaced_tsv file not found: {output_tsv}")
-
+        """Clean no-op restore for Phase-11 genotype replacement."""
+        logger.info("Genotype replacement is a Phase-11 no-op; nothing to restore")
         return context
 
     def _process(self, context: PipelineContext) -> PipelineContext:
@@ -752,8 +735,6 @@ class GenotypeReplacementStage(Stage):
 
     def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return output files for checkpoint tracking."""
-        if hasattr(context, "genotype_replaced_tsv") and context.genotype_replaced_tsv:
-            return [context.genotype_replaced_tsv]
         return []
 
 
@@ -764,6 +745,11 @@ class PhenotypeIntegrationStage(Stage):
     def name(self) -> str:
         """Return the stage name."""
         return "phenotype_integration"
+
+    @property
+    def checkpoint_resume_policy(self) -> str:
+        """Phenotype integration can restore its output path or no-op cleanly."""
+        return "restore"
 
     @property
     def description(self) -> str:
@@ -828,8 +814,13 @@ class PhenotypeIntegrationStage(Stage):
             context.phenotypes_added_tsv = output_tsv
             context.data = output_tsv
             logger.info(f"Restored phenotypes_added_tsv path to {output_tsv} after checkpoint skip")
+        elif not self._has_phenotype_data(context):
+            logger.info("No phenotype data configured; nothing to restore")
         else:
-            logger.warning(f"Expected phenotypes_added_tsv file not found: {output_tsv}")
+            raise RuntimeError(
+                "Cannot restore phenotype_integration from checkpoint: "
+                f"expected TSV missing: {output_tsv}"
+            )
 
         return context
 
@@ -979,6 +970,11 @@ class ParallelCompleteProcessingStage(Stage):
         return "parallel_complete_processing"
 
     @property
+    def checkpoint_resume_policy(self) -> str:
+        """The merged TSV is durable and can restore downstream input paths."""
+        return "restore"
+
+    @property
     def description(self) -> str:
         """Return a description of what this stage does."""
         return "Process variants in parallel with complete pipeline per chunk"
@@ -1076,15 +1072,19 @@ class ParallelCompleteProcessingStage(Stage):
         if (intermediate_dir / f"{base_name}.extracted.tsv.gz").exists():
             merged_tsv = intermediate_dir / f"{base_name}.extracted.tsv.gz"
 
-        # Validate the merged TSV exists and is valid
-        if merged_tsv.exists() and self._validate_chunk_tsv(merged_tsv):
-            logger.info(f"Restored valid merged TSV: {merged_tsv}")
-        else:
-            logger.warning(f"Expected merged TSV not found or invalid: {merged_tsv}")
+        # Validate the merged TSV exists and is valid before mutating context.
+        if not merged_tsv.exists() or not self._validate_chunk_tsv(merged_tsv):
+            raise RuntimeError(
+                "Cannot restore parallel_complete_processing from checkpoint: "
+                f"merged TSV missing or invalid: {merged_tsv}"
+            )
+        logger.info(f"Restored valid merged TSV: {merged_tsv}")
 
         # Restore context state that would have been set
         context.extracted_tsv = merged_tsv
         context.data = merged_tsv
+        context.config["parallel_vcf_processing_complete"] = True
+        context.config.pop("chunked_processing_complete", None)
 
         # Mark all the stages this stage would have completed
         context.mark_complete("variant_extraction")
@@ -1134,8 +1134,10 @@ class ParallelCompleteProcessingStage(Stage):
         context.mark_complete("snpsift_filtering")
         context.mark_complete("field_extraction")
 
-        # Mark chunked processing as complete so analysis stages can run
-        context.config["chunked_processing_complete"] = True
+        # Mark parallel VCF chunk processing as complete. DataFrame chunked
+        # analysis has a separate completion flag.
+        context.config["parallel_vcf_processing_complete"] = True
+        context.config.pop("chunked_processing_complete", None)
 
         # Cleanup chunks
         cleanup_start = self._start_subtask("cleanup")

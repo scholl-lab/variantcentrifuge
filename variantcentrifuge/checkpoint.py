@@ -604,19 +604,26 @@ class PipelineState:
 
     def fail_step(self, step_name: str, error: str) -> None:
         """Mark a step as failed."""
-        if step_name not in self.state["steps"]:
-            logger.warning(f"Failing unstarted step: {step_name}")
-            self.start_step(step_name)
+        with self._state_lock:
+            if step_name not in self.state["steps"]:
+                logger.warning(f"Failing unstarted step: {step_name}")
+                self.state["steps"][step_name] = StepInfo(
+                    name=step_name,
+                    status="running",
+                    start_time=time.time(),
+                    command_hash=None,
+                    parameters={},
+                )
 
-        step_info = self.state["steps"][step_name]
-        step_info.status = "failed"
-        step_info.end_time = time.time()
-        step_info.error = error
+            step_info = self.state["steps"][step_name]
+            step_info.status = "failed"
+            step_info.end_time = time.time()
+            step_info.error = error
 
         self.save()
         logger.error(f"Step '{step_name}' failed: {error}")
 
-    def clear_step_completion(self, step_name: str) -> None:
+    def clear_step_completion(self, step_name: str, save: bool = True) -> None:
         """Clear completion status for a step to force re-execution.
 
         This method is used for restart functionality where you want to
@@ -626,6 +633,9 @@ class PipelineState:
         ----------
         step_name : str
             Name of the step to clear completion status for
+        save : bool
+            Persist the checkpoint file immediately. Callers clearing many
+            steps can pass ``False`` and save once after the batch.
         """
         if step_name not in self.state["steps"]:
             logger.debug(f"Step '{step_name}' not in checkpoint state, nothing to clear")
@@ -639,7 +649,8 @@ class PipelineState:
             step_info.error = None
             # Keep output files for potential validation but clear the completion status
             logger.debug(f"Cleared completion status for step '{step_name}' (restart mode)")
-            self.save()
+            if save:
+                self.save()
 
     def get_summary(self) -> str:
         """Get a human-readable summary of the pipeline state."""
@@ -723,22 +734,7 @@ class PipelineState:
         if stage_name not in available_stages:
             return False, f"Stage '{stage_name}' is not available in current configuration"
 
-        # Check if we have any completed stages
-        completed_stages = self.get_available_resume_points()
-        if not completed_stages:
-            return False, "No completed stages found in checkpoint"
-
-        # If stage is already completed, it's a valid resume point
-        if stage_name in completed_stages:
-            return True, ""
-
-        # If stage is not completed, check if it makes sense to resume from it
-        # This would mean starting the pipeline from this stage without its dependencies
-        return (
-            False,
-            f"Stage '{stage_name}' was not completed in previous run. "
-            f"Cannot resume from an incomplete stage.",
-        )
+        return True, ""
 
     def get_stages_to_execute(self, resume_from: str, all_stages: list[str]) -> list[str]:
         """Get ordered list of stages to execute when resuming from specific stage.

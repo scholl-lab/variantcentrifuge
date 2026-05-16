@@ -194,7 +194,7 @@ class TestInheritanceAnalysisStage:
         """Test stage dependencies."""
         stage = InheritanceAnalysisStage()
         assert stage.dependencies == {"dataframe_loading"}
-        assert stage.soft_dependencies == {"custom_annotation"}
+        assert stage.soft_dependencies == {"custom_annotation", "chunked_analysis"}
 
     def test_parallel_safe(self):
         """Test parallel safety."""
