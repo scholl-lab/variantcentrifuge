@@ -362,22 +362,14 @@ class TestFinalFilteringStage:
         assert len(result.current_dataframe) == 1
         assert result.current_dataframe["gene"].tolist() == ["EGFR"]
 
-    def test_invalid_filter_expression(self, context, caplog):
-        """Test that invalid filter expression returns unfiltered data with error log.
-
-        Migrated from test_filters.py.
-        """
-        # Invalid syntax
+    def test_invalid_filter_expression_raises(self, context):
+        """Invalid final filters must fail closed instead of returning unfiltered data."""
         context.config["final_filter"] = 'CHROM === "chr1"'  # Triple equals invalid
 
         stage = FinalFilteringStage()
-        result = stage(context)
 
-        # Should return original dataframe
-        pd.testing.assert_frame_equal(result.current_dataframe, context.current_dataframe)
-
-        # Check error was logged
-        assert "Failed to apply final filter expression" in caplog.text
+        with pytest.raises(ValueError, match="Invalid final filter expression"):
+            stage(context)
 
     def test_filter_on_computed_columns(self, context):
         """Test filtering on columns that might be computed during analysis.

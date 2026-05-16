@@ -642,11 +642,9 @@ def filter_tsv_with_expression(
         try:
             filtered_df = df.query(filter_expression)
         except Exception as e:
-            logger.error(f"Failed to apply filter expression: {e}")
-            logger.info("Writing unfiltered data to output")
-            compression_out = "gzip" if output_tsv.endswith(".gz") else None
-            df.to_csv(output_tsv, sep="\t", index=False, compression=cast(Any, compression_out))
-            return
+            message = f"Invalid TSV filter expression '{filter_expression}': {e}"
+            logger.error(message)
+            raise ValueError(message) from e
 
         final_count = len(filtered_df)
         logger.info(
@@ -660,11 +658,11 @@ def filter_tsv_with_expression(
         )
 
     except Exception as e:
-        logger.error(f"Error in TSV filtering: {e}")
-        # Copy input to output on error
-        import shutil
-
-        shutil.copy2(input_tsv, output_tsv)
+        if isinstance(e, ValueError):
+            raise
+        message = f"Error in TSV filtering: {e}"
+        logger.error(message)
+        raise RuntimeError(message) from e
 
 
 def filter_dataframe_with_query(df: pd.DataFrame, filter_expression: str) -> pd.DataFrame:
@@ -707,6 +705,6 @@ def filter_dataframe_with_query(df: pd.DataFrame, filter_expression: str) -> pd.
         return filtered_df
 
     except Exception as e:
-        logger.error(f"Failed to apply final filter expression: {e}")
-        logger.error("Please check your --final-filter syntax. Returning unfiltered data.")
-        return df
+        message = f"Invalid final filter expression '{filter_expression}': {e}"
+        logger.error(message)
+        raise ValueError(message) from e
