@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes._
 
+## [0.17.8] - 2026-05-16
+
+### Fixed
+- Correct malformed built-in SnpSift presets that could leak common or benign variants when combined with other filters.
+- Fail closed on SnpSift parser/evaluation diagnostics even when SnpSift exits successfully.
+- Fail closed on invalid final DataFrame and TSV filter expressions instead of returning unfiltered results.
+- Preserve stderr on command failures for downstream diagnostics.
+
 ## [0.17.7] - 2026-05-16
 
 ### Fixed
