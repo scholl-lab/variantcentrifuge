@@ -298,7 +298,9 @@ class TestSKATTestGene:
         self, backend, binary_null_model, standard_geno
     ):
         """Basic SKAT call returns dict with p_value, p_method, n_variants."""
-        result = backend.test_gene("GENE1", standard_geno, binary_null_model, "SKAT", weights=_unit_weights(standard_geno))
+        result = backend.test_gene(
+            "GENE1", standard_geno, binary_null_model, "SKAT", weights=_unit_weights(standard_geno)
+        )
         assert "p_value" in result
         assert "p_method" in result
         assert "p_converged" in result
@@ -306,7 +308,9 @@ class TestSKATTestGene:
 
     def test_skat_basic_p_value_float_or_none(self, backend, binary_null_model, standard_geno):
         """SKAT p_value is a float in [0, 1] or None."""
-        result = backend.test_gene("GENE1", standard_geno, binary_null_model, "SKAT", weights=_unit_weights(standard_geno))
+        result = backend.test_gene(
+            "GENE1", standard_geno, binary_null_model, "SKAT", weights=_unit_weights(standard_geno)
+        )
         p = result["p_value"]
         if p is not None:
             assert isinstance(p, float)
@@ -314,12 +318,16 @@ class TestSKATTestGene:
 
     def test_skat_p_method_in_expected_set(self, backend, binary_null_model, standard_geno):
         """p_method must be 'davies', 'saddlepoint', 'liu', or None (skipped)."""
-        result = backend.test_gene("GENE1", standard_geno, binary_null_model, "SKAT", weights=_unit_weights(standard_geno))
+        result = backend.test_gene(
+            "GENE1", standard_geno, binary_null_model, "SKAT", weights=_unit_weights(standard_geno)
+        )
         assert result["p_method"] in {"davies", "saddlepoint", "liu", None}
 
     def test_skat_p_converged_is_bool(self, backend, binary_null_model, standard_geno):
         """p_converged must be a bool."""
-        result = backend.test_gene("GENE1", standard_geno, binary_null_model, "SKAT", weights=_unit_weights(standard_geno))
+        result = backend.test_gene(
+            "GENE1", standard_geno, binary_null_model, "SKAT", weights=_unit_weights(standard_geno)
+        )
         assert isinstance(result["p_converged"], bool)
 
     def test_skat_rank_deficient_returns_none_pvalue(self, backend, binary_null_model):
@@ -329,14 +337,18 @@ class TestSKATTestGene:
         # All columns identical => rank = 1 < 2
         base_col = rng.integers(0, 3, n).astype(np.float64)
         geno = np.column_stack([base_col] * 5)
-        result = backend.test_gene("GENE_RD", geno, binary_null_model, "SKAT", weights=_unit_weights(geno))
+        result = backend.test_gene(
+            "GENE_RD", geno, binary_null_model, "SKAT", weights=_unit_weights(geno)
+        )
         assert result["p_value"] is None
         assert result["skip_reason"] == "rank_deficient"
 
     def test_skat_zero_variants_returns_none(self, backend, binary_null_model):
         """Zero-variant matrix (0 columns): p_value=None."""
         geno = np.zeros((50, 0))
-        result = backend.test_gene("GENE_EMPTY", geno, binary_null_model, "SKAT", weights=_unit_weights(geno))
+        result = backend.test_gene(
+            "GENE_EMPTY", geno, binary_null_model, "SKAT", weights=_unit_weights(geno)
+        )
         assert result["p_value"] is None
         assert result["n_variants"] == 0
 
@@ -344,14 +356,18 @@ class TestSKATTestGene:
         """Single-variant matrix: rank < 2, should be skipped."""
         rng = np.random.default_rng(12)
         geno = rng.integers(0, 3, (50, 1)).astype(np.float64)
-        result = backend.test_gene("GENE_1V", geno, binary_null_model, "SKAT", weights=_unit_weights(geno))
+        result = backend.test_gene(
+            "GENE_1V", geno, binary_null_model, "SKAT", weights=_unit_weights(geno)
+        )
         assert result["p_value"] is None
         assert result["skip_reason"] == "rank_deficient"
 
     def test_skat_all_zero_genotypes_graceful(self, backend, binary_null_model):
         """All-zero genotype matrix: handled gracefully (p_value=None or 1.0)."""
         geno = np.zeros((50, 5))
-        result = backend.test_gene("GENE_ZEROS", geno, binary_null_model, "SKAT", weights=_unit_weights(geno))
+        result = backend.test_gene(
+            "GENE_ZEROS", geno, binary_null_model, "SKAT", weights=_unit_weights(geno)
+        )
         # Should not raise; p_value is None (rank_deficient) or 1.0
         assert result["p_value"] is None or result["p_value"] == pytest.approx(1.0), (
             f"Expected None or 1.0 for all-zero genotypes, got {result['p_value']}"
@@ -370,7 +386,13 @@ class TestSKATTestGene:
 
         patch_target = "variantcentrifuge.association.backends.python_backend.scipy.linalg.eigh"
         with patch(patch_target, spy_eigh):
-            backend.test_gene("GENE_EVR", standard_geno, binary_null_model, "SKAT", weights=_unit_weights(standard_geno))
+            backend.test_gene(
+                "GENE_EVR",
+                standard_geno,
+                binary_null_model,
+                "SKAT",
+                weights=_unit_weights(standard_geno),
+            )
 
         evr_calls = [c for c in calls if c.get("driver") == "evr"]
         assert len(evr_calls) >= 1, f"Expected eigh with driver='evr', got kwargs: {calls}"
@@ -378,14 +400,22 @@ class TestSKATTestGene:
     def test_skat_increments_genes_processed(self, backend, binary_null_model, standard_geno):
         """Each test_gene call increments the internal gene counter."""
         initial = backend._genes_processed
-        backend.test_gene("G1", standard_geno, binary_null_model, "SKAT", weights=_unit_weights(standard_geno))
-        backend.test_gene("G2", standard_geno, binary_null_model, "SKAT", weights=_unit_weights(standard_geno))
+        backend.test_gene(
+            "G1", standard_geno, binary_null_model, "SKAT", weights=_unit_weights(standard_geno)
+        )
+        backend.test_gene(
+            "G2", standard_geno, binary_null_model, "SKAT", weights=_unit_weights(standard_geno)
+        )
         assert backend._genes_processed == initial + 2
 
     def test_skat_unknown_method_defaults_to_skat(self, backend, binary_null_model, standard_geno):
         """Unknown method falls back to SKAT without raising."""
         result = backend.test_gene(
-            "G_UNK", standard_geno, binary_null_model, "UNKNOWN", weights=_unit_weights(standard_geno)
+            "G_UNK",
+            standard_geno,
+            binary_null_model,
+            "UNKNOWN",
+            weights=_unit_weights(standard_geno),
         )
         # Should return a result (not crash)
         assert "p_value" in result
@@ -407,7 +437,9 @@ class TestSKATOTestGene:
         n = rank2_geno.shape[0]
         phenotype = rng.integers(0, 2, n).astype(np.float64)
         null = backend.fit_null_model(phenotype, None, "binary")
-        result = backend.test_gene("GENE_O", rank2_geno, null, "SKATO", weights=_unit_weights(rank2_geno))
+        result = backend.test_gene(
+            "GENE_O", rank2_geno, null, "SKATO", weights=_unit_weights(rank2_geno)
+        )
         rho = result["rho"]
         if rho is not None:
             assert 0.0 <= rho <= 1.0, f"rho={rho} not in [0, 1]"
@@ -418,7 +450,9 @@ class TestSKATOTestGene:
         n = rank2_geno.shape[0]
         phenotype = rng.integers(0, 2, n).astype(np.float64)
         null = backend.fit_null_model(phenotype, None, "binary")
-        result = backend.test_gene("GENE_O", rank2_geno, null, "SKATO", weights=_unit_weights(rank2_geno))
+        result = backend.test_gene(
+            "GENE_O", rank2_geno, null, "SKATO", weights=_unit_weights(rank2_geno)
+        )
         rho = result["rho"]
         if rho is not None:
             assert any(abs(rho - r) < 1e-10 for r in _SKATO_RHO_GRID), (
@@ -437,7 +471,9 @@ class TestSKATOTestGene:
         n = rank2_geno.shape[0]
         phenotype = rng.integers(0, 2, n).astype(np.float64)
         null = backend.fit_null_model(phenotype, None, "binary")
-        result = backend.test_gene("GENE_O", rank2_geno, null, "SKATO", weights=_unit_weights(rank2_geno))
+        result = backend.test_gene(
+            "GENE_O", rank2_geno, null, "SKATO", weights=_unit_weights(rank2_geno)
+        )
         p = result["p_value"]
         if p is not None:
             assert 0.0 <= p <= 1.0, f"SKAT-O p={p:.6e} not in [0, 1]"
@@ -498,7 +534,11 @@ class TestBurdenTestGene:
     def test_burden_returns_p_value(self, backend, binary_null_model, standard_geno):
         """Burden test returns a valid p_value."""
         result = backend.test_gene(
-            "GENE_B", standard_geno, binary_null_model, "Burden", weights=_unit_weights(standard_geno)
+            "GENE_B",
+            standard_geno,
+            binary_null_model,
+            "Burden",
+            weights=_unit_weights(standard_geno),
         )
         p = result["p_value"]
         if p is not None:
@@ -507,7 +547,11 @@ class TestBurdenTestGene:
     def test_burden_p_method_is_analytical(self, backend, binary_null_model, standard_geno):
         """Burden p_method should be 'analytical'."""
         result = backend.test_gene(
-            "GENE_B", standard_geno, binary_null_model, "Burden", weights=_unit_weights(standard_geno)
+            "GENE_B",
+            standard_geno,
+            binary_null_model,
+            "Burden",
+            weights=_unit_weights(standard_geno),
         )
         if result["p_value"] is not None:
             assert result["p_method"] == "analytical", (
@@ -517,14 +561,20 @@ class TestBurdenTestGene:
     def test_burden_no_rho(self, backend, binary_null_model, standard_geno):
         """Burden test does not produce a rho value."""
         result = backend.test_gene(
-            "GENE_B", standard_geno, binary_null_model, "Burden", weights=_unit_weights(standard_geno)
+            "GENE_B",
+            standard_geno,
+            binary_null_model,
+            "Burden",
+            weights=_unit_weights(standard_geno),
         )
         assert result["rho"] is None
 
     def test_burden_all_zero_geno_handles_gracefully(self, backend, binary_null_model):
         """Burden on all-zero genotype handles gracefully (no crash)."""
         geno = np.zeros((50, 5))
-        result = backend.test_gene("GENE_BZ", geno, binary_null_model, "Burden", weights=_unit_weights(geno))
+        result = backend.test_gene(
+            "GENE_BZ", geno, binary_null_model, "Burden", weights=_unit_weights(geno)
+        )
         # Should not raise; p_value may be None due to zero variance
         assert "p_value" in result
 

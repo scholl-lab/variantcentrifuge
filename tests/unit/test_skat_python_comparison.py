@@ -37,6 +37,7 @@ from variantcentrifuge.association.weights import beta_maf_weights
 def _beta_weights(geno: np.ndarray) -> np.ndarray:
     return beta_maf_weights(geno.mean(axis=0) / 2.0, a=1.0, b=25.0)
 
+
 # ---------------------------------------------------------------------------
 # R reference constants
 # ---------------------------------------------------------------------------

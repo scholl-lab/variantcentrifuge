@@ -107,7 +107,7 @@ class _GenotypeMatrixBuilder:
 
         if self.gene_df.empty:
             n_samples = len(self.vcf_samples)
-            result = {
+            result: dict[str, Any] = {
                 "genotype_matrix": np.zeros((n_samples, 0), dtype=float),
                 "variant_mafs": np.zeros(0, dtype=float),
                 "phenotype_vector": self.phenotype_vector,
@@ -118,15 +118,18 @@ class _GenotypeMatrixBuilder:
             result.update(self._empty_annotation_payload())
             return result
 
-        geno, mafs, sample_mask, gt_warnings, keep_variants_mask = build_genotype_matrix(
-            self.gene_df,
-            self.vcf_samples,
-            self.gt_columns,
-            is_binary=self.is_binary,
-            missing_site_threshold=self.missing_site_threshold,
-            missing_sample_threshold=self.missing_sample_threshold,
-            phenotype_vector=self.phenotype_vector,
-            return_keep_mask=True,
+        geno, mafs, sample_mask, gt_warnings, keep_variants_mask = cast(
+            tuple[np.ndarray, np.ndarray, list[bool], list[str], np.ndarray],
+            build_genotype_matrix(
+                self.gene_df,
+                self.vcf_samples,
+                self.gt_columns,
+                is_binary=self.is_binary,
+                missing_site_threshold=self.missing_site_threshold,
+                missing_sample_threshold=self.missing_sample_threshold,
+                phenotype_vector=self.phenotype_vector,
+                return_keep_mask=True,
+            ),
         )
         annotation_payload = self._aligned_annotation_payload(keep_variants_mask)
 
@@ -2103,10 +2106,7 @@ class GeneBurdenAnalysisStage(Stage):
             context.config["gene_burden_output"] = burden_output
 
         # Treat gene burden as a user-facing sidecar output, not an intermediate.
-        if str(burden_output).endswith(".gz"):
-            compression = "gzip"
-        else:
-            compression = None
+        compression = "gzip" if str(burden_output).endswith(".gz") else None
 
         burden_results.to_csv(
             burden_output, sep="\t", index=False, compression=cast(Any, compression)

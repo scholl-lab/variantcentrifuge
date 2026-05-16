@@ -170,9 +170,10 @@ def build_genotype_matrix(
     missing_sample_threshold: float = 0.80,
     phenotype_vector: np.ndarray | None = None,
     return_keep_mask: bool = False,
-) -> tuple[np.ndarray, np.ndarray, list[bool], list[str]] | tuple[
-    np.ndarray, np.ndarray, list[bool], list[str], np.ndarray
-]:
+) -> (
+    tuple[np.ndarray, np.ndarray, list[bool], list[str]]
+    | tuple[np.ndarray, np.ndarray, list[bool], list[str], np.ndarray]
+):
     """
     Build a fully imputed genotype matrix from a per-gene variant DataFrame.
 

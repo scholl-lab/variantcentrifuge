@@ -1269,9 +1269,7 @@ def main() -> int:
         try:
             parsed_params = _json.loads(_vwp_raw)
             if not isinstance(parsed_params, dict):
-                raise TypeError(
-                    f"expected a JSON object, got {type(parsed_params).__name__}"
-                )
+                raise TypeError(f"expected a JSON object, got {type(parsed_params).__name__}")
             cfg["variant_weight_params"] = parsed_params
         except (ValueError, TypeError) as _e:
             import sys as _sys
@@ -1546,9 +1544,10 @@ def main() -> int:
             args, "variant_weight_column", None
         ):
             parser.error("--variant-weight-column is required when --variant-weights score_column")
-        if variant_weights_arg.startswith("column:") and not variant_weights_arg[
-            len("column:") :
-        ].strip():
+        if (
+            variant_weights_arg.startswith("column:")
+            and not variant_weights_arg[len("column:") :].strip()
+        ):
             parser.error("--variant-weights column:<name> requires a non-empty column name")
 
     # Covariate file only makes sense with association analysis

@@ -66,6 +66,7 @@ from variantcentrifuge.association.backends.davies import (
     compute_pvalue,
     davies_pvalue,
 )
+
 logger = logging.getLogger("variantcentrifuge")
 
 # Fixed SKAT-O rho search grid (matches R SKAT package default)

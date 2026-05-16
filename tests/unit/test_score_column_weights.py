@@ -116,7 +116,7 @@ def test_score_column_missing_default_is_floor_in_raw_mode(mafs):
 def test_score_column_missing_neutral_invalid_in_raw_mode(mafs):
     scores = np.array([0.2, np.nan, 0.5], dtype=object)
 
-    with pytest.raises(ValueError, match="missing='neutral'.*combine_with_beta=false"):
+    with pytest.raises(ValueError, match=r"missing='neutral'.*combine_with_beta=false"):
         score_column_weights(
             mafs,
             scores,

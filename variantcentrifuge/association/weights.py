@@ -48,6 +48,7 @@ A warning is logged listing per-category missing counts.
 from __future__ import annotations
 
 import logging
+from typing import Any, cast
 
 import numpy as np
 from scipy.stats import beta as _beta_dist
@@ -189,11 +190,16 @@ def _normalize_score_weight_params(weight_params: dict | None) -> dict:
     score_max = params["score_max"]
     if (score_min is None) != (score_max is None):
         raise ValueError("score_min and score_max must be provided together")
-    if score_min is not None and float(score_min) >= float(score_max):
-        raise ValueError("score_min must be less than score_max")
+    score_min_f: float | None = None
+    score_max_f: float | None = None
+    if score_min is not None:
+        score_min_f = float(cast(Any, score_min))
+        score_max_f = float(cast(Any, score_max))
+        if score_min_f >= score_max_f:
+            raise ValueError("score_min must be less than score_max")
 
-    floor = float(params["floor"])
-    ceiling = float(params["ceiling"])
+    floor = float(cast(Any, params["floor"]))
+    ceiling = float(cast(Any, params["ceiling"]))
     if floor < 0:
         raise ValueError("floor must be >= 0")
     if ceiling <= 0:
@@ -201,8 +207,8 @@ def _normalize_score_weight_params(weight_params: dict | None) -> dict:
     if floor > ceiling:
         raise ValueError("floor must be <= ceiling")
 
-    beta_a = float(params["beta_a"])
-    beta_b = float(params["beta_b"])
+    beta_a = float(cast(Any, params["beta_a"]))
+    beta_b = float(cast(Any, params["beta_b"]))
     if beta_a <= 0:
         raise ValueError("beta_a must be > 0")
     if beta_b <= 0:
@@ -221,9 +227,9 @@ def _normalize_score_weight_params(weight_params: dict | None) -> dict:
     params["beta_a"] = beta_a
     params["beta_b"] = beta_b
     params["combine_with_beta"] = combine_with_beta
-    if score_min is not None:
-        params["score_min"] = float(score_min)
-        params["score_max"] = float(score_max)
+    if score_min_f is not None:
+        params["score_min"] = score_min_f
+        params["score_max"] = score_max_f
     return params
 
 
@@ -378,9 +384,7 @@ def score_column_weights(
     if params["score_min"] is not None:
         score_min = float(params["score_min"])
         score_max = float(params["score_max"])
-        normalized[finite_mask] = (scores_f[finite_mask] - score_min) / (
-            score_max - score_min
-        )
+        normalized[finite_mask] = (scores_f[finite_mask] - score_min) / (score_max - score_min)
     else:
         normalized[finite_mask] = scores_f[finite_mask]
         out_of_unit = finite_mask & ((scores_f < 0.0) | (scores_f > 1.0))
@@ -404,7 +408,9 @@ def score_column_weights(
     _log_missing_score_counts(missing_mask, variant_effects, "score_column")
 
     if bool(missing_mask.all()) and len(missing_mask) > 0:
-        logger.warning("score_column weights: all score values for this gene are missing or invalid")
+        logger.warning(
+            "score_column weights: all score values for this gene are missing or invalid"
+        )
 
     if params["combine_with_beta"]:
         maf_w = beta_maf_weights(mafs_arr, a=params["beta_a"], b=params["beta_b"])
