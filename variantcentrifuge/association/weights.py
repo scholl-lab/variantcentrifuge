@@ -277,6 +277,38 @@ def _log_missing_score_counts(
     )
 
 
+def _log_missing_score_column_counts(
+    missing_mask: np.ndarray,
+    variant_effects: np.ndarray | None,
+    fallback_description: str,
+) -> None:
+    """Log missing score-column counts without implying functional-score semantics."""
+    n_missing = int(missing_mask.sum())
+    if n_missing == 0:
+        return
+
+    prefix = f"score_column weights: {n_missing} variant(s) had missing or invalid scores"
+    if variant_effects is None:
+        logger.warning("%s (used %s fallback)", prefix, fallback_description)
+        return
+
+    effects_arr = np.asarray(variant_effects, dtype=object)
+    missing_effects = effects_arr[missing_mask]
+
+    n_lof = int(sum(1 for e in missing_effects if e in LOF_EFFECTS))
+    n_miss = int(sum(1 for e in missing_effects if e in MISSENSE_EFFECTS))
+    n_other = n_missing - n_lof - n_miss
+
+    logger.warning(
+        "%s — %d LoF, %d missense, %d other (used %s fallback)",
+        prefix,
+        n_lof,
+        n_miss,
+        n_other,
+        fallback_description,
+    )
+
+
 def cadd_weights(
     mafs: np.ndarray,
     cadd_scores: np.ndarray,
@@ -402,10 +434,12 @@ def score_column_weights(
 
     if missing_mode == "neutral":
         functional[missing_mask] = 1.0
+        missing_fallback = "neutral weight 1.0"
     else:
         functional[missing_mask] = params["floor"]
+        missing_fallback = f"floor={params['floor']}"
 
-    _log_missing_score_counts(missing_mask, variant_effects, "score_column")
+    _log_missing_score_column_counts(missing_mask, variant_effects, missing_fallback)
 
     if bool(missing_mask.all()) and len(missing_mask) > 0:
         logger.warning(

@@ -484,8 +484,10 @@ by upweighting likely pathogenic variants.
 --variant-weight-params '{"cadd_cap":30}'  # JSON string with extra parameters
 ```
 
-`--variant-weight-params` accepts a JSON string for scheme-specific tuning. Current supported
-parameter: `cadd_cap` (float, default 40.0) — cap CADD phred score before normalisation.
+`--variant-weight-params` accepts a JSON object for scheme-specific tuning.
+Supported keys depend on the selected weight scheme. For CADD-based schemes,
+`cadd_cap` (float, default 40.0) caps the CADD phred score before
+normalisation. For score-column weights, use the parameters in the table below.
 
 ### Score-Column Variant Weights
 

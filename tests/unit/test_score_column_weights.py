@@ -113,6 +113,23 @@ def test_score_column_missing_default_is_floor_in_raw_mode(mafs):
     np.testing.assert_allclose(result, np.array([0.2, 0.1, 0.1]), rtol=1e-12)
 
 
+def test_score_column_missing_log_reflects_actual_fallback(mafs, caplog):
+    scores = np.array([0.2, np.nan, "."], dtype=object)
+    effects = np.array(["missense_variant", "stop_gained", "synonymous_variant"])
+
+    with caplog.at_level(logging.WARNING, logger="variantcentrifuge"):
+        score_column_weights(
+            mafs,
+            scores,
+            variant_effects=effects,
+            weight_params={"combine_with_beta": False, "floor": 0.1},
+        )
+
+    messages = [record.message for record in caplog.records if "score_column" in record.message]
+    assert any("floor=0.1" in message for message in messages)
+    assert not any("functional=1.0" in message for message in messages)
+
+
 def test_score_column_missing_neutral_invalid_in_raw_mode(mafs):
     scores = np.array([0.2, np.nan, 0.5], dtype=object)
 
