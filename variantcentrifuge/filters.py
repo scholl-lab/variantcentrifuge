@@ -58,6 +58,40 @@ def _snpsift_memory_flag(cfg: dict[str, Any]) -> str:
     return f"-Xmx{memory_gb}g"
 
 
+SNPSIFT_FATAL_STDERR_PATTERNS = (
+    "mismatched input",
+    "missing ')'",
+    "token recognition error",
+    "Error parsing",
+    "Cannot parse",
+    "LexerNoViableAltException",
+    "Unknown parameter",
+    "INFO field",
+    'Exception in thread "main"',
+)
+
+
+def _raise_for_snpsift_filter_stderr(stderr: str | None, filter_string: str) -> None:
+    """Raise when SnpSift reports parser/evaluation diagnostics despite exit code 0."""
+    if not stderr:
+        return
+
+    diagnostic_lines = [
+        line.strip()
+        for line in stderr.splitlines()
+        if any(pattern in line for pattern in SNPSIFT_FATAL_STDERR_PATTERNS)
+    ]
+    if not diagnostic_lines:
+        return
+
+    preview = "\n".join(diagnostic_lines[:5])
+    logger.error("SnpSift filter diagnostics detected:\n%s", preview)
+    raise RuntimeError(
+        "SnpSift filter reported parser diagnostics while exiting successfully. "
+        f"Filter expression: {filter_string}\n{preview}"
+    )
+
+
 def apply_bcftools_prefilter(
     input_vcf: str, output_vcf: str, filter_expression: str, cfg: dict[str, Any]
 ) -> str:
@@ -230,7 +264,8 @@ def apply_snpsift_filter(
         xmx = _snpsift_memory_flag(cfg)
         snpsift_cmd = ["SnpSift", xmx, "filter", filter_string, variant_file]
         logger.debug("Applying SnpSift filter (%s) to produce uncompressed VCF: %s", xmx, tmp_vcf)
-        run_command(snpsift_cmd, output_file=tmp_vcf)
+        result = run_command(snpsift_cmd, output_file=tmp_vcf, return_result=True)
+        _raise_for_snpsift_filter_stderr(result.stderr, filter_string)
 
         # 2) bgzip compress the temporary VCF
         bgzip_cmd = ["bgzip", "-@", threads, "-c", tmp_vcf]
