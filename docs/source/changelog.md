@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes._
 
+## [0.17.11] - 2026-05-16
+
+### Fixed
+- Restore checkpoint resume state for chunked and downstream analysis stages so
+  continuation runs recompute the necessary DataFrame context before
+  association and output stages.
+- Clear persisted checkpoint completion for recomputed stages, including the
+  `Stage.__call__` checkpoint skip path.
+- Preserve valid empty outputs by writing header-only requested files.
+- Normalize categorical genotype values before association genotype matrix
+  encoding.
+
 ## [0.17.10] - 2026-05-16
 
 ### Fixed
