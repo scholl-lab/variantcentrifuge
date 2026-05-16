@@ -17,14 +17,24 @@ The concrete BMP2K example, `chr4:78912028 C>T`, has a HIGH SnpEff consequence, 
 
 The linked issue comment adds more examples from the same output, including HELLS, DEFB1, SMARCE1, PPP5C, COL9A2, HAP1, EFCAB3, and CPLANE1. These are useful regression cases because several are HIGH-impact stop/start-loss records that should still be removed by frequency and benign clinical-significance filters.
 
+Follow-up dataset-side checks on a real AGDE annotated-VCF slice containing all nine leaked examples confirmed the failure mode:
+
+- The malformed `high_or_lof_or_nmd + rare + not_benign` expression returns code `0`, prints `mismatched input ')'` on stderr, and emits all nine leaked records on stdout.
+- The corrected `high_or_lof_or_nmd + rare + not_benign` expression returns code `0`, prints no diagnostics, and emits zero records from the same slice.
+- Corrected `high_or_lof_or_nmd + rare`, `high_or_pathogenic + rare`, and `moderate_and_high_prediction + rare` also emit zero records from that slice.
+- The leaked records contain the fields needed by `rare`, `not_benign`, and `ANN`, so missing raw annotation fields do not explain these examples.
+- The production AGDE log contains 16 SnpSift invocations with the malformed expression but no parser diagnostics because `run_command()` discards stderr on exit code `0`.
+
+The full AGDE rerun takes about one hour and should be performed after the fix lands, not before implementation. If violations remain after the fixed build, handle them as a separate data-contract or QC issue.
+
 ## Root Cause
 
 There are two root causes:
 
-1. Three built-in presets are syntactically malformed after field-profile resolution in both `dbnsfp4` and `dbnsfp5`:
+1. Three built-in presets are syntactically malformed in `variantcentrifuge/config.json`; they remain malformed after field-profile resolution in both `dbnsfp4` and `dbnsfp5`:
    - `high_or_lof_or_nmd`: one extra closing parenthesis.
-   - `high_or_pathogenic`: one missing closing parenthesis.
-   - `moderate_and_high_prediction`: one missing closing parenthesis.
+   - `high_or_pathogenic`: unbalanced grouping around the pathogenic OR expression.
+   - `moderate_and_high_prediction`: unbalanced grouping around the REVEL/CADD OR expression.
 2. `SnpSift filter` can print parser diagnostics to stderr and still exit with status `0`. VariantCentrifuge currently treats status `0` as success, compresses the temporary VCF, indexes it, and continues.
 
 The failure is most visible when presets are combined through the CLI. The CLI wraps each preset in parentheses and joins them with `&`. With `high_or_lof_or_nmd + rare + not_benign`, SnpSift reports:
@@ -60,7 +70,9 @@ Affected user paths:
 
 ### Late and Final TSV Filtering
 
-`filter_tsv_with_expression()` and `filter_dataframe_with_query()` also fail open: on invalid pandas-query expressions they log an error and return or copy unfiltered data. This is not the same SnpSift parser issue, but it is the same safety class: a requested filter fails and unfiltered rows survive. The current test suite expects this behavior for `FinalFilteringStage`.
+`filter_dataframe_with_query()` also fails open: on invalid pandas-query expressions it logs an error and returns unfiltered data. This affects `FinalFilteringStage`, including chunked execution where the stage receives a per-chunk DataFrame. The current test suite expects this unsafe behavior.
+
+`filter_tsv_with_expression()` has no production callers in the current codebase, but it has the same fail-open behavior by copying or writing unfiltered input after invalid filter errors. The fix should harden this path and add direct tests so it cannot become an active silent-leak path later.
 
 ## Goals
 
@@ -81,7 +93,7 @@ Affected user paths:
 
 ### Preset Syntax Repair
 
-Change only the minimum parentheses needed:
+Replace the malformed expressions with balanced equivalents that preserve the same intended biological predicates:
 
 ```json
 "moderate_and_high_prediction": "((ANN[ANY].IMPACT has 'MODERATE') & ((dbNSFP_REVEL_score >= 0.9) | (dbNSFP_CADD_phred >= 30)))"
@@ -89,7 +101,7 @@ Change only the minimum parentheses needed:
 "high_or_pathogenic": "((ANN[ANY].IMPACT has 'HIGH') | (((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & !(dbNSFP_clinvar_clnsig =~ '[Cc]onflicting')) | ((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting'))))"
 ```
 
-Then remove those preset names from the known-unbalanced exception list. The balanced-parentheses test should cover every built-in preset after field-profile resolution.
+Then remove those preset names from the known-unbalanced exception list. The balanced-parentheses test should cover every built-in preset after field-profile resolution. This is a syntax guard, not a full SnpSift parser.
 
 ### SnpSift stderr Guard
 
@@ -102,13 +114,22 @@ Fatal diagnostics should include:
 - `token recognition error`
 - `Error parsing`
 - `Cannot parse`
+- `LexerNoViableAltException`
+- `Unknown parameter`
+- `INFO field`
 - Java exception headers from SnpSift filter evaluation, such as `Exception in thread "main"`
 
-The guard should raise `RuntimeError` with the filter expression and the first diagnostic lines. This is intentionally not global in `run_command()` because some tools write benign warnings to stderr.
+The guard should log and raise `RuntimeError` with the filter expression and the first diagnostic lines. Logging matters because the production AGDE `run.log` currently contains only `Command completed successfully`, losing the diagnostic that explains leaked records. This is intentionally not global in `run_command()` because some tools write benign warnings to stderr.
+
+`INFO field ... not found` is included because SnpSift emits it as a filter diagnostic, and continuing with a filter that references an unavailable field can silently change selection semantics. This is still narrower than treating all stderr as fatal: only matched SnpSift-filter diagnostics fail.
+
+Missing final-table values remain a known data-contract gap. The existing AGDE output has many rows missing ClinVar and gnomAD values, and those may need field-presence validation or final QC in a separate follow-up. This plan fixes syntax and SnpSift diagnostic leakage; it does not define the biological policy for variants with genuinely missing optional annotations.
+
+The guard assumes SnpSift ANTLR/parser diagnostics are emitted on stderr, which matches the reproduced SnpSift version. Stdout is the VCF stream and may be redirected to a file.
 
 ### Command Execution Support
 
-`run_command()` currently hides stderr from callers when the command succeeds. Add an optional `return_result: bool = False` parameter that returns `subprocess.CompletedProcess[str]` instead of stdout/path when callers need stderr. Keep the default behavior unchanged for compatibility.
+`run_command()` currently hides stderr from callers when the command succeeds. Add an optional `return_result: bool = False` parameter that returns `subprocess.CompletedProcess[str]` instead of stdout/path when callers need stderr. Keep the default behavior unchanged for compatibility, and use `typing.overload` signatures so `return_result=True` is inferred as `CompletedProcess[str]` while existing callers still infer `str`.
 
 `apply_snpsift_filter()` should call:
 
@@ -135,9 +156,19 @@ Add unit tests that create a minimal realistic SnpEff-style VCF with two records
    - `dbNSFP_gnomAD4.1_joint_AC=3546`
    - `dbNSFP_clinvar_clnsig=Benign/Likely_benign`
    - `ClinVar_CLNSIG=Benign/Likely_benign`
-2. A rare/non-benign HIGH-impact positive-control record that should remain.
+2. A HELLS-like common/benign HIGH-impact start-loss record:
+   - `ANN=C|start_lost|HIGH|HELLS|...`
+   - `dbNSFP_gnomAD4.1_joint_AF=0.000997683`
+   - benign ClinVar/dbNSFP ClinVar text
+3. A COL9A2-like high-AF benign stop-gain record:
+   - `ANN=A|stop_gained|HIGH|COL9A2|...`
+   - `dbNSFP_gnomAD4.1_joint_AF=0.0141844`
+   - benign ClinVar/dbNSFP ClinVar text
+4. A rare/non-benign HIGH-impact positive-control record that should remain.
 
 Filtering with `high_or_lof_or_nmd + rare + not_benign` under `dbnsfp5` should retain only the positive-control record.
+
+Add a separate real-SnpSift test that uses a deliberately malformed expression and asserts `apply_snpsift_filter()` raises when SnpSift exits `0` with parser diagnostics. This test validates the core premise of issue #104 when SnpSift is available, while unit tests keep the guard covered in environments without external tools.
 
 ## Alternatives Considered
 
@@ -158,9 +189,16 @@ This would be brittle and hard to keep aligned with SnpSift. Parentheses balance
 - Unit tests for malformed SnpSift stderr classification.
 - Unit tests for `apply_snpsift_filter()` raising when SnpSift exits `0` with parser diagnostics.
 - Config tests that all resolved presets have balanced parentheses for both `dbnsfp4` and `dbnsfp5`.
+- Real-SnpSift integration test proving a malformed expression raises on stderr diagnostics.
 - Integration-style test with a minimal VCF proving issue #104 records are filtered out.
 - Unit tests proving invalid final and TSV filters raise instead of returning unfiltered rows.
 - Existing filtering, field-profile, output-stage, and chunked-processing tests must pass.
+- Post-fix AGDE rerun comparing final `variants.tsv` QC counts:
+  - total rows
+  - rows with AF `>= 0.0001`
+  - rows with benign ClinVar/dbNSFP ClinVar text
+  - rows both common and benign
+  - rows either common or benign
 
 ## Risks
 

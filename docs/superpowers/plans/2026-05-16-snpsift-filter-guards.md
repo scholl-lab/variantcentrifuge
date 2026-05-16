@@ -4,7 +4,7 @@
 
 **Goal:** Fix issue #104 by correcting malformed built-in SnpSift presets and making all filtering layers fail closed when requested filters cannot be applied.
 
-**Architecture:** Repair the three malformed built-in preset expressions and remove their test exemption. Add a SnpSift-specific stderr diagnostic guard around `apply_snpsift_filter()` by extending `run_command()` to optionally return `CompletedProcess`. Change late/final TSV filtering from fail-open to fail-closed, then add regression tests using BMP2K-like issue #104 records.
+**Architecture:** Repair the three malformed built-in preset expressions and remove their test exemption. Add a SnpSift-specific stderr diagnostic guard around `apply_snpsift_filter()` by extending `run_command()` to optionally return `CompletedProcess`. Change late/final TSV filtering from fail-open to fail-closed, then add regression tests using issue #104 records. The full one-hour AGDE rerun is post-fix validation, not a prerequisite for implementation.
 
 **Tech Stack:** Python, pytest, pandas, SnpSift, bgzip, bcftools, existing VariantCentrifuge pipeline stages.
 
@@ -15,7 +15,7 @@
 - Modify `variantcentrifuge/config.json`
   - Correct `moderate_and_high_prediction`, `high_or_lof_or_nmd`, and `high_or_pathogenic`.
 - Modify `variantcentrifuge/utils.py`
-  - Add optional `return_result` support to `run_command()`.
+  - Add typed optional `return_result` support to `run_command()` with overloads.
 - Modify `variantcentrifuge/filters.py`
   - Add SnpSift stderr diagnostic detection.
   - Use it in `apply_snpsift_filter()`.
@@ -30,7 +30,7 @@
 - Modify `tests/test_final_filter_simple.py`
   - Add direct invalid-query fail-closed test.
 - Create `tests/integration/test_snpsift_filter_guards.py`
-  - Add real-SnpSift regression coverage for issue #104.
+  - Add real-SnpSift regression coverage for issue #104 and the exit-0 parser-diagnostic premise.
 
 ---
 
@@ -123,7 +123,9 @@ git commit -m "fix: correct malformed SnpSift presets"
 Add these tests to `tests/unit/test_filters.py`:
 
 ```python
+import os
 import subprocess
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -136,7 +138,7 @@ from variantcentrifuge.utils import run_command
 
 
 def test_run_command_can_return_completed_process():
-    result = run_command(["python", "-c", "print('ok')"], return_result=True)
+    result = run_command([sys.executable, "-c", "print('ok')"], return_result=True)
 
     assert isinstance(result, subprocess.CompletedProcess)
     assert result.returncode == 0
@@ -150,6 +152,9 @@ def test_run_command_can_return_completed_process():
         "line 1:293 missing ')' at '<EOF>'",
         "line 1:10 token recognition error at: '@'",
         "Error parsing expression",
+        "LexerNoViableAltException('@')",
+        "Unknown parameter 'BAD'",
+        "INFO field 'ClinVar_CLNSIG' not found",
         "Exception in thread \"main\" java.lang.RuntimeException: Cannot parse EffectType 'HIGH'",
     ],
 )
@@ -164,19 +169,22 @@ def test_snpsift_filter_stderr_allows_empty_or_nonfatal_warnings():
 
 
 @patch("variantcentrifuge.filters.run_command")
-@patch("variantcentrifuge.filters.os.remove")
-@patch("variantcentrifuge.filters.os.path.exists", return_value=True)
+@patch("variantcentrifuge.filters.tempfile.mkstemp")
 @patch("variantcentrifuge.filters._snpsift_memory_flag", return_value="-Xmx1g")
 def test_apply_snpsift_filter_raises_before_compressing_when_snpsift_reports_parser_error(
     mock_memory,
-    mock_exists,
-    mock_remove,
+    mock_mkstemp,
     mock_run_command,
     tmp_path,
 ):
     input_vcf = tmp_path / "input.vcf.gz"
     output_vcf = tmp_path / "output.vcf.gz"
+    tmp_vcf = tmp_path / "tmp-filter.vcf"
     input_vcf.write_text("placeholder")
+    tmp_vcf.write_text("")
+
+    tmp_fd = os.open(tmp_vcf, os.O_RDWR)
+    mock_mkstemp.return_value = (tmp_fd, str(tmp_vcf))
 
     mock_run_command.return_value = subprocess.CompletedProcess(
         args=["SnpSift"],
@@ -189,6 +197,7 @@ def test_apply_snpsift_filter_raises_before_compressing_when_snpsift_reports_par
         apply_snpsift_filter(str(input_vcf), "BAD_EXPR", {"threads": 1}, str(output_vcf))
 
     assert mock_run_command.call_count == 1
+    assert not tmp_vcf.exists()
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -203,9 +212,27 @@ Expected: FAIL because `run_command()` has no `return_result` argument and the S
 
 - [ ] **Step 3: Add optional result return to `run_command()`**
 
-In `variantcentrifuge/utils.py`, update the signature and return logic:
+In `variantcentrifuge/utils.py`, add imports:
 
 ```python
+from typing import Literal, overload
+```
+
+Add overloads before `run_command()`:
+
+```python
+@overload
+def run_command(
+    cmd: list, output_file: str | None = None, return_result: Literal[False] = False
+) -> str: ...
+
+
+@overload
+def run_command(
+    cmd: list, output_file: str | None = None, return_result: Literal[True] = True
+) -> subprocess.CompletedProcess[str]: ...
+
+
 def run_command(
     cmd: list, output_file: str | None = None, return_result: bool = False
 ) -> str | subprocess.CompletedProcess[str]:
@@ -235,6 +262,9 @@ SNPSIFT_FATAL_STDERR_PATTERNS = (
     "token recognition error",
     "Error parsing",
     "Cannot parse",
+    "LexerNoViableAltException",
+    "Unknown parameter",
+    "INFO field",
     'Exception in thread "main"',
 )
 
@@ -253,6 +283,7 @@ def _raise_for_snpsift_filter_stderr(stderr: str | None, filter_string: str) -> 
         return
 
     preview = "\n".join(diagnostic_lines[:5])
+    logger.error("SnpSift filter diagnostics detected:\n%s", preview)
     raise RuntimeError(
         "SnpSift filter reported parser diagnostics while exiting successfully. "
         f"Filter expression: {filter_string}\n{preview}"
@@ -303,12 +334,12 @@ git commit -m "fix: fail closed on SnpSift parser diagnostics"
 
 ---
 
-### Task 3: Add Real SnpSift Regression For Issue #104
+### Task 3: Add Real SnpSift Regression Guards For Issue #104
 
 **Files:**
 - Create: `tests/integration/test_snpsift_filter_guards.py`
 
-- [ ] **Step 1: Write the failing integration test**
+- [ ] **Step 1: Write real-SnpSift integration regression tests**
 
 Create `tests/integration/test_snpsift_filter_guards.py`:
 
@@ -348,6 +379,8 @@ def _write_issue_104_vcf(path: Path) -> None:
                 '##INFO=<ID=ClinVar_CLNSIG,Number=.,Type=String,Description="ClinVar">',
                 "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO",
                 "chr4\t78912028\t.\tC\tT\t500\tPASS\tANN=T|stop_gained|HIGH|BMP2K|ENSG00000138756|transcript|ENST00000264889|protein_coding|1/10|c.3481C>T|p.Gln1161Ter|1/100|1/100|1/33||;dbNSFP_gnomAD4.1_joint_AF=0.00221454;dbNSFP_gnomAD4.1_joint_AC=3546;dbNSFP_clinvar_clnsig=Benign/Likely_benign;ClinVar_CLNSIG=Benign/Likely_benign",
+                "chr10\t94545923\t.\tT\tC\t500\tPASS\tANN=C|start_lost|HIGH|HELLS|ENSG00000119969|transcript|ENST00000371332|protein_coding|1/20|c.2T>C|p.Met1?|2/100|2/100|1/33||;dbNSFP_gnomAD4.1_joint_AF=0.000997683;dbNSFP_gnomAD4.1_joint_AC=1552;dbNSFP_clinvar_clnsig=Benign/Likely_benign;ClinVar_CLNSIG=Benign/Likely_benign",
+                "chr1\t40307478\t.\tG\tA\t500\tPASS\tANN=A|stop_gained|HIGH|COL9A2|ENSG00000049089|transcript|ENST00000372748|protein_coding|1/30|c.1G>A|p.Trp1Ter|1/100|1/100|1/33||;dbNSFP_gnomAD4.1_joint_AF=0.0141844;dbNSFP_gnomAD4.1_joint_AC=22894;dbNSFP_clinvar_clnsig=Benign/Likely_benign;ClinVar_CLNSIG=Benign/Likely_benign",
                 "chr4\t78913000\t.\tG\tA\t500\tPASS\tANN=A|stop_gained|HIGH|KEEPER|ENSGKEEP|transcript|ENSTKEEP|protein_coding|1/10|c.1G>A|p.Trp1Ter|1/100|1/100|1/33||;dbNSFP_gnomAD4.1_joint_AF=0.00001;dbNSFP_gnomAD4.1_joint_AC=1;dbNSFP_clinvar_clnsig=Pathogenic;ClinVar_CLNSIG=Pathogenic",
                 "",
             ]
@@ -381,19 +414,28 @@ def test_issue_104_high_common_benign_record_is_filtered_out(tmp_path):
     assert len(rows) == 1
     assert "KEEPER" in rows[0]
     assert "BMP2K" not in rows[0]
+    assert "HELLS" not in rows[0]
+    assert "COL9A2" not in rows[0]
+
+
+def test_snpsift_exit_zero_parser_diagnostics_raise(tmp_path):
+    input_vcf = tmp_path / "issue104.vcf"
+    output_vcf = tmp_path / "filtered.vcf.gz"
+    _write_issue_104_vcf(input_vcf)
+
+    malformed_expr = (
+        "((((exists LOF[*].PERC) & (LOF[*].PERC > 0.9)) | "
+        "((exists NMD[*].PERC) & (NMD[*].PERC > 0.9)) | "
+        "(ANN[ANY].IMPACT has 'HIGH')))) & "
+        "(((dbNSFP_gnomAD4.1_joint_AF[0] < 0.0001) | "
+        "(na dbNSFP_gnomAD4.1_joint_AC[0])))"
+    )
+
+    with pytest.raises(RuntimeError, match="SnpSift filter reported parser diagnostics"):
+        apply_snpsift_filter(str(input_vcf), malformed_expr, {"threads": 1}, str(output_vcf))
 ```
 
-- [ ] **Step 2: Run test to verify it fails before Task 1 or Task 2 fixes**
-
-Run:
-
-```bash
-pytest tests/integration/test_snpsift_filter_guards.py::test_issue_104_high_common_benign_record_is_filtered_out -q
-```
-
-Expected before fixes: FAIL because BMP2K leaks or because SnpSift parser diagnostics now raise before preset repair. Expected after Tasks 1 and 2: PASS.
-
-- [ ] **Step 3: Run integration test after fixes**
+- [ ] **Step 2: Run integration tests**
 
 Run:
 
@@ -401,7 +443,17 @@ Run:
 pytest tests/integration/test_snpsift_filter_guards.py -q
 ```
 
-Expected: PASS, or SKIP if required external tools are unavailable.
+Expected after Tasks 1 and 2: PASS, or SKIP if required external tools are unavailable. These are integration regression guards rather than the first red tests for the production changes; Tasks 1 and 2 already provided the red/green checks for the preset repair and stderr guard.
+
+- [ ] **Step 3: Confirm real-SnpSift premise when tools are available**
+
+Run:
+
+```bash
+pytest tests/integration/test_snpsift_filter_guards.py::test_snpsift_exit_zero_parser_diagnostics_raise -q
+```
+
+Expected: PASS, or SKIP if required external tools are unavailable. If skipped in CI, local verification with SnpSift installed is still required before merging.
 
 - [ ] **Step 4: Commit checkpoint**
 
@@ -427,6 +479,12 @@ Add to `tests/test_final_filter_simple.py`:
 import pytest
 ```
 
+Update the filter import:
+
+```python
+from variantcentrifuge.filters import filter_dataframe_with_query, filter_tsv_with_expression
+```
+
 and add:
 
 ```python
@@ -435,6 +493,17 @@ def test_final_filter_invalid_expression_raises():
 
     with pytest.raises(ValueError, match="Invalid final filter expression"):
         filter_dataframe_with_query(df, 'CHROM === "chr1"')
+
+
+def test_tsv_filter_invalid_expression_raises(tmp_path):
+    input_tsv = tmp_path / "input.tsv"
+    output_tsv = tmp_path / "output.tsv"
+    input_tsv.write_text("CHROM\tscore\nchr1\t0.1\n")
+
+    with pytest.raises(ValueError, match="Invalid TSV filter expression"):
+        filter_tsv_with_expression(str(input_tsv), str(output_tsv), 'CHROM === "chr1"')
+
+    assert not output_tsv.exists()
 ```
 
 - [ ] **Step 2: Update output-stage invalid filter test to expect fail-closed**
@@ -457,7 +526,7 @@ def test_invalid_filter_expression_raises(self, context):
 Run:
 
 ```bash
-pytest tests/test_final_filter_simple.py::test_final_filter_invalid_expression_raises tests/unit/stages/test_output_stages.py::TestFinalFilteringStage::test_invalid_filter_expression_raises -q
+pytest tests/test_final_filter_simple.py::test_final_filter_invalid_expression_raises tests/test_final_filter_simple.py::test_tsv_filter_invalid_expression_raises tests/unit/stages/test_output_stages.py::TestFinalFilteringStage::test_invalid_filter_expression_raises -q
 ```
 
 Expected: FAIL because invalid filters currently return unfiltered data.
@@ -500,7 +569,7 @@ Replace the outer exception fallback that copies input to output with:
 Run:
 
 ```bash
-pytest tests/test_final_filter_simple.py::test_final_filter_invalid_expression_raises tests/unit/stages/test_output_stages.py::TestFinalFilteringStage::test_invalid_filter_expression_raises -q
+pytest tests/test_final_filter_simple.py::test_final_filter_invalid_expression_raises tests/test_final_filter_simple.py::test_tsv_filter_invalid_expression_raises tests/unit/stages/test_output_stages.py::TestFinalFilteringStage::test_invalid_filter_expression_raises -q
 ```
 
 Expected: PASS.
@@ -612,13 +681,28 @@ git log --oneline --decorate -5
 
 Expected: clean working tree on the issue #104 branch, with checkpoint commits present.
 
+- [ ] **Step 9: Record deferred AGDE full-rerun validation**
+
+Do not run the one-hour AGDE job during implementation unless explicitly requested. Add a short note to the PR body or final handoff that the full AGDE rerun should be done after the fixed build is available, comparing:
+
+```text
+total rows
+rows with AF >= 0.0001
+rows with benign ClinVar/dbNSFP ClinVar text
+rows both common and benign
+rows either common or benign
+```
+
+Expected: the nine checked real leaked examples are already proven to drop to zero on the real VCF slice. Any remaining full-run violations after the fixed build should be handled as a separate data-contract or final-QC issue.
+
 ---
 
 ## Self-Review
 
-- Issue #104 examples are covered by Task 3 with a BMP2K-like common/benign HIGH-impact record and a rare/pathogenic positive control.
+- Issue #104 examples are covered by Task 3 with BMP2K-like, HELLS-like, and COL9A2-like common/benign HIGH-impact records plus a rare/pathogenic positive control.
+- Dataset-side issue comments confirmed that the corrected expression filters all nine real leaked examples to zero on a real AGDE VCF slice.
 - The three known malformed presets are covered by Task 1.
-- SnpSift exit-code `0` with parser diagnostics is covered by Task 2.
-- Broader fail-open filter behavior in late/final filtering is covered by Task 4.
-- Each task has red/green TDD steps and checkpoint commits.
-- No production implementation step appears before a failing test step in its task.
+- SnpSift exit-code `0` with parser diagnostics is covered by Task 2 unit tests and Task 3 real-SnpSift integration verification when external tools are available.
+- Broader fail-open filter behavior in late/final filtering and defensive TSV filtering is covered by Task 4.
+- Production changes in Tasks 1, 2, and 4 have red/green TDD steps and checkpoint commits. Task 3 is explicitly an integration regression guard added after the underlying red/green fixes.
+- The one-hour full AGDE rerun is explicitly deferred until after implementation and CI.
