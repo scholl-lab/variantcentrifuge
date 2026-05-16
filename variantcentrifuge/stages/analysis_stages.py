@@ -2022,19 +2022,30 @@ class GeneBurdenAnalysisStage(Stage):
         # Write results to output file
         burden_output = context.config.get("gene_burden_output")
         if not burden_output:
-            # Create default gene burden output path
+            # Create a sidecar next to the requested final output when possible.
             output_dir = context.config.get("output_dir", "output")
-            base_name = context.config.get("output_file_base", "gene_burden_results")
-            burden_output = str(Path(output_dir) / f"{base_name}.gene_burden.tsv")
+            output_file = context.config.get("output_file")
+            if output_file and output_file != "-":
+                output_path = Path(output_file)
+                if not output_path.is_absolute():
+                    output_path = Path(output_dir) / output_path
+                name = output_path.name
+                if name.endswith(".tsv.gz"):
+                    base_name = name[: -len(".tsv.gz")]
+                elif name.endswith(".tsv"):
+                    base_name = name[: -len(".tsv")]
+                else:
+                    base_name = output_path.stem
+                burden_output = str(output_path.with_name(f"{base_name}.gene_burden.tsv"))
+            else:
+                base_name = context.config.get("output_file_base", "gene_burden_results")
+                burden_output = str(Path(output_dir) / f"{base_name}.gene_burden.tsv")
 
             # Save the generated path back into the context for other stages to use.
             context.config["gene_burden_output"] = burden_output
 
-        # Apply compression to gene burden results based on configuration
-        use_compression = context.config.get("gzip_intermediates", True)
-        if use_compression and not str(burden_output).endswith(".gz"):
-            burden_output = str(burden_output) + ".gz"
-            context.config["gene_burden_output"] = burden_output
+        # Treat gene burden as a user-facing sidecar output, not an intermediate.
+        if str(burden_output).endswith(".gz"):
             compression = "gzip"
         else:
             compression = None
@@ -2964,22 +2975,18 @@ class ChunkedAnalysisStage(Stage):
     @property
     def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
-        # Depends on configuration and processing stages but not full DataFrame loading
-        # This stage only runs when use_chunked_processing is True
-        deps = set()
-
-        # For sequential processing, we need individual stages
-        deps.add("field_extraction")  # Fallback for sequential mode
-        deps.add("phenotype_integration")  # Always needed
-        deps.add("genotype_replacement")  # Usually needed
-
-        return deps
+        # This stage is a no-op unless use_chunked_processing is enabled. Its
+        # producers differ by mode, so order against active stages via soft deps.
+        return set()
 
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Soft dependencies - these stages will run before if they exist, but are not required
         return {
+            "field_extraction",
+            "phenotype_integration",
+            "genotype_replacement",
             "parallel_complete_processing",  # For parallel processing mode
             "extra_column_removal",
             "dataframe_loading",  # Should run before regular DataFrame analysis

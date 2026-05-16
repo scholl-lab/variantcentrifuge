@@ -410,6 +410,42 @@ def test_gene_burden_column_based_aggregation():
 
 
 @pytest.mark.unit
+def test_gene_burden_column_based_aggregation_accepts_categorical_gt_columns():
+    """Categorical GT columns from optimized loading must aggregate as dosages."""
+    vcf_samples = ["S1", "S2", "C1"]
+    test_data = pd.DataFrame(
+        {
+            "GENE": ["PKD1", "PKD1"],
+            "GEN_0__GT": pd.Categorical(["0/1", "1/1"]),
+            "GEN_1__GT": pd.Categorical(["0/0", "0/1"]),
+            "GEN_2__GT": pd.Categorical(["0/0", "0/1"]),
+        }
+    )
+
+    result_samples = perform_gene_burden_analysis(
+        test_data,
+        {"gene_burden_mode": "samples", "correction_method": "fdr"},
+        case_samples={"S1", "S2"},
+        control_samples={"C1"},
+        vcf_samples=vcf_samples,
+    )
+    sample_row = result_samples.iloc[0]
+    assert sample_row["proband_carrier_count"] == 2
+    assert sample_row["control_carrier_count"] == 1
+
+    result_alleles = perform_gene_burden_analysis(
+        test_data,
+        {"gene_burden_mode": "alleles", "correction_method": "fdr"},
+        case_samples={"S1", "S2"},
+        control_samples={"C1"},
+        vcf_samples=vcf_samples,
+    )
+    row = result_alleles.iloc[0]
+    assert row["proband_allele_count"] == 3
+    assert row["control_allele_count"] == 1
+
+
+@pytest.mark.unit
 def test_gene_burden_column_vs_gt_consistency():
     """
     Verify column-based and packed GT string approaches produce identical results.

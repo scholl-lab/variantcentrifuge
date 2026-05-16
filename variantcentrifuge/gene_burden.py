@@ -23,12 +23,11 @@ References
 """
 
 import logging
+import re
 from math import isnan
 from typing import Any
 
 import pandas as pd
-
-from .stages.output_stages import _find_per_sample_gt_columns as _find_gt_columns
 
 try:
     from scipy.stats import fisher_exact
@@ -50,6 +49,16 @@ except ImportError:
     _apply_correction = None  # type: ignore[assignment]
 
 logger = logging.getLogger("variantcentrifuge")
+
+
+def _find_gt_columns(df: pd.DataFrame) -> list[str]:
+    """Find per-sample GT columns in DataFrame, sorted by sample index."""
+    gt_cols = []
+    for col in df.columns:
+        if re.match(r"^GEN[_\[](\d+)[_\]\.]+(GT)$", col):
+            gt_cols.append(col)
+    gt_cols.sort(key=lambda c: int(re.search(r"(\d+)", c).group(1)))  # type: ignore[union-attr]
+    return gt_cols
 
 
 def _compute_or_confidence_interval(
@@ -197,7 +206,7 @@ def _aggregate_gene_burden_from_columns(
         p_allele_count = 0
         for col in case_col_names:
             # Convert GT strings to dosages for all variants in this gene
-            dosages = gene_df[col].map(_gt_to_dosage)
+            dosages = gene_df[col].astype(str).map(_gt_to_dosage)
             max_dosage = int(dosages.max())
             if max_dosage > 0:
                 p_carrier_count += 1
@@ -207,7 +216,7 @@ def _aggregate_gene_burden_from_columns(
         c_carrier_count = 0
         c_allele_count = 0
         for col in ctrl_col_names:
-            dosages = gene_df[col].map(_gt_to_dosage)
+            dosages = gene_df[col].astype(str).map(_gt_to_dosage)
             max_dosage = int(dosages.max())
             if max_dosage > 0:
                 c_carrier_count += 1

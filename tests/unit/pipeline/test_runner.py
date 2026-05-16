@@ -6,6 +6,13 @@ from unittest.mock import Mock, patch
 import pytest
 
 from variantcentrifuge.pipeline_core import PipelineContext, PipelineRunner, Stage
+from variantcentrifuge.stages.analysis_stages import ChunkedAnalysisStage, DataFrameLoadingStage
+from variantcentrifuge.stages.processing_stages import (
+    FieldExtractionStage,
+    GenotypeReplacementStage,
+    ParallelCompleteProcessingStage,
+    PhenotypeIntegrationStage,
+)
 
 
 class MockStage(Stage):
@@ -199,6 +206,48 @@ class TestPipelineRunner:
         assert {s.name for s in plan[1]} == {"b", "c"}
         assert plan[2][0].name == "a"
         assert plan[3][0].name == "e"
+
+    def test_parallel_complete_orders_before_phenotype_integration(self, runner):
+        """Phenotype integration must wait for threaded extraction to finish."""
+        stages = [
+            ParallelCompleteProcessingStage(),
+            PhenotypeIntegrationStage(),
+        ]
+
+        plan = runner._create_execution_plan(stages)
+        levels = {stage.name: index for index, level in enumerate(plan) for stage in level}
+
+        assert levels["parallel_complete_processing"] < levels["phenotype_integration"]
+
+    def test_chunked_analysis_allows_no_replacement_pipeline(self, runner):
+        """Chunked analysis must not require an omitted genotype replacement stage."""
+        stages = [
+            FieldExtractionStage(),
+            PhenotypeIntegrationStage(),
+            DataFrameLoadingStage(),
+            ChunkedAnalysisStage(),
+        ]
+
+        plan = runner._create_execution_plan(stages)
+        levels = {stage.name: index for index, level in enumerate(plan) for stage in level}
+
+        assert levels["field_extraction"] < levels["phenotype_integration"]
+        assert levels["phenotype_integration"] < levels["chunked_analysis"]
+
+    def test_chunked_analysis_orders_after_genotype_replacement_when_present(self, runner):
+        """Chunked analysis still waits for genotype replacement if that stage is active."""
+        stages = [
+            FieldExtractionStage(),
+            GenotypeReplacementStage(),
+            PhenotypeIntegrationStage(),
+            DataFrameLoadingStage(),
+            ChunkedAnalysisStage(),
+        ]
+
+        plan = runner._create_execution_plan(stages)
+        levels = {stage.name: index for index, level in enumerate(plan) for stage in level}
+
+        assert levels["genotype_replacement"] < levels["chunked_analysis"]
 
     def test_dry_run(self, runner):
         """Test dry run functionality."""

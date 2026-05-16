@@ -773,14 +773,20 @@ class PhenotypeIntegrationStage(Stage):
     @property
     def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
-        # Only declare the hard requirement - field extraction must be complete
-        return {"field_extraction"}
+        # Field extraction may be performed by FieldExtractionStage in sequential mode
+        # or internally by ParallelCompleteProcessingStage in threaded mode.
+        return set()
 
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # These stages should run before if they exist in the pipeline
-        return {"genotype_replacement", "phenotype_loading"}
+        return {
+            "field_extraction",
+            "parallel_complete_processing",
+            "genotype_replacement",
+            "phenotype_loading",
+        }
 
     def _has_genotype_replacement(self, context: PipelineContext) -> bool:
         """Check if genotype replacement is enabled."""

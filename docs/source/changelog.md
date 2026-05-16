@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes._
 
+## [0.17.5] - 2026-05-16
+
+### Fixed
+- Order phenotype integration after threaded complete processing so auto-threaded runs do not start before field extraction has completed.
+- Allow chunked analysis scheduling when optional genotype replacement is omitted, including `--no-replacement` runs.
+- Handle categorical per-sample GT columns in column-based gene burden aggregation.
+- Write gene burden sidecar output next to the requested final output using the expected `.gene_burden.tsv` name.
+- Keep temporary scoring formula variables out of user-facing integration output.
+
 ## [0.17.4] - 2026-05-15
 
 ### Fixed

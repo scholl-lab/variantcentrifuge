@@ -118,10 +118,10 @@ def test_scoring_integration_with_annotated_vcf(annotated_vcf, scoring_config_di
     for col in expected_columns:
         assert col in df.columns, f"Expected column '{col}' not found in output"
 
-    # Also check the renamed columns used by scoring
-    expected_scoring_columns = ["impact_variant", "consequence_terms_variant"]
-    for col in expected_scoring_columns:
-        assert col in df.columns, f"Expected scoring column '{col}' not found in output"
+    # Temporary formula variable names should not leak into user-facing output.
+    temporary_scoring_columns = ["impact_variant", "consequence_terms_variant"]
+    for col in temporary_scoring_columns:
+        assert col not in df.columns, f"Temporary scoring column '{col}' leaked into output"
 
 
 def test_scoring_with_missing_columns(annotated_vcf, scoring_config_dir, temp_output_dir):
