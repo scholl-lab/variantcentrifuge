@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+## [0.17.12] - 2026-07-19
+
 ### Security
 
 - Refresh the digest-pinned container base, rebuild the pinned SnpEff and SnpSift 5.2 JARs with
