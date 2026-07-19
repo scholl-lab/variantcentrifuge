@@ -16,6 +16,9 @@ dependencies:
   - scipy=1.14
   - statsmodels=0.14
   - openpyxl=3.1
+  - cffi=2.1.0
+  - pyarrow=25.0.0
+  - xlsxwriter=3.2.9
   - jinja2
   - psutil
   - numpy

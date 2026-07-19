@@ -25,11 +25,19 @@ COPY docker/java/assert-runtime-dependencies.sh /usr/local/bin/assert-runtime-de
 
 RUN cd /build/snpeff && \
     mvn -B verify && \
-    /usr/local/bin/assert-runtime-dependencies.sh /build/snpeff && \
-    mvn -B install -DskipTests && \
     set -- target/*-jar-with-dependencies.jar && \
     test "$#" -eq 1 && \
     test -f "$1" && \
+    verified_sha256=$(sha256sum "$1" | cut -d ' ' -f 1) && \
+    printf 'Verified SnpEff fat JAR SHA256: %s\n' "$verified_sha256" && \
+    /usr/local/bin/assert-runtime-dependencies.sh /build/snpeff && \
+    mvn -B install -DskipTests -Dassembly.skipAssembly=true && \
+    set -- target/*-jar-with-dependencies.jar && \
+    test "$#" -eq 1 && \
+    test -f "$1" && \
+    installed_sha256=$(sha256sum "$1" | cut -d ' ' -f 1) && \
+    printf 'Installed SnpEff fat JAR SHA256: %s\n' "$installed_sha256" && \
+    test "$verified_sha256" = "$installed_sha256" && \
     cp "$1" /out/snpEff.jar
 
 RUN cd /build/snpsift && \
@@ -50,13 +58,66 @@ COPY --chown=$MAMBA_USER:$MAMBA_USER conda/environment-docker.yml /tmp/environme
 RUN micromamba install -y -n base -f /tmp/environment.yml && \
     micromamba clean --all --yes
 
+# A builder-only C++ compiler is required for the optional Davies CFFI module.
+# Only /opt/conda is copied into the runtime stage, so the compiler is excluded.
+USER root
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get -y --no-install-recommends install g++ && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+USER $MAMBA_USER
+
 # Copy source and install the package (no-deps: all deps satisfied by conda)
 # README.md is required by pyproject.toml metadata
-COPY --chown=$MAMBA_USER:$MAMBA_USER pyproject.toml README.md /tmp/src/
+COPY --chown=$MAMBA_USER:$MAMBA_USER pyproject.toml README.md setup.py /tmp/src/
 COPY --chown=$MAMBA_USER:$MAMBA_USER variantcentrifuge/ /tmp/src/variantcentrifuge/
 # Activate conda env for RUN commands (micromamba convention)
 ARG MAMBA_DOCKERFILE_ACTIVATE=1
 RUN pip install --no-deps --no-cache-dir /tmp/src
+
+RUN /opt/conda/bin/python -m pip check && \
+    /opt/conda/bin/python - <<'PY'
+import io
+
+import cffi
+import numpy as np
+import pandas as pd
+import pyarrow as pa
+import xlsxwriter
+
+from variantcentrifuge import _qfc
+from variantcentrifuge.association.backends.davies import (
+    _try_load_davies,
+    davies_pvalue,
+)
+
+table = pa.table({"variant": ["1-100-A-G", "1-200-C-T"], "score": [1.0, 2.0]})
+frame = table.to_pandas()
+assert frame.to_dict(orient="list") == {
+    "variant": ["1-100-A-G", "1-200-C-T"],
+    "score": [1.0, 2.0],
+}
+
+excel_buffer = io.BytesIO()
+with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
+    frame.to_excel(writer, sheet_name="Results", index=False)
+assert excel_buffer.getvalue().startswith(b"PK")
+
+assert cffi.__version__
+assert xlsxwriter.__version__
+assert _qfc.ffi is not None and _qfc.lib is not None
+assert _try_load_davies()
+pvalue, ifault = davies_pvalue(1.0, np.array([1.0]))
+assert pvalue is not None and 0.0 <= pvalue <= 1.0
+print(
+    "Python runtime gate:",
+    f"cffi={cffi.__version__}",
+    f"pyarrow={pa.__version__}",
+    f"xlsxwriter={xlsxwriter.__version__}",
+    f"davies_pvalue={pvalue}",
+    f"davies_ifault={ifault}",
+)
+PY
 
 # Replace the Bioconda Java tool payloads with the verified patched builds.
 COPY --from=java-build --chown=$MAMBA_USER:$MAMBA_USER /out/snpEff.jar /opt/conda/share/snpeff-5.2-3/snpEff.jar
@@ -81,15 +142,58 @@ for jar_path, expected_main_class in jars.items():
     assert manifest.get("Multi-Release") == "true", (jar_path, manifest)
 PY
 
-# Keep the Java runtime, but remove JDK-only tools and all build/package caches.
+# Keep only the Java launcher, keytool, and a vendor jspawnhelper when present.
 RUN java_path=$(readlink -f "$(command -v java)") && \
     jvm_bin=$(dirname "$java_path") && \
     jvm_home=$(dirname "$jvm_bin") && \
-    for tool in javac javadoc javap jar jarsigner jconsole jdeps jlink jmod jshell; do \
-        rm -f "/opt/conda/bin/$tool" "$jvm_bin/$tool"; \
+    for link in /opt/conda/bin/*; do \
+        test -L "$link" || continue; \
+        link_target=$(readlink "$link"); \
+        case "$link_target" in \
+            ../lib/jvm/bin/*|/opt/conda/lib/jvm/bin/*) \
+                tool=${link_target##*/}; \
+                case "$tool" in \
+                    java|keytool|jspawnhelper) ;; \
+                    *) rm -f "$link" ;; \
+                esac \
+                ;; \
+        esac; \
     done && \
-    rm -rf "$jvm_home/include" "$jvm_home/jmods" && \
+    for tool_path in "$jvm_bin"/*; do \
+        test -e "$tool_path" || continue; \
+        tool=${tool_path##*/}; \
+        case "$tool" in \
+            java|keytool|jspawnhelper) ;; \
+            *) rm -f "$jvm_bin/$tool" ;; \
+        esac; \
+    done && \
+    rm -rf "$jvm_home/include" "$jvm_home/jmods" \
+        "$jvm_home/man" "$jvm_home/demo" "$jvm_home/sample" && \
     rm -f "$jvm_home/src.zip" "$jvm_home/lib/src.zip" && \
+    jvm_inventory=$(find "$jvm_bin" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort) && \
+    expected_jvm_inventory=$(printf '%s\n%s' java keytool) && \
+    if test -e "$jvm_bin/jspawnhelper"; then \
+        expected_jvm_inventory=$(printf '%s\n%s' "$expected_jvm_inventory" jspawnhelper | sort); \
+    fi && \
+    if test "$jvm_inventory" != "$expected_jvm_inventory"; then \
+        printf 'Unexpected JVM runtime tool inventory:\n%s\n' "$jvm_inventory" >&2; \
+        exit 1; \
+    fi && \
+    for link in /opt/conda/bin/*; do \
+        test -L "$link" || continue; \
+        link_target=$(readlink "$link"); \
+        case "$link_target" in \
+            ../lib/jvm/bin/*|/opt/conda/lib/jvm/bin/*) \
+                tool=${link_target##*/}; \
+                case "$tool" in \
+                    java|keytool|jspawnhelper) ;; \
+                    *) printf 'Unexpected conda JVM tool link: %s -> %s\n' \
+                        "$link" "$link_target" >&2; exit 1 ;; \
+                esac \
+                ;; \
+        esac; \
+    done && \
+    printf 'Final JVM bin inventory:\n%s\n' "$jvm_inventory" && \
     rm -rf /opt/conda/pkgs && \
     test ! -e /opt/conda/pkgs && \
     test -f /opt/conda/share/snpeff-5.2-3/snpEff.jar && \
@@ -118,15 +222,28 @@ LABEL org.opencontainers.image.title="variantcentrifuge" \
       org.opencontainers.image.license="MIT" \
       org.opencontainers.image.authors="Bernt Popp <bernt.popp.md@gmail.com>"
 
-# Copy the fully built and cleaned conda environment from the build stage.
-COPY --from=conda-build /opt/conda /opt/conda
+# Copy the fully built and cleaned conda environment as root-owned runtime data.
+COPY --from=conda-build --chown=0:0 /opt/conda /opt/conda
 
 # Include LICENSE for compliance
-COPY --chown=$MAMBA_USER:$MAMBA_USER LICENSE /app/LICENSE
+COPY --chown=0:0 LICENSE /app/LICENSE
 
 # Copy scoring models and stats configs into the image
-COPY --chown=$MAMBA_USER:$MAMBA_USER scoring/ /app/scoring/
-COPY --chown=$MAMBA_USER:$MAMBA_USER stats_configs/ /app/stats_configs/
+COPY --chown=0:0 scoring/ /app/scoring/
+COPY --chown=0:0 stats_configs/ /app/stats_configs/
+
+RUN chmod -R go-w /opt/conda /app && \
+    mkdir -p /data && \
+    chown $MAMBA_USER:$MAMBA_USER /data && \
+    chmod 0750 /data && \
+    invalid_runtime_path=$(find /opt/conda /app -xdev \
+        \( ! -user root -o ! -group root -o \
+            \( ! -type l -a -perm /022 \) \) -print -quit) && \
+    if test -n "$invalid_runtime_path"; then \
+        stat -c 'Unexpected mutable runtime path: %n owner=%U group=%G mode=%a' \
+            "$invalid_runtime_path" >&2; \
+        exit 1; \
+    fi
 
 USER $MAMBA_USER
 

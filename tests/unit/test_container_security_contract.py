@@ -300,6 +300,16 @@ def test_docker_environment_pins_compatible_smart_open() -> None:
     assert _contains_dependency_line(environment, "    - smart-open==7.7.1")
 
 
+def test_docker_environment_installs_all_declared_binary_runtime_dependencies() -> None:
+    environment = _text("conda/environment-docker.yml")
+    for dependency in (
+        "  - cffi=2.1.0",
+        "  - pyarrow=25.0.0",
+        "  - xlsxwriter=3.2.9",
+    ):
+        assert _contains_dependency_line(environment, dependency)
+
+
 def test_dockerfile_pins_the_java_builder_image_by_digest() -> None:
     dockerfile = _text("Dockerfile")
     assert (
@@ -364,13 +374,16 @@ def test_dockerfile_replaces_the_exact_conda_java_tool_jars() -> None:
 
 def test_dockerfile_removes_jdk_only_tools_and_rejects_javac() -> None:
     conda_build = _docker_stage(_text("Dockerfile"), "conda-build")
-    assert (
-        "for tool in javac javadoc javap jar jarsigner jconsole jdeps jlink jmod "
-        "jshell; do"
-    ) in conda_build
-    assert 'rm -f "/opt/conda/bin/$tool" "$jvm_bin/$tool"' in conda_build
+    assert 'case "$tool" in' in conda_build
+    assert "java|keytool|jspawnhelper" in conda_build
+    assert 'find "$jvm_bin" -mindepth 1 -maxdepth 1' in conda_build
+    assert 'rm -f "$jvm_bin/$tool"' in conda_build
+    assert 'for link in /opt/conda/bin/*' in conda_build
+    assert 'readlink "$link"' in conda_build
     assert 'rm -rf "$jvm_home/include" "$jvm_home/jmods"' in conda_build
     assert 'rm -f "$jvm_home/src.zip" "$jvm_home/lib/src.zip"' in conda_build
+    assert "Unexpected JVM runtime tool" in conda_build
+    assert "Unexpected conda JVM tool link" in conda_build
     assert "! command -v javac" in conda_build
 
 
@@ -393,12 +406,42 @@ def test_dockerfile_preserves_the_runtime_interface() -> None:
         in dockerfile
     )
     assert 'CMD ["--help"]' in dockerfile
-    assert "COPY --chown=$MAMBA_USER:$MAMBA_USER LICENSE /app/LICENSE" in dockerfile
-    assert "COPY --chown=$MAMBA_USER:$MAMBA_USER scoring/ /app/scoring/" in dockerfile
+    assert "COPY --chown=0:0 LICENSE /app/LICENSE" in dockerfile
+    assert "COPY --chown=0:0 scoring/ /app/scoring/" in dockerfile
     assert (
-        "COPY --chown=$MAMBA_USER:$MAMBA_USER stats_configs/ /app/stats_configs/"
+        "COPY --chown=0:0 stats_configs/ /app/stats_configs/"
         in dockerfile
     )
+
+
+def test_dockerfile_build_gates_all_python_runtime_paths() -> None:
+    conda_build = _docker_stage(_text("Dockerfile"), "conda-build")
+    assert "COPY --chown=$MAMBA_USER:$MAMBA_USER pyproject.toml README.md setup.py" in (
+        conda_build
+    )
+    assert "/opt/conda/bin/python -m pip check" in conda_build
+    for required_import in (
+        "import cffi",
+        "import pyarrow as pa",
+        "import xlsxwriter",
+    ):
+        assert required_import in conda_build
+    assert "pa.table" in conda_build
+    assert ".to_pandas()" in conda_build
+    assert "io.BytesIO()" in conda_build
+    assert 'engine="xlsxwriter"' in conda_build
+    assert "_try_load_davies" in conda_build
+    assert "davies_pvalue" in conda_build
+
+
+def test_dockerfile_makes_runtime_payloads_immutable_to_the_service_user() -> None:
+    runtime = _docker_stage(_text("Dockerfile"), "runtime")
+    assert "COPY --from=conda-build --chown=0:0 /opt/conda /opt/conda" in runtime
+    assert "chmod -R go-w /opt/conda /app" in runtime
+    assert "! -type l -a -perm /022" in runtime
+    assert "chown $MAMBA_USER:$MAMBA_USER /data" in runtime
+    assert "chmod 0750 /data" in runtime
+    assert "USER $MAMBA_USER" in runtime
 
 
 def test_dockerfile_validates_both_executable_multi_release_manifests() -> None:
@@ -421,13 +464,17 @@ def test_dockerfile_verifies_both_java_projects_and_runtime_dependencies() -> No
     java_build = _docker_stage(_text("Dockerfile"), "java-build")
     assert java_build.count("mvn -B verify") == 2
     assert "mvn -B verify -DskipTests" not in java_build
-    assert "mvn -B install -DskipTests" in java_build
+    assert "mvn -B install -DskipTests -Dassembly.skipAssembly=true" in java_build
+    assert "mvn -B install -DskipTests &&" not in java_build
     assert java_build.count(
         "/usr/local/bin/assert-runtime-dependencies.sh /build/"
     ) == 2
-    assert java_build.count("*-jar-with-dependencies.jar") == 2
+    assert java_build.count("*-jar-with-dependencies.jar") == 3
+    assert "verified_sha256=$(sha256sum" in java_build
+    assert "installed_sha256=$(sha256sum" in java_build
+    assert 'test "$verified_sha256" = "$installed_sha256"' in java_build
     assert java_build.index("mvn -B verify") < java_build.index(
-        "mvn -B install -DskipTests"
+        "mvn -B install -DskipTests -Dassembly.skipAssembly=true"
     )
 
 
