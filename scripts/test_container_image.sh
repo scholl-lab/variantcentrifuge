@@ -8,16 +8,23 @@ if (( $# != 1 )); then
 fi
 
 image_ref=$1
-script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-repository_root=$(cd -- "$script_dir/.." && pwd)
-fixture_source=$repository_root/tests/fixtures/container
-work_dir=$(mktemp -d -t vc-container-contract-XXXXXX)
-trap 'rm -rf -- "$work_dir"' EXIT
 
 fail() {
     printf 'container contract failure: %s\n' "$*" >&2
     exit 1
 }
+
+if ! image_id=$(docker image inspect --format '{{.Id}}' "$image_ref"); then
+    fail 'IMAGE_REF did not resolve to an image ID'
+fi
+[[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]] || \
+    fail "resolved image ID is empty or invalid: '$image_id'"
+
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+repository_root=$(cd -- "$script_dir/.." && pwd)
+fixture_source=$repository_root/tests/fixtures/container
+work_dir=$(mktemp -d -t vc-container-contract-XXXXXX)
+trap 'rm -rf -- "$work_dir"' EXIT
 
 assert_contains() {
     local output=$1
@@ -29,50 +36,55 @@ assert_contains() {
 }
 
 fixture_copy=$work_dir/fixtures
-mkdir -p "$fixture_copy"
-cp -R "$fixture_source/." "$fixture_copy/"
-# The image runs as an arbitrary nonroot UID. Only the disposable fixture copy is
-# made writable so local database builds can use the bind mount without changing
-# committed inputs or goldens.
-chmod -R a+rwX "$fixture_copy"
-
-docker image inspect "$image_ref" >/dev/null
+mkdir -p "$fixture_copy/snpeff/data/testGenome" "$fixture_copy/snpsift"
+cp "$fixture_source/snpeff/snpEff.config" "$fixture_source/snpeff/input.vcf" \
+    "$fixture_copy/snpeff/"
+cp "$fixture_source/snpeff/data/testGenome/genes.gff" \
+    "$fixture_source/snpeff/data/testGenome/sequences.fa" \
+    "$fixture_copy/snpeff/data/testGenome/"
+cp "$fixture_source/snpsift/input.vcf" \
+    "$fixture_source/snpsift/assert_fail_closed.py" "$fixture_copy/snpsift/"
+# Inputs are read-only in the disposable mount. Only the local SnpEff database
+# directory is writable by the image's arbitrary nonroot UID. Goldens are never
+# copied into or mounted in the container.
+chmod -R u=rwX,go=rX "$fixture_copy"
+chmod o+rwx "$fixture_copy/snpeff/data/testGenome"
 
 printf '%s\n' 'checking variantcentrifuge entrypoint behavior'
 docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh \
-    "$image_ref" variantcentrifuge --version
+    "$image_id" variantcentrifuge --version
 docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh \
-    "$image_ref" variantcentrifuge --help >"$work_dir/variantcentrifuge-help.txt"
+    "$image_id" variantcentrifuge --help >"$work_dir/variantcentrifuge-help.txt"
 test -s "$work_dir/variantcentrifuge-help.txt"
 
 printf '%s\n' 'checking configured health executable'
 docker run --rm --entrypoint /opt/conda/bin/variantcentrifuge \
-    "$image_ref" --version
+    "$image_id" --version
 
 printf '%s\n' 'checking nonroot runtime user'
-runtime_uid=$(docker run --rm --entrypoint /usr/bin/id "$image_ref" -u)
+runtime_uid=$(docker run --rm --entrypoint /usr/bin/id "$image_id" -u)
 if [[ ! $runtime_uid =~ ^[0-9]+$ ]] || (( runtime_uid == 0 )); then
     fail "runtime UID must be numeric and nonzero, got '$runtime_uid'"
 fi
 
 printf '%s\n' 'checking native tool versions'
 bcftools_version=$(docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh \
-    "$image_ref" /opt/conda/bin/bcftools --version)
+    "$image_id" /opt/conda/bin/bcftools --version)
 if [[ $bcftools_version != 'bcftools 1.21'* ]]; then
     fail 'bcftools version does not start with 1.21'
 fi
 bedtools_version=$(docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh \
-    "$image_ref" /opt/conda/bin/bedtools --version)
+    "$image_id" /opt/conda/bin/bedtools --version)
 assert_contains "$bedtools_version" '2.31.1' 'bedtools version does not contain 2.31.1'
 
 printf '%s\n' 'checking Java tool versions'
 snpeff_version=$(docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh \
-    "$image_ref" /opt/conda/bin/snpEff -version 2>&1)
+    "$image_id" /opt/conda/bin/snpEff -version 2>&1)
 assert_contains "$snpeff_version" '5.2' 'snpEff version does not contain 5.2'
 
 set +e
 snpsift_version=$(docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh \
-    "$image_ref" /opt/conda/bin/SnpSift -version 2>&1)
+    "$image_id" /opt/conda/bin/SnpSift -version 2>&1)
 snpsift_version_status=$?
 set -e
 if (( snpsift_version_status != 1 )); then
@@ -86,7 +98,7 @@ assert_contains "$snpsift_version" 'SnpSift version 5.2' \
     'SnpSift version output does not contain 5.2'
 
 printf '%s\n' 'checking exact Java manifests'
-docker run --rm --entrypoint /opt/conda/bin/python "$image_ref" -c '
+docker run --rm --entrypoint /opt/conda/bin/python "$image_id" -c '
 import zipfile
 
 jars = {
@@ -108,10 +120,10 @@ for jar_path, expected_main_class in jars.items():
 printf '%s\n' 'checking SnpSift golden filter behavior'
 docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh \
     --mount "type=bind,src=$fixture_copy/snpsift,dst=/fixtures" \
-    -w /fixtures "$image_ref" /opt/conda/bin/SnpSift \
+    -w /fixtures "$image_id" /opt/conda/bin/SnpSift \
     filter '( QUAL >= 20 )' input.vcf >"$work_dir/snpsift-actual.vcf"
 if ! diff -u \
-    <(sed '/^##SnpSiftCmd=/d' "$fixture_copy/snpsift/expected.vcf") \
+    <(sed '/^##SnpSiftCmd=/d' "$fixture_source/snpsift/expected.vcf") \
     <(sed '/^##SnpSiftCmd=/d' "$work_dir/snpsift-actual.vcf"); then
     fail 'SnpSift output differs from the stock 5.2 golden'
 fi
@@ -119,7 +131,7 @@ fi
 printf '%s\n' 'checking SnpSift parser diagnostics fail closed'
 fail_closed_output=$(docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh \
     --mount "type=bind,src=$fixture_copy/snpsift,dst=/fixtures" \
-    -w /fixtures "$image_ref" /opt/conda/bin/python \
+    -w /fixtures "$image_id" /opt/conda/bin/python \
     /fixtures/assert_fail_closed.py)
 if [[ $fail_closed_output != 'SnpSift parser diagnostics failed closed' ]]; then
     fail "unexpected fail-closed marker: '$fail_closed_output'"
@@ -128,22 +140,22 @@ fi
 printf '%s\n' 'checking SnpEff local database and annotation behavior'
 docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh \
     --mount "type=bind,src=$fixture_copy/snpeff,dst=/fixtures" \
-    -w /fixtures "$image_ref" /opt/conda/bin/snpEff \
+    -w /fixtures "$image_id" /opt/conda/bin/snpEff \
     build -c snpEff.config -dataDir ./data -gff3 \
     -noCheckCds -noCheckProtein testGenome
 docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh \
     --mount "type=bind,src=$fixture_copy/snpeff,dst=/fixtures" \
-    -w /fixtures "$image_ref" /opt/conda/bin/snpEff \
+    -w /fixtures "$image_id" /opt/conda/bin/snpEff \
     -c snpEff.config -dataDir ./data -noStats testGenome input.vcf \
     >"$work_dir/snpeff-actual.vcf"
 if ! diff -u \
-    <(sed '/^##SnpEffCmd=/d' "$fixture_copy/snpeff/expected.vcf") \
+    <(sed '/^##SnpEffCmd=/d' "$fixture_source/snpeff/expected.vcf") \
     <(sed '/^##SnpEffCmd=/d' "$work_dir/snpeff-actual.vcf"); then
     fail 'SnpEff output differs from the stock 5.2 golden'
 fi
 
 printf '%s\n' 'checking runtime filesystem inventory and immutability'
-docker run --rm --user 0:0 --entrypoint /bin/sh "$image_ref" -c '
+docker run --rm --user 0:0 --entrypoint /bin/sh "$image_id" -c '
 set -eu
 test ! -e /opt/conda/pkgs
 
@@ -179,10 +191,17 @@ for forbidden_path in \
     test ! -e "$forbidden_path"
 done
 
-compiler_inventory=$(find /opt/conda/bin /usr/bin -maxdepth 1 \
-    \( -name gcc -o -name "g++" -o -name cc -o -name "c++" \
-       -o -name clang -o -name "clang++" -o -name javac \
-       -o -name mvn -o -name mvnDebug \) -print -quit)
+compiler_name_pattern="(^|.*-)(gcc|g\+\+|cc|c\+\+|clang|clang\+\+|javac|mvn|mvnDebug|maven)(-?[0-9]+([.][0-9]+)*)?$"
+compiler_inventory=$(
+    find /opt /usr /bin /sbin /app -xdev \
+        \( -type f -o -type l \) -executable -printf "%p\n" |
+    while IFS= read -r tool_path; do
+        tool_name=${tool_path##*/}
+        if printf "%s\n" "$tool_name" | grep -Eq "$compiler_name_pattern"; then
+            printf "%s\n" "$tool_path"
+        fi
+    done
+)
 test -z "$compiler_inventory"
 test -z "$(find /var/lib/apt/lists -mindepth 1 -print -quit)"
 test -z "$(find /var/cache/apt/archives -type f -name "*.deb" -print -quit)"
@@ -192,7 +211,7 @@ invalid_runtime_path=$(find /opt/conda /app -xdev \
        \( ! -type l -a -perm /022 \) \) -print -quit)
 test -z "$invalid_runtime_path"
 '
-docker run --rm --entrypoint /bin/sh "$image_ref" -c '
+docker run --rm --entrypoint /bin/sh "$image_id" -c '
 set -eu
 test "$(id -u)" -ne 0
 test -w /data
@@ -201,9 +220,9 @@ touch /data/container-contract-write-test
 
 printf '%s\n' 'checking Python dependency and native runtime operations'
 docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh \
-    "$image_ref" /opt/conda/bin/python -m pip check
+    "$image_id" /opt/conda/bin/python -m pip check
 docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh \
-    "$image_ref" /opt/conda/bin/python -c '
+    "$image_id" /opt/conda/bin/python -c '
 import io
 
 import cffi
@@ -237,29 +256,29 @@ assert ifault == 0
 '
 
 printf '%s\n' 'checking image configuration and layer shape'
-config_user=$(docker image inspect --format '{{.Config.User}}' "$image_ref")
+config_user=$(docker image inspect --format '{{.Config.User}}' "$image_id")
 [[ -n $config_user && $config_user != 0 && $config_user != root ]] || \
     fail "configured image user must be nonroot, got '$config_user'"
-[[ $(docker image inspect --format '{{json .Config.Entrypoint}}' "$image_ref") \
+[[ $(docker image inspect --format '{{json .Config.Entrypoint}}' "$image_id") \
     == '["/usr/local/bin/_entrypoint.sh","variantcentrifuge"]' ]] || \
     fail 'configured ENTRYPOINT differs from the production contract'
-[[ $(docker image inspect --format '{{json .Config.Cmd}}' "$image_ref") \
+[[ $(docker image inspect --format '{{json .Config.Cmd}}' "$image_id") \
     == '["--help"]' ]] || fail 'configured CMD differs from the production contract'
-[[ $(docker image inspect --format '{{.Config.WorkingDir}}' "$image_ref") == /data ]] || \
+[[ $(docker image inspect --format '{{.Config.WorkingDir}}' "$image_id") == /data ]] || \
     fail 'configured workdir differs from /data'
-[[ $(docker image inspect --format '{{json .Config.Healthcheck.Test}}' "$image_ref") \
+[[ $(docker image inspect --format '{{json .Config.Healthcheck.Test}}' "$image_id") \
     == '["CMD","/opt/conda/bin/variantcentrifuge","--version"]' ]] || \
     fail 'configured health command differs from the production contract'
-[[ $(docker image inspect --format '{{.Config.Healthcheck.Interval}}' "$image_ref") \
+[[ $(docker image inspect --format '{{.Config.Healthcheck.Interval}}' "$image_id") \
     == 1m0s ]] || fail 'configured health interval differs from 1m0s'
-[[ $(docker image inspect --format '{{.Config.Healthcheck.Timeout}}' "$image_ref") \
+[[ $(docker image inspect --format '{{.Config.Healthcheck.Timeout}}' "$image_id") \
     == 10s ]] || fail 'configured health timeout differs from 10s'
-[[ $(docker image inspect --format '{{.Config.Healthcheck.StartPeriod}}' "$image_ref") \
+[[ $(docker image inspect --format '{{.Config.Healthcheck.StartPeriod}}' "$image_id") \
     == 5s ]] || fail 'configured health start period differs from 5s'
-[[ $(docker image inspect --format '{{.Config.Healthcheck.Retries}}' "$image_ref") \
+[[ $(docker image inspect --format '{{.Config.Healthcheck.Retries}}' "$image_id") \
     == 3 ]] || fail 'configured health retries differs from 3'
 
-image_size=$(docker image inspect --format '{{.Size}}' "$image_ref")
+image_size=$(docker image inspect --format '{{.Size}}' "$image_id")
 if [[ ! $image_size =~ ^[0-9]+$ ]] || (( image_size >= 2000000000 )); then
     fail "image size must be below 2,000,000,000 bytes, got '$image_size'"
 fi
@@ -268,7 +287,7 @@ fi
 # threshold is well above the 75 MB base layer; a second layer above it catches
 # an accidental duplicate conda copy-up without relying on an exact layer size.
 large_layer_count=$(
-    docker image history --no-trunc --format '{{.Size}}' "$image_ref" |
+    docker image history --no-trunc --format '{{.Size}}' "$image_id" |
         python3 -c '
 import re
 import sys

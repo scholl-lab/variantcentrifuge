@@ -809,3 +809,35 @@ def test_runtime_dependency_assertion_rejects_malformed_coordinate_lines(
     assert "Required runtime dependency missing: com.fasterxml.jackson.core:jackson-core" in (
         result.stderr
     )
+
+
+def test_container_image_contract_resolves_one_immutable_image_id() -> None:
+    script = _text("scripts/test_container_image.sh")
+    assert (
+        "image_id=$(docker image inspect --format '{{.Id}}' \"$image_ref\")"
+        in script
+    )
+    assert "[[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]]" in script
+    assert script.count('"$image_ref"') == 2
+    assert script.count('"$image_id"') >= 10
+
+
+def test_container_image_contract_keeps_golden_oracles_outside_writable_mount() -> None:
+    script = _text("scripts/test_container_image.sh")
+    for tool in ("snpeff", "snpsift"):
+        assert f'"$fixture_source/{tool}/expected.vcf"' in script
+        assert f'"$fixture_copy/{tool}/expected.vcf"' not in script
+    assert 'cp -R "$fixture_source/." "$fixture_copy/"' not in script
+    assert 'chmod -R u=rwX,go=rX "$fixture_copy"' in script
+    assert 'chmod o+rwx "$fixture_copy/snpeff/data/testGenome"' in script
+
+
+def test_container_image_contract_scans_broadly_for_build_executables() -> None:
+    script = _text("scripts/test_container_image.sh")
+    assert "find /opt /usr /bin /sbin /app -xdev \\" in script
+    assert '\\( -type f -o -type l \\) -executable -printf "%p\\n"' in script
+    assert (
+        'compiler_name_pattern="(^|.*-)(gcc|g\\+\\+|cc|c\\+\\+|clang|clang\\+\\+|'
+        'javac|mvn|mvnDebug|maven)(-?[0-9]+([.][0-9]+)*)?$"'
+        in script
+    )
