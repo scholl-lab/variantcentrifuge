@@ -10,8 +10,8 @@ dependencies:
   - bedtools=2.31.1
   - igv-reports=1.14.1
   - python=3.12
-  - snpeff=5.2
-  - snpsift=5.2
+  - snpeff=5.2=hdfd78af_3
+  - snpsift=5.2=hdfd78af_0
   - pandas=2.2
   - scipy=1.14
   - statsmodels=0.14
@@ -19,6 +19,7 @@ dependencies:
   - jinja2
   - psutil
   - numpy
+  - pip>=26.1.2
   - pip:
     - intervaltree
     - smart-open
