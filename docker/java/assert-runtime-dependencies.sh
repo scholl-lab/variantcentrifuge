@@ -33,12 +33,12 @@ declare -A required_versions=(
 )
 declare -A found_required=()
 
-coordinate_pattern='^[[:space:]]*(\[INFO\][[:space:]]*)?([^:[:space:]]+):([^:[:space:]]+):([^:[:space:]]+):([^:[:space:]]+):([^:[:space:]]+)([[:space:]]+--[[:space:]]+module[[:space:]].*)?[[:space:]]*$'
+coordinate_pattern='^[[:space:]]*([^:[:space:]]+):([^:[:space:]]+):([^:[:space:]]+):([^:[:space:]]+):([^:[:space:]]+)([[:space:]]+--[[:space:]]+module[[:space:]].*)?[[:space:]]*$'
 while IFS= read -r line; do
     if [[ $line =~ $coordinate_pattern ]]; then
-        group_id=${BASH_REMATCH[2]}
-        artifact_id=${BASH_REMATCH[3]}
-        version=${BASH_REMATCH[5]}
+        group_id=${BASH_REMATCH[1]}
+        artifact_id=${BASH_REMATCH[2]}
+        version=${BASH_REMATCH[4]}
         coordinate="$group_id:$artifact_id"
 
         if [[ $coordinate == "commons-lang:commons-lang" ]]; then

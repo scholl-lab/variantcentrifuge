@@ -48,6 +48,104 @@ REQUIRED_RUNTIME_DEPENDENCIES = [
     "org.apache.logging.log4j:log4j-slf4j-impl:jar:2.25.4:runtime",
 ]
 
+# Derived from the pinned upstream POMs, with only the approved dependency,
+# scope, and secured-version overlay changes applied.
+EXPECTED_DIRECT_DEPENDENCIES = {
+    "docker/java/snpeff-pom.xml": {
+        ("org.apfloat", "apfloat", "1.10.1", "compile"),
+        ("com.googlecode.charts4j", "charts4j", "1.3", "compile"),
+        ("commons-cli", "commons-cli", "1.5.0", "compile"),
+        ("org.junit.jupiter", "junit-jupiter-api", None, "test"),
+        ("org.junit.jupiter", "junit-jupiter-engine", None, "test"),
+        ("org.junit.platform", "junit-platform-suite-api", "1.8.2", "test"),
+        ("org.junit.platform", "junit-platform-suite-engine", "1.8.2", "test"),
+        ("net.sf.trove4j", "trove4j", "3.0.2", "compile"),
+        ("org.freemarker", "freemarker", "2.3.31", "compile"),
+        ("distlib", "distlib", "0.9.1", "compile"),
+        ("org.apache.commons", "commons-math3", "3.6.1", "compile"),
+        ("commons-io", "commons-io", "${commons.io.version}", "compile"),
+        ("commons-codec", "commons-codec", "1.15", "compile"),
+        ("org.biojava", "biojava-core", "6.0.4", "compile"),
+        ("org.biojava", "biojava-structure", "6.0.4", "compile"),
+        ("com.github.samtools", "htsjdk", "2.24.1", "compile"),
+        ("javax.xml.bind", "jaxb-api", "2.3.1", "compile"),
+        ("com.fasterxml.jackson.core", "jackson-core", "${jackson.version}", "compile"),
+        (
+            "com.fasterxml.jackson.core",
+            "jackson-databind",
+            "${jackson.version}",
+            "compile",
+        ),
+        (
+            "com.fasterxml.jackson.core",
+            "jackson-annotations",
+            "${jackson.annotations.version}",
+            "compile",
+        ),
+        ("com.google.code.gson", "gson", "${gson.version}", "compile"),
+        ("org.apache.commons", "commons-compress", "${commons.compress.version}", "compile"),
+        ("org.apache.logging.log4j", "log4j-api", "${log4j.version}", "compile"),
+        ("org.apache.logging.log4j", "log4j-core", "${log4j.version}", "compile"),
+        (
+            "org.apache.logging.log4j",
+            "log4j-slf4j-impl",
+            "${log4j.version}",
+            "compile",
+        ),
+    },
+    "docker/java/snpsift-pom.xml": {
+        ("org.snpeff", "SnpEff", "5.2", "compile"),
+        ("org.antlr", "antlr4", "4.9.3", "compile"),
+        ("net.sf.trove4j", "trove4j", "3.0.2", "compile"),
+        ("org.junit.jupiter", "junit-jupiter-api", None, "test"),
+        ("org.junit.jupiter", "junit-jupiter-engine", None, "test"),
+        ("org.junit.platform", "junit-platform-suite-api", "1.8.2", "test"),
+        ("org.junit.platform", "junit-platform-suite-engine", "1.8.2", "test"),
+        ("org.apache.commons", "commons-math3", "3.6.1", "compile"),
+        ("com.github.samtools", "htsjdk", "2.24.1", "compile"),
+        ("com.fasterxml.jackson.core", "jackson-core", "${jackson.version}", "compile"),
+        (
+            "com.fasterxml.jackson.core",
+            "jackson-databind",
+            "${jackson.version}",
+            "compile",
+        ),
+        (
+            "com.fasterxml.jackson.core",
+            "jackson-annotations",
+            "${jackson.annotations.version}",
+            "compile",
+        ),
+        ("com.google.code.gson", "gson", "${gson.version}", "compile"),
+        ("commons-io", "commons-io", "${commons.io.version}", "compile"),
+        ("org.apache.commons", "commons-compress", "${commons.compress.version}", "compile"),
+        ("org.apache.logging.log4j", "log4j-api", "${log4j.version}", "compile"),
+        ("org.apache.logging.log4j", "log4j-core", "${log4j.version}", "compile"),
+        (
+            "org.apache.logging.log4j",
+            "log4j-slf4j-impl",
+            "${log4j.version}",
+            "compile",
+        ),
+    },
+}
+
+EXPECTED_REPOSITORIES = {
+    "docker/java/snpeff-pom.xml": {
+        ("maven", "https://repo1.maven.org/maven2/"),
+        ("central", "https://repo.maven.apache.org/maven2"),
+        ("hadoop-bam", "https://hadoop-bam.sourceforge.net/maven/"),
+        ("ncimvn-public", "https://ncimvn.nci.nih.gov/nexus/content/groups/public/"),
+        ("typesafe", "https://repo.typesafe.com/typesafe/releases/"),
+    },
+    "docker/java/snpsift-pom.xml": {
+        ("maven", "https://repo1.maven.org/maven2/"),
+        ("ncimvn-public", "https://ncimvn.nci.nih.gov/nexus/content/groups/public/"),
+        ("typesafe", "http://repo.typesafe.com/typesafe/releases/"),
+        ("hadoop-bam", "http://hadoop-bam.sourceforge.net/maven/"),
+    },
+}
+
 
 def _text(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
@@ -81,6 +179,30 @@ def _dependency_versions(
     return versions
 
 
+def _direct_dependency_contract(
+    pom: ET.Element,
+) -> set[tuple[str, str, str | None, str]]:
+    return {
+        (
+            *_coordinate(dependency),
+            dependency.findtext("m:version", namespaces=MAVEN_NAMESPACE),
+            dependency.findtext("m:scope", "compile", MAVEN_NAMESPACE),
+        )
+        for dependency in _dependency_elements(pom, "m:dependencies/m:dependency")
+    }
+
+
+def _repository_contract(pom: ET.Element) -> set[tuple[str, str]]:
+    repositories = set()
+    for repository in pom.findall("m:repositories/m:repository", MAVEN_NAMESPACE):
+        repository_id = repository.findtext("m:id", namespaces=MAVEN_NAMESPACE)
+        repository_url = repository.findtext("m:url", namespaces=MAVEN_NAMESPACE)
+        assert repository_id is not None
+        assert repository_url is not None
+        repositories.add((repository_id, repository_url))
+    return repositories
+
+
 def _plugin(pom: ET.Element, artifact_id: str) -> ET.Element:
     for plugin in pom.findall("m:build/m:plugins/m:plugin", MAVEN_NAMESPACE):
         if plugin.findtext("m:artifactId", namespaces=MAVEN_NAMESPACE) == artifact_id:
@@ -91,6 +213,16 @@ def _plugin(pom: ET.Element, artifact_id: str) -> ET.Element:
 def _run_dependency_assertion(
     tmp_path: Path,
     dependencies: list[str],
+) -> subprocess.CompletedProcess[str]:
+    return _run_dependency_assertion_output(
+        tmp_path,
+        [f"   {dependency} -- module fake.module [auto]" for dependency in dependencies],
+    )
+
+
+def _run_dependency_assertion_output(
+    tmp_path: Path,
+    dependency_lines: list[str],
 ) -> subprocess.CompletedProcess[str]:
     project = tmp_path / "project"
     project.mkdir()
@@ -117,10 +249,7 @@ printf '%s\n' "$FAKE_MAVEN_DEPENDENCIES" > "$output_file"
     environment = {
         **os.environ,
         "PATH": f"{fake_bin}:{os.environ['PATH']}",
-        "FAKE_MAVEN_DEPENDENCIES": "\n".join(
-            f"   {dependency} -- module fake.module [auto]"
-            for dependency in dependencies
-        ),
+        "FAKE_MAVEN_DEPENDENCIES": "\n".join(dependency_lines),
     }
     return subprocess.run(
         [str(ROOT / "docker/java/assert-runtime-dependencies.sh"), str(project)],
@@ -325,6 +454,18 @@ def test_snpsift_verify_runs_only_archive_contained_upstream_tests() -> None:
     }
 
 
+@pytest.mark.parametrize("pom_path", EXPECTED_DIRECT_DEPENDENCIES)
+def test_patched_java_projects_lock_pinned_direct_dependency_graph(
+    pom_path: str,
+) -> None:
+    assert _direct_dependency_contract(_pom(pom_path)) == EXPECTED_DIRECT_DEPENDENCIES[pom_path]
+
+
+@pytest.mark.parametrize("pom_path", EXPECTED_REPOSITORIES)
+def test_patched_java_projects_lock_pinned_repositories(pom_path: str) -> None:
+    assert _repository_contract(_pom(pom_path)) == EXPECTED_REPOSITORIES[pom_path]
+
+
 @pytest.mark.parametrize(
     "pom_path",
     ["docker/java/snpeff-pom.xml", "docker/java/snpsift-pom.xml"],
@@ -345,6 +486,10 @@ def test_patched_java_projects_pin_secured_runtime_families(pom_path: str) -> No
     )
     for coordinate, property_reference in MANAGED_RUNTIME_VERSIONS.items():
         assert managed_versions[coordinate] == [property_reference]
+
+    direct_versions = _dependency_versions(pom, "m:dependencies/m:dependency")
+    for coordinate, property_reference in MANAGED_RUNTIME_VERSIONS.items():
+        assert direct_versions[coordinate] == [property_reference]
 
 
 def test_snpeff_excludes_banned_commons_lang_from_biojava_structure() -> None:
@@ -398,3 +543,30 @@ def test_runtime_dependency_assertion_requires_every_fixed_coordinate(tmp_path: 
     result = _run_dependency_assertion(tmp_path, REQUIRED_RUNTIME_DEPENDENCIES[:-1])
     assert result.returncode != 0
     assert "log4j-slf4j-impl" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "malformed_dependency_line",
+    [
+        "[INFO] com.fasterxml.jackson.core:jackson-core:jar:2.22.1:runtime",
+        "com.fasterxml.jackson.core:jackson-core:jar:2.22.1:runtime unexpected-trailer",
+    ],
+)
+def test_runtime_dependency_assertion_rejects_malformed_coordinate_lines(
+    tmp_path: Path,
+    malformed_dependency_line: str,
+) -> None:
+    result = _run_dependency_assertion_output(
+        tmp_path,
+        [
+            malformed_dependency_line,
+            *[
+                f"   {dependency} -- module fake.module [auto]"
+                for dependency in REQUIRED_RUNTIME_DEPENDENCIES[1:]
+            ],
+        ],
+    )
+    assert result.returncode != 0
+    assert "Required runtime dependency missing: com.fasterxml.jackson.core:jackson-core" in (
+        result.stderr
+    )
