@@ -388,12 +388,43 @@ def test_dockerfile_routes_default_snpeff_databases_to_writable_data_storage() -
     config_path = "/opt/conda/share/snpeff-5.2-3/snpEff.config"
 
     assert f"snpeff_config={config_path}" in conda_build
+    assert "data_dir_pattern='^[[:space:]]*data[.]dir[[:space:]]*='" in conda_build
     assert "sed -i 's|^data.dir = \\./data/$|data.dir = /data/snpeff/|'" in conda_build
-    assert 'test "$(grep -c \'^data[.]dir = \' "$snpeff_config")" -eq 1' in conda_build
+    assert conda_build.count('test "$(grep -Ec "$data_dir_pattern" "$snpeff_config")" -eq 1') == 2
+    assert "grep -Fx 'data.dir = ./data/' \"$snpeff_config\"" in conda_build
     assert "grep -Fx 'data.dir = /data/snpeff/' \"$snpeff_config\"" in conda_build
     assert "mkdir -p /data/snpeff" in runtime
     assert "chown $MAMBA_USER:$MAMBA_USER /data /data/snpeff" in runtime
     assert "chmod 0750 /data /data/snpeff" in runtime
+
+
+@pytest.mark.parametrize(
+    "duplicate_assignment",
+    [
+        "data.dir=/shadow",
+        " data.dir = /shadow",
+        "\tdata.dir\t=\t/shadow",
+    ],
+)
+def test_snpeff_data_assignment_guard_counts_whitespace_variants(
+    tmp_path: Path, duplicate_assignment: str
+) -> None:
+    conda_build = _docker_stage(_text("Dockerfile"), "conda-build")
+    pattern_match = re.search(r"data_dir_pattern='([^']+)'", conda_build)
+    assert pattern_match is not None
+    config = tmp_path / "snpEff.config"
+    config.write_text(
+        f"# data.dir = ignored\ndata.dir = ./data/\n{duplicate_assignment}\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["grep", "-Ec", pattern_match.group(1), str(config)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout.strip() == "2"
 
 
 def test_dockerfile_removes_jdk_only_tools_and_rejects_javac() -> None:
@@ -456,8 +487,22 @@ def test_production_package_and_image_gate_both_default_json_configs() -> None:
     assert "[tool.setuptools.package-data]" in pyproject
     assert 'variantcentrifuge = ["config.json", "default_stats_config.json"]' in pyproject
     assert "from variantcentrifuge.config import load_config" in conda_build
+    assert 'package_dir.is_relative_to(Path("/opt/conda"))' in conda_build
+    assert 'not package_dir.is_relative_to(Path("/tmp/src"))' in conda_build
     assert "config = load_config()" in conda_build
     assert 'package_dir / "default_stats_config.json"' in conda_build
+
+
+def test_builder_removes_conda_test_payloads_before_the_runtime_copy() -> None:
+    conda_build = _docker_stage(_text("Dockerfile"), "conda-build")
+    runtime = _docker_stage(_text("Dockerfile"), "runtime")
+    cleanup = "rm -rf /opt/conda/etc/conda/test-files"
+    normalization = "chmod -R go-w /opt/conda"
+
+    assert cleanup in conda_build
+    assert "test ! -e /opt/conda/etc/conda/test-files" in conda_build
+    assert conda_build.index(cleanup) < conda_build.index(normalization)
+    assert runtime.index("COPY --from=conda-build") < runtime.index("USER $MAMBA_USER")
 
 
 def test_dockerfile_makes_runtime_payloads_immutable_to_the_service_user() -> None:
@@ -845,6 +890,21 @@ def test_container_image_contract_checks_default_snpeff_data_storage() -> None:
     assert "test -w /data/snpeff" in script
     assert "touch /data/snpeff/container-contract-write-test" in script
     assert "test ! -w /opt/conda/share/snpeff-5.2-3" in script
+    assert "test ! -e /opt/conda/etc/conda/test-files" in script
+
+
+def test_compose_and_installation_persist_the_default_snpeff_data_directory() -> None:
+    compose = _text("docker-compose.yml")
+    installation = _text("docs/source/installation.md")
+
+    assert "snpeff_data:/data/snpeff" in compose
+    assert "snpeff_data:/data/snpeff" in installation
+    assert "/snpeff_data" not in compose
+    assert "/snpeff_data" not in installation
+    for documentation in (compose, installation):
+        assert "first download" in documentation.lower()
+        assert "fully populated" in documentation.lower()
+        assert "snpeff_data:/data/snpeff:ro" in documentation
 
 
 def test_scoring_integration_requires_every_invoked_bioinformatics_tool() -> None:

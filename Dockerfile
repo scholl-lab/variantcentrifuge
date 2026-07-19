@@ -95,6 +95,8 @@ from variantcentrifuge.association.backends.davies import (
 from variantcentrifuge.config import load_config
 
 package_dir = Path(variantcentrifuge.__file__).resolve().parent
+assert package_dir.is_relative_to(Path("/opt/conda"))
+assert not package_dir.is_relative_to(Path("/tmp/src"))
 config = load_config()
 assert config["reference"]
 assert (package_dir / "default_stats_config.json").is_file()
@@ -132,10 +134,11 @@ COPY --from=java-build --chown=$MAMBA_USER:$MAMBA_USER /out/snpEff.jar /opt/cond
 COPY --from=java-build --chown=$MAMBA_USER:$MAMBA_USER /out/SnpSift.jar /opt/conda/share/snpsift-5.2-0/SnpSift.jar
 
 RUN snpeff_config=/opt/conda/share/snpeff-5.2-3/snpEff.config && \
-    test "$(grep -c '^data[.]dir = ' "$snpeff_config")" -eq 1 && \
+    data_dir_pattern='^[[:space:]]*data[.]dir[[:space:]]*=' && \
+    test "$(grep -Ec "$data_dir_pattern" "$snpeff_config")" -eq 1 && \
     grep -Fx 'data.dir = ./data/' "$snpeff_config" && \
     sed -i 's|^data.dir = \./data/$|data.dir = /data/snpeff/|' "$snpeff_config" && \
-    test "$(grep -c '^data[.]dir = ' "$snpeff_config")" -eq 1 && \
+    test "$(grep -Ec "$data_dir_pattern" "$snpeff_config")" -eq 1 && \
     grep -Fx 'data.dir = /data/snpeff/' "$snpeff_config"
 
 RUN python - <<'PY'
@@ -207,7 +210,9 @@ RUN java_path=$(readlink -f "$(command -v java)") && \
     done && \
     printf 'Final JVM bin inventory:\n%s\n' "$jvm_inventory" && \
     rm -rf /opt/conda/pkgs && \
+    rm -rf /opt/conda/etc/conda/test-files && \
     test ! -e /opt/conda/pkgs && \
+    test ! -e /opt/conda/etc/conda/test-files && \
     test -f /opt/conda/share/snpeff-5.2-3/snpEff.jar && \
     test -f /opt/conda/share/snpsift-5.2-0/SnpSift.jar && \
     jar_list=$(find /opt/conda -type f \( -name 'snpEff.jar' -o -name 'SnpSift.jar' \) -print | sort) && \

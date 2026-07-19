@@ -89,15 +89,23 @@ docker pull ghcr.io/scholl-lab/variantcentrifuge:latest
 docker run --rm ghcr.io/scholl-lab/variantcentrifuge:latest --version
 ```
 
-Place your VCF files in a local directory and mount it into the container:
+Place your VCF files in a local directory and mount it into the container. Use a named volume at
+`/data/snpeff` so downloaded SnpEff genome databases persist between runs:
 
 ```bash
-docker run --rm -v ./data:/data \
+docker volume create snpeff_data
+docker run --rm \
+  -v ./data:/data \
+  -v snpeff_data:/data/snpeff \
   ghcr.io/scholl-lab/variantcentrifuge:latest \
   --gene-name BRCA1 \
   --vcf-file /data/input.vcf.gz \
   --output-file /data/output.tsv
 ```
+
+Keep the SnpEff database mount writable for the first download of each required genome. After the
+volume is fully populated with every genome the workflow will use, it may optionally be mounted
+read-only as `snpeff_data:/data/snpeff:ro`. A read-only cache cannot download a missing genome.
 
 A `docker-compose.yml` is included in the repository for convenience:
 
@@ -107,10 +115,15 @@ services:
     image: ghcr.io/scholl-lab/variantcentrifuge:latest
     volumes:
       - ./data:/data
-      # Mount snpEff databases (download once, reuse)
-      # - /path/to/snpeff_data:/snpeff_data:ro
+      # Writable for the first download; persist and reuse SnpEff databases
+      - snpeff_data:/data/snpeff
+      # Optional only after every required genome is fully populated:
+      # - snpeff_data:/data/snpeff:ro
       # Override built-in scoring configs
       # - ./my_scoring:/app/scoring:ro
+
+volumes:
+  snpeff_data:
 ```
 
 ```bash

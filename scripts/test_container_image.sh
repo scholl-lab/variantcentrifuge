@@ -178,6 +178,7 @@ printf '%s\n' 'checking runtime filesystem inventory and immutability'
 docker run --rm --user 0:0 --entrypoint /bin/sh "$image_id" -c '
 set -eu
 test ! -e /opt/conda/pkgs
+test ! -e /opt/conda/etc/conda/test-files
 
 jar_inventory=$(find /opt/conda -type f \( -name snpEff.jar -o -name SnpSift.jar \) -print | sort)
 expected_jars=$(printf "%s\n%s" \
