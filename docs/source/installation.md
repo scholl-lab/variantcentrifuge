@@ -89,15 +89,23 @@ docker pull ghcr.io/scholl-lab/variantcentrifuge:latest
 docker run --rm ghcr.io/scholl-lab/variantcentrifuge:latest --version
 ```
 
-Place your VCF files in a local directory and mount it into the container:
+Place your VCF files in a local directory and mount it into the container. Use a named volume at
+`/data/snpeff` so downloaded SnpEff genome databases persist between runs:
 
 ```bash
-docker run --rm -v ./data:/data \
+docker volume create snpeff_data
+docker run --rm \
+  -v ./data:/data \
+  -v snpeff_data:/data/snpeff \
   ghcr.io/scholl-lab/variantcentrifuge:latest \
   --gene-name BRCA1 \
   --vcf-file /data/input.vcf.gz \
   --output-file /data/output.tsv
 ```
+
+Keep the SnpEff database mount writable for the first download of each required genome. After the
+volume is fully populated with every genome the workflow will use, it may optionally be mounted
+read-only as `snpeff_data:/data/snpeff:ro`. A read-only cache cannot download a missing genome.
 
 A `docker-compose.yml` is included in the repository for convenience:
 
@@ -107,10 +115,15 @@ services:
     image: ghcr.io/scholl-lab/variantcentrifuge:latest
     volumes:
       - ./data:/data
-      # Mount snpEff databases (download once, reuse)
-      # - /path/to/snpeff_data:/snpeff_data:ro
+      # Writable for the first download; persist and reuse SnpEff databases
+      - snpeff_data:/data/snpeff
+      # Optional only after every required genome is fully populated:
+      # - snpeff_data:/data/snpeff:ro
       # Override built-in scoring configs
       # - ./my_scoring:/app/scoring:ro
+
+volumes:
+  snpeff_data:
 ```
 
 ```bash
@@ -119,6 +132,26 @@ docker compose run --rm variantcentrifuge \
 ```
 
 The image runs as a non-root user, includes built-in scoring models at `/app/scoring/`, and is signed with cosign for supply chain security.
+
+#### Container Security and Vulnerability Reporting
+
+The container retains the Bioconda SnpEff and SnpSift 5.2 wrappers and configuration files for
+behavioral compatibility. Their JAR payloads are rebuilt from pinned 5.2 source commits with fixed
+runtime dependencies, and container smoke tests compare their behavior with the stock 5.2 tools.
+
+Each container workflow run produces two complementary vulnerability reports:
+
+- A complete Trivy JSON audit includes vendor-fixed and vendor-unfixed OS and library findings at
+  `UNKNOWN`, `LOW`, `MEDIUM`, `HIGH`, and `CRITICAL` severity. The workflow retains this artifact
+  for 90 days.
+- The actionable SARIF uploaded to GitHub code scanning and the blocking merge gate cover
+  vendor-fixed findings at all of those severities. The actionable scan uses `--ignore-unfixed` to
+  partition findings that have a vendor-provided fix; it does not mean that vendor-unfixed findings
+  are absent or remediated.
+
+This remediation does not use a `.trivyignore` file or dismiss code-scanning alerts. Vendor-unfixed
+findings remain visible in the complete JSON audit and become actionable automatically when vendor
+data identifies a fixed version.
 
 ## Verification
 

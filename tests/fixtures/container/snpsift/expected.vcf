@@ -1,0 +1,6 @@
+##fileformat=VCFv4.2
+##SnpSiftVersion="SnpSift 5.2 (build 2023-09-29 06:17), by Pablo Cingolani"
+##SnpSiftCmd="SnpSift Filter '( QUAL >= 20 )' input.vcf"
+##FILTER=<ID=SnpSift,Description="SnpSift 5.2 (build 2023-09-29 06:17), by Pablo Cingolani, Expression used: ( QUAL >= 20 )">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+1	4	.	G	T	50.0	PASS	.

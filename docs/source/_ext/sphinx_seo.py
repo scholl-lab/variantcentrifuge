@@ -10,7 +10,7 @@ This extension provides comprehensive SEO functionality including:
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import urljoin
 
 from docutils import nodes
@@ -29,7 +29,7 @@ class SEONode(nodes.General, nodes.Element):
     pass
 
 
-def get_git_timestamp(filepath: str) -> Optional[str]:
+def get_git_timestamp(filepath: str) -> str | None:
     """Get last modified timestamp from git for a file."""
     try:
         import subprocess
@@ -45,7 +45,7 @@ def get_git_timestamp(filepath: str) -> Optional[str]:
         return None
 
 
-def generate_software_application_schema(config) -> Dict[str, Any]:
+def generate_software_application_schema(config) -> dict[str, Any]:
     """Generate SoftwareApplication schema for the main tool."""
     return {
         "@context": "https://schema.org",
@@ -84,8 +84,8 @@ def generate_software_application_schema(config) -> Dict[str, Any]:
 
 
 def generate_how_to_schema(
-    title: str, description: str, steps: List[Dict[str, str]]
-) -> Dict[str, Any]:
+    title: str, description: str, steps: list[dict[str, str]]
+) -> dict[str, Any]:
     """Generate HowTo schema for guide pages."""
     return {
         "@context": "https://schema.org",
@@ -111,7 +111,7 @@ def generate_how_to_schema(
     }
 
 
-def generate_faq_schema(faqs: List[Dict[str, str]]) -> Dict[str, Any]:
+def generate_faq_schema(faqs: list[dict[str, str]]) -> dict[str, Any]:
     """Generate FAQPage schema."""
     return {
         "@context": "https://schema.org",
@@ -127,7 +127,7 @@ def generate_faq_schema(faqs: List[Dict[str, str]]) -> Dict[str, Any]:
     }
 
 
-def generate_breadcrumb_schema(app: Sphinx, pagename: str) -> Dict[str, Any]:
+def generate_breadcrumb_schema(app: Sphinx, pagename: str) -> dict[str, Any]:
     """Generate BreadcrumbList schema for navigation."""
     parts = pagename.split("/")
     base_url = app.config.html_baseurl.rstrip("/")
@@ -181,10 +181,7 @@ def process_seo_metadata(app: Sphinx, doctree: nodes.document, docname: str) -> 
 
     # Extract title
     title = app.env.titles.get(docname, nodes.Text("")).astext()
-    if not title:
-        title = "VariantCentrifuge Documentation"
-    else:
-        title = f"{title} - VariantCentrifuge"
+    title = "VariantCentrifuge Documentation" if not title else f"{title} - VariantCentrifuge"
 
     # Extract or generate description
     description = extract_description(doctree)
@@ -257,7 +254,7 @@ def process_seo_metadata(app: Sphinx, doctree: nodes.document, docname: str) -> 
 
 
 def insert_seo_tags(
-    app: Sphinx, pagename: str, templatename: str, context: Dict[str, Any], doctree: nodes.document
+    app: Sphinx, pagename: str, templatename: str, context: dict[str, Any], doctree: nodes.document
 ) -> None:
     """Insert SEO tags into HTML context."""
     if not hasattr(app.env, "seo_metadata"):
@@ -306,15 +303,13 @@ def insert_seo_tags(
     if metadata.get("schemas"):
         for schema in metadata["schemas"]:
             metatags += (
-                '<script type="application/ld+json">\n'
-                f"{json.dumps(schema, indent=2)}\n"
-                "</script>\n"
+                f'<script type="application/ld+json">\n{json.dumps(schema, indent=2)}\n</script>\n'
             )
 
     context["metatags"] = metatags
 
 
-def generate_sitemap(app: Sphinx, exception: Optional[Exception]) -> None:
+def generate_sitemap(app: Sphinx, exception: Exception | None) -> None:
     """Generate sitemap.xml after build."""
     if exception is not None:
         return
@@ -359,10 +354,10 @@ def generate_sitemap(app: Sphinx, exception: Optional[Exception]) -> None:
 
     for page in pages:
         sitemap_content += "  <url>\n"
-        sitemap_content += f'    <loc>{page["loc"]}</loc>\n'
-        sitemap_content += f'    <lastmod>{page["lastmod"]}</lastmod>\n'
-        sitemap_content += f'    <changefreq>{page["changefreq"]}</changefreq>\n'
-        sitemap_content += f'    <priority>{page["priority"]}</priority>\n'
+        sitemap_content += f"    <loc>{page['loc']}</loc>\n"
+        sitemap_content += f"    <lastmod>{page['lastmod']}</lastmod>\n"
+        sitemap_content += f"    <changefreq>{page['changefreq']}</changefreq>\n"
+        sitemap_content += f"    <priority>{page['priority']}</priority>\n"
         sitemap_content += "  </url>\n"
 
     sitemap_content += "</urlset>\n"
@@ -380,7 +375,7 @@ def generate_sitemap(app: Sphinx, exception: Optional[Exception]) -> None:
         logger.info("Copied robots.txt to output directory")
 
 
-def setup(app: Sphinx) -> Dict[str, Any]:
+def setup(app: Sphinx) -> dict[str, Any]:
     """Set up the SEO extension."""
     app.add_config_value("seo_description", "", "html")
     app.add_config_value("seo_keywords", [], "html")

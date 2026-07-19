@@ -7,11 +7,18 @@ on:
   pull_request:
     paths:
       - "Dockerfile"
+      - "docker/**"
       - "docker-compose.yml"
       - ".dockerignore"
       - "conda/environment-docker.yml"
+      - "scripts/test_container_image.sh"
+      - "scripts/summarize_trivy.py"
+      - "tests/fixtures/container/**"
       - "variantcentrifuge/**"
       - "pyproject.toml"
+      - "setup.py"
+      - "README.md"
+      - "LICENSE"
       - "scoring/**"
       - "stats_configs/**"
       - ".github/workflows/docker.yml"
@@ -19,27 +26,134 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  LOCAL_IMAGE: variantcentrifuge:ci-${{ github.sha }}
 
 permissions:
   contents: read
   packages: write
   security-events: write
-  id-token: write  # for cosign keyless signing
 
 jobs:
-  build:
+  scan:
     runs-on: ubuntu-latest
     outputs:
-      image-digest: ${{ steps.build-push.outputs.digest }}
+      image-digest: ${{ steps.publish.outputs.digest }}
       image-tags: ${{ steps.meta.outputs.tags }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
-      - name: Log in to GHCR
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build production image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          push: false
+          tags: |
+            ${{ env.LOCAL_IMAGE }}
+            ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Record production image ID
+        id: production-image
+        run: |
+          image_id=$(docker image inspect --format '{{.Id}}' "${LOCAL_IMAGE}")
+          [[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "id=${image_id}" >> "${GITHUB_OUTPUT}"
+
+      - name: Test production image
+        run: bash scripts/test_container_image.sh "${LOCAL_IMAGE}"
+
+      - name: Generate complete vulnerability report
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          format: json
+          output: trivy-complete.json
+          scanners: vuln
+          vuln-type: os,library
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          exit-code: "0"
+          version: v0.70.0
+
+      - name: Upload complete vulnerability report
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: trivy-complete-${{ github.sha }}
+          path: trivy-complete.json
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Generate actionable SARIF report
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          format: sarif
+          output: trivy-actionable.sarif
+          scanners: vuln
+          vuln-type: os,library
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+          version: v0.70.0
+
+      - name: Upload actionable SARIF report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4.37.1
+        with:
+          sarif_file: trivy-actionable.sarif
+
+      - name: Generate actionable vulnerability report
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          format: json
+          output: trivy-actionable.json
+          scanners: vuln
+          vuln-type: os,library
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+          version: v0.70.0
+
+      - name: Summarize vulnerability reports
+        run: |
+          python scripts/summarize_trivy.py trivy-complete.json trivy-actionable.json \
+            | tee -a "${GITHUB_STEP_SUMMARY}"
+
+      - name: Enforce zero vendor-fixed vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          format: table
+          scanners: vuln
+          vuln-type: os,library
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          version: v0.70.0
+
+      - name: Log in to GHCR for publication
         if: github.event_name != 'pull_request'
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -52,69 +166,54 @@ jobs:
           done
           exit 1
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push
-        id: build-push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  scan:
-    needs: build
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Log in to GHCR
+      - name: Push tested production image
+        id: publish
+        if: github.event_name != 'pull_request'
         env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          METADATA_TAGS: ${{ steps.meta.outputs.tags }}
+          PRODUCTION_IMAGE_ID: ${{ steps.production-image.outputs.id }}
         run: |
-          for attempt in 1 2 3; do
-            if echo "${GHCR_TOKEN}" | docker login "${REGISTRY}" -u "${GITHUB_ACTOR}" --password-stdin; then
-              exit 0
+          [[ $PRODUCTION_IMAGE_ID =~ ^sha256:[0-9a-f]{64}$ ]]
+          local_image_id=$(docker image inspect --format '{{.Id}}' "${LOCAL_IMAGE}")
+          [[ $local_image_id == "$PRODUCTION_IMAGE_ID" ]]
+
+          first_tag=
+          while IFS= read -r tag; do
+            [[ -n $tag ]] || continue
+            if [[ -z $first_tag ]]; then
+              first_tag=$tag
             fi
-            sleep $((attempt * 10))
-          done
-          exit 1
+            tag_image_id=$(docker image inspect --format '{{.Id}}' "$tag")
+            [[ $tag_image_id == "$PRODUCTION_IMAGE_ID" ]]
+          done <<< "${METADATA_TAGS}"
 
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.image-digest }}
-          format: sarif
-          output: trivy-results.sarif
-          exit-code: "0"  # report only, don't fail (base image CVEs not actionable)
+          [[ -n $first_tag ]]
+          while IFS= read -r tag; do
+            [[ -n $tag ]] || continue
+            docker push "$tag"
+          done <<< "${METADATA_TAGS}"
 
-      - name: Upload Trivy results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: trivy-results.sarif
+          repository="${REGISTRY}/${IMAGE_NAME}"
+          matching_digests=()
+          while IFS= read -r repository_digest; do
+            if [[ $repository_digest == "${repository}@sha256:"* ]]; then
+              matching_digests+=("$repository_digest")
+            fi
+          done < <(
+            docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$first_tag"
+          )
+          [[ ${#matching_digests[@]} -eq 1 ]]
+          digest=${matching_digests[0]#"${repository}@"}
+          [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
 
   sign:
-    needs: build
+    needs: scan
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      id-token: write
     steps:
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
@@ -133,5 +232,5 @@ jobs:
 
       - name: Sign the image
         env:
-          DIGEST: ${{ needs.build.outputs.image-digest }}
+          DIGEST: ${{ needs.scan.outputs.image-digest }}
         run: cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"

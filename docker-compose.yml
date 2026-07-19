@@ -6,8 +6,13 @@ services:
       # Working directory — place your VCF files here
       - ./data:/data
 
-      # snpEff genome databases (download once, mount read-only)
-      # - /path/to/snpeff_data:/snpeff_data:ro
+      # Keep this persistent cache writable for the first download.
+      - snpeff_data:/data/snpeff
+      # Once every required genome is fully populated, the mount may instead be read-only:
+      # - snpeff_data:/data/snpeff:ro
 
       # Custom scoring configurations (override built-in models)
       # - ./my_scoring:/app/scoring:ro
+
+volumes:
+  snpeff_data:

@@ -383,7 +383,7 @@ def _check_dominant_vectorized(
 
     # Check father contribution
     father_has_variant_mask = np.zeros(len(sample_gts), dtype=bool)
-    father_affected = np.bool_(False)
+    father_affected: np.bool_ = np.bool_(False)
     father_data_complete = np.ones(len(sample_gts), dtype=bool)
 
     if father_id and father_gts is not None:
@@ -393,7 +393,7 @@ def _check_dominant_vectorized(
 
     # Check mother contribution
     mother_has_variant_mask = np.zeros(len(sample_gts), dtype=bool)
-    mother_affected = np.bool_(False)
+    mother_affected: np.bool_ = np.bool_(False)
     mother_data_complete = np.ones(len(sample_gts), dtype=bool)
 
     if mother_id and mother_gts is not None:

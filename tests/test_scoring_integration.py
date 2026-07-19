@@ -8,6 +8,20 @@ import tempfile
 import pandas as pd
 import pytest
 
+# These tests execute the installed CLI and its external bioinformatics pipeline.
+_REQUIRED_EXECUTABLES = (
+    "variantcentrifuge",
+    "bcftools",
+    "snpEff",
+    "SnpSift",
+    "bedtools",
+    "sortBed",
+    "bgzip",
+)
+_MISSING_EXECUTABLES = tuple(
+    executable for executable in _REQUIRED_EXECUTABLES if shutil.which(executable) is None
+)
+
 # Check if we can run the full pipeline
 try:
     import statsmodels  # noqa: F401
@@ -21,6 +35,10 @@ except ImportError:
 pytestmark = [
     pytest.mark.skipif(
         not STATSMODELS_AVAILABLE, reason="statsmodels is required for integration tests"
+    ),
+    pytest.mark.skipif(
+        bool(_MISSING_EXECUTABLES),
+        reason=f"required executables not found: {', '.join(_MISSING_EXECUTABLES)}",
     ),
     pytest.mark.slow,  # These tests require bcftools, snpEff, SnpSift, bedtools
 ]
@@ -214,7 +232,10 @@ def test_scoring_with_all_genes(annotated_vcf, scoring_config_dir, temp_output_d
     "impact_filter,expected_min_variants",
     [
         ("ANN[0].IMPACT = 'HIGH'", 1),  # At least some HIGH impact variants
-        ("ANN[0].IMPACT IN ('HIGH', 'MODERATE')", 2),  # More variants with HIGH or MODERATE
+        (
+            "ANN[0].IMPACT = 'HIGH' | ANN[0].IMPACT = 'MODERATE'",
+            2,
+        ),  # More variants with HIGH or MODERATE
         ("1", 5),  # No filter (always true), should have many variants
     ],
 )

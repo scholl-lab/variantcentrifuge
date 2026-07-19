@@ -26,7 +26,7 @@ dependencies = [
     "numpy",
     "intervaltree",
     "psutil",
-    "smart-open",
+    "smart-open<8",
     "openpyxl",
     "xlsxwriter>=3.0",
     "cffi",
@@ -35,11 +35,13 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "mypy>=1.10",
+    "numpy<2.5",
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "pytest-mock>=3.14",
     "pytest-benchmark>=5.1.0",
     "ruff>=0.11",
+    "tomli>=2.0; python_version < '3.11'",
     "pre-commit",
 ]
 
@@ -53,6 +55,9 @@ version = {attr = "variantcentrifuge.version.__version__"}
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["variantcentrifuge*"]
+
+[tool.setuptools.package-data]
+variantcentrifuge = ["config.json", "default_stats_config.json"]
 
 [tool.pytest.ini_options]
 # Test file patterns
