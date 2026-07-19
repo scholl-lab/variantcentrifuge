@@ -150,6 +150,15 @@ def _text(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
 
 
+def _workflow_step(workflow: str, name: str, next_name: str) -> str:
+    """Return one workflow step, bounded by two unique step names."""
+    start_marker = f"      - name: {name}\n"
+    end_marker = f"      - name: {next_name}\n"
+    assert workflow.count(start_marker) == 1
+    assert workflow.count(end_marker) == 1
+    return workflow.split(start_marker, maxsplit=1)[1].split(end_marker, maxsplit=1)[0]
+
+
 def _docker_stage(dockerfile: str, stage: str) -> str:
     marker = f" AS {stage}\n"
     assert marker in dockerfile
@@ -380,7 +389,7 @@ def test_dockerfile_removes_jdk_only_tools_and_rejects_javac() -> None:
     assert "jspawnhelper" not in conda_build
     assert 'find "$jvm_bin" -mindepth 1 -maxdepth 1' in conda_build
     assert 'rm -f "$jvm_bin/$tool"' in conda_build
-    assert 'for link in /opt/conda/bin/*' in conda_build
+    assert "for link in /opt/conda/bin/*" in conda_build
     assert 'readlink "$link"' in conda_build
     assert 'rm -rf "$jvm_home/include" "$jvm_home/jmods"' in conda_build
     assert 'rm -f "$jvm_home/src.zip" "$jvm_home/lib/src.zip"' in conda_build
@@ -400,27 +409,17 @@ def test_dockerfile_final_user_is_the_micromamba_user() -> None:
 def test_dockerfile_preserves_the_runtime_interface() -> None:
     dockerfile = _text("Dockerfile")
     assert "WORKDIR /data" in dockerfile
-    assert (
-        'CMD ["/opt/conda/bin/variantcentrifuge", "--version"]' in dockerfile
-    )
-    assert (
-        'ENTRYPOINT ["/usr/local/bin/_entrypoint.sh", "variantcentrifuge"]'
-        in dockerfile
-    )
+    assert 'CMD ["/opt/conda/bin/variantcentrifuge", "--version"]' in dockerfile
+    assert 'ENTRYPOINT ["/usr/local/bin/_entrypoint.sh", "variantcentrifuge"]' in dockerfile
     assert 'CMD ["--help"]' in dockerfile
     assert "COPY --chown=0:0 LICENSE /app/LICENSE" in dockerfile
     assert "COPY --chown=0:0 scoring/ /app/scoring/" in dockerfile
-    assert (
-        "COPY --chown=0:0 stats_configs/ /app/stats_configs/"
-        in dockerfile
-    )
+    assert "COPY --chown=0:0 stats_configs/ /app/stats_configs/" in dockerfile
 
 
 def test_dockerfile_build_gates_all_python_runtime_paths() -> None:
     conda_build = _docker_stage(_text("Dockerfile"), "conda-build")
-    assert "COPY --chown=$MAMBA_USER:$MAMBA_USER pyproject.toml README.md setup.py" in (
-        conda_build
-    )
+    assert "COPY --chown=$MAMBA_USER:$MAMBA_USER pyproject.toml README.md setup.py" in (conda_build)
     assert "/opt/conda/bin/python -m pip check" in conda_build
     for required_import in (
         "import cffi",
@@ -441,20 +440,14 @@ def test_dockerfile_makes_runtime_payloads_immutable_to_the_service_user() -> No
     runtime = _docker_stage(_text("Dockerfile"), "runtime")
     conda_mode_normalization = "chmod -R go-w /opt/conda"
     assert conda_mode_normalization in conda_build
-    assert conda_build.index("! command -v javac") < conda_build.index(
-        conda_mode_normalization
-    )
-    runtime_copy = (
-        "COPY --from=conda-build --chown=root:root /opt/conda /opt/conda"
-    )
+    assert conda_build.index("! command -v javac") < conda_build.index(conda_mode_normalization)
+    runtime_copy = "COPY --from=conda-build --chown=root:root /opt/conda /opt/conda"
     runtime_mountpoint_normalization = "RUN chmod go-w /opt/conda"
     assert runtime_mountpoint_normalization in runtime
     assert runtime_copy in runtime
     assert runtime.index(runtime_mountpoint_normalization) < runtime.index(runtime_copy)
     after_runtime_copy = runtime.split(runtime_copy, maxsplit=1)[1].replace("\\\n", " ")
-    assert not re.search(
-        r"\b(?:chmod|chown)\s+-R\b[^\n]*\b/opt/conda\b", after_runtime_copy
-    )
+    assert not re.search(r"\b(?:chmod|chown)\s+-R\b[^\n]*\b/opt/conda\b", after_runtime_copy)
     assert "chmod -R go-w /app" in runtime
     assert "! -type l -a -perm /022" in runtime
     assert "chown $MAMBA_USER:$MAMBA_USER /data" in runtime
@@ -466,14 +459,8 @@ def test_dockerfile_validates_both_executable_multi_release_manifests() -> None:
     conda_build = _docker_stage(_text("Dockerfile"), "conda-build")
     assert "python - <<'PY'" in conda_build
     assert "zipfile.ZipFile" in conda_build
-    assert (
-        '"/opt/conda/share/snpeff-5.2-3/snpEff.jar": "org.snpeff.SnpEff"'
-        in conda_build
-    )
-    assert (
-        '"/opt/conda/share/snpsift-5.2-0/SnpSift.jar": "org.snpsift.SnpSift"'
-        in conda_build
-    )
+    assert '"/opt/conda/share/snpeff-5.2-3/snpEff.jar": "org.snpeff.SnpEff"' in conda_build
+    assert '"/opt/conda/share/snpsift-5.2-0/SnpSift.jar": "org.snpsift.SnpSift"' in conda_build
     assert 'manifest.get("Main-Class") == expected_main_class' in conda_build
     assert 'manifest.get("Multi-Release") == "true"' in conda_build
 
@@ -484,9 +471,7 @@ def test_dockerfile_verifies_both_java_projects_and_runtime_dependencies() -> No
     assert "mvn -B verify -DskipTests" not in java_build
     assert "mvn -B install -DskipTests -Dassembly.skipAssembly=true" in java_build
     assert "mvn -B install -DskipTests &&" not in java_build
-    assert java_build.count(
-        "/usr/local/bin/assert-runtime-dependencies.sh /build/"
-    ) == 2
+    assert java_build.count("/usr/local/bin/assert-runtime-dependencies.sh /build/") == 2
     assert java_build.count("*-jar-with-dependencies.jar") == 3
     assert "verified_sha256=$(sha256sum" in java_build
     assert "installed_sha256=$(sha256sum" in java_build
@@ -523,12 +508,14 @@ def test_patched_java_projects_build_executable_release_5_2_jars(
         )
         == expected_main_class
     )
-    assert assembly.findtext(
-        "m:executions/m:execution/m:phase", namespaces=MAVEN_NAMESPACE
-    ) == "package"
-    assert assembly.findtext(
-        "m:executions/m:execution/m:goals/m:goal", namespaces=MAVEN_NAMESPACE
-    ) == "single"
+    assert (
+        assembly.findtext("m:executions/m:execution/m:phase", namespaces=MAVEN_NAMESPACE)
+        == "package"
+    )
+    assert (
+        assembly.findtext("m:executions/m:execution/m:goals/m:goal", namespaces=MAVEN_NAMESPACE)
+        == "single"
+    )
     assert (
         assembly.findtext(
             "m:configuration/m:archive/m:manifestEntries/m:Multi-Release",
@@ -579,9 +566,7 @@ def test_snpeff_verify_runs_only_hermetic_upstream_and_compatibility_tests() -> 
     surefire = _plugin(pom, "maven-surefire-plugin")
     includes = {
         element.text
-        for element in surefire.findall(
-            "m:configuration/m:includes/m:include", MAVEN_NAMESPACE
-        )
+        for element in surefire.findall("m:configuration/m:includes/m:include", MAVEN_NAMESPACE)
     }
     assert includes == {
         "org/snpeff/snpEffect/testCases/unity/*.java",
@@ -589,9 +574,7 @@ def test_snpeff_verify_runs_only_hermetic_upstream_and_compatibility_tests() -> 
     }
     excludes = {
         element.text
-        for element in surefire.findall(
-            "m:configuration/m:excludes/m:exclude", MAVEN_NAMESPACE
-        )
+        for element in surefire.findall("m:configuration/m:excludes/m:exclude", MAVEN_NAMESPACE)
     }
     assert excludes == {
         "org/snpeff/snpEffect/testCases/unity/TestCasesCytoBands.java",
@@ -611,10 +594,7 @@ def test_patched_java_projects_keep_junit_dependencies_test_only(pom_path: str) 
     }
     assert dependencies.keys() >= JUNIT_COORDINATES
     for coordinate in JUNIT_COORDINATES:
-        assert (
-            dependencies[coordinate].findtext("m:scope", namespaces=MAVEN_NAMESPACE)
-            == "test"
-        )
+        assert dependencies[coordinate].findtext("m:scope", namespaces=MAVEN_NAMESPACE) == "test"
 
 
 def test_snpsift_uses_the_locally_patched_snpeff_release() -> None:
@@ -633,9 +613,7 @@ def test_snpsift_reclassifies_upstream_tests_as_test_sources() -> None:
     compiler = _plugin(pom, "maven-compiler-plugin")
     main_excludes = {
         element.text
-        for element in compiler.findall(
-            "m:configuration/m:excludes/m:exclude", MAVEN_NAMESPACE
-        )
+        for element in compiler.findall("m:configuration/m:excludes/m:exclude", MAVEN_NAMESPACE)
     }
     assert main_excludes == {"org/snpsift/testCases/**"}
 
@@ -653,9 +631,7 @@ def test_snpsift_verify_runs_only_archive_contained_upstream_tests() -> None:
     surefire = _plugin(pom, "maven-surefire-plugin")
     includes = {
         element.text
-        for element in surefire.findall(
-            "m:configuration/m:includes/m:include", MAVEN_NAMESPACE
-        )
+        for element in surefire.findall("m:configuration/m:includes/m:include", MAVEN_NAMESPACE)
     }
     assert includes == {
         f"org/snpsift/testCases/unit/{test_class}.java"
@@ -735,9 +711,7 @@ def test_snpeff_excludes_banned_commons_lang_from_biojava_structure() -> None:
     biojava_structure = dependencies[("org.biojava", "biojava-structure")]
     exclusions = {
         _coordinate(exclusion)
-        for exclusion in biojava_structure.findall(
-            "m:exclusions/m:exclusion", MAVEN_NAMESPACE
-        )
+        for exclusion in biojava_structure.findall("m:exclusions/m:exclusion", MAVEN_NAMESPACE)
     }
     assert ("commons-lang", "commons-lang") in exclusions
 
@@ -813,10 +787,7 @@ def test_runtime_dependency_assertion_rejects_malformed_coordinate_lines(
 
 def test_container_image_contract_resolves_one_immutable_image_id() -> None:
     script = _text("scripts/test_container_image.sh")
-    assert (
-        "image_id=$(docker image inspect --format '{{.Id}}' \"$image_ref\")"
-        in script
-    )
+    assert "image_id=$(docker image inspect --format '{{.Id}}' \"$image_ref\")" in script
     assert "[[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]]" in script
     assert script.count('"$image_ref"') == 2
     assert script.count('"$image_id"') >= 10
@@ -838,6 +809,206 @@ def test_container_image_contract_scans_broadly_for_build_executables() -> None:
     assert '\\( -type f -o -type l \\) -executable -printf "%p\\n"' in script
     assert (
         'compiler_name_pattern="(^|.*-)(gcc|g\\+\\+|cc|c\\+\\+|clang|clang\\+\\+|'
-        'javac|mvn|mvnDebug|maven)(-?[0-9]+([.][0-9]+)*)?$"'
-        in script
+        'javac|mvn|mvnDebug|maven)(-?[0-9]+([.][0-9]+)*)?$"' in script
     )
+
+
+def test_docker_workflow_preserves_scan_job_and_scans_pull_requests() -> None:
+    workflow = _text(".github/workflows/docker.yml")
+    assert "\n  build:\n" not in workflow
+    scan_job = workflow.split("\n  scan:\n", maxsplit=1)[1].split("\n  sign:\n", maxsplit=1)[0]
+    scan_header = scan_job.split("    steps:\n", maxsplit=1)[0]
+    assert "needs: build" not in scan_job
+    assert "if: github.event_name != 'pull_request'" not in scan_header
+    assert "LOCAL_IMAGE: variantcentrifuge:ci-${{ github.sha }}" in workflow
+
+
+def test_docker_workflow_pull_request_paths_cover_container_inputs() -> None:
+    workflow = _text(".github/workflows/docker.yml")
+    pull_request = workflow.split("  pull_request:\n", maxsplit=1)[1].split("\nenv:\n", maxsplit=1)[
+        0
+    ]
+    for path in (
+        '      - "docker/**"',
+        '      - "scripts/test_container_image.sh"',
+        '      - "tests/fixtures/container/**"',
+    ):
+        assert path in pull_request
+
+
+def test_docker_workflow_builds_and_tests_one_local_production_image() -> None:
+    workflow = _text(".github/workflows/docker.yml")
+    build = _workflow_step(workflow, "Build production image", "Test production image")
+    assert workflow.count("uses: docker/build-push-action@v6") == 1
+    assert "load: true" in build
+    assert "push: false" in build
+    assert "${{ env.LOCAL_IMAGE }}" in build
+    assert "${{ steps.meta.outputs.tags }}" in build
+    smoke = _workflow_step(
+        workflow,
+        "Test production image",
+        "Generate complete vulnerability report",
+    )
+    assert 'run: bash scripts/test_container_image.sh "${LOCAL_IMAGE}"' in smoke
+    assert workflow.index("- name: Test production image") < workflow.index(
+        "- name: Generate complete vulnerability report"
+    )
+    assert workflow.index("- name: Test production image") < workflow.index(
+        "- name: Generate actionable SARIF report"
+    )
+
+
+def test_docker_workflow_retains_complete_all_severity_audit() -> None:
+    workflow = _text(".github/workflows/docker.yml")
+    complete = _workflow_step(
+        workflow,
+        "Generate complete vulnerability report",
+        "Upload complete vulnerability report",
+    )
+    for setting in (
+        "uses: aquasecurity/trivy-action@v0.36.0",
+        "image-ref: ${{ env.LOCAL_IMAGE }}",
+        "format: json",
+        "output: trivy-complete.json",
+        "scanners: vuln",
+        "vuln-type: os,library",
+        "severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
+        'exit-code: "0"',
+        "trivy-version: v0.70.0",
+    ):
+        assert setting in complete
+    assert "ignore-unfixed" not in complete
+
+    upload = _workflow_step(
+        workflow,
+        "Upload complete vulnerability report",
+        "Generate actionable SARIF report",
+    )
+    assert "if: always()" in upload
+    assert "uses: actions/upload-artifact@v7.0.1" in upload
+    assert "path: trivy-complete.json" in upload
+    assert "retention-days: 90" in upload
+
+
+def test_docker_workflow_uploads_actionable_all_severity_sarif() -> None:
+    workflow = _text(".github/workflows/docker.yml")
+    sarif = _workflow_step(
+        workflow,
+        "Generate actionable SARIF report",
+        "Upload actionable SARIF report",
+    )
+    for setting in (
+        "uses: aquasecurity/trivy-action@v0.36.0",
+        "image-ref: ${{ env.LOCAL_IMAGE }}",
+        "format: sarif",
+        "output: trivy-actionable.sarif",
+        "scanners: vuln",
+        "vuln-type: os,library",
+        "severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
+        "ignore-unfixed: true",
+        'exit-code: "0"',
+        "trivy-version: v0.70.0",
+    ):
+        assert setting in sarif
+
+    upload = _workflow_step(
+        workflow,
+        "Upload actionable SARIF report",
+        "Generate actionable vulnerability report",
+    )
+    assert "if: always()" in upload
+    assert "uses: github/codeql-action/upload-sarif@v4.37.1" in upload
+    assert "sarif_file: trivy-actionable.sarif" in upload
+
+
+def test_docker_workflow_summarizes_actionable_json_before_authoritative_gate() -> None:
+    workflow = _text(".github/workflows/docker.yml")
+    actionable = _workflow_step(
+        workflow,
+        "Generate actionable vulnerability report",
+        "Summarize vulnerability reports",
+    )
+    for setting in (
+        "format: json",
+        "output: trivy-actionable.json",
+        "ignore-unfixed: true",
+        'exit-code: "0"',
+    ):
+        assert setting in actionable
+    summary = _workflow_step(
+        workflow,
+        "Summarize vulnerability reports",
+        "Enforce zero vendor-fixed vulnerabilities",
+    )
+    assert "python scripts/summarize_trivy.py trivy-complete.json trivy-actionable.json" in summary
+    assert '| tee -a "${GITHUB_STEP_SUMMARY}"' in summary
+
+
+def test_docker_workflow_final_gate_blocks_every_fixed_vulnerability() -> None:
+    workflow = _text(".github/workflows/docker.yml")
+    gate = _workflow_step(
+        workflow,
+        "Enforce zero vendor-fixed vulnerabilities",
+        "Log in to GHCR for publication",
+    )
+    for setting in (
+        "uses: aquasecurity/trivy-action@v0.36.0",
+        "image-ref: ${{ env.LOCAL_IMAGE }}",
+        "format: table",
+        "scanners: vuln",
+        "vuln-type: os,library",
+        "severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
+        "ignore-unfixed: true",
+        'exit-code: "1"',
+        "trivy-version: v0.70.0",
+    ):
+        assert setting in gate
+
+
+def test_every_docker_workflow_trivy_call_has_the_same_scanner_scope() -> None:
+    workflow = _text(".github/workflows/docker.yml")
+    trivy_steps = workflow.split("uses: aquasecurity/trivy-action@v0.36.0")[1:]
+    assert len(trivy_steps) == 4
+    for step in trivy_steps:
+        step = step.split("\n      - name:", maxsplit=1)[0]
+        assert "scanners: vuln" in step
+        assert "vuln-type: os,library" in step
+        assert "severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL" in step
+        assert "trivy-version: v0.70.0" in step
+
+
+def test_docker_workflow_publishes_only_after_the_gate_without_rebuilding() -> None:
+    workflow = _text(".github/workflows/docker.yml")
+    gate_index = workflow.index("- name: Enforce zero vendor-fixed vulnerabilities")
+    login_index = workflow.index("- name: Log in to GHCR for publication")
+    publish_index = workflow.index("- name: Push tested production image")
+    assert gate_index < login_index < publish_index
+    assert workflow.count("uses: docker/build-push-action@v6") == 1
+
+    login = _workflow_step(
+        workflow, "Log in to GHCR for publication", "Push tested production image"
+    )
+    assert "if: github.event_name != 'pull_request'" in login
+    assert "for attempt in 1 2 3" in login
+    publish = _workflow_step(workflow, "Push tested production image", "Install cosign")
+    assert "id: publish" in publish
+    assert "if: github.event_name != 'pull_request'" in publish
+    assert "${{ steps.meta.outputs.tags }}" in publish
+    assert 'docker push "$tag"' in publish
+    assert "docker image inspect" in publish
+    assert "^sha256:[0-9a-f]{64}$" in publish
+    assert 'echo "digest=${digest}" >> "${GITHUB_OUTPUT}"' in publish
+
+
+def test_docker_workflow_exports_scan_outputs_and_signs_only_published_images() -> None:
+    workflow = _text(".github/workflows/docker.yml")
+    scan = workflow.split("\n  scan:\n", maxsplit=1)[1].split("\n  sign:\n", maxsplit=1)[0]
+    assert "image-digest: ${{ steps.publish.outputs.digest }}" in scan
+    assert "image-tags: ${{ steps.meta.outputs.tags }}" in scan
+
+    sign = workflow.split("\n  sign:\n", maxsplit=1)[1]
+    assert "needs: scan" in sign
+    assert "needs: build" not in sign
+    assert "if: github.event_name != 'pull_request'" in sign
+    assert "DIGEST: ${{ needs.scan.outputs.image-digest }}" in sign
+    assert 'cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"' in sign
