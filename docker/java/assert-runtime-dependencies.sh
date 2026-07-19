@@ -15,7 +15,8 @@ fi
 resolved_dependencies=$(mktemp)
 trap 'rm -f "$resolved_dependencies"' EXIT
 
-mvn -B -f "$project_directory/pom.xml" dependency:list \
+mvn -B -f "$project_directory/pom.xml" \
+    org.apache.maven.plugins:maven-dependency-plugin:3.7.0:list \
     -DincludeScope=runtime \
     -DoutputFile="$resolved_dependencies" \
     -DappendOutput=false

@@ -200,16 +200,6 @@
       <name>Public NIH repository</name>
       <url>https://ncimvn.nci.nih.gov/nexus/content/groups/public/</url>
     </repository>
-    <repository>
-      <id>typesafe</id>
-      <name>Typesafe Repository</name>
-      <url>http://repo.typesafe.com/typesafe/releases/</url>
-    </repository>
-    <repository>
-      <id>hadoop-bam</id>
-      <name>Hadoop-BAM</name>
-      <url>http://hadoop-bam.sourceforge.net/maven/</url>
-    </repository>
   </repositories>
 
   <build>
@@ -286,6 +276,7 @@
           <descriptorRefs><descriptorRef>jar-with-dependencies</descriptorRef></descriptorRefs>
           <archive>
             <manifest><mainClass>org.snpsift.SnpSift</mainClass></manifest>
+            <manifestEntries><Multi-Release>true</Multi-Release></manifestEntries>
           </archive>
         </configuration>
       </plugin>

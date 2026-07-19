@@ -141,8 +141,6 @@ EXPECTED_REPOSITORIES = {
     "docker/java/snpsift-pom.xml": {
         ("maven", "https://repo1.maven.org/maven2/"),
         ("ncimvn-public", "https://ncimvn.nci.nih.gov/nexus/content/groups/public/"),
-        ("typesafe", "http://repo.typesafe.com/typesafe/releases/"),
-        ("hadoop-bam", "http://hadoop-bam.sourceforge.net/maven/"),
     },
 }
 
@@ -322,6 +320,13 @@ def test_patched_java_projects_build_executable_release_5_2_jars(
     assert assembly.findtext(
         "m:executions/m:execution/m:goals/m:goal", namespaces=MAVEN_NAMESPACE
     ) == "single"
+    assert (
+        assembly.findtext(
+            "m:configuration/m:archive/m:manifestEntries/m:Multi-Release",
+            namespaces=MAVEN_NAMESPACE,
+        )
+        == "true"
+    )
 
 
 @pytest.mark.parametrize(
@@ -466,6 +471,12 @@ def test_patched_java_projects_lock_pinned_repositories(pom_path: str) -> None:
     assert _repository_contract(_pom(pom_path)) == EXPECTED_REPOSITORIES[pom_path]
 
 
+@pytest.mark.parametrize("pom_path", EXPECTED_REPOSITORIES)
+def test_patched_java_projects_use_only_secure_repository_urls(pom_path: str) -> None:
+    for _, repository_url in _repository_contract(_pom(pom_path)):
+        assert repository_url.startswith("https://")
+
+
 @pytest.mark.parametrize(
     "pom_path",
     ["docker/java/snpeff-pom.xml", "docker/java/snpsift-pom.xml"],
@@ -516,6 +527,11 @@ def test_runtime_dependency_assertion_accepts_only_the_fixed_runtime_set(
         [*REQUIRED_RUNTIME_DEPENDENCIES, "org.example:unrelated:jar:1.0:runtime"],
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_runtime_dependency_assertion_pins_dependency_plugin() -> None:
+    script = _text("docker/java/assert-runtime-dependencies.sh")
+    assert "org.apache.maven.plugins:maven-dependency-plugin:3.7.0:list" in script
 
 
 def test_runtime_dependency_assertion_rejects_commons_lang(tmp_path: Path) -> None:
