@@ -1042,3 +1042,14 @@ plan execution.
 
 - [ ] Record the registry digest, main workflow URL, complete/unfixed counts, actionable count zero,
   and final dashboard closure status in the PR or follow-up release evidence.
+
+### Implementation-time workflow deviation
+
+The first draft-PR run on 2026-07-19 proved that Trivy 0.70.0 executed and the fixed-only gate
+passed, but `aquasecurity/trivy-action@v0.36.0` warned that the planned `trivy-version` input name
+was invalid. The action's declared input is `version`; all four calls therefore use
+`version: v0.70.0`. The same run reported GitHub's Node 20 deprecation for the planned action
+majors. Their vendor-provided Node 24 majors (`actions/checkout@v6`,
+`docker/setup-buildx-action@v4`, `docker/metadata-action@v6`, and
+`docker/build-push-action@v7`) are used instead. These changes affect workflow integration only;
+the single-image build/test/scan/publish policy and Trivy pin remain unchanged.

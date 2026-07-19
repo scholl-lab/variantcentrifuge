@@ -958,7 +958,7 @@ def test_docker_workflow_pull_request_paths_cover_container_inputs() -> None:
 def test_docker_workflow_builds_and_tests_one_local_production_image() -> None:
     workflow = _text(".github/workflows/docker.yml")
     build = _workflow_step(workflow, "Build production image", "Test production image")
-    assert workflow.count("uses: docker/build-push-action@v6") == 1
+    assert workflow.count("uses: docker/build-push-action@v7") == 1
     assert "load: true" in build
     assert "push: false" in build
     assert "${{ env.LOCAL_IMAGE }}" in build
@@ -975,6 +975,23 @@ def test_docker_workflow_builds_and_tests_one_local_production_image() -> None:
     assert workflow.index("- name: Test production image") < workflow.index(
         "- name: Generate actionable SARIF report"
     )
+
+
+def test_docker_workflow_uses_node24_action_releases() -> None:
+    workflow = _text(".github/workflows/docker.yml")
+    uses = [
+        line.strip().removeprefix("uses: ")
+        for line in workflow.splitlines()
+        if line.strip().startswith("uses: ")
+    ]
+    for action in (
+        "actions/checkout@v6",
+        "docker/setup-buildx-action@v4",
+        "docker/metadata-action@v6",
+        "docker/build-push-action@v7",
+    ):
+        family = action.rsplit("@", maxsplit=1)[0]
+        assert [entry for entry in uses if entry.startswith(f"{family}@")] == [action]
 
 
 def test_docker_workflow_records_the_built_image_identity_before_testing() -> None:
@@ -1007,7 +1024,7 @@ def test_docker_workflow_retains_complete_all_severity_audit() -> None:
         "vuln-type: os,library",
         "severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
         'exit-code: "0"',
-        "trivy-version: v0.70.0",
+        "version: v0.70.0",
     ):
         assert setting in complete
     assert "ignore-unfixed" not in complete
@@ -1041,7 +1058,7 @@ def test_docker_workflow_uploads_actionable_all_severity_sarif() -> None:
         "severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
         "ignore-unfixed: true",
         'exit-code: "0"',
-        "trivy-version: v0.70.0",
+        "version: v0.70.0",
     ):
         assert setting in sarif
 
@@ -1094,7 +1111,7 @@ def test_docker_workflow_final_gate_blocks_every_fixed_vulnerability() -> None:
         "severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
         "ignore-unfixed: true",
         'exit-code: "1"',
-        "trivy-version: v0.70.0",
+        "version: v0.70.0",
     ):
         assert setting in gate
 
@@ -1130,7 +1147,8 @@ def test_every_docker_workflow_trivy_call_has_the_same_scanner_scope() -> None:
         assert "scanners: vuln" in step
         assert "vuln-type: os,library" in step
         assert "severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL" in step
-        assert "trivy-version: v0.70.0" in step
+        assert "version: v0.70.0" in step
+        assert "trivy-version:" not in step
 
 
 def test_docker_workflow_publishes_only_after_the_gate_without_rebuilding() -> None:
@@ -1139,7 +1157,7 @@ def test_docker_workflow_publishes_only_after_the_gate_without_rebuilding() -> N
     login_index = workflow.index("- name: Log in to GHCR for publication")
     publish_index = workflow.index("- name: Push tested production image")
     assert gate_index < login_index < publish_index
-    assert workflow.count("uses: docker/build-push-action@v6") == 1
+    assert workflow.count("uses: docker/build-push-action@v7") == 1
 
     login = _workflow_step(
         workflow, "Log in to GHCR for publication", "Push tested production image"
