@@ -8,6 +8,19 @@ import tempfile
 import pandas as pd
 import pytest
 
+# These tests execute the installed CLI and its external bioinformatics pipeline.
+_REQUIRED_EXECUTABLES = (
+    "variantcentrifuge",
+    "bcftools",
+    "snpEff",
+    "SnpSift",
+    "bedtools",
+    "bgzip",
+)
+_MISSING_EXECUTABLES = tuple(
+    executable for executable in _REQUIRED_EXECUTABLES if shutil.which(executable) is None
+)
+
 # Check if we can run the full pipeline
 try:
     import statsmodels  # noqa: F401
@@ -21,6 +34,10 @@ except ImportError:
 pytestmark = [
     pytest.mark.skipif(
         not STATSMODELS_AVAILABLE, reason="statsmodels is required for integration tests"
+    ),
+    pytest.mark.skipif(
+        bool(_MISSING_EXECUTABLES),
+        reason=f"required executables not found: {', '.join(_MISSING_EXECUTABLES)}",
     ),
     pytest.mark.slow,  # These tests require bcftools, snpEff, SnpSift, bedtools
 ]
