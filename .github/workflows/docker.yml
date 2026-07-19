@@ -12,9 +12,13 @@ on:
       - ".dockerignore"
       - "conda/environment-docker.yml"
       - "scripts/test_container_image.sh"
+      - "scripts/summarize_trivy.py"
       - "tests/fixtures/container/**"
       - "variantcentrifuge/**"
       - "pyproject.toml"
+      - "setup.py"
+      - "README.md"
+      - "LICENSE"
       - "scoring/**"
       - "stats_configs/**"
       - ".github/workflows/docker.yml"
@@ -28,7 +32,6 @@ permissions:
   contents: read
   packages: write
   security-events: write
-  id-token: write  # for cosign keyless signing
 
 jobs:
   scan:
@@ -70,6 +73,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Record production image ID
+        id: production-image
+        run: |
+          image_id=$(docker image inspect --format '{{.Id}}' "${LOCAL_IMAGE}")
+          [[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "id=${image_id}" >> "${GITHUB_OUTPUT}"
+
       - name: Test production image
         run: bash scripts/test_container_image.sh "${LOCAL_IMAGE}"
 
@@ -92,6 +102,7 @@ jobs:
           name: trivy-complete-${{ github.sha }}
           path: trivy-complete.json
           retention-days: 90
+          if-no-files-found: error
 
       - name: Generate actionable SARIF report
         uses: aquasecurity/trivy-action@v0.36.0
@@ -158,21 +169,41 @@ jobs:
       - name: Push tested production image
         id: publish
         if: github.event_name != 'pull_request'
+        env:
+          METADATA_TAGS: ${{ steps.meta.outputs.tags }}
+          PRODUCTION_IMAGE_ID: ${{ steps.production-image.outputs.id }}
         run: |
+          [[ $PRODUCTION_IMAGE_ID =~ ^sha256:[0-9a-f]{64}$ ]]
+          local_image_id=$(docker image inspect --format '{{.Id}}' "${LOCAL_IMAGE}")
+          [[ $local_image_id == "$PRODUCTION_IMAGE_ID" ]]
+
           first_tag=
           while IFS= read -r tag; do
             [[ -n $tag ]] || continue
             if [[ -z $first_tag ]]; then
               first_tag=$tag
             fi
-            docker push "$tag"
-          done <<'TAGS'
-          ${{ steps.meta.outputs.tags }}
-          TAGS
+            tag_image_id=$(docker image inspect --format '{{.Id}}' "$tag")
+            [[ $tag_image_id == "$PRODUCTION_IMAGE_ID" ]]
+          done <<< "${METADATA_TAGS}"
 
           [[ -n $first_tag ]]
-          repository_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$first_tag")
-          digest=${repository_digest##*@}
+          while IFS= read -r tag; do
+            [[ -n $tag ]] || continue
+            docker push "$tag"
+          done <<< "${METADATA_TAGS}"
+
+          repository="${REGISTRY}/${IMAGE_NAME}"
+          matching_digests=()
+          while IFS= read -r repository_digest; do
+            if [[ $repository_digest == "${repository}@sha256:"* ]]; then
+              matching_digests+=("$repository_digest")
+            fi
+          done < <(
+            docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$first_tag"
+          )
+          [[ ${#matching_digests[@]} -eq 1 ]]
+          digest=${matching_digests[0]#"${repository}@"}
           [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]]
           echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
 
@@ -180,6 +211,9 @@ jobs:
     needs: scan
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      id-token: write
     steps:
       - name: Install cosign
         uses: sigstore/cosign-installer@v3

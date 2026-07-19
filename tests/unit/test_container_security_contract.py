@@ -828,12 +828,29 @@ def test_docker_workflow_pull_request_paths_cover_container_inputs() -> None:
     pull_request = workflow.split("  pull_request:\n", maxsplit=1)[1].split("\nenv:\n", maxsplit=1)[
         0
     ]
-    for path in (
-        '      - "docker/**"',
-        '      - "scripts/test_container_image.sh"',
-        '      - "tests/fixtures/container/**"',
-    ):
-        assert path in pull_request
+    configured_paths = {
+        line.removeprefix('      - "').removesuffix('"')
+        for line in pull_request.splitlines()
+        if line.startswith('      - "')
+    }
+    assert configured_paths == {
+        "Dockerfile",
+        "docker/**",
+        "docker-compose.yml",
+        ".dockerignore",
+        "conda/environment-docker.yml",
+        "scripts/test_container_image.sh",
+        "scripts/summarize_trivy.py",
+        "tests/fixtures/container/**",
+        "variantcentrifuge/**",
+        "pyproject.toml",
+        "setup.py",
+        "README.md",
+        "LICENSE",
+        "scoring/**",
+        "stats_configs/**",
+        ".github/workflows/docker.yml",
+    }
 
 
 def test_docker_workflow_builds_and_tests_one_local_production_image() -> None:
@@ -856,6 +873,20 @@ def test_docker_workflow_builds_and_tests_one_local_production_image() -> None:
     assert workflow.index("- name: Test production image") < workflow.index(
         "- name: Generate actionable SARIF report"
     )
+
+
+def test_docker_workflow_records_the_built_image_identity_before_testing() -> None:
+    workflow = _text(".github/workflows/docker.yml")
+    assert (
+        workflow.index("- name: Build production image")
+        < workflow.index("- name: Record production image ID")
+        < workflow.index("- name: Test production image")
+    )
+    record = _workflow_step(workflow, "Record production image ID", "Test production image")
+    assert "id: production-image" in record
+    assert "docker image inspect --format '{{.Id}}' \"${LOCAL_IMAGE}\"" in record
+    assert "[[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]]" in record
+    assert 'echo "id=${image_id}" >> "${GITHUB_OUTPUT}"' in record
 
 
 def test_docker_workflow_retains_complete_all_severity_audit() -> None:
@@ -888,6 +919,7 @@ def test_docker_workflow_retains_complete_all_severity_audit() -> None:
     assert "uses: actions/upload-artifact@v7.0.1" in upload
     assert "path: trivy-complete.json" in upload
     assert "retention-days: 90" in upload
+    assert "if-no-files-found: error" in upload
 
 
 def test_docker_workflow_uploads_actionable_all_severity_sarif() -> None:
@@ -965,6 +997,28 @@ def test_docker_workflow_final_gate_blocks_every_fixed_vulnerability() -> None:
         assert setting in gate
 
 
+def test_docker_workflow_has_no_fail_open_security_steps() -> None:
+    workflow = _text(".github/workflows/docker.yml")
+    assert "continue-on-error" not in workflow
+
+    smoke = _workflow_step(
+        workflow,
+        "Test production image",
+        "Generate complete vulnerability report",
+    )
+    assert "if:" not in smoke
+    assert "|| true" not in smoke
+
+    gate = _workflow_step(
+        workflow,
+        "Enforce zero vendor-fixed vulnerabilities",
+        "Log in to GHCR for publication",
+    )
+    assert "if:" not in gate
+    assert "|| true" not in gate
+    assert 'exit-code: "1"' in gate
+
+
 def test_every_docker_workflow_trivy_call_has_the_same_scanner_scope() -> None:
     workflow = _text(".github/workflows/docker.yml")
     trivy_steps = workflow.split("uses: aquasecurity/trivy-action@v0.36.0")[1:]
@@ -993,9 +1047,19 @@ def test_docker_workflow_publishes_only_after_the_gate_without_rebuilding() -> N
     publish = _workflow_step(workflow, "Push tested production image", "Install cosign")
     assert "id: publish" in publish
     assert "if: github.event_name != 'pull_request'" in publish
-    assert "${{ steps.meta.outputs.tags }}" in publish
+    assert "METADATA_TAGS: ${{ steps.meta.outputs.tags }}" in publish
+    assert "PRODUCTION_IMAGE_ID: ${{ steps.production-image.outputs.id }}" in publish
+    assert "local_image_id=$(docker image inspect --format '{{.Id}}' \"${LOCAL_IMAGE}\")" in publish
+    assert '[[ $local_image_id == "$PRODUCTION_IMAGE_ID" ]]' in publish
+    assert "tag_image_id=$(docker image inspect --format '{{.Id}}' \"$tag\")" in publish
+    assert '[[ $tag_image_id == "$PRODUCTION_IMAGE_ID" ]]' in publish
+    assert publish.index('[[ $tag_image_id == "$PRODUCTION_IMAGE_ID" ]]') < publish.index(
+        'docker push "$tag"'
+    )
     assert 'docker push "$tag"' in publish
-    assert "docker image inspect" in publish
+    assert 'repository="${REGISTRY}/${IMAGE_NAME}"' in publish
+    assert "${repository}@sha256:" in publish
+    assert "[[ ${#matching_digests[@]} -eq 1 ]]" in publish
     assert "^sha256:[0-9a-f]{64}$" in publish
     assert 'echo "digest=${digest}" >> "${GITHUB_OUTPUT}"' in publish
 
@@ -1012,3 +1076,16 @@ def test_docker_workflow_exports_scan_outputs_and_signs_only_published_images() 
     assert "if: github.event_name != 'pull_request'" in sign
     assert "DIGEST: ${{ needs.scan.outputs.image-digest }}" in sign
     assert 'cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"' in sign
+
+
+def test_docker_workflow_grants_oidc_only_to_the_signing_job() -> None:
+    workflow = _text(".github/workflows/docker.yml")
+    workflow_permissions = workflow.split("\njobs:\n", maxsplit=1)[0]
+    scan = workflow.split("\n  scan:\n", maxsplit=1)[1].split("\n  sign:\n", maxsplit=1)[0]
+    sign = workflow.split("\n  sign:\n", maxsplit=1)[1]
+
+    assert "id-token:" not in workflow_permissions
+    assert "id-token:" not in scan
+    assert "permissions:\n      packages: write\n      id-token: write" in sign
+    assert "security-events: write" not in sign
+    assert "contents: write" not in sign
