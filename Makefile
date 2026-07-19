@@ -33,26 +33,26 @@ clean: ## Clean build artifacts and cache files
 
 ##@ Code Quality
 
-lint: ## Run ruff linter (same as CI)
+lint: ## Run ruff linter across the repository
 	@echo "$(CYAN)Running ruff linter...$(NC)"
-	$(PYTHON) -m ruff check variantcentrifuge/ tests/
+	$(PYTHON) -m ruff check .
 	@echo "$(GREEN)Lint passed$(NC)"
 
 format: ## Format code with ruff
 	@echo "$(CYAN)Formatting code with ruff...$(NC)"
-	$(PYTHON) -m ruff format variantcentrifuge/ tests/
-	$(PYTHON) -m ruff check --fix variantcentrifuge/ tests/
+	$(PYTHON) -m ruff format .
+	$(PYTHON) -m ruff check --fix .
 	@echo "$(GREEN)Code formatted$(NC)"
 
-format-check: ## Check code formatting (same as CI)
+format-check: ## Check code formatting across the repository
 	@echo "$(CYAN)Checking code formatting...$(NC)"
-	$(PYTHON) -m ruff format --check --diff variantcentrifuge/ tests/
+	$(PYTHON) -m ruff format --check --diff .
 	@echo "$(GREEN)Format check passed$(NC)"
 
-typecheck: ## Run mypy type checker (informational during gradual adoption)
+typecheck: ## Run mypy type checker
 	@echo "$(CYAN)Running mypy type checker...$(NC)"
-	-$(PYTHON) -m mypy variantcentrifuge/
-	@echo "$(YELLOW)Type check complete (non-blocking during gradual adoption)$(NC)"
+	$(PYTHON) -m mypy variantcentrifuge/
+	@echo "$(GREEN)Type check passed$(NC)"
 
 ##@ Testing
 
@@ -76,8 +76,8 @@ test-fast: ## Run non-slow, non-integration tests
 
 ##@ CI Verification
 
-ci-check: ## Run ALL CI checks locally (lint, format-check, typecheck, test-fast) - matches GitHub Actions
-	@echo "$(CYAN)Running Complete CI Check (mirroring GitHub Actions)$(NC)"
+ci-check: ## Run local lint, format, type, and fast-test gates
+	@echo "$(CYAN)Running complete local CI check$(NC)"
 	@echo ""
 	@echo "$(CYAN)[1/4] Linting with ruff...$(NC)"
 	@$(MAKE) lint
@@ -91,7 +91,7 @@ ci-check: ## Run ALL CI checks locally (lint, format-check, typecheck, test-fast
 	@echo "$(CYAN)[4/4] Running tests...$(NC)"
 	@$(MAKE) test-fast
 	@echo ""
-	@echo "$(GREEN)ALL CI CHECKS PASSED - Safe to push!$(NC)"
+	@echo "$(GREEN)ALL LOCAL CI CHECKS PASSED$(NC)"
 
 ##@ Quick Commands
 

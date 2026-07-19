@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.abspath("_ext"))
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "VariantCentrifuge"
-copyright = "2024-2026, Bernt Popp"
+copyright = "2024-2026, Bernt Popp"  # noqa: A001 - Sphinx requires this setting name.
 author = "Bernt Popp"
 
 # The full version, including alpha/beta/rc tags

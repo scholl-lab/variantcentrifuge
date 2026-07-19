@@ -575,9 +575,7 @@ def compare_dataframes(
 
     # Check row count
     if len(golden_sorted) != len(new_sorted):
-        errors.append(
-            f"Row count mismatch: golden={len(golden_sorted)}, new={len(new_sorted)}"
-        )
+        errors.append(f"Row count mismatch: golden={len(golden_sorted)}, new={len(new_sorted)}")
         return False, errors
 
     # Compare Inheritance_Pattern column (must match exactly)
@@ -658,9 +656,7 @@ def compare_dataframes(
             golden_samples = {
                 s["sample_id"] for s in golden_details.get("samples_with_pattern", [])
             }
-            new_samples = {
-                s["sample_id"] for s in new_details.get("samples_with_pattern", [])
-            }
+            new_samples = {s["sample_id"] for s in new_details.get("samples_with_pattern", [])}
             if golden_samples != new_samples:
                 details_mismatches += 1
                 errors.append(
@@ -750,9 +746,7 @@ def compare_outputs() -> int:
 
 def main() -> int:
     """Main entry point."""
-    parser = argparse.ArgumentParser(
-        description="Golden file validation for inheritance analysis"
-    )
+    parser = argparse.ArgumentParser(description="Golden file validation for inheritance analysis")
     parser.add_argument(
         "mode",
         choices=["generate", "compare"],

@@ -149,7 +149,7 @@ def aggregate_data(input_files, sample_regex):
             # Ensure the Gene column exists (case-insensitive check and rename)
             if "Gene" not in df.columns:
                 found_gene_col_original_case = None
-                for col_idx, col_name in enumerate(df.columns):
+                for col_name in df.columns:
                     if col_name.lower() == "gene":
                         found_gene_col_original_case = col_name
                         break
@@ -182,9 +182,7 @@ def aggregate_data(input_files, sample_regex):
 
     master_df = pd.concat(dfs, ignore_index=True)
 
-    unique_extracted_samples = sorted(
-        list(set(collected_sample_ids))
-    )  # Get sorted list of unique IDs
+    unique_extracted_samples = sorted(set(collected_sample_ids))  # Sorted unique IDs
     logger.info(f"Aggregation complete. Total variants aggregated: {len(master_df)}.")
     logger.info(
         f"All SampleIDs extracted during aggregation (includes duplicates if any): "
@@ -197,7 +195,7 @@ def aggregate_data(input_files, sample_regex):
 
     if "SampleID" in master_df.columns:
         df_unique_samples_count = master_df["SampleID"].nunique()
-        df_unique_samples_list = sorted(list(master_df["SampleID"].unique()))
+        df_unique_samples_list = sorted(master_df["SampleID"].unique())
         logger.info(
             f"Verification: Unique SampleIDs present in the final aggregated DataFrame: "
             f"{df_unique_samples_count}. IDs: {df_unique_samples_list}"
@@ -232,7 +230,7 @@ def clean_data(df):
         # Get all columns except SampleID
         other_columns = [col for col in df.columns if col != "SampleID"]
         # Reorder columns with SampleID first
-        column_order = ["SampleID"] + other_columns
+        column_order = ["SampleID", *other_columns]
         df = df[column_order]
         logger.info("Reordered columns with SampleID as first column")
 
@@ -244,7 +242,14 @@ def clean_data(df):
         should_convert = False
 
         # AF columns (allele frequency): AF_1, AF_EXAC, AF_GNOMAD, etc.
-        if col.startswith("AF_") or col == "AF" or col.startswith("AD_") or col == "AD" or col in ["QUAL", "DP", "IMPACT_SEVERITY", "CADD_PHRED", "Variant_Count"] or any(col.endswith(suffix) for suffix in ["_score", "_SCORE", "_phred", "_PHRED"]):
+        if (
+            col.startswith("AF_")
+            or col == "AF"
+            or col.startswith("AD_")
+            or col == "AD"
+            or col in ["QUAL", "DP", "IMPACT_SEVERITY", "CADD_PHRED", "Variant_Count"]
+            or any(col.endswith(suffix) for suffix in ["_score", "_SCORE", "_phred", "_PHRED"])
+        ):
             should_convert = True
 
         if should_convert:
@@ -268,35 +273,39 @@ def clean_data(df):
 def add_variant_count(df):
     """Add variant count based on CHROM:POS:REF:ALT combination."""
     logger.info("Adding variant count information...")
-    
+
     # Create temporary signature for counting
-    variant_key = (df['CHROM'].astype(str) + ':' + 
-                   df['POS'].astype(str) + ':' + 
-                   df['REF'].astype(str) + ':' + 
-                   df['ALT'].astype(str))
-    
+    variant_key = (
+        df["CHROM"].astype(str)
+        + ":"
+        + df["POS"].astype(str)
+        + ":"
+        + df["REF"].astype(str)
+        + ":"
+        + df["ALT"].astype(str)
+    )
+
     # Count occurrences and map back to dataframe
     counts = variant_key.value_counts()
-    df['Variant_Count'] = variant_key.map(counts)
-    
+    df["Variant_Count"] = variant_key.map(counts)
+
     # Move Variant_Count to be the 3rd column (after SampleID and VAR_ID)
-    if 'VAR_ID' in df.columns:
+    if "VAR_ID" in df.columns:
         # Get column order with Variant_Count as 3rd column
         cols = df.columns.tolist()
-        cols.remove('Variant_Count')
-        
+        cols.remove("Variant_Count")
+
         # Find insertion point (after VAR_ID if it exists, otherwise after SampleID)
-        if 'VAR_ID' in cols:
-            insert_idx = cols.index('VAR_ID') + 1
-        else:
-            insert_idx = cols.index('SampleID') + 1
-            
+        insert_idx = cols.index("VAR_ID") + 1 if "VAR_ID" in cols else cols.index("SampleID") + 1
+
         # Insert Variant_Count at the desired position
-        cols.insert(insert_idx, 'Variant_Count')
+        cols.insert(insert_idx, "Variant_Count")
         df = df[cols]
-    
-    logger.info(f"Added Variant_Count column. Unique variant count range: {df['Variant_Count'].min()}-{df['Variant_Count'].max()}")
-    
+
+    min_count = df["Variant_Count"].min()
+    max_count = df["Variant_Count"].max()
+    logger.info(f"Added Variant_Count column. Unique variant count range: {min_count}-{max_count}")
+
     return df
 
 
@@ -316,7 +325,9 @@ def compute_statistics(df):
         gene_variants = df.groupby("Gene", observed=True).size().reset_index(name="VariantCount")
 
         # Count unique samples per gene
-        gene_samples = df.groupby("Gene", observed=True)["SampleID"].nunique().reset_index(name="SampleCount")
+        gene_samples = (
+            df.groupby("Gene", observed=True)["SampleID"].nunique().reset_index(name="SampleCount")
+        )
 
         # Merge the two statistics
         gene_summary = pd.merge(gene_variants, gene_samples, on="Gene")
@@ -502,10 +513,7 @@ def discover_igv_maps(input_files, output_dir):
                     igv_map_data = json.load(f)
 
                 # Handle both old and new IGV map format
-                if "variants" in igv_map_data:
-                    igv_map = igv_map_data["variants"]
-                else:
-                    igv_map = igv_map_data
+                igv_map = igv_map_data.get("variants", igv_map_data)
 
                 igv_maps.extend(igv_map)
 
