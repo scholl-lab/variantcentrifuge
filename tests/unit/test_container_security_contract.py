@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -436,9 +437,25 @@ def test_dockerfile_build_gates_all_python_runtime_paths() -> None:
 
 
 def test_dockerfile_makes_runtime_payloads_immutable_to_the_service_user() -> None:
+    conda_build = _docker_stage(_text("Dockerfile"), "conda-build")
     runtime = _docker_stage(_text("Dockerfile"), "runtime")
-    assert "COPY --from=conda-build --chown=0:0 /opt/conda /opt/conda" in runtime
-    assert "chmod -R go-w /opt/conda /app" in runtime
+    conda_mode_normalization = "chmod -R go-w /opt/conda"
+    assert conda_mode_normalization in conda_build
+    assert conda_build.index("! command -v javac") < conda_build.index(
+        conda_mode_normalization
+    )
+    runtime_copy = (
+        "COPY --from=conda-build --chown=root:root /opt/conda /opt/conda"
+    )
+    runtime_mountpoint_normalization = "RUN chmod go-w /opt/conda"
+    assert runtime_mountpoint_normalization in runtime
+    assert runtime_copy in runtime
+    assert runtime.index(runtime_mountpoint_normalization) < runtime.index(runtime_copy)
+    after_runtime_copy = runtime.split(runtime_copy, maxsplit=1)[1].replace("\\\n", " ")
+    assert not re.search(
+        r"\b(?:chmod|chown)\s+-R\b[^\n]*\b/opt/conda\b", after_runtime_copy
+    )
+    assert "chmod -R go-w /app" in runtime
     assert "! -type l -a -perm /022" in runtime
     assert "chown $MAMBA_USER:$MAMBA_USER /data" in runtime
     assert "chmod 0750 /data" in runtime

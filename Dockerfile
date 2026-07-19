@@ -202,6 +202,12 @@ RUN java_path=$(readlink -f "$(command -v java)") && \
     test "$jar_list" = "$expected_jars" && \
     ! command -v javac
 
+# Normalize modes in the builder so the runtime COPY remains the sole conda layer.
+USER root
+RUN chmod -R go-w /opt/conda && \
+    test -z "$(find /opt/conda -xdev \
+        \( ! -type l -a -perm /022 \) -print -quit)"
+
 # ---------------------------------------------------------------------------
 # Stage 3: Runtime — lean production image
 # ---------------------------------------------------------------------------
@@ -219,8 +225,12 @@ LABEL org.opencontainers.image.title="variantcentrifuge" \
       org.opencontainers.image.license="MIT" \
       org.opencontainers.image.authors="Bernt Popp <bernt.popp.md@gmail.com>"
 
+# The runtime base pre-creates this mount point as 0777; normalize only the
+# empty destination directory before copying the immutable environment into it.
+RUN chmod go-w /opt/conda
+
 # Copy the fully built and cleaned conda environment as root-owned runtime data.
-COPY --from=conda-build --chown=0:0 /opt/conda /opt/conda
+COPY --from=conda-build --chown=root:root /opt/conda /opt/conda
 
 # Include LICENSE for compliance
 COPY --chown=0:0 LICENSE /app/LICENSE
@@ -229,7 +239,7 @@ COPY --chown=0:0 LICENSE /app/LICENSE
 COPY --chown=0:0 scoring/ /app/scoring/
 COPY --chown=0:0 stats_configs/ /app/stats_configs/
 
-RUN chmod -R go-w /opt/conda /app && \
+RUN chmod -R go-w /app && \
     mkdir -p /data && \
     chown $MAMBA_USER:$MAMBA_USER /data && \
     chmod 0750 /data && \
