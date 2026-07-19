@@ -120,7 +120,7 @@ docker compose run --rm variantcentrifuge \
 
 The image runs as a non-root user, includes built-in scoring models at `/app/scoring/`, and is signed with cosign for supply chain security.
 
-### Container Security and Vulnerability Reporting
+#### Container Security and Vulnerability Reporting
 
 The container retains the Bioconda SnpEff and SnpSift 5.2 wrappers and configuration files for
 behavioral compatibility. Their JAR payloads are rebuilt from pinned 5.2 source commits with fixed
