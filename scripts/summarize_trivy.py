@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import cast
+from typing import NoReturn, cast
 
 SEVERITIES = ("UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL")
 
@@ -56,8 +56,9 @@ def render_markdown(complete: list[dict[str, object]], actionable: list[dict[str
     """Render complete, vendor-fixed, vendor-unfixed, and actionable finding counts."""
     fixed = [vulnerability for vulnerability in complete if has_fix(vulnerability)]
     unfixed = [vulnerability for vulnerability in complete if not has_fix(vulnerability)]
+    actionable_with_fix = [vulnerability for vulnerability in actionable if has_fix(vulnerability)]
     complete_by_severity = severity_counts(complete)
-    actionable_by_severity = severity_counts(actionable)
+    actionable_by_severity = severity_counts(actionable_with_fix)
 
     lines = [
         "## Trivy vulnerability summary",
@@ -65,7 +66,7 @@ def render_markdown(complete: list[dict[str, object]], actionable: list[dict[str
         f"- Complete findings: {len(complete)}",
         f"- Vendor-fixed findings: {len(fixed)}",
         f"- Vendor-unfixed findings: {len(unfixed)}",
-        f"- Actionable findings: {len(actionable)}",
+        f"- Actionable findings: {len(actionable_with_fix)}",
         "",
         "### Complete findings by severity",
         "",
@@ -86,11 +87,19 @@ def render_markdown(complete: list[dict[str, object]], actionable: list[dict[str
     return "\n".join(lines) + "\n"
 
 
+def _reject_non_rfc_constant(constant: str) -> NoReturn:
+    raise ValueError(f"non-RFC numeric constant {constant}")
+
+
 def _load_document(path: str) -> dict[str, object]:
     try:
-        parsed = json.loads(Path(path).read_text(encoding="utf-8"))
+        parsed = json.loads(
+            Path(path).read_text(encoding="utf-8"), parse_constant=_reject_non_rfc_constant
+        )
     except json.JSONDecodeError as error:
         raise ValueError(f"invalid JSON in {path}: {error.msg}") from error
+    except ValueError as error:
+        raise ValueError(f"invalid JSON in {path}: {error}") from error
     except OSError as error:
         raise ValueError(f"cannot read {path}: {error}") from error
     if not isinstance(parsed, dict):

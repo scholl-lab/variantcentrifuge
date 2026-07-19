@@ -72,10 +72,53 @@ def test_render_markdown_partitions_complete_findings_by_fixed_version() -> None
 
     report = render_markdown(complete, [])
 
-    assert "Complete findings: 3" in report
-    assert "Vendor-fixed findings: 1" in report
-    assert "Vendor-unfixed findings: 2" in report
-    assert "Actionable findings: 0" in report
+    assert report == (
+        "## Trivy vulnerability summary\n"
+        "\n"
+        "- Complete findings: 3\n"
+        "- Vendor-fixed findings: 1\n"
+        "- Vendor-unfixed findings: 2\n"
+        "- Actionable findings: 0\n"
+        "\n"
+        "### Complete findings by severity\n"
+        "\n"
+        "| Severity | Count |\n"
+        "| --- | ---: |\n"
+        "| UNKNOWN | 0 |\n"
+        "| LOW | 1 |\n"
+        "| MEDIUM | 1 |\n"
+        "| HIGH | 1 |\n"
+        "| CRITICAL | 0 |\n"
+        "\n"
+        "### Actionable findings by severity\n"
+        "\n"
+        "| Severity | Count |\n"
+        "| --- | ---: |\n"
+        "| UNKNOWN | 0 |\n"
+        "| LOW | 0 |\n"
+        "| MEDIUM | 0 |\n"
+        "| HIGH | 0 |\n"
+        "| CRITICAL | 0 |\n"
+    )
+
+
+def test_render_markdown_excludes_actionable_entries_without_nonempty_string_fix() -> None:
+    actionable = [
+        {"Severity": "CRITICAL", "FixedVersion": "9.9"},
+        {"Severity": "HIGH", "FixedVersion": ""},
+        {"Severity": "MEDIUM", "FixedVersion": 7},
+        {"Severity": "LOW"},
+    ]
+
+    report = render_markdown([], actionable)
+
+    assert "- Actionable findings: 1" in report
+    actionable_section = report.split("### Actionable findings by severity", maxsplit=1)[1]
+    assert "| UNKNOWN | 0 |" in actionable_section
+    assert "| LOW | 0 |" in actionable_section
+    assert "| MEDIUM | 0 |" in actionable_section
+    assert "| HIGH | 0 |" in actionable_section
+    assert "| CRITICAL | 1 |" in actionable_section
 
 
 def test_main_counts_actionable_severity_but_never_becomes_the_gate(
@@ -106,6 +149,9 @@ def test_main_counts_actionable_severity_but_never_becomes_the_gate(
     [
         ("[]", "top-level JSON value must be an object"),
         ("{not-json", "invalid JSON"),
+        ('{"Results": NaN}', "invalid JSON"),
+        ('{"Results": Infinity}', "invalid JSON"),
+        ('{"Results": -Infinity}', "invalid JSON"),
     ],
 )
 def test_main_rejects_malformed_documents(
