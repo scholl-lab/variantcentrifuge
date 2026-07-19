@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Security
+
+- Refresh the digest-pinned container base, rebuild the pinned SnpEff and SnpSift 5.2 JARs with
+  fixed Java runtime dependencies, and verify compatibility with deterministic behavioral smoke
+  tests. The container workflow now gates publication on an all-severity actionable Trivy scan,
+  retains the complete fixed and vendor-unfixed JSON audit, and signs the gated image by immutable
+  digest after publication.
 
 ## [0.17.11] - 2026-05-16
 

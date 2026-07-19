@@ -120,6 +120,26 @@ docker compose run --rm variantcentrifuge \
 
 The image runs as a non-root user, includes built-in scoring models at `/app/scoring/`, and is signed with cosign for supply chain security.
 
+### Container Security and Vulnerability Reporting
+
+The container retains the Bioconda SnpEff and SnpSift 5.2 wrappers and configuration files for
+behavioral compatibility. Their JAR payloads are rebuilt from pinned 5.2 source commits with fixed
+runtime dependencies, and container smoke tests compare their behavior with the stock 5.2 tools.
+
+Each container workflow run produces two complementary vulnerability reports:
+
+- A complete Trivy JSON audit includes vendor-fixed and vendor-unfixed OS and library findings at
+  `UNKNOWN`, `LOW`, `MEDIUM`, `HIGH`, and `CRITICAL` severity. The workflow retains this artifact
+  for 90 days.
+- The actionable SARIF uploaded to GitHub code scanning and the blocking merge gate cover
+  vendor-fixed findings at all of those severities. The actionable scan uses `--ignore-unfixed` to
+  partition findings that have a vendor-provided fix; it does not mean that vendor-unfixed findings
+  are absent or remediated.
+
+This remediation does not use a `.trivyignore` file or dismiss code-scanning alerts. Vendor-unfixed
+findings remain visible in the complete JSON audit and become actionable automatically when vendor
+data identifies a fixed version.
+
 ## Verification
 
 Verify your installation by running:
