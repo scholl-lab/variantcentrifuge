@@ -25,6 +25,7 @@
 
   <properties>
     <maven.compiler.release>11</maven.compiler.release>
+    <project.build.outputTimestamp>2023-09-29T06:17:00Z</project.build.outputTimestamp>
     <project.build.sourceEncoding>ISO-8859-1</project.build.sourceEncoding>
     <project.reporting.outputEncoding>ISO-8859-1</project.reporting.outputEncoding>
     <jackson.version>2.22.1</jackson.version>

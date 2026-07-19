@@ -560,6 +560,20 @@ def test_patched_java_projects_use_required_build_policy(pom_path: str) -> None:
     assert surefire.findtext("m:version", namespaces=MAVEN_NAMESPACE) == "3.5.4"
 
 
+@pytest.mark.parametrize(
+    "pom_path",
+    ["docker/java/snpeff-pom.xml", "docker/java/snpsift-pom.xml"],
+)
+def test_patched_java_projects_preserve_stock_build_timestamp(pom_path: str) -> None:
+    pom = _pom(pom_path)
+    properties = pom.find("m:properties", MAVEN_NAMESPACE)
+    assert properties is not None
+    assert (
+        properties.findtext("m:project.build.outputTimestamp", namespaces=MAVEN_NAMESPACE)
+        == "2023-09-29T06:17:00Z"
+    )
+
+
 def test_snpeff_verify_runs_only_hermetic_upstream_and_compatibility_tests() -> None:
     pom = _pom("docker/java/snpeff-pom.xml")
     surefire = _plugin(pom, "maven-surefire-plugin")
