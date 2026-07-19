@@ -17,6 +17,12 @@ repos:
 
 -   repo: local
     hooks:
+    -   id: python-module-line-budget
+        name: Enforce production Python module line budget
+        entry: python scripts/check_file_size.py variantcentrifuge --allowlist .loc-allowlist
+        language: system
+        pass_filenames: false
+        types: [python]
     -   id: pandas-groupby-observed
         name: Enforce observed=True in groupby
         entry: bash -c 'if grep -rn "\.groupby(" --include="*.py" variantcentrifuge/ scripts/ | grep -v "observed=True" | grep -v "^Binary"; then echo "ERROR - groupby() calls must include observed=True"; exit 1; fi'

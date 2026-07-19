@@ -1,4 +1,4 @@
-.PHONY: help install install-dev clean lint format format-check typecheck test test-unit test-integration test-fast ci-check fix
+.PHONY: help install install-dev clean lint lint-loc format format-check typecheck test test-unit test-integration test-fast ci-check fix
 
 # Colors for output
 CYAN := \033[0;36m
@@ -38,6 +38,9 @@ lint: ## Run ruff linter across the repository
 	$(PYTHON) -m ruff check .
 	@echo "$(GREEN)Lint passed$(NC)"
 
+lint-loc: ## Enforce the 600-line production Python module budget
+	$(PYTHON) scripts/check_file_size.py variantcentrifuge --allowlist .loc-allowlist
+
 format: ## Format code with ruff
 	@echo "$(CYAN)Formatting code with ruff...$(NC)"
 	$(PYTHON) -m ruff format .
@@ -76,19 +79,22 @@ test-fast: ## Run non-slow, non-integration tests
 
 ##@ CI Verification
 
-ci-check: ## Run local lint, format, type, and fast-test gates
+ci-check: ## Run local lint, LOC, format, type, and fast-test gates
 	@echo "$(CYAN)Running complete local CI check$(NC)"
 	@echo ""
-	@echo "$(CYAN)[1/4] Linting with ruff...$(NC)"
+	@echo "$(CYAN)[1/5] Linting with ruff...$(NC)"
 	@$(MAKE) lint
 	@echo ""
-	@echo "$(CYAN)[2/4] Checking code format...$(NC)"
+	@echo "$(CYAN)[2/5] Checking production module line counts...$(NC)"
+	@$(MAKE) lint-loc
+	@echo ""
+	@echo "$(CYAN)[3/5] Checking code format...$(NC)"
 	@$(MAKE) format-check
 	@echo ""
-	@echo "$(CYAN)[3/4] Type checking with mypy...$(NC)"
+	@echo "$(CYAN)[4/5] Type checking with mypy...$(NC)"
 	@$(MAKE) typecheck
 	@echo ""
-	@echo "$(CYAN)[4/4] Running tests...$(NC)"
+	@echo "$(CYAN)[5/5] Running tests...$(NC)"
 	@$(MAKE) test-fast
 	@echo ""
 	@echo "$(GREEN)ALL LOCAL CI CHECKS PASSED$(NC)"

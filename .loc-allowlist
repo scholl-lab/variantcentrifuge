@@ -1,0 +1,18 @@
+# Existing production modules above the 600-line budget.
+# Each ceiling is the current physical line count: these files may shrink, not grow.
+variantcentrifuge/annotator.py:663
+variantcentrifuge/association/backends/python_backend.py:1132
+variantcentrifuge/association/backends/r_backend.py:603
+variantcentrifuge/association/engine.py:739
+variantcentrifuge/association/weights.py:621
+variantcentrifuge/checkpoint.py:1107
+variantcentrifuge/cli.py:1830
+variantcentrifuge/filters.py:710
+variantcentrifuge/helpers.py:953
+variantcentrifuge/inheritance/vectorized_deducer.py:854
+variantcentrifuge/pipeline.py:634
+variantcentrifuge/pipeline_core/runner.py:840
+variantcentrifuge/stages/analysis_stages.py:4167
+variantcentrifuge/stages/output_stages.py:1173
+variantcentrifuge/stages/processing_stages.py:1838
+variantcentrifuge/stages/setup_stages.py:1353

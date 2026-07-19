@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No unreleased changes._
+## [0.17.13] - 2026-07-19
+
+### Changed
+
+- Add shared multi-LLM contributor guidance and a minimal Claude Code entrypoint.
+- Enforce the 600-line production Python module budget locally and in CI, with
+  a fixed baseline for existing oversized modules and a required refactor when
+  touching them.
 
 ## [0.17.12] - 2026-07-19
 
