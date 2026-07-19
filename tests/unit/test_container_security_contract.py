@@ -382,6 +382,20 @@ def test_dockerfile_replaces_the_exact_conda_java_tool_jars() -> None:
     ) in dockerfile
 
 
+def test_dockerfile_routes_default_snpeff_databases_to_writable_data_storage() -> None:
+    conda_build = _docker_stage(_text("Dockerfile"), "conda-build")
+    runtime = _docker_stage(_text("Dockerfile"), "runtime")
+    config_path = "/opt/conda/share/snpeff-5.2-3/snpEff.config"
+
+    assert f"snpeff_config={config_path}" in conda_build
+    assert "sed -i 's|^data.dir = \\./data/$|data.dir = /data/snpeff/|'" in conda_build
+    assert 'test "$(grep -c \'^data[.]dir = \' "$snpeff_config")" -eq 1' in conda_build
+    assert "grep -Fx 'data.dir = /data/snpeff/' \"$snpeff_config\"" in conda_build
+    assert "mkdir -p /data/snpeff" in runtime
+    assert "chown $MAMBA_USER:$MAMBA_USER /data /data/snpeff" in runtime
+    assert "chmod 0750 /data /data/snpeff" in runtime
+
+
 def test_dockerfile_removes_jdk_only_tools_and_rejects_javac() -> None:
     conda_build = _docker_stage(_text("Dockerfile"), "conda-build")
     assert 'case "$tool" in' in conda_build
@@ -433,6 +447,17 @@ def test_dockerfile_build_gates_all_python_runtime_paths() -> None:
     assert 'engine="xlsxwriter"' in conda_build
     assert "_try_load_davies" in conda_build
     assert "davies_pvalue" in conda_build
+
+
+def test_production_package_and_image_gate_both_default_json_configs() -> None:
+    pyproject = _text("pyproject.toml")
+    conda_build = _docker_stage(_text("Dockerfile"), "conda-build")
+
+    assert "[tool.setuptools.package-data]" in pyproject
+    assert 'variantcentrifuge = ["config.json", "default_stats_config.json"]' in pyproject
+    assert "from variantcentrifuge.config import load_config" in conda_build
+    assert "config = load_config()" in conda_build
+    assert 'package_dir / "default_stats_config.json"' in conda_build
 
 
 def test_dockerfile_makes_runtime_payloads_immutable_to_the_service_user() -> None:
@@ -811,6 +836,23 @@ def test_container_image_contract_scans_broadly_for_build_executables() -> None:
         'compiler_name_pattern="(^|.*-)(gcc|g\\+\\+|cc|c\\+\\+|clang|clang\\+\\+|'
         'javac|mvn|mvnDebug|maven)(-?[0-9]+([.][0-9]+)*)?$"' in script
     )
+
+
+def test_container_image_contract_checks_default_snpeff_data_storage() -> None:
+    script = _text("scripts/test_container_image.sh")
+    assert "checking default SnpEff database storage" in script
+    assert 'grep -Fx "data.dir = /data/snpeff/"' in script
+    assert "test -w /data/snpeff" in script
+    assert "touch /data/snpeff/container-contract-write-test" in script
+    assert "test ! -w /opt/conda/share/snpeff-5.2-3" in script
+
+
+def test_scoring_integration_requires_every_invoked_bioinformatics_tool() -> None:
+    scoring_integration = _text("tests/test_scoring_integration.py")
+    required_executables = scoring_integration.split("_REQUIRED_EXECUTABLES = (", maxsplit=1)[
+        1
+    ].split(")", maxsplit=1)[0]
+    assert '"sortBed"' in required_executables
 
 
 def test_docker_workflow_preserves_scan_job_and_scans_pull_requests() -> None:

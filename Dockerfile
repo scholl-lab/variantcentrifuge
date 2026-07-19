@@ -78,18 +78,26 @@ RUN pip install --no-deps --no-cache-dir /tmp/src
 RUN /opt/conda/bin/python -m pip check && \
     /opt/conda/bin/python - <<'PY'
 import io
+from pathlib import Path
 
 import cffi
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import xlsxwriter
+import variantcentrifuge
 
 from variantcentrifuge import _qfc
 from variantcentrifuge.association.backends.davies import (
     _try_load_davies,
     davies_pvalue,
 )
+from variantcentrifuge.config import load_config
+
+package_dir = Path(variantcentrifuge.__file__).resolve().parent
+config = load_config()
+assert config["reference"]
+assert (package_dir / "default_stats_config.json").is_file()
 
 table = pa.table({"variant": ["1-100-A-G", "1-200-C-T"], "score": [1.0, 2.0]})
 frame = table.to_pandas()
@@ -122,6 +130,13 @@ PY
 # Replace the Bioconda Java tool payloads with the verified patched builds.
 COPY --from=java-build --chown=$MAMBA_USER:$MAMBA_USER /out/snpEff.jar /opt/conda/share/snpeff-5.2-3/snpEff.jar
 COPY --from=java-build --chown=$MAMBA_USER:$MAMBA_USER /out/SnpSift.jar /opt/conda/share/snpsift-5.2-0/SnpSift.jar
+
+RUN snpeff_config=/opt/conda/share/snpeff-5.2-3/snpEff.config && \
+    test "$(grep -c '^data[.]dir = ' "$snpeff_config")" -eq 1 && \
+    grep -Fx 'data.dir = ./data/' "$snpeff_config" && \
+    sed -i 's|^data.dir = \./data/$|data.dir = /data/snpeff/|' "$snpeff_config" && \
+    test "$(grep -c '^data[.]dir = ' "$snpeff_config")" -eq 1 && \
+    grep -Fx 'data.dir = /data/snpeff/' "$snpeff_config"
 
 RUN python - <<'PY'
 import zipfile
@@ -240,9 +255,9 @@ COPY --chown=0:0 scoring/ /app/scoring/
 COPY --chown=0:0 stats_configs/ /app/stats_configs/
 
 RUN chmod -R go-w /app && \
-    mkdir -p /data && \
-    chown $MAMBA_USER:$MAMBA_USER /data && \
-    chmod 0750 /data && \
+    mkdir -p /data/snpeff && \
+    chown $MAMBA_USER:$MAMBA_USER /data /data/snpeff && \
+    chmod 0750 /data /data/snpeff && \
     invalid_runtime_path=$(find /opt/conda /app -xdev \
         \( ! -user root -o ! -group root -o \
             \( ! -type l -a -perm /022 \) \) -print -quit) && \

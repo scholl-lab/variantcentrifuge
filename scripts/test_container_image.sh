@@ -82,6 +82,26 @@ snpeff_version=$(docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh \
     "$image_id" /opt/conda/bin/snpEff -version 2>&1)
 assert_contains "$snpeff_version" '5.2' 'snpEff version does not contain 5.2'
 
+printf '%s\n' 'checking default SnpEff database storage'
+docker run --rm --user 0:0 --entrypoint /bin/sh "$image_id" -c '
+set -eu
+config=/opt/conda/share/snpeff-5.2-3/snpEff.config
+test "$(grep -c "^data[.]dir = " "$config")" -eq 1
+grep -Fx "data.dir = /data/snpeff/" "$config"
+'
+set +e
+snpeff_default_data_output=$(docker run --rm \
+    --entrypoint /usr/local/bin/_entrypoint.sh "$image_id" \
+    /opt/conda/bin/snpEff genes2bed -v -nodownload -ud 1000 GRCh37.75 2>&1)
+snpeff_default_data_status=$?
+set -e
+if (( snpeff_default_data_status == 0 )); then
+    fail 'SnpEff default data resolution unexpectedly found a database in an empty /data'
+fi
+assert_contains "$snpeff_default_data_output" \
+    "/data/snpeff/GRCh37.75/snpEffectPredictor.bin" \
+    'SnpEff did not resolve its default database beneath /data/snpeff'
+
 set +e
 snpsift_version=$(docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh \
     "$image_id" /opt/conda/bin/SnpSift -version 2>&1)
@@ -215,7 +235,10 @@ docker run --rm --entrypoint /bin/sh "$image_id" -c '
 set -eu
 test "$(id -u)" -ne 0
 test -w /data
+test -w /data/snpeff
+test ! -w /opt/conda/share/snpeff-5.2-3
 touch /data/container-contract-write-test
+touch /data/snpeff/container-contract-write-test
 '
 
 printf '%s\n' 'checking Python dependency and native runtime operations'

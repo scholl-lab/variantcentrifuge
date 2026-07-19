@@ -56,6 +56,9 @@ version = {attr = "variantcentrifuge.version.__version__"}
 where = ["."]
 include = ["variantcentrifuge*"]
 
+[tool.setuptools.package-data]
+variantcentrifuge = ["config.json", "default_stats_config.json"]
+
 [tool.pytest.ini_options]
 # Test file patterns
 python_files = ["test_*.py", "*_test.py", "benchmark_*.py"]

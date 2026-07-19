@@ -15,6 +15,7 @@ _REQUIRED_EXECUTABLES = (
     "snpEff",
     "SnpSift",
     "bedtools",
+    "sortBed",
     "bgzip",
 )
 _MISSING_EXECUTABLES = tuple(
@@ -231,7 +232,10 @@ def test_scoring_with_all_genes(annotated_vcf, scoring_config_dir, temp_output_d
     "impact_filter,expected_min_variants",
     [
         ("ANN[0].IMPACT = 'HIGH'", 1),  # At least some HIGH impact variants
-        ("ANN[0].IMPACT IN ('HIGH', 'MODERATE')", 2),  # More variants with HIGH or MODERATE
+        (
+            "ANN[0].IMPACT = 'HIGH' | ANN[0].IMPACT = 'MODERATE'",
+            2,
+        ),  # More variants with HIGH or MODERATE
         ("1", 5),  # No filter (always true), should have many variants
     ],
 )
