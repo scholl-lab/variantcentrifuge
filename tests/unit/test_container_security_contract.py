@@ -375,7 +375,8 @@ def test_dockerfile_replaces_the_exact_conda_java_tool_jars() -> None:
 def test_dockerfile_removes_jdk_only_tools_and_rejects_javac() -> None:
     conda_build = _docker_stage(_text("Dockerfile"), "conda-build")
     assert 'case "$tool" in' in conda_build
-    assert "java|keytool|jspawnhelper" in conda_build
+    assert "java|keytool" in conda_build
+    assert "jspawnhelper" not in conda_build
     assert 'find "$jvm_bin" -mindepth 1 -maxdepth 1' in conda_build
     assert 'rm -f "$jvm_bin/$tool"' in conda_build
     assert 'for link in /opt/conda/bin/*' in conda_build

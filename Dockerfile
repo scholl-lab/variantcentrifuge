@@ -142,7 +142,7 @@ for jar_path, expected_main_class in jars.items():
     assert manifest.get("Multi-Release") == "true", (jar_path, manifest)
 PY
 
-# Keep only the Java launcher, keytool, and a vendor jspawnhelper when present.
+# Keep only the Java launcher and keytool.
 RUN java_path=$(readlink -f "$(command -v java)") && \
     jvm_bin=$(dirname "$java_path") && \
     jvm_home=$(dirname "$jvm_bin") && \
@@ -153,7 +153,7 @@ RUN java_path=$(readlink -f "$(command -v java)") && \
             ../lib/jvm/bin/*|/opt/conda/lib/jvm/bin/*) \
                 tool=${link_target##*/}; \
                 case "$tool" in \
-                    java|keytool|jspawnhelper) ;; \
+                    java|keytool) ;; \
                     *) rm -f "$link" ;; \
                 esac \
                 ;; \
@@ -163,7 +163,7 @@ RUN java_path=$(readlink -f "$(command -v java)") && \
         test -e "$tool_path" || continue; \
         tool=${tool_path##*/}; \
         case "$tool" in \
-            java|keytool|jspawnhelper) ;; \
+            java|keytool) ;; \
             *) rm -f "$jvm_bin/$tool" ;; \
         esac; \
     done && \
@@ -172,9 +172,6 @@ RUN java_path=$(readlink -f "$(command -v java)") && \
     rm -f "$jvm_home/src.zip" "$jvm_home/lib/src.zip" && \
     jvm_inventory=$(find "$jvm_bin" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort) && \
     expected_jvm_inventory=$(printf '%s\n%s' java keytool) && \
-    if test -e "$jvm_bin/jspawnhelper"; then \
-        expected_jvm_inventory=$(printf '%s\n%s' "$expected_jvm_inventory" jspawnhelper | sort); \
-    fi && \
     if test "$jvm_inventory" != "$expected_jvm_inventory"; then \
         printf 'Unexpected JVM runtime tool inventory:\n%s\n' "$jvm_inventory" >&2; \
         exit 1; \
@@ -186,7 +183,7 @@ RUN java_path=$(readlink -f "$(command -v java)") && \
             ../lib/jvm/bin/*|/opt/conda/lib/jvm/bin/*) \
                 tool=${link_target##*/}; \
                 case "$tool" in \
-                    java|keytool|jspawnhelper) ;; \
+                    java|keytool) ;; \
                     *) printf 'Unexpected conda JVM tool link: %s -> %s\n' \
                         "$link" "$link_target" >&2; exit 1 ;; \
                 esac \
