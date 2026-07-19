@@ -149,6 +149,13 @@ def _text(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
 
 
+def _docker_stage(dockerfile: str, stage: str) -> str:
+    marker = f" AS {stage}\n"
+    assert marker in dockerfile
+    stage_body = dockerfile.split(marker, maxsplit=1)[1]
+    return stage_body.split("\nFROM ", maxsplit=1)[0]
+
+
 def _pom(relative: str) -> ET.Element:
     return ET.parse(ROOT / relative).getroot()
 
@@ -285,6 +292,143 @@ def test_docker_environment_pins_release_era_java_tool_builds() -> None:
 def test_docker_environment_has_secure_pip_floor() -> None:
     environment = _text("conda/environment-docker.yml")
     assert _contains_dependency_line(environment, "  - pip>=26.1.2")
+
+
+def test_docker_environment_pins_compatible_smart_open() -> None:
+    environment = _text("conda/environment-docker.yml")
+    assert _contains_dependency_line(environment, "    - intervaltree")
+    assert _contains_dependency_line(environment, "    - smart-open==7.7.1")
+
+
+def test_dockerfile_pins_the_java_builder_image_by_digest() -> None:
+    dockerfile = _text("Dockerfile")
+    assert (
+        "FROM maven:3.9.11-eclipse-temurin-11@sha256:"
+        "c095e2421eaf3e5cb1573fd0474e68e17062866d454362349e17bbb75f44031e "
+        "AS java-build"
+    ) in dockerfile.splitlines()
+
+
+def test_dockerfile_pins_both_micromamba_stages_by_digest() -> None:
+    dockerfile = _text("Dockerfile")
+    image = (
+        "mambaorg/micromamba:2.8.1-debian12-slim@sha256:"
+        "c8198d53228ad7cfd7adcc0704e8837f9d1c9327fb363c6a7d3c5b1a51a4b561"
+    )
+    assert f"FROM {image} AS conda-build" in dockerfile.splitlines()
+    assert f"FROM {image} AS runtime" in dockerfile.splitlines()
+    assert dockerfile.count(f"FROM {image} AS ") == 2
+
+
+def test_dockerfile_fetches_pinned_java_sources_with_verified_checksums() -> None:
+    dockerfile = _text("Dockerfile")
+    assert (
+        "ADD --checksum=sha256:"
+        "8633ecad8dbf06af19d5002818b65dc9e7b78419b94866dd4b1daed9d1e9d2b2 "
+        "https://github.com/pcingola/SnpEff/archive/"
+        "0c5e74f9b6ca6ed3db720177eb1f95b9d47d45f2.tar.gz /tmp/snpeff.tar.gz"
+    ) in dockerfile
+    assert (
+        "ADD --checksum=sha256:"
+        "74c37b85e74a390a27f122164fd06c5b56131e3fa1eca205636d3de4a8c94934 "
+        "https://github.com/pcingola/SnpSift/archive/"
+        "20978614457f14ec7a0c70539d5a7a2b7e754f60.tar.gz /tmp/snpsift.tar.gz"
+    ) in dockerfile
+
+
+def test_dockerfile_upgrades_runtime_os_and_removes_package_caches() -> None:
+    dockerfile = _text("Dockerfile")
+    runtime = _docker_stage(dockerfile, "runtime")
+    assert "apt-get update" in runtime
+    assert "DEBIAN_FRONTEND=noninteractive" in runtime
+    assert "apt-get -y --no-install-recommends dist-upgrade" in runtime
+    assert "apt-get clean" in runtime
+    assert "rm -rf /var/lib/apt/lists/*" in runtime
+
+    conda_build = _docker_stage(dockerfile, "conda-build")
+    assert "rm -rf /opt/conda/pkgs" in conda_build
+    assert "test ! -e /opt/conda/pkgs" in conda_build
+
+
+def test_dockerfile_replaces_the_exact_conda_java_tool_jars() -> None:
+    dockerfile = _text("Dockerfile")
+    assert (
+        "COPY --from=java-build --chown=$MAMBA_USER:$MAMBA_USER /out/snpEff.jar "
+        "/opt/conda/share/snpeff-5.2-3/snpEff.jar"
+    ) in dockerfile
+    assert (
+        "COPY --from=java-build --chown=$MAMBA_USER:$MAMBA_USER /out/SnpSift.jar "
+        "/opt/conda/share/snpsift-5.2-0/SnpSift.jar"
+    ) in dockerfile
+
+
+def test_dockerfile_removes_jdk_only_tools_and_rejects_javac() -> None:
+    conda_build = _docker_stage(_text("Dockerfile"), "conda-build")
+    assert (
+        "for tool in javac javadoc javap jar jarsigner jconsole jdeps jlink jmod "
+        "jshell; do"
+    ) in conda_build
+    assert 'rm -f "/opt/conda/bin/$tool" "$jvm_bin/$tool"' in conda_build
+    assert 'rm -rf "$jvm_home/include" "$jvm_home/jmods"' in conda_build
+    assert 'rm -f "$jvm_home/src.zip" "$jvm_home/lib/src.zip"' in conda_build
+    assert "! command -v javac" in conda_build
+
+
+def test_dockerfile_final_user_is_the_micromamba_user() -> None:
+    dockerfile = _text("Dockerfile")
+    user_lines = [line for line in dockerfile.splitlines() if line.startswith("USER ")]
+    assert user_lines
+    assert user_lines[-1] == "USER $MAMBA_USER"
+    assert "USER root" in _docker_stage(dockerfile, "runtime")
+
+
+def test_dockerfile_preserves_the_runtime_interface() -> None:
+    dockerfile = _text("Dockerfile")
+    assert "WORKDIR /data" in dockerfile
+    assert (
+        'CMD ["/opt/conda/bin/variantcentrifuge", "--version"]' in dockerfile
+    )
+    assert (
+        'ENTRYPOINT ["/usr/local/bin/_entrypoint.sh", "variantcentrifuge"]'
+        in dockerfile
+    )
+    assert 'CMD ["--help"]' in dockerfile
+    assert "COPY --chown=$MAMBA_USER:$MAMBA_USER LICENSE /app/LICENSE" in dockerfile
+    assert "COPY --chown=$MAMBA_USER:$MAMBA_USER scoring/ /app/scoring/" in dockerfile
+    assert (
+        "COPY --chown=$MAMBA_USER:$MAMBA_USER stats_configs/ /app/stats_configs/"
+        in dockerfile
+    )
+
+
+def test_dockerfile_validates_both_executable_multi_release_manifests() -> None:
+    conda_build = _docker_stage(_text("Dockerfile"), "conda-build")
+    assert "python - <<'PY'" in conda_build
+    assert "zipfile.ZipFile" in conda_build
+    assert (
+        '"/opt/conda/share/snpeff-5.2-3/snpEff.jar": "org.snpeff.SnpEff"'
+        in conda_build
+    )
+    assert (
+        '"/opt/conda/share/snpsift-5.2-0/SnpSift.jar": "org.snpsift.SnpSift"'
+        in conda_build
+    )
+    assert 'manifest.get("Main-Class") == expected_main_class' in conda_build
+    assert 'manifest.get("Multi-Release") == "true"' in conda_build
+
+
+def test_dockerfile_verifies_both_java_projects_and_runtime_dependencies() -> None:
+    java_build = _docker_stage(_text("Dockerfile"), "java-build")
+    assert java_build.count("mvn -B verify") == 2
+    assert "mvn -B verify -DskipTests" not in java_build
+    assert "mvn -B install -DskipTests" in java_build
+    assert java_build.count(
+        "/usr/local/bin/assert-runtime-dependencies.sh /build/"
+    ) == 2
+    assert java_build.count("*-jar-with-dependencies.jar") == 2
+    assert java_build.index("mvn -B verify") < java_build.index(
+        "mvn -B install -DskipTests"
+    )
 
 
 @pytest.mark.parametrize(
