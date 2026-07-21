@@ -48,6 +48,7 @@ cancer_analysis
 inheritance_analysis
 cohort_analysis
 association_testing
+meta_analysis
 variant_scoring
 custom_filters
 ../user-guide/privacy_and_pseudonymization

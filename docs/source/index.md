@@ -70,6 +70,7 @@ guides/cancer_analysis
 guides/inheritance_analysis
 guides/cohort_analysis
 guides/association_testing
+guides/meta_analysis
 guides/variant_scoring
 guides/custom_filters
 user-guide/privacy_and_pseudonymization

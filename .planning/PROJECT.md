@@ -58,7 +58,13 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 
 ### Active
 
-(No active milestone — next TBD via /gsd:new-milestone)
+**Cohort-stratified rare-variant score-statistic meta-analysis** (#112, branch `feat/cohort-meta-analysis`) — in review
+
+- Per-stratum score/covariance artifacts (`U = Gᵀr`, projection-adjusted `V = GᵀPG`, aggregate-only — no per-sample rows) exported from the existing SKAT machinery
+- New `variantcentrifuge-meta` CLI: study manifest → canonical-key union alignment → pooled-frequency weight harmonisation → common-effect burden/SKAT/SKAT-O meta + heterogeneity (Cochran Q, I², leave-one-cohort-out) → exome-wide FDR
+- Binary traits; reuses the Davies chain and SKAT-O omnibus unchanged — a single-stratum meta reproduces `_test_skat`/`_test_skato` exactly (golden-gate tests)
+- Comparability guardrails: refuses to pool strata that disagree on build/annotation/mask or that share samples; no silent p-value-combination fallback
+- 33 new tests covering all six issue acceptance criteria; scope reversal ratified (see Out of Scope + Key Decisions)
 
 ### Out of Scope
 
@@ -67,8 +73,10 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 - Report generation validation (#61) — separate milestone
 - Polars migration — unacceptable risk for clinical tool with deep pandas integration
 - Free-threaded Python 3.13+ — numpy/pandas lack support
-- Meta-analysis (RAREMETAL, Meta-SAIGE) — different problem: combining results across cohorts
-- Mixed model / GRM (SAIGE-GENE approach) — biobank-scale; PCs + kinship exclusion sufficient for GCKD
+- External/public control borrowing and cross-cohort participant linkage — the #112 meta-analysis combines per-cohort score statistics only; it never borrows, links, or pools raw samples
+- Quantitative-trait meta-analysis — deferred pending a coherent likelihood-score convention (binary only for the first release; the adversarial review showed the raw `U`/`V` pairing is inconsistent for σ²≠1)
+- Genotype-level SPA for severe case:control imbalance — deferred; the meta artifact stores raw `U`/`V`, so a saddlepoint path can be added without a schema change
+- Mixed model / GRM null backend (SAIGE-GENE approach) — biobank-scale; the #112 meta engine exposes an extensible null-model/covariance seam for it, but PCs + kinship exclusion remain the default for GCKD
 - Adaptive test selection per gene — post-hoc best-test selection inflates type I error
 
 ## Context
@@ -124,6 +132,10 @@ Accurate inheritance pattern deduction and variant prioritization from multi-sam
 | Sparse matrices deferred (streaming solves OOM) | Centering destroys sparsity for SKAT; benefit only at 10K+ samples | ✓ Good |
 | Compound het numpy-only worker reverted | 2x regression on real data; synthetic benchmarks misleading | ✓ Good (correct revert) |
 | Always benchmark with production-scale data | Synthetic (50 samples) showed gains; real (5125 samples) showed regression | ✓ Good (lesson learned) |
+| Adopt cohort meta-analysis (#112), reversing the prior non-goal | Real GCKD-adjacent need: two imbalanced case-control cohorts, one calibrated exome-wide discovery; the score `U` and covariance `V` are already computed by SKAT and thrown away | ✓ Ratified 2026-07-21 |
+| Decoupled design: per-cohort score artifacts + a separate `variantcentrifuge-meta` CLI | Matches RAREMETAL/MetaSKAT/seqMeta; per-cohort runs are unchanged and the meta step needs no VCF or external tools | ✓ Good |
+| Store `U`/`V` unweighted; harmonise weights from pooled MAF at meta time | Cohort-specific MAF weights would put `U`/`V` on incompatible scales | ✓ Good |
+| Binary-only first; SPA, GLMM/GRM, and quantitative behind interface seams | Binary is the issue's stated target; adversarial (Codex) review found the quantitative `U`/`V` scaling needs a separate likelihood-score convention | — Pending (deferred) |
 
 ---
-*Last updated: 2026-02-27 after v0.17.0 milestone completion*
+*Last updated: 2026-07-21 — cohort meta-analysis (#112) scope ratified*
