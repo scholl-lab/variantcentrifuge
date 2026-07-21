@@ -48,6 +48,7 @@ dev = [
 [project.scripts]
 variantcentrifuge = "variantcentrifuge.cli:main"
 variantcentrifuge-build-pm5 = "variantcentrifuge.build_pm5_lookup:main"
+variantcentrifuge-meta = "variantcentrifuge.association.meta.cli:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "variantcentrifuge.version.__version__"}
