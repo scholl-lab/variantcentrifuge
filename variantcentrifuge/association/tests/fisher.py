@@ -11,7 +11,7 @@ contingency data — verified by the Phase 18 parity test suite.
 Statistical approach: 2x2 contingency table Fisher's exact test with:
 - Carrier-based (CMC/CAST) or allele-based table construction
 - Confidence intervals via statsmodels Table2x2.oddsratio_confint
-  (score -> normal -> logit fallback, same as gene_burden.py lines 97-111)
+  (normal approximation, same as gene_burden.py)
 - Haldane-Anscombe continuity correction for zero cells
 """
 
@@ -46,8 +46,8 @@ class FisherExactTest(AssociationTest):
     1. Table construction (samples mode: carriers vs non-carriers;
        alleles mode: alt alleles vs ref alleles)
     2. scipy.stats.fisher_exact for p-value and odds ratio
-    3. statsmodels Table2x2.oddsratio_confint for CIs (score -> normal ->
-       logit fallback with continuity correction for zero cells)
+    3. statsmodels Table2x2.oddsratio_confint for CIs (normal approximation
+       with continuity correction for zero cells)
 
     Coupling direction: this module imports from variantcentrifuge.association.
     It does NOT import from gene_burden.py. Bit-identity is guaranteed by
@@ -250,7 +250,7 @@ class FisherExactTest(AssociationTest):
         Compute confidence intervals for the odds ratio.
 
         Ports _compute_or_confidence_interval() from gene_burden.py
-        (lines 48-114) with identical logic: score -> normal -> logit fallback,
+        with identical logic: normal approximation,
         continuity correction for zero cells, structural-zero detection.
         """
         a = table[0][0]
@@ -282,17 +282,8 @@ class FisherExactTest(AssociationTest):
 
         try:
             cont_table = Table2x2(table_for_ci)
-            # Try score method first — robust for sparse data
-            ci_lower, ci_upper = cont_table.oddsratio_confint(alpha=alpha, method="score")
-
-            if isnan(ci_lower) or isnan(ci_upper):
-                logger.debug("Score method failed, trying normal approximation.")
-                ci_lower, ci_upper = cont_table.oddsratio_confint(alpha=alpha, method="normal")
-
-                if isnan(ci_lower) or isnan(ci_upper):
-                    logger.debug("Normal approximation failed, trying logit method.")
-                    ci_lower, ci_upper = cont_table.oddsratio_confint(alpha=alpha, method="logit")
-
+            # Table2x2 supports only the normal approximation on the log-odds scale.
+            ci_lower, ci_upper = cont_table.oddsratio_confint(alpha=alpha, method="normal")
             return float(ci_lower), float(ci_upper)
         except Exception as e:
             logger.warning(f"Failed to compute CI for table {table_for_ci.tolist()}: {e}")

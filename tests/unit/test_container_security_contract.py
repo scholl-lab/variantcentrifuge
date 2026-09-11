@@ -1,10 +1,13 @@
 import os
 import re
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from packaging import requirements
 
 ROOT = Path(__file__).resolve().parents[2]
 MAVEN_NAMESPACE = {"m": "http://maven.apache.org/POM/4.0.0"}
@@ -15,7 +18,7 @@ SECURED_PROPERTIES = {
     "gson.version": "2.14.0",
     "commons.io.version": "2.22.0",
     "commons.compress.version": "1.28.0",
-    "log4j.version": "2.25.4",
+    "log4j.version": "2.25.5",
 }
 
 MANAGED_RUNTIME_VERSIONS = {
@@ -44,9 +47,9 @@ REQUIRED_RUNTIME_DEPENDENCIES = [
     "com.google.code.gson:gson:jar:2.14.0:runtime",
     "commons-io:commons-io:jar:2.22.0:runtime",
     "org.apache.commons:commons-compress:jar:1.28.0:runtime",
-    "org.apache.logging.log4j:log4j-api:jar:2.25.4:runtime",
-    "org.apache.logging.log4j:log4j-core:jar:2.25.4:runtime",
-    "org.apache.logging.log4j:log4j-slf4j-impl:jar:2.25.4:runtime",
+    "org.apache.logging.log4j:log4j-api:jar:2.25.5:runtime",
+    "org.apache.logging.log4j:log4j-core:jar:2.25.5:runtime",
+    "org.apache.logging.log4j:log4j-slf4j-impl:jar:2.25.5:runtime",
 ]
 
 # Derived from the pinned upstream POMs, with only the approved dependency,
@@ -478,6 +481,28 @@ def test_dockerfile_build_gates_all_python_runtime_paths() -> None:
     assert 'engine="xlsxwriter"' in conda_build
     assert "_try_load_davies" in conda_build
     assert "davies_pvalue" in conda_build
+
+
+@pytest.mark.parametrize(
+    ("requirement", "requires_pip"),
+    [("pip>=26", True), ('pip; extra == "build"', False), ("numpy>=1", False)],
+)
+def test_builder_rejects_removing_required_pip(monkeypatch, requirement, requires_pip):
+    """Exercise the build gate against active and optional package requirements."""
+    conda_build = _docker_stage(_text("Dockerfile"), "conda-build")
+    guard = conda_build.split("from importlib.metadata import distributions\n", 1)[1]
+    guard = "from importlib.metadata import distributions\n" + guard.split("\nPY", 1)[0]
+    monkeypatch.setattr(
+        "importlib.metadata.distributions",
+        lambda: [SimpleNamespace(name="consumer", requires=[requirement])],
+    )
+    # Use the real requirement parser without requiring builder-only pip in pytest.
+    monkeypatch.setitem(sys.modules, "pip._vendor.packaging.requirements", requirements)
+    if requires_pip:
+        with pytest.raises(RuntimeError, match="Runtime package consumer requires pip"):
+            exec(guard)
+    else:
+        exec(guard)
 
 
 def test_production_package_and_image_gate_both_default_json_configs() -> None:

@@ -1,0 +1,33 @@
+{
+  "title": "VariantCentrifuge",
+  "description": "VariantCentrifuge is a research-use command-line pipeline for filtering, extracting, and prioritizing genetic variants from VCF files. It combines gene-centric region extraction, multi-tier filtering, inheritance analysis, configurable scoring, association testing, and report generation.",
+  "upload_type": "software",
+  "version": "0.17.13",
+  "access_right": "open",
+  "license": "MIT",
+  "creators": [
+    {
+      "name": "Popp, Bernt",
+      "orcid": "0000-0002-3679-1081",
+      "affiliation": "Berlin Institute of Health at Charité – Universitätsmedizin Berlin, Center of Functional Genomics, Berlin, Germany; Labor Berlin – Charité Vivantes GmbH, Berlin, Germany"
+    }
+  ],
+  "keywords": [
+    "bioinformatics",
+    "genomics",
+    "variant prioritization",
+    "VCF",
+    "inheritance analysis"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/scholl-lab/variantcentrifuge",
+      "relation": "isSupplementTo",
+      "resource_type": "software"
+    },
+    {
+      "identifier": "https://scholl-lab.github.io/variantcentrifuge/",
+      "relation": "isDocumentedBy"
+    }
+  ]
+}

@@ -33,6 +33,10 @@ VariantCentrifuge combines gene-centric region extraction, multi-tier filtering 
 docker pull ghcr.io/scholl-lab/variantcentrifuge:latest
 ```
 
+The production image contains an immutable runtime environment. `pip` is used
+only while building the image and is removed before distribution; package
+installation belongs in a development environment.
+
 **pip:**
 
 ```bash
@@ -91,11 +95,26 @@ Contributions are welcome. Please see the [Contributing Guide](https://scholl-la
 - [Bug Reports and Feature Requests](https://github.com/scholl-lab/variantcentrifuge/issues)
 - [Discussions](https://github.com/scholl-lab/variantcentrifuge/discussions)
 
-## Citation
+## How to cite
 
-If you use VariantCentrifuge in your research, please cite:
+If you use VariantCentrifuge in your research, cite the software and record the
+exact release or commit used in your analysis. [CITATION.cff](CITATION.cff)
+provides machine-readable citation metadata for GitHub's **Cite this repository**
+menu. Until an archive DOI is available, cite the corresponding GitHub release
+or commit URL. For example, for the latest published release:
 
-> Citation information will be added upon publication.
+> Popp, B. (2026). VariantCentrifuge (version 0.17.12) [Computer software].
+> https://github.com/scholl-lab/variantcentrifuge/releases/tag/v0.17.12
+
+The current development version is **0.17.13**, as recorded in
+`variantcentrifuge/version.py`, `CITATION.cff`, and [.zenodo.json](.zenodo.json).
+It has no release date yet; the latest published release is **v0.17.12**
+(2026-07-19). For a development checkout, include its full commit hash and URL
+instead of citing it as a published release.
+
+**Zenodo archive pending:** metadata is prepared, but no DOI has been minted.
+See the [release and archival guide](docs/source/citation.md) for the maintainer
+steps to archive a release and add the resulting DOI badge.
 
 ## License
 

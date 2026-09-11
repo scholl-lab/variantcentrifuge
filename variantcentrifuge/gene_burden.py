@@ -24,7 +24,6 @@ References
 
 import logging
 import re
-from math import isnan
 from typing import Any
 
 import pandas as pd
@@ -77,7 +76,6 @@ def _compute_or_confidence_interval(
         Method for confidence interval calculation.
         Currently supported:
         - "normal_approx": Uses statsmodels Table2x2 normal approximation.
-          Fallback to "logit" if normal approximation fails.
     alpha : float
         Significance level for the confidence interval. 0.05 for 95% CI.
     continuity_correction : float
@@ -112,18 +110,9 @@ def _compute_or_confidence_interval(
 
     try:
         cont_table = Table2x2(table_for_ci)
-        # Use the score method for confidence intervals, as it's robust for sparse data
-        ci_lower, ci_upper = cont_table.oddsratio_confint(alpha=alpha, method="score")
-
-        # If score method fails, try other methods
-        if isnan(ci_lower) or isnan(ci_upper):
-            logger.debug("Score method failed, trying normal approximation.")
-            ci_lower, ci_upper = cont_table.oddsratio_confint(alpha=alpha, method="normal")
-
-            if isnan(ci_lower) or isnan(ci_upper):
-                logger.debug("Normal approximation failed, trying logit method.")
-                ci_lower, ci_upper = cont_table.oddsratio_confint(alpha=alpha, method="logit")
-
+        # Table2x2 supports only the normal approximation on the log-odds scale.
+        # Older statsmodels ignored other method names; newer versions reject them.
+        ci_lower, ci_upper = cont_table.oddsratio_confint(alpha=alpha, method="normal")
         return ci_lower, ci_upper
     except Exception as e:
         logger.warning(f"Failed to compute CI for table {table_for_ci.tolist()}: {e}")

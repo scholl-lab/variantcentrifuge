@@ -475,8 +475,10 @@ class TestFisherEdgeCases:
         result = fisher.run("ZEROCELL", gene_data, config)
 
         assert result.p_value is not None
-        # CI should be computed (not None) due to continuity correction
-        assert result.ci_lower is not None or result.ci_upper is not None
+        # Log-odds normal interval after adding 0.5 to all four cells.
+        assert (result.ci_lower, result.ci_upper) == pytest.approx(
+            (1.3154464291858867, 448.7676411523502)
+        )
 
     def test_result_test_name_is_fisher(self):
         """TestResult.test_name is always 'fisher' for FisherExactTest."""

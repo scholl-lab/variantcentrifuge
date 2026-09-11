@@ -28,9 +28,9 @@ declare -A required_versions=(
     [com.google.code.gson:gson]=2.14.0
     [commons-io:commons-io]=2.22.0
     [org.apache.commons:commons-compress]=1.28.0
-    [org.apache.logging.log4j:log4j-api]=2.25.4
-    [org.apache.logging.log4j:log4j-core]=2.25.4
-    [org.apache.logging.log4j:log4j-slf4j-impl]=2.25.4
+    [org.apache.logging.log4j:log4j-api]=2.25.5
+    [org.apache.logging.log4j:log4j-core]=2.25.5
+    [org.apache.logging.log4j:log4j-slf4j-impl]=2.25.5
 )
 declare -A found_required=()
 

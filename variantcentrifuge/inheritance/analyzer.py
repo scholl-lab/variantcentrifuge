@@ -215,12 +215,13 @@ def analyze_inheritance(
 
     # Log summary statistics and timing breakdown
     t_total = t_pass1 + t_pass2_total + t_pass3
+    percent_scale = 100 / t_total if t_total > 0 else 0
     pattern_counts = df["Inheritance_Pattern"].value_counts()
     logger.info(
         f"Inheritance analysis complete in {t_total:.2f}s. "
-        f"Timing: Pass1={t_pass1:.2f}s ({t_pass1 / t_total * 100:.0f}%), "
-        f"Pass2={t_pass2_total:.2f}s ({t_pass2_total / t_total * 100:.0f}%), "
-        f"Pass3={t_pass3:.2f}s ({t_pass3 / t_total * 100:.0f}%). "
+        f"Timing: Pass1={t_pass1:.2f}s ({t_pass1 * percent_scale:.0f}%), "
+        f"Pass2={t_pass2_total:.2f}s ({t_pass2_total * percent_scale:.0f}%), "
+        f"Pass3={t_pass3:.2f}s ({t_pass3 * percent_scale:.0f}%). "
         f"Pattern distribution: {pattern_counts.to_dict()}"
     )
 

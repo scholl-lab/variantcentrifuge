@@ -129,6 +129,24 @@ print(
 )
 PY
 
+# Keep the installer and its vendored dependencies out of the production image.
+# Dependency consistency is checked above before removing the build-only tool.
+RUN /opt/conda/bin/python - <<'PY'
+from importlib.metadata import distributions
+
+from pip._vendor.packaging.requirements import Requirement
+
+for distribution in distributions():
+    for entry in distribution.requires or []:
+        requirement = Requirement(entry)
+        if requirement.name.lower() == "pip" and (
+            requirement.marker is None or requirement.marker.evaluate({"extra": ""})
+        ):
+            raise RuntimeError(f"Runtime package {distribution.name} requires pip")
+PY
+RUN /opt/conda/bin/python -m pip uninstall --yes pip && \
+    /opt/conda/bin/python -c 'import importlib.util; assert importlib.util.find_spec("pip") is None'
+
 # Replace the Bioconda Java tool payloads with the verified patched builds.
 COPY --from=java-build --chown=$MAMBA_USER:$MAMBA_USER /out/snpEff.jar /opt/conda/share/snpeff-5.2-3/snpEff.jar
 COPY --from=java-build --chown=$MAMBA_USER:$MAMBA_USER /out/SnpSift.jar /opt/conda/share/snpsift-5.2-0/SnpSift.jar
