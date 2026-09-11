@@ -89,6 +89,7 @@ api/index
 
 development
 contributing
+citation
 changelog
 ```
 

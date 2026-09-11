@@ -175,6 +175,12 @@ class TestGeneBurdenEdgeCases:
 class TestConfidenceIntervalMethods:
     """Test different confidence interval calculation methods."""
 
+    def test_normal_approximation_matches_log_odds_interval(self):
+        """The supported statsmodels method must return finite 95% bounds."""
+        interval = _compute_or_confidence_interval([[10, 5], [20, 30]], 3.0, "normal_approx", 0.05)
+        # exp(log(3) +/- 1.959963984540054 * sqrt(1/10 + 1/5 + 1/20 + 1/30))
+        assert interval == pytest.approx((0.8914747010960976, 10.09563141717225))
+
     def test_compute_or_ci_fallback_behavior(self):
         """Test the fallback behavior of _compute_or_confidence_interval."""
         # Test with invalid odds ratio (NaN) - structural zero

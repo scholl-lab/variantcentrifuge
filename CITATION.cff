@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: >-
+  If you use VariantCentrifuge in your research, please cite the software
+  and record the release or commit used in your analysis.
+type: software
+title: VariantCentrifuge
+abstract: >-
+  VariantCentrifuge is a research-use command-line pipeline for filtering,
+  extracting, and prioritizing genetic variants from VCF files. It combines
+  gene-centric region extraction, multi-tier filtering, inheritance analysis,
+  configurable scoring, association testing, and report generation.
+version: 0.17.13
+url: https://scholl-lab.github.io/variantcentrifuge/
+repository-code: https://github.com/scholl-lab/variantcentrifuge
+license: MIT
+keywords:
+  - bioinformatics
+  - genomics
+  - variant prioritization
+  - VCF
+  - inheritance analysis
+authors:
+  - family-names: Popp
+    given-names: Bernt
+    orcid: https://orcid.org/0000-0002-3679-1081
+    affiliation: Berlin Institute of Health at Charité – Universitätsmedizin Berlin, Center of Functional Genomics, Berlin, Germany; Labor Berlin – Charité Vivantes GmbH, Berlin, Germany

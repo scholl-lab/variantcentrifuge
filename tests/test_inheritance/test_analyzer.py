@@ -14,6 +14,18 @@ from variantcentrifuge.inheritance.analyzer import (
 class TestInheritanceAnalyzer:
     """Test the main inheritance analyzer."""
 
+    def test_zero_duration_timing_preserves_analysis(
+        self, de_novo_variants_df, trio_pedigree, monkeypatch, caplog
+    ):
+        """Analysis must succeed when every pass finishes within one clock tick."""
+        monkeypatch.setattr("variantcentrifuge.inheritance.analyzer.time.monotonic", lambda: 1.0)
+        with caplog.at_level("INFO", logger="variantcentrifuge.inheritance.analyzer"):
+            result = analyze_inheritance(
+                de_novo_variants_df, trio_pedigree, ["father", "mother", "child"]
+            )
+        assert result["Inheritance_Pattern"].tolist() == ["de_novo", "de_novo"]
+        assert "Inheritance analysis complete in 0.00s" in caplog.text
+
     @pytest.fixture
     def trio_pedigree(self):
         """Provide standard trio pedigree."""

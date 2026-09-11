@@ -30,6 +30,9 @@ class OptionalBuildExt(build_ext):
         except Exception as e:
             import warnings
 
+            # Editable installs copy build outputs in a later phase. Mark the
+            # failed extension optional so setuptools skips its missing binary.
+            ext.optional = True
             warnings.warn(
                 f"Davies C extension build failed: {e}. "
                 "SKAT will use Kuonen saddlepoint / Liu moment-matching fallback "
