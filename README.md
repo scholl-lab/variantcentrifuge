@@ -33,6 +33,10 @@ VariantCentrifuge combines gene-centric region extraction, multi-tier filtering 
 docker pull ghcr.io/scholl-lab/variantcentrifuge:latest
 ```
 
+The production image contains an immutable runtime environment. `pip` is used
+only while building the image and is removed before distribution; package
+installation belongs in a development environment.
+
 **pip:**
 
 ```bash

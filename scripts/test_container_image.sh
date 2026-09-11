@@ -243,11 +243,27 @@ touch /data/snpeff/container-contract-write-test
 '
 
 printf '%s\n' 'checking Python dependency and native runtime operations'
+
+# Run pip check from a verified, read-only test mount. The production image has
+# no installer or vendored pip dependencies, and the test never installs them.
+pip_check_wheel=$work_dir/pip-check.whl
+curl --fail --location --silent --show-error \
+    'https://files.pythonhosted.org/packages/f3/6e/1736e5b4ae2b778ef2f81c47d797de9f891d4d8acb047a24ca37a60294dd/pip-26.2.1-py3-none-any.whl' \
+    --output "$pip_check_wheel"
+printf '%s  %s\n' \
+    71138adf1f4ca900cdb7d289c21b7494329f2332b6d85f0e1c42108c0384ed3e \
+    "$pip_check_wheel" | sha256sum --check --status
+chmod 0644 "$pip_check_wheel"
 docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh \
+    --mount "type=bind,src=$pip_check_wheel,dst=/tmp/pip-check.whl,readonly" \
+    --env PYTHONPATH=/tmp/pip-check.whl \
     "$image_id" /opt/conda/bin/python -m pip check
 docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh \
     "$image_id" /opt/conda/bin/python -c '
+import importlib.util
 import io
+
+assert importlib.util.find_spec("pip") is None
 
 import cffi
 import numpy as np
