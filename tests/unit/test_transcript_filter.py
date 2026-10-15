@@ -161,3 +161,44 @@ def test_filter_vcf_to_transcripts_uses_bcftools_bgzip_when_indexing(
     assert view_call[:4] == ["bcftools", "view", "-Oz", "-o"]
     assert view_call[4] == str(output_vcf)
     assert index_call == ["bcftools", "index", "-f", str(output_vcf)]
+
+
+def test_filter_vcf_to_transcripts_matches_version_skew_emits_each_kept_and_logs_summary(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    input_vcf = tmp_path / "input.vcf"
+    output_vcf = tmp_path / "output.vcf"
+    input_vcf.write_text(
+        "##fileformat=VCFv4.2\n"
+        '##INFO=<ID=ANN,Number=.,Type=String,Description="Functional annotations">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"
+        "chr3\t53820000\t.\tT\tC\t.\tPASS\t"
+        "ANN=C|stop_gained|HIGH|OTHER|OTHER|transcript|NM_999999.1|protein_coding||||||||,"
+        "C|missense_variant|MODERATE|CACNA1D|CACNA1D|transcript|NM_000720.3|protein_coding|"
+        "8/49|c.1207G>C|p.Gly403Arg|||||,"
+        "C|missense_variant|MODERATE|CACNA1D|CACNA1D|transcript|NM_001128840.3|protein_coding|"
+        "8/48|c.1207G>C|p.Gly403Arg|||||\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+
+    with caplog.at_level("INFO", logger="variantcentrifuge.transcript_filter"):
+        count = filter_vcf_to_transcripts(
+            str(input_vcf),
+            str(output_vcf),
+            {"NM_000720.4", "NM_001128840", "NM_unmatched.2"},
+        )
+
+    assert count == 2
+    lines = [
+        line
+        for line in output_vcf.read_text(encoding="utf-8").splitlines()
+        if not line.startswith("#")
+    ]
+    assert len(lines) == 2
+    assert "NM_000720.3" in lines[0] and "NM_001128840.3" not in lines[0]
+    assert "NM_001128840.3" in lines[1] and "NM_000720.3" not in lines[1]
+    assert "NM_999999.1" not in output_vcf.read_text(encoding="utf-8")
+    assert "matched 2/3" in caplog.text
+    assert "NM_unmatched.2" in caplog.text
+    assert "NM_000720.4->NM_000720.3" in caplog.text

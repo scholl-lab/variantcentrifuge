@@ -454,8 +454,8 @@ class SnpSiftFilterStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
-        # Run after variant extraction
-        deps = {"variant_extraction"}
+        # Run after variant extraction and transcript filtering
+        deps = {"variant_extraction", "transcript_filtering"}
         if self.split_before_filtering:
             deps.add("multiallelic_split")
         return deps
@@ -475,9 +475,10 @@ class SnpSiftFilterStage(Stage):
             logger.debug("No SnpSift filter or using late filtering")
             return context
 
-        # Get input VCF from context (set by variant extraction stage)
+        # Get input VCF from context (prefer transcript-filtered VCF when available)
         input_vcf = (
-            (
+            getattr(context, "transcript_filtered_vcf", None)
+            or (
                 getattr(context, "split_annotations_vcf", None)
                 if self.split_before_filtering
                 else None
@@ -531,7 +532,7 @@ class TranscriptFilterStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
-        return {"snpsift_filtering", "multiallelic_split"}
+        return {"multiallelic_split"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Filter VCF ANN entries to requested transcript IDs."""
@@ -543,20 +544,11 @@ class TranscriptFilterStage(Stage):
             logger.debug("No transcript filtering requested")
             return context
 
-        if context.config.get("snpeff_splitting_mode") == "after_filters":
-            input_vcf = (
-                getattr(context, "split_annotations_vcf", None)
-                or getattr(context, "filtered_vcf", None)
-                or getattr(context, "extracted_vcf", None)
-                or context.data
-            )
-        else:
-            input_vcf = (
-                getattr(context, "filtered_vcf", None)
-                or getattr(context, "split_annotations_vcf", None)
-                or getattr(context, "extracted_vcf", None)
-                or context.data
-            )
+        input_vcf = (
+            getattr(context, "split_annotations_vcf", None)
+            or getattr(context, "extracted_vcf", None)
+            or context.data
+        )
         if not input_vcf:
             raise ValueError("No input VCF available for transcript filtering")
 
@@ -600,23 +592,23 @@ class FieldExtractionStage(Stage):
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Prefer to run after filtering if it exists
-        return {"snpsift_filtering"}
+        return {"snpsift_filtering", "transcript_filtering"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Extract fields to TSV format."""
         # Use the most recent VCF in the processing chain
         if context.config.get("snpeff_splitting_mode") == "after_filters":
             input_vcf = (
-                getattr(context, "transcript_filtered_vcf", None)
-                or getattr(context, "split_annotations_vcf", None)
+                getattr(context, "split_annotations_vcf", None)
                 or getattr(context, "filtered_vcf", None)
+                or getattr(context, "transcript_filtered_vcf", None)
                 or getattr(context, "extracted_vcf", None)
                 or context.data
             )
         else:
             input_vcf = (
-                getattr(context, "transcript_filtered_vcf", None)
-                or getattr(context, "filtered_vcf", None)
+                getattr(context, "filtered_vcf", None)
+                or getattr(context, "transcript_filtered_vcf", None)
                 or getattr(context, "split_annotations_vcf", None)
                 or getattr(context, "extracted_vcf", None)
                 or context.data
@@ -1205,6 +1197,22 @@ class ParallelCompleteProcessingStage(Stage):
             split_snpeff_annotations(str(working_vcf), str(split_vcf))
             working_vcf = split_vcf
 
+        transcript_ids = config.get("transcript_ids")
+        if transcript_ids is None:
+            transcript_ids = load_transcript_ids(
+                config.get("transcript_list"),
+                config.get("transcript_file"),
+            )
+        if transcript_ids:
+            transcript_filtered_vcf = intermediate_dir / f"{chunk_base}.transcript_filtered.vcf.gz"
+            filter_vcf_to_transcripts(
+                str(working_vcf),
+                str(transcript_filtered_vcf),
+                transcript_ids,
+                index_output=False,
+            )
+            working_vcf = transcript_filtered_vcf
+
         # Step 2: Apply SnpSift filter (if not late filtering)
         filter_start = time.time()
         if config.get("late_filtering", False):
@@ -1227,22 +1235,6 @@ class ParallelCompleteProcessingStage(Stage):
             split_snpeff_annotations(str(filtered_vcf), str(split_vcf))
             filtered_vcf = split_vcf
         filter_time = time.time() - filter_start
-
-        transcript_ids = config.get("transcript_ids")
-        if transcript_ids is None:
-            transcript_ids = load_transcript_ids(
-                config.get("transcript_list"),
-                config.get("transcript_file"),
-            )
-        if transcript_ids:
-            transcript_filtered_vcf = intermediate_dir / f"{chunk_base}.transcript_filtered.vcf.gz"
-            filter_vcf_to_transcripts(
-                str(filtered_vcf),
-                str(transcript_filtered_vcf),
-                transcript_ids,
-                index_output=False,
-            )
-            filtered_vcf = transcript_filtered_vcf
 
         # Step 3: Extract fields to TSV
         field_extract_start = time.time()

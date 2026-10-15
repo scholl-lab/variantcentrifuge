@@ -1610,30 +1610,33 @@ class VariantAnalysisStage(Stage):
         _original_gt_cols = _find_per_sample_gt_columns(df)
         _gt_backup: pd.DataFrame | None = None
         if _original_gt_cols:
-            # Save per-sample GT columns keyed by variant identity for later re-attachment
             _key_cols_for_gt = [
-                c for c in ["CHROM", "POS", "REF", "ALT", "GENE"] if c in df.columns
+                c
+                for c in (
+                    "CHROM",
+                    "POS",
+                    "REF",
+                    "ALT",
+                    "GENE",
+                    "FEATUREID",
+                    "ANN[0].FEATUREID",
+                    "ANN_0__FEATUREID",
+                )
+                if c in df.columns
             ]
             _gt_backup = df[_key_cols_for_gt + _original_gt_cols].copy()
 
         # Phase 11: Reconstruct packed GT column for analyze_variants if needed.
-        # analyze_variants expects a packed GT column ("Sample1(0/1);Sample2(1/1)").
-        # With Phase 11, we have per-sample GEN_N__GT columns instead.
         if "GT" not in df.columns and context.vcf_samples and _original_gt_cols:
             logger.info("Reconstructing GT column for variant analysis (local copy only)")
-            # Work on a copy to avoid modifying the original DataFrame
             df = reconstruct_gt_column(df.copy(), context.vcf_samples)
 
         # Restore original column names before writing temp TSV.
-        # analyze_variants expects unsanitized names (GENE, not ANN_0__GENE).
         if context.column_rename_map:
             reverse_map = {v: k for k, v in context.column_rename_map.items()}
             df = df.rename(columns=reverse_map)
 
-        # Create temporary TSV file for analyze_variants
         temp_tsv = context.workspace.get_intermediate_path("temp_for_analysis.tsv")
-
-        # Use compression for temporary analysis files to save space
         use_compression = context.config.get("gzip_intermediates", True)
         if use_compression:
             temp_tsv = Path(str(temp_tsv) + ".gz")
@@ -1642,18 +1645,14 @@ class VariantAnalysisStage(Stage):
             compression = None
 
         df.to_csv(temp_tsv, sep="\t", index=False, compression=cast(Any, compression))
-
         logger.info("Running variant-level analysis")
 
-        # Run analyze_variants and collect results
         analysis_results = []
-        # Use appropriate file opener based on compression
         if use_compression:
             import gzip
 
             def open_func(f):
                 return gzip.open(f, "rt")
-
         else:
 
             def open_func(f):
@@ -1666,21 +1665,21 @@ class VariantAnalysisStage(Stage):
         # Parse results back into DataFrame
         logger.debug(f"analyze_variants produced {len(analysis_results)} result lines")
         if analysis_results:
-            # First line is header
             header = analysis_results[0].split("\t")
             data = [line.split("\t") for line in analysis_results[1:]]
 
-            # Create new DataFrame with analysis results
             analysis_df = pd.DataFrame(data, columns=header)
             logger.debug(
                 f"Analysis DataFrame created with {len(analysis_df)} rows and "
                 f"columns: {list(analysis_df.columns)}"
             )
 
-            # The analyze_variants function may filter or reorder rows, so we need to match
-            # them properly. We'll use key columns (CHROM, POS, REF, ALT) to merge back missing
-            # columns
-            key_cols = ["CHROM", "POS", "REF", "ALT"]
+            # Match rows on variant + transcript identity to preserve per-transcript rows
+            key_cols = ["CHROM", "POS", "REF", "ALT"] + [
+                c
+                for c in ("FEATUREID", "ANN[0].FEATUREID")
+                if c in df.columns and c in analysis_df.columns
+            ]
 
             # Check key columns for merging
             orig_key_cols_present = [col for col in key_cols if col in df.columns]
@@ -1696,7 +1695,6 @@ class VariantAnalysisStage(Stage):
                 original_only_cols = [col for col in df.columns if col not in analysis_df.columns]
 
                 if original_only_cols:
-                    # Prioritize inheritance columns and other critical columns
                     inheritance_cols = [
                         col
                         for col in original_only_cols
@@ -1705,10 +1703,8 @@ class VariantAnalysisStage(Stage):
                     if inheritance_cols:
                         logger.debug(f"Preserving inheritance columns: {inheritance_cols}")
 
-                    # Create a subset of original df with key columns and missing columns
                     merge_df = df[key_cols + original_only_cols].copy()
 
-                    # Merge to get the missing columns
                     try:
                         analysis_df = pd.merge(analysis_df, merge_df, on=key_cols, how="left")
                         logger.debug(
@@ -1716,7 +1712,6 @@ class VariantAnalysisStage(Stage):
                             f"{original_only_cols}"
                         )
 
-                        # Verify inheritance columns were preserved
                         if inheritance_cols:
                             preserved_inheritance = [
                                 col for col in inheritance_cols if col in analysis_df.columns
@@ -1726,7 +1721,6 @@ class VariantAnalysisStage(Stage):
                                     f"Inheritance columns successfully preserved: "
                                     f"{preserved_inheritance}"
                                 )
-                                # Check if inheritance columns have actual data
                                 for col in preserved_inheritance:
                                     non_null_count = analysis_df[col].notna().sum()
                                     logger.debug(
@@ -1746,14 +1740,12 @@ class VariantAnalysisStage(Stage):
                         logger.error(f"Error merging columns: {e}")
                         logger.warning("Inheritance columns may be lost due to merge failure")
 
-                    # Reorder columns to put VAR_ID first if it exists
                     if "VAR_ID" in analysis_df.columns:
                         cols = analysis_df.columns.tolist()
                         cols.remove("VAR_ID")
                         cols = ["VAR_ID", *cols]
                         analysis_df = analysis_df[cols]
 
-                    # Put Custom_Annotation after GT if both exist
                     if "Custom_Annotation" in analysis_df.columns and "GT" in analysis_df.columns:
                         cols = analysis_df.columns.tolist()
                         cols.remove("Custom_Annotation")
@@ -1766,7 +1758,6 @@ class VariantAnalysisStage(Stage):
                     "Could not preserve columns from original dataframe - missing key columns "
                     "for merging"
                 )
-                # Check if inheritance columns exist in original but not in analysis result
                 inheritance_cols = [
                     col
                     for col in df.columns
@@ -1782,19 +1773,26 @@ class VariantAnalysisStage(Stage):
             logger.info(f"Variant analysis complete: {len(analysis_df)} variants analyzed")
 
             # Fix 5: Re-attach per-sample GT columns that were dropped during
-            # reconstruct_gt_column. Use key-column merge for safety (handles
-            # row reordering/filtering by analyze_variants).
+            # reconstruct_gt_column. Use key-column merge for safety.
             if (
                 _gt_backup is not None
                 and _original_gt_cols
                 and not _find_per_sample_gt_columns(context.current_dataframe)
             ):
-                # Build merge keys — use sanitized names if column_rename_map is active
-                _merge_keys = _key_cols_for_gt
-                if context.column_rename_map:
-                    _merge_keys = [context.column_rename_map.get(k, k) for k in _key_cols_for_gt]
-                    _gt_backup = _gt_backup.rename(columns=context.column_rename_map)
-                # Only merge if key columns exist in both DataFrames
+                _rev = {v: k for k, v in (context.column_rename_map or {}).items()}
+                _gt_backup = _gt_backup.rename(
+                    columns={
+                        k: _rev[k]
+                        for k in _key_cols_for_gt
+                        if k in _rev and _rev[k] in context.current_dataframe.columns
+                    }
+                )
+                _merge_keys = [
+                    _rev[k]
+                    if k in _rev and _rev[k] in context.current_dataframe.columns
+                    else (context.column_rename_map or {}).get(k, k)
+                    for k in _key_cols_for_gt
+                ]
                 _keys_in_result = [
                     k
                     for k in _merge_keys

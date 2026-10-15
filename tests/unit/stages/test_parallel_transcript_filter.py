@@ -111,14 +111,13 @@ def test_parallel_chunk_splits_before_snpsift_when_requested(
 
     chunk_vcf = tmp_path / "sample.chunk_0.variants.vcf.gz"
     split_vcf = tmp_path / "sample.chunk_0.split_annotations.vcf.gz"
+    transcript_vcf = tmp_path / "sample.chunk_0.transcript_filtered.vcf.gz"
     filtered_vcf = tmp_path / "sample.chunk_0.filtered.vcf.gz"
 
     mock_split.assert_called_once_with(str(chunk_vcf), str(split_vcf))
-    assert mock_apply_filter.call_args.args[0] == str(split_vcf)
-    assert mock_filter_transcripts.call_args.args[0] == str(filtered_vcf)
-    assert mock_extract_fields.call_args.kwargs["variant_file"] == str(
-        tmp_path / "sample.chunk_0.transcript_filtered.vcf.gz"
-    )
+    assert mock_filter_transcripts.call_args.args[0] == str(split_vcf)
+    assert mock_apply_filter.call_args.args[0] == str(transcript_vcf)
+    assert mock_extract_fields.call_args.kwargs["variant_file"] == str(filtered_vcf)
 
 
 @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
@@ -155,15 +154,14 @@ def test_parallel_chunk_splits_after_snpsift_when_requested(
     )
 
     chunk_vcf = tmp_path / "sample.chunk_0.variants.vcf.gz"
+    transcript_vcf = tmp_path / "sample.chunk_0.transcript_filtered.vcf.gz"
     filtered_vcf = tmp_path / "sample.chunk_0.filtered.vcf.gz"
     split_vcf = tmp_path / "sample.chunk_0.split_annotations.vcf.gz"
 
-    assert mock_apply_filter.call_args.args[0] == str(chunk_vcf)
+    assert mock_filter_transcripts.call_args.args[0] == str(chunk_vcf)
+    assert mock_apply_filter.call_args.args[0] == str(transcript_vcf)
     mock_split.assert_called_once_with(str(filtered_vcf), str(split_vcf))
-    assert mock_filter_transcripts.call_args.args[0] == str(split_vcf)
-    assert mock_extract_fields.call_args.kwargs["variant_file"] == str(
-        tmp_path / "sample.chunk_0.transcript_filtered.vcf.gz"
-    )
+    assert mock_extract_fields.call_args.kwargs["variant_file"] == str(split_vcf)
 
 
 @pytest.mark.parametrize(

@@ -16,6 +16,19 @@ logger = logging.getLogger(__name__)
 ANN_FEATURE_ID_INDEX = 6
 
 
+def _base_transcript_id(transcript_id: str) -> str:
+    """Return transcript ID stripped of any RefSeq/Ensembl version suffix."""
+    return transcript_id.strip().split(".")[0]
+
+
+def _format_id_preview(items: list[str], limit: int = 10) -> str:
+    if not items:
+        return "none"
+    if len(items) <= limit:
+        return ", ".join(items)
+    return f"{', '.join(items[:limit])}, ... (+{len(items) - limit} more)"
+
+
 def load_transcript_ids(
     transcript_list: str | None = None,
     transcript_file: str | None = None,
@@ -35,7 +48,7 @@ def load_transcript_ids(
             for raw_line in handle:
                 line = raw_line.strip()
                 if line and not line.startswith("#"):
-                    transcript_ids.add(line)
+                    transcript_ids.add(line.split()[0])
 
     if (transcript_list or transcript_file) and not transcript_ids:
         raise ValueError("No transcript IDs were provided")
@@ -46,16 +59,24 @@ def load_transcript_ids(
 def filter_ann_value_by_transcripts(
     ann_value: str,
     transcript_ids: set[str],
+    base_ids: set[str] | None = None,
 ) -> str | None:
     """Return ANN entries whose Feature_ID matches the requested transcripts."""
     if not ann_value or ann_value == ".":
         return None
 
+    if base_ids is None:
+        base_ids = {_base_transcript_id(tid) for tid in transcript_ids if tid.strip()}
+
     kept_entries: list[str] = []
     for entry in ann_value.split(","):
         parts = entry.split("|")
-        if len(parts) > ANN_FEATURE_ID_INDEX and parts[ANN_FEATURE_ID_INDEX] in transcript_ids:
-            kept_entries.append(entry)
+        if len(parts) > ANN_FEATURE_ID_INDEX:
+            feature_id = parts[ANN_FEATURE_ID_INDEX].strip()
+            if feature_id and (
+                feature_id in transcript_ids or _base_transcript_id(feature_id) in base_ids
+            ):
+                kept_entries.append(entry)
 
     if not kept_entries:
         return None
@@ -63,8 +84,14 @@ def filter_ann_value_by_transcripts(
     return ",".join(kept_entries)
 
 
-def filter_vcf_line_by_transcripts(line: str, transcript_ids: set[str]) -> str | None:
-    """Filter one VCF record line by ANN Feature_ID."""
+def filter_vcf_line_by_transcripts(
+    line: str,
+    transcript_ids: set[str],
+    *,
+    base_ids: set[str] | None = None,
+    matched_features: set[str] | None = None,
+) -> str | None:
+    """Filter one VCF record line by ANN Feature_ID, emitting one VCF line per kept ANN entry."""
     if line.startswith("#"):
         return line
 
@@ -73,27 +100,38 @@ def filter_vcf_line_by_transcripts(line: str, transcript_ids: set[str]) -> str |
         return line
 
     info_parts = columns[7].split(";") if columns[7] else []
-    rewritten_parts: list[str] = []
-    found_ann = False
+    ann_index: int | None = None
+    kept_entries: list[str] = []
 
-    for info_part in info_parts:
+    for idx, info_part in enumerate(info_parts):
         if info_part.startswith("ANN="):
-            found_ann = True
+            ann_index = idx
             filtered_ann = filter_ann_value_by_transcripts(
                 info_part.removeprefix("ANN="),
                 transcript_ids,
+                base_ids=base_ids,
             )
             if filtered_ann is None:
                 return None
-            rewritten_parts.append(f"ANN={filtered_ann}")
-        else:
-            rewritten_parts.append(info_part)
+            kept_entries = filtered_ann.split(",")
+            break
 
-    if not found_ann:
+    if ann_index is None or not kept_entries:
         return None
 
-    columns[7] = ";".join(rewritten_parts)
-    return "\t".join(columns) + "\n"
+    emitted_lines: list[str] = []
+    for entry in kept_entries:
+        if matched_features is not None:
+            parts = entry.split("|")
+            if len(parts) > ANN_FEATURE_ID_INDEX and parts[ANN_FEATURE_ID_INDEX].strip():
+                matched_features.add(parts[ANN_FEATURE_ID_INDEX].strip())
+        rewritten_info = list(info_parts)
+        rewritten_info[ann_index] = f"ANN={entry}"
+        row_cols = list(columns)
+        row_cols[7] = ";".join(rewritten_info)
+        emitted_lines.append("\t".join(row_cols) + "\n")
+
+    return "".join(emitted_lines)
 
 
 def _open_text(path: str) -> TextIO:
@@ -109,8 +147,16 @@ def filter_vcf_to_transcripts(
     *,
     index_output: bool = False,
 ) -> int:
-    """Write a VCF containing only records with matching ANN transcript IDs."""
+    """Write a VCF containing one record per matching ANN transcript ID."""
+    input_records = 0
     kept_records = 0
+    base_ids = {_base_transcript_id(tid) for tid in transcript_ids if tid.strip()}
+    requested_by_base: dict[str, set[str]] = {}
+    for tid in transcript_ids:
+        if tid.strip():
+            requested_by_base.setdefault(_base_transcript_id(tid), set()).add(tid.strip())
+    matched_features: set[str] = set()
+
     output_path = Path(output_vcf)
     write_path = output_path
     temp_uncompressed: Path | None = None
@@ -134,11 +180,18 @@ def filter_vcf_to_transcripts(
             output_handle = stack.enter_context(open(output_vcf, "w", encoding="utf-8"))
 
         for line in input_handle:
-            filtered = filter_vcf_line_by_transcripts(line, transcript_ids)
+            if not line.startswith("#") and line.strip():
+                input_records += 1
+            filtered = filter_vcf_line_by_transcripts(
+                line,
+                transcript_ids,
+                base_ids=base_ids,
+                matched_features=matched_features,
+            )
             if filtered is None:
                 continue
             if not filtered.startswith("#"):
-                kept_records += 1
+                kept_records += filtered.count("\n")
             output_handle.write(filtered)
 
     if index_output and output_vcf.endswith(".gz"):
@@ -152,9 +205,31 @@ def filter_vcf_to_transcripts(
             if temp_uncompressed is not None:
                 temp_uncompressed.unlink(missing_ok=True)
 
+    matched_requested: set[str] = set()
+    skewed_matches: set[str] = set()
+    for feature_id in matched_features:
+        for req_id in requested_by_base.get(_base_transcript_id(feature_id), set()):
+            matched_requested.add(req_id)
+            if req_id != feature_id:
+                skewed_matches.add(f"{req_id}->{feature_id}")
+
+    unmatched = sorted(transcript_ids - matched_requested)
+    skew_note = (
+        f"; version-skewed/base matches: {_format_id_preview(sorted(skewed_matches))}"
+        if skewed_matches
+        else ""
+    )
     logger.info(
-        "Transcript filtering retained %d records for %d transcript IDs",
+        "Transcript filtering retained %d records from %d input records for %d transcript IDs "
+        "(matched %d/%d: %s; unmatched %d: %s%s)",
         kept_records,
+        input_records,
         len(transcript_ids),
+        len(matched_requested),
+        len(transcript_ids),
+        _format_id_preview(sorted(matched_requested)),
+        len(unmatched),
+        _format_id_preview(unmatched),
+        skew_note,
     )
     return kept_records
