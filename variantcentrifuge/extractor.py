@@ -45,6 +45,7 @@ ANN_FIELD_POSITIONS = {
 
 # Map config field names to ANN positions
 ANN_SUBFIELD_MAP = {
+    "ANN[0].ALLELE": ("Allele", 0),
     "ANN[0].GENE": ("Gene_Name", 3),
     "ANN[0].FEATUREID": ("Feature_ID", 6),
     "ANN[0].EFFECT": ("Annotation", 1),
@@ -199,13 +200,13 @@ def parse_ann_subfields(df: pd.DataFrame, fields: list[str]) -> pd.DataFrame:
         # No ANN subfields requested, just drop the raw column
         return df.drop(columns=["ANN"])
 
-    # Select first annotation matching ALT (when present), falling back to index [0]
+    # Select first annotation matching ALT (when biallelic ALT is present)
     if "ALT" in df.columns:
         first_ann = pd.Series(
             [
                 next(
                     (e for e in str(ann).split(",") if e and e.split("|", 1)[0] == str(alt)),
-                    str(ann).split(",", 1)[0],
+                    "" if str(alt) and "," not in str(alt) else str(ann).split(",", 1)[0],
                 )
                 for ann, alt in zip(df["ANN"].fillna(""), df["ALT"].fillna(""), strict=False)
             ],
@@ -214,6 +215,8 @@ def parse_ann_subfields(df: pd.DataFrame, fields: list[str]) -> pd.DataFrame:
         )
     else:
         first_ann = df["ANN"].fillna("").str.split(",", n=1).str[0]
+
+    first_ann = first_ann.replace({"": pd.NA, ".": pd.NA})
 
     # Split by pipe
     ann_split = first_ann.str.split("|", expand=True)
@@ -227,13 +230,15 @@ def parse_ann_subfields(df: pd.DataFrame, fields: list[str]) -> pd.DataFrame:
             if field == "ANN[0].AA_POS":
                 # Extract position part (before "/")
                 if pos < ann_split.shape[1]:
-                    df[field] = ann_split[pos].fillna("").str.split("/").str[0]
+                    s = ann_split[pos].fillna("").str.split("/").str[0]
+                    df[field] = s.where(ann_split[pos].notna(), "NA")
                 else:
                     df[field] = "NA"
             elif field == "ANN[0].AA_LEN":
                 # Extract length part (after "/")
                 if pos < ann_split.shape[1]:
-                    df[field] = ann_split[pos].fillna("").str.split("/").str[1]
+                    s = ann_split[pos].fillna("").str.split("/").str[1].fillna("")
+                    df[field] = s.where(ann_split[pos].notna(), "NA")
                 else:
                     df[field] = "NA"
             else:

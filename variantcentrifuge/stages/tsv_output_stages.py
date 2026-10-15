@@ -397,6 +397,7 @@ class TSVOutputStage(Stage):
             no_replacement=context.config.get("no_replacement", False),
             extra_sample_fields=extra_sample_fields,
             delimiter=context.config.get("extra_sample_field_delimiter") or ":",
+            sample_mapping=context.config.get("pseudonymization_mapping"),
         )
         context.current_dataframe = df
 

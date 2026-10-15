@@ -225,9 +225,29 @@ def test_bcftools_norm_decomposed_rows_prune_shared_ann_and_extract_matching_all
     assert "-W" in cmds[1] and "-m" in cmds[1] and "-any" in cmds[1]
 
     # Without splitting annotations, apply_snpsift_filter evaluates only the decomposed allele's ANN
+    # and LOF/NMD is removed from the same-gene LOW allele (A) while retained on HIGH allele (G)
+    with gzip.open(out_vcf, "rt") as fh:
+        pruned_records = [ln for ln in fh.read().splitlines() if ln and not ln.startswith("#")]
+    assert len(pruned_records) == 2
+    assert "LOF=" not in pruned_records[0]
+    assert "LOF=(KCNJ5|ENSG1|1|1.0)" in pruned_records[1]
+
+    # Verify rewritten out_vcf is valid BGZF with rebuilt index supporting region queries
+    import shutil
+    import subprocess
+
+    if shutil.which("tabix"):
+        q = subprocess.run(
+            ["tabix", str(out_vcf), "chr1:100-100"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert len(q.stdout.strip().splitlines()) == 2
+
     apply_snpsift_filter(
         str(out_vcf),
-        "(ANN[ANY].IMPACT has 'HIGH')",
+        "(ANN[ANY].IMPACT has 'HIGH') | ((exists LOF[*].PERC) & (LOF[*].PERC > 0.9))",
         {"threads": 2},
         str(filtered_vcf),
     )
@@ -236,3 +256,41 @@ def test_bcftools_norm_decomposed_rows_prune_shared_ann_and_extract_matching_all
     assert len(kept_records) == 1
     assert kept_records[0].split("\t")[4] == "G"
     assert "A|synonymous_variant" not in kept_records[0]
+
+    # Unannotated ALT record: ALT=A row carrying only foreign G stop_gained annotation
+    from variantcentrifuge.vcf_eff_one_per_line import restrict_line_ann_to_alt
+
+    foreign_only_a = (
+        "chr1\t100\t.\tC\tA\t.\tPASS\tAC=1;"
+        "ANN=G|stop_gained|HIGH|KCNJ5|ENSG1|transcript|ENST1|protein_coding||||||||;"
+        "LOF=(KCNJ5|ENSG1|1|1.0);NMD=(KCNJ5|ENSG1|1|1.0)\tGT\t0/1"
+    )
+    restricted_a = restrict_line_ann_to_alt(foreign_only_a)
+    assert "ANN=" not in restricted_a
+    assert "LOF=" not in restricted_a
+    assert "NMD=" not in restricted_a
+
+    split_foreign_a = split_vcf_effects(foreign_only_a)
+    assert len(split_foreign_a) == 1
+    assert "ANN=" not in split_foreign_a[0]
+    assert "LOF=" not in split_foreign_a[0]
+    assert "NMD=" not in split_foreign_a[0]
+
+    unann_df = pd.DataFrame(
+        {
+            "CHROM": ["chr1", "chr1"],
+            "POS": ["100", "100"],
+            "REF": ["C", "C"],
+            "ALT": ["A", "G"],
+            "ANN": [
+                "G|stop_gained|HIGH|KCNJ5|ENSG1|transcript|ENST1|protein_coding||||||||",
+                "G|stop_gained|HIGH|KCNJ5|ENSG1|transcript|ENST1|protein_coding||||||||",
+            ],
+        }
+    )
+    parsed_unann = parse_ann_subfields(unann_df, ["ANN[0].GENE", "ANN[0].EFFECT", "ANN[0].IMPACT"])
+    assert parsed_unann.loc[0, "ANN[0].GENE"] == "NA"
+    assert parsed_unann.loc[0, "ANN[0].EFFECT"] == "NA"
+    assert parsed_unann.loc[0, "ANN[0].IMPACT"] == "NA"
+    assert parsed_unann.loc[1, "ANN[0].GENE"] == "KCNJ5"
+    assert parsed_unann.loc[1, "ANN[0].IMPACT"] == "HIGH"

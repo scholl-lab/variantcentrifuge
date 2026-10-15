@@ -316,3 +316,30 @@ def test_filter_vcf_line_by_transcripts_prunes_excluded_gene_lof_nmd() -> None:
     assert len(split_rows) == 1
     assert "LOF=" not in split_rows[0]
     assert "NMD=" not in split_rows[0]
+
+    # Same-gene negative test: retained synonymous/missense transcript in GENE_A must NOT inherit
+    # LOF/NMD from an excluded HIGH transcript in the same GENE_A
+    same_gene_line = (
+        "chr1\t100\t.\tA\tG\t.\tPASS\t"
+        "AC=1;"
+        "ANN="
+        "G|synonymous_variant|LOW|GENE_A|ENSGA|transcript|NM_keep.1|protein_coding||||||||,"
+        "G|stop_gained|HIGH|GENE_A|ENSGA|transcript|NM_excl.1|protein_coding||||||||;"
+        "LOF=(GENE_A|ENSGA|1|1.0);"
+        "NMD=(GENE_A|ENSGA|1|1.0)"
+        "\tGT\t0/1\n"
+    )
+    same_gene_filtered = filter_vcf_line_by_transcripts(same_gene_line, {"NM_keep.1"})
+    assert same_gene_filtered is not None
+    assert "NM_keep.1" in same_gene_filtered
+    assert "NM_excl.1" not in same_gene_filtered
+    assert "LOF=" not in same_gene_filtered
+    assert "NMD=" not in same_gene_filtered
+
+    # Decomposed ALT=A record whose ANN only contains foreign G annotations is rejected (None)
+    unannotated_alt_line = (
+        "chr1\t100\t.\tC\tA\t.\tPASS\t"
+        "ANN=G|stop_gained|HIGH|GENE_A|ENSGA|transcript|NM_keep.1|protein_coding||||||||;"
+        "LOF=(GENE_A|ENSGA|1|1.0)\tGT\t0/1\n"
+    )
+    assert filter_vcf_line_by_transcripts(unannotated_alt_line, {"NM_keep.1"}) is None

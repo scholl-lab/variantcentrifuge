@@ -363,13 +363,11 @@ def apply_snpsift_filter(
     try:
         snpsift_input = variant_file
         if exceptions and os.path.exists(snpsift_input):
-            r_fd, rescued_vcf = tempfile.mkstemp(suffix=".vcf")
-            os.close(r_fd)
+            rescued_vcf = f"{tmp_vcf}.rescued.vcf"
             apply_filter_exceptions_to_vcf(snpsift_input, rescued_vcf, exceptions)
             snpsift_input = rescued_vcf
         if os.path.exists(snpsift_input):
-            a_fd, candidate_ann_vcf = tempfile.mkstemp(suffix=".vcf")
-            os.close(a_fd)
+            candidate_ann_vcf = f"{tmp_vcf}.ann.vcf"
             if restrict_vcf_ann_to_alt(snpsift_input, candidate_ann_vcf):
                 ann_vcf = candidate_ann_vcf
                 snpsift_input = ann_vcf

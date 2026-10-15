@@ -115,14 +115,10 @@ def resolve_tumor_normal_indices(
     cfg_tumor_idx: int | str | None = None,
     cfg_normal_idx: int | str | None = None,
     header_text: str | None = None,
+    require_tumor: bool | None = None,
+    require_normal: bool | None = None,
 ) -> tuple[str, str]:
     """Resolve ``(tumor_idx, normal_idx)`` from VCF header, CLI, or config."""
-    hdr = VcfSampleHeader(samples=[])
-    if header_text is not None:
-        hdr = parse_vcf_sample_header(vcf_path or "", header_text=header_text)
-    elif vcf_path:
-        hdr = parse_vcf_sample_header(vcf_path)
-
     explicit_t = (
         int(cli_tumor_idx)
         if cli_tumor_idx is not None
@@ -133,6 +129,41 @@ def resolve_tumor_normal_indices(
         if cli_normal_idx is not None
         else (int(cfg_normal_idx) if cfg_normal_idx is not None else None)
     )
+
+    has_vcf = header_text is not None or bool(vcf_path)
+    if (
+        not has_vcf
+        and explicit_t is None
+        and explicit_n is None
+        and not require_tumor
+        and not require_normal
+    ):
+        return "1", "0"
+
+    req_t = True if require_tumor is None else require_tumor
+    req_n = True if require_normal is None else require_normal
+
+    hdr = VcfSampleHeader(samples=[])
+    if header_text is not None:
+        hdr = parse_vcf_sample_header(vcf_path or "", header_text=header_text)
+    elif vcf_path:
+        hdr = parse_vcf_sample_header(vcf_path)
+
+    if has_vcf and not hdr.samples:
+        raise ValueError("VCF header contains no #CHROM sample columns")
+
+    if explicit_t is not None and (
+        explicit_t < 0 or (hdr.samples and explicit_t >= len(hdr.samples))
+    ):
+        raise ValueError(
+            f"tumor_sample_index={explicit_t} out of range for VCF samples {hdr.samples}"
+        )
+    if explicit_n is not None and (
+        explicit_n < 0 or (hdr.samples and explicit_n >= len(hdr.samples))
+    ):
+        raise ValueError(
+            f"normal_sample_index={explicit_n} out of range for VCF samples {hdr.samples}"
+        )
 
     header_t: int | None = None
     tumor_list = hdr.tumor_samples or ([hdr.tumor_sample] if hdr.tumor_sample is not None else [])
@@ -175,47 +206,24 @@ def resolve_tumor_normal_indices(
                 f"##normal_sample={hdr.normal_sample!r} at index {header_n}"
             )
 
-    if explicit_t is not None and (
-        explicit_t < 0 or (hdr.samples and explicit_t >= len(hdr.samples))
-    ):
+    t_idx = header_t if header_t is not None else explicit_t
+    if t_idx is None and req_t:
         raise ValueError(
-            f"tumor_sample_index={explicit_t} out of range for VCF samples {hdr.samples}"
-        )
-    if explicit_n is not None and (
-        explicit_n < 0 or (hdr.samples and explicit_n >= len(hdr.samples))
-    ):
-        raise ValueError(
-            f"normal_sample_index={explicit_n} out of range for VCF samples {hdr.samples}"
+            "Cannot resolve tumor sample index: missing ##tumor_sample in VCF header "
+            "and no --tumor-sample-index specified"
         )
 
-    if header_t is not None:
-        t_idx = header_t
-    elif explicit_t is not None:
-        t_idx = explicit_t
-    elif header_n in (0, 1) and len(hdr.samples) == 2:
-        t_idx = 1 - header_n
-    elif len(hdr.samples) == 1:
-        t_idx = 0
-    else:
-        t_idx = 1
+    n_idx = header_n if header_n is not None else explicit_n
+    if n_idx is None and req_n:
+        raise ValueError(
+            "Cannot resolve normal sample index: missing ##normal_sample in VCF header "
+            "and no --normal-sample-index specified"
+        )
 
-    if header_n is not None:
-        n_idx = header_n
-    elif explicit_n is not None:
-        n_idx = explicit_n
-    elif t_idx in (0, 1) and len(hdr.samples) == 2:
-        n_idx = 1 - t_idx
-    else:
-        n_idx = 0
-
-    if (
-        (header_t is not None or explicit_t is not None)
-        and (header_n is not None or explicit_n is not None)
-        and t_idx == n_idx
-    ):
+    if t_idx is not None and n_idx is not None and t_idx == n_idx:
         raise ValueError(f"Tumor and normal sample indices cannot be identical ({t_idx})")
 
-    return str(t_idx), str(n_idx)
+    return (str(t_idx) if t_idx is not None else "", str(n_idx) if n_idx is not None else "")
 
 
 def _read_header(vcf_path: str) -> str:

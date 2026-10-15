@@ -462,3 +462,38 @@ def test_cli_preserves_config_json_options_and_final_filtering_reads_filters(tmp
     extra_out = pd.read_csv(tmp_path / "extra.tsv", sep="\t")
     assert extra_out["GT"].iloc[0] == "NORMAL(0/0|42|42,0|0.00);TUMOR(0/1|85|60,25|0.29)"
     assert not any(c.startswith(("GEN_", "GEN[")) for c in extra_out.columns)
+
+    # 3. With PseudonymizationStage -> TSVOutputStage + extra_sample_fields,
+    # output GT uses pseudonymized sample IDs and never leaks original sample names
+    from variantcentrifuge.stages.output_stages import PseudonymizationStage
+
+    pseudo_df = raw_df.copy()
+    pseudo_df["POS"] = pseudo_df["POS"].astype(str)
+    pseudo_df["GENE"] = ["KCNJ5"]
+    pseudo_ctx = PipelineContext(
+        args=Mock(output_file=str(tmp_path / "pseudo_extra.tsv"), output_dir=str(tmp_path)),
+        config={
+            "output_file": str(tmp_path / "pseudo_extra.tsv"),
+            "no_links": True,
+            "no_stats": True,
+            "gzip_intermediates": False,
+            "pseudonymize": True,
+            "pseudonymize_schema": "sequential",
+            "pseudonymize_prefix": "SAMPLE",
+            "pseudonymize_table": str(tmp_path / "pseudo_map.tsv"),
+            "append_extra_sample_fields": True,
+            "extra_sample_fields": ["GEN[*].DP"],
+            "extra_sample_field_delimiter": ":",
+        },
+        workspace=ws,
+    )
+    pseudo_ctx.current_dataframe = pseudo_df
+    pseudo_ctx.vcf_samples = ["Patient_N", "Patient_T"]
+    pseudo_ctx.column_rename_map = dict(tsv_ctx_extra.column_rename_map)
+    pseudo_ctx = VariantAnalysisStage()._process(pseudo_ctx)
+    pseudo_ctx = PseudonymizationStage()._process(pseudo_ctx)
+    TSVOutputStage()._process(pseudo_ctx)
+    pseudo_out = pd.read_csv(tmp_path / "pseudo_extra.tsv", sep="\t")
+    assert pseudo_out["GT"].iloc[0] == "SAMPLE_001(0/0:42);SAMPLE_002(0/1:85)"
+    assert "Patient_N" not in pseudo_out["GT"].iloc[0]
+    assert "Patient_T" not in pseudo_out["GT"].iloc[0]

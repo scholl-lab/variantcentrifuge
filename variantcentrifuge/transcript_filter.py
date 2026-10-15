@@ -71,9 +71,9 @@ def filter_ann_value_by_transcripts(
 
     entries = [e for e in ann_value.split(",") if e]
     if alt and "," not in alt:
-        alt_entries = [e for e in entries if e.split("|", 1)[0] == alt]
-        if alt_entries:
-            entries = alt_entries
+        entries = [e for e in entries if e.split("|", 1)[0] == alt]
+        if not entries:
+            return None
 
     parsed: list[tuple[str, str, str]] = []
     for entry in entries:
@@ -113,13 +113,16 @@ def filter_vcf_line_by_transcripts(
 
     info_parts = columns[7].split(";") if columns[7] else []
     ann_index: int | None = None
+    all_ann_entries: list[str] = []
     kept_entries: list[str] = []
 
     for idx, info_part in enumerate(info_parts):
         if info_part.startswith("ANN="):
             ann_index = idx
+            raw_ann = info_part.removeprefix("ANN=")
+            all_ann_entries = [e for e in raw_ann.split(",") if e]
             filtered_ann = filter_ann_value_by_transcripts(
-                info_part.removeprefix("ANN="),
+                raw_ann,
                 transcript_ids,
                 base_ids=base_ids,
                 alt=columns[4],
@@ -132,7 +135,7 @@ def filter_vcf_line_by_transcripts(
     if ann_index is None or not kept_entries:
         return None
 
-    from .vcf_eff_one_per_line import _ann_gene_keys, _filter_gene_scoped_info_value
+    from .vcf_eff_one_per_line import _eligible_lof_nmd_gene_keys, _filter_gene_scoped_info_value
 
     emitted_lines: list[str] = []
     for entry in kept_entries:
@@ -140,7 +143,7 @@ def filter_vcf_line_by_transcripts(
             parts = entry.split("|")
             if len(parts) > ANN_FEATURE_ID_INDEX and parts[ANN_FEATURE_ID_INDEX].strip():
                 matched_features.add(parts[ANN_FEATURE_ID_INDEX].strip())
-        gene_keys = _ann_gene_keys(entry)
+        gene_keys = _eligible_lof_nmd_gene_keys([entry], all_ann_entries)
         rewritten_info: list[str] = []
         for idx, part in enumerate(info_parts):
             if idx == ann_index:

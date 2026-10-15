@@ -35,6 +35,7 @@ def reconstruct_gt_column(
     vcf_samples: list[str],
     extra_sample_fields: list[str] | None = None,
     delimiter: str = ":",
+    sample_mapping: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     """
     Reconstruct packed GT column from per-sample GT columns (Phase 11).
@@ -58,6 +59,8 @@ def reconstruct_gt_column(
         after GT using ``delimiter``.
     delimiter : str, default ":"
         Delimiter used to join GT and extra_sample_fields inside sample parentheses.
+    sample_mapping : dict of str to str, optional
+        Pseudonymization mapping from original sample IDs to pseudonymized IDs.
 
     Returns
     -------
@@ -98,7 +101,9 @@ def reconstruct_gt_column(
 
     # Extract GT values as a 2D array for fast access
     gt_data = df[gt_cols[:n_samples]].values  # shape: (n_rows, n_samples)
-    sample_ids = vcf_samples[:n_samples]
+    sample_ids = [
+        sample_mapping.get(s, s) if sample_mapping else s for s in vcf_samples[:n_samples]
+    ]
 
     gt_strings = []
     for row_idx in range(len(df)):
@@ -146,6 +151,7 @@ def _collapse_per_sample_gt_columns_for_output(
     no_replacement: bool = False,
     extra_sample_fields: list[str] | None = None,
     delimiter: str = ":",
+    sample_mapping: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     """Remove raw per-sample GT columns from final outputs unless explicitly requested.
 
@@ -160,7 +166,31 @@ def _collapse_per_sample_gt_columns_for_output(
         return df
 
     if ("GT" not in df.columns or extra_sample_fields) and vcf_samples:
-        df = reconstruct_gt_column(df, vcf_samples, extra_sample_fields, delimiter)
+        eff_mapping = dict(sample_mapping) if sample_mapping else {}
+        if not eff_mapping and "GT" in df.columns:
+            n_s = min(len(gt_cols), len(vcf_samples))
+            std_skip = {"./.", ".|.", ".", "NA", "", "nan", "None", "0/0", "0|0"}
+            for r_idx in range(len(df)):
+                raw_gt = df["GT"].iat[r_idx]
+                if not isinstance(raw_gt, str) or not raw_gt:
+                    continue
+                names = [m.group(1) for m in re.finditer(r"([^;()\s]+)\([^)]*\)", raw_gt)]
+                active = [
+                    i
+                    for i in range(n_s)
+                    if (v := df[gt_cols[i]].iat[r_idx]) is not None
+                    and str(v).strip() not in std_skip
+                ]
+                if len(names) == len(active):
+                    for i, name in zip(active, names, strict=False):
+                        eff_mapping.setdefault(vcf_samples[i], name)
+        df = reconstruct_gt_column(
+            df,
+            vcf_samples,
+            extra_sample_fields,
+            delimiter,
+            sample_mapping=eff_mapping or None,
+        )
     elif "GT" not in df.columns:
         logger.warning(
             "Per-sample GT columns found in final output but VCF sample names are "

@@ -63,25 +63,30 @@ def resolve_presets_and_tumor_normal(
     raw_final_filter = (
         args.final_filter if args.final_filter is not None else cfg.get("final_filter")
     )
-    needs_tumor_normal = bool(
+    expr_texts = [preset_dict.get(p.strip(), "") for p in raw_presets]
+    if filters:
+        expr_texts.append(filters)
+    if raw_final_filter:
+        expr_texts.append(raw_final_filter)
+    needs_tumor_idx = bool(
         args.tumor_sample_index is not None
-        or args.normal_sample_index is not None
         or cfg.get("tumor_sample_index") is not None
-        or cfg.get("normal_sample_index") is not None
-        or any(
-            "{tumor_" in preset_dict.get(p.strip(), "")
-            or "{normal_" in preset_dict.get(p.strip(), "")
-            for p in raw_presets
-        )
-        or (filters and ("{tumor_" in filters or "{normal_" in filters))
-        or (raw_final_filter and ("{tumor_" in raw_final_filter or "{normal_" in raw_final_filter))
+        or any("{tumor_idx}" in e for e in expr_texts)
     )
+    needs_normal_idx = bool(
+        args.normal_sample_index is not None
+        or cfg.get("normal_sample_index") is not None
+        or any("{normal_idx}" in e for e in expr_texts)
+    )
+    needs_tumor_normal = needs_tumor_idx or needs_normal_idx
     t_idx, n_idx = resolve_tumor_normal_indices(
         args.vcf_file if needs_tumor_normal else None,
         cli_tumor_idx=args.tumor_sample_index,
         cli_normal_idx=args.normal_sample_index,
         cfg_tumor_idx=cfg.get("tumor_sample_index"),
         cfg_normal_idx=cfg.get("normal_sample_index"),
+        require_tumor=needs_tumor_idx,
+        require_normal=needs_normal_idx,
     )
     tumor_normal_vars = {"tumor_idx": t_idx, "normal_idx": n_idx}
     for _k, _d in (

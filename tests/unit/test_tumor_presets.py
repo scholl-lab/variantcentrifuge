@@ -120,13 +120,15 @@ class TestPresetExpansion:
         assert "GEN[1].AF >= 0.05" in expanded
 
     def test_mutect2_presets_use_template_vars(self, config: dict) -> None:
-        """mutect2_* presets use {tumor_idx}/{normal_idx} and explicit per-sample DP."""
+        """mutect2_* presets use {tumor_idx}/{normal_idx} and templated per-sample DP/AF."""
         for name in ("mutect2_TvsN_pass", "mutect2_TvsN"):
             expr = config["presets"][name]
             assert "{tumor_idx}" in expr
             assert "{normal_idx}" in expr
+            assert "{tumor_dp_min}" in expr
+            assert "{normal_dp_min}" in expr
             expanded = self._expand(expr, tumor_idx="1", normal_idx="0")
-            assert "GEN[1].DP >= 50" in expanded
+            assert "GEN[1].DP >= 20" in expanded
             assert "GEN[0].DP >= 20" in expanded
             assert "GEN[1].AF >= 0.05" in expanded
             assert "GEN[0].AF < 0.03" in expanded
@@ -134,35 +136,79 @@ class TestPresetExpansion:
         to_expr = config["presets"]["mutect2_To_pass"]
         assert "{tumor_idx}" in to_expr
         assert "{normal_idx}" not in to_expr
+        assert "{tumor_dp_min}" in to_expr
         to_expanded = self._expand(to_expr, tumor_idx="0")
-        assert "GEN[0].DP >= 50" in to_expanded
+        assert "GEN[0].DP >= 20" in to_expanded
         assert "GEN[0].AF >= 0.05" in to_expanded
 
     def test_mutect2_tvsn_pass_parity_with_somatic_pass(self, config: dict) -> None:
-        """mutect2_TvsN_pass and somatic_pass retain identical variants including COSMIC alleles."""
+        """mutect2_TvsN_pass and somatic_pass expand identically and filter identically."""
+        import re
 
-        def _eval_preset(expr: str, rec: dict) -> bool:
-            t = int(rec["t_idx"])
-            n = int(rec["n_idx"])
-            has_cos = "( ID =~ 'COS' )" in expr and str(rec.get("ID") or "").startswith("COS")
-            rare = (rec.get("ex_ac") is None or rec["ex_ac"] <= 2) and (
-                rec.get("gn_ac") is None or rec["gn_ac"] <= 2
+        def _eval_snpsift_expr(expr: str, rec: dict) -> bool:
+            def _eval_atom(m: re.Match[str]) -> str:
+                atom = m.group(0).strip()
+                if atom.startswith("na "):
+                    field = atom[3:].strip()
+                    if field == "dbNSFP_gnomAD_exomes_AC[0]":
+                        return str(rec.get("ex_ac") is None)
+                    if field == "dbNSFP_gnomAD_genomes_AC[0]":
+                        return str(rec.get("gn_ac") is None)
+                    if field == "FILTER":
+                        return str(rec.get("FILTER") in (None, "."))
+                    if gm := re.match(r"GEN\[(\d+)\]\.AF$", field):
+                        return str(rec["AF"][int(gm.group(1))] is None)
+                if atom.startswith("exists "):
+                    field = atom[7:].strip()
+                    return str(rec.get(field) not in (None, "."))
+                if atom == "FILTER = 'PASS'":
+                    return str(rec.get("FILTER") == "PASS")
+                if atom == "ID =~ 'COS'":
+                    return str("COS" in str(rec.get("ID") or ""))
+                if cm := re.match(r"dbNSFP_gnomAD_(exomes|genomes)_AC\[0\]\s*<=\s*(\d+)", atom):
+                    val = rec.get("ex_ac" if cm.group(1) == "exomes" else "gn_ac")
+                    return str(val is not None and val <= int(cm.group(2)))
+                if dm := re.match(r"GEN\[(\d+)\]\.DP\s*>=\s*(\d+)", atom):
+                    return str(rec["DP"][int(dm.group(1))] >= int(dm.group(2)))
+                if am := re.match(r"GEN\[(\d+)\]\.AF\s*(<|>=)\s*([0-9.]+)", atom):
+                    af_val = rec["AF"][int(am.group(1))]
+                    if af_val is None:
+                        return "False"
+                    thr = float(am.group(3))
+                    return str(af_val < thr if am.group(2) == "<" else af_val >= thr)
+                raise AssertionError(f"Unhandled SnpSift predicate: {atom}")
+
+            atom_re = re.compile(
+                r"na\s+[A-Za-z0-9_.\[\]]+"
+                r"|exists\s+[A-Za-z0-9_.\[\]]+"
+                r"|FILTER\s*=\s*'PASS'"
+                r"|ID\s*=~\s*'COS'"
+                r"|dbNSFP_gnomAD_(?:exomes|genomes)_AC\[0\]\s*<=\s*\d+"
+                r"|GEN\[\d+\]\.DP\s*>=\s*\d+"
+                r"|GEN\[\d+\]\.AF\s*(?:<|>=)\s*[0-9.]+"
             )
-            pop_ok = rare or has_cos
-            filt_ok = rec.get("FILTER") in (None, ".", "PASS")
-            dp_ok = rec["DP"][t] >= 50 and rec["DP"][n] >= 20
-            af_ok = (rec["AF"][n] is None or rec["AF"][n] < 0.03) and rec["AF"][t] >= 0.05
-            return pop_ok and filt_ok and dp_ok and af_ok
+            py_expr = atom_re.sub(_eval_atom, expr)
+            py_expr = py_expr.replace("&", " and ").replace("|", " or ")
+            return bool(eval(py_expr, {"__builtins__": {}}))
 
         records = [
             {
-                "name": "rare_somatic",
+                "name": "rare_somatic_dp30",
                 "ID": ".",
                 "ex_ac": 0,
                 "gn_ac": None,
                 "FILTER": "PASS",
-                "DP": [25, 60],
+                "DP": [25, 30],
                 "AF": [0.01, 0.25],
+            },
+            {
+                "name": "rare_cosmic",
+                "ID": "COSM123",
+                "ex_ac": 1,
+                "gn_ac": 0,
+                "FILTER": "PASS",
+                "DP": [25, 60],
+                "AF": [0.00, 0.15],
             },
             {
                 "name": "common_cosmic",
@@ -183,12 +229,12 @@ class TestPresetExpansion:
                 "AF": [0.00, 0.15],
             },
             {
-                "name": "low_tumor_dp",
+                "name": "low_tumor_dp15",
                 "ID": "COSM123",
                 "ex_ac": 0,
                 "gn_ac": 0,
                 "FILTER": "PASS",
-                "DP": [25, 30],
+                "DP": [25, 15],
                 "AF": [0.00, 0.15],
             },
             {
@@ -210,7 +256,17 @@ class TestPresetExpansion:
                 "AF": [0.00, 0.25],
             },
         ]
+        for alias_name, canonical_name in (
+            ("mutect2_TvsN_pass", "somatic_pass"),
+            ("mutect2_TvsN", "somatic"),
+            ("mutect2_To_pass", "tumor_only"),
+        ):
+            assert self._expand(config["presets"][alias_name]) == self._expand(
+                config["presets"][canonical_name]
+            )
+
         for t_idx, n_idx in (("1", "0"), ("0", "1")):
+            # Expand both presets with identical default parameters
             m_exp = self._expand(
                 config["presets"]["mutect2_TvsN_pass"],
                 tumor_idx=t_idx,
@@ -220,26 +276,12 @@ class TestPresetExpansion:
                 config["presets"]["somatic_pass"],
                 tumor_idx=t_idx,
                 normal_idx=n_idx,
-                tumor_dp_min="50",
-                normal_dp_min="20",
             )
-            for clause in (
-                "( ID =~ 'COS' )",
-                f"GEN[{t_idx}].DP >= 50",
-                f"GEN[{n_idx}].DP >= 20",
-                f"GEN[{t_idx}].AF >= 0.05",
-                f"GEN[{n_idx}].AF < 0.03",
-            ):
-                assert clause in m_exp
-                assert clause in s_exp
+            assert m_exp == s_exp
             if t_idx == "1":
-                m_kept = [
-                    r["name"] for r in records if _eval_preset(m_exp, {**r, "t_idx": 1, "n_idx": 0})
-                ]
-                s_kept = [
-                    r["name"] for r in records if _eval_preset(s_exp, {**r, "t_idx": 1, "n_idx": 0})
-                ]
-                assert m_kept == s_kept == ["rare_somatic", "common_cosmic"]
+                m_kept = [r["name"] for r in records if _eval_snpsift_expr(m_exp, r)]
+                s_kept = [r["name"] for r in records if _eval_snpsift_expr(s_exp, r)]
+                assert m_kept == s_kept == ["rare_somatic_dp30", "rare_cosmic"]
 
 
 # ---------------------------------------------------------------------------
@@ -276,8 +318,33 @@ class TestHeaderSampleResolution:
             "##tumor_sample=APA51_T\n"
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tAPA51_T\n"
         )
-        t_idx, _ = resolve_tumor_normal_indices(header_text=hdr)
+        t_idx, n_idx = resolve_tumor_normal_indices(header_text=hdr, require_normal=False)
         assert t_idx == "0"
+        assert n_idx == ""
+
+        # Paired preset requiring normal on a single-sample VCF must fail
+        with pytest.raises(ValueError, match="Cannot resolve normal sample index"):
+            resolve_tumor_normal_indices(header_text=hdr, require_normal=True)
+
+    def test_missing_role_metadata_without_cli_indices_raises(self) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        hdr = (
+            "##fileformat=VCFv4.2\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tAPA1_T\tAPA1_N\n"
+        )
+        with pytest.raises(ValueError, match="Cannot resolve tumor sample index"):
+            resolve_tumor_normal_indices(header_text=hdr)
+
+        with pytest.raises(ValueError, match="Cannot resolve normal sample index"):
+            resolve_tumor_normal_indices(header_text=hdr, cli_tumor_idx=0)
+
+        assert resolve_tumor_normal_indices(header_text=hdr, cli_tumor_idx=0, cli_normal_idx=1) == (
+            "0",
+            "1",
+        )
+        with pytest.raises(ValueError, match="cannot be identical"):
+            resolve_tumor_normal_indices(header_text=hdr, cli_tumor_idx=0, cli_normal_idx=0)
 
     def test_mismatched_tumor_sample_raises(self) -> None:
         from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices

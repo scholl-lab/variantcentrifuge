@@ -143,6 +143,7 @@ class PseudonymizationStage(Stage):
             logger.warning(f"No pseudonymize_table specified, saved to {mapping_file}")
 
         context.current_dataframe = df
+        context.vcf_samples = [mapping.get(s, s) for s in samples]
         context.config["pseudonymization_mapping"] = mapping
         context.config["pseudonymizer"] = pseudonymizer
 
@@ -224,6 +225,7 @@ class ExcelReportStage(Stage):
                 no_replacement=context.config.get("no_replacement", False),
                 extra_sample_fields=extra_sample_fields,
                 delimiter=context.config.get("extra_sample_field_delimiter") or ":",
+                sample_mapping=context.config.get("pseudonymization_mapping"),
             )
             # Drop internal cache columns before Excel output
             cache_cols = [c for c in excel_df.columns if c.startswith("_")]
