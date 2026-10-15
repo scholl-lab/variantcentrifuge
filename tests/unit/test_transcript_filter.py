@@ -222,7 +222,7 @@ def test_filter_exception_file_rescues_matching_hotspot_only(
     in_vcf.write_text(
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tN\tT\n"
-        "chr11\t128839188\t.\tG\tA\t.\tnormal_artifact\tDP=100\tGT\t0/0\t0/1\n"
+        "chr11\t128839188\t.\tG\tA\t.\tnormal_artifact;panel_of_normals\tDP=100\tGT\t0/0\t0/1\n"
         "chr11\t128839188\t.\tG\tA\t.\tnormal_artifact;strand_bias\tDP=100\tGT\t0/0\t0/1\n"
         "chr11\t128839188\t.\tG\tT\t.\tnormal_artifact\tDP=100\tGT\t0/0\t0/1\n",
         encoding="utf-8",
@@ -234,8 +234,8 @@ def test_filter_exception_file_rescues_matching_hotspot_only(
 
     assert rescued == 1
     assert (
-        "Rescued hotspot variant chr11:128839188 G>A (RAW_FILTER=normal_artifact -> PASS)"
-        in caplog.text
+        "Rescued hotspot variant chr11:128839188 G>A "
+        "(RAW_FILTER=normal_artifact,panel_of_normals -> PASS)" in caplog.text
     )
     records = [
         line.split("\t")
@@ -243,7 +243,8 @@ def test_filter_exception_file_rescues_matching_hotspot_only(
         if line and not line.startswith("#")
     ]
     assert records[0][6] == "PASS"
-    assert "RAW_FILTER=normal_artifact" in records[0][7]
+    info_kv = dict(item.split("=", 1) for item in records[0][7].split(";"))
+    assert info_kv == {"DP": "100", "RAW_FILTER": "normal_artifact,panel_of_normals"}
     assert records[1][6] == "normal_artifact;strand_bias"
     assert "RAW_FILTER=" not in records[1][7]
     assert records[2][6] == "normal_artifact"
@@ -256,7 +257,7 @@ def test_filter_exception_file_rescues_matching_hotspot_only(
         "##fileformat=VCFv4.2\n"
         '##INFO=<ID=ANN,Number=.,Type=String,Description="Functional annotations">\n'
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tN\tT\n"
-        "chr11\t128839188\t.\tG\tA\t.\tnormal_artifact\t"
+        "chr11\t128839188\t.\tG\tA\t.\tnormal_artifact;panel_of_normals\t"
         "ANN=A|missense_variant|MODERATE|KCNJ5|KCNJ5|transcript|NM_000890.5|protein_coding||||||||"
         "\tGT\t0/0\t0/1\n",
         encoding="utf-8",
@@ -268,8 +269,8 @@ def test_filter_exception_file_rescues_matching_hotspot_only(
         filter_exception_file=str(exc_file),
     )
     tx_out_text = tx_out.read_text(encoding="utf-8")
-    assert "##INFO=<ID=RAW_FILTER,Number=1,Type=String" in tx_out_text
-    assert "RAW_FILTER=normal_artifact" in tx_out_text
+    assert "##INFO=<ID=RAW_FILTER,Number=.,Type=String" in tx_out_text
+    assert "RAW_FILTER=normal_artifact,panel_of_normals" in tx_out_text
 
 
 def test_exact_version_match_preferred_over_base_id_fallback() -> None:
@@ -282,3 +283,36 @@ def test_exact_version_match_preferred_over_base_id_fallback() -> None:
     assert result == (
         "A|missense_variant|MODERATE|CACNA1D|CACNA1D|transcript|NM_000720.4|protein_coding||||||||"
     )
+
+
+def test_filter_vcf_line_by_transcripts_prunes_excluded_gene_lof_nmd() -> None:
+    """Retained LOW transcript for gene A drops LOF/NMD belonging to excluded HIGH gene B."""
+    from variantcentrifuge.vcf_eff_one_per_line import split_vcf_effects
+
+    line = (
+        "chr1\t100\t.\tA\tG\t.\tPASS\t"
+        "AC=1;"
+        "ANN="
+        "G|synonymous_variant|LOW|GENE_A|ENSGA|transcript|NM_keep.1|protein_coding||||||||,"
+        "G|stop_gained|HIGH|GENE_B|ENSGB|transcript|NM_drop.1|protein_coding||||||||;"
+        "LOF=(GENE_B|ENSGB|1|1.0);"
+        "NMD=(GENE_B|ENSGB|1|1.0)"
+        "\tGT\t0/1\n"
+    )
+    filtered = filter_vcf_line_by_transcripts(line, {"NM_keep.1"})
+    assert filtered is not None
+    assert "NM_keep.1" in filtered
+    assert "NM_drop.1" not in filtered
+    assert "LOF=" not in filtered
+    assert "NMD=" not in filtered
+
+    # Even if a single-ANN line still carried foreign-gene LOF/NMD, split_vcf_effects prunes it
+    stale_single_ann = (
+        "chr1\t100\t.\tA\tG\t.\tPASS\t"
+        "ANN=G|synonymous_variant|LOW|GENE_A|ENSGA|transcript|NM_keep.1|protein_coding||||||||;"
+        "LOF=(GENE_B|ENSGB|1|1.0);NMD=(GENE_B|ENSGB|1|1.0)\tGT\t0/1"
+    )
+    split_rows = split_vcf_effects(stale_single_ann)
+    assert len(split_rows) == 1
+    assert "LOF=" not in split_rows[0]
+    assert "NMD=" not in split_rows[0]

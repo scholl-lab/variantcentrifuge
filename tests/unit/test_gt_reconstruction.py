@@ -425,20 +425,40 @@ def test_cli_preserves_config_json_options_and_final_filtering_reads_filters(tmp
     assert default_out["GT"].iloc[0] == "TUMOR(0/1)"
     assert not any(c.startswith("GEN") for c in default_out.columns)
 
-    # 2. With append_extra_sample_fields=True, configured fields and delimiter are packed into GT
+    # 2. With append_extra_sample_fields=True through VariantAnalysisStage -> TSVOutputStage,
+    # configured fields and 0/0 reference normal are preserved through analysis and packed at output
+    from variantcentrifuge.stages.analysis_stages import VariantAnalysisStage
+
+    analysis_df = raw_df.copy()
+    analysis_df["POS"] = analysis_df["POS"].astype(str)
+    analysis_df["GENE"] = ["KCNJ5"]
     tsv_ctx_extra = PipelineContext(
         args=Mock(output_file=str(tmp_path / "extra.tsv"), output_dir=str(tmp_path)),
         config={
             "output_file": str(tmp_path / "extra.tsv"),
             "no_links": True,
+            "no_stats": True,
+            "gzip_intermediates": False,
             "append_extra_sample_fields": True,
             "extra_sample_fields": ["GEN[*].DP", "GEN[*].AD", "GEN[*].AF"],
             "extra_sample_field_delimiter": "|",
         },
         workspace=ws,
     )
-    tsv_ctx_extra.current_dataframe = raw_df.copy()
+    tsv_ctx_extra.current_dataframe = analysis_df
     tsv_ctx_extra.vcf_samples = ["NORMAL", "TUMOR"]
+    tsv_ctx_extra.column_rename_map = {
+        "GEN[0].GT": "GEN_0__GT",
+        "GEN[0].DP": "GEN_0__DP",
+        "GEN[0].AD": "GEN_0__AD",
+        "GEN[0].AF": "GEN_0__AF",
+        "GEN[1].GT": "GEN_1__GT",
+        "GEN[1].DP": "GEN_1__DP",
+        "GEN[1].AD": "GEN_1__AD",
+        "GEN[1].AF": "GEN_1__AF",
+    }
+    tsv_ctx_extra = VariantAnalysisStage()._process(tsv_ctx_extra)
     TSVOutputStage()._process(tsv_ctx_extra)
     extra_out = pd.read_csv(tmp_path / "extra.tsv", sep="\t")
     assert extra_out["GT"].iloc[0] == "NORMAL(0/0|42|42,0|0.00);TUMOR(0/1|85|60,25|0.29)"
+    assert not any(c.startswith(("GEN_", "GEN[")) for c in extra_out.columns)

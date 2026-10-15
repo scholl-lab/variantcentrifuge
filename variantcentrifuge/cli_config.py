@@ -43,6 +43,13 @@ def _calculate_sort_memory_limit(sort_limit: str, max_memory_gb: float | None = 
         return "4G"  # Better default than 2G for modern systems
 
 
+def _expand_tumor_normal_vars(expr: str, tn_vars: dict[str, str]) -> str:
+    """Replace supported tumor/normal placeholders while leaving other braces intact."""
+    for key, val in tn_vars.items():
+        expr = expr.replace(f"{{{key}}}", val)
+    return expr
+
+
 def resolve_presets_and_tumor_normal(
     args: argparse.Namespace,
     cfg: dict[str, Any],
@@ -92,7 +99,7 @@ def resolve_presets_and_tumor_normal(
         for p in raw_presets:
             p_str = p.strip()
             if p_str in preset_dict:
-                expr = preset_dict[p_str].format_map(tumor_normal_vars)
+                expr = _expand_tumor_normal_vars(preset_dict[p_str], tumor_normal_vars)
                 chosen_presets.append(f"({expr})")
             else:
                 logger.error(f"Preset '{p_str}' not found in config.")
@@ -103,7 +110,7 @@ def resolve_presets_and_tumor_normal(
                 f"({combined_preset_filter}) & ({filters})" if filters else combined_preset_filter
             )
     if filters and ("{tumor_" in filters or "{normal_" in filters):
-        filters = filters.format_map(tumor_normal_vars)
+        filters = _expand_tumor_normal_vars(filters, tumor_normal_vars)
 
     return filters, tumor_normal_vars
 
@@ -504,7 +511,7 @@ def populate_cli_config(
     # Final filter configuration
     final_filter = args.final_filter if args.final_filter is not None else cfg.get("final_filter")
     cfg["final_filter"] = (
-        final_filter.format_map(tumor_normal_vars) if final_filter else final_filter
+        _expand_tumor_normal_vars(final_filter, tumor_normal_vars) if final_filter else final_filter
     )
     cfg["fail_on_empty"] = bool(args.fail_on_empty or cfg.get("fail_on_empty", False))
 

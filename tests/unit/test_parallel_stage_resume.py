@@ -265,7 +265,7 @@ def test_per_stage_count_logs_and_fail_on_empty(tmp_path, caplog):
             str(out_tsv),
         )
 
-    assert "Variant extraction (bcftools view + norm): 0 output records" in caplog.text
+    assert "Variant extraction (bcftools view + norm): 1 input -> 0 output records" in caplog.text
     assert "SnpSift filter: 1 input -> 0 output records" in caplog.text
     assert "Field extraction (bcftools query): 0 variants extracted" in caplog.text
 

@@ -83,6 +83,77 @@ def _filter_gene_scoped_info_value(value: str, gene_keys: set[str], info_key: st
     return ",".join(kept_entries)
 
 
+def restrict_line_ann_to_alt(line: str) -> str:
+    """Restrict ANN entries (and gene-scoped LOF/NMD) on a biallelic VCF line to its ALT allele."""
+    if line.startswith("#"):
+        return line
+    nl = "\n" if line.endswith("\n") else ""
+    cols = line.rstrip("\n").split("\t")
+    if len(cols) < 8 or "," in cols[4] or "ANN=" not in cols[7]:
+        return line
+    alt = cols[4]
+    info_parts = cols[7].split(";")
+    kept_ann: list[str] | None = None
+    for part in info_parts:
+        if part.startswith("ANN="):
+            entries = [e for e in part[4:].split(",") if e]
+            alt_entries = [e for e in entries if e.split("|", 1)[0] == alt]
+            if alt_entries and len(alt_entries) != len(entries):
+                kept_ann = alt_entries
+            break
+    if kept_ann is None:
+        return line
+    gene_keys: set[str] = set()
+    for entry in kept_ann:
+        gene_keys.update(_ann_gene_keys(entry))
+    new_info: list[str] = []
+    for part in info_parts:
+        if part.startswith("ANN="):
+            new_info.append("ANN=" + ",".join(kept_ann))
+        elif part.startswith(("LOF=", "NMD=")):
+            key, val = part.split("=", 1)
+            filtered = _filter_gene_scoped_info_value(val, gene_keys, key)
+            if filtered is not None:
+                new_info.append(f"{key}={filtered}")
+        else:
+            new_info.append(part)
+    cols[7] = ";".join(new_info)
+    return "\t".join(cols) + nl
+
+
+def restrict_vcf_ann_to_alt(vcf_path: str, output_path: str | None = None) -> bool:
+    """Restrict biallelic records' ANN/LOF/NMD to ALT in a VCF file when foreign alleles exist."""
+    import os
+
+    if not vcf_path or not os.path.exists(vcf_path):
+        return False
+    is_gz = False
+    try:
+        with open(vcf_path, "rb") as raw:
+            is_gz = raw.read(2) == b"\x1f\x8b"
+    except OSError:
+        return False
+    try:
+        opener = gzip.open if is_gz else open
+        with opener(vcf_path, "rt", encoding="utf-8", errors="replace") as fh:  # type: ignore[call-overload]
+            lines = fh.readlines()
+    except Exception:
+        return False
+    new_lines = [restrict_line_ann_to_alt(line) for line in lines]
+    if new_lines == lines and (output_path is None or output_path == vcf_path):
+        return False
+    target = output_path or vcf_path
+    write_gz = is_gz if output_path is None else target.endswith(".gz")
+    out_opener = gzip.open if write_gz else open
+    with out_opener(target, "wt", encoding="utf-8") as fh:  # type: ignore[call-overload]
+        fh.writelines(new_lines)
+    if target == vcf_path:
+        for idx_ext in (".csi", ".tbi"):
+            if os.path.exists(f"{vcf_path}{idx_ext}"):
+                os.remove(f"{vcf_path}{idx_ext}")
+    return new_lines != lines
+
+
 def split_vcf_effects(line: str) -> list[str]:
     """
     Split multiple EFF or ANN annotations in the INFO field of a VCF line into separate lines.
@@ -135,8 +206,12 @@ def split_vcf_effects(line: str) -> list[str]:
         if alt_effs:
             effs = alt_effs
 
-    # If no EFF/ANN found or only one annotation, return original line
-    if not effs or (len(effs) <= 1 and raw_eff_count <= 1):
+    # If no EFF/ANN found or only one annotation without gene-scoped LOF/NMD to prune, return original line
+    if not effs or (
+        len(effs) <= 1
+        and raw_eff_count <= 1
+        and not (field_name == "ANN" and gene_scoped_info_parts)
+    ):
         return [line]
 
     # Otherwise, replicate line for each EFF/ANN

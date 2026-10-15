@@ -132,14 +132,26 @@ def filter_vcf_line_by_transcripts(
     if ann_index is None or not kept_entries:
         return None
 
+    from .vcf_eff_one_per_line import _ann_gene_keys, _filter_gene_scoped_info_value
+
     emitted_lines: list[str] = []
     for entry in kept_entries:
         if matched_features is not None:
             parts = entry.split("|")
             if len(parts) > ANN_FEATURE_ID_INDEX and parts[ANN_FEATURE_ID_INDEX].strip():
                 matched_features.add(parts[ANN_FEATURE_ID_INDEX].strip())
-        rewritten_info = list(info_parts)
-        rewritten_info[ann_index] = f"ANN={entry}"
+        gene_keys = _ann_gene_keys(entry)
+        rewritten_info: list[str] = []
+        for idx, part in enumerate(info_parts):
+            if idx == ann_index:
+                rewritten_info.append(f"ANN={entry}")
+            elif part.startswith(("LOF=", "NMD=")):
+                key, val = part.split("=", 1)
+                filtered_val = _filter_gene_scoped_info_value(val, gene_keys, key)
+                if filtered_val is not None:
+                    rewritten_info.append(f"{key}={filtered_val}")
+            else:
+                rewritten_info.append(part)
         row_cols = list(columns)
         row_cols[7] = ";".join(rewritten_info)
         emitted_lines.append("\t".join(row_cols) + "\n")
@@ -202,10 +214,11 @@ def apply_filter_exceptions_to_line(
     permitted = allowed | {"PASS", "on_target", "clustered_events"}
     if not tokens or not all(t in permitted for t in tokens):
         return line
+    raw_filter_info = ",".join(tokens)
     if not cols[7] or cols[7] == ".":
-        cols[7] = f"RAW_FILTER={raw_filter}"
+        cols[7] = f"RAW_FILTER={raw_filter_info}"
     elif "RAW_FILTER=" not in cols[7]:
-        cols[7] = f"{cols[7]};RAW_FILTER={raw_filter}"
+        cols[7] = f"{cols[7]};RAW_FILTER={raw_filter_info}"
     cols[6] = "PASS"
     logging.getLogger("variantcentrifuge").info(
         "Rescued hotspot variant %s:%s %s>%s (RAW_FILTER=%s -> PASS)",
@@ -213,7 +226,7 @@ def apply_filter_exceptions_to_line(
         cols[1],
         cols[3],
         cols[4],
-        raw_filter,
+        raw_filter_info,
     )
     return "\t".join(cols) + ("\n" if line.endswith("\n") else "")
 
@@ -234,7 +247,7 @@ def apply_filter_exceptions_to_vcf(
                 has_raw_filter_hdr = True
             elif line.startswith("#CHROM") and not has_raw_filter_hdr:
                 fout.write(
-                    "##INFO=<ID=RAW_FILTER,Number=1,Type=String,"
+                    "##INFO=<ID=RAW_FILTER,Number=.,Type=String,"
                     'Description="Raw FILTER before hotspot rescue">\n'
                 )
             new_line = apply_filter_exceptions_to_line(line, exceptions)
@@ -292,7 +305,7 @@ def filter_vcf_to_transcripts(
                 has_raw_filter_hdr = True
             elif line.startswith("#CHROM") and exceptions and not has_raw_filter_hdr:
                 output_handle.write(
-                    "##INFO=<ID=RAW_FILTER,Number=1,Type=String,"
+                    "##INFO=<ID=RAW_FILTER,Number=.,Type=String,"
                     'Description="Raw FILTER before hotspot rescue">\n'
                 )
             if not line.startswith("#") and line.strip():

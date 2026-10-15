@@ -155,6 +155,7 @@ def apply_bcftools_prefilter(
         input_vcf,
     ]
 
+    in_count = _count_vcf_records(input_vcf, cached=True)
     logger.info(f"Applying bcftools pre-filter: {filter_expression}")
     logger.debug(f"bcftools prefilter command: {' '.join(cmd)}")
     run_command(cmd)
@@ -164,24 +165,47 @@ def apply_bcftools_prefilter(
     logger.debug(f"Indexing pre-filtered VCF: {' '.join(index_cmd)}")
     run_command(index_cmd)
 
+    out_count = _count_vcf_records(output_vcf)
+    logger.info(
+        "bcftools pre-filter: %d input -> %d output records (%s)",
+        in_count,
+        out_count,
+        output_vcf,
+    )
     return output_vcf
 
 
-def _count_vcf_records(path: str) -> int:
+_VCF_RECORD_COUNT_CACHE: dict[tuple[str, int, int], int] = {}
+
+
+def _count_vcf_records(path: str, *, cached: bool = False) -> int:
     """Count non-header records in a plain or gzipped VCF file (0 if unreadable)."""
     if not path or not os.path.exists(path):
         return 0
+    cache_key: tuple[str, int, int] | None = None
+    if cached:
+        try:
+            st = os.stat(path)
+            cache_key = (os.path.abspath(path), st.st_mtime_ns, st.st_size)
+            if cache_key in _VCF_RECORD_COUNT_CACHE:
+                return _VCF_RECORD_COUNT_CACHE[cache_key]
+        except OSError:
+            cache_key = None
     import gzip
 
+    count = 0
     try:
         with gzip.open(path, "rt", errors="replace") as fh:
-            return sum(1 for line in fh if line and not line.startswith("#"))
+            count = sum(1 for line in fh if line and not line.startswith("#"))
     except Exception:
         try:
             with open(path, errors="replace") as fh:
-                return sum(1 for line in fh if line and not line.startswith("#"))
+                count = sum(1 for line in fh if line and not line.startswith("#"))
         except Exception:
-            return 0
+            count = 0
+    if cache_key is not None:
+        _VCF_RECORD_COUNT_CACHE[cache_key] = count
+    return count
 
 
 def extract_variants(vcf_file: str, bed_file: str, cfg: dict[str, Any], output_file: str) -> str:
@@ -217,6 +241,8 @@ def extract_variants(vcf_file: str, bed_file: str, cfg: dict[str, Any], output_f
     RuntimeError
         If the extraction command fails.
     """
+    from .vcf_eff_one_per_line import restrict_vcf_ann_to_alt
+
     threads = str(cfg.get("threads", 1))
 
     tmp_fd, tmp_vcf = tempfile.mkstemp(suffix=".vcf.gz")
@@ -266,10 +292,15 @@ def extract_variants(vcf_file: str, bed_file: str, cfg: dict[str, Any], output_f
         logger.debug("Decomposing multiallelic variants with command: %s", " ".join(norm_cmd))
         logger.debug("Output will be written to: %s", output_file)
         run_command(norm_cmd)
+        restrict_vcf_ann_to_alt(output_file)
 
         out_count = _count_vcf_records(output_file)
+        in_count = (
+            _count_vcf_records(tmp_vcf) or _count_vcf_records(vcf_file, cached=True) or out_count
+        )
         logger.info(
-            "Variant extraction (bcftools view + norm): %d output records (%s)",
+            "Variant extraction (bcftools view + norm): %d input -> %d output records (%s)",
+            in_count,
             out_count,
             output_file,
         )
@@ -316,6 +347,8 @@ def apply_snpsift_filter(
     RuntimeError
         If the filter command fails.
     """
+    from .vcf_eff_one_per_line import restrict_vcf_ann_to_alt
+
     threads = str(cfg.get("threads", 1))
     in_count = _count_vcf_records(variant_file)
     exceptions = cfg.get("filter_exceptions") or load_filter_exceptions(
@@ -326,6 +359,7 @@ def apply_snpsift_filter(
     tmp_fd, tmp_vcf = tempfile.mkstemp(suffix=".vcf")
     os.close(tmp_fd)
     rescued_vcf: str | None = None
+    ann_vcf: str | None = None
     try:
         snpsift_input = variant_file
         if exceptions and os.path.exists(snpsift_input):
@@ -333,6 +367,14 @@ def apply_snpsift_filter(
             os.close(r_fd)
             apply_filter_exceptions_to_vcf(snpsift_input, rescued_vcf, exceptions)
             snpsift_input = rescued_vcf
+        if os.path.exists(snpsift_input):
+            a_fd, candidate_ann_vcf = tempfile.mkstemp(suffix=".vcf")
+            os.close(a_fd)
+            if restrict_vcf_ann_to_alt(snpsift_input, candidate_ann_vcf):
+                ann_vcf = candidate_ann_vcf
+                snpsift_input = ann_vcf
+            elif os.path.exists(candidate_ann_vcf):
+                os.remove(candidate_ann_vcf)
 
         xmx = _snpsift_memory_flag(cfg)
         snpsift_cmd = ["SnpSift", xmx, "filter", filter_string, snpsift_input]
@@ -361,6 +403,6 @@ def apply_snpsift_filter(
         return output_file
     finally:
         # Remove the uncompressed temp files
-        for p in (tmp_vcf, rescued_vcf):
+        for p in (tmp_vcf, rescued_vcf, ann_vcf):
             if p and os.path.exists(p):
                 os.remove(p)

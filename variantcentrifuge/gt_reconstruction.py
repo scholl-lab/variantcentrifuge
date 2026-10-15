@@ -131,8 +131,8 @@ def reconstruct_gt_column(
 
     df["GT"] = gt_strings
 
-    # Drop per-sample GT and extra GEN columns
-    extra_cols = list(s_cols.values())
+    # Drop per-sample GT and requested extra GEN columns
+    extra_cols = [col for (_, f), col in s_cols.items() if f in extra_fields]
     df = df.drop(columns=gt_cols + extra_cols)
     logger.info(f"Dropped {len(gt_cols)} per-sample GT columns from output")
 
@@ -159,9 +159,9 @@ def _collapse_per_sample_gt_columns_for_output(
     if not gt_cols:
         return df
 
-    if "GT" not in df.columns:
-        if vcf_samples:
-            return reconstruct_gt_column(df, vcf_samples, extra_sample_fields, delimiter)
+    if ("GT" not in df.columns or extra_sample_fields) and vcf_samples:
+        df = reconstruct_gt_column(df, vcf_samples, extra_sample_fields, delimiter)
+    elif "GT" not in df.columns:
         logger.warning(
             "Per-sample GT columns found in final output but VCF sample names are "
             "unavailable; leaving columns unchanged"
@@ -169,6 +169,7 @@ def _collapse_per_sample_gt_columns_for_output(
         return df
 
     gen_cols = [c for c in df.columns if re.match(r"^GEN[_\[](\d+)[_\]\.]+([A-Za-z0-9_]+)$", c)]
-    df = df.drop(columns=gen_cols or gt_cols)
-    logger.info(f"Dropped {len(gen_cols or gt_cols)} per-sample GT columns from final output")
+    if gen_cols:
+        df = df.drop(columns=gen_cols)
+        logger.info(f"Dropped {len(gen_cols)} per-sample GT columns from final output")
     return df

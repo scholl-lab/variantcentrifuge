@@ -139,7 +139,77 @@ class TestPresetExpansion:
         assert "GEN[0].AF >= 0.05" in to_expanded
 
     def test_mutect2_tvsn_pass_parity_with_somatic_pass(self, config: dict) -> None:
-        """mutect2_TvsN_pass and somatic_pass target the same tumor/normal sample indices."""
+        """mutect2_TvsN_pass and somatic_pass retain identical variants including COSMIC alleles."""
+
+        def _eval_preset(expr: str, rec: dict) -> bool:
+            t = int(rec["t_idx"])
+            n = int(rec["n_idx"])
+            has_cos = "( ID =~ 'COS' )" in expr and str(rec.get("ID") or "").startswith("COS")
+            rare = (rec.get("ex_ac") is None or rec["ex_ac"] <= 2) and (
+                rec.get("gn_ac") is None or rec["gn_ac"] <= 2
+            )
+            pop_ok = rare or has_cos
+            filt_ok = rec.get("FILTER") in (None, ".", "PASS")
+            dp_ok = rec["DP"][t] >= 50 and rec["DP"][n] >= 20
+            af_ok = (rec["AF"][n] is None or rec["AF"][n] < 0.03) and rec["AF"][t] >= 0.05
+            return pop_ok and filt_ok and dp_ok and af_ok
+
+        records = [
+            {
+                "name": "rare_somatic",
+                "ID": ".",
+                "ex_ac": 0,
+                "gn_ac": None,
+                "FILTER": "PASS",
+                "DP": [25, 60],
+                "AF": [0.01, 0.25],
+            },
+            {
+                "name": "common_cosmic",
+                "ID": "COSM123",
+                "ex_ac": 50,
+                "gn_ac": 40,
+                "FILTER": "PASS",
+                "DP": [25, 60],
+                "AF": [0.00, 0.15],
+            },
+            {
+                "name": "common_non_cosmic",
+                "ID": "rs123",
+                "ex_ac": 50,
+                "gn_ac": 40,
+                "FILTER": "PASS",
+                "DP": [25, 60],
+                "AF": [0.00, 0.15],
+            },
+            {
+                "name": "low_tumor_dp",
+                "ID": "COSM123",
+                "ex_ac": 0,
+                "gn_ac": 0,
+                "FILTER": "PASS",
+                "DP": [25, 30],
+                "AF": [0.00, 0.15],
+            },
+            {
+                "name": "high_normal_af",
+                "ID": ".",
+                "ex_ac": 0,
+                "gn_ac": 0,
+                "FILTER": "PASS",
+                "DP": [25, 60],
+                "AF": [0.10, 0.25],
+            },
+            {
+                "name": "failed_filter",
+                "ID": ".",
+                "ex_ac": 0,
+                "gn_ac": 0,
+                "FILTER": "weak_evidence",
+                "DP": [25, 60],
+                "AF": [0.00, 0.25],
+            },
+        ]
         for t_idx, n_idx in (("1", "0"), ("0", "1")):
             m_exp = self._expand(
                 config["presets"]["mutect2_TvsN_pass"],
@@ -154,6 +224,7 @@ class TestPresetExpansion:
                 normal_dp_min="20",
             )
             for clause in (
+                "( ID =~ 'COS' )",
                 f"GEN[{t_idx}].DP >= 50",
                 f"GEN[{n_idx}].DP >= 20",
                 f"GEN[{t_idx}].AF >= 0.05",
@@ -161,6 +232,14 @@ class TestPresetExpansion:
             ):
                 assert clause in m_exp
                 assert clause in s_exp
+            if t_idx == "1":
+                m_kept = [
+                    r["name"] for r in records if _eval_preset(m_exp, {**r, "t_idx": 1, "n_idx": 0})
+                ]
+                s_kept = [
+                    r["name"] for r in records if _eval_preset(s_exp, {**r, "t_idx": 1, "n_idx": 0})
+                ]
+                assert m_kept == s_kept == ["rare_somatic", "common_cosmic"]
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +385,10 @@ class TestHeaderSampleResolution:
                 "--preset",
                 "somatic_pass",
                 "--final-filter",
-                "GEN[{tumor_idx}].AF >= 0.1 & GEN[{normal_idx}].AF <= 0.01",
+                (
+                    "GENE.str.match('A{2}') & "
+                    "GEN[{tumor_idx}].AF >= 0.1 & GEN[{normal_idx}].AF <= 0.01"
+                ),
                 "--output-dir",
                 str(tmp_path),
             ],
@@ -320,7 +402,10 @@ class TestHeaderSampleResolution:
             logging.getLogger("variantcentrifuge").setLevel(prev_level)
         assert captured[0]["tumor_sample_index"] == "0"
         assert captured[0]["normal_sample_index"] == "1"
-        assert captured[0]["final_filter"] == "GEN[0].AF >= 0.1 & GEN[1].AF <= 0.01"
+        assert (
+            captured[0]["final_filter"]
+            == "GENE.str.match('A{2}') & GEN[0].AF >= 0.1 & GEN[1].AF <= 0.01"
+        )
 
 
 # ---------------------------------------------------------------------------

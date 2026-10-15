@@ -164,27 +164,75 @@ def test_bcftools_norm_decomposed_rows_prune_shared_ann_and_extract_matching_all
     assert float(filtered.iloc[0]["GEN_0__AF"]) == 0.30
     assert filtered.iloc[0]["ANN_0__EFFECT"] == "missense_variant"
 
-    # Verify extract_variants runs bcftools view followed by bcftools norm -m -any
+    # Verify extract_variants -> apply_snpsift_filter with annotation splitting disabled
+    # restricts ANN (and LOF/NMD) to the decomposed ALT before SnpSift evaluates HIGH
+    import gzip
+    from unittest.mock import Mock
+
+    from variantcentrifuge.filters import apply_snpsift_filter
+
+    shared_high_ann = (
+        "ANN="
+        "A|synonymous_variant|LOW|KCNJ5|ENSG1|transcript|ENST1|protein_coding||||||||,"
+        "G|stop_gained|HIGH|KCNJ5|ENSG1|transcript|ENST1|protein_coding||||||||;"
+        "LOF=(KCNJ5|ENSG1|1|1.0)"
+    )
+    raw_a = (
+        f"chr1\t100\t.\tC\tA\t.\tPASS\tAC=1;AF=0.01;DP=121;{shared_high_ann}"
+        "\tGT:AD:AF:DP\t0/1:90,1:0.01:121"
+    )
+    raw_g = (
+        f"chr1\t100\t.\tC\tG\t.\tPASS\tAC=2;AF=0.30;DP=121;{shared_high_ann}"
+        "\tGT:AD:AF:DP\t0/1:90,30:0.30:121"
+    )
+
     cmds: list[list[str]] = []
 
-    def fake_run(cmd: list[str], **_kwargs) -> None:
+    def fake_run(cmd: list[str], output_file: str | None = None, return_result: bool = False):
         cmds.append(cmd)
-        if "-o" in cmd:
-            out_idx = cmd.index("-o") + 1
-            out_path = cmd[out_idx]
-            if out_path.endswith(".gz"):
-                import gzip
-
-                with gzip.open(out_path, "wt") as fh:
-                    fh.write(
-                        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-                    )
-                    fh.write(decomposed_a + "\n" + decomposed_g + "\n")
+        if cmd[:2] == ["bcftools", "norm"] and "-o" in cmd:
+            out_path = cmd[cmd.index("-o") + 1]
+            with gzip.open(out_path, "wt") as fh:
+                fh.write(
+                    "##fileformat=VCFv4.2\n"
+                    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"
+                )
+                fh.write(raw_a + "\n" + raw_g + "\n")
+        elif cmd[0] == "SnpSift" and output_file:
+            in_path = cmd[-1]
+            opener = gzip.open if in_path.endswith(".gz") else open
+            kept: list[str] = []
+            with opener(in_path, "rt") as fh:  # type: ignore[call-overload]
+                for ln in fh:
+                    if ln.startswith("#") or "|HIGH|" in ln:
+                        kept.append(ln)
+            with open(output_file, "w") as out_fh:
+                out_fh.writelines(kept)
+        elif cmd[0] == "bgzip" and output_file:
+            with open(cmd[-1]) as in_fh, gzip.open(output_file, "wt") as out_fh:
+                out_fh.write(in_fh.read())
+        res = Mock()
+        res.stderr = ""
+        return res if return_result else None
 
     monkeypatch.setattr("variantcentrifuge.filters.run_command", fake_run)
     out_vcf = tmp_path / "extracted.vcf.gz"
+    filtered_vcf = tmp_path / "filtered.vcf.gz"
     extract_variants("input.vcf.gz", "regions.bed", {"threads": 2}, str(out_vcf))
     assert len(cmds) == 2
     assert cmds[0][:2] == ["bcftools", "view"]
     assert cmds[1][:2] == ["bcftools", "norm"]
     assert "-W" in cmds[1] and "-m" in cmds[1] and "-any" in cmds[1]
+
+    # Without splitting annotations, apply_snpsift_filter evaluates only the decomposed allele's ANN
+    apply_snpsift_filter(
+        str(out_vcf),
+        "(ANN[ANY].IMPACT has 'HIGH')",
+        {"threads": 2},
+        str(filtered_vcf),
+    )
+    with gzip.open(filtered_vcf, "rt") as fh:
+        kept_records = [ln for ln in fh.read().splitlines() if ln and not ln.startswith("#")]
+    assert len(kept_records) == 1
+    assert kept_records[0].split("\t")[4] == "G"
+    assert "A|synonymous_variant" not in kept_records[0]
