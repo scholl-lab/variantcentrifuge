@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.14] - 2026-10-15
+
+### Added
+
+- Support position-specific `FILTER` exceptions (`--filter-exception-file`) for somatic hotspot rescue while preserving original filters in `INFO/RAW_FILTER` (#121).
+- Add `--fail-on-empty` to exit with code 2 when zero variants remain after filtering (#119).
+
+### Fixed
+
+- Resolve tumor and normal sample indices from `##tumor_sample`/`##normal_sample` VCF headers, unify `mutect2_*` and `somatic*` presets, and fail fast when `bcftools query -l` fails (#117).
+- Run `TranscriptFilterStage` before `SnpSiftFilterStage` in sequential and parallel modes, match base transcript IDs across RefSeq version skew, emit all kept transcripts per gene, and include `FEATUREID` in merge keys (#118).
+- Log per-stage input/output variant counts and accept valid 1-line header-only parallel chunk TSVs (#119).
+- Preserve `config.json` options when CLI flags are omitted, forward P0 flags in Snakemake helpers, and append `extra_sample_fields` (retaining `0/0` normal samples) in reconstructed `GT` columns (#120).
+- Decompose multiallelic VCF records via `bcftools norm -m -any` before allele-indexed filtering and restrict `ANN`/`LOF`/`NMD` annotations to the decomposed `ALT` allele (#122).
+
 ## [0.17.13] - 2026-07-19
 
 ### Changed
