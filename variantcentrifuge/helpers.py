@@ -740,19 +740,7 @@ def extract_gencode_id(gene_name: str) -> str:
 
 
 def get_vcf_names(vcf_file: str) -> list[str]:
-    """
-    Get sample names from a VCF file header.
-
-    Parameters
-    ----------
-    vcf_file : str
-        Path to the VCF file
-
-    Returns
-    -------
-    List[str]
-        List of sample names from the VCF file
-    """
+    """Get sample names from a VCF file header via ``bcftools query -l``."""
     try:
         from subprocess import PIPE, Popen
 
@@ -762,12 +750,14 @@ def get_vcf_names(vcf_file: str) -> list[str]:
 
         if process.returncode != 0:
             logger.error(f"Error getting sample names from VCF: {stderr}")
-            return []
+            raise RuntimeError(f"bcftools query -l failed for {vcf_file}: {stderr.strip()}")
 
         return [line.strip() for line in stdout.split("\n") if line.strip()]
+    except RuntimeError:
+        raise
     except Exception as e:
         logger.error(f"Error running bcftools query: {e}")
-        return []
+        raise RuntimeError(f"Error running bcftools query on {vcf_file}: {e}") from e
 
 
 def get_vcf_regions(vcf_file: str) -> list[str]:

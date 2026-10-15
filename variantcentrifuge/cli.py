@@ -1,7 +1,6 @@
 """Command-line interface for VariantCentrifuge."""
 
 import argparse
-import contextlib
 import datetime
 import logging
 import sys
@@ -15,6 +14,7 @@ from .validators import (
     validate_phenotype_file,
     validate_vcf_file,
 )
+from .vcf_header_parser import resolve_tumor_normal_indices
 from .version import __version__
 
 logger = logging.getLogger("variantcentrifuge")
@@ -1179,15 +1179,24 @@ def main() -> int:
     filters: str | None = args.filters or cfg.get("filters")
     fields: str | None = args.fields or cfg.get("fields_to_extract")
 
-    # Build tumor-normal template variables for preset expansion
-    tumor_normal_vars = {
-        "tumor_idx": str(args.tumor_sample_index if args.tumor_sample_index is not None else 1),
-        "normal_idx": str(args.normal_sample_index if args.normal_sample_index is not None else 0),
-        "tumor_dp_min": str(args.tumor_dp_min if args.tumor_dp_min is not None else 20),
-        "normal_dp_min": str(args.normal_dp_min if args.normal_dp_min is not None else 20),
-        "tumor_af_min": str(args.tumor_af_min if args.tumor_af_min is not None else 0.05),
-        "normal_af_max": str(args.normal_af_max if args.normal_af_max is not None else 0.03),
-    }
+    # Resolve tumor-normal sample indices from VCF header, CLI, or config
+    t_idx, n_idx = resolve_tumor_normal_indices(
+        args.vcf_file,
+        cli_tumor_idx=args.tumor_sample_index,
+        cli_normal_idx=args.normal_sample_index,
+        cfg_tumor_idx=cfg.get("tumor_sample_index"),
+        cfg_normal_idx=cfg.get("normal_sample_index"),
+    )
+    _tn_defaults = [
+        ("tumor_dp_min", 20),
+        ("normal_dp_min", 20),
+        ("tumor_af_min", 0.05),
+        ("normal_af_max", 0.03),
+    ]
+    tumor_normal_vars = {"tumor_idx": t_idx, "normal_idx": n_idx}
+    for _k, _d in _tn_defaults:
+        _v = getattr(args, _k, None)
+        tumor_normal_vars[_k] = str(cfg.get(_k, _d) if _v is None else _v)
 
     # Handle presets
     preset_dict = cfg.get("presets", {})
@@ -1196,20 +1205,18 @@ def main() -> int:
         for p in args.preset:
             p_str = p.strip()
             if p_str in preset_dict:
-                expr = preset_dict[p_str]
-                # Expand tumor-normal template variables ({tumor_idx}, etc.)
-                with contextlib.suppress(KeyError):
-                    expr = expr.format_map(tumor_normal_vars)
+                expr = preset_dict[p_str].format_map(tumor_normal_vars)
                 chosen_presets.append(f"({expr})")
             else:
                 logger.error(f"Preset '{p_str}' not found in config.")
                 sys.exit(1)
         if chosen_presets:
             combined_preset_filter = " & ".join(chosen_presets)
-            if filters:
-                filters = f"({combined_preset_filter}) & ({filters})"
-            else:
-                filters = combined_preset_filter
+            filters = (
+                f"({combined_preset_filter}) & ({filters})" if filters else combined_preset_filter
+            )
+    if filters and ("{tumor_" in filters or "{normal_" in filters):
+        filters = filters.format_map(tumor_normal_vars)
 
     # Validate mandatory parameters
     validate_mandatory_parameters(reference, filters, fields)
@@ -1341,41 +1348,27 @@ def main() -> int:
     # IGV parameters
     cfg["igv_enabled"] = args.igv
     cfg["bam_mapping_file"] = args.bam_mapping_file
-
-    # MODIFIED: Start of local IGV FASTA feature
-    # Store local FASTA-related parameters
     cfg["igv_fasta"] = args.igv_fasta
     cfg["igv_ideogram"] = args.igv_ideogram
-
-    # MODIFIED: IGV filename shortening parameters
     cfg["igv_max_allele_len_filename"] = args.igv_max_allele_len_filename
     cfg["igv_hash_len_filename"] = args.igv_hash_len_filename
     cfg["igv_max_variant_part_filename"] = args.igv_max_variant_part_filename
-
-    # MODIFIED: Start of IGV flanking feature
-    # Use CLI argument if provided, otherwise use config value, with a default of 50
     cfg["igv_flanking"] = args.igv_flanking or cfg.get("igv_flanking", 50)
-    # MODIFIED: End of IGV flanking feature
 
-    # Handle precedence and validation
     if args.igv:
         if not args.bam_mapping_file:
             logger.error("For IGV integration, --bam-mapping-file must be provided.")
             sys.exit(1)
-
         if not args.igv_fasta and not args.igv_reference:
             logger.error(
                 "For IGV integration, either --igv-reference or --igv-fasta must be provided."
             )
             sys.exit(1)
-
         if args.igv_fasta and args.igv_reference:
             logger.warning(
                 "Both --igv-fasta and --igv-reference provided. Local FASTA file will take precedence."
             )
-
         cfg["igv_reference"] = args.igv_reference
-    # MODIFIED: End of local IGV FASTA feature
 
     # COAST auto-field injection (COAST-02, COAST-05)
     # When COAST is one of the selected association tests, auto-inject annotation fields
@@ -1595,7 +1588,10 @@ def main() -> int:
     cfg["bcftools_prefilter"] = args.bcftools_prefilter
 
     # Final filter configuration
-    cfg["final_filter"] = args.final_filter
+    final_filter = args.final_filter if args.final_filter is not None else cfg.get("final_filter")
+    cfg["final_filter"] = (
+        final_filter.format_map(tumor_normal_vars) if final_filter else final_filter
+    )
 
     # Chunked processing configuration
     cfg["no_chunked_processing"] = args.no_chunked_processing

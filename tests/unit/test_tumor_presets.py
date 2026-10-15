@@ -119,31 +119,168 @@ class TestPresetExpansion:
         assert "GEN[1].DP >= 20" in expanded
         assert "GEN[1].AF >= 0.05" in expanded
 
-    def test_legacy_presets_no_template_vars(self, config: dict) -> None:
-        """Legacy mutect2 presets should have no {tumor_idx} variables."""
-        for name in ("mutect2_TvsN_pass", "mutect2_TvsN", "mutect2_To_pass"):
-            expr = config["presets"][name]
-            assert "{tumor_idx}" not in expr
-            assert "{normal_idx}" not in expr
-
-    def test_legacy_mutect2_tvsn_gen_indices(self, config: dict) -> None:
-        """mutect2_TvsN presets must use GEN[0]=tumor, GEN[1]=normal.
-
-        Standard Mutect2 output has GEN[0]=tumor, GEN[1]=normal.
-        The tumor sample should have AF >= 0.05 and the normal should
-        have AF < 0.03.  See issue #72.
-        """
+    def test_mutect2_presets_use_template_vars(self, config: dict) -> None:
+        """mutect2_* presets use {tumor_idx}/{normal_idx} and explicit per-sample DP."""
         for name in ("mutect2_TvsN_pass", "mutect2_TvsN"):
             expr = config["presets"][name]
-            # Tumor (GEN[0]) must pass the minimum AF threshold
-            assert "GEN[0].AF >= 0.05" in expr, f"{name}: expected tumor AF check on GEN[0]"
-            # Normal (GEN[1]) must be below the max AF threshold
-            assert "GEN[1].AF < 0.03" in expr, f"{name}: expected normal AF check on GEN[1]"
+            assert "{tumor_idx}" in expr
+            assert "{normal_idx}" in expr
+            expanded = self._expand(expr, tumor_idx="1", normal_idx="0")
+            assert "GEN[1].DP >= 50" in expanded
+            assert "GEN[0].DP >= 20" in expanded
+            assert "GEN[1].AF >= 0.05" in expanded
+            assert "GEN[0].AF < 0.03" in expanded
 
-    def test_legacy_mutect2_tvsn_pass_dp_on_tumor(self, config: dict) -> None:
-        """mutect2_TvsN_pass DP check should be on tumor (GEN[0])."""
-        expr = config["presets"]["mutect2_TvsN_pass"]
-        assert "GEN[0].DP >= 50" in expr
+        to_expr = config["presets"]["mutect2_To_pass"]
+        assert "{tumor_idx}" in to_expr
+        assert "{normal_idx}" not in to_expr
+        to_expanded = self._expand(to_expr, tumor_idx="0")
+        assert "GEN[0].DP >= 50" in to_expanded
+        assert "GEN[0].AF >= 0.05" in to_expanded
+
+    def test_mutect2_tvsn_pass_parity_with_somatic_pass(self, config: dict) -> None:
+        """mutect2_TvsN_pass and somatic_pass target the same tumor/normal sample indices."""
+        for t_idx, n_idx in (("1", "0"), ("0", "1")):
+            m_exp = self._expand(
+                config["presets"]["mutect2_TvsN_pass"],
+                tumor_idx=t_idx,
+                normal_idx=n_idx,
+            )
+            s_exp = self._expand(
+                config["presets"]["somatic_pass"],
+                tumor_idx=t_idx,
+                normal_idx=n_idx,
+                tumor_dp_min="50",
+                normal_dp_min="20",
+            )
+            for clause in (
+                f"GEN[{t_idx}].DP >= 50",
+                f"GEN[{n_idx}].DP >= 20",
+                f"GEN[{t_idx}].AF >= 0.05",
+                f"GEN[{n_idx}].AF < 0.03",
+            ):
+                assert clause in m_exp
+                assert clause in s_exp
+
+
+# ---------------------------------------------------------------------------
+# VCF header ##tumor_sample / ##normal_sample resolution
+# ---------------------------------------------------------------------------
+class TestHeaderSampleResolution:
+    def test_normal_first_vcf_header(self) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        hdr = (
+            "##fileformat=VCFv4.2\n"
+            "##tumor_sample=APA1_T\n"
+            "##normal_sample=APA1_N\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tAPA1_N\tAPA1_T\n"
+        )
+        assert resolve_tumor_normal_indices(header_text=hdr) == ("1", "0")
+
+    def test_tumor_first_vcf_header(self) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        hdr = (
+            "##fileformat=VCFv4.2\n"
+            "##tumor_sample=APA1_T\n"
+            "##normal_sample=APA1_N\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tAPA1_T\tAPA1_N\n"
+        )
+        assert resolve_tumor_normal_indices(header_text=hdr) == ("0", "1")
+
+    def test_tumor_only_single_sample_vcf_header(self) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        hdr = (
+            "##fileformat=VCFv4.2\n"
+            "##tumor_sample=APA51_T\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tAPA51_T\n"
+        )
+        t_idx, _ = resolve_tumor_normal_indices(header_text=hdr)
+        assert t_idx == "0"
+
+    def test_mismatched_tumor_sample_raises(self) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        hdr = (
+            "##fileformat=VCFv4.2\n"
+            "##tumor_sample=WRONG_T\n"
+            "##normal_sample=APA1_N\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tAPA1_N\tAPA1_T\n"
+        )
+        with pytest.raises(ValueError, match="##tumor_sample"):
+            resolve_tumor_normal_indices(header_text=hdr)
+
+    def test_conflicting_cli_index_and_header_raises(self) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        hdr = (
+            "##fileformat=VCFv4.2\n"
+            "##tumor_sample=APA1_T\n"
+            "##normal_sample=APA1_N\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tAPA1_N\tAPA1_T\n"
+        )
+        with pytest.raises(ValueError, match="conflicts with"):
+            resolve_tumor_normal_indices(header_text=hdr, cli_tumor_idx=0)
+
+    def test_out_of_range_index_raises(self) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        hdr = (
+            "##fileformat=VCFv4.2\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tAPA1_N\tAPA1_T\n"
+        )
+        with pytest.raises(ValueError, match="out of range"):
+            resolve_tumor_normal_indices(header_text=hdr, cli_tumor_idx=2)
+
+    def test_get_vcf_names_raises_on_bcftools_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from variantcentrifuge.helpers import get_vcf_names
+
+        class DummyProc:
+            returncode = 1
+
+            def communicate(self) -> tuple[str, str]:
+                return "", "Failed to open file"
+
+        monkeypatch.setattr("subprocess.Popen", lambda *_a, **_kw: DummyProc())
+        with pytest.raises(RuntimeError, match="bcftools query -l failed"):
+            get_vcf_names("nonexistent.vcf")
+
+    def test_cli_expands_tumor_idx_in_final_filter(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: pytest.TempPathFactory
+    ) -> None:
+        from variantcentrifuge import cli as cli_module
+
+        vcf = tmp_path / "pair.vcf"  # type: ignore[operator]
+        vcf.write_text(
+            "##fileformat=VCFv4.2\n"
+            "##tumor_sample=TUM\n"
+            "##normal_sample=NRM\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tTUM\tNRM\n"
+        )
+        captured: list[dict] = []
+        monkeypatch.setattr(cli_module, "run_pipeline", lambda a: captured.append(a.config.copy()))
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "variantcentrifuge",
+                "-v",
+                str(vcf),
+                "--preset",
+                "somatic_pass",
+                "--final-filter",
+                "GEN[{tumor_idx}].AF >= 0.1 & GEN[{normal_idx}].AF <= 0.01",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+        assert cli_module.main() == 0
+        assert captured[0]["tumor_sample_index"] == "0"
+        assert captured[0]["normal_sample_index"] == "1"
+        assert captured[0]["final_filter"] == "GEN[0].AF >= 0.1 & GEN[1].AF <= 0.01"
 
 
 # ---------------------------------------------------------------------------

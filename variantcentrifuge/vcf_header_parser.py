@@ -7,11 +7,13 @@ available fields before configuring extraction.  Uses ``bcftools view
 
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import re
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -24,6 +26,8 @@ HEADER_RE = re.compile(
     r"Type=(?P<type>[^,]+),"
     r'Description="(?P<desc>[^"]*)"'
 )
+TUMOR_SAMPLE_RE = re.compile(r"^##tumor_sample=(?P<sample>\S+)\s*$")
+NORMAL_SAMPLE_RE = re.compile(r"^##normal_sample=(?P<sample>\S+)\s*$")
 
 
 @dataclass
@@ -35,6 +39,15 @@ class AnnotationField:
     type: str
     description: str
     source: str  # "INFO" or "FORMAT"
+
+
+@dataclass
+class VcfSampleHeader:
+    """Sample names and somatic sample roles parsed from a VCF header."""
+
+    samples: list[str]
+    tumor_sample: str | None = None
+    normal_sample: str | None = None
 
 
 def parse_vcf_header(vcf_path: str) -> list[AnnotationField]:
@@ -73,6 +86,122 @@ def parse_vcf_header(vcf_path: str) -> list[AnnotationField]:
     return fields
 
 
+def parse_vcf_sample_header(vcf_path: str, header_text: str | None = None) -> VcfSampleHeader:
+    """Parse ``#CHROM`` samples and ``##tumor_sample``/``##normal_sample`` from a VCF header."""
+    text = _read_header(vcf_path) if header_text is None else header_text
+    samples: list[str] = []
+    tumor_sample: str | None = None
+    normal_sample: str | None = None
+    for line in text.splitlines():
+        if m := TUMOR_SAMPLE_RE.match(line):
+            tumor_sample = m.group("sample")
+        elif m := NORMAL_SAMPLE_RE.match(line):
+            normal_sample = m.group("sample")
+        elif line.startswith("#CHROM"):
+            cols = line.rstrip("\r\n").split("\t")
+            samples = cols[9:] if len(cols) > 9 else []
+    return VcfSampleHeader(samples=samples, tumor_sample=tumor_sample, normal_sample=normal_sample)
+
+
+def resolve_tumor_normal_indices(
+    vcf_path: str | None = None,
+    *,
+    cli_tumor_idx: int | str | None = None,
+    cli_normal_idx: int | str | None = None,
+    cfg_tumor_idx: int | str | None = None,
+    cfg_normal_idx: int | str | None = None,
+    header_text: str | None = None,
+) -> tuple[str, str]:
+    """Resolve ``(tumor_idx, normal_idx)`` from VCF header, CLI, or config."""
+    hdr = VcfSampleHeader(samples=[])
+    if header_text is not None:
+        hdr = parse_vcf_sample_header(vcf_path or "", header_text=header_text)
+    elif vcf_path:
+        try:
+            hdr = parse_vcf_sample_header(vcf_path)
+        except (FileNotFoundError, subprocess.CalledProcessError, OSError):
+            hdr = VcfSampleHeader(samples=[])
+
+    explicit_t = (
+        int(cli_tumor_idx)
+        if cli_tumor_idx is not None
+        else (int(cfg_tumor_idx) if cfg_tumor_idx is not None else None)
+    )
+    explicit_n = (
+        int(cli_normal_idx)
+        if cli_normal_idx is not None
+        else (int(cfg_normal_idx) if cfg_normal_idx is not None else None)
+    )
+
+    header_t: int | None = None
+    if hdr.tumor_sample is not None:
+        if hdr.tumor_sample not in hdr.samples:
+            raise ValueError(
+                f"##tumor_sample={hdr.tumor_sample!r} not found in #CHROM samples {hdr.samples}"
+            )
+        header_t = hdr.samples.index(hdr.tumor_sample)
+        if explicit_t is not None and explicit_t != header_t:
+            raise ValueError(
+                f"tumor_sample_index={explicit_t} conflicts with "
+                f"##tumor_sample={hdr.tumor_sample!r} at index {header_t}"
+            )
+
+    header_n: int | None = None
+    if hdr.normal_sample is not None:
+        if hdr.normal_sample not in hdr.samples:
+            raise ValueError(
+                f"##normal_sample={hdr.normal_sample!r} not found in #CHROM samples {hdr.samples}"
+            )
+        header_n = hdr.samples.index(hdr.normal_sample)
+        if explicit_n is not None and explicit_n != header_n:
+            raise ValueError(
+                f"normal_sample_index={explicit_n} conflicts with "
+                f"##normal_sample={hdr.normal_sample!r} at index {header_n}"
+            )
+
+    if explicit_t is not None and (
+        explicit_t < 0 or (hdr.samples and explicit_t >= len(hdr.samples))
+    ):
+        raise ValueError(
+            f"tumor_sample_index={explicit_t} out of range for VCF samples {hdr.samples}"
+        )
+    if explicit_n is not None and (
+        explicit_n < 0 or (hdr.samples and explicit_n >= len(hdr.samples))
+    ):
+        raise ValueError(
+            f"normal_sample_index={explicit_n} out of range for VCF samples {hdr.samples}"
+        )
+
+    if header_t is not None:
+        t_idx = header_t
+    elif explicit_t is not None:
+        t_idx = explicit_t
+    elif header_n in (0, 1) and len(hdr.samples) == 2:
+        t_idx = 1 - header_n
+    elif len(hdr.samples) == 1:
+        t_idx = 0
+    else:
+        t_idx = 1
+
+    if header_n is not None:
+        n_idx = header_n
+    elif explicit_n is not None:
+        n_idx = explicit_n
+    elif t_idx in (0, 1) and len(hdr.samples) == 2:
+        n_idx = 1 - t_idx
+    else:
+        n_idx = 0
+
+    if (
+        (header_t is not None or explicit_t is not None)
+        and (header_n is not None or explicit_n is not None)
+        and t_idx == n_idx
+    ):
+        raise ValueError(f"Tumor and normal sample indices cannot be identical ({t_idx})")
+
+    return str(t_idx), str(n_idx)
+
+
 def _read_header(vcf_path: str) -> str:
     """Run ``bcftools view --header-only`` and return stdout."""
     cmd = ["bcftools", "view", "--header-only", vcf_path]
@@ -85,6 +214,17 @@ def _read_header(vcf_path: str) -> str:
         )
         return result.stdout
     except FileNotFoundError:
+        p = Path(vcf_path)
+        if p.is_file() and not str(vcf_path).endswith(".bcf"):
+            opener = gzip.open if str(vcf_path).endswith(".gz") else open
+            lines: list[str] = []
+            with opener(p, "rt", encoding="utf-8") as fh:  # type: ignore[call-overload]
+                for line in fh:
+                    if line.startswith("#"):
+                        lines.append(line)
+                    else:
+                        break
+            return "".join(lines)
         logger.error("bcftools not found. Ensure it is installed and on PATH.")
         raise
     except subprocess.CalledProcessError as exc:
