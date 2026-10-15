@@ -248,3 +248,37 @@ def test_filter_exception_file_rescues_matching_hotspot_only(
     assert "RAW_FILTER=" not in records[1][7]
     assert records[2][6] == "normal_artifact"
     assert "RAW_FILTER=" not in records[2][7]
+
+    # Verify filter_vcf_to_transcripts emits ##INFO=<ID=RAW_FILTER,...> header
+    tx_in = tmp_path / "tx_in.vcf"
+    tx_out = tmp_path / "tx_out.vcf"
+    tx_in.write_text(
+        "##fileformat=VCFv4.2\n"
+        '##INFO=<ID=ANN,Number=.,Type=String,Description="Functional annotations">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tN\tT\n"
+        "chr11\t128839188\t.\tG\tA\t.\tnormal_artifact\t"
+        "ANN=A|missense_variant|MODERATE|KCNJ5|KCNJ5|transcript|NM_000890.5|protein_coding||||||||"
+        "\tGT\t0/0\t0/1\n",
+        encoding="utf-8",
+    )
+    filter_vcf_to_transcripts(
+        str(tx_in),
+        str(tx_out),
+        {"NM_000890.5"},
+        filter_exception_file=str(exc_file),
+    )
+    tx_out_text = tx_out.read_text(encoding="utf-8")
+    assert "##INFO=<ID=RAW_FILTER,Number=1,Type=String" in tx_out_text
+    assert "RAW_FILTER=normal_artifact" in tx_out_text
+
+
+def test_exact_version_match_preferred_over_base_id_fallback() -> None:
+    """When both NM_000720.1 and NM_000720.4 appear in ANN, requesting .4 keeps only .4."""
+    ann = (
+        "A|synonymous_variant|LOW|CACNA1D|CACNA1D|transcript|NM_000720.1|protein_coding||||||||,"
+        "A|missense_variant|MODERATE|CACNA1D|CACNA1D|transcript|NM_000720.4|protein_coding||||||||"
+    )
+    result = filter_ann_value_by_transcripts(ann, {"NM_000720.4"})
+    assert result == (
+        "A|missense_variant|MODERATE|CACNA1D|CACNA1D|transcript|NM_000720.4|protein_coding||||||||"
+    )

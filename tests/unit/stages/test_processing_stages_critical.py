@@ -251,8 +251,9 @@ class TestMultiAllelicSplitStage:
 
     def test_split_mode_dependencies(self):
         """Test split/filter ordering dependencies are encoded by mode."""
-        assert "snpsift_filtering" not in MultiAllelicSplitStage("before_filters").dependencies
-        assert "snpsift_filtering" in MultiAllelicSplitStage("after_filters").dependencies
+        assert "snpsift_filtering" not in MultiAllelicSplitStage("before_filters").soft_dependencies
+        assert "snpsift_filtering" in MultiAllelicSplitStage("after_filters").soft_dependencies
+        assert "transcript_filtering" in MultiAllelicSplitStage("after_filters").soft_dependencies
         assert (
             "multiallelic_split"
             in SnpSiftFilterStage(split_before_filtering=True).soft_dependencies

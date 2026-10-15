@@ -131,6 +131,7 @@ def build_bcftools_format_string(
             or field
             in [
                 "AC",
+                "RAW_FILTER",
                 "ClinVar_CLNSIG",
                 "hgmd_CLASS",
             ]
@@ -342,22 +343,10 @@ def extract_fields_bcftools(
     # Create temporary file for bcftools output
     temp_fd, temp_output = tempfile.mkstemp(suffix=".tsv", prefix="bcftools_extract_")
     os.close(temp_fd)
-    norm_vcf: str | None = None
 
     try:
-        from .vcf_eff_one_per_line import normalize_vcf_multiallelics, vcf_has_multiallelic
-
-        query_vcf = variant_file
-        if os.path.exists(variant_file) and vcf_has_multiallelic(variant_file):
-            if cfg.get("reject_multiallelic"):
-                raise ValueError(f"Unsplit multiallelic record in VCF: {variant_file}")
-            n_fd, norm_vcf = tempfile.mkstemp(suffix=".vcf", prefix="bcftools_norm_")
-            os.close(n_fd)
-            normalize_vcf_multiallelics(variant_file, norm_vcf, index_output=False)
-            query_vcf = norm_vcf
-
         # Run bcftools query
-        cmd = ["bcftools", "query", "-u", "-f", format_string, query_vcf]
+        cmd = ["bcftools", "query", "-u", "-f", format_string, variant_file]
 
         logger.debug(f"Running bcftools query: {' '.join(cmd)}")
 
@@ -450,9 +439,8 @@ def extract_fields_bcftools(
 
     finally:
         # Clean up temp file
-        for p in (temp_output, norm_vcf):
-            if p and os.path.exists(p):
-                os.remove(p)
+        if os.path.exists(temp_output):
+            os.remove(temp_output)
 
     return output_file
 

@@ -21,7 +21,36 @@ from typing import Any, cast
 
 import pandas as pd
 
+from .phenotype_helpers import (
+    assign_case_control_counts,
+    build_sample_phenotype_map,
+    compute_phenotype_based_case_control_assignment,
+    determine_case_control_sets,
+    extract_sample_and_genotype,
+    genotype_to_allele_count,
+)
+
 logger = logging.getLogger("variantcentrifuge")
+
+__all__ = [
+    "annotate_variants_with_gene_lists",
+    "assign_case_control_counts",
+    "build_sample_phenotype_map",
+    "check_file",
+    "compute_phenotype_based_case_control_assignment",
+    "determine_case_control_sets",
+    "dump_df_to_xlsx",
+    "extract_gencode_id",
+    "extract_sample_and_genotype",
+    "genotype_to_allele_count",
+    "get_vcf_names",
+    "get_vcf_regions",
+    "get_vcf_samples",
+    "get_vcf_size",
+    "load_gene_list",
+    "match_igv_link_columns",
+    "read_sequencing_manifest",
+]
 
 
 def check_file(file_path: str, exit_on_error: bool = True) -> bool:
@@ -58,426 +87,6 @@ def check_file(file_path: str, exit_on_error: bool = True) -> bool:
         return False
 
     return True
-
-
-def compute_phenotype_based_case_control_assignment(
-    vcf_samples: list[str],
-    phenotype_map: dict[str, set[str]],
-    case_phenotypes: list[str],
-    control_phenotypes: list[str] | None = None,
-    remove_substring: str = "",
-) -> tuple[set[str], set[str]]:
-    """
-    Unified function for phenotype-based case/control assignment.
-
-    This function handles the core logic for matching phenotype data to VCF samples
-    and assigning case/control status based on phenotype criteria.
-
-    Parameters
-    ----------
-    vcf_samples : List[str]
-        List of sample names from VCF file
-    phenotype_map : Dict[str, Set[str]]
-        Map of sample_name -> set_of_phenotypes
-    case_phenotypes : List[str]
-        List of phenotype terms that define cases
-    control_phenotypes : List[str], optional
-        List of phenotype terms that define controls
-    remove_substring : str, optional
-        Substring to remove from sample names for matching
-
-    Returns
-    -------
-    Tuple[Set[str], Set[str]]
-        Tuple of (case_samples, control_samples)
-    """
-    if not case_phenotypes and not control_phenotypes:
-        logger.debug("No phenotype criteria provided")
-        return set(), set(vcf_samples)
-
-    case_terms = set(case_phenotypes) if case_phenotypes else set()
-    control_terms = set(control_phenotypes) if control_phenotypes else set()
-
-    # Apply substring removal to VCF samples for consistent matching
-    vcf_samples_processed = set(vcf_samples)
-    if remove_substring and remove_substring.strip():
-        vcf_samples_processed = {s.replace(remove_substring, "") for s in vcf_samples_processed}
-        logger.debug(f"Applied substring removal '{remove_substring}' to VCF samples")
-
-    classified_cases = set()
-    classified_controls = set()
-
-    for s in vcf_samples_processed:
-        # Try to get phenotypes using current sample name
-        phenos = phenotype_map.get(s, set())
-
-        # If not found and substring removal was applied, try original name
-        if not phenos and remove_substring:
-            original_sample_name = s + remove_substring
-            phenos = phenotype_map.get(original_sample_name, set())
-            if phenos:
-                logger.debug(f"Found phenotypes for {s} using original name {original_sample_name}")
-
-        match_case = any(p in phenos for p in case_terms) if case_terms else False
-        match_control = any(p in phenos for p in control_terms) if control_terms else False
-
-        if case_terms and not control_terms:
-            # Only case terms
-            if match_case:
-                classified_cases.add(s)
-            else:
-                classified_controls.add(s)
-        elif control_terms and not case_terms:
-            # Only control terms
-            if match_control:
-                classified_controls.add(s)
-            else:
-                classified_cases.add(s)
-        else:
-            # Both sets of terms
-            if match_case and not match_control:
-                classified_cases.add(s)
-            elif match_control and not match_case:
-                classified_controls.add(s)
-            # If matches both or none, sample is not classified
-
-    logger.debug(
-        f"Phenotype-based assignment: {len(classified_cases)} cases, {len(classified_controls)} controls"
-    )
-    return classified_cases, classified_controls
-
-
-def determine_case_control_sets(
-    all_samples: set[str], cfg: dict[str, Any], df: pd.DataFrame
-) -> tuple[set[str], set[str]]:
-    """
-    Determine case/control sample sets based on configuration.
-
-    Logic:
-    - If explicit case/control samples are provided, use them directly.
-    - Else if phenotype terms are given, classify samples based on those using phenotypes from the phenotype file.
-    - Else, all samples become controls.
-
-    Parameters
-    ----------
-    all_samples : set of str
-        The full set of sample names.
-    cfg : dict
-        Configuration dictionary that may include "case_samples", "control_samples",
-        "case_phenotypes", "control_phenotypes", and "phenotypes" from the phenotype file.
-    df : pd.DataFrame
-        DataFrame with variant information (not used for phenotype assignment anymore).
-
-    Returns
-    -------
-    Tuple[set, set]
-        (set_of_case_samples, set_of_control_samples)
-
-    Raises
-    ------
-    SystemExit
-        If no valid configuration for assigning case/control sets can be determined.
-    """
-    logger.debug("Determining case/control sets...")
-
-    case_samples = set(cfg.get("case_samples") or [])
-    control_samples = set(cfg.get("control_samples") or [])
-
-    # Step 1: If explicit sets are provided
-    if case_samples or control_samples:
-        logger.debug(
-            "Explicit sample sets provided: %d cases, %d controls",
-            len(case_samples),
-            len(control_samples),
-        )
-        if case_samples and not control_samples:
-            control_samples = all_samples - case_samples
-        elif control_samples and not case_samples:
-            case_samples = all_samples - control_samples
-        return case_samples, control_samples
-
-    # Step 2: Phenotype-based logic
-    case_terms = cfg.get("case_phenotypes") or []
-    control_terms = cfg.get("control_phenotypes") or []
-
-    # If no phenotype terms are given, default to all controls
-    if not case_terms and not control_terms:
-        logger.debug("No phenotype terms or sets provided. All samples = controls.")
-        return set(), all_samples
-
-    # Use phenotypes from the phenotype input file (if provided)
-    # If no phenotype file was provided, this will be an empty dict.
-    sample_phenotype_map = cfg.get("phenotypes", {})
-    logger.debug("Phenotype map has %d samples (from phenotype file).", len(sample_phenotype_map))
-
-    # Use the unified phenotype-based assignment function
-    remove_substring = cfg.get("remove_sample_substring", "")
-    classified_cases, classified_controls = compute_phenotype_based_case_control_assignment(
-        vcf_samples=list(all_samples),
-        phenotype_map=sample_phenotype_map,
-        case_phenotypes=case_terms,
-        control_phenotypes=control_terms,
-        remove_substring=remove_substring,
-    )
-
-    if case_terms and len(classified_cases) == 0:
-        logger.warning("No samples match the case phenotype terms.")
-    if control_terms and len(classified_controls) == 0:
-        logger.warning("No samples match the control phenotype terms.")
-
-    logger.debug(
-        "Classified %d cases, %d controls.",
-        len(classified_cases),
-        len(classified_controls),
-    )
-    return classified_cases, classified_controls
-
-
-def build_sample_phenotype_map(df: pd.DataFrame) -> dict[str, set[str]]:
-    """
-    Build a map of sample -> set_of_phenotypes from the 'phenotypes' column if present.
-
-    If multiple phenotype groups appear and multiple samples in GT are present:
-    - If counts match, assign phenotypes group-wise.
-    - Otherwise, skip phenotype assignment for that row to prevent incorrect inflation.
-    """
-    if "phenotypes" not in df.columns:
-        return {}
-
-    from collections import defaultdict
-
-    sample_phenos = defaultdict(set)
-
-    for row in df.itertuples(index=True):
-        pheno_str = getattr(row, "phenotypes", "")
-        if not isinstance(pheno_str, str) or not pheno_str.strip():
-            continue
-
-        gt_val = getattr(row, "GT", "")
-        sample_entries = gt_val.split(";") if gt_val and isinstance(gt_val, str) else []
-        sample_names = []
-        for entry in sample_entries:
-            entry = entry.strip()
-            if not entry:
-                continue
-            sname, _ = extract_sample_and_genotype(entry)
-            if sname:
-                sample_names.append(sname)
-
-        pheno_groups = [pg.strip() for pg in pheno_str.split(";") if pg.strip()]
-
-        if len(pheno_groups) > 1:
-            # Multiple phenotype groups
-            if len(pheno_groups) == len(sample_names):
-                # Perfect alignment
-                for sname, pgroup in zip(sample_names, pheno_groups, strict=False):
-                    phenos = {p.strip() for p in pgroup.split(",") if p.strip()}
-                    sample_phenos[sname].update(phenos)
-            else:
-                # Mismatch in counts, skip assignment
-                logger.warning(
-                    "Phenotype groups (%d) != sample count (%d) at row %d. "
-                    "Skipping phenotype assignment for this row.",
-                    len(pheno_groups),
-                    len(sample_names),
-                    row.Index,
-                )
-                # No assignment here to prevent incorrect inflation
-        else:
-            # Only one phenotype group (or none)
-            phenos = {p.strip() for p in pheno_str.split(",") if p.strip()}
-            for sname in sample_names:
-                sample_phenos[sname].update(phenos)
-
-    return dict(sample_phenos)
-
-
-def assign_case_control_counts(
-    df: pd.DataFrame,
-    case_samples: set[str],
-    control_samples: set[str],
-    all_samples: set[str],
-) -> pd.DataFrame:
-    """
-    Assign case/control counts, allele counts, and homozygous variant counts per variant.
-
-    Creates columns:
-    - proband_count/control_count: total number of case/control samples
-    - proband_variant_count/control_variant_count: number of case/control samples with a variant allele
-    - proband_allele_count/control_allele_count: sum of variant alleles in case/control samples
-    - proband_homozygous_count/control_homozygous_count: how many case/control samples have a homozygous variant (1/1)
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        DataFrame of variants with a "GT" column listing variants per sample.
-    case_samples : set of str
-        Set of samples classified as cases.
-    control_samples : set of str
-        Set of samples classified as controls.
-    all_samples : set of str
-        All samples present in the VCF.
-
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame with assigned case/control counts and alleles, including homozygous counts.
-    """
-    logger.debug("Assigning case/control counts to variants...")
-
-    total_proband = len(case_samples)
-    total_control = len(control_samples)
-    logger.debug(
-        "assign_case_control_counts: Total proband samples: %d, Total control samples: %d",
-        total_proband,
-        total_control,
-    )
-
-    proband_variant_count_list = []
-    control_variant_count_list = []
-    proband_allele_count_list = []
-    control_allele_count_list = []
-    p_hom_count_list = []
-    c_hom_count_list = []
-
-    for idx, val in enumerate(df["GT"]):
-        # Log progress every 1000 variants
-        if idx % 1000 == 0:
-            logger.debug("Processing variant row %d for allele counts...", idx)
-
-        samples_with_variant = {}
-        if isinstance(val, str) and val.strip():
-            for s in val.split(";"):
-                s = s.strip()
-                if not s:
-                    continue
-                sample_name, genotype = extract_sample_and_genotype(s)
-                if sample_name is not None:
-                    samples_with_variant[sample_name] = genotype
-
-        p_variant_count = 0
-        c_variant_count = 0
-        p_allele_count = 0
-        c_allele_count = 0
-        p_hom_count = 0
-        c_hom_count = 0
-
-        # For each sample, if not in samples_with_variant, assume genotype=0/0
-        for sample_name in all_samples:
-            genotype = samples_with_variant.get(sample_name, "0/0")
-            allele_count = genotype_to_allele_count(genotype)
-
-            # Check if homozygous variant (unphased or phased)
-            is_hom_variant = genotype in ("1/1", "1|1")
-
-            if sample_name in case_samples:
-                if allele_count > 0:
-                    p_variant_count += 1
-                    p_allele_count += allele_count
-                    if is_hom_variant:
-                        p_hom_count += 1
-            elif sample_name in control_samples and allele_count > 0:
-                c_variant_count += 1
-                c_allele_count += allele_count
-                if is_hom_variant:
-                    c_hom_count += 1
-
-        proband_variant_count_list.append(p_variant_count)
-        control_variant_count_list.append(c_variant_count)
-        proband_allele_count_list.append(p_allele_count)
-        control_allele_count_list.append(c_allele_count)
-        p_hom_count_list.append(p_hom_count)
-        c_hom_count_list.append(c_hom_count)
-
-    df["proband_count"] = total_proband
-    df["control_count"] = total_control
-    df["proband_variant_count"] = proband_variant_count_list
-    df["control_variant_count"] = control_variant_count_list
-    df["proband_allele_count"] = proband_allele_count_list
-    df["control_allele_count"] = control_allele_count_list
-    df["proband_homozygous_count"] = p_hom_count_list
-    df["control_homozygous_count"] = c_hom_count_list
-
-    logger.debug("Case/control counts assigned.")
-    if len(df) > 0:
-        logger.debug(
-            "Example for first row: %s",
-            df.iloc[0][
-                [
-                    "proband_count",
-                    "proband_variant_count",
-                    "proband_allele_count",
-                    "proband_homozygous_count",
-                    "control_count",
-                    "control_variant_count",
-                    "control_allele_count",
-                    "control_homozygous_count",
-                ]
-            ].to_dict(),
-        )
-
-    return df
-
-
-def extract_sample_and_genotype(sample_field: str) -> tuple[str, str]:
-    """
-    Extract sample name and genotype from a field like 'sample(0/1:172:110,62)' or 'sample(0/1)'.
-
-    If parentheses are missing, assume no genotype is specified -> no variant (0/0).
-
-    The genotype portion may include extra fields after a colon (e.g. coverage),
-    so we split on the first colon to isolate the actual genotype string (e.g., '0/1').
-
-    Parameters
-    ----------
-    sample_field : str
-        A string like 'sample(0/1)', 'sample(0/1:172:110,62)', or 'sample'.
-
-    Returns
-    -------
-    (str, str)
-        (sample_name, genotype) where genotype is typically '0/1', '1/1', '0/0', etc.
-    """
-    start_idx = sample_field.find("(")
-    end_idx = sample_field.find(")")
-    # Default is the entire string as the sample name, and genotype empty
-    sample_name = sample_field.strip()
-    genotype = ""
-
-    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-        sample_name = sample_field[:start_idx].strip()
-        genotype_str = sample_field[start_idx + 1 : end_idx].strip()
-
-        # Split on the first colon to separate e.g. '0/1' from '172:110,62'
-        genotype = genotype_str.split(":", 1)[0] if ":" in genotype_str else genotype_str
-
-    return sample_name, genotype
-
-
-def genotype_to_allele_count(genotype: str) -> int:
-    """
-    Convert genotype string to allele count.
-
-    Handles both unphased (/) and phased (|) genotype separators:
-    - '1/1' or '1|1' -> 2
-    - '0/1', '1/0', '0|1', '1|0' -> 1
-    - '0/0', '0|0', '' -> 0
-
-    Parameters
-    ----------
-    genotype : str
-        Genotype string (e.g., '0/1', '1|0', '1/1', '0|0').
-
-    Returns
-    -------
-    int
-        The allele count for the given genotype.
-    """
-    if genotype in ("1/1", "1|1"):
-        return 2
-    elif genotype in ("0/1", "1/0", "0|1", "1|0"):
-        return 1
-    return 0
 
 
 def load_gene_list(file_path: str) -> set[str]:
@@ -740,7 +349,19 @@ def extract_gencode_id(gene_name: str) -> str:
 
 
 def get_vcf_names(vcf_file: str) -> list[str]:
-    """Get sample names from a VCF file header via ``bcftools query -l``."""
+    """
+    Get sample names from a VCF file header.
+
+    Parameters
+    ----------
+    vcf_file : str
+        Path to the VCF file
+
+    Returns
+    -------
+    List[str]
+        List of sample names from the VCF file
+    """
     try:
         from subprocess import PIPE, Popen
 

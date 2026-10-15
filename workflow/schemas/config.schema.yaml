@@ -94,6 +94,9 @@ properties:
           - "string"
           - "null"
         default: null
+        description: >-
+          Path to a 5-column TSV of somatic hotspots rescued to FILTER=PASS
+          during VCF filtering (does not apply to bcftools_prefilter or late_filtering).
       fail_on_empty:
         type: boolean
         default: false

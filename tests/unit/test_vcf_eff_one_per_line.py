@@ -105,45 +105,41 @@ def test_split_eff_preserves_lof_nmd_without_ann_pruning() -> None:
         assert info["NMD"] == "(GENE_A|ENSGA|1|0.91)"
 
 
-def test_multiallelic_somatic_record_decomposes_to_biallelic_rows_with_scalar_af_and_matching_ann(
-    tmp_path,
+def test_bcftools_norm_decomposed_rows_prune_shared_ann_and_extract_matching_allele(
+    tmp_path, monkeypatch
 ) -> None:
     import pandas as pd
-    import pytest
 
-    from variantcentrifuge.extractor import extract_fields_bcftools, parse_ann_subfields
-    from variantcentrifuge.filters import filter_dataframe_with_query
+    from variantcentrifuge.extractor import parse_ann_subfields
+    from variantcentrifuge.filters import extract_variants, filter_dataframe_with_query
 
-    line = (
-        "chr1\t100\t.\tC\tA,G\t.\tPASS\t"
-        "AC=1,2;AF=0.01,0.30;DP=121;"
+    shared_ann = (
         "ANN="
         "A|synonymous_variant|LOW|KCNJ5|ENSG1|transcript|ENST1|protein_coding||||||||,"
         "G|missense_variant|MODERATE|KCNJ5|ENSG1|transcript|ENST1|protein_coding||||||||"
-        "\tGT:AD:AF:DP\t0/1:90,1,30:0.01,0.30:121\t0/0:100,0,0:0.00,0.00:100"
+    )
+    # Records as produced by `bcftools norm -m -any` from C -> A,G
+    decomposed_a = (
+        f"chr1\t100\t.\tC\tA\t.\tPASS\tAC=1;AF=0.01;DP=121;{shared_ann}"
+        "\tGT:AD:AF:DP\t0/1:90,1:0.01:121\t0/0:100,0:0.00:100"
+    )
+    decomposed_g = (
+        f"chr1\t100\t.\tC\tG\t.\tPASS\tAC=2;AF=0.30;DP=121;{shared_ann}"
+        "\tGT:AD:AF:DP\t0/1:90,30:0.30:121\t0/0:100,0:0.00:100"
     )
 
-    rows = split_vcf_effects(line)
-    assert len(rows) == 2
+    rows_a = split_vcf_effects(decomposed_a)
+    rows_g = split_vcf_effects(decomposed_g)
+    assert len(rows_a) == 1
+    assert len(rows_g) == 1
 
-    cols_a = rows[0].split("\t")
-    cols_g = rows[1].split("\t")
-
-    assert cols_a[4] == "A"
-    assert cols_a[9] == "0/1:90,1:0.01:121"
-    assert cols_a[10] == "0/0:100,0:0.00:100"
-    assert _info_map(rows[0])["ANN"] == (
+    assert _info_map(rows_a[0])["ANN"] == (
         "A|synonymous_variant|LOW|KCNJ5|ENSG1|transcript|ENST1|protein_coding||||||||"
     )
-
-    assert cols_g[4] == "G"
-    assert cols_g[9] == "0/1:90,30:0.30:121"
-    assert cols_g[10] == "0/0:100,0:0.00:100"
-    assert _info_map(rows[1])["ANN"] == (
+    assert _info_map(rows_g[0])["ANN"] == (
         "G|missense_variant|MODERATE|KCNJ5|ENSG1|transcript|ENST1|protein_coding||||||||"
     )
 
-    # Verify parse_ann_subfields + filter_dataframe_with_query on decomposed rows
     df = pd.DataFrame(
         [
             {
@@ -154,7 +150,8 @@ def test_multiallelic_somatic_record_decomposes_to_biallelic_rows_with_scalar_af
                 "ANN": _info_map(r)["ANN"],
                 "GEN_0__AF": cols[9].split(":")[2],
             }
-            for r, cols in ((rows[0], cols_a), (rows[1], cols_g))
+            for r in (rows_a[0], rows_g[0])
+            for cols in (r.split("\t"),)
         ]
     )
     df = parse_ann_subfields(df, ["ANN[0].ALLELE", "ANN[0].EFFECT", "ANN[0].IMPACT"])
@@ -167,16 +164,27 @@ def test_multiallelic_somatic_record_decomposes_to_biallelic_rows_with_scalar_af
     assert float(filtered.iloc[0]["GEN_0__AF"]) == 0.30
     assert filtered.iloc[0]["ANN_0__EFFECT"] == "missense_variant"
 
-    # Also verify reject_multiallelic guard in extract_fields_bcftools
-    raw_vcf = tmp_path / "multiallelic.vcf"
-    raw_vcf.write_text(
-        "##fileformat=VCFv4.2\n"
-        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tTUMOR\tNORMAL\n" + line + "\n"
-    )
-    with pytest.raises(ValueError, match="Unsplit multiallelic"):
-        extract_fields_bcftools(
-            str(raw_vcf),
-            "CHROM POS REF ALT GEN[*].AF",
-            {"reject_multiallelic": True},
-            str(tmp_path / "out.tsv"),
-        )
+    # Verify extract_variants runs bcftools view followed by bcftools norm -m -any
+    cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **_kwargs) -> None:
+        cmds.append(cmd)
+        if "-o" in cmd:
+            out_idx = cmd.index("-o") + 1
+            out_path = cmd[out_idx]
+            if out_path.endswith(".gz"):
+                import gzip
+
+                with gzip.open(out_path, "wt") as fh:
+                    fh.write(
+                        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+                    )
+                    fh.write(decomposed_a + "\n" + decomposed_g + "\n")
+
+    monkeypatch.setattr("variantcentrifuge.filters.run_command", fake_run)
+    out_vcf = tmp_path / "extracted.vcf.gz"
+    extract_variants("input.vcf.gz", "regions.bed", {"threads": 2}, str(out_vcf))
+    assert len(cmds) == 2
+    assert cmds[0][:2] == ["bcftools", "view"]
+    assert cmds[1][:2] == ["bcftools", "norm"]
+    assert "-W" in cmds[1] and "-m" in cmds[1] and "-any" in cmds[1]

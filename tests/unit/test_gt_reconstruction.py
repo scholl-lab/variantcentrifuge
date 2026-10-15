@@ -336,14 +336,16 @@ def test_reconstruct_gt_column_with_extra_sample_fields_retains_normal():
 
 @pytest.mark.unit
 def test_cli_preserves_config_json_options_and_final_filtering_reads_filters(tmp_path, monkeypatch):
-    """CLI -c config.json preserves transcript_file/final_filter and reads filters."""
+    """CLI -c config.json preserves options and TSVOutputStage packs fields."""
     import json
+    import logging
     from pathlib import Path
     from unittest.mock import Mock
 
     from variantcentrifuge import cli
     from variantcentrifuge.pipeline_core.context import PipelineContext
-    from variantcentrifuge.stages.output_stages import FinalFilteringStage
+    from variantcentrifuge.pipeline_core.workspace import Workspace
+    from variantcentrifuge.stages.output_stages import FinalFilteringStage, TSVOutputStage
 
     vcf = tmp_path / "test.vcf"
     vcf.write_text(
@@ -360,6 +362,7 @@ def test_cli_preserves_config_json_options_and_final_filtering_reads_filters(tmp
             "final_filter": "POS > 50",
             "late_filtering": True,
             "extra_sample_fields": ["GEN[*].DP", "GEN[*].AD", "GEN[*].AF"],
+            "extra_sample_field_delimiter": "|",
         }
     )
     cfg_file.write_text(json.dumps(base_cfg), encoding="utf-8")
@@ -370,13 +373,18 @@ def test_cli_preserves_config_json_options_and_final_filtering_reads_filters(tmp
         "sys.argv",
         ["variantcentrifuge", "-v", str(vcf), "-g", "TP53", "-c", str(cfg_file)],
     )
-    cli.main()
+    prev_level = logging.getLogger("variantcentrifuge").level
+    try:
+        cli.main()
+    finally:
+        logging.getLogger("variantcentrifuge").setLevel(prev_level)
 
     assert captured["transcript_file"] == str(tx_file)
     assert captured["final_filter"] == "POS > 50"
     assert captured["late_filtering"] is True
     assert captured["append_extra_sample_fields"] is True
     assert captured["extra_sample_fields"] == ["GEN[*].DP", "GEN[*].AD", "GEN[*].AF"]
+    assert captured["extra_sample_field_delimiter"] == "|"
 
     stage = FinalFilteringStage()
     ctx = Mock(spec=PipelineContext)
@@ -385,3 +393,52 @@ def test_cli_preserves_config_json_options_and_final_filtering_reads_filters(tmp
     out_ctx = stage._process(ctx)
     assert len(out_ctx.current_dataframe) == 1
     assert out_ctx.current_dataframe["POS"].iloc[0] == 200
+
+    # End-to-end test through TSVOutputStage:
+    # 1. With append_extra_sample_fields=False (default), 0/0 is excluded and GEN[i].X dropped
+    raw_df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [200],
+            "REF": ["C"],
+            "ALT": ["T"],
+            "GEN_0__GT": ["0/0"],
+            "GEN_0__DP": ["42"],
+            "GEN_0__AD": ["42,0"],
+            "GEN_0__AF": ["0.00"],
+            "GEN_1__GT": ["0/1"],
+            "GEN_1__DP": ["85"],
+            "GEN_1__AD": ["60,25"],
+            "GEN_1__AF": ["0.29"],
+        }
+    )
+    ws = Workspace(output_dir=tmp_path, base_name="test")
+    tsv_ctx_default = PipelineContext(
+        args=Mock(output_file=str(tmp_path / "default.tsv"), output_dir=str(tmp_path)),
+        config={"output_file": str(tmp_path / "default.tsv"), "no_links": True},
+        workspace=ws,
+    )
+    tsv_ctx_default.current_dataframe = raw_df.copy()
+    tsv_ctx_default.vcf_samples = ["NORMAL", "TUMOR"]
+    TSVOutputStage()._process(tsv_ctx_default)
+    default_out = pd.read_csv(tmp_path / "default.tsv", sep="\t")
+    assert default_out["GT"].iloc[0] == "TUMOR(0/1)"
+    assert not any(c.startswith("GEN") for c in default_out.columns)
+
+    # 2. With append_extra_sample_fields=True, configured fields and delimiter are packed into GT
+    tsv_ctx_extra = PipelineContext(
+        args=Mock(output_file=str(tmp_path / "extra.tsv"), output_dir=str(tmp_path)),
+        config={
+            "output_file": str(tmp_path / "extra.tsv"),
+            "no_links": True,
+            "append_extra_sample_fields": True,
+            "extra_sample_fields": ["GEN[*].DP", "GEN[*].AD", "GEN[*].AF"],
+            "extra_sample_field_delimiter": "|",
+        },
+        workspace=ws,
+    )
+    tsv_ctx_extra.current_dataframe = raw_df.copy()
+    tsv_ctx_extra.vcf_samples = ["NORMAL", "TUMOR"]
+    TSVOutputStage()._process(tsv_ctx_extra)
+    extra_out = pd.read_csv(tmp_path / "extra.tsv", sep="\t")
+    assert extra_out["GT"].iloc[0] == "NORMAL(0/0|42|42,0|0.00);TUMOR(0/1|85|60,25|0.29)"

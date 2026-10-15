@@ -265,7 +265,7 @@ def test_per_stage_count_logs_and_fail_on_empty(tmp_path, caplog):
             str(out_tsv),
         )
 
-    assert "Variant extraction (bcftools view): 1 input -> 0 output records" in caplog.text
+    assert "Variant extraction (bcftools view + norm): 0 output records" in caplog.text
     assert "SnpSift filter: 1 input -> 0 output records" in caplog.text
     assert "Field extraction (bcftools query): 0 variants extracted" in caplog.text
 
@@ -276,6 +276,39 @@ def test_per_stage_count_logs_and_fail_on_empty(tmp_path, caplog):
     with pytest.raises(SystemExit) as exc:
         stage._process(ctx)
     assert exc.value.code == 2
+
+    # Also verify CLI exit code 2 when --fail-on-empty triggers during pipeline execution
+    from variantcentrifuge import cli as cli_module
+
+    def fake_pipeline_empty(args):
+        empty_ctx = Mock(spec=PipelineContext)
+        empty_ctx.current_dataframe = pd.DataFrame(columns=["CHROM", "POS", "REF", "ALT"])
+        empty_ctx.config = args.config
+        TSVOutputStage()._process(empty_ctx)
+
+    prev_level = logging.getLogger("variantcentrifuge").level
+    try:
+        with (
+            patch.object(cli_module, "run_pipeline", side_effect=fake_pipeline_empty),
+            patch(
+                "sys.argv",
+                [
+                    "variantcentrifuge",
+                    "-v",
+                    str(in_vcf),
+                    "-g",
+                    "all",
+                    "-f",
+                    "FILTER = 'PASS'",
+                    "--fail-on-empty",
+                    "--output-dir",
+                    str(tmp_path),
+                ],
+            ),
+        ):
+            assert cli_module.main() == 2
+    finally:
+        logging.getLogger("variantcentrifuge").setLevel(prev_level)
 
 
 if __name__ == "__main__":

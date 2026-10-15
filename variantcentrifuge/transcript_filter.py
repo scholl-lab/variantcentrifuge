@@ -60,6 +60,7 @@ def filter_ann_value_by_transcripts(
     ann_value: str,
     transcript_ids: set[str],
     base_ids: set[str] | None = None,
+    alt: str | None = None,
 ) -> str | None:
     """Return ANN entries whose Feature_ID matches the requested transcripts."""
     if not ann_value or ann_value == ".":
@@ -68,15 +69,26 @@ def filter_ann_value_by_transcripts(
     if base_ids is None:
         base_ids = {_base_transcript_id(tid) for tid in transcript_ids if tid.strip()}
 
-    kept_entries: list[str] = []
-    for entry in ann_value.split(","):
+    entries = [e for e in ann_value.split(",") if e]
+    if alt and "," not in alt:
+        alt_entries = [e for e in entries if e.split("|", 1)[0] == alt]
+        if alt_entries:
+            entries = alt_entries
+
+    parsed: list[tuple[str, str, str]] = []
+    for entry in entries:
         parts = entry.split("|")
         if len(parts) > ANN_FEATURE_ID_INDEX:
             feature_id = parts[ANN_FEATURE_ID_INDEX].strip()
-            if feature_id and (
-                feature_id in transcript_ids or _base_transcript_id(feature_id) in base_ids
-            ):
-                kept_entries.append(entry)
+            if feature_id:
+                parsed.append((entry, feature_id, _base_transcript_id(feature_id)))
+
+    exact_bases = {base for _, fid, base in parsed if fid in transcript_ids}
+    kept_entries = [
+        entry
+        for entry, fid, base in parsed
+        if fid in transcript_ids or (base in base_ids and base not in exact_bases)
+    ]
 
     if not kept_entries:
         return None
@@ -95,25 +107,7 @@ def filter_vcf_line_by_transcripts(
     if line.startswith("#"):
         return line
 
-    from .vcf_eff_one_per_line import decompose_multiallelic_line
-
-    decomposed = decompose_multiallelic_line(line)
-    if len(decomposed) > 1:
-        parts_out = [
-            res
-            for sub in decomposed
-            if (
-                res := filter_vcf_line_by_transcripts(
-                    sub + "\n",
-                    transcript_ids,
-                    base_ids=base_ids,
-                    matched_features=matched_features,
-                )
-            )
-        ]
-        return "".join(parts_out) if parts_out else None
-
-    columns = decomposed[0].split("\t")
+    columns = line.rstrip("\n").split("\t")
     if len(columns) < 8:
         return line
 
@@ -128,6 +122,7 @@ def filter_vcf_line_by_transcripts(
                 info_part.removeprefix("ANN="),
                 transcript_ids,
                 base_ids=base_ids,
+                alt=columns[4],
             )
             if filtered_ann is None:
                 return None
@@ -291,7 +286,15 @@ def filter_vcf_to_transcripts(
         else:
             output_handle = stack.enter_context(open(output_vcf, "w", encoding="utf-8"))
 
+        has_raw_filter_hdr = False
         for line in input_handle:
+            if line.startswith("##INFO=<ID=RAW_FILTER,"):
+                has_raw_filter_hdr = True
+            elif line.startswith("#CHROM") and exceptions and not has_raw_filter_hdr:
+                output_handle.write(
+                    "##INFO=<ID=RAW_FILTER,Number=1,Type=String,"
+                    'Description="Raw FILTER before hotspot rescue">\n'
+                )
             if not line.startswith("#") and line.strip():
                 input_records += 1
                 if exceptions:

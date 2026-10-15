@@ -249,9 +249,39 @@ class TestHeaderSampleResolution:
         with pytest.raises(RuntimeError, match="bcftools query -l failed"):
             get_vcf_names("nonexistent.vcf")
 
+    def test_multiple_tumor_samples_requires_explicit_index(self) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        hdr = (
+            "##fileformat=VCFv4.2\n"
+            "##tumor_sample=APA_F\n"
+            "##tumor_sample=APA_NF\n"
+            "##normal_sample=APA_N\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tAPA_F\tAPA_NF\tAPA_N\n"
+        )
+        with pytest.raises(ValueError, match="Multiple ##tumor_sample"):
+            resolve_tumor_normal_indices(header_text=hdr)
+
+        assert resolve_tumor_normal_indices(header_text=hdr, cli_tumor_idx=0) == ("0", "2")
+        assert resolve_tumor_normal_indices(header_text=hdr, cli_tumor_idx=1) == ("1", "2")
+        with pytest.raises(ValueError, match="conflicts with"):
+            resolve_tumor_normal_indices(header_text=hdr, cli_tumor_idx=2)
+
+    def test_header_read_error_not_swallowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        def fail_read(_path: str) -> str:
+            raise OSError("bcftools failed to read header")
+
+        monkeypatch.setattr("variantcentrifuge.vcf_header_parser._read_header", fail_read)
+        with pytest.raises(OSError, match="bcftools failed to read header"):
+            resolve_tumor_normal_indices(vcf_path="broken.vcf.gz")
+
     def test_cli_expands_tumor_idx_in_final_filter(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: pytest.TempPathFactory
     ) -> None:
+        from pathlib import Path
+
         from variantcentrifuge import cli as cli_module
 
         vcf = tmp_path / "pair.vcf"  # type: ignore[operator]
@@ -260,6 +290,10 @@ class TestHeaderSampleResolution:
             "##tumor_sample=TUM\n"
             "##normal_sample=NRM\n"
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tTUM\tNRM\n"
+        )
+        monkeypatch.setattr(
+            "variantcentrifuge.vcf_header_parser._read_header",
+            lambda p: Path(p).read_text(encoding="utf-8"),
         )
         captured: list[dict] = []
         monkeypatch.setattr(cli_module, "run_pipeline", lambda a: captured.append(a.config.copy()))
@@ -277,7 +311,13 @@ class TestHeaderSampleResolution:
                 str(tmp_path),
             ],
         )
-        assert cli_module.main() == 0
+        import logging
+
+        prev_level = logging.getLogger("variantcentrifuge").level
+        try:
+            assert cli_module.main() == 0
+        finally:
+            logging.getLogger("variantcentrifuge").setLevel(prev_level)
         assert captured[0]["tumor_sample_index"] == "0"
         assert captured[0]["normal_sample_index"] == "1"
         assert captured[0]["final_filter"] == "GEN[0].AF >= 0.1 & GEN[1].AF <= 0.01"

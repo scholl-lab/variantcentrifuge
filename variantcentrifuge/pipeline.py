@@ -228,7 +228,7 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
             stages.append(MultiAllelicSplitStage(snpeff_splitting_mode))
 
         if config.get("transcript_list") or config.get("transcript_file"):
-            stages.append(TranscriptFilterStage())
+            stages.append(TranscriptFilterStage(split_before_filtering=split_before_filtering))
 
         # Add SnpSift filtering stage (it will check config for filters at runtime)
         if not (getattr(args, "late_filtering", False) or config.get("late_filtering", False)):

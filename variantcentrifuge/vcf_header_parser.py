@@ -7,13 +7,11 @@ available fields before configuring extraction.  Uses ``bcftools view
 
 from __future__ import annotations
 
-import gzip
 import json
 import logging
 import re
 import subprocess
-from dataclasses import dataclass
-from pathlib import Path
+from dataclasses import dataclass, field
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -48,6 +46,7 @@ class VcfSampleHeader:
     samples: list[str]
     tumor_sample: str | None = None
     normal_sample: str | None = None
+    tumor_samples: list[str] = field(default_factory=list)
 
 
 def parse_vcf_header(vcf_path: str) -> list[AnnotationField]:
@@ -90,17 +89,22 @@ def parse_vcf_sample_header(vcf_path: str, header_text: str | None = None) -> Vc
     """Parse ``#CHROM`` samples and ``##tumor_sample``/``##normal_sample`` from a VCF header."""
     text = _read_header(vcf_path) if header_text is None else header_text
     samples: list[str] = []
-    tumor_sample: str | None = None
+    tumor_samples: list[str] = []
     normal_sample: str | None = None
     for line in text.splitlines():
         if m := TUMOR_SAMPLE_RE.match(line):
-            tumor_sample = m.group("sample")
+            tumor_samples.append(m.group("sample"))
         elif m := NORMAL_SAMPLE_RE.match(line):
             normal_sample = m.group("sample")
         elif line.startswith("#CHROM"):
             cols = line.rstrip("\r\n").split("\t")
             samples = cols[9:] if len(cols) > 9 else []
-    return VcfSampleHeader(samples=samples, tumor_sample=tumor_sample, normal_sample=normal_sample)
+    return VcfSampleHeader(
+        samples=samples,
+        tumor_sample=tumor_samples[-1] if tumor_samples else None,
+        normal_sample=normal_sample,
+        tumor_samples=tumor_samples,
+    )
 
 
 def resolve_tumor_normal_indices(
@@ -117,10 +121,7 @@ def resolve_tumor_normal_indices(
     if header_text is not None:
         hdr = parse_vcf_sample_header(vcf_path or "", header_text=header_text)
     elif vcf_path:
-        try:
-            hdr = parse_vcf_sample_header(vcf_path)
-        except (FileNotFoundError, subprocess.CalledProcessError, OSError):
-            hdr = VcfSampleHeader(samples=[])
+        hdr = parse_vcf_sample_header(vcf_path)
 
     explicit_t = (
         int(cli_tumor_idx)
@@ -134,17 +135,32 @@ def resolve_tumor_normal_indices(
     )
 
     header_t: int | None = None
-    if hdr.tumor_sample is not None:
-        if hdr.tumor_sample not in hdr.samples:
-            raise ValueError(
-                f"##tumor_sample={hdr.tumor_sample!r} not found in #CHROM samples {hdr.samples}"
-            )
-        header_t = hdr.samples.index(hdr.tumor_sample)
-        if explicit_t is not None and explicit_t != header_t:
-            raise ValueError(
-                f"tumor_sample_index={explicit_t} conflicts with "
-                f"##tumor_sample={hdr.tumor_sample!r} at index {header_t}"
-            )
+    tumor_list = hdr.tumor_samples or ([hdr.tumor_sample] if hdr.tumor_sample is not None else [])
+    if tumor_list:
+        header_ts: list[int] = []
+        for ts in tumor_list:
+            if ts not in hdr.samples:
+                raise ValueError(f"##tumor_sample={ts!r} not found in #CHROM samples {hdr.samples}")
+            header_ts.append(hdr.samples.index(ts))
+        if len(header_ts) > 1:
+            if explicit_t is None:
+                raise ValueError(
+                    f"Multiple ##tumor_sample headers found ({tumor_list}); "
+                    "specify --tumor-sample-index explicitly"
+                )
+            if explicit_t not in header_ts:
+                raise ValueError(
+                    f"tumor_sample_index={explicit_t} conflicts with "
+                    f"##tumor_sample headers {tumor_list} at indices {header_ts}"
+                )
+            header_t = explicit_t
+        else:
+            header_t = header_ts[0]
+            if explicit_t is not None and explicit_t != header_t:
+                raise ValueError(
+                    f"tumor_sample_index={explicit_t} conflicts with "
+                    f"##tumor_sample={tumor_list[0]!r} at index {header_t}"
+                )
 
     header_n: int | None = None
     if hdr.normal_sample is not None:
@@ -214,17 +230,6 @@ def _read_header(vcf_path: str) -> str:
         )
         return result.stdout
     except FileNotFoundError:
-        p = Path(vcf_path)
-        if p.is_file() and not str(vcf_path).endswith(".bcf"):
-            opener = gzip.open if str(vcf_path).endswith(".gz") else open
-            lines: list[str] = []
-            with opener(p, "rt", encoding="utf-8") as fh:  # type: ignore[call-overload]
-                for line in fh:
-                    if line.startswith("#"):
-                        lines.append(line)
-                    else:
-                        break
-            return "".join(lines)
         logger.error("bcftools not found. Ensure it is installed and on PATH.")
         raise
     except subprocess.CalledProcessError as exc:
