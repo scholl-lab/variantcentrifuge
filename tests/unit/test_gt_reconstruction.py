@@ -305,3 +305,195 @@ def test_sample_count_mismatch_warning(caplog):
     assert "GT column count (2) != sample count (3)" in caplog.text
     # Should still work with available columns
     assert result["GT"].iloc[0] == "Sample1(0/1);Sample2(1/1)"
+
+
+@pytest.mark.unit
+def test_reconstruct_gt_column_with_extra_sample_fields_retains_normal():
+    """reconstruct_gt_column appends extra_sample_fields (GT:DP:AD:AF) and retains 0/0 normal."""
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100],
+            "GEN_0__GT": ["0/0"],
+            "GEN_0__DP": ["42"],
+            "GEN_0__AD": ["42,0"],
+            "GEN_0__AF": ["0.00"],
+            "GEN_1__GT": ["0/1"],
+            "GEN_1__DP": ["85"],
+            "GEN_1__AD": ["60,25"],
+            "GEN_1__AF": ["0.29"],
+        }
+    )
+    res = reconstruct_gt_column(
+        df,
+        ["NORMAL", "TUMOR"],
+        extra_sample_fields=["GEN[*].DP", "GEN[*].AD", "GEN[*].AF"],
+    )
+    assert res["GT"].iloc[0] == "NORMAL(0/0:42:42,0:0.00);TUMOR(0/1:85:60,25:0.29)"
+    assert "GEN_0__DP" not in res.columns
+    assert "GEN_1__AF" not in res.columns
+
+
+@pytest.mark.unit
+def test_cli_preserves_config_json_options_and_final_filtering_reads_filters(tmp_path, monkeypatch):
+    """CLI -c config.json preserves options and TSVOutputStage packs fields."""
+    import json
+    import logging
+    from pathlib import Path
+    from unittest.mock import Mock
+
+    from variantcentrifuge import cli
+    from variantcentrifuge.pipeline_core.context import PipelineContext
+    from variantcentrifuge.pipeline_core.workspace import Workspace
+    from variantcentrifuge.stages.output_stages import FinalFilteringStage, TSVOutputStage
+
+    vcf = tmp_path / "test.vcf"
+    vcf.write_text(
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tN\tT\n"
+    )
+    tx_file = tmp_path / "tx.txt"
+    tx_file.write_text("ENST00000269305.4\n")
+    cfg_file = tmp_path / "custom_config.json"
+    base_cfg = json.loads((Path(cli.__file__).parent / "config.json").read_text(encoding="utf-8"))
+    base_cfg.update(
+        {
+            "filters": "(FILTER = 'PASS')",
+            "transcript_file": str(tx_file),
+            "final_filter": "POS > 50",
+            "late_filtering": True,
+            "extra_sample_fields": ["GEN[*].DP", "GEN[*].AD", "GEN[*].AF"],
+            "extra_sample_field_delimiter": "|",
+        }
+    )
+    cfg_file.write_text(json.dumps(base_cfg), encoding="utf-8")
+
+    captured = {}
+    monkeypatch.setattr(cli, "run_pipeline", lambda a: captured.update(a.config))
+    monkeypatch.setattr(
+        "sys.argv",
+        ["variantcentrifuge", "-v", str(vcf), "-g", "TP53", "-c", str(cfg_file)],
+    )
+    prev_level = logging.getLogger("variantcentrifuge").level
+    try:
+        cli.main()
+    finally:
+        logging.getLogger("variantcentrifuge").setLevel(prev_level)
+
+    assert captured["transcript_file"] == str(tx_file)
+    assert captured["final_filter"] == "POS > 50"
+    assert captured["late_filtering"] is True
+    assert captured["append_extra_sample_fields"] is True
+    assert captured["extra_sample_fields"] == ["GEN[*].DP", "GEN[*].AD", "GEN[*].AF"]
+    assert captured["extra_sample_field_delimiter"] == "|"
+
+    stage = FinalFilteringStage()
+    ctx = Mock(spec=PipelineContext)
+    ctx.config = {"late_filtering": True, "filters": "POS > 100"}
+    ctx.current_dataframe = pd.DataFrame({"CHROM": ["chr1", "chr1"], "POS": [50, 200]})
+    out_ctx = stage._process(ctx)
+    assert len(out_ctx.current_dataframe) == 1
+    assert out_ctx.current_dataframe["POS"].iloc[0] == 200
+
+    # End-to-end test through TSVOutputStage:
+    # 1. With append_extra_sample_fields=False (default), 0/0 is excluded and GEN[i].X dropped
+    raw_df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [200],
+            "REF": ["C"],
+            "ALT": ["T"],
+            "GEN_0__GT": ["0/0"],
+            "GEN_0__DP": ["42"],
+            "GEN_0__AD": ["42,0"],
+            "GEN_0__AF": ["0.00"],
+            "GEN_1__GT": ["0/1"],
+            "GEN_1__DP": ["85"],
+            "GEN_1__AD": ["60,25"],
+            "GEN_1__AF": ["0.29"],
+        }
+    )
+    ws = Workspace(output_dir=tmp_path, base_name="test")
+    tsv_ctx_default = PipelineContext(
+        args=Mock(output_file=str(tmp_path / "default.tsv"), output_dir=str(tmp_path)),
+        config={"output_file": str(tmp_path / "default.tsv"), "no_links": True},
+        workspace=ws,
+    )
+    tsv_ctx_default.current_dataframe = raw_df.copy()
+    tsv_ctx_default.vcf_samples = ["NORMAL", "TUMOR"]
+    TSVOutputStage()._process(tsv_ctx_default)
+    default_out = pd.read_csv(tmp_path / "default.tsv", sep="\t")
+    assert default_out["GT"].iloc[0] == "TUMOR(0/1)"
+    assert not any(c.startswith("GEN") for c in default_out.columns)
+
+    # 2. With append_extra_sample_fields=True through VariantAnalysisStage -> TSVOutputStage,
+    # configured fields and 0/0 reference normal are preserved through analysis and packed at output
+    from variantcentrifuge.stages.analysis_stages import VariantAnalysisStage
+
+    analysis_df = raw_df.copy()
+    analysis_df["POS"] = analysis_df["POS"].astype(str)
+    analysis_df["GENE"] = ["KCNJ5"]
+    tsv_ctx_extra = PipelineContext(
+        args=Mock(output_file=str(tmp_path / "extra.tsv"), output_dir=str(tmp_path)),
+        config={
+            "output_file": str(tmp_path / "extra.tsv"),
+            "no_links": True,
+            "no_stats": True,
+            "gzip_intermediates": False,
+            "append_extra_sample_fields": True,
+            "extra_sample_fields": ["GEN[*].DP", "GEN[*].AD", "GEN[*].AF"],
+            "extra_sample_field_delimiter": "|",
+        },
+        workspace=ws,
+    )
+    tsv_ctx_extra.current_dataframe = analysis_df
+    tsv_ctx_extra.vcf_samples = ["NORMAL", "TUMOR"]
+    tsv_ctx_extra.column_rename_map = {
+        "GEN[0].GT": "GEN_0__GT",
+        "GEN[0].DP": "GEN_0__DP",
+        "GEN[0].AD": "GEN_0__AD",
+        "GEN[0].AF": "GEN_0__AF",
+        "GEN[1].GT": "GEN_1__GT",
+        "GEN[1].DP": "GEN_1__DP",
+        "GEN[1].AD": "GEN_1__AD",
+        "GEN[1].AF": "GEN_1__AF",
+    }
+    tsv_ctx_extra = VariantAnalysisStage()._process(tsv_ctx_extra)
+    TSVOutputStage()._process(tsv_ctx_extra)
+    extra_out = pd.read_csv(tmp_path / "extra.tsv", sep="\t")
+    assert extra_out["GT"].iloc[0] == "NORMAL(0/0|42|42,0|0.00);TUMOR(0/1|85|60,25|0.29)"
+    assert not any(c.startswith(("GEN_", "GEN[")) for c in extra_out.columns)
+
+    # 3. With PseudonymizationStage -> TSVOutputStage + extra_sample_fields,
+    # output GT uses pseudonymized sample IDs and never leaks original sample names
+    from variantcentrifuge.stages.output_stages import PseudonymizationStage
+
+    pseudo_df = raw_df.copy()
+    pseudo_df["POS"] = pseudo_df["POS"].astype(str)
+    pseudo_df["GENE"] = ["KCNJ5"]
+    pseudo_ctx = PipelineContext(
+        args=Mock(output_file=str(tmp_path / "pseudo_extra.tsv"), output_dir=str(tmp_path)),
+        config={
+            "output_file": str(tmp_path / "pseudo_extra.tsv"),
+            "no_links": True,
+            "no_stats": True,
+            "gzip_intermediates": False,
+            "pseudonymize": True,
+            "pseudonymize_schema": "sequential",
+            "pseudonymize_prefix": "SAMPLE",
+            "pseudonymize_table": str(tmp_path / "pseudo_map.tsv"),
+            "append_extra_sample_fields": True,
+            "extra_sample_fields": ["GEN[*].DP"],
+            "extra_sample_field_delimiter": ":",
+        },
+        workspace=ws,
+    )
+    pseudo_ctx.current_dataframe = pseudo_df
+    pseudo_ctx.vcf_samples = ["Patient_N", "Patient_T"]
+    pseudo_ctx.column_rename_map = dict(tsv_ctx_extra.column_rename_map)
+    pseudo_ctx = VariantAnalysisStage()._process(pseudo_ctx)
+    pseudo_ctx = PseudonymizationStage()._process(pseudo_ctx)
+    TSVOutputStage()._process(pseudo_ctx)
+    pseudo_out = pd.read_csv(tmp_path / "pseudo_extra.tsv", sep="\t")
+    assert pseudo_out["GT"].iloc[0] == "SAMPLE_001(0/0:42);SAMPLE_002(0/1:85)"
+    assert "Patient_N" not in pseudo_out["GT"].iloc[0]
+    assert "Patient_T" not in pseudo_out["GT"].iloc[0]

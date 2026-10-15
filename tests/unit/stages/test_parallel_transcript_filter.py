@@ -111,14 +111,13 @@ def test_parallel_chunk_splits_before_snpsift_when_requested(
 
     chunk_vcf = tmp_path / "sample.chunk_0.variants.vcf.gz"
     split_vcf = tmp_path / "sample.chunk_0.split_annotations.vcf.gz"
+    transcript_vcf = tmp_path / "sample.chunk_0.transcript_filtered.vcf.gz"
     filtered_vcf = tmp_path / "sample.chunk_0.filtered.vcf.gz"
 
     mock_split.assert_called_once_with(str(chunk_vcf), str(split_vcf))
-    assert mock_apply_filter.call_args.args[0] == str(split_vcf)
-    assert mock_filter_transcripts.call_args.args[0] == str(filtered_vcf)
-    assert mock_extract_fields.call_args.kwargs["variant_file"] == str(
-        tmp_path / "sample.chunk_0.transcript_filtered.vcf.gz"
-    )
+    assert mock_filter_transcripts.call_args.args[0] == str(split_vcf)
+    assert mock_apply_filter.call_args.args[0] == str(transcript_vcf)
+    assert mock_extract_fields.call_args.kwargs["variant_file"] == str(filtered_vcf)
 
 
 @patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools")
@@ -155,15 +154,14 @@ def test_parallel_chunk_splits_after_snpsift_when_requested(
     )
 
     chunk_vcf = tmp_path / "sample.chunk_0.variants.vcf.gz"
+    transcript_vcf = tmp_path / "sample.chunk_0.transcript_filtered.vcf.gz"
     filtered_vcf = tmp_path / "sample.chunk_0.filtered.vcf.gz"
     split_vcf = tmp_path / "sample.chunk_0.split_annotations.vcf.gz"
 
-    assert mock_apply_filter.call_args.args[0] == str(chunk_vcf)
+    assert mock_filter_transcripts.call_args.args[0] == str(chunk_vcf)
+    assert mock_apply_filter.call_args.args[0] == str(transcript_vcf)
     mock_split.assert_called_once_with(str(filtered_vcf), str(split_vcf))
-    assert mock_filter_transcripts.call_args.args[0] == str(split_vcf)
-    assert mock_extract_fields.call_args.kwargs["variant_file"] == str(
-        tmp_path / "sample.chunk_0.transcript_filtered.vcf.gz"
-    )
+    assert mock_extract_fields.call_args.kwargs["variant_file"] == str(split_vcf)
 
 
 @pytest.mark.parametrize(
@@ -218,3 +216,50 @@ def test_parallel_chunk_before_filter_fallbacks_preserve_split_working_vcf(
     assert mock_extract_fields.call_args.kwargs["variant_file"] == str(
         tmp_path / "sample.chunk_0.transcript_filtered.vcf.gz"
     )
+
+
+@pytest.mark.parametrize("split_mode", [None, "before_filters", "after_filters"])
+def test_sequential_pipeline_stage_order_with_transcripts_and_split_modes(
+    split_mode: str | None,
+) -> None:
+    """Verify build_pipeline_stages + runner.dry_run order for all split modes with transcripts."""
+    from variantcentrifuge.cli import create_parser
+    from variantcentrifuge.pipeline import build_pipeline_stages
+    from variantcentrifuge.pipeline_core import PipelineRunner
+
+    parser = create_parser()
+    cli_argv = [
+        "-v",
+        "input.vcf.gz",
+        "-g",
+        "TP53",
+        "-f",
+        "(ANN[ANY].IMPACT has 'HIGH')",
+        "--transcript-list",
+        "NM_000546.6",
+        "--threads",
+        "1",
+    ]
+    if split_mode is not None:
+        cli_argv.extend(["--split-snpeff-lines", split_mode])
+    args = parser.parse_args(cli_argv)
+    args.threads = 1
+    args.config = {
+        "snpeff_splitting_mode": split_mode,
+        "transcript_list": "NM_000546.6",
+        "filters": "(ANN[ANY].IMPACT has 'HIGH')",
+    }
+
+    stages = build_pipeline_stages(args)
+    plan = PipelineRunner().dry_run(stages)
+    level_of = {name: lvl for lvl, names in enumerate(plan) for name in names}
+
+    assert level_of["variant_extraction"] < level_of["transcript_filtering"]
+    assert level_of["transcript_filtering"] < level_of["snpsift_filtering"]
+    assert level_of["snpsift_filtering"] < level_of["field_extraction"]
+    if split_mode == "before_filters":
+        assert level_of["multiallelic_split"] < level_of["transcript_filtering"]
+        assert level_of["multiallelic_split"] < level_of["snpsift_filtering"]
+    elif split_mode == "after_filters":
+        assert level_of["snpsift_filtering"] < level_of["multiallelic_split"]
+        assert level_of["multiallelic_split"] < level_of["field_extraction"]

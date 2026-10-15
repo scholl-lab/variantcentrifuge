@@ -227,12 +227,12 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
         if snpeff_splitting_mode:
             stages.append(MultiAllelicSplitStage(snpeff_splitting_mode))
 
-        # Add SnpSift filtering stage (it will check config for filters at runtime)
-        if not getattr(args, "late_filtering", False):
-            stages.append(SnpSiftFilterStage(split_before_filtering=split_before_filtering))
-
         if config.get("transcript_list") or config.get("transcript_file"):
-            stages.append(TranscriptFilterStage())
+            stages.append(TranscriptFilterStage(split_before_filtering=split_before_filtering))
+
+        # Add SnpSift filtering stage (it will check config for filters at runtime)
+        if not (getattr(args, "late_filtering", False) or config.get("late_filtering", False)):
+            stages.append(SnpSiftFilterStage(split_before_filtering=split_before_filtering))
 
         # Field extraction
         stages.append(FieldExtractionStage())

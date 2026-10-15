@@ -63,6 +63,43 @@ properties:
         items:
           type: string
         default: []
+      preset:
+        type:
+          - "string"
+          - "array"
+          - "null"
+        default: null
+      filters:
+        type:
+          - "string"
+          - "null"
+        default: null
+      transcript_file:
+        type:
+          - "string"
+          - "null"
+        default: null
+      transcript_list:
+        type:
+          - "string"
+          - "null"
+        default: null
+      final_filter:
+        type:
+          - "string"
+          - "null"
+        default: null
+      filter_exception_file:
+        type:
+          - "string"
+          - "null"
+        default: null
+        description: >-
+          Path to a 5-column TSV of somatic hotspots rescued to FILTER=PASS
+          during VCF filtering (does not apply to bcftools_prefilter or late_filtering).
+      fail_on_empty:
+        type: boolean
+        default: false
       append_genotype_fields:
         type: array
         items:

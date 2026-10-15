@@ -161,3 +161,185 @@ def test_filter_vcf_to_transcripts_uses_bcftools_bgzip_when_indexing(
     assert view_call[:4] == ["bcftools", "view", "-Oz", "-o"]
     assert view_call[4] == str(output_vcf)
     assert index_call == ["bcftools", "index", "-f", str(output_vcf)]
+
+
+def test_filter_vcf_to_transcripts_matches_version_skew_emits_each_kept_and_logs_summary(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    input_vcf = tmp_path / "input.vcf"
+    output_vcf = tmp_path / "output.vcf"
+    input_vcf.write_text(
+        "##fileformat=VCFv4.2\n"
+        '##INFO=<ID=ANN,Number=.,Type=String,Description="Functional annotations">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"
+        "chr3\t53820000\t.\tT\tC\t.\tPASS\t"
+        "ANN=C|stop_gained|HIGH|OTHER|OTHER|transcript|NM_999999.1|protein_coding||||||||,"
+        "C|missense_variant|MODERATE|CACNA1D|CACNA1D|transcript|NM_000720.3|protein_coding|"
+        "8/49|c.1207G>C|p.Gly403Arg|||||,"
+        "C|missense_variant|MODERATE|CACNA1D|CACNA1D|transcript|NM_001128840.3|protein_coding|"
+        "8/48|c.1207G>C|p.Gly403Arg|||||\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+
+    with caplog.at_level("INFO", logger="variantcentrifuge.transcript_filter"):
+        count = filter_vcf_to_transcripts(
+            str(input_vcf),
+            str(output_vcf),
+            {"NM_000720.4", "NM_001128840", "NM_unmatched.2"},
+        )
+
+    assert count == 2
+    lines = [
+        line
+        for line in output_vcf.read_text(encoding="utf-8").splitlines()
+        if not line.startswith("#")
+    ]
+    assert len(lines) == 2
+    assert "NM_000720.3" in lines[0] and "NM_001128840.3" not in lines[0]
+    assert "NM_001128840.3" in lines[1] and "NM_000720.3" not in lines[1]
+    assert "NM_999999.1" not in output_vcf.read_text(encoding="utf-8")
+    assert "matched 2/3" in caplog.text
+    assert "NM_unmatched.2" in caplog.text
+    assert "NM_000720.4->NM_000720.3" in caplog.text
+
+
+def test_filter_exception_file_rescues_matching_hotspot_only(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Hotspot with FILTER=normal_artifact is rescued, while strand_bias or wrong ALT is not."""
+    from variantcentrifuge.filters import apply_filter_exceptions_to_vcf, load_filter_exceptions
+
+    exc_file = tmp_path / "exceptions.tsv"
+    exc_file.write_text(
+        "CHROM\tPOS\tREF\tALT\tALLOWED_FILTERS\n"
+        "chr11\t128839188\tG\tA\tnormal_artifact,panel_of_normals\n",
+        encoding="utf-8",
+    )
+    in_vcf = tmp_path / "in.vcf"
+    out_vcf = tmp_path / "out.vcf"
+    in_vcf.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tN\tT\n"
+        "chr11\t128839188\t.\tG\tA\t.\tnormal_artifact;panel_of_normals\tDP=100\tGT\t0/0\t0/1\n"
+        "chr11\t128839188\t.\tG\tA\t.\tnormal_artifact;strand_bias\tDP=100\tGT\t0/0\t0/1\n"
+        "chr11\t128839188\t.\tG\tT\t.\tnormal_artifact\tDP=100\tGT\t0/0\t0/1\n",
+        encoding="utf-8",
+    )
+
+    exceptions = load_filter_exceptions(str(exc_file))
+    with caplog.at_level("INFO", logger="variantcentrifuge"):
+        rescued = apply_filter_exceptions_to_vcf(str(in_vcf), str(out_vcf), exceptions)
+
+    assert rescued == 1
+    assert (
+        "Rescued hotspot variant chr11:128839188 G>A "
+        "(RAW_FILTER=normal_artifact,panel_of_normals -> PASS)" in caplog.text
+    )
+    records = [
+        line.split("\t")
+        for line in out_vcf.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    ]
+    assert records[0][6] == "PASS"
+    info_kv = dict(item.split("=", 1) for item in records[0][7].split(";"))
+    assert info_kv == {"DP": "100", "RAW_FILTER": "normal_artifact,panel_of_normals"}
+    assert records[1][6] == "normal_artifact;strand_bias"
+    assert "RAW_FILTER=" not in records[1][7]
+    assert records[2][6] == "normal_artifact"
+    assert "RAW_FILTER=" not in records[2][7]
+
+    # Verify filter_vcf_to_transcripts emits ##INFO=<ID=RAW_FILTER,...> header
+    tx_in = tmp_path / "tx_in.vcf"
+    tx_out = tmp_path / "tx_out.vcf"
+    tx_in.write_text(
+        "##fileformat=VCFv4.2\n"
+        '##INFO=<ID=ANN,Number=.,Type=String,Description="Functional annotations">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tN\tT\n"
+        "chr11\t128839188\t.\tG\tA\t.\tnormal_artifact;panel_of_normals\t"
+        "ANN=A|missense_variant|MODERATE|KCNJ5|KCNJ5|transcript|NM_000890.5|protein_coding||||||||"
+        "\tGT\t0/0\t0/1\n",
+        encoding="utf-8",
+    )
+    filter_vcf_to_transcripts(
+        str(tx_in),
+        str(tx_out),
+        {"NM_000890.5"},
+        filter_exception_file=str(exc_file),
+    )
+    tx_out_text = tx_out.read_text(encoding="utf-8")
+    assert "##INFO=<ID=RAW_FILTER,Number=.,Type=String" in tx_out_text
+    assert "RAW_FILTER=normal_artifact,panel_of_normals" in tx_out_text
+
+
+def test_exact_version_match_preferred_over_base_id_fallback() -> None:
+    """When both NM_000720.1 and NM_000720.4 appear in ANN, requesting .4 keeps only .4."""
+    ann = (
+        "A|synonymous_variant|LOW|CACNA1D|CACNA1D|transcript|NM_000720.1|protein_coding||||||||,"
+        "A|missense_variant|MODERATE|CACNA1D|CACNA1D|transcript|NM_000720.4|protein_coding||||||||"
+    )
+    result = filter_ann_value_by_transcripts(ann, {"NM_000720.4"})
+    assert result == (
+        "A|missense_variant|MODERATE|CACNA1D|CACNA1D|transcript|NM_000720.4|protein_coding||||||||"
+    )
+
+
+def test_filter_vcf_line_by_transcripts_prunes_excluded_gene_lof_nmd() -> None:
+    """Retained LOW transcript for gene A drops LOF/NMD belonging to excluded HIGH gene B."""
+    from variantcentrifuge.vcf_eff_one_per_line import split_vcf_effects
+
+    line = (
+        "chr1\t100\t.\tA\tG\t.\tPASS\t"
+        "AC=1;"
+        "ANN="
+        "G|synonymous_variant|LOW|GENE_A|ENSGA|transcript|NM_keep.1|protein_coding||||||||,"
+        "G|stop_gained|HIGH|GENE_B|ENSGB|transcript|NM_drop.1|protein_coding||||||||;"
+        "LOF=(GENE_B|ENSGB|1|1.0);"
+        "NMD=(GENE_B|ENSGB|1|1.0)"
+        "\tGT\t0/1\n"
+    )
+    filtered = filter_vcf_line_by_transcripts(line, {"NM_keep.1"})
+    assert filtered is not None
+    assert "NM_keep.1" in filtered
+    assert "NM_drop.1" not in filtered
+    assert "LOF=" not in filtered
+    assert "NMD=" not in filtered
+
+    # Even if a single-ANN line still carried foreign-gene LOF/NMD, split_vcf_effects prunes it
+    stale_single_ann = (
+        "chr1\t100\t.\tA\tG\t.\tPASS\t"
+        "ANN=G|synonymous_variant|LOW|GENE_A|ENSGA|transcript|NM_keep.1|protein_coding||||||||;"
+        "LOF=(GENE_B|ENSGB|1|1.0);NMD=(GENE_B|ENSGB|1|1.0)\tGT\t0/1"
+    )
+    split_rows = split_vcf_effects(stale_single_ann)
+    assert len(split_rows) == 1
+    assert "LOF=" not in split_rows[0]
+    assert "NMD=" not in split_rows[0]
+
+    # Same-gene negative test: retained synonymous/missense transcript in GENE_A must NOT inherit
+    # LOF/NMD from an excluded HIGH transcript in the same GENE_A
+    same_gene_line = (
+        "chr1\t100\t.\tA\tG\t.\tPASS\t"
+        "AC=1;"
+        "ANN="
+        "G|synonymous_variant|LOW|GENE_A|ENSGA|transcript|NM_keep.1|protein_coding||||||||,"
+        "G|stop_gained|HIGH|GENE_A|ENSGA|transcript|NM_excl.1|protein_coding||||||||;"
+        "LOF=(GENE_A|ENSGA|1|1.0);"
+        "NMD=(GENE_A|ENSGA|1|1.0)"
+        "\tGT\t0/1\n"
+    )
+    same_gene_filtered = filter_vcf_line_by_transcripts(same_gene_line, {"NM_keep.1"})
+    assert same_gene_filtered is not None
+    assert "NM_keep.1" in same_gene_filtered
+    assert "NM_excl.1" not in same_gene_filtered
+    assert "LOF=" not in same_gene_filtered
+    assert "NMD=" not in same_gene_filtered
+
+    # Decomposed ALT=A record whose ANN only contains foreign G annotations is rejected (None)
+    unannotated_alt_line = (
+        "chr1\t100\t.\tC\tA\t.\tPASS\t"
+        "ANN=G|stop_gained|HIGH|GENE_A|ENSGA|transcript|NM_keep.1|protein_coding||||||||;"
+        "LOF=(GENE_A|ENSGA|1|1.0)\tGT\t0/1\n"
+    )
+    assert filter_vcf_line_by_transcripts(unannotated_alt_line, {"NM_keep.1"}) is None

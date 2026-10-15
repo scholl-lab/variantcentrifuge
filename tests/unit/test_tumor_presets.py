@@ -119,31 +119,360 @@ class TestPresetExpansion:
         assert "GEN[1].DP >= 20" in expanded
         assert "GEN[1].AF >= 0.05" in expanded
 
-    def test_legacy_presets_no_template_vars(self, config: dict) -> None:
-        """Legacy mutect2 presets should have no {tumor_idx} variables."""
-        for name in ("mutect2_TvsN_pass", "mutect2_TvsN", "mutect2_To_pass"):
-            expr = config["presets"][name]
-            assert "{tumor_idx}" not in expr
-            assert "{normal_idx}" not in expr
-
-    def test_legacy_mutect2_tvsn_gen_indices(self, config: dict) -> None:
-        """mutect2_TvsN presets must use GEN[0]=tumor, GEN[1]=normal.
-
-        Standard Mutect2 output has GEN[0]=tumor, GEN[1]=normal.
-        The tumor sample should have AF >= 0.05 and the normal should
-        have AF < 0.03.  See issue #72.
-        """
+    def test_mutect2_presets_use_template_vars(self, config: dict) -> None:
+        """mutect2_* presets use {tumor_idx}/{normal_idx} and templated per-sample DP/AF."""
         for name in ("mutect2_TvsN_pass", "mutect2_TvsN"):
             expr = config["presets"][name]
-            # Tumor (GEN[0]) must pass the minimum AF threshold
-            assert "GEN[0].AF >= 0.05" in expr, f"{name}: expected tumor AF check on GEN[0]"
-            # Normal (GEN[1]) must be below the max AF threshold
-            assert "GEN[1].AF < 0.03" in expr, f"{name}: expected normal AF check on GEN[1]"
+            assert "{tumor_idx}" in expr
+            assert "{normal_idx}" in expr
+            assert "{tumor_dp_min}" in expr
+            assert "{normal_dp_min}" in expr
+            expanded = self._expand(expr, tumor_idx="1", normal_idx="0")
+            assert "GEN[1].DP >= 20" in expanded
+            assert "GEN[0].DP >= 20" in expanded
+            assert "GEN[1].AF >= 0.05" in expanded
+            assert "GEN[0].AF < 0.03" in expanded
 
-    def test_legacy_mutect2_tvsn_pass_dp_on_tumor(self, config: dict) -> None:
-        """mutect2_TvsN_pass DP check should be on tumor (GEN[0])."""
-        expr = config["presets"]["mutect2_TvsN_pass"]
-        assert "GEN[0].DP >= 50" in expr
+        to_expr = config["presets"]["mutect2_To_pass"]
+        assert "{tumor_idx}" in to_expr
+        assert "{normal_idx}" not in to_expr
+        assert "{tumor_dp_min}" in to_expr
+        to_expanded = self._expand(to_expr, tumor_idx="0")
+        assert "GEN[0].DP >= 20" in to_expanded
+        assert "GEN[0].AF >= 0.05" in to_expanded
+
+    def test_mutect2_tvsn_pass_parity_with_somatic_pass(self, config: dict) -> None:
+        """mutect2_TvsN_pass and somatic_pass expand identically and filter identically."""
+        import re
+
+        def _eval_snpsift_expr(expr: str, rec: dict) -> bool:
+            def _eval_atom(m: re.Match[str]) -> str:
+                atom = m.group(0).strip()
+                if atom.startswith("na "):
+                    field = atom[3:].strip()
+                    if field == "dbNSFP_gnomAD_exomes_AC[0]":
+                        return str(rec.get("ex_ac") is None)
+                    if field == "dbNSFP_gnomAD_genomes_AC[0]":
+                        return str(rec.get("gn_ac") is None)
+                    if field == "FILTER":
+                        return str(rec.get("FILTER") in (None, "."))
+                    if gm := re.match(r"GEN\[(\d+)\]\.AF$", field):
+                        return str(rec["AF"][int(gm.group(1))] is None)
+                if atom.startswith("exists "):
+                    field = atom[7:].strip()
+                    return str(rec.get(field) not in (None, "."))
+                if atom == "FILTER = 'PASS'":
+                    return str(rec.get("FILTER") == "PASS")
+                if atom == "ID =~ 'COS'":
+                    return str("COS" in str(rec.get("ID") or ""))
+                if cm := re.match(r"dbNSFP_gnomAD_(exomes|genomes)_AC\[0\]\s*<=\s*(\d+)", atom):
+                    val = rec.get("ex_ac" if cm.group(1) == "exomes" else "gn_ac")
+                    return str(val is not None and val <= int(cm.group(2)))
+                if dm := re.match(r"GEN\[(\d+)\]\.DP\s*>=\s*(\d+)", atom):
+                    return str(rec["DP"][int(dm.group(1))] >= int(dm.group(2)))
+                if am := re.match(r"GEN\[(\d+)\]\.AF\s*(<|>=)\s*([0-9.]+)", atom):
+                    af_val = rec["AF"][int(am.group(1))]
+                    if af_val is None:
+                        return "False"
+                    thr = float(am.group(3))
+                    return str(af_val < thr if am.group(2) == "<" else af_val >= thr)
+                raise AssertionError(f"Unhandled SnpSift predicate: {atom}")
+
+            atom_re = re.compile(
+                r"na\s+[A-Za-z0-9_.\[\]]+"
+                r"|exists\s+[A-Za-z0-9_.\[\]]+"
+                r"|FILTER\s*=\s*'PASS'"
+                r"|ID\s*=~\s*'COS'"
+                r"|dbNSFP_gnomAD_(?:exomes|genomes)_AC\[0\]\s*<=\s*\d+"
+                r"|GEN\[\d+\]\.DP\s*>=\s*\d+"
+                r"|GEN\[\d+\]\.AF\s*(?:<|>=)\s*[0-9.]+"
+            )
+            py_expr = atom_re.sub(_eval_atom, expr)
+            py_expr = py_expr.replace("&", " and ").replace("|", " or ")
+            return bool(eval(py_expr, {"__builtins__": {}}))
+
+        records = [
+            {
+                "name": "rare_somatic_dp30",
+                "ID": ".",
+                "ex_ac": 0,
+                "gn_ac": None,
+                "FILTER": "PASS",
+                "DP": [25, 30],
+                "AF": [0.01, 0.25],
+            },
+            {
+                "name": "rare_cosmic",
+                "ID": "COSM123",
+                "ex_ac": 1,
+                "gn_ac": 0,
+                "FILTER": "PASS",
+                "DP": [25, 60],
+                "AF": [0.00, 0.15],
+            },
+            {
+                "name": "common_cosmic",
+                "ID": "COSM123",
+                "ex_ac": 50,
+                "gn_ac": 40,
+                "FILTER": "PASS",
+                "DP": [25, 60],
+                "AF": [0.00, 0.15],
+            },
+            {
+                "name": "common_non_cosmic",
+                "ID": "rs123",
+                "ex_ac": 50,
+                "gn_ac": 40,
+                "FILTER": "PASS",
+                "DP": [25, 60],
+                "AF": [0.00, 0.15],
+            },
+            {
+                "name": "low_tumor_dp15",
+                "ID": "COSM123",
+                "ex_ac": 0,
+                "gn_ac": 0,
+                "FILTER": "PASS",
+                "DP": [25, 15],
+                "AF": [0.00, 0.15],
+            },
+            {
+                "name": "high_normal_af",
+                "ID": ".",
+                "ex_ac": 0,
+                "gn_ac": 0,
+                "FILTER": "PASS",
+                "DP": [25, 60],
+                "AF": [0.10, 0.25],
+            },
+            {
+                "name": "failed_filter",
+                "ID": ".",
+                "ex_ac": 0,
+                "gn_ac": 0,
+                "FILTER": "weak_evidence",
+                "DP": [25, 60],
+                "AF": [0.00, 0.25],
+            },
+        ]
+        for alias_name, canonical_name in (
+            ("mutect2_TvsN_pass", "somatic_pass"),
+            ("mutect2_TvsN", "somatic"),
+            ("mutect2_To_pass", "tumor_only"),
+        ):
+            assert self._expand(config["presets"][alias_name]) == self._expand(
+                config["presets"][canonical_name]
+            )
+
+        for t_idx, n_idx in (("1", "0"), ("0", "1")):
+            # Expand both presets with identical default parameters
+            m_exp = self._expand(
+                config["presets"]["mutect2_TvsN_pass"],
+                tumor_idx=t_idx,
+                normal_idx=n_idx,
+            )
+            s_exp = self._expand(
+                config["presets"]["somatic_pass"],
+                tumor_idx=t_idx,
+                normal_idx=n_idx,
+            )
+            assert m_exp == s_exp
+            if t_idx == "1":
+                m_kept = [r["name"] for r in records if _eval_snpsift_expr(m_exp, r)]
+                s_kept = [r["name"] for r in records if _eval_snpsift_expr(s_exp, r)]
+                assert m_kept == s_kept == ["rare_somatic_dp30", "rare_cosmic"]
+
+
+# ---------------------------------------------------------------------------
+# VCF header ##tumor_sample / ##normal_sample resolution
+# ---------------------------------------------------------------------------
+class TestHeaderSampleResolution:
+    def test_normal_first_vcf_header(self) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        hdr = (
+            "##fileformat=VCFv4.2\n"
+            "##tumor_sample=APA1_T\n"
+            "##normal_sample=APA1_N\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tAPA1_N\tAPA1_T\n"
+        )
+        assert resolve_tumor_normal_indices(header_text=hdr) == ("1", "0")
+
+    def test_tumor_first_vcf_header(self) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        hdr = (
+            "##fileformat=VCFv4.2\n"
+            "##tumor_sample=APA1_T\n"
+            "##normal_sample=APA1_N\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tAPA1_T\tAPA1_N\n"
+        )
+        assert resolve_tumor_normal_indices(header_text=hdr) == ("0", "1")
+
+    def test_tumor_only_single_sample_vcf_header(self) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        hdr = (
+            "##fileformat=VCFv4.2\n"
+            "##tumor_sample=APA51_T\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tAPA51_T\n"
+        )
+        t_idx, n_idx = resolve_tumor_normal_indices(header_text=hdr, require_normal=False)
+        assert t_idx == "0"
+        assert n_idx == ""
+
+        # Paired preset requiring normal on a single-sample VCF must fail
+        with pytest.raises(ValueError, match="Cannot resolve normal sample index"):
+            resolve_tumor_normal_indices(header_text=hdr, require_normal=True)
+
+    def test_missing_role_metadata_without_cli_indices_raises(self) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        hdr = (
+            "##fileformat=VCFv4.2\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tAPA1_T\tAPA1_N\n"
+        )
+        with pytest.raises(ValueError, match="Cannot resolve tumor sample index"):
+            resolve_tumor_normal_indices(header_text=hdr)
+
+        with pytest.raises(ValueError, match="Cannot resolve normal sample index"):
+            resolve_tumor_normal_indices(header_text=hdr, cli_tumor_idx=0)
+
+        assert resolve_tumor_normal_indices(header_text=hdr, cli_tumor_idx=0, cli_normal_idx=1) == (
+            "0",
+            "1",
+        )
+        with pytest.raises(ValueError, match="cannot be identical"):
+            resolve_tumor_normal_indices(header_text=hdr, cli_tumor_idx=0, cli_normal_idx=0)
+
+    def test_mismatched_tumor_sample_raises(self) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        hdr = (
+            "##fileformat=VCFv4.2\n"
+            "##tumor_sample=WRONG_T\n"
+            "##normal_sample=APA1_N\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tAPA1_N\tAPA1_T\n"
+        )
+        with pytest.raises(ValueError, match="##tumor_sample"):
+            resolve_tumor_normal_indices(header_text=hdr)
+
+    def test_conflicting_cli_index_and_header_raises(self) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        hdr = (
+            "##fileformat=VCFv4.2\n"
+            "##tumor_sample=APA1_T\n"
+            "##normal_sample=APA1_N\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tAPA1_N\tAPA1_T\n"
+        )
+        with pytest.raises(ValueError, match="conflicts with"):
+            resolve_tumor_normal_indices(header_text=hdr, cli_tumor_idx=0)
+
+    def test_out_of_range_index_raises(self) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        hdr = (
+            "##fileformat=VCFv4.2\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tAPA1_N\tAPA1_T\n"
+        )
+        with pytest.raises(ValueError, match="out of range"):
+            resolve_tumor_normal_indices(header_text=hdr, cli_tumor_idx=2)
+
+    def test_get_vcf_names_raises_on_bcftools_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from variantcentrifuge.helpers import get_vcf_names
+
+        class DummyProc:
+            returncode = 1
+
+            def communicate(self) -> tuple[str, str]:
+                return "", "Failed to open file"
+
+        monkeypatch.setattr("subprocess.Popen", lambda *_a, **_kw: DummyProc())
+        with pytest.raises(RuntimeError, match="bcftools query -l failed"):
+            get_vcf_names("nonexistent.vcf")
+
+    def test_multiple_tumor_samples_requires_explicit_index(self) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        hdr = (
+            "##fileformat=VCFv4.2\n"
+            "##tumor_sample=APA_F\n"
+            "##tumor_sample=APA_NF\n"
+            "##normal_sample=APA_N\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tAPA_F\tAPA_NF\tAPA_N\n"
+        )
+        with pytest.raises(ValueError, match="Multiple ##tumor_sample"):
+            resolve_tumor_normal_indices(header_text=hdr)
+
+        assert resolve_tumor_normal_indices(header_text=hdr, cli_tumor_idx=0) == ("0", "2")
+        assert resolve_tumor_normal_indices(header_text=hdr, cli_tumor_idx=1) == ("1", "2")
+        with pytest.raises(ValueError, match="conflicts with"):
+            resolve_tumor_normal_indices(header_text=hdr, cli_tumor_idx=2)
+
+    def test_header_read_error_not_swallowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from variantcentrifuge.vcf_header_parser import resolve_tumor_normal_indices
+
+        def fail_read(_path: str) -> str:
+            raise OSError("bcftools failed to read header")
+
+        monkeypatch.setattr("variantcentrifuge.vcf_header_parser._read_header", fail_read)
+        with pytest.raises(OSError, match="bcftools failed to read header"):
+            resolve_tumor_normal_indices(vcf_path="broken.vcf.gz")
+
+    def test_cli_expands_tumor_idx_in_final_filter(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: pytest.TempPathFactory
+    ) -> None:
+        from pathlib import Path
+
+        from variantcentrifuge import cli as cli_module
+
+        vcf = tmp_path / "pair.vcf"  # type: ignore[operator]
+        vcf.write_text(
+            "##fileformat=VCFv4.2\n"
+            "##tumor_sample=TUM\n"
+            "##normal_sample=NRM\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tTUM\tNRM\n"
+        )
+        monkeypatch.setattr(
+            "variantcentrifuge.vcf_header_parser._read_header",
+            lambda p: Path(p).read_text(encoding="utf-8"),
+        )
+        captured: list[dict] = []
+        monkeypatch.setattr(cli_module, "run_pipeline", lambda a: captured.append(a.config.copy()))
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "variantcentrifuge",
+                "-v",
+                str(vcf),
+                "--preset",
+                "somatic_pass",
+                "--final-filter",
+                (
+                    "GENE.str.match('A{2}') & "
+                    "GEN[{tumor_idx}].AF >= 0.1 & GEN[{normal_idx}].AF <= 0.01"
+                ),
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+        import logging
+
+        prev_level = logging.getLogger("variantcentrifuge").level
+        try:
+            assert cli_module.main() == 0
+        finally:
+            logging.getLogger("variantcentrifuge").setLevel(prev_level)
+        assert captured[0]["tumor_sample_index"] == "0"
+        assert captured[0]["normal_sample_index"] == "1"
+        assert (
+            captured[0]["final_filter"]
+            == "GENE.str.match('A{2}') & GEN[0].AF >= 0.1 & GEN[1].AF <= 0.01"
+        )
 
 
 # ---------------------------------------------------------------------------

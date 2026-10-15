@@ -150,3 +150,19 @@ class TestBuildVcFlags:
         igv = {"enabled": True}
         flags = build_vc_flags(minimal_vc_config, igv)
         assert "--igv-flanking 50" in flags
+
+    def test_forwards_p0_passthrough_flags(self, minimal_vc_config: dict) -> None:
+        vc = {
+            **minimal_vc_config,
+            "preset": "somatic_pass",
+            "filters": "(QUAL >= 30)",
+            "transcript_file": "/path/to/tx.txt",
+            "final_filter": "AF >= 0.05",
+            "fail_on_empty": True,
+        }
+        flags = build_vc_flags(vc, {})
+        assert "--preset somatic_pass" in flags
+        assert "--filters '(QUAL >= 30)'" in flags
+        assert "--transcript-file /path/to/tx.txt" in flags
+        assert "--final-filter 'AF >= 0.05'" in flags
+        assert "--fail-on-empty" in flags

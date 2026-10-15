@@ -213,3 +213,104 @@ def test_gene_burden_contract_uses_only_row_level_qualified_rows(tmp_path: Path)
     assert positive_result["GENE"].tolist() == ["GENE_B"]
     assert positive_result["proband_carrier_count"].tolist() == [1]
     assert positive_result["control_carrier_count"].tolist() == [0]
+
+
+def test_transcript_filter_before_snpsift_excludes_unlisted_high_and_keeps_multi_isoform_rows(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from variantcentrifuge.pipeline_core.context import PipelineContext
+    from variantcentrifuge.pipeline_core.workspace import Workspace
+    from variantcentrifuge.stages.analysis_stages import VariantAnalysisStage
+
+    input_vcf = tmp_path / "apa_isoforms.vcf"
+    transcript_vcf = tmp_path / "transcript_filtered.vcf.gz"
+    filtered_vcf = tmp_path / "filtered.vcf.gz"
+    extracted_tsv = tmp_path / "extracted.tsv"
+
+    input_vcf.write_text(
+        "\n".join(
+            [
+                "##fileformat=VCFv4.2",
+                "##contig=<ID=chr3,length=200000000>",
+                (
+                    '##INFO=<ID=ANN,Number=.,Type=String,Description="Functional '
+                    "annotations: Allele | Annotation | Annotation_Impact | Gene_Name | "
+                    "Gene_ID | Feature_Type | Feature_ID | Transcript_BioType | Rank | "
+                    "HGVS.c | HGVS.p | cDNA.pos / cDNA.length | CDS.pos / CDS.length | "
+                    'AA.pos / AA.length | Distance | ERRORS / WARNINGS / INFO">'
+                ),
+                '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
+                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tTUMOR\tNORMAL",
+                # Record 1: HIGH on unlisted NM_999999.1, LOW on listed NM_000720.3
+                (
+                    "chr3\t100\t.\tA\tG\t500\tPASS\t"
+                    "ANN=G|stop_gained|HIGH|CACNA1D|ENSG1|transcript|NM_999999.1|"
+                    "protein_coding||||||||,"
+                    "G|synonymous_variant|LOW|CACNA1D|ENSG1|transcript|NM_000720.3|"
+                    "protein_coding||||||||\t"
+                    "GT\t0/1\t0/0"
+                ),
+                # Record 2: Two listed CACNA1D isoforms (one version-skewed NM_000720.3 vs .4)
+                (
+                    "chr3\t200\t.\tG\tC\t500\tPASS\t"
+                    "ANN=C|missense_variant|MODERATE|CACNA1D|ENSG1|transcript|NM_000720.3|"
+                    "protein_coding|8/49|c.1207G>C|p.Gly403Arg|||||,"
+                    "C|missense_variant|MODERATE|CACNA1D|ENSG1|transcript|NM_001128840.3|"
+                    "protein_coding|8/48|c.1207G>C|p.Gly403Arg|||||\t"
+                    "GT\t0/1\t0/0"
+                ),
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with caplog.at_level("INFO", logger="variantcentrifuge.transcript_filter"):
+        filter_vcf_to_transcripts(
+            str(input_vcf),
+            str(transcript_vcf),
+            {"NM_000720.4", "NM_001128840.3", "NM_unmatched.1"},
+        )
+
+    assert "matched 2/3" in caplog.text
+    assert "NM_unmatched.1" in caplog.text
+    assert "NM_000720.4->NM_000720.3" in caplog.text
+
+    apply_snpsift_filter(
+        str(transcript_vcf),
+        "(ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE')",
+        {"threads": 1},
+        str(filtered_vcf),
+    )
+    extract_fields_bcftools(
+        variant_file=str(filtered_vcf),
+        fields="CHROM POS REF ALT ANN[0].GENE ANN[0].FEATUREID ANN[0].IMPACT GEN[*].GT",
+        cfg={"extract_fields_separator": ","},
+        output_file=str(extracted_tsv),
+        vcf_samples=["TUMOR", "NORMAL"],
+    )
+
+    df = _read_tsv(extracted_tsv)
+    assert len(df) == 2
+    assert df["POS"].tolist() == ["200", "200"]
+    assert df["ANN[0].FEATUREID"].tolist() == ["NM_000720.3", "NM_001128840.3"]
+
+    df["GENE"] = df["ANN[0].GENE"]
+    df["Extra_Info"] = ["iso1", "iso2"]
+    workspace = Workspace(output_dir=tmp_path / "ws", base_name="test")
+    workspace.intermediate_dir.mkdir(parents=True, exist_ok=True)
+    ctx = PipelineContext(
+        args=None,
+        config={"no_stats": True, "gzip_intermediates": False},
+        workspace=workspace,
+        data=extracted_tsv,
+    )
+    ctx.vcf_samples = ["TUMOR", "NORMAL"]
+    ctx.current_dataframe = df
+    ctx.mark_complete("dataframe_loading")
+    ctx.mark_complete("sample_config_loading")
+    ctx = VariantAnalysisStage()._process(ctx)
+    assert len(ctx.current_dataframe) == 2
+    assert ctx.current_dataframe["ANN[0].FEATUREID"].tolist() == ["NM_000720.3", "NM_001128840.3"]
+    assert ctx.current_dataframe["Extra_Info"].tolist() == ["iso1", "iso2"]

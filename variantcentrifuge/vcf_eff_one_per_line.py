@@ -51,6 +51,7 @@ import sys
 
 logger = logging.getLogger(__name__)
 
+ANN_IMPACT_INDEX = 2
 ANN_GENE_NAME_INDEX = 3
 ANN_GENE_ID_INDEX = 4
 
@@ -66,8 +67,47 @@ def _ann_gene_keys(ann_entry: str) -> set[str]:
     return gene_keys
 
 
+def _ann_impact(ann_entry: str) -> str:
+    """Return Annotation_Impact from a SnpEff ANN entry."""
+    parts = ann_entry.split("|")
+    return parts[ANN_IMPACT_INDEX].strip() if len(parts) > ANN_IMPACT_INDEX else ""
+
+
+def _eligible_lof_nmd_gene_keys(
+    kept_entries: list[str],
+    all_entries: list[str] | None = None,
+) -> set[str]:
+    """Return gene keys whose LOF/NMD summaries remain unambiguously applicable."""
+    kept_set = set(kept_entries)
+    dropped_entries = (
+        [e for e in all_entries if e not in kept_set] if all_entries is not None else []
+    )
+    dropped_high_genes: set[str] = set()
+    dropped_any_genes: set[str] = set()
+    for entry in dropped_entries:
+        gkeys = _ann_gene_keys(entry)
+        dropped_any_genes.update(gkeys)
+        if _ann_impact(entry) == "HIGH":
+            dropped_high_genes.update(gkeys)
+
+    eligible: set[str] = set()
+    for entry in kept_entries:
+        gkeys = _ann_gene_keys(entry)
+        impact = _ann_impact(entry)
+        if not gkeys or impact in {"", "LOW", "MODIFIER"}:
+            continue
+        if gkeys & dropped_high_genes:
+            continue
+        if (gkeys & dropped_any_genes) and impact != "HIGH":
+            continue
+        eligible.update(gkeys)
+    return eligible
+
+
 def _filter_gene_scoped_info_value(value: str, gene_keys: set[str], info_key: str) -> str | None:
     """Keep LOF/NMD entries whose gene symbol or ID matches the retained ANN gene."""
+    if not gene_keys:
+        return None
     kept_entries = []
     for entry in value.split(","):
         stripped = entry.strip()
@@ -81,6 +121,92 @@ def _filter_gene_scoped_info_value(value: str, gene_keys: set[str], info_key: st
     if not kept_entries:
         return None
     return ",".join(kept_entries)
+
+
+def restrict_line_ann_to_alt(line: str) -> str:
+    """Restrict ANN entries (and gene-scoped LOF/NMD) on a biallelic VCF line to its ALT allele."""
+    if line.startswith("#"):
+        return line
+    nl = "\n" if line.endswith("\n") else ""
+    cols = line.rstrip("\n").split("\t")
+    if len(cols) < 8 or "," in cols[4] or "ANN=" not in cols[7]:
+        return line
+    alt = cols[4]
+    info_parts = cols[7].split(";")
+    all_ann: list[str] = []
+    kept_ann: list[str] | None = None
+    for part in info_parts:
+        if part.startswith("ANN="):
+            all_ann = [e for e in part[4:].split(",") if e]
+            kept_ann = [e for e in all_ann if e.split("|", 1)[0] == alt]
+            break
+    if kept_ann is None:
+        return line
+    gene_keys = _eligible_lof_nmd_gene_keys(kept_ann, all_ann)
+    has_lof_or_nmd = any(p.startswith(("LOF=", "NMD=")) for p in info_parts)
+    if len(kept_ann) == len(all_ann) and not has_lof_or_nmd:
+        return line
+    new_info: list[str] = []
+    for part in info_parts:
+        if part.startswith("ANN="):
+            if kept_ann:
+                new_info.append("ANN=" + ",".join(kept_ann))
+        elif part.startswith(("LOF=", "NMD=")):
+            if kept_ann and gene_keys:
+                key, val = part.split("=", 1)
+                filtered = _filter_gene_scoped_info_value(val, gene_keys, key)
+                if filtered is not None:
+                    new_info.append(f"{key}={filtered}")
+        elif part:
+            new_info.append(part)
+    cols[7] = ";".join(new_info) if new_info else "."
+    return "\t".join(cols) + nl
+
+
+def restrict_vcf_ann_to_alt(vcf_path: str, output_path: str | None = None) -> bool:
+    """Restrict biallelic records' ANN/LOF/NMD to ALT in a VCF file when foreign alleles exist."""
+    import os
+    import shutil
+
+    if not vcf_path or not os.path.exists(vcf_path):
+        return False
+    is_gz = False
+    try:
+        with open(vcf_path, "rb") as raw:
+            is_gz = raw.read(2) == b"\x1f\x8b"
+    except OSError:
+        return False
+    try:
+        opener = gzip.open if is_gz else open
+        with opener(vcf_path, "rt", encoding="utf-8", errors="replace") as fh:  # type: ignore[call-overload]
+            lines = fh.readlines()
+    except Exception:
+        return False
+    new_lines = [restrict_line_ann_to_alt(line) for line in lines]
+    if new_lines == lines and (output_path is None or output_path == vcf_path):
+        return False
+    target = output_path or vcf_path
+    write_gz = is_gz if output_path is None else target.endswith(".gz")
+    for idx_ext in (".csi", ".tbi"):
+        if os.path.exists(f"{target}{idx_ext}"):
+            os.remove(f"{target}{idx_ext}")
+    if write_gz and shutil.which("bgzip"):
+        with open(target, "wb") as out_fh:
+            subprocess.run(
+                ["bgzip", "-c"],
+                input="".join(new_lines).encode("utf-8"),
+                stdout=out_fh,
+                check=True,
+            )
+        if shutil.which("bcftools"):
+            subprocess.run(["bcftools", "index", "-f", target], capture_output=True, check=False)
+        if shutil.which("tabix"):
+            subprocess.run(["tabix", "-f", "-p", "vcf", target], capture_output=True, check=False)
+    else:
+        out_opener = gzip.open if write_gz else open
+        with out_opener(target, "wt", encoding="utf-8") as fh:  # type: ignore[call-overload]
+            fh.writelines(new_lines)
+    return new_lines != lines
 
 
 def split_vcf_effects(line: str) -> list[str]:
@@ -120,17 +246,32 @@ def split_vcf_effects(line: str) -> list[str]:
         match_gene_scoped = re.match(r"^(LOF|NMD)=(.*)", inf)
         if match_eff:
             field_name = match_eff.group(1)
-            effs = match_eff.group(2).split(",")
+            effs = [e for e in match_eff.group(2).split(",") if e]
         elif match_ann:
             field_name = match_ann.group(1)
-            effs = match_ann.group(2).split(",")
+            effs = [e for e in match_ann.group(2).split(",") if e]
         elif match_gene_scoped:
             gene_scoped_info_parts.append((match_gene_scoped.group(1), match_gene_scoped.group(2)))
         else:
             other_info_parts.append(inf)
 
-    # If no EFF/ANN found or only one annotation, return original line
-    if not effs or len(effs) <= 1:
+    all_effs = list(effs)
+    raw_eff_count = len(effs)
+    if field_name == "ANN" and "," not in columns[4]:
+        effs = [e for e in effs if e.split("|", 1)[0] == columns[4]]
+        if not effs and raw_eff_count > 0:
+            pre_string = "\t".join(columns[:info_field_num])
+            post_cols = columns[info_field_num + 1 :]
+            post_string = "\t" + "\t".join(post_cols) if post_cols else ""
+            new_info = ";".join(filter(None, other_info_parts)) or "."
+            return [f"{pre_string}\t{new_info}{post_string}"]
+
+    # If no EFF/ANN found or only one annotation without gene-scoped LOF/NMD to prune, return original line
+    if not effs or (
+        len(effs) <= 1
+        and raw_eff_count <= 1
+        and not (field_name == "ANN" and gene_scoped_info_parts)
+    ):
         return [line]
 
     # Otherwise, replicate line for each EFF/ANN
@@ -147,7 +288,7 @@ def split_vcf_effects(line: str) -> list[str]:
         new_info_parts = list(filter(None, other_info_parts))
         if field_name == "ANN":
             new_info_parts.append(f"{field_name}={eff}")
-            gene_keys = _ann_gene_keys(eff)
+            gene_keys = _eligible_lof_nmd_gene_keys([eff], all_effs)
             for info_key, value in gene_scoped_info_parts:
                 filtered_value = _filter_gene_scoped_info_value(value, gene_keys, info_key)
                 if filtered_value is not None:
@@ -200,6 +341,7 @@ def process_vcf_file(input_file: str, output_file: str | None = None) -> None:
                 stdout=out_fh,
                 stderr=subprocess.PIPE,
             )
+            assert bgzip_proc.stdin is not None
             out_handle = io.TextIOWrapper(bgzip_proc.stdin, encoding="utf-8")
         else:
             # Plain text

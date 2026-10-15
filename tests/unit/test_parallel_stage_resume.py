@@ -28,14 +28,14 @@ class TestParallelCompleteProcessingStage:
         assert stage._validate_chunk_tsv(chunk_path) is True
 
     def test_validate_chunk_tsv_header_only(self, tmp_path):
-        """Test validation rejects files with only header."""
+        """Test validation accepts valid 1-line header-only chunk TSV files."""
         stage = ParallelCompleteProcessingStage()
 
         chunk_path = tmp_path / "header_only.tsv.gz"
         with gzip.open(str(chunk_path), "wt") as f:
             f.write("CHROM\tPOS\tREF\tALT\n")
 
-        assert stage._validate_chunk_tsv(chunk_path) is False
+        assert stage._validate_chunk_tsv(chunk_path) is True
 
     def test_validate_chunk_tsv_invalid_format(self, tmp_path):
         """Test validation rejects files without tab separators."""
@@ -189,6 +189,126 @@ class TestParallelCompleteProcessingStage:
             Path("/tmp/test.chunk_1.extracted.tsv.gz"),
         ]
         assert result == expected_chunks
+
+    def test_merge_empty_header_only_chunks_succeeds(self, tmp_path):
+        """Merging header-only chunks produces a valid 1-line header TSV."""
+        stage = ParallelCompleteProcessingStage()
+        context = Mock(spec=PipelineContext)
+        context.workspace = Mock()
+        context.workspace.base_name = "test"
+        context.workspace.get_intermediate_path.return_value = tmp_path / "test.extracted.tsv"
+        context.config = {"gzip_intermediates": True}
+
+        chunk0 = tmp_path / "chunk_0.tsv.gz"
+        chunk1 = tmp_path / "chunk_1.tsv.gz"
+        for chunk in (chunk0, chunk1):
+            with gzip.open(str(chunk), "wt") as f:
+                f.write("CHROM\tPOS\tREF\tALT\n")
+
+        assert stage._validate_chunk_tsv(chunk0) is True
+        assert stage._validate_chunk_tsv(chunk1) is True
+
+        merged = stage._merge_tsv_outputs(context, [chunk0, chunk1])
+        assert stage._validate_chunk_tsv(merged) is True
+        with gzip.open(str(merged), "rt") as f:
+            assert f.read().splitlines() == ["CHROM\tPOS\tREF\tALT"]
+
+
+def test_per_stage_count_logs_and_fail_on_empty(tmp_path, caplog):
+    """Per-stage filtering logs counts and --fail-on-empty exits with code 2 on empty DataFrame."""
+    import logging
+
+    import pandas as pd
+
+    from variantcentrifuge.extractor import extract_fields_bcftools
+    from variantcentrifuge.filters import apply_snpsift_filter, extract_variants
+    from variantcentrifuge.stages.output_stages import TSVOutputStage
+
+    in_vcf = tmp_path / "in.vcf"
+    in_vcf.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "chr1\t100\t.\tA\tG\t.\tPASS\t.\n"
+    )
+    out_vcf = tmp_path / "out.vcf.gz"
+    out_tsv = tmp_path / "out.tsv"
+
+    def fake_run(cmd, output_file=None, return_result=False):
+        if output_file and str(output_file).endswith(".tsv"):
+            Path(output_file).write_text("CHROM\tPOS\tREF\tALT\n")
+        elif output_file:
+            Path(output_file).write_text(
+                "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+            )
+        else:
+            out_vcf.write_text(
+                "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+            )
+        res = Mock()
+        res.stderr = ""
+        return res
+
+    with (
+        caplog.at_level(logging.INFO),
+        patch("variantcentrifuge.filters.run_command", side_effect=fake_run),
+        patch(
+            "variantcentrifuge.extractor.subprocess.run",
+            return_value=Mock(returncode=0, stderr=""),
+        ),
+    ):
+        extract_variants(str(in_vcf), str(tmp_path / "t.bed"), {}, str(out_vcf))
+        apply_snpsift_filter(str(in_vcf), "(FILTER = 'PASS')", {}, str(out_vcf))
+        extract_fields_bcftools(
+            str(out_vcf),
+            "CHROM POS REF ALT",
+            {"fields_to_extract": "CHROM POS REF ALT"},
+            str(out_tsv),
+        )
+
+    assert "Variant extraction (bcftools view + norm): 1 input -> 0 output records" in caplog.text
+    assert "SnpSift filter: 1 input -> 0 output records" in caplog.text
+    assert "Field extraction (bcftools query): 0 variants extracted" in caplog.text
+
+    stage = TSVOutputStage()
+    ctx = Mock(spec=PipelineContext)
+    ctx.current_dataframe = pd.DataFrame(columns=["CHROM", "POS", "REF", "ALT"])
+    ctx.config = {"fail_on_empty": True}
+    with pytest.raises(SystemExit) as exc:
+        stage._process(ctx)
+    assert exc.value.code == 2
+
+    # Also verify CLI exit code 2 when --fail-on-empty triggers during pipeline execution
+    from variantcentrifuge import cli as cli_module
+
+    def fake_pipeline_empty(args):
+        empty_ctx = Mock(spec=PipelineContext)
+        empty_ctx.current_dataframe = pd.DataFrame(columns=["CHROM", "POS", "REF", "ALT"])
+        empty_ctx.config = args.config
+        TSVOutputStage()._process(empty_ctx)
+
+    prev_level = logging.getLogger("variantcentrifuge").level
+    try:
+        with (
+            patch.object(cli_module, "run_pipeline", side_effect=fake_pipeline_empty),
+            patch(
+                "sys.argv",
+                [
+                    "variantcentrifuge",
+                    "-v",
+                    str(in_vcf),
+                    "-g",
+                    "all",
+                    "-f",
+                    "FILTER = 'PASS'",
+                    "--fail-on-empty",
+                    "--output-dir",
+                    str(tmp_path),
+                ],
+            ),
+        ):
+            assert cli_module.main() == 2
+    finally:
+        logging.getLogger("variantcentrifuge").setLevel(prev_level)
 
 
 if __name__ == "__main__":
