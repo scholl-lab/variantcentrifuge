@@ -89,6 +89,11 @@ properties:
           - "string"
           - "null"
         default: null
+      filter_exception_file:
+        type:
+          - "string"
+          - "null"
+        default: null
       fail_on_empty:
         type: boolean
         default: false

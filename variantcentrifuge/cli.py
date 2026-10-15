@@ -289,6 +289,10 @@ def create_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    filter_group.add_argument(
+        "--filter-exception-file", help="5-col TSV of somatic hotspots to rescue to FILTER=PASS."
+    )
+
     # Field Extraction & Formatting
     format_group = parser.add_argument_group("Field Extraction & Formatting")
     format_group.add_argument("-e", "--fields", help="Fields to extract with SnpSift extractFields")
@@ -1473,6 +1477,7 @@ def main() -> int:
     for _cfg_k, _arg_v in (
         ("transcript_list", args.transcript_list),
         ("transcript_file", args.transcript_file),
+        ("filter_exception_file", args.filter_exception_file),
         ("genotype_filter", args.genotype_filter),
         ("gene_genotype_file", args.gene_genotype_file),
         ("snpeff_splitting_mode", args.split_snpeff_lines),

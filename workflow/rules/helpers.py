@@ -61,6 +61,10 @@ def build_vc_flags(vc_config: dict[str, Any], igv_config: dict[str, Any]) -> lis
         flags.append(f"--transcript-list {shlex.quote(str(vc_config['transcript_list']))}")
     if vc_config.get("final_filter"):
         flags.append(f"--final-filter {shlex.quote(str(vc_config['final_filter']))}")
+    if vc_config.get("filter_exception_file"):
+        flags.append(
+            f"--filter-exception-file {shlex.quote(str(vc_config['filter_exception_file']))}"
+        )
     if vc_config.get("fail_on_empty"):
         flags.append("--fail-on-empty")
 

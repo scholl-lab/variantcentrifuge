@@ -140,14 +140,108 @@ def _open_text(path: str) -> TextIO:
     return open(path, encoding="utf-8")
 
 
+def load_filter_exceptions(
+    exception_file: str | None,
+) -> dict[tuple[str, str, str, str], set[str]]:
+    """Load 5-column hotspot FILTER exception TSV (CHROM, POS, REF, ALT, ALLOWED_FILTERS)."""
+    import re
+
+    exceptions: dict[tuple[str, str, str, str], set[str]] = {}
+    if not exception_file:
+        return exceptions
+    with open(exception_file, encoding="utf-8") as fh:
+        for raw_line in fh:
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            cols = line.split("\t")
+            if len(cols) < 5:
+                cols = line.split()
+            if len(cols) < 5 or (
+                cols[0].upper() in {"CHROM", "#CHROM"} and cols[1].upper() == "POS"
+            ):
+                continue
+            chrom, pos, ref, alt, raw_allowed = (c.strip() for c in cols[:5])
+            allowed = {tok.strip() for tok in re.split(r"[,;]", raw_allowed) if tok.strip()}
+            alt_chrom = chrom.removeprefix("chr") if chrom.startswith("chr") else f"chr{chrom}"
+            for ch in (chrom, alt_chrom):
+                exceptions.setdefault((ch, pos, ref, alt), set()).update(allowed)
+    return exceptions
+
+
+def apply_filter_exceptions_to_line(
+    line: str,
+    exceptions: dict[tuple[str, str, str, str], set[str]],
+) -> str:
+    """Rescue matching hotspot VCF line to FILTER=PASS and record INFO/RAW_FILTER."""
+    if not exceptions or line.startswith("#"):
+        return line
+    cols = line.rstrip("\n").split("\t")
+    if len(cols) < 8:
+        return line
+    allowed = exceptions.get((cols[0], cols[1], cols[3], cols[4]))
+    if not allowed:
+        return line
+    raw_filter = cols[6].strip()
+    if raw_filter in {"", ".", "PASS"}:
+        return line
+    tokens = [t.strip() for t in raw_filter.split(";") if t.strip()]
+    permitted = allowed | {"PASS", "on_target", "clustered_events"}
+    if not tokens or not all(t in permitted for t in tokens):
+        return line
+    if not cols[7] or cols[7] == ".":
+        cols[7] = f"RAW_FILTER={raw_filter}"
+    elif "RAW_FILTER=" not in cols[7]:
+        cols[7] = f"{cols[7]};RAW_FILTER={raw_filter}"
+    cols[6] = "PASS"
+    logging.getLogger("variantcentrifuge").info(
+        "Rescued hotspot variant %s:%s %s>%s (RAW_FILTER=%s -> PASS)",
+        cols[0],
+        cols[1],
+        cols[3],
+        cols[4],
+        raw_filter,
+    )
+    return "\t".join(cols) + ("\n" if line.endswith("\n") else "")
+
+
+def apply_filter_exceptions_to_vcf(
+    input_vcf: str,
+    output_vcf: str,
+    exceptions: dict[tuple[str, str, str, str], set[str]],
+) -> int:
+    """Rewrite VCF applying hotspot FILTER exceptions and return number of rescued records."""
+    from .utils import smart_open
+
+    rescued = 0
+    has_raw_filter_hdr = False
+    with smart_open(input_vcf, "r") as fin, smart_open(output_vcf, "w") as fout:
+        for line in fin:
+            if line.startswith("##INFO=<ID=RAW_FILTER,"):
+                has_raw_filter_hdr = True
+            elif line.startswith("#CHROM") and not has_raw_filter_hdr:
+                fout.write(
+                    "##INFO=<ID=RAW_FILTER,Number=1,Type=String,"
+                    'Description="Raw FILTER before hotspot rescue">\n'
+                )
+            new_line = apply_filter_exceptions_to_line(line, exceptions)
+            if new_line != line:
+                rescued += 1
+            fout.write(new_line)
+    return rescued
+
+
 def filter_vcf_to_transcripts(
     input_vcf: str,
     output_vcf: str,
     transcript_ids: set[str],
     *,
     index_output: bool = False,
+    filter_exception_file: str | None = None,
+    filter_exceptions: dict[tuple[str, str, str, str], set[str]] | None = None,
 ) -> int:
     """Write a VCF containing one record per matching ANN transcript ID."""
+    exceptions = filter_exceptions or load_filter_exceptions(filter_exception_file)
     input_records = 0
     kept_records = 0
     base_ids = {_base_transcript_id(tid) for tid in transcript_ids if tid.strip()}
@@ -182,6 +276,8 @@ def filter_vcf_to_transcripts(
         for line in input_handle:
             if not line.startswith("#") and line.strip():
                 input_records += 1
+                if exceptions:
+                    line = apply_filter_exceptions_to_line(line, exceptions)
             filtered = filter_vcf_line_by_transcripts(
                 line,
                 transcript_ids,

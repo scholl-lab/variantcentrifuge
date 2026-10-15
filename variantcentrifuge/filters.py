@@ -33,6 +33,7 @@ from typing import Any, cast
 
 import pandas as pd
 
+from .transcript_filter import apply_filter_exceptions_to_vcf, load_filter_exceptions
 from .utils import run_command, smart_open
 
 logger = logging.getLogger("variantcentrifuge")
@@ -202,12 +203,23 @@ def apply_snpsift_filter(
     """Apply a SnpSift filter to a variant file, then bgzip-compress and index the output."""
     threads = str(cfg.get("threads", 1))
     in_count = _count_vcf_records(variant_file)
+    exceptions = cfg.get("filter_exceptions") or load_filter_exceptions(
+        cfg.get("filter_exception_file")
+    )
 
     tmp_fd, tmp_vcf = tempfile.mkstemp(suffix=".vcf")
     os.close(tmp_fd)
+    rescued_vcf: str | None = None
     try:
+        snpsift_input = variant_file
+        if exceptions and os.path.exists(variant_file):
+            r_fd, rescued_vcf = tempfile.mkstemp(suffix=".vcf")
+            os.close(r_fd)
+            apply_filter_exceptions_to_vcf(variant_file, rescued_vcf, exceptions)
+            snpsift_input = rescued_vcf
+
         xmx = _snpsift_memory_flag(cfg)
-        snpsift_cmd = ["SnpSift", xmx, "filter", filter_string, variant_file]
+        snpsift_cmd = ["SnpSift", xmx, "filter", filter_string, snpsift_input]
         logger.debug("Applying SnpSift filter (%s) to produce uncompressed VCF: %s", xmx, tmp_vcf)
         result = run_command(snpsift_cmd, output_file=tmp_vcf, return_result=True)
         _raise_for_snpsift_filter_stderr(result.stderr, filter_string)
@@ -229,8 +241,9 @@ def apply_snpsift_filter(
         )
         return output_file
     finally:
-        if os.path.exists(tmp_vcf):
-            os.remove(tmp_vcf)
+        for p in (tmp_vcf, rescued_vcf):
+            if p and os.path.exists(p):
+                os.remove(p)
 
 
 def filter_final_tsv_by_genotype(

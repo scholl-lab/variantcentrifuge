@@ -11,6 +11,7 @@
   "perform_gene_burden": false,
   "keep_intermediates": false,
   "fail_on_empty": false,
+  "filter_exception_file": null,
 
   "igv_enabled": false,
   "igv_reference": null,

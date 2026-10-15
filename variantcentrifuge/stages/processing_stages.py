@@ -500,7 +500,10 @@ class SnpSiftFilterStage(Stage):
         )
 
         logger.info(f"Applying SnpSift filter: {filter_expr}")
-        filter_config = {"threads": context.config.get("threads", 1)}
+        filter_config = {
+            "threads": context.config.get("threads", 1),
+            "filter_exception_file": context.config.get("filter_exception_file"),
+        }
         apply_snpsift_filter(str(input_vcf), filter_expr, filter_config, str(output_vcf))
 
         context.filtered_vcf = output_vcf
@@ -560,6 +563,7 @@ class TranscriptFilterStage(Stage):
             str(output_vcf),
             transcript_ids,
             index_output=False,
+            filter_exception_file=context.config.get("filter_exception_file"),
         )
 
         context.transcript_filtered_vcf = output_vcf  # type: ignore[attr-defined]
@@ -1205,6 +1209,7 @@ class ParallelCompleteProcessingStage(Stage):
                 str(transcript_filtered_vcf),
                 transcript_ids,
                 index_output=False,
+                filter_exception_file=config.get("filter_exception_file"),
             )
             working_vcf = transcript_filtered_vcf
 
@@ -1220,7 +1225,10 @@ class ParallelCompleteProcessingStage(Stage):
                 apply_snpsift_filter(
                     str(working_vcf),
                     filter_expr,
-                    {"threads": config.get("threads_per_chunk", 2)},
+                    {
+                        "threads": config.get("threads_per_chunk", 2),
+                        "filter_exception_file": config.get("filter_exception_file"),
+                    },
                     str(filtered_vcf),
                 )
             else:
@@ -1317,6 +1325,7 @@ class ParallelCompleteProcessingStage(Stage):
                 "snpeff_splitting_mode": context.config.get("snpeff_splitting_mode"),
                 "filter": context.config.get("filter"),
                 "filters": context.config.get("filters"),
+                "filter_exception_file": context.config.get("filter_exception_file"),
                 "fields_to_extract": context.config.get("fields_to_extract", ""),
                 "append_extra_sample_fields": context.config.get(
                     "append_extra_sample_fields", False

@@ -202,3 +202,49 @@ def test_filter_vcf_to_transcripts_matches_version_skew_emits_each_kept_and_logs
     assert "matched 2/3" in caplog.text
     assert "NM_unmatched.2" in caplog.text
     assert "NM_000720.4->NM_000720.3" in caplog.text
+
+
+def test_filter_exception_file_rescues_matching_hotspot_only(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Hotspot with FILTER=normal_artifact is rescued, while strand_bias or wrong ALT is not."""
+    from variantcentrifuge.filters import apply_filter_exceptions_to_vcf, load_filter_exceptions
+
+    exc_file = tmp_path / "exceptions.tsv"
+    exc_file.write_text(
+        "CHROM\tPOS\tREF\tALT\tALLOWED_FILTERS\n"
+        "chr11\t128839188\tG\tA\tnormal_artifact,panel_of_normals\n",
+        encoding="utf-8",
+    )
+    in_vcf = tmp_path / "in.vcf"
+    out_vcf = tmp_path / "out.vcf"
+    in_vcf.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tN\tT\n"
+        "chr11\t128839188\t.\tG\tA\t.\tnormal_artifact\tDP=100\tGT\t0/0\t0/1\n"
+        "chr11\t128839188\t.\tG\tA\t.\tnormal_artifact;strand_bias\tDP=100\tGT\t0/0\t0/1\n"
+        "chr11\t128839188\t.\tG\tT\t.\tnormal_artifact\tDP=100\tGT\t0/0\t0/1\n",
+        encoding="utf-8",
+    )
+
+    exceptions = load_filter_exceptions(str(exc_file))
+    with caplog.at_level("INFO", logger="variantcentrifuge"):
+        rescued = apply_filter_exceptions_to_vcf(str(in_vcf), str(out_vcf), exceptions)
+
+    assert rescued == 1
+    assert (
+        "Rescued hotspot variant chr11:128839188 G>A (RAW_FILTER=normal_artifact -> PASS)"
+        in caplog.text
+    )
+    records = [
+        line.split("\t")
+        for line in out_vcf.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    ]
+    assert records[0][6] == "PASS"
+    assert "RAW_FILTER=normal_artifact" in records[0][7]
+    assert records[1][6] == "normal_artifact;strand_bias"
+    assert "RAW_FILTER=" not in records[1][7]
+    assert records[2][6] == "normal_artifact"
+    assert "RAW_FILTER=" not in records[2][7]
