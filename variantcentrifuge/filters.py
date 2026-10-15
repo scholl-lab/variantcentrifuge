@@ -35,6 +35,7 @@ import pandas as pd
 
 from .transcript_filter import apply_filter_exceptions_to_vcf, load_filter_exceptions
 from .utils import run_command, smart_open
+from .vcf_eff_one_per_line import normalize_vcf_multiallelics, vcf_has_multiallelic
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -187,6 +188,33 @@ def extract_variants(vcf_file: str, bed_file: str, cfg: dict[str, Any], output_f
 
     in_count = _count_vcf_records(vcf_file)
     run_command(cmd)
+    if vcf_has_multiallelic(output_file):
+        n_fd, norm_in = tempfile.mkstemp(suffix=".vcf")
+        os.close(n_fd)
+        try:
+            normalize_vcf_multiallelics(output_file, norm_in, index_output=False)
+            run_command(
+                [
+                    "bcftools",
+                    "norm",
+                    "--threads",
+                    threads,
+                    "-W",
+                    "-m",
+                    "-any",
+                    "-Oz",
+                    "-o",
+                    output_file,
+                    norm_in,
+                ]
+            )
+            if vcf_has_multiallelic(output_file) or (
+                _count_vcf_records(output_file) == 0 and _count_vcf_records(norm_in) > 0
+            ):
+                normalize_vcf_multiallelics(norm_in, output_file)
+        finally:
+            if os.path.exists(norm_in):
+                os.remove(norm_in)
     out_count = _count_vcf_records(output_file)
     logger.info(
         "Variant extraction (bcftools view): %d input -> %d output records (%s)",
@@ -210,12 +238,18 @@ def apply_snpsift_filter(
     tmp_fd, tmp_vcf = tempfile.mkstemp(suffix=".vcf")
     os.close(tmp_fd)
     rescued_vcf: str | None = None
+    norm_vcf: str | None = None
     try:
         snpsift_input = variant_file
-        if exceptions and os.path.exists(variant_file):
+        if os.path.exists(snpsift_input) and vcf_has_multiallelic(snpsift_input):
+            n_fd, norm_vcf = tempfile.mkstemp(suffix=".vcf")
+            os.close(n_fd)
+            normalize_vcf_multiallelics(snpsift_input, norm_vcf, index_output=False)
+            snpsift_input = norm_vcf
+        if exceptions and os.path.exists(snpsift_input):
             r_fd, rescued_vcf = tempfile.mkstemp(suffix=".vcf")
             os.close(r_fd)
-            apply_filter_exceptions_to_vcf(variant_file, rescued_vcf, exceptions)
+            apply_filter_exceptions_to_vcf(snpsift_input, rescued_vcf, exceptions)
             snpsift_input = rescued_vcf
 
         xmx = _snpsift_memory_flag(cfg)
@@ -241,7 +275,7 @@ def apply_snpsift_filter(
         )
         return output_file
     finally:
-        for p in (tmp_vcf, rescued_vcf):
+        for p in (tmp_vcf, rescued_vcf, norm_vcf):
             if p and os.path.exists(p):
                 os.remove(p)
 

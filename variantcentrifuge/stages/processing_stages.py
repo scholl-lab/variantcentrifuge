@@ -596,7 +596,7 @@ class FieldExtractionStage(Stage):
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Prefer to run after filtering if it exists
-        return {"snpsift_filtering", "transcript_filtering"}
+        return {"snpsift_filtering", "transcript_filtering", "multiallelic_split"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Extract fields to TSV format."""
@@ -1191,7 +1191,7 @@ class ParallelCompleteProcessingStage(Stage):
 
         working_vcf = chunk_vcf
         split_mode = config.get("snpeff_splitting_mode")
-        if split_mode == "before_filters":
+        if split_mode and split_mode != "after_filters":
             split_vcf = intermediate_dir / f"{chunk_base}.split_annotations.vcf.gz"
             split_snpeff_annotations(str(working_vcf), str(split_vcf))
             working_vcf = split_vcf

@@ -42,10 +42,13 @@ Command-line arguments:
 """
 
 import argparse
+import contextlib
 import gzip
 import io
 import logging
+import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -53,6 +56,7 @@ logger = logging.getLogger(__name__)
 
 ANN_GENE_NAME_INDEX = 3
 ANN_GENE_ID_INDEX = 4
+_NON_ALLELE_INFO_KEYS = {"ANN", "EFF", "LOF", "NMD", "CSQ"}
 
 
 def _ann_gene_keys(ann_entry: str) -> set[str]:
@@ -83,32 +87,149 @@ def _filter_gene_scoped_info_value(value: str, gene_keys: set[str], info_key: st
     return ",".join(kept_entries)
 
 
-def split_vcf_effects(line: str) -> list[str]:
-    """
-    Split multiple EFF or ANN annotations in the INFO field of a VCF line into separate lines.
+def _filter_ann_for_alt(ann_value: str, alt: str, all_alts: list[str]) -> str | None:
+    """Filter comma-separated ANN entries to those matching the given ALT allele."""
+    entries = [e for e in ann_value.split(",") if e]
+    if len(entries) <= 1:
+        return ann_value
+    matching = [e for e in entries if e.split("|", 1)[0] == alt]
+    if matching:
+        return ",".join(matching)
+    if len(all_alts) > 1 and len(entries) == len(all_alts) and alt in all_alts:
+        return entries[all_alts.index(alt)]
+    if any(e.split("|", 1)[0] in set(all_alts) for e in entries):
+        return None
+    return ann_value
 
-    If no EFF/ANN is found or only one is found, returns a list containing the original line.
 
-    :param line: A single VCF record (line).
-    :return: A list of one or more lines, each containing one EFF/ANN annotation.
-    """
-    # If this is a header line, return as is
+def _decompose_sample_column(
+    fmt_keys: list[str], sample_str: str, alt_idx: int, num_alts: int
+) -> str:
+    """Decompose Number=A/R FORMAT fields and normalize GT for one ALT allele."""
+    vals = sample_str.split(":")
+    if len(vals) == 1 and vals[0] in {".", "./.", ".|."}:
+        return sample_str
+
+    has_alt_support = False
+    for k, v in zip(fmt_keys, vals, strict=False):
+        if k == "AF":
+            parts = v.split(",")
+            if len(parts) == num_alts and parts[alt_idx] not in {".", ""}:
+                with contextlib.suppress(ValueError):
+                    has_alt_support = has_alt_support or float(parts[alt_idx]) > 0
+        elif k == "AD":
+            parts = v.split(",")
+            if len(parts) == num_alts + 1 and parts[alt_idx + 1] not in {".", ""}:
+                with contextlib.suppress(ValueError):
+                    has_alt_support = has_alt_support or int(parts[alt_idx + 1]) > 0
+
+    out_vals: list[str] = []
+    target = str(alt_idx + 1)
+    for k, v in zip(fmt_keys, vals, strict=False):
+        if k == "GT":
+            sep = "|" if "|" in v else "/"
+            alleles = re.split(r"[/|]", v)
+            if all(a == "." for a in alleles):
+                out_vals.append(v)
+                continue
+            mapped = ["." if a == "." else ("1" if a == target else "0") for a in alleles]
+            if (
+                num_alts > 1
+                and alt_idx > 0
+                and "1" not in mapped
+                and "1" in alleles
+                and all(a in {"0", "1", "."} for a in alleles)
+                and has_alt_support
+            ):
+                mapped = ["0", "1"]
+            elif len(mapped) > 2:
+                if "1" in mapped and "0" in mapped:
+                    mapped = ["0", "1"]
+                elif all(x == "1" for x in mapped):
+                    mapped = ["1", "1"]
+                elif all(x == "0" for x in mapped):
+                    mapped = ["0", "0"]
+                else:
+                    mapped = mapped[:2]
+            out_vals.append(sep.join(mapped))
+        elif "," in v and num_alts > 1:
+            parts = v.split(",")
+            if k == "AD" or (len(parts) == num_alts + 1 and k not in {"FT", "PGT", "PID"}):
+                out_vals.append(f"{parts[0]},{parts[alt_idx + 1]}")
+            elif k in {"AF", "VAF", "FA"} or (
+                len(parts) == num_alts and k not in {"FT", "PGT", "PID", "AD"}
+            ):
+                out_vals.append(parts[alt_idx])
+            else:
+                out_vals.append(v)
+        else:
+            out_vals.append(v)
+    if len(vals) > len(fmt_keys):
+        out_vals.extend(vals[len(fmt_keys) :])
+    return ":".join(out_vals)
+
+
+def decompose_multiallelic_line(line: str) -> list[str]:
+    """Decompose a multiallelic VCF line into biallelic lines with allele-matched ANN and AF/AD."""
+    stripped = line.rstrip("\n")
+    if stripped.startswith("#"):
+        return [stripped]
+    columns = stripped.split("\t")
+    if len(columns) < 8:
+        return [stripped]
+
+    alts = columns[4].split(",")
+    num_alts = len(alts)
+    infos = columns[7].split(";")
+    fmt_keys = columns[8].split(":") if len(columns) > 8 else []
+
+    out_lines: list[str] = []
+    for alt_idx, alt in enumerate(alts):
+        row_cols = list(columns)
+        row_cols[4] = alt
+        new_infos: list[str] = []
+        for inf in infos:
+            if "=" not in inf:
+                new_infos.append(inf)
+                continue
+            key, val = inf.split("=", 1)
+            if key == "ANN":
+                filtered_ann = _filter_ann_for_alt(val, alt, alts)
+                if filtered_ann is not None:
+                    new_infos.append(f"ANN={filtered_ann}")
+            elif num_alts > 1 and key not in _NON_ALLELE_INFO_KEYS and "," in val:
+                parts = val.split(",")
+                if len(parts) == num_alts:
+                    new_infos.append(f"{key}={parts[alt_idx]}")
+                elif len(parts) == num_alts + 1:
+                    new_infos.append(f"{key}={parts[0]},{parts[alt_idx + 1]}")
+                else:
+                    new_infos.append(inf)
+            else:
+                new_infos.append(inf)
+        row_cols[7] = ";".join(new_infos) if new_infos else "."
+        if fmt_keys and len(row_cols) > 9:
+            for s_idx in range(9, len(row_cols)):
+                row_cols[s_idx] = _decompose_sample_column(
+                    fmt_keys, row_cols[s_idx], alt_idx, num_alts
+                )
+        out_lines.append("\t".join(row_cols))
+    return out_lines
+
+
+def _split_biallelic_line_effects(line: str) -> list[str]:
+    """Split multiple EFF or ANN annotations on a single biallelic VCF line."""
     if line.startswith("#"):
         return [line]
 
     columns = line.strip().split("\t")
-    # VCF columns: CHROM (0), POS (1), ID (2), REF (3), ALT (4),
-    #              QUAL (5), FILTER (6), INFO (7), FORMAT (8), ...
     info_field_num = 7
-
-    # Guard: If the line doesn't have enough columns, return it as is
     if len(columns) <= info_field_num:
         return [line]
 
     info_str = columns[info_field_num]
     infos = info_str.split(";")
 
-    # We look for EFF= or ANN= in the INFO field
     effs: list[str] = []
     field_name = None
     other_info_parts = []
@@ -129,21 +250,17 @@ def split_vcf_effects(line: str) -> list[str]:
         else:
             other_info_parts.append(inf)
 
-    # If no EFF/ANN found or only one annotation, return original line
     if not effs or len(effs) <= 1:
         return [line]
 
-    # Otherwise, replicate line for each EFF/ANN
-    pre_cols = columns[:info_field_num]  # columns before INFO
-    post_cols = columns[info_field_num + 1 :]  # columns after INFO
+    pre_cols = columns[:info_field_num]
+    post_cols = columns[info_field_num + 1 :]
 
     split_lines = []
     pre_string = "\t".join(pre_cols)
     post_string = "\t" + "\t".join(post_cols) if post_cols else ""
 
-    # Reconstruct lines with each effect/annotation on separate lines
     for eff in effs:
-        # Build the final INFO field: combine leftover info with the single EFF/ANN
         new_info_parts = list(filter(None, other_info_parts))
         if field_name == "ANN":
             new_info_parts.append(f"{field_name}={eff}")
@@ -159,80 +276,110 @@ def split_vcf_effects(line: str) -> list[str]:
             new_info_parts.append(f"{field_name}={eff}")
 
         new_info = ";".join(new_info_parts)
-
         new_line = f"{pre_string}\t{new_info}{post_string}"
         split_lines.append(new_line)
 
     return split_lines
 
 
-def process_vcf_file(input_file: str, output_file: str | None = None) -> None:
-    """
-    Process a VCF file, split multiple EFF/ANN annotations into separate lines, and write the output.
+def split_vcf_effects(line: str) -> list[str]:
+    """Decompose multiallelic ALT records and split multiple EFF/ANN annotations one per line."""
+    if line.startswith("#"):
+        return [line]
+    split_lines: list[str] = []
+    for biallelic_line in decompose_multiallelic_line(line):
+        split_lines.extend(_split_biallelic_line_effects(biallelic_line))
+    return split_lines
 
-    Handles both bgzipped and uncompressed files. If the output file ends with .gz (and is not '-'),
-    the output is written through bgzip and a tabix index is created automatically.
 
-    :param input_file: Path to an uncompressed or bgzipped VCF file. Use '-'
-                       to read from stdin.
-    :param output_file: Path to output file (may be .vcf or .gz). Use '-' for
-                        stdout. If None, stdout is used by default.
-    """
-    # Decide if we should write BGZipped output
-    use_bgzip = False
-    if output_file is not None and output_file != "-" and output_file.endswith(".gz"):
-        use_bgzip = True
+def vcf_has_multiallelic(path: str) -> bool:
+    """Return True if the VCF at `path` contains any multiallelic record (`ALT` with `,`)."""
+    if not path or not os.path.exists(path):
+        return False
+    try:
+        opener = gzip.open if path.endswith(".gz") else open
+        with opener(path, "rt", encoding="utf-8", errors="replace") as fh:  # type: ignore[call-overload]
+            for line in fh:
+                if not line or line.startswith("#"):
+                    continue
+                cols = line.split("\t", 5)
+                if len(cols) >= 5 and "," in cols[4]:
+                    return True
+    except Exception:
+        return False
+    return False
 
-    # Prepare the output handle
+
+def process_vcf_file(
+    input_file: str,
+    output_file: str | None = None,
+    *,
+    split_transcripts: bool = True,
+    index_output: bool = True,
+) -> None:
+    """Process a VCF file, decomposing multiallelic records and optionally splitting ANN/EFF."""
+    use_bgzip = bool(
+        output_file is not None
+        and output_file != "-"
+        and output_file.endswith(".gz")
+        and shutil.which("bgzip")
+    )
+    use_gzip_fallback = bool(
+        output_file is not None
+        and output_file != "-"
+        and output_file.endswith(".gz")
+        and not use_bgzip
+    )
+
     bgzip_proc = None
+    out_fh = None
     if output_file is None or output_file == "-":
-        # Write to stdout (uncompressed)
         out_handle = sys.stdout
+    elif use_bgzip:
+        out_fh = open(output_file, "wb")  # noqa: SIM115
+        bgzip_proc = subprocess.Popen(
+            ["bgzip", "-c"],
+            stdin=subprocess.PIPE,
+            stdout=out_fh,
+            stderr=subprocess.PIPE,
+        )
+        assert bgzip_proc.stdin is not None
+        out_handle = io.TextIOWrapper(bgzip_proc.stdin, encoding="utf-8")
+    elif use_gzip_fallback:
+        out_handle = gzip.open(output_file, mode="wt", encoding="utf-8")  # noqa: SIM115
     else:
-        if use_bgzip:
-            # We create a subprocess that writes to 'bgzip -c'
-            # so we can write text data that ends up BGZipped
-            # then we pipe that directly to our final .gz file
-            out_fh = open(output_file, "wb")  # noqa: SIM115 - subprocess pipe stdout
-            bgzip_proc = subprocess.Popen(
-                ["bgzip", "-c"],
-                stdin=subprocess.PIPE,
-                stdout=out_fh,
-                stderr=subprocess.PIPE,
-            )
-            out_handle = io.TextIOWrapper(bgzip_proc.stdin, encoding="utf-8")
-        else:
-            # Plain text
-            out_handle = open(output_file, "w", encoding="utf-8")  # noqa: SIM115 - conditional handle, closed in finally
+        out_handle = open(output_file, "w", encoding="utf-8")  # noqa: SIM115
 
-    # Open the input handle
     if input_file == "-":
         in_handle = sys.stdin
     elif input_file.endswith(".gz"):
-        in_handle = gzip.open(input_file, mode="rt", encoding="utf-8")  # noqa: SIM115 - used in `with in_handle:` below
+        in_handle = gzip.open(input_file, mode="rt", encoding="utf-8")  # noqa: SIM115
     else:
-        in_handle = open(input_file, encoding="utf-8")  # noqa: SIM115 - used in `with in_handle:` below
+        in_handle = open(input_file, encoding="utf-8")  # noqa: SIM115
 
-    # Read from in_handle, write to out_handle
+    line_fn = split_vcf_effects if split_transcripts else decompose_multiallelic_line
     try:
         with in_handle:
             for line in in_handle:
-                line = line.rstrip("\n")
-                split_lines = split_vcf_effects(line)
-                for out_line in split_lines:
+                for out_line in line_fn(line.rstrip("\n")):
                     out_handle.write(out_line + "\n")
     finally:
-        # Now close out_handle ourselves
         if out_handle not in (sys.stdout, sys.stdin):
             out_handle.close()
-
-        # If we used bgzip, wait for it and close the output file handle
         if use_bgzip and bgzip_proc is not None:
             bgzip_proc.wait()
-            out_fh.close()
-            if bgzip_proc.returncode == 0:
+            if out_fh is not None:
+                out_fh.close()
+            if bgzip_proc.returncode == 0 and index_output and shutil.which("tabix"):
                 assert output_file is not None
-                subprocess.run(["tabix", "-p", "vcf", output_file], check=True)
+                subprocess.run(["tabix", "-f", "-p", "vcf", output_file], check=True)
+
+
+def normalize_vcf_multiallelics(
+    input_file: str, output_file: str, *, index_output: bool = True
+) -> None:
+    """Decompose multiallelic VCF records into biallelic rows without splitting transcripts."""
+    process_vcf_file(input_file, output_file, split_transcripts=False, index_output=index_output)
 
 
 def main():

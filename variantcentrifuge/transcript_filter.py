@@ -95,7 +95,25 @@ def filter_vcf_line_by_transcripts(
     if line.startswith("#"):
         return line
 
-    columns = line.rstrip("\n").split("\t")
+    from .vcf_eff_one_per_line import decompose_multiallelic_line
+
+    decomposed = decompose_multiallelic_line(line)
+    if len(decomposed) > 1:
+        parts_out = [
+            res
+            for sub in decomposed
+            if (
+                res := filter_vcf_line_by_transcripts(
+                    sub + "\n",
+                    transcript_ids,
+                    base_ids=base_ids,
+                    matched_features=matched_features,
+                )
+            )
+        ]
+        return "".join(parts_out) if parts_out else None
+
+    columns = decomposed[0].split("\t")
     if len(columns) < 8:
         return line
 

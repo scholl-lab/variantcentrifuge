@@ -198,9 +198,21 @@ def parse_ann_subfields(df: pd.DataFrame, fields: list[str]) -> pd.DataFrame:
         # No ANN subfields requested, just drop the raw column
         return df.drop(columns=["ANN"])
 
-    # Take first annotation (index [0])
-    # Multiple annotations are comma-separated
-    first_ann = df["ANN"].fillna("").str.split(",", n=1).str[0]
+    # Select first annotation matching ALT (when present), falling back to index [0]
+    if "ALT" in df.columns:
+        first_ann = pd.Series(
+            [
+                next(
+                    (e for e in str(ann).split(",") if e and e.split("|", 1)[0] == str(alt)),
+                    str(ann).split(",", 1)[0],
+                )
+                for ann, alt in zip(df["ANN"].fillna(""), df["ALT"].fillna(""), strict=False)
+            ],
+            index=df.index,
+            dtype="object",
+        )
+    else:
+        first_ann = df["ANN"].fillna("").str.split(",", n=1).str[0]
 
     # Split by pipe
     ann_split = first_ann.str.split("|", expand=True)
@@ -330,10 +342,22 @@ def extract_fields_bcftools(
     # Create temporary file for bcftools output
     temp_fd, temp_output = tempfile.mkstemp(suffix=".tsv", prefix="bcftools_extract_")
     os.close(temp_fd)
+    norm_vcf: str | None = None
 
     try:
+        from .vcf_eff_one_per_line import normalize_vcf_multiallelics, vcf_has_multiallelic
+
+        query_vcf = variant_file
+        if os.path.exists(variant_file) and vcf_has_multiallelic(variant_file):
+            if cfg.get("reject_multiallelic"):
+                raise ValueError(f"Unsplit multiallelic record in VCF: {variant_file}")
+            n_fd, norm_vcf = tempfile.mkstemp(suffix=".vcf", prefix="bcftools_norm_")
+            os.close(n_fd)
+            normalize_vcf_multiallelics(variant_file, norm_vcf, index_output=False)
+            query_vcf = norm_vcf
+
         # Run bcftools query
-        cmd = ["bcftools", "query", "-u", "-f", format_string, variant_file]
+        cmd = ["bcftools", "query", "-u", "-f", format_string, query_vcf]
 
         logger.debug(f"Running bcftools query: {' '.join(cmd)}")
 
@@ -389,6 +413,12 @@ def extract_fields_bcftools(
                 column_names = column_names[: len(df.columns)]
 
         df.columns = column_names
+        if (
+            "ALT" in df.columns
+            and df["ALT"].astype(str).str.contains(",", na=False).any()
+            and any(c.endswith(("__AF", ".AF", "__AD", ".AD")) for c in df.columns)
+        ):
+            raise ValueError("Unsplit multiallelic ALT record encountered during AF/AD extraction")
 
         # Parse ANN subfields if present
         df = parse_ann_subfields(df, field_list)
@@ -420,8 +450,9 @@ def extract_fields_bcftools(
 
     finally:
         # Clean up temp file
-        if os.path.exists(temp_output):
-            os.remove(temp_output)
+        for p in (temp_output, norm_vcf):
+            if p and os.path.exists(p):
+                os.remove(p)
 
     return output_file
 
