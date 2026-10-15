@@ -231,7 +231,7 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
             stages.append(TranscriptFilterStage())
 
         # Add SnpSift filtering stage (it will check config for filters at runtime)
-        if not getattr(args, "late_filtering", False):
+        if not (getattr(args, "late_filtering", False) or config.get("late_filtering", False)):
             stages.append(SnpSiftFilterStage(split_before_filtering=split_before_filtering))
 
         # Field extraction

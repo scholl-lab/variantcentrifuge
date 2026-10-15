@@ -305,3 +305,83 @@ def test_sample_count_mismatch_warning(caplog):
     assert "GT column count (2) != sample count (3)" in caplog.text
     # Should still work with available columns
     assert result["GT"].iloc[0] == "Sample1(0/1);Sample2(1/1)"
+
+
+@pytest.mark.unit
+def test_reconstruct_gt_column_with_extra_sample_fields_retains_normal():
+    """reconstruct_gt_column appends extra_sample_fields (GT:DP:AD:AF) and retains 0/0 normal."""
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100],
+            "GEN_0__GT": ["0/0"],
+            "GEN_0__DP": ["42"],
+            "GEN_0__AD": ["42,0"],
+            "GEN_0__AF": ["0.00"],
+            "GEN_1__GT": ["0/1"],
+            "GEN_1__DP": ["85"],
+            "GEN_1__AD": ["60,25"],
+            "GEN_1__AF": ["0.29"],
+        }
+    )
+    res = reconstruct_gt_column(
+        df,
+        ["NORMAL", "TUMOR"],
+        extra_sample_fields=["GEN[*].DP", "GEN[*].AD", "GEN[*].AF"],
+    )
+    assert res["GT"].iloc[0] == "NORMAL(0/0:42:42,0:0.00);TUMOR(0/1:85:60,25:0.29)"
+    assert "GEN_0__DP" not in res.columns
+    assert "GEN_1__AF" not in res.columns
+
+
+@pytest.mark.unit
+def test_cli_preserves_config_json_options_and_final_filtering_reads_filters(tmp_path, monkeypatch):
+    """CLI -c config.json preserves transcript_file/final_filter and reads filters."""
+    import json
+    from pathlib import Path
+    from unittest.mock import Mock
+
+    from variantcentrifuge import cli
+    from variantcentrifuge.pipeline_core.context import PipelineContext
+    from variantcentrifuge.stages.output_stages import FinalFilteringStage
+
+    vcf = tmp_path / "test.vcf"
+    vcf.write_text(
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tN\tT\n"
+    )
+    tx_file = tmp_path / "tx.txt"
+    tx_file.write_text("ENST00000269305.4\n")
+    cfg_file = tmp_path / "custom_config.json"
+    base_cfg = json.loads((Path(cli.__file__).parent / "config.json").read_text(encoding="utf-8"))
+    base_cfg.update(
+        {
+            "filters": "(FILTER = 'PASS')",
+            "transcript_file": str(tx_file),
+            "final_filter": "POS > 50",
+            "late_filtering": True,
+            "extra_sample_fields": ["GEN[*].DP", "GEN[*].AD", "GEN[*].AF"],
+        }
+    )
+    cfg_file.write_text(json.dumps(base_cfg), encoding="utf-8")
+
+    captured = {}
+    monkeypatch.setattr(cli, "run_pipeline", lambda a: captured.update(a.config))
+    monkeypatch.setattr(
+        "sys.argv",
+        ["variantcentrifuge", "-v", str(vcf), "-g", "TP53", "-c", str(cfg_file)],
+    )
+    cli.main()
+
+    assert captured["transcript_file"] == str(tx_file)
+    assert captured["final_filter"] == "POS > 50"
+    assert captured["late_filtering"] is True
+    assert captured["append_extra_sample_fields"] is True
+    assert captured["extra_sample_fields"] == ["GEN[*].DP", "GEN[*].AD", "GEN[*].AF"]
+
+    stage = FinalFilteringStage()
+    ctx = Mock(spec=PipelineContext)
+    ctx.config = {"late_filtering": True, "filters": "POS > 100"}
+    ctx.current_dataframe = pd.DataFrame({"CHROM": ["chr1", "chr1"], "POS": [50, 200]})
+    out_ctx = stage._process(ctx)
+    assert len(out_ctx.current_dataframe) == 1
+    assert out_ctx.current_dataframe["POS"].iloc[0] == 200

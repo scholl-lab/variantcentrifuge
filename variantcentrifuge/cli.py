@@ -1200,11 +1200,14 @@ def main() -> int:
         _v = getattr(args, _k, None)
         tumor_normal_vars[_k] = str(cfg.get(_k, _d) if _v is None else _v)
 
-    # Handle presets
+    # Handle presets (from CLI --preset or config "preset")
     preset_dict = cfg.get("presets", {})
-    if args.preset:
+    raw_presets = args.preset or cfg.get("preset") or []
+    if isinstance(raw_presets, str):
+        raw_presets = [raw_presets]
+    if raw_presets:
         chosen_presets = []
-        for p in args.preset:
+        for p in raw_presets:
             p_str = p.strip()
             if p_str in preset_dict:
                 expr = preset_dict[p_str].format_map(tumor_normal_vars)
@@ -1223,8 +1226,9 @@ def main() -> int:
     # Validate mandatory parameters
     validate_mandatory_parameters(reference, filters, fields)
     validate_vcf_file(args.vcf_file, logger)
-    if args.transcript_file and not Path(args.transcript_file).is_file():
-        logger.error(f"Transcript file not found: {args.transcript_file}")
+    tx_file = args.transcript_file or cfg.get("transcript_file")
+    if tx_file and not Path(tx_file).is_file():
+        logger.error(f"Transcript file not found: {tx_file}")
         sys.exit(1)
 
     if args.phenotype_file and (
@@ -1466,54 +1470,44 @@ def main() -> int:
     if args.output_file is not None:
         cfg["output_file"] = args.output_file
 
-    # Gene list annotation
-    cfg["annotate_gene_list_files"] = args.annotate_gene_list
+    for _cfg_k, _arg_v in (
+        ("transcript_list", args.transcript_list),
+        ("transcript_file", args.transcript_file),
+        ("genotype_filter", args.genotype_filter),
+        ("gene_genotype_file", args.gene_genotype_file),
+        ("snpeff_splitting_mode", args.split_snpeff_lines),
+        ("clinvar_pm5_lookup", args.clinvar_pm5_lookup),
+        ("scoring_config_path", args.scoring_config_path),
+        ("phenotype_file", args.phenotype_file),
+        ("phenotype_sample_column", args.phenotype_sample_column),
+        ("phenotype_value_column", args.phenotype_value_column),
+        ("json_gene_mapping", args.json_gene_mapping),
+    ):
+        cfg[_cfg_k] = _arg_v if _arg_v is not None else cfg.get(_cfg_k)
 
-    # Transcript list/file
-    cfg["transcript_list"] = args.transcript_list
-    cfg["transcript_file"] = args.transcript_file
-
-    # Genotype filter arguments
-    cfg["genotype_filter"] = args.genotype_filter
-    cfg["gene_genotype_file"] = args.gene_genotype_file
-
-    # Unified extra sample fields logic:
     if args.append_extra_sample_fields is not None:
-        # Flag used => enable genotype+field appending
         cfg["append_extra_sample_fields"] = True
-        # Possibly empty list if used with no args
         cfg["extra_sample_fields"] = args.append_extra_sample_fields
     else:
-        # Flag not used at all
-        cfg["append_extra_sample_fields"] = False
-        cfg["extra_sample_fields"] = []
+        cfg["extra_sample_fields"] = cfg.get("extra_sample_fields") or []
+        cfg["append_extra_sample_fields"] = bool(
+            cfg.get("append_extra_sample_fields", False) or cfg["extra_sample_fields"]
+        )
+    if args.extra_sample_field_delimiter is not None:
+        cfg["extra_sample_field_delimiter"] = args.extra_sample_field_delimiter
 
-    cfg["extra_sample_field_delimiter"] = args.extra_sample_field_delimiter
-
-    # Manage the new snpEff splitting mode
-    cfg["snpeff_splitting_mode"] = (
-        args.split_snpeff_lines
-    )  # None, 'before_filters', or 'after_filters'
-
-    # ClinVar PM5 configuration
-    cfg["clinvar_pm5_lookup"] = args.clinvar_pm5_lookup
-
-    # Scoring configuration
-    cfg["scoring_config_path"] = args.scoring_config_path
-
-    # Phenotype configuration - ensure these are always set
-    cfg["phenotype_file"] = args.phenotype_file
-    cfg["phenotype_sample_column"] = args.phenotype_sample_column
-    cfg["phenotype_value_column"] = args.phenotype_value_column
-
-    # Unified annotation configuration
-    cfg["annotate_bed_files"] = args.annotate_bed
-    cfg["annotate_json_genes"] = args.annotate_json_genes
-    cfg["json_gene_mapping"] = args.json_gene_mapping
-    cfg["json_genes_as_columns"] = args.json_genes_as_columns
-    # Note: args.annotate_gene_list is already handled above as "annotate_gene_list_files"
-    # We'll map it to the new unified system
-    cfg["annotate_gene_lists"] = args.annotate_gene_list
+    if args.annotate_bed:
+        cfg["annotate_bed_files"] = args.annotate_bed
+    if args.annotate_json_genes:
+        cfg["annotate_json_genes"] = args.annotate_json_genes
+    else:
+        cfg.setdefault("annotate_json_genes", [])
+    cfg["json_genes_as_columns"] = bool(
+        args.json_genes_as_columns or cfg.get("json_genes_as_columns", False)
+    )
+    if args.annotate_gene_list:
+        cfg["annotate_gene_list_files"] = args.annotate_gene_list
+        cfg["annotate_gene_lists"] = args.annotate_gene_list
     normalize_annotation_config(cfg)
 
     # Validate unified annotation arguments
@@ -1571,25 +1565,26 @@ def main() -> int:
             )
 
     # Inheritance analysis configuration
-    cfg["ped_file"] = args.ped
-    # Enable inheritance analysis if inheritance mode is explicitly specified OR if PED file is provided
-    # This allows single-sample analysis without PED
-    cfg["calculate_inheritance"] = args.inheritance_mode is not None or args.ped is not None
-    # If inheritance is calculated but no mode specified, default to "simple"
-    cfg["inheritance_mode"] = args.inheritance_mode or (
-        "simple" if cfg["calculate_inheritance"] else None
+    cfg["ped_file"] = args.ped if args.ped is not None else cfg.get("ped_file")
+    cfg["calculate_inheritance"] = bool(
+        args.inheritance_mode is not None
+        or args.ped is not None
+        or cfg.get("calculate_inheritance", False)
     )
-    cfg[
-        "use_vectorized_comp_het"
-    ] = not args.no_vectorized_comp_het  # Default to True unless disabled
+    cfg["inheritance_mode"] = (
+        args.inheritance_mode
+        or cfg.get("inheritance_mode")
+        or ("simple" if cfg["calculate_inheritance"] else None)
+    )
+    cfg["use_vectorized_comp_het"] = not args.no_vectorized_comp_het
 
-    # Late filtering configuration
-    cfg["late_filtering"] = args.late_filtering
+    cfg["late_filtering"] = bool(args.late_filtering or cfg.get("late_filtering", False))
+    cfg["bcftools_prefilter"] = (
+        args.bcftools_prefilter
+        if args.bcftools_prefilter is not None
+        else cfg.get("bcftools_prefilter")
+    )
 
-    # Bcftools pre-filtering configuration
-    cfg["bcftools_prefilter"] = args.bcftools_prefilter
-
-    # Final filter configuration
     final_filter = args.final_filter if args.final_filter is not None else cfg.get("final_filter")
     cfg["final_filter"] = (
         final_filter.format_map(tumor_normal_vars) if final_filter else final_filter

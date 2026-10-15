@@ -301,10 +301,14 @@ def ensure_fields_in_extract(base_fields_str: str, extra_fields: list[str]) -> s
     """
     base_list = [] if not base_fields_str else base_fields_str.split()
 
-    # Just deduplicate:
     for raw_field in extra_fields:
-        if raw_field not in base_list:
-            base_list.append(raw_field)
+        norm = (
+            raw_field
+            if raw_field.startswith(("GEN[", "ANN[", "NMD[", "LOF[")) or "." in raw_field
+            else f"GEN[*].{raw_field}"
+        )
+        if norm not in base_list:
+            base_list.append(norm)
 
     return " ".join(base_list)
 

@@ -44,8 +44,25 @@ def build_vc_flags(vc_config: dict[str, Any], igv_config: dict[str, Any]) -> lis
     if profile:
         flags.append(f"--field-profile {shlex.quote(str(profile))}")
 
-    for preset in vc_config.get("presets", []):
+    raw_presets = list(vc_config.get("presets", []))
+    single_preset = vc_config.get("preset")
+    if isinstance(single_preset, list):
+        raw_presets.extend(single_preset)
+    elif single_preset:
+        raw_presets.append(single_preset)
+    for preset in raw_presets:
         flags.append(f"--preset {shlex.quote(str(preset))}")
+
+    if vc_config.get("filters"):
+        flags.append(f"--filters {shlex.quote(str(vc_config['filters']))}")
+    if vc_config.get("transcript_file"):
+        flags.append(f"--transcript-file {shlex.quote(str(vc_config['transcript_file']))}")
+    if vc_config.get("transcript_list"):
+        flags.append(f"--transcript-list {shlex.quote(str(vc_config['transcript_list']))}")
+    if vc_config.get("final_filter"):
+        flags.append(f"--final-filter {shlex.quote(str(vc_config['final_filter']))}")
+    if vc_config.get("fail_on_empty"):
+        flags.append("--fail-on-empty")
 
     gt_fields: list[str] = vc_config.get("append_genotype_fields", [])
     if gt_fields:
