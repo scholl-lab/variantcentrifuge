@@ -607,8 +607,10 @@ class TSVOutputStage(Stage):
         if df is None:
             raise RuntimeError("No data to write")
 
-        # Phase 11: Keep per-sample GT columns available for analysis, but collapse
-        # them out of final materialized outputs unless users requested raw output.
+        if len(df) == 0 and context.config.get("fail_on_empty", False):
+            logger.error("Zero variants remaining in final output (--fail-on-empty)")
+            sys.exit(2)
+
         df = _collapse_per_sample_gt_columns_for_output(
             df,
             context.vcf_samples,
@@ -616,25 +618,20 @@ class TSVOutputStage(Stage):
         )
         context.current_dataframe = df
 
-        # Determine output path
         output_file = context.config.get("output_file")
         if output_file in [None, "stdout", "-"]:
-            # Write to stdout
             logger.info("Writing output to stdout")
             df.to_csv(sys.stdout, sep="\t", index=False, na_rep="")
             return context
 
-        # Write to file
         output_file_config = context.config.get("output_file")
         logger.debug(f"TSVOutputStage - output_file from config: {output_file_config}")
 
         if output_file_config:
-            # Use specified filename but place it in the output directory
             output_filename = Path(output_file_config).name
             output_path = context.workspace.output_dir / output_filename
             logger.debug(f"Using specified filename in output dir: {output_path}")
         else:
-            # Generate default output path
             output_path = context.workspace.get_output_path("", ".tsv")
             logger.debug(f"Using default output path: {output_path}")
 

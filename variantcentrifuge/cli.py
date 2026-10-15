@@ -105,6 +105,9 @@ def create_parser() -> argparse.ArgumentParser:
         help="Create a compressed tar.gz archive of the entire results directory after pipeline completion. "
         "Archive will be timestamped and placed in the parent directory of the output folder.",
     )
+    io_group.add_argument(
+        "--fail-on-empty", action="store_true", help="Exit with code 2 if zero variants remain."
+    )
 
     # Gene Selection
     gene_group = parser.add_argument_group("Gene Selection")
@@ -1187,14 +1190,13 @@ def main() -> int:
         cfg_tumor_idx=cfg.get("tumor_sample_index"),
         cfg_normal_idx=cfg.get("normal_sample_index"),
     )
-    _tn_defaults = [
+    tumor_normal_vars = {"tumor_idx": t_idx, "normal_idx": n_idx}
+    for _k, _d in (
         ("tumor_dp_min", 20),
         ("normal_dp_min", 20),
         ("tumor_af_min", 0.05),
         ("normal_af_max", 0.03),
-    ]
-    tumor_normal_vars = {"tumor_idx": t_idx, "normal_idx": n_idx}
-    for _k, _d in _tn_defaults:
+    ):
         _v = getattr(args, _k, None)
         tumor_normal_vars[_k] = str(cfg.get(_k, _d) if _v is None else _v)
 
@@ -1592,6 +1594,7 @@ def main() -> int:
     cfg["final_filter"] = (
         final_filter.format_map(tumor_normal_vars) if final_filter else final_filter
     )
+    cfg["fail_on_empty"] = bool(args.fail_on_empty or cfg.get("fail_on_empty", False))
 
     # Chunked processing configuration
     cfg["no_chunked_processing"] = args.no_chunked_processing

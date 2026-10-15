@@ -353,7 +353,9 @@ def extract_fields_bcftools(
 
         # Handle empty output (0 variants after filtering)
         if os.path.getsize(temp_output) == 0:
-            logger.debug("bcftools query produced empty output (0 variants)")
+            logger.warning(
+                "Field extraction (bcftools query): 0 variants extracted from %s", variant_file
+            )
             df = pd.DataFrame(columns=column_names)
             # Write header-only output
             if output_file.endswith(".gz"):
@@ -409,8 +411,11 @@ def extract_fields_bcftools(
         else:
             df.to_csv(output_file, sep="\t", index=False, na_rep="NA")
 
-        logger.debug(
-            f"bcftools field extraction completed successfully. Output written to: {output_file}"
+        logger.info(
+            "Field extraction (bcftools query): %d variants extracted from %s to %s",
+            len(df),
+            variant_file,
+            output_file,
         )
 
     finally:

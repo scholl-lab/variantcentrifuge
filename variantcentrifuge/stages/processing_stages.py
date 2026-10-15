@@ -1023,14 +1023,9 @@ class ParallelCompleteProcessingStage(Stage):
 
                 with open_func(chunk_tsv, mode) as f:
                     first_line = f.readline().strip()
-                    # Check if it looks like a TSV header
-                    if "\t" not in first_line:
+                    # Check if it looks like a TSV header (header-only 0-variant chunks are valid)
+                    if not first_line or "\t" not in first_line:
                         logger.debug(f"Chunk TSV {chunk_tsv} has invalid header format")
-                        return False
-                    # Try to read one more line to ensure file is not just header
-                    second_line = f.readline()
-                    if not second_line:
-                        logger.debug(f"Chunk TSV {chunk_tsv} only has header, no data")
                         return False
             except Exception as e:
                 logger.debug(f"Chunk TSV {chunk_tsv} failed content validation: {e}")
