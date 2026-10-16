@@ -39,6 +39,7 @@ from .tsv_output_stages import (
     FinalFilteringStage,
     TSVOutputStage,
     VariantIdentifierStage,
+    _collect_metadata_rows,
 )
 
 logger = logging.getLogger(__name__)
@@ -543,8 +544,15 @@ class MetadataGenerationStage(Stage):
             logger.debug("Metadata generation disabled")
             return context
 
+        self._generate_metadata(context)
+        return context
+
+    def _generate_metadata(
+        self, context: PipelineContext, metadata_path: Path | None = None
+    ) -> Path:
+        """Generate metadata file with run provenance."""
         # Create TSV metadata file
-        metadata_path = context.workspace.get_output_path("_metadata", ".tsv")
+        metadata_path = metadata_path or context.workspace.get_output_path("_metadata", ".tsv")
 
         logger.info(f"Generating metadata: {metadata_path}")
 
@@ -557,39 +565,11 @@ class MetadataGenerationStage(Stage):
                 v = sanitize_metadata_field(val)
                 mf.write(f"{p}\t{v}\n")
 
-            # Basic info
-            meta_write("Tool", "variantcentrifuge")
-            meta_write("Version", context.config.get("pipeline_version", "0.5.0"))
-            meta_write("Run_start_time", context.start_time.isoformat())
-            meta_write("Run_duration_seconds", f"{context.get_execution_time():.1f}")
-
-            # Input files
-            meta_write("VCF_file", context.config.get("vcf_file", ""))
-            meta_write("Gene_name", context.config.get("normalized_genes", ""))
-            meta_write("Gene_file", context.config.get("gene_file", ""))
-            meta_write("Phenotype_file", context.config.get("phenotype_file", ""))
-            meta_write("Pedigree_file", context.config.get("ped_file", ""))
-
-            # Parameters
-            meta_write("Reference", context.config.get("reference", ""))
-            meta_write("Filter", context.config.get("filter", ""))
-            meta_write("Threads", context.config.get("threads", ""))
-            meta_write("Inheritance_mode", context.config.get("inheritance_mode", ""))
-            meta_write("Scoring_config", context.config.get("scoring_config_path", ""))
-
-            # Write all config items with prefix
-            for k, v in context.config.items():
-                if v is not None:
-                    meta_write(f"config.{k}", str(v))
-
-            # Tool versions
-            meta_write("tool.bcftools_version", get_tool_version("bcftools"))
-            meta_write("tool.snpeff_version", get_tool_version("snpEff"))
-            meta_write("tool.snpsift_version", get_tool_version("SnpSift"))
-            meta_write("tool.bedtools_version", get_tool_version("bedtools"))
+            for param, val in _collect_metadata_rows(context, get_tool_version):
+                meta_write(param, val)
 
         context.report_paths["metadata"] = metadata_path
-        return context
+        return metadata_path
 
     def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return the metadata report for checkpoint tracking."""

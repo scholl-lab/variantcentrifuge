@@ -213,10 +213,11 @@ def get_tool_version(tool_name: str) -> str:
     """
 
     def parse_snpeff(stdout, stderr):
-        for line in stdout.splitlines():
-            if line.strip():
-                return line.strip()
-        return "N/A"
+        lines = [line.strip() for line in f"{stdout}\n{stderr}".splitlines() if line.strip()]
+        for line in lines:
+            if "snpeff" in line.lower():
+                return line
+        return lines[0] if lines else "N/A"
 
     def parse_bcftools(stdout, stderr):
         for line in stdout.splitlines():
@@ -225,13 +226,11 @@ def get_tool_version(tool_name: str) -> str:
         return "N/A"
 
     def parse_snpsift(stdout, stderr):
-        for line in stdout.splitlines():
-            if line.startswith("SnpSift version"):
-                return line.strip()
-        for line in stderr.splitlines():
-            if line.startswith("SnpSift version"):
-                return line.strip()
-        return "N/A"
+        lines = [line.strip() for line in f"{stdout}\n{stderr}".splitlines() if line.strip()]
+        for line in lines:
+            if "snpsift" in line.lower():
+                return line
+        return lines[0] if lines else "N/A"
 
     def parse_bedtools(stdout, stderr):
         for line in stdout.splitlines():
@@ -245,10 +244,14 @@ def get_tool_version(tool_name: str) -> str:
             "command": ["bcftools", "--version"],
             "parse_func": parse_bcftools,
         },
-        "SnpSift": {"command": ["SnpSift", "annotate"], "parse_func": parse_snpsift},
+        "SnpSift": {"command": ["SnpSift", "-version"], "parse_func": parse_snpsift},
         "bedtools": {
             "command": ["bedtools", "--version"],
             "parse_func": parse_bedtools,
+        },
+        "git": {
+            "command": ["git", "rev-parse", "--short", "HEAD"],
+            "parse_func": parse_snpeff,
         },
     }
 

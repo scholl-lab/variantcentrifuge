@@ -527,3 +527,66 @@ class ArchiveCreationStage(Stage):
 
         context.report_paths["archive"] = archive_path
         return context
+
+
+def _collect_metadata_rows(context: PipelineContext, get_version_fn: Any) -> list[tuple[str, Any]]:
+    """Build (Parameter, Value) tuples for MetadataGenerationStage."""
+    import hashlib
+
+    cfg = context.config
+    raw_preset = cfg.get("preset", "")
+    preset_str = (
+        ", ".join(str(p) for p in raw_preset)
+        if isinstance(raw_preset, list | tuple | set)
+        else str(raw_preset or "")
+    )
+    samples = context.vcf_samples or []
+    t_idx, n_idx = cfg.get("tumor_sample_index"), cfg.get("normal_sample_index")
+    t_lbl = cfg.get("tumor_sample") or (
+        samples[int(str(t_idx))]
+        if str(t_idx).isdigit() and int(str(t_idx)) < len(samples)
+        else (str(t_idx) if t_idx not in (None, "") else "")
+    )
+    n_lbl = cfg.get("normal_sample") or (
+        samples[int(str(n_idx))]
+        if str(n_idx).isdigit() and int(str(n_idx)) < len(samples)
+        else (str(n_idx) if n_idx not in (None, "") else "")
+    )
+    tn_str = f"tumor={t_lbl or 'N/A'}, normal={n_lbl or 'N/A'}" if (t_lbl or n_lbl) else ""
+    tx_file = cfg.get("transcript_file", "")
+    tx_md5 = (
+        f"{tx_file} ({hashlib.md5(Path(tx_file).read_bytes()).hexdigest()})"
+        if tx_file and Path(tx_file).is_file()
+        else ""
+    )
+    rows: list[tuple[str, Any]] = [
+        ("Tool", "variantcentrifuge"),
+        ("Version", cfg.get("pipeline_version", "0.5.0")),
+        ("Git SHA", cfg.get("git_sha") or get_version_fn("git")),
+        ("Run_start_time", context.start_time.isoformat()),
+        ("Run_duration_seconds", f"{context.get_execution_time():.1f}"),
+        ("VCF_file", cfg.get("vcf_file", "")),
+        ("Gene_name", cfg.get("normalized_genes", "")),
+        ("Gene_file", cfg.get("gene_file", "")),
+        ("Phenotype_file", cfg.get("phenotype_file", "")),
+        ("Pedigree_file", cfg.get("ped_file", "")),
+        ("Transcript File (MD5)", tx_md5),
+        ("Reference", cfg.get("reference", "")),
+        ("Filter", cfg.get("filters") or cfg.get("filter", "")),
+        ("Preset", preset_str),
+        ("Final Filter", cfg.get("final_filter", "") or ""),
+        ("Tumor/Normal Samples", tn_str),
+        ("Threads", cfg.get("threads", "")),
+        ("Inheritance_mode", cfg.get("inheritance_mode", "")),
+        ("Scoring_config", cfg.get("scoring_config_path", "")),
+    ]
+    rows.extend((f"config.{k}", str(v)) for k, v in cfg.items() if v is not None)
+    rows.extend(
+        [
+            ("tool.bcftools_version", get_version_fn("bcftools")),
+            ("tool.snpeff_version", get_version_fn("snpEff")),
+            ("tool.snpsift_version", get_version_fn("SnpSift")),
+            ("tool.bedtools_version", get_version_fn("bedtools")),
+        ]
+    )
+    return rows

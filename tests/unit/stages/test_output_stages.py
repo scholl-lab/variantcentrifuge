@@ -945,6 +945,38 @@ class TestMetadataGenerationStage:
         assert "Tool\tvariantcentrifuge" in content
         assert "Version\t1.0.0-test" in content
 
+    @patch("variantcentrifuge.stages.output_stages.get_tool_version", return_value="abc1234")
+    def test_provenance_metadata_fields(self, _mock_get_version, context, tmp_path):
+        """Test _generate_metadata records filter, preset, sample, git, and transcript MD5."""
+        import hashlib
+
+        tx_path = tmp_path / "transcripts.txt"
+        tx_path.write_text("NM_000720.4\nNM_001128840.3\n", encoding="utf-8")
+        expected_md5 = hashlib.md5(tx_path.read_bytes()).hexdigest()
+
+        context.vcf_samples = ["APA1_N", "APA1_T"]
+        context.config.update(
+            {
+                "filters": "(GEN[1].DP >= 20)",
+                "preset": ["somatic_pass"],
+                "final_filter": "PASS == 'PASS'",
+                "tumor_sample_index": "1",
+                "normal_sample_index": "0",
+                "transcript_file": str(tx_path),
+            }
+        )
+
+        stage = MetadataGenerationStage()
+        metadata_path = stage._generate_metadata(context)
+        content = metadata_path.read_text(encoding="utf-8")
+
+        assert "Filter\t(GEN[1].DP >= 20)" in content
+        assert "Preset\tsomatic_pass" in content
+        assert "Final Filter\tPASS == 'PASS'" in content
+        assert "Tumor/Normal Samples\ttumor=APA1_T, normal=APA1_N" in content
+        assert "Git SHA\tabc1234" in content
+        assert f"Transcript File (MD5)\t{tx_path} ({expected_md5})" in content
+
     def test_stage_properties(self):
         """Test stage properties."""
         stage = MetadataGenerationStage()

@@ -75,3 +75,28 @@ class TestHeaderNormalization:
 
         # Verify nothing changed
         assert result[0] == test_header
+
+
+def test_get_tool_version_stderr_parsing(monkeypatch):
+    """Test that get_tool_version parses snpEff and SnpSift versions from stderr."""
+    import subprocess
+
+    from variantcentrifuge.utils import get_tool_version
+
+    calls = []
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(cmd)
+        if cmd[0] == "snpEff":
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="", stderr="SnpEff\t5.2\t2023-09-29\n"
+            )
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout="", stderr="SnpSift version 5.2 (build 2023-09-29)\n"
+        )
+
+    monkeypatch.setattr("variantcentrifuge.utils.subprocess.run", fake_run)
+    assert get_tool_version("snpEff") == "SnpEff\t5.2\t2023-09-29"
+    assert get_tool_version("SnpSift") == "SnpSift version 5.2 (build 2023-09-29)"
+    assert ["snpEff", "-version"] in calls
+    assert ["SnpSift", "-version"] in calls
