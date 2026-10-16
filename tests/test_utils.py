@@ -75,3 +75,71 @@ class TestHeaderNormalization:
 
         # Verify nothing changed
         assert result[0] == test_header
+
+
+def test_get_tool_version_stderr_parsing(monkeypatch):
+    """Test that get_tool_version parses snpEff and SnpSift versions and skips echo/error noise."""
+    import subprocess
+
+    from variantcentrifuge.utils import get_tool_version
+
+    calls = []
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(cmd)
+        if cmd[0] == "snpEff":
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="", stderr="SnpEff\t5.2\t2023-09-29\n"
+            )
+        return subprocess.CompletedProcess(
+            cmd,
+            255,
+            stdout="",
+            stderr=(
+                "Error: Unknown command '-version'\n"
+                "SnpSift -version -version\n"
+                "SnpSift version 5.2 (build 2023-09-29), by Pablo Cingolani\n"
+            ),
+        )
+
+    monkeypatch.setattr("variantcentrifuge.utils.subprocess.run", fake_run)
+    assert get_tool_version("snpEff") == "SnpEff\t5.2\t2023-09-29"
+    assert (
+        get_tool_version("SnpSift") == "SnpSift version 5.2 (build 2023-09-29), by Pablo Cingolani"
+    )
+    assert ["snpEff", "-version"] in calls
+    assert ["SnpSift", "annotate", "-version"] in calls
+
+
+def test_get_tool_version_errors_and_git_checkout(monkeypatch, tmp_path):
+    """Test that invalid tool/git outputs return N/A and git queries VariantCentrifuge's repo."""
+    import subprocess
+    from pathlib import Path
+
+    import variantcentrifuge.utils as utils_mod
+    from variantcentrifuge.utils import get_tool_version
+
+    expected_repo_dir = str(Path(utils_mod.__file__).resolve().parent)
+    monkeypatch.chdir(tmp_path)
+
+    # Real git invocation from a non-repo working directory still resolves VariantCentrifuge SHA
+    real_sha = get_tool_version("git")
+    assert len(real_sha) >= 7 and all(c in "0123456789abcdefABCDEF" for c in real_sha)
+
+    def fake_error_run(cmd, **_kwargs):
+        if cmd[0] == "git":
+            assert cmd[:3] == ["git", "-C", expected_repo_dir]
+            return subprocess.CompletedProcess(
+                cmd,
+                128,
+                stdout="",
+                stderr="fatal: not a git repository (or any of the parent directories): .git\n",
+            )
+        return subprocess.CompletedProcess(
+            cmd, 1, stdout="", stderr="Error: Unable to access jarfile SnpSift.jar\n"
+        )
+
+    monkeypatch.setattr("variantcentrifuge.utils.subprocess.run", fake_error_run)
+    assert get_tool_version("git") == "N/A"
+    assert get_tool_version("SnpSift") == "N/A"
+    assert get_tool_version("snpEff") == "N/A"

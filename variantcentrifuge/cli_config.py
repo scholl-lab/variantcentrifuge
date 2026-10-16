@@ -100,6 +100,7 @@ def resolve_presets_and_tumor_normal(
 
     # Handle presets (from CLI --preset or config "preset")
     if raw_presets:
+        cfg["preset"] = [p.strip() for p in raw_presets if p.strip()]
         chosen_presets = []
         for p in raw_presets:
             p_str = p.strip()

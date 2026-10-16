@@ -213,9 +213,10 @@ def get_tool_version(tool_name: str) -> str:
     """
 
     def parse_snpeff(stdout, stderr):
-        for line in stdout.splitlines():
-            if line.strip():
-                return line.strip()
+        for line in f"{stdout}\n{stderr}".splitlines():
+            stripped = line.strip()
+            if re.search(r"(?i)^snpeff(?:\s+version\b|\t).*\d", stripped):
+                return stripped
         return "N/A"
 
     def parse_bcftools(stdout, stderr):
@@ -225,12 +226,10 @@ def get_tool_version(tool_name: str) -> str:
         return "N/A"
 
     def parse_snpsift(stdout, stderr):
-        for line in stdout.splitlines():
-            if line.startswith("SnpSift version"):
-                return line.strip()
-        for line in stderr.splitlines():
-            if line.startswith("SnpSift version"):
-                return line.strip()
+        for line in f"{stdout}\n{stderr}".splitlines():
+            stripped = line.strip()
+            if re.search(r"(?i)^snpsift(?:\s+version\b|\t).*\d", stripped):
+                return stripped
         return "N/A"
 
     def parse_bedtools(stdout, stderr):
@@ -239,16 +238,28 @@ def get_tool_version(tool_name: str) -> str:
                 return line.strip()
         return "N/A"
 
+    def parse_git(stdout, stderr):
+        for line in stdout.splitlines():
+            stripped = line.strip()
+            if re.fullmatch(r"[0-9a-fA-F]{7,40}", stripped):
+                return stripped
+        return "N/A"
+
+    repo_dir = os.path.dirname(os.path.realpath(__file__))
     tool_map = {
         "snpEff": {"command": ["snpEff", "-version"], "parse_func": parse_snpeff},
         "bcftools": {
             "command": ["bcftools", "--version"],
             "parse_func": parse_bcftools,
         },
-        "SnpSift": {"command": ["SnpSift", "annotate"], "parse_func": parse_snpsift},
+        "SnpSift": {"command": ["SnpSift", "annotate", "-version"], "parse_func": parse_snpsift},
         "bedtools": {
             "command": ["bedtools", "--version"],
             "parse_func": parse_bedtools,
+        },
+        "git": {
+            "command": ["git", "-C", repo_dir, "rev-parse", "--short", "HEAD"],
+            "parse_func": parse_git,
         },
     }
 
