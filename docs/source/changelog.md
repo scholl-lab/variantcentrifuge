@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.16] - 2026-10-16
+
+### Fixed
+
+- Parse `snpEff -version` and `SnpSift annotate -version` from combined stdout/stderr and record active `Filter`, `Preset`, `Final Filter`, `Tumor Samples`, `Normal Samples`, `Git SHA`, and `Transcript File` (with MD5) in `*_metadata.tsv` (#123).
+
 ## [0.17.15] - 2026-10-16
 
 ### Fixed
