@@ -17,7 +17,7 @@ shared-fs-usage:
 
 default-resources:
   mem_mb: 4000
-  runtime: 120
+  runtime: "120m"
 
 set-threads:
   run_variantcentrifuge: 8
@@ -25,5 +25,5 @@ set-threads:
 set-resources:
   run_variantcentrifuge:
     mem_mb: 16000
-    runtime: 1440
+    runtime: "1440m"
     cpus_per_task: 8

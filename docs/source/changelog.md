@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.15] - 2026-10-16
+
+### Fixed
+
+- Use explicit minute time units (`m`) for `runtime` in Snakemake profile `default-resources` and `set-resources` so `humanfriendly` does not interpret bare integers as seconds (#125).
+
 ## [0.17.14] - 2026-10-15
 
 ### Added
