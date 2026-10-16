@@ -8,4 +8,4 @@ default-resources:
   slurm_partition: medium
   slurm_account: scholl-lab
   mem_mb: 4400
-  runtime: 120
+  runtime: "120m"

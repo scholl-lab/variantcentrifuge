@@ -141,3 +141,29 @@ class TestSamplesSchema:
     def test_missing_vcf_basename(self, schema: dict) -> None:
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate({"sample": "test"}, schema)
+
+
+# ---------------------------------------------------------------------------
+# Profile runtime units
+# ---------------------------------------------------------------------------
+PROFILES_DIR = Path(__file__).resolve().parents[2] / "profiles"
+
+
+def test_profile_runtimes_have_explicit_units() -> None:
+    profile_files = sorted(PROFILES_DIR.glob("*/config*.yaml"))
+    assert profile_files, "No profile config files found"
+
+    for path in profile_files:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        default_res = data.get("default-resources") or {}
+        if "runtime" in default_res:
+            val = default_res["runtime"]
+            assert isinstance(val, str) and not val.isdigit(), (
+                f"{path}: default-resources.runtime must have an explicit unit, got {val!r}"
+            )
+        for rule, res in (data.get("set-resources") or {}).items():
+            if isinstance(res, dict) and "runtime" in res:
+                val = res["runtime"]
+                assert isinstance(val, str) and not val.isdigit(), (
+                    f"{path}: set-resources.{rule}.runtime must have an explicit unit, got {val!r}"
+                )
