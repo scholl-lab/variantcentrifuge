@@ -541,16 +541,20 @@ def _collect_metadata_rows(context: PipelineContext, get_version_fn: Any) -> lis
         else str(raw_preset or "")
     )
     samples = context.vcf_samples or []
-    t_idx, n_idx = cfg.get("tumor_sample_index"), cfg.get("normal_sample_index")
-    t_lbl = cfg.get("tumor_sample") or (
-        samples[int(str(t_idx))]
-        if str(t_idx).isdigit() and int(str(t_idx)) < len(samples)
-        else (str(t_idx) if t_idx not in (None, "") else "")
-    )
-    n_lbl = cfg.get("normal_sample") or (
-        samples[int(str(n_idx))]
-        if str(n_idx).isdigit() and int(str(n_idx)) < len(samples)
-        else (str(n_idx) if n_idx not in (None, "") else "")
+
+    def _sample_lbl(name_key: str, idx_key: str) -> str:
+        if cfg.get(name_key):
+            return str(cfg[name_key])
+        idx = cfg.get(idx_key)
+        return (
+            samples[int(str(idx))]
+            if idx not in (None, "") and str(idx).isdigit() and int(str(idx)) < len(samples)
+            else ""
+        )
+
+    t_lbl, n_lbl = (
+        _sample_lbl("tumor_sample", "tumor_sample_index"),
+        _sample_lbl("normal_sample", "normal_sample_index"),
     )
     tn_str = f"tumor={t_lbl or 'N/A'}, normal={n_lbl or 'N/A'}" if (t_lbl or n_lbl) else ""
     tx_file = cfg.get("transcript_file", "")

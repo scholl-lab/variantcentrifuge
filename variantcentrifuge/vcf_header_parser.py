@@ -138,7 +138,7 @@ def resolve_tumor_normal_indices(
         and not require_tumor
         and not require_normal
     ):
-        return "1", "0"
+        return "", ""
 
     req_t = True if require_tumor is None else require_tumor
     req_n = True if require_normal is None else require_normal

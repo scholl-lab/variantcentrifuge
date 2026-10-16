@@ -977,6 +977,31 @@ class TestMetadataGenerationStage:
         assert "Git SHA\tabc1234" in content
         assert f"Transcript File (MD5)\t{tx_path} ({expected_md5})" in content
 
+    @patch("variantcentrifuge.stages.output_stages.get_tool_version", return_value="abc1234")
+    def test_germline_cli_does_not_emit_fake_tumor_normal_roles(self, _mock_get_version, context):
+        """Germline trio and single-sample CLI runs must leave Tumor/Normal Samples blank."""
+        from variantcentrifuge.cli import create_parser
+        from variantcentrifuge.cli_config import (
+            populate_cli_config,
+            resolve_presets_and_tumor_normal,
+        )
+
+        parser = create_parser()
+        args = parser.parse_args(["-v", "/tmp/input.vcf"])
+        for vcf_samples in (["child", "mother", "father"], ["proband"]):
+            cfg: dict[str, object] = {}
+            filters, tn_vars = resolve_presets_and_tumor_normal(args, cfg, None)
+            populate_cli_config(args, cfg, parser, "GRCh38", filters, "CHROM POS", tn_vars)
+            context.config = cfg
+            context.vcf_samples = vcf_samples
+            metadata_path = MetadataGenerationStage()._generate_metadata(context)
+            rows = dict(
+                line.split("\t", 1)
+                for line in metadata_path.read_text(encoding="utf-8").splitlines()[1:]
+                if "\t" in line
+            )
+            assert rows["Tumor/Normal Samples"] == ""
+
     def test_stage_properties(self):
         """Test stage properties."""
         stage = MetadataGenerationStage()
