@@ -26,7 +26,7 @@ class Stage(ABC):
     logs execution, handles errors, and tracks timing.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the stage with subtask tracking."""
         self._subtask_times: dict[str, float] = {}
 

@@ -17,6 +17,12 @@ repos:
 
 -   repo: local
     hooks:
+    -   id: mypy
+        name: Run mypy type checker
+        entry: python -m mypy variantcentrifuge/
+        language: system
+        pass_filenames: false
+        types: [python]
     -   id: python-module-line-budget
         name: Enforce production Python module line budget
         entry: python scripts/check_file_size.py variantcentrifuge --allowlist .loc-allowlist

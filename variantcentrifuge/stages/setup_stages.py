@@ -143,18 +143,15 @@ class ConfigurationLoadingStage(Stage):
             for arg in phenotype_args:
                 if hasattr(context.args, arg):
                     config[arg] = getattr(context.args, arg)
-
         # Merge any existing config from context (e.g., from tests)
         if context.config:
             for key, value in context.config.items():
                 if key not in config:
                     config[key] = value
-
         # Set pipeline version - use actual package version
         from ..version import __version__
 
         config["pipeline_version"] = config.get("pipeline_version", __version__)
-
         # Convert fields_to_extract to extract for downstream stages
         if "extract" not in config and "fields_to_extract" in config:
             config["extract"] = config["fields_to_extract"].split()
@@ -178,7 +175,6 @@ class ConfigurationLoadingStage(Stage):
             else:
                 # Already a list
                 case_hpo_terms = config["case_phenotypes"]
-
         # Load additional case phenotypes from file
         if config.get("case_phenotypes_file"):
             file_terms = load_terms_from_file(config["case_phenotypes_file"], logger)
@@ -944,15 +940,15 @@ class PhenotypeCaseControlAssignmentStage(Stage):
 
     def _compute_samples_from_phenotype_file(
         self,
-        phenotype_file,
-        sample_column,
-        value_column,
-        case_phenotypes,
-        control_phenotypes,
-        vcf_samples,
-        remove_substring="",
-        context=None,
-    ):
+        phenotype_file: str,
+        sample_column: str,
+        value_column: str,
+        case_phenotypes: list[str],
+        control_phenotypes: list[str],
+        vcf_samples: list[str],
+        remove_substring: str = "",
+        context: PipelineContext | None = None,
+    ) -> tuple[list[str], list[str]]:
         """
         Load CSV, filter by phenotype terms, get sample lists.
 
@@ -1099,17 +1095,19 @@ class PhenotypeCaseControlAssignmentStage(Stage):
             # Both specified - exact matching only
             final_case_samples = case_samples & vcf_samples_str
             final_control_samples = control_samples & vcf_samples_str
-
         logger.info(
             f"Final assignment: {len(final_case_samples)} cases, "
             f"{len(final_control_samples)} controls"
         )
-
         return list(final_case_samples), list(final_control_samples)
 
     def _classify_samples_by_phenotypes(
-        self, vcf_samples, phenotype_data, case_phenotypes, control_phenotypes
-    ):
+        self,
+        vcf_samples: list[str],
+        phenotype_data: dict[str, set[str]],
+        case_phenotypes: list[str],
+        control_phenotypes: list[str],
+    ) -> tuple[set[str], set[str]]:
         """Classify samples based on phenotype data."""
         logger.info(
             f"Performing phenotype-based case/control assignment for {len(vcf_samples)} VCF samples"
@@ -1120,7 +1118,6 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         )
         logger.debug(f"Case phenotypes: {case_phenotypes}")
         logger.debug(f"Control phenotypes: {control_phenotypes}")
-
         classified_cases = set()
         classified_controls = set()
 
@@ -1242,16 +1239,19 @@ class PhenotypeCaseControlAssignmentStage(Stage):
 
         return context
 
-    def _handle_file_based_assignment(self, context, case_samples_file, control_samples_file):
+    def _handle_file_based_assignment(
+        self,
+        context: PipelineContext,
+        case_samples_file: str | None,
+        control_samples_file: str | None,
+    ) -> PipelineContext:
         """Handle file-based case/control assignment."""
         logger.info("Processing file-based case/control assignment")
-
         # Get VCF samples
         vcf_samples = getattr(context, "vcf_samples", [])
         if not vcf_samples:
             logger.warning("No VCF samples found, cannot perform file-based assignment")
             return context
-
         vcf_samples_set = set(vcf_samples)
         case_samples = set()
         control_samples = set()

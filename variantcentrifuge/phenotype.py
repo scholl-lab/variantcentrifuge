@@ -16,7 +16,7 @@ to aggregate phenotypes for a given list of samples.
 """
 
 import logging
-import os
+from typing import Any
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -203,7 +203,7 @@ def extract_phenotypes_for_gt_row(gt_value: str, phenotypes: dict[str, set[str]]
 
 
 def extract_phenotypes_from_sample_columns(
-    row, vcf_samples: list[str], phenotypes: dict[str, set[str]]
+    row: Any, vcf_samples: list[str], phenotypes: dict[str, set[str]]
 ) -> str:
     """
     Extract phenotypes from per-sample GT columns (Phase 11 bcftools output).

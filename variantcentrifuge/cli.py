@@ -391,7 +391,7 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def parse_args(args_list=None):
+def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
     """Parse command line arguments.
 
     Parameters

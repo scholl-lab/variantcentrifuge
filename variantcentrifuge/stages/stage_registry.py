@@ -26,7 +26,7 @@ class StageInfo:
     description: str
     estimated_runtime: float = 0.0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate stage info after initialization."""
         if not self.name:
             raise ValueError("Stage name cannot be empty")
@@ -39,7 +39,7 @@ class StageInfo:
 class StageRegistry:
     """Central registry for all pipeline stages."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the stage registry."""
         self._stages: dict[str, StageInfo] = {}
         self._categories: dict[str, list[str]] = defaultdict(list)
@@ -419,7 +419,7 @@ def initialize_registry() -> None:
     logger.info(f"Stage registry initialized with {len(_registry._stages)} stages")
 
 
-def _register_setup_stages():
+def _register_setup_stages() -> None:
     """Register all setup stages."""
     from .setup_stages import (
         AnnotationConfigLoadingStage,
@@ -440,7 +440,7 @@ def _register_setup_stages():
     register_stage(PhenotypeCaseControlAssignmentStage, "setup", ["case_control_assignment"], 3.0)
 
 
-def _register_processing_stages():
+def _register_processing_stages() -> None:
     """Register all processing stages."""
     from .processing_stages import (
         ExtraColumnRemovalStage,
@@ -471,7 +471,7 @@ def _register_processing_stages():
     register_stage(ParallelCompleteProcessingStage, "processing", ["parallel_processing"], 60.0)
 
 
-def _register_analysis_stages():
+def _register_analysis_stages() -> None:
     """Register all analysis stages."""
     from .analysis_stages import (
         AssociationAnalysisStage,
@@ -500,7 +500,7 @@ def _register_analysis_stages():
     register_stage(ChunkedAnalysisStage, "analysis", ["chunked_analysis"], 60.0)
 
 
-def _register_output_stages():
+def _register_output_stages() -> None:
     """Register all output stages."""
     from .output_stages import (
         ArchiveCreationStage,

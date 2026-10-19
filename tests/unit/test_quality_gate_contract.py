@@ -142,3 +142,48 @@ def test_release_workflow_contract() -> None:
     assert "pypa/gh-action-pypi-publish" in release_yml
     assert "check_version_sync.py" in release_yml
     assert "pull_request" not in release_yml
+
+
+def test_ruff_per_file_ignores_has_no_stale_exemptions() -> None:
+    """Ruff per-file-ignores must not exempt F401/F811/F841 outside __init__.py."""
+    pyproject = _load_pyproject()
+    per_file_ignores = pyproject["tool"]["ruff"]["lint"]["per-file-ignores"]
+
+    for pattern, codes in per_file_ignores.items():
+        if pattern == "__init__.py":
+            assert codes == ["F401"]
+            continue
+        assert "F401" not in codes, f"{pattern} has stale F401 exemption"
+        assert "F811" not in codes, f"{pattern} has stale F811 exemption"
+        assert "F841" not in codes, f"{pattern} has stale F841 exemption"
+
+
+def test_mypy_configuration_disallows_untyped_defs() -> None:
+    """Mypy configuration must disallow untyped defs and restrict missing import ignores."""
+    pyproject = _load_pyproject()
+    mypy_conf = pyproject["tool"]["mypy"]
+
+    assert mypy_conf.get("disallow_untyped_defs") is True
+    assert mypy_conf.get("ignore_missing_imports") is not True
+
+
+def test_coverage_report_defines_fail_under() -> None:
+    """Coverage configuration must enforce a positive coverage floor of 75%."""
+    pyproject = _load_pyproject()
+    fail_under = pyproject["tool"]["coverage"]["report"]["fail_under"]
+
+    assert fail_under == 75
+
+
+def test_pre_commit_contains_mypy_hook() -> None:
+    """Pre-commit configuration must include local mypy quality hook."""
+    pre_commit = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+
+    assert "id: mypy" in pre_commit
+
+
+def test_ci_workflow_mypy_is_blocking() -> None:
+    """GitHub Actions mypy step must be blocking without continue-on-error."""
+    test_yml = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
+
+    assert "continue-on-error: true\n        run: python -m mypy" not in test_yml
