@@ -5,11 +5,14 @@ This module provides the Workspace class that manages all file paths
 during a pipeline run, including output, intermediate, and temporary files.
 """
 
+from __future__ import annotations
+
 import logging
 import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -221,10 +224,10 @@ class Workspace:
         """Return string representation of the workspace."""
         return f"Workspace(output_dir='{self.output_dir}', base_name='{self.base_name}')"
 
-    def __enter__(self):
+    def __enter__(self) -> Workspace:
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Context manager exit with automatic cleanup."""
         self.cleanup(keep_intermediates=True)  # Keep intermediates by default

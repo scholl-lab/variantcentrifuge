@@ -10,7 +10,7 @@ This module provides error handling utilities including:
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
@@ -85,7 +85,7 @@ class StageExecutionError(PipelineError):
         self.original_error = original_error
         self.recovery_attempted = recovery_attempted
 
-    def __reduce__(self):
+    def __reduce__(self) -> tuple[Any, ...]:
         """Provide custom pickling to handle multiprocessing correctly."""
         return (
             self.__class__,
@@ -124,7 +124,7 @@ def retry_on_failure(
 
     def decorator(func: Callable) -> Callable:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             _logger = logger or logging.getLogger(func.__module__)
             current_delay = delay
 
@@ -152,9 +152,9 @@ def retry_on_failure(
 def graceful_error_handling(
     stage_name: str,
     reraise: bool = True,
-    fallback_value=None,
+    fallback_value: Any = None,
     logger: logging.Logger | None = None,
-):
+) -> Iterator[None]:
     """Context manager for graceful error handling in stages.
 
     Parameters
@@ -189,17 +189,17 @@ def graceful_error_handling(
         _logger.error(f"File not found in {stage_name}: {e}")
         if reraise:
             raise PipelineError(f"Required file not found: {e}", stage=stage_name) from e
-        return fallback_value
+        return
     except PermissionError as e:
         _logger.error(f"Permission denied in {stage_name}: {e}")
         if reraise:
             raise PipelineError(f"Permission denied: {e}", stage=stage_name) from e
-        return fallback_value
+        return
     except Exception as e:
         _logger.error(f"Unexpected error in {stage_name}: {e}", exc_info=True)
         if reraise:
             raise StageExecutionError(stage_name, e) from e
-        return fallback_value
+        return
 
 
 class ErrorRecoveryStrategy:
@@ -309,7 +309,7 @@ class ToolRecoveryStrategy(ErrorRecoveryStrategy):
 class ErrorRecoveryManager:
     """Manages error recovery strategies."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize error recovery manager."""
         self.strategies: list[ErrorRecoveryStrategy] = [
             FileRecoveryStrategy(),

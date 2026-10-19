@@ -216,7 +216,7 @@ class SamplePseudonymizer:
         # Pattern to match SAMPLE_ID(genotype_info)
         pattern = re.compile(r"([^;()\s]+)\(([^)]+)\)")
 
-        def replace_func(match):
+        def replace_func(match: re.Match[str]) -> str:
             original_id = match.group(1)
             genotype_info = match.group(2)
             pseudonym = self._mapping.get(original_id, original_id)
@@ -267,7 +267,7 @@ class SamplePseudonymizer:
 
         return df_copy
 
-    def pseudonymize_ped_file(self, ped_path: str, output_path: str):
+    def pseudonymize_ped_file(self, ped_path: str, output_path: str) -> None:
         """Create a pseudonymized version of a PED file."""
         ped_df = pd.read_csv(
             ped_path,
@@ -297,7 +297,7 @@ class SamplePseudonymizer:
         )
         logger.info(f"Pseudonymized PED file saved to {output_path}")
 
-    def save_mapping(self, filepath: str, include_metadata: bool = True):
+    def save_mapping(self, filepath: str, include_metadata: bool = True) -> None:
         """Save the pseudonymization mapping to a TSV file.
 
         Parameters
@@ -338,7 +338,7 @@ class SamplePseudonymizer:
         return self._mapping
 
 
-def create_pseudonymizer(schema_type: str, **kwargs) -> SamplePseudonymizer:
+def create_pseudonymizer(schema_type: str, **kwargs: Any) -> SamplePseudonymizer:
     """Create a pseudonymizer with the specified schema.
 
     Parameters

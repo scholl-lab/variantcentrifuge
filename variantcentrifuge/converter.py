@@ -9,7 +9,6 @@ and append additional sheets. It now also supports producing JSON files
 for the HTML report.
 """
 
-import hashlib
 import json
 import logging
 import os
@@ -139,7 +138,6 @@ def finalize_excel_file(xlsx_file: str, cfg: dict[str, Any]) -> None:
     """
     # Using load_workbook and get_column_letter already imported at module level
     wb = load_workbook(xlsx_file)
-    link_templates = cfg.get("links", {})
 
     # Check for IGV reports map
     igv_enabled = cfg.get("igv_enabled", False)

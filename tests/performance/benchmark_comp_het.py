@@ -1,8 +1,8 @@
 """
 Compound heterozygous detection benchmarks.
 
-Dedicated benchmarks for compound het analysis, testing both vectorized and
-original implementations at multiple scales. Operates at per-gene granularity.
+Dedicated benchmarks for compound het analysis, testing vectorized
+implementation at multiple scales. Operates at per-gene granularity.
 """
 
 import pandas as pd
@@ -67,49 +67,6 @@ def test_comp_het_vectorized_scaling(benchmark, synthetic_variants, synthetic_pe
     benchmark.extra_info["component"] = "comp_het_vectorized"
 
     # Verify result (returns dict of sample -> list of variant pairs)
-    assert isinstance(result, dict)
-
-
-@pytest.mark.performance
-@pytest.mark.parametrize("n_variants", [100, 1000])
-def test_comp_het_original_scaling(benchmark, synthetic_variants, synthetic_pedigree, n_variants):
-    """
-    Benchmark original (non-vectorized) compound het detection.
-
-    Tests the original implementation for comparison. Skip 10K variants
-    as the original implementation is significantly slower.
-    """
-    # Generate trio pedigree
-    pedigree = synthetic_pedigree(n_samples=3, seed=42)
-    sample_list = list(pedigree.keys())
-    n_samples = len(sample_list)
-
-    # Generate synthetic data
-    df = synthetic_variants(n_variants, n_samples, seed=42)
-    df = _expand_gt_column_to_samples(df, sample_list)
-
-    # Filter to single gene
-    first_gene = df["GENE"].iloc[0]
-    gene_df = df[df["GENE"] == first_gene].copy()
-    n_gene_variants = len(gene_df)
-
-    # Benchmark compound het
-    def run_analysis():
-        return analyze_gene_for_compound_het_vectorized(gene_df, pedigree, sample_list)
-
-    if n_gene_variants >= 100:
-        result = benchmark.pedantic(run_analysis, rounds=3, iterations=1, warmup_rounds=1)
-    else:
-        result = benchmark(run_analysis)
-
-    # Store metadata
-    benchmark.extra_info["n_variants"] = n_variants
-    benchmark.extra_info["n_gene_variants"] = n_gene_variants
-    benchmark.extra_info["n_samples"] = n_samples
-    benchmark.extra_info["n_genes"] = 1
-    benchmark.extra_info["component"] = "comp_het_original"
-
-    # Verify result
     assert isinstance(result, dict)
 
 

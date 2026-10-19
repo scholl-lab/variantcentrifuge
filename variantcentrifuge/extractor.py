@@ -14,6 +14,7 @@ import logging
 import os
 import subprocess
 import tempfile
+from collections.abc import Callable
 from typing import Any
 
 import pandas as pd
@@ -521,10 +522,10 @@ def extract_fields_snpsift(
 
     # Now fix up the header line and compress
     # Use fast compression (level 1) for intermediate files to optimize I/O performance
-    def get_open_func():
+    def get_open_func() -> tuple[Callable[..., Any], str]:
         if output_file.endswith(".gz"):
 
-            def compressed_open(f, m, **kwargs):
+            def compressed_open(f: Any, m: str, **kwargs: Any) -> Any:
                 return gzip.open(f, m, compresslevel=1, **kwargs)
 
             return compressed_open, "wt"

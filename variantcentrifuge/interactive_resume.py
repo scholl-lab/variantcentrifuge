@@ -5,6 +5,7 @@ This module provides interactive command-line interfaces for selecting resume po
 displaying checkpoint status, and guiding users through safe resume operations.
 """
 
+import argparse
 import logging
 from datetime import datetime
 
@@ -324,7 +325,7 @@ def _confirm_resume_selection(
 
 
 def handle_interactive_resume(
-    args, pipeline_state: PipelineState, available_stages: list[str]
+    args: argparse.Namespace, pipeline_state: PipelineState, available_stages: list[str]
 ) -> str | None:
     """Handle the --interactive-resume CLI option.
 

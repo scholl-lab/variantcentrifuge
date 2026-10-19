@@ -44,6 +44,7 @@ dev = [
     "ruff>=0.11,<0.16",
     "tomli>=2.0; python_version < '3.11'",
     "pre-commit",
+    "types-psutil",
 ]
 
 [project.scripts]
@@ -64,7 +65,8 @@ variantcentrifuge = ["config.json", "default_stats_config.json"]
 # Test file patterns
 python_files = ["test_*.py", "*_test.py", "benchmark_*.py"]
 # Default options: summary of non-passing tests, short tracebacks, strict markers
-addopts = "-ra --tb=short --strict-markers --color=yes"
+addopts = "-ra --tb=short --strict-markers --color=yes --benchmark-disable"
+pythonpath = ["."]
 # Focus test collection on the tests directory
 testpaths = ["tests"]
 # Registered markers
@@ -97,7 +99,7 @@ required-version = ">=0.11,<0.16"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF"]
 # Migrated from .flake8 per-file-ignores
-per-file-ignores = { "__init__.py" = ["F401"], "cli.py" = ["E501"], "helpers.py" = ["F401", "F811", "E501"], "pipeline.py" = ["F401", "F811", "E501"], "converter.py" = ["F401", "F841"], "phenotype.py" = ["F401"], "generate_html_report.py" = ["F401"], "gene_burden.py" = ["F841"], "filters.py" = ["E501"], "generate_igv_report.py" = ["E501"], "links.py" = ["E501"], "replacer.py" = ["E501"], "stats.py" = ["E501"], "vcf_eff_one_per_line.py" = ["E501"], "analyze_variants.py" = ["F401"] }
+per-file-ignores = { "__init__.py" = ["F401"], "cli.py" = ["E501"], "helpers.py" = ["E501"], "pipeline.py" = ["E501"], "filters.py" = ["E501"], "generate_igv_report.py" = ["E501"], "links.py" = ["E501"], "replacer.py" = ["E501"], "stats.py" = ["E501"], "vcf_eff_one_per_line.py" = ["E501"] }
 # E203: whitespace before ':' (conflicts with ruff formatter)
 # E402: module-level import not at top (needed for conditional imports)
 extend-ignore = [
@@ -116,16 +118,35 @@ python_version = "3.10"
 warn_unused_configs = true
 warn_return_any = true
 check_untyped_defs = true
-# Gradual adoption: not strict yet on requiring type annotations
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+# Third-party libraries without official PEP 561 type stubs or compiled C extensions:
+# - intervaltree, smart_open, rpy2, statsmodels, openpyxl: Third-party libs lacking PEP 561 py.typed stubs
+# - pandas, scipy, matplotlib: Partial/optional typing across diverse runtime environments
+# - cffi: Dynamically generated CFFI builder stubs
+[[tool.mypy.overrides]]
+module = [
+    "intervaltree.*",
+    "smart_open.*",
+    "rpy2.*",
+    "statsmodels.*",
+    "openpyxl.*",
+    "pandas",
+    "scipy",
+    "scipy.*",
+    "matplotlib",
+    "matplotlib.*",
+    "cffi",
+]
 ignore_missing_imports = true
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
 
 [tool.coverage.run]
 source = ["variantcentrifuge"]
 omit = ["*/tests/*", "*/__pycache__/*", "*/.venv/*"]
 
 [tool.coverage.report]
+fail_under = 75
 precision = 2
 show_missing = true
 skip_covered = false

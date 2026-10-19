@@ -16,7 +16,7 @@ from concurrent.futures import (
     ThreadPoolExecutor,
     as_completed,
 )
-from typing import Literal
+from typing import Any, Literal
 
 import psutil
 
@@ -256,7 +256,7 @@ class PipelineRunner:
         return ordered
 
     def _clear_stage_and_downstream(
-        self, stage_name: str, ordered: list[Stage], checkpoint_state
+        self, stage_name: str, ordered: list[Stage], checkpoint_state: Any
     ) -> None:
         """Clear persisted completion for a stage and every downstream ordered stage."""
         names = [stage.name for stage in ordered]
@@ -718,7 +718,7 @@ class PipelineRunner:
         # for observed workloads. Revisit if stage count exceeds ~100.
         return stages
 
-    def _get_executor_for_stage(self, stage: Stage):
+    def _get_executor_for_stage(self, stage: Stage) -> type:
         """Get the appropriate executor type for a stage.
 
         Parameters

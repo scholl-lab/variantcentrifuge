@@ -65,7 +65,7 @@ class AtomicFileOperation:
 
         return self.temp_path
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Exit context and move temp file to final location if successful."""
         if exc_type is None:
             # No exception - move temp file to final location
@@ -89,7 +89,7 @@ class AtomicFileOperation:
                         f"Failed to clean up temp file {self.temp_path}: {cleanup_error}"
                     )
 
-        return False  # Don't suppress exceptions
+        return None  # Don't suppress exceptions
 
 
 @dataclass
@@ -950,14 +950,14 @@ class PipelineState:
         completed_count = len([s for s in self.state["steps"].values() if s.status == "completed"])
         logger.info(f"After cleanup: {completed_count} completed stages")
 
-    def __getstate__(self):
+    def __getstate__(self) -> dict[str, Any]:
         """Exclude the lock from serialization."""
         state = self.__dict__.copy()
         # Remove the unpicklable lock
         del state["_state_lock"]
         return state
 
-    def __setstate__(self, state):
+    def __setstate__(self, state: dict[str, Any]) -> None:
         """Recreate the lock after unpickling."""
         self.__dict__.update(state)
         # Recreate the lock
@@ -969,7 +969,7 @@ def checkpoint(
     input_files: str | list[str] | None = None,
     output_files: str | list[str] | None = None,
     parameters: dict[str, Any] | None = None,
-):
+) -> Callable[..., Any]:
     """Add checkpoint functionality to pipeline steps.
 
     Parameters
@@ -986,7 +986,7 @@ def checkpoint(
 
     def decorator(func: Callable) -> Callable:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Get pipeline state from kwargs or create a dummy one
             pipeline_state: PipelineState | None = kwargs.pop("_pipeline_state", None)
 
@@ -1067,7 +1067,7 @@ class CheckpointContext:
         self.output_files: list[str] = []
         self.skip: bool = False
 
-    def __enter__(self):
+    def __enter__(self) -> Any:
         """Enter the checkpoint context."""
         if self.pipeline_state is None:
             # No pipeline state - just run normally
@@ -1082,10 +1082,10 @@ class CheckpointContext:
             self.pipeline_state.start_step(self.step_name, self.command_hash, self.parameters)
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Exit the checkpoint context and save state if successful."""
         if self.skip or self.pipeline_state is None:
-            return False
+            return None
 
         if exc_type is None:
             # Success
@@ -1094,7 +1094,7 @@ class CheckpointContext:
             # Failure
             self.pipeline_state.fail_step(self.step_name, str(exc_val))
 
-        return False  # Don't suppress exceptions
+        return None  # Don't suppress exceptions
 
     def add_input_file(self, filepath: str) -> None:
         """Add an input file to track."""

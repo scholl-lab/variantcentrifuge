@@ -16,6 +16,7 @@ This module contains stages that produce the final outputs:
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 from ..converter import (
     append_tsv_as_sheet,
@@ -560,7 +561,7 @@ class MetadataGenerationStage(Stage):
         with open(metadata_path, "w", encoding="utf-8") as mf:
             mf.write("Parameter\tValue\n")
 
-            def meta_write(param, val):
+            def meta_write(param: Any, val: Any) -> None:
                 p = sanitize_metadata_field(param)
                 v = sanitize_metadata_field(val)
                 mf.write(f"{p}\t{v}\n")

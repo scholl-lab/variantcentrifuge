@@ -43,7 +43,7 @@ def check_external_tools(tools: list[str]) -> bool:
     return True
 
 
-def smart_open(filename: str, mode: str = "r", encoding: str = "utf-8"):
+def smart_open(filename: str, mode: str = "r", encoding: str = "utf-8") -> Any:
     """
     Open a file with automatic gzip support based on file extension.
 
@@ -212,33 +212,33 @@ def get_tool_version(tool_name: str) -> str:
         Version string or 'N/A' if not found or cannot be retrieved.
     """
 
-    def parse_snpeff(stdout, stderr):
+    def parse_snpeff(stdout: str, stderr: str) -> str:
         for line in f"{stdout}\n{stderr}".splitlines():
             stripped = line.strip()
             if re.search(r"(?i)^snpeff(?:\s+version\b|\t).*\d", stripped):
                 return stripped
         return "N/A"
 
-    def parse_bcftools(stdout, stderr):
+    def parse_bcftools(stdout: str, stderr: str) -> str:
         for line in stdout.splitlines():
             if "bcftools" in line.lower():
                 return line.strip()
         return "N/A"
 
-    def parse_snpsift(stdout, stderr):
+    def parse_snpsift(stdout: str, stderr: str) -> str:
         for line in f"{stdout}\n{stderr}".splitlines():
             stripped = line.strip()
             if re.search(r"(?i)^snpsift(?:\s+version\b|\t).*\d", stripped):
                 return stripped
         return "N/A"
 
-    def parse_bedtools(stdout, stderr):
+    def parse_bedtools(stdout: str, stderr: str) -> str:
         for line in stdout.splitlines():
             if "bedtools" in line.lower():
                 return line.strip()
         return "N/A"
 
-    def parse_git(stdout, stderr):
+    def parse_git(stdout: str, stderr: str) -> str:
         for line in stdout.splitlines():
             stripped = line.strip()
             if re.fullmatch(r"[0-9a-fA-F]{7,40}", stripped):

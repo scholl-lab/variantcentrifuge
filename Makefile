@@ -1,4 +1,4 @@
-.PHONY: help install install-dev clean lint lint-loc format format-check typecheck test test-unit test-integration test-fast ci-check fix
+.PHONY: help install install-dev clean lint lint-loc format format-check typecheck check-version test test-unit test-integration test-fast ci-check fix
 
 # Colors for output
 CYAN := \033[0;36m
@@ -7,7 +7,7 @@ YELLOW := \033[0;33m
 NC := \033[0m
 
 # Python
-PYTHON := python
+PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
 
 help: ## Show this help message
 	@echo "$(CYAN)Available targets:$(NC)"
@@ -17,10 +17,10 @@ help: ## Show this help message
 ##@ Installation
 
 install: ## Install the package
-	uv pip install -e .
+	uv sync --locked
 
 install-dev: ## Install with dev dependencies
-	uv pip install -e ".[dev]"
+	uv sync --locked --extra dev
 
 ##@ Cleaning
 
@@ -57,6 +57,11 @@ typecheck: ## Run mypy type checker
 	$(PYTHON) -m mypy variantcentrifuge/
 	@echo "$(GREEN)Type check passed$(NC)"
 
+check-version: ## Verify version synchronization across metadata files
+	@echo "$(CYAN)Checking version synchronization...$(NC)"
+	$(PYTHON) scripts/check_version_sync.py
+	@echo "$(GREEN)Version check passed$(NC)"
+
 ##@ Testing
 
 test: ## Run all tests with coverage (same as CI)
@@ -82,19 +87,22 @@ test-fast: ## Run non-slow, non-integration tests
 ci-check: ## Run local lint, LOC, format, type, and fast-test gates
 	@echo "$(CYAN)Running complete local CI check$(NC)"
 	@echo ""
-	@echo "$(CYAN)[1/5] Linting with ruff...$(NC)"
+	@echo "$(CYAN)[1/6] Linting with ruff...$(NC)"
 	@$(MAKE) lint
 	@echo ""
-	@echo "$(CYAN)[2/5] Checking production module line counts...$(NC)"
+	@echo "$(CYAN)[2/6] Checking production module line counts...$(NC)"
 	@$(MAKE) lint-loc
 	@echo ""
-	@echo "$(CYAN)[3/5] Checking code format...$(NC)"
+	@echo "$(CYAN)[3/6] Checking code format...$(NC)"
 	@$(MAKE) format-check
 	@echo ""
-	@echo "$(CYAN)[4/5] Type checking with mypy...$(NC)"
+	@echo "$(CYAN)[4/6] Type checking with mypy...$(NC)"
 	@$(MAKE) typecheck
 	@echo ""
-	@echo "$(CYAN)[5/5] Running tests...$(NC)"
+	@echo "$(CYAN)[5/6] Checking version synchronization...$(NC)"
+	@$(MAKE) check-version
+	@echo ""
+	@echo "$(CYAN)[6/6] Running tests...$(NC)"
 	@$(MAKE) test-fast
 	@echo ""
 	@echo "$(GREEN)ALL LOCAL CI CHECKS PASSED$(NC)"

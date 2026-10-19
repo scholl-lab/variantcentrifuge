@@ -377,7 +377,7 @@ def process_vcf_file(input_file: str, output_file: str | None = None) -> None:
                 subprocess.run(["tabix", "-p", "vcf", output_file], check=True)
 
 
-def main():
+def main() -> None:
     """Serve as CLI entry point for splitting multiple EFF/ANN annotations in a VCF file."""
     parser = argparse.ArgumentParser(
         description=(
