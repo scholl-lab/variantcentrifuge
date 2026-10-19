@@ -7,6 +7,152 @@ from pathlib import Path
 
 import pytest
 
+DOMPARSER_POLYFILL_JS = r"""
+function _decodeEntities(s) {
+    return s.replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&#x2F;/g, '/');
+}
+
+class DOMNode {
+    constructor(nodeType, tagName = '', text = '') {
+        this.nodeType = nodeType;
+        this.tagName = tagName.toUpperCase();
+        this.text = text;
+        this.attributes = {};
+        this.children = [];
+        this.parentNode = null;
+    }
+    getAttribute(name) {
+        const val = this.attributes[name.toLowerCase()];
+        return val !== undefined ? val : null;
+    }
+    setAttribute(name, val) {
+        this.attributes[name.toLowerCase()] = String(val);
+    }
+    appendChild(child) {
+        child.parentNode = this;
+        this.children.push(child);
+    }
+    removeChild(child) {
+        const idx = this.children.indexOf(child);
+        if (idx !== -1) {
+            this.children.splice(idx, 1);
+            child.parentNode = null;
+        }
+        return child;
+    }
+    get textContent() {
+        if (this.nodeType === 3) return this.text;
+        return this.children.map(c => c.textContent).join('');
+    }
+    get innerText() {
+        return this.textContent;
+    }
+    cloneNode(deep) {
+        const clone = new DOMNode(this.nodeType, this.tagName, this.text);
+        clone.attributes = { ...this.attributes };
+        if (deep) {
+            for (const child of this.children) {
+                clone.appendChild(child.cloneNode(true));
+            }
+        }
+        return clone;
+    }
+    querySelectorAll(selector) {
+        const results = [];
+        const selectors = selector.split(',').map(s => s.trim().toLowerCase());
+        function match(node) {
+            if (node.nodeType !== 1) return false;
+            for (const sel of selectors) {
+                if (sel === 'a' && node.tagName === 'A') return true;
+                if (sel === 'svg' && node.tagName === 'SVG') return true;
+                const cls = (node.getAttribute('class') || '').split(/\s+/);
+                if (sel === '.sr-only' && cls.includes('sr-only')) return true;
+                if (sel.startsWith('[') && sel.endsWith(']')) {
+                    const attr = sel.slice(1, -1);
+                    if (node.getAttribute(attr) !== null) return true;
+                }
+            }
+            return false;
+        }
+        function traverse(node) {
+            for (const child of node.children) {
+                if (match(child)) results.push(child);
+                traverse(child);
+            }
+        }
+        traverse(this);
+        return results;
+    }
+    querySelector(selector) {
+        const all = this.querySelectorAll(selector);
+        return all.length > 0 ? all[0] : null;
+    }
+}
+
+function _parseHtmlToDom(html) {
+    const root = new DOMNode(1, 'BODY');
+    const stack = [root];
+    const tagRegex =
+        /<!--[\s\S]*?-->|<(\/)?([a-zA-Z0-9\-]+)((?:\s+[a-zA-Z0-9_\-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/)?>|([^<]+)/g;
+    let match;
+    while ((match = tagRegex.exec(html)) !== null) {
+        if (match[0].startsWith('<!--')) continue;
+        if (match[5]) {
+            const text = _decodeEntities(match[5]);
+            stack[stack.length - 1].appendChild(new DOMNode(3, '', text));
+        } else if (match[2]) {
+            const isClosing = Boolean(match[1]);
+            const tagName = match[2];
+            const attrStr = match[3] || '';
+            const isSelfClosing =
+                Boolean(match[4]) || ['img', 'br', 'hr', 'input'].includes(tagName.toLowerCase());
+            if (isClosing) {
+                for (let i = stack.length - 1; i > 0; i--) {
+                    if (stack[i].tagName === tagName.toUpperCase()) {
+                        stack.splice(i);
+                        break;
+                    }
+                }
+            } else {
+                const el = new DOMNode(1, tagName);
+                const attrRegex =
+                    /([a-zA-Z0-9_\-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
+                let attrMatch;
+                while ((attrMatch = attrRegex.exec(attrStr)) !== null) {
+                    const name = attrMatch[1];
+                    const val =
+                        attrMatch[2] !== undefined
+                            ? attrMatch[2]
+                            : attrMatch[3] !== undefined
+                            ? attrMatch[3]
+                            : attrMatch[4] !== undefined
+                            ? attrMatch[4]
+                            : '';
+                    el.setAttribute(name, _decodeEntities(val));
+                }
+                stack[stack.length - 1].appendChild(el);
+                if (!isSelfClosing) {
+                    stack.push(el);
+                }
+            }
+        }
+    }
+    return root;
+}
+
+class DOMParser {
+    parseFromString(str, mimeType) {
+        return { body: _parseHtmlToDom(str) };
+    }
+}
+globalThis.DOMParser = DOMParser;
+"""
+
 
 def _load_template_js():
     """Extract helper functions from index.html template for Node execution."""
@@ -25,9 +171,9 @@ def _load_template_js():
 
 
 def _run_node_script(js_code: str):
-    """Run a JS script in node and return stdout."""
+    """Run a JS script in node with inert DOMParser available and return stdout."""
     helpers = _load_template_js()
-    full_script = f"{helpers}\n{js_code}"
+    full_script = f"{DOMPARSER_POLYFILL_JS}\n{helpers}\n{js_code}"
     result = subprocess.run(
         ["node", "-e", full_script],
         capture_output=True,
@@ -589,3 +735,125 @@ class TestColumnRenderers:
         filters_body = m_filters.group(1)
         assert "String(cellValue).trim() === selectedValue" in filters_body
         assert "extractCellContent(cellValue)" not in filters_body
+
+    def test_dom_parser_pipeline_and_xss_mitigations(self):
+        """Exercise DOMParser extractCellContent, rendering, sorting, and filtering (#130)."""
+        script = """
+        // 1. extractCellContent executes DOMParser branch
+        const payload = (
+            '<a href="javascript:alert(1)"><svg><circle></circle></svg>' +
+            '<span class="sr-only">hide</span>safe_label</a>'
+        );
+        const extracted = extractCellContent(payload);
+        if (extracted.text !== 'safe_label' || extracted.href !== 'javascript:alert(1)') {
+            console.error('DOMParser extractCellContent failed: ' + JSON.stringify(extracted));
+            process.exit(1);
+        }
+        if (isSafeUrl(extracted.href)) {
+            console.error('javascript: URL was unexpectedly marked safe');
+            process.exit(1);
+        }
+
+        // 2. Column rendering: IMPACT badge escaping
+        const impactRender = function(data, type, row) {
+            if (data) {
+                var cell = extractCellContent(data);
+                if (type === 'display') {
+                    var colors = { 'HIGH': '#dc3545', 'MODERATE': '#c05000' };
+                    var color = colors[cell.text] || '#6c757d';
+                    return '<span class="badge" style="background-color:' + color + ';">' +
+                        escapeHtml(cell.text) + '</span>';
+                }
+                return cell.text ? escapeHtml(String(cell.text)) : '';
+            }
+            return data != null ? escapeHtml(String(data)) : '';
+        };
+
+        const impactPayload = '<script>alert("impact")</script>';
+        const renderedImpact = impactRender(impactPayload, 'display', []);
+        if (
+            renderedImpact.indexOf('<script>') !== -1 ||
+            (renderedImpact.indexOf('&lt;script&gt;') === -1 &&
+             renderedImpact.indexOf('alert(&quot;impact&quot;)') === -1)
+        ) {
+            console.error('Impact render did not escape: ' + renderedImpact);
+            process.exit(1);
+        }
+
+        // 3. Sorting (type === 'sort'): Returns plain clean text, not HTML markup
+        const sortedImpact = impactRender('<span class="badge">HIGH</span>', 'sort', []);
+        if (sortedImpact !== 'HIGH') {
+            console.error('Sort render failed to extract plain text: ' + sortedImpact);
+            process.exit(1);
+        }
+
+        // 4. Tooltip attribute escaping: HGVS column > 30 chars
+        const hgvsRender = function(data, type, row) {
+            if (data) {
+                var cell = extractCellContent(data);
+                var str = String(cell.text || '');
+                if (type === 'display') {
+                    if (str.length > 30) {
+                        var truncated = str.substring(0, 30) + '...';
+                        return '<span class="truncated-cell" tabindex="0" data-tippy-content="' +
+                            escapeHtml(str) + '">' + escapeHtml(truncated) + '</span>';
+                    }
+                    return escapeHtml(str);
+                }
+                return escapeHtml(str);
+            }
+            return data != null ? escapeHtml(String(data)) : '';
+        };
+
+        const hgvsPayload = (
+            'c.123A>G" onfocus="alert(1)" data-breakout="excessively_long_variant_hgvs_string'
+        );
+        const renderedHgvs = hgvsRender(hgvsPayload, 'display', []);
+        if (
+            renderedHgvs.indexOf('" onfocus=') !== -1 ||
+            renderedHgvs.indexOf('&quot; onfocus=&quot;') === -1
+        ) {
+            console.error('Tooltip attribute not properly escaped: ' + renderedHgvs);
+            process.exit(1);
+        }
+        const sortedHgvs = hgvsRender(hgvsPayload, 'sort', []);
+        if (sortedHgvs.indexOf('<span') !== -1) {
+            console.error('Sort mode returned markup for HGVS: ' + sortedHgvs);
+            process.exit(1);
+        }
+
+        // 5. Filtering (filterFn): compares plain cellValue without DOM re-parsing
+        const filterFn = function(settings, data) {
+            if (settings.nTable.id !== 'variants_table') return true;
+            var cellValue = data[0];
+            return String(cellValue).trim() === 'expected_value';
+        };
+        const settings = { nTable: { id: 'variants_table' } };
+        if (filterFn(settings, [hgvsPayload]) !== false) {
+            console.error('filterFn matched unexpected payload');
+            process.exit(1);
+        }
+
+        // 6. Child-row details rendering: formatChildRow against XSS
+        const columns = [
+            { original_name: 'inj_col', display_name: 'Injection' },
+            { original_name: 'bad_link', display_name: 'Bad Link', is_standard_link_column: true }
+        ];
+        const rowData = [
+            null,
+            '<img src=x onerror=alert(1)>',
+            '<a href="javascript:alert(2)">Click</a>'
+        ];
+        const childHtml = formatChildRow(rowData, columns);
+        if (childHtml.indexOf('<img') !== -1 || childHtml.indexOf('onerror=') !== -1) {
+            console.error('Child row leaked unescaped img/onerror tag: ' + childHtml);
+            process.exit(1);
+        }
+        if (childHtml.indexOf('href="javascript:') !== -1) {
+            console.error('Child row rendered dangerous javascript: href: ' + childHtml);
+            process.exit(1);
+        }
+
+        console.log('OK');
+        """
+        assert _run_node_script(script) == "OK"

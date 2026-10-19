@@ -23,6 +23,7 @@ logger = logging.getLogger("variantcentrifuge")
 
 # Compile GT parsing pattern once at module level for performance
 GT_PATTERN = re.compile(r"([^()]+)\(([^)]+)\)")
+URL_PREFIXES = ("http://", "https://", "ftp://", "ftps://", "mailto:", "internal:", "external:")
 
 
 def _fmt_coord(val: Any) -> str:
@@ -190,21 +191,19 @@ def convert_to_excel(
         logger.debug("Removing raw igv_links column from Excel conversion")
         df = df.drop(columns=["igv_links"])
 
-    if output_file is not None:
-        xlsx_file = (
-            output_file
-            if output_file.endswith(".xlsx")
-            else os.path.splitext(output_file)[0] + ".xlsx"
-        )
-    else:
-        xlsx_file = (
-            tsv_file if tsv_file.endswith(".xlsx") else os.path.splitext(tsv_file)[0] + ".xlsx"
-        )
+    target_path = output_file if output_file is not None else tsv_file
+    xlsx_file = (
+        target_path if target_path.endswith(".xlsx") else os.path.splitext(target_path)[0] + ".xlsx"
+    )
 
     igv_enabled = cfg.get("igv_enabled", False)
     igv_lookup = _load_igv_lookup(xlsx_file, igv_enabled=igv_enabled) if igv_enabled else {}
 
-    with pd.ExcelWriter(xlsx_file, engine="xlsxwriter") as writer:
+    with pd.ExcelWriter(
+        xlsx_file,
+        engine="xlsxwriter",
+        engine_kwargs={"options": {"strings_to_urls": False}},
+    ) as writer:
         df.to_excel(writer, sheet_name="Results", index=False)
         ws = writer.sheets["Results"]
         book = writer.book
@@ -212,19 +211,26 @@ def convert_to_excel(
 
         ws.freeze_panes(1, 0)
 
-        # Format detected URL columns to display column header as label
+        # Format detected URL columns and individual hyperlinks (single registration)
         url_columns = set(_detect_url_columns(df))
         for col_idx, col_name in enumerate(df.columns):
-            if col_name not in url_columns:
+            if col_name == "IGV Report Links":
+                continue
+            is_url_col = col_name in url_columns
+            if not is_url_col and not pd.api.types.is_object_dtype(df[col_name]):
                 continue
             for row_idx, val in enumerate(df[col_name]):
                 s_val = str(val).strip() if pd.notna(val) else ""
-                if s_val.startswith(("http://", "https://")):
+                if not s_val:
+                    continue
+                if is_url_col and s_val.startswith(("http://", "https://")):
                     ret = ws.write_url(
                         row_idx + 1, col_idx, s_val, hyperlink_format, string=col_name
                     )
                     if ret != 0:
                         ws.write_string(row_idx + 1, col_idx, col_name, hyperlink_format)
+                elif s_val.startswith(URL_PREFIXES):
+                    ws.write_url(row_idx + 1, col_idx, s_val)
 
         # Handle IGV Report Links column
         num_cols = len(df.columns)
