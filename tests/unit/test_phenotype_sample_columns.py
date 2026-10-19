@@ -417,3 +417,11 @@ def test_sample_named_columns_matching_indexed_pattern_precedence():
 
     result = extract_phenotypes_from_sample_columns(row, vcf_samples, phenotypes)
     assert result == "GEN[1].GT(H1)"
+
+
+@pytest.mark.unit
+def test_extract_phenotypes_with_extra_colon_fields():
+    """Verify packed calls with extra colon-delimited format fields are parsed correctly."""
+    gt_val = "s(0/1:20);s2(./.:15)"
+    phenos = {"s": {"HP:0000001"}, "s2": {"HP:0000002"}}
+    assert extract_phenotypes_for_gt_row(gt_val, phenos) == "s(HP:0000001)"

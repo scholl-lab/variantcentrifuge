@@ -5,6 +5,7 @@ Reconstructs packed GT columns from per-sample GEN[i].GT columns and removes
 per-sample GEN columns before materializing final TSV/Excel outputs.
 """
 
+import contextlib
 import logging
 import re
 
@@ -96,8 +97,8 @@ def reconstruct_gt_column(
     logger.info(f"Reconstructing GT column from {n_samples} per-sample columns")
 
     # Vectorized approach: build GT strings using numpy for speed
-    base_skip = {"./.", ".|.", ".", "NA", "", "nan", "None"}
-    skip_values = base_skip if extra_fields else (base_skip | {"0/0", "0|0"})
+    skip_values = set() if extra_fields else {"0/0", "0|0"}
+    missing_sentinels = {"NA", "", "nan", "None"}
 
     # Extract GT values as a 2D array for fast access
     gt_data = df[gt_cols[:n_samples]].values  # shape: (n_rows, n_samples)
@@ -110,14 +111,16 @@ def reconstruct_gt_column(
         entries = []
         for col_idx in range(n_samples):
             val = gt_data[row_idx, col_idx]
-            if val is None:
-                continue
-            try:
-                if pd.isna(val):
-                    continue
-            except (TypeError, ValueError):
-                pass
-            gt_str = str(val).strip()
+            is_na = val is None
+            if not is_na:
+                with contextlib.suppress(TypeError, ValueError):
+                    is_na = bool(pd.isna(val))
+            if is_na:
+                gt_str = "./."
+            else:
+                gt_str = str(val).strip()
+                if gt_str in missing_sentinels:
+                    gt_str = "./."
             if gt_str in skip_values:
                 continue
             if extra_fields:
@@ -169,7 +172,7 @@ def _collapse_per_sample_gt_columns_for_output(
         eff_mapping = dict(sample_mapping) if sample_mapping else {}
         if not eff_mapping and "GT" in df.columns:
             n_s = min(len(gt_cols), len(vcf_samples))
-            std_skip = {"./.", ".|.", ".", "NA", "", "nan", "None", "0/0", "0|0"}
+            std_skip = {"0/0", "0|0"}
             for r_idx in range(len(df)):
                 raw_gt = df["GT"].iat[r_idx]
                 if not isinstance(raw_gt, str) or not raw_gt:

@@ -224,6 +224,13 @@ Set via JSON config (see [JSON Config](#tuning-json-config)):
 
 When any cell in the 2×2 contingency table is zero (common for rare variants where no controls or no cases carry a variant), the sample odds ratio would be zero or undefined (infinite). VariantCentrifuge applies the Haldane-Anscombe continuity correction (adding `continuity_correction`, default `0.5`, to all four cells) to evaluate both the reported odds ratio (`fisher_or`) and its normal-approximation confidence interval (`fisher_or_ci_lower`, `fisher_or_ci_upper`) from the same corrected table via `statsmodels.stats.contingency_tables.Table2x2`. If marginal totals are zero (structural zero), the odds ratio and confidence intervals return `NaN`.
 
+### Missing Genotypes and Complete-Case Policy
+
+VariantCentrifuge applies principled missingness handling across association tests:
+
+- **Fisher's Exact Test (Complete-Case Policy):** Samples with missing genotype calls (`./.`, `.`, `.|.`) at any qualifying variant in a gene are excluded from the test's called counts (`proband_called_count`, `control_called_count`) and reference denominator (`proband_called_chromosomes`, `control_called_chromosomes`). Samples with missing calls are never assumed to be reference (`0/0`). If all cases or all controls are uncalled for a gene, the test is safely skipped.
+- **Matrix-Based Tests (Burden Regression, SKAT, SKAT-O):** Genotype matrices use ploidy-scaled mean imputation (`ploidy * alt_allele_freq`, i.e. `2 * alt_freq` for diploid and `1 * alt_freq` for haploid; or `round(ploidy * alt_allele_freq)` bestguess for binary traits). Dosage units are `{0, 1, 2}` for diploid variants and `{0, 1}` for haploid calls.
+
 ---
 
 ## Simple Tests: Burden Tests

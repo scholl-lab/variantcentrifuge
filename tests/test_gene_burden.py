@@ -109,8 +109,10 @@ class TestGeneBurdenEdgeCases:
 
         result = perform_gene_burden_analysis(edge_case_data, config)
 
-        # Check that all genes are in results
-        assert len(result) == 5
+        # Check that testable genes are in results
+        # (GENE4 has 0 controls so it is not testable and skipped)
+        assert len(result) == 4
+        assert "GENE4" not in result["GENE"].values
 
         # Check GENE1 (infinite OR case)
         gene1 = result[result["GENE"] == "GENE1"].iloc[0]
@@ -126,12 +128,6 @@ class TestGeneBurdenEdgeCases:
         # Check GENE3 (no variants)
         gene3 = result[result["GENE"] == "GENE3"].iloc[0]
         assert np.isnan(gene3["odds_ratio"])  # Structural zero
-
-        # Check GENE4 (no controls - structural zero)
-        gene4 = result[result["GENE"] == "GENE4"].iloc[0]
-        assert np.isnan(gene4["odds_ratio"])  # Structural zero
-        assert np.isnan(gene4["or_ci_lower"])
-        assert np.isnan(gene4["or_ci_upper"])
 
     def test_allele_mode_edge_cases(self, edge_case_data):
         """Test edge cases in allele counting mode."""

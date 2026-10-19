@@ -109,8 +109,12 @@ class FisherExactTest(AssociationTest):
             and CIs computed via scipy/statsmodels matching gene_burden.py.
         """
         n_variants = int(contingency_data.get("n_qualifying_variants", 0))
-        p_count = int(contingency_data.get("proband_count", 0))
-        c_count = int(contingency_data.get("control_count", 0))
+        p_count = int(
+            contingency_data.get("proband_called_count", contingency_data.get("proband_count", 0))
+        )
+        c_count = int(
+            contingency_data.get("control_called_count", contingency_data.get("control_count", 0))
+        )
 
         # Skip genes with zero qualifying variants (silent, per spec)
         if n_variants == 0:
@@ -128,8 +132,8 @@ class FisherExactTest(AssociationTest):
                 n_variants=n_variants,
             )
 
-        # Skip when both groups are empty (matches gene_burden.py line 425-426)
-        if p_count == 0 and c_count == 0:
+        # Skip when either group is empty (matches gene_burden.py line 425-426)
+        if p_count == 0 or c_count == 0:
             return TestResult(
                 gene=gene,
                 test_name=self.name,
@@ -197,8 +201,12 @@ class FisherExactTest(AssociationTest):
         Mirrors gene_burden.py lines 428-465. Returns (table, skip) where
         skip=True means the gene should be excluded from results.
         """
-        p_count = int(contingency_data.get("proband_count", 0))
-        c_count = int(contingency_data.get("control_count", 0))
+        p_count = int(
+            contingency_data.get("proband_called_count", contingency_data.get("proband_count", 0))
+        )
+        c_count = int(
+            contingency_data.get("control_called_count", contingency_data.get("control_count", 0))
+        )
 
         if config.gene_burden_mode == "samples":
             # Collapsing test (CMC/CAST): carrier vs non-carrier
@@ -226,8 +234,10 @@ class FisherExactTest(AssociationTest):
             # Allele-based test: alt alleles vs ref alleles
             p_all = int(contingency_data.get("proband_allele_count", 0))
             c_all = int(contingency_data.get("control_allele_count", 0))
-            p_ref = p_count * 2 - p_all
-            c_ref = c_count * 2 - c_all
+            p_tot_chrom = int(contingency_data.get("proband_called_chromosomes", p_count * 2))
+            c_tot_chrom = int(contingency_data.get("control_called_chromosomes", c_count * 2))
+            p_ref = p_tot_chrom - p_all
+            c_ref = c_tot_chrom - c_all
             table = [[p_all, c_all], [p_ref, c_ref]]
 
             if p_ref < 0 or c_ref < 0:

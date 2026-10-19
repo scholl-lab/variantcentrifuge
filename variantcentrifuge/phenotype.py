@@ -24,8 +24,10 @@ logger = logging.getLogger("variantcentrifuge")
 
 def _is_called_alt_genotype(gt_str: str) -> bool:
     """Return True if genotype string contains at least one called alternate allele."""
-    gt_core = gt_str.split(":")[0].strip()
+    gt_core = re.split(r"[:,;\s]", gt_str.strip(), maxsplit=1)[0].strip()
     alleles = re.split(r"[/|]", gt_core) if gt_core else []
+    if len(alleles) == 1:
+        return alleles[0] == "1"
     return not (
         not alleles
         or gt_core.upper() == "NA"
@@ -194,7 +196,9 @@ def extract_phenotypes_for_gt_row(gt_value: str, phenotypes: dict[str, set[str]]
         # Extract sample ID and genotype: "Sample1(0/1)" -> "Sample1", "0/1"
         if "(" in sample_entry and sample_entry.endswith(")"):
             sample_id = sample_entry.split("(")[0]
-            genotype = sample_entry.split("(")[1][:-1]  # Remove closing )
+            genotype = re.split(r"[:,;\s]", sample_entry.split("(")[1][:-1], maxsplit=1)[
+                0
+            ]  # Remove closing ) and format fields
 
             # Skip entries without sample ID (malformed entries like "(0/1)")
             if not sample_id or not sample_id.strip():

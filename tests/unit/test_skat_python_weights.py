@@ -137,7 +137,7 @@ def test_python_skat_honors_functional_weight_schemes(
     np.testing.assert_allclose(captured["backend_weights"], expected)
 
 
-def test_python_skat_beta_uses_post_imputation_genotype_maf(monkeypatch):
+def test_python_skat_beta_uses_variant_mafs_when_provided(monkeypatch):
     geno = np.array(
         [
             [0.0, 1.0, 2.0],
@@ -150,17 +150,24 @@ def test_python_skat_beta_uses_post_imputation_genotype_maf(monkeypatch):
         dtype=np.float64,
     )
     phenotype = np.array([1, 1, 1, 0, 0, 0], dtype=float)
-    pre_imputation_mafs = np.array([0.01, 0.01, 0.01], dtype=np.float64)
+    provided_mafs = np.array([0.01, 0.01, 0.01], dtype=np.float64)
     config = AssociationConfig(trait_type="binary", variant_weights="beta:1,25")
     test, captured = _make_test_with_capture(monkeypatch)
 
     test.run(
         "GENE1",
-        _contingency(geno, phenotype, variant_mafs=pre_imputation_mafs),
+        _contingency(geno, phenotype, variant_mafs=provided_mafs),
         config,
     )
 
-    expected = beta_maf_weights(geno.mean(axis=0) / 2.0, a=1.0, b=25.0)
-    not_expected = beta_maf_weights(pre_imputation_mafs, a=1.0, b=25.0)
+    expected = beta_maf_weights(provided_mafs, a=1.0, b=25.0)
     np.testing.assert_allclose(captured["backend_weights"], expected)
-    assert not np.allclose(captured["backend_weights"], not_expected)
+
+    # When variant_mafs is omitted, fall back to genotype mean / 2
+    test.run(
+        "GENE1",
+        _contingency(geno, phenotype),
+        config,
+    )
+    expected_fallback = beta_maf_weights(geno.mean(axis=0) / 2.0, a=1.0, b=25.0)
+    np.testing.assert_allclose(captured["backend_weights"], expected_fallback)

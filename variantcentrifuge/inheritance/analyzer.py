@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ..genotype_utils import is_het, is_variant
 from .comp_het_vectorized import (
     analyze_gene_for_compound_het_vectorized,
     build_variant_keys_array,
@@ -273,11 +274,9 @@ def _finalize_inheritance_patterns(
             for _sample_id, info in comp_info.items():
                 if info.get("is_compound_het"):
                     comp_het_type = info.get("comp_het_type", "compound_heterozygous")
-                    if (
-                        comp_het_type != "not_compound_heterozygous"
-                        and comp_het_type not in patterns_list
-                    ):
-                        patterns_list.append(comp_het_type)
+                    for ct in info.get("all_comp_het_types", [comp_het_type]):
+                        if ct != "not_compound_heterozygous" and ct not in patterns_list:
+                            patterns_list.append(ct)
 
         # Calculate segregation scores if needed
         segregation_results = None
@@ -369,8 +368,9 @@ def _create_inheritance_details(
         raw_gt = row[sample_id]
         if raw_gt is None or pd.isna(raw_gt):
             continue
-        gt = str(raw_gt)
-        if gt in ["./.", "0/0"]:
+        gt = str(raw_gt).strip()
+        gt_call = gt.split(":")[0].strip()
+        if not is_variant(gt_call):
             continue
 
         sample_info = {
@@ -391,6 +391,10 @@ def _create_inheritance_details(
                     sample_info["compound_het_partner"] = ch_info["partner_variant"]
                 sample_info["compound_het_gene"] = ch_info.get("gene")
                 sample_info["compound_het_configuration"] = ch_info.get("inheritance_type")
+                if "partner_types" in ch_info:
+                    sample_info["compound_het_partner_types"] = ch_info["partner_types"]
+                if "partner_comp_het_types" in ch_info:
+                    sample_info["compound_het_partner_patterns"] = ch_info["partner_comp_het_types"]
 
         details["samples_with_pattern"].append(sample_info)
 
@@ -399,7 +403,11 @@ def _create_inheritance_details(
     details["carrier_count"] = sum(
         1
         for s in details["samples_with_pattern"]
-        if s["genotype"] in ("0/1", "1/0", "0|1", "1|0") and not s["affected"]
+        if (
+            is_het(s["genotype"].split(":")[0].strip())
+            or s["genotype"].split(":")[0].strip() == "1"
+        )
+        and not s["affected"]
     )
 
     return details
