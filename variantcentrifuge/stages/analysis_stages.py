@@ -32,11 +32,15 @@ from ..gene_burden import (
     _aggregate_gene_burden_legacy,
     perform_gene_burden_analysis,
 )
+from ..gt_reconstruction import (
+    _collapse_per_sample_gt_columns_for_output,
+    _find_per_sample_gt_columns,
+    reconstruct_gt_column,
+)
 from ..inheritance import analyze_inheritance
 from ..pipeline_core import PipelineContext, Stage
 from ..scoring import apply_scoring
 from ..stats_engine import StatsEngine
-from .output_stages import _find_per_sample_gt_columns, reconstruct_gt_column
 
 logger = logging.getLogger(__name__)
 
@@ -3209,69 +3213,22 @@ class ChunkedAnalysisStage(Stage):
 
             chunk_df = apply_scoring(chunk_df, context.scoring_config)
 
-        # Apply analysis using the line-based interface - only if needed
-        # Since inheritance and scoring are already done, we may skip this step
-        # analyze_variants is causing issues with the chunk data format, so skip it
-
-        logger.debug(
-            f"Chunk {chunk_num + 1} skipping analyze_variants - inheritance and scoring complete"
-        )
-
-        if False:  # Never execute this block
-            # Prepare analysis config - inheritance is handled separately above
-            analysis_cfg = {
-                "add_variant_id": context.config.get("add_variant_id", True),
-                "perform_gene_burden": False,  # Gene burden analysis should be done after chunking
-                "custom_gene_list": context.config.get("custom_gene_list"),
-                "case_samples_file": context.config.get("case_samples_file"),
-                "control_samples_file": context.config.get("control_samples_file"),
-                "vcf_samples": context.vcf_samples,
-                "aggregate_operation": context.config.get("aggregate_operation", "max"),
-                "aggregate_column": context.config.get("aggregate_column"),
-                "sample_values": context.config.get("sample_values", {}),
-                "skip_inheritance": True,  # Already handled above
-                "calculate_inheritance": False,  # Explicitly disable since handled above
-                "pedigree_data": {},  # Empty dict since inheritance handled above
-                "sample_list": ",".join(context.vcf_samples) if context.vcf_samples else "",
-            }
-
-            # Convert DataFrame to lines for analyze_variants function
-            import io
-
-            try:
-                logger.info(
-                    f"Chunk {chunk_num + 1} before analyze_variants: {len(chunk_df)} variants"
-                )
-                tsv_lines = chunk_df.to_csv(sep="\t", index=False)
-                lines_iter = iter(tsv_lines.strip().split("\n"))
-
-                # Call analyze_variants and collect results
-                result_lines = list(analyze_variants(lines_iter, analysis_cfg))
-                logger.info(
-                    f"Chunk {chunk_num + 1} analyze_variants returned {len(result_lines)} lines"
-                )
-
-                # Convert back to DataFrame
-                if result_lines:
-                    result_text = "\n".join(result_lines)
-                    chunk_df = pd.read_csv(io.StringIO(result_text), sep="\t", dtype=str)
-                    logger.info(f"Chunk {chunk_num + 1} processed: {len(chunk_df)} variants")
-                else:
-                    logger.warning(
-                        f"No results from analyze_variants for chunk {chunk_num + 1}, "
-                        f"keeping original chunk with {len(chunk_df)} variants"
-                    )
-                    # Keep original chunk instead of losing data - inheritance and scoring
-                    # already applied
-            except Exception as e:
-                logger.error(f"Error processing chunk {chunk_num + 1}: {e}")
-                # Return original chunk if processing fails
-                return chunk_df
-        else:
-            logger.debug(
-                f"Skipping analyze_variants for chunk {chunk_num + 1} - "
-                f"inheritance and scoring already complete"
+        # Collapse per-sample GT columns into packed GT column unless no_replacement requested
+        extra_sample_fields = (
+            context.config.get("extra_sample_fields")
+            if context.config.get(
+                "append_extra_sample_fields", bool(context.config.get("extra_sample_fields"))
             )
+            else None
+        )
+        chunk_df = _collapse_per_sample_gt_columns_for_output(
+            chunk_df,
+            context.vcf_samples,
+            no_replacement=context.config.get("no_replacement", False),
+            extra_sample_fields=extra_sample_fields,
+            delimiter=context.config.get("extra_sample_field_delimiter") or ":",
+            sample_mapping=context.config.get("pseudonymization_mapping"),
+        )
 
         logger.debug(f"Chunk {chunk_num + 1} final size: {len(chunk_df)} variants")
         logger.debug(f"Chunk {chunk_num + 1} columns: {list(chunk_df.columns)}")
@@ -3753,9 +3710,8 @@ class ChunkedAnalysisStage(Stage):
             # Track timing for sample column preparation
             import time
 
-            # CRITICAL: Create individual sample columns from GT column
-            # This is required for inheritance analysis to work correctly
-            if "GT" in chunk_df.columns and len(chunk_df) > 0:
+            sample_columns_exist = any(s in chunk_df.columns for s in vcf_samples)
+            if not sample_columns_exist and "GT" in chunk_df.columns and len(chunk_df) > 0:
                 logger.debug("Creating sample columns from GT column for inheritance analysis")
 
                 prep_start = time.time()
@@ -3773,10 +3729,22 @@ class ChunkedAnalysisStage(Stage):
                 prep_time = time.time() - prep_start
                 if prep_time > 0.1:  # Only log if significant
                     logger.debug(f"Sample column preparation took {prep_time:.2f}s")
-            else:
-                logger.warning(
-                    "No GT column found in chunk, inheritance analysis may not work correctly"
-                )
+            elif not sample_columns_exist:
+                # Per-sample GT columns (GEN_N__GT) from bcftools query
+                gt_cols = _find_per_sample_gt_columns(chunk_df)
+                if gt_cols:
+                    n = min(len(gt_cols), len(vcf_samples))
+                    logger.info(
+                        f"Creating sample columns from {n} per-sample GT columns "
+                        "for chunk inheritance analysis"
+                    )
+                    for i in range(n):
+                        chunk_df[vcf_samples[i]] = chunk_df[gt_cols[i]]
+                else:
+                    logger.warning(
+                        "No GT column or per-sample GT columns found in chunk, "
+                        "inheritance analysis may not work correctly"
+                    )
 
             # Apply inheritance analysis with parallel processing support
             analysis_start = time.time()

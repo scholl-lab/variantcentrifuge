@@ -8,7 +8,9 @@ Contains:
 - ArchiveCreationStage
 """
 
+import gzip
 import logging
+import shutil
 import sys
 import tarfile
 from pathlib import Path
@@ -91,18 +93,13 @@ class VariantIdentifierStage(Stage):
             import hashlib
 
             var_ids = []
-            for idx, row in enumerate(df.itertuples(index=False), 1):
-                chrom = str(getattr(row, "CHROM", ""))
-                pos = str(getattr(row, "POS", ""))
-                ref = str(getattr(row, "REF", ""))
-                alt = str(getattr(row, "ALT", ""))
-
-                combined = f"{chrom}{pos}{ref}{alt}"
-                short_hash = hashlib.md5(combined.encode("utf-8")).hexdigest()[:4]
-                var_id = f"var_{idx:04d}_{short_hash}"
-                var_ids.append(var_id)
-
-            # Insert VAR_ID as the first column
+            for idx, r in enumerate(df.itertuples(index=False), 1):
+                key = (
+                    f"{getattr(r, 'CHROM', '')}{getattr(r, 'POS', '')}"
+                    f"{getattr(r, 'REF', '')}{getattr(r, 'ALT', '')}"
+                )
+                h = hashlib.md5(key.encode("utf-8")).hexdigest()[:4]
+                var_ids.append(f"var_{idx:04d}_{h}")
             df.insert(0, id_column, var_ids)
         else:
             # Fallback to simple index
@@ -132,9 +129,6 @@ class VariantIdentifierStage(Stage):
 
     def _process_streaming(self, context: PipelineContext) -> PipelineContext:
         """Process large files in streaming mode without loading into memory."""
-        import gzip
-        from pathlib import Path
-
         input_file = Path(context.data)
         output_file = context.workspace.get_intermediate_path("with_variant_ids.tsv.gz")
         id_column = "VAR_ID"  # Default variant identifier column
@@ -184,12 +178,9 @@ class VariantIdentifierStage(Stage):
 
                 # Generate variant ID matching regular mode format
                 if use_key_fields:
-                    chrom = fields[key_indices["CHROM"]]
-                    pos = fields[key_indices["POS"]]
-                    ref = fields[key_indices["REF"]]
-                    alt = fields[key_indices["ALT"]]
-
-                    combined = f"{chrom}{pos}{ref}{alt}"
+                    combined = "".join(
+                        fields[key_indices[k]] for k in ["CHROM", "POS", "REF", "ALT"]
+                    )
                     short_hash = hashlib.md5(combined.encode("utf-8")).hexdigest()[:4]
                     var_id = f"var_{line_count:04d}_{short_hash}"
                 else:
@@ -353,16 +344,35 @@ class TSVOutputStage(Stage):
                 logger.info(f"Using chunked analysis results from: {context.chunked_analysis_tsv}")
                 # Copy chunked results to final output location
                 output_file = context.config.get("output_file")
-                if output_file and output_file not in [None, "stdout", "-"]:
-                    final_output_path = Path(output_file)
-                    if not final_output_path.is_absolute():
-                        final_output_path = context.workspace.output_dir / final_output_path
-
-                    import shutil
-
+                if output_file in [None, "stdout", "-"]:
+                    open_fn = (
+                        gzip.open if str(context.chunked_analysis_tsv).endswith(".gz") else open
+                    )
+                    with open_fn(context.chunked_analysis_tsv, "rt") as f:
+                        for line in f:
+                            sys.stdout.write(line)
+                    return context
+                final_output_path = Path(output_file)
+                if not final_output_path.is_absolute():
+                    final_output_path = context.workspace.output_dir / final_output_path
+                src_gz = str(context.chunked_analysis_tsv).endswith(".gz")
+                dst_gz = str(final_output_path).endswith(".gz")
+                if src_gz == dst_gz:
                     shutil.copy2(context.chunked_analysis_tsv, final_output_path)
-                    context.final_output_path = final_output_path
-                    logger.info(f"Chunked analysis results copied to: {final_output_path}")
+                elif src_gz:
+                    with (
+                        gzip.open(context.chunked_analysis_tsv, "rb") as fi,
+                        open(final_output_path, "wb") as fo,
+                    ):
+                        shutil.copyfileobj(fi, fo)
+                else:
+                    with (
+                        open(context.chunked_analysis_tsv, "rb") as fi,
+                        gzip.open(final_output_path, "wb") as fo,
+                    ):
+                        shutil.copyfileobj(fi, fo)
+                context.final_output_path = final_output_path
+                logger.info(f"Chunked analysis results copied to: {final_output_path}")
                 return context
 
             # Fallback: Output already written during chunked processing
@@ -430,23 +440,17 @@ class TSVOutputStage(Stage):
             # Get link configurations from config
             link_configs = resolve_links(context.config)
             if link_configs:
-                # Convert DataFrame to lines, add links, then convert back
-                # First, save to lines format
-                lines = []
-                # Header
-                lines.append("\t".join(df.columns))
-                # Data rows
-                for row in df.itertuples(index=False):
-                    # Convert namedtuple to values list (skip Index if present)
-                    lines.append("\t".join(str(val) for val in row))
-
-                # Add links
-                lines_with_links = add_links_to_table(lines, link_configs)
-
-                # Convert back to DataFrame
                 import io
 
-                df = pd.read_csv(io.StringIO("\n".join(lines_with_links)), sep="\t", dtype=str)
+                lines = ["\t".join(df.columns)]
+                lines.extend(
+                    "\t".join(str(val) for val in row) for row in df.itertuples(index=False)
+                )
+                df = pd.read_csv(
+                    io.StringIO("\n".join(add_links_to_table(lines, link_configs))),
+                    sep="\t",
+                    dtype=str,
+                )
 
         # Drop internal cache columns before output
         cache_cols = [c for c in df.columns if c.startswith("_")]
@@ -584,13 +588,12 @@ def _collect_metadata_rows(context: PipelineContext, get_version_fn: Any) -> lis
         ("Inheritance_mode", cfg.get("inheritance_mode", "")),
         ("Scoring_config", cfg.get("scoring_config_path", "")),
     ]
-    rows.extend((f"config.{k}", str(v)) for k, v in cfg.items() if v is not None)
+    sensitive_keys = {"pseudonymization_mapping", "pseudonymizer", "sample_list", "vcf_samples"}
     rows.extend(
-        [
-            ("tool.bcftools_version", get_version_fn("bcftools")),
-            ("tool.snpeff_version", get_version_fn("snpEff")),
-            ("tool.snpsift_version", get_version_fn("SnpSift")),
-            ("tool.bedtools_version", get_version_fn("bedtools")),
-        ]
+        (f"config.{k}", str(v))
+        for k, v in cfg.items()
+        if v is not None and (not cfg.get("pseudonymize") or k not in sensitive_keys)
     )
+    for tool_name in ["bcftools", "snpEff", "SnpSift", "bedtools"]:
+        rows.append((f"tool.{tool_name.lower()}_version", get_version_fn(tool_name)))
     return rows
