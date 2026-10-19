@@ -1,6 +1,7 @@
 """HTML report generation for VariantCentrifuge."""
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -8,12 +9,55 @@ import pandas as pd
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
+DANGEROUS_TAG_NAMES = {
+    "script",
+    "iframe",
+    "object",
+    "embed",
+    "svg",
+    "img",
+    "body",
+    "style",
+    "link",
+    "meta",
+    "base",
+    "form",
+    "input",
+    "button",
+    "video",
+    "audio",
+    "source",
+    "track",
+    "frame",
+    "frameset",
+    "applet",
+    "marquee",
+    "details",
+    "template",
+    "math",
+}
+
+
+def _encode_symbolic_allele_brackets(url: Any) -> str:
+    """Percent-encode symbolic VCF alleles like <DEL>, <DUP>, <INS:ME:ALU> in URL path."""
+    if not url:
+        return ""
+    u = str(url)
+
+    def _repl(match: re.Match[str]) -> str:
+        tag = match.group(1)
+        if tag.lower() in DANGEROUS_TAG_NAMES:
+            return match.group(0)
+        return f"%3C{tag}%3E"
+
+    return re.sub(r"<([A-Za-z0-9_:.-]+)>", _repl, u)
+
 
 def is_safe_url(url: Any) -> bool:
     """Check if a URL uses a safe scheme (http, https, or relative path)."""
     if not url:
         return False
-    u = str(url).strip()
+    u = _encode_symbolic_allele_brackets(str(url).strip())
     if any(ord(c) < 32 or ord(c) == 127 or c in " \t\r\n\"'<>\\" for c in u):
         return False
     if u.startswith("//"):
@@ -33,7 +77,7 @@ def _coerce_positive_int(val: Any, default: int | None = None) -> int | None:
     try:
         n = int(val)
         return n if n > 0 else default
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return default
 
 
@@ -81,6 +125,12 @@ def generate_html_report(
         variants_data = json.load(vf)
     with open(summary_json, encoding="utf-8") as sf:
         summary = json.load(sf)
+
+    for v in variants_data:
+        if "igv_links" in v and isinstance(v["igv_links"], list):
+            for link in v["igv_links"]:
+                if isinstance(link, dict) and "report_path" in link and link["report_path"]:
+                    link["report_path"] = _encode_symbolic_allele_brackets(link["report_path"])
 
     if "reference" in cfg:
         from .links import resolve_links
@@ -164,6 +214,7 @@ def generate_html_report(
         autoescape=select_autoescape(["html", "xml"]),
     )
     env.filters["is_safe_url"] = is_safe_url
+    env.filters["sanitize_url"] = _encode_symbolic_allele_brackets
     template = env.get_template("index.html")
 
     # Import version for template

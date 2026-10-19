@@ -44,11 +44,9 @@ def _load_igv_lookup(
     output_dir = os.path.dirname(base_path)
     igv_map_path = os.path.join(output_dir, "report", "igv", "igv_reports_map.json")
     if not os.path.exists(igv_map_path) and search_parents:
-        alt_path = os.path.join(
-            os.path.dirname(os.path.dirname(output_dir)), "report", "igv", "igv_reports_map.json"
-        )
-        if os.path.exists(alt_path):
-            igv_map_path = alt_path
+        parent_dir = os.path.dirname(os.path.dirname(output_dir))
+        alt = os.path.join(parent_dir, "report", "igv", "igv_reports_map.json")
+        igv_map_path = alt if os.path.exists(alt) else igv_map_path
 
     if not os.path.exists(igv_map_path):
         if igv_enabled:
@@ -147,8 +145,11 @@ def convert_to_excel(
     output_file: str | None = None,
 ) -> str:
     """Convert a TSV file or DataFrame to XLSX format with Results and optional extra sheets."""
-    if extra_sheets and (reserved := {"Results", "IGV_Overflow"} & set(extra_sheets)):
-        raise ValueError(f"extra_sheets cannot overwrite reserved sheet(s): {sorted(reserved)}")
+    if extra_sheets:
+        if conflicts := [s for s in extra_sheets if s.lower() in {"results", "igv_overflow"}]:
+            raise ValueError(f"extra_sheets cannot overwrite reserved sheet(s): {conflicts}")
+        if len({s.lower() for s in extra_sheets}) != len(extra_sheets):
+            raise ValueError("extra_sheets contains duplicate sheet names")
 
     if df is not None:
         logger.debug("Using provided DataFrame for Excel conversion (skipping disk read)")
@@ -169,10 +170,8 @@ def convert_to_excel(
         logger.debug("Removing raw igv_links column from Excel conversion")
         df = df.drop(columns=["igv_links"])
 
-    target_path = output_file if output_file is not None else tsv_file
-    xlsx_file = (
-        target_path if target_path.endswith(".xlsx") else os.path.splitext(target_path)[0] + ".xlsx"
-    )
+    tgt = output_file if output_file is not None else tsv_file
+    xlsx_file = tgt if tgt.endswith(".xlsx") else f"{os.path.splitext(tgt)[0]}.xlsx"
 
     igv_enabled = cfg.get("igv_enabled", False)
     igv_lookup = _load_igv_lookup(xlsx_file, igv_enabled=igv_enabled) if igv_enabled else {}

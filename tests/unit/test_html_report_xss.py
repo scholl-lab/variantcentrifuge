@@ -165,7 +165,13 @@ def _load_template_js():
     content = template_path.read_text(encoding="utf-8")
 
     helpers = ""
-    for fn_name in ["escapeHtml", "isSafeUrl", "extractCellContent", "formatChildRow"]:
+    for fn_name in [
+        "escapeHtml",
+        "encodeSymbolicAlleles",
+        "isSafeUrl",
+        "extractCellContent",
+        "formatChildRow",
+    ]:
         m = re.search(rf"(function {fn_name}\(.*?\n    \}})", content, re.DOTALL)
         assert m is not None, f"Function {fn_name} not found in index.html"
         helpers += m.group(1) + "\n\n"
@@ -1743,3 +1749,130 @@ window.addEventListener("load", function() {
         finally:
             server.shutdown()
             server.server_close()
+
+    def test_coerce_positive_int_overflow_and_special_values(self, tmp_path: Path):
+        """Verify _coerce_positive_int handles inf, -inf, nan, and 1e400 gracefully."""
+        from variantcentrifuge.generate_html_report import (
+            _coerce_positive_int,
+            generate_html_report,
+        )
+
+        assert _coerce_positive_int(float("inf"), default=150) == 150
+        assert _coerce_positive_int(float("-inf"), default=150) == 150
+        assert _coerce_positive_int(float("nan"), default=150) == 150
+        assert _coerce_positive_int(1e400, default=150) == 150
+        assert _coerce_positive_int("1e400", default=150) == 150
+
+        # Verify generate_html_report does not crash with 1e400 or inf in config
+        v_file = tmp_path / "variants.json"
+        s_file = tmp_path / "summary.json"
+        summary = {
+            "num_variants": 1,
+            "num_samples": 1,
+            "impact_distribution": {"HIGH": 1},
+            "inheritance_distribution": {"de_novo": 1},
+            "top_genes": [{"gene": "BRCA1", "count": 1}],
+        }
+        v_file.write_text(
+            json.dumps([{"CHROM": "chr1", "POS": 100, "REF": "A", "ALT": "T"}]),
+            encoding="utf-8",
+        )
+        s_file.write_text(json.dumps(summary), encoding="utf-8")
+
+        cfg = {
+            "reference": "GRCh38",
+            "html_report_truncate_settings": {
+                "columns_for_hover_expand": ["CHROM"],
+                "default_max_width_px": float("inf"),
+            },
+        }
+        generate_html_report(str(v_file), str(s_file), str(tmp_path), cfg)
+        out_html = (tmp_path / "index.html").read_text(encoding="utf-8")
+        assert "max-width: 150px;" in out_html
+
+    def test_symbolic_allele_igv_links_rendered_safely(self, tmp_path: Path):
+        """Verify symbolic allele IGV links (<DEL>) render safely as %3CDEL%3E."""
+        from variantcentrifuge.generate_html_report import (
+            _encode_symbolic_allele_brackets,
+            generate_html_report,
+            is_safe_url,
+        )
+
+        # Direct function behavior
+        assert is_safe_url("igv/S1_chr1_100_N_<DEL>_igv_report.html") is True
+        assert is_safe_url("igv/S1_chr1_100_N_<DUP>_igv_report.html") is True
+        assert is_safe_url("igv/S1_chr1_100_N_<INS:ME:ALU>_igv_report.html") is True
+        del_path = "igv/S1_chr1_100_N_<DEL>_igv_report.html"
+        expected_encoded = "igv/S1_chr1_100_N_%3CDEL%3E_igv_report.html"
+        assert _encode_symbolic_allele_brackets(del_path) == expected_encoded
+
+        # Malicious tags must be rejected
+        assert is_safe_url("igv/<script>alert(1)</script>.html") is False
+        assert is_safe_url("igv/<img src=x onerror=alert(1)>.html") is False
+        assert is_safe_url("igv/<svg onload=alert(1)>.html") is False
+
+        variants_data = [
+            {
+                "CHROM": "chr1",
+                "POS": 100,
+                "REF": "N",
+                "ALT": "<DEL>",
+                "igv_links": [
+                    {
+                        "sample_id": "S1_DEL",
+                        "report_path": "igv/S1_chr1_100_N_<DEL>_igv_report.html",
+                    },
+                ],
+            },
+            {
+                "CHROM": "chr1",
+                "POS": 200,
+                "REF": "A",
+                "ALT": "T",
+                "igv_links": [
+                    {
+                        "sample_id": "S2_SCRIPT",
+                        "report_path": "igv/<script>alert(1)</script>.html",
+                    },
+                ],
+            },
+            {
+                "CHROM": "chr1",
+                "POS": 300,
+                "REF": "A",
+                "ALT": "T",
+                "igv_links": [
+                    {
+                        "sample_id": "S3_IMG",
+                        "report_path": "igv/<img src=x onerror=alert(1)>.html",
+                    },
+                ],
+            },
+        ]
+        summary = {
+            "num_variants": 3,
+            "num_samples": 3,
+            "impact_distribution": {"HIGH": 1},
+            "inheritance_distribution": {"de_novo": 1},
+            "top_genes": [{"gene": "BRCA1", "count": 1}],
+        }
+        v_file = tmp_path / "variants.json"
+        s_file = tmp_path / "summary.json"
+        v_file.write_text(json.dumps(variants_data), encoding="utf-8")
+        s_file.write_text(json.dumps(summary), encoding="utf-8")
+
+        cfg = {"reference": "GRCh38"}
+        generate_html_report(str(v_file), str(s_file), str(tmp_path), cfg)
+        report_html = (tmp_path / "index.html").read_text(encoding="utf-8")
+
+        # Legitimate symbolic allele link must render as clickable with percent-encoded brackets
+        assert 'href="igv/S1_chr1_100_N_%3CDEL%3E_igv_report.html"' in report_html
+        assert "S1_DEL" in report_html
+
+        # Malicious links must NOT render as clickable <a> tags
+        assert 'href="igv/<script>' not in report_html
+        assert 'href="igv/%3Cscript%3E' not in report_html
+        assert "<script>alert(1)</script>" not in report_html
+        assert 'href="igv/<img' not in report_html
+        assert "S2_SCRIPT" in report_html
+        assert "S3_IMG" in report_html

@@ -1286,9 +1286,28 @@ document.addEventListener('DOMContentLoaded', function() {
             .replace(/'/g, '&#39;');
     }
 
+    function encodeSymbolicAlleles(url) {
+        if (!url) return '';
+        var dangerousTags = {
+            'script': 1, 'iframe': 1, 'object': 1, 'embed': 1, 'svg': 1,
+            'img': 1, 'body': 1, 'style': 1, 'link': 1, 'meta': 1,
+            'base': 1, 'form': 1, 'input': 1, 'button': 1, 'video': 1,
+            'audio': 1, 'source': 1, 'track': 1, 'frame': 1, 'frameset': 1,
+            'applet': 1, 'marquee': 1, 'details': 1, 'template': 1, 'math': 1
+        };
+        return String(url).replace(/<([A-Za-z0-9_:.-]+)>/g, function(match, tag) {
+            if (dangerousTags[tag.toLowerCase()]) {
+                return match;
+            }
+            return '%3C' + tag + '%3E';
+        });
+    }
+
     function isSafeUrl(url) {
         if (!url) return false;
-        var u = String(url).trim();
+        var u = (typeof encodeSymbolicAlleles === 'function')
+            ? encodeSymbolicAlleles(String(url).trim())
+            : String(url).trim();
         if (/[\s"'<>\\]/.test(u)) return false;
         if (u.indexOf('//') === 0) return false;
         var uLower = u.toLowerCase();
@@ -1793,7 +1812,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     var safeAnchors = [];
                     cell.links.forEach(function(lnk) {
                         if (lnk.href && isSafeUrl(lnk.href)) {
-                            var safeHref = escapeHtml(lnk.href);
+                            var safeHref = escapeHtml(encodeSymbolicAlleles(lnk.href));
                             var linkText = lnk.text ? escapeHtml(lnk.text) : safeDisplayName;
                             safeAnchors.push('<a href="' + safeHref + '" target="_blank" rel="noopener">' + linkText + ' &#x2197;</a>');
                         }
@@ -1809,7 +1828,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 var isExplicitUrl = (textVal.indexOf('http://') === 0 || textVal.indexOf('https://') === 0 || textVal.indexOf('igv_reports/') === 0);
 
                 if (isLinkCol && isExplicitUrl && isSafeUrl(textVal)) {
-                    var safeUrl = escapeHtml(textVal);
+                    var safeUrl = escapeHtml(encodeSymbolicAlleles(textVal));
                     var linkLabel = col.link_display_text ? escapeHtml(col.link_display_text) : safeDisplayName;
                     html += '<dd><a href="' + safeUrl + '" target="_blank" rel="noopener">' + linkLabel + ' &#x2197;</a></dd>';
                 } else {

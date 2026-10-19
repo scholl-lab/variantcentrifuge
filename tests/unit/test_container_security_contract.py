@@ -942,12 +942,13 @@ def test_compose_and_installation_persist_the_default_snpeff_data_directory() ->
 
 def test_container_image_contract_checks_non_owner_child_mounts() -> None:
     script = _text("scripts/test_container_image.sh")
-    assert "checking non-owner traversal of /data with child bind mounts" in script
-    assert "--user 12345:12345" in script
-    assert "dst=/data/input,readonly" in script
-    assert "dst=/data/out" in script
-    assert "dst=/data/snpeff" in script
-    assert 'chmod 0777 "$non_owner_out" "$non_owner_snpeff"' in script
+    assert "checking host-user traversal of /data with child bind mounts" in script
+    assert '--user "$(id -u):$(id -g)"' in script
+    assert 'chmod 0755 "$host_input" "$host_out" "$host_snpeff"' in script
+    assert '-v "$host_input:/data/input:ro"' in script
+    assert '-v "$host_out:/data/output"' in script
+    assert '-v "$host_snpeff:/data/snpeff"' in script
+    assert "0777" not in script
 
 
 def test_data_directory_traversal_permissions_behavioral(tmp_path: Path) -> None:

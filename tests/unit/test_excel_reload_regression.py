@@ -1405,9 +1405,12 @@ def test_mixed_value_columns_url_sampling(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("reserved_name", ["Results", "IGV_Overflow"])
+@pytest.mark.parametrize(
+    "reserved_name",
+    ["Results", "results", "RESULTS", "IGV_Overflow", "igv_overflow", "IGV_OVERFLOW"],
+)
 def test_convert_to_excel_rejects_reserved_extra_sheet_names(tmp_path: Path, reserved_name: str):
-    """Verify extra_sheets cannot overwrite Results or IGV_Overflow (#159)."""
+    """Verify extra_sheets cannot overwrite Results or IGV_Overflow case-insensitively (#159)."""
     from variantcentrifuge.converter import convert_to_excel
 
     existing_file = tmp_path / "existing.xlsx"
@@ -1435,6 +1438,28 @@ def test_convert_to_excel_rejects_reserved_extra_sheet_names(tmp_path: Path, res
     wb = openpyxl.load_workbook(existing_file)
     assert wb.sheetnames == ["Results"]
     assert wb["Results"]["A2"].value == "chr1"
+    wb.close()
+
+
+@pytest.mark.unit
+def test_convert_to_excel_rejects_duplicate_extra_sheet_names(tmp_path: Path):
+    """Verify extra_sheets cannot have case-insensitive duplicate sheet names (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    xlsx_file = tmp_path / "dup.xlsx"
+    initial_df = pd.DataFrame({"CHROM": ["chr1"], "POS": [100]})
+    extra = {
+        "CustomSheet": pd.DataFrame({"A": [1]}),
+        "customsheet": pd.DataFrame({"B": [2]}),
+    }
+    with pytest.raises(ValueError, match="extra_sheets contains duplicate sheet names"):
+        convert_to_excel(
+            str(xlsx_file),
+            cfg={"igv_enabled": False},
+            df=initial_df,
+            extra_sheets=extra,
+            output_file=str(xlsx_file),
+        )
 
 
 @pytest.mark.unit

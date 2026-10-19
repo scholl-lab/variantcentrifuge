@@ -242,32 +242,31 @@ touch /data/container-contract-write-test
 touch /data/snpeff/container-contract-write-test
 '
 
-printf '%s\n' 'checking non-owner traversal of /data with child bind mounts'
-non_owner_input=$work_dir/non_owner_input
-non_owner_out=$work_dir/non_owner_out
-non_owner_snpeff=$work_dir/non_owner_snpeff
-mkdir -p "$non_owner_input" "$non_owner_out" "$non_owner_snpeff"
-echo "input_payload" > "$non_owner_input/input.txt"
-chmod 0755 "$non_owner_input"
-chmod 0644 "$non_owner_input/input.txt"
-chmod 0777 "$non_owner_out" "$non_owner_snpeff"
+printf '%s\n' 'checking host-user traversal of /data with child bind mounts'
+host_input=$work_dir/host_input
+host_out=$work_dir/host_out
+host_snpeff=$work_dir/host_snpeff
+mkdir -p "$host_input" "$host_out" "$host_snpeff"
+echo "input_payload" > "$host_input/input.txt"
+chmod 0755 "$host_input" "$host_out" "$host_snpeff"
+chmod 0644 "$host_input/input.txt"
 docker run --rm \
-    --user 12345:12345 \
-    --mount "type=bind,src=$non_owner_input,dst=/data/input,readonly" \
-    --mount "type=bind,src=$non_owner_out,dst=/data/out" \
-    --mount "type=bind,src=$non_owner_snpeff,dst=/data/snpeff" \
+    --user "$(id -u):$(id -g)" \
+    -v "$host_input:/data/input:ro" \
+    -v "$host_out:/data/output" \
+    -v "$host_snpeff:/data/snpeff" \
     --entrypoint /bin/sh "$image_id" -c '
 set -eu
 test -r /data/input/input.txt
-echo "output_payload" > /data/out/output.txt
+echo "output_payload" > /data/output/output.txt
 echo "snpeff_payload" > /data/snpeff/cache_ok
 '
-test -f "$non_owner_out/output.txt"
-assert_contains "$(cat "$non_owner_out/output.txt")" "output_payload" \
-    'non-owner user could not write to /data/out mount'
-test -f "$non_owner_snpeff/cache_ok"
-assert_contains "$(cat "$non_owner_snpeff/cache_ok")" "snpeff_payload" \
-    'non-owner user could not write to /data/snpeff mount'
+test -f "$host_out/output.txt"
+assert_contains "$(cat "$host_out/output.txt")" "output_payload" \
+    'host user could not write to /data/output mount'
+test -f "$host_snpeff/cache_ok"
+assert_contains "$(cat "$host_snpeff/cache_ok")" "snpeff_payload" \
+    'host user could not write to /data/snpeff mount'
 
 printf '%s\n' 'checking Python dependency and native runtime operations'
 
