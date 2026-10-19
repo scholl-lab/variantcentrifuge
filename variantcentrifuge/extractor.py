@@ -174,6 +174,18 @@ def build_bcftools_format_string(
     return format_string, column_names
 
 
+def get_expected_extraction_columns(
+    fields: str | list[str], vcf_samples: list[str] | None = None
+) -> list[str]:
+    """Return the finalized column names for an extraction schema."""
+    field_list = fields.strip().split() if isinstance(fields, str) else fields
+    _, column_names = build_bcftools_format_string(field_list, vcf_samples)
+    df = pd.DataFrame(columns=column_names)
+    df = parse_ann_subfields(df, field_list)
+    df = parse_nmd_subfields(df, field_list)
+    return list(df.columns)
+
+
 def parse_ann_subfields(df: pd.DataFrame, fields: list[str]) -> pd.DataFrame:
     """
     Parse ANN subfields from raw ANN column.
@@ -375,6 +387,8 @@ def extract_fields_bcftools(
                 "Field extraction (bcftools query): 0 variants extracted from %s", variant_file
             )
             df = pd.DataFrame(columns=column_names)
+            df = parse_ann_subfields(df, field_list)
+            df = parse_nmd_subfields(df, field_list)
             # Write header-only output
             if output_file.endswith(".gz"):
                 with gzip.open(output_file, "wt", compresslevel=1) as f:

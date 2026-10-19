@@ -21,7 +21,7 @@ from typing import Any
 import pandas as pd  # noqa: F401
 from smart_open import smart_open  # noqa: F401
 
-from ..extractor import extract_fields_bcftools
+from ..extractor import extract_fields_bcftools, get_expected_extraction_columns
 from ..filters import apply_snpsift_filter, extract_variants
 from ..gene_bed import get_gene_bed, normalize_genes
 from ..pipeline_core import PipelineContext, Stage
@@ -719,60 +719,39 @@ class FieldExtractionStage(Stage):
 
 
 class ParallelCompleteProcessingStage(Stage):
-    """Run complete processing pipeline in parallel for each BED chunk.
-
-    This stage processes each chunk
-    is processed completely (extraction -> filtering -> field extraction)
-    in parallel, then the TSV results are merged.
-    """
+    """Run complete processing pipeline in parallel for each BED chunk."""
 
     @property
     def name(self) -> str:
-        """Return the stage name."""
         return "parallel_complete_processing"
 
     @property
     def checkpoint_resume_policy(self) -> str:
-        """The merged TSV is durable and can restore downstream input paths."""
         return "restore"
 
     @property
     def description(self) -> str:
-        """Return a description of what this stage does."""
         return "Process variants in parallel with complete pipeline per chunk"
 
     @property
     def dependencies(self) -> set[str]:
-        """Return the set of stage names this stage depends on."""
         return {"gene_bed_creation", "configuration_loading"}
 
     @property
     def parallel_safe(self) -> bool:
-        """Return whether this stage can run in parallel with others."""
-        # This stage manages its own parallelism internally
         return False
 
     @property
     def estimated_runtime(self) -> float:
-        """Return the estimated runtime in seconds."""
-        return 60.0  # Complete pipeline takes longer
+        return 60.0
 
-    def _validate_chunk_tsv(self, chunk_tsv: Path, fallback_on_error: bool = True) -> bool:
-        """Validate that a chunk TSV file is complete and valid.
-
-        Parameters
-        ----------
-        chunk_tsv : Path
-            Path to the TSV chunk file to validate
-        fallback_on_error : bool
-            If True, validation errors result in False (file will be reprocessed)
-            If False, validation errors raise exceptions
-
-        Returns
-        -------
-        bool
-            True if file is valid, False if invalid or missing
-        """
+    def _validate_chunk_tsv(
+        self,
+        chunk_tsv: Path,
+        fallback_on_error: bool = True,
+        expected_header: str | None = None,
+    ) -> bool:
+        """Validate that a chunk TSV file is complete and valid."""
         if not chunk_tsv.exists():
             logger.debug(f"Chunk TSV {chunk_tsv} does not exist")
             return False
@@ -792,17 +771,17 @@ class ParallelCompleteProcessingStage(Stage):
                 mode = "rt" if chunk_tsv.name.endswith(".gz") else "r"
 
                 with open_func(chunk_tsv, mode) as f:
-                    first_line = f.readline().strip()
+                    raw_line = f.readline()
+                    first_line = (
+                        raw_line.decode() if isinstance(raw_line, bytes) else str(raw_line)
+                    ).strip()
                     # Check if it looks like a TSV header
                     if not first_line or "\t" not in first_line:
                         logger.debug(f"Chunk TSV {chunk_tsv} has invalid header format")
                         return False
-                    # Check if there is at least one more line (data or empty is fine)
-                    # Note: Header-only chunks (no variants in region) are valid!
-                    # Just verify the file is readable and not truncated mid-line
-                    # by reading to the end or checking gzip integrity
+                    if expected_header is not None and first_line != expected_header.strip():
+                        return False
             except Exception as e:
-                logger.debug(f"Chunk TSV {chunk_tsv} failed content validation: {e}")
                 if not fallback_on_error:
                     raise
                 return False
@@ -1057,15 +1036,17 @@ class ParallelCompleteProcessingStage(Stage):
         self, context: PipelineContext, bed_chunks: list[Path]
     ) -> list[Path]:
         """Process BED chunks in parallel with complete pipeline and automatic substep detection."""
-        vcf_file = context.config["vcf_file"]
-        threads = context.config.get("threads", 1)
-        base_name = context.workspace.base_name
-        intermediate_dir = context.workspace.intermediate_dir
-
         # Handle empty bed_chunks case
         if not bed_chunks:
             logger.warning("No BED chunks to process - skipping parallel processing")
             return []
+
+        vcf_file = context.config.get("vcf_file") or (str(context.data) if context.data else None)
+        if not vcf_file:
+            raise KeyError("vcf_file")
+        threads = context.config.get("threads", 1)
+        base_name = context.workspace.base_name
+        intermediate_dir = context.workspace.intermediate_dir
 
         # Phase 1: Check for existing valid chunk TSVs
         chunks_to_process = []
@@ -1074,11 +1055,17 @@ class ParallelCompleteProcessingStage(Stage):
         use_compression = context.config.get("gzip_intermediates", True)
         tsv_suffix = ".extracted.tsv.gz" if use_compression else ".extracted.tsv"
 
+        expected_header: str | None = None
+        fields = context.config.get("fields_to_extract")
+        if fields:
+            cols = get_expected_extraction_columns(fields, getattr(context, "vcf_samples", None))
+            expected_header = "\t".join(cols)
+
         for i, chunk_bed in enumerate(bed_chunks):
             chunk_base = f"{base_name}.chunk_{i}"
             expected_tsv = intermediate_dir / f"{chunk_base}{tsv_suffix}"
 
-            if self._validate_chunk_tsv(expected_tsv):
+            if self._validate_chunk_tsv(expected_tsv, expected_header=expected_header):
                 logger.info(f"Reusing existing chunk TSV {i}: {expected_tsv.name}")
                 existing_chunk_tsvs.append(expected_tsv)
             else:
@@ -1204,6 +1191,18 @@ class ParallelCompleteProcessingStage(Stage):
         if use_compression:
             output_tsv = Path(str(output_tsv) + ".gz")
 
+        if not chunk_tsvs:
+            fields = context.config.get("fields_to_extract", "")
+            cols = get_expected_extraction_columns(fields, getattr(context, "vcf_samples", None))
+            hdr = "\t".join(cols) + "\n"
+            if use_compression:
+                with gzip.open(output_tsv, "wt", compresslevel=1) as f:
+                    f.write(hdr)
+            else:
+                output_tsv.write_text(hdr, encoding="utf-8")
+            logger.info(f"Created schema-valid header-only TSV for empty chunks: {output_tsv}")
+            return output_tsv
+
         if len(chunk_tsvs) == 1:
             # Just move the single file
             shutil.move(str(chunk_tsvs[0]), str(output_tsv))
@@ -1275,30 +1274,28 @@ class ParallelCompleteProcessingStage(Stage):
 
     def _merge_tsvs_traditional(self, chunk_tsvs: list[Path], output_tsv: Path) -> None:
         """Traditional TSV merging with compression handling."""
-
-        # Open output file
         with (
             gzip.open(output_tsv, "wt", compresslevel=1)
             if str(output_tsv).endswith(".gz")
             else open(output_tsv, "w")
         ) as out_fh:
-            first_file = True
-            for chunk_tsv in sorted(chunk_tsvs):  # Sort to ensure consistent order
-                # Open chunk file
+            first_header: str | None = None
+            for chunk_tsv in sorted(chunk_tsvs):
                 with (
                     gzip.open(chunk_tsv, "rt")
                     if str(chunk_tsv).endswith(".gz")
                     else open(chunk_tsv)
                 ) as in_fh:
-                    if first_file:
-                        # Copy entire first file including header
-                        shutil.copyfileobj(in_fh, out_fh)
-                        first_file = False
-                    else:
-                        # Skip header line
-                        next(in_fh, None)
-                        # Copy rest of file
-                        shutil.copyfileobj(in_fh, out_fh)
+                    header = in_fh.readline()
+                    if first_header is None:
+                        first_header = header.strip()
+                        out_fh.write(header)
+                    elif header.strip() != first_header:
+                        raise ValueError(
+                            f"Incompatible chunk header in {chunk_tsv}: "
+                            f"expected '{first_header}', got '{header.strip()}'"
+                        )
+                    shutil.copyfileobj(in_fh, out_fh)
 
     def _cleanup_chunks(
         self, bed_chunks: list[Path], tsv_chunks: list[Path], context: PipelineContext
