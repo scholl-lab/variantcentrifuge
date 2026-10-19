@@ -226,7 +226,14 @@ class FinalFilteringStage(Stage):
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Final filtering often filters on computed columns from these stages
-        return {"variant_scoring", "inheritance_analysis", "custom_annotation"}
+        return {
+            "variant_analysis",
+            "variant_identifier",
+            "variant_scoring",
+            "inheritance_analysis",
+            "custom_annotation",
+            "clinvar_pm5",
+        }
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply final filtering."""

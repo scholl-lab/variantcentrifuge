@@ -13,11 +13,16 @@ def sync_cli_and_config(args: argparse.Namespace, cfg: dict[str, Any]) -> None:
     values populate omitted CLI options so downstream validation, execution, and
     stage discovery see consistent effective settings.
     """
-    # VCF file
+    # VCF file and TSV input
     if getattr(args, "vcf_file", None):
         cfg["vcf_file"] = args.vcf_file
     elif cfg.get("vcf_file"):
         args.vcf_file = cfg["vcf_file"]
+
+    if getattr(args, "from_tsv", None):
+        cfg["from_tsv"] = args.from_tsv
+    elif cfg.get("from_tsv"):
+        args.from_tsv = cfg["from_tsv"]
 
     # Gene selection: explicit CLI flag clears opposing configured selector
     if getattr(args, "gene_name", None) is not None:

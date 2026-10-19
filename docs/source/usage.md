@@ -79,12 +79,35 @@ flowchart TD
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-v` / `--vcf-file PATH` | **required** | Input VCF file (can be gzip-compressed) |
+| `-v` / `--vcf-file PATH` | **required*** | Input VCF file (can be gzip-compressed; mutually exclusive with `--from-tsv`) |
+| `--from-tsv PATH` | — | Input `.tsv` or `.tsv.gz` from a previous VariantCentrifuge run (skips VCF extraction; mutually exclusive with `-v`) |
 | `-o` / `--output-file PATH` | — | Output TSV file path, or `stdout`/`-` for stdout |
 | `--output-dir DIR` | `output` | Directory for intermediate and final output |
 | `--xlsx` | `false` | Also produce Excel output |
 | `--keep-intermediates` | `false` | Keep all intermediate files after run |
 | `--archive-results` | `false` | Create timestamped `.tar.gz` archive of results |
+
+#### Re-running Analysis and Reporting from an Existing TSV (`--from-tsv`)
+
+Use `--from-tsv` to iterate on scoring models (`--scoring-config-path`), post-extraction filters (`--final-filter`), pedigree/inheritance analysis (`--ped`, `--inheritance-mode`), phenotype case/control definitions (`--phenotype-file`, `--case-phenotypes`, `--control-phenotypes`), and HTML/Excel reports (`--html-report`, `--xlsx`) without repeating `bcftools` / `SnpSift` VCF extraction:
+
+```bash
+variantcentrifuge \
+  --from-tsv output/previous_run.tsv \
+  --scoring-config-path scoring/nephro_candidate_score \
+  --final-filter "nephro_candidate_score >= 2.0" \
+  --html-report \
+  --xlsx \
+  --output-dir output_rescored \
+  -o rescored.tsv
+```
+
+:::{note}
+`--from-tsv` operates strictly on the rows and columns already present in the supplied TSV (creating a normalized copy in the workspace intermediate directory so the source TSV is never modified):
+- Variants discarded by earlier VCF extraction or SnpSift filters cannot be recovered without re-running from the source VCF (`-v`).
+- Annotations or INFO/FORMAT fields that were not extracted into the TSV cannot be added in `--from-tsv` mode.
+- If the input TSV uses anonymous per-sample genotype columns (`GEN[0].GT`, `GEN[1].GT`, ...), supply matching sample metadata (`--ped`, `--phenotype-file`, `--sample-sheet`, or `--case-samples`/`--control-samples`) with the exact same sample count and order.
+:::
 
 ### Gene Selection
 

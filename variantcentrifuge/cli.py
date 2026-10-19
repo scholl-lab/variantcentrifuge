@@ -53,7 +53,7 @@ logger = logging.getLogger("variantcentrifuge")
 
 
 class _VariantCentrifugeArgumentParser(argparse.ArgumentParser):
-    """Parser that enforces -v/--vcf-file for execution while permitting listing flags without it."""
+    """Parser that enforces -v/--vcf-file or --from-tsv for execution while permitting listing flags."""
 
     def parse_args(  # type: ignore[override]
         self,
@@ -61,12 +61,18 @@ class _VariantCentrifugeArgumentParser(argparse.ArgumentParser):
         namespace: argparse.Namespace | None = None,
     ) -> argparse.Namespace:
         parsed: argparse.Namespace = super().parse_args(args=args, namespace=namespace)
-        if not parsed.vcf_file and not (
-            getattr(parsed, "list_stages", False)
-            or getattr(parsed, "list_checkpoints", False)
-            or getattr(parsed, "show_checkpoint_status", False)
+        if getattr(parsed, "vcf_file", None) and getattr(parsed, "from_tsv", None):
+            self.error("argument --from-tsv: not allowed with argument -v/--vcf-file")
+        if (
+            not parsed.vcf_file
+            and not getattr(parsed, "from_tsv", None)
+            and not (
+                getattr(parsed, "list_stages", False)
+                or getattr(parsed, "list_checkpoints", False)
+                or getattr(parsed, "show_checkpoint_status", False)
+            )
         ):
-            self.error("the following arguments are required: -v/--vcf-file")
+            self.error("the following arguments are required: -v/--vcf-file (or --from-tsv)")
         return parsed
 
 
@@ -106,6 +112,12 @@ def create_parser() -> argparse.ArgumentParser:
     io_group = parser.add_argument_group("Core Input/Output")
     io_group.add_argument(
         "-v", "--vcf-file", help="Input VCF file path", required=False, default=None
+    )
+    io_group.add_argument(
+        "--from-tsv",
+        help="Input TSV/TSV.GZ file from a previous VariantCentrifuge run (skips VCF extraction)",
+        required=False,
+        default=None,
     )
     io_group.add_argument(
         "-o",
@@ -257,9 +269,9 @@ def main(argv: list[str] | None = None) -> int:
     # Handle information and interactive options that exit early (e.g. --list-stages, --list-checkpoints)
     handle_listing_and_resume_options(args, cfg)
 
-    # Ordinary execution requires VCF input
-    if not args.vcf_file:
-        parser.error("the following arguments are required: -v/--vcf-file")
+    # Ordinary execution requires VCF or TSV input
+    if not args.vcf_file and not getattr(args, "from_tsv", None):
+        parser.error("the following arguments are required: -v/--vcf-file (or --from-tsv)")
 
     reference: str | None = args.reference or cfg.get("reference")
     filters: str | None = args.filters or cfg.get("filters")
@@ -278,10 +290,15 @@ def main(argv: list[str] | None = None) -> int:
 
         populate_cli_config(args, cfg, parser, reference, filters, fields, tumor_normal_vars)
 
-        # Validate mandatory parameters, external tools, VCF and phenotype inputs
-        validate_mandatory_parameters(reference, filters, fields)
-        validate_required_tools(args, cfg, logger)
-        validate_vcf_file(args.vcf_file, logger)
+        if getattr(args, "from_tsv", None):
+            from .from_tsv import validate_from_tsv_args_and_file
+
+            validate_from_tsv_args_and_file(args, cfg, parser=parser)
+        else:
+            # Validate mandatory parameters, external tools, VCF and phenotype inputs
+            validate_mandatory_parameters(reference, filters, fields)
+            validate_required_tools(args, cfg, logger)
+            validate_vcf_file(args.vcf_file, logger)
         if args.phenotype_file:
             validate_phenotype_file(
                 args.phenotype_file,
@@ -291,7 +308,7 @@ def main(argv: list[str] | None = None) -> int:
             )
     except (ValueError, FileNotFoundError, RuntimeError) as e:
         logger.error(str(e))
-        sys.exit(1)
+        return 1
 
     # Performance configuration
     cfg["max_memory_gb"] = args.max_memory_gb
@@ -389,6 +406,7 @@ def main(argv: list[str] | None = None) -> int:
 
         refactored_args = SimpleNamespace(**vars(args))
         refactored_args.config = cfg
+        refactored_args.from_tsv = cfg.get("from_tsv") or getattr(args, "from_tsv", None)
         refactored_args.ped_file = (
             cfg.get("ped_file") or getattr(args, "ped", None) or getattr(args, "ped_file", None)
         )

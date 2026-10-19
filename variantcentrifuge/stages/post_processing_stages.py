@@ -103,8 +103,9 @@ class PhenotypeIntegrationStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
-        # These stages should run before if they exist in the pipeline
         return {
+            "sample_config_loading",
+            "phenotype_case_control_assignment",
             "field_extraction",
             "parallel_complete_processing",
             "data_sorting",
@@ -114,40 +115,24 @@ class PhenotypeIntegrationStage(Stage):
 
     def _has_genotype_replacement(self, context: PipelineContext) -> bool:
         """Check if genotype replacement is enabled."""
-        # Check if genotype replacement is not disabled and GT field is present
         if context.config.get("no_replacement", False):
             return False
-
-        # Check if genotype_replaced_tsv exists in context
         return (
             hasattr(context, "genotype_replaced_tsv") and context.genotype_replaced_tsv is not None
         )
 
     def _has_phenotype_data(self, context: PipelineContext) -> bool:
         """Check if phenotype data is available."""
-        # Check if phenotypes were loaded
-        if not hasattr(context, "phenotype_data") or context.phenotype_data is None:
-            return False
-
-        # Check if phenotypes dict is populated
-        return bool(context.phenotype_data)
+        return bool(getattr(context, "phenotype_data", None))
 
     def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
-        """Handle the case where this stage is skipped by checkpoint system.
-
-        When this stage is skipped, we need to restore the context paths
-        so that subsequent stages can find the phenotypes_added_tsv file.
-        """
-        # Reconstruct the expected output path
+        """Restore phenotypes_added_tsv path when stage is skipped by checkpoint."""
         output_tsv = context.workspace.get_intermediate_path(
             f"{context.workspace.base_name}.phenotypes_added.tsv"
         )
-
-        # Handle gzip compression
         if context.config.get("gzip_intermediates"):
             output_tsv = Path(str(output_tsv) + ".gz")
 
-        # Check if the file exists and restore context
         if output_tsv.exists():
             context.phenotypes_added_tsv = output_tsv
             context.data = output_tsv
@@ -159,7 +144,6 @@ class PhenotypeIntegrationStage(Stage):
                 "Cannot restore phenotype_integration from checkpoint: "
                 f"expected TSV missing: {output_tsv}"
             )
-
         return context
 
     def _process(self, context: PipelineContext) -> PipelineContext:
@@ -168,7 +152,6 @@ class PhenotypeIntegrationStage(Stage):
             logger.debug("No phenotype data to integrate")
             return context
 
-        # Determine input file - use genotype_replaced if available, otherwise extracted
         if hasattr(context, "genotype_replaced_tsv") and context.genotype_replaced_tsv:
             input_tsv = context.genotype_replaced_tsv
         elif hasattr(context, "extracted_tsv") and context.extracted_tsv:
@@ -178,18 +161,14 @@ class PhenotypeIntegrationStage(Stage):
         output_tsv = context.workspace.get_intermediate_path(
             f"{context.workspace.base_name}.phenotypes_added.tsv"
         )
-
-        # Handle gzip compression
         if context.config.get("gzip_intermediates"):
             output_tsv = Path(str(output_tsv) + ".gz")
 
         logger.info(f"Adding phenotype data for {len(context.vcf_samples)} samples")
 
-        # Read input TSV
         compression = "gzip" if str(input_tsv).endswith(".gz") else None
         df = pd.read_csv(input_tsv, sep="\t", dtype=str, compression=cast(Any, compression))
 
-        # Check for per-sample columns (sample names, GEN[i].GT, or GEN_i__GT)
         has_sample_columns = bool(context.vcf_samples) and (
             all(sample in df.columns for sample in context.vcf_samples)
             or any(
@@ -198,8 +177,9 @@ class PhenotypeIntegrationStage(Stage):
             )
         )
 
-        if has_sample_columns:
-            # Phase 11: Use per-sample columns directly
+        if df.empty and (has_sample_columns or "GT" in df.columns):
+            df["Phenotypes"] = pd.Series(dtype=str)
+        elif has_sample_columns:
             logger.debug("Using per-sample GT columns for phenotype extraction")
             df["Phenotypes"] = df.apply(  # type: ignore[call-overload]
                 lambda row: extract_phenotypes_from_sample_columns(
@@ -208,7 +188,6 @@ class PhenotypeIntegrationStage(Stage):
                 axis=1,
             )
         elif "GT" in df.columns:
-            # Backwards compatibility: Use packed GT column (from genotype replacement)
             logger.debug("Using packed GT column for phenotype extraction (legacy mode)")
             phenotype_data: dict[str, set[str]] = context.phenotype_data or {}
             df["Phenotypes"] = df["GT"].apply(
