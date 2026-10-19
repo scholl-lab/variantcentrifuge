@@ -108,12 +108,13 @@ Statistics configurations use JSON format with three main sections:
 
 ### Expression Context
 
-Expressions are evaluated with these available variables:
+Expressions are evaluated in a restricted execution environment with these available variables and operations:
 - `df`: Full variant DataFrame
 - `group_df`: Current group DataFrame (for gene_stats/grouped_stats)
-- `pd`: Pandas library
-- `np`: NumPy library
-- `len()`, `size()`: Length/size functions
+- `pd`: Safe Pandas subset (`pd.to_numeric`)
+- `np`: Safe NumPy subset (`np.nan`, `np.isnan`, `np.where`)
+- Safe builtins: `len`, `size`, `sum`, `min`, `max`, `abs`, `round`, `any`, `all`, `sorted`, `set`, `list`, `dict`, `tuple`, `isinstance`, `range`, `zip`, `map`, `filter`, `enumerate`, `float`, `str`, `int`, `bool`
+- Approved DataFrame/Series/str methods (e.g. `.sum()`, `.mean()`, `.count()`, `.str.contains()`, `.isin()`, `.dropna()`). Arbitrary Python execution, imports, file I/O, `df.eval`/`df.query`, and module traversals are rejected by AST validation.
 
 ### Required Columns
 

@@ -7,11 +7,11 @@
     <title>VariantCentrifuge Report</title>
 
     <!-- Inlined CSS Assets -->
-    <style>{{ assets['css/datatables.min'] }}</style>
-    <style>{{ assets['css/buttons.dataTables.min'] }}</style>
-    <style>{{ assets['css/fixedcolumns.dataTables.min'] }}</style>
-    <style>{{ assets['css/tippy'] }}</style>
-    <style>{{ assets['css/nouislider.min'] }}</style>
+    <style>{{ assets['css/datatables.min'] | safe }}</style>
+    <style>{{ assets['css/buttons.dataTables.min'] | safe }}</style>
+    <style>{{ assets['css/fixedcolumns.dataTables.min'] | safe }}</style>
+    <style>{{ assets['css/tippy'] | safe }}</style>
+    <style>{{ assets['css/nouislider.min'] | safe }}</style>
 
     <style>
     /* Base Styles */
@@ -1073,23 +1073,36 @@
                                 {# Handle structured igv_links data which is a list of dicts #}
                                 {% if v_row[col_info.original_name] and v_row[col_info.original_name]|length > 0 %}
                                     {% for igv_link_detail in v_row[col_info.original_name] %}
+                                        {% if igv_link_detail.report_path | is_safe_url %}
                                         <a href="{{ igv_link_detail.report_path }}" target="_blank" class="igv-individual-link" title="IGV report for {{ igv_link_detail.sample_id }}">
                                             <svg aria-hidden="true" focusable="false" class="link-icon-svg" width="14" height="14"><use href="#icon-external-link"/></svg>
                                             <span class="sr-only">IGV report for {{ igv_link_detail.sample_id }} (opens in new tab)</span>
                                             {{ igv_link_detail.sample_id }}
                                         </a>{% if not loop.last %} {% endif %}
+                                        {% else %}
+                                        {{ igv_link_detail.sample_id }}{% if not loop.last %} {% endif %}
+                                        {% endif %}
                                     {% endfor %}
                                 {% else %}
                                     N/A
                                 {% endif %}
                             {% elif col_info.is_standard_link_column and v_row[col_info.original_name] and v_row[col_info.original_name] | string | trim != "" %}
+                                {% if v_row[col_info.original_name] | is_safe_url %}
                                 <a href="{{ v_row[col_info.original_name] }}" target="_blank" title="{{ v_row[col_info.original_name] }}">
                                     <svg aria-hidden="true" focusable="false" class="link-icon-svg" width="14" height="14"><use href="#icon-external-link"/></svg>
                                     <span class="sr-only">{{ col_info.link_display_text }} (opens in new tab)</span>
                                     {{ col_info.link_display_text }}
                                 </a>
+                                {% else %}
+                                {{ v_row[col_info.original_name] }}
+                                {% endif %}
                             {% elif col_info.apply_hover_expand and col_info.max_width_px %}
-                                <span class="truncated-cell" tabindex="0" style="max-width: {{ col_info.max_width_px }}px;" data-tippy-content="{{ v_row[col_info.original_name] }}">{{ v_row[col_info.original_name] }}</span>
+                                {% set safe_max_width = col_info.max_width_px | int %}
+                                {% if safe_max_width > 0 %}
+                                <span class="truncated-cell" tabindex="0" style="max-width: {{ safe_max_width }}px;" data-tippy-content="{{ v_row[col_info.original_name] }}">{{ v_row[col_info.original_name] }}</span>
+                                {% else %}
+                                <span class="truncated-cell" tabindex="0" data-tippy-content="{{ v_row[col_info.original_name] }}">{{ v_row[col_info.original_name] }}</span>
+                                {% endif %}
                             {% else %}
                                 {{ v_row[col_info.original_name] }}
                             {% endif %}
@@ -1250,19 +1263,164 @@
 </div>
 
 <!-- Inlined JavaScript Assets -->
-<script>{{ assets['js/jquery.slim.min'] }}</script>
-<script>{{ assets['js/nouislider.min'] }}</script>
-<script>{{ assets['js/datatables.min'] }}</script>
-<script>{{ assets['js/fixedcolumns.min'] }}</script>
-<script>{{ assets['js/datatables.buttons.min'] }}</script>
-<script>{{ assets['js/buttons.colVis.min'] }}</script>
-<script>{{ assets['js/chart.umd.min'] }}</script>
-<script>{{ assets['js/chartjs-plugin-datalabels.min'] }}</script>
-<script>{{ assets['js/popper.min'] }}</script>
-<script>{{ assets['js/tippy-bundle.umd.min'] }}</script>
+<script>{{ assets['js/jquery.slim.min'] | safe }}</script>
+<script>{{ assets['js/nouislider.min'] | safe }}</script>
+<script>{{ assets['js/datatables.min'] | safe }}</script>
+<script>{{ assets['js/fixedcolumns.min'] | safe }}</script>
+<script>{{ assets['js/datatables.buttons.min'] | safe }}</script>
+<script>{{ assets['js/buttons.colVis.min'] | safe }}</script>
+<script>{{ assets['js/chart.umd.min'] | safe }}</script>
+<script>{{ assets['js/chartjs-plugin-datalabels.min'] | safe }}</script>
+<script>{{ assets['js/popper.min'] | safe }}</script>
+<script>{{ assets['js/tippy-bundle.umd.min'] | safe }}</script>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function encodeSymbolicAlleles(url) {
+        if (!url) return '';
+        var dangerousTags = {
+            'script': 1, 'iframe': 1, 'object': 1, 'embed': 1, 'svg': 1,
+            'img': 1, 'body': 1, 'style': 1, 'link': 1, 'meta': 1,
+            'base': 1, 'form': 1, 'input': 1, 'button': 1, 'video': 1,
+            'audio': 1, 'source': 1, 'track': 1, 'frame': 1, 'frameset': 1,
+            'applet': 1, 'marquee': 1, 'details': 1, 'template': 1, 'math': 1
+        };
+        var s = String(url).replace(/<([A-Za-z0-9_:.-]+)>/g, function(match, tag) {
+            if (dangerousTags[tag.toLowerCase()]) {
+                return match;
+            }
+            return '%3C' + tag + '%3E';
+        });
+        if (s.indexOf('<') === -1 && !/[\s"'\\`]/.test(s)) {
+            s = s.replace(/>/g, '%3E');
+        }
+        return s;
+    }
+
+    function isSafeUrl(url) {
+        if (!url) return false;
+        var u = (typeof encodeSymbolicAlleles === 'function')
+            ? encodeSymbolicAlleles(String(url).trim())
+            : String(url).trim();
+        if (/[\s"'<>\\]/.test(u)) return false;
+        if (u.indexOf('//') === 0) return false;
+        var uLower = u.toLowerCase();
+        if (uLower.indexOf('javascript:') === 0 || uLower.indexOf('data:') === 0 || uLower.indexOf('vbscript:') === 0) {
+            return false;
+        }
+        if (uLower.indexOf('http://') === 0 || uLower.indexOf('https://') === 0) {
+            return true;
+        }
+        var colonIdx = uLower.indexOf(':');
+        var slashIdx = uLower.indexOf('/');
+        if (colonIdx === -1 || (slashIdx !== -1 && slashIdx < colonIdx)) {
+            return true;
+        }
+        return false;
+    }
+
+    function extractCellContent(raw) {
+        if (raw === null || raw === undefined) {
+            return { text: '', href: null, links: [] };
+        }
+        var str = String(raw).trim();
+        if (str === '') {
+            return { text: '', href: null, links: [] };
+        }
+        if (str.indexOf('<') === -1 && str.indexOf('&') === -1) {
+            return { text: str, href: null, links: [] };
+        }
+
+        if (typeof DOMParser !== 'undefined') {
+            var doc = new DOMParser().parseFromString(str, 'text/html');
+            var div = doc.body;
+
+            var aTags = div.querySelectorAll('a');
+            var links = [];
+            for (var i = 0; i < aTags.length; i++) {
+                var a = aTags[i];
+                var h = a.getAttribute('href');
+                var aClone = a.cloneNode(true);
+                var extras = aClone.querySelectorAll('.sr-only, svg');
+                for (var j = 0; j < extras.length; j++) {
+                    extras[j].parentNode.removeChild(extras[j]);
+                }
+                var linkText = (aClone.textContent || aClone.innerText || '').trim();
+                links.push({
+                    href: h ? h.trim() : null,
+                    text: linkText
+                });
+            }
+
+            var tippySpan = div.querySelector('[data-tippy-content]');
+            var text = '';
+            if (tippySpan && tippySpan.getAttribute('data-tippy-content')) {
+                text = tippySpan.getAttribute('data-tippy-content').trim();
+            } else {
+                var divClone = div.cloneNode(true);
+                var extras2 = divClone.querySelectorAll('.sr-only, svg');
+                for (var k = 0; k < extras2.length; k++) {
+                    extras2[k].parentNode.removeChild(extras2[k]);
+                }
+                text = (divClone.textContent || divClone.innerText || '').trim();
+            }
+
+            return {
+                text: text,
+                href: links.length > 0 ? links[0].href : null,
+                links: links
+            };
+        } else {
+            // Regex fallback for non-DOM / test environments
+            var linkRegex = /<a\b[^>]*\bhref=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+            var match;
+            var links = [];
+            while ((match = linkRegex.exec(str)) !== null) {
+                var cleanA = match[2].replace(/<span\b[^>]*class=["'][^"']*sr-only[^"']*["'][^>]*>[\s\S]*?<\/span>/gi, '')
+                                     .replace(/<svg\b[\s\S]*?<\/svg>/gi, '')
+                                     .replace(/<[^>]+>/g, '')
+                                     .trim();
+                links.push({
+                    href: match[1].trim(),
+                    text: cleanA
+                });
+            }
+
+            var tippyMatch = str.match(/<[^>]*\bdata-tippy-content=["']([^"']+)["']/i);
+            var text = '';
+            if (tippyMatch) {
+                text = tippyMatch[1];
+            } else {
+                var stripped = str.replace(/<span\b[^>]*class=["'][^"']*sr-only[^"']*["'][^>]*>[\s\S]*?<\/span>/gi, '')
+                                  .replace(/<svg\b[\s\S]*?<\/svg>/gi, '')
+                                  .replace(/<[^>]+>/g, '');
+                text = stripped;
+            }
+            text = text.replace(/&amp;/g, '&')
+                       .replace(/&lt;/g, '<')
+                       .replace(/&gt;/g, '>')
+                       .replace(/&quot;/g, '"')
+                       .replace(/&#39;/g, "'")
+                       .trim();
+
+            return {
+                text: text,
+                href: links.length > 0 ? links[0].href : null,
+                links: links
+            };
+        }
+    }
+
     // PDF Export Button Handler (PRINT-02)
     var pdfBtn = document.getElementById('export-pdf-btn');
     if (pdfBtn) {
@@ -1315,22 +1473,37 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Badge render functions for semantic color coding
     columnData.forEach(function(col, index) {
+        function getSanitizedMaxWidth(c) {
+            if (!c || !c.apply_hover_expand) return 0;
+            var n = Number(c.max_width_px);
+            return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+        }
+
         // IMPACT column badge rendering
         if (col.original_name === 'IMPACT') {
             dtColumnDefs.push({
                 targets: index + 1,
                 render: function(data, type, row) {
-                    if (type === 'display' && data) {
-                        var colors = {
-                            'HIGH': '#dc3545',
-                            'MODERATE': '#c05000',
-                            'LOW': '#b45309',
-                            'MODIFIER': '#6c757d'
-                        };
-                        var color = colors[data] || '#6c757d';
-                        return '<span class="badge" style="background-color:' + color + ';">' + data + '</span>';
+                    if (data) {
+                        var cell = extractCellContent(data);
+                        if (type === 'display') {
+                            var colors = {
+                                'HIGH': '#dc3545',
+                                'MODERATE': '#c05000',
+                                'LOW': '#b45309',
+                                'MODIFIER': '#6c757d'
+                            };
+                            var color = colors[cell.text] || '#6c757d';
+                            var badgeHtml = '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(cell.text) + '</span>';
+                            var maxW = getSanitizedMaxWidth(col);
+                            if (maxW > 0) {
+                                return '<span class="truncated-cell" tabindex="0" style="max-width: ' + maxW + 'px;" data-tippy-content="' + escapeHtml(cell.text) + '">' + badgeHtml + '</span>';
+                            }
+                            return badgeHtml;
+                        }
+                        return cell.text ? escapeHtml(String(cell.text)) : '';
                     }
-                    return data;
+                    return data != null ? escapeHtml(String(data)) : '';
                 }
             });
         }
@@ -1340,25 +1513,35 @@ document.addEventListener('DOMContentLoaded', function() {
             dtColumnDefs.push({
                 targets: index + 1,
                 render: function(data, type, row) {
-                    if (type === 'display' && data && String(data).trim() !== '') {
-                        var str = String(data);
-                        var lower = str.toLowerCase();
-                        var color = '#6c757d';
-                        if (lower.indexOf('pathogenic') !== -1 && lower.indexOf('likely') === -1 && lower.indexOf('conflicting') === -1) {
-                            color = '#dc3545';
-                        } else if (lower.indexOf('likely_pathogenic') !== -1 || lower.indexOf('likely pathogenic') !== -1) {
-                            color = '#c0392b';
-                        } else if (lower.indexOf('uncertain') !== -1 || lower === 'vus') {
-                            color = '#b45309';
-                        } else if (lower.indexOf('likely_benign') !== -1 || lower.indexOf('likely benign') !== -1) {
-                            color = '#558b2f';
-                        } else if (lower.indexOf('benign') !== -1 && lower.indexOf('likely') === -1) {
-                            color = '#2e7d32';
-                        } else if (lower.indexOf('conflicting') !== -1) {
-                            color = '#bf5600';
+                    if (data && String(data).trim() !== '') {
+                        var cell = extractCellContent(data);
+                        var str = String(cell.text || '');
+                        if (str === '') return '';
+                        if (type === 'display') {
+                            var lower = str.toLowerCase();
+                            var color = '#6c757d';
+                            if (lower.indexOf('pathogenic') !== -1 && lower.indexOf('likely') === -1 && lower.indexOf('conflicting') === -1) {
+                                color = '#dc3545';
+                            } else if (lower.indexOf('likely_pathogenic') !== -1 || lower.indexOf('likely pathogenic') !== -1) {
+                                color = '#c0392b';
+                            } else if (lower.indexOf('uncertain') !== -1 || lower === 'vus') {
+                                color = '#b45309';
+                            } else if (lower.indexOf('likely_benign') !== -1 || lower.indexOf('likely benign') !== -1) {
+                                color = '#558b2f';
+                            } else if (lower.indexOf('benign') !== -1 && lower.indexOf('likely') === -1) {
+                                color = '#2e7d32';
+                            } else if (lower.indexOf('conflicting') !== -1) {
+                                color = '#bf5600';
+                            }
+                            var displayText = str.replace(/_/g, ' ');
+                            var badgeHtml = '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(displayText) + '</span>';
+                            var maxW = getSanitizedMaxWidth(col);
+                            if (maxW > 0) {
+                                return '<span class="truncated-cell" tabindex="0" style="max-width: ' + maxW + 'px;" data-tippy-content="' + escapeHtml(str) + '">' + badgeHtml + '</span>';
+                            }
+                            return badgeHtml;
                         }
-                        var displayText = str.replace(/_/g, ' ');
-                        return '<span class="badge" style="background-color:' + color + ';">' + displayText + '</span>';
+                        return escapeHtml(str);
                     }
                     return '';
                 }
@@ -1370,34 +1553,41 @@ document.addEventListener('DOMContentLoaded', function() {
             dtColumnDefs.push({
                 targets: index + 1,
                 render: function(data, type, row) {
-                    if (type === 'display') {
-                        if (!data || String(data).trim() === '' || data === 'none' || data === 'reference') {
-                            return '<span class="badge" style="background-color:#6c757d;">Unknown</span>';
-                        }
-                        var str = String(data);
-                        var lower = str.toLowerCase();
-                        var color = '#6c757d';
-                        if (lower === 'de_novo' || lower === 'de_novo_candidate') {
-                            color = '#dc3545';
-                        } else if (lower.indexOf('compound_heterozygous') !== -1) {
-                            color = '#9c27b0';
-                        } else if (lower.indexOf('autosomal_dominant') !== -1) {
-                            color = '#1565c0';
-                        } else if (lower.indexOf('autosomal_recessive') !== -1) {
-                            color = '#2e7d32';
-                        } else if (lower.indexOf('x_linked') !== -1) {
-                            color = '#00838f';
-                        } else if (lower === 'mitochondrial') {
-                            color = '#bf5600';
-                        } else if (lower === 'homozygous') {
-                            color = '#546e7a';
-                        } else if (lower === 'non_mendelian') {
-                            color = '#c62828';
-                        }
-                        var displayText = str.replace(/_/g, ' ');
-                        return '<span class="badge" style="background-color:' + color + ';">' + displayText + '</span>';
+                    var cell = extractCellContent(data);
+                    var text = cell.text || '';
+                    if (type !== 'display') {
+                        return text ? escapeHtml(String(text)) : '';
                     }
-                    return data;
+                    if (!text || text === 'none' || text === 'reference') {
+                        return '<span class="badge" style="background-color:#6c757d;">Unknown</span>';
+                    }
+                    var str = String(text);
+                    var lower = str.toLowerCase();
+                    var color = '#6c757d';
+                    if (lower === 'de_novo' || lower === 'de_novo_candidate') {
+                        color = '#dc3545';
+                    } else if (lower.indexOf('compound_heterozygous') !== -1) {
+                        color = '#9c27b0';
+                    } else if (lower.indexOf('autosomal_dominant') !== -1) {
+                        color = '#1565c0';
+                    } else if (lower.indexOf('autosomal_recessive') !== -1) {
+                        color = '#2e7d32';
+                    } else if (lower.indexOf('x_linked') !== -1) {
+                        color = '#00838f';
+                    } else if (lower === 'mitochondrial') {
+                        color = '#bf5600';
+                    } else if (lower === 'homozygous') {
+                        color = '#546e7a';
+                    } else if (lower === 'non_mendelian') {
+                        color = '#c62828';
+                    }
+                    var displayText = str.replace(/_/g, ' ');
+                    var badgeHtml = '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(displayText) + '</span>';
+                    var maxW = getSanitizedMaxWidth(col);
+                    if (maxW > 0) {
+                        return '<span class="truncated-cell" tabindex="0" style="max-width: ' + maxW + 'px;" data-tippy-content="' + escapeHtml(str) + '">' + badgeHtml + '</span>';
+                    }
+                    return badgeHtml;
                 }
             });
         }
@@ -1443,15 +1633,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 width: '180px',
                 className: 'monospace',
                 render: function(data, type, row) {
-                    if (type === 'display' && data) {
-                        var str = String(data);
-                        if (str.length > 30) {
-                            var truncated = str.substring(0, 30) + '...';
-                            return '<span class="truncated-cell" tabindex="0" data-tippy-content="' +
-                                str.replace(/"/g, '&quot;') + '">' + truncated + '</span>';
+                    if (data) {
+                        var cell = extractCellContent(data);
+                        var str = String(cell.text || '');
+                        if (type === 'display') {
+                            var hgvsMaxW = getSanitizedMaxWidth(col);
+                            var styleAttr = hgvsMaxW > 0 ? ' style="max-width: ' + hgvsMaxW + 'px;"' : '';
+                            if (str.length > 30) {
+                                var truncated = str.substring(0, 30) + '...';
+                                return '<span class="truncated-cell" tabindex="0"' + styleAttr + ' data-tippy-content="' +
+                                    escapeHtml(str) + '">' + escapeHtml(truncated) + '</span>';
+                            }
+                            if (hgvsMaxW > 0) {
+                                return '<span class="truncated-cell" tabindex="0"' + styleAttr + ' data-tippy-content="' +
+                                    escapeHtml(str) + '">' + escapeHtml(str) + '</span>';
+                            }
+                            return escapeHtml(str);
                         }
+                        return escapeHtml(str);
                     }
-                    return data;
+                    return data != null ? escapeHtml(String(data)) : '';
                 }
             });
         }
@@ -1462,34 +1663,72 @@ document.addEventListener('DOMContentLoaded', function() {
                 targets: index + 1,
                 width: '120px',
                 render: function(data, type, row) {
-                    if (type === 'display' && data) {
-                        var str = String(data);
-                        if (str.length > 18) {
-                            var start = str.substring(0, 10);
-                            var end = str.substring(str.length - 6);
-                            return '<span class="truncated-cell middle-truncate" tabindex="0" data-tippy-content="' +
-                                str.replace(/"/g, '&quot;') + '">' + start + '...' + end + '</span>';
+                    if (data) {
+                        var cell = extractCellContent(data);
+                        var str = String(cell.text || '');
+                        if (type === 'display') {
+                            if (str.length > 18) {
+                                var start = str.substring(0, 10);
+                                var end = str.substring(str.length - 6);
+                                return '<span class="truncated-cell middle-truncate" tabindex="0" data-tippy-content="' +
+                                    escapeHtml(str) + '">' + escapeHtml(start + '...' + end) + '</span>';
+                            }
+                            return escapeHtml(str);
                         }
+                        return escapeHtml(str);
                     }
-                    return data;
+                    return data != null ? escapeHtml(String(data)) : '';
                 }
             });
         }
 
         // TABLE-06: Right-align numeric score columns
         // Match columns with score/phred/AF patterns (but not link columns or text columns)
-        if (col.original_name.match(/(_score|_phred|_AF|_freq|_frequency|CADD|REVEL|SpliceAI)/) &&
+        if (!col.is_standard_link_column && !col.is_igv_link_column &&
+            col.original_name.match(/(_score|_phred|_AF|_freq|_frequency|CADD|REVEL|SpliceAI)/) &&
             !col.original_name.match(/(link|url|http)/i)) {
             dtColumnDefs.push({
                 targets: index + 1,
                 className: 'dt-right',
                 render: function(data, type, row) {
-                    if (type === 'display' && data !== null && data !== '' && !isNaN(data)) {
-                        return parseFloat(data).toFixed(3);
+                    if (data !== null && data !== '') {
+                        var cell = extractCellContent(data);
+                        var val = cell.text;
+                        if (val !== '' && !isNaN(val)) {
+                            if (type === 'display') {
+                                return parseFloat(val).toFixed(3);
+                            }
+                            return parseFloat(val);
+                        }
+                        return escapeHtml(val);
                     }
-                    return data;
+                    return data != null ? escapeHtml(String(data)) : '';
                 }
             });
+        }
+
+        // Generic hover-expand for other columns configured in html_report_truncate_settings
+        if (col.apply_hover_expand && !col.is_standard_link_column && !col.is_igv_link_column &&
+            col.original_name !== 'IMPACT' && col.original_name !== 'ClinVar_CLNSIG' &&
+            col.original_name !== 'dbNSFP_clinvar_clnsig' && col.original_name !== 'Inheritance_Pattern' &&
+            col.original_name !== 'HGVS_C' && col.original_name !== 'HGVS_P' && col.original_name !== 'VAR_ID') {
+            var genMaxW = getSanitizedMaxWidth(col);
+            if (genMaxW > 0) {
+                dtColumnDefs.push({
+                    targets: index + 1,
+                    render: function(data, type, row) {
+                        if (data != null && String(data).trim() !== '') {
+                            var cell = extractCellContent(data);
+                            var str = String(cell.text || '');
+                            if (type === 'display') {
+                                return '<span class="truncated-cell" tabindex="0" style="max-width: ' + genMaxW + 'px;" data-tippy-content="' + escapeHtml(str) + '">' + escapeHtml(str) + '</span>';
+                            }
+                            return escapeHtml(str);
+                        }
+                        return data != null ? escapeHtml(String(data)) : '';
+                    }
+                });
+            }
         }
     });
 
@@ -1509,11 +1748,13 @@ document.addEventListener('DOMContentLoaded', function() {
     function formatChildRow(rowData, columns) {
         // Build field-to-value map using column data
         var fields = {};
+        var colMap = {};
         columns.forEach(function(col, i) {
+            colMap[col.original_name] = col;
             // rowData is an array; column 0 is control column (null), data starts at index 1
             var value = rowData[i + 1];
             if (value !== null && value !== undefined && String(value).trim() !== '') {
-                fields[col.original_name] = String(value);
+                fields[col.original_name] = value;
             }
         });
 
@@ -1536,8 +1777,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (categorized[name]) return;
             if (!fields[name]) return;
 
-            // Detect links (columns with URL values or link-related names)
-            if (fields[name] && (fields[name].indexOf('http') === 0 || name.match(/(ClinVar|gnomAD|Varsome|Franklin|SpliceAI_link|autopvs1)/i))) {
+            // Detect links (columns configured as link columns or with URL values or link-related names)
+            if (col.is_standard_link_column || col.is_igv_link_column || name.match(/(ClinVar|gnomAD|Varsome|Franklin|SpliceAI_link|autopvs1)/i)) {
                 categories['Links'].push(name);
             }
             // Detect scores
@@ -1559,19 +1800,43 @@ document.addEventListener('DOMContentLoaded', function() {
             if (fieldsWithValues.length === 0) return;
 
             html += '<div class="detail-section">';
-            html += '<h4>' + catName + '</h4>';
+            html += '<h4>' + escapeHtml(catName) + '</h4>';
             html += '<dl>';
 
             fieldsWithValues.forEach(function(fieldName) {
-                var value = fields[fieldName];
-                var displayName = fieldName.replace(/_/g, ' ');
-                html += '<dt>' + displayName + '</dt>';
+                var rawValue = fields[fieldName];
+                var col = colMap[fieldName] || {};
+                var cell = extractCellContent(rawValue);
+                var displayName = (col.display_name || fieldName).replace(/_/g, ' ');
+                var safeDisplayName = escapeHtml(displayName);
+                html += '<dt>' + safeDisplayName + '</dt>';
 
-                // Render links as clickable
-                if (value && value.indexOf('http') === 0) {
-                    html += '<dd><a href="' + value + '" target="_blank" rel="noopener">' + displayName + ' &#x2197;</a></dd>';
+                // Render links as clickable only if safe URL
+                if (cell.links && cell.links.length > 0) {
+                    var safeAnchors = [];
+                    cell.links.forEach(function(lnk) {
+                        if (lnk.href && isSafeUrl(lnk.href)) {
+                            var safeHref = escapeHtml(encodeSymbolicAlleles(lnk.href));
+                            var linkText = lnk.text ? escapeHtml(lnk.text) : safeDisplayName;
+                            safeAnchors.push('<a href="' + safeHref + '" target="_blank" rel="noopener">' + linkText + ' &#x2197;</a>');
+                        }
+                    });
+                    if (safeAnchors.length > 0) {
+                        html += '<dd>' + safeAnchors.join(' ') + '</dd>';
+                        return;
+                    }
+                }
+
+                var isLinkCol = col.is_standard_link_column || col.is_igv_link_column || catName === 'Links';
+                var textVal = cell.text;
+                var isExplicitUrl = (textVal.indexOf('http://') === 0 || textVal.indexOf('https://') === 0 || textVal.indexOf('igv_reports/') === 0);
+
+                if (isLinkCol && isExplicitUrl && isSafeUrl(textVal)) {
+                    var safeUrl = escapeHtml(encodeSymbolicAlleles(textVal));
+                    var linkLabel = col.link_display_text ? escapeHtml(col.link_display_text) : safeDisplayName;
+                    html += '<dd><a href="' + safeUrl + '" target="_blank" rel="noopener">' + linkLabel + ' &#x2197;</a></dd>';
                 } else {
-                    html += '<dd>' + value + '</dd>';
+                    html += '<dd>' + escapeHtml(textVal) + '</dd>';
                 }
             });
 
@@ -2134,7 +2399,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 var seen = {};
                 rawCatValues.forEach(function(v) {
                     if (!isMissing(v)) {
-                        var str = String(v).trim();
+                        var str = String(extractCellContent(v).text || '').trim();
                         if (str && !seen[str]) {
                             seen[str] = true;
                             uniqueValues.push(str);

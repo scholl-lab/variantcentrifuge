@@ -316,3 +316,170 @@ class TestExpressionValidation:
         """Verify syntax errors are caught during validation."""
         with pytest.raises(ValueError, match="Syntax error"):
             _validate_expression("this is not valid python")
+
+    def test_pd_os_system_traversal_blocked(self):
+        """Verify pd.io.common.os.system traversal is rejected (#127)."""
+        with pytest.raises(ValueError, match="Disallowed attribute"):
+            _validate_expression("pd.io.common.os.system('printf F01_PROBE')")
+
+    def test_df_io_methods_blocked(self):
+        """Verify DataFrame I/O methods like to_csv are rejected (#127)."""
+        with pytest.raises(ValueError, match="Disallowed attribute"):
+            _validate_expression("df.to_csv('F01_NOT_WRITTEN.csv')")
+
+    def test_df_eval_query_blocked(self):
+        """Verify nested eval/query methods are rejected (#127)."""
+        with pytest.raises(ValueError, match="Disallowed attribute"):
+            _validate_expression("df.eval('1 + 1')")
+        with pytest.raises(ValueError, match="Disallowed attribute"):
+            _validate_expression("df.query('IMPACT == \"HIGH\"')")
+
+    def test_unapproved_callable_target_blocked(self):
+        """Verify unapproved call targets are rejected (#127)."""
+        with pytest.raises(ValueError, match="Disallowed"):
+            _validate_expression("df.columns()")
+
+    def test_malicious_config_targets_not_invoked(self, sample_df, monkeypatch):
+        """Verify malicious config expressions do not invoke mocked targets (#127)."""
+        import os
+
+        called = []
+
+        def fake_system(cmd):
+            called.append(cmd)
+            return 0
+
+        monkeypatch.setattr(os, "system", fake_system)
+        monkeypatch.setattr(pd.DataFrame, "to_csv", lambda *args, **kwargs: called.append("to_csv"))
+
+        config = {
+            "dataset_stats": [
+                {
+                    "name": "os_probe",
+                    "expression": "pd.io.common.os.system('echo probe')",
+                },
+                {
+                    "name": "io_probe",
+                    "expression": "df.to_csv('probe.csv')",
+                },
+            ]
+        }
+        engine = StatsEngine(config)
+        results = engine.compute(sample_df)
+        assert results["dataset"].empty
+        assert called == []
+
+    def test_np_module_traversal_blocked(self):
+        """Verify np module traversals are rejected (#127)."""
+        with pytest.raises(ValueError, match="Disallowed attribute"):
+            _validate_expression("np.core.multiarray.os.system('id')")
+        with pytest.raises(ValueError, match="Disallowed attribute"):
+            _validate_expression("np.os.system('id')")
+
+    def test_indirect_calls_blocked(self):
+        """Verify indirect call constructs like subscripted call targets are blocked (#127)."""
+        with pytest.raises(ValueError, match="Disallowed"):
+            _validate_expression("[f for f in [df.to_csv]][0]('pwn.tsv')")
+
+    def test_malicious_json_file_loading_blocked(self, tmp_path, sample_df, monkeypatch):
+        """Verify loading malicious config from a JSON file path is blocked at evaluation (#127)."""
+        import json
+        import os
+        from unittest.mock import MagicMock
+
+        mock_system = MagicMock()
+        monkeypatch.setattr(os, "system", mock_system)
+        mock_to_csv = MagicMock()
+        monkeypatch.setattr(pd.DataFrame, "to_csv", mock_to_csv)
+
+        malicious_config = {
+            "dataset_stats": [
+                {
+                    "name": "file_probe",
+                    "expression": "df.to_csv('pwned.csv')",
+                },
+                {
+                    "name": "os_probe",
+                    "expression": "pd.io.common.os.system('echo PWNED')",
+                },
+            ]
+        }
+        config_path = tmp_path / "malicious_stats.json"
+        config_path.write_text(json.dumps(malicious_config))
+
+        engine = StatsEngine(str(config_path))
+        results = engine.compute(sample_df)
+        assert results["dataset"].empty
+        assert not (tmp_path / "pwned.csv").exists()
+        mock_to_csv.assert_not_called()
+        mock_system.assert_not_called()
+
+    def test_safe_builtins_and_np_where_evaluate(self, sample_df):
+        """Verify safe builtins and np.where evaluate cleanly in _safe_eval (#127)."""
+        config = {
+            "dataset_stats": [
+                {
+                    "name": "sorted_genes",
+                    "expression": "len(sorted(list(set(df['GENE']))))",
+                },
+                {
+                    "name": "where_count",
+                    "expression": "int(np.where(df['IMPACT'] == 'HIGH', 1, 0).sum())",
+                },
+                {
+                    "name": "enumerate_sum",
+                    "expression": "sum(idx for idx, _ in enumerate(range(len(df))))",
+                },
+            ]
+        }
+        engine = StatsEngine(config)
+        results = engine.compute(sample_df)
+        assert not results["dataset"].empty
+        metrics = dict(zip(results["dataset"]["metric"], results["dataset"]["value"], strict=False))
+        assert metrics["sorted_genes"] == 3  # BRCA1, BRCA2, TP53
+        assert metrics["where_count"] == 3
+        assert metrics["enumerate_sum"] == sum(range(len(sample_df)))
+
+    def test_all_shipped_configs_evaluate_cleanly(self):
+        """Verify all 3 shipped configs evaluate without AST or execution errors (#127)."""
+        from pathlib import Path
+
+        df = pd.DataFrame(
+            {
+                "CHROM": ["chr17", "chr17", "chr17"],
+                "REF": ["A", "C", "T"],
+                "ALT": ["G", "T", "G"],
+                "GENE": ["BRCA1", "BRCA1", "TP53"],
+                "IMPACT": ["HIGH", "MODERATE", "LOW"],
+                "Consequence": ["missense_variant", "splice_region_variant", "synonymous_variant"],
+                "ClinicalSignificance": ["Pathogenic", "Benign", "VUS"],
+                "CLNSIG": ["Pathogenic", "Benign", "Uncertain_significance"],
+                "ACMG_Classification": ["Pathogenic", "Benign", "VUS"],
+                "gnomAD_exomes_AF": [0.0001, 0.01, 0.05],
+                "gnomAD_genomes_AF": [0.0001, 0.01, 0.05],
+                "AF": [0.0001, 0.01, 0.05],
+                "dbNSFP_CADD_phred": [35.0, 15.0, 10.0],
+                "CADD_PHRED": [35.0, 15.0, 10.0],
+                "dbNSFP_phyloP100way_vertebrate": [5.2, 1.1, -0.3],
+                "dbNSFP_REVEL_score": [0.85, 0.25, 0.10],
+                "PROBAND_GT": ["0/1", "0/1", "1/1"],
+                "CONTROL_GT": ["0/0", "0/0", "0/1"],
+                "Inheritance_Pattern": ["de_novo", "autosomal_dominant", "none"],
+                "FILTER": ["PASS", "PASS", "PASS"],
+            }
+        )
+
+        configs = [
+            "variantcentrifuge/default_stats_config.json",
+            "stats_configs/clinical_focus_stats.json",
+            "stats_configs/example_custom_stats.json",
+        ]
+        for cfg_rel in configs:
+            cfg_path = Path(cfg_rel)
+            assert cfg_path.exists(), f"Missing {cfg_path}"
+            engine = StatsEngine(str(cfg_path))
+            results = engine.compute(df)
+            assert engine.errors == [], f"Errors evaluating {cfg_rel}: {engine.errors}"
+            assert not results["dataset"].empty, f"dataset empty for {cfg_rel}"
+            assert not results["genes"].empty, f"genes empty for {cfg_rel}"
+            assert len(results["groups"]) > 0, f"groups empty for {cfg_rel}"

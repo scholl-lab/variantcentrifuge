@@ -352,6 +352,11 @@ def populate_cli_config(
     # Toggle link columns
     cfg["no_links"] = args.no_links
 
+    # Resolve build-aware external link templates
+    from .links import resolve_links
+
+    resolve_links(cfg)
+
     # Threads — resolve "auto" to detected CPU count
     if str(args.threads).lower() == "auto":
         from .memory.resource_manager import ResourceManager

@@ -439,3 +439,89 @@ class TestListProfiles:
         names = {p["name"] for p in profiles}
         assert "dbnsfp4" in names
         assert "dbnsfp5" in names
+
+    def test_1percent_preset_resolves_to_0_01(self):
+        """Verify '1percent' preset resolves to AF < 0.01 for dbnsfp4 and dbnsfp5 (#134)."""
+        from variantcentrifuge.config import load_config
+
+        # Check dbnsfp4
+        cfg4 = load_config()
+        cfg4["field_profile"] = "dbnsfp4"
+        resolve_profile(cfg4)
+        p1_4 = cfg4["presets"]["1percent"]
+        assert "0.01" in p1_4
+        assert "0.001" not in p1_4
+        assert "dbNSFP_gnomAD_exomes_AF[0] < 0.01" in p1_4
+        assert "dbNSFP_gnomAD_genomes_AF[0] < 0.01" in p1_4
+
+        # Check dbnsfp5
+        cfg5 = load_config()
+        cfg5["field_profile"] = "dbnsfp5"
+        resolve_profile(cfg5)
+        p1_5 = cfg5["presets"]["1percent"]
+        assert "0.01" in p1_5
+        assert "0.001" not in p1_5
+        assert "dbNSFP_gnomAD4.1_joint_AF[0] < 0.01" in p1_5
+
+        # Check rare and 5percent unchanged
+        assert "0.0001" in cfg4["presets"]["rare"]
+        assert "0.05" in cfg4["presets"]["5percent"]
+        assert "0.0001" in cfg5["presets"]["rare"]
+        assert "0.05" in cfg5["presets"]["5percent"]
+
+        # Verify missing-AC exception clauses are preserved in all presets
+        for preset_key in ["rare", "1percent", "5percent"]:
+            assert "na dbNSFP_gnomAD_exomes_AC" in cfg4["presets"][preset_key]
+            assert "na dbNSFP_gnomAD_genomes_AC" in cfg4["presets"][preset_key]
+            assert "na dbNSFP_gnomAD4.1_joint_AC" in cfg5["presets"][preset_key]
+
+    @pytest.mark.parametrize("profile_name", ["dbnsfp4", "dbnsfp5"])
+    def test_1percent_boundary_af_evaluation(self, profile_name):
+        """Evaluate 1percent predicate logic at boundary AF values and missing-AC clauses (#134)."""
+        import re
+
+        from variantcentrifuge.config import load_config
+
+        cfg = load_config()
+        cfg["field_profile"] = profile_name
+        resolve_profile(cfg)
+        preset_expr = cfg["presets"]["1percent"]
+
+        # Helper evaluating actual expr string returned by resolve_profile
+        def eval_predicate(af_val: float | None, ac_present: bool, expr: str = preset_expr) -> bool:
+            s = expr
+            # SnpSift 'na <field>' clauses: True if AC is missing/na, False if present
+            s = re.sub(
+                r"na\s+[A-Za-z0-9_.]+(?:\[\d+\])?",
+                "True" if not ac_present else "False",
+                s,
+            )
+            # AF field placeholder substitution: float('inf') if None so (< 0.01) evaluates False
+            sub_af = str(af_val) if af_val is not None else "float('inf')"
+            s = re.sub(r"[A-Za-z0-9_.]+_AF(?:\[\d+\])?", sub_af, s)
+            return bool(eval(s, {"__builtins__": {}, "float": float}))
+
+        # Boundary test cases:
+        # 0.001, 0.005, 0.0099 must pass (< 0.01)
+        for passing_af in [0.001, 0.005, 0.0099]:
+            assert eval_predicate(passing_af, ac_present=True) is True, (
+                f"AF={passing_af} should pass 1percent preset"
+            )
+
+        # 0.01, 0.02 must fail (>= 0.01) when AC is present
+        for failing_af in [0.01, 0.02]:
+            assert eval_predicate(failing_af, ac_present=True) is False, (
+                f"AF={failing_af} should fail 1percent preset"
+            )
+
+        # Missing AC clause: passes regardless of AF
+        assert eval_predicate(af_val=0.50, ac_present=False) is True
+        assert eval_predicate(af_val=None, ac_present=False) is True
+
+        # Assert mutation with | (1 == 1) would erroneously pass failing AF
+        mutated_expr = f"({preset_expr}) | (1 == 1)"
+        assert eval_predicate(0.02, ac_present=True, expr=mutated_expr) is True
+
+        # Assert literal threshold in expression
+        assert "< 0.01" in preset_expr
+        assert "< 0.001" not in preset_expr

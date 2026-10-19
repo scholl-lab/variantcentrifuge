@@ -1,11 +1,87 @@
 """HTML report generation for VariantCentrifuge."""
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+from markupsafe import Markup
+
+DANGEROUS_TAG_NAMES = {
+    "script",
+    "iframe",
+    "object",
+    "embed",
+    "svg",
+    "img",
+    "body",
+    "style",
+    "link",
+    "meta",
+    "base",
+    "form",
+    "input",
+    "button",
+    "video",
+    "audio",
+    "source",
+    "track",
+    "frame",
+    "frameset",
+    "applet",
+    "marquee",
+    "details",
+    "template",
+    "math",
+}
+
+
+def _encode_symbolic_allele_brackets(url: Any) -> str:
+    """Percent-encode symbolic VCF alleles like <DEL>, <DUP>, <INS:ME:ALU> in URL path."""
+    if not url:
+        return ""
+    u = str(url)
+
+    def _repl(match: re.Match[str]) -> str:
+        tag = match.group(1)
+        if tag.lower() in DANGEROUS_TAG_NAMES:
+            return match.group(0)
+        return f"%3C{tag}%3E"
+
+    u = re.sub(r"<([A-Za-z0-9_:.-]+)>", _repl, u)
+    if "<" not in u and not any(c in u for c in " \t\r\n\"'\\`"):
+        u = u.replace(">", "%3E")
+    return u
+
+
+def is_safe_url(url: Any) -> bool:
+    """Check if a URL uses a safe scheme (http, https, or relative path)."""
+    if not url:
+        return False
+    u = _encode_symbolic_allele_brackets(str(url).strip())
+    if any(ord(c) < 32 or ord(c) == 127 or c in " \t\r\n\"'<>\\" for c in u):
+        return False
+    if u.startswith("//"):
+        return False
+    u_lower = u.lower()
+    if u_lower.startswith(("http://", "https://")):
+        return True
+    colon_idx = u_lower.find(":")
+    slash_idx = u_lower.find("/")
+    return colon_idx == -1 or (slash_idx != -1 and slash_idx < colon_idx)
+
+
+def _coerce_positive_int(val: Any, default: int | None = None) -> int | None:
+    """Coerce value to a positive finite integer (> 0), returning default on failure."""
+    if isinstance(val, bool):
+        return default
+    try:
+        n = int(val)
+        return n if n > 0 else default
+    except (ValueError, TypeError, OverflowError):
+        return default
 
 
 def _load_assets() -> dict[str, str]:
@@ -15,14 +91,14 @@ def _load_assets() -> dict[str, str]:
     to avoid collisions between same-stem files in different subdirectories.
     """
     assets_dir = Path(__file__).parent / "assets"
-    assets = {}
+    assets: dict[str, str] = {}
     for subdir in ("js", "css"):
         asset_path = assets_dir / subdir
         if asset_path.exists():
             for f in sorted(asset_path.iterdir()):
                 if f.is_file():
                     # Namespace by subdirectory to prevent key collisions
-                    assets[f"{subdir}/{f.stem}"] = f.read_text(encoding="utf-8")
+                    assets[f"{subdir}/{f.stem}"] = Markup(f.read_text(encoding="utf-8"))
     return assets
 
 
@@ -53,13 +129,31 @@ def generate_html_report(
     with open(summary_json, encoding="utf-8") as sf:
         summary = json.load(sf)
 
+    for v in variants_data:
+        if "igv_links" in v and isinstance(v["igv_links"], list):
+            for link in v["igv_links"]:
+                if isinstance(link, dict) and "report_path" in link and link["report_path"]:
+                    link["report_path"] = _encode_symbolic_allele_brackets(link["report_path"])
+
+    if "reference" in cfg:
+        from .links import resolve_links
+
+        resolve_links(cfg)
+
     default_hidden_columns = cfg.get("html_report_default_hidden_columns", [])
     link_configs = cfg.get("links", {})  # For identifying link columns
+
+    for v in variants_data:
+        for col_name in link_configs:
+            if col_name in v and isinstance(v[col_name], str) and v[col_name]:
+                v[col_name] = _encode_symbolic_allele_brackets(v[col_name])
 
     # Get hover-to-expand settings from config
     truncate_settings = cfg.get("html_report_truncate_settings", {})
     # Default from config or a hardcoded fallback
-    default_max_width = truncate_settings.get("default_max_width_px", 150)
+    default_max_width = (
+        _coerce_positive_int(truncate_settings.get("default_max_width_px"), default=150) or 150
+    )
     columns_for_hover_expand = truncate_settings.get("columns_for_hover_expand", [])
     column_specific_max_widths = truncate_settings.get("column_specific_max_widths_px", {})
 
@@ -81,7 +175,12 @@ def generate_html_report(
             apply_hover_behavior = col_name in columns_for_hover_expand
             hover_max_width = None
             if apply_hover_behavior:
-                hover_max_width = column_specific_max_widths.get(col_name, default_max_width)
+                raw_w = column_specific_max_widths.get(col_name)
+                hover_max_width = (
+                    _coerce_positive_int(raw_w, default=default_max_width)
+                    if raw_w is not None
+                    else default_max_width
+                )
 
             column_data_for_template.append(
                 {
@@ -118,7 +217,12 @@ def generate_html_report(
     if not templates_dir.exists():
         raise FileNotFoundError(f"Templates directory not found at: {templates_dir}")
 
-    env = Environment(loader=FileSystemLoader(str(templates_dir)))
+    env = Environment(
+        loader=FileSystemLoader(str(templates_dir)),
+        autoescape=select_autoescape(["html", "xml"]),
+    )
+    env.filters["is_safe_url"] = is_safe_url
+    env.filters["sanitize_url"] = _encode_symbolic_allele_brackets
     template = env.get_template("index.html")
 
     # Import version for template

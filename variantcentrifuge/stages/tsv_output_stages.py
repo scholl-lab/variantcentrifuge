@@ -18,7 +18,7 @@ import pandas as pd
 
 from ..config import normalize_annotation_config
 from ..gt_reconstruction import _collapse_per_sample_gt_columns_for_output
-from ..links import add_links_to_table
+from ..links import add_links_to_table, resolve_links
 from ..pipeline_core import PipelineContext, Stage
 
 logger = logging.getLogger(__name__)
@@ -428,7 +428,7 @@ class TSVOutputStage(Stage):
         # Add external links if configured (default is to add links unless no_links is True)
         if not context.config.get("no_links", False):
             # Get link configurations from config
-            link_configs = context.config.get("links", {})
+            link_configs = resolve_links(context.config)
             if link_configs:
                 # Convert DataFrame to lines, add links, then convert back
                 # First, save to lines format

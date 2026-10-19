@@ -242,6 +242,52 @@ touch /data/container-contract-write-test
 touch /data/snpeff/container-contract-write-test
 '
 
+printf '%s\n' 'checking unrelated non-owner traversal of /data and /data/snpeff'
+docker run --rm \
+    --user 65534:65534 \
+    --entrypoint /bin/sh "$image_id" -c '
+set -eu
+test -r /data
+test -x /data
+test -r /data/snpeff
+test -x /data/snpeff
+'
+
+printf '%s\n' 'checking host-user traversal of /data with child bind mounts'
+host_input=$work_dir/host_input
+host_out=$work_dir/host_out
+host_snpeff=$work_dir/host_snpeff
+mkdir -p "$host_input" "$host_out" "$host_snpeff"
+echo "input_payload" > "$host_input/input.txt"
+chmod 0755 "$host_input" "$host_out" "$host_snpeff"
+chmod 0644 "$host_input/input.txt"
+
+test_uid=$(id -u)
+test_gid=$(id -g)
+if [ "$test_uid" -eq 0 ]; then
+    test_uid=65534
+    test_gid=65534
+    chown -R 65534:65534 "$host_input" "$host_out" "$host_snpeff" 2>/dev/null || true
+fi
+
+docker run --rm \
+    --user "$test_uid:$test_gid" \
+    -v "$host_input:/data/input:ro" \
+    -v "$host_out:/data/output" \
+    -v "$host_snpeff:/data/snpeff" \
+    --entrypoint /bin/sh "$image_id" -c '
+set -eu
+test -r /data/input/input.txt
+echo "output_payload" > /data/output/output.txt
+echo "snpeff_payload" > /data/snpeff/cache_ok
+'
+test -f "$host_out/output.txt"
+assert_contains "$(cat "$host_out/output.txt")" "output_payload" \
+    'host user could not write to /data/output mount'
+test -f "$host_snpeff/cache_ok"
+assert_contains "$(cat "$host_snpeff/cache_ok")" "snpeff_payload" \
+    'host user could not write to /data/snpeff mount'
+
 printf '%s\n' 'checking Python dependency and native runtime operations'
 
 # Run pip check from a verified, read-only test mount. The production image has

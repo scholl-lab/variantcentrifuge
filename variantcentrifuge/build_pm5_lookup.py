@@ -320,27 +320,33 @@ def main(args: list[str] | None = None) -> int:
     if not parsed.input and not parsed.download:
         parser.error("One of --input or --download is required.")
 
-    input_path = parsed.input
-    if parsed.download:
-        import tempfile
+    temp_dir_ctx = None
+    try:
+        input_path = parsed.input
+        if parsed.download:
+            import tempfile
 
-        if not input_path:
-            input_path = str(Path(tempfile.gettempdir()) / "variant_summary.txt.gz")
-        download_variant_summary(input_path)
+            if not input_path:
+                temp_dir_ctx = tempfile.TemporaryDirectory(prefix="pm5_download_")
+                input_path = str(Path(temp_dir_ctx.name) / "variant_summary.txt.gz")
+            download_variant_summary(input_path)
 
-    data = build_pm5_lookup(
-        input_path,
-        assembly=parsed.assembly,
-        min_stars=parsed.min_review_stars,
-        include_lp=parsed.include_lp,
-    )
+        data = build_pm5_lookup(
+            input_path,
+            assembly=parsed.assembly,
+            min_stars=parsed.min_review_stars,
+            include_lp=parsed.include_lp,
+        )
 
-    write_lookup(data, parsed.output)
+        write_lookup(data, parsed.output)
 
-    if parsed.stats:
-        print_stats(data)
+        if parsed.stats:
+            print_stats(data)
 
-    return 0
+        return 0
+    finally:
+        if temp_dir_ctx is not None:
+            temp_dir_ctx.cleanup()
 
 
 if __name__ == "__main__":

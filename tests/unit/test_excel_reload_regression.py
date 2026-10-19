@@ -1,0 +1,1563 @@
+"""Regression tests for eliminating openpyxl reloads during Excel generation (#159)."""
+
+import json
+from pathlib import Path
+from unittest.mock import patch
+
+import openpyxl
+import pandas as pd
+import pytest
+
+from variantcentrifuge.pipeline_core.context import PipelineContext
+from variantcentrifuge.pipeline_core.workspace import Workspace
+from variantcentrifuge.stages.output_stages import ExcelReportStage
+
+
+@pytest.fixture
+def excel_context(tmp_path: Path) -> PipelineContext:
+    """Create a pipeline context with all optional sheets and IGV report mapping."""
+    output_dir = tmp_path / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = output_dir / "report" / "igv"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Setup IGV reports map
+    igv_map = {
+        "variants": [
+            {
+                "chrom": "chr1",
+                "pos": 100,
+                "ref": "A",
+                "alt": "T",
+                "sample_reports": {"Sample1": "igv/Sample1_var1.html"},
+            },
+            {
+                "chrom": "chr2",
+                "pos": 200,
+                "ref": "C",
+                "alt": "G",
+                "sample_reports": {
+                    "Sample1": "igv/Sample1_var2.html",
+                    "Sample2": "igv/Sample2_var2.html",
+                },
+            },
+        ]
+    }
+    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(igv_map, f)
+
+    # 2. Results DataFrame
+    results_df = pd.DataFrame(
+        {
+            "CHROM": ["chr1", "chr2", "chr3"],
+            "POS": [100, 200, 300],
+            "REF": ["A", "C", "G"],
+            "ALT": ["T", "G", "A"],
+            "GT": ["Sample1(0/1)", "Sample1(0/1);Sample2(0/1)", "Sample3(0/1)"],
+            "ClinVar": [
+                "https://www.ncbi.nlm.nih.gov/clinvar/?term=chr1-100-A-T",
+                "https://www.ncbi.nlm.nih.gov/clinvar/?term=chr2-200-C-G",
+                "https://www.ncbi.nlm.nih.gov/clinvar/?term=chr3-300-G-A",
+            ],
+        }
+    )
+
+    # 3. Create TSV files for optional sheets
+    metadata_tsv = output_dir / "metadata.tsv"
+    stats_tsv = output_dir / "statistics.tsv"
+    gene_burden_tsv = output_dir / "gene_burden.tsv"
+    assoc_tsv = output_dir / "association.tsv"
+    tsv_output = output_dir / "variants.tsv"
+
+    results_df.to_csv(tsv_output, sep="\t", index=False)
+    pd.DataFrame({"Param": ["version", "build"], "Value": ["1.0", "GRCh38"]}).to_csv(
+        metadata_tsv, sep="\t", index=False
+    )
+    pd.DataFrame({"Metric": ["total", "filtered"], "Count": [10, 2]}).to_csv(
+        stats_tsv, sep="\t", index=False
+    )
+    pd.DataFrame({"Gene": ["GENE1"], "P_value": [0.001]}).to_csv(
+        gene_burden_tsv, sep="\t", index=False
+    )
+    pd.DataFrame({"Gene": ["GENE1"], "Assoc_P": [0.005]}).to_csv(assoc_tsv, sep="\t", index=False)
+
+    workspace = Workspace(output_dir, "variants")
+    context = PipelineContext(
+        args=None,
+        config={
+            "xlsx": True,
+            "output_file": str(tsv_output),
+            "no_stats": False,
+            "stats_output_file": str(stats_tsv),
+            "perform_gene_burden": True,
+            "gene_burden_output": str(gene_burden_tsv),
+            "perform_association": True,
+            "association_output": str(assoc_tsv),
+            "igv_enabled": True,
+        },
+        workspace=workspace,
+    )
+    context.final_output_path = tsv_output
+    context.current_dataframe = results_df
+    context.report_paths["metadata"] = metadata_tsv
+    context.mark_complete("dataframe_loading")
+    context.mark_complete("tsv_output")
+    context.mark_complete("metadata_generation")
+    context.mark_complete("statistics_generation")
+
+    return context
+
+
+@pytest.mark.unit
+def test_excel_report_stage_performs_no_openpyxl_reload(excel_context: PipelineContext):
+    """ExcelReportStage writes Results and optional sheets without loading via openpyxl."""
+    stage = ExcelReportStage()
+
+    with (
+        patch("openpyxl.load_workbook", wraps=openpyxl.load_workbook) as spy_load,
+        patch(
+            "variantcentrifuge.converter.load_workbook", wraps=openpyxl.load_workbook
+        ) as spy_load_conv,
+    ):
+        stage(excel_context)
+        assert spy_load.call_count == 0, f"Expected 0 openpyxl calls, got {spy_load.call_count}"
+        assert spy_load_conv.call_count == 0, (
+            f"Expected 0 converter load_workbook calls, got {spy_load_conv.call_count}"
+        )
+
+    excel_file = excel_context.workspace.output_dir / "variants.xlsx"
+    assert excel_file.exists()
+
+    # Now verify the produced file using openpyxl in test verification
+    wb = openpyxl.load_workbook(excel_file)
+    assert wb.sheetnames == ["Results", "Metadata", "Statistics", "Gene Burden", "Association"]
+
+    for name in wb.sheetnames:
+        ws = wb[name]
+        assert ws.freeze_panes == "A2", f"Sheet {name} missing freeze_panes A2"
+        assert ws.auto_filter.ref is not None, f"Sheet {name} missing autofilter"
+
+    # Verify Results sheet contents, hyperlinks, and IGV Report Links
+    results_ws = wb["Results"]
+    headers = [cell.value for cell in results_ws[1]]
+    assert "ClinVar" in headers
+    assert "IGV Report Links" in headers
+
+    clinvar_col = headers.index("ClinVar") + 1
+    igv_col = headers.index("IGV Report Links") + 1
+
+    # Row 2 (first variant): ClinVar hyperlink and single IGV link
+    cell_clinvar_1 = results_ws.cell(row=2, column=clinvar_col)
+    assert cell_clinvar_1.value == "ClinVar"
+    expected_clinvar_url = "https://www.ncbi.nlm.nih.gov/clinvar/?term=chr1-100-A-T"
+    assert expected_clinvar_url in cell_clinvar_1.hyperlink.target
+
+    cell_igv_1 = results_ws.cell(row=2, column=igv_col)
+    assert cell_igv_1.value == "Sample1"
+    assert cell_igv_1.hyperlink.target.replace("\\", "/") == "report/igv/Sample1_var1.html"
+
+    # Row 3 (second variant): multiple IGV reports with comment
+    cell_igv_2 = results_ws.cell(row=3, column=igv_col)
+    assert cell_igv_2.value == "Sample1 (+1 others)"
+    assert cell_igv_2.comment is not None
+    assert "Sample1 (report/igv/Sample1_var2.html)" in cell_igv_2.comment.text
+    assert "Sample2 (report/igv/Sample2_var2.html)" in cell_igv_2.comment.text
+
+    # Row 4 (third variant): no IGV report mapped -> N/A
+    cell_igv_3 = results_ws.cell(row=4, column=igv_col)
+    assert cell_igv_3.value == "N/A"
+
+    # Verify optional sheets cell values
+    meta_ws = wb["Metadata"]
+    assert [c.value for c in meta_ws[1]] == ["Param", "Value"]
+    assert [c.value for c in meta_ws[2]] == ["version", "1.0"]
+    assert [c.value for c in meta_ws[3]] == ["build", "GRCh38"]
+
+    stats_ws = wb["Statistics"]
+    assert [c.value for c in stats_ws[1]] == ["Metric", "Count"]
+    assert [c.value for c in stats_ws[2]] == ["total", 10]
+    assert [c.value for c in stats_ws[3]] == ["filtered", 2]
+
+    burden_ws = wb["Gene Burden"]
+    assert [c.value for c in burden_ws[1]] == ["Gene", "P_value"]
+    assert [c.value for c in burden_ws[2]] == ["GENE1", 0.001]
+
+    assoc_ws = wb["Association"]
+    assert [c.value for c in assoc_ws[1]] == ["Gene", "Assoc_P"]
+    assert [c.value for c in assoc_ws[2]] == ["GENE1", 0.005]
+
+
+@pytest.mark.unit
+def test_excel_empty_results_and_association_fidelity(tmp_path: Path):
+    """Verify empty Results sheet (0 variants) with Association sheet and formatting."""
+    output_dir = tmp_path / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    tsv_output = output_dir / "empty.tsv"
+    assoc_tsv = output_dir / "association.tsv"
+
+    empty_df = pd.DataFrame(columns=["CHROM", "POS", "REF", "ALT", "GT"])
+    empty_df.to_csv(tsv_output, sep="\t", index=False)
+    pd.DataFrame({"Gene": ["TP53"], "Assoc_P": [0.01]}).to_csv(assoc_tsv, sep="\t", index=False)
+
+    workspace = Workspace(output_dir, "variants")
+    context = PipelineContext(
+        args=None,
+        config={
+            "xlsx": True,
+            "output_file": str(tsv_output),
+            "no_stats": True,
+            "perform_association": True,
+            "association_output": str(assoc_tsv),
+        },
+        workspace=workspace,
+    )
+    context.final_output_path = tsv_output
+    context.current_dataframe = empty_df
+    context.mark_complete("dataframe_loading")
+    context.mark_complete("tsv_output")
+    context.mark_complete("metadata_generation")
+    context.mark_complete("statistics_generation")
+
+    stage = ExcelReportStage()
+    with (
+        patch("openpyxl.load_workbook", wraps=openpyxl.load_workbook) as spy_load,
+        patch(
+            "variantcentrifuge.converter.load_workbook", wraps=openpyxl.load_workbook
+        ) as spy_load_conv,
+    ):
+        stage(context)
+        assert spy_load.call_count == 0
+        assert spy_load_conv.call_count == 0
+
+    excel_file = context.workspace.get_output_path("", ".xlsx")
+    assert excel_file.exists()
+
+    wb = openpyxl.load_workbook(excel_file)
+    assert wb.sheetnames == ["Results", "Association"]
+    assert wb["Results"].max_row == 1  # Header only
+    assert wb["Association"].max_row == 2  # Header + 1 row
+
+
+@pytest.mark.unit
+def test_excel_legacy_list_format_igv_map(tmp_path: Path):
+    """Verify convert_to_excel supports top-level list IGV maps (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    output_dir = tmp_path / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = output_dir / "report" / "igv"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    # Legacy top-level list format with flat report_path
+    legacy_map = [
+        {
+            "chrom": "chr1",
+            "pos": 100,
+            "ref": "A",
+            "alt": "T",
+            "sample_id": "Sample1",
+            "report_path": "igv/Sample1_legacy.html",
+        }
+    ]
+    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(legacy_map, f)
+
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100],
+            "REF": ["A"],
+            "ALT": ["T"],
+            "GT": ["Sample1(0/1)"],
+        }
+    )
+    xlsx_file = output_dir / "variants.xlsx"
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": True},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    headers = [cell.value for cell in ws[1]]
+    assert "IGV Report Links" in headers
+    igv_cell = ws.cell(row=2, column=headers.index("IGV Report Links") + 1)
+    assert igv_cell.value == "Sample1"
+    assert "igv/Sample1_legacy.html" in igv_cell.hyperlink.target.replace("\\", "/")
+
+
+@pytest.mark.unit
+def test_excel_6000_rows_6_urls_no_hyperlink_limit_exhaustion(tmp_path: Path):
+    """Verify 6,000 rows x 6 URL cols + IGV col (42,000 URLs) don't hit 65,530 limit (#159)."""
+    import warnings
+
+    from variantcentrifuge.converter import convert_to_excel
+
+    output_dir = tmp_path / "stress_output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = output_dir / "report" / "igv"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    n_rows = 6000
+    legacy_map = [
+        {
+            "chrom": "chr1",
+            "pos": row,
+            "ref": "A",
+            "alt": "T",
+            "sample_id": "Sample1",
+            "report_path": f"igv/Sample1_{row}.html",
+        }
+        for row in range(1, n_rows + 1)
+    ]
+    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(legacy_map, f)
+
+    data = {
+        "CHROM": ["chr1"] * n_rows,
+        "POS": list(range(1, n_rows + 1)),
+        "REF": ["A"] * n_rows,
+        "ALT": ["T"] * n_rows,
+        "GT": ["Sample1(0/1)"] * n_rows,
+    }
+    for col_idx in range(1, 7):
+        data[f"URL_COL_{col_idx}"] = [
+            f"https://example.org/path/{col_idx}/{row}" for row in range(n_rows)
+        ]
+
+    df = pd.DataFrame(data)
+    xlsx_file = output_dir / "large_urls.xlsx"
+
+    # With strings_to_urls=False and single registration, exactly 42,000 hyperlinks are written
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        convert_to_excel(
+            str(xlsx_file),
+            cfg={"igv_enabled": True},
+            df=df,
+            output_file=str(xlsx_file),
+        )
+
+    limit_warnings = [
+        w for w in recorded if "exceeds Excel's limit of 65,530 URLs" in str(w.message)
+    ]
+    assert len(limit_warnings) == 0
+
+    assert xlsx_file.exists()
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    assert ws.max_row == n_rows + 1
+
+    headers = [cell.value for cell in ws[1]]
+    assert "IGV Report Links" in headers
+    igv_col_idx = headers.index("IGV Report Links") + 1
+
+    # Verify first and last rows have proper hyperlinks
+    first_url_cell = ws.cell(row=2, column=6)
+    assert first_url_cell.value == "URL_COL_1"
+    assert first_url_cell.hyperlink.target == "https://example.org/path/1/0"
+
+    last_url_cell = ws.cell(row=n_rows + 1, column=11)
+    assert last_url_cell.value == "URL_COL_6"
+    assert last_url_cell.hyperlink.target == f"https://example.org/path/6/{n_rows - 1}"
+
+    first_igv_cell = ws.cell(row=2, column=igv_col_idx)
+    assert first_igv_cell.value == "Sample1"
+    assert "igv/Sample1_1.html" in first_igv_cell.hyperlink.target.replace("\\", "/")
+
+    last_igv_cell = ws.cell(row=n_rows + 1, column=igv_col_idx)
+    assert last_igv_cell.value == "Sample1"
+    assert f"igv/Sample1_{n_rows}.html" in last_igv_cell.hyperlink.target.replace("\\", "/")
+
+    # Assert that all 36,000 URL cells and 6,000 IGV link cells have active hyperlinks
+    url_hlinks = sum(
+        1
+        for row in ws.iter_rows(min_row=2, max_row=n_rows + 1, min_col=6, max_col=11)
+        for cell in row
+        if cell.hyperlink is not None
+    )
+    assert url_hlinks == 36000
+
+    igv_hlinks = sum(
+        1
+        for row in ws.iter_rows(
+            min_row=2, max_row=n_rows + 1, min_col=igv_col_idx, max_col=igv_col_idx
+        )
+        for cell in row
+        if cell.hyperlink is not None
+    )
+    assert igv_hlinks == 6000
+
+
+@pytest.mark.unit
+def test_excel_generation_benchmark_performance_and_memory(tmp_path: Path, record_property):
+    """Deterministic structural/memory comparison: multi-pass vs single-pass writer (#159)."""
+    import gc
+    import time
+    import tracemalloc
+
+    from openpyxl.utils import get_column_letter
+
+    from variantcentrifuge.converter import convert_to_excel
+
+    n_rows = 2000
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"] * n_rows,
+            "POS": list(range(n_rows)),
+            "REF": ["A"] * n_rows,
+            "ALT": ["T"] * n_rows,
+            "GT": ["Sample1(0/1)"] * n_rows,
+            "ClinVar": [f"https://example.org/cv/{i}" for i in range(n_rows)],
+        }
+    )
+
+    extra_sheets = {
+        "Metadata": pd.DataFrame({"K": ["version"], "V": ["v1.0"]}),
+        "Statistics": pd.DataFrame({"Metric": ["count"], "Value": [n_rows]}),
+    }
+
+    # 1. Multi-pass reload baseline (historical pre-#159 sequence: convert -> append -> finalize)
+    # Encapsulate each reload step in a helper so all workbook, worksheet, and cell references
+    # are completely out-of-scope and released before gc.collect().
+    def _baseline_step0_write(path: Path) -> None:
+        df.to_excel(path, sheet_name="Results", index=False)
+
+    def _baseline_step1_metadata(path: Path) -> None:
+        wb = openpyxl.load_workbook(path)
+        ws = wb.create_sheet("Metadata")
+        ws.append(["K", "V"])
+        ws.append(["version", "v1.0"])
+        wb.save(path)
+        wb.close()
+
+    def _baseline_step2_statistics(path: Path) -> None:
+        wb = openpyxl.load_workbook(path)
+        ws = wb.create_sheet("Statistics")
+        ws.append(["Metric", "Value"])
+        ws.append(["count", n_rows])
+        wb.save(path)
+        wb.close()
+
+    def _baseline_step3_formatting(path: Path) -> None:
+        wb = openpyxl.load_workbook(path)
+        for ws in wb.worksheets:
+            ws.freeze_panes = "A2"
+            max_col_letter = get_column_letter(ws.max_column)
+            ws.auto_filter.ref = f"A1:{max_col_letter}1"
+            if ws.title == "Results":
+                header_row = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+                clinvar_idx = header_row.index("ClinVar") + 1
+                for r in range(2, ws.max_row + 1):
+                    cell = ws.cell(row=r, column=clinvar_idx)
+                    val = str(cell.value or "").strip()
+                    if val.startswith(("http://", "https://")):
+                        cell.hyperlink = val
+                        cell.value = "ClinVar"
+                        cell.style = "Hyperlink"
+        wb.save(path)
+        wb.close()
+
+    f_baseline = tmp_path / "baseline.xlsx"
+    gc.collect()
+    tracemalloc.start()
+
+    elapsed_base = 0.0
+    for step_fn in (
+        _baseline_step0_write,
+        _baseline_step1_metadata,
+        _baseline_step2_statistics,
+        _baseline_step3_formatting,
+    ):
+        t0 = time.perf_counter()
+        step_fn(f_baseline)
+        elapsed_base += time.perf_counter() - t0
+        gc.collect()
+
+    _current, peak_base = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    gc.collect()
+
+    # 2. Single-pass xlsxwriter generator (#159)
+    f_single = tmp_path / "single.xlsx"
+    gc.collect()
+    tracemalloc.start()
+    t0_single = time.perf_counter()
+    convert_to_excel(
+        str(f_single),
+        cfg={"igv_enabled": False},
+        df=df,
+        extra_sheets=extra_sheets,
+        output_file=str(f_single),
+    )
+    elapsed_single = time.perf_counter() - t0_single
+    _current, peak_single = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    gc.collect()
+
+    peak_base_mb = peak_base / (1024 * 1024)
+    peak_single_mb = peak_single / (1024 * 1024)
+
+    record_property("baseline_elapsed_s", elapsed_base)
+    record_property("single_pass_elapsed_s", elapsed_single)
+    record_property("baseline_peak_mb", peak_base_mb)
+    record_property("single_pass_peak_mb", peak_single_mb)
+
+    # Sanity checks
+    assert elapsed_base > 0 and elapsed_single > 0
+    assert peak_single_mb < 50.0, f"Peak memory {peak_single_mb:.1f}MB, expected < 50MB"
+
+    # Cell-by-cell value and hyperlink fidelity comparison across all sheets
+    wb_single = openpyxl.load_workbook(f_single)
+    wb_base = openpyxl.load_workbook(f_baseline)
+    assert wb_single.sheetnames == wb_base.sheetnames
+
+    for sheet_name in wb_single.sheetnames:
+        ws_single = wb_single[sheet_name]
+        ws_base = wb_base[sheet_name]
+        assert ws_single.max_row == ws_base.max_row
+        assert ws_single.max_column == ws_base.max_column
+
+        for r in range(1, ws_single.max_row + 1):
+            for c in range(1, ws_single.max_column + 1):
+                cell_s = ws_single.cell(row=r, column=c)
+                cell_b = ws_base.cell(row=r, column=c)
+                assert cell_s.value == cell_b.value, (
+                    f"Mismatch at {sheet_name} row {r} col {c}: {cell_s.value} != {cell_b.value}"
+                )
+                if cell_b.hyperlink:
+                    assert cell_s.hyperlink is not None, (
+                        f"Missing hyperlink at {sheet_name} row {r} col {c}"
+                    )
+                    assert cell_s.hyperlink.target == cell_b.hyperlink.target
+    wb_single.close()
+    wb_base.close()
+
+
+@pytest.mark.unit
+def test_excel_mixed_url_column_hyperlinks_preserved(tmp_path: Path):
+    """Verify URLs in mixed columns (<70% URLs) are clickable hyperlinks (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1", "chr1", "chr1", "chr1"],
+            "POS": [100, 200, 300, 400],
+            "REF": ["A", "C", "G", "T"],
+            "ALT": ["T", "G", "A", "C"],
+            "MixedCol": [
+                "unavailable",
+                "unavailable",
+                "https://example.org/a",
+                "https://example.org/b",
+            ],
+        }
+    )
+    xlsx_file = tmp_path / "mixed.xlsx"
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    mixed_col_idx = 5
+
+    # Row 2 & 3: plain text strings, no hyperlink
+    cell_row2 = ws.cell(row=2, column=mixed_col_idx)
+    assert cell_row2.value == "unavailable"
+    assert cell_row2.hyperlink is None
+
+    cell_row3 = ws.cell(row=3, column=mixed_col_idx)
+    assert cell_row3.value == "unavailable"
+    assert cell_row3.hyperlink is None
+
+    # Row 4 & 5: clickable hyperlinks displaying the URL string
+    cell_row4 = ws.cell(row=4, column=mixed_col_idx)
+    assert cell_row4.value == "https://example.org/a"
+    assert cell_row4.hyperlink is not None
+    assert cell_row4.hyperlink.target == "https://example.org/a"
+
+    cell_row5 = ws.cell(row=5, column=mixed_col_idx)
+    assert cell_row5.value == "https://example.org/b"
+    assert cell_row5.hyperlink is not None
+    assert cell_row5.hyperlink.target == "https://example.org/b"
+
+
+@pytest.mark.unit
+def test_finalize_excel_file_overflow_sheet_created(tmp_path: Path):
+    """Verify finalize_excel_file creates IGV_Overflow sheet on >32,000 char comments (#159)."""
+    from variantcentrifuge.converter import finalize_excel_file
+
+    output_dir = tmp_path / "finalize_overflow"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = output_dir / "report" / "igv"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    n_samples = 600
+    subfolder = "igv/long_batch_path_subfolder"
+    sample_reports = {
+        f"Patient_Sample_ID_{i:04d}": f"{subfolder}/Patient_Sample_ID_{i:04d}_variant_report.html"
+        for i in range(n_samples)
+    }
+    igv_map = {
+        "variants": [
+            {
+                "chrom": "chr1",
+                "pos": 100,
+                "ref": "A",
+                "alt": "T",
+                "sample_reports": sample_reports,
+            }
+        ]
+    }
+    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(igv_map, f)
+
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100],
+            "REF": ["A"],
+            "ALT": ["T"],
+            "GT": [";".join(f"Patient_Sample_ID_{i:04d}(0/1)" for i in range(n_samples))],
+        }
+    )
+    xlsx_file = output_dir / "finalize_overflow.xlsx"
+    df.to_excel(xlsx_file, sheet_name="Results", index=False)
+
+    finalize_excel_file(str(xlsx_file), cfg={"igv_enabled": True})
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    assert "Results" in wb.sheetnames
+    assert "IGV_Overflow" in wb.sheetnames
+
+    ws_overflow = wb["IGV_Overflow"]
+    expected_headers = ["Row", "CHROM", "POS", "REF", "ALT", "Sample_ID", "IGV_Report_Path"]
+    assert [c.value for c in ws_overflow[1]] == expected_headers
+    assert ws_overflow.max_row == n_samples + 1
+
+    first_row = [
+        ws_overflow.cell(row=2, column=i).value for i in range(1, len(expected_headers) + 1)
+    ]
+    assert first_row == [
+        2,
+        "chr1",
+        100,
+        "A",
+        "T",
+        "Patient_Sample_ID_0000",
+        "report/igv/long_batch_path_subfolder/Patient_Sample_ID_0000_variant_report.html",
+    ]
+
+
+@pytest.mark.unit
+def test_finalize_excel_file_missing_coordinates_guard(tmp_path: Path):
+    """Verify finalize_excel_file handles missing coordinates without column 0 ValueError (#159)."""
+    from variantcentrifuge.converter import finalize_excel_file
+
+    output_dir = tmp_path / "missing_coords"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = output_dir / "report" / "igv"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    igv_map = {
+        "variants": [
+            {
+                "chrom": "chr1",
+                "pos": 100,
+                "ref": "A",
+                "alt": "T",
+                "sample_reports": {"Sample1": "igv/Sample1.html"},
+            }
+        ]
+    }
+    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(igv_map, f)
+
+    # DataFrame with only CHROM and POS (missing REF and ALT)
+    df = pd.DataFrame({"CHROM": ["chr1"], "POS": [100]})
+    xlsx_file = output_dir / "partial.xlsx"
+    df.to_excel(xlsx_file, sheet_name="Results", index=False)
+
+    # Should safely skip IGV links rather than calling ws.cell(..., column=0)
+    finalize_excel_file(str(xlsx_file), cfg={"igv_enabled": True})
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    headers = [cell.value for cell in ws[1]]
+    assert "IGV Report Links" not in headers
+    assert headers == ["CHROM", "POS"]
+
+
+@pytest.mark.unit
+def test_excel_igv_comment_overflow_creates_overflow_sheet(tmp_path: Path):
+    """Verify IGV comment >32,000 chars is truncated and full links saved to IGV_Overflow (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    output_dir = tmp_path / "overflow_test"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = output_dir / "report" / "igv"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    # 600 samples with long paths -> comment will exceed 32,000 characters
+    n_samples = 600
+    subfolder = "igv/long_batch_path_subfolder"
+    sample_reports = {
+        f"Patient_Sample_ID_{i:04d}": f"{subfolder}/Patient_Sample_ID_{i:04d}_variant_report.html"
+        for i in range(n_samples)
+    }
+    igv_map = {
+        "variants": [
+            {
+                "chrom": "chr1",
+                "pos": 100,
+                "ref": "A",
+                "alt": "T",
+                "sample_reports": sample_reports,
+            }
+        ]
+    }
+    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(igv_map, f)
+
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100],
+            "REF": ["A"],
+            "ALT": ["T"],
+            "GT": [";".join(f"Patient_Sample_ID_{i:04d}(0/1)" for i in range(n_samples))],
+        }
+    )
+    xlsx_file = output_dir / "overflow.xlsx"
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": True},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    assert "Results" in wb.sheetnames
+    assert "IGV_Overflow" in wb.sheetnames
+
+    ws_results = wb["Results"]
+    headers = [cell.value for cell in ws_results[1]]
+    assert "IGV Report Links" in headers
+    igv_col = headers.index("IGV Report Links") + 1
+
+    cell = ws_results.cell(row=2, column=igv_col)
+    assert cell.value == f"Patient_Sample_ID_0000 (+{n_samples - 1} others)"
+    assert cell.comment is not None
+
+    comment_text = cell.comment.text
+    # Cell comment must be at most 32,767 chars (Excel limit) and end with overflow suffix
+    assert len(comment_text) <= 32767
+    assert len(comment_text) <= 32000
+    expected_suffix = "\n... (see IGV_Overflow sheet for all sample links)"
+    assert comment_text.endswith(expected_suffix)
+
+    # Verify IGV_Overflow sheet
+    ws_overflow = wb["IGV_Overflow"]
+    overflow_headers = [c.value for c in ws_overflow[1]]
+    expected_headers = ["Row", "CHROM", "POS", "REF", "ALT", "Sample_ID", "IGV_Report_Path"]
+    assert overflow_headers == expected_headers
+
+    # 1 header row + 600 sample rows
+    assert ws_overflow.max_row == n_samples + 1
+    first_row = [
+        ws_overflow.cell(row=2, column=i).value for i in range(1, len(expected_headers) + 1)
+    ]
+    assert first_row == [
+        2,
+        "chr1",
+        100,
+        "A",
+        "T",
+        "Patient_Sample_ID_0000",
+        "report/igv/long_batch_path_subfolder/Patient_Sample_ID_0000_variant_report.html",
+    ]
+
+
+@pytest.mark.unit
+def test_produce_report_json_numeric_gt(tmp_path: Path):
+    """Verify produce_report_json handles numeric GT (haploid/unquoted) without crashing (#159)."""
+    from variantcentrifuge.converter import produce_report_json
+
+    output_dir = tmp_path / "report_json_test"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = output_dir / "report" / "igv"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    igv_map = {
+        "variants": [
+            {
+                "chrom": "chr1",
+                "pos": 100,
+                "ref": "A",
+                "alt": "T",
+                "sample_reports": {"Sample1": "igv/Sample1.html", "1": "igv/sample_1.html"},
+            }
+        ]
+    }
+    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(igv_map, f)
+
+    tsv_path = output_dir / "variants.tsv"
+    tsv_content = "CHROM\tPOS\tREF\tALT\tGT\nchr1\t100\tA\tT\t1\nchr1\t200\tG\tC\t0\n"
+    tsv_path.write_text(tsv_content, encoding="utf-8")
+
+    produce_report_json(str(tsv_path), str(output_dir))
+
+    variants_json_path = output_dir / "report" / "variants.json"
+    summary_json_path = output_dir / "report" / "summary.json"
+    assert variants_json_path.exists()
+    assert summary_json_path.exists()
+
+    with open(variants_json_path, encoding="utf-8") as f:
+        variants = json.load(f)
+
+    assert len(variants) == 2
+    # First variant (numeric GT=1) should be loaded without crashing
+    assert variants[0]["GT"] == 1
+    assert variants[0]["igv_links"] == []
+    # Second variant (numeric GT=0) reference genotype -> no igv_links
+    assert variants[1]["GT"] == 0
+    assert variants[1]["igv_links"] == []
+
+    # Verify _get_igv_reports_for_variant handles int, None, and haploid string directly
+    from variantcentrifuge.converter import _get_igv_reports_for_variant
+
+    igv_lookup = {
+        ("chr1", "100", "A", "T", "Sample1"): "igv/Sample1.html",
+    }
+    assert _get_igv_reports_for_variant("chr1", "100", "A", "T", 1, igv_lookup) == []
+    assert _get_igv_reports_for_variant("chr1", "100", "A", "T", 0, igv_lookup) == []
+    assert _get_igv_reports_for_variant("chr1", "100", "A", "T", "Sample1(1)", igv_lookup) == [
+        ("Sample1", "igv/Sample1.html")
+    ]
+    assert _get_igv_reports_for_variant("chr1", "100", "A", "T", "Sample1(0)", igv_lookup) == []
+    assert _get_igv_reports_for_variant("chr1", "100", "A", "T", "Sample1(.)", igv_lookup) == []
+    assert _get_igv_reports_for_variant("chr1", "100", "A", "T", None, igv_lookup) == []
+
+
+@pytest.mark.unit
+def test_excel_hyperlink_protocols_preserved(tmp_path: Path):
+    """Verify ftp, ftps, mailto, internal, and external links are preserved in Excel (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    output_dir = tmp_path / "hyperlinks_test"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    xlsx_file = output_dir / "links.xlsx"
+
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100],
+            "REF": ["A"],
+            "ALT": ["T"],
+            "FTP_LINK": ["ftp://ftp.ncbi.nlm.nih.gov/genomes/all/data.txt"],
+            "FTPS_LINK": ["ftps://secure.example.org/path/file.bin"],
+            "EMAIL": ["mailto:curator@genomics.org"],
+            "INTERNAL_REF": ["internal:Sheet1!A1"],
+            "EXTERNAL_REF": ["external:doc.xlsx#Sheet1!A1"],
+            "HTTP_URL": ["https://www.ncbi.nlm.nih.gov/clinvar/"],
+            "FILE_URL": ["file:///C:/reports/sample.html"],
+        }
+    )
+
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    headers = [cell.value for cell in ws[1]]
+    col_indices = {name: idx + 1 for idx, name in enumerate(headers)}
+
+    # FTP link
+    cell_ftp = ws.cell(row=2, column=col_indices["FTP_LINK"])
+    assert cell_ftp.value == "ftp://ftp.ncbi.nlm.nih.gov/genomes/all/data.txt"
+    assert cell_ftp.hyperlink is not None
+    assert cell_ftp.hyperlink.target == "ftp://ftp.ncbi.nlm.nih.gov/genomes/all/data.txt"
+
+    # FTPS link
+    cell_ftps = ws.cell(row=2, column=col_indices["FTPS_LINK"])
+    assert cell_ftps.value == "ftps://secure.example.org/path/file.bin"
+    assert cell_ftps.hyperlink is not None
+    assert cell_ftps.hyperlink.target == "ftps://secure.example.org/path/file.bin"
+
+    # Mailto link: prefix stripped for display, hyperlink target keeps mailto:
+    cell_mail = ws.cell(row=2, column=col_indices["EMAIL"])
+    assert cell_mail.value == "curator@genomics.org"
+    assert cell_mail.hyperlink is not None
+    assert cell_mail.hyperlink.target == "mailto:curator@genomics.org"
+
+    # Internal ref link: XlsxWriter native displays location
+    cell_int = ws.cell(row=2, column=col_indices["INTERNAL_REF"])
+    assert cell_int.value == "Sheet1!A1"
+    assert cell_int.hyperlink is not None
+    assert cell_int.hyperlink.location == "Sheet1!A1"
+
+    # External ref link: XlsxWriter native strips external: prefix
+    cell_ext = ws.cell(row=2, column=col_indices["EXTERNAL_REF"])
+    assert cell_ext.value == "doc.xlsx#Sheet1!A1"
+    assert cell_ext.hyperlink is not None
+    assert cell_ext.hyperlink.target == "doc.xlsx"
+
+    # HTTP link in URL column: displays column name
+    cell_http = ws.cell(row=2, column=col_indices["HTTP_URL"])
+    assert cell_http.value == "HTTP_URL"
+    assert cell_http.hyperlink is not None
+    assert cell_http.hyperlink.target == "https://www.ncbi.nlm.nih.gov/clinvar/"
+
+    # File link: recognizes file:// prefix and preserves hyperlink
+    cell_file = ws.cell(row=2, column=col_indices["FILE_URL"])
+    assert cell_file.hyperlink is not None
+    assert cell_file.hyperlink.target.replace("\\", "/").startswith(
+        "file:///C:/reports/sample.html"
+    )
+
+
+@pytest.mark.unit
+def test_float_integral_pos_normalized_for_igv_lookup(tmp_path: Path):
+    """Verify float POS (e.g. 100.0) matches IGV lookup with POS='100' in Excel (#159)."""
+    from variantcentrifuge.converter import convert_to_excel, finalize_excel_file
+
+    output_dir = tmp_path / "float_pos_test"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = output_dir / "report" / "igv"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    igv_map = {
+        "variants": [
+            {
+                "chrom": "chr1",
+                "pos": 100,
+                "ref": "A",
+                "alt": "T",
+                "sample_reports": {"Sample1": "igv/Sample1.html"},
+            }
+        ]
+    }
+    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(igv_map, f)
+
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100.0],
+            "REF": ["A"],
+            "ALT": ["T"],
+            "GT": ["Sample1(0/1)"],
+        }
+    )
+    assert df["POS"].dtype == "float64"
+
+    # Test convert_to_excel
+    xlsx_convert = output_dir / "convert.xlsx"
+    convert_to_excel(
+        str(xlsx_convert),
+        cfg={"igv_enabled": True},
+        df=df,
+        output_file=str(xlsx_convert),
+    )
+
+    wb_convert = openpyxl.load_workbook(xlsx_convert)
+    ws_convert = wb_convert["Results"]
+    headers_convert = [c.value for c in ws_convert[1]]
+    assert "IGV Report Links" in headers_convert
+    igv_col_convert = headers_convert.index("IGV Report Links") + 1
+    cell_convert = ws_convert.cell(row=2, column=igv_col_convert)
+    assert cell_convert.value == "Sample1"
+    assert cell_convert.hyperlink is not None
+    assert cell_convert.hyperlink.target.replace("\\", "/") == "report/igv/Sample1.html"
+
+    # Test finalize_excel_file
+    xlsx_finalize = output_dir / "finalize.xlsx"
+    df.to_excel(xlsx_finalize, sheet_name="Results", index=False)
+    finalize_excel_file(str(xlsx_finalize), cfg={"igv_enabled": True})
+
+    wb_finalize = openpyxl.load_workbook(xlsx_finalize)
+    ws_finalize = wb_finalize["Results"]
+    headers_finalize = [c.value for c in ws_finalize[1]]
+    assert "IGV Report Links" in headers_finalize
+    igv_col_finalize = headers_finalize.index("IGV Report Links") + 1
+    cell_finalize = ws_finalize.cell(row=2, column=igv_col_finalize)
+    assert cell_finalize.value == "Sample1"
+    assert cell_finalize.hyperlink is not None
+    assert cell_finalize.hyperlink.target.replace("\\", "/") == "report/igv/Sample1.html"
+
+
+@pytest.mark.unit
+def test_excel_url_sampling_leading_nulls_and_native_links(tmp_path: Path):
+    """Verify leading nulls not skipped in 4-row URL check and native links preserved (#159)."""
+    from variantcentrifuge.converter import _detect_url_columns, convert_to_excel
+
+    # 1. Verify _detect_url_columns with leading nulls
+    df_sampling = pd.DataFrame(
+        {
+            "LeadingNullsCol": [
+                None,
+                None,
+                None,
+                "plain",
+                "https://example.org/1",
+                "https://example.org/2",
+                "https://example.org/3",
+            ],
+            "AllUrlCol": ["https://example.org/a"] * 7,
+        }
+    )
+    detected = _detect_url_columns(df_sampling)
+    assert 0 not in detected
+    assert 1 in detected
+
+    # 2. Verify convert_to_excel native link generation
+    xlsx_file = tmp_path / "native_links.xlsx"
+    df_links = pd.DataFrame(
+        {
+            "CHROM": ["chr1"] * 7,
+            "POS": list(range(100, 107)),
+            "REF": ["A"] * 7,
+            "ALT": ["T"] * 7,
+            "InternalCol": [f"internal:Sheet1!A{i}" for i in range(1, 8)],
+            "ExternalCol": [f"external:doc.xlsx#Sheet1!A{i}" for i in range(1, 8)],
+            "LeadingNullsCol": [
+                None,
+                None,
+                None,
+                "plain",
+                "https://example.org/1",
+                "https://example.org/2",
+                "https://example.org/3",
+            ],
+            "UrlCol": [f"https://example.org/{i}" for i in range(1, 8)],
+        }
+    )
+
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df_links,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+
+    # Internal links
+    c_int = ws.cell(row=2, column=5)
+    assert c_int.value == "Sheet1!A1"
+    assert c_int.hyperlink is not None
+    assert c_int.hyperlink.location == "Sheet1!A1"
+
+    # External links
+    c_ext = ws.cell(row=2, column=6)
+    assert c_ext.value == "doc.xlsx#Sheet1!A1"
+    assert c_ext.hyperlink is not None
+    assert c_ext.hyperlink.target == "doc.xlsx"
+
+    # LeadingNullsCol row 5 (row_idx 3): plain text
+    c_plain = ws.cell(row=5, column=7)
+    assert c_plain.value == "plain"
+    assert c_plain.hyperlink is None
+
+    # LeadingNullsCol row 6 (row_idx 4, url 1): not in url_columns -> displays full URL
+    c_nulls = ws.cell(row=6, column=7)
+    assert c_nulls.value == "https://example.org/1"
+    assert c_nulls.hyperlink is not None
+    assert c_nulls.hyperlink.target == "https://example.org/1"
+
+    # UrlCol row 2: in url_columns -> displays column name "UrlCol"
+    c_url = ws.cell(row=2, column=8)
+    assert c_url.value == "UrlCol"
+    assert c_url.hyperlink is not None
+    assert c_url.hyperlink.target == "https://example.org/1"
+
+
+@pytest.mark.unit
+def test_excel_category_and_string_dtype_hyperlinks(tmp_path: Path):
+    """Verify hyperlinks in category and string dtype columns are formatted (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    items = ["unavailable", "unavailable", "unavailable", "unavailable", "https://example.org/item"]
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"] * 5,
+            "POS": [1, 2, 3, 4, 5],
+            "REF": ["A"] * 5,
+            "ALT": ["T"] * 5,
+            "CatCol": pd.Series(items, dtype="category"),
+            "StrCol": pd.Series(items, dtype="string"),
+        }
+    )
+    xlsx_file = tmp_path / "cat_str_links.xlsx"
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    headers = [cell.value for cell in ws[1]]
+    cat_col_idx = headers.index("CatCol") + 1
+    str_col_idx = headers.index("StrCol") + 1
+
+    # First 4 rows have plain text
+    for r in range(2, 6):
+        assert ws.cell(row=r, column=cat_col_idx).hyperlink is None
+        assert ws.cell(row=r, column=str_col_idx).hyperlink is None
+
+    # Row 5 (row 6 in worksheet) gets active hyperlinks
+    cell_cat = ws.cell(row=6, column=cat_col_idx)
+    assert cell_cat.value == "https://example.org/item"
+    assert cell_cat.hyperlink is not None
+    assert cell_cat.hyperlink.target == "https://example.org/item"
+
+    cell_str = ws.cell(row=6, column=str_col_idx)
+    assert cell_str.value == "https://example.org/item"
+    assert cell_str.hyperlink is not None
+    assert cell_str.hyperlink.target == "https://example.org/item"
+
+
+@pytest.mark.unit
+def test_produce_report_json_does_not_load_ancestor_igv_map(tmp_path: Path):
+    """Verify produce_report_json isolates IGV lookup to output_dir without parent search (#159)."""
+    from variantcentrifuge.converter import produce_report_json
+
+    runs_dir = tmp_path / "runs"
+    ancestor_report_dir = runs_dir / "report" / "igv"
+    ancestor_report_dir.mkdir(parents=True)
+    with open(ancestor_report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(
+            [
+                {
+                    "chrom": "chr1",
+                    "pos": 100,
+                    "ref": "A",
+                    "alt": "T",
+                    "sample_id": "Sample1",
+                    "report_path": "igv/Sample1.html",
+                }
+            ],
+            f,
+        )
+
+    new_run = runs_dir / "batch" / "new_run"
+    new_run.mkdir(parents=True)
+    tsv_file = new_run / "variants.tsv"
+    pd.DataFrame(
+        {"CHROM": ["chr1"], "POS": [100], "REF": ["A"], "ALT": ["T"], "GT": ["Sample1(0/1)"]}
+    ).to_csv(tsv_file, sep="\t", index=False)
+
+    produce_report_json(str(tsv_file), output_dir=str(new_run))
+    with open(new_run / "report" / "variants.json", encoding="utf-8") as f:
+        variants = json.load(f)
+
+    # Ancestor map must not be loaded
+    assert "igv_links" not in variants[0] or len(variants[0]["igv_links"]) == 0
+
+
+@pytest.mark.unit
+def test_excel_list_valued_cells_no_value_error(tmp_path: Path):
+    """Verify list-valued cells (in first 4 rows and beyond) don't raise ValueError (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    # 6 rows: first 4 rows and rows 5-6 have list-valued cells
+    data = {
+        "CHROM": ["chr1"] * 6,
+        "POS": list(range(1, 7)),
+        "REF": ["A"] * 6,
+        "ALT": ["T"] * 6,
+        "list_col": [["a", "b"], ["c"], [], ["d", "e"], ["f", "g"], ["h"]],
+        "mixed_col": [["x"], "plain", None, ["y"], "https://example.org/item", ["z"]],
+    }
+    df = pd.DataFrame(data)
+    xlsx_file = tmp_path / "list_cells.xlsx"
+
+    # Must succeed without raising ValueError: The truth value of an array is ambiguous
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    assert ws.max_row == 7
+    # Row 5 in mixed_col (row 6 in sheet) is a URL and gets an active hyperlink
+    c_url = ws.cell(row=6, column=6)
+    assert c_url.value == "https://example.org/item"
+    assert c_url.hyperlink is not None
+    assert c_url.hyperlink.target == "https://example.org/item"
+
+
+@pytest.mark.unit
+def test_overflow_sample_id_explicit_string(tmp_path: Path):
+    """Verify overflow sample ID with formula string has data_type == 's' (#159)."""
+    from variantcentrifuge.converter import convert_to_excel, finalize_excel_file
+
+    output_dir = tmp_path / "overflow_formula"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = output_dir / "report" / "igv"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    n_samples = 600
+    subfolder = "igv/long_batch_path_subfolder"
+    formula_sample = "=1+1"
+    sample_reports = {
+        formula_sample: f"{subfolder}/{formula_sample}_variant_report.html",
+    }
+    for i in range(1, n_samples):
+        sample_reports[f"Patient_Sample_ID_{i:04d}"] = (
+            f"{subfolder}/Patient_Sample_ID_{i:04d}_variant_report.html"
+        )
+
+    igv_map = {
+        "variants": [
+            {
+                "chrom": "chr1",
+                "pos": 100,
+                "ref": "A",
+                "alt": "T",
+                "sample_reports": sample_reports,
+            }
+        ]
+    }
+    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(igv_map, f)
+
+    gt_str = ";".join(
+        [f"{formula_sample}(0/1)"]
+        + [f"Patient_Sample_ID_{i:04d}(0/1)" for i in range(1, n_samples)]
+    )
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100],
+            "REF": ["A"],
+            "ALT": ["T"],
+            "GT": [gt_str],
+        }
+    )
+
+    # 1. Test convert_to_excel (XlsxWriter path)
+    xlsx_writer_path = output_dir / "xlsxwriter_overflow.xlsx"
+    convert_to_excel(
+        str(xlsx_writer_path),
+        cfg={"igv_enabled": True},
+        df=df,
+        output_file=str(xlsx_writer_path),
+    )
+    wb_xw = openpyxl.load_workbook(xlsx_writer_path)
+    assert "IGV_Overflow" in wb_xw.sheetnames
+    ws_xw = wb_xw["IGV_Overflow"]
+    cell_sample_xw = ws_xw.cell(row=2, column=6)
+    assert cell_sample_xw.value == "=1+1"
+    assert cell_sample_xw.data_type == "s"
+    cell_chrom_xw = ws_xw.cell(row=2, column=2)
+    assert cell_chrom_xw.data_type == "s"
+
+    # 2. Test finalize_excel_file (openpyxl path)
+    xlsx_openpyxl_path = output_dir / "openpyxl_overflow.xlsx"
+    df.to_excel(xlsx_openpyxl_path, sheet_name="Results", index=False)
+    finalize_excel_file(str(xlsx_openpyxl_path), cfg={"igv_enabled": True})
+    wb_op = openpyxl.load_workbook(xlsx_openpyxl_path)
+    assert "IGV_Overflow" in wb_op.sheetnames
+    ws_op = wb_op["IGV_Overflow"]
+    cell_sample_op = ws_op.cell(row=2, column=6)
+    assert cell_sample_op.value == "=1+1"
+    assert cell_sample_op.data_type == "s"
+    cell_chrom_op = ws_op.cell(row=2, column=2)
+    assert cell_chrom_op.data_type == "s"
+
+
+@pytest.mark.unit
+def test_detect_url_columns_scalar_denominator(tmp_path: Path):
+    """Verify non-empty non-string scalars in first 4 rows prevent column classification (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    # Notes column has 3 numbers and 1 URL
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1", "chr1", "chr1", "chr1"],
+            "POS": [100, 200, 300, 400],
+            "REF": ["A", "C", "G", "T"],
+            "ALT": ["T", "G", "C", "A"],
+            "Notes": [1, 2, 3, "https://example.org/a"],
+        }
+    )
+    xlsx_file = tmp_path / "notes_url.xlsx"
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    notes_col_idx = 5
+    # Row 4 in DataFrame is row 5 in Excel
+    cell = ws.cell(row=5, column=notes_col_idx)
+    # Cell value must remain the URL, not the column name "Notes"
+    assert cell.value == "https://example.org/a"
+    assert cell.hyperlink is not None
+
+
+@pytest.mark.unit
+def test_finalize_excel_file_no_has_hyperlink_shortcut(tmp_path: Path):
+    """Verify finalize_excel_file keeps URL display text when url ratio < 0.7 (#159)."""
+    from variantcentrifuge.converter import convert_to_excel, finalize_excel_file
+
+    # Column has 2 plain texts and 2 URLs in first 4 rows (ratio 2/4 = 0.5 < 0.7)
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1", "chr1", "chr1", "chr1"],
+            "POS": [100, 200, 300, 400],
+            "REF": ["A", "C", "G", "T"],
+            "ALT": ["T", "G", "C", "A"],
+            "Mixed": ["plain", "plain", "https://example.org/a", "https://example.org/b"],
+        }
+    )
+    xlsx_file = tmp_path / "mixed_url.xlsx"
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+    finalize_excel_file(str(xlsx_file), cfg={"igv_enabled": False})
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    mixed_col_idx = 5
+    cell_r3 = ws.cell(row=4, column=mixed_col_idx)
+    cell_r4 = ws.cell(row=5, column=mixed_col_idx)
+    assert cell_r3.value == "https://example.org/a"
+    assert cell_r4.value == "https://example.org/b"
+
+
+@pytest.mark.unit
+def test_duplicate_column_names_preserve_excel_hyperlinks(tmp_path: Path):
+    """Verify duplicate column names write hyperlinks with column name label (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    df = pd.DataFrame([["https://a.example/", "https://b.example/"]], columns=["Link", "Link"])
+    xlsx_file = tmp_path / "duplicate_cols.xlsx"
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    assert ws["A2"].value == "Link"
+    assert ws["A2"].hyperlink is not None
+    assert ws["A2"].hyperlink.target == "https://a.example/"
+    assert ws["B2"].value == "Link"
+    assert ws["B2"].hyperlink is not None
+    assert ws["B2"].hyperlink.target == "https://b.example/"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "first_val,expected_row2_val,expected_row3_val",
+    [
+        (0, "Link", "Link"),
+        (False, "Link", "Link"),
+        ([[1, 2], [3, 4]][0], "https://a.example/", None),
+    ],
+)
+def test_mixed_value_columns_url_sampling(
+    tmp_path: Path, first_val, expected_row2_val, expected_row3_val
+):
+    """Verify falsy scalars and collections are handled properly in URL sampling (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    if expected_row3_val is None:
+        col_data = [[1, 2], [3, 4], "https://a.example/", None]
+    else:
+        col_data = [first_val, "https://a.example/", "https://b.example/", None]
+
+    df = pd.DataFrame({"Link": col_data})
+    xlsx_file = tmp_path / "mixed_sampling.xlsx"
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    if expected_row3_val is None:
+        assert ws.cell(row=4, column=1).value == expected_row2_val
+    else:
+        assert ws.cell(row=3, column=1).value == expected_row2_val
+        assert ws.cell(row=4, column=1).value == expected_row3_val
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "reserved_name",
+    ["Results", "results", "RESULTS", "IGV_Overflow", "igv_overflow", "IGV_OVERFLOW"],
+)
+def test_convert_to_excel_rejects_reserved_extra_sheet_names(tmp_path: Path, reserved_name: str):
+    """Verify extra_sheets cannot overwrite Results or IGV_Overflow case-insensitively (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    existing_file = tmp_path / "existing.xlsx"
+    initial_df = pd.DataFrame({"CHROM": ["chr1"], "POS": [100]})
+    convert_to_excel(
+        str(existing_file),
+        cfg={"igv_enabled": False},
+        df=initial_df,
+        output_file=str(existing_file),
+    )
+    initial_mtime = existing_file.stat().st_mtime_ns
+
+    extra_df = pd.DataFrame({"Data": [1, 2, 3]})
+    with pytest.raises(ValueError, match="extra_sheets cannot overwrite reserved sheet"):
+        convert_to_excel(
+            str(existing_file),
+            cfg={"igv_enabled": False},
+            df=initial_df,
+            extra_sheets={reserved_name: extra_df},
+            output_file=str(existing_file),
+        )
+
+    # Existing file must not have been modified or corrupted
+    assert existing_file.stat().st_mtime_ns == initial_mtime
+    wb = openpyxl.load_workbook(existing_file)
+    assert wb.sheetnames == ["Results"]
+    assert wb["Results"]["A2"].value == "chr1"
+    wb.close()
+
+
+@pytest.mark.unit
+def test_convert_to_excel_rejects_duplicate_extra_sheet_names(tmp_path: Path):
+    """Verify extra_sheets cannot have case-insensitive duplicate sheet names (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    xlsx_file = tmp_path / "dup.xlsx"
+    initial_df = pd.DataFrame({"CHROM": ["chr1"], "POS": [100]})
+    extra = {
+        "CustomSheet": pd.DataFrame({"A": [1]}),
+        "customsheet": pd.DataFrame({"B": [2]}),
+    }
+    with pytest.raises(ValueError, match="extra_sheets contains duplicate sheet names"):
+        convert_to_excel(
+            str(xlsx_file),
+            cfg={"igv_enabled": False},
+            df=initial_df,
+            extra_sheets=extra,
+            output_file=str(xlsx_file),
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.filterwarnings("ignore:Ignoring URL .* since it exceeds Excel's limit:UserWarning")
+def test_convert_to_excel_large_report_preserves_all_igv_targets(tmp_path: Path):
+    """Verify that exceeding Excel's 65,530 hyperlink limit never drops IGV paths (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    igv_dir = tmp_path / "report" / "igv"
+    igv_dir.mkdir(parents=True, exist_ok=True)
+
+    n = 10000
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"] * n,
+            "POS": list(range(1, n + 1)),
+            "REF": ["A"] * n,
+            "ALT": ["T"] * n,
+            "GT": ["Sample_1(0/1)"] * n,
+            "URL1": [f"https://example.com/1/{i}" for i in range(n)],
+            "URL2": [f"https://example.com/2/{i}" for i in range(n)],
+            "URL3": [f"https://example.com/3/{i}" for i in range(n)],
+            "URL4": [f"https://example.com/4/{i}" for i in range(n)],
+            "URL5": [f"https://example.com/5/{i}" for i in range(n)],
+            "URL6": [f"https://example.com/6/{i}" for i in range(n)],
+        }
+    )
+
+    variants_map = [
+        {
+            "chrom": "chr1",
+            "pos": str(i),
+            "ref": "A",
+            "alt": "T",
+            "sample_reports": {"Sample_1": f"igv/var_{i}.html"},
+        }
+        for i in range(1, n + 1)
+    ]
+    (igv_dir / "igv_reports_map.json").write_text(json.dumps({"variants": variants_map}))
+
+    out_file = tmp_path / "results.xlsx"
+    convert_to_excel(
+        str(out_file),
+        cfg={"igv_enabled": True},
+        df=df,
+        output_file=str(out_file),
+    )
+
+    wb = openpyxl.load_workbook(out_file)
+    assert "Results" in wb.sheetnames
+    assert "IGV_Overflow" in wb.sheetnames
+
+    ws_results = wb["Results"]
+    igv_col = 12
+
+    for i in range(1, n + 1):
+        cell = ws_results.cell(row=i + 1, column=igv_col)
+        expected_path = f"report/igv/var_{i}.html"
+        assert cell.comment is not None
+        assert f"Full path: {expected_path}" in cell.comment.text
+
+        if cell.hyperlink is not None:
+            assert cell.value == "Sample_1"
+        else:
+            assert cell.value == expected_path
+
+    ws_ov = wb["IGV_Overflow"]
+    assert ws_ov.max_row > 1
+    assert str(ws_ov.cell(row=2, column=7).value).startswith("report/igv/var_")
+
+    wb.close()
+
+
+def test_existing_igv_report_links_column_hyperlinked_when_igv_disabled(tmp_path: Path) -> None:
+    """Verify existing 'IGV Report Links' URL column is formatted as hyperlink when IGV disabled."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    df = pd.DataFrame({"IGV Report Links": ["https://example.org/igv.html"]})
+    out_file = tmp_path / "igv_disabled_results.xlsx"
+    convert_to_excel(
+        str(out_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(out_file),
+    )
+
+    wb = openpyxl.load_workbook(out_file)
+    assert "Results" in wb.sheetnames
+    cell = wb["Results"].cell(row=2, column=1)
+    assert cell.value == "IGV Report Links"
+    assert cell.hyperlink is not None
+    assert cell.hyperlink.target == "https://example.org/igv.html"
+    wb.close()

@@ -611,9 +611,8 @@ class TestExcelReportStage:
         ctx.mark_complete("dataframe_loading")
         return ctx
 
-    @patch("variantcentrifuge.stages.output_stages.finalize_excel_file")
     @patch("variantcentrifuge.stages.output_stages.convert_to_excel")
-    def test_excel_generation(self, mock_convert, mock_finalize, context):
+    def test_excel_generation(self, mock_convert, context):
         """Test Excel report generation."""
         # Mark dependencies as complete since Excel depends on them
         context.mark_complete("tsv_output")
@@ -642,9 +641,6 @@ class TestExcelReportStage:
         assert str(context.final_output_path) == call_args[0]
         assert isinstance(call_args[1], dict)  # Second argument is config
 
-        # Check finalize_excel_file was called
-        mock_finalize.assert_called_once()
-
     def test_skip_if_disabled(self, context):
         """Test skipping when Excel disabled."""
         context.config["xlsx"] = False
@@ -666,11 +662,8 @@ class TestExcelReportStage:
         stage = ExcelReportStage()
         assert stage.parallel_safe is True
 
-    @patch("variantcentrifuge.stages.output_stages.finalize_excel_file")
     @patch("variantcentrifuge.stages.output_stages.convert_to_excel")
-    def test_excel_uses_current_dataframe_over_variants_df(
-        self, mock_convert, mock_finalize, context
-    ):
+    def test_excel_uses_current_dataframe_over_variants_df(self, mock_convert, context):
         """Regression test for #80: Excel must use current_dataframe, not stale variants_df.
 
         variants_df is set once during dataframe_loading and misses columns
@@ -720,11 +713,8 @@ class TestExcelReportStage:
         assert "nephro_candidate_score" in passed_df.columns
         assert "ngs" in passed_df.columns
 
-    @patch("variantcentrifuge.stages.output_stages.finalize_excel_file")
     @patch("variantcentrifuge.stages.output_stages.convert_to_excel")
-    def test_excel_output_drops_raw_gt_columns_when_packed_gt_exists(
-        self, mock_convert, mock_finalize, context
-    ):
+    def test_excel_output_drops_raw_gt_columns_when_packed_gt_exists(self, mock_convert, context):
         """Final Excel DataFrame should not include raw GEN[N].GT columns by default."""
         context.vcf_samples = ["Sample1", "Sample2"]
         context.current_dataframe = pd.DataFrame(
@@ -752,7 +742,6 @@ class TestExcelReportStage:
         passed_df = mock_convert.call_args.kwargs.get("df")
         assert passed_df is not None
         assert list(passed_df.columns) == ["CHROM", "POS", "GT"]
-        mock_finalize.assert_called_once()
 
 
 class TestHTMLReportStage:
