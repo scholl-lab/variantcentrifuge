@@ -4,964 +4,49 @@ This module provides a robust checkpoint system that tracks pipeline execution s
 allowing resumption from the last successful step in case of interruption or failure.
 """
 
-import contextlib
-import gzip
+from __future__ import annotations
+
 import hashlib
 import json
 import logging
 import os
-import threading
-import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
-from datetime import datetime
 from functools import wraps
-from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
-from .config import normalize_annotation_config
+from .checkpoint_helpers import (
+    ANNOTATION_ALIAS_KEYS,
+    CANONICAL_ANNOTATION_KEYS,
+    LEGACY_RELEVANT_CONFIG_KEYS,
+    RELEVANT_CONFIG_KEYS,
+    format_state_summary,
+    hash_configuration,
+    hash_legacy_configuration,
+    legacy_annotation_equivalent_configs,
+    resume_configuration_hashes,
+)
+from .checkpoint_models import AtomicFileOperation, FileInfo, StepInfo
+from .checkpoint_state import PipelineState
 
 logger = logging.getLogger("variantcentrifuge")
 
-
-class AtomicFileOperation:
-    """Context manager for atomic file operations with automatic temp file cleanup.
-
-    This ensures that output files are only visible in their final location
-    after being completely written, preventing issues with partial files
-    during pipeline interruption.
-
-    Example
-    -------
-        >>> with AtomicFileOperation('/path/to/final/output.tsv') as temp_path:
-        ...     # Write to temp_path
-        ...     with open(temp_path, 'w') as f:
-        ...         f.write("data")
-        ...     # File is automatically moved to final location on successful exit
-    """
-
-    def __init__(self, final_path: str, suffix: str = ".tmp"):
-        """Initialize atomic file operation.
-
-        Parameters
-        ----------
-        final_path : str
-            Final path where the file should end up
-        suffix : str
-            Suffix for temporary file (default: ".tmp")
-        """
-        self.final_path = Path(final_path)
-        self.temp_path = Path(f"{final_path}{suffix}")
-        self.success = False
-
-    def __enter__(self) -> Path:
-        """Enter context and return temporary file path."""
-        # Ensure parent directory exists
-        self.final_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Clean up any existing temp file
-        if self.temp_path.exists():
-            self.temp_path.unlink()
-
-        return self.temp_path
-
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Exit context and move temp file to final location if successful."""
-        if exc_type is None:
-            # No exception - move temp file to final location
-            if self.temp_path.exists():
-                # Atomic move operation
-                import shutil
-
-                shutil.move(str(self.temp_path), str(self.final_path))
-                self.success = True
-                logger.debug(f"Atomically created file: {self.final_path}")
-            else:
-                logger.warning(f"Temp file not created: {self.temp_path}")
-        else:
-            # Exception occurred - clean up temp file
-            if self.temp_path.exists():
-                try:
-                    self.temp_path.unlink()
-                    logger.debug(f"Cleaned up temp file after error: {self.temp_path}")
-                except Exception as cleanup_error:
-                    logger.warning(
-                        f"Failed to clean up temp file {self.temp_path}: {cleanup_error}"
-                    )
-
-        return None  # Don't suppress exceptions
-
-
-@dataclass
-class FileInfo:
-    """Information about a file for validation."""
-
-    path: str
-    size: int
-    mtime: float
-    checksum: str | None = None  # Optional for performance
-
-    @classmethod
-    def from_file(cls, filepath: str, calculate_checksum: bool = False) -> "FileInfo":
-        """Create FileInfo from an existing file."""
-        if not os.path.exists(filepath):
-            raise FileNotFoundError(f"File not found: {filepath}")
-
-        stat = os.stat(filepath)
-        checksum = None
-
-        if calculate_checksum:
-            checksum = cls._calculate_checksum(filepath)
-
-        return cls(path=filepath, size=stat.st_size, mtime=stat.st_mtime, checksum=checksum)
-
-    @staticmethod
-    def _calculate_checksum(filepath: str, chunk_size: int = 8192) -> str:
-        """Calculate SHA256 checksum of a file."""
-        sha256 = hashlib.sha256()
-
-        # Handle both gzipped and regular files
-        open_func: Callable[..., Any] = gzip.open if filepath.endswith(".gz") else open
-
-        with open_func(filepath, "rb") as f:
-            while chunk := f.read(chunk_size):
-                sha256.update(chunk)  # type: ignore[arg-type]
-
-        return sha256.hexdigest()
-
-    def validate(self, calculate_checksum: bool = False) -> bool:
-        """Validate that the file matches the stored info."""
-        if not os.path.exists(self.path):
-            return False
-
-        stat = os.stat(self.path)
-        if stat.st_size != self.size:
-            return False
-
-        # Allow some tolerance for mtime (filesystem precision)
-        if abs(stat.st_mtime - self.mtime) > 1.0:
-            return False
-
-        if calculate_checksum and self.checksum:
-            current_checksum = self._calculate_checksum(self.path)
-            if current_checksum != self.checksum:
-                return False
-
-        return True
-
-
-@dataclass
-class StepInfo:
-    """Information about a pipeline step."""
-
-    name: str
-    status: str  # "pending", "running", "finalizing", "completed", "failed"
-    start_time: float | None = None
-    end_time: float | None = None
-    command_hash: str | None = None
-    input_files: list[FileInfo] = field(default_factory=list)
-    output_files: list[FileInfo] = field(default_factory=list)
-    parameters: dict[str, Any] = field(default_factory=dict)
-    error: str | None = None
-
-    @property
-    def duration(self) -> float | None:
-        """Calculate step duration in seconds."""
-        if self.start_time and self.end_time:
-            return self.end_time - self.start_time
-        return None
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        data = asdict(self)
-        # Convert FileInfo objects to dicts
-        data["input_files"] = [asdict(f) for f in self.input_files]
-        data["output_files"] = [asdict(f) for f in self.output_files]
-        return data
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "StepInfo":
-        """Create StepInfo from dictionary."""
-        # Convert file dicts back to FileInfo objects
-        data["input_files"] = [FileInfo(**f) for f in data.get("input_files", [])]
-        data["output_files"] = [FileInfo(**f) for f in data.get("output_files", [])]
-        return cls(**data)
-
-
-class PipelineState:
-    """Manages pipeline execution state for checkpoint/resume functionality."""
-
-    STATE_FILE_NAME = ".variantcentrifuge_state.json"
-    STATE_VERSION = "1.0"
-    _RELEVANT_CONFIG_KEYS: ClassVar[tuple[str, ...]] = (
-        "gene_name",
-        "gene_file",
-        "vcf_file",
-        "output_file",
-        "preset",
-        "filters",
-        "fields",
-        "threads",
-        "no_replacement",
-        "late_filtering",
-        "chunk_size",
-        "samples_file",
-        "bcftools_prefilter",
-        "final_filter",
-        "scoring_config_path",
-        "ped",
-        "inheritance_mode",
-        "annotate_bed_files",
-        "annotate_gene_lists",
-        "annotate_json_genes",
-    )
-    _CANONICAL_ANNOTATION_KEYS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "annotate_bed_files",
-            "annotate_gene_lists",
-        }
-    )
-    _LEGACY_RELEVANT_CONFIG_KEYS: ClassVar[tuple[str, ...]] = (
-        "gene_name",
-        "gene_file",
-        "vcf_file",
-        "output_file",
-        "preset",
-        "filters",
-        "fields",
-        "threads",
-        "no_replacement",
-        "late_filtering",
-        "chunk_size",
-        "samples_file",
-        "bcftools_prefilter",
-        "final_filter",
-        "scoring_config_path",
-        "ped",
-        "inheritance_mode",
-        "annotate_bed",
-        "annotate_gene_list",
-        "annotate_json_genes",
-    )
-    _ANNOTATION_ALIAS_KEYS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "annotate_bed",
-            "annotate_bed_files",
-            "annotate_gene_list",
-            "annotate_gene_list_files",
-            "annotate_gene_lists",
-        }
-    )
-
-    def __init__(self, output_dir: str, enable_checksum: bool = False):
-        """Initialize pipeline state manager.
-
-        Parameters
-        ----------
-        output_dir : str
-            Directory where pipeline outputs and state file are stored
-        enable_checksum : bool
-            Whether to calculate file checksums (slower but more reliable)
-        """
-        self.output_dir = output_dir
-        self.state_file = os.path.join(output_dir, self.STATE_FILE_NAME)
-        self.enable_checksum = enable_checksum
-        self._state_lock = threading.Lock()  # Thread-safe state operations
-
-        self.state: dict[str, Any] = {
-            "version": self.STATE_VERSION,
-            "pipeline_version": None,  # Set by pipeline
-            "start_time": None,
-            "last_update": None,
-            "configuration_hash": None,
-            "steps": {},
-            "metadata": {},
-        }
-
-        self.current_step: str | None = None
-        self._loaded_from_file = False
-
-    def initialize(self, configuration: dict[str, Any], pipeline_version: str) -> None:
-        """Initialize a new pipeline run."""
-        self.state["pipeline_version"] = pipeline_version
-        self.state["start_time"] = time.time()
-        self.state["last_update"] = time.time()
-        self.state["configuration_hash"] = self._hash_configuration(configuration)
-        self.state["metadata"]["command_line"] = configuration.get("command_line", "")
-        self.save()
-
-    def load(self) -> bool:
-        """Load existing state from file.
-
-        Returns
-        -------
-        bool
-            True if state was loaded successfully, False otherwise
-        """
-        if not os.path.exists(self.state_file):
-            return False
-
-        try:
-            with open(self.state_file) as f:
-                loaded_state = json.load(f)
-
-            # Validate version compatibility
-            if loaded_state.get("version") != self.STATE_VERSION:
-                logger.warning(
-                    f"State file version mismatch: "
-                    f"{loaded_state.get('version')} != {self.STATE_VERSION}"
-                )
-                return False
-
-            # Convert step dicts back to StepInfo objects
-            loaded_state["steps"] = {
-                name: StepInfo.from_dict(info)
-                for name, info in loaded_state.get("steps", {}).items()
-            }
-
-            self.state = loaded_state
-            self._loaded_from_file = True
-            logger.info(f"Loaded pipeline state from {self.state_file}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to load state file: {e}")
-            return False
-
-    def save(self) -> None:
-        """Save current state to file (thread-safe)."""
-        with self._state_lock:
-            self.state["last_update"] = time.time()
-
-            # Convert to JSON-serializable format
-            save_state = self.state.copy()
-            save_state["steps"] = {
-                name: step.to_dict() for name, step in self.state["steps"].items()
-            }
-
-            # Write atomically with unique temp file name to avoid conflicts
-            import uuid
-
-            temp_file = f"{self.state_file}.tmp.{uuid.uuid4().hex[:8]}"
-            try:
-                with open(temp_file, "w") as f:
-                    json.dump(save_state, f, indent=2)
-                os.replace(temp_file, self.state_file)
-                logger.debug(f"Saved pipeline state to {self.state_file}")
-            except Exception as e:
-                # Clean up temp file if it exists
-                if os.path.exists(temp_file):
-                    with contextlib.suppress(Exception):
-                        os.remove(temp_file)
-                logger.warning(f"Failed to save checkpoint state: {e}")
-                raise
-
-    def can_resume(self, configuration: dict[str, Any], pipeline_version: str) -> bool:
-        """Check if pipeline can be resumed with given configuration.
-
-        Parameters
-        ----------
-        configuration : Dict[str, Any]
-            Current pipeline configuration
-        pipeline_version : str
-            Current pipeline version
-
-        Returns
-        -------
-        bool
-            True if resume is possible, False otherwise
-        """
-        if not self._loaded_from_file:
-            return False
-
-        # Check pipeline version compatibility
-        if self.state.get("pipeline_version") != pipeline_version:
-            logger.warning("Pipeline version mismatch, cannot resume")
-            return False
-
-        # Check configuration hash
-        current_hashes = self._resume_configuration_hashes(configuration)
-        if self.state.get("configuration_hash") not in current_hashes:
-            logger.warning("Configuration has changed, cannot resume")
-            return False
-
-        # Special case: If pipeline already completed, only validate final output
-        if self.should_skip_step("final_output"):
-            logger.info("Pipeline was already completed, only validating final output.")
-            return True  # Let the pipeline.py handle checking for the final output file
-
-        # Validate that output files still exist and match
-        for step_name, step_info in self.state["steps"].items():
-            if step_info.status == "completed":
-                for file_info in step_info.output_files:
-                    if not file_info.validate(self.enable_checksum):
-                        logger.warning(
-                            f"Output file validation failed for step '{step_name}': "
-                            f"{file_info.path}"
-                        )
-                        return False
-
-        return True
-
-    def get_resume_point(self) -> str | None:
-        """Get the name of the last successfully completed step.
-
-        Returns
-        -------
-        Optional[str]
-            Name of last completed step, or None if no steps completed
-        """
-        completed_steps = []
-
-        for name, info in self.state["steps"].items():
-            if info.status == "completed":
-                completed_steps.append((info.end_time or 0, name))
-
-        if not completed_steps:
-            return None
-
-        # Return the most recently completed step
-        completed_steps.sort(reverse=True)
-        return str(completed_steps[0][1])
-
-    def should_skip_step(self, step_name: str) -> bool:
-        """Check if a step should be skipped (already completed).
-
-        Parameters
-        ----------
-        step_name : str
-            Name of the step to check
-
-        Returns
-        -------
-        bool
-            True if step should be skipped, False otherwise
-        """
-        if not self._loaded_from_file:
-            return False
-
-        step_info = self.state["steps"].get(step_name)
-        if step_info is None:
-            return False
-
-        # If already completed, skip
-        if step_info.status == "completed":
-            return True
-
-        # Handle stale "running" or "finalizing" stages - interrupted during execution
-        if step_info.status in ("running", "finalizing"):
-            # For reliability, always re-execute stages that were interrupted during execution
-            # This prevents issues with partial files or incomplete state
-            logger.warning(
-                f"Found stale {step_info.status} stage '{step_name}', marking for re-execution"
-            )
-
-            # Only attempt recovery if checksums are enabled for maximum reliability
-            if self.enable_checksum and step_info.output_files:
-                logger.info(f"Attempting checksum-based recovery for stage '{step_name}'")
-
-                # Validate all output files exist and have correct checksums
-                all_valid = True
-                for file_info in step_info.output_files:
-                    if not file_info.validate(calculate_checksum=True):
-                        logger.warning(
-                            f"Output file validation failed for '{file_info.path}' "
-                            f"(size/checksum mismatch)"
-                        )
-                        all_valid = False
-                        break
-
-                if all_valid:
-                    # All files validated successfully - mark as completed
-                    step_info.status = "completed"
-                    step_info.end_time = step_info.start_time + 1.0
-                    logger.info(
-                        f"Successfully recovered stage '{step_name}' via checksum validation"
-                    )
-                    self.save()
-                    return True
-                else:
-                    logger.warning(
-                        f"Checksum validation failed for stage '{step_name}', will re-execute"
-                    )
-
-            # Mark stage for re-execution
-            step_info.status = "failed"
-            step_info.error = "Pipeline was interrupted - stage will be re-executed for safety"
-            step_info.end_time = time.time()
-            self.save()
-
-        return False
-
-    def start_step(
-        self,
-        step_name: str,
-        command_hash: str | None = None,
-        parameters: dict[str, Any] | None = None,
-    ) -> None:
-        """Mark a step as started."""
-        with self._state_lock:
-            self.current_step = step_name
-
-            step_info = StepInfo(
-                name=step_name,
-                status="running",
-                start_time=time.time(),
-                command_hash=command_hash,
-                parameters=parameters or {},
-            )
-
-            self.state["steps"][step_name] = step_info
-        self.save()
-
-    def complete_step(
-        self,
-        step_name: str,
-        input_files: list[str] | None = None,
-        output_files: list[str] | None = None,
-    ) -> None:
-        """Mark a step as completed."""
-        with self._state_lock:
-            if step_name not in self.state["steps"]:
-                logger.warning(f"Completing unstarted step: {step_name}")
-                # Start step without saving yet
-                step_info = StepInfo(
-                    name=step_name,
-                    status="running",
-                    start_time=time.time(),
-                    command_hash=None,
-                    parameters={},
-                )
-                self.state["steps"][step_name] = step_info
-
-            step_info = self.state["steps"][step_name]
-
-            # If already completed, don't overwrite unless we have new file information
-            if step_info.status == "completed":
-                if output_files and not step_info.output_files:
-                    # Add missing file information to completed step
-                    for filepath in output_files:
-                        if os.path.exists(filepath):
-                            step_info.output_files.append(
-                                FileInfo.from_file(filepath, self.enable_checksum)
-                            )
-                    logger.debug(
-                        f"Added {len(output_files)} output files to completed step '{step_name}'"
-                    )
-                    self.save()  # Save the file updates
-                return
-
-            # Mark as completed
-            step_info.status = "completed"
-            step_info.end_time = time.time()
-
-            # Record input files
-            if input_files:
-                for filepath in input_files:
-                    if os.path.exists(filepath):
-                        step_info.input_files.append(
-                            FileInfo.from_file(filepath, self.enable_checksum)
-                        )
-
-            # Record output files
-            if output_files:
-                for filepath in output_files:
-                    if os.path.exists(filepath):
-                        step_info.output_files.append(
-                            FileInfo.from_file(filepath, self.enable_checksum)
-                        )
-
-        self.save()
-        logger.info(f"Completed step '{step_name}' in {step_info.duration:.2f}s")
-
-    def finalize_step(self, step_name: str) -> None:
-        """Mark a step as finalizing (transitioning from running to completed).
-
-        This intermediate state indicates that the step's main work is done
-        and it's in the process of finalizing outputs (e.g., moving temp files
-        to final locations).
-
-        Parameters
-        ----------
-        step_name : str
-            Name of the step to mark as finalizing
-        """
-        with self._state_lock:
-            if step_name not in self.state["steps"]:
-                logger.warning(f"Finalizing unstarted step: {step_name}")
-                return
-
-            step_info = self.state["steps"][step_name]
-            if step_info.status == "running":
-                step_info.status = "finalizing"
-                logger.debug(f"Step '{step_name}' entering finalizing state")
-            else:
-                logger.warning(
-                    f"Attempted to finalize step '{step_name}' with status '{step_info.status}'"
-                )
-
-        self.save()
-
-    def fail_step(self, step_name: str, error: str) -> None:
-        """Mark a step as failed."""
-        with self._state_lock:
-            if step_name not in self.state["steps"]:
-                logger.warning(f"Failing unstarted step: {step_name}")
-                self.state["steps"][step_name] = StepInfo(
-                    name=step_name,
-                    status="running",
-                    start_time=time.time(),
-                    command_hash=None,
-                    parameters={},
-                )
-
-            step_info = self.state["steps"][step_name]
-            step_info.status = "failed"
-            step_info.end_time = time.time()
-            step_info.error = error
-
-        self.save()
-        logger.error(f"Step '{step_name}' failed: {error}")
-
-    def clear_step_completion(self, step_name: str, save: bool = True) -> None:
-        """Clear completion status for a step to force re-execution.
-
-        This method is used for restart functionality where you want to
-        re-run a previously completed step.
-
-        Parameters
-        ----------
-        step_name : str
-            Name of the step to clear completion status for
-        save : bool
-            Persist the checkpoint file immediately. Callers clearing many
-            steps can pass ``False`` and save once after the batch.
-        """
-        if step_name not in self.state["steps"]:
-            logger.debug(f"Step '{step_name}' not in checkpoint state, nothing to clear")
-            return
-
-        step_info = self.state["steps"][step_name]
-        if step_info.status == "completed":
-            # Reset to a state that will force re-execution
-            step_info.status = "pending"
-            step_info.end_time = None
-            step_info.error = None
-            # Keep output files for potential validation but clear the completion status
-            logger.debug(f"Cleared completion status for step '{step_name}' (restart mode)")
-            if save:
-                self.save()
-
-    def get_summary(self) -> str:
-        """Get a human-readable summary of the pipeline state."""
-        lines = ["Pipeline State Summary:"]
-        lines.append(f"  State file: {self.state_file}")
-        lines.append(f"  Pipeline version: {self.state.get('pipeline_version', 'unknown')}")
-
-        if self.state.get("start_time"):
-            start_time = datetime.fromtimestamp(self.state["start_time"])
-            lines.append(f"  Started: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-
-        lines.append("\nSteps:")
-        for name, info in self.state["steps"].items():
-            status_symbol = {
-                "completed": "✓",
-                "failed": "✗",
-                "running": "→",
-                "finalizing": "◐",
-                "pending": "·",
-            }.get(info.status, "?")
-
-            duration_str = ""
-            if info.duration:
-                duration_str = f" ({info.duration:.1f}s)"
-
-            lines.append(f"  {status_symbol} {name}{duration_str}")
-
-            if info.status == "failed" and info.error:
-                lines.append(f"    Error: {info.error}")
-
-        return "\n".join(lines)
-
-    def get_completed_stages(self) -> list[tuple]:
-        """Get all completed stages sorted by completion time.
-
-        Returns
-        -------
-        List[tuple]
-            List of (stage_name, StepInfo) tuples sorted by completion time
-        """
-        completed_stages = []
-
-        for name, info in self.state["steps"].items():
-            if info.status == "completed":
-                completed_stages.append((name, info))
-
-        # Sort by completion time (end_time)
-        completed_stages.sort(key=lambda x: x[1].end_time or 0)
-        return completed_stages
-
-    def get_available_resume_points(self) -> list[str]:
-        """Get stage names that can be used as resume points.
-
-        Returns
-        -------
-        List[str]
-            List of stage names that are safe resume points
-        """
-        completed_stages = self.get_completed_stages()
-        return [stage_name for stage_name, _ in completed_stages]
-
-    def validate_resume_from_stage(self, stage_name: str, available_stages: list[str]) -> tuple:
-        """Validate that resuming from specific stage is possible.
-
-        Parameters
-        ----------
-        stage_name : str
-            Name of the stage to resume from
-        available_stages : List[str]
-            List of all available stage names in current configuration
-
-        Returns
-        -------
-        tuple
-            (is_valid: bool, error_message: str)
-        """
-        if not self._loaded_from_file:
-            return False, "No checkpoint file loaded"
-
-        # Check if stage name exists in available stages
-        if stage_name not in available_stages:
-            return False, f"Stage '{stage_name}' is not available in current configuration"
-
-        return True, ""
-
-    def get_stages_to_execute(self, resume_from: str, all_stages: list[str]) -> list[str]:
-        """Get ordered list of stages to execute when resuming from specific stage.
-
-        Parameters
-        ----------
-        resume_from : str
-            Name of the stage to resume from
-        all_stages : List[str]
-            List of all stage names in execution order
-
-        Returns
-        -------
-        List[str]
-            Ordered list of stages to execute starting from resume_from
-        """
-        if resume_from not in all_stages:
-            return []
-
-        # Find the index of the resume stage
-        try:
-            resume_index = all_stages.index(resume_from)
-            # Return all stages from resume_from onwards
-            return all_stages[resume_index:]
-        except ValueError:
-            return []
-
-    def get_detailed_status(self) -> dict[str, Any]:
-        """Get detailed status information for enhanced display.
-
-        Returns
-        -------
-        Dict[str, Any]
-            Detailed status information including suggestions
-        """
-        if not self._loaded_from_file:
-            return {"has_checkpoint": False, "message": "No checkpoint file found"}
-
-        completed_stages = self.get_completed_stages()
-
-        # Calculate total runtime
-        total_runtime = sum(
-            info.duration for _, info in completed_stages if info.duration is not None
-        )
-
-        # Get the most recent stage
-        last_stage = completed_stages[-1] if completed_stages else None
-
-        # Generate resume suggestions
-        resume_suggestions = []
-        if completed_stages:
-            # Suggest resuming from the last stage for quick continuation
-            last_stage_name = last_stage[0] if last_stage else None
-            if last_stage_name:
-                resume_suggestions.append(
-                    {
-                        "stage": last_stage_name,
-                        "reason": "Continue from last completed stage",
-                        "command": f"--resume-from {last_stage_name}",
-                    }
-                )
-
-            # Suggest common resume points
-            stage_names = [name for name, _ in completed_stages]
-            if "variant_analysis" in stage_names:
-                resume_suggestions.append(
-                    {
-                        "stage": "variant_analysis",
-                        "reason": "Re-run analysis and all reports",
-                        "command": "--resume-from variant_analysis",
-                    }
-                )
-            if "tsv_output" in stage_names:
-                resume_suggestions.append(
-                    {
-                        "stage": "tsv_output",
-                        "reason": "Re-generate only reports (Excel, HTML, IGV)",
-                        "command": "--resume-from tsv_output",
-                    }
-                )
-
-        return {
-            "has_checkpoint": True,
-            "total_stages": len(self.state["steps"]),
-            "completed_stages": len(completed_stages),
-            "total_runtime": total_runtime,
-            "last_stage": last_stage[0] if last_stage else None,
-            "last_completed_time": last_stage[1].end_time if last_stage else None,
-            "pipeline_version": self.state.get("pipeline_version"),
-            "start_time": self.state.get("start_time"),
-            "available_resume_points": [name for name, _ in completed_stages],
-            "resume_suggestions": resume_suggestions,
-            "stages": [
-                {
-                    "name": name,
-                    "status": info.status,
-                    "start_time": info.start_time,
-                    "end_time": info.end_time,
-                    "duration": info.duration,
-                    "error": info.error,
-                }
-                for name, info in self.state["steps"].items()
-            ],
-        }
-
-    def can_resume_from_stage(self, stage_name: str, available_stages: list[str]) -> bool:
-        """Check if resuming from a specific stage is possible.
-
-        Parameters
-        ----------
-        stage_name : str
-            Name of the stage to resume from
-        available_stages : List[str]
-            List of all available stage names
-
-        Returns
-        -------
-        bool
-            True if resume is possible, False otherwise
-        """
-        is_valid, _ = self.validate_resume_from_stage(stage_name, available_stages)
-        return bool(is_valid)
-
-    def _hash_configuration(self, config: dict[str, Any]) -> str:
-        """Create a hash of the configuration for change detection."""
-        config = normalize_annotation_config(config.copy())
-
-        relevant_config = {
-            k: v
-            for k, v in config.items()
-            if k in self._RELEVANT_CONFIG_KEYS
-            and v is not None
-            and not (k in self._CANONICAL_ANNOTATION_KEYS and not v)
-        }
-
-        # Sort for consistent hashing
-        config_str = json.dumps(relevant_config, sort_keys=True)
-        return hashlib.sha256(config_str.encode()).hexdigest()
-
-    def _resume_configuration_hashes(self, config: dict[str, Any]) -> set[str]:
-        """Return current and legacy-equivalent config hashes accepted for resume."""
-        hashes = {self._hash_configuration(config)}
-        hashes.update(
-            self._hash_legacy_configuration(candidate)
-            for candidate in self._legacy_annotation_equivalent_configs(config)
-        )
-        return hashes
-
-    def _hash_legacy_configuration(self, config: dict[str, Any]) -> str:
-        """Create the pre-normalization checkpoint hash for compatibility."""
-        relevant_config = {
-            k: v
-            for k, v in config.items()
-            if k in self._LEGACY_RELEVANT_CONFIG_KEYS and v is not None
-        }
-
-        config_str = json.dumps(relevant_config, sort_keys=True)
-        return hashlib.sha256(config_str.encode()).hexdigest()
-
-    def _legacy_annotation_equivalent_configs(self, config: dict[str, Any]) -> list[dict[str, Any]]:
-        """Build legacy-key configs that represent the normalized annotation behavior."""
-        normalized = normalize_annotation_config(config.copy())
-        base_config = config.copy()
-        for key in self._ANNOTATION_ALIAS_KEYS:
-            base_config.pop(key, None)
-
-        bed_files = normalized.get("annotate_bed_files", [])
-        gene_lists = normalized.get("annotate_gene_lists", [])
-
-        bed_options = [{"annotate_bed": bed_files}] if bed_files else [{}, {"annotate_bed": []}]
-        gene_options = (
-            [{"annotate_gene_list": gene_lists}] if gene_lists else [{}, {"annotate_gene_list": []}]
-        )
-
-        legacy_configs = []
-        for bed_option in bed_options:
-            for gene_option in gene_options:
-                candidate = base_config.copy()
-                candidate.update(bed_option)
-                candidate.update(gene_option)
-                legacy_configs.append(candidate)
-        return legacy_configs
-
-    def cleanup_stale_stages(self) -> None:
-        """Clean up stages that were left in 'running' state from previous pipeline runs."""
-        if not self._loaded_from_file:
-            return
-
-        stale_stages = []
-        completed_stages = []
-
-        for step_name, step_info in self.state["steps"].items():
-            if step_info.status == "running":
-                stale_stages.append(step_name)
-            elif step_info.status == "completed":
-                completed_stages.append(step_name)
-
-        if stale_stages:
-            logger.info(
-                f"Found {len(stale_stages)} stale running stages: {', '.join(stale_stages)}"
-            )
-            for step_name in stale_stages:
-                # Trigger the cleanup logic in should_skip_step
-                self.should_skip_step(step_name)
-
-            # If all stages were stale and none are actually completed, warn user
-            if not completed_stages and len(stale_stages) > 5:
-                logger.warning(
-                    "Checkpoint appears corrupted (all stages were stale). "
-                    "Consider removing checkpoint to start fresh."
-                )
-
-        completed_count = len([s for s in self.state["steps"].values() if s.status == "completed"])
-        logger.info(f"After cleanup: {completed_count} completed stages")
-
-    def __getstate__(self) -> dict[str, Any]:
-        """Exclude the lock from serialization."""
-        state = self.__dict__.copy()
-        # Remove the unpicklable lock
-        del state["_state_lock"]
-        return state
-
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        """Recreate the lock after unpickling."""
-        self.__dict__.update(state)
-        # Recreate the lock
-        self._state_lock = threading.Lock()
+__all__ = [
+    "ANNOTATION_ALIAS_KEYS",
+    "CANONICAL_ANNOTATION_KEYS",
+    "LEGACY_RELEVANT_CONFIG_KEYS",
+    "RELEVANT_CONFIG_KEYS",
+    "AtomicFileOperation",
+    "CheckpointContext",
+    "FileInfo",
+    "PipelineState",
+    "StepInfo",
+    "checkpoint",
+    "format_state_summary",
+    "hash_configuration",
+    "hash_legacy_configuration",
+    "legacy_annotation_equivalent_configs",
+    "resume_configuration_hashes",
+]
 
 
 def checkpoint(
@@ -970,35 +55,18 @@ def checkpoint(
     output_files: str | list[str] | None = None,
     parameters: dict[str, Any] | None = None,
 ) -> Callable[..., Any]:
-    """Add checkpoint functionality to pipeline steps.
-
-    Parameters
-    ----------
-    step_name : str
-        Unique name for this pipeline step
-    input_files : Optional[Union[str, List[str]]]
-        Input file(s) to track
-    output_files : Optional[Union[str, List[str]]]
-        Output file(s) to track
-    parameters : Optional[Dict[str, Any]]
-        Additional parameters to record
-    """
+    """Add checkpoint functionality to pipeline steps."""
 
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            # Get pipeline state from kwargs or create a dummy one
             pipeline_state: PipelineState | None = kwargs.pop("_pipeline_state", None)
 
             if pipeline_state is None:
-                # No checkpoint system active, run normally
                 return func(*args, **kwargs)
 
-            # Check if step should be skipped
             if pipeline_state.should_skip_step(step_name):
                 logger.info(f"Skipping completed step: {step_name}")
-
-                # Return expected output files if specified
                 if output_files:
                     files = [output_files] if isinstance(output_files, str) else output_files
                     if len(files) == 1:
@@ -1006,13 +74,11 @@ def checkpoint(
                     return files
                 return None
 
-            # Prepare file lists
             input_list: list[str] = []
             if input_files:
                 in_files = input_files(*args, **kwargs) if callable(input_files) else input_files
                 input_list = [in_files] if isinstance(in_files, str) else list(in_files)
 
-            # Start the step
             command_hash = None
             if parameters:
                 param_str = json.dumps(parameters, sort_keys=True)
@@ -1021,26 +87,19 @@ def checkpoint(
             pipeline_state.start_step(step_name, command_hash, parameters)
 
             try:
-                # Execute the function
                 result = func(*args, **kwargs)
-
-                # Prepare output file list
                 output_list: list[str] = []
                 if output_files:
                     if callable(output_files):
-                        # Dynamic output files
                         out_files = output_files(*args, **kwargs, _result=result)
                     else:
                         out_files = output_files
                     output_list = [out_files] if isinstance(out_files, str) else list(out_files)
 
-                # Mark step as completed
                 pipeline_state.complete_step(step_name, input_list, output_list)
-
                 return result
 
             except Exception as e:
-                # Mark step as failed
                 pipeline_state.fail_step(step_name, str(e))
                 raise
 
@@ -1068,9 +127,7 @@ class CheckpointContext:
         self.skip: bool = False
 
     def __enter__(self) -> Any:
-        """Enter the checkpoint context."""
         if self.pipeline_state is None:
-            # No pipeline state - just run normally
             self.skip = False
             return self
 
@@ -1083,25 +140,20 @@ class CheckpointContext:
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Exit the checkpoint context and save state if successful."""
         if self.skip or self.pipeline_state is None:
             return None
 
         if exc_type is None:
-            # Success
             self.pipeline_state.complete_step(self.step_name, self.input_files, self.output_files)
         else:
-            # Failure
             self.pipeline_state.fail_step(self.step_name, str(exc_val))
 
-        return None  # Don't suppress exceptions
+        return None
 
     def add_input_file(self, filepath: str) -> None:
-        """Add an input file to track."""
         if filepath and os.path.exists(filepath):
             self.input_files.append(filepath)
 
     def add_output_file(self, filepath: str) -> None:
-        """Add an output file to track."""
         if filepath and os.path.exists(filepath):
             self.output_files.append(filepath)
