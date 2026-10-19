@@ -212,11 +212,19 @@ def test_indexed_consequence_filters_trigger_guard(analysis_key: str, filter_exp
 
 
 @pytest.mark.parametrize("analysis_key", ["perform_gene_burden", "perform_association"])
-def test_ann_zero_allowed_without_splitting(analysis_key: str) -> None:
-    """Verify that ANN[0] consequence filters remain allowed without before_filters."""
-    config = {
+def test_ann_zero_allowed_when_unsplit_rejected_when_after_filters(analysis_key: str) -> None:
+    """Verify ANN[0] filter is allowed when unsplit but rejected when after_filters."""
+    config_unsplit = {
         analysis_key: True,
         "filter": "ANN[0].IMPACT = 'HIGH'",
         "snpeff_splitting_mode": None,
     }
-    validate_annotation_consequence_filtering(config)
+    validate_annotation_consequence_filtering(config_unsplit)
+
+    config_after = {
+        analysis_key: True,
+        "filter": "ANN[0].IMPACT = 'HIGH'",
+        "snpeff_splitting_mode": "after_filters",
+    }
+    with pytest.raises(ValueError, match="--split-snpeff-lines before_filters"):
+        validate_annotation_consequence_filtering(config_after)

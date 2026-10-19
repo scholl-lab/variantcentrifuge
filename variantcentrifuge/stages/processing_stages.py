@@ -228,12 +228,13 @@ def validate_annotation_consequence_filtering(config: dict[str, Any]) -> None:
         return
 
     filter_expr = config.get("filter") or config.get("filters") or ""
+    pattern = (
+        r"\b(?:ANN|LOF|NMD)\s*\[\s*(?:ANY|\*|\d+)\s*\]"
+        if config.get("snpeff_splitting_mode") == "after_filters"
+        else r"\b(?:ANN\s*\[\s*(?:ANY|\*|[1-9]\d*)\s*\]|(?:LOF|NMD)\s*\[\s*(?:ANY|\*|\d+)\s*\])"
+    )
     has_consequence_filter = isinstance(filter_expr, str) and bool(
-        re.search(
-            r"\b(?:ANN\s*\[\s*(?:ANY|\*|[1-9]\d*)\s*\]|(?:LOF|NMD)\s*\[\s*(?:ANY|\*|\d+)\s*\])",
-            filter_expr,
-            re.IGNORECASE,
-        )
+        re.search(pattern, filter_expr, re.IGNORECASE)
     )
 
     selected_presets: list[str] = []
