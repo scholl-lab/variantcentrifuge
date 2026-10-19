@@ -164,3 +164,95 @@ def test_scoring_backward_compatibility_without_output_scores():
     pd.testing.assert_series_equal(
         scored_df["final_score"], pd.Series([14.0, 19.0, 24.0]), check_names=False
     )
+
+
+def test_nephro_score_equal_af_reproducibility():
+    """Verify legacy and v5 produce identical scores when exome AF == genome AF == joint AF."""
+    from variantcentrifuge.scoring import read_scoring_config
+
+    cfg_legacy = read_scoring_config("scoring/nephro_candidate_score")
+    cfg_v5 = read_scoring_config("scoring/nephro_candidate_score_v5")
+
+    df_legacy = pd.DataFrame(
+        [
+            {
+                "dbNSFP_gnomAD_exomes_AF": 0.0005,
+                "dbNSFP_gnomAD_genomes_AF": 0.0005,
+                "dbNSFP_CADD_phred": 20.0,
+                "EFFECT": "missense_variant",
+                "IMPACT": "MODERATE",
+                "ngs": 0.0,
+                "Inheritance_Pattern": "unknown",
+                "Inheritance_Details": "",
+            }
+        ]
+    )
+    df_v5 = pd.DataFrame(
+        [
+            {
+                "dbNSFP_gnomAD4.1_joint_AF": 0.0005,
+                "dbNSFP_CADD_phred": 20.0,
+                "EFFECT": "missense_variant",
+                "IMPACT": "MODERATE",
+                "ngs": 0.0,
+                "Inheritance_Pattern": "unknown",
+                "Inheritance_Details": "",
+            }
+        ]
+    )
+
+    res_legacy = apply_scoring(df_legacy, cfg_legacy)
+    res_v5 = apply_scoring(df_v5, cfg_v5)
+
+    score_legacy = res_legacy["nephro_variant_score"].iloc[0]
+    score_v5 = res_v5["nephro_variant_score"].iloc[0]
+
+    assert pytest.approx(score_legacy, rel=1e-6) == 0.056695344
+    assert pytest.approx(score_v5, rel=1e-6) == 0.056695344
+    assert pytest.approx(score_legacy, rel=1e-9) == score_v5
+
+
+def test_nephro_score_unequal_af_reproducibility():
+    """Verify legacy and v5 behavior under unequal AF inputs (Issue #144)."""
+    from variantcentrifuge.scoring import read_scoring_config
+
+    cfg_legacy = read_scoring_config("scoring/nephro_candidate_score")
+    cfg_v5 = read_scoring_config("scoring/nephro_candidate_score_v5")
+
+    # Exome AF = 0, Genome AF = 0.001, Joint AF = 0.0005
+    df_legacy = pd.DataFrame(
+        [
+            {
+                "dbNSFP_gnomAD_exomes_AF": 0.0,
+                "dbNSFP_gnomAD_genomes_AF": 0.001,
+                "dbNSFP_CADD_phred": 20.0,
+                "EFFECT": "missense_variant",
+                "IMPACT": "MODERATE",
+                "ngs": 0.0,
+                "Inheritance_Pattern": "unknown",
+                "Inheritance_Details": "",
+            }
+        ]
+    )
+    df_v5 = pd.DataFrame(
+        [
+            {
+                "dbNSFP_gnomAD4.1_joint_AF": 0.0005,
+                "dbNSFP_CADD_phred": 20.0,
+                "EFFECT": "missense_variant",
+                "IMPACT": "MODERATE",
+                "ngs": 0.0,
+                "Inheritance_Pattern": "unknown",
+                "Inheritance_Details": "",
+            }
+        ]
+    )
+
+    res_legacy = apply_scoring(df_legacy, cfg_legacy)
+    res_v5 = apply_scoring(df_v5, cfg_v5)
+
+    score_legacy = res_legacy["nephro_variant_score"].iloc[0]
+    score_v5 = res_v5["nephro_variant_score"].iloc[0]
+
+    assert pytest.approx(score_legacy, rel=1e-6) == 0.443311077
+    assert pytest.approx(score_v5, rel=1e-6) == 0.056695344

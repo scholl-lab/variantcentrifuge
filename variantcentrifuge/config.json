@@ -82,6 +82,24 @@
     "germline_shared": "((GEN[{normal_idx}].AF >= 0.20) & (GEN[{tumor_idx}].AF >= 0.20)) & (GEN[{normal_idx}].DP >= {normal_dp_min}) & (GEN[{tumor_idx}].DP >= {tumor_dp_min})",
     "tumor_only": "({{gnomad_ac_atmost:2}}) & ((na FILTER) | (FILTER = 'PASS')) & (GEN[{tumor_idx}].DP >= {tumor_dp_min}) & (GEN[{tumor_idx}].AF >= {tumor_af_min})"
   },
+  "links_by_build": {
+    "GRCh37": {
+      "ClinVar": "https://www.ncbi.nlm.nih.gov/clinvar/?term={CHROM}-{POS}-{REF}-{ALT}",
+      "gnomAD_2": "https://gnomad.broadinstitute.org/variant/{CHROM}-{POS}-{REF}-{ALT}?dataset=gnomad_r2_1",
+      "Varsome": "https://varsome.com/variant/hg19/{CHROM}-{POS}-{REF}-{ALT}",
+      "Franklin": "https://franklin.genoox.com/clinical-db/variant/snp/{CHROM}-{POS}-{REF}-{ALT}-hg19",
+      "SpliceAI": "https://spliceailookup.broadinstitute.org/#variant={CHROM}-{POS}-{REF}-{ALT}&hg=19&bc=basic&distance=500&mask=0&ra=0",
+      "autopvs1": "https://autopvs1.bgi.com/variant/hg19/{CHROM}-{POS}-{REF}-{ALT}"
+    },
+    "GRCh38": {
+      "ClinVar": "https://www.ncbi.nlm.nih.gov/clinvar/?term={CHROM}-{POS}-{REF}-{ALT}",
+      "gnomAD_4": "https://gnomad.broadinstitute.org/variant/{CHROM}-{POS}-{REF}-{ALT}?dataset=gnomad_r4",
+      "Varsome": "https://varsome.com/variant/hg38/{CHROM}-{POS}-{REF}-{ALT}",
+      "Franklin": "https://franklin.genoox.com/clinical-db/variant/snp/{CHROM}-{POS}-{REF}-{ALT}-hg38",
+      "SpliceAI": "https://spliceailookup.broadinstitute.org/#variant={CHROM}-{POS}-{REF}-{ALT}&hg=38&bc=basic&distance=500&mask=0&ra=0",
+      "autopvs1": "https://autopvs1.bgi.com/variant/hg38/{CHROM}-{POS}-{REF}-{ALT}"
+    }
+  },
   "links": {
     "ClinVar": "https://www.ncbi.nlm.nih.gov/clinvar/?term={CHROM}-{POS}-{REF}-{ALT}",
     "gnomAD_2": "https://gnomad.broadinstitute.org/variant/{CHROM}-{POS}-{REF}-{ALT}?dataset=gnomad_r2_1",
