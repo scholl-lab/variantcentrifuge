@@ -36,13 +36,16 @@ def _fmt_coord(val: Any) -> str:
     return s[:-2] if s.endswith(".0") and s[:-2].isdigit() else s
 
 
-def _load_igv_lookup(base_path: str, igv_enabled: bool = True) -> dict[tuple[Any, ...], str]:
+def _load_igv_lookup(
+    base_path: str, igv_enabled: bool = True, search_parents: bool = True
+) -> dict[tuple[Any, ...], str]:
     """Find and load IGV reports map, returning lookup dictionary for variants."""
     output_dir = os.path.dirname(base_path)
     igv_map_path = os.path.join(output_dir, "report", "igv", "igv_reports_map.json")
-    if not os.path.exists(igv_map_path):
-        parent_dir = os.path.dirname(os.path.dirname(output_dir))
-        alt_path = os.path.join(parent_dir, "report", "igv", "igv_reports_map.json")
+    if not os.path.exists(igv_map_path) and search_parents:
+        alt_path = os.path.join(
+            os.path.dirname(os.path.dirname(output_dir)), "report", "igv", "igv_reports_map.json"
+        )
         if os.path.exists(alt_path):
             igv_map_path = alt_path
 
@@ -68,17 +71,12 @@ def _load_igv_lookup(base_path: str, igv_enabled: bool = True) -> dict[tuple[Any
             ref = _fmt_coord(entry.get("ref", ""))
             alt = _fmt_coord(entry.get("alt", ""))
 
-            if "sample_reports" in entry:
-                for sample_id, report_path in entry["sample_reports"].items():
-                    key = (chrom, pos, ref, alt, sample_id)
-                    igv_lookup[key] = report_path
-            elif "sample_links" in entry:
-                for sample_id, report_path in entry["sample_links"].items():
-                    key = (chrom, pos, ref, alt, sample_id)
-                    igv_lookup[key] = report_path
+            reports = entry.get("sample_reports") or entry.get("sample_links")
+            if reports:
+                for sample_id, report_path in reports.items():
+                    igv_lookup[(chrom, pos, ref, alt, sample_id)] = report_path
             elif "sample_id" in entry and "report_path" in entry:
-                key = (chrom, pos, ref, alt, entry["sample_id"])
-                igv_lookup[key] = entry["report_path"]
+                igv_lookup[(chrom, pos, ref, alt, entry["sample_id"])] = entry["report_path"]
 
         logger.info(f"Created lookup for {len(igv_lookup)} IGV report entries")
         return igv_lookup
@@ -99,10 +97,7 @@ def _get_igv_reports_for_variant(
     gt_str = str(gt_value).strip() if gt_value is not None and pd.notna(gt_value) else ""
     if not gt_str:
         return []
-    chrom = _fmt_coord(chrom)
-    pos = _fmt_coord(pos)
-    ref = _fmt_coord(ref)
-    alt = _fmt_coord(alt)
+    chrom, pos, ref, alt = _fmt_coord(chrom), _fmt_coord(pos), _fmt_coord(ref), _fmt_coord(alt)
     igv_reports = []
     for entry in gt_str.split(";"):
         entry = entry.strip()
@@ -124,7 +119,11 @@ def _detect_url_columns(df: pd.DataFrame) -> list[str]:
     """Identify columns where >= 70% of sample non-empty values start with http:// or https://."""
     url_columns = []
     for col in df.columns:
-        if len(df) == 0:
+        if (
+            len(df) == 0
+            or pd.api.types.is_numeric_dtype(df[col])
+            or pd.api.types.is_bool_dtype(df[col])
+        ):
             continue
         sample_values = [
             str(val).strip() for val in df[col].iloc[:4] if pd.notna(val) and str(val).strip()
@@ -217,7 +216,10 @@ def convert_to_excel(
             if col_name == "IGV Report Links":
                 continue
             is_url_col = col_name in url_columns
-            if not is_url_col and not pd.api.types.is_object_dtype(df[col_name]):
+            if not is_url_col and (
+                pd.api.types.is_numeric_dtype(df[col_name])
+                or pd.api.types.is_bool_dtype(df[col_name])
+            ):
                 continue
             for row_idx, val in enumerate(df[col_name]):
                 s_val = str(val).strip() if pd.notna(val) else ""
@@ -240,14 +242,11 @@ def convert_to_excel(
             igv_col_idx = num_cols
             ws.write_string(0, igv_col_idx, "IGV Report Links")
             for row_idx in range(len(df)):
-                raw_chrom = df["CHROM"].iloc[row_idx]
                 raw_pos = df["POS"].iloc[row_idx]
-                raw_ref = df["REF"].iloc[row_idx]
-                raw_alt = df["ALT"].iloc[row_idx]
-                chrom = _fmt_coord(raw_chrom)
+                chrom = _fmt_coord(df["CHROM"].iloc[row_idx])
                 pos = _fmt_coord(raw_pos)
-                ref = _fmt_coord(raw_ref)
-                alt = _fmt_coord(raw_alt)
+                ref = _fmt_coord(df["REF"].iloc[row_idx])
+                alt = _fmt_coord(df["ALT"].iloc[row_idx])
                 gt_val = (
                     str(df["GT"].iloc[row_idx])
                     if "GT" in df.columns and pd.notna(df["GT"].iloc[row_idx])
@@ -287,10 +286,10 @@ def convert_to_excel(
                             overflow_rows.append(
                                 [
                                     row_idx + 2,
-                                    raw_chrom,
+                                    chrom,
                                     raw_pos,
-                                    raw_ref,
-                                    raw_alt,
+                                    ref,
+                                    alt,
                                     sid,
                                     os.path.join("report", rp),
                                 ]
@@ -519,7 +518,9 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
             if pd.isna(val):
                 variant_dict[key] = None
 
-    igv_lookup = _load_igv_lookup(os.path.join(output_dir, "variants.tsv"), igv_enabled=False)
+    igv_lookup = _load_igv_lookup(
+        os.path.join(output_dir, "variants.tsv"), igv_enabled=False, search_parents=False
+    )
     if igv_lookup:
         for variant_dict in variants:
             variant_dict["igv_links"] = []

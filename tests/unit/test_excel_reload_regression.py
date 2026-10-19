@@ -1067,3 +1067,88 @@ def test_excel_url_sampling_leading_nulls_and_native_links(tmp_path: Path):
     assert c_url.value == "UrlCol"
     assert c_url.hyperlink is not None
     assert c_url.hyperlink.target == "https://example.org/1"
+
+
+@pytest.mark.unit
+def test_excel_category_and_string_dtype_hyperlinks(tmp_path: Path):
+    """Verify hyperlinks in category and string dtype columns are formatted (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    items = ["unavailable", "unavailable", "unavailable", "unavailable", "https://example.org/item"]
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"] * 5,
+            "POS": [1, 2, 3, 4, 5],
+            "REF": ["A"] * 5,
+            "ALT": ["T"] * 5,
+            "CatCol": pd.Series(items, dtype="category"),
+            "StrCol": pd.Series(items, dtype="string"),
+        }
+    )
+    xlsx_file = tmp_path / "cat_str_links.xlsx"
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    headers = [cell.value for cell in ws[1]]
+    cat_col_idx = headers.index("CatCol") + 1
+    str_col_idx = headers.index("StrCol") + 1
+
+    # First 4 rows have plain text
+    for r in range(2, 6):
+        assert ws.cell(row=r, column=cat_col_idx).hyperlink is None
+        assert ws.cell(row=r, column=str_col_idx).hyperlink is None
+
+    # Row 5 (row 6 in worksheet) gets active hyperlinks
+    cell_cat = ws.cell(row=6, column=cat_col_idx)
+    assert cell_cat.value == "https://example.org/item"
+    assert cell_cat.hyperlink is not None
+    assert cell_cat.hyperlink.target == "https://example.org/item"
+
+    cell_str = ws.cell(row=6, column=str_col_idx)
+    assert cell_str.value == "https://example.org/item"
+    assert cell_str.hyperlink is not None
+    assert cell_str.hyperlink.target == "https://example.org/item"
+
+
+@pytest.mark.unit
+def test_produce_report_json_does_not_load_ancestor_igv_map(tmp_path: Path):
+    """Verify produce_report_json isolates IGV lookup to output_dir without parent search (#159)."""
+    from variantcentrifuge.converter import produce_report_json
+
+    runs_dir = tmp_path / "runs"
+    ancestor_report_dir = runs_dir / "report" / "igv"
+    ancestor_report_dir.mkdir(parents=True)
+    with open(ancestor_report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(
+            [
+                {
+                    "chrom": "chr1",
+                    "pos": 100,
+                    "ref": "A",
+                    "alt": "T",
+                    "sample_id": "Sample1",
+                    "report_path": "igv/Sample1.html",
+                }
+            ],
+            f,
+        )
+
+    new_run = runs_dir / "batch" / "new_run"
+    new_run.mkdir(parents=True)
+    tsv_file = new_run / "variants.tsv"
+    pd.DataFrame(
+        {"CHROM": ["chr1"], "POS": [100], "REF": ["A"], "ALT": ["T"], "GT": ["Sample1(0/1)"]}
+    ).to_csv(tsv_file, sep="\t", index=False)
+
+    produce_report_json(str(tsv_file), output_dir=str(new_run))
+    with open(new_run / "report" / "variants.json", encoding="utf-8") as f:
+        variants = json.load(f)
+
+    # Ancestor map must not be loaded
+    assert "igv_links" not in variants[0] or len(variants[0]["igv_links"]) == 0
