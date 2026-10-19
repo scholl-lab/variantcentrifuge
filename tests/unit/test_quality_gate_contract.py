@@ -187,3 +187,32 @@ def test_ci_workflow_mypy_is_blocking() -> None:
     test_yml = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
 
     assert "continue-on-error: true\n        run: python -m mypy" not in test_yml
+
+
+def test_ci_workflow_matrix_covers_python_versions() -> None:
+    """GitHub Actions test matrix must cover Python 3.10, 3.11, 3.12, and 3.13."""
+    test_yml = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
+    for py_ver in ["3.10", "3.11", "3.12", "3.13"]:
+        assert f'"{py_ver}"' in test_yml, f"Missing Python {py_ver} in test matrix"
+
+
+def test_ci_workflow_runs_mocked_integration_tests() -> None:
+    """CI workflow must define and require a mocked integration test job."""
+    test_yml = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
+    assert "integration and not slow" in test_yml
+    assert "integration-test" in test_yml
+    assert "needs: [lint, type-check, test, integration-test]" in test_yml
+
+
+def test_installation_docs_document_apptainer() -> None:
+    """Installation docs must cover Apptainer/Singularity execution.
+
+    Must include binds and SnpEff storage.
+    """
+    install_md = (ROOT / "docs" / "source" / "installation.md").read_text(encoding="utf-8")
+    assert "Apptainer" in install_md
+    assert "Singularity" in install_md
+    assert "docker://ghcr.io/scholl-lab/variantcentrifuge" in install_md
+    assert "-B " in install_md
+    assert "/data/snpeff" in install_md
+    assert "sha256:" in install_md

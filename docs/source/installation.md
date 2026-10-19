@@ -153,6 +153,54 @@ This remediation does not use a `.trivyignore` file or dismiss code-scanning ale
 findings remain visible in the complete JSON audit and become actionable automatically when vendor
 data identifies a fixed version.
 
+### Method 5: Apptainer / Singularity (HPC Execution)
+
+In high-performance computing (HPC) environments where root access and Docker daemons are unavailable, Apptainer (formerly Singularity) executes the container image directly without elevated privileges.
+
+#### Running Directly from GitHub Container Registry
+
+Execute directly using the Docker registry URI:
+
+```bash
+# Verify version
+apptainer exec docker://ghcr.io/scholl-lab/variantcentrifuge:latest variantcentrifuge --version
+```
+
+For production workflows and strict reproducibility, pin the image by its immutable SHA-256 digest:
+
+```bash
+# Execute with immutable digest pinning
+apptainer exec \
+  docker://ghcr.io/scholl-lab/variantcentrifuge@sha256:d8b2e53b47c6a96fbf1888a108a9adab92b774e1e8b79ce41b63309a63286f91 \
+  variantcentrifuge --version
+```
+
+Alternatively, build a reusable Singularity Image File (`.sif`):
+
+```bash
+apptainer build variantcentrifuge.sif docker://ghcr.io/scholl-lab/variantcentrifuge:latest
+```
+
+#### Filesystem Binds and SnpEff Storage
+
+Map local data into the container with `-B /path/to/data:/data`. Provide a persistent, writable host directory mounted to `/data/snpeff` so downloaded SnpEff genome databases persist between job runs:
+
+```bash
+mkdir -p /path/to/snpeff_cache
+
+apptainer exec \
+  -B /path/to/data:/data \
+  -B /path/to/snpeff_cache:/data/snpeff \
+  docker://ghcr.io/scholl-lab/variantcentrifuge:latest \
+  variantcentrifuge \
+    --gene-name BRCA1 \
+    --vcf-file /data/input.vcf.gz \
+    --output-file /data/output.tsv
+```
+
+> [!NOTE]
+> The host directory bound to `/data/snpeff` must be writable during the first run for each required genome database so SnpEff can download and unpack reference annotations. Once populated, it may optionally be mounted read-only as `-B /path/to/snpeff_cache:/data/snpeff:ro`.
+
 ## Verification
 
 Verify your installation by running:
