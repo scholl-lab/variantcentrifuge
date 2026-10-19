@@ -389,6 +389,8 @@ class TestExpressionValidation:
 
         mock_system = MagicMock()
         monkeypatch.setattr(os, "system", mock_system)
+        mock_to_csv = MagicMock()
+        monkeypatch.setattr(pd.DataFrame, "to_csv", mock_to_csv)
 
         malicious_config = {
             "dataset_stats": [
@@ -409,6 +411,7 @@ class TestExpressionValidation:
         results = engine.compute(sample_df)
         assert results["dataset"].empty
         assert not (tmp_path / "pwned.csv").exists()
+        mock_to_csv.assert_not_called()
         mock_system.assert_not_called()
 
     def test_safe_builtins_and_np_where_evaluate(self, sample_df):

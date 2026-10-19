@@ -1003,8 +1003,8 @@ def test_excel_url_sampling_leading_nulls_and_native_links(tmp_path: Path):
         }
     )
     detected = _detect_url_columns(df_sampling)
-    assert "LeadingNullsCol" not in detected
-    assert "AllUrlCol" in detected
+    assert 0 not in detected
+    assert 1 in detected
 
     # 2. Verify convert_to_excel native link generation
     xlsx_file = tmp_path / "native_links.xlsx"
@@ -1333,3 +1333,65 @@ def test_finalize_excel_file_no_has_hyperlink_shortcut(tmp_path: Path):
     cell_r4 = ws.cell(row=5, column=mixed_col_idx)
     assert cell_r3.value == "https://example.org/a"
     assert cell_r4.value == "https://example.org/b"
+
+
+@pytest.mark.unit
+def test_duplicate_column_names_preserve_excel_hyperlinks(tmp_path: Path):
+    """Verify duplicate column names write hyperlinks with column name label (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    df = pd.DataFrame([["https://a.example/", "https://b.example/"]], columns=["Link", "Link"])
+    xlsx_file = tmp_path / "duplicate_cols.xlsx"
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    assert ws["A2"].value == "Link"
+    assert ws["A2"].hyperlink is not None
+    assert ws["A2"].hyperlink.target == "https://a.example/"
+    assert ws["B2"].value == "Link"
+    assert ws["B2"].hyperlink is not None
+    assert ws["B2"].hyperlink.target == "https://b.example/"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "first_val,expected_row2_val,expected_row3_val",
+    [
+        (0, "Link", "Link"),
+        (False, "Link", "Link"),
+        ([[1, 2], [3, 4]][0], "https://a.example/", None),
+    ],
+)
+def test_mixed_value_columns_url_sampling(
+    tmp_path: Path, first_val, expected_row2_val, expected_row3_val
+):
+    """Verify falsy scalars and collections are handled properly in URL sampling (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    if expected_row3_val is None:
+        col_data = [[1, 2], [3, 4], "https://a.example/", None]
+    else:
+        col_data = [first_val, "https://a.example/", "https://b.example/", None]
+
+    df = pd.DataFrame({"Link": col_data})
+    xlsx_file = tmp_path / "mixed_sampling.xlsx"
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    if expected_row3_val is None:
+        assert ws.cell(row=4, column=1).value == expected_row2_val
+    else:
+        assert ws.cell(row=3, column=1).value == expected_row2_val
+        assert ws.cell(row=4, column=1).value == expected_row3_val

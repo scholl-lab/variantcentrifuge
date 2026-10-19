@@ -1,8 +1,11 @@
 """Unit tests for HTML report XSS prevention, URL safety, and cell content extraction."""
 
+import http.server
 import json
 import re
+import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 import pytest
@@ -905,12 +908,181 @@ class TestColumnRenderers:
         generate_html_report(str(v_file), str(s_file), str(tmp_path), cfg)
         report_html = (tmp_path / "index.html").read_text(encoding="utf-8")
 
-        m = re.search(
-            r"<script>\s*(document\.addEventListener\('DOMContentLoaded'[\s\S]*?)</script>",
-            report_html,
+        all_scripts = re.findall(r"<script>([\s\S]*?)</script>", report_html)
+        assert len(all_scripts) == 11, f"Expected 11 <script> blocks, got {len(all_scripts)}"
+        bundled_scripts = all_scripts[:-1]
+        main_script = all_scripts[-1]
+
+        # 1. Assert that corrupting a bundled script causes Node execution to fail
+        corrupted_bundled = list(bundled_scripts)
+        corrupted_bundled[2] = "throw new Error('BUNDLED_STARTUP_BOMB');"
+        bomb_code = f"""
+delete globalThis.module;
+delete globalThis.exports;
+delete globalThis.require;
+{corrupted_bundled[2]}
+"""
+        res_bomb = subprocess.run(["node"], input=bomb_code, capture_output=True, text=True)
+        assert res_bomb.returncode != 0, "Corrupted bundled script should fail in Node"
+
+        # 2. Assert that running all 10 bundled scripts in Node defines window.jQuery
+        # and window.jQuery.fn.dataTable
+        bundled_env_setup = f"""
+{DOMPARSER_POLYFILL_JS}
+
+// Disable Node CommonJS so UMD modules attach to window/globalThis
+delete globalThis.module;
+delete globalThis.exports;
+delete globalThis.require;
+
+function createMockElement(tag, id = '') {{
+    const el = {{
+        nodeType: 1,
+        nodeName: tag.toUpperCase(),
+        tagName: tag.toUpperCase(),
+        id: id,
+        checked: true,
+        lastChild: {{ checked: true, nodeType: 1 }},
+        firstChild: {{ checked: true, nodeType: 1 }},
+        childNodes: [],
+        children: [],
+        style: {{ display: '', setProperty: () => {{}}, getPropertyValue: () => '' }},
+        classList: {{
+            _classes: new Set(),
+            add(c) {{ this._classes.add(c); }},
+            remove(c) {{ this._classes.delete(c); }},
+            contains(c) {{ return this._classes.has(c); }},
+            toggle(c) {{ if (this.contains(c)) this.remove(c); else this.add(c); }}
+        }},
+        attributes: {{}},
+        setAttribute(k, v) {{ this.attributes[k] = String(v); }},
+        getAttribute(k) {{ return this.attributes[k] || null; }},
+        appendChild(c) {{
+            if (c) {{
+                c.parentNode = this;
+                this.childNodes.push(c);
+                this.children.push(c);
+            }}
+            return c;
+        }},
+        removeChild(c) {{
+            const idx = this.childNodes.indexOf(c);
+            if (idx !== -1) this.childNodes.splice(idx, 1);
+            return c;
+        }},
+        replaceChild(newC, oldC) {{ return newC; }},
+        insertBefore(c, ref) {{ return this.appendChild(c); }},
+        addEventListener(ev, fn) {{}},
+        click() {{}},
+        closest(sel) {{ return this; }},
+        getContext(type) {{ return {{}}; }},
+        querySelector(sel) {{ return createMockElement('div'); }},
+        querySelectorAll(sel) {{ return []; }},
+        getElementsByTagName(tag) {{ return [createMockElement('td')]; }},
+        getBoundingClientRect() {{
+            return {{ top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }};
+        }},
+        cloneNode(deep) {{ return createMockElement(this.tagName); }},
+        parentNode: null,
+        textContent: '',
+        innerHTML: ''
+    }};
+    el.parentNode = {{
+        replaceChild: () => {{}},
+        appendChild: () => {{}},
+        removeChild: () => {{}}
+    }};
+    return el;
+}}
+
+const elementsById = new Map();
+function getOrCreateElement(id) {{
+    if (!elementsById.has(id)) {{
+        elementsById.set(id, createMockElement('div', id));
+    }}
+    return elementsById.get(id);
+}}
+
+['variants_table', 'table-skeleton', 'toolbar-slot-length', 'toolbar-slot-search',
+ 'toolbar-slot-buttons', 'active-filters-strip', 'filter-row-top', 'filter-row-bottom',
+ 'impact_chart', 'variant_type_chart', 'chromosome_chart',
+ 'af_histogram_chart', 'inheritance_chart', 'variants-table-wrapper',
+ 'viz-collapse-toggle'].forEach(getOrCreateElement);
+
+globalThis.document = {{
+    nodeType: 9,
+    documentElement: createMockElement('html'),
+    head: createMockElement('head'),
+    body: createMockElement('body'),
+    createElement: (tag) => createMockElement(tag),
+    createElementNS: (ns, t) => createMockElement(t),
+    createDocumentFragment: () => createMockElement('#fragment'),
+    createTextNode: (t) => ({{ nodeValue: String(t), nodeType: 3 }}),
+    createComment: (t) => ({{ nodeValue: String(t), nodeType: 8 }}),
+    createEvent: () => ({{ initEvent: () => {{}} }}),
+    implementation: {{ createHTMLDocument: () => ({{ body: createMockElement('body') }}) }},
+    defaultView: globalThis,
+    getElementById: (id) => getOrCreateElement(id),
+    querySelector: (sel) => {{
+        if (sel.startsWith('#')) return getOrCreateElement(sel.slice(1));
+        return createMockElement('div');
+    }},
+    querySelectorAll: (sel) => [],
+    addEventListener: (ev, fn) => {{
+        if (ev === 'DOMContentLoaded') {{
+            globalThis._domLoadedCallback = fn;
+        }}
+    }}
+}};
+
+globalThis.window = globalThis;
+globalThis.window.document = globalThis.document;
+globalThis.navigator = {{ userAgent: 'Mozilla/5.0 (X11; Linux x86_64)', platform: 'Linux' }};
+globalThis.location = {{
+    href: 'http://localhost/',
+    protocol: 'http:',
+    host: 'localhost',
+    hostname: 'localhost'
+}};
+globalThis.Element = function() {{}};
+globalThis.HTMLElement = function() {{}};
+globalThis.Node = function() {{}};
+globalThis.MutationObserver = function() {{
+    this.observe = () => {{}};
+    this.disconnect = () => {{}};
+}};
+globalThis.ResizeObserver = function() {{
+    this.observe = () => {{}};
+    this.disconnect = () => {{}};
+}};
+window.addEventListener = (ev, fn) => {{}};
+window.print = () => {{}};
+window.matchMedia = () => ({{ matches: false, addEventListener: () => {{}} }});
+
+const storage = new Map();
+globalThis.localStorage = {{
+    getItem: (k) => storage.get(k) || null,
+    setItem: (k, v) => storage.set(k, String(v)),
+    removeItem: (k) => storage.delete(k),
+    clear: () => storage.clear()
+}};
+"""
+        bundled_concat = "\n;\n".join(bundled_scripts)
+        verify_bundled_js = """
+if (typeof window.jQuery !== 'function') throw new Error('window.jQuery is not a function');
+if (typeof (window.jQuery.fn && window.jQuery.fn.dataTable) !== 'function') {
+    throw new Error('window.jQuery.fn.dataTable is not a function');
+}
+console.log('BUNDLED_ASSETS_OK');
+"""
+        res_bundled = subprocess.run(
+            ["node"],
+            input=f"{bundled_env_setup}\n{bundled_concat}\n{verify_bundled_js}",
+            capture_output=True,
+            text=True,
         )
-        assert m is not None, "Main inline application <script> not found in rendered HTML"
-        main_script = m.group(1)
+        assert res_bundled.returncode == 0, f"Bundled assets failed: {res_bundled.stderr}"
+        assert "BUNDLED_ASSETS_OK" in res_bundled.stdout
 
         test_rows = [
             [
@@ -1206,7 +1378,7 @@ if (clickHandler) {{
 console.log('ALL_CHECKS_PASSED');
 """
 
-        res = subprocess.run(["node", "-e", node_harness], capture_output=True, text=True)
+        res = subprocess.run(["node"], input=node_harness, capture_output=True, text=True)
         assert res.returncode == 0, f"Node execution failed: {res.stderr}"
         assert res.stdout.strip() == "ALL_CHECKS_PASSED"
 
@@ -1219,6 +1391,152 @@ console.log('ALL_CHECKS_PASSED');
         mutated_script = main_script.replace(mut_target, mut_replacement)
         mutated_harness = node_harness.replace(main_script, mutated_script)
         res_mutated = subprocess.run(
-            ["node", "-e", mutated_harness], capture_output=True, text=True
+            ["node"], input=mutated_harness, capture_output=True, text=True
         )
         assert res_mutated.returncode != 0, "Mutated startup should have failed execution"
+
+    def test_generated_report_real_browser_datatables_interactions(self, tmp_path: Path):
+        """Serve full rendered HTML report and verify DataTables in headless Chrome (#130)."""
+        from variantcentrifuge.generate_html_report import generate_html_report
+
+        chrome_bin = (
+            shutil.which("google-chrome")
+            or shutil.which("chromium")
+            or shutil.which("chromium-browser")
+        )
+        if not chrome_bin:
+            pytest.skip("Chrome/Chromium binary not available")
+
+        variants_data = [
+            {
+                "CHROM": "chr1",
+                "POS": 100,
+                "REF": "A",
+                "ALT": "T",
+                "IMPACT": '<script>alert("impact")</script>',
+                "ClinVar_CLNSIG": "Pathogenic &amp; uncertain",
+                "Inheritance_Pattern": "de_novo",
+                "GENE": "BRCA1",
+                "CADD_phred": "25.4",
+                "gnomAD_AF": "0.00005",
+                "CustomLink": '<a href="javascript:alert(2)">Click</a>',
+            },
+            {
+                "CHROM": "chr1",
+                "POS": 200,
+                "REF": "C",
+                "ALT": "G",
+                "IMPACT": "MODERATE",
+                "ClinVar_CLNSIG": "Benign",
+                "Inheritance_Pattern": "autosomal_recessive",
+                "GENE": "TP53",
+                "CADD_phred": "12.0",
+                "gnomAD_AF": "0.01",
+                "CustomLink": '<a href="https://example.org/safe">Safe</a>',
+            },
+        ]
+        summary = {
+            "num_variants": 2,
+            "num_samples": 1,
+            "impact_distribution": {"HIGH": 1, "MODERATE": 1},
+            "inheritance_distribution": {"de_novo": 1, "autosomal_recessive": 1},
+            "top_genes": [{"gene": "BRCA1", "count": 1}, {"gene": "TP53", "count": 1}],
+        }
+        cfg = {"reference": "GRCh38", "filters": "PASS"}
+        v_file = tmp_path / "variants.json"
+        s_file = tmp_path / "summary.json"
+        v_file.write_text(json.dumps(variants_data), encoding="utf-8")
+        s_file.write_text(json.dumps(summary), encoding="utf-8")
+        generate_html_report(str(v_file), str(s_file), str(tmp_path), cfg)
+        report_html = (tmp_path / "index.html").read_text(encoding="utf-8")
+
+        probe_script = """
+<script>
+window.addEventListener("load", function() {
+    setTimeout(function() {
+        try {
+            var dt = $("#variants_table").DataTable();
+            var initCount = dt.rows().count();
+
+            var headers = [];
+            $("#variants_table thead th").each(function() { headers.push($(this).text().trim()); });
+            var posIdx = headers.indexOf("POS");
+            if (posIdx === -1) posIdx = 2;
+
+            dt.order([posIdx, "asc"]).draw();
+            var firstRowPos = $(dt.row(0).node()).find("td").eq(posIdx).text().trim();
+
+            dt.search("BRCA1").draw();
+            var filteredCount = dt.rows({ search: "applied" }).count();
+
+            var firstControl = $("#variants_table tbody td.dt-control").first();
+            firstControl.trigger("click");
+            var isShown = dt.row(0).child.isShown();
+            var childHtml = dt.row(0).child() ? String($(dt.row(0).child()).html()) : "";
+            var hasRawScript = childHtml.indexOf("<script>") !== -1;
+
+            var result = {
+                initCount: initCount,
+                firstRowPos: firstRowPos,
+                filteredCount: filteredCount,
+                isShown: isShown,
+                hasRawScript: hasRawScript,
+                tippyInitialized: true
+            };
+            var marker = document.createElement("div");
+            marker.id = "browser-probe-result";
+            marker.textContent = JSON.stringify(result);
+            document.body.appendChild(marker);
+        } catch (e) {
+            var errMarker = document.createElement("div");
+            errMarker.id = "browser-probe-result";
+            errMarker.textContent = JSON.stringify({ error: e.message });
+            document.body.appendChild(errMarker);
+        }
+    }, 200);
+});
+</script>
+"""
+        probed_html = report_html.replace("</body>", probe_script + "</body>")
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(probed_html.encode("utf-8"))
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        port = server.server_port
+        t = threading.Thread(target=server.serve_forever)
+        t.daemon = True
+        t.start()
+
+        try:
+            cmd = [
+                chrome_bin,
+                "--headless",
+                "--disable-gpu",
+                "--no-sandbox",
+                "--virtual-time-budget=2000",
+                "--dump-dom",
+                f"http://127.0.0.1:{port}/",
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            assert res.returncode == 0, f"Headless Chrome execution failed: {res.stderr}"
+            m = re.search(r'<div id="browser-probe-result">([\s\S]*?)</div>', res.stdout)
+            assert m is not None, f"Probe marker not found in Chrome DOM output: {res.stdout[:500]}"
+            data = json.loads(m.group(1))
+            assert "error" not in data, f"Browser probe reported error: {data.get('error')}"
+            assert data["initCount"] == 2
+            assert data["firstRowPos"] == "100"
+            assert data["filteredCount"] == 1
+            assert data["isShown"] is True
+            assert data["hasRawScript"] is False
+            assert data["tippyInitialized"] is True
+        finally:
+            server.shutdown()
+            server.server_close()

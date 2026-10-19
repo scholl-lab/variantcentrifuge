@@ -116,25 +116,36 @@ def _get_igv_reports_for_variant(
     return igv_reports
 
 
-def _detect_url_columns(df: pd.DataFrame) -> list[str]:
-    """Identify columns where >= 70% of sample non-empty values start with http:// or https://."""
+def _excel_cell_value(val: Any) -> Any:
+    if val is None:
+        return None
+    if isinstance(val, (list, tuple, dict, set, np.ndarray)):
+        return str(val)
+    try:
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return val
+
+
+def _detect_url_columns(df: pd.DataFrame) -> set[int]:
+    """Identify column indices where >= 70% of sample non-empty values start with http:// or https://."""
     if len(df) == 0:
-        return []
-    url_columns = []
-    for col in df.columns:
-        if pd.api.types.is_numeric_dtype(df[col]) or pd.api.types.is_bool_dtype(df[col]):
+        return set()
+    url_columns: set[int] = set()
+    for col_idx, col_name in enumerate(df.columns):
+        if not col_name:
             continue
-        sample_values = [
-            str(val).strip()
-            for val in df[col].iloc[:4]
-            if not isinstance(val, (list, tuple, dict, set, np.ndarray))
-            and pd.notna(val)
-            and str(val).strip()
-        ]
+        sample_values = []
+        for raw_val in df.iloc[:4, col_idx]:
+            cell_val = _excel_cell_value(raw_val)
+            if cell_val and str(cell_val).strip():
+                sample_values.append(str(cell_val).strip())
         if sample_values:
             url_count = sum(1 for val in sample_values if val.startswith(("http://", "https://")))
             if url_count >= len(sample_values) * 0.7:
-                url_columns.append(col)
+                url_columns.add(col_idx)
     return url_columns
 
 
@@ -145,28 +156,7 @@ def convert_to_excel(
     extra_sheets: dict[str, pd.DataFrame] | None = None,
     output_file: str | None = None,
 ) -> str:
-    """
-    Convert a TSV file or DataFrame to XLSX format with Results and optional extra sheets.
-
-    Writes all sheets and formatting (freeze panes, autofilters, hyperlinks, IGV links)
-    in a single XlsxWriter session without repeated workbook reloads.
-
-    Parameters
-    ----------
-    tsv_file : str
-        Path to the TSV file (or target .xlsx file).
-    cfg : dict
-        Configuration dictionary containing various settings.
-    df : pd.DataFrame, optional
-        Optional DataFrame to use instead of reading from disk.
-    extra_sheets : dict of str to pd.DataFrame, optional
-        Additional sheets to write in the same session (e.g. Metadata, Statistics, Gene Burden).
-
-    Returns
-    -------
-    str
-        The path to the generated XLSX file.
-    """
+    """Convert a TSV file or DataFrame to XLSX format with Results and optional extra sheets."""
     if df is not None:
         logger.debug("Using provided DataFrame for Excel conversion (skipping disk read)")
     else:
@@ -207,26 +197,27 @@ def convert_to_excel(
         ws.freeze_panes(1, 0)
 
         # Format detected URL columns and individual hyperlinks (single registration)
-        url_columns = set(_detect_url_columns(df))
+        url_col_indices = _detect_url_columns(df)
         for col_idx, col_name in enumerate(df.columns):
             if col_name == "IGV Report Links":
                 continue
-            is_url_col = col_name in url_columns
+            is_url_col = col_idx in url_col_indices
+            col_series = df.iloc[:, col_idx]
             if not is_url_col and (
-                pd.api.types.is_numeric_dtype(df[col_name])
-                or pd.api.types.is_bool_dtype(df[col_name])
+                pd.api.types.is_numeric_dtype(col_series) or pd.api.types.is_bool_dtype(col_series)
             ):
                 continue
-            for row_idx, val in enumerate(df[col_name]):
+            str_col_name = str(col_name)
+            for row_idx, val in enumerate(col_series):
                 s_val = val.strip() if isinstance(val, str) else ""
                 if not s_val:
                     continue
                 if is_url_col and s_val.startswith(("http://", "https://")):
                     ret = ws.write_url(
-                        row_idx + 1, col_idx, s_val, hyperlink_format, string=col_name
+                        row_idx + 1, col_idx, s_val, hyperlink_format, string=str_col_name
                     )
                     if ret != 0:
-                        ws.write_string(row_idx + 1, col_idx, col_name, hyperlink_format)
+                        ws.write_string(row_idx + 1, col_idx, str_col_name, hyperlink_format)
                 elif s_val.startswith(URL_PREFIXES):
                     ws.write_url(row_idx + 1, col_idx, s_val)
 
