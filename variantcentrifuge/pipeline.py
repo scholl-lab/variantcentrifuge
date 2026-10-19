@@ -91,64 +91,7 @@ def _validate_requested_outputs(context: PipelineContext) -> None:
             raise RuntimeError("Requested Excel output was not written")
 
 
-def check_scoring_requires_inheritance(args: argparse.Namespace, config: dict) -> bool:
-    """Check if scoring configuration requires inheritance analysis.
-
-    Parameters
-    ----------
-    args : argparse.Namespace
-        Command-line arguments
-    config : dict
-        Configuration dictionary
-
-    Returns
-    -------
-    bool
-        True if inheritance analysis is required for scoring
-    """
-    # Check if there's a scoring config
-    scoring_config_path = config.get("scoring_config_path") or getattr(
-        args, "scoring_config_path", None
-    )
-    if not scoring_config_path:
-        return False
-
-    try:
-        # Import here to avoid circular imports
-        from .scoring import read_scoring_config
-
-        # Load scoring config to check for inheritance dependencies
-        scoring_config = read_scoring_config(scoring_config_path)
-
-        # Check if any scoring formulas reference inheritance variables
-        if scoring_config and "formulas" in scoring_config:
-            for formula_dict in scoring_config["formulas"]:
-                for formula_name, formula_expr in formula_dict.items():
-                    if isinstance(formula_expr, str) and any(
-                        var in formula_expr
-                        for var in [
-                            "pattern",
-                            "details",
-                            "Inheritance_Pattern",
-                            "Inheritance_Details",
-                        ]
-                    ):
-                        logger.info(
-                            f"Scoring formula '{formula_name}' requires inheritance analysis"
-                        )
-                        return True
-
-        # Check variable assignments for inheritance column dependencies
-        if scoring_config and "variables" in scoring_config:
-            variables = scoring_config["variables"]
-            if any(col in variables for col in ["Inheritance_Pattern", "Inheritance_Details"]):
-                logger.info("Scoring configuration requires inheritance columns")
-                return True
-
-    except Exception as e:
-        logger.warning(f"Could not check scoring config for inheritance dependencies: {e}")
-
-    return False
+from .scoring_requirements import check_scoring_requires_inheritance
 
 
 def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
@@ -195,7 +138,11 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     ):
         stages.append(ScoringConfigLoadingStage())
 
-    if hasattr(args, "ped_file") and args.ped_file:
+    if (
+        config.get("ped_file")
+        or (hasattr(args, "ped_file") and args.ped_file)
+        or (hasattr(args, "ped") and args.ped)
+    ):
         stages.append(PedigreeLoadingStage())
 
     if annotations_requested:

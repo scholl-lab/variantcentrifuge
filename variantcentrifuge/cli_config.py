@@ -56,8 +56,23 @@ def resolve_presets_and_tumor_normal(
     filters: str | None,
 ) -> tuple[str | None, dict[str, str]]:
     """Resolve tumor-normal sample indices and expand preset filter templates."""
-    preset_dict = cfg.get("presets", {})
-    raw_presets = args.preset or cfg.get("preset") or []
+    preset_val = cfg.get("presets")
+    preset_dict = preset_val if isinstance(preset_val, dict) else {}
+
+    if not preset_dict:
+        from .config import load_config as _load_default_config
+
+        try:
+            default_cfg = _load_default_config()
+            preset_dict = default_cfg.get("presets", {})
+        except Exception:
+            preset_dict = {}
+
+    raw_presets = getattr(args, "preset", None) or cfg.get("preset")
+    if not raw_presets and isinstance(preset_val, (list, str)):
+        raw_presets = preset_val
+    if not raw_presets:
+        raw_presets = []
     if isinstance(raw_presets, str):
         raw_presets = [raw_presets]
     raw_final_filter = (
@@ -510,7 +525,9 @@ def populate_cli_config(
     ] = not args.no_vectorized_comp_het  # Default to True unless disabled
 
     # Late filtering configuration
-    cfg["late_filtering"] = bool(args.late_filtering or cfg.get("late_filtering", False))
+    cfg["late_filtering"] = bool(
+        args.late_filtering or cfg.get("late_filtering") or cfg.get("Late_filtering") or False
+    )
 
     # Bcftools pre-filtering configuration
     cfg["bcftools_prefilter"] = (
@@ -529,9 +546,14 @@ def populate_cli_config(
     # Chunked processing configuration
     cfg["no_chunked_processing"] = args.no_chunked_processing
     cfg["force_chunked_processing"] = args.force_chunked_processing
-    cfg["sort_memory_limit"] = _calculate_sort_memory_limit(
-        args.sort_memory_limit, cfg.get("max_memory_gb")
-    )
+    sort_limit_arg = getattr(args, "sort_memory_limit", None)
+    if sort_limit_arg is not None and sort_limit_arg != "auto":
+        sort_limit = sort_limit_arg
+    elif "sort_memory_limit" in cfg and cfg["sort_memory_limit"] is not None:
+        sort_limit = cfg["sort_memory_limit"]
+    else:
+        sort_limit = sort_limit_arg or "auto"
+    cfg["sort_memory_limit"] = _calculate_sort_memory_limit(sort_limit, cfg.get("max_memory_gb"))
     cfg["sort_parallel"] = args.sort_parallel
 
     # Inheritance memory configuration
