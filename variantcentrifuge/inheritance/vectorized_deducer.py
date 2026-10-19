@@ -21,6 +21,24 @@ import pandas as pd
 
 from ..ped_reader import get_parents, is_affected
 from .comp_het_vectorized import encode_genotypes
+from .non_autosomal_deducer import (
+    _check_mitochondrial_vectorized,
+    _check_x_fallback_vectorized,
+    _check_x_linked_vectorized,
+    _check_xld_vectorized,
+    _check_xlr_female_vectorized,
+    _check_xlr_male_vectorized,
+)
+
+__all__ = [
+    "_check_mitochondrial_vectorized",
+    "_check_x_fallback_vectorized",
+    "_check_x_linked_vectorized",
+    "_check_xld_vectorized",
+    "_check_xlr_female_vectorized",
+    "_check_xlr_male_vectorized",
+    "vectorized_deduce_patterns",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +100,12 @@ def vectorized_deduce_patterns(
         f"matrix shape={gt_matrix.shape}, dtype={gt_matrix.dtype})"
     )
 
+    # Compute autosome mask
+    chrom_clean_series = df["CHROM"].astype(str).str.strip().str.upper()
+    chrom_array = chrom_clean_series.to_numpy()
+    chrom_norm = chrom_clean_series.str.replace("^CHR", "", regex=True)
+    autosome_mask = ~chrom_norm.isin({"X", "Y", "M", "MT", "23", "24", "25"}).to_numpy()
+
     # Step 2: Per-sample vectorized pattern deduction
     for sample_id in sample_list:
         if sample_id not in pedigree_data:
@@ -136,6 +160,7 @@ def vectorized_deduce_patterns(
             pedigree_data,
             has_variant_mask,
             affected,
+            autosome_mask=autosome_mask,
         )
 
         # c. Recessive check (vectorized)
@@ -147,16 +172,10 @@ def vectorized_deduce_patterns(
             father_id,
             mother_id,
             affected,
+            autosome_mask=autosome_mask,
         )
 
         # d. X-linked check (vectorized)
-        chrom_array = df["CHROM"].values
-        # Handle categorical dtypes by converting to string
-        if isinstance(chrom_array.dtype, pd.CategoricalDtype):
-            chrom_array = chrom_array.astype(str)
-        else:
-            chrom_array = chrom_array.astype(str)
-
         _check_x_linked_vectorized(
             patterns_per_variant,
             sample_id,
@@ -347,9 +366,15 @@ def _check_de_novo_vectorized(
     for idx in de_novo_indices:
         patterns_per_variant[idx].append("de_novo")
 
-    # De novo candidate: child has variant, at least one parent missing GT, child affected
+    # De novo candidate: child has variant, at least one parent missing GT, child affected,
+    # and neither parent carries a variant
     if affected:
-        de_novo_candidate_mask = has_variant_mask & ((father_gts == -1) | (mother_gts == -1))
+        de_novo_candidate_mask = (
+            has_variant_mask
+            & ((father_gts == -1) | (mother_gts == -1))
+            & (father_gts <= 0)
+            & (mother_gts <= 0)
+        )
         de_novo_candidate_indices = np.where(de_novo_candidate_mask)[0]
         for idx in de_novo_candidate_indices:
             patterns_per_variant[idx].append("de_novo_candidate")
@@ -365,6 +390,7 @@ def _check_dominant_vectorized(
     pedigree_data: dict[str, dict[str, Any]],
     has_variant_mask: np.ndarray,
     affected: bool,
+    autosome_mask: np.ndarray | None = None,
 ) -> None:
     """
     Vectorized autosomal dominant pattern detection.
@@ -376,6 +402,9 @@ def _check_dominant_vectorized(
     # Must be affected
     if not affected:
         return
+
+    if autosome_mask is not None:
+        has_variant_mask = has_variant_mask & autosome_mask
 
     # Must have variant
     if not has_variant_mask.any():
@@ -437,6 +466,7 @@ def _check_recessive_vectorized(
     father_id: str | None,
     mother_id: str | None,
     affected: bool,
+    autosome_mask: np.ndarray | None = None,
 ) -> None:
     """
     Vectorized autosomal recessive pattern detection.
@@ -450,6 +480,8 @@ def _check_recessive_vectorized(
 
     # Must be homozygous alt
     hom_alt_mask = sample_gts == 2
+    if autosome_mask is not None:
+        hom_alt_mask = hom_alt_mask & autosome_mask
 
     if not hom_alt_mask.any():
         return
@@ -487,329 +519,6 @@ def _check_recessive_vectorized(
     incomplete_ar_indices = np.where(incomplete_ar_mask)[0]
     for idx in incomplete_ar_indices:
         patterns_per_variant[idx].append("autosomal_recessive_possible")
-
-
-def _check_x_linked_vectorized(
-    patterns_per_variant: list[list[str]],
-    sample_id: str,
-    sample_gts: np.ndarray,
-    father_gts: np.ndarray | None,
-    mother_gts: np.ndarray | None,
-    father_id: str | None,
-    mother_id: str | None,
-    pedigree_data: dict[str, dict[str, Any]],
-    sample_list: list[str],
-    chrom_array: np.ndarray,
-    has_variant_mask: np.ndarray,
-    affected: bool,
-) -> None:
-    """
-    Vectorized X-linked pattern detection.
-
-    X-linked recessive (males): affected male has variant, mother is carrier.
-    X-linked recessive (females): affected female is hom_alt, both parents have variant.
-    X-linked dominant: affected individual has variant, affected parent has variant.
-    """
-    # Create X chromosome mask
-    x_mask = np.isin(chrom_array, ["X", "CHRX", "23", "x", "chrX", "chrx"])
-
-    # Must be on X chromosome
-    if not x_mask.any():
-        return
-
-    # Get sex from pedigree
-    sex = pedigree_data[sample_id].get("sex", "0")
-
-    # Male X-linked recessive logic
-    if sex == "1":  # Male
-        _check_xlr_male_vectorized(
-            patterns_per_variant,
-            sample_gts,
-            father_gts,
-            mother_gts,
-            father_id,
-            mother_id,
-            sample_list,
-            x_mask,
-            has_variant_mask,
-            affected,
-        )
-
-    # Female X-linked logic
-    elif sex == "2":  # Female
-        _check_xlr_female_vectorized(
-            patterns_per_variant,
-            sample_gts,
-            father_gts,
-            mother_gts,
-            father_id,
-            mother_id,
-            sample_list,
-            x_mask,
-            affected,
-        )
-
-    # X-linked dominant (both sexes)
-    _check_xld_vectorized(
-        patterns_per_variant,
-        sample_id,
-        sample_gts,
-        father_gts,
-        mother_gts,
-        father_id,
-        mother_id,
-        pedigree_data,
-        sex,
-        x_mask,
-        has_variant_mask,
-        affected,
-    )
-
-    # Fallback for affected but unclear patterns
-    if affected:
-        _check_x_fallback_vectorized(
-            patterns_per_variant, sample_gts, sex, x_mask, has_variant_mask
-        )
-
-
-def _check_xlr_male_vectorized(
-    patterns_per_variant: list[list[str]],
-    sample_gts: np.ndarray,
-    father_gts: np.ndarray | None,
-    mother_gts: np.ndarray | None,
-    father_id: str | None,
-    mother_id: str | None,
-    sample_list: list[str],
-    x_mask: np.ndarray,
-    has_variant_mask: np.ndarray,
-    affected: bool,
-) -> None:
-    """X-linked recessive for males: affected + has variant + mother carrier."""
-    if not affected:
-        return
-
-    # Male must have variant on X
-    male_xlr_base_mask = x_mask & has_variant_mask
-
-    if not male_xlr_base_mask.any():
-        return
-
-    # Check mother is carrier
-    if mother_id and mother_id in sample_list and mother_gts is not None:
-        mother_missing_mask = mother_gts == -1
-        mother_has_variant_mask = mother_gts > 0
-
-        # Father check: males can't pass X to sons, so father must NOT have variant
-        father_violates_mask = np.zeros(len(sample_gts), dtype=bool)
-        if father_id and father_id in sample_list and father_gts is not None:
-            father_violates_mask = father_gts > 0  # type: ignore[assignment]
-
-        # Classic XLR: mother has variant, father doesn't (or no father data)
-        classic_xlr_mask = male_xlr_base_mask & mother_has_variant_mask & ~father_violates_mask
-        classic_xlr_indices = np.where(classic_xlr_mask)[0]
-        for idx in classic_xlr_indices:
-            patterns_per_variant[idx].append("x_linked_recessive")
-
-        # XLR possible: mother missing genotype
-        xlr_possible_mask = male_xlr_base_mask & mother_missing_mask & ~father_violates_mask
-        # Exclude classic XLR indices
-        xlr_possible_mask[classic_xlr_indices] = False
-        xlr_possible_indices = np.where(xlr_possible_mask)[0]
-        for idx in xlr_possible_indices:
-            patterns_per_variant[idx].append("x_linked_recessive_possible")
-    else:
-        # No mother data - XLR possible
-        xlr_possible_indices = np.where(male_xlr_base_mask)[0]
-        for idx in xlr_possible_indices:
-            patterns_per_variant[idx].append("x_linked_recessive_possible")
-
-
-def _check_xlr_female_vectorized(
-    patterns_per_variant: list[list[str]],
-    sample_gts: np.ndarray,
-    father_gts: np.ndarray | None,
-    mother_gts: np.ndarray | None,
-    father_id: str | None,
-    mother_id: str | None,
-    sample_list: list[str],
-    x_mask: np.ndarray,
-    affected: bool,
-) -> None:
-    """X-linked recessive for females: affected + hom_alt + both parents have variant."""
-    if not affected:
-        return
-
-    # Female must be hom_alt on X
-    female_xlr_base_mask = x_mask & (sample_gts == 2)
-
-    if not female_xlr_base_mask.any():
-        return
-
-    # Both parents must contribute
-    father_has_mask = np.zeros(len(sample_gts), dtype=bool)
-    father_missing_mask = np.ones(len(sample_gts), dtype=bool)
-
-    if father_id and father_id in sample_list and father_gts is not None:
-        father_has_mask = father_gts > 0  # type: ignore[assignment]
-        father_missing_mask = father_gts == -1  # type: ignore[assignment]
-
-    mother_has_mask = np.zeros(len(sample_gts), dtype=bool)
-    mother_missing_mask = np.ones(len(sample_gts), dtype=bool)
-
-    if mother_id and mother_id in sample_list and mother_gts is not None:
-        mother_has_mask = mother_gts > 0  # type: ignore[assignment]
-        mother_missing_mask = mother_gts == -1  # type: ignore[assignment]
-
-    # Classic XLR: both parents have variant
-    classic_xlr_mask = female_xlr_base_mask & father_has_mask & mother_has_mask
-    classic_xlr_indices = np.where(classic_xlr_mask)[0]
-    for idx in classic_xlr_indices:
-        patterns_per_variant[idx].append("x_linked_recessive")
-
-    # XLR possible: at least one parent has missing data
-    xlr_possible_mask = (
-        female_xlr_base_mask & (father_missing_mask | mother_missing_mask) & ~classic_xlr_mask
-    )
-    xlr_possible_indices = np.where(xlr_possible_mask)[0]
-    for idx in xlr_possible_indices:
-        patterns_per_variant[idx].append("x_linked_recessive_possible")
-
-
-def _check_xld_vectorized(
-    patterns_per_variant: list[list[str]],
-    sample_id: str,
-    sample_gts: np.ndarray,
-    father_gts: np.ndarray | None,
-    mother_gts: np.ndarray | None,
-    father_id: str | None,
-    mother_id: str | None,
-    pedigree_data: dict[str, dict[str, Any]],
-    sex: str,
-    x_mask: np.ndarray,
-    has_variant_mask: np.ndarray,
-    affected: bool,
-) -> None:
-    """X-linked dominant: affected individual has variant, affected parent has variant."""
-    if not affected:
-        return
-
-    # Must have variant on X
-    xld_base_mask = x_mask & has_variant_mask
-
-    if not xld_base_mask.any():
-        return
-
-    # Check father (XLD: affected father with variant can pass to daughters)
-    if father_id and father_gts is not None:
-        father_affected = np.bool_(is_affected(father_id, pedigree_data))
-        father_has_variant_mask = father_gts > 0
-
-        # If affected father has variant and child is female, XLD
-        if father_affected and sex == "2":
-            xld_father_mask = xld_base_mask & father_has_variant_mask
-            xld_father_indices = np.where(xld_father_mask)[0]
-            for idx in xld_father_indices:
-                patterns_per_variant[idx].append("x_linked_dominant")
-
-    # Check mother (XLD: affected mother with variant can pass to any child)
-    if mother_id and mother_gts is not None:
-        mother_affected = np.bool_(is_affected(mother_id, pedigree_data))
-        mother_has_variant_mask = mother_gts > 0
-
-        if mother_affected:
-            xld_mother_mask = xld_base_mask & mother_has_variant_mask
-            xld_mother_indices = np.where(xld_mother_mask)[0]
-            for idx in xld_mother_indices:
-                patterns_per_variant[idx].append("x_linked_dominant")
-
-    # XLD possible: affected with variant but can't determine parent status
-    # Check if we already added XLD
-    xld_possible_mask = xld_base_mask.copy()
-    for idx in np.where(xld_base_mask)[0]:
-        if "x_linked_dominant" in patterns_per_variant[idx]:
-            xld_possible_mask[idx] = False
-
-    xld_possible_indices = np.where(xld_possible_mask)[0]
-    for idx in xld_possible_indices:
-        patterns_per_variant[idx].append("x_linked_dominant_possible")
-
-
-def _check_x_fallback_vectorized(
-    patterns_per_variant: list[list[str]],
-    sample_gts: np.ndarray,
-    sex: str,
-    x_mask: np.ndarray,
-    has_variant_mask: np.ndarray,
-) -> None:
-    """
-    Fallback for affected individuals on X with unclear patterns.
-
-    This adds "possible" patterns when affected but no clear XLR/XLD detected.
-    """
-    # Only apply if no X-linked patterns already added
-    x_variant_mask = x_mask & has_variant_mask
-
-    for idx in np.where(x_variant_mask)[0]:
-        # Check if any X-linked pattern already present
-        existing_patterns = patterns_per_variant[idx]
-        has_x_pattern = any(
-            p
-            for p in existing_patterns
-            if p.startswith("x_linked_recessive") or p.startswith("x_linked_dominant")
-        )
-
-        if not has_x_pattern:
-            # Add sex-specific fallback
-            if sex == "1":  # Male
-                patterns_per_variant[idx].append("x_linked_recessive_possible")
-            else:  # Female
-                if sample_gts[idx] == 2:  # hom_alt
-                    patterns_per_variant[idx].append("x_linked_recessive_possible")
-                else:
-                    patterns_per_variant[idx].append("x_linked_dominant_possible")
-
-
-def _check_mitochondrial_vectorized(
-    patterns_per_variant: list[list[str]],
-    sample_gts: np.ndarray,
-    mother_gts: np.ndarray | None,
-    mother_id: str | None,
-    sample_list: list[str],
-    chrom_array: np.ndarray,
-    has_variant_mask: np.ndarray,
-) -> None:
-    """
-    Vectorized mitochondrial pattern detection.
-
-    Mitochondrial: maternal inheritance (mother has variant, or no mother data).
-    """
-    # Create mitochondrial chromosome mask
-    mt_mask = np.isin(chrom_array, ["MT", "M", "CHRM", "CHRMT", "mt", "chrM", "chrMT"])
-
-    # Must be on MT chromosome and have variant
-    mt_variant_mask = mt_mask & has_variant_mask
-
-    if not mt_variant_mask.any():
-        return
-
-    # Check maternal transmission
-    if mother_id and mother_id in sample_list and mother_gts is not None:
-        # Mother must have variant for mitochondrial
-        mother_has_variant_mask = mother_gts > 0
-
-        # Maternal variant confirms mitochondrial
-        maternal_mt_mask = mt_variant_mask & mother_has_variant_mask
-        maternal_mt_indices = np.where(maternal_mt_mask)[0]
-        for idx in maternal_mt_indices:
-            patterns_per_variant[idx].append("mitochondrial")
-
-        # If mother doesn't have variant, not mitochondrial (skip these)
-        # If mother GT missing, still could be mitochondrial (apply below)
-    else:
-        # No mother data - could still be mitochondrial
-        mt_indices = np.where(mt_variant_mask)[0]
-        for idx in mt_indices:
-            patterns_per_variant[idx].append("mitochondrial")
 
 
 def _apply_fallback_vectorized(

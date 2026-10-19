@@ -152,10 +152,14 @@ class TestCompoundHetDetection:
             gene_df, self.pedigree_data, self.sample_list
         )
 
-        # Vectorized classifies as compound_heterozygous when both parents in sample list
+        # Vectorized classifies as possible missing parent genotypes when parental
+        # genotypes are missing
         assert len(results) == 2
         var1_key = "1:1000:A>T"
-        assert results[var1_key]["child"]["comp_het_type"] == "compound_heterozygous"
+        assert (
+            results[var1_key]["child"]["comp_het_type"]
+            == "compound_heterozygous_possible_missing_parent_genotypes"
+        )
 
     def test_compound_het_ambiguous(self):
         """Test ambiguous compound het where both parents have both variants.

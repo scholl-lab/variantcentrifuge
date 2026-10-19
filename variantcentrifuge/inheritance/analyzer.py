@@ -274,11 +274,9 @@ def _finalize_inheritance_patterns(
             for _sample_id, info in comp_info.items():
                 if info.get("is_compound_het"):
                     comp_het_type = info.get("comp_het_type", "compound_heterozygous")
-                    if (
-                        comp_het_type != "not_compound_heterozygous"
-                        and comp_het_type not in patterns_list
-                    ):
-                        patterns_list.append(comp_het_type)
+                    for ct in info.get("all_comp_het_types", [comp_het_type]):
+                        if ct != "not_compound_heterozygous" and ct not in patterns_list:
+                            patterns_list.append(ct)
 
         # Calculate segregation scores if needed
         segregation_results = None
@@ -393,6 +391,10 @@ def _create_inheritance_details(
                     sample_info["compound_het_partner"] = ch_info["partner_variant"]
                 sample_info["compound_het_gene"] = ch_info.get("gene")
                 sample_info["compound_het_configuration"] = ch_info.get("inheritance_type")
+                if "partner_types" in ch_info:
+                    sample_info["compound_het_partner_types"] = ch_info["partner_types"]
+                if "partner_comp_het_types" in ch_info:
+                    sample_info["compound_het_partner_patterns"] = ch_info["partner_comp_het_types"]
 
         details["samples_with_pattern"].append(sample_info)
 

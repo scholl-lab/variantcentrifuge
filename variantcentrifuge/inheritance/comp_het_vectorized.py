@@ -248,21 +248,77 @@ def analyze_gene_for_compound_het_vectorized(
 
         # Store results based on the new partner structure
         for result_var_idx, partner_indices in partners_by_variant_idx.items():
+            if has_father and has_mother:
+                father_genotypes = genotype_matrix.get(father_id, np.array([]))
+                mother_genotypes = genotype_matrix.get(mother_id, np.array([]))
+
+                valid_partner_indices = []
+                partner_evaluations = []
+                for pidx in partner_indices:
+                    inh_type, ch_type = determine_compound_het_type_vectorized(
+                        result_var_idx,
+                        pidx,
+                        father_genotypes,
+                        mother_genotypes,
+                        gene_df,
+                        sample_id,
+                        pedigree_data,
+                    )
+                    if ch_type != "not_compound_heterozygous":
+                        valid_partner_indices.append(pidx)
+                        partner_evaluations.append((inh_type, ch_type))
+
+                if not valid_partner_indices:
+                    continue
+
+                partner_types = {
+                    unique_keys[pidx]: inh_type
+                    for pidx, (inh_type, _) in zip(
+                        valid_partner_indices, partner_evaluations, strict=False
+                    )
+                }
+                partner_comp_het_types = {
+                    unique_keys[pidx]: ch_type
+                    for pidx, (_, ch_type) in zip(
+                        valid_partner_indices, partner_evaluations, strict=False
+                    )
+                }
+                all_comp_het_types = list(dict.fromkeys(ct for _, ct in partner_evaluations))
+
+                if any(inh == "trans" for inh, _ in partner_evaluations):
+                    comp_het_type = "compound_heterozygous"
+                    inheritance_type = "trans"
+                elif any(
+                    ct == "compound_heterozygous_possible_missing_parent_genotypes"
+                    for _, ct in partner_evaluations
+                ):
+                    comp_het_type = "compound_heterozygous_possible_missing_parent_genotypes"
+                    inheritance_type = "unknown"
+                else:
+                    has_ambiguous = any(inh == "ambiguous" for inh, _ in partner_evaluations)
+                    comp_het_type = "compound_heterozygous_possible"
+                    inheritance_type = "ambiguous" if has_ambiguous else "unknown"
+
+                partner_indices = valid_partner_indices
+            elif has_father or has_mother:
+                comp_het_type = "compound_heterozygous_possible_missing_parents"
+                inheritance_type = "unknown"
+                partner_keys = [unique_keys[pidx] for pidx in partner_indices]
+                partner_types = dict.fromkeys(partner_keys, inheritance_type)
+                partner_comp_het_types = dict.fromkeys(partner_keys, comp_het_type)
+                all_comp_het_types = [comp_het_type]
+            else:
+                comp_het_type = "compound_heterozygous_possible_no_pedigree"
+                inheritance_type = "unknown"
+                partner_keys = [unique_keys[pidx] for pidx in partner_indices]
+                partner_types = dict.fromkeys(partner_keys, inheritance_type)
+                partner_comp_het_types = dict.fromkeys(partner_keys, comp_het_type)
+                all_comp_het_types = [comp_het_type]
+
             var_key = unique_keys[result_var_idx]
 
             # Create list of partner variant keys
             partner_keys = [unique_keys[pidx] for pidx in partner_indices]
-
-            # Determine compound het type based on data availability
-            if has_father and has_mother:
-                comp_het_type = "compound_heterozygous"
-                inheritance_type = "trans"
-            elif has_father or has_mother:
-                comp_het_type = "compound_heterozygous_possible_missing_parents"
-                inheritance_type = "unknown"
-            else:
-                comp_het_type = "compound_heterozygous_possible_no_pedigree"
-                inheritance_type = "unknown"
 
             # Store compound het info with list of partners
             comp_het_info = {
@@ -272,6 +328,9 @@ def analyze_gene_for_compound_het_vectorized(
                 "is_compound_het": True,
                 "comp_het_type": comp_het_type,
                 "inheritance_type": inheritance_type,
+                "partner_types": partner_types,
+                "partner_comp_het_types": partner_comp_het_types,
+                "all_comp_het_types": all_comp_het_types,
             }
 
             if var_key not in comp_het_results:
@@ -326,19 +385,14 @@ def find_potential_partners_vectorized(
     for i, var_idx in enumerate(het_indices):
         potential_partners: list[int] = []
 
-        # Determine this variant's origin
+        # Determine this variant's origin (reciprocal partner matching)
         if from_father_only[i]:
-            # This variant is from father, partners must be from mother only
-            partner_mask = from_mother_only
+            partner_mask = from_mother_only | from_both | from_neither
         elif from_mother_only[i]:
-            # This variant is from mother, partners must be from father only
-            partner_mask = from_father_only
+            partner_mask = from_father_only | from_both | from_neither
         elif from_both[i] or from_neither[i]:
-            # Ambiguous origin - could pair with variants from either parent
-            # that have clear origin
             partner_mask = from_father_only | from_mother_only
         else:
-            # Should not happen, but be safe
             partner_mask = np.zeros(len(het_indices), dtype=bool)
 
         # A variant cannot be its own partner
