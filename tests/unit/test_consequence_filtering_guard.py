@@ -165,3 +165,27 @@ def test_configuration_loading_stage_runs_consequence_guard(tmp_path: Path) -> N
     stage = ConfigurationLoadingStage()
     with pytest.raises(ValueError, match="--split-snpeff-lines before_filters"):
         stage._process(ctx)
+
+
+@pytest.mark.parametrize("analysis_key", ["perform_gene_burden", "perform_association"])
+@pytest.mark.parametrize(
+    "filter_expr",
+    [
+        "ANN[*].IMPACT = 'HIGH'",
+        "LOF[ANY].PERC > 0.9",
+        "NMD[ANY].PERC > 0.5",
+        "ANN [ * ].EFFECT = 'missense_variant'",
+        "ANN [ ANY ].IMPACT = 'MODERATE'",
+    ],
+)
+def test_consequence_wildcards_and_whitespace_trigger_guard(
+    analysis_key: str, filter_expr: str
+) -> None:
+    """Verify that wildcard variations and whitespace trigger consequence guard."""
+    config = {
+        analysis_key: True,
+        "filter": filter_expr,
+        "snpeff_splitting_mode": None,
+    }
+    with pytest.raises(ValueError, match="--split-snpeff-lines before_filters"):
+        validate_annotation_consequence_filtering(config)

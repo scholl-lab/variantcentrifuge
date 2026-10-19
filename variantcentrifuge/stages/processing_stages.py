@@ -12,6 +12,7 @@ This module contains stages that handle the core data processing tasks:
 import gzip  # noqa: F401
 import logging
 import os  # noqa: F401
+import re
 import shutil  # noqa: F401
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed  # noqa: F401
@@ -227,8 +228,8 @@ def validate_annotation_consequence_filtering(config: dict[str, Any]) -> None:
         return
 
     filter_expr = config.get("filter") or config.get("filters") or ""
-    has_consequence_filter = isinstance(filter_expr, str) and any(
-        token in filter_expr for token in ("ANN[ANY]", "LOF[*]", "NMD[*]")
+    has_consequence_filter = isinstance(filter_expr, str) and bool(
+        re.search(r"\b(?:ANN|LOF|NMD)\s*\[\s*(?:ANY|\*)\s*\]", filter_expr, re.IGNORECASE)
     )
 
     selected_presets: list[str] = []
