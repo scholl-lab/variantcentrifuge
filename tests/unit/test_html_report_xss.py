@@ -1624,3 +1624,122 @@ window.addEventListener("load", function() {
         finally:
             server.shutdown()
             server.server_close()
+
+    def test_report_width_configuration_xss_injection_prevented(self, tmp_path: Path):
+        """Verify malicious default_max_width_px cannot inject onmouseover handler (#130)."""
+        from variantcentrifuge.generate_html_report import generate_html_report
+
+        chrome_bin = (
+            shutil.which("google-chrome")
+            or shutil.which("chromium")
+            or shutil.which("chromium-browser")
+        )
+        if not chrome_bin:
+            pytest.skip("Chrome/Chromium binary not available")
+
+        variants_data = [
+            {
+                "CHROM": "chr1",
+                "POS": 100,
+                "REF": "A",
+                "ALT": "T",
+                "IMPACT": "HIGH",
+                "ClinVar_CLNSIG": "Pathogenic",
+                "Inheritance_Pattern": "de_novo",
+                "GENE": "BRCA1",
+            }
+        ]
+        summary = {
+            "num_variants": 1,
+            "num_samples": 1,
+            "impact_distribution": {"HIGH": 1},
+            "inheritance_distribution": {"de_novo": 1},
+            "top_genes": [{"gene": "BRCA1", "count": 1}],
+        }
+        xss_width = '150px;" onmouseover="globalThis.WIDTH_PROBE=1" data-x="'
+        cfg = {
+            "reference": "GRCh38",
+            "filters": "PASS",
+            "html_report_truncate_settings": {
+                "columns_for_hover_expand": ["IMPACT", "ClinVar_CLNSIG", "GENE"],
+                "default_max_width_px": xss_width,
+            },
+        }
+        v_file = tmp_path / "variants.json"
+        s_file = tmp_path / "summary.json"
+        v_file.write_text(json.dumps(variants_data), encoding="utf-8")
+        s_file.write_text(json.dumps(summary), encoding="utf-8")
+        generate_html_report(str(v_file), str(s_file), str(tmp_path), cfg)
+        report_html = (tmp_path / "index.html").read_text(encoding="utf-8")
+
+        # 1. Verify onmouseover and WIDTH_PROBE are not in rendered static HTML
+        assert "onmouseover" not in report_html
+        assert "WIDTH_PROBE" not in report_html
+
+        # 2. Verify in real browser that no onmouseover attribute exists
+        # and WIDTH_PROBE is undefined
+        probe_script = """
+<script>
+window.addEventListener("load", function() {
+    setTimeout(function() {
+        try {
+            var onmouseoverEls = document.querySelectorAll("[onmouseover]");
+            var hasWidthProbe = typeof globalThis.WIDTH_PROBE !== "undefined";
+            var marker = document.createElement("div");
+            marker.id = "width-probe-result";
+            marker.textContent = JSON.stringify({
+                onmouseoverCount: onmouseoverEls.length,
+                hasWidthProbe: hasWidthProbe
+            });
+            document.body.appendChild(marker);
+        } catch (e) {
+            var errMarker = document.createElement("div");
+            errMarker.id = "width-probe-result";
+            errMarker.textContent = JSON.stringify({ error: e.message });
+            document.body.appendChild(errMarker);
+        }
+    }, 200);
+});
+</script>
+"""
+        probed_html = report_html.replace("</body>", probe_script + "</body>")
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(probed_html.encode("utf-8"))
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        port = server.server_port
+        t = threading.Thread(target=server.serve_forever)
+        t.daemon = True
+        t.start()
+
+        try:
+            cmd = [
+                chrome_bin,
+                "--headless",
+                "--disable-gpu",
+                "--no-sandbox",
+                "--virtual-time-budget=2000",
+                "--dump-dom",
+                f"http://127.0.0.1:{port}/",
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            assert res.returncode == 0, f"Headless Chrome execution failed: {res.stderr}"
+            m = re.search(r'<div id="width-probe-result">([\s\S]*?)</div>', res.stdout)
+            assert m is not None, f"Width probe marker not found: {res.stdout[:500]}"
+            import html as html_lib
+
+            data = json.loads(html_lib.unescape(m.group(1)))
+            assert "error" not in data, f"Width probe reported error: {data.get('error')}"
+            assert data["onmouseoverCount"] == 0
+            assert data["hasWidthProbe"] is False
+        finally:
+            server.shutdown()
+            server.server_close()

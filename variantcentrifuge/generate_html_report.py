@@ -26,6 +26,17 @@ def is_safe_url(url: Any) -> bool:
     return colon_idx == -1 or (slash_idx != -1 and slash_idx < colon_idx)
 
 
+def _coerce_positive_int(val: Any, default: int | None = None) -> int | None:
+    """Coerce value to a positive finite integer (> 0), returning default on failure."""
+    if isinstance(val, bool):
+        return default
+    try:
+        n = int(val)
+        return n if n > 0 else default
+    except (ValueError, TypeError):
+        return default
+
+
 def _load_assets() -> dict[str, str]:
     """Load vendored JS/CSS assets for inline embedding.
 
@@ -82,7 +93,9 @@ def generate_html_report(
     # Get hover-to-expand settings from config
     truncate_settings = cfg.get("html_report_truncate_settings", {})
     # Default from config or a hardcoded fallback
-    default_max_width = truncate_settings.get("default_max_width_px", 150)
+    default_max_width = (
+        _coerce_positive_int(truncate_settings.get("default_max_width_px"), default=150) or 150
+    )
     columns_for_hover_expand = truncate_settings.get("columns_for_hover_expand", [])
     column_specific_max_widths = truncate_settings.get("column_specific_max_widths_px", {})
 
@@ -104,7 +117,12 @@ def generate_html_report(
             apply_hover_behavior = col_name in columns_for_hover_expand
             hover_max_width = None
             if apply_hover_behavior:
-                hover_max_width = column_specific_max_widths.get(col_name, default_max_width)
+                raw_w = column_specific_max_widths.get(col_name)
+                hover_max_width = (
+                    _coerce_positive_int(raw_w, default=default_max_width)
+                    if raw_w is not None
+                    else default_max_width
+                )
 
             column_data_for_template.append(
                 {

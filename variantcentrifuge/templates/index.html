@@ -1097,7 +1097,12 @@
                                 {{ v_row[col_info.original_name] }}
                                 {% endif %}
                             {% elif col_info.apply_hover_expand and col_info.max_width_px %}
-                                <span class="truncated-cell" tabindex="0" style="max-width: {{ col_info.max_width_px }}px;" data-tippy-content="{{ v_row[col_info.original_name] }}">{{ v_row[col_info.original_name] }}</span>
+                                {% set safe_max_width = col_info.max_width_px | int %}
+                                {% if safe_max_width > 0 %}
+                                <span class="truncated-cell" tabindex="0" style="max-width: {{ safe_max_width }}px;" data-tippy-content="{{ v_row[col_info.original_name] }}">{{ v_row[col_info.original_name] }}</span>
+                                {% else %}
+                                <span class="truncated-cell" tabindex="0" data-tippy-content="{{ v_row[col_info.original_name] }}">{{ v_row[col_info.original_name] }}</span>
+                                {% endif %}
                             {% else %}
                                 {{ v_row[col_info.original_name] }}
                             {% endif %}
@@ -1445,6 +1450,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Badge render functions for semantic color coding
     columnData.forEach(function(col, index) {
+        function getSanitizedMaxWidth(c) {
+            if (!c || !c.apply_hover_expand) return 0;
+            var n = Number(c.max_width_px);
+            return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+        }
+
         // IMPACT column badge rendering
         if (col.original_name === 'IMPACT') {
             dtColumnDefs.push({
@@ -1461,8 +1472,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             };
                             var color = colors[cell.text] || '#6c757d';
                             var badgeHtml = '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(cell.text) + '</span>';
-                            if (col.apply_hover_expand && col.max_width_px) {
-                                return '<span class="truncated-cell" tabindex="0" style="max-width: ' + col.max_width_px + 'px;" data-tippy-content="' + escapeHtml(cell.text) + '">' + badgeHtml + '</span>';
+                            var maxW = getSanitizedMaxWidth(col);
+                            if (maxW > 0) {
+                                return '<span class="truncated-cell" tabindex="0" style="max-width: ' + maxW + 'px;" data-tippy-content="' + escapeHtml(cell.text) + '">' + badgeHtml + '</span>';
                             }
                             return badgeHtml;
                         }
@@ -1500,8 +1512,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             }
                             var displayText = str.replace(/_/g, ' ');
                             var badgeHtml = '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(displayText) + '</span>';
-                            if (col.apply_hover_expand && col.max_width_px) {
-                                return '<span class="truncated-cell" tabindex="0" style="max-width: ' + col.max_width_px + 'px;" data-tippy-content="' + escapeHtml(str) + '">' + badgeHtml + '</span>';
+                            var maxW = getSanitizedMaxWidth(col);
+                            if (maxW > 0) {
+                                return '<span class="truncated-cell" tabindex="0" style="max-width: ' + maxW + 'px;" data-tippy-content="' + escapeHtml(str) + '">' + badgeHtml + '</span>';
                             }
                             return badgeHtml;
                         }
@@ -1547,8 +1560,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                     var displayText = str.replace(/_/g, ' ');
                     var badgeHtml = '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(displayText) + '</span>';
-                    if (col.apply_hover_expand && col.max_width_px) {
-                        return '<span class="truncated-cell" tabindex="0" style="max-width: ' + col.max_width_px + 'px;" data-tippy-content="' + escapeHtml(str) + '">' + badgeHtml + '</span>';
+                    var maxW = getSanitizedMaxWidth(col);
+                    if (maxW > 0) {
+                        return '<span class="truncated-cell" tabindex="0" style="max-width: ' + maxW + 'px;" data-tippy-content="' + escapeHtml(str) + '">' + badgeHtml + '</span>';
                     }
                     return badgeHtml;
                 }
@@ -1600,10 +1614,16 @@ document.addEventListener('DOMContentLoaded', function() {
                         var cell = extractCellContent(data);
                         var str = String(cell.text || '');
                         if (type === 'display') {
+                            var hgvsMaxW = getSanitizedMaxWidth(col);
+                            var styleAttr = hgvsMaxW > 0 ? ' style="max-width: ' + hgvsMaxW + 'px;"' : '';
                             if (str.length > 30) {
                                 var truncated = str.substring(0, 30) + '...';
-                                return '<span class="truncated-cell" tabindex="0" data-tippy-content="' +
+                                return '<span class="truncated-cell" tabindex="0"' + styleAttr + ' data-tippy-content="' +
                                     escapeHtml(str) + '">' + escapeHtml(truncated) + '</span>';
+                            }
+                            if (hgvsMaxW > 0) {
+                                return '<span class="truncated-cell" tabindex="0"' + styleAttr + ' data-tippy-content="' +
+                                    escapeHtml(str) + '">' + escapeHtml(str) + '</span>';
                             }
                             return escapeHtml(str);
                         }
@@ -1662,6 +1682,30 @@ document.addEventListener('DOMContentLoaded', function() {
                     return data != null ? escapeHtml(String(data)) : '';
                 }
             });
+        }
+
+        // Generic hover-expand for other columns configured in html_report_truncate_settings
+        if (col.apply_hover_expand && !col.is_standard_link_column && !col.is_igv_link_column &&
+            col.original_name !== 'IMPACT' && col.original_name !== 'ClinVar_CLNSIG' &&
+            col.original_name !== 'dbNSFP_clinvar_clnsig' && col.original_name !== 'Inheritance_Pattern' &&
+            col.original_name !== 'HGVS_C' && col.original_name !== 'HGVS_P' && col.original_name !== 'VAR_ID') {
+            var genMaxW = getSanitizedMaxWidth(col);
+            if (genMaxW > 0) {
+                dtColumnDefs.push({
+                    targets: index + 1,
+                    render: function(data, type, row) {
+                        if (data != null && String(data).trim() !== '') {
+                            var cell = extractCellContent(data);
+                            var str = String(cell.text || '');
+                            if (type === 'display') {
+                                return '<span class="truncated-cell" tabindex="0" style="max-width: ' + genMaxW + 'px;" data-tippy-content="' + escapeHtml(str) + '">' + escapeHtml(str) + '</span>';
+                            }
+                            return escapeHtml(str);
+                        }
+                        return data != null ? escapeHtml(String(data)) : '';
+                    }
+                });
+            }
         }
     });
 

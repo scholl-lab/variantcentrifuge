@@ -67,17 +67,12 @@ def _load_igv_lookup(
 
         igv_lookup: dict[tuple[Any, ...], str] = {}
         for entry in igv_map:
-            chrom = _fmt_coord(entry.get("chrom", ""))
-            pos = _fmt_coord(entry.get("pos", ""))
-            ref = _fmt_coord(entry.get("ref", ""))
-            alt = _fmt_coord(entry.get("alt", ""))
-
-            reports = entry.get("sample_reports") or entry.get("sample_links")
-            if reports:
-                for sample_id, report_path in reports.items():
-                    igv_lookup[(chrom, pos, ref, alt, sample_id)] = report_path
+            c = tuple(_fmt_coord(entry.get(k, "")) for k in ("chrom", "pos", "ref", "alt"))
+            if reports := (entry.get("sample_reports") or entry.get("sample_links")):
+                for sid, rpath in reports.items():
+                    igv_lookup[(c[0], c[1], c[2], c[3], sid)] = rpath
             elif "sample_id" in entry and "report_path" in entry:
-                igv_lookup[(chrom, pos, ref, alt, entry["sample_id"])] = entry["report_path"]
+                igv_lookup[(c[0], c[1], c[2], c[3], entry["sample_id"])] = entry["report_path"]
 
         logger.info(f"Created lookup for {len(igv_lookup)} IGV report entries")
         return igv_lookup
@@ -101,18 +96,16 @@ def _get_igv_reports_for_variant(
     chrom, pos, ref, alt = _fmt_coord(chrom), _fmt_coord(pos), _fmt_coord(ref), _fmt_coord(alt)
     igv_reports = []
     for entry in gt_str.split(";"):
-        entry = entry.strip()
-        if not entry:
-            continue
-        m = GT_PATTERN.match(entry)
-        if m:
-            sample_id = m.group(1).strip()
-            genotype = m.group(2).strip()
-            if genotype in ["0/0", "./.", "0", ".", "0|0"]:
-                continue
-            lookup_key = (chrom, pos, ref, alt, sample_id)
-            if lookup_key in igv_lookup:
-                igv_reports.append((sample_id, igv_lookup[lookup_key]))
+        if (m := GT_PATTERN.match(entry.strip())) and m.group(2).strip() not in {
+            "0/0",
+            "./.",
+            "0",
+            ".",
+            "0|0",
+        }:
+            sid = m.group(1).strip()
+            if (key := (chrom, pos, ref, alt, sid)) in igv_lookup:
+                igv_reports.append((sid, igv_lookup[key]))
     return igv_reports
 
 
@@ -121,12 +114,7 @@ def _excel_cell_value(val: Any) -> Any:
         return None
     if isinstance(val, (list, tuple, dict, set, np.ndarray)):
         return str(val)
-    try:
-        if pd.isna(val):
-            return None
-    except (TypeError, ValueError):
-        pass
-    return val
+    return None if pd.isna(val) else val
 
 
 def _detect_url_columns(df: pd.DataFrame) -> set[int]:
@@ -137,15 +125,17 @@ def _detect_url_columns(df: pd.DataFrame) -> set[int]:
     for col_idx, col_name in enumerate(df.columns):
         if not col_name:
             continue
-        sample_values = []
-        for raw_val in df.iloc[:4, col_idx]:
-            cell_val = _excel_cell_value(raw_val)
-            if cell_val and str(cell_val).strip():
-                sample_values.append(str(cell_val).strip())
-        if sample_values:
-            url_count = sum(1 for val in sample_values if val.startswith(("http://", "https://")))
-            if url_count >= len(sample_values) * 0.7:
-                url_columns.add(col_idx)
+        sample_vals = [
+            s
+            for raw in df.iloc[:4, col_idx]
+            if (c := _excel_cell_value(raw)) and (s := str(c).strip())
+        ]
+        if (
+            sample_vals
+            and sum(v.startswith(("http://", "https://")) for v in sample_vals)
+            >= len(sample_vals) * 0.7
+        ):
+            url_columns.add(col_idx)
     return url_columns
 
 
@@ -157,10 +147,8 @@ def convert_to_excel(
     output_file: str | None = None,
 ) -> str:
     """Convert a TSV file or DataFrame to XLSX format with Results and optional extra sheets."""
-    if extra_sheets:
-        reserved = {"Results", "IGV_Overflow"} & set(extra_sheets)
-        if reserved:
-            raise ValueError(f"extra_sheets cannot overwrite reserved sheet(s): {sorted(reserved)}")
+    if extra_sheets and (reserved := {"Results", "IGV_Overflow"} & set(extra_sheets)):
+        raise ValueError(f"extra_sheets cannot overwrite reserved sheet(s): {sorted(reserved)}")
 
     if df is not None:
         logger.debug("Using provided DataFrame for Excel conversion (skipping disk read)")
@@ -218,13 +206,18 @@ def convert_to_excel(
                 if not s_val:
                     continue
                 if is_url_col and s_val.startswith(("http://", "https://")):
-                    ret = ws.write_url(
-                        row_idx + 1, col_idx, s_val, hyperlink_format, string=str_col_name
-                    )
-                    if ret != 0:
-                        ws.write_string(row_idx + 1, col_idx, str_col_name, hyperlink_format)
-                elif s_val.startswith(URL_PREFIXES):
-                    ws.write_url(row_idx + 1, col_idx, s_val)
+                    if (
+                        ws.write_url(
+                            row_idx + 1, col_idx, s_val, hyperlink_format, string=str_col_name
+                        )
+                        != 0
+                    ):
+                        ws.write_string(row_idx + 1, col_idx, s_val)
+                elif (
+                    s_val.startswith(URL_PREFIXES)
+                    and ws.write_url(row_idx + 1, col_idx, s_val) != 0
+                ):
+                    ws.write_string(row_idx + 1, col_idx, s_val)
 
         # Handle IGV Report Links column
         num_cols = len(df.columns)
@@ -234,11 +227,12 @@ def convert_to_excel(
             igv_col_idx = num_cols
             ws.write_string(0, igv_col_idx, "IGV Report Links")
             for row_idx in range(len(df)):
-                raw_pos = df["POS"].iloc[row_idx]
-                chrom = _fmt_coord(df["CHROM"].iloc[row_idx])
-                pos = _fmt_coord(raw_pos)
-                ref = _fmt_coord(df["REF"].iloc[row_idx])
-                alt = _fmt_coord(df["ALT"].iloc[row_idx])
+                raw_pos, chrom = df["POS"].iloc[row_idx], _fmt_coord(df["CHROM"].iloc[row_idx])
+                pos, ref, alt = (
+                    _fmt_coord(raw_pos),
+                    _fmt_coord(df["REF"].iloc[row_idx]),
+                    _fmt_coord(df["ALT"].iloc[row_idx]),
+                )
                 gt_val = (
                     str(df["GT"].iloc[row_idx])
                     if "GT" in df.columns and pd.notna(df["GT"].iloc[row_idx])
@@ -249,15 +243,23 @@ def convert_to_excel(
                 if len(igv_reports) == 1:
                     sample_id, rpath = igv_reports[0]
                     rel_link = os.path.join("report", rpath)
-                    ret = ws.write_url(
-                        row_idx + 1,
-                        igv_col_idx,
-                        f"external:{rel_link}",
-                        hyperlink_format,
-                        string=sample_id,
+                    ws.write_comment(
+                        row_idx + 1, igv_col_idx, f"Full path: {rel_link}", {"visible": False}
                     )
-                    if ret != 0:
-                        ws.write_string(row_idx + 1, igv_col_idx, sample_id, hyperlink_format)
+                    if (
+                        ws.write_url(
+                            row_idx + 1,
+                            igv_col_idx,
+                            f"external:{rel_link}",
+                            hyperlink_format,
+                            string=sample_id,
+                        )
+                        != 0
+                    ):
+                        ws.write_string(row_idx + 1, igv_col_idx, rel_link)
+                        overflow_rows.append(
+                            [row_idx + 2, chrom, raw_pos, ref, alt, sample_id, rel_link]
+                        )
                 elif len(igv_reports) > 1:
                     first_sample, _ = igv_reports[0]
                     num_others = len(igv_reports) - 1
@@ -521,10 +523,11 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
         for variant_dict in variants:
             variant_dict["igv_links"] = []
             try:
-                chrom = _fmt_coord(variant_dict.get("CHROM"))
-                pos = _fmt_coord(variant_dict.get("POS"))
-                ref = _fmt_coord(variant_dict.get("REF"))
-                alt = _fmt_coord(variant_dict.get("ALT"))
+                chrom, pos = (
+                    _fmt_coord(variant_dict.get("CHROM")),
+                    _fmt_coord(variant_dict.get("POS")),
+                )
+                ref, alt = _fmt_coord(variant_dict.get("REF")), _fmt_coord(variant_dict.get("ALT"))
                 raw_gt = variant_dict.get("GT")
                 gt_value = str(raw_gt) if raw_gt is not None and pd.notna(raw_gt) else ""
 

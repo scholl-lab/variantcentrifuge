@@ -1428,3 +1428,74 @@ def test_convert_to_excel_rejects_reserved_extra_sheet_names(tmp_path: Path, res
     wb = openpyxl.load_workbook(existing_file)
     assert wb.sheetnames == ["Results"]
     assert wb["Results"]["A2"].value == "chr1"
+
+
+@pytest.mark.unit
+@pytest.mark.filterwarnings("ignore:Ignoring URL .* since it exceeds Excel's limit:UserWarning")
+def test_convert_to_excel_large_report_preserves_all_igv_targets(tmp_path: Path):
+    """Verify that exceeding Excel's 65,530 hyperlink limit never drops IGV paths (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    igv_dir = tmp_path / "report" / "igv"
+    igv_dir.mkdir(parents=True, exist_ok=True)
+
+    n = 10000
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"] * n,
+            "POS": list(range(1, n + 1)),
+            "REF": ["A"] * n,
+            "ALT": ["T"] * n,
+            "GT": ["Sample_1(0/1)"] * n,
+            "URL1": [f"https://example.com/1/{i}" for i in range(n)],
+            "URL2": [f"https://example.com/2/{i}" for i in range(n)],
+            "URL3": [f"https://example.com/3/{i}" for i in range(n)],
+            "URL4": [f"https://example.com/4/{i}" for i in range(n)],
+            "URL5": [f"https://example.com/5/{i}" for i in range(n)],
+            "URL6": [f"https://example.com/6/{i}" for i in range(n)],
+        }
+    )
+
+    variants_map = [
+        {
+            "chrom": "chr1",
+            "pos": str(i),
+            "ref": "A",
+            "alt": "T",
+            "sample_reports": {"Sample_1": f"igv/var_{i}.html"},
+        }
+        for i in range(1, n + 1)
+    ]
+    (igv_dir / "igv_reports_map.json").write_text(json.dumps({"variants": variants_map}))
+
+    out_file = tmp_path / "results.xlsx"
+    convert_to_excel(
+        str(out_file),
+        cfg={"igv_enabled": True},
+        df=df,
+        output_file=str(out_file),
+    )
+
+    wb = openpyxl.load_workbook(out_file)
+    assert "Results" in wb.sheetnames
+    assert "IGV_Overflow" in wb.sheetnames
+
+    ws_results = wb["Results"]
+    igv_col = 12
+
+    for i in range(1, n + 1):
+        cell = ws_results.cell(row=i + 1, column=igv_col)
+        expected_path = f"report/igv/var_{i}.html"
+        assert cell.comment is not None
+        assert f"Full path: {expected_path}" in cell.comment.text
+
+        if cell.hyperlink is not None:
+            assert cell.value == "Sample_1"
+        else:
+            assert cell.value == expected_path
+
+    ws_ov = wb["IGV_Overflow"]
+    assert ws_ov.max_row > 1
+    assert str(ws_ov.cell(row=2, column=7).value).startswith("report/igv/var_")
+
+    wb.close()
