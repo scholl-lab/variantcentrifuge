@@ -1,5 +1,6 @@
 """HTML report generation for VariantCentrifuge."""
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -84,6 +85,71 @@ def _coerce_positive_int(val: Any, default: int | None = None) -> int | None:
         return default
 
 
+def _normalize_sentinel(val: Any) -> str:
+    """Normalize missing or sentinel genomic values to empty string."""
+    if val is None:
+        return ""
+    s = str(val).strip()
+    if s in {"", ".", "N/A", "NA", "null", "None"}:
+        return ""
+    return s
+
+
+def compute_variant_key(v: dict[str, Any]) -> str:
+    """Generate a stable allele-aware key for a variant record.
+
+    Incorporates CHROM, POS, REF, ALT, and transcript FEATUREID when available.
+    Duplicate annotation rows share the key, while distinct alternate alleles
+    or missing/repeated VAR_ID values produce distinct keys.
+    """
+    chrom = _normalize_sentinel(v.get("CHROM"))
+    pos = _normalize_sentinel(v.get("POS"))
+    ref = _normalize_sentinel(v.get("REF"))
+    alt = _normalize_sentinel(v.get("ALT"))
+    feature = _normalize_sentinel(
+        v.get("FEATUREID") or v.get("Feature_ID") or v.get("TRANSCRIPT") or v.get("FEATURE")
+    )
+
+    if chrom and pos and ref and alt:
+        if feature:
+            return f"{chrom}:{pos}:{ref}:{alt}:{feature}"
+        return f"{chrom}:{pos}:{ref}:{alt}"
+
+    row_bytes = json.dumps(v, sort_keys=True, default=str).encode("utf-8")
+    row_hash = hashlib.sha256(row_bytes).hexdigest()[:12]
+
+    var_id = _normalize_sentinel(v.get("VAR_ID") or v.get("ID"))
+    if var_id:
+        return f"id:{var_id}:{row_hash}"
+
+    return f"row:{row_hash}"
+
+
+def compute_report_id(
+    variants_data: list[dict[str, Any]],
+    vcf_source: Any = "Unknown",
+    reference_genome: Any = "Unknown",
+    filter_expression: Any = "None",
+    cfg_report_id: Any = None,
+) -> str:
+    """Generate a deterministic report dataset ID / fingerprint.
+
+    If an explicit report_id is provided in configuration, it is used directly.
+    Otherwise, a deterministic SHA256 hex digest is derived from provenance and
+    the variants data.
+    """
+    if cfg_report_id:
+        return str(cfg_report_id)
+
+    hasher = hashlib.sha256()
+    hasher.update(str(vcf_source).encode("utf-8"))
+    hasher.update(str(reference_genome).encode("utf-8"))
+    hasher.update(str(filter_expression).encode("utf-8"))
+    variants_json = json.dumps(variants_data, sort_keys=True, default=str)
+    hasher.update(variants_json.encode("utf-8"))
+    return hasher.hexdigest()[:16]
+
+
 def _load_assets() -> dict[str, str]:
     """Load vendored JS/CSS assets for inline embedding.
 
@@ -163,8 +229,8 @@ def generate_html_report(
         original_columns = list(variants_data[0].keys())
 
         for col_name in original_columns:
-            # Skip the igv_links column as it will be handled specially
-            if col_name == "igv_links":
+            # Skip the igv_links column and internal metadata keys
+            if col_name == "igv_links" or col_name.startswith("_"):
                 continue
 
             # Replace underscores for better readability
@@ -243,6 +309,17 @@ def generate_html_report(
         vcf_source = "Unknown"
     reference_genome = cfg.get("reference", "Unknown")
 
+    # Compute deterministic report fingerprint and assign stable variant keys
+    report_id = compute_report_id(
+        variants_data,
+        vcf_source=vcf_source,
+        reference_genome=reference_genome,
+        filter_expression=filter_expression,
+        cfg_report_id=cfg.get("report_id"),
+    )
+    for v in variants_data:
+        v["_variant_key"] = compute_variant_key(v)
+
     # Render template with the new column structure
     html_content = template.render(
         variants=variants_data,
@@ -255,6 +332,7 @@ def generate_html_report(
         filter_expression=filter_expression,
         vcf_source=vcf_source,
         reference_genome=reference_genome,
+        report_id=report_id,
     )
 
     output_path = Path(output_dir) / "index.html"

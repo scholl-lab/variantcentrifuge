@@ -222,20 +222,34 @@
     }
 
     /* TABLE-03: Chevron control column */
-    td.dt-control {
+    td.dt-control, td.details-control {
         cursor: pointer;
         text-align: center !important;
         width: 30px;
         user-select: none;
     }
-    td.dt-control .chevron {
+    td.dt-control:focus, td.details-control:focus,
+    td.dt-control .details-toggle:focus, td.details-control .details-toggle:focus {
+        outline: 2px solid #0056b3;
+        outline-offset: -2px;
+    }
+    td.dt-control .chevron, td.details-control .chevron,
+    td.dt-control .details-toggle, td.details-control .details-toggle {
         display: inline-block;
+        background: transparent;
+        border: none;
+        padding: 0;
+        cursor: pointer;
         font-size: 18px;
         font-weight: bold;
         color: #007bff;
+        line-height: 1;
         transition: transform 200ms ease-in-out;
     }
-    tr.shown td.dt-control .chevron {
+    tr.shown td.dt-control .chevron,
+    tr.shown td.details-control .chevron,
+    tr.shown td.dt-control .details-toggle,
+    tr.shown td.details-control .details-toggle {
         transform: rotate(90deg);
     }
 
@@ -290,6 +304,109 @@
     }
     .detail-section a:hover {
         text-decoration: underline;
+    }
+
+    /* Review & Pinning Styles (#170) */
+    tr.is-pinned td {
+        background-color: #fffbeb !important;
+    }
+    tr.is-pinned td.dt-control .chevron::before,
+    tr.is-pinned td.details-control .chevron::before,
+    tr.is-pinned td.dt-control .details-toggle::before,
+    tr.is-pinned td.details-control .details-toggle::before {
+        content: "★ ";
+        color: #d97706;
+        font-weight: bold;
+    }
+    .detail-section.review-section {
+        grid-column: 1 / -1;
+        background: #fdfbf7;
+        border-color: #fde68a;
+    }
+    .review-controls {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 10px;
+    }
+    .btn-pin-variant, .pin-toggle-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 4px;
+        background: white;
+        color: #374151;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 150ms ease-in-out;
+    }
+    .btn-pin-variant:hover, .pin-toggle-btn:hover {
+        background: #f3f4f6;
+        border-color: #9ca3af;
+    }
+    .btn-pin-variant.pinned, .pin-toggle-btn.pinned {
+        background: #fef3c7;
+        color: #92400e;
+        border-color: #f59e0b;
+    }
+    .btn-pin-variant.pinned:hover, .pin-toggle-btn.pinned:hover {
+        background: #fde68a;
+    }
+    .btn-pin-variant:focus, .pin-toggle-btn:focus,
+    .review-notes-input:focus {
+        outline: 2px solid #0056b3;
+        outline-offset: 1px;
+    }
+    .review-status {
+        font-size: 11px;
+        color: #059669;
+        font-weight: 500;
+        min-height: 16px;
+    }
+    .review-notes-container {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .review-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: #4b5563;
+    }
+    .review-notes-input {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #d1d5db;
+        border-radius: 4px;
+        padding: 8px 10px;
+        font-family: inherit;
+        font-size: 13px;
+        color: #1f2937;
+        resize: vertical;
+        transition: border-color 150ms ease;
+    }
+    .review-notes-input:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+    .pinned-count-badge {
+        display: inline-block;
+        background: #d97706;
+        color: white;
+        border-radius: 10px;
+        padding: 1px 6px;
+        font-size: 11px;
+        font-weight: 600;
+        margin-left: 4px;
+    }
+    .toolbar-btn.active#pinned-only-btn {
+        background: #dbeafe;
+        color: #1e40af;
+        border-color: #3b82f6;
     }
 
     /* TABLE-09: Prominent record count */
@@ -1007,6 +1124,13 @@
                                aria-label="Include missing values in filter results">
                         Missing
                     </label>
+                    <button class="toolbar-btn" id="pinned-only-btn" type="button"
+                            aria-pressed="false" aria-label="Show pinned variants only" title="Show pinned variants only">
+                        <svg aria-hidden="true" focusable="false" width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187l-4.389 2.256z"/>
+                        </svg>
+                        Pinned Only <span class="badge pinned-count-badge" id="pinned-count-badge">0</span>
+                    </button>
                 </div>
                 <!-- Right group: view controls -->
                 <div class="toolbar-group toolbar-right">
@@ -1020,6 +1144,26 @@
                             <path d="M14 14H2v-2h12v2z"/>
                         </svg>
                         PDF
+                    </button>
+                    <button class="toolbar-btn" id="export-tsv-btn" type="button"
+                            aria-label="Export shortlisted variants as TSV" title="Export shortlisted variants as TSV">
+                        <svg aria-hidden="true" focusable="false" width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                            <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/>
+                        </svg>
+                        TSV
+                    </button>
+                    <button class="toolbar-btn" id="export-json-btn" type="button"
+                            aria-label="Export shortlisted variants as JSON" title="Export shortlisted variants as JSON">
+                        <svg aria-hidden="true" focusable="false" width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                            <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/>
+                        </svg>
+                        JSON
+                    </button>
+                    <button class="toolbar-btn" id="clear-review-btn" type="button"
+                            aria-label="Clear all saved review state" title="Clear all saved review pins and notes">
+                        Clear Review
                     </button>
                 </div>
             </div>
@@ -1065,7 +1209,8 @@
             </thead>
             <tbody>
                 {% for v_row in variants %}
-                <tr>
+                {% set v_key = v_row._variant_key if v_row._variant_key is defined else (v_row.CHROM ~ ':' ~ v_row.POS ~ ':' ~ v_row.REF ~ ':' ~ v_row.ALT ~ (':' ~ v_row.FEATUREID if v_row.FEATUREID else '')) %}
+                <tr data-variant-key="{{ v_key }}">
                     <td></td>
                     {% for col_info in column_data %}
                         <td>
@@ -1440,8 +1585,273 @@ document.addEventListener('DOMContentLoaded', function() {
     var allColumnOriginalNames = {{ column_data | map(attribute='original_name') | list | tojson }};
     var defaultHiddenColumnOriginalNames = {{ default_hidden_columns | tojson }};
     var columnData = {{ column_data | tojson }};
+    var reportId = {{ report_id | default('default', true) | tojson }};
+    var rawVariants = {{ variants | default([]) | tojson }};
+    var storageKey = 'vc_review_' + reportId;
+    var reviewState = { version: 1, variants: {} };
+    var pinnedOnlyActive = false;
     var hiddenColumnIndices = [];
     var dtColumnDefs = [];
+
+    function safeStorageGet(key) {
+        try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+                return window.localStorage.getItem(key);
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    function safeStorageSet(key, val) {
+        try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+                window.localStorage.setItem(key, val);
+                return true;
+            }
+        } catch (e) {}
+        return false;
+    }
+
+    function safeStorageRemove(key) {
+        try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+                window.localStorage.removeItem(key);
+                return true;
+            }
+        } catch (e) {}
+        return false;
+    }
+
+    function normalizeSentinel(val) {
+        if (val === null || val === undefined) return '';
+        var s = String(val).trim();
+        if (s === '' || s === '.' || s === 'N/A' || s === 'NA' || s === 'null' || s === 'None') {
+            return '';
+        }
+        return s;
+    }
+
+    function getVariantKey(v) {
+        if (!v) return '';
+        if (v._variant_key) return String(v._variant_key);
+        var chrom = normalizeSentinel(v.CHROM);
+        var pos = normalizeSentinel(v.POS);
+        var ref = normalizeSentinel(v.REF);
+        var alt = normalizeSentinel(v.ALT);
+        var feat = normalizeSentinel(v.FEATUREID || v.Feature_ID || v.TRANSCRIPT || v.FEATURE);
+        if (chrom && pos && ref && alt) {
+            return feat ? (chrom + ':' + pos + ':' + ref + ':' + alt + ':' + feat) : (chrom + ':' + pos + ':' + ref + ':' + alt);
+        }
+        var varId = normalizeSentinel(v.VAR_ID || v.ID);
+        var hash = '';
+        try {
+            var rawJson = JSON.stringify(v);
+            var h = 0;
+            for (var i = 0; i < rawJson.length; i++) {
+                h = ((h << 5) - h) + rawJson.charCodeAt(i);
+                h |= 0;
+            }
+            hash = (h >>> 0).toString(16);
+        } catch (e) {
+            hash = 'row';
+        }
+        return varId ? ('id:' + varId + ':' + hash) : ('row:' + hash);
+    }
+
+    function loadReviewState() {
+        var raw = safeStorageGet(storageKey);
+        if (raw) {
+            try {
+                var parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) &&
+                    parsed.variants && typeof parsed.variants === 'object' && !Array.isArray(parsed.variants)) {
+                    var cleanVariants = {};
+                    Object.keys(parsed.variants).forEach(function(k) {
+                        var v = parsed.variants[k];
+                        if (v && typeof v === 'object' && !Array.isArray(v)) {
+                            cleanVariants[k] = {
+                                pinned: Boolean(v.pinned),
+                                notes: typeof v.notes === 'string' ? v.notes : '',
+                                updated_at: typeof v.updated_at === 'string' ? v.updated_at : ''
+                            };
+                        }
+                    });
+                    reviewState = {
+                        version: typeof parsed.version === 'number' ? parsed.version : 1,
+                        variants: cleanVariants
+                    };
+                    if (typeof updatePinnedUi === 'function') {
+                        updatePinnedUi();
+                    }
+                    return;
+                }
+            } catch (e) {
+                console.warn('Unable to load review state from localStorage:', e);
+            }
+        }
+        reviewState = { version: 1, variants: {} };
+        if (typeof updatePinnedUi === 'function') {
+            updatePinnedUi();
+        }
+    }
+
+    function saveReviewState() {
+        reviewState.updated_at = new Date().toISOString();
+        var success = safeStorageSet(storageKey, JSON.stringify(reviewState));
+        if (!success) {
+            console.warn('Review state saved in session memory only (localStorage unavailable or full)');
+        }
+        return success;
+    }
+
+    function isVariantPinned(key) {
+        return Boolean(key && reviewState.variants[key] && reviewState.variants[key].pinned);
+    }
+
+    function getVariantNotes(key) {
+        return (key && reviewState.variants[key] && reviewState.variants[key].notes) || '';
+    }
+
+    function updateChildSectionElement(sec, varKey) {
+        if (!sec || !varKey) return;
+        var isPinned = isVariantPinned(varKey);
+        var notes = getVariantNotes(varKey);
+        var btn = sec.querySelector ? sec.querySelector('.btn-pin-variant, .pin-toggle-btn') : null;
+        if (btn) {
+            if (isPinned) {
+                btn.classList.add('pinned');
+                btn.setAttribute('aria-pressed', 'true');
+                btn.textContent = '★ Pinned';
+            } else {
+                btn.classList.remove('pinned');
+                btn.setAttribute('aria-pressed', 'false');
+                btn.textContent = '☆ Pin Candidate';
+            }
+        }
+        var txt = sec.querySelector ? sec.querySelector('.review-notes-input') : null;
+        if (txt && txt.value !== notes) {
+            txt.value = notes;
+        }
+    }
+
+    function syncVariantChildControls(varKey) {
+        if (!varKey) return;
+
+        // 1. Update attached DOM elements
+        var domSections = document.querySelectorAll('.review-section');
+        domSections.forEach(function(sec) {
+            if (sec.getAttribute('data-variant-key') === varKey) {
+                updateChildSectionElement(sec, varKey);
+            }
+        });
+
+        // 2. Update detached/cached DataTables child rows across all pages
+        if (typeof table !== 'undefined' && table && typeof table.rows === 'function') {
+            table.rows().every(function() {
+                var child = this.child();
+                if (child && child.length) {
+                    var childNode = child[0];
+                    var sec = childNode.querySelector ? childNode.querySelector('.review-section') : null;
+                    if (!sec && typeof $ !== 'undefined') {
+                        sec = $(childNode).find('.review-section')[0];
+                    }
+                    if (sec && sec.getAttribute('data-variant-key') === varKey) {
+                        updateChildSectionElement(sec, varKey);
+                    }
+                }
+            });
+        }
+    }
+
+    function syncAllOpenChildControls() {
+        // Single-pass update over attached review sections in DOM
+        var domSections = document.querySelectorAll('.review-section');
+        domSections.forEach(function(sec) {
+            var k = sec.getAttribute('data-variant-key');
+            if (k) updateChildSectionElement(sec, k);
+        });
+
+        // Single-pass update over open child rows in DataTables
+        if (typeof table !== 'undefined' && table && typeof table.rows === 'function') {
+            table.rows().every(function() {
+                if (this.child && this.child.isShown && this.child.isShown()) {
+                    var child = this.child();
+                    if (child && child.length) {
+                        var childNode = child[0];
+                        var sec = childNode.querySelector ? childNode.querySelector('.review-section') : null;
+                        if (!sec && typeof $ !== 'undefined') {
+                            sec = $(childNode).find('.review-section')[0];
+                        }
+                        if (sec) {
+                            var k = sec.getAttribute('data-variant-key');
+                            if (k) updateChildSectionElement(sec, k);
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    function setVariantPinned(key, pinned) {
+        if (!key) return false;
+        if (!reviewState.variants[key] || typeof reviewState.variants[key] !== 'object' || Array.isArray(reviewState.variants[key])) {
+            reviewState.variants[key] = { pinned: false, notes: '', updated_at: '' };
+        }
+        reviewState.variants[key].pinned = Boolean(pinned);
+        reviewState.variants[key].updated_at = new Date().toISOString();
+        var persisted = saveReviewState();
+        if (typeof updatePinnedUi === 'function') {
+            updatePinnedUi();
+        }
+        if (typeof syncVariantChildControls === 'function') {
+            syncVariantChildControls(key);
+        }
+        return persisted;
+    }
+
+    function setVariantNotes(key, notes) {
+        if (!key) return false;
+        if (!reviewState.variants[key] || typeof reviewState.variants[key] !== 'object' || Array.isArray(reviewState.variants[key])) {
+            reviewState.variants[key] = { pinned: false, notes: '', updated_at: '' };
+        }
+        reviewState.variants[key].notes = typeof notes === 'string' ? notes : String(notes || '');
+        reviewState.variants[key].updated_at = new Date().toISOString();
+        var persisted = saveReviewState();
+        if (typeof syncVariantChildControls === 'function') {
+            syncVariantChildControls(key);
+        }
+        return persisted;
+    }
+
+    function getPinnedVariantCount() {
+        var count = 0;
+        if (reviewState && reviewState.variants) {
+            Object.keys(reviewState.variants).forEach(function(k) {
+                if (reviewState.variants[k] && reviewState.variants[k].pinned) {
+                    count++;
+                }
+            });
+        }
+        return count;
+    }
+
+    function updatePinnedUi() {
+        var badge = document.getElementById('pinned-count-badge') || document.getElementById('pinned_count_badge');
+        if (badge) {
+            badge.textContent = String(getPinnedVariantCount());
+        }
+        var rows = document.querySelectorAll('#variants_table tbody tr[data-variant-key]');
+        rows.forEach(function(tr) {
+            var k = (tr && typeof tr.getAttribute === 'function') ? tr.getAttribute('data-variant-key') : null;
+            if (isVariantPinned(k)) {
+                tr.classList.add('is-pinned');
+            } else {
+                tr.classList.remove('is-pinned');
+            }
+        });
+    }
+
+    var updateToolbarState = updatePinnedUi;
 
     // Find indices of columns to hide by default
     defaultHiddenColumnOriginalNames.forEach(function(hiddenColName) {
@@ -1455,11 +1865,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // This shifts ALL data column indices by +1
     dtColumnDefs.unshift({
         targets: 0,
-        className: 'dt-control',
+        className: 'dt-control details-control',
         orderable: false,
         searchable: false,
         data: null,
-        defaultContent: '<span class="chevron">&#x203A;</span>',
+        defaultContent: '<button type="button" class="details-toggle chevron" aria-expanded="false" aria-label="Toggle variant details">&#x203A;</button>',
         width: '30px'
     });
 
@@ -1734,7 +2144,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // TABLE-07: Density mode management
     var densityModes = ['compact', 'regular', 'relaxed'];
-    var savedDensity = localStorage.getItem('variantTableDensity') || 'compact';
+    var savedDensity = safeStorageGet('variantTableDensity') || 'compact';
     var currentDensityIndex = densityModes.indexOf(savedDensity);
     if (currentDensityIndex === -1) { currentDensityIndex = 0; savedDensity = 'compact'; }
 
@@ -1745,7 +2155,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // TABLE-03: Format function for expandable row details
-    function formatChildRow(rowData, columns) {
+    function formatChildRow(rowData, columns, vKey) {
         // Build field-to-value map using column data
         var fields = {};
         var colMap = {};
@@ -1757,6 +2167,39 @@ document.addEventListener('DOMContentLoaded', function() {
                 fields[col.original_name] = value;
             }
         });
+
+        // Derive variant key if not provided
+        if (!vKey) {
+            var normSentinel = (typeof normalizeSentinel === 'function') ? normalizeSentinel : function(val) {
+                if (val === null || val === undefined) return '';
+                var s = String(val).trim();
+                if (s === '' || s === '.' || s === 'N/A' || s === 'NA' || s === 'null' || s === 'None') return '';
+                return s;
+            };
+            var chrom = normSentinel(fields['CHROM']);
+            var pos = normSentinel(fields['POS']);
+            var ref = normSentinel(fields['REF']);
+            var alt = normSentinel(fields['ALT']);
+            var feat = normSentinel(fields['FEATUREID'] || fields['Feature_ID'] || fields['TRANSCRIPT'] || fields['FEATURE']);
+            if (chrom && pos && ref && alt) {
+                vKey = feat ? (chrom + ':' + pos + ':' + ref + ':' + alt + ':' + feat) : (chrom + ':' + pos + ':' + ref + ':' + alt);
+            } else {
+                var varId = normSentinel(fields['VAR_ID'] || fields['ID']);
+                var hash = '';
+                try {
+                    var rawJson = JSON.stringify(fields);
+                    var h = 0;
+                    for (var i = 0; i < rawJson.length; i++) {
+                        h = ((h << 5) - h) + rawJson.charCodeAt(i);
+                        h |= 0;
+                    }
+                    hash = (h >>> 0).toString(16);
+                } catch (e) {
+                    hash = 'row';
+                }
+                vKey = varId ? ('id:' + varId + ':' + hash) : ('row:' + hash);
+            }
+        }
 
         // Define field categories
         var categories = {
@@ -1792,6 +2235,24 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         var html = '<div class="detail-panel">';
+
+        // Review & Pinning Section (#170)
+        var isPinned = (typeof isVariantPinned === 'function') ? isVariantPinned(vKey) : false;
+        var savedNotes = (typeof getVariantNotes === 'function') ? getVariantNotes(vKey) : '';
+        var pinBtnText = isPinned ? '★ Pinned' : '☆ Pin Candidate';
+        var pinBtnClass = isPinned ? 'btn-pin-variant pin-toggle-btn pinned' : 'btn-pin-variant pin-toggle-btn';
+        var ariaPressed = isPinned ? 'true' : 'false';
+
+        html += '<div class="detail-section review-section" data-variant-key="' + escapeHtml(vKey) + '">';
+        html += '<h4>Review & Shortlist</h4>';
+        html += '<div class="review-controls">';
+        html += '<button type="button" class="' + pinBtnClass + '" data-variant-key="' + escapeHtml(vKey) + '" aria-pressed="' + ariaPressed + '">' + escapeHtml(pinBtnText) + '</button>';
+        html += '<small class="review-status"></small>';
+        html += '</div>';
+        html += '<div class="review-notes-container">';
+        html += '<label class="review-label">Reviewer Notes (auto-saved):</label>';
+        html += '<textarea class="review-notes-input" data-variant-key="' + escapeHtml(vKey) + '" rows="2" placeholder="Add candidate evaluation notes...">' + escapeHtml(savedNotes) + '</textarea>';
+        html += '</div></div>';
 
         Object.keys(categories).forEach(function(catName) {
             var catFields = categories[catName];
@@ -1873,7 +2334,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 currentDensityIndex = (currentDensityIndex + 1) % densityModes.length;
                                 var newDensity = densityModes[currentDensityIndex];
                                 tableNode.classList.add('density-' + newDensity);
-                                localStorage.setItem('variantTableDensity', newDensity);
+                                safeStorageSet('variantTableDensity', newDensity);
                                 node.text('Density: ' + newDensity.charAt(0).toUpperCase() + newDensity.slice(1));
                                 dt.columns.adjust().draw(false);
                             }
@@ -1950,9 +2411,33 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (densityButton && densityButton.textContent.indexOf('Density') !== -1) {
                     densityButton.setAttribute('aria-label', 'Toggle table density');
                 }
+
+                loadReviewState();
+                updatePinnedUi();
             },
             drawCallback: function(settings) {
+                if (typeof updatePinnedUi === 'function') {
+                    updatePinnedUi();
+                }
+                if (typeof syncAllOpenChildControls === 'function') {
+                    syncAllOpenChildControls();
+                }
                 initTippyTooltips();
+
+                var controlCells = document.querySelectorAll('#variants_table tbody td.dt-control, #variants_table tbody td.details-control');
+                controlCells.forEach(function(td) {
+                    td.setAttribute('tabindex', '0');
+                    td.setAttribute('role', 'button');
+                    var tr = td.closest('tr');
+                    var isExpanded = tr && tr.classList.contains('shown');
+                    td.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+                    td.setAttribute('aria-label', 'Toggle variant details');
+                    var btn = td.querySelector('.details-toggle');
+                    if (btn) {
+                        btn.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+                        btn.setAttribute('aria-label', 'Toggle variant details');
+                    }
+                });
             }
         });
     } catch (e) {
@@ -1960,19 +2445,328 @@ document.addEventListener('DOMContentLoaded', function() {
         if (skeleton) { skeleton.style.display = 'none'; }
     }
 
-    // TABLE-03: Toggle child row on chevron click
-    table.on('click', 'tbody td.dt-control', function(e) {
-        var tr = e.target.closest('tr');
+    // TABLE-03: Toggle child row on chevron click or keyboard activation
+    function toggleRowDetails(targetEl) {
+        if (!targetEl) return;
+        var tr = (typeof targetEl.closest === 'function') ? targetEl.closest('tr') : null;
+        if (!tr) return;
+
         var row = table.row(tr);
+        if (!row) return;
+        var vKey = (tr && typeof tr.getAttribute === 'function') ? (tr.getAttribute('data-variant-key') || '') : '';
+        var toggleBtn = (typeof tr.querySelector === 'function') ? tr.querySelector('.details-toggle, .chevron') : null;
+        var controlCell = (typeof tr.querySelector === 'function') ? tr.querySelector('td.dt-control, td.details-control') : null;
 
         if (row.child.isShown()) {
             row.child.hide();
-            tr.classList.remove('shown');
+            if (tr.classList && typeof tr.classList.remove === 'function') {
+                tr.classList.remove('shown');
+            }
+            if (toggleBtn && typeof toggleBtn.setAttribute === 'function') toggleBtn.setAttribute('aria-expanded', 'false');
+            if (controlCell && typeof controlCell.setAttribute === 'function') controlCell.setAttribute('aria-expanded', 'false');
         } else {
-            row.child(formatChildRow(row.data(), columnData)).show();
-            tr.classList.add('shown');
+            row.child(formatChildRow(row.data(), columnData, vKey)).show();
+            if (tr.classList && typeof tr.classList.add === 'function') {
+                tr.classList.add('shown');
+            }
+            if (toggleBtn && typeof toggleBtn.setAttribute === 'function') toggleBtn.setAttribute('aria-expanded', 'true');
+            if (controlCell && typeof controlCell.setAttribute === 'function') controlCell.setAttribute('aria-expanded', 'true');
+            if (vKey && typeof syncVariantChildControls === 'function') {
+                syncVariantChildControls(vKey);
+            }
         }
+    }
+
+    table.on('click', 'tbody td.dt-control, tbody td.details-control', function(e) {
+        toggleRowDetails(e.target);
     });
+
+    // Review Pin toggle and keyboard handlers (delegated on table element)
+    var tableElNode = document.getElementById('variants_table');
+    if (tableElNode) {
+        tableElNode.addEventListener('keydown', function(e) {
+            var target = e.target.closest('.details-toggle, td.dt-control, td.details-control');
+            if (target && (e.key === 'Enter' || e.key === ' ' || e.keyCode === 13 || e.keyCode === 32)) {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleRowDetails(target);
+            }
+        });
+
+        tableElNode.addEventListener('click', function(e) {
+            var btn = e.target.closest('.btn-pin-variant, .pin-toggle-btn');
+            if (!btn) return;
+            e.preventDefault();
+            e.stopPropagation();
+
+            var key = btn.getAttribute('data-variant-key');
+            if (!key) return;
+
+            var currentlyPinned = isVariantPinned(key);
+            var newPinned = !currentlyPinned;
+            setVariantPinned(key, newPinned);
+
+            if (pinnedOnlyActive) {
+                table.draw(false);
+            }
+        });
+
+        // Review notes auto-save handler (input and change)
+        tableElNode.addEventListener('input', function(e) {
+            if (e.target && e.target.classList.contains('review-notes-input')) {
+                var textarea = e.target;
+                var key = textarea.getAttribute('data-variant-key');
+                if (key) {
+                    var persisted = setVariantNotes(key, textarea.value);
+                    // Sync any other open .review-notes-input elements with the same data-variant-key
+                    var allInputs = document.querySelectorAll('.review-notes-input');
+                    allInputs.forEach(function(el) {
+                        if (el !== textarea && el.getAttribute('data-variant-key') === key) {
+                            el.value = textarea.value;
+                        }
+                    });
+
+                    // Update status for all matching review sections
+                    var statusMsg = persisted ? 'Saved' : 'Saved in session only';
+                    var allSections = document.querySelectorAll('.review-section');
+                    allSections.forEach(function(sec) {
+                        if (sec.getAttribute('data-variant-key') === key) {
+                            var statusEl = sec.querySelector('.review-status');
+                            if (statusEl) {
+                                statusEl.textContent = statusMsg;
+                                clearTimeout(statusEl._timer);
+                                statusEl._timer = setTimeout(function() {
+                                    statusEl.textContent = '';
+                                }, 2000);
+                            }
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    // Custom filter for Pinned Only toggle (#170)
+    var pinnedFilterFn = function(settings, data, dataIndex) {
+        if (settings.nTable.id !== 'variants_table') return true;
+        if (!pinnedOnlyActive) return true;
+        var rowNode = settings.aoData[dataIndex] ? settings.aoData[dataIndex].nTr : null;
+        var vKey = (rowNode && typeof rowNode.getAttribute === 'function') ? rowNode.getAttribute('data-variant-key') : null;
+        if (!vKey && rawVariants && rawVariants[dataIndex]) {
+            vKey = getVariantKey(rawVariants[dataIndex]);
+        }
+        return isVariantPinned(vKey);
+    };
+    $.fn.dataTable.ext.search.push(pinnedFilterFn);
+
+    // Pinned Only button toggle
+    var pinnedOnlyBtn = document.getElementById('pinned-only-btn');
+    if (pinnedOnlyBtn) {
+        pinnedOnlyBtn.addEventListener('click', function() {
+            pinnedOnlyActive = !pinnedOnlyActive;
+            this.setAttribute('aria-pressed', String(pinnedOnlyActive));
+            this.classList.toggle('active', pinnedOnlyActive);
+            table.draw();
+        });
+    }
+
+    // Clear Review button
+    var clearReviewBtn = document.getElementById('clear-review-btn');
+    if (clearReviewBtn) {
+        clearReviewBtn.addEventListener('click', function() {
+            if (window.confirm('Clear all saved pins and review notes for this report?')) {
+                reviewState = { version: 1, variants: {} };
+                safeStorageRemove(storageKey);
+                if (typeof updatePinnedUi === 'function') {
+                    updatePinnedUi();
+                }
+                if (table && typeof table.rows === 'function') {
+                    table.rows().every(function() {
+                        var rowIdx = this.index();
+                        var trNode = this.node();
+                        var rKey = (trNode && typeof trNode.getAttribute === 'function') ? trNode.getAttribute('data-variant-key') : '';
+                        if (!rKey && rawVariants && rawVariants[rowIdx]) {
+                            rKey = getVariantKey(rawVariants[rowIdx]);
+                        }
+                        if (this.child && this.child.isShown && this.child.isShown()) {
+                            this.child(formatChildRow(this.data(), columnData, rKey)).show();
+                        }
+                        var child = this.child();
+                        if (child && child.length) {
+                            var childNode = child[0];
+                            var btns = childNode.querySelectorAll ? childNode.querySelectorAll('.btn-pin-variant, .pin-toggle-btn') : [];
+                            btns.forEach(function(b) {
+                                b.classList.remove('pinned');
+                                b.setAttribute('aria-pressed', 'false');
+                                b.textContent = '☆ Pin Candidate';
+                            });
+                            var notesInputs = childNode.querySelectorAll ? childNode.querySelectorAll('.review-notes-input') : [];
+                            notesInputs.forEach(function(inp) {
+                                inp.value = '';
+                            });
+                        }
+                    });
+                }
+                var allNotes = document.querySelectorAll('.review-notes-input');
+                allNotes.forEach(function(txt) { txt.value = ''; });
+                var allBtns = document.querySelectorAll('.btn-pin-variant, .pin-toggle-btn');
+                allBtns.forEach(function(b) {
+                    b.classList.remove('pinned');
+                    b.setAttribute('aria-pressed', 'false');
+                    b.textContent = '☆ Pin Candidate';
+                });
+                if (pinnedOnlyActive) {
+                    table.draw();
+                }
+            }
+        });
+    }
+
+    // TSV / JSON Shortlist Export
+    function escapeTsvField(val) {
+        if (val === null || val === undefined) return '';
+        var s;
+        if (typeof val === 'object') {
+            s = JSON.stringify(val);
+        } else {
+            s = String(val);
+        }
+        if (s.indexOf('\t') !== -1 || s.indexOf('\n') !== -1 || s.indexOf('\r') !== -1 || s.indexOf('"') !== -1) {
+            return '"' + s.replace(/"/g, '""') + '"';
+        }
+        return s;
+    }
+
+    function getShortlistedCandidates() {
+        var shortlisted = [];
+        if (!rawVariants || rawVariants.length === 0) return shortlisted;
+        for (var i = 0; i < rawVariants.length; i++) {
+            var v = rawVariants[i];
+            var key = getVariantKey(v);
+            if (isVariantPinned(key)) {
+                var st = reviewState.variants[key] || {};
+                var rec = {};
+                Object.keys(v).forEach(function(k) {
+                    if (!k.startsWith('_') && k !== 'igv_links') {
+                        rec[k] = v[k];
+                    }
+                });
+                rec.review_notes = st.notes || '';
+                rec.review_pinned = true;
+                rec.review_timestamp = st.updated_at || null;
+                rec.report_id = reportId;
+                shortlisted.push(rec);
+            }
+        }
+        return shortlisted;
+    }
+
+    function generateShortlistTsv() {
+        var candidates = getShortlistedCandidates();
+        var cols = [];
+        if (rawVariants && rawVariants.length > 0) {
+            cols = Object.keys(rawVariants[0]).filter(function(k) {
+                return !k.startsWith('_') && k !== 'igv_links';
+            });
+        }
+        var allCols = cols.concat(['review_notes', 'review_timestamp', 'report_id']);
+        if (candidates.length === 0) {
+            return allCols.join('\t');
+        }
+        var lines = [allCols.join('\t')];
+        for (var i = 0; i < candidates.length; i++) {
+            var rec = candidates[i];
+            var rowVals = allCols.map(function(c) {
+                return escapeTsvField(rec[c]);
+            });
+            lines.push(rowVals.join('\t'));
+        }
+        return lines.join('\n');
+    }
+
+    function generateShortlistJson() {
+        var candidates = getShortlistedCandidates();
+        var exportPayload = {
+            report_id: reportId,
+            exported_at: new Date().toISOString(),
+            vcf_source: {{ vcf_source | default('Unknown', true) | tojson }},
+            reference_genome: {{ reference_genome | default('Unknown', true) | tojson }},
+            candidate_count: candidates.length,
+            candidates: candidates
+        };
+        return JSON.stringify(exportPayload, null, 2);
+    }
+
+    // Expose helpers on window for external access and automated testing
+    window.generateShortlistTsv = generateShortlistTsv;
+    window.generateShortlistJson = generateShortlistJson;
+    window.loadReviewState = loadReviewState;
+    window.saveReviewState = saveReviewState;
+    window.setVariantPinned = setVariantPinned;
+    window.setVariantNotes = setVariantNotes;
+    window.isVariantPinned = isVariantPinned;
+    window.getVariantNotes = getVariantNotes;
+    window.getVariantKey = getVariantKey;
+    window.safeStorageGet = safeStorageGet;
+    window.safeStorageSet = safeStorageSet;
+    window.safeStorageRemove = safeStorageRemove;
+    window.getShortlistedCandidates = getShortlistedCandidates;
+    window.updateChildSectionElement = updateChildSectionElement;
+    window.syncVariantChildControls = syncVariantChildControls;
+    window.syncAllOpenChildControls = syncAllOpenChildControls;
+    window.toggleRowDetails = toggleRowDetails;
+    window.updateToolbarState = updateToolbarState;
+    window.updatePinnedUi = updatePinnedUi;
+    window.getPinnedVariantCount = getPinnedVariantCount;
+    window.reportId = reportId;
+    window.storageKey = storageKey;
+
+    function downloadFile(filename, content, mimeType) {
+        var blob = new Blob([content], { type: mimeType + ';charset=utf-8;' });
+        if (window.navigator && window.navigator.msSaveBlob) {
+            window.navigator.msSaveBlob(blob, filename);
+        } else {
+            var link = document.createElement('a');
+            var url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', filename);
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setTimeout(function() { URL.revokeObjectURL(url); }, 500);
+        }
+    }
+
+    var exportTsvBtn = document.getElementById('export-tsv-btn');
+    if (exportTsvBtn) {
+        exportTsvBtn.addEventListener('click', function() {
+            var count = getPinnedVariantCount();
+            if (count === 0) {
+                if (!window.confirm('No variants are currently pinned. Export empty shortlist?')) {
+                    return;
+                }
+            }
+            var tsv = generateShortlistTsv();
+            var filename = 'variant_shortlist_' + reportId + '.tsv';
+            downloadFile(filename, tsv, 'text/tab-separated-values');
+        });
+    }
+
+    var exportJsonBtn = document.getElementById('export-json-btn');
+    if (exportJsonBtn) {
+        exportJsonBtn.addEventListener('click', function() {
+            var count = getPinnedVariantCount();
+            if (count === 0) {
+                if (!window.confirm('No variants are currently pinned. Export empty shortlist?')) {
+                    return;
+                }
+            }
+            var jsonStr = generateShortlistJson();
+            var filename = 'variant_shortlist_' + reportId + '.json';
+            downloadFile(filename, jsonStr, 'application/json');
+        });
+    }
 
     // Initialize Tippy.js tooltips on truncated cells
     function initTippyTooltips() {
@@ -2512,10 +3306,10 @@ document.addEventListener('DOMContentLoaded', function() {
             var content = document.getElementById('viz-content');
             this.setAttribute('aria-expanded', String(!expanded));
             if (content) content.hidden = expanded; // toggle: if was expanded, now hide
-            localStorage.setItem('vizSectionExpanded', String(!expanded));
+            safeStorageSet('vizSectionExpanded', String(!expanded));
         });
         // Restore saved preference (default is collapsed, so only expand if 'true')
-        if (localStorage.getItem('vizSectionExpanded') === 'true') {
+        if (safeStorageGet('vizSectionExpanded') === 'true') {
             collapseToggle.click();
         }
     }
