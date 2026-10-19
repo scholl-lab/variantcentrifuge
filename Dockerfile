@@ -280,7 +280,7 @@ COPY --chown=0:0 stats_configs/ /app/stats_configs/
 RUN chmod -R go-w /app && \
     mkdir -p /data/snpeff && \
     chown $MAMBA_USER:$MAMBA_USER /data /data/snpeff && \
-    chmod 0750 /data /data/snpeff && \
+    chmod 0755 /data /data/snpeff && \
     invalid_runtime_path=$(find /opt/conda /app -xdev \
         \( ! -user root -o ! -group root -o \
             \( ! -type l -a -perm /022 \) \) -print -quit) && \

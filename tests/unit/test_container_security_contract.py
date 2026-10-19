@@ -398,7 +398,7 @@ def test_dockerfile_routes_default_snpeff_databases_to_writable_data_storage() -
     assert "grep -Fx 'data.dir = /data/snpeff/' \"$snpeff_config\"" in conda_build
     assert "mkdir -p /data/snpeff" in runtime
     assert "chown $MAMBA_USER:$MAMBA_USER /data /data/snpeff" in runtime
-    assert "chmod 0750 /data /data/snpeff" in runtime
+    assert "chmod 0755 /data /data/snpeff" in runtime
 
 
 @pytest.mark.parametrize(
@@ -546,7 +546,7 @@ def test_dockerfile_makes_runtime_payloads_immutable_to_the_service_user() -> No
     assert "chmod -R go-w /app" in runtime
     assert "! -type l -a -perm /022" in runtime
     assert "chown $MAMBA_USER:$MAMBA_USER /data" in runtime
-    assert "chmod 0750 /data" in runtime
+    assert "chmod 0755 /data" in runtime
     assert "USER $MAMBA_USER" in runtime
 
 
