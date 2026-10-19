@@ -116,24 +116,25 @@ def _raise_for_snpsift_filter_stderr(stderr: str | None, filter_string: str) -> 
 def _resolve_filter_threads(cfg: dict[str, Any]) -> tuple[int, int]:
     """Return (bgzip_threads, bcftools_threads).
 
-    bcftools treats --threads as additional worker threads beyond the main thread,
-    so for T total threads, bcftools receives max(0, T - 1) additional threads.
-    When bcftools_threads <= 0, --threads is omitted.
-    bgzip -@ uses total compression threads.
+    Both bcftools (--threads) and bgzip (-@) create thread pools of additional
+    worker threads beyond the main foreground/I/O thread, so for T total threads,
+    both receive max(0, T - 1) additional pool threads.
+    When threads <= 0, arguments are omitted.
     """
     try:
         raw_threads = int(cfg.get("threads", 1))
     except (ValueError, TypeError):
         raw_threads = 1
     total_threads = max(1, raw_threads)
+    extra_threads = max(0, total_threads - 1)
     if "bcftools_threads" in cfg:
         try:
             bcftools_threads = max(0, int(cfg["bcftools_threads"]))
         except (ValueError, TypeError):
-            bcftools_threads = max(0, total_threads - 1)
+            bcftools_threads = extra_threads
     else:
-        bcftools_threads = max(0, total_threads - 1)
-    return total_threads, bcftools_threads
+        bcftools_threads = extra_threads
+    return extra_threads, bcftools_threads
 
 
 def apply_bcftools_prefilter(
@@ -508,7 +509,7 @@ def apply_snpsift_filter(
 
         # 2) bgzip compress the temporary VCF
         bgzip_cmd = ["bgzip"]
-        if bgzip_threads > 1:
+        if bgzip_threads > 0:
             bgzip_cmd.extend(["-@", str(bgzip_threads)])
         bgzip_cmd.extend(["-c", tmp_vcf])
         logger.debug("bgzip compressing to: %s", output_file)

@@ -28,15 +28,11 @@ __all__ = ["ParallelCompleteProcessingStage"]
 def _ps_attr(name: str, fallback: Any) -> Any:
     """Get attribute from this module or processing_stages (supports test patching)."""
     ps_mod = sys.modules.get("variantcentrifuge.stages.processing_stages")
-    if ps_mod is not None:
-        val = getattr(ps_mod, name, None)
-        if getattr(val, "_mock_return_value", None) is not None:
-            return val
+    if ps_mod is not None and getattr(getattr(ps_mod, name, None), "_mock_return_value", None):
+        return getattr(ps_mod, name)
     this_mod = sys.modules.get(__name__)
-    if this_mod is not None:
-        val = getattr(this_mod, name, None)
-        if val is not None:
-            return val
+    if this_mod is not None and getattr(this_mod, name, None) is not None:
+        return getattr(this_mod, name)
     return fallback
 
 
@@ -98,13 +94,11 @@ class ParallelCompleteProcessingStage(Stage):
 
     def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
         """Handle the case where this stage is skipped by checkpoint system."""
-        base_name = context.workspace.base_name
-        intermediate_dir = context.workspace.intermediate_dir
-        merged_tsv = intermediate_dir / f"{base_name}.extracted.tsv"
-        gz_tsv = intermediate_dir / f"{base_name}.extracted.tsv.gz"
-        if gz_tsv.exists():
-            merged_tsv = gz_tsv
-
+        ws = context.workspace
+        gz_tsv = ws.intermediate_dir / f"{ws.base_name}.extracted.tsv.gz"
+        merged_tsv = (
+            gz_tsv if gz_tsv.exists() else ws.intermediate_dir / f"{ws.base_name}.extracted.tsv"
+        )
         if not merged_tsv.exists() or not self._validate_chunk_tsv(merged_tsv):
             raise RuntimeError(
                 f"Cannot restore parallel_complete_processing from checkpoint: "
@@ -123,9 +117,7 @@ class ParallelCompleteProcessingStage(Stage):
         """Process variants in parallel with complete pipeline per chunk."""
         validate_fn = _ps_attr("validate_annotation_consequence_filtering", None)
         if validate_fn is None:
-            from .processing_stages import (
-                validate_annotation_consequence_filtering as validate_fn,
-            )
+            from .processing_stages import validate_annotation_consequence_filtering as validate_fn
         validate_fn(context.config)
         threads = context.config.get("threads", 1)
 
@@ -166,19 +158,15 @@ class ParallelCompleteProcessingStage(Stage):
 
     def get_input_files(self, context: PipelineContext) -> list[Path]:
         """Return input files for checkpoint tracking."""
-        files: list[Path] = []
-        if context.gene_bed_file is not None:
-            files.append(context.gene_bed_file)
+        files = [context.gene_bed_file] if context.gene_bed_file is not None else []
         vcf_file = getattr(context, "vcf_file", None)
-        if vcf_file is not None:
+        if vcf_file:
             files.append(Path(vcf_file))
         return files
 
     def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return output files for checkpoint tracking."""
-        if context.extracted_tsv is not None:
-            return [context.extracted_tsv]
-        return []
+        return [context.extracted_tsv] if context.extracted_tsv is not None else []
 
     def _split_bed_file(self, bed_file: Path, n_chunks: int) -> list[Path]:
         """Split BED file into roughly equal chunks."""
@@ -203,6 +191,7 @@ class ParallelCompleteProcessingStage(Stage):
         total_threads: int,
         num_chunks: int,
         shared_memory_gb: float,
+        requires_snpsift: bool = True,
     ) -> dict[str, Any]:
         """Calculate active worker count, threads per worker, and SnpSift heap per worker."""
         if num_chunks <= 0:
@@ -211,6 +200,15 @@ class ParallelCompleteProcessingStage(Stage):
                 "threads_per_worker": max(1, total_threads),
                 "snpsift_memory_gb": 2,
                 "max_memory_gb": shared_memory_gb,
+            }
+
+        if not requires_snpsift:
+            active_workers = max(1, min(num_chunks, max(1, total_threads)))
+            return {
+                "active_workers": active_workers,
+                "threads_per_worker": max(1, total_threads // active_workers),
+                "snpsift_memory_gb": 2,
+                "max_memory_gb": max(0.5, shared_memory_gb / active_workers),
             }
 
         total_snpsift_gb = int(shared_memory_gb * 0.5)
@@ -395,13 +393,18 @@ class ParallelCompleteProcessingStage(Stage):
         # Phase 2: Process only missing chunks
         new_chunk_tsvs = []
         if chunks_to_process:
-            rm = ResourceManager(config=context.config)
-            shared_memory_gb = float(context.config.get("max_memory_gb") or rm.memory_gb)
+            cfg = context.config
+            rm = ResourceManager(config=cfg)
+            shared_memory_gb = float(cfg.get("max_memory_gb") or rm.memory_gb)
+            req_snpsift = bool(cfg.get("filter") or cfg.get("filters")) and not bool(
+                cfg.get("late_filtering")
+            )
 
             resource_alloc = self._calculate_chunk_worker_resources(
                 total_threads=threads,
                 num_chunks=len(chunks_to_process),
                 shared_memory_gb=shared_memory_gb,
+                requires_snpsift=req_snpsift,
             )
 
             active_workers = resource_alloc["active_workers"]
@@ -420,22 +423,20 @@ class ParallelCompleteProcessingStage(Stage):
                 "threads_per_chunk": threads_per_worker,
                 "max_memory_gb": worker_max_memory_gb,
                 "snpsift_memory_gb": worker_snpsift_gb,
-                "bcftools_prefilter": context.config.get("bcftools_prefilter"),
-                "late_filtering": context.config.get("late_filtering", False),
-                "snpeff_splitting_mode": context.config.get("snpeff_splitting_mode"),
-                "filter": context.config.get("filter"),
-                "filters": context.config.get("filters"),
-                "filter_exception_file": context.config.get("filter_exception_file"),
+                "bcftools_prefilter": cfg.get("bcftools_prefilter"),
+                "late_filtering": cfg.get("late_filtering", False),
+                "snpeff_splitting_mode": cfg.get("snpeff_splitting_mode"),
+                "filter": cfg.get("filter"),
+                "filters": cfg.get("filters"),
+                "filter_exception_file": cfg.get("filter_exception_file"),
                 "fields_to_extract": eff_fields,
-                "append_extra_sample_fields": bool(
-                    context.config.get("append_extra_sample_fields")
-                ),
-                "extra_sample_fields": context.config.get("extra_sample_fields", []),
-                "extract_fields_separator": context.config.get("extract_fields_separator", ","),
+                "append_extra_sample_fields": bool(cfg.get("append_extra_sample_fields")),
+                "extra_sample_fields": cfg.get("extra_sample_fields", []),
+                "extract_fields_separator": cfg.get("extract_fields_separator", ","),
                 "gzip_intermediates": use_compression,
                 "vcf_samples": getattr(context, "vcf_samples", None),
                 "transcript_ids": load_tx_fn(
-                    context.config.get("transcript_list"), context.config.get("transcript_file")
+                    cfg.get("transcript_list"), cfg.get("transcript_file")
                 ),
             }
 
@@ -553,7 +554,6 @@ class ParallelCompleteProcessingStage(Stage):
         output_tsv: Path,
         expected_header: str | None = None,
     ) -> None:
-        """Traditional TSV merging with compression handling and schema validation."""
         with (
             gzip.open(output_tsv, "wt", compresslevel=1)
             if str(output_tsv).endswith(".gz")

@@ -343,10 +343,10 @@ def test_filters_thread_allocation_and_command_construction(tmp_path: Path) -> N
     )
 
     # 1. Thread resolution helper
-    assert _resolve_filter_threads({"threads": 1}) == (1, 0)
-    assert _resolve_filter_threads({"threads": 4}) == (4, 3)
-    assert _resolve_filter_threads({"threads": 4, "bcftools_threads": 2}) == (4, 2)
-    assert _resolve_filter_threads({}) == (1, 0)
+    assert _resolve_filter_threads({"threads": 1}) == (0, 0)
+    assert _resolve_filter_threads({"threads": 4}) == (3, 3)
+    assert _resolve_filter_threads({"threads": 4, "bcftools_threads": 2}) == (3, 2)
+    assert _resolve_filter_threads({}) == (0, 0)
 
     bed = tmp_path / "dummy.bed"
     bed.write_text("chr1\t1\t10\n")
@@ -392,7 +392,7 @@ def test_filters_thread_allocation_and_command_construction(tmp_path: Path) -> N
         bcf_idx = next(c for c in captured_cmds if c[0] == "bcftools" and c[1] == "index")
         assert "--threads" not in bcf_idx
 
-        # Case B: 4 threads -> --threads 3 in bcftools, -@ 4 in bgzip
+        # Case B: 4 threads -> --threads 3 in bcftools, -@ 3 in bgzip (1 foreground + 3 pool)
         captured_cmds.clear()
         apply_bcftools_prefilter(str(vcf), out_a, 'FILTER="PASS"', {"threads": 4})
         view_cmd = next(c for c in captured_cmds if c[0] == "bcftools" and c[1] == "view")
@@ -408,6 +408,74 @@ def test_filters_thread_allocation_and_command_construction(tmp_path: Path) -> N
         captured_cmds.clear()
         apply_snpsift_filter(str(vcf), "QUAL > 30", {"threads": 4, "snpsift_memory_gb": 2}, out_a)
         bgzip_4 = next(c for c in captured_cmds if c[0] == "bgzip")
-        assert bgzip_4[bgzip_4.index("-@") + 1] == "4"
+        assert bgzip_4[bgzip_4.index("-@") + 1] == "3"
         idx_4 = next(c for c in captured_cmds if c[0] == "bcftools" and c[1] == "index")
         assert idx_4[idx_4.index("--threads") + 1] == "3"
+
+
+def test_resource_allocation_no_snpsift_allows_sub_4gb(
+    mock_context: PipelineContext, tmp_path: Path
+) -> None:
+    """Verify runs without SnpSift (e.g. late_filtering) succeed on sub-4GB budgets."""
+    from concurrent.futures import Future
+
+    stage = ParallelCompleteProcessingStage()
+    res = stage._calculate_chunk_worker_resources(
+        total_threads=2,
+        num_chunks=2,
+        shared_memory_gb=2.0,
+        requires_snpsift=False,
+    )
+    assert res["active_workers"] == 2
+    assert res["threads_per_worker"] == 1
+    assert res["snpsift_memory_gb"] == 2
+    assert res["max_memory_gb"] == 1.0
+
+    vcf = tmp_path / "sample.vcf.gz"
+    vcf.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\n")
+    mock_context.config["vcf_file"] = str(vcf)
+    mock_context.config["fields_to_extract"] = "CHROM POS REF ALT"
+    mock_context.config["filter"] = "QUAL > 30"
+    mock_context.config["late_filtering"] = True
+    mock_context.config["threads"] = 2
+    mock_context.config["max_memory_gb"] = 2.0
+
+    bed_chunks = [tmp_path / "c0.bed", tmp_path / "c1.bed"]
+    for b in bed_chunks:
+        b.write_text("chr1\t1\t100\n")
+
+    class InlineExecutor:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def submit(self, fn, *args, **kwargs):
+            fut = Future()
+            fut.set_result(Path(args[4]) / f"{args[3]}.chunk_{args[0]}.extracted.tsv")
+            return fut
+
+    pp_mod = "variantcentrifuge.stages.parallel_processing_stage"
+    with (
+        patch(f"{pp_mod}.ProcessPoolExecutor", InlineExecutor),
+        patch.object(stage, "_validate_chunk_tsv", return_value=False),
+        patch.object(stage, "_process_single_chunk", return_value=tmp_path / "out.tsv"),
+    ):
+        result = stage._process_chunks_parallel(mock_context, bed_chunks)
+        assert len(result) == 2
+
+    # Verify no filter expression also passes
+    mock_context.config["filter"] = None
+    mock_context.config["filters"] = None
+    mock_context.config["late_filtering"] = False
+    with (
+        patch(f"{pp_mod}.ProcessPoolExecutor", InlineExecutor),
+        patch.object(stage, "_validate_chunk_tsv", return_value=False),
+        patch.object(stage, "_process_single_chunk", return_value=tmp_path / "out.tsv"),
+    ):
+        result = stage._process_chunks_parallel(mock_context, bed_chunks)
+        assert len(result) == 2
