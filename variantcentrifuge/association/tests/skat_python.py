@@ -291,6 +291,7 @@ class PurePythonSKATTest(AssociationTest):
             sigma2=self._null_model.extra["sigma2"],
             mu_hat=self._null_model.extra.get("mu_hat"),  # None for quantitative
             weights=acat_v_weights,
+            design_matrix=self._null_model.extra.get("design_matrix"),
         )
 
         # Increment local counter

@@ -9,6 +9,7 @@ Covers COAST-02, COAST-04, COAST-05, COAST-06, COAST-07.
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -20,6 +21,7 @@ from variantcentrifuge.association.tests.allelic_series import (
     _resolve_effect,
     classify_variants,
 )
+from variantcentrifuge.association.tests.allelic_series_python import PurePythonCOASTTest
 
 # ---------------------------------------------------------------------------
 # _resolve_effect tests (COAST-04, COAST-07)
@@ -360,3 +362,149 @@ def test_classify_variants_cadd_column_detection(cadd_model_dir):
 
     assert int(codes[0]) == 2, f"CADD=20 should be DMV=2, got {codes[0]}"
     assert int(codes[1]) == 1, f"CADD=8 should be BMV=1, got {codes[1]}"
+
+
+# ---------------------------------------------------------------------------
+# Issue #132 Regression Tests: Multi-transcript, exclusivity, error propagation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_classify_variants_multi_transcript_sift_polyphen(sift_polyphen_model_dir):
+    """Multi-transcript comma- and semicolon-separated predictions produce codes 2 and 1."""
+    df = pd.DataFrame(
+        {
+            "EFFECT": ["missense_variant", "missense_variant"],
+            "IMPACT": ["MODERATE", "MODERATE"],
+            "dbNSFP_SIFT_pred": ["D,D,.", "T,T,.,."],
+            "dbNSFP_Polyphen2_HDIV_pred": ["D,D,.", "B,B,.,."],
+        }
+    )
+    codes, mask = classify_variants(df, "EFFECT", "IMPACT", model_dir=sift_polyphen_model_dir)
+    assert int(codes[0]) == 2, f"Expected DMV=2 for multi-transcript D, got {codes[0]}"
+    assert int(codes[1]) == 1, f"Expected BMV=1 for multi-transcript T/B, got {codes[1]}"
+    assert bool(mask[0]) is True
+    assert bool(mask[1]) is True
+
+
+@pytest.mark.unit
+def test_classify_variants_conflicting_predictions_precedence(sift_polyphen_model_dir):
+    """Conflicting damaging/benign predictions produce DMV=2, never PTV=3."""
+    df = pd.DataFrame(
+        {
+            "EFFECT": ["missense_variant", "missense_variant"],
+            "IMPACT": ["MODERATE", "MODERATE"],
+            "dbNSFP_SIFT_pred": ["tolerated;deleterious", "T;D"],
+            "dbNSFP_Polyphen2_HDIV_pred": ["benign", "B"],
+        }
+    )
+    codes, mask = classify_variants(df, "EFFECT", "IMPACT", model_dir=sift_polyphen_model_dir)
+    assert int(codes[0]) == 2, (
+        f"Expected DMV=2 (not PTV=3) for tolerated;deleterious + benign, got {codes[0]}"
+    )
+    assert int(codes[1]) == 2, f"Expected DMV=2 (not PTV=3) for T;D + B, got {codes[1]}"
+    assert bool(mask[0]) is True
+    assert bool(mask[1]) is True
+
+
+@pytest.mark.unit
+def test_classify_variants_genuine_ptv_and_missing(sift_polyphen_model_dir):
+    """Genuine PTVs remain code 3, missing predictions remain code 0."""
+    df = pd.DataFrame(
+        {
+            "EFFECT": [
+                "stop_gained",
+                "frameshift_variant",
+                "missense_variant",
+                "synonymous_variant",
+            ],
+            "IMPACT": ["HIGH", "HIGH", "MODERATE", "LOW"],
+            "dbNSFP_SIFT_pred": [".", "", ".", "."],
+            "dbNSFP_Polyphen2_HDIV_pred": [".", "", ".", "."],
+        }
+    )
+    codes, mask = classify_variants(df, "EFFECT", "IMPACT", model_dir=sift_polyphen_model_dir)
+    assert list(codes) == [3, 3, 0, 0]
+    assert list(mask) == [True, True, False, False]
+
+
+@pytest.mark.unit
+def test_classify_variants_propagates_model_and_formula_errors(tmp_path):
+    """Model load errors, formula failures, and missing/NaN category outputs raise errors."""
+    df = pd.DataFrame(
+        {
+            "EFFECT": ["missense_variant"],
+            "IMPACT": ["MODERATE"],
+            "dbNSFP_SIFT_pred": ["D"],
+            "dbNSFP_Polyphen2_HDIV_pred": ["D"],
+        }
+    )
+    # 1. Non-existent model dir
+    with pytest.raises((ValueError, FileNotFoundError)):
+        classify_variants(df, "EFFECT", "IMPACT", model_dir=str(tmp_path / "nonexistent"))
+
+    # 2. Corrupt model dir (broken formula)
+    corrupt_dir = tmp_path / "corrupt_model"
+    corrupt_dir.mkdir()
+    corrupt_formula = (
+        '{"output_scores": ["coast_category"], '
+        '"formulas": [{"coast_category": "invalid syntax ("}]}'
+    )
+    (corrupt_dir / "formula_config.json").write_text(corrupt_formula)
+    (corrupt_dir / "variable_assignment_config.json").write_text('{"variables": {}}')
+    with pytest.raises(ValueError):
+        classify_variants(df, "EFFECT", "IMPACT", model_dir=str(corrupt_dir))
+
+    # 3. Model producing missing/NaN coast_category
+    nan_dir = tmp_path / "nan_model"
+    nan_dir.mkdir()
+    nan_formula = (
+        '{"output_scores": ["coast_category"], '
+        '"formulas": [{"coast_category": "COAST_CADD / COAST_CADD"}]}'
+    )
+    (nan_dir / "formula_config.json").write_text(nan_formula)
+    (nan_dir / "variable_assignment_config.json").write_text(
+        '{"variables": {"COAST_CADD": "COAST_CADD|default:0.0"}}'
+    )
+    with pytest.raises(ValueError, match="missing/NaN category outputs"):
+        classify_variants(df, "EFFECT", "IMPACT", model_dir=str(nan_dir))
+
+
+@pytest.mark.unit
+def test_pure_python_coast_retains_multi_transcript_variants(sift_polyphen_model_dir):
+    """PurePythonCOASTTest retains multi-transcript variants instead of skipping."""
+
+    df = pd.DataFrame(
+        {
+            "EFFECT": ["missense_variant", "missense_variant"],
+            "IMPACT": ["MODERATE", "MODERATE"],
+            "dbNSFP_SIFT_pred": ["D,D,.", "T,T,.,."],
+            "dbNSFP_Polyphen2_HDIV_pred": ["D,D,.", "B,B,.,."],
+            "CHROM": ["1", "1"],
+            "POS": [100, 200],
+            "REF": ["A", "C"],
+            "ALT": ["T", "G"],
+        }
+    )
+    geno = np.array([[0, 1], [1, 0], [0, 1], [0, 0]])
+    pheno = np.array([0, 1, 1, 0])
+    config = SimpleNamespace(
+        coast_classification=sift_polyphen_model_dir,
+        trait_type="binary",
+    )
+
+    test = PurePythonCOASTTest()
+    test.check_dependencies()
+    contingency_data = {
+        "genotype_matrix": geno,
+        "phenotype_vector": pheno,
+        "gene_df": df,
+    }
+    result = test.run(
+        gene="TEST_GENE",
+        contingency_data=contingency_data,
+        config=config,
+    )
+    # Result must not be skipped due to NO_CLASSIFIABLE_VARIANTS
+    assert result.extra.get("coast_skip_reason") != "NO_CLASSIFIABLE_VARIANTS"
+    assert result.p_value is not None

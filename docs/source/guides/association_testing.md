@@ -220,6 +220,10 @@ Set via JSON config (see [JSON Config](#tuning-json-config)):
 { "association": { "gene_burden_mode": "alleles" } }
 ```
 
+### Zero-Cell Handling and Continuity Correction
+
+When any cell in the 2×2 contingency table is zero (common for rare variants where no controls or no cases carry a variant), the sample odds ratio would be zero or undefined (infinite). VariantCentrifuge applies the Haldane-Anscombe continuity correction (adding `continuity_correction`, default `0.5`, to all four cells) to evaluate both the reported odds ratio (`fisher_or`) and its normal-approximation confidence interval (`fisher_or_ci_lower`, `fisher_or_ci_upper`) from the same corrected table via `statsmodels.stats.contingency_tables.Table2x2`. If marginal totals are zero (structural zero), the odds ratio and confidence intervals return `NaN`.
+
 ---
 
 ## Simple Tests: Burden Tests

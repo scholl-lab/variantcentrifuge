@@ -460,3 +460,141 @@ class TestLogisticBurdenCarrierCounts:
         """LogisticBurdenTest.name == 'logistic_burden'."""
         test = LogisticBurdenTest()
         assert test.name == "logistic_burden"
+
+
+# ---------------------------------------------------------------------------
+# Issue #143 Regression Tests: Firth step-halving and convergence safeguards
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestFirthConvergenceSafeguards:
+    """Regression tests for Firth convergence and step-halving safeguards (issue #143)."""
+
+    def test_unconverged_max_iter_returns_none_and_propagates_warning(self):
+        """Unconverged max_iter returns None and forced fallback reports FIRTH_CONVERGE_FAIL."""
+        from variantcentrifuge.association.tests.logistic_burden import (
+            _firth_logistic,
+        )
+
+        y = np.array([0.0, 0.0, 1.0, 1.0])
+        x = np.column_stack([np.ones(4), y])
+
+        # 1. max_iter=0 and max_iter=1 must return None
+        assert _firth_logistic(y, x, max_iter=0) is None
+        assert _firth_logistic(y, x, max_iter=1) is None
+
+        # 2. Forced fallback through LogisticBurdenTest
+        config = AssociationConfig(
+            trait_type="binary",
+            firth_max_iter=1,  # insufficient iterations to converge
+        )
+        test = LogisticBurdenTest()
+        contingency_data = {
+            "genotype_matrix": y[:, np.newaxis],  # perfect separation: cases=1, controls=0
+            "phenotype_vector": y,
+            "variant_mafs": np.array([0.5]),
+            "proband_count": 2,
+            "control_count": 2,
+            "n_qualifying_variants": 1,
+        }
+        result = test.run("TEST_SEPARATED", contingency_data, config)
+        assert result.p_value is None
+        assert result.effect_size is None
+        assert result.se is None
+        assert "FIRTH_CONVERGE_FAIL" in result.extra.get("warnings", [])
+
+    def test_singular_trial_returns_negative_infinity(self):
+        """Singular trial point returns -np.inf and cannot outrank a finite objective."""
+        from variantcentrifuge.association.tests.logistic_burden import (
+            _firth_loglik,
+        )
+
+        y = np.array([0.0, 0.0, 1.0, 1.0])
+        x = np.column_stack([np.ones(4), y])
+
+        # Singular point with det(X'WX) == 0
+        singular_ll = _firth_loglik(np.array([-100.0, 200.0]), y, x)
+        assert singular_ll == -np.inf
+
+        # Valid initial objective is strictly greater than -np.inf
+        initial_ll = _firth_loglik(np.zeros(2), y, x)
+        assert np.isfinite(initial_ll)
+        assert singular_ll < initial_ll
+
+    def test_exhausted_step_halving_returns_none(self, monkeypatch):
+        """Exhausted step-halving cannot commit an unchecked candidate
+        or manufacture convergence.
+        """
+        from variantcentrifuge.association.tests.logistic_burden import (
+            _firth_logistic,
+        )
+
+        y = np.array([0.0, 0.0, 1.0, 1.0])
+        x = np.column_stack([np.ones(4), y])
+
+        # Mock _firth_loglik so candidate steps always produce -inf (failing step-halving)
+        import variantcentrifuge.association.tests.logistic_burden as lb_mod
+
+        calls = 0
+
+        def mock_loglik(beta, y_arr, x_arr):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return 0.0  # old_ll
+            return -np.inf  # candidate always worse
+
+        monkeypatch.setattr(lb_mod, "_firth_loglik", mock_loglik)
+        result = _firth_logistic(y, x, max_iter=10)
+        assert result is None
+
+    def test_convergent_separated_firth_matches_analytic(self):
+        """Convergent separated design matches analytic Firth estimate."""
+        from variantcentrifuge.association.tests.logistic_burden import (
+            _firth_logistic,
+        )
+
+        # 2x2 table: a=2, b=0, c=0, d=2 => beta = 2*log(5) ~ 3.2188758
+        y = np.array([1.0, 1.0, 0.0, 0.0])
+        x = np.column_stack([np.ones(4), y])
+        res = _firth_logistic(y, x, max_iter=50, tol=1e-5)
+        assert res is not None
+        analytic_beta = 2.0 * float(np.log(5.0))
+        np.testing.assert_allclose(res.params[1], analytic_beta, rtol=1e-4)
+
+    def test_worsening_step_with_large_loglik_not_accepted(self, monkeypatch):
+        """Worsening step with large loglik (-1000 vs -1000.001) is rejected by rtol=0.0."""
+        import variantcentrifuge.association.tests.logistic_burden as lb_mod
+        from variantcentrifuge.association.tests.logistic_burden import (
+            _firth_logistic,
+        )
+
+        y = np.r_[np.ones(251), np.zeros(249), np.ones(249), np.zeros(251)]
+        x = np.column_stack([np.ones(1000), np.r_[np.ones(500), np.zeros(500)]])
+
+        def mock_loglik(beta, y_arr, x_arr):
+            if np.all(beta == 0):
+                return -1000.0
+            return -1000.001
+
+        monkeypatch.setattr(lb_mod, "_firth_loglik", mock_loglik)
+        result = _firth_logistic(y, x, max_iter=25, tol=0.01)
+        assert result is None
+
+    def test_firth_tp53_two_group_predictor_scale_reconstruction(self):
+        """TP53 two-group predictor-scale reconstruction matches analytic Firth estimate."""
+        from variantcentrifuge.association.tests.logistic_burden import (
+            _firth_logistic,
+        )
+
+        weight = 1.874434234570756e-8
+        # 12 case homozygotes, 2 control homozygotes, 10 control wildtypes
+        y = np.array([1.0] * 12 + [0.0] * 2 + [0.0] * 10)
+        x_pred = np.array([2.0 * weight] * 12 + [2.0 * weight] * 2 + [0.0] * 10)
+        x = np.column_stack([np.ones(len(y)), x_pred])
+
+        analytic_beta = (float(np.log(12.5 / 2.5)) - float(np.log(0.5 / 10.5))) / (2.0 * weight)
+        res = _firth_logistic(y, x, max_iter=50, tol=0.1)
+        assert res is not None
+        np.testing.assert_allclose(res.params[1], analytic_beta, rtol=1e-4)

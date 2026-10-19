@@ -80,7 +80,9 @@ def convert_to_numeric(series: pd.Series, default: float = 0.0) -> pd.Series:
     return pd.to_numeric(series, errors="coerce").fillna(default)
 
 
-def apply_scoring(df: pd.DataFrame, scoring_config: dict[str, Any]) -> pd.DataFrame:
+def apply_scoring(
+    df: pd.DataFrame, scoring_config: dict[str, Any], *, strict: bool = False
+) -> pd.DataFrame:
     """
     Apply scoring formulas to the DataFrame of variants.
 
@@ -181,6 +183,8 @@ def apply_scoring(df: pd.DataFrame, scoring_config: dict[str, Any]) -> pd.DataFr
                 calculated_columns.append(score_name)
             except Exception as e:
                 logger.error(f"Error evaluating formula for '{score_name}': {e}")
+                if strict:
+                    raise
                 # Add a column with NaN to indicate failure without crashing
                 scored_df[score_name] = float("nan")
                 calculated_columns.append(score_name)
