@@ -18,6 +18,7 @@ import os
 from typing import Any
 from unittest.mock import patch
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -184,3 +185,166 @@ def test_worker_initializer_sets_env() -> None:
             os.environ.pop("OMP_NUM_THREADS", None)
         else:
             os.environ["OMP_NUM_THREADS"] = orig_omp
+
+
+class _TrackingMatrixBuilder:
+    max_active: int = 0
+
+    def __init__(self, gene: str, all_genes: list[dict[str, Any]]) -> None:
+        self.gene = gene
+        self.all_genes = all_genes
+
+    def __call__(self) -> dict[str, Any]:
+        currently_live = sum(1 for gd in self.all_genes if "genotype_matrix" in gd)
+        _TrackingMatrixBuilder.max_active = max(
+            _TrackingMatrixBuilder.max_active, currently_live + 1
+        )
+        return {
+            "genotype_matrix": np.zeros((4, 2), dtype=float),
+            "variant_mafs": np.array([0.1, 0.2]),
+        }
+
+
+@pytest.mark.unit
+def test_parallel_association_bounded_matrix_materialization() -> None:
+    """Parallel execution bounds concurrent genotype matrices by batch size."""
+    _TrackingMatrixBuilder.max_active = 0
+    n_genes = 12
+    genes = _make_gene_data(n_genes)
+    for g in genes:
+        g["_genotype_matrix_builder"] = _TrackingMatrixBuilder(g["GENE"], genes)
+
+    workers = 2
+    batch_size = workers * 2  # 4
+    config = AssociationConfig(association_workers=workers)
+    engine = AssociationEngine.from_names(["fisher"], config)
+    df = engine.run_all(genes)
+
+    assert len(df) == n_genes
+    # Without bounded batching, all 11 remaining matrices are materialized simultaneously.
+    # With bounded batching (batch_size = 4), at most 4 matrices exist concurrently.
+    assert _TrackingMatrixBuilder.max_active <= batch_size, (
+        f"Expected max concurrent matrices <= {batch_size}, got {_TrackingMatrixBuilder.max_active}"
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("n_genes", [9, 25])
+def test_parallel_association_bounded_matrix_materialization_scaling(n_genes: int) -> None:
+    """Live matrices stay bounded across increasing gene counts (9 vs 25 genes)."""
+    _TrackingMatrixBuilder.max_active = 0
+    genes = _make_gene_data(n_genes)
+    for g in genes:
+        g["_genotype_matrix_builder"] = _TrackingMatrixBuilder(g["GENE"], genes)
+
+    workers = 2
+    batch_size = workers * 2  # 4
+    config = AssociationConfig(association_workers=workers)
+    engine = AssociationEngine.from_names(["fisher"], config)
+    df = engine.run_all(genes)
+
+    assert len(df) == n_genes
+    assert _TrackingMatrixBuilder.max_active <= batch_size, (
+        f"For {n_genes} genes, expected max live matrices <= {batch_size}, "
+        f"got {_TrackingMatrixBuilder.max_active}"
+    )
+
+
+@pytest.mark.unit
+def test_parallel_association_payload_cleanup_on_batch_error() -> None:
+    """Matrix payloads in batch are discarded when a builder or worker raises an error."""
+
+    def faulty_builder() -> dict[str, Any]:
+        raise RuntimeError("Simulated builder failure in batch")
+
+    def normal_builder() -> dict[str, Any]:
+        return {
+            "genotype_matrix": np.zeros((4, 2), dtype=float),
+            "variant_mafs": np.array([0.1, 0.2]),
+        }
+
+    genes = [
+        {
+            "GENE": "G0",
+            "proband_count": 10,
+            "control_count": 10,
+            "_genotype_matrix_builder": normal_builder,
+        },
+        {
+            "GENE": "G1",
+            "proband_count": 10,
+            "control_count": 10,
+            "_genotype_matrix_builder": faulty_builder,
+        },
+    ]
+
+    config = AssociationConfig(association_workers=2)
+    engine = AssociationEngine.from_names(["fisher"], config)
+    with pytest.raises(RuntimeError, match="Simulated builder failure"):
+        engine.run_all(genes)
+
+    # All materialized matrix payloads must be cleaned up via finally
+    for g in genes:
+        assert "genotype_matrix" not in g
+        assert "variant_mafs" not in g
+
+
+@pytest.mark.unit
+def test_parallel_vs_sequential_parity_with_real_builder() -> None:
+    """Parallel execution with real _GenotypeMatrixBuilder matches sequential parity."""
+    from variantcentrifuge.stages.analysis_stages import _GenotypeMatrixBuilder
+
+    def make_test_gene(name: str, n_samples: int = 30) -> dict[str, Any]:
+        vcf_samples = [f"sample_{i}" for i in range(n_samples)]
+        gt_cols = [f"GEN_{i}__GT" for i in range(n_samples)]
+        gene_df = pd.DataFrame(
+            {
+                "GENE": [name] * 3,
+                "CHROM": ["chr1"] * 3,
+                "POS": [100, 200, 300],
+                "REF": ["A", "C", "G"],
+                "ALT": ["T", "T", "T"],
+                **{col: ["0/0", "0/0", "0/0"] for col in gt_cols},
+            }
+        )
+        # Sufficient carriers so MAC >= 5
+        gene_df.loc[0, gt_cols[0]] = "0/1"
+        gene_df.loc[0, gt_cols[1]] = "0/1"
+        gene_df.loc[1, gt_cols[2]] = "0/1"
+        gene_df.loc[1, gt_cols[3]] = "0/1"
+        gene_df.loc[2, gt_cols[16]] = "0/1"
+        gene_df.loc[2, gt_cols[17]] = "0/1"
+        phenotype = np.array([1.0] * 15 + [0.0] * 15)
+        builder = _GenotypeMatrixBuilder(
+            gene_df=gene_df,
+            vcf_samples=vcf_samples,
+            gt_columns=gt_cols,
+            is_binary=True,
+            missing_site_threshold=0.1,
+            missing_sample_threshold=0.1,
+            phenotype_vector=phenotype,
+            covariate_matrix=None,
+        )
+        return {
+            "GENE": name,
+            "proband_count": 15,
+            "control_count": 15,
+            "n_qualifying_variants": 3,
+            "phenotype_vector": phenotype,
+            "_genotype_matrix_builder": builder,
+        }
+
+    genes_seq = [make_test_gene(f"GENE_{i}") for i in range(6)]
+    genes_par = [make_test_gene(f"GENE_{i}") for i in range(6)]
+
+    cfg_seq = AssociationConfig(association_workers=1)
+    cfg_par = AssociationConfig(association_workers=2)
+
+    eng_seq = AssociationEngine.from_names(["logistic_burden"], cfg_seq)
+    eng_par = AssociationEngine.from_names(["logistic_burden"], cfg_par)
+
+    df_seq = eng_seq.run_all(genes_seq).sort_values("gene").reset_index(drop=True)
+    df_par = eng_par.run_all(genes_par).sort_values("gene").reset_index(drop=True)
+
+    assert len(df_seq) == 6
+    pd.testing.assert_frame_equal(df_seq, df_par, check_exact=False, rtol=1e-8)

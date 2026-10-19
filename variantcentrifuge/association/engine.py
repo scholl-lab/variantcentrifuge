@@ -1,41 +1,8 @@
-# File: variantcentrifuge/association/engine.py
-# Location: variantcentrifuge/variantcentrifuge/association/engine.py
 """
 AssociationEngine — orchestrator for multi-test rare variant association.
 
-The engine accepts a list of AssociationTest instances, runs each test on
-every gene in the input data, chooses a primary association p-value per gene,
-applies one round of multiple testing correction to that primary p-value, and
-returns a wide-format DataFrame with one row per gene.
-
-Column naming convention: {test_name}_{field}, e.g.:
-  fisher_pvalue, fisher_or,
-  fisher_or_ci_lower, fisher_or_ci_upper
-
-Effect size column names are test-aware (via AssociationTest.effect_column_names()):
-  - Fisher: fisher_or, fisher_or_ci_lower, fisher_or_ci_upper
-  - Burden tests: logistic_burden_beta, logistic_burden_se,
-    logistic_burden_beta_ci_lower, logistic_burden_beta_ci_upper
-
-ACAT-O columns (Phase 22):
-  acat_o_pvalue  — raw omnibus Cauchy combination of per-test p-values
-  acat_o_qvalue  — FDR/Bonferroni corrected across all genes
-
-Primary columns:
-  primary_test    — corrected significance target ("fisher", "acat_o", etc.)
-  primary_pvalue  — raw p-value used for multiple testing correction
-  primary_qvalue  — corrected primary p-value
-
-SKAT-O note: when skat_method="SKATO", the skat_pvalue column is renamed to
-  skat_o_pvalue to distinguish SKAT-O from the plain SKAT result.
-
-FDR strategy:
-  Single correction pass on the primary p-value only. For multi-test runs and
-  SKAT runs this is ACAT-O. For single non-SKAT tests, the primary p-value is
-  the test's own p-value, avoiding misleading ACAT-O aliases for pass-throughs.
-
-Shared columns (gene-level metadata, not test-specific):
-  gene, n_cases, n_controls, n_variants
+Runs registered association tests per gene, determines primary p-values,
+applies multiple testing correction, and returns wide-format DataFrames.
 """
 
 from __future__ import annotations
@@ -48,17 +15,33 @@ import pandas as pd
 
 from variantcentrifuge.association.base import AssociationConfig, AssociationTest, TestResult
 from variantcentrifuge.association.correction import apply_correction
+from variantcentrifuge.association.engine_workers import (
+    _BUILDER_RESULT_KEYS,
+    _PER_GENE_MATRIX_PAYLOAD_KEYS,
+    _apply_builder_result_to_gene_data,
+    _discard_per_gene_matrix_payload,
+    _run_gene_worker,
+    _single_test_output_id,
+    _worker_initializer,
+    dispatch_parallel_genes,
+    run_sequential_genes,
+)
+
+__all__ = [
+    "_BUILDER_RESULT_KEYS",
+    "_PER_GENE_MATRIX_PAYLOAD_KEYS",
+    "AssociationEngine",
+    "_apply_builder_result_to_gene_data",
+    "_build_registry",
+    "_discard_per_gene_matrix_payload",
+    "_run_gene_worker",
+    "_single_test_output_id",
+    "_worker_initializer",
+    "dispatch_parallel_genes",
+    "run_sequential_genes",
+]
 
 logger = logging.getLogger("variantcentrifuge")
-
-# Test registry: grows one entry per phase as new tests are implemented.
-# Phase 18: Fisher only.
-# Phase 19: + "burden" (logistic/linear burden regression)
-# Phase 20: + "skat" (R backend)
-# Phase 21: + "skat_python" (pure Python backend)
-# Phase 22: ACAT-O is a meta-test; NOT in registry (computed post-loop).
-# Phase 23: + "coast" (R AllelicSeries COAST allelic series test)
-_TEST_REGISTRY: dict[str, type[AssociationTest]] = {}
 
 
 def _build_registry() -> dict[str, type[AssociationTest]]:
@@ -78,92 +61,6 @@ def _build_registry() -> dict[str, type[AssociationTest]]:
         "skat_python": PurePythonSKATTest,
         "coast": COASTTest,
     }
-
-
-def _worker_initializer() -> None:
-    """Set BLAS thread counts to 1 in worker processes to prevent oversubscription."""
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OMP_NUM_THREADS"] = "1"
-
-
-def _run_gene_worker(
-    args: tuple[str, dict, bytes, AssociationConfig],
-) -> tuple[str, dict[str, TestResult]]:
-    """Process a single gene in a subprocess worker.
-
-    Called by ProcessPoolExecutor. Receives pre-pickled test instances
-    (with null models already fitted) to avoid redundant null model fitting
-    in each worker.
-
-    Parameters
-    ----------
-    args : tuple
-        (gene_name, gene_data_dict, pickled_tests_bytes, config)
-
-    Returns
-    -------
-    tuple
-        (gene_name, dict mapping test_name -> TestResult)
-    """
-    import pickle
-
-    gene, gene_data, pickled_tests, config = args
-    tests: dict[str, AssociationTest] = pickle.loads(pickled_tests)
-    results: dict[str, TestResult] = {}
-    for test_name, test in tests.items():
-        result = test.run(gene, gene_data, config)
-        results[test_name] = result
-    return gene, results
-
-
-_BUILDER_RESULT_KEYS = (
-    "genotype_matrix",
-    "variant_mafs",
-    "phenotype_vector",
-    "covariate_matrix",
-    "score_values",
-    "variant_weight_column",
-    "cadd_scores",
-    "revel_scores",
-    "variant_effects",
-)
-
-_PER_GENE_MATRIX_PAYLOAD_KEYS = (
-    "genotype_matrix",
-    "variant_mafs",
-    "score_values",
-    "variant_weight_column",
-    "cadd_scores",
-    "revel_scores",
-    "variant_effects",
-)
-
-
-def _apply_builder_result_to_gene_data(
-    gene_data: dict[str, Any],
-    result: dict[str, Any],
-    gene: str,
-) -> None:
-    for key in _BUILDER_RESULT_KEYS:
-        if key in result:
-            gene_data[key] = result[key]
-    for warning in result.get("gt_warnings", []):
-        logger.warning(f"Gene {gene}: {warning}")
-    if result.get("mac_filtered"):
-        logger.debug(f"Gene {gene}: MAC < 5 — regression will report NA")
-
-
-def _discard_per_gene_matrix_payload(gene_data: dict[str, Any]) -> None:
-    for key in _PER_GENE_MATRIX_PAYLOAD_KEYS:
-        gene_data.pop(key, None)
-
-
-def _single_test_output_id(test_name: str, result: TestResult | None) -> str:
-    """Return the user-facing column prefix for a single-test primary result."""
-    if test_name == "skat" and result is not None and result.extra.get("skat_method") == "SKATO":
-        return "skat_o"
-    return test_name
 
 
 class AssociationEngine:
@@ -431,34 +328,12 @@ class AssociationEngine:
 
         if use_parallel:
             # Run first gene sequentially to trigger lazy null model fitting
-            # (SKAT/COAST tests fit null model on first call and cache it).
-            first_gene_data = sorted_data[0]
-            first_gene = first_gene_data.get("GENE", "")
-
-            # PERF-06: Invoke lazy builder for first gene before sequential run
-            if (
-                "_genotype_matrix_builder" in first_gene_data
-                and "genotype_matrix" not in first_gene_data
-            ):
-                _builder = first_gene_data.pop("_genotype_matrix_builder")
-                _result = _builder()
-                _apply_builder_result_to_gene_data(first_gene_data, _result, first_gene)
-
-            for test_name, test in self._tests.items():
-                result = test.run(first_gene, first_gene_data, self._config)
-                results_by_test[test_name][first_gene] = result
-                logger.debug(
-                    f"Gene {first_gene} | {test_name}: p={result.p_value}, OR={result.effect_size}"
-                )
-
-            # PERF-06: Discard first gene matrix after tests complete
-            _discard_per_gene_matrix_payload(first_gene_data)
-
-            # Pickle test instances now that null models are fitted
-            import concurrent.futures
-            import pickle
-
-            pickled_tests = pickle.dumps(self._tests)
+            run_sequential_genes(
+                sorted_data[:1],
+                self._tests,
+                self._config,
+                results_by_test,
+            )
 
             # Dispatch remaining genes to worker processes
             remaining = sorted_data[1:]
@@ -468,60 +343,21 @@ class AssociationEngine:
                 if len(remaining) < actual_workers * 2:
                     actual_workers = max(1, len(remaining) // 2)
 
-                logger.info(
-                    f"Parallel association: {actual_workers} workers for "
-                    f"{len(remaining)} remaining genes"
+                dispatch_parallel_genes(
+                    remaining=remaining,
+                    tests=self._tests,
+                    config=self._config,
+                    actual_workers=actual_workers,
+                    results_by_test=results_by_test,
                 )
-
-                # PERF-06: Build matrices eagerly before pickling for worker dispatch.
-                # Builders capture gene_df which would be large to pickle alongside matrix;
-                # building here avoids sending both builder (with gene_df) and matrix to workers.
-                for gd in remaining:
-                    if "_genotype_matrix_builder" in gd and "genotype_matrix" not in gd:
-                        _builder = gd.pop("_genotype_matrix_builder")
-                        _result = _builder()
-                        _gene = gd.get("GENE", "")
-                        _apply_builder_result_to_gene_data(gd, _result, _gene)
-
-                args_list = [
-                    (gd.get("GENE", ""), gd, pickled_tests, self._config) for gd in remaining
-                ]
-                with concurrent.futures.ProcessPoolExecutor(
-                    max_workers=actual_workers,
-                    initializer=_worker_initializer,
-                ) as executor:
-                    for gene, gene_results in executor.map(_run_gene_worker, args_list):
-                        for test_name, result in gene_results.items():
-                            results_by_test[test_name][gene] = result
-                            logger.debug(
-                                f"Gene {gene} | {test_name}: p={result.p_value}, "
-                                f"OR={result.effect_size}"
-                            )
-
-                # PERF-06: Discard matrices after parallel batch completes
-                for gd in remaining:
-                    _discard_per_gene_matrix_payload(gd)
         else:
             # Sequential gene loop (default path or fallback)
-            for gene_data in sorted_data:
-                gene = gene_data.get("GENE", "")
-
-                # PERF-06: Invoke lazy builder if present (per-gene, O(1) peak memory)
-                if "_genotype_matrix_builder" in gene_data and "genotype_matrix" not in gene_data:
-                    builder = gene_data.pop("_genotype_matrix_builder")
-                    result = builder()
-                    _apply_builder_result_to_gene_data(gene_data, result, gene)
-
-                for test_name, test in self._tests.items():
-                    result = test.run(gene, gene_data, self._config)
-                    results_by_test[test_name][gene] = result
-                    logger.debug(
-                        f"Gene {gene} | {test_name}: p={result.p_value}, OR={result.effect_size}"
-                    )
-
-                # PERF-06: Discard matrix after all tests for this gene complete
-                _discard_per_gene_matrix_payload(gene_data)
-                # Keep phenotype_vector and covariate_matrix — shared references, not per-gene
+            run_sequential_genes(
+                sorted_data,
+                self._tests,
+                self._config,
+                results_by_test,
+            )
 
         # Lifecycle hook: finalize() after gene loop (allows timing summary, cleanup)
         for test in self._tests.values():
