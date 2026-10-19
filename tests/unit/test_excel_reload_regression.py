@@ -1531,3 +1531,25 @@ def test_convert_to_excel_large_report_preserves_all_igv_targets(tmp_path: Path)
     assert str(ws_ov.cell(row=2, column=7).value).startswith("report/igv/var_")
 
     wb.close()
+
+
+def test_existing_igv_report_links_column_hyperlinked_when_igv_disabled(tmp_path: Path) -> None:
+    """Verify existing 'IGV Report Links' URL column is formatted as hyperlink when IGV disabled."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    df = pd.DataFrame({"IGV Report Links": ["https://example.org/igv.html"]})
+    out_file = tmp_path / "igv_disabled_results.xlsx"
+    convert_to_excel(
+        str(out_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(out_file),
+    )
+
+    wb = openpyxl.load_workbook(out_file)
+    assert "Results" in wb.sheetnames
+    cell = wb["Results"].cell(row=2, column=1)
+    assert cell.value == "IGV Report Links"
+    assert cell.hyperlink is not None
+    assert cell.hyperlink.target == "https://example.org/igv.html"
+    wb.close()

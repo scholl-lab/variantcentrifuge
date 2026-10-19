@@ -191,8 +191,6 @@ def convert_to_excel(
         # Format detected URL columns and individual hyperlinks (single registration)
         url_col_indices = _detect_url_columns(df)
         for col_idx, col_name in enumerate(df.columns):
-            if col_name == "IGV Report Links":
-                continue
             is_url_col = col_idx in url_col_indices
             col_series = df.iloc[:, col_idx]
             if not is_url_col and (

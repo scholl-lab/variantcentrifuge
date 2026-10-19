@@ -264,7 +264,7 @@ chmod 0644 "$host_input/input.txt"
 
 test_uid=$(id -u)
 test_gid=$(id -g)
-if [ "$test_uid" -eq 0 ] || [ "$test_uid" -eq 10001 ] || [ "$test_gid" -eq 0 ] || [ "$test_gid" -eq 10001 ]; then
+if [ "$test_uid" -eq 0 ]; then
     test_uid=65534
     test_gid=65534
     chown -R 65534:65534 "$host_input" "$host_out" "$host_snpeff" 2>/dev/null || true
