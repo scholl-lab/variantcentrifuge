@@ -503,3 +503,127 @@ class TestBuildPM5Parser:
         parser = create_parser()
         args = parser.parse_args(["--download", "--output", "pm5.json", "--no-include-lp"])
         assert args.include_lp is False
+
+
+# ---------------------------------------------------------------------------
+# Download isolation (#131)
+# ---------------------------------------------------------------------------
+class TestPM5DownloadIsolation:
+    """Test private temporary directory isolation for automatic PM5 downloads (#131)."""
+
+    def test_automatic_download_uses_private_dir_and_cleans_up(self, monkeypatch, tmp_path):
+        import tempfile
+
+        from variantcentrifuge import build_pm5_lookup as pm5_module
+
+        observed_paths = []
+        observed_dir_existed_during_build = []
+
+        def fake_download(dest):
+            p = Path(dest)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("fake_gz")
+            observed_paths.append(str(p))
+
+        def fake_build(path, **kwargs):
+            p = Path(path)
+            observed_dir_existed_during_build.append(p.parent.exists())
+            return {"_meta": {}, "lookup": {}}
+
+        monkeypatch.setattr(pm5_module, "download_variant_summary", fake_download)
+        monkeypatch.setattr(pm5_module, "build_pm5_lookup", fake_build)
+        monkeypatch.setattr(pm5_module, "write_lookup", lambda data, out: None)
+
+        out_path = tmp_path / "pm5.json"
+        ret = pm5_module.main(["--download", "--output", str(out_path)])
+        assert ret == 0
+
+        assert len(observed_paths) == 1
+        downloaded_file = Path(observed_paths[0])
+
+        # Must not be placed directly at root of gettempdir()
+        temp_root = Path(tempfile.gettempdir())
+        assert downloaded_file != temp_root / "variant_summary.txt.gz"
+        assert downloaded_file.parent != temp_root
+
+        # Existed during build
+        assert observed_dir_existed_during_build == [True]
+
+        # Cleaned up after main completes
+        assert not downloaded_file.parent.exists()
+
+    def test_overlapping_downloads_use_distinct_directories(self, monkeypatch, tmp_path):
+        from variantcentrifuge import build_pm5_lookup as pm5_module
+
+        observed_paths = []
+
+        def fake_download(dest):
+            p = Path(dest)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("fake_gz")
+            observed_paths.append(str(p))
+
+        monkeypatch.setattr(pm5_module, "download_variant_summary", fake_download)
+        monkeypatch.setattr(
+            pm5_module, "build_pm5_lookup", lambda *a, **kw: {"_meta": {}, "lookup": {}}
+        )
+        monkeypatch.setattr(pm5_module, "write_lookup", lambda data, out: None)
+
+        pm5_module.main(["--download", "--output", str(tmp_path / "out1.json")])
+        pm5_module.main(["--download", "--output", str(tmp_path / "out2.json")])
+
+        assert len(observed_paths) == 2
+        assert observed_paths[0] != observed_paths[1]
+        assert Path(observed_paths[0]).parent != Path(observed_paths[1]).parent
+
+    def test_cleanup_on_build_failure(self, monkeypatch, tmp_path):
+        from variantcentrifuge import build_pm5_lookup as pm5_module
+
+        observed_paths = []
+
+        def fake_download(dest):
+            p = Path(dest)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("fake_gz")
+            observed_paths.append(str(p))
+
+        def failing_build(*args, **kwargs):
+            raise RuntimeError("Build failed")
+
+        monkeypatch.setattr(pm5_module, "download_variant_summary", fake_download)
+        monkeypatch.setattr(pm5_module, "build_pm5_lookup", failing_build)
+
+        with pytest.raises(RuntimeError, match="Build failed"):
+            pm5_module.main(["--download", "--output", str(tmp_path / "out.json")])
+
+        assert len(observed_paths) == 1
+        assert not Path(observed_paths[0]).parent.exists()
+
+    def test_explicit_input_destination_preserved(self, monkeypatch, tmp_path):
+        from variantcentrifuge import build_pm5_lookup as pm5_module
+
+        download_called = []
+        explicit_file = tmp_path / "my_custom_variant_summary.txt.gz"
+
+        def fake_download(dest):
+            download_called.append(dest)
+            Path(dest).write_text("fake_content")
+
+        monkeypatch.setattr(pm5_module, "download_variant_summary", fake_download)
+        monkeypatch.setattr(
+            pm5_module, "build_pm5_lookup", lambda *a, **kw: {"_meta": {}, "lookup": {}}
+        )
+        monkeypatch.setattr(pm5_module, "write_lookup", lambda data, out: None)
+
+        # 1. Local --input without --download: no download called
+        explicit_file.write_text("existing_data")
+        pm5_module.main(["--input", str(explicit_file), "--output", str(tmp_path / "out.json")])
+        assert download_called == []
+        assert explicit_file.exists()
+
+        # 2. --download with explicit --input: retains destination and file is not deleted
+        pm5_module.main(
+            ["--download", "--input", str(explicit_file), "--output", str(tmp_path / "out2.json")]
+        )
+        assert download_called == [str(explicit_file)]
+        assert explicit_file.exists()
