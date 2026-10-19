@@ -137,7 +137,7 @@ class GeneBedCreationStage(Stage):
             @retry_on_failure(
                 max_attempts=3, delay=2.0, exceptions=(subprocess.CalledProcessError,)
             )
-            def create_bed():
+            def create_bed() -> str:
                 return get_gene_bed(
                     reference=reference,
                     gene_name=normalized_genes,
@@ -356,7 +356,7 @@ class VariantExtractionStage(Stage):
             @retry_on_failure(
                 max_attempts=3, delay=2.0, exceptions=(subprocess.CalledProcessError,)
             )
-            def extract():
+            def extract() -> None:
                 extract_variants(
                     vcf_file=str(vcf_path),
                     bed_file=bed_file,

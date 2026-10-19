@@ -46,8 +46,8 @@ def load_benchmark_json(path: str) -> dict:
     if not file_path.exists():
         raise FileNotFoundError(
             f"Benchmark file not found: {path}\n"
-            f"Make sure you've run benchmarks with --benchmark-save first:\n"
-            f"  pytest tests/performance/ --benchmark-save=baseline"
+            f"Make sure you've run benchmarks with --benchmark-enable --benchmark-save first:\n"
+            f"  pytest tests/performance/ --benchmark-enable --benchmark-save=baseline"
         )
 
     with open(file_path, encoding="utf-8") as f:
@@ -179,9 +179,9 @@ if __name__ == "__main__":
         print("Usage: python -m tests.performance.helpers.result_diff baseline.json current.json")
         print("\nExample:")
         print("  # Save baseline")
-        print("  pytest tests/performance/ --benchmark-save=baseline")
+        print("  pytest tests/performance/ --benchmark-enable --benchmark-save=baseline")
         print("  # Make changes, save new results")
-        print("  pytest tests/performance/ --benchmark-save=current")
+        print("  pytest tests/performance/ --benchmark-enable --benchmark-save=current")
         print("  # Compare")
         print("  python -m tests.performance.helpers.result_diff \\")
         print("    .benchmarks/.../baseline.json .benchmarks/.../current.json")

@@ -12,6 +12,7 @@ This module contains stages that perform analysis on the extracted data:
 
 import logging
 import re
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -131,7 +132,6 @@ class _GenotypeMatrixBuilder:
             ),
         )
         annotation_payload = self._aligned_annotation_payload(keep_variants_mask)
-
         # Apply sample mask to phenotype and covariates
         pv = self.phenotype_vector
         cm = self.covariate_matrix
@@ -1661,12 +1661,12 @@ class VariantAnalysisStage(Stage):
         if use_compression:
             import gzip
 
-            def open_func(f):
+            def open_func(f: Any) -> Any:
                 return gzip.open(f, "rt")
 
         else:
 
-            def open_func(f):
+            def open_func(f: Any) -> Any:
                 return open(f)
 
         with open_func(temp_tsv) as inp:
@@ -3010,12 +3010,12 @@ class ChunkedAnalysisStage(Stage):
         if str(input_file).endswith(".gz"):
             import gzip
 
-            def open_func(f):
+            def open_func(f: Any) -> Any:
                 return gzip.open(f, "rt")
 
         else:
 
-            def open_func(f):
+            def open_func(f: Any) -> Any:
                 return open(f)
 
         with open_func(input_file) as f:
@@ -3324,12 +3324,12 @@ class ChunkedAnalysisStage(Stage):
         if str(input_file).endswith(".gz"):
             import gzip
 
-            def open_func(f):
+            def open_func(f: Any) -> Any:
                 return gzip.open(f, "rt")
 
         else:
 
-            def open_func(f):
+            def open_func(f: Any) -> Any:
                 return open(f)
 
         with open_func(input_file) as f:
@@ -3492,7 +3492,7 @@ class ChunkedAnalysisStage(Stage):
         gene_column: str,
         chunksize: int,
         context: Optional["PipelineContext"] = None,
-    ):
+    ) -> Iterator[pd.DataFrame]:
         """Read TSV file in gene-aware chunks with configurable gene size limits."""
         import pandas as pd
 

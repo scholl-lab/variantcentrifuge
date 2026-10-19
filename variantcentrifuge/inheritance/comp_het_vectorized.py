@@ -399,7 +399,7 @@ def create_variant_key_fast(df: pd.DataFrame, idx: int) -> str:
     return f"{chrom}:{pos}:{ref}>{alt}"
 
 
-def create_variant_key(variant_row) -> str:
+def create_variant_key(variant_row: Any) -> str:
     """
     Create a unique key for a variant.
 

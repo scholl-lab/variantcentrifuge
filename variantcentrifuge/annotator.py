@@ -540,7 +540,7 @@ def annotate_dataframe_with_features(df: pd.DataFrame, features: dict[str, Any])
         df = _add_json_annotations_as_columns(df, features["json_gene_data"])
 
     # Handle all other annotations (and JSON if not done above)
-    def annotate_variant(row):
+    def annotate_variant(row: Any) -> str:
         annotations = []
         variant_genes = _extract_genes_from_row(row)
 

@@ -25,38 +25,38 @@ logger = logging.getLogger(__name__)
 class PicklableLock:
     """A lock that can be pickled by creating a new lock on unpickling."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize a new picklable lock."""
         self._lock = threading.RLock()
 
-    def __getstate__(self):
+    def __getstate__(self) -> dict[str, Any]:
         """Return state for pickling, excluding the unpicklable RLock."""
         # Return empty state - we don't need to save the lock state
         return {}
 
-    def __setstate__(self, state):
+    def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore state after unpickling by creating a fresh lock."""
         # Create a fresh lock on unpickling
         self._lock = threading.RLock()
 
-    def __enter__(self):
+    def __enter__(self) -> bool:
         """Enter the context manager by acquiring the lock."""
         # Ensure lock exists (in case of edge cases)
         if not hasattr(self, "_lock"):
             self._lock = threading.RLock()
         return self._lock.__enter__()
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Exit the context manager by releasing the lock."""
-        return self._lock.__exit__(exc_type, exc_val, exc_tb)
+        self._lock.__exit__(exc_type, exc_val, exc_tb)
 
-    def acquire(self, blocking=True, timeout=-1):
+    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
         """Acquire the lock with optional blocking and timeout."""
         if not hasattr(self, "_lock"):
             self._lock = threading.RLock()
         return self._lock.acquire(blocking, timeout)
 
-    def release(self):
+    def release(self) -> None:
         """Release the lock."""
         return self._lock.release()
 

@@ -4,6 +4,7 @@ Association configuration validation and resolution helpers for analysis stages.
 
 import logging
 import os
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -158,7 +159,7 @@ def _validate_association_config_dict(d: dict) -> None:
         )
 
 
-def _resolve_association_workers(cfg: dict, _get) -> int:
+def _resolve_association_workers(cfg: dict[str, Any], _get: Callable[..., Any]) -> int:
     """Resolve association_workers from CLI/JSON/auto.
 
     0 (default) means auto-allocate from --threads. -1 means all CPU cores.
