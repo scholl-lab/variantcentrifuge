@@ -1462,9 +1462,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             var color = colors[cell.text] || '#6c757d';
                             return '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(cell.text) + '</span>';
                         }
-                        return cell.text;
+                        return cell.text ? escapeHtml(String(cell.text)) : '';
                     }
-                    return data;
+                    return data != null ? escapeHtml(String(data)) : '';
                 }
             });
         }
@@ -1497,7 +1497,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             var displayText = str.replace(/_/g, ' ');
                             return '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(displayText) + '</span>';
                         }
-                        return str;
+                        return escapeHtml(str);
                     }
                     return '';
                 }
@@ -1595,9 +1595,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             }
                             return escapeHtml(str);
                         }
-                        return str;
+                        return escapeHtml(str);
                     }
-                    return data;
+                    return data != null ? escapeHtml(String(data)) : '';
                 }
             });
         }
@@ -1620,9 +1620,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             }
                             return escapeHtml(str);
                         }
-                        return str;
+                        return escapeHtml(str);
                     }
-                    return data;
+                    return data != null ? escapeHtml(String(data)) : '';
                 }
             });
         }
@@ -1647,7 +1647,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                         return escapeHtml(val);
                     }
-                    return data;
+                    return data != null ? escapeHtml(String(data)) : '';
                 }
             });
         }

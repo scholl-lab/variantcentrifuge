@@ -83,14 +83,15 @@ def _get_igv_reports_for_variant(
     pos: str,
     ref: str,
     alt: str,
-    gt_value: str,
+    gt_value: Any,
     igv_lookup: dict[tuple[Any, ...], str],
 ) -> list[tuple[str, str]]:
     """Return list of (sample_id, report_path) for non-reference samples in gt_value."""
-    if not gt_value:
+    gt_str = str(gt_value).strip() if gt_value is not None and pd.notna(gt_value) else ""
+    if not gt_str:
         return []
     igv_reports = []
-    for entry in gt_value.split(";"):
+    for entry in gt_str.split(";"):
         entry = entry.strip()
         if not entry:
             continue
@@ -98,7 +99,7 @@ def _get_igv_reports_for_variant(
         if m:
             sample_id = m.group(1).strip()
             genotype = m.group(2).strip()
-            if genotype in ["0/0", "./."]:
+            if genotype in ["0/0", "./.", "0", ".", "0|0"]:
                 continue
             lookup_key = (chrom, pos, ref, alt, sample_id)
             if lookup_key in igv_lookup:
@@ -207,8 +208,23 @@ def convert_to_excel(
             is_url_col = col_name in url_columns
             for row_idx, val in enumerate(df[col_name]):
                 s_val = str(val).strip() if pd.notna(val) else ""
-                if s_val.startswith(("http://", "https://")):
-                    disp = col_name if is_url_col else s_val
+                if s_val.startswith(
+                    (
+                        "http://",
+                        "https://",
+                        "ftp://",
+                        "ftps://",
+                        "mailto:",
+                        "internal:",
+                        "external:",
+                    )
+                ):
+                    if is_url_col and s_val.startswith(("http://", "https://")):
+                        disp = col_name
+                    elif s_val.startswith("mailto:"):
+                        disp = s_val[7:]
+                    else:
+                        disp = s_val
                     ret = ws.write_url(row_idx + 1, col_idx, s_val, hyperlink_format, string=disp)
                     if ret != 0:
                         ws.write_string(row_idx + 1, col_idx, disp, hyperlink_format)
@@ -504,15 +520,21 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
     if igv_lookup:
         for variant_dict in variants:
             variant_dict["igv_links"] = []
-            chrom = str(variant_dict.get("CHROM", ""))
-            pos = str(variant_dict.get("POS", ""))
-            ref = str(variant_dict.get("REF", ""))
-            alt = str(variant_dict.get("ALT", ""))
-            gt_value = variant_dict.get("GT", "")
+            try:
+                chrom = str(variant_dict.get("CHROM", ""))
+                pos = str(variant_dict.get("POS", ""))
+                ref = str(variant_dict.get("REF", ""))
+                alt = str(variant_dict.get("ALT", ""))
+                raw_gt = variant_dict.get("GT")
+                gt_value = str(raw_gt) if raw_gt is not None and pd.notna(raw_gt) else ""
 
-            igv_reports = _get_igv_reports_for_variant(chrom, pos, ref, alt, gt_value, igv_lookup)
-            for sample_id, rpath in igv_reports:
-                variant_dict["igv_links"].append({"sample_id": sample_id, "report_path": rpath})
+                igv_reports = _get_igv_reports_for_variant(
+                    chrom, pos, ref, alt, gt_value, igv_lookup
+                )
+                for sample_id, rpath in igv_reports:
+                    variant_dict["igv_links"].append({"sample_id": sample_id, "report_path": rpath})
+            except Exception as e:
+                logger.warning(f"Error enriching variant with IGV links: {e}")
         logger.info("Enriched variants with IGV report links")
 
     num_variants = len(df) if not df.empty else 0

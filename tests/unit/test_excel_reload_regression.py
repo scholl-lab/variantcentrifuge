@@ -677,3 +677,137 @@ def test_excel_igv_comment_overflow_creates_overflow_sheet(tmp_path: Path):
         "Patient_Sample_ID_0000",
         "report/igv/long_batch_path_subfolder/Patient_Sample_ID_0000_variant_report.html",
     ]
+
+
+@pytest.mark.unit
+def test_produce_report_json_numeric_gt(tmp_path: Path):
+    """Verify produce_report_json handles numeric GT (haploid/unquoted) without crashing (#159)."""
+    from variantcentrifuge.converter import produce_report_json
+
+    output_dir = tmp_path / "report_json_test"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = output_dir / "report" / "igv"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    igv_map = {
+        "variants": [
+            {
+                "chrom": "chr1",
+                "pos": 100,
+                "ref": "A",
+                "alt": "T",
+                "sample_reports": {"Sample1": "igv/Sample1.html", "1": "igv/sample_1.html"},
+            }
+        ]
+    }
+    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(igv_map, f)
+
+    tsv_path = output_dir / "variants.tsv"
+    tsv_content = "CHROM\tPOS\tREF\tALT\tGT\nchr1\t100\tA\tT\t1\nchr1\t200\tG\tC\t0\n"
+    tsv_path.write_text(tsv_content, encoding="utf-8")
+
+    produce_report_json(str(tsv_path), str(output_dir))
+
+    variants_json_path = output_dir / "report" / "variants.json"
+    summary_json_path = output_dir / "report" / "summary.json"
+    assert variants_json_path.exists()
+    assert summary_json_path.exists()
+
+    with open(variants_json_path, encoding="utf-8") as f:
+        variants = json.load(f)
+
+    assert len(variants) == 2
+    # First variant (numeric GT=1) should be loaded without crashing
+    assert variants[0]["GT"] == 1
+    assert variants[0]["igv_links"] == []
+    # Second variant (numeric GT=0) reference genotype -> no igv_links
+    assert variants[1]["GT"] == 0
+    assert variants[1]["igv_links"] == []
+
+    # Verify _get_igv_reports_for_variant handles int, None, and haploid string directly
+    from variantcentrifuge.converter import _get_igv_reports_for_variant
+
+    igv_lookup = {
+        ("chr1", "100", "A", "T", "Sample1"): "igv/Sample1.html",
+    }
+    assert _get_igv_reports_for_variant("chr1", "100", "A", "T", 1, igv_lookup) == []
+    assert _get_igv_reports_for_variant("chr1", "100", "A", "T", 0, igv_lookup) == []
+    assert _get_igv_reports_for_variant("chr1", "100", "A", "T", "Sample1(1)", igv_lookup) == [
+        ("Sample1", "igv/Sample1.html")
+    ]
+    assert _get_igv_reports_for_variant("chr1", "100", "A", "T", "Sample1(0)", igv_lookup) == []
+    assert _get_igv_reports_for_variant("chr1", "100", "A", "T", "Sample1(.)", igv_lookup) == []
+    assert _get_igv_reports_for_variant("chr1", "100", "A", "T", None, igv_lookup) == []
+
+
+@pytest.mark.unit
+def test_excel_hyperlink_protocols_preserved(tmp_path: Path):
+    """Verify ftp, ftps, mailto, internal, and external links are preserved in Excel (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    output_dir = tmp_path / "hyperlinks_test"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    xlsx_file = output_dir / "links.xlsx"
+
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100],
+            "REF": ["A"],
+            "ALT": ["T"],
+            "FTP_LINK": ["ftp://ftp.ncbi.nlm.nih.gov/genomes/all/data.txt"],
+            "FTPS_LINK": ["ftps://secure.example.org/path/file.bin"],
+            "EMAIL": ["mailto:curator@genomics.org"],
+            "INTERNAL_REF": ["internal:Sheet1!A1"],
+            "EXTERNAL_REF": ["external:doc.xlsx#Sheet1!A1"],
+            "HTTP_URL": ["https://www.ncbi.nlm.nih.gov/clinvar/"],
+        }
+    )
+
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    headers = [cell.value for cell in ws[1]]
+    col_indices = {name: idx + 1 for idx, name in enumerate(headers)}
+
+    # FTP link
+    cell_ftp = ws.cell(row=2, column=col_indices["FTP_LINK"])
+    assert cell_ftp.value == "ftp://ftp.ncbi.nlm.nih.gov/genomes/all/data.txt"
+    assert cell_ftp.hyperlink is not None
+    assert cell_ftp.hyperlink.target == "ftp://ftp.ncbi.nlm.nih.gov/genomes/all/data.txt"
+
+    # FTPS link
+    cell_ftps = ws.cell(row=2, column=col_indices["FTPS_LINK"])
+    assert cell_ftps.value == "ftps://secure.example.org/path/file.bin"
+    assert cell_ftps.hyperlink is not None
+    assert cell_ftps.hyperlink.target == "ftps://secure.example.org/path/file.bin"
+
+    # Mailto link: prefix stripped for display, hyperlink target keeps mailto:
+    cell_mail = ws.cell(row=2, column=col_indices["EMAIL"])
+    assert cell_mail.value == "curator@genomics.org"
+    assert cell_mail.hyperlink is not None
+    assert cell_mail.hyperlink.target == "mailto:curator@genomics.org"
+
+    # Internal ref link
+    cell_int = ws.cell(row=2, column=col_indices["INTERNAL_REF"])
+    assert cell_int.value == "internal:Sheet1!A1"
+    assert cell_int.hyperlink is not None
+    assert cell_int.hyperlink.location == "Sheet1!A1"
+
+    # External ref link
+    cell_ext = ws.cell(row=2, column=col_indices["EXTERNAL_REF"])
+    assert cell_ext.value == "external:doc.xlsx#Sheet1!A1"
+    assert cell_ext.hyperlink is not None
+    assert cell_ext.hyperlink.target == "doc.xlsx"
+
+    # HTTP link
+    cell_http = ws.cell(row=2, column=col_indices["HTTP_URL"])
+    assert cell_http.hyperlink is not None
+    assert cell_http.hyperlink.target == "https://www.ncbi.nlm.nih.gov/clinvar/"

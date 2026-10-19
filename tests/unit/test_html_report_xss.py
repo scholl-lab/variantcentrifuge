@@ -472,3 +472,26 @@ class TestColumnRenderers:
             }
         ]
         assert _run_column_defs_script(col_data, script) == "OK"
+
+    @pytest.mark.parametrize(
+        "col_name",
+        ["IMPACT", "ClinVar_CLNSIG", "HGVS_C", "VAR_ID", "CADD_phred"],
+    )
+    def test_renderers_escape_filter_mode(self, col_name: str):
+        """Verify renderers escape HTML when type='filter' (#130)."""
+        xss_payload = "&lt;img src=x onerror=alert(1)&gt;"
+        script = f"""
+        const defObj = dtColumnDefs.find(d => d.render);
+        const render = defObj.render;
+        const res = render({json.dumps(xss_payload)}, 'filter', {{}});
+        if (res.indexOf('<img') !== -1) {{
+            console.error('Filter mode returned unescaped HTML: ' + res);
+            process.exit(1);
+        }}
+        if (res.indexOf('&lt;img') === -1) {{
+            console.error('Filter mode did not escape payload: ' + res);
+            process.exit(1);
+        }}
+        console.log('OK');
+        """
+        assert _run_column_defs_script([{"original_name": col_name}], script) == "OK"
