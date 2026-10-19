@@ -133,28 +133,119 @@ _ALLOWED_NAMES: frozenset[str] = frozenset(
     }
 )
 
+_CALLABLE_ATTRIBUTES: frozenset[str] = frozenset(
+    {
+        "mean",
+        "sum",
+        "std",
+        "var",
+        "median",
+        "min",
+        "max",
+        "count",
+        "nunique",
+        "unique",
+        "value_counts",
+        "quantile",
+        "describe",
+        "isna",
+        "notna",
+        "isnull",
+        "notnull",
+        "isin",
+        "fillna",
+        "dropna",
+        "round",
+        "astype",
+        "any",
+        "all",
+        "contains",
+        "startswith",
+        "endswith",
+        "lower",
+        "upper",
+        "strip",
+        "lstrip",
+        "rstrip",
+        "replace",
+        "match",
+        "split",
+        "len",
+        "to_numeric",
+        "isnan",
+    }
+)
+
+_PROPERTY_ATTRIBUTES: frozenset[str] = frozenset(
+    {"columns", "shape", "empty", "values", "index", "dtypes", "size", "str", "nan"}
+)
+
+_ALLOWED_ATTRIBUTES: frozenset[str] = _CALLABLE_ATTRIBUTES | _PROPERTY_ATTRIBUTES
+_ALLOWED_CALLABLE_ATTRIBUTES: frozenset[str] = _CALLABLE_ATTRIBUTES
+
+_ALLOWED_CALLABLE_NAMES: frozenset[str] = frozenset(
+    {
+        "len",
+        "float",
+        "str",
+        "int",
+        "bool",
+        "size",
+        "sum",
+        "min",
+        "max",
+        "abs",
+        "round",
+        "sorted",
+        "set",
+        "list",
+        "dict",
+        "tuple",
+        "any",
+        "all",
+        "isinstance",
+    }
+)
+
+
+class _SafePandas:
+    """Safe subset of pandas namespace for stats expressions."""
+
+    to_numeric = staticmethod(pd.to_numeric)
+
+
+class _SafeNumpy:
+    """Safe subset of numpy namespace for stats expressions."""
+
+    nan = np.nan
+    isnan = staticmethod(np.isnan)
+
 
 def _validate_expression(expression: str) -> None:
     """Validate a stats expression against the AST allowlist.
 
     Raises ``ValueError`` if the expression contains disallowed constructs
-    such as imports, dunder attribute access, or unsupported AST node types.
+    such as imports, dunder attribute access, unapproved attributes, or
+    unapproved call targets.
     """
     try:
         tree = ast.parse(expression, mode="eval")
     except SyntaxError as exc:
         raise ValueError(f"Syntax error in expression: {exc}") from exc
 
-    for node in ast.walk(tree):
+    for node in reversed(list(ast.walk(tree))):
         node_type = type(node)
 
         # 1. Reject disallowed AST node types
         if node_type not in _ALLOWED_AST_NODES:
             raise ValueError(f"Disallowed construct {node_type.__name__} in expression")
 
-        # 2. Block dunder attribute access (e.g. __class__, __subclasses__)
-        if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
-            raise ValueError(f"Access to private/dunder attribute '{node.attr}' is not allowed")
+        # 2. Block dunder attribute access and unapproved attributes
+        if isinstance(node, ast.Attribute):
+            if node.attr.startswith("_"):
+                raise ValueError(f"Access to private/dunder attribute '{node.attr}' is not allowed")
+            if node.attr not in _ALLOWED_ATTRIBUTES:
+                raise ValueError(f"Disallowed attribute '{node.attr}' in expression")
 
         # 3. Restrict bare names to the known namespace
         if isinstance(node, ast.Name) and node.id not in _ALLOWED_NAMES:
@@ -162,6 +253,17 @@ def _validate_expression(expression: str) -> None:
                 f"Unknown name '{node.id}' in expression; "
                 f"allowed names: df, group_df, pd, np, len, float, str, int, bool, size, …"
             )
+
+        # 4. Restrict call targets to approved functions and methods
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                if node.func.id not in _ALLOWED_CALLABLE_NAMES:
+                    raise ValueError(f"Disallowed function call '{node.func.id}' in expression")
+            elif isinstance(node.func, ast.Attribute):
+                if node.func.attr not in _ALLOWED_CALLABLE_ATTRIBUTES:
+                    raise ValueError(f"Disallowed method call '{node.func.attr}' in expression")
+            else:
+                raise ValueError(f"Disallowed call target in expression: {ast.dump(node.func)}")
 
 
 class StatsEngine:
@@ -250,14 +352,21 @@ class StatsEngine:
             namespace = {
                 "df": df,
                 "group_df": df,  # Support both df and group_df names
-                "pd": pd,
-                "np": np,
+                "pd": _SafePandas,
+                "np": _SafeNumpy,
                 "len": len,
                 "float": float,
                 "str": str,
                 "int": int,
                 "bool": bool,
                 "size": lambda: len(df),  # For grouped operations
+                "sum": sum,
+                "min": min,
+                "max": max,
+                "abs": abs,
+                "round": round,
+                "any": any,
+                "all": all,
             }
 
             # eval with empty __builtins__ AND prior AST validation

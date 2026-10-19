@@ -316,3 +316,55 @@ class TestExpressionValidation:
         """Verify syntax errors are caught during validation."""
         with pytest.raises(ValueError, match="Syntax error"):
             _validate_expression("this is not valid python")
+
+    def test_pd_os_system_traversal_blocked(self):
+        """Verify pd.io.common.os.system traversal is rejected (#127)."""
+        with pytest.raises(ValueError, match="Disallowed attribute"):
+            _validate_expression("pd.io.common.os.system('printf F01_PROBE')")
+
+    def test_df_io_methods_blocked(self):
+        """Verify DataFrame I/O methods like to_csv are rejected (#127)."""
+        with pytest.raises(ValueError, match="Disallowed attribute"):
+            _validate_expression("df.to_csv('F01_NOT_WRITTEN.csv')")
+
+    def test_df_eval_query_blocked(self):
+        """Verify nested eval/query methods are rejected (#127)."""
+        with pytest.raises(ValueError, match="Disallowed attribute"):
+            _validate_expression("df.eval('1 + 1')")
+        with pytest.raises(ValueError, match="Disallowed attribute"):
+            _validate_expression("df.query('IMPACT == \"HIGH\"')")
+
+    def test_unapproved_callable_target_blocked(self):
+        """Verify unapproved call targets are rejected (#127)."""
+        with pytest.raises(ValueError, match="Disallowed"):
+            _validate_expression("df.columns()")
+
+    def test_malicious_config_targets_not_invoked(self, sample_df, monkeypatch):
+        """Verify malicious config expressions do not invoke mocked targets (#127)."""
+        import os
+
+        called = []
+
+        def fake_system(cmd):
+            called.append(cmd)
+            return 0
+
+        monkeypatch.setattr(os, "system", fake_system)
+        monkeypatch.setattr(pd.DataFrame, "to_csv", lambda *args, **kwargs: called.append("to_csv"))
+
+        config = {
+            "dataset_stats": [
+                {
+                    "name": "os_probe",
+                    "expression": "pd.io.common.os.system('echo probe')",
+                },
+                {
+                    "name": "io_probe",
+                    "expression": "df.to_csv('probe.csv')",
+                },
+            ]
+        }
+        engine = StatsEngine(config)
+        results = engine.compute(sample_df)
+        assert results["dataset"].empty
+        assert called == []
