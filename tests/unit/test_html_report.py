@@ -1538,3 +1538,242 @@ class TestPhase16FilteringAndVisualization:
         assert "resetAllBtn" in template_source or "reset" in template_source.lower(), (
             "Reset all button click handler pattern not found"
         )
+
+
+@pytest.mark.unit
+class TestHTMLReportEscaping:
+    """Test HTML escaping and XSS prevention (#130)."""
+
+    def test_untrusted_values_are_escaped_in_rendered_report(self, tmp_path):
+        """Verify annotations, sample IDs, and metadata are escaped in the report."""
+        import json
+
+        from variantcentrifuge.generate_html_report import generate_html_report
+
+        variants_data = [
+            {
+                "GENE": "TEST1",
+                "CHROM": "chr1",
+                "POS": "100",
+                "REF": "A",
+                "ALT": "T",
+                "IMPACT": "HIGH",
+                "EFFECT": "<script>globalThis.F04=1</script>",
+                "SAMPLE1_GT": "<svg/onload=globalThis.F04Sample=1>(0/1)",
+                "igv_links": [
+                    {
+                        "sample_id": "<script>alert('sample')</script>",
+                        "report_path": "igv_reports/test.html",
+                    }
+                ],
+            }
+        ]
+        summary = {
+            "num_variants": 1,
+            "num_genes": 1,
+            "num_samples": 1,
+            "impact_distribution": {"HIGH": 1},
+            "inheritance_distribution": {},
+            "top_genes": [{"gene": "TEST1", "count": 1}],
+        }
+        cfg = {
+            "filters": "<script>alert('filter')</script>",
+            "reference": "<b onmouseover=1>GRCh38</b>",
+            "vcf_file": "/path/to/<script>evil.vcf</script>",
+        }
+
+        v_file = tmp_path / "variants.json"
+        s_file = tmp_path / "summary.json"
+        v_file.write_text(json.dumps(variants_data), encoding="utf-8")
+        s_file.write_text(json.dumps(summary), encoding="utf-8")
+
+        generate_html_report(str(v_file), str(s_file), str(tmp_path), cfg)
+        report_html = (tmp_path / "index.html").read_text(encoding="utf-8")
+
+        # Injected scripts/tags must not exist unescaped in HTML
+        assert "<script>globalThis.F04=1</script>" not in report_html
+        assert "<svg/onload" not in report_html
+        assert "<script>alert('sample')</script>" not in report_html
+        assert "<script>alert('filter')</script>" not in report_html
+        assert "<b onmouseover=1>" not in report_html
+
+        # Escaped versions must be present
+        assert "&lt;script&gt;globalThis.F04=1&lt;/script&gt;" in report_html
+        assert "&lt;svg/onload=globalThis.F04Sample=1&gt;(0/1)" in report_html
+
+    def test_javascript_links_rejected_in_rendered_report(self, tmp_path):
+        """Verify javascript: and other executable URI schemes are rejected."""
+        import json
+
+        from variantcentrifuge.generate_html_report import generate_html_report
+
+        variants_data = [
+            {
+                "GENE": "TEST1",
+                "CHROM": "chr1",
+                "POS": "100",
+                "REF": "A",
+                "ALT": "T",
+                "ClinVar": "javascript:alert('xss')",
+                "igv_links": [
+                    {
+                        "sample_id": "SAMPLE1",
+                        "report_path": "javascript:alert('igv')",
+                    }
+                ],
+            }
+        ]
+        summary = {
+            "num_variants": 1,
+            "num_genes": 1,
+            "num_samples": 1,
+            "impact_distribution": {},
+            "inheritance_distribution": {},
+            "top_genes": [],
+        }
+        cfg = {
+            "links": {
+                "ClinVar": "javascript:alert('xss')",
+            }
+        }
+
+        v_file = tmp_path / "variants.json"
+        s_file = tmp_path / "summary.json"
+        v_file.write_text(json.dumps(variants_data), encoding="utf-8")
+        s_file.write_text(json.dumps(summary), encoding="utf-8")
+
+        generate_html_report(str(v_file), str(s_file), str(tmp_path), cfg)
+        report_html = (tmp_path / "index.html").read_text(encoding="utf-8")
+
+        # Neither ClinVar nor IGV links should have href="javascript:..."
+        assert 'href="javascript:' not in report_html.lower()
+
+    def test_valid_links_preserved_in_rendered_report(self, tmp_path):
+        """Verify valid HTTP/HTTPS and relative IGV links still render correctly."""
+        import json
+
+        from variantcentrifuge.generate_html_report import generate_html_report
+
+        variants_data = [
+            {
+                "GENE": "TEST1",
+                "CHROM": "chr1",
+                "POS": "100",
+                "REF": "A",
+                "ALT": "T",
+                "ClinVar": "https://www.ncbi.nlm.nih.gov/clinvar/variation/12345/",
+                "igv_links": [
+                    {
+                        "sample_id": "SAMPLE1",
+                        "report_path": "igv_reports/sample1.html",
+                    }
+                ],
+            }
+        ]
+        summary = {
+            "num_variants": 1,
+            "num_genes": 1,
+            "num_samples": 1,
+            "impact_distribution": {},
+            "inheritance_distribution": {},
+            "top_genes": [],
+        }
+        cfg = {
+            "links": {
+                "ClinVar": "https://www.ncbi.nlm.nih.gov/clinvar/variation/{ID}/",
+            }
+        }
+
+        v_file = tmp_path / "variants.json"
+        s_file = tmp_path / "summary.json"
+        v_file.write_text(json.dumps(variants_data), encoding="utf-8")
+        s_file.write_text(json.dumps(summary), encoding="utf-8")
+
+        generate_html_report(str(v_file), str(s_file), str(tmp_path), cfg)
+        report_html = (tmp_path / "index.html").read_text(encoding="utf-8")
+
+        assert 'href="https://www.ncbi.nlm.nih.gov/clinvar/variation/12345/"' in report_html
+        assert 'href="igv_reports/sample1.html"' in report_html
+
+    def test_embedded_scripts_syntax_validity(self, tmp_path):
+        """Verify embedded scripts in generated report pass node --check."""
+        import json
+        import re
+        import subprocess
+
+        from variantcentrifuge.generate_html_report import generate_html_report
+
+        v_file = tmp_path / "variants.json"
+        s_file = tmp_path / "summary.json"
+        test_variants = [{"GENE": "TEST1", "CHROM": "chr1", "POS": "100"}]
+        test_summary = {
+            "num_variants": 1,
+            "num_genes": 1,
+            "num_samples": 1,
+            "impact_distribution": {},
+        }
+        v_file.write_text(json.dumps(test_variants), encoding="utf-8")
+        s_file.write_text(json.dumps(test_summary), encoding="utf-8")
+
+        generate_html_report(str(v_file), str(s_file), str(tmp_path), {})
+        report_html = (tmp_path / "index.html").read_text(encoding="utf-8")
+
+        scripts = re.findall(r"<script[^>]*>(.*?)</script>", report_html, re.DOTALL)
+        assert len(scripts) > 0
+
+        for i, script_content in enumerate(scripts):
+            script_file = tmp_path / f"script_{i}.js"
+            script_file.write_text(script_content, encoding="utf-8")
+            result = subprocess.run(
+                ["node", "--check", str(script_file)],
+                capture_output=True,
+                text=True,
+            )
+            assert result.returncode == 0, f"Script {i} syntax error: {result.stderr}"
+
+    def test_format_child_row_xss_attribute_injection_in_node(self, tmp_path):
+        """Verify formatChildRow escapes URLs and prevents attribute injection."""
+        import re
+        import subprocess
+
+        template_path = (
+            Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates" / "index.html"
+        )
+        content = template_path.read_text(encoding="utf-8")
+
+        # Extract helper functions and formatChildRow
+        helpers = ""
+        m_esc = re.search(r"(function escapeHtml\(.*?\n    \})", content, re.DOTALL)
+        if m_esc:
+            helpers += m_esc.group(1) + "\n"
+        m_url = re.search(r"(function isSafeUrl\(.*?\n    \})", content, re.DOTALL)
+        if m_url:
+            helpers += m_url.group(1) + "\n"
+
+        m_fn = re.search(r"(function formatChildRow\(.*?\n    \})", content, re.DOTALL)
+        assert m_fn is not None, "formatChildRow function not found"
+        fn = m_fn.group(1)
+
+        runner = (
+            helpers
+            + "\n"
+            + fn
+            + "\n"
+            + """
+        var columns = [{ original_name: 'ClinVar' }];
+        var rowData = [null, 'https://example.invalid/" onclick="globalThis.F04Link=1'];
+        var res = formatChildRow(rowData, columns);
+        if (/<a\\s+[^>]*onclick/i.test(res) || res.indexOf('<a') !== -1) {
+            console.error('XSS injection succeeded (rendered as anchor): ' + res);
+            process.exit(1);
+        }
+        console.log('OK');
+        """
+        )
+        result = subprocess.run(
+            ["node", "-e", runner],
+            capture_output=True,
+            text=True,
+        )
+        msg = f"formatChildRow XSS detected: {result.stderr or result.stdout}"
+        assert result.returncode == 0, msg

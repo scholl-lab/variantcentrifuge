@@ -5,7 +5,25 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+from markupsafe import Markup
+
+
+def is_safe_url(url: Any) -> bool:
+    """Check if a URL uses a safe scheme (http, https, or relative path)."""
+    if not url:
+        return False
+    u = str(url).strip()
+    if any(c in u for c in " \t\r\n\"'<>\\"):
+        return False
+    u_lower = u.lower()
+    if u_lower.startswith(("javascript:", "data:", "vbscript:")):
+        return False
+    if u_lower.startswith(("http://", "https://")):
+        return True
+    colon_idx = u_lower.find(":")
+    slash_idx = u_lower.find("/")
+    return colon_idx == -1 or (slash_idx != -1 and slash_idx < colon_idx)
 
 
 def _load_assets() -> dict[str, str]:
@@ -15,14 +33,14 @@ def _load_assets() -> dict[str, str]:
     to avoid collisions between same-stem files in different subdirectories.
     """
     assets_dir = Path(__file__).parent / "assets"
-    assets = {}
+    assets: dict[str, str] = {}
     for subdir in ("js", "css"):
         asset_path = assets_dir / subdir
         if asset_path.exists():
             for f in sorted(asset_path.iterdir()):
                 if f.is_file():
                     # Namespace by subdirectory to prevent key collisions
-                    assets[f"{subdir}/{f.stem}"] = f.read_text(encoding="utf-8")
+                    assets[f"{subdir}/{f.stem}"] = Markup(f.read_text(encoding="utf-8"))
     return assets
 
 
@@ -118,7 +136,11 @@ def generate_html_report(
     if not templates_dir.exists():
         raise FileNotFoundError(f"Templates directory not found at: {templates_dir}")
 
-    env = Environment(loader=FileSystemLoader(str(templates_dir)))
+    env = Environment(
+        loader=FileSystemLoader(str(templates_dir)),
+        autoescape=select_autoescape(["html", "xml"]),
+    )
+    env.filters["is_safe_url"] = is_safe_url
     template = env.get_template("index.html")
 
     # Import version for template

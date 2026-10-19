@@ -7,11 +7,11 @@
     <title>VariantCentrifuge Report</title>
 
     <!-- Inlined CSS Assets -->
-    <style>{{ assets['css/datatables.min'] }}</style>
-    <style>{{ assets['css/buttons.dataTables.min'] }}</style>
-    <style>{{ assets['css/fixedcolumns.dataTables.min'] }}</style>
-    <style>{{ assets['css/tippy'] }}</style>
-    <style>{{ assets['css/nouislider.min'] }}</style>
+    <style>{{ assets['css/datatables.min'] | safe }}</style>
+    <style>{{ assets['css/buttons.dataTables.min'] | safe }}</style>
+    <style>{{ assets['css/fixedcolumns.dataTables.min'] | safe }}</style>
+    <style>{{ assets['css/tippy'] | safe }}</style>
+    <style>{{ assets['css/nouislider.min'] | safe }}</style>
 
     <style>
     /* Base Styles */
@@ -1073,21 +1073,33 @@
                                 {# Handle structured igv_links data which is a list of dicts #}
                                 {% if v_row[col_info.original_name] and v_row[col_info.original_name]|length > 0 %}
                                     {% for igv_link_detail in v_row[col_info.original_name] %}
+                                        {% set igv_url = (igv_link_detail.report_path | string | trim) %}
+                                        {% set igv_url_lower = igv_url.lower() %}
+                                        {% if igv_url and (' ' not in igv_url) and ('"' not in igv_url) and (not igv_url_lower.startswith('javascript:')) and (not igv_url_lower.startswith('data:')) and (not igv_url_lower.startswith('vbscript:')) and (igv_url_lower.startswith('http://') or igv_url_lower.startswith('https://') or (':' not in igv_url_lower)) %}
                                         <a href="{{ igv_link_detail.report_path }}" target="_blank" class="igv-individual-link" title="IGV report for {{ igv_link_detail.sample_id }}">
                                             <svg aria-hidden="true" focusable="false" class="link-icon-svg" width="14" height="14"><use href="#icon-external-link"/></svg>
                                             <span class="sr-only">IGV report for {{ igv_link_detail.sample_id }} (opens in new tab)</span>
                                             {{ igv_link_detail.sample_id }}
                                         </a>{% if not loop.last %} {% endif %}
+                                        {% else %}
+                                        {{ igv_link_detail.sample_id }}{% if not loop.last %} {% endif %}
+                                        {% endif %}
                                     {% endfor %}
                                 {% else %}
                                     N/A
                                 {% endif %}
                             {% elif col_info.is_standard_link_column and v_row[col_info.original_name] and v_row[col_info.original_name] | string | trim != "" %}
+                                {% set std_url = (v_row[col_info.original_name] | string | trim) %}
+                                {% set std_url_lower = std_url.lower() %}
+                                {% if (' ' not in std_url) and ('"' not in std_url) and (not std_url_lower.startswith('javascript:')) and (not std_url_lower.startswith('data:')) and (not std_url_lower.startswith('vbscript:')) and (std_url_lower.startswith('http://') or std_url_lower.startswith('https://') or (':' not in std_url_lower)) %}
                                 <a href="{{ v_row[col_info.original_name] }}" target="_blank" title="{{ v_row[col_info.original_name] }}">
                                     <svg aria-hidden="true" focusable="false" class="link-icon-svg" width="14" height="14"><use href="#icon-external-link"/></svg>
                                     <span class="sr-only">{{ col_info.link_display_text }} (opens in new tab)</span>
                                     {{ col_info.link_display_text }}
                                 </a>
+                                {% else %}
+                                {{ v_row[col_info.original_name] }}
+                                {% endif %}
                             {% elif col_info.apply_hover_expand and col_info.max_width_px %}
                                 <span class="truncated-cell" tabindex="0" style="max-width: {{ col_info.max_width_px }}px;" data-tippy-content="{{ v_row[col_info.original_name] }}">{{ v_row[col_info.original_name] }}</span>
                             {% else %}
@@ -1250,19 +1262,48 @@
 </div>
 
 <!-- Inlined JavaScript Assets -->
-<script>{{ assets['js/jquery.slim.min'] }}</script>
-<script>{{ assets['js/nouislider.min'] }}</script>
-<script>{{ assets['js/datatables.min'] }}</script>
-<script>{{ assets['js/fixedcolumns.min'] }}</script>
-<script>{{ assets['js/datatables.buttons.min'] }}</script>
-<script>{{ assets['js/buttons.colVis.min'] }}</script>
-<script>{{ assets['js/chart.umd.min'] }}</script>
-<script>{{ assets['js/chartjs-plugin-datalabels.min'] }}</script>
-<script>{{ assets['js/popper.min'] }}</script>
-<script>{{ assets['js/tippy-bundle.umd.min'] }}</script>
+<script>{{ assets['js/jquery.slim.min'] | safe }}</script>
+<script>{{ assets['js/nouislider.min'] | safe }}</script>
+<script>{{ assets['js/datatables.min'] | safe }}</script>
+<script>{{ assets['js/fixedcolumns.min'] | safe }}</script>
+<script>{{ assets['js/datatables.buttons.min'] | safe }}</script>
+<script>{{ assets['js/buttons.colVis.min'] | safe }}</script>
+<script>{{ assets['js/chart.umd.min'] | safe }}</script>
+<script>{{ assets['js/chartjs-plugin-datalabels.min'] | safe }}</script>
+<script>{{ assets['js/popper.min'] | safe }}</script>
+<script>{{ assets['js/tippy-bundle.umd.min'] | safe }}</script>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function isSafeUrl(url) {
+        if (!url) return false;
+        var u = String(url).trim();
+        if (/[\s"'<>\\]/.test(u)) return false;
+        var uLower = u.toLowerCase();
+        if (uLower.indexOf('javascript:') === 0 || uLower.indexOf('data:') === 0 || uLower.indexOf('vbscript:') === 0) {
+            return false;
+        }
+        if (uLower.indexOf('http://') === 0 || uLower.indexOf('https://') === 0) {
+            return true;
+        }
+        var colonIdx = uLower.indexOf(':');
+        var slashIdx = uLower.indexOf('/');
+        if (colonIdx === -1 || (slashIdx !== -1 && slashIdx < colonIdx)) {
+            return true;
+        }
+        return false;
+    }
+
     // PDF Export Button Handler (PRINT-02)
     var pdfBtn = document.getElementById('export-pdf-btn');
     if (pdfBtn) {
@@ -1328,7 +1369,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             'MODIFIER': '#6c757d'
                         };
                         var color = colors[data] || '#6c757d';
-                        return '<span class="badge" style="background-color:' + color + ';">' + data + '</span>';
+                        return '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(data) + '</span>';
                     }
                     return data;
                 }
@@ -1358,7 +1399,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             color = '#bf5600';
                         }
                         var displayText = str.replace(/_/g, ' ');
-                        return '<span class="badge" style="background-color:' + color + ';">' + displayText + '</span>';
+                        return '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(displayText) + '</span>';
                     }
                     return '';
                 }
@@ -1395,7 +1436,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             color = '#c62828';
                         }
                         var displayText = str.replace(/_/g, ' ');
-                        return '<span class="badge" style="background-color:' + color + ';">' + displayText + '</span>';
+                        return '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(displayText) + '</span>';
                     }
                     return data;
                 }
@@ -1448,7 +1489,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         if (str.length > 30) {
                             var truncated = str.substring(0, 30) + '...';
                             return '<span class="truncated-cell" tabindex="0" data-tippy-content="' +
-                                str.replace(/"/g, '&quot;') + '">' + truncated + '</span>';
+                                escapeHtml(str) + '">' + escapeHtml(truncated) + '</span>';
                         }
                     }
                     return data;
@@ -1468,7 +1509,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             var start = str.substring(0, 10);
                             var end = str.substring(str.length - 6);
                             return '<span class="truncated-cell middle-truncate" tabindex="0" data-tippy-content="' +
-                                str.replace(/"/g, '&quot;') + '">' + start + '...' + end + '</span>';
+                                escapeHtml(str) + '">' + escapeHtml(start + '...' + end) + '</span>';
                         }
                     }
                     return data;
@@ -1559,19 +1600,21 @@ document.addEventListener('DOMContentLoaded', function() {
             if (fieldsWithValues.length === 0) return;
 
             html += '<div class="detail-section">';
-            html += '<h4>' + catName + '</h4>';
+            html += '<h4>' + escapeHtml(catName) + '</h4>';
             html += '<dl>';
 
             fieldsWithValues.forEach(function(fieldName) {
                 var value = fields[fieldName];
                 var displayName = fieldName.replace(/_/g, ' ');
-                html += '<dt>' + displayName + '</dt>';
+                var safeDisplayName = escapeHtml(displayName);
+                html += '<dt>' + safeDisplayName + '</dt>';
 
-                // Render links as clickable
-                if (value && value.indexOf('http') === 0) {
-                    html += '<dd><a href="' + value + '" target="_blank" rel="noopener">' + displayName + ' &#x2197;</a></dd>';
+                // Render links as clickable only if safe URL
+                if (value && isSafeUrl(value)) {
+                    var safeUrl = escapeHtml(String(value).trim());
+                    html += '<dd><a href="' + safeUrl + '" target="_blank" rel="noopener">' + safeDisplayName + ' &#x2197;</a></dd>';
                 } else {
-                    html += '<dd>' + value + '</dd>';
+                    html += '<dd>' + escapeHtml(value) + '</dd>';
                 }
             });
 
