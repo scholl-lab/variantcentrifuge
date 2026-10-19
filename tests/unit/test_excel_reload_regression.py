@@ -811,3 +811,73 @@ def test_excel_hyperlink_protocols_preserved(tmp_path: Path):
     cell_http = ws.cell(row=2, column=col_indices["HTTP_URL"])
     assert cell_http.hyperlink is not None
     assert cell_http.hyperlink.target == "https://www.ncbi.nlm.nih.gov/clinvar/"
+
+
+@pytest.mark.unit
+def test_float_integral_pos_normalized_for_igv_lookup(tmp_path: Path):
+    """Verify float POS (e.g. 100.0) matches IGV lookup with POS='100' in Excel (#159)."""
+    from variantcentrifuge.converter import convert_to_excel, finalize_excel_file
+
+    output_dir = tmp_path / "float_pos_test"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = output_dir / "report" / "igv"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    igv_map = {
+        "variants": [
+            {
+                "chrom": "chr1",
+                "pos": 100,
+                "ref": "A",
+                "alt": "T",
+                "sample_reports": {"Sample1": "igv/Sample1.html"},
+            }
+        ]
+    }
+    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(igv_map, f)
+
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100.0],
+            "REF": ["A"],
+            "ALT": ["T"],
+            "GT": ["Sample1(0/1)"],
+        }
+    )
+    assert df["POS"].dtype == "float64"
+
+    # Test convert_to_excel
+    xlsx_convert = output_dir / "convert.xlsx"
+    convert_to_excel(
+        str(xlsx_convert),
+        cfg={"igv_enabled": True},
+        df=df,
+        output_file=str(xlsx_convert),
+    )
+
+    wb_convert = openpyxl.load_workbook(xlsx_convert)
+    ws_convert = wb_convert["Results"]
+    headers_convert = [c.value for c in ws_convert[1]]
+    assert "IGV Report Links" in headers_convert
+    igv_col_convert = headers_convert.index("IGV Report Links") + 1
+    cell_convert = ws_convert.cell(row=2, column=igv_col_convert)
+    assert cell_convert.value == "Sample1"
+    assert cell_convert.hyperlink is not None
+    assert cell_convert.hyperlink.target.replace("\\", "/") == "report/igv/Sample1.html"
+
+    # Test finalize_excel_file
+    xlsx_finalize = output_dir / "finalize.xlsx"
+    df.to_excel(xlsx_finalize, sheet_name="Results", index=False)
+    finalize_excel_file(str(xlsx_finalize), cfg={"igv_enabled": True})
+
+    wb_finalize = openpyxl.load_workbook(xlsx_finalize)
+    ws_finalize = wb_finalize["Results"]
+    headers_finalize = [c.value for c in ws_finalize[1]]
+    assert "IGV Report Links" in headers_finalize
+    igv_col_finalize = headers_finalize.index("IGV Report Links") + 1
+    cell_finalize = ws_finalize.cell(row=2, column=igv_col_finalize)
+    assert cell_finalize.value == "Sample1"
+    assert cell_finalize.hyperlink is not None
+    assert cell_finalize.hyperlink.target.replace("\\", "/") == "report/igv/Sample1.html"

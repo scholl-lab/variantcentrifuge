@@ -495,3 +495,80 @@ class TestColumnRenderers:
         console.log('OK');
         """
         assert _run_column_defs_script([{"original_name": col_name}], script) == "OK"
+
+    def test_categorical_filter_option_extraction_and_matching_with_ampersand(self):
+        """Verify categorical filter decodes &amp; for dropdown options and filterFn (#130)."""
+        script = """
+        function isMissing(val) {
+            return (
+                val === null ||
+                val === undefined ||
+                val === '' ||
+                val === '-' ||
+                val === 'NA' ||
+                val === 'N/A'
+            );
+        }
+        const rawCatValues = [
+            'Pathogenic &amp; uncertain',
+            'Benign',
+            'Pathogenic &amp; uncertain'
+        ];
+        const uniqueValues = [];
+        const seen = {};
+        rawCatValues.forEach(function(v) {
+            if (!isMissing(v)) {
+                const str = String(extractCellContent(v).text || '').trim();
+                if (str && !seen[str]) {
+                    seen[str] = true;
+                    uniqueValues.push(str);
+                }
+            }
+        });
+        uniqueValues.sort();
+
+        if (uniqueValues.length !== 2 || uniqueValues[1] !== 'Pathogenic & uncertain') {
+            console.error('Dropdown uniqueValues mismatch: ' + JSON.stringify(uniqueValues));
+            process.exit(1);
+        }
+
+        const selectedValue = 'Pathogenic & uncertain';
+        const filterFn = function(settings, data) {
+            if (settings.nTable.id !== 'variants_table') return true;
+            const cellValue = data[0];
+            if (isMissing(cellValue)) return false;
+            return String(extractCellContent(cellValue).text || '').trim() === selectedValue;
+        };
+
+        const settings = { nTable: { id: 'variants_table' } };
+        if (!filterFn(settings, ['Pathogenic & uncertain'])) {
+            console.error('filterFn failed to match decoded text');
+            process.exit(1);
+        }
+        if (!filterFn(settings, ['Pathogenic &amp; uncertain'])) {
+            console.error('filterFn failed to match HTML entity encoded text');
+            process.exit(1);
+        }
+        if (filterFn(settings, ['Benign'])) {
+            console.error('filterFn incorrectly matched Benign');
+            process.exit(1);
+        }
+
+        const lowerSearch = 'pathogenic & uncertain';
+        const textFilterFn = function(settings, data) {
+            if (settings.nTable.id !== 'variants_table') return true;
+            const cellValue = data[0];
+            if (isMissing(cellValue)) return false;
+            return (
+                String(extractCellContent(cellValue).text || '')
+                    .toLowerCase()
+                    .indexOf(lowerSearch) !== -1
+            );
+        };
+        if (!textFilterFn(settings, ['Pathogenic &amp; uncertain'])) {
+            console.error('textFilterFn failed to match encoded text');
+            process.exit(1);
+        }
+        console.log('OK');
+        """
+        assert _run_node_script(script) == "OK"

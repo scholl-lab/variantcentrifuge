@@ -2320,7 +2320,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 var seen = {};
                 rawCatValues.forEach(function(v) {
                     if (!isMissing(v)) {
-                        var str = String(v).trim();
+                        var str = String(extractCellContent(v).text || '').trim();
                         if (str && !seen[str]) {
                             seen[str] = true;
                             uniqueValues.push(str);
@@ -2363,7 +2363,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 if (settings.nTable.id !== 'variants_table') return true;
                                 var cellValue = data[ci];
                                 if (isMissing(cellValue)) return includeMissing;
-                                return String(cellValue).trim() === selectedValue;
+                                return String(extractCellContent(cellValue).text || '').trim() === selectedValue;
                             };
                             filterFn.columnIndex = ci;
                             $.fn.dataTable.ext.search.push(filterFn);
@@ -2404,7 +2404,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     if (settings.nTable.id !== 'variants_table') return true;
                                     var cellValue = data[ci];
                                     if (isMissing(cellValue)) return includeMissing;
-                                    return String(cellValue).toLowerCase().indexOf(lowerSearch) !== -1;
+                                    return String(extractCellContent(cellValue).text || '').toLowerCase().indexOf(lowerSearch) !== -1;
                                 };
                                 filterFn.columnIndex = ci;
                                 $.fn.dataTable.ext.search.push(filterFn);

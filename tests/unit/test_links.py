@@ -127,6 +127,26 @@ class TestResolveLinks:
         assert "Varsome" in links
         assert "hg38" in links["Varsome"]
 
+    def test_custom_link_preserved_when_in_grch37_links_by_build_but_omitted_from_grch38(self):
+        """Custom link in links and links_by_build['GRCh37'] is preserved on GRCh38 (#144)."""
+        portal_url = "https://portal.example.org/{CHROM}-{POS}"
+        config = {
+            "reference": "GRCh38",
+            "links": {
+                **DEFAULT_LINKS_BY_BUILD["GRCh37"],
+                "Portal": portal_url,
+            },
+            "links_by_build": {
+                "GRCh37": {"Portal": portal_url},
+                "GRCh38": {"Varsome": DEFAULT_LINKS_BY_BUILD["GRCh38"]["Varsome"]},
+            },
+        }
+        links = resolve_links(config)
+        assert "Portal" in links
+        assert links["Portal"] == portal_url
+        assert "Varsome" in links
+        assert "hg38" in links["Varsome"]
+
 
 @pytest.mark.unit
 class TestAddLinksToTableBuildAware:

@@ -23,6 +23,17 @@ logger = logging.getLogger("variantcentrifuge")
 
 # Compile GT parsing pattern once at module level for performance
 GT_PATTERN = re.compile(r"([^()]+)\(([^)]+)\)")
+URL_PREFIXES = ("http://", "https://", "ftp://", "ftps://", "mailto:", "internal:", "external:")
+
+
+def _fmt_coord(val: Any) -> str:
+    """Normalize coordinates, converting float integral values (e.g. 100.0) to '100'."""
+    if val is None or pd.isna(val):
+        return ""
+    if isinstance(val, float) and val.is_integer():
+        return str(int(val))
+    s = str(val).strip()
+    return s[:-2] if s.endswith(".0") and s[:-2].isdigit() else s
 
 
 def _load_igv_lookup(base_path: str, igv_enabled: bool = True) -> dict[tuple[Any, ...], str]:
@@ -47,17 +58,15 @@ def _load_igv_lookup(base_path: str, igv_enabled: bool = True) -> dict[tuple[Any
 
         if isinstance(igv_map_data, dict):
             igv_map = igv_map_data.get("variants", [])
-        elif isinstance(igv_map_data, list):
-            igv_map = igv_map_data
         else:
-            igv_map = []
+            igv_map = igv_map_data if isinstance(igv_map_data, list) else []
 
         igv_lookup: dict[tuple[Any, ...], str] = {}
         for entry in igv_map:
-            chrom = str(entry.get("chrom", ""))
-            pos = str(entry.get("pos", ""))
-            ref = str(entry.get("ref", ""))
-            alt = str(entry.get("alt", ""))
+            chrom = _fmt_coord(entry.get("chrom", ""))
+            pos = _fmt_coord(entry.get("pos", ""))
+            ref = _fmt_coord(entry.get("ref", ""))
+            alt = _fmt_coord(entry.get("alt", ""))
 
             if "sample_reports" in entry:
                 for sample_id, report_path in entry["sample_reports"].items():
@@ -90,6 +99,10 @@ def _get_igv_reports_for_variant(
     gt_str = str(gt_value).strip() if gt_value is not None and pd.notna(gt_value) else ""
     if not gt_str:
         return []
+    chrom = _fmt_coord(chrom)
+    pos = _fmt_coord(pos)
+    ref = _fmt_coord(ref)
+    alt = _fmt_coord(alt)
     igv_reports = []
     for entry in gt_str.split(";"):
         entry = entry.strip()
@@ -208,17 +221,7 @@ def convert_to_excel(
             is_url_col = col_name in url_columns
             for row_idx, val in enumerate(df[col_name]):
                 s_val = str(val).strip() if pd.notna(val) else ""
-                if s_val.startswith(
-                    (
-                        "http://",
-                        "https://",
-                        "ftp://",
-                        "ftps://",
-                        "mailto:",
-                        "internal:",
-                        "external:",
-                    )
-                ):
+                if s_val.startswith(URL_PREFIXES):
                     if is_url_col and s_val.startswith(("http://", "https://")):
                         disp = col_name
                     elif s_val.startswith("mailto:"):
@@ -241,10 +244,10 @@ def convert_to_excel(
                 raw_pos = df["POS"].iloc[row_idx]
                 raw_ref = df["REF"].iloc[row_idx]
                 raw_alt = df["ALT"].iloc[row_idx]
-                chrom = str(raw_chrom) if pd.notna(raw_chrom) else ""
-                pos = str(raw_pos) if pd.notna(raw_pos) else ""
-                ref = str(raw_ref) if pd.notna(raw_ref) else ""
-                alt = str(raw_alt) if pd.notna(raw_alt) else ""
+                chrom = _fmt_coord(raw_chrom)
+                pos = _fmt_coord(raw_pos)
+                ref = _fmt_coord(raw_ref)
+                alt = _fmt_coord(raw_alt)
                 gt_val = (
                     str(df["GT"].iloc[row_idx])
                     if "GT" in df.columns and pd.notna(df["GT"].iloc[row_idx])
@@ -422,10 +425,10 @@ def finalize_excel_file(xlsx_file: str, cfg: dict[str, Any]) -> None:
                 raw_pos = ws.cell(row=row_idx, column=header_indices["POS"]).value
                 raw_ref = ws.cell(row=row_idx, column=header_indices["REF"]).value
                 raw_alt = ws.cell(row=row_idx, column=header_indices["ALT"]).value
-                chrom = str(raw_chrom or "")
-                pos = str(raw_pos or "")
-                ref = str(raw_ref or "")
-                alt = str(raw_alt or "")
+                chrom = _fmt_coord(raw_chrom)
+                pos = _fmt_coord(raw_pos)
+                ref = _fmt_coord(raw_ref)
+                alt = _fmt_coord(raw_alt)
                 gt_val = (
                     str(ws.cell(row=row_idx, column=header_indices["GT"]).value or "")
                     if "GT" in header_indices
@@ -521,10 +524,10 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
         for variant_dict in variants:
             variant_dict["igv_links"] = []
             try:
-                chrom = str(variant_dict.get("CHROM", ""))
-                pos = str(variant_dict.get("POS", ""))
-                ref = str(variant_dict.get("REF", ""))
-                alt = str(variant_dict.get("ALT", ""))
+                chrom = _fmt_coord(variant_dict.get("CHROM"))
+                pos = _fmt_coord(variant_dict.get("POS"))
+                ref = _fmt_coord(variant_dict.get("REF"))
+                alt = _fmt_coord(variant_dict.get("ALT"))
                 raw_gt = variant_dict.get("GT")
                 gt_value = str(raw_gt) if raw_gt is not None and pd.notna(raw_gt) else ""
 
