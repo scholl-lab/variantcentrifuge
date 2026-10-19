@@ -1152,3 +1152,38 @@ def test_produce_report_json_does_not_load_ancestor_igv_map(tmp_path: Path):
 
     # Ancestor map must not be loaded
     assert "igv_links" not in variants[0] or len(variants[0]["igv_links"]) == 0
+
+
+@pytest.mark.unit
+def test_excel_list_valued_cells_no_value_error(tmp_path: Path):
+    """Verify list-valued cells (in first 4 rows and beyond) don't raise ValueError (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    # 6 rows: first 4 rows and rows 5-6 have list-valued cells
+    data = {
+        "CHROM": ["chr1"] * 6,
+        "POS": list(range(1, 7)),
+        "REF": ["A"] * 6,
+        "ALT": ["T"] * 6,
+        "list_col": [["a", "b"], ["c"], [], ["d", "e"], ["f", "g"], ["h"]],
+        "mixed_col": [["x"], "plain", None, ["y"], "https://example.org/item", ["z"]],
+    }
+    df = pd.DataFrame(data)
+    xlsx_file = tmp_path / "list_cells.xlsx"
+
+    # Must succeed without raising ValueError: The truth value of an array is ambiguous
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    assert ws.max_row == 7
+    # Row 5 in mixed_col (row 6 in sheet) is a URL and gets an active hyperlink
+    c_url = ws.cell(row=6, column=6)
+    assert c_url.value == "https://example.org/item"
+    assert c_url.hyperlink is not None
+    assert c_url.hyperlink.target == "https://example.org/item"

@@ -126,7 +126,7 @@ def _detect_url_columns(df: pd.DataFrame) -> list[str]:
         ):
             continue
         sample_values = [
-            str(val).strip() for val in df[col].iloc[:4] if pd.notna(val) and str(val).strip()
+            val.strip() for val in df[col].iloc[:4] if isinstance(val, str) and val.strip()
         ]
         if sample_values:
             url_count = sum(1 for val in sample_values if val.startswith(("http://", "https://")))
@@ -222,7 +222,7 @@ def convert_to_excel(
             ):
                 continue
             for row_idx, val in enumerate(df[col_name]):
-                s_val = str(val).strip() if pd.notna(val) else ""
+                s_val = val.strip() if isinstance(val, str) else ""
                 if not s_val:
                     continue
                 if is_url_col and s_val.startswith(("http://", "https://")):

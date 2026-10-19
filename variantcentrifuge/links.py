@@ -93,7 +93,6 @@ def resolve_links(config: dict[str, Any]) -> dict[str, str]:
             for k, v in b_links.items():
                 all_defaults.setdefault(k, set()).add(v)
 
-        user_links_by_build = config.get("links_by_build")
         resolved = {}
         gnomad_defaults = (
             all_defaults.get("gnomAD", set())
@@ -109,16 +108,6 @@ def resolve_links(config: dict[str, Any]) -> dict[str, str]:
             elif name in all_defaults and url_template in all_defaults[name]:
                 if canonical_build and name in build_defaults:
                     resolved[name] = build_defaults[name]
-            elif (
-                canonical_build
-                and user_links_by_build
-                and name in build_defaults
-                and any(
-                    isinstance(b, dict) and b.get(name) == url_template
-                    for b in user_links_by_build.values()
-                )
-            ):
-                resolved[name] = build_defaults[name]
             else:
                 resolved[name] = url_template
     else:

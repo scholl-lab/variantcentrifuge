@@ -166,6 +166,19 @@ class TestResolveLinks:
         assert "hg38" in resolved["Franklin"]
         assert "gnomad_r4" in resolved.get("gnomAD_4", "")
 
+    def test_custom_links_by_build_not_overwritten_for_custom_portal(self):
+        """Custom URL on custom link name (Portal) preserved even if in links_by_build (#144)."""
+        config = {
+            "reference": "GRCh38",
+            "links": {"Portal": "https://grch37.custom/item"},
+            "links_by_build": {
+                "GRCh37": {"Portal": "https://grch37.custom/item"},
+                "GRCh38": {"Portal": "https://grch38.custom/item"},
+            },
+        }
+        resolved = resolve_links(config)
+        assert resolved["Portal"] == "https://grch37.custom/item"
+
 
 @pytest.mark.unit
 class TestAddLinksToTableBuildAware:
