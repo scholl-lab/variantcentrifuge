@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -23,12 +22,9 @@ def _calculate_sort_memory_limit(sort_limit: str, max_memory_gb: float | None = 
     try:
         import psutil
 
-        # Use provided max memory or detect available
-        if max_memory_gb:
-            available_gb = max_memory_gb
-        else:
-            memory_info = psutil.virtual_memory()
-            available_gb = memory_info.available / (1024**3)
+        available_gb = (
+            max_memory_gb if max_memory_gb else psutil.virtual_memory().available / (1024**3)
+        )
 
         # Use 10% of available memory for sorting, with reasonable bounds
         sort_memory_gb = max(1, min(available_gb * 0.10, 50))  # Between 1GB and 50GB
@@ -83,21 +79,24 @@ def resolve_presets_and_tumor_normal(
         expr_texts.append(filters)
     if raw_final_filter:
         expr_texts.append(raw_final_filter)
+    tumor_idx_arg = getattr(args, "tumor_sample_index", None)
+    normal_idx_arg = getattr(args, "normal_sample_index", None)
+    vcf_arg = getattr(args, "vcf_file", None)
     needs_tumor_idx = bool(
-        args.tumor_sample_index is not None
+        tumor_idx_arg is not None
         or cfg.get("tumor_sample_index") is not None
         or any("{tumor_idx}" in e for e in expr_texts)
     )
     needs_normal_idx = bool(
-        args.normal_sample_index is not None
+        normal_idx_arg is not None
         or cfg.get("normal_sample_index") is not None
         or any("{normal_idx}" in e for e in expr_texts)
     )
     needs_tumor_normal = needs_tumor_idx or needs_normal_idx
     t_idx, n_idx = resolve_tumor_normal_indices(
-        args.vcf_file if needs_tumor_normal else None,
-        cli_tumor_idx=args.tumor_sample_index,
-        cli_normal_idx=args.normal_sample_index,
+        vcf_arg if needs_tumor_normal else None,
+        cli_tumor_idx=tumor_idx_arg,
+        cli_normal_idx=normal_idx_arg,
         cfg_tumor_idx=cfg.get("tumor_sample_index"),
         cfg_normal_idx=cfg.get("normal_sample_index"),
         require_tumor=needs_tumor_idx,
@@ -123,8 +122,9 @@ def resolve_presets_and_tumor_normal(
                 expr = _expand_tumor_normal_vars(preset_dict[p_str], tumor_normal_vars)
                 chosen_presets.append(f"({expr})")
             else:
-                logger.error(f"Preset '{p_str}' not found in config.")
-                sys.exit(1)
+                msg = f"Preset '{p_str}' not found in config."
+                logger.error(msg)
+                raise ValueError(msg)
         if chosen_presets:
             combined_preset_filter = " & ".join(chosen_presets)
             filters = (
@@ -139,27 +139,33 @@ def resolve_presets_and_tumor_normal(
 def populate_cli_config(
     args: argparse.Namespace,
     cfg: dict[str, Any],
-    parser: argparse.ArgumentParser,
+    parser: argparse.ArgumentParser | None,
     reference: str | None,
     filters: str | None,
     fields: str | None,
-    tumor_normal_vars: dict[str, str],
+    tumor_normal_vars: dict[str, str] | None = None,
 ) -> None:
     """Populate and validate pipeline configuration from CLI arguments."""
-    cfg["perform_gene_burden"] = args.perform_gene_burden
-    cfg["no_stats"] = args.no_stats
-    cfg["gene_burden_mode"] = args.gene_burden_mode
-    cfg["correction_method"] = args.correction_method
+    def _fail(msg: str) -> None:
+        if parser is not None:
+            parser.error(msg)
+        raise ValueError(msg)
+
+    tumor_normal_vars = tumor_normal_vars or {}
+    cfg["perform_gene_burden"] = getattr(args, "perform_gene_burden", False)
+    cfg["no_stats"] = getattr(args, "no_stats", False)
+    cfg["gene_burden_mode"] = getattr(args, "gene_burden_mode", None)
+    cfg["correction_method"] = getattr(args, "correction_method", None)
 
     # Association analysis configuration
-    cfg["perform_association"] = args.perform_association
-    if args.association_tests:
-        cfg["association_tests"] = [t.strip() for t in args.association_tests.split(",")]
+    cfg["perform_association"] = getattr(args, "perform_association", False)
+    assoc_tests = getattr(args, "association_tests", None)
+    if assoc_tests:
+        cfg["association_tests"] = [t.strip() for t in assoc_tests.split(",")]
     else:
-        cfg["association_tests"] = ["fisher"] if args.perform_association else []
+        cfg["association_tests"] = ["fisher"] if cfg["perform_association"] else []
     cfg["skat_backend"] = getattr(args, "skat_backend", "python")
     cfg["coast_backend"] = getattr(args, "coast_backend", "python")
-    # coast_classification: resolved to absolute path later during auto-field injection
     cfg["coast_classification"] = None
 
     # Phase 19: Covariate and regression configuration
@@ -186,13 +192,7 @@ def populate_cli_config(
                 raise TypeError(f"expected a JSON object, got {type(parsed_params).__name__}")
             cfg["variant_weight_params"] = parsed_params
         except (ValueError, TypeError) as _e:
-            import sys as _sys
-
-            print(
-                f"error: --variant-weight-params: invalid JSON: {_e}",
-                file=_sys.stderr,
-            )
-            _sys.exit(2)
+            _fail(f"--variant-weight-params: invalid JSON: {_e}")
     else:
         cfg["variant_weight_params"] = None
     cfg["diagnostics_output"] = getattr(args, "diagnostics_output", None)
@@ -208,22 +208,10 @@ def populate_cli_config(
         try:
             _coast_weights_parsed = [float(x) for x in _coast_weights_raw.split(",")]
             if len(_coast_weights_parsed) != 3:
-                import sys as _sys
-
-                print(
-                    "error: --coast-weights must have exactly 3 values (BMV, DMV, PTV)",
-                    file=_sys.stderr,
-                )
-                _sys.exit(2)
+                _fail("--coast-weights must have exactly 3 values (BMV, DMV, PTV)")
             cfg["coast_weights"] = _coast_weights_parsed
         except ValueError as _e:
-            import sys as _sys
-
-            print(
-                f"error: --coast-weights values must be numeric: {_e}",
-                file=_sys.stderr,
-            )
-            _sys.exit(2)
+            _fail(f"--coast-weights values must be numeric: {_e}")
     else:
         cfg["coast_weights"] = None
     # Association workers: 0/None = auto-allocate from --threads (default)
@@ -234,7 +222,7 @@ def populate_cli_config(
     # Phase 33: Gene-level FDR weighting
     _gpw = getattr(args, "gene_prior_weights", None)
     if _gpw and not Path(_gpw).is_file():
-        parser.error(f"--gene-prior-weights file not found: {_gpw}")
+        _fail(f"--gene-prior-weights file not found: {_gpw}")
     cfg["gene_prior_weights"] = _gpw
     cfg["gene_prior_weight_column"] = getattr(args, "gene_prior_weight_column", "weight")
     cfg["association_min_cases"] = getattr(args, "min_cases", 200)
@@ -274,14 +262,18 @@ def populate_cli_config(
     # Handle precedence and validation
     if args.igv:
         if not args.bam_mapping_file:
-            logger.error("For IGV integration, --bam-mapping-file must be provided.")
-            sys.exit(1)
+            msg = "For IGV integration, --bam-mapping-file must be provided."
+            logger.error(msg)
+            if parser is not None:
+                parser.error(msg)
+            raise ValueError(msg)
 
         if not args.igv_fasta and not args.igv_reference:
-            logger.error(
-                "For IGV integration, either --igv-reference or --igv-fasta must be provided."
-            )
-            sys.exit(1)
+            msg = "For IGV integration, either --igv-reference or --igv-fasta must be provided."
+            logger.error(msg)
+            if parser is not None:
+                parser.error(msg)
+            raise ValueError(msg)
 
         if args.igv_fasta and args.igv_reference:
             logger.warning(
@@ -297,31 +289,33 @@ def populate_cli_config(
     # required by the selected classification model into the field extraction list.
     _association_tests = cfg.get("association_tests", [])
     if "coast" in _association_tests:
-        import json as _json
-        import os as _os
-
         _coast_model = getattr(args, "coast_classification", "sift_polyphen")
-        # Resolve scoring base dir: package is at variantcentrifuge/, scoring/ is one level up
-        _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
-        _scoring_base = _os.path.join(_os.path.dirname(_pkg_dir), "scoring")
-        if not _os.path.isdir(_scoring_base):
-            _scoring_base = _os.path.join(_os.getcwd(), "scoring")
-        _coast_model_dir = _os.path.join(_scoring_base, "coast_classification", _coast_model)
-        if not _os.path.isdir(_coast_model_dir):
-            logger.error(
+        _scoring_base = Path(__file__).resolve().parent.parent / "scoring"
+        if not _scoring_base.is_dir():
+            _scoring_base = Path.cwd() / "scoring"
+        _coast_model_dir = str(_scoring_base / "coast_classification" / _coast_model)
+        if not Path(_coast_model_dir).is_dir():
+            msg = (
                 f"COAST classification model not found: {_coast_model_dir}. "
                 f"Available models are in scoring/coast_classification/."
             )
-            sys.exit(1)
+            logger.error(msg)
+            if parser is not None:
+                parser.error(msg)
+            raise FileNotFoundError(msg)
 
-        # Read required VCF fields from variable_assignment_config
-        _var_config_path = _os.path.join(_coast_model_dir, "variable_assignment_config.json")
+        _var_config_path = Path(_coast_model_dir) / "variable_assignment_config.json"
         try:
+            import json as _json
+
             with open(_var_config_path, encoding="utf-8") as _f:
                 _var_config = _json.load(_f)
-        except (OSError, _json.JSONDecodeError) as _e:
-            logger.error(f"COAST: failed to read variable_assignment_config: {_e}")
-            sys.exit(1)
+        except (OSError, ValueError) as _e:
+            msg = f"COAST: failed to read variable_assignment_config: {_e}"
+            logger.error(msg)
+            if parser is not None:
+                parser.error(msg)
+            raise ValueError(msg) from _e
 
         # Read vcf_fields list (actual VCF annotation field names for auto-injection).
         # The "variables" keys are internal COAST_* names used by the formula engine,
@@ -456,53 +450,59 @@ def populate_cli_config(
 
     # Validate unified annotation arguments
     if args.annotate_json_genes and not args.json_gene_mapping:
-        logger.error("--annotate-json-genes requires --json-gene-mapping to be provided.")
-        sys.exit(1)
+        msg = "--annotate-json-genes requires --json-gene-mapping to be provided."
+        logger.error(msg)
+        if parser is not None:
+            parser.error(msg)
+        raise ValueError(msg)
     if args.json_gene_mapping and not args.annotate_json_genes:
-        logger.error("--json-gene-mapping requires --annotate-json-genes to be provided.")
-        sys.exit(1)
+        msg = "--json-gene-mapping requires --annotate-json-genes to be provided."
+        logger.error(msg)
+        if parser is not None:
+            parser.error(msg)
+        raise ValueError(msg)
 
     # Validate --regions-bed file existence
     if getattr(args, "regions_bed", None) and not Path(args.regions_bed).is_file():
-        parser.error(f"--regions-bed file not found: {args.regions_bed}")
+        _fail(f"--regions-bed file not found: {args.regions_bed}")
 
     # Validate association analysis arguments
     if args.association_tests and not args.perform_association:
-        parser.error("--association-tests requires --perform-association to be set")
+        _fail("--association-tests requires --perform-association to be set")
 
     if getattr(args, "variant_weight_column", None) and not args.perform_association:
-        parser.error("--variant-weight-column requires --perform-association to be set")
+        _fail("--variant-weight-column requires --perform-association to be set")
 
     if args.perform_association:
         variant_weights_arg = getattr(args, "variant_weights", "beta:1,25")
         if variant_weights_arg == "score_column" and not getattr(
             args, "variant_weight_column", None
         ):
-            parser.error("--variant-weight-column is required when --variant-weights score_column")
+            _fail("--variant-weight-column is required when --variant-weights score_column")
         if (
             variant_weights_arg.startswith("column:")
             and not variant_weights_arg[len("column:") :].strip()
         ):
-            parser.error("--variant-weights column:<name> requires a non-empty column name")
+            _fail("--variant-weights column:<name> requires a non-empty column name")
 
     # Covariate file only makes sense with association analysis
     if getattr(args, "covariate_file", None) and not args.perform_association:
-        parser.error("--covariate-file requires --perform-association to be set")
+        _fail("--covariate-file requires --perform-association to be set")
 
     # Diagnostics output only makes sense with association analysis
     if getattr(args, "diagnostics_output", None) and not args.perform_association:
-        parser.error("--diagnostics-output requires --perform-association to be set")
+        _fail("--diagnostics-output requires --perform-association to be set")
 
     # PCA arg only makes sense with association analysis
     if getattr(args, "pca", None) and not args.perform_association:
-        parser.error("--pca requires --perform-association to be set")
+        _fail("--pca requires --perform-association to be set")
 
     # Trait type / test compatibility check
     trait_type = getattr(args, "trait_type", "binary")
     if trait_type == "quantitative" and args.association_tests:
         test_list = [t.strip() for t in args.association_tests.split(",")]
         if "logistic_burden" in test_list:
-            parser.error(
+            _fail(
                 "--trait-type quantitative is incompatible with logistic_burden "
                 "(logistic regression is for binary traits only). "
                 "Use linear_burden for quantitative traits."

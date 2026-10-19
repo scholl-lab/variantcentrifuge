@@ -18,6 +18,7 @@ from .cli_subcommands import handle_listing_and_resume_options
 from .config import load_config
 from .pipeline import run_pipeline
 from .validators import (
+    validate_cli_args,
     validate_mandatory_parameters,
     validate_phenotype_file,
     validate_vcf_file,
@@ -31,6 +32,7 @@ __all__ = [
     "main",
     "parse_args",
     "resolve_tumor_normal_indices",
+    "validate_cli_args",
 ]
 
 logger = logging.getLogger("variantcentrifuge")
@@ -382,66 +384,32 @@ def main() -> int:
     reference: str | None = args.reference or cfg.get("reference")
     filters: str | None = args.filters or cfg.get("filters")
     fields_file = getattr(args, "fields_file", None) or cfg.get("fields_file")
-    if fields_file and not Path(fields_file).is_file():
-        logger.error(f"Fields file not found: {fields_file}")
-        sys.exit(1)
-    raw_fields: Any = (
-        load_fields_from_file(fields_file)
-        if (not args.fields and fields_file)
-        else (args.fields or cfg.get("fields_to_extract"))
-    )
-    fields: str | None = " ".join(raw_fields) if isinstance(raw_fields, list) else raw_fields
 
-    filters, tumor_normal_vars = resolve_presets_and_tumor_normal(args, cfg, filters)
-
-    # Validate mandatory parameters
-    validate_mandatory_parameters(reference, filters, fields)
-    validate_vcf_file(args.vcf_file, logger)
-    tx_file = args.transcript_file or cfg.get("transcript_file")
-    if tx_file and not Path(tx_file).is_file():
-        logger.error(f"Transcript file not found: {tx_file}")
-        sys.exit(1)
-
-    if args.phenotype_file and (
-        args.phenotype_sample_column is None or args.phenotype_value_column is None
-    ):
-        logger.error(
-            "If a phenotype file is provided, both --phenotype-sample-column "
-            "and --phenotype-value-column must be specified."
+    try:
+        validate_cli_args(args, cfg, parser=parser)
+        raw_fields: Any = (
+            load_fields_from_file(fields_file)
+            if (not args.fields and fields_file)
+            else (args.fields or cfg.get("fields_to_extract"))
         )
-        sys.exit(1)
-    if args.phenotype_file:
-        validate_phenotype_file(
-            args.phenotype_file,
-            args.phenotype_sample_column,
-            args.phenotype_value_column,
-            logger,
-        )
+        fields: str | None = " ".join(raw_fields) if isinstance(raw_fields, list) else raw_fields
 
-    populate_cli_config(args, cfg, parser, reference, filters, fields, tumor_normal_vars)
+        filters, tumor_normal_vars = resolve_presets_and_tumor_normal(args, cfg, filters)
 
-    # Note: --show-checkpoint-status is handled earlier before argument parsing
+        # Validate mandatory parameters
+        validate_mandatory_parameters(reference, filters, fields)
+        validate_vcf_file(args.vcf_file, logger)
+        if args.phenotype_file:
+            validate_phenotype_file(
+                args.phenotype_file,
+                args.phenotype_sample_column,
+                args.phenotype_value_column,
+                logger,
+            )
 
-    # Validate checkpoint arguments
-    if args.resume and not args.enable_checkpoint:
-        logger.error("--resume requires --enable-checkpoint to be set")
-        sys.exit(1)
-
-    # Validate selective resume arguments
-    if args.resume_from and not args.enable_checkpoint:
-        logger.error("--resume-from requires --enable-checkpoint to be set")
-        sys.exit(1)
-
-    if args.interactive_resume and not args.enable_checkpoint:
-        logger.error("--interactive-resume requires --enable-checkpoint to be set")
-        sys.exit(1)
-
-    # Mutually exclusive resume options
-    resume_options = [args.resume, args.resume_from, args.interactive_resume]
-    if sum(bool(x) for x in resume_options) > 1:
-        logger.error(
-            "Cannot use multiple resume options simultaneously: --resume, --resume-from, --interactive-resume"
-        )
+        populate_cli_config(args, cfg, parser, reference, filters, fields, tumor_normal_vars)
+    except (ValueError, FileNotFoundError) as e:
+        logger.error(str(e))
         sys.exit(1)
 
     # Handle information and interactive options that exit early
