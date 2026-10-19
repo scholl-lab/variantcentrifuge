@@ -201,11 +201,17 @@ def get_gene_bed(
     cache_dir = os.path.join(output_dir, "bed_cache")
     os.makedirs(cache_dir, exist_ok=True)
 
+    if reference.startswith("-"):
+        raise ValueError(f"Invalid reference '{reference}': cannot start with '-'")
+
     if gene_name.lower().strip() == "all":
         gene_key = "all"
         gene_args: list[str] = []
     else:
         genes = gene_name.split()
+        for gene in genes:
+            if gene.startswith("-"):
+                raise ValueError(f"Invalid gene name '{gene}': cannot start with '-'")
         genes = sorted(genes)
         gene_key_str = " ".join(genes)
         gene_key = hashlib.md5(gene_key_str.encode("utf-8")).hexdigest()
