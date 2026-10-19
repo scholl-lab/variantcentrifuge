@@ -12,6 +12,7 @@ This module provides two field extraction backends:
 import gzip
 import logging
 import os
+import re
 import subprocess
 import tempfile
 from typing import Any
@@ -388,7 +389,6 @@ def extract_fields_bcftools(
             sep="\t",
             header=None,
             dtype=str,
-            na_values=["."],
             keep_default_na=False,
         )
 
@@ -421,9 +421,17 @@ def extract_fields_bcftools(
         df = parse_nmd_subfields(df, field_list)
 
         # Normalize missing values: replace empty strings and "." with "NA"
+        # (preserve "." in GT columns)
         df = df.fillna("NA")
         df = df.replace("", "NA")
-        df = df.replace(".", "NA")
+        gt_cols = {
+            c
+            for c in df.columns
+            if c == "GT" or c.endswith((".GT", "__GT")) or re.match(r"^GEN\[\d+\]\.GT$", c)
+        }
+        non_gt_cols = [c for c in df.columns if c not in gt_cols]
+        if non_gt_cols:
+            df[non_gt_cols] = df[non_gt_cols].replace(".", "NA")
 
         # Write output TSV
         logger.debug(f"Writing output to {output_file}")

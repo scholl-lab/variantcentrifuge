@@ -22,7 +22,10 @@ logger = logging.getLogger(__name__)
 # Genotype encoding for vectorized operations
 GENOTYPE_ENCODING = {
     "./.": -1,
+    ".": -1,
+    ".|.": -1,
     "0/0": 0,
+    "0": 0,
     "0/1": 1,
     "1/0": 1,  # Treat as heterozygous
     "1/1": 2,
@@ -30,6 +33,7 @@ GENOTYPE_ENCODING = {
     "0|1": 1,
     "1|0": 1,
     "1|1": 2,
+    "1": 3,  # Distinct haploid alternate encoding
 }
 
 
@@ -399,7 +403,7 @@ def create_variant_key_fast(df: pd.DataFrame, idx: int) -> str:
     return f"{chrom}:{pos}:{ref}>{alt}"
 
 
-def create_variant_key(variant_row) -> str:
+def create_variant_key(variant_row: Any) -> str:
     """
     Create a unique key for a variant.
 

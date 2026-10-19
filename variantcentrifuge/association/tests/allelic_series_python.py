@@ -412,6 +412,13 @@ class PurePythonCOASTTest(AssociationTest):
         # ── COAST weights from config or default ──────────────────────────────────
         coast_weights = getattr(config, "coast_weights", None) or [1.0, 2.0, 3.0]
 
+        # ── Filter variant_mafs by the same mask as geno ──────────────────────────
+        variant_mafs = contingency_data.get("variant_mafs")
+        if variant_mafs is not None and len(variant_mafs) == geno.shape[1]:
+            variant_mafs_filtered = np.asarray(variant_mafs, dtype=np.float64)[include_mask]
+        else:
+            variant_mafs_filtered = None
+
         # ── Run full COAST via backend ─────────────────────────────────────────────
         try:
             result = self._backend.test_gene(
@@ -423,6 +430,7 @@ class PurePythonCOASTTest(AssociationTest):
                 coast_weights=coast_weights,
                 trait_type=config.trait_type,
                 null_model=self._null_model,
+                variant_mafs=variant_mafs_filtered,
             )
         except Exception as exc:
             logger.error(f"Python COAST [{gene}]: backend test_gene() failed: {exc}")

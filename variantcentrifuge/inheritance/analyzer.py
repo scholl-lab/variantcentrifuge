@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ..genotype_utils import is_het, is_variant
 from .comp_het_vectorized import (
     analyze_gene_for_compound_het_vectorized,
     build_variant_keys_array,
@@ -369,8 +370,9 @@ def _create_inheritance_details(
         raw_gt = row[sample_id]
         if raw_gt is None or pd.isna(raw_gt):
             continue
-        gt = str(raw_gt)
-        if gt in ["./.", "0/0"]:
+        gt = str(raw_gt).strip()
+        gt_call = gt.split(":")[0].strip()
+        if not is_variant(gt_call):
             continue
 
         sample_info = {
@@ -399,7 +401,11 @@ def _create_inheritance_details(
     details["carrier_count"] = sum(
         1
         for s in details["samples_with_pattern"]
-        if s["genotype"] in ("0/1", "1/0", "0|1", "1|0") and not s["affected"]
+        if (
+            is_het(s["genotype"].split(":")[0].strip())
+            or s["genotype"].split(":")[0].strip() == "1"
+        )
+        and not s["affected"]
     )
 
     return details

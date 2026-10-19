@@ -13,6 +13,7 @@ Provides:
 """
 
 import logging
+import re
 from collections import defaultdict
 from typing import Any
 
@@ -408,8 +409,8 @@ def extract_sample_and_genotype(sample_field: str) -> tuple[str, str]:
         sample_name = sample_field[:start_idx].strip()
         genotype_str = sample_field[start_idx + 1 : end_idx].strip()
 
-        # Split on the first colon to separate e.g. '0/1' from '172:110,62'
-        genotype = genotype_str.split(":", 1)[0] if ":" in genotype_str else genotype_str
+        # Split on delimiters to separate e.g. '0/1' from '172:110,62' or ',20'
+        genotype = re.split(r"[:,;\s]", genotype_str, maxsplit=1)[0]
 
     return sample_name, genotype
 
@@ -435,6 +436,6 @@ def genotype_to_allele_count(genotype: str) -> int:
     """
     if genotype in ("1/1", "1|1"):
         return 2
-    elif genotype in ("0/1", "1/0", "0|1", "1|0"):
+    elif genotype in ("0/1", "1/0", "0|1", "1|0", "1"):
         return 1
     return 0

@@ -724,3 +724,20 @@ class TestPurePythonSKATTestIntegration:
         rho = result.extra["skat_o_rho"]
         if rho is not None:
             assert 0.0 <= rho <= 1.0, f"SKAT-O rho {rho} not in [0, 1]"
+
+    def test_pure_python_skat_test_uses_variant_mafs(self):
+        """PurePythonSKATTest accepts and uses variant_mafs in contingency_data."""
+        test = PurePythonSKATTest()
+        test.check_dependencies()
+        test.prepare(1)
+
+        contingency_data, config = self._make_contingency_data(k=3)
+        custom_mafs = np.array([0.05, 0.10, 0.15])
+        contingency_data["variant_mafs"] = custom_mafs
+
+        result = test.run("TEST_GENE_MAF", contingency_data, config)
+        test.finalize()
+
+        assert result.gene == "TEST_GENE_MAF"
+        assert result.p_value is not None
+        assert 0.0 <= result.p_value <= 1.0

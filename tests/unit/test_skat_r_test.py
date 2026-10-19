@@ -528,3 +528,46 @@ def test_r_skat_run_rejects_functional_weights_without_r_backend():
 
     with pytest.raises(ValueError, match="Use --skat-backend python"):
         test.run("GENE1", contingency_data, config)
+
+
+def test_r_skat_forwards_ploidy_aware_weights_when_mafs_differ():
+    """Verify that when provided variant_mafs differ from colMeans(Z)/2 (haploid/mixed),
+    explicit ploidy-aware weights are computed and forwarded to RSKATBackend.test_gene.
+    """
+    from variantcentrifuge.association.weights import get_weights
+
+    test, mock_backend = _make_skat_test_with_mock_backend()
+    config = _make_config(variant_weights="beta:1,25")
+
+    data = _make_geno_data("HAPLOID_GENE", n_samples=20, n_variants=3)
+    geno = data["genotype_matrix"]
+    diploid_mafs = geno.mean(axis=0) / 2.0
+    haploid_mafs = np.array([0.05, 0.15, 0.25], dtype=np.float64)
+    assert not np.allclose(haploid_mafs, diploid_mafs)
+
+    data["variant_mafs"] = haploid_mafs
+    test.run("HAPLOID_GENE", data, config)
+
+    mock_backend.test_gene.assert_called_once()
+    _, call_kwargs = mock_backend.test_gene.call_args
+    assert call_kwargs["weights"] is not None
+    assert call_kwargs["weights_beta"] is None
+    expected_weights = get_weights(haploid_mafs, config.variant_weights)
+    assert np.allclose(call_kwargs["weights"], expected_weights)
+
+
+def test_r_skat_preserves_weights_beta_when_mafs_match_diploid():
+    """Verify that when MAFs match colMeans(Z)/2, weights_beta is passed unchanged."""
+    test, mock_backend = _make_skat_test_with_mock_backend()
+    config = _make_config(variant_weights="beta:1,25")
+
+    data = _make_geno_data("DIPLOID_GENE", n_samples=20, n_variants=3)
+    geno = data["genotype_matrix"]
+    data["variant_mafs"] = geno.mean(axis=0) / 2.0
+
+    test.run("DIPLOID_GENE", data, config)
+
+    mock_backend.test_gene.assert_called_once()
+    _, call_kwargs = mock_backend.test_gene.call_args
+    assert call_kwargs["weights"] is None
+    assert call_kwargs["weights_beta"] == (1.0, 25.0)

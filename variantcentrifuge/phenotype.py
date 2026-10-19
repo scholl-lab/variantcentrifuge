@@ -17,6 +17,9 @@ to aggregate phenotypes for a given list of samples.
 
 import logging
 import os
+import re
+
+from variantcentrifuge.genotype_utils import is_variant
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -181,14 +184,16 @@ def extract_phenotypes_for_gt_row(gt_value: str, phenotypes: dict[str, set[str]]
         # Extract sample ID and genotype: "Sample1(0/1)" -> "Sample1", "0/1"
         if "(" in sample_entry and sample_entry.endswith(")"):
             sample_id = sample_entry.split("(")[0]
-            genotype = sample_entry.split("(")[1][:-1]  # Remove closing )
+            genotype = re.split(r"[:,;\s]", sample_entry.split("(")[1][:-1], maxsplit=1)[
+                0
+            ]  # Remove closing ) and format fields
 
             # Skip entries without sample ID (malformed entries like "(0/1)")
             if not sample_id or not sample_id.strip():
                 continue
 
-            # Skip samples with no variant (./. or 0/0)
-            if genotype in ["./.", "0/0", ""]:
+            # Skip samples with no variant (ref, missing, etc.)
+            if not is_variant(genotype):
                 continue
 
             # Get phenotypes for this sample

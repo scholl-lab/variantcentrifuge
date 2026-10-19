@@ -301,3 +301,65 @@ class TestInheritanceAnalyzer:
         assert processed_df.iloc[0]["Inheritance_Confidence"] == ""
         assert processed_df.iloc[0]["Inheritance_Description"] == ""
         assert processed_df.iloc[0]["Inheritance_Samples"] == ""
+
+    def test_affected_parent_with_reference_or_missing_excluded_from_details(self):
+        """Verify that an affected father with haploid ref '0' or missing '.' is excluded
+        from samples_with_pattern and affected_count in Inheritance_Details.
+        """
+        pedigree = {
+            "father": {
+                "family_id": "FAM1",
+                "sample_id": "father",
+                "father_id": "0",
+                "mother_id": "0",
+                "sex": "1",
+                "affected_status": "2",  # Affected father
+            },
+            "mother": {
+                "family_id": "FAM1",
+                "sample_id": "mother",
+                "father_id": "0",
+                "mother_id": "0",
+                "sex": "2",
+                "affected_status": "1",
+            },
+            "child": {
+                "family_id": "FAM1",
+                "sample_id": "child",
+                "father_id": "father",
+                "mother_id": "mother",
+                "sex": "1",
+                "affected_status": "2",
+            },
+        }
+        df = pd.DataFrame(
+            [
+                {
+                    "CHROM": "chrX",
+                    "POS": 1000,
+                    "REF": "A",
+                    "ALT": "G",
+                    "GENE": "TEST1",
+                    "father": "0",
+                    "mother": "0/0",
+                    "child": "1",
+                },
+                {
+                    "CHROM": "chr1",
+                    "POS": 2000,
+                    "REF": "C",
+                    "ALT": "T",
+                    "GENE": "TEST2",
+                    "father": ".",
+                    "mother": "0/0",
+                    "child": "0/1",
+                },
+            ]
+        )
+        res = analyze_inheritance(df, pedigree, ["father", "mother", "child"])
+        assert "Inheritance_Details" in res.columns
+        for details_str in res["Inheritance_Details"]:
+            details = json.loads(details_str)
+            sample_ids = [s["sample_id"] for s in details["samples_with_pattern"]]
+            assert "father" not in sample_ids
+            assert details["affected_count"] == 1  # Only child, not father

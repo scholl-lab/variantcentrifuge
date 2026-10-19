@@ -1,25 +1,9 @@
-# File: variantcentrifuge/association/backends/r_backend.py
-# Location: variantcentrifuge/variantcentrifuge/association/backends/r_backend.py
 """
 R SKAT backend via rpy2.
 
 RSKATBackend wraps the R SKAT package through rpy2's robjects interface.
-All rpy2 imports are deferred to method bodies — never at module level —
-because ``import rpy2.robjects`` initializes the R runtime immediately and
-would break environments where R is not installed.
-
-Thread safety
--------------
-rpy2 is NOT thread-safe. Calling rpy2 functions from any thread other than
-the main thread can cause segfaults with no Python traceback. RSKATBackend
-enforces main-thread-only execution via _assert_main_thread(). The stage
-that instantiates this backend must set parallel_safe=False.
-
-Version requirements (warnings emitted but not enforced)
----------------------------------------------------------
-R >= 4.0        — required for SKAT 2.x compatibility
-SKAT >= 2.0     — SKATBinary moment adjustment improvements
-rpy2 >= 3.5.0   — stable numpy <-> R vector conversion
+All rpy2 imports are deferred to method bodies to prevent runtime initialization.
+rpy2 is NOT thread-safe; RSKATBackend enforces main-thread-only execution.
 """
 
 from __future__ import annotations
@@ -432,16 +416,11 @@ class RSKATBackend(SKATBackend):
         if weights_beta is None and isinstance(weights, tuple):
             weights_beta = weights
             weights = None
-        if weights is not None:
-            raise ValueError("R SKAT backend does not support explicit variant weights")
-        if weights_beta is None:
-            weights_beta = (1.0, 25.0)
 
         import rpy2.robjects as ro
         from rpy2.rinterface import NA_Real
 
         n_samples, n_variants = genotype_matrix.shape
-        a1, a2 = weights_beta
 
         # Convert numpy matrix to R matrix (column-major order for R)
         r_z = ro.r["matrix"](
@@ -454,17 +433,25 @@ class RSKATBackend(SKATBackend):
         ro.globalenv["._vc_Z"] = r_z
         ro.globalenv["._vc_obj"] = null_model.model
 
+        if weights is not None:
+            ro.globalenv["._vc_w"] = ro.FloatVector(np.asarray(weights, dtype=float).tolist())
+            weights_arg = "weights=._vc_w"
+        else:
+            if weights_beta is None:
+                weights_beta = (1.0, 25.0)
+            a1, a2 = weights_beta
+            weights_arg = f"weights.beta=c({a1},{a2})"
+
         # Dispatch: binary -> SKATBinary, continuous -> SKAT
         func_name = "SKATBinary" if null_model.trait_type == "binary" else "SKAT"
 
         # Build R code with withCallingHandlers for warning capture
-        # Weights vector uses the Beta distribution parameters
         r_code = (
             "local({"
             "  warns <- character(0);"
             f"  result <- withCallingHandlers("
             f"    {func_name}(._vc_Z, ._vc_obj, kernel='linear.weighted',"
-            f"                method='{method}', weights.beta=c({a1},{a2})),"
+            f"                method='{method}', {weights_arg}),"
             "    warning = function(w) {"
             "      warns <<- c(warns, conditionMessage(w));"
             "      invokeRestart('muffleWarning')"

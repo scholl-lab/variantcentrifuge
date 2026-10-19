@@ -127,7 +127,7 @@ def _gt_to_dosage(gt: str) -> int:
     """
     if gt in ("1/1", "1|1"):
         return 2
-    if gt in ("0/1", "1/0", "0|1", "1|0"):
+    if gt in ("0/1", "1/0", "0|1", "1|0", "1"):
         return 1
     return 0
 

@@ -9,6 +9,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
+from .genotype_utils import is_variant
 from .utils import generate_igv_safe_filename_base
 
 logger = logging.getLogger("variantcentrifuge")
@@ -303,8 +304,8 @@ def generate_igv_report(
                     if m:
                         sample_id = m.group(1).strip()
                         genotype = m.group(2).strip()
-                        # If the sample carries the variant (not 0/0 or ./.)
-                        if genotype not in ["0/0", "./."]:
+                        # If the sample carries the variant (not reference or missing)
+                        if is_variant(re.split(r"[:,;\s]", genotype, maxsplit=1)[0]):
                             if sample_id not in bam_mapping:
                                 logger.warning(f"No BAM found for sample {sample_id}, skipping.")
                                 continue

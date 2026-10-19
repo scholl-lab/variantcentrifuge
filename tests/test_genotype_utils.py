@@ -31,6 +31,9 @@ class TestGenotypeUtils:
         assert parse_genotype("") == (None, None)
         assert parse_genotype("invalid") == (None, None)
         assert parse_genotype("2/3") == (2, 3)  # Multi-allelic
+        assert parse_genotype("0") == (0,)
+        assert parse_genotype("1") == (1,)
+        assert parse_genotype(".") == (None,)
 
     def test_is_het(self):
         """Test heterozygous genotype detection."""
@@ -43,6 +46,8 @@ class TestGenotypeUtils:
         assert is_het("./.") is False
         assert is_het("0/.") is False
         assert is_het("2/3") is False  # Multi-allelic het
+        assert is_het("1") is False
+        assert is_het("0") is False
 
     def test_is_hom_alt(self):
         """Test homozygous alternate detection."""
@@ -52,13 +57,17 @@ class TestGenotypeUtils:
         assert is_hom_alt("0/1") is False
         assert is_hom_alt("./.") is False
         assert is_hom_alt("2/2") is False  # Multi-allelic
+        assert is_hom_alt("1") is False
+        assert is_hom_alt("0") is False
 
     def test_is_ref(self):
         """Test homozygous reference detection."""
         assert is_ref("0/0") is True
         assert is_ref("0|0") is True
+        assert is_ref("0") is True
         assert is_ref("0/1") is False
         assert is_ref("1/1") is False
+        assert is_ref("1") is False
         assert is_ref("./.") is False
         assert is_ref("0/.") is False
 
@@ -67,20 +76,30 @@ class TestGenotypeUtils:
         assert is_variant("0/1") is True
         assert is_variant("1/0") is True
         assert is_variant("1/1") is True
+        assert is_variant("1") is True
         assert is_variant("0/0") is False
+        assert is_variant("0") is False
         assert is_variant("./.") is False
         assert is_variant("0/.") is False
+        assert is_variant("1/.") is False
+        assert is_variant("./1") is False
+        assert is_variant("1|.") is False
+        assert is_variant(".|1") is False
+        assert is_variant(".") is False
 
     def test_is_missing(self):
         """Test missing genotype detection."""
         assert is_missing("./.") is True
         assert is_missing("0/.") is True
         assert is_missing("./1") is True
+        assert is_missing(".") is True
         assert is_missing("") is True
         assert is_missing(None) is True
         assert is_missing("0/0") is False
         assert is_missing("0/1") is False
         assert is_missing("1/1") is False
+        assert is_missing("0") is False
+        assert is_missing("1") is False
 
     def test_get_allele_count(self):
         """Test alternate allele counting."""
@@ -88,9 +107,12 @@ class TestGenotypeUtils:
         assert get_allele_count("0/1") == 1
         assert get_allele_count("1/0") == 1
         assert get_allele_count("1/1") == 2
+        assert get_allele_count("0") == 0
+        assert get_allele_count("1") == 1
         assert get_allele_count("./.") == 0
         assert get_allele_count("0/.") == 0
         assert get_allele_count("./1") == 0
+        assert get_allele_count(".") == 0
 
     def test_is_phased(self):
         """Test phased genotype detection."""

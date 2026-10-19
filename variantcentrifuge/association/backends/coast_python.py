@@ -222,6 +222,7 @@ def _compute_allelic_skat_weights(
     geno_filtered: np.ndarray,
     anno_codes_filtered: np.ndarray,
     coast_weights: list[float],
+    variant_mafs: np.ndarray | None = None,
 ) -> np.ndarray:
     """
     Compute per-variant SKAT weights for the allelic series test.
@@ -240,6 +241,9 @@ def _compute_allelic_skat_weights(
         Annotation codes for filtered variants (1/2/3 only, no 0s).
     coast_weights : list of float
         Category weights in order [BMV_weight, DMV_weight, PTV_weight].
+    variant_mafs : np.ndarray or None, shape (n_variants,)
+        Precomputed ploidy-aware variant allele frequencies. When None,
+        falls back to geno_filtered.mean(axis=0) / 2.0.
 
     Returns
     -------
@@ -247,7 +251,10 @@ def _compute_allelic_skat_weights(
         Per-variant SKAT weights (square root of weight-to-variance ratio).
     """
     n_variants = geno_filtered.shape[1]
-    aaf = geno_filtered.mean(axis=0) / 2.0
+    if variant_mafs is not None and len(variant_mafs) == n_variants:
+        aaf = np.asarray(variant_mafs, dtype=np.float64)
+    else:
+        aaf = geno_filtered.mean(axis=0) / 2.0
     aaf = np.clip(aaf, 1e-8, 1.0 - 1e-8)
 
     # Per-variant annotation-based weight
@@ -397,6 +404,7 @@ class PythonCOASTBackend:
         coast_weights: list[float],
         trait_type: str,
         null_model: NullModelResult,
+        variant_mafs: np.ndarray | None = None,
     ) -> dict[str, Any]:
         """
         Run the full COAST test for a single gene.
@@ -422,6 +430,9 @@ class PythonCOASTBackend:
             "binary" or "quantitative".
         null_model : NullModelResult
             Fitted null model (from PythonSKATBackend.fit_null_model()).
+        variant_mafs : np.ndarray or None, shape (n_variants,)
+            Precomputed ploidy-aware variant allele frequencies.
+
 
         Returns
         -------
@@ -484,7 +495,10 @@ class PythonCOASTBackend:
         # ── Layer 2: Allelic SKAT ────────────────────────────────────────────────
 
         skat_weights = _compute_allelic_skat_weights(
-            geno_filtered, anno_codes_filtered, coast_weights
+            geno_filtered,
+            anno_codes_filtered,
+            coast_weights,
+            variant_mafs=variant_mafs,
         )
 
         skat_p_value: float | None
@@ -512,3 +526,6 @@ class PythonCOASTBackend:
             "skat_p_value": skat_p_value,
             "burden_labels": burden_labels,
         }
+
+
+COASTPythonBackend = PythonCOASTBackend

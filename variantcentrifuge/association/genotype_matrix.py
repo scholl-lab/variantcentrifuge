@@ -37,8 +37,8 @@ logger = logging.getLogger("variantcentrifuge")
 def _vectorized_parse_gt_columns(
     gene_df: pd.DataFrame,
     gt_columns_list: list[str],
-) -> tuple[np.ndarray, int]:
-    """Parse all GT columns to a dosage matrix using vectorized pandas operations.
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """Parse all GT columns to a dosage matrix and ploidy matrix using vectorized pandas operations.
 
     Replaces the nested iterrows() loop with column-wise vectorized string matching.
     Produces identical results to per-cell parse_gt_to_dosage() calls.
@@ -54,51 +54,102 @@ def _vectorized_parse_gt_columns(
     -------
     raw : np.ndarray, shape (n_variants, n_samples), float64
         Dosage matrix. NaN for missing genotypes.
+    ploidy : np.ndarray, shape (n_variants, n_samples), float64
+        Ploidy matrix (1.0 for haploid, 2.0 for diploid).
     multi_allelic_count : int
         Total number of multi-allelic genotype entries detected.
     """
     n_variants = len(gene_df)
     n_samples = len(gt_columns_list)
     raw = np.full((n_variants, n_samples), np.nan, dtype=np.float64)
+    ploidy = np.full((n_variants, n_samples), 2.0, dtype=np.float64)
     multi_allelic_count = 0
+    row_has_haploid = np.zeros(n_variants, dtype=bool)
+    row_has_diploid = np.zeros(n_variants, dtype=bool)
+    generic_missing = np.zeros((n_variants, n_samples), dtype=bool)
 
     for s_idx, col in enumerate(gt_columns_list):
-        # Convert before fillna so categorical GT columns do not need "./."
-        # added as an explicit category.
-        gt_series = gene_df[col].astype(object).fillna("./.").astype(str)
-        gt_series = gt_series.str.replace("|", "/", regex=False)
+        s_obj = (
+            gene_df[col].astype(object)
+            if isinstance(gene_df[col].dtype, pd.CategoricalDtype)
+            else gene_df[col]
+        )
+        s_str = s_obj.fillna("").astype(str).str.strip()
+        is_gen_miss = s_obj.isna() | s_str.str.lower().isin({"", "na", "nan", "none", "null"})
+        generic_missing[:, s_idx] = is_gen_miss.to_numpy()
+
+        gt_series = s_str.str.replace("|", "/", regex=False)
+        m_diploid = ~is_gen_miss & gt_series.str.contains("/", regex=False)
+        row_has_diploid |= m_diploid.to_numpy()
 
         # Standard diploid genotypes — exact match for speed
         m_00 = gt_series == "0/0"
         m_01 = (gt_series == "0/1") | (gt_series == "1/0")
         m_11 = gt_series == "1/1"
 
+        # Haploid genotypes
+        m_hap_0 = gt_series == "0"
+        m_hap_1 = gt_series == "1"
+        m_hap_miss = gt_series == "."
+        row_has_haploid |= (m_hap_0 | m_hap_1 | m_hap_miss).to_numpy()
+
         # Multi-allelic: any allele > 1 (e.g. 1/2, 0/2, 2/2, 0/3)
-        # Match patterns like X/Y where X or Y is >= 2
         multi_mask = gt_series.str.match(r"^[0-9]+/[0-9]+$", na=False) & ~(m_00 | m_01 | m_11)
+        hap_multi_mask = (
+            ~is_gen_miss
+            & ~m_diploid
+            & gt_series.str.match(r"^[0-9]+$", na=False)
+            & ~(m_hap_0 | m_hap_1)
+        )
+
         # Filter: only flag as multi if actually contains allele > 1
         if multi_mask.any():
-            # Further check: split and verify any allele > 1
             candidates = gt_series[multi_mask]
             left = candidates.str.split("/").str[0]
             right = candidates.str.split("/").str[1]
             truly_multi = (left.astype(int) > 1) | (right.astype(int) > 1)
-            # Update mask — keep only truly multi-allelic
             multi_idx = multi_mask[multi_mask].index
             truly_multi_values = truly_multi.to_numpy(dtype=bool)
             not_truly = multi_idx[~truly_multi_values]
             multi_mask.loc[not_truly] = False
             multi_allelic_count += int(truly_multi.sum())
 
-        # Assign dosages
+        if hap_multi_mask.any():
+            candidates_hap = gt_series[hap_multi_mask]
+            truly_hap_multi = candidates_hap.astype(int) > 1
+            hap_multi_idx = hap_multi_mask[hap_multi_mask].index
+            truly_hap_multi_values = truly_hap_multi.to_numpy(dtype=bool)
+            not_truly_hap = hap_multi_idx[~truly_hap_multi_values]
+            hap_multi_mask.loc[not_truly_hap] = False
+            multi_allelic_count += int(truly_hap_multi.sum())
+            row_has_haploid |= hap_multi_mask.to_numpy()
+
+        # Assign dosages and ploidy
         col_dosage = np.full(n_variants, np.nan, dtype=np.float64)
+        col_ploidy = np.full(n_variants, 2.0, dtype=np.float64)
+
         col_dosage[m_00.values] = 0.0
         col_dosage[m_01.values] = 1.0
         col_dosage[m_11.values] = 2.0
         col_dosage[multi_mask.values] = 1.0  # het-equivalent for multi-allelic
-        raw[:, s_idx] = col_dosage
 
-    return raw, multi_allelic_count
+        col_dosage[m_hap_0.values] = 0.0
+        col_dosage[m_hap_1.values] = 1.0
+        col_dosage[hap_multi_mask.values] = 1.0
+
+        col_ploidy[m_hap_0.values] = 1.0
+        col_ploidy[m_hap_1.values] = 1.0
+        col_ploidy[hap_multi_mask.values] = 1.0
+        col_ploidy[m_hap_miss.values] = 1.0
+
+        raw[:, s_idx] = col_dosage
+        ploidy[:, s_idx] = col_ploidy
+
+    haploid_rows = row_has_haploid & ~row_has_diploid
+    if haploid_rows.any():
+        ploidy[haploid_rows[:, None] & generic_missing] = 1.0
+
+    return raw, ploidy, multi_allelic_count
 
 
 def parse_gt_to_dosage(gt: str | None) -> tuple[int | None, bool]:
@@ -113,21 +164,21 @@ def parse_gt_to_dosage(gt: str | None) -> tuple[int | None, bool]:
     Returns
     -------
     dosage : int | None
-        Additive dosage: 0 (hom-ref), 1 (het), 2 (hom-alt), or ``None``
-        (missing — any allele is ``.``).
+        Additive dosage: 0 (hom-ref/hap-ref), 1 (het/hap-alt), 2 (hom-alt),
+        or ``None`` (missing — any allele is ``.``).
     is_multi_allelic : bool
         ``True`` when any allele integer > 1 (e.g. ``1/2``, ``0/2``,
-        ``2/2``). Multi-allelic genotypes are assigned het-equivalent
+        ``2/2``, ``2``). Multi-allelic genotypes are assigned het-equivalent
         dosage 1.
 
     Rules
     -----
-    - ``'0/0'``, ``'0|0'``           -> ``(0, False)``
-    - ``'0/1'``, ``'1/0'``, phased   -> ``(1, False)``
+    - ``'0/0'``, ``'0|0'``, ``'0'``  -> ``(0, False)``
+    - ``'0/1'``, ``'1/0'``, phased, ``'1'`` -> ``(1, False)``
     - ``'1/1'``, ``'1|1'``           -> ``(2, False)``
-    - ``'./.'``, ``'.|.'``, None, '' -> ``(None, False)``
+    - ``'./.'``, ``'.|.'``, ``'.'``, None, '' -> ``(None, False)``
     - ``'./1'``, ``'1/.'``           -> ``(None, False)``  (partial missing)
-    - ``'1/2'``, ``'0/2'``, ``'2/2'``-> ``(1, True)``     (multi-allelic)
+    - ``'1/2'``, ``'0/2'``, ``'2/2'``, ``'2'`` -> ``(1, True)``  (multi-allelic)
 
     Notes
     -----
@@ -140,6 +191,21 @@ def parse_gt_to_dosage(gt: str | None) -> tuple[int | None, bool]:
     # Normalise separator so we only need to handle '/'
     sep = "|" if "|" in gt else "/"
     parts = gt.split(sep)
+
+    # Haploid call (single allele)
+    if len(parts) == 1:
+        if parts[0] in (".", ""):
+            return None, False
+        try:
+            val = int(parts[0])
+            if val == 0:
+                return 0, False
+            elif val == 1:
+                return 1, False
+            else:
+                return 1, True  # multi-allelic
+        except ValueError:
+            return None, False
 
     if len(parts) != 2:
         return None, False
@@ -190,10 +256,11 @@ def build_genotype_matrix(
         Column names that hold per-sample GT strings (e.g. ``GEN_0__GT``).
         The index ``i`` of a column corresponds to ``vcf_samples[i]``.
     is_binary : bool
-        Determines imputation mode.
-        - ``True`` (binary trait): impute missing as ``round(2 * MAF)``
-          (bestguess, SKAT R convention).
-        - ``False`` (quantitative): impute missing as ``2 * MAF`` (mean).
+        Determines imputation mode using ploidy-scaled mean imputation.
+        - ``True`` (binary trait): impute missing as ``round(ploidy * alt_allele_freq)``
+          (bestguess, SKAT R convention; dosage units {0, 1, 2} for diploid, {0, 1} for haploid).
+        - ``False`` (quantitative): impute missing as ``ploidy * alt_allele_freq``
+          (mean; ``2 * alt_freq`` for diploid, ``1 * alt_freq`` for haploid).
     missing_site_threshold : float
         Variants with a fraction of missing genotypes > this threshold
         across all samples are removed before imputation. Default: 0.10.
@@ -244,7 +311,7 @@ def build_genotype_matrix(
     # Vectorized: processes one GT column at a time using pandas string    #
     # ops instead of per-cell Python function calls.                       #
     # ------------------------------------------------------------------ #
-    raw, multi_allelic_count = _vectorized_parse_gt_columns(gene_df, gt_columns_list)
+    raw, ploidy, multi_allelic_count = _vectorized_parse_gt_columns(gene_df, gt_columns_list)
 
     if multi_allelic_count > 0:
         warnings_list.append(
@@ -259,6 +326,7 @@ def build_genotype_matrix(
     missing_per_variant = np.isnan(raw).mean(axis=1)  # shape (n_variants,)
     keep_variants_mask = missing_per_variant <= missing_site_threshold
     raw = raw[keep_variants_mask]  # shape (n_kept_variants, n_samples)
+    ploidy = ploidy[keep_variants_mask]
 
     # ------------------------------------------------------------------ #
     # Step 3 — Layer 1b: Flag samples with >missing_sample_threshold      #
@@ -303,18 +371,29 @@ def build_genotype_matrix(
     mafs = np.zeros(n_kept_variants, dtype=np.float64)
 
     for v_idx in range(n_kept_variants):
-        observed = geno[v_idx, ~np.isnan(geno[v_idx])]
-        if len(observed) == 0:
+        obs_mask = ~np.isnan(geno[v_idx])
+        observed_dosages = geno[v_idx, obs_mask]
+        observed_ploidies = ploidy[v_idx, obs_mask]
+        if len(observed_dosages) == 0:
             # Every sample missing: MAF=0, impute 0
             mafs[v_idx] = 0.0
             geno[v_idx] = 0.0
             continue
-        maf = float(observed.mean()) / 2.0
-        mafs[v_idx] = maf
+        total_ac = float(observed_dosages.sum())
+        total_an = float(observed_ploidies.sum())
+        if total_an <= 0.0 or total_ac >= total_an:
+            # Monomorphic for ALT (or no observed chromosomes): MAF=0, zero out dosages
+            mafs[v_idx] = 0.0
+            geno[v_idx] = 0.0
+            continue
+        alt_freq = total_ac / total_an if total_an > 0 else 0.0
+        mafs[v_idx] = min(alt_freq, 1.0 - alt_freq)
         missing_mask = np.isnan(geno[v_idx])
         if missing_mask.any():
-            imputed_val = round(2.0 * maf) if is_binary else 2.0 * maf
-            geno[v_idx, missing_mask] = imputed_val
+            for s in np.where(missing_mask)[0]:
+                s_ploidy = ploidy[v_idx, s]
+                imputed_val = round(s_ploidy * maf) if is_binary else s_ploidy * maf
+                geno[v_idx, s] = imputed_val
 
     # ------------------------------------------------------------------ #
     # Step 6: Transpose to (n_samples, n_variants)                        #
