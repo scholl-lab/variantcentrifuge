@@ -1,48 +1,17 @@
-# File: variantcentrifuge/association/weights.py
-# Location: variantcentrifuge/variantcentrifuge/association/weights.py
-"""
-Variant weight schemes for rare variant association burden tests.
+"""Variant weight schemes for rare variant association burden tests.
 
 Provides public functions:
-
-- ``beta_maf_weights``: Beta(MAF; a, b) weights (default a=1, b=25) matching
-  the SKAT R package convention — rare variants receive higher weights.
+- ``beta_maf_weights``: Beta(MAF; a, b) weights (SKAT R package convention).
 - ``uniform_weights``: All-ones weight vector for unweighted burden tests.
-- ``cadd_weights``: Beta(MAF) x min(CADD_phred / cap, 1.0) weights with
-  variant-type-aware fallback for missing CADD scores.
-- ``revel_weights``: Beta(MAF) x REVEL_score weights with fallback for missing
-  REVEL scores. REVEL is already in [0, 1]; no normalization needed.
-- ``combined_weights``: Beta(MAF) x functional score. Uses CADD by default;
-  falls back to REVEL if CADD is not provided.
-- ``score_column_weights``: Beta(MAF) x arbitrary numeric score-column weights,
-  or raw normalized score weights when combine_with_beta is false.
+- ``cadd_weights``: Beta(MAF) x min(CADD_phred / cap, 1.0) weights with fallback.
+- ``revel_weights``: Beta(MAF) x REVEL_score weights with fallback.
+- ``combined_weights``: Beta(MAF) x functional score (CADD preferred, else REVEL).
+- ``score_column_weights``: Beta(MAF) x arbitrary numeric score-column weights.
 - ``get_weights``: String-spec parser that dispatches to any of the above.
 
-Weight spec string format
--------------------------
-``"beta:a,b"``
-    Beta distribution weights. ``a`` and ``b`` are float parameters.
-    Example: ``"beta:1,25"`` (default, SKAT convention).
-
-``"uniform"``
-    Uniform weights; all variants receive weight 1.0.
-
-``"cadd"``
-    Beta(MAF) x min(CADD_phred / 40, 1.0). Requires ``cadd_scores`` kwarg.
-
-``"revel"``
-    Beta(MAF) x REVEL_score. Requires ``revel_scores`` kwarg.
-
-``"combined"``
-    Beta(MAF) x functional score. Uses CADD if provided; falls back to REVEL.
-
-Fallback rules for missing annotation scores
---------------------------------------------
-LoF variants (stop_gained, frameshift, splice site) missing CADD/REVEL receive
-functional weight 1.0 (maximum — conservative, do not penalize).
-Missense and other variants missing scores also receive functional weight 1.0
-(Beta(MAF)-only — no up-weighting, no down-weighting).
-A warning is logged listing per-category missing counts.
+Supported weight specs include ``"beta:a,b"``, ``"uniform"``, ``"cadd"``, ``"revel"``,
+``"combined"``, ``"score_column"``, and ``"column:<name>"``. Missing scores fall back
+conservatively to Beta(MAF)-only (functional=1.0) or configured missing modes.
 """
 
 from __future__ import annotations
@@ -192,11 +161,11 @@ def _normalize_score_weight_params(weight_params: dict | None) -> dict:
         raise ValueError("score_min and score_max must be provided together")
     score_min_f: float | None = None
     score_max_f: float | None = None
-    if score_min is not None:
-        score_min_f = float(cast(Any, score_min))
-        score_max_f = float(cast(Any, score_max))
+    if score_min is not None and score_max is not None:
+        score_min_f, score_max_f = float(cast(Any, score_min)), float(cast(Any, score_max))
         if score_min_f >= score_max_f:
             raise ValueError("score_min must be less than score_max")
+        params["score_min"], params["score_max"] = score_min_f, score_max_f
 
     floor = float(cast(Any, params["floor"]))
     ceiling = float(cast(Any, params["ceiling"]))
@@ -222,15 +191,27 @@ def _normalize_score_weight_params(weight_params: dict | None) -> dict:
     if missing == "neutral" and not combine_with_beta:
         raise ValueError("missing='neutral' is invalid when combine_with_beta=false")
 
-    params["floor"] = floor
-    params["ceiling"] = ceiling
-    params["beta_a"] = beta_a
-    params["beta_b"] = beta_b
-    params["combine_with_beta"] = combine_with_beta
-    if score_min_f is not None:
-        params["score_min"] = score_min_f
-        params["score_max"] = score_max_f
+    params.update(
+        {
+            "floor": floor,
+            "ceiling": ceiling,
+            "beta_a": beta_a,
+            "beta_b": beta_b,
+            "combine_with_beta": combine_with_beta,
+        }
+    )
     return params
+
+
+def _count_missing_by_effect(
+    mask: np.ndarray, variant_effects: np.ndarray | None
+) -> tuple[int, int, int] | None:
+    if variant_effects is None:
+        return None
+    missing_effects = np.asarray(variant_effects, dtype=object)[mask]
+    n_lof = int(sum(1 for e in missing_effects if e in LOF_EFFECTS))
+    n_miss = int(sum(1 for e in missing_effects if e in MISSENSE_EFFECTS))
+    return n_lof, n_miss, len(missing_effects) - n_lof - n_miss
 
 
 def _log_missing_score_counts(
@@ -238,37 +219,20 @@ def _log_missing_score_counts(
     variant_effects: np.ndarray | None,
     scheme_name: str,
 ) -> None:
-    """
-    Log a warning summarising the number of variants with missing annotation scores
-    broken down by variant type (LoF, missense, other).
-
-    Parameters
-    ----------
-    nan_mask : np.ndarray of bool, shape (n_variants,)
-        True where annotation score is missing.
-    variant_effects : np.ndarray or None
-        Variant effect strings (e.g. "stop_gained", "missense_variant").
-    scheme_name : str
-        Weight scheme name for log message (e.g. "CADD", "REVEL").
-    """
+    """Log a warning for variants with missing annotation scores."""
     n_missing = int(nan_mask.sum())
     if n_missing == 0:
         return
 
-    if variant_effects is None:
+    counts = _count_missing_by_effect(nan_mask, variant_effects)
+    if counts is None:
         logger.warning(
             f"{scheme_name} weights: {n_missing} variant(s) had missing scores "
             "(used Beta(MAF)-only fallback)"
         )
         return
 
-    effects_arr = np.asarray(variant_effects, dtype=object)
-    missing_effects = effects_arr[nan_mask]
-
-    n_lof = int(sum(1 for e in missing_effects if e in LOF_EFFECTS))
-    n_miss = int(sum(1 for e in missing_effects if e in MISSENSE_EFFECTS))
-    n_other = n_missing - n_lof - n_miss
-
+    n_lof, n_miss, n_other = counts
     logger.warning(
         f"{scheme_name} weights: {n_missing} variant(s) had missing scores — "
         f"{n_lof} LoF (functional=1.0), "
@@ -288,17 +252,12 @@ def _log_missing_score_column_counts(
         return
 
     prefix = f"score_column weights: {n_missing} variant(s) had missing or invalid scores"
-    if variant_effects is None:
+    counts = _count_missing_by_effect(missing_mask, variant_effects)
+    if counts is None:
         logger.warning("%s (used %s fallback)", prefix, fallback_description)
         return
 
-    effects_arr = np.asarray(variant_effects, dtype=object)
-    missing_effects = effects_arr[missing_mask]
-
-    n_lof = int(sum(1 for e in missing_effects if e in LOF_EFFECTS))
-    n_miss = int(sum(1 for e in missing_effects if e in MISSENSE_EFFECTS))
-    n_other = n_missing - n_lof - n_miss
-
+    n_lof, n_miss, n_other = counts
     logger.warning(
         "%s — %d LoF, %d missense, %d other (used %s fallback)",
         prefix,
