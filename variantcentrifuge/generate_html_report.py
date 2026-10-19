@@ -50,7 +50,10 @@ def _encode_symbolic_allele_brackets(url: Any) -> str:
             return match.group(0)
         return f"%3C{tag}%3E"
 
-    return re.sub(r"<([A-Za-z0-9_:.-]+)>", _repl, u)
+    u = re.sub(r"<([A-Za-z0-9_:.-]+)>", _repl, u)
+    if "<" not in u and not any(c in u for c in " \t\r\n\"'\\`"):
+        u = u.replace(">", "%3E")
+    return u
 
 
 def is_safe_url(url: Any) -> bool:
@@ -139,6 +142,11 @@ def generate_html_report(
 
     default_hidden_columns = cfg.get("html_report_default_hidden_columns", [])
     link_configs = cfg.get("links", {})  # For identifying link columns
+
+    for v in variants_data:
+        for col_name in link_configs:
+            if col_name in v and isinstance(v[col_name], str) and v[col_name]:
+                v[col_name] = _encode_symbolic_allele_brackets(v[col_name])
 
     # Get hover-to-expand settings from config
     truncate_settings = cfg.get("html_report_truncate_settings", {})

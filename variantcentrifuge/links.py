@@ -117,6 +117,19 @@ def resolve_links(config: dict[str, Any]) -> dict[str, str]:
                     resolved[name] = build_defaults[name]
             else:
                 resolved[name] = url_template
+
+        if canonical_build and "links_by_build" in config:
+            bundled_keys = (
+                set(DEFAULT_LINKS_BY_BUILD["GRCh37"].keys())
+                | set(DEFAULT_LINKS_BY_BUILD["GRCh38"].keys())
+                | {"gnomAD", "gnomAD_2", "gnomAD_4"}
+            )
+            is_default_legacy_links = set(raw_links.keys()) == set(
+                DEFAULT_LINKS_BY_BUILD["GRCh37"].keys()
+            )
+            for k, v in build_defaults.items():
+                if k not in resolved and (is_default_legacy_links or k not in bundled_keys):
+                    resolved[k] = v
     else:
         resolved = {}
 

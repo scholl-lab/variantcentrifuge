@@ -201,6 +201,22 @@ class TestResolveLinks:
         resolved = resolve_links(config)
         assert resolved["gnomAD_4"] == "https://custom.gnomad.org/{CHROM}-{POS}"
 
+    def test_load_config_with_custom_destination_in_links_by_build_resolves_portal(self):
+        """Custom destination added to links_by_build['GRCh38'] resolves for GRCh38 (#144)."""
+        from variantcentrifuge.config import load_config
+
+        cfg = load_config()
+        cfg["reference"] = "GRCh38.99"
+        portal_url = "https://portal.example/{CHROM}:{POS}:{REF}:{ALT}"
+        cfg["links_by_build"]["GRCh38"]["Portal"] = portal_url
+
+        resolved = resolve_links(cfg)
+        assert "Portal" in resolved
+        assert resolved["Portal"] == portal_url
+        assert "Varsome" in resolved
+        assert "hg38" in resolved["Varsome"]
+        assert "gnomAD_4" in resolved
+
 
 @pytest.mark.unit
 class TestAddLinksToTableBuildAware:

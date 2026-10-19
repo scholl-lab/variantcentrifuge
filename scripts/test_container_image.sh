@@ -242,6 +242,17 @@ touch /data/container-contract-write-test
 touch /data/snpeff/container-contract-write-test
 '
 
+printf '%s\n' 'checking unrelated non-owner traversal of /data and /data/snpeff'
+docker run --rm \
+    --user 65534:65534 \
+    --entrypoint /bin/sh "$image_id" -c '
+set -eu
+test -r /data
+test -x /data
+test -r /data/snpeff
+test -x /data/snpeff
+'
+
 printf '%s\n' 'checking host-user traversal of /data with child bind mounts'
 host_input=$work_dir/host_input
 host_out=$work_dir/host_out
@@ -250,8 +261,17 @@ mkdir -p "$host_input" "$host_out" "$host_snpeff"
 echo "input_payload" > "$host_input/input.txt"
 chmod 0755 "$host_input" "$host_out" "$host_snpeff"
 chmod 0644 "$host_input/input.txt"
+
+test_uid=$(id -u)
+test_gid=$(id -g)
+if [ "$test_uid" -eq 0 ] || [ "$test_uid" -eq 10001 ] || [ "$test_gid" -eq 0 ] || [ "$test_gid" -eq 10001 ]; then
+    test_uid=65534
+    test_gid=65534
+    chown -R 65534:65534 "$host_input" "$host_out" "$host_snpeff" 2>/dev/null || true
+fi
+
 docker run --rm \
-    --user "$(id -u):$(id -g)" \
+    --user "$test_uid:$test_gid" \
     -v "$host_input:/data/input:ro" \
     -v "$host_out:/data/output" \
     -v "$host_snpeff:/data/snpeff" \

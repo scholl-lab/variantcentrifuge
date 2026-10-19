@@ -1295,12 +1295,16 @@ document.addEventListener('DOMContentLoaded', function() {
             'audio': 1, 'source': 1, 'track': 1, 'frame': 1, 'frameset': 1,
             'applet': 1, 'marquee': 1, 'details': 1, 'template': 1, 'math': 1
         };
-        return String(url).replace(/<([A-Za-z0-9_:.-]+)>/g, function(match, tag) {
+        var s = String(url).replace(/<([A-Za-z0-9_:.-]+)>/g, function(match, tag) {
             if (dangerousTags[tag.toLowerCase()]) {
                 return match;
             }
             return '%3C' + tag + '%3E';
         });
+        if (s.indexOf('<') === -1 && !/[\s"'\\`]/.test(s)) {
+            s = s.replace(/>/g, '%3E');
+        }
+        return s;
     }
 
     function isSafeUrl(url) {

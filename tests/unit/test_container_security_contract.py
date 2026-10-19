@@ -942,8 +942,11 @@ def test_compose_and_installation_persist_the_default_snpeff_data_directory() ->
 
 def test_container_image_contract_checks_non_owner_child_mounts() -> None:
     script = _text("scripts/test_container_image.sh")
+    assert "checking unrelated non-owner traversal of /data and /data/snpeff" in script
+    assert "--user 65534:65534" in script
+    assert "test -r /data\ntest -x /data\ntest -r /data/snpeff\ntest -x /data/snpeff" in script
     assert "checking host-user traversal of /data with child bind mounts" in script
-    assert '--user "$(id -u):$(id -g)"' in script
+    assert '--user "$test_uid:$test_gid"' in script
     assert 'chmod 0755 "$host_input" "$host_out" "$host_snpeff"' in script
     assert '-v "$host_input:/data/input:ro"' in script
     assert '-v "$host_out:/data/output"' in script
@@ -951,28 +954,54 @@ def test_container_image_contract_checks_non_owner_child_mounts() -> None:
     assert "0777" not in script
 
 
-def test_data_directory_traversal_permissions_behavioral(tmp_path: Path) -> None:
-    """Verify that mode 0o755 allows non-owner traversal (X_OK) while 0o750 denies it."""
+def test_data_directory_traversal_permissions_behavioral() -> None:
+    """Verify parsed Dockerfile mode on /data allows non-owner traversal and child write."""
     import stat
 
-    test_dir = tmp_path / "data_perm_test"
-    sub_file = test_dir / "target.txt"
-    test_dir.mkdir()
-    sub_file.write_text("ok")
+    dockerfile_text = _text("Dockerfile")
+    m = re.search(r"chmod\s+([0-7]+)\s+/data\s+/data/snpeff", dockerfile_text)
+    assert m is not None, "Could not find chmod mode for /data /data/snpeff in Dockerfile"
+    parsed_mode = int(m.group(1), 8)
+    assert parsed_mode == 0o755
 
-    # Mode 0o750: owner has rwx, group has rx, others have NO permissions
-    test_dir.chmod(0o750)
-    mode_750 = stat.S_IMODE(test_dir.stat().st_mode)
-    assert mode_750 == 0o750
-    assert not (mode_750 & stat.S_IXOTH), "0o750 must not grant other-execute (traversal)"
-    assert not (mode_750 & stat.S_IROTH), "0o750 must not grant other-read"
+    def simulate_posix_traversal_and_write(
+        parent_mode: int,
+        parent_uid: int = 10001,
+        parent_gid: int = 10001,
+        caller_uid: int = 65534,
+        caller_gid: int = 65534,
+    ) -> bool:
+        """Simulate POSIX path lookup (/data/output) and write check for caller."""
+        if caller_uid == parent_uid:
+            can_traverse = bool(parent_mode & stat.S_IXUSR)
+        elif caller_gid == parent_gid:
+            can_traverse = bool(parent_mode & stat.S_IXGRP)
+        else:
+            can_traverse = bool(parent_mode & stat.S_IXOTH)
 
-    # Mode 0o755: others have rx (read and traversal execute)
-    test_dir.chmod(0o755)
-    mode_755 = stat.S_IMODE(test_dir.stat().st_mode)
-    assert mode_755 == 0o755
-    assert bool(mode_755 & stat.S_IXOTH), "0o755 must grant other-execute (traversal)"
-    assert bool(mode_755 & stat.S_IROTH), "0o755 must grant other-read"
+        if not can_traverse:
+            raise PermissionError(f"Permission denied traversing directory mode {oct(parent_mode)}")
+
+        child_mount_mode = 0o755
+        child_mount_uid = caller_uid
+        child_mount_gid = caller_gid
+
+        if caller_uid == child_mount_uid:
+            can_write = bool(child_mount_mode & stat.S_IWUSR)
+        elif caller_gid == child_mount_gid:
+            can_write = bool(child_mount_mode & stat.S_IWGRP)
+        else:
+            can_write = bool(child_mount_mode & stat.S_IWOTH)
+
+        if not can_write:
+            raise PermissionError("Permission denied writing to child mount")
+
+        return True
+
+    assert simulate_posix_traversal_and_write(parsed_mode) is True
+
+    with pytest.raises(PermissionError, match="Permission denied traversing directory"):
+        simulate_posix_traversal_and_write(0o750)
 
 
 def test_scoring_integration_requires_every_invoked_bioinformatics_tool() -> None:

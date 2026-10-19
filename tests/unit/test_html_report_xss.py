@@ -1876,3 +1876,63 @@ window.addEventListener("load", function() {
         assert 'href="igv/<img' not in report_html
         assert "S2_SCRIPT" in report_html
         assert "S3_IMG" in report_html
+
+    def test_hgvs_substitution_link_rendered_as_clickable_anchor(self, tmp_path: Path):
+        """Verify HGVS substitutions containing > render as clickable anchors (%3E) (#130)."""
+        from variantcentrifuge.generate_html_report import generate_html_report, is_safe_url
+
+        varsome_url = "https://varsome.com/variant/hg19/GALNT12:c.907G>A"
+        expected_href = "https://varsome.com/variant/hg19/GALNT12:c.907G%3EA"
+
+        # 1. URL safety checks
+        assert is_safe_url(varsome_url) is True
+
+        # 2. Initial static table rendering
+        variants_data = [
+            {
+                "CHROM": "chr1",
+                "POS": 100,
+                "REF": "G",
+                "ALT": "A",
+                "Varsome": varsome_url,
+            }
+        ]
+        summary = {
+            "num_variants": 1,
+            "num_samples": 1,
+            "impact_distribution": {"HIGH": 1},
+            "inheritance_distribution": {"de_novo": 1},
+            "top_genes": [{"gene": "GALNT12", "count": 1}],
+        }
+        v_file = tmp_path / "variants.json"
+        s_file = tmp_path / "summary.json"
+        v_file.write_text(json.dumps(variants_data), encoding="utf-8")
+        s_file.write_text(json.dumps(summary), encoding="utf-8")
+
+        cfg = {
+            "reference": "GRCh37",
+            "links": {"Varsome": "https://varsome.com/variant/hg19/{VAR_ID}"},
+        }
+        generate_html_report(str(v_file), str(s_file), str(tmp_path), cfg)
+        report_html = (tmp_path / "index.html").read_text(encoding="utf-8")
+        assert f'href="{expected_href}"' in report_html
+
+        # 3. Expanded child row rendering via formatChildRow in Node
+        script = f"""
+        const columns = [
+            {{
+                original_name: 'Varsome',
+                display_name: 'Varsome',
+                is_standard_link_column: true,
+                link_display_text: 'Varsome'
+            }}
+        ];
+        const rowData = [null, '{varsome_url}'];
+        const res = formatChildRow(rowData, columns);
+        if (res.indexOf('href="{expected_href}"') === -1) {{
+            console.error('Expected clickable anchor with encoded >: ' + res);
+            process.exit(1);
+        }}
+        console.log('OK');
+        """
+        assert _run_node_script(script) == "OK"
