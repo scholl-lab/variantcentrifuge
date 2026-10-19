@@ -112,3 +112,33 @@ def test_comp_het_original_benchmark_is_removed() -> None:
 
     assert "test_comp_het_original_scaling" not in benchmark_code
     assert "original implementations" not in benchmark_code
+
+
+def test_makefile_installs_use_locked_dependencies() -> None:
+    """Makefile install targets must enforce committed lockfile."""
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert any("uv sync --locked" in cmd for cmd in _make_recipe(makefile, "install"))
+    assert any(
+        "uv sync --locked --extra dev" in cmd for cmd in _make_recipe(makefile, "install-dev")
+    )
+
+
+def test_ci_workflow_uses_locked_installations() -> None:
+    """GitHub Actions test workflow must install using uv sync --locked."""
+    test_yml = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
+
+    assert "uv sync --locked --extra dev" in test_yml
+    assert "uv pip install" not in test_yml
+
+
+def test_release_workflow_contract() -> None:
+    """Release workflow must publish only on release events using PyPI Trusted Publishing."""
+    release_yml_path = ROOT / ".github/workflows/release.yml"
+    assert release_yml_path.exists(), "release.yml workflow must exist"
+
+    release_yml = release_yml_path.read_text(encoding="utf-8")
+    assert "id-token: write" in release_yml
+    assert "pypa/gh-action-pypi-publish" in release_yml
+    assert "check_version_sync.py" in release_yml
+    assert "pull_request" not in release_yml

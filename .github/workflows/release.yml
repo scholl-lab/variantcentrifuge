@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  validate:
+    name: Validate Release Metadata and Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Verify dependency lockfile
+        run: uv lock --check
+
+      - name: Install dependencies
+        run: |
+          uv sync --locked --extra dev
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+
+      - name: Validate release tag and metadata sync
+        run: python scripts/check_version_sync.py --tag "${{ github.ref_name }}"
+
+      - name: Run fast test suite
+        run: |
+          python -m pytest -m "not slow and not integration" tests/ \
+            --verbose \
+            --tb=short
+
+  build:
+    name: Build and Check Distribution Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Check distributions
+        run: uvx twine check dist/*
+
+      - name: Verify isolated installation of wheel
+        run: |
+          python -m venv /tmp/isolated_env
+          /tmp/isolated_env/bin/pip install --upgrade pip
+          /tmp/isolated_env/bin/pip install dist/*.whl
+          /tmp/isolated_env/bin/python -c "import variantcentrifuge; print('Installed variantcentrifuge:', variantcentrifuge.__version__)"
+
+      - name: Store built distribution artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist/
+          retention-days: 7
+
+  publish:
+    name: Publish Distribution to PyPI
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/variantcentrifuge
+    permissions:
+      id-token: write
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist/
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
