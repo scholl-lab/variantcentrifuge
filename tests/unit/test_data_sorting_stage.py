@@ -162,3 +162,59 @@ def test_data_sorting_stage_process_custom_gene_column(tmp_path: Path) -> None:
     content = updated_ctx.extracted_tsv.read_text().splitlines()
     assert content[1].endswith("BRCA1")
     assert content[2].endswith("TP53")
+
+
+def test_sort_tsv_by_gene_stable_order_with_ties(tmp_path: Path) -> None:
+    """Verify that GNU sort --stable preserves relative order for tied gene keys."""
+    input_file = tmp_path / "input.tsv"
+    output_file = tmp_path / "output.tsv"
+
+    input_file.write_text(
+        "GENE\tPOS\tORDER\nTP53\t100\t1\nBRCA1\t200\ttie_A\nBRCA1\t300\ttie_B\nATM\t400\t4\n"
+    )
+
+    stage = DataSortingStage()
+    stage._sort_tsv_by_gene(
+        input_file=str(input_file),
+        output_file=str(output_file),
+        gene_column="GENE",
+        memory_limit="1G",
+        parallel=1,
+    )
+
+    lines = output_file.read_text().splitlines()
+    assert len(lines) == 5
+    assert lines[1].startswith("ATM\t")
+    # Tied BRCA1 rows must preserve input order: tie_A before tie_B
+    assert lines[2] == "BRCA1\t200\ttie_A"
+    assert lines[3] == "BRCA1\t300\ttie_B"
+    assert lines[4].startswith("TP53\t")
+
+
+def test_sort_tsv_by_gene_paths_with_spaces_quotes_semicolons(tmp_path: Path) -> None:
+    """Verify sorting safely handles paths with spaces, quotes, and semicolons."""
+    special_dir = tmp_path / "dir with spaces 'quoted' and;semicolon"
+    special_dir.mkdir(parents=True, exist_ok=True)
+    temp_dir = special_dir / "tmp dir;nested"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    input_file = special_dir / "input with spaces.tsv"
+    output_file = special_dir / "output with spaces.tsv"
+
+    input_file.write_text("GENE\tPOS\nTP53\t100\nBRCA1\t200\n")
+
+    stage = DataSortingStage()
+    stage._sort_tsv_by_gene(
+        input_file=str(input_file),
+        output_file=str(output_file),
+        gene_column="GENE",
+        memory_limit="1G",
+        parallel=1,
+        temp_dir=str(temp_dir),
+    )
+
+    assert output_file.exists()
+    lines = output_file.read_text().splitlines()
+    assert lines[0] == "GENE\tPOS"
+    assert lines[1] == "BRCA1\t200"
+    assert lines[2] == "TP53\t100"

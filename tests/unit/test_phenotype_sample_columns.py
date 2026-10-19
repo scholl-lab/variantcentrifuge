@@ -217,7 +217,7 @@ def test_reversed_and_double_digit_indexed_columns():
     """Test extraction with reversed column order and indices above 9."""
     samples = [f"Sample{i}" for i in range(12)]
     # Reversed dictionary order
-    row_data = {f"GEN[{i}].GT": "0/0" for i in range(12)}
+    row_data = {f"GEN[{i}].GT": "0/0" for i in range(11, -1, -1)}
     row_data["GEN[10].GT"] = "0/1"
     row_data["GEN[0].GT"] = "1/1"
     row = pd.Series(row_data)
@@ -226,6 +226,29 @@ def test_reversed_and_double_digit_indexed_columns():
 
     result = extract_phenotypes_from_sample_columns(row, samples, phenotypes)
     assert result == "Sample0(HPO:ZERO);Sample10(HPO:TEN)"
+
+
+@pytest.mark.unit
+def test_reversed_indexed_columns_order():
+    """Test extraction when GEN[i].GT columns appear in reversed order (Series and namedtuple)."""
+    vcf_samples = ["SampleA", "SampleB", "SampleC"]
+    phenotypes = {"SampleA": {"HPO:001"}, "SampleC": {"HPO:002"}}
+
+    # Series with reversed raw bracket column order (as passed by df.apply)
+    row_raw = pd.Series({"GEN[2].GT": "1/1", "GEN[1].GT": "0/0", "GEN[0].GT": "0/1"})
+    result_raw = extract_phenotypes_from_sample_columns(row_raw, vcf_samples, phenotypes)
+    assert result_raw == "SampleA(HPO:001);SampleC(HPO:002)"
+
+    # Series with reversed sanitized column order
+    row_san = pd.Series({"GEN_2__GT": "1/1", "GEN_1__GT": "0/0", "GEN_0__GT": "0/1"})
+    result_san = extract_phenotypes_from_sample_columns(row_san, vcf_samples, phenotypes)
+    assert result_san == "SampleA(HPO:001);SampleC(HPO:002)"
+
+    # Namedtuple with reversed sanitized column order (from itertuples)
+    df = pd.DataFrame([{"GEN_2__GT": "1/1", "GEN_1__GT": "0/0", "GEN_0__GT": "0/1"}])
+    nt_row = next(df.itertuples(index=False))
+    nt_result = extract_phenotypes_from_sample_columns(nt_row, vcf_samples, phenotypes)
+    assert nt_result == "SampleA(HPO:001);SampleC(HPO:002)"
 
 
 @pytest.mark.unit
