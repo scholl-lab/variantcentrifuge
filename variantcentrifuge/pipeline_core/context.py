@@ -174,6 +174,11 @@ class PipelineContext:
     # Thread safety lock for parallel stages
     _lock: PicklableLock = field(default_factory=PicklableLock, init=False, repr=False)
 
+    def __post_init__(self) -> None:
+        """Initialize thread lock for parallel execution safety."""
+        if not hasattr(self, "_lock") or self._lock is None:
+            self._lock = PicklableLock()
+
     def mark_complete(self, stage_name: str, result: Any = None) -> None:
         """Mark a stage as complete with optional result storage.
 
@@ -271,11 +276,23 @@ class PipelineContext:
             Context with updates to merge
         """
         with self._lock:
+            # Safely snapshot other's tracking under its lock if present
+            other_lock = getattr(other, "_lock", None)
+            if other_lock is not None:
+                with other_lock:
+                    other_completed = set(other.completed_stages)
+                    other_stage_results = dict(other.stage_results)
+                    other_reports = dict(other.report_paths) if other.report_paths else {}
+            else:
+                other_completed = set(other.completed_stages)
+                other_stage_results = dict(other.stage_results)
+                other_reports = dict(other.report_paths) if other.report_paths else {}
+
             # Merge completed stages
-            self.completed_stages.update(other.completed_stages)
+            self.completed_stages.update(other_completed)
 
             # Merge stage results
-            self.stage_results.update(other.stage_results)
+            self.stage_results.update(other_stage_results)
 
             # Update file paths if they were set in the other context
             if other.gene_bed_file and not self.gene_bed_file:
@@ -326,8 +343,10 @@ class PipelineContext:
             # Update output paths
             if other.final_output_path and not self.final_output_path:
                 self.final_output_path = other.final_output_path
-            if other.report_paths:
-                self.report_paths.update(other.report_paths)
+            if not self.report_paths and other_reports:
+                self.report_paths = other_reports.copy()
+            elif other_reports:
+                self.report_paths.update(other_reports)
 
             # Update vcf_samples if populated
             if other.vcf_samples and not self.vcf_samples:
