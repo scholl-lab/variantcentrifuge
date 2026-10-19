@@ -112,7 +112,11 @@ def resolve_links(config: dict[str, Any]) -> dict[str, str]:
             elif (
                 canonical_build
                 and user_links_by_build
-                and name in user_links_by_build.get(canonical_build, {})
+                and name in build_defaults
+                and any(
+                    isinstance(b, dict) and b.get(name) == url_template
+                    for b in user_links_by_build.values()
+                )
             ):
                 resolved[name] = build_defaults[name]
             else:

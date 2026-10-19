@@ -23,7 +23,6 @@ logger = logging.getLogger("variantcentrifuge")
 
 # Compile GT parsing pattern once at module level for performance
 GT_PATTERN = re.compile(r"([^()]+)\(([^)]+)\)")
-URL_PREFIXES = ("http://", "https://", "ftp://", "ftps://", "mailto:", "internal:", "external:")
 
 
 def _fmt_coord(val: Any) -> str:
@@ -126,7 +125,9 @@ def _detect_url_columns(df: pd.DataFrame) -> list[str]:
     for col in df.columns:
         if len(df) == 0:
             continue
-        sample_values = [str(val).strip() for val in df[col].dropna().iloc[:4] if str(val).strip()]
+        sample_values = [
+            str(val).strip() for val in df[col].iloc[:4] if pd.notna(val) and str(val).strip()
+        ]
         if sample_values:
             url_count = sum(1 for val in sample_values if val.startswith(("http://", "https://")))
             if url_count >= len(sample_values) * 0.7:
@@ -203,11 +204,7 @@ def convert_to_excel(
     igv_enabled = cfg.get("igv_enabled", False)
     igv_lookup = _load_igv_lookup(xlsx_file, igv_enabled=igv_enabled) if igv_enabled else {}
 
-    with pd.ExcelWriter(
-        xlsx_file,
-        engine="xlsxwriter",
-        engine_kwargs={"options": {"strings_to_urls": False}},
-    ) as writer:
+    with pd.ExcelWriter(xlsx_file, engine="xlsxwriter") as writer:
         df.to_excel(writer, sheet_name="Results", index=False)
         ws = writer.sheets["Results"]
         book = writer.book
@@ -215,22 +212,19 @@ def convert_to_excel(
 
         ws.freeze_panes(1, 0)
 
-        # Detect and format URL columns and individual hyperlinks in mixed columns
+        # Format detected URL columns to display column header as label
         url_columns = set(_detect_url_columns(df))
         for col_idx, col_name in enumerate(df.columns):
-            is_url_col = col_name in url_columns
+            if col_name not in url_columns:
+                continue
             for row_idx, val in enumerate(df[col_name]):
                 s_val = str(val).strip() if pd.notna(val) else ""
-                if s_val.startswith(URL_PREFIXES):
-                    if is_url_col and s_val.startswith(("http://", "https://")):
-                        disp = col_name
-                    elif s_val.startswith("mailto:"):
-                        disp = s_val[7:]
-                    else:
-                        disp = s_val
-                    ret = ws.write_url(row_idx + 1, col_idx, s_val, hyperlink_format, string=disp)
+                if s_val.startswith(("http://", "https://")):
+                    ret = ws.write_url(
+                        row_idx + 1, col_idx, s_val, hyperlink_format, string=col_name
+                    )
                     if ret != 0:
-                        ws.write_string(row_idx + 1, col_idx, disp, hyperlink_format)
+                        ws.write_string(row_idx + 1, col_idx, col_name, hyperlink_format)
 
         # Handle IGV Report Links column
         num_cols = len(df.columns)

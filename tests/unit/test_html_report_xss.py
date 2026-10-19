@@ -537,16 +537,12 @@ class TestColumnRenderers:
             if (settings.nTable.id !== 'variants_table') return true;
             const cellValue = data[0];
             if (isMissing(cellValue)) return false;
-            return String(extractCellContent(cellValue).text || '').trim() === selectedValue;
+            return String(cellValue).trim() === selectedValue;
         };
 
         const settings = { nTable: { id: 'variants_table' } };
         if (!filterFn(settings, ['Pathogenic & uncertain'])) {
             console.error('filterFn failed to match decoded text');
-            process.exit(1);
-        }
-        if (!filterFn(settings, ['Pathogenic &amp; uncertain'])) {
-            console.error('filterFn failed to match HTML entity encoded text');
             process.exit(1);
         }
         if (filterFn(settings, ['Benign'])) {
@@ -559,16 +555,37 @@ class TestColumnRenderers:
             if (settings.nTable.id !== 'variants_table') return true;
             const cellValue = data[0];
             if (isMissing(cellValue)) return false;
-            return (
-                String(extractCellContent(cellValue).text || '')
-                    .toLowerCase()
-                    .indexOf(lowerSearch) !== -1
-            );
+            return String(cellValue).toLowerCase().indexOf(lowerSearch) !== -1;
         };
-        if (!textFilterFn(settings, ['Pathogenic &amp; uncertain'])) {
-            console.error('textFilterFn failed to match encoded text');
+        if (!textFilterFn(settings, ['Pathogenic & uncertain'])) {
+            console.error('textFilterFn failed to match plain text');
             process.exit(1);
         }
         console.log('OK');
         """
         assert _run_node_script(script) == "OK"
+
+    def test_extract_cell_content_uses_dom_parser_and_filter_fn_plain_text(self):
+        """Verify extractCellContent uses DOMParser and filterFn compares plain text (#130)."""
+        template_path = (
+            Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates" / "index.html"
+        )
+        content = template_path.read_text(encoding="utf-8")
+
+        # 1. extractCellContent should use DOMParser, never document.createElement('div').innerHTML
+        m_fn = re.search(r"function extractCellContent\(raw\) \{([\s\S]*?)\n    \}", content)
+        assert m_fn is not None
+        fn_body = m_fn.group(1)
+        assert "DOMParser" in fn_body
+        assert "document.createElement('div')" not in fn_body
+        assert "div.innerHTML" not in fn_body
+
+        # 2. filterFn should compare plain cellValue, not call extractCellContent
+        m_filters = re.search(
+            r"else if \(filterType === 'categorical'\) \{([\s\S]*?)\n    \} // end if filterRow",
+            content,
+        )
+        assert m_filters is not None
+        filters_body = m_filters.group(1)
+        assert "String(cellValue).trim() === selectedValue" in filters_body
+        assert "extractCellContent(cellValue)" not in filters_body

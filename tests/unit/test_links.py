@@ -147,6 +147,25 @@ class TestResolveLinks:
         assert "Varsome" in links
         assert "hg38" in links["Varsome"]
 
+    def test_custom_url_on_bundled_link_name_preserved_with_shipped_config(self):
+        """Custom URL on bundled link name (Varsome) preserved with shipped config.json (#144)."""
+        import json
+        from pathlib import Path
+
+        cfg_path = Path(__file__).parent.parent.parent / "variantcentrifuge" / "config.json"
+        with open(cfg_path, encoding="utf-8") as f:
+            config = json.load(f)
+
+        config["reference"] = "GRCh38.99"
+        custom_url = "https://custom.example.org/{CHROM}/{POS}"
+        config["links"]["Varsome"] = custom_url
+
+        resolved = resolve_links(config)
+        assert resolved["Varsome"] == custom_url
+        assert "hg=38" in resolved["SpliceAI"]
+        assert "hg38" in resolved["Franklin"]
+        assert "gnomad_r4" in resolved.get("gnomAD_4", "")
+
 
 @pytest.mark.unit
 class TestAddLinksToTableBuildAware:

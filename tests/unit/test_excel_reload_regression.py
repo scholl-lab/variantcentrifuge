@@ -336,16 +336,12 @@ def test_excel_6000_rows_6_urls_no_hyperlink_limit_exhaustion(tmp_path: Path):
 
 
 @pytest.mark.unit
-def test_excel_generation_benchmark_performance_and_memory(tmp_path: Path):
+def test_excel_generation_benchmark_performance_and_memory(tmp_path: Path, record_property):
     """Deterministic structural/memory comparison: multi-pass vs single-pass writer (#159)."""
     import time
     import tracemalloc
 
-    from variantcentrifuge.converter import (
-        append_tsv_as_sheet,
-        convert_to_excel,
-        finalize_excel_file,
-    )
+    from variantcentrifuge.converter import convert_to_excel
 
     n_rows = 1000
     df = pd.DataFrame(
@@ -358,10 +354,6 @@ def test_excel_generation_benchmark_performance_and_memory(tmp_path: Path):
             "ClinVar": [f"https://example.org/cv/{i}" for i in range(n_rows)],
         }
     )
-    meta_tsv = tmp_path / "metadata.tsv"
-    stats_tsv = tmp_path / "statistics.tsv"
-    pd.DataFrame({"K": ["version"], "V": ["v1.0"]}).to_csv(meta_tsv, sep="\t", index=False)
-    pd.DataFrame({"Metric": ["count"], "Value": [n_rows]}).to_csv(stats_tsv, sep="\t", index=False)
 
     extra_sheets = {
         "Metadata": pd.DataFrame({"K": ["version"], "V": ["v1.0"]}),
@@ -373,9 +365,40 @@ def test_excel_generation_benchmark_performance_and_memory(tmp_path: Path):
     tracemalloc.start()
     t0_base = time.perf_counter()
     df.to_excel(f_baseline, sheet_name="Results", index=False)
-    append_tsv_as_sheet(str(f_baseline), str(meta_tsv), sheet_name="Metadata")
-    append_tsv_as_sheet(str(f_baseline), str(stats_tsv), sheet_name="Statistics")
-    finalize_excel_file(str(f_baseline), cfg={"igv_enabled": False})
+
+    # Multi-reload 1: Metadata
+    wb1 = openpyxl.load_workbook(f_baseline)
+    ws1 = wb1.create_sheet("Metadata")
+    ws1.append(["K", "V"])
+    ws1.append(["version", "v1.0"])
+    wb1.save(f_baseline)
+
+    # Multi-reload 2: Statistics
+    wb2 = openpyxl.load_workbook(f_baseline)
+    ws2 = wb2.create_sheet("Statistics")
+    ws2.append(["Metric", "Value"])
+    ws2.append(["count", n_rows])
+    wb2.save(f_baseline)
+
+    # Multi-reload 3: format links, autofilter, freeze panes
+    wb3 = openpyxl.load_workbook(f_baseline)
+    from openpyxl.utils import get_column_letter
+
+    for ws in wb3.worksheets:
+        ws.freeze_panes = "A2"
+        max_col_letter = get_column_letter(ws.max_column)
+        ws.auto_filter.ref = f"A1:{max_col_letter}1"
+        if ws.title == "Results":
+            header_row = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+            clinvar_idx = header_row.index("ClinVar") + 1
+            for r in range(2, ws.max_row + 1):
+                cell = ws.cell(row=r, column=clinvar_idx)
+                val = str(cell.value or "").strip()
+                if val.startswith(("http://", "https://")):
+                    cell.hyperlink = val
+                    cell.value = "ClinVar"
+                    cell.style = "Hyperlink"
+    wb3.save(f_baseline)
     elapsed_base = time.perf_counter() - t0_base
     _current, peak_base = tracemalloc.get_traced_memory()
     tracemalloc.stop()
@@ -397,6 +420,11 @@ def test_excel_generation_benchmark_performance_and_memory(tmp_path: Path):
 
     peak_base_mb = peak_base / (1024 * 1024)
     peak_single_mb = peak_single / (1024 * 1024)
+
+    record_property("baseline_elapsed_s", elapsed_base)
+    record_property("single_pass_elapsed_s", elapsed_single)
+    record_property("baseline_peak_mb", peak_base_mb)
+    record_property("single_pass_peak_mb", peak_single_mb)
 
     # Assert deterministic structural and memory improvement without flaky wall-clock caps
     assert elapsed_base > 0 and elapsed_single > 0
@@ -795,20 +823,21 @@ def test_excel_hyperlink_protocols_preserved(tmp_path: Path):
     assert cell_mail.hyperlink is not None
     assert cell_mail.hyperlink.target == "mailto:curator@genomics.org"
 
-    # Internal ref link
+    # Internal ref link: XlsxWriter native displays location
     cell_int = ws.cell(row=2, column=col_indices["INTERNAL_REF"])
-    assert cell_int.value == "internal:Sheet1!A1"
+    assert cell_int.value == "Sheet1!A1"
     assert cell_int.hyperlink is not None
     assert cell_int.hyperlink.location == "Sheet1!A1"
 
-    # External ref link
+    # External ref link: XlsxWriter native strips external: prefix
     cell_ext = ws.cell(row=2, column=col_indices["EXTERNAL_REF"])
-    assert cell_ext.value == "external:doc.xlsx#Sheet1!A1"
+    assert cell_ext.value == "doc.xlsx#Sheet1!A1"
     assert cell_ext.hyperlink is not None
     assert cell_ext.hyperlink.target == "doc.xlsx"
 
-    # HTTP link
+    # HTTP link in URL column: displays column name
     cell_http = ws.cell(row=2, column=col_indices["HTTP_URL"])
+    assert cell_http.value == "HTTP_URL"
     assert cell_http.hyperlink is not None
     assert cell_http.hyperlink.target == "https://www.ncbi.nlm.nih.gov/clinvar/"
 
@@ -881,3 +910,90 @@ def test_float_integral_pos_normalized_for_igv_lookup(tmp_path: Path):
     assert cell_finalize.value == "Sample1"
     assert cell_finalize.hyperlink is not None
     assert cell_finalize.hyperlink.target.replace("\\", "/") == "report/igv/Sample1.html"
+
+
+@pytest.mark.unit
+def test_excel_url_sampling_leading_nulls_and_native_links(tmp_path: Path):
+    """Verify leading nulls not skipped in 4-row URL check and native links preserved (#159)."""
+    from variantcentrifuge.converter import _detect_url_columns, convert_to_excel
+
+    # 1. Verify _detect_url_columns with leading nulls
+    df_sampling = pd.DataFrame(
+        {
+            "LeadingNullsCol": [
+                None,
+                None,
+                None,
+                "plain",
+                "https://example.org/1",
+                "https://example.org/2",
+                "https://example.org/3",
+            ],
+            "AllUrlCol": ["https://example.org/a"] * 7,
+        }
+    )
+    detected = _detect_url_columns(df_sampling)
+    assert "LeadingNullsCol" not in detected
+    assert "AllUrlCol" in detected
+
+    # 2. Verify convert_to_excel native link generation
+    xlsx_file = tmp_path / "native_links.xlsx"
+    df_links = pd.DataFrame(
+        {
+            "CHROM": ["chr1"] * 7,
+            "POS": list(range(100, 107)),
+            "REF": ["A"] * 7,
+            "ALT": ["T"] * 7,
+            "InternalCol": [f"internal:Sheet1!A{i}" for i in range(1, 8)],
+            "ExternalCol": [f"external:doc.xlsx#Sheet1!A{i}" for i in range(1, 8)],
+            "LeadingNullsCol": [
+                None,
+                None,
+                None,
+                "plain",
+                "https://example.org/1",
+                "https://example.org/2",
+                "https://example.org/3",
+            ],
+            "UrlCol": [f"https://example.org/{i}" for i in range(1, 8)],
+        }
+    )
+
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df_links,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+
+    # Internal links
+    c_int = ws.cell(row=2, column=5)
+    assert c_int.value == "Sheet1!A1"
+    assert c_int.hyperlink is not None
+    assert c_int.hyperlink.location == "Sheet1!A1"
+
+    # External links
+    c_ext = ws.cell(row=2, column=6)
+    assert c_ext.value == "doc.xlsx#Sheet1!A1"
+    assert c_ext.hyperlink is not None
+    assert c_ext.hyperlink.target == "doc.xlsx"
+
+    # LeadingNullsCol row 5 (row_idx 3): plain text
+    c_plain = ws.cell(row=5, column=7)
+    assert c_plain.value == "plain"
+    assert c_plain.hyperlink is None
+
+    # LeadingNullsCol row 6 (row_idx 4, url 1): not in url_columns -> displays full URL
+    c_nulls = ws.cell(row=6, column=7)
+    assert c_nulls.value == "https://example.org/1"
+    assert c_nulls.hyperlink is not None
+    assert c_nulls.hyperlink.target == "https://example.org/1"
+
+    # UrlCol row 2: in url_columns -> displays column name "UrlCol"
+    c_url = ws.cell(row=2, column=8)
+    assert c_url.value == "UrlCol"
+    assert c_url.hyperlink is not None
+    assert c_url.hyperlink.target == "https://example.org/1"
