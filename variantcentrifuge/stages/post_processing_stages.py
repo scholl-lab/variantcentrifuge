@@ -107,6 +107,7 @@ class PhenotypeIntegrationStage(Stage):
         return {
             "field_extraction",
             "parallel_complete_processing",
+            "data_sorting",
             "genotype_replacement",
             "phenotype_loading",
         }
@@ -188,10 +189,13 @@ class PhenotypeIntegrationStage(Stage):
         compression = "gzip" if str(input_tsv).endswith(".gz") else None
         df = pd.read_csv(input_tsv, sep="\t", dtype=str, compression=cast(Any, compression))
 
-        # Phase 11: Check for per-sample columns (bcftools output) vs packed GT column
-        # Per-sample columns are sample IDs directly (from context.vcf_samples)
-        has_sample_columns = context.vcf_samples and all(
-            sample in df.columns for sample in context.vcf_samples
+        # Check for per-sample columns (sample names, GEN[i].GT, or GEN_i__GT)
+        has_sample_columns = bool(context.vcf_samples) and (
+            all(sample in df.columns for sample in context.vcf_samples)
+            or any(
+                f"GEN[{i}].GT" in df.columns or f"GEN_{i}__GT" in df.columns
+                for i in range(len(context.vcf_samples))
+            )
         )
 
         if has_sample_columns:
@@ -319,17 +323,28 @@ class DataSortingStage(Stage):
             logger.warning("No extracted TSV found for sorting")
             return context
 
-        # Check if sorting is needed and if gene column exists
-        gene_column = context.config.get("gene_column_name", "GENE")
-
-        # First check if gene column exists in the TSV
+        # Check if sorting is needed and resolve gene column
+        gene_col_cfg = context.config.get("gene_column_name")
         has_gene_column = False
+        gene_column = "GENE"
+
         try:
             with _ps_mod.smart_open(str(context.extracted_tsv), "r") as f:
                 header = f.readline().strip()
                 if header:
                     columns = header.split("\t")
-                    has_gene_column = gene_column in columns
+                    if gene_col_cfg and gene_col_cfg != "GENE":
+                        gene_column = gene_col_cfg
+                        has_gene_column = gene_column in columns
+                    elif "GENE" in columns:
+                        gene_column = "GENE"
+                        has_gene_column = True
+                    elif "ANN[0].GENE" in columns:
+                        gene_column = "ANN[0].GENE"
+                        has_gene_column = True
+                    elif "ANN_0__GENE" in columns:
+                        gene_column = "ANN_0__GENE"
+                        has_gene_column = True
         except Exception as e:
             logger.warning(f"Could not read header from {context.extracted_tsv}: {e}")
             return context
@@ -413,71 +428,43 @@ class DataSortingStage(Stage):
 
         # Build sort arguments with memory efficiency options
         sort_args = [
-            f"-k{gene_col_idx},{gene_col_idx}",  # Sort by gene column
-            f"--buffer-size={memory_limit}",  # Memory limit
-            f"--parallel={parallel}",  # Parallel threads
-            "--stable",  # Stable sort for consistent results
-            f"--compress-program={shlex.quote(gzip_bin)}",  # Use gzip for temp files
+            f"-k{gene_col_idx},{gene_col_idx}",
+            f"--buffer-size={memory_limit}",
+            f"--parallel={parallel}",
+            "--stable",
+            f"--compress-program={gzip_bin}",
         ]
-
         if temp_dir:
             sort_args.extend(["-T", temp_dir])
 
-        sort_cmd = " ".join(sort_args)
-
-        safe_input = shlex.quote(input_file)
-        safe_output = shlex.quote(output_file)
+        sort_cmd = shlex.join(sort_args)
+        safe_input, safe_output = shlex.quote(input_file), shlex.quote(output_file)
+        safe_gzip, safe_sort, safe_tail = (
+            shlex.quote(gzip_bin),
+            shlex.quote(sort_bin),
+            shlex.quote(tail_bin),
+        )
 
         # Build the complete command based on compression
         if input_file.endswith(".gz"):
-            if output_file.endswith(".gz"):
-                # Both gzipped
-                cmd = (
-                    f"{gzip_bin} -cd {safe_input} | "
-                    f'{{ IFS= read -r header; echo "$header"; '
-                    f"{sort_bin} {sort_cmd} -t$'\\t'; }} | "
-                    f"{gzip_bin} -c > {safe_output}"
-                )
-            else:
-                # Input gzipped, output not
-                cmd = (
-                    f"{gzip_bin} -cd {safe_input} | "
-                    f"{{ IFS= read -r header; echo \"$header\"; {sort_bin} {sort_cmd} -t$'\\t'; }} "
-                    f"> {safe_output}"
-                )
+            pipe_in = (
+                f"{safe_gzip} -cd {safe_input} | "
+                f"{{ IFS= read -r header; echo \"$header\"; {safe_sort} {sort_cmd} -t$'\\t'; }}"
+            )
         else:
-            if output_file.endswith(".gz"):
-                # Input not gzipped, output gzipped
-                cmd = (
-                    f'{{ IFS= read -r header < {safe_input}; echo "$header"; '
-                    f"{tail_bin} -n +2 {safe_input} | {sort_bin} {sort_cmd} -t$'\\t'; }} | "
-                    f"{gzip_bin} -c > {safe_output}"
-                )
-            else:
-                # Neither gzipped
-                cmd = (
-                    f'{{ IFS= read -r header < {safe_input}; echo "$header"; '
-                    f"{tail_bin} -n +2 {safe_input} | {sort_bin} {sort_cmd} -t$'\\t'; }} "
-                    f"> {safe_output}"
-                )
+            pipe_in = (
+                f'{{ IFS= read -r header < {safe_input}; echo "$header"; '
+                f"{safe_tail} -n +2 {safe_input} | {safe_sort} {sort_cmd} -t$'\\t'; }}"
+            )
 
-        # Execute the command
-        logger.debug(f"Running sort command: {cmd}")
-
-        # Find bash executable
-        bash_candidate = shutil.which("bash") or "/bin/bash"
-        bash_path: str | None = bash_candidate if os.path.exists(bash_candidate) else None
-        if bash_path is None:
-            logger.warning(f"bash not found at {bash_candidate}, falling back to shell default")
-
-        # Execute command
-        result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, executable=bash_path
+        cmd = (
+            f"{pipe_in} | {safe_gzip} -c > {safe_output}"
+            if output_file.endswith(".gz")
+            else f"{pipe_in} > {safe_output}"
         )
 
-        if result.returncode != 0:
-            logger.error(f"Sort command failed: {result.stderr}")
-            raise RuntimeError(f"Failed to sort TSV file: {result.stderr}")
+        if not self._external_sort(cmd, output_file):
+            raise RuntimeError("Failed to sort TSV file: command exited non-zero")
 
         # Verify output file was created
         if not os.path.exists(output_file):
@@ -485,12 +472,35 @@ class DataSortingStage(Stage):
 
         # Check if output file has content
         with _ps_mod.smart_open(output_file, "r") as f:
-            first_line = f.readline()
-            if not first_line:
+            if not f.readline():
                 raise RuntimeError(f"Output file '{output_file}' is empty")
 
         logger.info("Successfully sorted TSV file by gene column")
         return output_file
+
+    def _external_sort(self, cmd: str, output_file: str) -> bool:
+        """Run external sort command with pipefail and clean up on failure."""
+        bash_path: str | None = shutil.which("bash") or "/bin/bash"
+        if bash_path and not os.path.exists(bash_path):
+            bash_path = None
+        full_cmd = f"set -o pipefail; {cmd}" if not cmd.startswith("set -o pipefail;") else cmd
+        try:
+            res = subprocess.run(
+                full_cmd, shell=True, capture_output=True, text=True, executable=bash_path
+            )
+            if res.returncode != 0:
+                logger.error(f"Sort command failed: {res.stderr}")
+                if os.path.exists(output_file):
+                    with contextlib.suppress(OSError):
+                        os.remove(output_file)
+                return False
+            return True
+        except Exception as e:
+            logger.error(f"External sort error: {e}")
+            if os.path.exists(output_file):
+                with contextlib.suppress(OSError):
+                    os.remove(output_file)
+            return False
 
     def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return the sorted TSV file."""

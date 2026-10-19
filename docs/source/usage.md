@@ -110,14 +110,12 @@ flowchart TD
 | `--split-snpeff-lines MODE` | — | Split multi-annotation lines: `before_filters` or `after_filters`. Use `before_filters` for row-level ANN/LOF/NMD consequence filtering with transcript-selected gene burden or association. Omit to skip |
 
 :::{warning}
-When transcript filtering is combined with `--perform-gene-burden` or
-`--perform-association`, consequence filters such as `ANN[ANY]`, `LOF[*]`, and
-`NMD[*]` are row-level only when SnpEff annotations are split before SnpSift:
-`--split-snpeff-lines before_filters`. Without splitting, or with
-`after_filters`, SnpSift evaluates those predicates on the original VCF record
-before transcript selection. That can be useful for record-level filtering, but
-it is not the same as requiring the retained transcript row itself to satisfy
-the consequence predicate.
+When performing gene burden (`--perform-gene-burden`) or association (`--perform-association`)
+with consequence filters (`ANN[ANY]`, `LOF[*]`, `NMD[*]`) or consequence presets (`coding`, `high`, `missense`, etc.),
+`--split-snpeff-lines before_filters` is required. This enforces row-level qualification and prevents
+cross-gene misattribution. Without splitting, or with `after_filters`, tables represent
+record-selected, first-annotation summaries where SnpSift evaluates predicates on the original multi-annotation
+record rather than qualifying the individual transcript row.
 :::
 
 ### Tumor-Normal Filtering

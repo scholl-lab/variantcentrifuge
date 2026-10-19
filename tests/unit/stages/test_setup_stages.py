@@ -72,7 +72,10 @@ class TestConfigurationLoadingStage:
         )
 
         stage = ConfigurationLoadingStage()
-        with caplog.at_level("WARNING", logger="variantcentrifuge.stages.setup_stages"):
+        with (
+            caplog.at_level("WARNING", logger="variantcentrifuge.stages.setup_stages"),
+            pytest.raises(ValueError, match="row-level qualification"),
+        ):
             stage(context)
 
         assert "--split-snpeff-lines before_filters" in caplog.text

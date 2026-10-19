@@ -154,18 +154,16 @@ def build_bcftools_format_string(
 
     # Append per-sample fields directly (NOT via format_parts join, to avoid double tab)
     if per_sample_fields:
-        # bcftools [...] iterates over all samples.
-        # [\t%GT] outputs: \tGT_s1\tGT_s2\tGT_s3...
-        # The leading \t inside [...] provides the separator from the last fixed field.
-        sample_format = "\\t".join(f"%{f}" for f in per_sample_fields)
-        format_string += f"[\\t{sample_format}]"
-
-        # Add column names for each sample
-        if vcf_samples:
-            for sample_idx, _sample in enumerate(vcf_samples):
-                for format_field in per_sample_fields:
-                    column_names.append(f"GEN[{sample_idx}].{format_field}")
+        if vcf_samples is not None:
+            if vcf_samples:
+                sample_format = "\\t".join(f"%{f}" for f in per_sample_fields)
+                format_string += f"[\\t{sample_format}]"
+                for sample_idx in range(len(vcf_samples)):
+                    for format_field in per_sample_fields:
+                        column_names.append(f"GEN[{sample_idx}].{format_field}")
         else:
+            sample_format = "\\t".join(f"%{f}" for f in per_sample_fields)
+            format_string += f"[\\t{sample_format}]"
             logger.warning("No vcf_samples provided - per-sample columns will have generic names")
             for format_field in per_sample_fields:
                 column_names.append(f"GEN[*].{format_field}")
@@ -173,6 +171,18 @@ def build_bcftools_format_string(
     format_string += "\\n"
 
     return format_string, column_names
+
+
+def get_expected_extraction_columns(
+    fields: str | list[str], vcf_samples: list[str] | None = None
+) -> list[str]:
+    """Return the finalized column names for an extraction schema."""
+    field_list = fields.strip().split() if isinstance(fields, str) else fields
+    _, column_names = build_bcftools_format_string(field_list, vcf_samples)
+    df = pd.DataFrame(columns=column_names)
+    df = parse_ann_subfields(df, field_list)
+    df = parse_nmd_subfields(df, field_list)
+    return list(df.columns)
 
 
 def parse_ann_subfields(df: pd.DataFrame, fields: list[str]) -> pd.DataFrame:
@@ -376,6 +386,8 @@ def extract_fields_bcftools(
                 "Field extraction (bcftools query): 0 variants extracted from %s", variant_file
             )
             df = pd.DataFrame(columns=column_names)
+            df = parse_ann_subfields(df, field_list)
+            df = parse_nmd_subfields(df, field_list)
             # Write header-only output
             if output_file.endswith(".gz"):
                 with gzip.open(output_file, "wt", compresslevel=1) as f:

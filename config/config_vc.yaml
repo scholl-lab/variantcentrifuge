@@ -25,6 +25,10 @@ variantcentrifuge:
   presets: []                     # List of preset names, e.g. ["rare", "coding"]
   append_genotype_fields: []      # e.g. ["GEN[*].DP", "GEN[*].AD", "GEN[*].AF"]
   gene_list_files: []             # Paths to gene-list files for annotation
+  tumor_sample_index: null        # 0-based index of tumor sample in VCF (null = default)
+  normal_sample_index: null       # 0-based index of normal sample in VCF (null = default)
+  reference: null                 # Reference genome build (e.g. GRCh37.75, GRCh38.86)
+  regions_bed: null               # Path to restriction BED file (null = none)
 
 # ---------------------------------------------------------------------------
 # IGV report settings

@@ -37,11 +37,12 @@ SnpSift uses a Java-like expression syntax:
 
 :::{note}
 `ANN[ANY]`, `LOF[*]`, and `NMD[*]` are record-level predicates unless SnpEff
-annotations are split before SnpSift. For transcript-filtered gene burden or
-association analyses where the retained row itself must satisfy a consequence
-filter, use `--split-snpeff-lines before_filters`. The `after_filters` and
-no-split modes can still be useful, but they filter the original
-multi-annotation record before transcript selection.
+annotations are split before SnpSift. For gene burden or association analyses
+with consequence filtering (or consequence presets such as `coding` or `high`),
+VariantCentrifuge requires `--split-snpeff-lines before_filters` to ensure that
+the retained transcript row itself satisfies the consequence predicate.
+Unsplit tables behave as record-selected, first-annotation summaries where SnpSift
+evaluates multi-annotation records before transcript selection.
 :::
 
 ## bcftools Pre-filter Syntax

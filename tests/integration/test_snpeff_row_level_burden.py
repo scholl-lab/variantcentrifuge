@@ -314,3 +314,162 @@ def test_transcript_filter_before_snpsift_excludes_unlisted_high_and_keeps_multi
     assert len(ctx.current_dataframe) == 2
     assert ctx.current_dataframe["ANN[0].FEATUREID"].tolist() == ["NM_000720.3", "NM_001128840.3"]
     assert ctx.current_dataframe["Extra_Info"].tolist() == ["iso1", "iso2"]
+
+
+@pytest.mark.parametrize("reverse_order", [False, True])
+def test_cross_gene_consequence_order_invariance(tmp_path: Path, reverse_order: bool) -> None:
+    """Verify cross-gene consequence ordering produces identical qualified burden results."""
+    ann_modifier = "T|intron_variant|MODIFIER|GENE_A|ENSGA|transcript|NM_a|protein_coding||||||||"
+    ann_high = "T|stop_gained|HIGH|GENE_B|ENSGB|transcript|NM_b|protein_coding||||||||"
+    ann_field = f"{ann_high},{ann_modifier}" if reverse_order else f"{ann_modifier},{ann_high}"
+
+    vcf_content = "\n".join(
+        [
+            "##fileformat=VCFv4.2",
+            "##contig=<ID=chr1,length=1000>",
+            (
+                '##INFO=<ID=ANN,Number=.,Type=String,Description="Functional annotations: '
+                "Allele | Annotation | Annotation_Impact | Gene_Name | Gene_ID | Feature_Type | "
+                "Feature_ID | Transcript_BioType | Rank | HGVS.c | HGVS.p | "
+                "cDNA.pos / cDNA.length | CDS.pos / CDS.length | AA.pos / AA.length | "
+                'Distance | ERRORS / WARNINGS / INFO">'
+            ),
+            '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tCASE\tCTRL",
+            f"chr1\t100\t.\tA\tT\t500\tPASS\tANN={ann_field}\tGT\t0/1\t0/0",
+            "",
+        ]
+    )
+    vcf_path = tmp_path / f"synthetic_{reverse_order}.vcf"
+    vcf_path.write_text(vcf_content, encoding="utf-8")
+
+    split_vcf = tmp_path / f"split_{reverse_order}.vcf.gz"
+    filtered_vcf = tmp_path / f"filtered_{reverse_order}.vcf.gz"
+    extracted_tsv = tmp_path / f"extracted_{reverse_order}.tsv"
+
+    # Step 1: Split before filtering
+    split_snpeff_annotations(str(vcf_path), str(split_vcf))
+
+    # Step 2: Apply coding consequence filter
+    coding_filter = "(ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE')"
+    apply_snpsift_filter(str(split_vcf), coding_filter, {"threads": 1}, str(filtered_vcf))
+
+    # Step 3: Extract fields
+    extract_fields_bcftools(
+        variant_file=str(filtered_vcf),
+        fields="CHROM POS ANN[0].GENE ANN[0].IMPACT GEN[*].GT",
+        cfg={"extract_fields_separator": ","},
+        output_file=str(extracted_tsv),
+        vcf_samples=["CASE", "CTRL"],
+    )
+
+    df = _read_tsv(extracted_tsv)
+    assert len(df) == 1
+    assert df["ANN[0].GENE"].tolist() == ["GENE_B"]
+    assert df["ANN[0].IMPACT"].tolist() == ["HIGH"]
+
+    # Step 4: Perform gene burden analysis
+    burden_df = _burden_input(df)
+    burden_cfg = {
+        "gene_burden_mode": "samples",
+        "correction_method": "fdr",
+        "confidence_interval_method": "normal_approx",
+    }
+    result = perform_gene_burden_analysis(
+        burden_df,
+        burden_cfg,
+        case_samples={"CASE"},
+        control_samples={"CTRL"},
+        vcf_samples=["CASE", "CTRL"],
+    )
+
+    assert result["GENE"].tolist() == ["GENE_B"]
+    assert result["proband_carrier_count"].tolist() == [1]
+    assert result["control_carrier_count"].tolist() == [0]
+
+
+@pytest.mark.parametrize("reverse_order", [False, True])
+def test_cross_gene_consequence_order_invariance_parallel(
+    tmp_path: Path, reverse_order: bool
+) -> None:
+    """Verify ParallelCompleteProcessingStage produces identical burden results
+    regardless of annotation order.
+    """
+    ann_modifier = "T|intron_variant|MODIFIER|GENE_A|ENSGA|transcript|NM_a|protein_coding||||||||"
+    ann_high = "T|stop_gained|HIGH|GENE_B|ENSGB|transcript|NM_b|protein_coding||||||||"
+    ann_field = f"{ann_high},{ann_modifier}" if reverse_order else f"{ann_modifier},{ann_high}"
+
+    vcf_content = "\n".join(
+        [
+            "##fileformat=VCFv4.2",
+            "##contig=<ID=chr1,length=1000>",
+            (
+                '##INFO=<ID=ANN,Number=.,Type=String,Description="Functional annotations: '
+                "Allele | Annotation | Annotation_Impact | Gene_Name | Gene_ID | Feature_Type | "
+                "Feature_ID | Transcript_BioType | Rank | HGVS.c | HGVS.p | "
+                "cDNA.pos / cDNA.length | CDS.pos / CDS.length | AA.pos / AA.length | "
+                'Distance | ERRORS / WARNINGS / INFO">'
+            ),
+            '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tCASE\tCTRL",
+            f"chr1\t100\t.\tA\tT\t500\tPASS\tANN={ann_field}\tGT\t0/1\t0/0",
+            "",
+        ]
+    )
+    raw_vcf = tmp_path / f"parallel_{reverse_order}.vcf"
+    raw_vcf.write_text(vcf_content, encoding="utf-8")
+    gz_vcf = tmp_path / f"parallel_{reverse_order}.vcf.gz"
+    with open(gz_vcf, "wb") as f:
+        subprocess.run(["bgzip", "-c", str(raw_vcf)], stdout=f, check=True)
+    subprocess.run(["tabix", "-p", "vcf", str(gz_vcf)], check=True)
+
+    bed_file = tmp_path / f"genes_{reverse_order}.bed"
+    bed_file.write_text("chr1\t50\t150\tGENE_B\n", encoding="utf-8")
+
+    from variantcentrifuge.pipeline_core.context import PipelineContext
+    from variantcentrifuge.pipeline_core.workspace import Workspace
+
+    workspace = Workspace(
+        output_dir=tmp_path / f"ws_{reverse_order}", base_name=f"test_{reverse_order}"
+    )
+    workspace.intermediate_dir.mkdir(parents=True, exist_ok=True)
+
+    config = {
+        "vcf_file": str(gz_vcf),
+        "threads": 2,
+        "snpeff_splitting_mode": "before_filters",
+        "filter": "(ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE')",
+        "fields_to_extract": "CHROM POS ANN[0].GENE ANN[0].IMPACT GEN[*].GT",
+        "gzip_intermediates": False,
+        "perform_gene_burden": True,
+    }
+    ctx = PipelineContext(args=None, config=config, workspace=workspace)
+    ctx.gene_bed_file = bed_file
+    ctx.vcf_samples = ["CASE", "CTRL"]
+    ctx.mark_complete("configuration_loading")
+    ctx.mark_complete("gene_bed_creation")
+
+    stage = ParallelCompleteProcessingStage()
+    ctx = stage._process(ctx)
+
+    df = _read_tsv(ctx.extracted_tsv)
+    assert len(df) == 1
+    assert df["ANN[0].GENE"].tolist() == ["GENE_B"]
+    assert df["ANN[0].IMPACT"].tolist() == ["HIGH"]
+
+    burden_df = _burden_input(df)
+    burden_cfg = {
+        "gene_burden_mode": "samples",
+        "correction_method": "fdr",
+        "confidence_interval_method": "normal_approx",
+    }
+    result = perform_gene_burden_analysis(
+        burden_df,
+        burden_cfg,
+        case_samples={"CASE"},
+        control_samples={"CTRL"},
+        vcf_samples=["CASE", "CTRL"],
+    )
+    assert result["GENE"].tolist() == ["GENE_B"]
+    assert result["proband_carrier_count"].tolist() == [1]
+    assert result["control_carrier_count"].tolist() == [0]

@@ -124,7 +124,7 @@ class TestParallelCompleteProcessingStage:
         bed_chunks = [Path("/tmp/chunk_0.bed"), Path("/tmp/chunk_1.bed")]
 
         # Mock that first chunk exists, second doesn't
-        def mock_validate_side_effect(path):
+        def mock_validate_side_effect(path, *args, **kwargs):
             return "chunk_0" in str(path)
 
         mock_validate.side_effect = mock_validate_side_effect
