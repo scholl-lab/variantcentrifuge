@@ -381,16 +381,25 @@ class TestExpressionValidation:
         with pytest.raises(ValueError, match="Disallowed"):
             _validate_expression("[f for f in [df.to_csv]][0]('pwn.tsv')")
 
-    def test_malicious_json_file_loading_blocked(self, tmp_path, sample_df):
+    def test_malicious_json_file_loading_blocked(self, tmp_path, sample_df, monkeypatch):
         """Verify loading malicious config from a JSON file path is blocked at evaluation (#127)."""
         import json
+        import os
+        from unittest.mock import MagicMock
+
+        mock_system = MagicMock()
+        monkeypatch.setattr(os, "system", mock_system)
 
         malicious_config = {
             "dataset_stats": [
                 {
                     "name": "file_probe",
                     "expression": "df.to_csv('pwned.csv')",
-                }
+                },
+                {
+                    "name": "os_probe",
+                    "expression": "pd.io.common.os.system('echo PWNED')",
+                },
             ]
         }
         config_path = tmp_path / "malicious_stats.json"
@@ -400,6 +409,7 @@ class TestExpressionValidation:
         results = engine.compute(sample_df)
         assert results["dataset"].empty
         assert not (tmp_path / "pwned.csv").exists()
+        mock_system.assert_not_called()
 
     def test_safe_builtins_and_np_where_evaluate(self, sample_df):
         """Verify safe builtins and np.where evaluate cleanly in _safe_eval (#127)."""
@@ -433,34 +443,40 @@ class TestExpressionValidation:
 
         df = pd.DataFrame(
             {
+                "CHROM": ["chr17", "chr17", "chr17"],
+                "REF": ["A", "C", "T"],
+                "ALT": ["G", "T", "G"],
                 "GENE": ["BRCA1", "BRCA1", "TP53"],
                 "IMPACT": ["HIGH", "MODERATE", "LOW"],
+                "Consequence": ["missense_variant", "splice_region_variant", "synonymous_variant"],
                 "ClinicalSignificance": ["Pathogenic", "Benign", "VUS"],
                 "CLNSIG": ["Pathogenic", "Benign", "Uncertain_significance"],
-                "gnomAD_AF": [0.0001, 0.01, 0.05],
-                "AF": [0.0001, 0.01, 0.05],
+                "ACMG_Classification": ["Pathogenic", "Benign", "VUS"],
                 "gnomAD_exomes_AF": [0.0001, 0.01, 0.05],
                 "gnomAD_genomes_AF": [0.0001, 0.01, 0.05],
+                "AF": [0.0001, 0.01, 0.05],
                 "dbNSFP_CADD_phred": [35.0, 15.0, 10.0],
-                "CADD_phred": [35.0, 15.0, 10.0],
+                "CADD_PHRED": [35.0, 15.0, 10.0],
+                "dbNSFP_phyloP100way_vertebrate": [5.2, 1.1, -0.3],
                 "dbNSFP_REVEL_score": [0.85, 0.25, 0.10],
-                "REVEL_score": [0.85, 0.25, 0.10],
-                "SAMPLE_GT": ["0/1", "0/1", "1/1"],
+                "PROBAND_GT": ["0/1", "0/1", "1/1"],
+                "CONTROL_GT": ["0/0", "0/0", "0/1"],
                 "Inheritance_Pattern": ["de_novo", "autosomal_dominant", "none"],
                 "FILTER": ["PASS", "PASS", "PASS"],
             }
         )
 
         configs = [
-            "variantcentrifuge/config/default_stats_config.json",
+            "variantcentrifuge/default_stats_config.json",
             "stats_configs/clinical_focus_stats.json",
             "stats_configs/example_custom_stats.json",
         ]
         for cfg_rel in configs:
             cfg_path = Path(cfg_rel)
-            if cfg_path.exists():
-                engine = StatsEngine(str(cfg_path))
-                results = engine.compute(df)
-                assert isinstance(results, dict)
-                # Ensure no unhandled exception occurred and at least one table was produced
-                assert "dataset" in results
+            assert cfg_path.exists(), f"Missing {cfg_path}"
+            engine = StatsEngine(str(cfg_path))
+            results = engine.compute(df)
+            assert engine.errors == [], f"Errors evaluating {cfg_rel}: {engine.errors}"
+            assert not results["dataset"].empty, f"dataset empty for {cfg_rel}"
+            assert not results["genes"].empty, f"genes empty for {cfg_rel}"
+            assert len(results["groups"]) > 0, f"groups empty for {cfg_rel}"

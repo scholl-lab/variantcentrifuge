@@ -292,6 +292,7 @@ class StatsEngine:
             self.config = config
 
         self.results: dict[str, Any] = {}
+        self.errors: list[str] = []
 
     def compute(self, df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         """
@@ -307,6 +308,7 @@ class StatsEngine:
         Dict[str, pd.DataFrame]
             Dictionary with keys 'dataset', 'genes', 'groups' containing results
         """
+        self.errors = []
         # Dataset-level stats
         if "dataset_stats" in self.config:
             self.results["dataset"] = self._compute_dataset_stats(df)
@@ -393,9 +395,11 @@ class StatsEngine:
 
         except ValueError as e:
             logger.error(f"Blocked unsafe {context} expression '{expression}': {e}")
+            self.errors.append(f"{context}: {e}")
             return None
         except Exception as e:
             logger.error(f"Failed to evaluate {context} expression '{expression}': {e}")
+            self.errors.append(f"{context}: {e}")
             return None
 
     def _compute_dataset_stats(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -469,6 +473,7 @@ class StatsEngine:
 
             except Exception as e:
                 logger.error(f"Failed to compute gene stat '{name}': {e}")
+                self.errors.append(f"gene stat '{name}': {e}")
                 continue
 
         # Combine all stats into a single DataFrame
@@ -555,6 +560,7 @@ class StatsEngine:
 
             except Exception as e:
                 logger.error(f"Failed to compute grouped stat '{name}': {e}")
+                self.errors.append(f"grouped stat '{name}': {e}")
                 continue
 
         return grouped_results

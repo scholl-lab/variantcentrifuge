@@ -245,22 +245,29 @@ touch /data/snpeff/container-contract-write-test
 printf '%s\n' 'checking non-owner traversal of /data with child bind mounts'
 non_owner_input=$work_dir/non_owner_input
 non_owner_out=$work_dir/non_owner_out
-mkdir -p "$non_owner_input" "$non_owner_out"
+non_owner_snpeff=$work_dir/non_owner_snpeff
+mkdir -p "$non_owner_input" "$non_owner_out" "$non_owner_snpeff"
 echo "input_payload" > "$non_owner_input/input.txt"
-chmod 0755 "$non_owner_input" "$non_owner_out"
+chmod 0755 "$non_owner_input"
 chmod 0644 "$non_owner_input/input.txt"
+chmod 0777 "$non_owner_out" "$non_owner_snpeff"
 docker run --rm \
     --user 12345:12345 \
     --mount "type=bind,src=$non_owner_input,dst=/data/input,readonly" \
     --mount "type=bind,src=$non_owner_out,dst=/data/out" \
+    --mount "type=bind,src=$non_owner_snpeff,dst=/data/snpeff" \
     --entrypoint /bin/sh "$image_id" -c '
 set -eu
 test -r /data/input/input.txt
 echo "output_payload" > /data/out/output.txt
+echo "snpeff_payload" > /data/snpeff/cache_ok
 '
 test -f "$non_owner_out/output.txt"
 assert_contains "$(cat "$non_owner_out/output.txt")" "output_payload" \
     'non-owner user could not write to /data/out mount'
+test -f "$non_owner_snpeff/cache_ok"
+assert_contains "$(cat "$non_owner_snpeff/cache_ok")" "snpeff_payload" \
+    'non-owner user could not write to /data/snpeff mount'
 
 printf '%s\n' 'checking Python dependency and native runtime operations'
 

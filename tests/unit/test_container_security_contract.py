@@ -923,20 +923,21 @@ def test_compose_and_installation_persist_the_default_snpeff_data_directory() ->
     installation = _text("docs/source/installation.md")
     usage = _text("docs/source/usage.md")
 
-    assert "snpeff_data:/data/snpeff" in compose
-    assert "snpeff_data:/data/snpeff" in installation
-    assert "snpeff_data:/data/snpeff" in usage
-    assert "/snpeff_data" not in compose
-    assert "/snpeff_data" not in installation
-    assert 'user: "${UID:-1000}:${GID:-1000}"' in compose
+    assert "./snpeff_data:/data/snpeff" in compose
+    assert "./snpeff_data:/data/snpeff" in installation
+    assert "./snpeff_data:/data/snpeff" in usage
+    assert ":/snpeff_data" not in compose
+    assert ":/snpeff_data" not in installation
+    assert 'user: "${HOST_UID:-1000}:${HOST_GID:-1000}"' in compose
     assert '--user "$(id -u):$(id -g)"' in installation
     assert '--user "$(id -u):$(id -g)"' in usage
+    assert "HOST_UID=" in installation
     assert "-v ./input:/data/input:ro" in installation
     assert "-v ./output:/data/output" in installation
     for documentation in (compose, installation):
         assert "first download" in documentation.lower()
         assert "fully populated" in documentation.lower()
-        assert "snpeff_data:/data/snpeff:ro" in documentation
+        assert "./snpeff_data:/data/snpeff:ro" in documentation
 
 
 def test_container_image_contract_checks_non_owner_child_mounts() -> None:
@@ -945,6 +946,8 @@ def test_container_image_contract_checks_non_owner_child_mounts() -> None:
     assert "--user 12345:12345" in script
     assert "dst=/data/input,readonly" in script
     assert "dst=/data/out" in script
+    assert "dst=/data/snpeff" in script
+    assert 'chmod 0777 "$non_owner_out" "$non_owner_snpeff"' in script
 
 
 def test_data_directory_traversal_permissions_behavioral(tmp_path: Path) -> None:
