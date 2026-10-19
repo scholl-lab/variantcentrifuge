@@ -24,7 +24,16 @@ logger = logging.getLogger("variantcentrifuge")
 
 # Compile GT parsing pattern once at module level for performance
 GT_PATTERN = re.compile(r"([^()]+)\(([^)]+)\)")
-URL_PREFIXES = ("http://", "https://", "ftp://", "ftps://", "mailto:", "internal:", "external:")
+URL_PREFIXES = (
+    "http://",
+    "https://",
+    "ftp://",
+    "ftps://",
+    "mailto:",
+    "internal:",
+    "external:",
+    "file://",
+)
 
 
 def _fmt_coord(val: Any) -> str:
@@ -58,10 +67,11 @@ def _load_igv_lookup(
         with open(igv_map_path, encoding="utf-8") as f:
             igv_map_data = json.load(f)
 
-        if isinstance(igv_map_data, dict):
-            igv_map = igv_map_data.get("variants", [])
-        else:
-            igv_map = igv_map_data if isinstance(igv_map_data, list) else []
+        igv_map = (
+            igv_map_data.get("variants", [])
+            if isinstance(igv_map_data, dict)
+            else (igv_map_data if isinstance(igv_map_data, list) else [])
+        )
 
         igv_lookup: dict[tuple[Any, ...], str] = {}
         for entry in igv_map:
@@ -547,25 +557,20 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
 
     num_samples = 0
     if not df.empty and "GT" in df.columns:
-        sample_ids = set()
-        for gt_value in df["GT"]:
-            if pd.notna(gt_value):
-                sample_entries = str(gt_value).split(";")
-                for entry in sample_entries:
-                    entry = entry.strip()
-                    if entry:
-                        m = GT_PATTERN.match(entry)
-                        if m:
-                            sample_ids.add(m.group(1).strip())
+        sample_ids = {
+            m.group(1).strip()
+            for gt in df["GT"].dropna()
+            for entry in str(gt).split(";")
+            if (m := GT_PATTERN.match(entry.strip()))
+        }
         num_samples = len(sample_ids)
 
     inheritance_distribution: dict[str, int] = {}
     if not df.empty and "Inheritance_Pattern" in df.columns:
-        valid_patterns = df[~df["Inheritance_Pattern"].isin(["none", "reference"])][
-            "Inheritance_Pattern"
+        valid_patterns = df.loc[
+            ~df["Inheritance_Pattern"].isin(["none", "reference"]), "Inheritance_Pattern"
         ]
-        if len(valid_patterns) > 0:
-            inheritance_distribution = valid_patterns.value_counts().to_dict()
+        inheritance_distribution = valid_patterns.value_counts().to_dict()
 
     top_genes: list[dict[str, Any]] = []
     if not df.empty and "GENE" in df.columns:

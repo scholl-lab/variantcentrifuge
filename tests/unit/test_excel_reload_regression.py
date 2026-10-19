@@ -867,6 +867,7 @@ def test_excel_hyperlink_protocols_preserved(tmp_path: Path):
             "INTERNAL_REF": ["internal:Sheet1!A1"],
             "EXTERNAL_REF": ["external:doc.xlsx#Sheet1!A1"],
             "HTTP_URL": ["https://www.ncbi.nlm.nih.gov/clinvar/"],
+            "FILE_URL": ["file:///C:/reports/sample.html"],
         }
     )
 
@@ -917,6 +918,13 @@ def test_excel_hyperlink_protocols_preserved(tmp_path: Path):
     assert cell_http.value == "HTTP_URL"
     assert cell_http.hyperlink is not None
     assert cell_http.hyperlink.target == "https://www.ncbi.nlm.nih.gov/clinvar/"
+
+    # File link: recognizes file:// prefix and preserves hyperlink
+    cell_file = ws.cell(row=2, column=col_indices["FILE_URL"])
+    assert cell_file.hyperlink is not None
+    assert cell_file.hyperlink.target.replace("\\", "/").startswith(
+        "file:///C:/reports/sample.html"
+    )
 
 
 @pytest.mark.unit
