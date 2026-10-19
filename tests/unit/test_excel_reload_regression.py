@@ -1395,3 +1395,36 @@ def test_mixed_value_columns_url_sampling(
     else:
         assert ws.cell(row=3, column=1).value == expected_row2_val
         assert ws.cell(row=4, column=1).value == expected_row3_val
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("reserved_name", ["Results", "IGV_Overflow"])
+def test_convert_to_excel_rejects_reserved_extra_sheet_names(tmp_path: Path, reserved_name: str):
+    """Verify extra_sheets cannot overwrite Results or IGV_Overflow (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    existing_file = tmp_path / "existing.xlsx"
+    initial_df = pd.DataFrame({"CHROM": ["chr1"], "POS": [100]})
+    convert_to_excel(
+        str(existing_file),
+        cfg={"igv_enabled": False},
+        df=initial_df,
+        output_file=str(existing_file),
+    )
+    initial_mtime = existing_file.stat().st_mtime_ns
+
+    extra_df = pd.DataFrame({"Data": [1, 2, 3]})
+    with pytest.raises(ValueError, match="extra_sheets cannot overwrite reserved sheet"):
+        convert_to_excel(
+            str(existing_file),
+            cfg={"igv_enabled": False},
+            df=initial_df,
+            extra_sheets={reserved_name: extra_df},
+            output_file=str(existing_file),
+        )
+
+    # Existing file must not have been modified or corrupted
+    assert existing_file.stat().st_mtime_ns == initial_mtime
+    wb = openpyxl.load_workbook(existing_file)
+    assert wb.sheetnames == ["Results"]
+    assert wb["Results"]["A2"].value == "chr1"

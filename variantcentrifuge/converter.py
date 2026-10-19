@@ -157,6 +157,11 @@ def convert_to_excel(
     output_file: str | None = None,
 ) -> str:
     """Convert a TSV file or DataFrame to XLSX format with Results and optional extra sheets."""
+    if extra_sheets:
+        reserved = {"Results", "IGV_Overflow"} & set(extra_sheets)
+        if reserved:
+            raise ValueError(f"extra_sheets cannot overwrite reserved sheet(s): {sorted(reserved)}")
+
     if df is not None:
         logger.debug("Using provided DataFrame for Excel conversion (skipping disk read)")
     else:

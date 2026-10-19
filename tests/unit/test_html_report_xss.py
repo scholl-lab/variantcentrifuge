@@ -872,7 +872,7 @@ class TestColumnRenderers:
                 "REF": "A",
                 "ALT": "T",
                 "IMPACT": '<script>alert("impact")</script>',
-                "ClinVar_CLNSIG": "Pathogenic &amp; uncertain",
+                "ClinVar_CLNSIG": "Pathogenic & uncertain",
                 "Inheritance_Pattern": "de_novo",
                 "GENE": "BRCA1",
                 "CADD_phred": "25.4",
@@ -1092,7 +1092,7 @@ console.log('BUNDLED_ASSETS_OK');
                 "A",
                 "T",
                 '<script>alert("impact")</script>',
-                "Pathogenic &amp; uncertain",
+                "Pathogenic & uncertain",
                 "de_novo",
                 "BRCA1",
                 "25.4",
@@ -1118,10 +1118,14 @@ console.log('BUNDLED_ASSETS_OK');
         node_harness = f"""
 {DOMPARSER_POLYFILL_JS}
 
+const createdSelects = [];
+
 function createMockElement(tag, id = '') {{
     const el = {{
         tagName: tag.toUpperCase(),
         id: id,
+        dataset: {{}},
+        _listeners: {{}},
         style: {{ display: '', setProperty: () => {{}}, getPropertyValue: () => '' }},
         classList: {{
             _classes: new Set(),
@@ -1133,10 +1137,21 @@ function createMockElement(tag, id = '') {{
         attributes: {{}},
         setAttribute(k, v) {{ this.attributes[k] = String(v); }},
         getAttribute(k) {{ return this.attributes[k] || null; }},
-        appendChild(c) {{ if (c) c.parentNode = this; return c; }},
+        appendChild(c) {{
+            if (c) {{
+                c.parentNode = this;
+                if (c.tagName === 'OPTION' && this.options) {{
+                    this.options.push(c);
+                }}
+            }}
+            return c;
+        }},
         removeChild(c) {{ return c; }},
         replaceChild(newC, oldC) {{ return newC; }},
-        addEventListener(ev, fn) {{}},
+        insertBefore(c, ref) {{ return this.appendChild(c); }},
+        addEventListener(ev, fn) {{
+            this._listeners[ev] = fn;
+        }},
         click() {{}},
         closest(sel) {{ return this; }},
         getContext(type) {{ return {{}}; }},
@@ -1146,6 +1161,10 @@ function createMockElement(tag, id = '') {{
         textContent: '',
         innerHTML: ''
     }};
+    if (tag.toLowerCase() === 'select') {{
+        el.options = [];
+        createdSelects.push(el);
+    }}
     el.parentNode = {{
         replaceChild: () => {{}},
         appendChild: () => {{}},
@@ -1163,7 +1182,7 @@ function getOrCreateElement(id) {{
 }}
 
 ['variants_table', 'table-skeleton', 'toolbar-slot-length', 'toolbar-slot-search',
- 'toolbar-slot-buttons', 'active-filters-strip', 'filter-row-top', 'filter-row-bottom',
+ 'toolbar-slot-buttons', 'active-filters-strip', 'filter-row',
  'impact_chart', 'variant_type_chart', 'chromosome_chart',
  'af_histogram_chart', 'inheritance_chart', 'variants-table-wrapper',
  'viz-collapse-toggle'].forEach(getOrCreateElement);
@@ -1189,6 +1208,7 @@ globalThis.document = {{
     }},
     querySelectorAll: (sel) => [],
     createElement: (tag) => createMockElement(tag),
+    createTextNode: (t) => createMockElement('#text'),
     body: createMockElement('body'),
     addEventListener: (ev, fn) => {{
         if (ev === 'DOMContentLoaded') {{
@@ -1346,11 +1366,29 @@ for (const colDef of registeredTable.columnDefs) {{
     }}
 }}
 
-// 2. Exercise registered search filter callbacks
-for (const searchFn of MockDataTable.ext.search) {{
-    for (const row of testRows) {{
-        searchFn({{ nTable: {{ id: 'variants_table' }} }}, row);
-    }}
+// 2. Exercise categorical filter selection and registered search callbacks
+const clinvarSelect = createdSelects.find(s => s.id === 'filter-ClinVar_CLNSIG');
+if (!clinvarSelect) {{
+    console.error('ClinVar_CLNSIG select not created');
+    process.exit(1);
+}}
+clinvarSelect.value = 'Pathogenic & uncertain';
+if (!clinvarSelect._listeners.change) {{
+    console.error('No change listener on clinvarSelect');
+    process.exit(1);
+}}
+clinvarSelect._listeners.change.call(clinvarSelect);
+
+if (MockDataTable.ext.search.length === 0) {{
+    console.error('Expected MockDataTable.ext.search to have registered filters');
+    process.exit(1);
+}}
+const registeredFilterFn = MockDataTable.ext.search[MockDataTable.ext.search.length - 1];
+const match0 = registeredFilterFn({{ nTable: {{ id: 'variants_table' }} }}, testRows[0]);
+const match1 = registeredFilterFn({{ nTable: {{ id: 'variants_table' }} }}, testRows[1]);
+if (!match0 || match1) {{
+    console.error('Search callback match mismatch: row0=' + match0 + ', row1=' + match1);
+    process.exit(1);
 }}
 
 // 3. Exercise child-row click handler
@@ -1414,7 +1452,7 @@ console.log('ALL_CHECKS_PASSED');
                 "REF": "A",
                 "ALT": "T",
                 "IMPACT": '<script>alert("impact")</script>',
-                "ClinVar_CLNSIG": "Pathogenic &amp; uncertain",
+                "ClinVar_CLNSIG": "Pathogenic & uncertain <img src=x onerror=alert(1)>",
                 "Inheritance_Pattern": "de_novo",
                 "GENE": "BRCA1",
                 "CADD_phred": "25.4",
@@ -1442,7 +1480,14 @@ console.log('ALL_CHECKS_PASSED');
             "inheritance_distribution": {"de_novo": 1, "autosomal_recessive": 1},
             "top_genes": [{"gene": "BRCA1", "count": 1}, {"gene": "TP53", "count": 1}],
         }
-        cfg = {"reference": "GRCh38", "filters": "PASS"}
+        cfg = {
+            "reference": "GRCh38",
+            "filters": "PASS",
+            "html_report_truncate_settings": {
+                "columns_for_hover_expand": ["ClinVar_CLNSIG"],
+                "default_max_width_px": 80,
+            },
+        }
         v_file = tmp_path / "variants.json"
         s_file = tmp_path / "summary.json"
         v_file.write_text(json.dumps(variants_data), encoding="utf-8")
@@ -1463,11 +1508,32 @@ window.addEventListener("load", function() {
             var posIdx = headers.indexOf("POS");
             if (posIdx === -1) posIdx = 2;
 
+            dt.order([posIdx, "desc"]).draw();
+            var firstRowPosDesc = $("#variants_table tbody tr")
+                .first().find("td").eq(posIdx).text().trim();
+
             dt.order([posIdx, "asc"]).draw();
-            var firstRowPos = $(dt.row(0).node()).find("td").eq(posIdx).text().trim();
+            var firstRowPosAsc = $("#variants_table tbody tr")
+                .first().find("td").eq(posIdx).text().trim();
 
             dt.search("BRCA1").draw();
             var filteredCount = dt.rows({ search: "applied" }).count();
+            dt.search("").draw();
+
+            var clinvarSelect = $("#filter-ClinVar_CLNSIG");
+            var clinvarFilteredCount = -1;
+            if (clinvarSelect.length > 0) {
+                var targetOpt = clinvarSelect.find("option").filter(function() {
+                    return $(this).text().indexOf("Pathogenic & uncertain") !== -1;
+                }).val();
+                if (targetOpt) {
+                    clinvarSelect.val(targetOpt);
+                    clinvarSelect[0].dispatchEvent(new Event("change"));
+                    clinvarFilteredCount = dt.rows({ search: "applied" }).count();
+                    clinvarSelect.val("");
+                    clinvarSelect[0].dispatchEvent(new Event("change"));
+                }
+            }
 
             var firstControl = $("#variants_table tbody td.dt-control").first();
             firstControl.trigger("click");
@@ -1475,13 +1541,26 @@ window.addEventListener("load", function() {
             var childHtml = dt.row(0).child() ? String($(dt.row(0).child()).html()) : "";
             var hasRawScript = childHtml.indexOf("<script>") !== -1;
 
+            var tippyCells = Array.from(
+                document.querySelectorAll(".truncated-cell[data-tippy-content]")
+            );
+            var tippyInitialized = tippyCells.length > 0 && tippyCells.every(function(c) {
+                return Boolean(c._tippy);
+            });
+            var tippyContent = tippyCells.map(function(c) {
+                return c.getAttribute("data-tippy-content") || "";
+            });
+
             var result = {
                 initCount: initCount,
-                firstRowPos: firstRowPos,
+                firstRowPosDesc: firstRowPosDesc,
+                firstRowPosAsc: firstRowPosAsc,
                 filteredCount: filteredCount,
+                clinvarFilteredCount: clinvarFilteredCount,
                 isShown: isShown,
                 hasRawScript: hasRawScript,
-                tippyInitialized: true
+                tippyInitialized: tippyInitialized,
+                tippyContent: tippyContent
             };
             var marker = document.createElement("div");
             marker.id = "browser-probe-result";
@@ -1529,14 +1608,19 @@ window.addEventListener("load", function() {
             assert res.returncode == 0, f"Headless Chrome execution failed: {res.stderr}"
             m = re.search(r'<div id="browser-probe-result">([\s\S]*?)</div>', res.stdout)
             assert m is not None, f"Probe marker not found in Chrome DOM output: {res.stdout[:500]}"
-            data = json.loads(m.group(1))
+            import html as html_lib
+
+            data = json.loads(html_lib.unescape(m.group(1)))
             assert "error" not in data, f"Browser probe reported error: {data.get('error')}"
             assert data["initCount"] == 2
-            assert data["firstRowPos"] == "100"
+            assert data["firstRowPosDesc"] == "200"
+            assert data["firstRowPosAsc"] == "100"
             assert data["filteredCount"] == 1
+            assert data["clinvarFilteredCount"] == 1
             assert data["isShown"] is True
             assert data["hasRawScript"] is False
             assert data["tippyInitialized"] is True
+            assert "Pathogenic & uncertain <img src=x onerror=alert(1)>" in data["tippyContent"]
         finally:
             server.shutdown()
             server.server_close()

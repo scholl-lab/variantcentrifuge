@@ -1460,7 +1460,11 @@ document.addEventListener('DOMContentLoaded', function() {
                                 'MODIFIER': '#6c757d'
                             };
                             var color = colors[cell.text] || '#6c757d';
-                            return '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(cell.text) + '</span>';
+                            var badgeHtml = '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(cell.text) + '</span>';
+                            if (col.apply_hover_expand && col.max_width_px) {
+                                return '<span class="truncated-cell" tabindex="0" style="max-width: ' + col.max_width_px + 'px;" data-tippy-content="' + escapeHtml(cell.text) + '">' + badgeHtml + '</span>';
+                            }
+                            return badgeHtml;
                         }
                         return cell.text ? escapeHtml(String(cell.text)) : '';
                     }
@@ -1495,7 +1499,11 @@ document.addEventListener('DOMContentLoaded', function() {
                                 color = '#bf5600';
                             }
                             var displayText = str.replace(/_/g, ' ');
-                            return '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(displayText) + '</span>';
+                            var badgeHtml = '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(displayText) + '</span>';
+                            if (col.apply_hover_expand && col.max_width_px) {
+                                return '<span class="truncated-cell" tabindex="0" style="max-width: ' + col.max_width_px + 'px;" data-tippy-content="' + escapeHtml(str) + '">' + badgeHtml + '</span>';
+                            }
+                            return badgeHtml;
                         }
                         return escapeHtml(str);
                     }
@@ -1538,7 +1546,11 @@ document.addEventListener('DOMContentLoaded', function() {
                         color = '#c62828';
                     }
                     var displayText = str.replace(/_/g, ' ');
-                    return '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(displayText) + '</span>';
+                    var badgeHtml = '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(displayText) + '</span>';
+                    if (col.apply_hover_expand && col.max_width_px) {
+                        return '<span class="truncated-cell" tabindex="0" style="max-width: ' + col.max_width_px + 'px;" data-tippy-content="' + escapeHtml(str) + '">' + badgeHtml + '</span>';
+                    }
+                    return badgeHtml;
                 }
             });
         }
