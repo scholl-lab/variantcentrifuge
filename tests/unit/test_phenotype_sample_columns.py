@@ -194,8 +194,12 @@ def test_phased_genotypes():
     result = extract_phenotypes_from_sample_columns(row, vcf_samples, phenotypes)
 
     # Phased variants included, 0|0 is reference (excluded)
-    # Note: 0|0 is technically reference but code checks exact strings
-    # The code checks: gt_str in ["0/0", "./.", ".", "NA"]
-    # So "0|0" is NOT in that list and would be included
-    # Let me verify the actual behavior
-    assert result == "Sample1(HPO:X);Sample2(HPO:Y);Sample3()"
+    assert result == "Sample1(HPO:X);Sample2(HPO:Y)"
+
+
+@pytest.mark.unit
+def test_extract_phenotypes_with_extra_colon_fields():
+    """Verify packed calls with extra colon-delimited format fields are parsed correctly."""
+    gt_val = "s(0/1:20);s2(./.:15)"
+    phenos = {"s": {"HP:0000001"}, "s2": {"HP:0000002"}}
+    assert extract_phenotypes_for_gt_row(gt_val, phenos) == "s(HP:0000001)"

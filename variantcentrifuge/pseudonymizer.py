@@ -246,6 +246,33 @@ class SamplePseudonymizer:
 
         return " ".join(parts)
 
+    def _pseudonymize_missing_samples(self, val: Any) -> Any:
+        if val is None or pd.isna(val) or not str(val).strip():
+            return val
+        tokens = [s.strip() for s in str(val).split(";") if s.strip()]
+        return ";".join(self._mapping.get(s, s) for s in tokens)
+
+    def _pseudonymize_carrier_samples(self, val: Any) -> Any:
+        if val is None or pd.isna(val) or not str(val).strip():
+            return val
+        res_tokens = []
+        for item in str(val).split(";"):
+            item_str = item.strip()
+            if not item_str:
+                continue
+            parts = item_str.rsplit(":", 2)
+            if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit():
+                sname = self._mapping.get(parts[0], parts[0])
+                res_tokens.append(f"{sname}:{parts[1]}:{parts[2]}")
+            elif len(parts) >= 2 and parts[-1].isdigit():
+                prefix, d = item_str.rsplit(":", 1)
+                sname = self._mapping.get(prefix, prefix)
+                res_tokens.append(f"{sname}:{d}")
+            else:
+                sname = self._mapping.get(item_str, item_str)
+                res_tokens.append(sname)
+        return ";".join(res_tokens)
+
     def pseudonymize_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """Apply pseudonymization to all relevant columns in a DataFrame."""
         df_copy = df.copy()
@@ -262,8 +289,16 @@ class SamplePseudonymizer:
                 df_copy[col] = df_copy[col].apply(self.pseudonymize_inheritance_column)
                 logger.debug(f"Pseudonymized {col} column")
 
-        # Handle any column that might contain sample IDs (configurable)
-        # This could be extended based on specific needs
+        # Handle internal sample tracking columns
+        for col in ["proband_missing_samples", "control_missing_samples"]:
+            if col in df_copy.columns:
+                df_copy[col] = df_copy[col].apply(self._pseudonymize_missing_samples)
+                logger.debug(f"Pseudonymized {col} column")
+
+        for col in ["proband_carrier_samples", "control_carrier_samples"]:
+            if col in df_copy.columns:
+                df_copy[col] = df_copy[col].apply(self._pseudonymize_carrier_samples)
+                logger.debug(f"Pseudonymized {col} column")
 
         return df_copy
 

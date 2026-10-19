@@ -220,6 +220,13 @@ Set via JSON config (see [JSON Config](#tuning-json-config)):
 { "association": { "gene_burden_mode": "alleles" } }
 ```
 
+### Missing Genotypes and Complete-Case Policy
+
+VariantCentrifuge applies principled missingness handling across association tests:
+
+- **Fisher's Exact Test (Complete-Case Policy):** Samples with missing genotype calls (`./.`, `.`, `.|.`) at any qualifying variant in a gene are excluded from the test's called counts (`proband_called_count`, `control_called_count`) and reference denominator (`proband_called_chromosomes`, `control_called_chromosomes`). Samples with missing calls are never assumed to be reference (`0/0`). If all cases or all controls are uncalled for a gene, the test is safely skipped.
+- **Matrix-Based Tests (Burden Regression, SKAT, SKAT-O):** Genotype matrices use ploidy-scaled mean imputation (`ploidy * alt_allele_freq`, i.e. `2 * alt_freq` for diploid and `1 * alt_freq` for haploid; or `round(ploidy * alt_allele_freq)` bestguess for binary traits). Dosage units are `{0, 1, 2}` for diploid variants and `{0, 1}` for haploid calls.
+
 ---
 
 ## Simple Tests: Burden Tests

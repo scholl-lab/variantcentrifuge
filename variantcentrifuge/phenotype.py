@@ -254,8 +254,8 @@ def extract_phenotypes_from_sample_columns(
         if pd.isna(gt_value) or not gt_value:
             continue
 
-        gt_str = str(gt_value).strip()
-        if not gt_str or gt_str in ["0/0", "./.", ".", "NA"]:
+        gt_str = str(gt_value).strip().split(":")[0]
+        if not is_variant(gt_str):
             continue
 
         # Sample has variant - get phenotypes

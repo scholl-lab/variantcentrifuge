@@ -70,10 +70,10 @@ def test_basic_reconstruction():
     result = reconstruct_gt_column(df, vcf_samples)
 
     # Row 0: Sample1(0/1) and Sample3(1/1) - skip Sample2 (0/0)
-    # Row 1: Sample1(1/1) and Sample2(0/1) - skip Sample3 (./.)
+    # Row 1: Sample1(1/1), Sample2(0/1), and Sample3(./.)
     assert "GT" in result.columns
     assert result["GT"].iloc[0] == "Sample1(0/1);Sample3(1/1)"
-    assert result["GT"].iloc[1] == "Sample1(1/1);Sample2(0/1)"
+    assert result["GT"].iloc[1] == "Sample1(1/1);Sample2(0/1);Sample3(./.)"
 
     # Per-sample columns should be dropped
     assert "GEN_0__GT" not in result.columns
@@ -98,7 +98,7 @@ def test_all_reference_genotypes():
 
     assert "GT" in result.columns
     assert result["GT"].iloc[0] == ""
-    assert result["GT"].iloc[1] == ""
+    assert result["GT"].iloc[1] == "Sample1(./.)"
 
 
 @pytest.mark.unit
@@ -117,9 +117,9 @@ def test_missing_values():
 
     result = reconstruct_gt_column(df, vcf_samples)
 
-    assert result["GT"].iloc[0] == "Sample1(0/1);Sample3(1/0)"
-    assert result["GT"].iloc[1] == "Sample2(1/1)"
-    assert result["GT"].iloc[2] == "Sample3(0/1)"
+    assert result["GT"].iloc[0] == "Sample1(0/1);Sample2(./.);Sample3(1/0)"
+    assert result["GT"].iloc[1] == "Sample1(./.);Sample2(1/1)"
+    assert result["GT"].iloc[2] == "Sample1(./.);Sample2(.);Sample3(0/1)"
 
 
 @pytest.mark.unit
@@ -156,7 +156,10 @@ def test_many_samples():
     df = pd.DataFrame(data)
     result = reconstruct_gt_column(df, samples)
 
-    expected = "Sample01(0/1);Sample03(1/1);Sample05(0/1);Sample07(1/0);Sample09(1/1);Sample11(0/1)"
+    expected = (
+        "Sample01(0/1);Sample03(1/1);Sample05(0/1);Sample06(./.);"
+        "Sample07(1/0);Sample09(1/1);Sample11(0/1)"
+    )
     assert result["GT"].iloc[0] == expected
 
 
@@ -177,7 +180,7 @@ def test_phased_genotypes():
 
     assert result["GT"].iloc[0] == "Sample1(0|1)"
     assert result["GT"].iloc[1] == "Sample1(1|0);Sample2(1|1)"
-    assert result["GT"].iloc[2] == ""
+    assert result["GT"].iloc[2] == "Sample2(.|.)"
 
 
 @pytest.mark.unit

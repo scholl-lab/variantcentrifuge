@@ -392,7 +392,7 @@ def build_genotype_matrix(
         if missing_mask.any():
             for s in np.where(missing_mask)[0]:
                 s_ploidy = ploidy[v_idx, s]
-                imputed_val = round(s_ploidy * maf) if is_binary else s_ploidy * maf
+                imputed_val = round(s_ploidy * alt_freq) if is_binary else s_ploidy * alt_freq
                 geno[v_idx, s] = imputed_val
 
     # ------------------------------------------------------------------ #

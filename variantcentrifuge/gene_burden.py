@@ -1,25 +1,8 @@
-# File: variantcentrifuge/gene_burden.py
-# Location: variantcentrifuge/variantcentrifuge/gene_burden.py
 """
-Gene burden analysis module.
+Gene burden analysis module (CMC/CAST collapsing test for rare variant association).
 
-Implements a collapsing burden test (CMC/CAST) for rare variant association.
-
-Two modes are supported:
-- "samples" (default): Counts unique carrier samples per gene (binary collapse).
-  Each sample is counted once regardless of how many qualifying variants it carries.
-  This is the CMC/CAST collapsing test (Li & Leal 2008, Morgenthaler & Thilly 2007).
-- "alleles": For each sample, takes the maximum allele dosage (0/1/2) across all
-  qualifying variant sites in the gene, then sums across samples. This preserves
-  the diploid constraint (total <= 2*N) required for Fisher's exact test.
-
-Statistical testing uses Fisher's exact test on a 2x2 contingency table with
-Benjamini-Hochberg FDR or Bonferroni correction for multiple testing.
-
-References
-----------
-- Li B, Leal SM. Am J Hum Genet. 2008;83(3):311-321 (CMC method)
-- Morgenthaler S, Thilly WG. Mutat Res. 2007;615(1-2):28-56 (CAST)
+Supports 'samples' (binary collapse) and 'alleles' (max dosage collapse) modes
+with Fisher's exact test and multiple testing correction (FDR/Bonferroni).
 """
 
 import logging
@@ -47,49 +30,23 @@ try:
 except ImportError:
     _apply_correction = None  # type: ignore[assignment]
 
+from .genotype_utils import is_missing
+
 logger = logging.getLogger("variantcentrifuge")
 
 
 def _find_gt_columns(df: pd.DataFrame) -> list[str]:
     """Find per-sample GT columns in DataFrame, sorted by sample index."""
-    gt_cols = []
-    for col in df.columns:
-        if re.match(r"^GEN[_\[](\d+)[_\]\.]+(GT)$", col):
-            gt_cols.append(col)
-    gt_cols.sort(key=lambda c: int(re.search(r"(\d+)", c).group(1)))  # type: ignore[union-attr]
-    return gt_cols
+    cols = [c for c in df.columns if re.match(r"^GEN[_\[](\d+)[_\]\.]+(GT)$", c)]
+    return sorted(cols, key=lambda c: int(re.search(r"(\d+)", c).group(1)))  # type: ignore[union-attr]
 
 
 def _compute_or_confidence_interval(
     table: list, odds_ratio: float, method: str, alpha: float, continuity_correction: float = 0.5
 ) -> tuple:
-    """
-    Compute confidence intervals for the odds ratio with robust handling of zero cells.
-
-    Parameters
-    ----------
-    table : list
-        2x2 contingency table, e.g. [[a, b], [c, d]].
-    odds_ratio : float
-        The odds ratio for the given table.
-    method : str
-        Method for confidence interval calculation.
-        Currently supported:
-        - "normal_approx": Uses statsmodels Table2x2 normal approximation.
-    alpha : float
-        Significance level for the confidence interval. 0.05 for 95% CI.
-    continuity_correction : float
-        Value to add to zero cells for continuity correction (default: 0.5).
-
-    Returns
-    -------
-    tuple
-        Tuple of (ci_lower, ci_upper) as floats.
-    """
-    a = table[0][0]
-    b = table[0][1]
-    c = table[1][0]
-    d = table[1][1]
+    """Compute confidence intervals for the odds ratio with robust handling of zero cells."""
+    a, b = table[0][0], table[0][1]
+    c, d = table[1][0], table[1][1]
 
     # Check for structural zeros where an OR is not calculable
     if (a + b == 0) or (c + d == 0) or (a + c == 0) or (b + d == 0):
@@ -120,16 +77,10 @@ def _compute_or_confidence_interval(
 
 
 def _gt_to_dosage(gt: str) -> int:
-    """Fast genotype string to allele dosage conversion.
-
-    Maps common genotype strings to alt allele count:
-    '1/1' or '1|1' -> 2, '0/1' or '1/0' or '0|1' or '1|0' -> 1, else -> 0.
-    """
+    """Fast genotype string to allele dosage conversion."""
     if gt in ("1/1", "1|1"):
         return 2
-    if gt in ("0/1", "1/0", "0|1", "1|0", "1"):
-        return 1
-    return 0
+    return 1 if gt in ("0/1", "1/0", "0|1", "1|0", "1") else 0
 
 
 def _aggregate_gene_burden_from_columns(
@@ -144,83 +95,56 @@ def _aggregate_gene_burden_from_columns(
 
     Instead of parsing the packed GT string, directly reads pre-split per-sample
     GT columns (GEN_0__GT, GEN_1__GT, ...) for ~10-100x faster aggregation.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        DataFrame with GENE column and per-sample GT columns.
-    case_samples : set of str
-        Set of case sample IDs.
-    control_samples : set of str
-        Set of control sample IDs.
-    vcf_samples : list of str
-        Ordered VCF sample names matching GT column indices.
-    gt_columns : list of str
-        Per-sample GT column names, sorted by sample index.
-
-    Returns
-    -------
-    list of dict
-        Gene-level burden data with carrier counts and allele counts.
     """
     total_cases = len(case_samples)
     total_controls = len(control_samples)
 
     # Pre-compute sample classification by column index
     n_cols = min(len(gt_columns), len(vcf_samples))
-    case_indices = []
-    ctrl_indices = []
-    for i in range(n_cols):
-        name = vcf_samples[i]
-        if name in case_samples:
-            case_indices.append(i)
-        elif name in control_samples:
-            ctrl_indices.append(i)
+    case_indices = [i for i in range(n_cols) if vcf_samples[i] in case_samples]
+    ctrl_indices = [i for i in range(n_cols) if vcf_samples[i] in control_samples]
 
     case_col_names = [gt_columns[i] for i in case_indices]
     ctrl_col_names = [gt_columns[i] for i in ctrl_indices]
 
-    logger.debug(
-        f"Column-based aggregation: {len(case_col_names)} case columns, "
-        f"{len(ctrl_col_names)} control columns"
-    )
-
     gene_burden_data = []
 
+    def _tally(col_names: list[str], gdf: pd.DataFrame) -> tuple[int, int, int, int]:
+        carrier, allele, called, called_chrom = 0, 0, 0, 0
+        for col in col_names:
+            vals = gdf[col]
+            if any(
+                v is None or (not isinstance(v, str) and pd.isna(v)) or is_missing(str(v).strip())
+                for v in vals
+            ):
+                continue
+            called += 1
+            s_ploidy = 1 if all("/" not in str(v) and "|" not in str(v) for v in vals) else 2
+            called_chrom += s_ploidy
+            max_d = int(vals.astype(str).map(_gt_to_dosage).max())
+            if max_d > 0:
+                carrier += 1
+                allele += max_d
+        return carrier, allele, called, called_chrom
+
     for gene, gene_df in df.groupby("GENE", observed=True):
-        n_variants = len(gene_df)
-
-        # For case samples: compute per-sample max dosage across all variants
-        p_carrier_count = 0
-        p_allele_count = 0
-        for col in case_col_names:
-            # Convert GT strings to dosages for all variants in this gene
-            dosages = gene_df[col].astype(str).map(_gt_to_dosage)
-            max_dosage = int(dosages.max())
-            if max_dosage > 0:
-                p_carrier_count += 1
-                p_allele_count += max_dosage
-
-        # For control samples: same approach
-        c_carrier_count = 0
-        c_allele_count = 0
-        for col in ctrl_col_names:
-            dosages = gene_df[col].astype(str).map(_gt_to_dosage)
-            max_dosage = int(dosages.max())
-            if max_dosage > 0:
-                c_carrier_count += 1
-                c_allele_count += max_dosage
+        p_carrier, p_allele, p_called, p_chrom = _tally(case_col_names, gene_df)
+        c_carrier, c_allele, c_called, c_chrom = _tally(ctrl_col_names, gene_df)
 
         gene_burden_data.append(
             {
                 "GENE": gene,
-                "proband_count": total_cases,
-                "control_count": total_controls,
-                "proband_carrier_count": p_carrier_count,
-                "control_carrier_count": c_carrier_count,
-                "proband_allele_count": p_allele_count,
-                "control_allele_count": c_allele_count,
-                "n_qualifying_variants": n_variants,
+                "proband_count": len(case_col_names),
+                "control_count": len(ctrl_col_names),
+                "proband_called_count": p_called,
+                "control_called_count": c_called,
+                "proband_called_chromosomes": p_chrom,
+                "control_called_chromosomes": c_chrom,
+                "proband_carrier_count": p_carrier,
+                "control_carrier_count": c_carrier,
+                "proband_allele_count": p_allele,
+                "control_allele_count": c_allele,
+                "n_qualifying_variants": len(gene_df),
             }
         )
 
@@ -254,54 +178,91 @@ def _aggregate_gene_burden_from_gt(
     """
     from .helpers import extract_sample_and_genotype, genotype_to_allele_count
 
-    total_cases = len(case_samples)
-    total_controls = len(control_samples)
-
     gene_burden_data = []
 
     for gene, gene_df in df.groupby("GENE", observed=True):
-        # Track per-sample max allele dosage across all variants in this gene.
-        # Using max dosage (not sum) ensures each sample contributes at most
-        # 2 alleles to the gene-level count, preserving the diploid constraint.
         case_max_dosage: dict[str, int] = {}
         ctrl_max_dosage: dict[str, int] = {}
+        missing_cases: set[str] = set()
+        missing_ctrls: set[str] = set()
+        case_ploidy: dict[str, int] = {}
+        ctrl_ploidy: dict[str, int] = {}
+        case_seen_rows: dict[str, int] = {}
+        ctrl_seen_rows: dict[str, int] = {}
 
         for gt_val in gene_df["GT"]:
-            if not isinstance(gt_val, str) or not gt_val.strip():
-                continue
-            for entry in gt_val.split(";"):
-                entry = entry.strip()
-                if not entry:
-                    continue
-                sample_name, genotype = extract_sample_and_genotype(entry)
-                if not sample_name:
-                    continue
-                allele_count = genotype_to_allele_count(genotype)
-                if allele_count <= 0:
-                    continue
+            seen_in_row: set[str] = set()
+            if isinstance(gt_val, str) and gt_val.strip():
+                for entry in gt_val.split(";"):
+                    entry = entry.strip()
+                    if not entry:
+                        continue
+                    sample_name, genotype = extract_sample_and_genotype(entry)
+                    if not sample_name:
+                        continue
+                    seen_in_row.add(sample_name)
+                    if is_missing(genotype):
+                        if sample_name in case_samples:
+                            missing_cases.add(sample_name)
+                        elif sample_name in control_samples:
+                            missing_ctrls.add(sample_name)
+                        continue
 
-                if sample_name in case_samples:
-                    case_max_dosage[sample_name] = max(
-                        case_max_dosage.get(sample_name, 0), allele_count
-                    )
-                elif sample_name in control_samples:
-                    ctrl_max_dosage[sample_name] = max(
-                        ctrl_max_dosage.get(sample_name, 0), allele_count
-                    )
+                    pl = 2 if ("/" in genotype or "|" in genotype) else 1
+                    if sample_name in case_samples:
+                        case_ploidy[sample_name] = max(case_ploidy.get(sample_name, 0), pl)
+                    elif sample_name in control_samples:
+                        ctrl_ploidy[sample_name] = max(ctrl_ploidy.get(sample_name, 0), pl)
 
-        # Carrier counts: unique samples with any qualifying variant
+                    allele_count = genotype_to_allele_count(genotype)
+                    if allele_count > 0:
+                        if sample_name in case_samples:
+                            cur_d = case_max_dosage.get(sample_name, 0)
+                            case_max_dosage[sample_name] = max(cur_d, allele_count)
+                        elif sample_name in control_samples:
+                            cur_d = ctrl_max_dosage.get(sample_name, 0)
+                            ctrl_max_dosage[sample_name] = max(cur_d, allele_count)
+
+            for s in seen_in_row:
+                if s in case_samples:
+                    case_seen_rows[s] = case_seen_rows.get(s, 0) + 1
+                elif s in control_samples:
+                    ctrl_seen_rows[s] = ctrl_seen_rows.get(s, 0) + 1
+
+        for s in missing_cases:
+            case_max_dosage.pop(s, None)
+        for s in missing_ctrls:
+            ctrl_max_dosage.pop(s, None)
+
+        n_rows = len(gene_df)
+        haploid_cases = sum(
+            1
+            for s, cnt in case_seen_rows.items()
+            if cnt == n_rows and case_ploidy.get(s, 2) == 1 and s not in missing_cases
+        )
+        haploid_ctrls = sum(
+            1
+            for s, cnt in ctrl_seen_rows.items()
+            if cnt == n_rows and ctrl_ploidy.get(s, 2) == 1 and s not in missing_ctrls
+        )
+        p_called = len(case_samples - missing_cases)
+        c_called = len(control_samples - missing_ctrls)
+        p_called_chrom = 2 * p_called - haploid_cases
+        c_called_chrom = 2 * c_called - haploid_ctrls
         p_carrier_count = len(case_max_dosage)
         c_carrier_count = len(ctrl_max_dosage)
-
-        # Allele counts: sum of per-sample max dosages (bounded by 2*N)
         p_allele_count = sum(case_max_dosage.values())
         c_allele_count = sum(ctrl_max_dosage.values())
 
         gene_burden_data.append(
             {
                 "GENE": gene,
-                "proband_count": total_cases,
-                "control_count": total_controls,
+                "proband_count": len(case_samples),
+                "control_count": len(control_samples),
+                "proband_called_count": p_called,
+                "control_called_count": c_called,
+                "proband_called_chromosomes": p_called_chrom,
+                "control_called_chromosomes": c_called_chrom,
                 "proband_carrier_count": p_carrier_count,
                 "control_carrier_count": c_carrier_count,
                 "proband_allele_count": p_allele_count,
@@ -321,41 +282,9 @@ def perform_gene_burden_analysis(
     vcf_samples: list[str] | None = None,
 ) -> pd.DataFrame:
     """
-    Perform gene burden analysis using a collapsing test with Fisher's exact test.
+    Perform gene burden analysis using collapsing (CMC/CAST) with Fisher's exact test.
 
-    When case_samples and control_samples are provided, uses proper per-sample
-    collapsing (CMC/CAST method) to avoid double-counting samples with variants
-    at multiple sites in the same gene.
-
-    Three aggregation strategies (selected automatically by priority):
-    1. Column-based (fastest): Uses per-sample GT columns (GEN_0__GT, etc.)
-       when vcf_samples is provided and columns exist in the DataFrame.
-    2. Packed GT string: Parses "Sample1(0/1);Sample2(1/1)" format.
-    3. Legacy: Sums pre-computed per-variant counts (backward compatibility).
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        DataFrame with variant data. Must include "GENE" column.
-    cfg : dict
-        Configuration dictionary with keys:
-        - "gene_burden_mode": "samples" (carrier collapse) or "alleles" (max dosage)
-        - "correction_method": "fdr" or "bonferroni"
-        - "confidence_interval_method": str (optional, default "normal_approx")
-        - "confidence_interval_alpha": float (optional, default 0.05)
-    case_samples : set of str, optional
-        Case sample IDs. When provided with control_samples, enables proper
-        per-sample collapsing.
-    control_samples : set of str, optional
-        Control sample IDs.
-    vcf_samples : list of str, optional
-        Ordered VCF sample names. When provided with per-sample GT columns,
-        enables fast column-based aggregation.
-
-    Returns
-    -------
-    pd.DataFrame
-        Gene-level burden results with p-values, odds ratios, and CIs.
+    Supports column-based, packed GT, and legacy per-variant count aggregation.
     """
     logger.debug("Starting gene burden aggregation...")
 
@@ -365,6 +294,16 @@ def perform_gene_burden_analysis(
     ci_alpha = cfg.get("confidence_interval_alpha", 0.05)
     continuity_correction = cfg.get("continuity_correction", 0.5)
 
+    attrs = getattr(df, "attrs", {})
+    if case_samples is None:
+        p_s = cfg.get("proband_samples") or cfg.get("case_samples") or attrs.get("proband_samples")
+        if p_s is not None:
+            case_samples = set(p_s)
+    if control_samples is None:
+        c_s = cfg.get("control_samples") or attrs.get("control_samples")
+        if c_s is not None:
+            control_samples = set(c_s)
+
     # Determine aggregation strategy (priority: columns > packed GT > legacy)
     has_case_ctrl = case_samples is not None and control_samples is not None
     gt_columns = _find_gt_columns(df) if has_case_ctrl else []
@@ -373,24 +312,21 @@ def perform_gene_burden_analysis(
     )
     use_gt_aggregation = has_case_ctrl and not use_column_aggregation and "GT" in df.columns
 
-    if use_column_aggregation:
-        assert case_samples is not None
-        assert control_samples is not None
-        assert vcf_samples is not None
+    if use_column_aggregation and case_samples and control_samples and vcf_samples:
         logger.info(
-            f"Using column-based aggregation for gene burden "
-            f"({len(gt_columns)} GT columns, "
-            f"{len(case_samples)} cases, {len(control_samples)} controls)"
+            "Using column-based aggregation for gene burden (%d GT cols, %d cases, %d ctrls)",
+            len(gt_columns),
+            len(case_samples),
+            len(control_samples),
         )
         gene_burden_data = _aggregate_gene_burden_from_columns(
             df, case_samples, control_samples, vcf_samples, gt_columns
         )
-    elif use_gt_aggregation:
-        assert case_samples is not None
-        assert control_samples is not None
+    elif use_gt_aggregation and case_samples and control_samples:
         logger.info(
-            "Using packed GT string collapsing for gene burden "
-            f"({len(case_samples)} cases, {len(control_samples)} controls)"
+            "Using packed GT string collapsing for gene burden (%d cases, %d ctrls)",
+            len(case_samples),
+            len(control_samples),
         )
         gene_burden_data = _aggregate_gene_burden_from_gt(df, case_samples, control_samples)
     else:
@@ -413,22 +349,27 @@ def perform_gene_burden_analysis(
     results = []
     for row in grouped.itertuples(index=False):
         gene = getattr(row, "GENE", "")
-        p_count = int(getattr(row, "proband_count", 0))
-        c_count = int(getattr(row, "control_count", 0))
+        p_c = getattr(row, "proband_called_count", None)
+        p_count = (
+            int(p_c)
+            if p_c is not None and not pd.isna(p_c)
+            else int(getattr(row, "proband_count", 0))
+        )
+        c_c = getattr(row, "control_called_count", None)
+        c_count = (
+            int(c_c)
+            if c_c is not None and not pd.isna(c_c)
+            else int(getattr(row, "control_count", 0))
+        )
 
-        if p_count == 0 and c_count == 0:
+        if p_count == 0 or c_count == 0:
             continue
 
         if mode == "samples":
-            # Collapsing test (CMC/CAST): carrier vs non-carrier
-            if uses_per_sample_collapsing:
-                p_var = int(getattr(row, "proband_carrier_count", 0))
-                c_var = int(getattr(row, "control_carrier_count", 0))
-                var_metric = ("proband_carrier_count", "control_carrier_count")
-            else:
-                p_var = int(getattr(row, "proband_variant_count", 0))
-                c_var = int(getattr(row, "control_variant_count", 0))
-                var_metric = ("proband_variant_count", "control_variant_count")
+            suffix = "carrier_count" if uses_per_sample_collapsing else "variant_count"
+            p_key, c_key = f"proband_{suffix}", f"control_{suffix}"
+            p_var, c_var = int(getattr(row, p_key, 0)), int(getattr(row, c_key, 0))
+            var_metric = (p_key, c_key)
 
             p_ref = p_count - p_var
             c_ref = c_count - c_var
@@ -445,8 +386,10 @@ def perform_gene_burden_analysis(
             # Allele-based test: alt alleles vs ref alleles
             p_all = int(getattr(row, "proband_allele_count", 0))
             c_all = int(getattr(row, "control_allele_count", 0))
-            p_ref = p_count * 2 - p_all
-            c_ref = c_count * 2 - c_all
+            p_tot_chrom = int(getattr(row, "proband_called_chromosomes", p_count * 2))
+            c_tot_chrom = int(getattr(row, "control_called_chromosomes", c_count * 2))
+            p_ref = p_tot_chrom - p_all
+            c_ref = c_tot_chrom - c_all
             table = [[p_all, c_all], [p_ref, c_ref]]
             var_metric = ("proband_allele_count", "control_allele_count")
 
@@ -507,32 +450,18 @@ def perform_gene_burden_analysis(
 
     results_df["corrected_p_value"] = corrected_pvals
 
-    if mode == "samples":
-        final_cols = [
-            "GENE",
-            "proband_count",
-            "control_count",
-            var_metric[0],
-            var_metric[1],
-            "raw_p_value",
-            "corrected_p_value",
-            "odds_ratio",
-            "or_ci_lower",
-            "or_ci_upper",
-        ]
-    else:
-        final_cols = [
-            "GENE",
-            "proband_count",
-            "control_count",
-            "proband_allele_count",
-            "control_allele_count",
-            "raw_p_value",
-            "corrected_p_value",
-            "odds_ratio",
-            "or_ci_lower",
-            "or_ci_upper",
-        ]
+    final_cols = [
+        "GENE",
+        "proband_count",
+        "control_count",
+        var_metric[0],
+        var_metric[1],
+        "raw_p_value",
+        "corrected_p_value",
+        "odds_ratio",
+        "or_ci_lower",
+        "or_ci_upper",
+    ]
 
     if uses_per_sample_collapsing and "n_qualifying_variants" in results_df.columns:
         final_cols.append("n_qualifying_variants")
@@ -542,39 +471,120 @@ def perform_gene_burden_analysis(
     return results_df
 
 
-def _aggregate_gene_burden_legacy(df: pd.DataFrame) -> list[dict]:
-    """
-    Legacy aggregation: sum per-variant counts by gene.
+def _col_total(gdf: pd.DataFrame, col: str, fallback_col: str) -> int:
+    if col in gdf.columns:
+        return int(gdf[col].iloc[0])
+    return int(gdf[fallback_col].max()) if fallback_col in gdf.columns else 0
 
-    This is the fallback when case/control sample sets are not available.
-    Note: this method double-counts samples that carry variants at multiple
-    sites in the same gene. Use GT-based aggregation when possible.
-    """
+
+def _parse_carrier_token(token: str) -> tuple[str, int, int]:
+    parts = token.strip().rsplit(":", 2)
+    if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit():
+        return parts[0], int(parts[1]), int(parts[2])
+    if len(parts) >= 2 and parts[-1].isdigit():
+        return token.strip().rsplit(":", 1)[0], int(parts[-1]), 2
+    return token.strip(), 1, 2
+
+
+def _called_and_chrom(gdf: pd.DataFrame, tot: int, prefix: str) -> tuple[int, int]:
+    """Compute callable sample count and callable chromosomes for legacy aggregation."""
+    m_col, c_col = f"{prefix}_missing_samples", f"{prefix}_called_count"
+    chrom_col, car_col = f"{prefix}_called_chromosomes", f"{prefix}_carrier_samples"
+
+    if car_col not in gdf.columns and len(gdf) > 1:
+        has_mis = (c_col in gdf.columns and int((tot - gdf[c_col] > 0).sum()) > 0) or (
+            m_col in gdf.columns
+            and any(
+                x.strip() for s in gdf[m_col].dropna() if s for x in str(s).split(";") if x.strip()
+            )
+        )
+        if has_mis:
+            return 0, 0
+
+    if m_col in gdf.columns:
+        missing = {
+            x.strip() for s in gdf[m_col].dropna() if s for x in str(s).split(";") if x.strip()
+        }
+        called = max(0, tot - len(missing))
+    elif c_col in gdf.columns:
+        called = (
+            int(gdf[c_col].min())
+            if (len(gdf) == 1 or int((tot - gdf[c_col] > 0).sum()) == 0)
+            else 0
+        )
+    else:
+        called = tot
+
+    if called == 0:
+        chrom = 0
+    elif car_col in gdf.columns and m_col in gdf.columns:
+        haploid_rows: dict[str, int] = {}
+        for s_str in gdf[car_col].dropna():
+            if not s_str or not str(s_str).strip():
+                continue
+            seen_in_row: set[str] = set()
+            for item in str(s_str).split(";"):
+                if not item.strip():
+                    continue
+                sname, _, pl = _parse_carrier_token(item)
+                if sname not in missing and pl == 1 and sname not in seen_in_row:
+                    seen_in_row.add(sname)
+                    haploid_rows[sname] = haploid_rows.get(sname, 0) + 1
+        n_all_haploid = sum(1 for cnt in haploid_rows.values() if cnt == len(gdf))
+        chrom = 2 * called - n_all_haploid
+    elif chrom_col in gdf.columns:
+        chrom = max(0, min(called * 2, int(gdf[chrom_col].min())))
+    else:
+        chrom = called * 2
+    return called, chrom
+
+
+def _legacy_counts(gdf: pd.DataFrame, called: int, chrom: int, prefix: str) -> tuple[int, int]:
+    if called == 0:
+        return 0, 0
+    m_col, car_col = f"{prefix}_missing_samples", f"{prefix}_carrier_samples"
+    if car_col in gdf.columns and m_col in gdf.columns:
+        missing = {
+            x.strip() for s in gdf[m_col].dropna() if s for x in str(s).split(";") if x.strip()
+        }
+        dosages: dict[str, int] = {}
+        for s_str in gdf[car_col].dropna():
+            if not s_str or not str(s_str).strip():
+                continue
+            for item in str(s_str).split(";"):
+                if not item.strip():
+                    continue
+                sname, d, _ = _parse_carrier_token(item)
+                if sname not in missing and d > 0:
+                    dosages[sname] = max(dosages.get(sname, 0), d)
+        return min(called, len(dosages)), min(chrom, sum(dosages.values()))
+
+    v_col, a_col = f"{prefix}_variant_count", f"{prefix}_allele_count"
+    v_cnt = min(called, int(gdf[v_col].sum())) if v_col in gdf.columns else 0
+    a_cnt = min(chrom, int(gdf[a_col].sum())) if a_col in gdf.columns else 0
+    return v_cnt, a_cnt
+
+
+def _aggregate_gene_burden_legacy(df: pd.DataFrame) -> list[dict]:
+    """Legacy aggregation: sum per-variant counts by gene."""
     gene_burden_data = []
     for gene, gene_df in df.groupby("GENE", observed=True):
-        p_count = gene_df["proband_count"].iloc[0]
-        c_count = gene_df["control_count"].iloc[0]
-
-        p_var_count = int(gene_df["proband_variant_count"].sum())
-        c_var_count = int(gene_df["control_variant_count"].sum())
-        p_allele_count = int(gene_df["proband_allele_count"].sum())
-        c_allele_count = int(gene_df["control_allele_count"].sum())
-
-        # Cap to prevent impossible values (band-aid for legacy path)
-        if p_var_count > p_count:
-            p_var_count = p_count
-        if c_var_count > c_count:
-            c_var_count = c_count
-        if p_allele_count > p_count * 2:
-            p_allele_count = p_count * 2
-        if c_allele_count > c_count * 2:
-            c_allele_count = c_count * 2
+        tot_p = _col_total(gene_df, "proband_count", "proband_called_count")
+        tot_c = _col_total(gene_df, "control_count", "control_called_count")
+        p_called, p_chrom = _called_and_chrom(gene_df, tot_p, "proband")
+        c_called, c_chrom = _called_and_chrom(gene_df, tot_c, "control")
+        p_var_count, p_allele_count = _legacy_counts(gene_df, p_called, p_chrom, "proband")
+        c_var_count, c_allele_count = _legacy_counts(gene_df, c_called, c_chrom, "control")
 
         gene_burden_data.append(
             {
                 "GENE": gene,
-                "proband_count": p_count,
-                "control_count": c_count,
+                "proband_count": tot_p,
+                "control_count": tot_c,
+                "proband_called_count": p_called,
+                "control_called_count": c_called,
+                "proband_called_chromosomes": p_chrom,
+                "control_called_chromosomes": c_chrom,
                 "proband_variant_count": p_var_count,
                 "control_variant_count": c_var_count,
                 "proband_allele_count": p_allele_count,

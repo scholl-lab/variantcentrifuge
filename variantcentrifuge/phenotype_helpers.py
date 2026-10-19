@@ -19,6 +19,8 @@ from typing import Any
 
 import pandas as pd
 
+from .genotype_utils import is_missing, is_variant
+
 logger = logging.getLogger("variantcentrifuge")
 
 
@@ -221,8 +223,8 @@ def build_sample_phenotype_map(df: pd.DataFrame) -> dict[str, set[str]]:
             entry = entry.strip()
             if not entry:
                 continue
-            sname, _ = extract_sample_and_genotype(entry)
-            if sname:
+            sname, gt = extract_sample_and_genotype(entry)
+            if sname and is_variant(gt):
                 sample_names.append(sname)
 
         pheno_groups = [pg.strip() for pg in pheno_str.split(";") if pg.strip()]
@@ -300,6 +302,10 @@ def assign_case_control_counts(
     control_allele_count_list = []
     p_hom_count_list = []
     c_hom_count_list = []
+    proband_called_list = []
+    control_called_list = []
+    proband_called_chrom_list = []
+    control_called_chrom_list = []
 
     for idx, val in enumerate(df["GT"]):
         # Log progress every 1000 variants
@@ -322,21 +328,34 @@ def assign_case_control_counts(
         c_allele_count = 0
         p_hom_count = 0
         c_hom_count = 0
+        p_called_count = 0
+        c_called_count = 0
+        p_called_chrom = 0
+        c_called_chrom = 0
 
         # For each sample, if not in samples_with_variant, assume genotype=0/0
         for sample_name in all_samples:
             genotype = samples_with_variant.get(sample_name, "0/0")
-            allele_count = genotype_to_allele_count(genotype)
+            if is_missing(genotype):
+                continue
 
+            chrom_count = 2 if ("/" in genotype or "|" in genotype) else 1
+            if sample_name in case_samples:
+                p_called_count += 1
+                p_called_chrom += chrom_count
+            elif sample_name in control_samples:
+                c_called_count += 1
+                c_called_chrom += chrom_count
+
+            allele_count = genotype_to_allele_count(genotype)
             # Check if homozygous variant (unphased or phased)
             is_hom_variant = genotype in ("1/1", "1|1")
 
-            if sample_name in case_samples:
-                if allele_count > 0:
-                    p_variant_count += 1
-                    p_allele_count += allele_count
-                    if is_hom_variant:
-                        p_hom_count += 1
+            if sample_name in case_samples and allele_count > 0:
+                p_variant_count += 1
+                p_allele_count += allele_count
+                if is_hom_variant:
+                    p_hom_count += 1
             elif sample_name in control_samples and allele_count > 0:
                 c_variant_count += 1
                 c_allele_count += allele_count
@@ -349,15 +368,26 @@ def assign_case_control_counts(
         control_allele_count_list.append(c_allele_count)
         p_hom_count_list.append(p_hom_count)
         c_hom_count_list.append(c_hom_count)
+        proband_called_list.append(p_called_count)
+        control_called_list.append(c_called_count)
+        proband_called_chrom_list.append(p_called_chrom)
+        control_called_chrom_list.append(c_called_chrom)
 
     df["proband_count"] = total_proband
     df["control_count"] = total_control
+    df["proband_called_count"] = proband_called_list
+    df["control_called_count"] = control_called_list
+    df["proband_called_chromosomes"] = proband_called_chrom_list
+    df["control_called_chromosomes"] = control_called_chrom_list
     df["proband_variant_count"] = proband_variant_count_list
     df["control_variant_count"] = control_variant_count_list
     df["proband_allele_count"] = proband_allele_count_list
     df["control_allele_count"] = control_allele_count_list
     df["proband_homozygous_count"] = p_hom_count_list
     df["control_homozygous_count"] = c_hom_count_list
+
+    df.attrs["proband_samples"] = set(case_samples)
+    df.attrs["control_samples"] = set(control_samples)
 
     logger.debug("Case/control counts assigned.")
     if len(df) > 0:

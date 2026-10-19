@@ -344,3 +344,54 @@ class TestIGVReportParallel:
 
             # Check reference parameter (index 9)
             assert call_args[9] == "hg38"
+
+    def test_igv_report_carrier_filtering_missing_and_haploid(self, temp_dir):
+        """Verify generate_igv_report skips ., .|., ./.:15, and 0 while scheduling 0/1:20 and 1."""
+        tsv_file = temp_dir / "filter_variants.tsv"
+        tsv_content = (
+            "CHROM\tPOS\tREF\tALT\tGT\n"
+            "chr1\t100\tA\tT\tS_DOT(.)\n"
+            "chr1\t200\tA\tT\tS_PIPE(.|.)\n"
+            "chr1\t300\tA\tT\tS_COLON(./.:15)\n"
+            "chr1\t400\tA\tT\tS_REF(0)\n"
+            "chr1\t500\tA\tT\tS_HET(0/1:20)\n"
+            "chr1\t600\tA\tT\tS_HAP(1)\n"
+        )
+        tsv_file.write_text(tsv_content)
+
+        bam_file = temp_dir / "bams.txt"
+        bam_file.write_text(
+            "S_DOT,/path/s_dot.bam\n"
+            "S_PIPE,/path/s_pipe.bam\n"
+            "S_COLON,/path/s_colon.bam\n"
+            "S_REF,/path/s_ref.bam\n"
+            "S_HET,/path/s_het.bam\n"
+            "S_HAP,/path/s_hap.bam\n"
+        )
+
+        with patch(
+            "variantcentrifuge.generate_igv_report._generate_single_igv_report"
+        ) as mock_report:
+            mock_report.side_effect = lambda task: (
+                True,
+                task[0],
+                task[1],
+                task[2],
+                task[3],
+                task[4],
+                task[7],
+            )
+            generate_igv_report(
+                variants_tsv=str(tsv_file),
+                output_dir=str(temp_dir),
+                bam_mapping_file=str(bam_file),
+            )
+
+        scheduled_samples = [call[0][0][0] for call in mock_report.call_args_list]
+        assert "S_DOT" not in scheduled_samples
+        assert "S_PIPE" not in scheduled_samples
+        assert "S_COLON" not in scheduled_samples
+        assert "S_REF" not in scheduled_samples
+        assert "S_HET" in scheduled_samples
+        assert "S_HAP" in scheduled_samples
+        assert set(scheduled_samples) == {"S_HET", "S_HAP"}
