@@ -69,17 +69,20 @@ def _firth_loglik(beta: np.ndarray, y: np.ndarray, x: np.ndarray) -> float:
     Returns
     -------
     float
-        Penalized log-likelihood. Returns plain log-likelihood if Fisher
-        information matrix is singular (det <= 0).
+        Penalized log-likelihood. Returns -inf if Fisher information matrix
+        is singular (det <= 0) or calculations are non-finite.
     """
     pi = 1.0 / (1.0 + np.exp(-x @ beta))
     ll = float(np.sum(y * np.log(pi + 1e-15) + (1 - y) * np.log(1 - pi + 1e-15)))
+    if not np.isfinite(ll):
+        return -np.inf
     w = pi * (1 - pi)
     xtwx = x.T @ (w[:, None] * x)
     sign, logdet = np.linalg.slogdet(xtwx)
-    if sign <= 0:
-        return ll
-    return float(ll + 0.5 * logdet)
+    if sign <= 0 or not np.isfinite(logdet):
+        return -np.inf
+    val = float(ll + 0.5 * logdet)
+    return val if np.isfinite(val) else -np.inf
 
 
 def _firth_logistic(
@@ -128,6 +131,7 @@ def _firth_logistic(
 
     _n, k = x.shape
     beta = np.zeros(k)
+    converged = False
 
     for _iteration in range(max_iter):
         pi = 1.0 / (1.0 + np.exp(-x @ beta))
@@ -151,17 +155,31 @@ def _firth_logistic(
 
         # Step-halving: ensure penalized log-likelihood increases
         old_ll = _firth_loglik(beta, y, x)
+        step_accepted = False
         for _halving in range(10):
             new_ll = _firth_loglik(beta_new, y, x)
-            if new_ll > old_ll:
+            if np.isfinite(new_ll) and (
+                new_ll > old_ll
+                or (
+                    np.isclose(new_ll, old_ll, rtol=0.0, atol=1e-12)
+                    and np.max(np.abs(beta_new - beta)) < tol
+                )
+            ):
+                step_accepted = True
                 break
             step *= 0.5
             beta_new = beta + step
+
+        if not step_accepted:
+            return None
 
         converged = bool(np.max(np.abs(beta_new - beta)) < tol)
         beta = beta_new
         if converged:
             break
+
+    if not converged:
+        return None
 
     # Final Fisher information at converged beta
     pi = 1.0 / (1.0 + np.exp(-x @ beta))
