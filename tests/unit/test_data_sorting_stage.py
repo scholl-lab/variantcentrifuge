@@ -90,3 +90,75 @@ def test_sort_tsv_by_gene_all_compression_combinations(
     assert out_lines[1].startswith("ATM\t")
     assert out_lines[2].startswith("BRCA1\t")
     assert out_lines[3].startswith("TP53\t")
+
+
+def test_data_sorting_stage_process_resolves_ann_zero_gene(tmp_path: Path) -> None:
+    """Verify DataSortingStage._process recognizes ANN[0].GENE and sorts correctly."""
+    from argparse import Namespace
+    from unittest.mock import Mock
+
+    from variantcentrifuge.pipeline_core.context import PipelineContext
+    from variantcentrifuge.pipeline_core.workspace import Workspace
+
+    inter_dir = tmp_path / "intermediate"
+    inter_dir.mkdir()
+    ws = Mock(spec=Workspace)
+    ws.base_name = "test_sample"
+    ws.intermediate_dir = inter_dir
+    ws.get_intermediate_path = lambda name: inter_dir / name
+
+    input_file = inter_dir / "test_sample.extracted.tsv"
+    input_file.write_text("CHROM\tPOS\tANN[0].GENE\nchr17\t100\tTP53\nchr17\t200\tBRCA1\n")
+
+    context = PipelineContext(
+        args=Namespace(),
+        config={"sort_parallel": 1, "sort_memory_limit": "1G"},
+        workspace=ws,
+    )
+    context.extracted_tsv = input_file
+
+    stage = DataSortingStage()
+    updated_ctx = stage._process(context)
+
+    assert updated_ctx.extracted_tsv != input_file
+    assert updated_ctx.extracted_tsv.exists()
+
+    content = updated_ctx.extracted_tsv.read_text().splitlines()
+    assert len(content) == 3
+    assert content[0] == "CHROM\tPOS\tANN[0].GENE"
+    assert content[1] == "chr17\t200\tBRCA1"
+    assert content[2] == "chr17\t100\tTP53"
+
+
+def test_data_sorting_stage_process_custom_gene_column(tmp_path: Path) -> None:
+    """Verify DataSortingStage._process supports custom gene_column_name."""
+    from argparse import Namespace
+    from unittest.mock import Mock
+
+    from variantcentrifuge.pipeline_core.context import PipelineContext
+    from variantcentrifuge.pipeline_core.workspace import Workspace
+
+    inter_dir = tmp_path / "intermediate"
+    inter_dir.mkdir()
+    ws = Mock(spec=Workspace)
+    ws.base_name = "test_sample"
+    ws.intermediate_dir = inter_dir
+    ws.get_intermediate_path = lambda name: inter_dir / name
+
+    input_file = inter_dir / "test_sample.extracted.tsv"
+    input_file.write_text("CHROM\tPOS\tCUSTOM_GENE\nchr17\t100\tTP53\nchr17\t200\tBRCA1\n")
+
+    context = PipelineContext(
+        args=Namespace(),
+        config={"gene_column_name": "CUSTOM_GENE", "sort_parallel": 1, "sort_memory_limit": "1G"},
+        workspace=ws,
+    )
+    context.extracted_tsv = input_file
+
+    stage = DataSortingStage()
+    updated_ctx = stage._process(context)
+
+    assert updated_ctx.extracted_tsv.exists()
+    content = updated_ctx.extracted_tsv.read_text().splitlines()
+    assert content[1].endswith("BRCA1")
+    assert content[2].endswith("TP53")

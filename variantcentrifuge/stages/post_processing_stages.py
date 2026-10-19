@@ -107,6 +107,7 @@ class PhenotypeIntegrationStage(Stage):
         return {
             "field_extraction",
             "parallel_complete_processing",
+            "data_sorting",
             "genotype_replacement",
             "phenotype_loading",
         }
@@ -188,10 +189,13 @@ class PhenotypeIntegrationStage(Stage):
         compression = "gzip" if str(input_tsv).endswith(".gz") else None
         df = pd.read_csv(input_tsv, sep="\t", dtype=str, compression=cast(Any, compression))
 
-        # Phase 11: Check for per-sample columns (bcftools output) vs packed GT column
-        # Per-sample columns are sample IDs directly (from context.vcf_samples)
-        has_sample_columns = context.vcf_samples and all(
-            sample in df.columns for sample in context.vcf_samples
+        # Check for per-sample columns (sample names, GEN[i].GT, or GEN_i__GT)
+        has_sample_columns = bool(context.vcf_samples) and (
+            all(sample in df.columns for sample in context.vcf_samples)
+            or any(
+                f"GEN[{i}].GT" in df.columns or f"GEN_{i}__GT" in df.columns
+                for i in range(len(context.vcf_samples))
+            )
         )
 
         if has_sample_columns:
@@ -319,17 +323,28 @@ class DataSortingStage(Stage):
             logger.warning("No extracted TSV found for sorting")
             return context
 
-        # Check if sorting is needed and if gene column exists
-        gene_column = context.config.get("gene_column_name", "GENE")
-
-        # First check if gene column exists in the TSV
+        # Check if sorting is needed and resolve gene column
+        gene_col_cfg = context.config.get("gene_column_name")
         has_gene_column = False
+        gene_column = "GENE"
+
         try:
             with _ps_mod.smart_open(str(context.extracted_tsv), "r") as f:
                 header = f.readline().strip()
                 if header:
                     columns = header.split("\t")
-                    has_gene_column = gene_column in columns
+                    if gene_col_cfg and gene_col_cfg != "GENE":
+                        gene_column = gene_col_cfg
+                        has_gene_column = gene_column in columns
+                    elif "GENE" in columns:
+                        gene_column = "GENE"
+                        has_gene_column = True
+                    elif "ANN[0].GENE" in columns:
+                        gene_column = "ANN[0].GENE"
+                        has_gene_column = True
+                    elif "ANN_0__GENE" in columns:
+                        gene_column = "ANN_0__GENE"
+                        has_gene_column = True
         except Exception as e:
             logger.warning(f"Could not read header from {context.extracted_tsv}: {e}")
             return context

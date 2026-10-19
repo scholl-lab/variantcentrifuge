@@ -199,3 +199,41 @@ def test_phased_genotypes():
     # So "0|0" is NOT in that list and would be included
     # Let me verify the actual behavior
     assert result == "Sample1(HPO:X);Sample2(HPO:Y);Sample3()"
+
+
+@pytest.mark.unit
+def test_indexed_genotype_columns():
+    """Test extraction from standard bcftools GEN[i].GT indexed columns."""
+    row = pd.Series({"GEN[0].GT": "0/1", "GEN[1].GT": "0/0", "GEN[2].GT": "1/1"})
+    vcf_samples = ["SampleA", "SampleB", "SampleC"]
+    phenotypes = {"SampleA": {"HPO:001"}, "SampleC": {"HPO:002"}}
+
+    result = extract_phenotypes_from_sample_columns(row, vcf_samples, phenotypes)
+    assert result == "SampleA(HPO:001);SampleC(HPO:002)"
+
+
+@pytest.mark.unit
+def test_reversed_and_double_digit_indexed_columns():
+    """Test extraction with reversed column order and indices above 9."""
+    samples = [f"Sample{i}" for i in range(12)]
+    # Reversed dictionary order
+    row_data = {f"GEN[{i}].GT": "0/0" for i in range(12)}
+    row_data["GEN[10].GT"] = "0/1"
+    row_data["GEN[0].GT"] = "1/1"
+    row = pd.Series(row_data)
+
+    phenotypes = {"Sample0": {"HPO:ZERO"}, "Sample10": {"HPO:TEN"}}
+
+    result = extract_phenotypes_from_sample_columns(row, samples, phenotypes)
+    assert result == "Sample0(HPO:ZERO);Sample10(HPO:TEN)"
+
+
+@pytest.mark.unit
+def test_sanitized_indexed_columns():
+    """Test extraction from sanitized GEN_i__GT columns."""
+    row = pd.Series({"GEN_0__GT": "0/1", "GEN_1__GT": "0/0"})
+    vcf_samples = ["SampleX", "SampleY"]
+    phenotypes = {"SampleX": {"HPO:X"}}
+
+    result = extract_phenotypes_from_sample_columns(row, vcf_samples, phenotypes)
+    assert result == "SampleX(HPO:X)"

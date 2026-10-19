@@ -226,24 +226,24 @@ def extract_phenotypes_from_sample_columns(
         Phenotypes for samples with variants: "Sample1(pheno1,pheno2);Sample2(pheno3)"
         Samples with reference genotypes (0/0, ./., NA, empty) are excluded.
     """
+    import contextlib
+
     import pandas as pd
 
+    phenotypes = phenotypes or {}
     phenotype_entries = []
 
-    for sample_id in vcf_samples:
-        # Get GT value for this sample - try both sanitized and original column names
-        # Original: "GEN[0].GT", Sanitized: "GEN_0__GT"
+    for i, sample_id in enumerate(vcf_samples):
+        # Get GT value for this sample - support sample name, GEN[i].GT, and GEN_i__GT
         gt_value = None
-
-        # Try getting by attribute (namedtuple or Series)
-        if hasattr(row, sample_id):
-            gt_value = getattr(row, sample_id)
-        # Try dictionary-style access (Series)
-        elif hasattr(row, "__getitem__"):
-            import contextlib
-
-            with contextlib.suppress(KeyError, IndexError):
-                gt_value = row[sample_id]
+        for candidate in (sample_id, f"GEN[{i}].GT", f"GEN_{i}__GT"):
+            if hasattr(row, "__getitem__"):
+                with contextlib.suppress(KeyError, IndexError, TypeError):
+                    gt_value = row[candidate]
+                    break
+            if hasattr(row, candidate):
+                gt_value = getattr(row, candidate)
+                break
 
         # Handle missing/NA/reference genotypes
         if pd.isna(gt_value) or not gt_value:
