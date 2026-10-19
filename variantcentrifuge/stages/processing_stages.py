@@ -781,7 +781,7 @@ class ParallelCompleteProcessingStage(Stage):
                         return False
                     if expected_header is not None and first_line != expected_header.strip():
                         return False
-            except Exception as e:
+            except Exception:
                 if not fallback_on_error:
                     raise
                 return False

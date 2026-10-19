@@ -19,7 +19,6 @@ Region=promoter_X;InGeneList=cancer_panel;Panel=HereditaryCancer
 import json
 import logging
 import os
-import re
 from typing import Any
 
 import pandas as pd
@@ -37,249 +36,31 @@ except ImportError:
 logger = logging.getLogger("variantcentrifuge")
 
 
-def _sanitize_name(name: str) -> str:
-    """
-    Sanitize a name to be safe for use in annotations.
+from .feature_loaders import (
+    _load_bed_files,
+    _load_gene_lists,
+    _load_json_gene_data,
+    _parse_bed_line,
+    _sanitize_name,
+)
 
-    Parameters
-    ----------
-    name : str
-        Raw name string
-
-    Returns
-    -------
-    str
-        Sanitized name with only alphanumeric characters and underscores
-    """
-    # Remove extension and path
-    base_name = os.path.splitext(os.path.basename(name))[0]
-    # Replace non-alphanumeric characters with underscores
-    sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", base_name)
-    # Remove leading/trailing underscores and collapse multiple underscores
-    sanitized = re.sub(r"_+", "_", sanitized).strip("_")
-    # Ensure not empty
-    return sanitized if sanitized else "unnamed"
-
-
-def _parse_bed_line(line: str) -> tuple | None:
-    """
-    Parse a single BED file line.
-
-    Parameters
-    ----------
-    line : str
-        BED format line
-
-    Returns
-    -------
-    tuple or None
-        Tuple of (chrom, start, end, name) or None if invalid
-    """
-    line = line.strip()
-    if not line or line.startswith(("#", "track", "browser")):
-        return None
-
-    parts = line.split("\t")
-    if len(parts) < 3:
-        return None
-
-    try:
-        chrom = parts[0].replace("chr", "")
-        start = int(parts[1])
-        end = int(parts[2])
-        name = parts[3] if len(parts) > 3 else f"region_{start}_{end}"
-        return (chrom, start, end, name)
-    except (ValueError, IndexError):
-        return None
-
-
-def _load_bed_files(bed_files: list[str]) -> dict[str, Any]:
-    """
-    Load BED files into interval trees for efficient overlap detection.
-
-    Parameters
-    ----------
-    bed_files : List[str]
-        List of BED file paths
-
-    Returns
-    -------
-    Dict[str, Any]
-        Dictionary with chromosome-keyed interval trees
-    """
-    if not INTERVALTREE_AVAILABLE:
-        logger.warning("intervaltree not available. BED annotation disabled.")
-        return {}
-
-    regions_by_chrom = {}
-
-    for file_path in bed_files:
-        if not os.path.exists(file_path):
-            logger.warning(f"BED file not found: {file_path}")
-            continue
-
-        file_name = _sanitize_name(file_path)
-        regions_loaded = 0
-
-        try:
-            with open(file_path, encoding="utf-8") as f:
-                for line_num, line in enumerate(f, 1):
-                    parsed = _parse_bed_line(line)
-                    if parsed is None:
-                        continue
-
-                    chrom, start, end, name = parsed
-
-                    # Ensure interval is valid
-                    if start >= end:
-                        logger.debug(f"Invalid interval in {file_path}:{line_num}: {start}-{end}")
-                        continue
-
-                    if chrom not in regions_by_chrom:
-                        regions_by_chrom[chrom] = IntervalTree()
-
-                    # Store both region name and file source
-                    annotation_name = f"{name}_{file_name}"
-                    regions_by_chrom[chrom][start:end] = annotation_name
-                    regions_loaded += 1
-
-            logger.info(f"Loaded {regions_loaded} regions from BED file: {file_path}")
-
-        except Exception as e:
-            logger.error(f"Failed to load BED file {file_path}: {e}")
-
-    return regions_by_chrom
-
-
-def _load_gene_lists(gene_list_files: list[str]) -> dict[str, set[str]]:
-    """
-    Load gene lists from text files.
-
-    Parameters
-    ----------
-    gene_list_files : List[str]
-        List of gene list file paths
-
-    Returns
-    -------
-    Dict[str, Set[str]]
-        Dictionary mapping list names to sets of gene symbols (uppercase)
-    """
-    gene_lists = {}
-
-    for file_path in gene_list_files:
-        if not os.path.exists(file_path):
-            logger.warning(f"Gene list file not found: {file_path}")
-            continue
-
-        list_name = _sanitize_name(file_path)
-        genes_loaded = 0
-
-        try:
-            with open(file_path, encoding="utf-8") as f:
-                genes = set()
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#"):
-                        # Handle comma-separated genes on a single line
-                        for gene in line.split(","):
-                            gene = gene.strip()
-                            if gene:
-                                genes.add(gene.upper())
-                                genes_loaded += 1
-
-                gene_lists[list_name] = genes
-
-            logger.info(f"Loaded {genes_loaded} genes from list: {file_path}")
-
-        except Exception as e:
-            logger.error(f"Failed to load gene list {file_path}: {e}")
-
-    return gene_lists
-
-
-def _load_json_gene_data(json_files: list[str], mapping_config: str) -> dict[str, dict[str, Any]]:
-    """
-    Load structured gene data from JSON files.
-
-    Parameters
-    ----------
-    json_files : List[str]
-        List of JSON file paths
-    mapping_config : str
-        JSON string specifying field mapping
-
-    Returns
-    -------
-    Dict[str, Dict[str, Any]]
-        Dictionary mapping gene symbols to their data dictionaries
-    """
-    if not mapping_config:
-        logger.warning("No JSON gene mapping provided. Skipping JSON gene data.")
-        return {}
-
-    try:
-        mapping = json.loads(mapping_config)
-        identifier_key = mapping.get("identifier", "gene_symbol")
-        data_fields = mapping.get("dataFields", [])
-
-        if not data_fields:
-            logger.warning("No data fields specified in JSON mapping. Skipping JSON gene data.")
-            return {}
-
-    except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON mapping configuration: {e}")
-        return {}
-
-    json_gene_data = {}
-
-    for file_path in json_files:
-        if not os.path.exists(file_path):
-            logger.warning(f"JSON gene file not found: {file_path}")
-            continue
-
-        genes_loaded = 0
-
-        try:
-            with open(file_path, encoding="utf-8") as f:
-                data = json.load(f)
-
-            # Handle both list and dict formats
-            items = (
-                data if isinstance(data, list) else data.values() if isinstance(data, dict) else []
-            )
-
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-
-                identifier = item.get(identifier_key)
-                if not identifier:
-                    continue
-
-                gene_symbol = str(identifier).upper()
-                gene_annotations = {}
-
-                for field in data_fields:
-                    value = item.get(field)
-                    if value is not None:
-                        # Convert value to string and sanitize
-                        str_value = str(value).strip()
-                        if str_value:
-                            # Sanitize field name
-                            clean_field = re.sub(r"[^a-zA-Z0-9_]", "_", field)
-                            gene_annotations[clean_field] = str_value
-
-                if gene_annotations:
-                    json_gene_data[gene_symbol] = gene_annotations
-                    genes_loaded += 1
-
-            logger.info(f"Loaded data for {genes_loaded} genes from JSON: {file_path}")
-
-        except Exception as e:
-            logger.error(f"Failed to load JSON gene file {file_path}: {e}")
-
-    return json_gene_data
+__all__ = [
+    "INTERVALTREE_AVAILABLE",
+    "_add_json_annotations_as_columns",
+    "_extract_genes_from_row",
+    "_find_gene_list_matches",
+    "_find_json_gene_matches",
+    "_find_region_overlaps",
+    "_load_bed_files",
+    "_load_gene_lists",
+    "_load_json_gene_data",
+    "_parse_bed_line",
+    "_sanitize_name",
+    "annotate_dataframe_with_features",
+    "get_annotation_summary",
+    "load_custom_features",
+    "validate_annotation_config",
+]
 
 
 def load_custom_features(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -392,7 +173,7 @@ def _find_region_overlaps(row: pd.Series, regions_by_chrom: dict[str, Any]) -> l
         return annotations
 
     # Extract position information
-    chrom = str(row.get("CHROM", "")).replace("chr", "")
+    chrom = str(row.get("CHROM", "")).removeprefix("chr")
 
     try:
         pos = int(row.get("POS", 0))

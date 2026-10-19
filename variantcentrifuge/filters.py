@@ -26,6 +26,7 @@ TSV-based filtering:
   and annotation steps are complete, allowing filtering on computed columns.
 """
 
+import gzip
 import logging
 import os
 import tempfile
@@ -48,6 +49,7 @@ __all__ = [
     "filter_dataframe_with_query",
     "filter_final_tsv_by_genotype",
     "filter_tsv_with_expression",
+    "validate_bed_vcf_contigs",
 ]
 
 
@@ -208,6 +210,95 @@ def _count_vcf_records(path: str, *, cached: bool = False) -> int:
     return count
 
 
+_VCF_CONTIG_CACHE: dict[str, set[str]] = {}
+
+
+def _get_bed_contigs(bed_file: str) -> set[str]:
+    """Extract contigs from a BED file."""
+    contigs = set()
+    open_func = gzip.open if bed_file.endswith(".gz") else open
+    mode = "rt" if bed_file.endswith(".gz") else "r"
+    try:
+        with open_func(bed_file, mode) as f:
+            for line in f:
+                if isinstance(line, bytes):
+                    line = line.decode(errors="replace")
+                line = line.strip()
+                if not line or line.startswith(("#", "track", "browser")):
+                    continue
+                parts = line.split("\t")
+                if parts:
+                    contigs.add(parts[0])
+    except Exception as e:
+        logger.debug(f"Could not read BED contigs from {bed_file}: {e}")
+    return contigs
+
+
+def _get_vcf_contigs(vcf_file: str) -> set[str]:
+    """Extract contigs from a VCF header or records."""
+    if vcf_file in _VCF_CONTIG_CACHE:
+        return _VCF_CONTIG_CACHE[vcf_file]
+
+    contigs = set()
+    open_func = gzip.open if vcf_file.endswith(".gz") else open
+    mode = "rt" if vcf_file.endswith(".gz") else "r"
+    try:
+        with open_func(vcf_file, mode) as f:
+            for line in f:
+                if isinstance(line, bytes):
+                    line = line.decode(errors="replace")
+                if line.startswith("##contig=<ID="):
+                    cid = line[13:].split(",")[0].split(">")[0]
+                    if cid:
+                        contigs.add(cid)
+                elif line.startswith("#CHROM"):
+                    if contigs:
+                        break
+                elif not line.startswith("#"):
+                    parts = line.split("\t", 2)
+                    if parts:
+                        contigs.add(parts[0])
+                    if len(contigs) >= 50:
+                        break
+    except Exception as e:
+        logger.debug(f"Could not read VCF contigs from {vcf_file}: {e}")
+
+    if contigs:
+        _VCF_CONTIG_CACHE[vcf_file] = contigs
+    return contigs
+
+
+def validate_bed_vcf_contigs(vcf_file: str, bed_file: str) -> None:
+    """Validate that BED and VCF contig naming conventions match.
+
+    Raises ValueError if there is a clear contig prefix mismatch (e.g. 'chr1' vs '1').
+    Logs warnings for unmatched contigs.
+    """
+    bed_contigs = _get_bed_contigs(bed_file)
+    vcf_contigs = _get_vcf_contigs(vcf_file)
+
+    if not bed_contigs or not vcf_contigs:
+        return
+
+    common = bed_contigs & vcf_contigs
+    if not common:
+        bed_norm = {c.removeprefix("chr") for c in bed_contigs}
+        vcf_norm = {c.removeprefix("chr") for c in vcf_contigs}
+        common_norm = bed_norm & vcf_norm
+
+        if common_norm:
+            sample_bed = sorted(bed_contigs)[:3]
+            sample_vcf = sorted(vcf_contigs)[:3]
+            raise ValueError(
+                f"Contig prefix mismatch between BED ({sample_bed}) and VCF ({sample_vcf}). "
+                "Chromosomes in BED and VCF must use the same naming convention (e.g., 'chr1' vs '1')."
+            )
+
+    unmatched_bed = bed_contigs - vcf_contigs
+    if unmatched_bed:
+        logger.warning(f"BED contains contigs not found in VCF: {sorted(unmatched_bed)[:5]}")
+
+
 def extract_variants(vcf_file: str, bed_file: str, cfg: dict[str, Any], output_file: str) -> str:
     """
     Extract variants from a VCF using bcftools and a BED file.
@@ -242,6 +333,8 @@ def extract_variants(vcf_file: str, bed_file: str, cfg: dict[str, Any], output_f
         If the extraction command fails.
     """
     from .vcf_eff_one_per_line import restrict_vcf_ann_to_alt
+
+    validate_bed_vcf_contigs(vcf_file, bed_file)
 
     threads = str(cfg.get("threads", 1))
 

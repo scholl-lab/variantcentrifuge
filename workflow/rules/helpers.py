@@ -31,7 +31,29 @@ def build_vc_flags(vc_config: dict[str, Any], igv_config: dict[str, Any]) -> lis
 
     Returns a list of flag strings that can be joined with ``" ".join()``.
     """
+    if vc_config.get("interval_expand") is not None:
+        raise ValueError(
+            "Workflow-level 'interval_expand' is not supported. "
+            "Please expand regions prior to pipeline input or configure region padding upstream."
+        )
+
     flags: list[str] = []
+
+    tumor_idx = vc_config.get("tumor_sample_index")
+    if tumor_idx is not None:
+        flags.append(f"--tumor-sample-index {shlex.quote(str(tumor_idx))}")
+
+    normal_idx = vc_config.get("normal_sample_index")
+    if normal_idx is not None:
+        flags.append(f"--normal-sample-index {shlex.quote(str(normal_idx))}")
+
+    ref = vc_config.get("reference")
+    if ref is not None:
+        flags.append(f"--reference {shlex.quote(str(ref))}")
+
+    regions_bed = vc_config.get("regions_bed")
+    if regions_bed is not None:
+        flags.append(f"--regions-bed {shlex.quote(str(regions_bed))}")
 
     if vc_config.get("add_chr"):
         flags.append("--add-chr")
