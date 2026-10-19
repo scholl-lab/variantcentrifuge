@@ -17,10 +17,10 @@ import json
 import logging
 from pathlib import Path
 
+import pandas as pd
+
 from ..converter import (
-    append_tsv_as_sheet,
     convert_to_excel,
-    finalize_excel_file,
     produce_report_json,
 )
 from ..filters import filter_dataframe_with_query
@@ -243,7 +243,16 @@ class ExcelReportStage(Stage):
         # Convert TSV to Excel using the correct API
         # The convert_to_excel function automatically creates the output path
         # by changing the .tsv extension to .xlsx
-        xlsx_file = convert_to_excel(str(input_file), context.config, df=excel_df)
+        # Collect additional sheets (Metadata, Statistics, Gene Burden, Association)
+        extra_sheets = self._collect_additional_sheets(context)
+
+        # Convert to Excel in a single XlsxWriter session (all sheets + formatting)
+        xlsx_file = convert_to_excel(
+            str(input_file),
+            context.config,
+            df=excel_df,
+            extra_sheets=extra_sheets,
+        )
 
         # Move the generated file to the desired location if needed
         if xlsx_file != str(output_path):
@@ -251,12 +260,6 @@ class ExcelReportStage(Stage):
 
             shutil.move(xlsx_file, str(output_path))
             xlsx_file = str(output_path)
-
-        # Add additional sheets (summary, statistics, metadata)
-        self._add_additional_sheets(xlsx_file, context)
-
-        # Finalize Excel file with formatting and IGV links
-        finalize_excel_file(xlsx_file, context.config)
 
         logger.info(f"Excel report generated with all sheets: {xlsx_file}")
 
@@ -268,79 +271,71 @@ class ExcelReportStage(Stage):
         path = context.report_paths.get("excel")
         return [path] if path else []
 
-    def _add_additional_sheets(self, xlsx_file: str, context: PipelineContext) -> None:
-        """Add additional sheets to the Excel file."""
-        logger.info("Adding additional sheets to Excel file")
-
-        # Debug: Print all report paths and config settings
-        logger.info(f"Available report paths: {context.report_paths}")
-        logger.info(f"Stats config - no_stats: {context.config.get('no_stats')}")
-        logger.info(f"Stats config - stats_output_file: {context.config.get('stats_output_file')}")
+    def _collect_additional_sheets(self, context: PipelineContext) -> dict[str, pd.DataFrame]:
+        """Collect available optional sheets as DataFrames for single-session Excel write."""
+        sheets: dict[str, pd.DataFrame] = {}
 
         # Add Metadata sheet
         metadata_file = context.report_paths.get("metadata")
-        logger.info(f"Metadata file path: {metadata_file}")
-        if metadata_file and Path(metadata_file).exists():
-            logger.info(f"Metadata file exists, size: {Path(metadata_file).stat().st_size} bytes")
-            if Path(metadata_file).stat().st_size > 0:
-                try:
-                    append_tsv_as_sheet(xlsx_file, str(metadata_file), sheet_name="Metadata")
-                    logger.info("Successfully added Metadata sheet to Excel file")
-                except Exception as e:
-                    logger.error(f"Failed to add Metadata sheet: {e}")
-            else:
-                logger.warning("Metadata file is empty")
-        else:
-            logger.warning(f"Metadata file not found: {metadata_file}")
+        if (
+            metadata_file
+            and Path(metadata_file).exists()
+            and Path(metadata_file).stat().st_size > 0
+        ):
+            try:
+                sheets["Metadata"] = pd.read_csv(
+                    metadata_file, sep="\t", header=0, low_memory=False
+                )
+                logger.info("Successfully collected Metadata sheet")
+            except Exception as e:
+                logger.error(f"Failed to read Metadata sheet: {e}")
 
-        # Add Statistics sheet (if stats are enabled and file exists)
+        # Add Statistics sheet
         if not context.config.get("no_stats"):
             stats_file = context.config.get("stats_output_file")
-            logger.info(f"Statistics file path: {stats_file}")
-            if stats_file and Path(stats_file).exists():
-                logger.info(
-                    f"Statistics file exists, size: {Path(stats_file).stat().st_size} bytes"
-                )
-                if Path(stats_file).stat().st_size > 0:
-                    try:
-                        append_tsv_as_sheet(xlsx_file, stats_file, sheet_name="Statistics")
-                        logger.info("Successfully added Statistics sheet to Excel file")
-                    except Exception as e:
-                        logger.error(f"Failed to add Statistics sheet: {e}")
-                else:
-                    logger.warning("Statistics file is empty")
-            else:
-                logger.warning(f"Statistics file not found: {stats_file}")
-        else:
-            logger.info("Statistics disabled (no_stats=True)")
-
-        # Add Gene Burden sheet (if gene burden analysis was performed and file exists)
-        if context.config.get("perform_gene_burden"):
-            gene_burden_file = context.config.get("gene_burden_output")
-            if (
-                gene_burden_file
-                and Path(gene_burden_file).exists()
-                and Path(gene_burden_file).stat().st_size > 0
-            ):
+            if stats_file and Path(stats_file).exists() and Path(stats_file).stat().st_size > 0:
                 try:
-                    append_tsv_as_sheet(xlsx_file, gene_burden_file, sheet_name="Gene Burden")
-                    logger.info("Successfully added Gene Burden sheet to Excel file")
+                    sheets["Statistics"] = pd.read_csv(
+                        stats_file, sep="\t", header=0, low_memory=False
+                    )
+                    logger.info("Successfully collected Statistics sheet")
                 except Exception as e:
-                    logger.error(f"Failed to add Gene Burden sheet: {e}")
-            else:
-                logger.debug("Gene burden file not found or empty, skipping Gene Burden sheet")
+                    logger.error(f"Failed to read Statistics sheet: {e}")
 
-        # Add Association sheet (if association analysis was performed and file exists)
+        # Add Gene Burden sheet
+        if context.config.get("perform_gene_burden"):
+            gb_file = context.config.get("gene_burden_output")
+            if gb_file and Path(gb_file).exists() and Path(gb_file).stat().st_size > 0:
+                try:
+                    sheets["Gene Burden"] = pd.read_csv(
+                        gb_file, sep="\t", header=0, low_memory=False
+                    )
+                    logger.info("Successfully collected Gene Burden sheet")
+                except Exception as e:
+                    logger.error(f"Failed to read Gene Burden sheet: {e}")
+
+        # Add Association sheet
         if context.config.get("perform_association"):
             assoc_file = context.config.get("association_output")
             if assoc_file and Path(assoc_file).exists() and Path(assoc_file).stat().st_size > 0:
                 try:
-                    append_tsv_as_sheet(xlsx_file, assoc_file, sheet_name="Association")
-                    logger.info("Successfully added Association sheet to Excel file")
+                    sheets["Association"] = pd.read_csv(
+                        assoc_file, sep="\t", header=0, low_memory=False
+                    )
+                    logger.info("Successfully collected Association sheet")
                 except Exception as e:
-                    logger.error(f"Failed to add Association sheet: {e}")
-            else:
-                logger.debug("Association file not found or empty, skipping Association sheet")
+                    logger.error(f"Failed to read Association sheet: {e}")
+
+        return sheets
+
+    def _add_additional_sheets(self, xlsx_file: str, context: PipelineContext) -> None:
+        """Add additional sheets to existing Excel file (kept for backward compatibility)."""
+        extra_sheets = self._collect_additional_sheets(context)
+        for sheet_name, sheet_df in extra_sheets.items():
+            with pd.ExcelWriter(
+                xlsx_file, engine="openpyxl", mode="a", if_sheet_exists="new"
+            ) as writer:
+                sheet_df.to_excel(writer, index=False, sheet_name=sheet_name)
 
 
 class HTMLReportStage(Stage):
