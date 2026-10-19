@@ -15,6 +15,7 @@ import os
 import re
 from typing import Any, cast
 
+import numpy as np
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
@@ -117,16 +118,18 @@ def _get_igv_reports_for_variant(
 
 def _detect_url_columns(df: pd.DataFrame) -> list[str]:
     """Identify columns where >= 70% of sample non-empty values start with http:// or https://."""
+    if len(df) == 0:
+        return []
     url_columns = []
     for col in df.columns:
-        if (
-            len(df) == 0
-            or pd.api.types.is_numeric_dtype(df[col])
-            or pd.api.types.is_bool_dtype(df[col])
-        ):
+        if pd.api.types.is_numeric_dtype(df[col]) or pd.api.types.is_bool_dtype(df[col]):
             continue
         sample_values = [
-            val.strip() for val in df[col].iloc[:4] if isinstance(val, str) and val.strip()
+            str(val).strip()
+            for val in df[col].iloc[:4]
+            if not isinstance(val, (list, tuple, dict, set, np.ndarray))
+            and pd.notna(val)
+            and str(val).strip()
         ]
         if sample_values:
             url_count = sum(1 for val in sample_values if val.startswith(("http://", "https://")))
@@ -167,14 +170,7 @@ def convert_to_excel(
     if df is not None:
         logger.debug("Using provided DataFrame for Excel conversion (skipping disk read)")
     else:
-        genomic_dtypes = {
-            "CHROM": "str",
-            "POS": "str",
-            "REF": "str",
-            "ALT": "str",
-            "QUAL": "str",
-            "FILTER": "str",
-        }
+        genomic_dtypes = dict.fromkeys(("CHROM", "POS", "REF", "ALT", "QUAL", "FILTER"), "str")
         df = pd.read_csv(
             tsv_file,
             sep="\t",
@@ -311,18 +307,13 @@ def convert_to_excel(
         if overflow_rows:
             overflow_df = pd.DataFrame(
                 overflow_rows,
-                columns=[
-                    "Row",
-                    "CHROM",
-                    "POS",
-                    "REF",
-                    "ALT",
-                    "Sample_ID",
-                    "IGV_Report_Path",
-                ],
+                columns=["Row", "CHROM", "POS", "REF", "ALT", "Sample_ID", "IGV_Report_Path"],
             )
             overflow_df.to_excel(writer, sheet_name="IGV_Overflow", index=False)
             overflow_ws = writer.sheets["IGV_Overflow"]
+            for ov_idx, r in enumerate(overflow_rows):
+                overflow_ws.write_string(ov_idx + 1, 1, str(r[1]))
+                overflow_ws.write_string(ov_idx + 1, 5, str(r[5]))
             overflow_ws.freeze_panes(1, 0)
             overflow_ws.autofilter(0, 0, len(overflow_df), len(overflow_df.columns) - 1)
 
@@ -391,12 +382,19 @@ def finalize_excel_file(xlsx_file: str, cfg: dict[str, Any]) -> None:
                 sample_cells = [
                     ws.cell(row=r, column=idx) for r in range(2, min(6, ws.max_row + 1))
                 ]
-                has_hyperlink = any(c.hyperlink is not None for c in sample_cells)
-                sample_values = [str(c.value).strip() for c in sample_cells if c.value]
+                sample_values = [
+                    (
+                        c.hyperlink.target
+                        if c.hyperlink and c.hyperlink.target
+                        else str(c.value or "")
+                    ).strip()
+                    for c in sample_cells
+                    if c.value or (c.hyperlink and c.hyperlink.target)
+                ]
                 url_count = sum(
                     1 for val in sample_values if val.startswith(("http://", "https://"))
                 )
-                if has_hyperlink or (sample_values and url_count >= len(sample_values) * 0.7):
+                if sample_values and url_count >= len(sample_values) * 0.7:
                     url_columns.append(idx)
 
         if url_columns:
@@ -485,6 +483,8 @@ def finalize_excel_file(xlsx_file: str, cfg: dict[str, Any]) -> None:
                     overflow_ws.append(overflow_headers)
                 for r in overflow_rows:
                     overflow_ws.append(r)
+                    overflow_ws.cell(row=overflow_ws.max_row, column=2).data_type = "s"
+                    overflow_ws.cell(row=overflow_ws.max_row, column=6).data_type = "s"
                 overflow_ws.freeze_panes = "A2"
                 max_letter = get_column_letter(len(overflow_headers))
                 overflow_ws.auto_filter.ref = f"A1:{max_letter}1"

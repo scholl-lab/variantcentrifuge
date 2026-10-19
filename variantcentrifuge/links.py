@@ -103,7 +103,14 @@ def resolve_links(config: dict[str, Any]) -> dict[str, str]:
             if name in ("gnomAD", "gnomAD_2", "gnomAD_4") and url_template in gnomad_defaults:
                 if canonical_build:
                     gnomad_key = next((k for k in build_defaults if k.startswith("gnomAD")), None)
-                    if gnomad_key and gnomad_key in build_defaults:
+                    if (
+                        gnomad_key
+                        and gnomad_key in build_defaults
+                        and (
+                            gnomad_key not in raw_links
+                            or raw_links[gnomad_key] in all_defaults.get(gnomad_key, set())
+                        )
+                    ):
                         resolved[gnomad_key] = build_defaults[gnomad_key]
             elif name in all_defaults and url_template in all_defaults[name]:
                 if canonical_build and name in build_defaults:

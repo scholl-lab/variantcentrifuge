@@ -857,3 +857,368 @@ class TestColumnRenderers:
         console.log('OK');
         """
         assert _run_node_script(script) == "OK"
+
+    def test_full_rendered_main_script_initialization_and_interactions(self, tmp_path: Path):
+        """Execute full un-sliced main <script> of rendered report in Node (#130)."""
+        from variantcentrifuge.generate_html_report import generate_html_report
+
+        variants_data = [
+            {
+                "CHROM": "chr1",
+                "POS": 100,
+                "REF": "A",
+                "ALT": "T",
+                "IMPACT": '<script>alert("impact")</script>',
+                "ClinVar_CLNSIG": "Pathogenic &amp; uncertain",
+                "Inheritance_Pattern": "de_novo",
+                "GENE": "BRCA1",
+                "CADD_phred": "25.4",
+                "gnomAD_AF": "0.00005",
+                "CustomLink": '<a href="javascript:alert(2)">Click</a>',
+            },
+            {
+                "CHROM": "chr1",
+                "POS": 200,
+                "REF": "C",
+                "ALT": "G",
+                "IMPACT": "MODERATE",
+                "ClinVar_CLNSIG": "Benign",
+                "Inheritance_Pattern": "autosomal_recessive",
+                "GENE": "TP53",
+                "CADD_phred": "12.0",
+                "gnomAD_AF": "0.01",
+                "CustomLink": '<a href="https://example.org/safe">Safe</a>',
+            },
+        ]
+        summary = {
+            "num_variants": 2,
+            "num_samples": 1,
+            "impact_distribution": {"HIGH": 1, "MODERATE": 1},
+            "inheritance_distribution": {"de_novo": 1, "autosomal_recessive": 1},
+            "top_genes": [{"gene": "BRCA1", "count": 1}, {"gene": "TP53", "count": 1}],
+        }
+        cfg = {"reference": "GRCh38", "filters": "PASS"}
+        v_file = tmp_path / "variants.json"
+        s_file = tmp_path / "summary.json"
+        v_file.write_text(json.dumps(variants_data), encoding="utf-8")
+        s_file.write_text(json.dumps(summary), encoding="utf-8")
+        generate_html_report(str(v_file), str(s_file), str(tmp_path), cfg)
+        report_html = (tmp_path / "index.html").read_text(encoding="utf-8")
+
+        m = re.search(
+            r"<script>\s*(document\.addEventListener\('DOMContentLoaded'[\s\S]*?)</script>",
+            report_html,
+        )
+        assert m is not None, "Main inline application <script> not found in rendered HTML"
+        main_script = m.group(1)
+
+        test_rows = [
+            [
+                None,
+                "chr1",
+                100,
+                "A",
+                "T",
+                '<script>alert("impact")</script>',
+                "Pathogenic &amp; uncertain",
+                "de_novo",
+                "BRCA1",
+                "25.4",
+                "0.00005",
+                '<a href="javascript:alert(2)">Click</a>',
+            ],
+            [
+                None,
+                "chr1",
+                200,
+                "C",
+                "G",
+                "MODERATE",
+                "Benign",
+                "autosomal_recessive",
+                "TP53",
+                "12.0",
+                "0.01",
+                '<a href="https://example.org/safe">Safe</a>',
+            ],
+        ]
+
+        node_harness = f"""
+{DOMPARSER_POLYFILL_JS}
+
+function createMockElement(tag, id = '') {{
+    const el = {{
+        tagName: tag.toUpperCase(),
+        id: id,
+        style: {{ display: '', setProperty: () => {{}}, getPropertyValue: () => '' }},
+        classList: {{
+            _classes: new Set(),
+            add(c) {{ this._classes.add(c); }},
+            remove(c) {{ this._classes.delete(c); }},
+            contains(c) {{ return this._classes.has(c); }},
+            toggle(c) {{ if (this.contains(c)) this.remove(c); else this.add(c); }}
+        }},
+        attributes: {{}},
+        setAttribute(k, v) {{ this.attributes[k] = String(v); }},
+        getAttribute(k) {{ return this.attributes[k] || null; }},
+        appendChild(c) {{ if (c) c.parentNode = this; return c; }},
+        removeChild(c) {{ return c; }},
+        replaceChild(newC, oldC) {{ return newC; }},
+        addEventListener(ev, fn) {{}},
+        click() {{}},
+        closest(sel) {{ return this; }},
+        getContext(type) {{ return {{}}; }},
+        querySelector(sel) {{ return createMockElement('div'); }},
+        querySelectorAll(sel) {{ return []; }},
+        parentNode: null,
+        textContent: '',
+        innerHTML: ''
+    }};
+    el.parentNode = {{
+        replaceChild: () => {{}},
+        appendChild: () => {{}},
+        removeChild: () => {{}}
+    }};
+    return el;
+}}
+
+const elementsById = new Map();
+function getOrCreateElement(id) {{
+    if (!elementsById.has(id)) {{
+        elementsById.set(id, createMockElement('div', id));
+    }}
+    return elementsById.get(id);
+}}
+
+['variants_table', 'table-skeleton', 'toolbar-slot-length', 'toolbar-slot-search',
+ 'toolbar-slot-buttons', 'active-filters-strip', 'filter-row-top', 'filter-row-bottom',
+ 'impact_chart', 'variant_type_chart', 'chromosome_chart',
+ 'af_histogram_chart', 'inheritance_chart', 'variants-table-wrapper',
+ 'viz-collapse-toggle'].forEach(getOrCreateElement);
+
+globalThis.window = globalThis;
+window.addEventListener = (ev, fn) => {{}};
+window.print = () => {{}};
+window.matchMedia = () => ({{ matches: false, addEventListener: () => {{}} }});
+
+const storage = new Map();
+globalThis.localStorage = {{
+    getItem: (k) => storage.get(k) || null,
+    setItem: (k, v) => storage.set(k, String(v)),
+    removeItem: (k) => storage.delete(k),
+    clear: () => storage.clear()
+}};
+
+globalThis.document = {{
+    getElementById: (id) => getOrCreateElement(id),
+    querySelector: (sel) => {{
+        if (sel.startsWith('#')) return getOrCreateElement(sel.slice(1));
+        return createMockElement('div');
+    }},
+    querySelectorAll: (sel) => [],
+    createElement: (tag) => createMockElement(tag),
+    body: createMockElement('body'),
+    addEventListener: (ev, fn) => {{
+        if (ev === 'DOMContentLoaded') {{
+            globalThis._domLoadedCallback = fn;
+        }}
+    }}
+}};
+
+globalThis.tippy = function(el, opts) {{
+    if (el) el._tippy = {{ destroy: () => {{}} }};
+    return el._tippy;
+}};
+
+globalThis.noUiSlider = {{
+    create: function(el, opts) {{
+        el.noUiSlider = {{
+            on: function(ev, cb) {{
+                if (ev === 'update') cb([opts.range.min, opts.range.max]);
+            }},
+            set: function(v) {{}},
+            get: function() {{ return [opts.range.min, opts.range.max]; }}
+        }};
+    }}
+}};
+
+function MockChart(ctx, config) {{
+    this.ctx = ctx;
+    this.config = config;
+    this.destroy = () => {{}};
+    this.update = () => {{}};
+}}
+globalThis.Chart = MockChart;
+globalThis.ChartDataLabels = {{}};
+
+const testRows = {json.dumps(test_rows)};
+let registeredTable = null;
+let clickHandler = null;
+
+function MockDataTable(sel, options) {{
+    registeredTable = this;
+    this.options = options;
+    this.columnDefs = options.columnDefs || [];
+
+    this.on = function(event, arg2, arg3) {{
+        if (event === 'click') {{
+            clickHandler = arg3 || arg2;
+        }}
+    }};
+
+    this.api = function() {{
+        return {{
+            columns: {{ adjust: () => {{}} }}
+        }};
+    }};
+
+    this.table = function() {{
+        return {{
+            node: () => getOrCreateElement('variants_table')
+        }};
+    }};
+
+    this.columns = {{
+        adjust: () => ({{ draw: () => {{}} }})
+    }};
+
+    this.column = function(ci) {{
+        return {{
+            data: () => ({{
+                toArray: () => testRows.map(r => r[ci])
+            }})
+        }};
+    }};
+
+    this.row = function(tr) {{
+        return {{
+            child: Object.assign(function(content) {{
+                globalThis._lastChildContent = content;
+                return {{ show: () => {{}} }};
+            }}, {{
+                isShown: () => false,
+                hide: () => {{}}
+            }}),
+            data: () => testRows[0]
+        }};
+    }};
+
+    this.rows = function(sel) {{
+        return {{
+            data: () => ({{
+                toArray: () => testRows
+            }})
+        }};
+    }};
+
+    this.draw = function() {{}};
+
+    if (options.initComplete) {{
+        options.initComplete.call(this);
+    }}
+    if (options.drawCallback) {{
+        options.drawCallback.call(this, {{}});
+    }}
+}}
+
+MockDataTable.ext = {{ search: [] }};
+
+const jQueryMock = function(sel) {{
+    if (typeof sel === 'function') {{
+        sel();
+        return;
+    }}
+    return {{
+        ready: (cb) => cb(),
+        on: () => {{}},
+        text: () => {{}}
+    }};
+}};
+jQueryMock.fn = {{
+    dataTable: MockDataTable,
+    DataTable: MockDataTable
+}};
+globalThis.$ = jQueryMock;
+globalThis.jQuery = jQueryMock;
+globalThis.DataTable = MockDataTable;
+
+// Execute the main script!
+{main_script}
+
+// Run DOMContentLoaded
+if (globalThis._domLoadedCallback) {{
+    globalThis._domLoadedCallback();
+}}
+
+// Verify DataTable was initialized
+if (!registeredTable) {{
+    console.error('DataTable was not instantiated');
+    process.exit(1);
+}}
+
+// 1. Exercise columnDefs renderers for display, sort, and filter on all test rows
+for (const colDef of registeredTable.columnDefs) {{
+    if (colDef.render) {{
+        for (const row of testRows) {{
+            const val = row[colDef.targets] !== undefined ? row[colDef.targets] : row[1];
+            for (const mode of ['display', 'sort', 'filter']) {{
+                const res = colDef.render(val, mode, row);
+                if (typeof res === 'string') {{
+                    if (res.includes('<script>') || res.includes('onerror=')) {{
+                        console.error('XSS payload not escaped by columnDef:', res);
+                        process.exit(1);
+                    }}
+                }}
+            }}
+        }}
+    }}
+}}
+
+// 2. Exercise registered search filter callbacks
+for (const searchFn of MockDataTable.ext.search) {{
+    for (const row of testRows) {{
+        searchFn({{ nTable: {{ id: 'variants_table' }} }}, row);
+    }}
+}}
+
+// 3. Exercise child-row click handler
+if (clickHandler) {{
+    const mockEvent = {{
+        target: {{
+            closest: (sel) => ({{
+                classList: {{
+                    add: () => {{}},
+                    remove: () => {{}}
+                }}
+            }})
+        }}
+    }};
+    clickHandler(mockEvent);
+    if (globalThis._lastChildContent) {{
+        const cnt = globalThis._lastChildContent;
+        if (cnt.includes('<script>') || cnt.includes('javascript:alert')) {{
+            console.error('Child row content leaked dangerous tag or URL:', cnt);
+            process.exit(1);
+        }}
+    }}
+}}
+
+console.log('ALL_CHECKS_PASSED');
+"""
+
+        res = subprocess.run(["node", "-e", node_harness], capture_output=True, text=True)
+        assert res.returncode == 0, f"Node execution failed: {res.stderr}"
+        assert res.stdout.strip() == "ALL_CHECKS_PASSED"
+
+        # 4. Verify that mutating DOMContentLoaded to throw causes failure
+        mut_target = "document.addEventListener('DOMContentLoaded', function() {"
+        mut_replacement = (
+            "document.addEventListener('DOMContentLoaded', function() { "
+            "throw new Error('Startup bomb');"
+        )
+        mutated_script = main_script.replace(mut_target, mut_replacement)
+        mutated_harness = node_harness.replace(main_script, mutated_script)
+        res_mutated = subprocess.run(
+            ["node", "-e", mutated_harness], capture_output=True, text=True
+        )
+        assert res_mutated.returncode != 0, "Mutated startup should have failed execution"

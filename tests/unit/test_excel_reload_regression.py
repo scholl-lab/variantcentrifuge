@@ -1187,3 +1187,149 @@ def test_excel_list_valued_cells_no_value_error(tmp_path: Path):
     assert c_url.value == "https://example.org/item"
     assert c_url.hyperlink is not None
     assert c_url.hyperlink.target == "https://example.org/item"
+
+
+@pytest.mark.unit
+def test_overflow_sample_id_explicit_string(tmp_path: Path):
+    """Verify overflow sample ID with formula string has data_type == 's' (#159)."""
+    from variantcentrifuge.converter import convert_to_excel, finalize_excel_file
+
+    output_dir = tmp_path / "overflow_formula"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = output_dir / "report" / "igv"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    n_samples = 600
+    subfolder = "igv/long_batch_path_subfolder"
+    formula_sample = "=1+1"
+    sample_reports = {
+        formula_sample: f"{subfolder}/{formula_sample}_variant_report.html",
+    }
+    for i in range(1, n_samples):
+        sample_reports[f"Patient_Sample_ID_{i:04d}"] = (
+            f"{subfolder}/Patient_Sample_ID_{i:04d}_variant_report.html"
+        )
+
+    igv_map = {
+        "variants": [
+            {
+                "chrom": "chr1",
+                "pos": 100,
+                "ref": "A",
+                "alt": "T",
+                "sample_reports": sample_reports,
+            }
+        ]
+    }
+    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(igv_map, f)
+
+    gt_str = ";".join(
+        [f"{formula_sample}(0/1)"]
+        + [f"Patient_Sample_ID_{i:04d}(0/1)" for i in range(1, n_samples)]
+    )
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100],
+            "REF": ["A"],
+            "ALT": ["T"],
+            "GT": [gt_str],
+        }
+    )
+
+    # 1. Test convert_to_excel (XlsxWriter path)
+    xlsx_writer_path = output_dir / "xlsxwriter_overflow.xlsx"
+    convert_to_excel(
+        str(xlsx_writer_path),
+        cfg={"igv_enabled": True},
+        df=df,
+        output_file=str(xlsx_writer_path),
+    )
+    wb_xw = openpyxl.load_workbook(xlsx_writer_path)
+    assert "IGV_Overflow" in wb_xw.sheetnames
+    ws_xw = wb_xw["IGV_Overflow"]
+    cell_sample_xw = ws_xw.cell(row=2, column=6)
+    assert cell_sample_xw.value == "=1+1"
+    assert cell_sample_xw.data_type == "s"
+    cell_chrom_xw = ws_xw.cell(row=2, column=2)
+    assert cell_chrom_xw.data_type == "s"
+
+    # 2. Test finalize_excel_file (openpyxl path)
+    xlsx_openpyxl_path = output_dir / "openpyxl_overflow.xlsx"
+    df.to_excel(xlsx_openpyxl_path, sheet_name="Results", index=False)
+    finalize_excel_file(str(xlsx_openpyxl_path), cfg={"igv_enabled": True})
+    wb_op = openpyxl.load_workbook(xlsx_openpyxl_path)
+    assert "IGV_Overflow" in wb_op.sheetnames
+    ws_op = wb_op["IGV_Overflow"]
+    cell_sample_op = ws_op.cell(row=2, column=6)
+    assert cell_sample_op.value == "=1+1"
+    assert cell_sample_op.data_type == "s"
+    cell_chrom_op = ws_op.cell(row=2, column=2)
+    assert cell_chrom_op.data_type == "s"
+
+
+@pytest.mark.unit
+def test_detect_url_columns_scalar_denominator(tmp_path: Path):
+    """Verify non-empty non-string scalars in first 4 rows prevent column classification (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    # Notes column has 3 numbers and 1 URL
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1", "chr1", "chr1", "chr1"],
+            "POS": [100, 200, 300, 400],
+            "REF": ["A", "C", "G", "T"],
+            "ALT": ["T", "G", "C", "A"],
+            "Notes": [1, 2, 3, "https://example.org/a"],
+        }
+    )
+    xlsx_file = tmp_path / "notes_url.xlsx"
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    notes_col_idx = 5
+    # Row 4 in DataFrame is row 5 in Excel
+    cell = ws.cell(row=5, column=notes_col_idx)
+    # Cell value must remain the URL, not the column name "Notes"
+    assert cell.value == "https://example.org/a"
+    assert cell.hyperlink is not None
+
+
+@pytest.mark.unit
+def test_finalize_excel_file_no_has_hyperlink_shortcut(tmp_path: Path):
+    """Verify finalize_excel_file keeps URL display text when url ratio < 0.7 (#159)."""
+    from variantcentrifuge.converter import convert_to_excel, finalize_excel_file
+
+    # Column has 2 plain texts and 2 URLs in first 4 rows (ratio 2/4 = 0.5 < 0.7)
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1", "chr1", "chr1", "chr1"],
+            "POS": [100, 200, 300, 400],
+            "REF": ["A", "C", "G", "T"],
+            "ALT": ["T", "G", "C", "A"],
+            "Mixed": ["plain", "plain", "https://example.org/a", "https://example.org/b"],
+        }
+    )
+    xlsx_file = tmp_path / "mixed_url.xlsx"
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+    finalize_excel_file(str(xlsx_file), cfg={"igv_enabled": False})
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    mixed_col_idx = 5
+    cell_r3 = ws.cell(row=4, column=mixed_col_idx)
+    cell_r4 = ws.cell(row=5, column=mixed_col_idx)
+    assert cell_r3.value == "https://example.org/a"
+    assert cell_r4.value == "https://example.org/b"

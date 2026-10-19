@@ -179,6 +179,28 @@ class TestResolveLinks:
         resolved = resolve_links(config)
         assert resolved["Portal"] == "https://grch37.custom/item"
 
+    @pytest.mark.parametrize(
+        "links_dict",
+        [
+            {
+                "gnomAD_4": "https://custom.gnomad.org/{CHROM}-{POS}",
+                "gnomAD_2": DEFAULT_LINKS_BY_BUILD["GRCh37"]["gnomAD_2"],
+            },
+            {
+                "gnomAD_2": DEFAULT_LINKS_BY_BUILD["GRCh37"]["gnomAD_2"],
+                "gnomAD_4": "https://custom.gnomad.org/{CHROM}-{POS}",
+            },
+        ],
+    )
+    def test_custom_gnomad_preserved_regardless_of_dict_key_order(self, links_dict):
+        """Explicit custom gnomAD_4 link is preserved and not overwritten by gnomAD_2 (#144)."""
+        config = {
+            "reference": "GRCh38",
+            "links": dict(links_dict),
+        }
+        resolved = resolve_links(config)
+        assert resolved["gnomAD_4"] == "https://custom.gnomad.org/{CHROM}-{POS}"
+
 
 @pytest.mark.unit
 class TestAddLinksToTableBuildAware:
