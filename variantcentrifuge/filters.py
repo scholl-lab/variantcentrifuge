@@ -56,12 +56,18 @@ __all__ = [
 def _snpsift_memory_flag(cfg: dict[str, Any]) -> str:
     """Calculate JVM -Xmx flag for SnpSift based on available resources.
 
-    Uses ResourceManager to detect system memory and allocates up to 25%
+    Uses explicit snpsift_memory_gb if provided in config, otherwise uses
+    ResourceManager to detect system memory and allocates up to 25%
     for SnpSift, bounded between 2GB and 16GB. Falls back to 4GB on error.
 
     The conda SnpSift wrapper defaults to only -Xmx1g which is insufficient
     for large multi-sample VCFs (e.g., 5000+ samples).
     """
+    if cfg and cfg.get("snpsift_memory_gb") is not None:
+        try:
+            return f"-Xmx{max(1, min(16, int(cfg['snpsift_memory_gb'])))}g"
+        except (ValueError, TypeError):
+            pass
     try:
         from .memory.resource_manager import ResourceManager
 
