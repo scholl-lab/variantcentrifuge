@@ -89,3 +89,26 @@ def test_runtime_dependencies_exclude_incompatible_smart_open_8() -> None:
     pyproject = _load_pyproject()
 
     assert "smart-open<8" in pyproject["project"]["dependencies"]
+
+
+def test_pytest_disables_benchmark_by_default() -> None:
+    """Benchmark calibration must be disabled in default pytest options."""
+    pyproject = _load_pyproject()
+    addopts = pyproject["tool"]["pytest"]["ini_options"]["addopts"]
+
+    assert "--benchmark-disable" in addopts
+
+
+def test_test_result_class_is_exempt_from_pytest_collection() -> None:
+    """TestResult is a data class and must not trigger PytestCollectionWarning."""
+    from variantcentrifuge.association.base import TestResult
+
+    assert getattr(TestResult, "__test__", True) is False
+
+
+def test_comp_het_original_benchmark_is_removed() -> None:
+    """Benchmark suite must not contain misleading non-existent original implementation test."""
+    benchmark_code = (ROOT / "tests/performance/benchmark_comp_het.py").read_text(encoding="utf-8")
+
+    assert "test_comp_het_original_scaling" not in benchmark_code
+    assert "original implementations" not in benchmark_code

@@ -56,6 +56,8 @@ class TestResult:
         flags). Not written to output unless a formatter explicitly accesses it.
     """
 
+    __test__ = False
+
     gene: str
     test_name: str
     p_value: float | None

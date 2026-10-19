@@ -346,7 +346,8 @@ def test_itertuples_vs_iterrows(benchmark, synthetic_variants, n_variants):
     benchmark.extra_info["n_variants"] = n_variants
     benchmark.extra_info["iterrows_time_s"] = round(iterrows_time, 4)
     benchmark.extra_info["itertuples_time_s"] = round(itertuples_time, 4)
-    benchmark.extra_info["benchmark_itertuples_mean_s"] = round(benchmark.stats.stats.mean, 4)
+    if benchmark.stats is not None:
+        benchmark.extra_info["benchmark_itertuples_mean_s"] = round(benchmark.stats.stats.mean, 4)
     benchmark.extra_info["comparison_repeats"] = comparison_repeats
     benchmark.extra_info["speedup_factor"] = round(speedup, 1)
     benchmark.extra_info["component"] = "itertuples_speedup"

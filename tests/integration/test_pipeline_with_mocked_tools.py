@@ -27,11 +27,15 @@ class MockedToolsTestCase:
         self.extractor_patcher = patch(
             "variantcentrifuge.stages.processing_stages.extract_fields_bcftools"
         )
+        self.get_vcf_names_patcher = patch(
+            "variantcentrifuge.helpers.get_vcf_names", return_value=["sample1", "sample2"]
+        )
 
         self.mock_bcftools = self.bcftools_patcher.start()
         self.mock_snpeff = self.snpeff_patcher.start()
         self.mock_snpsift = self.mock_bcftools
         self.mock_extractor = self.extractor_patcher.start()
+        self.mock_get_vcf_names = self.get_vcf_names_patcher.start()
 
         # Configure default behaviors
         self._configure_tool_mocks()
@@ -41,6 +45,7 @@ class MockedToolsTestCase:
         self.bcftools_patcher.stop()
         self.snpeff_patcher.stop()
         self.extractor_patcher.stop()
+        self.get_vcf_names_patcher.stop()
 
     def _configure_tool_mocks(self):
         """Configure default behaviors for mocked tools."""
