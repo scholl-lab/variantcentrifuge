@@ -58,6 +58,7 @@ __all__ = [
     "SnpSiftFilterStage",
     "TranscriptFilterStage",
     "VariantExtractionStage",
+    "validate_annotation_consequence_filtering",
 ]
 
 
@@ -178,18 +179,7 @@ class GeneBedCreationStage(Stage):
             return context
 
     def _read_chromosomes(self, bed_file: Path) -> set[str]:
-        """Read chromosome names from the first column of a BED file.
-
-        Parameters
-        ----------
-        bed_file : Path
-            Path to BED file.
-
-        Returns
-        -------
-        set[str]
-            Set of chromosome names found (comment lines skipped).
-        """
+        """Read chromosome names from the first column of a BED file."""
         chromosomes: set[str] = set()
         with open(bed_file) as f:
             for line in f:
@@ -202,18 +192,7 @@ class GeneBedCreationStage(Stage):
         return chromosomes
 
     def _count_regions(self, bed_file: Path) -> int:
-        """Count non-comment, non-empty lines in a BED file.
-
-        Parameters
-        ----------
-        bed_file : Path
-            Path to BED file.
-
-        Returns
-        -------
-        int
-            Number of data lines.
-        """
+        """Count non-comment, non-empty lines in a BED file."""
         count = 0
         with open(bed_file) as f:
             for line in f:
@@ -226,29 +205,7 @@ class GeneBedCreationStage(Stage):
     def _intersect_with_restriction_bed(
         self, gene_bed: Path, restriction_bed: str, context: PipelineContext
     ) -> Path:
-        """Intersect gene BED with a restriction BED file (e.g., capture kit).
-
-        Parameters
-        ----------
-        gene_bed : Path
-            Path to the gene BED file.
-        restriction_bed : str
-            Path to the restriction BED file.
-        context : PipelineContext
-            Pipeline context for workspace access.
-
-        Returns
-        -------
-        Path
-            Path to the intersected BED file.
-
-        Raises
-        ------
-        FileNotFoundError
-            If restriction BED file does not exist.
-        ValueError
-            If chromosome naming mismatch detected, or if intersection is empty.
-        """
+        """Intersect gene BED with a restriction BED file (e.g., capture kit)."""
         restriction_path = Path(restriction_bed)
         if not restriction_path.is_file():
             raise FileNotFoundError(f"Restriction BED file not found: {restriction_bed}")
@@ -455,6 +412,41 @@ class MultiAllelicSplitStage(Stage):
         return context
 
 
+def validate_annotation_consequence_filtering(config: dict[str, Any]) -> None:
+    """Validate that gene burden/association with consequence filters uses before_filters."""
+    if config.get("snpeff_splitting_mode") == "before_filters":
+        return
+
+    analysis_requested = bool(
+        config.get("perform_gene_burden") or config.get("perform_association")
+    )
+    if not analysis_requested:
+        return
+
+    filter_expr = config.get("filter") or config.get("filters") or ""
+    has_consequence_filter = isinstance(filter_expr, str) and any(
+        token in filter_expr for token in ("ANN[ANY]", "LOF[*]", "NMD[*]")
+    )
+
+    raw_presets = config.get("presets", [])
+    presets = list(raw_presets) if isinstance(raw_presets, (list, tuple)) else [raw_presets]
+    single_preset = config.get("preset")
+    if single_preset:
+        presets.extend(
+            single_preset if isinstance(single_preset, (list, tuple)) else [single_preset]
+        )
+
+    consequence_presets = {"coding", "high", "missense", "high_or_lof_or_nmd", "damaging"}
+    has_consequence_preset = any(p in consequence_presets for p in presets)
+
+    if has_consequence_filter or has_consequence_preset:
+        raise ValueError(
+            "Gene burden and association analyses with consequence filtering "
+            "(ANN[ANY], LOF[*], NMD[*]) require row-level qualification to prevent "
+            "cross-gene misattribution. Please use '--split-snpeff-lines before_filters'."
+        )
+
+
 class SnpSiftFilterStage(Stage):
     """Apply SnpSift filter expressions."""
 
@@ -497,6 +489,8 @@ class SnpSiftFilterStage(Stage):
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply SnpSift filters."""
+        validate_annotation_consequence_filtering(context.config)
+
         # Check both "filter" and "filters" keys (different parts use different names)
         filter_expr = context.config.get("filter") or context.config.get("filters")
 
@@ -636,6 +630,7 @@ class FieldExtractionStage(Stage):
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Extract fields to TSV format."""
+        validate_annotation_consequence_filtering(context.config)
         # Use the most recent VCF in the processing chain
         if context.config.get("snpeff_splitting_mode") == "after_filters":
             input_vcf = (
@@ -865,6 +860,7 @@ class ParallelCompleteProcessingStage(Stage):
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Process variants in parallel with complete pipeline per chunk."""
+        validate_annotation_consequence_filtering(context.config)
         threads = context.config.get("threads", 1)
 
         if threads <= 1:
