@@ -218,30 +218,20 @@ def convert_to_excel(
 
         # Handle IGV Report Links column
         num_cols = len(df.columns)
-        if igv_enabled and igv_lookup:
+        has_coords = all(c in df.columns for c in ("CHROM", "POS", "REF", "ALT"))
+        overflow_rows: list[list[Any]] = []
+        if igv_enabled and igv_lookup and has_coords:
             igv_col_idx = num_cols
             ws.write_string(0, igv_col_idx, "IGV Report Links")
             for row_idx in range(len(df)):
-                chrom = (
-                    str(df["CHROM"].iloc[row_idx])
-                    if "CHROM" in df.columns and pd.notna(df["CHROM"].iloc[row_idx])
-                    else ""
-                )
-                pos = (
-                    str(df["POS"].iloc[row_idx])
-                    if "POS" in df.columns and pd.notna(df["POS"].iloc[row_idx])
-                    else ""
-                )
-                ref = (
-                    str(df["REF"].iloc[row_idx])
-                    if "REF" in df.columns and pd.notna(df["REF"].iloc[row_idx])
-                    else ""
-                )
-                alt = (
-                    str(df["ALT"].iloc[row_idx])
-                    if "ALT" in df.columns and pd.notna(df["ALT"].iloc[row_idx])
-                    else ""
-                )
+                raw_chrom = df["CHROM"].iloc[row_idx]
+                raw_pos = df["POS"].iloc[row_idx]
+                raw_ref = df["REF"].iloc[row_idx]
+                raw_alt = df["ALT"].iloc[row_idx]
+                chrom = str(raw_chrom) if pd.notna(raw_chrom) else ""
+                pos = str(raw_pos) if pd.notna(raw_pos) else ""
+                ref = str(raw_ref) if pd.notna(raw_ref) else ""
+                alt = str(raw_alt) if pd.notna(raw_alt) else ""
                 gt_val = (
                     str(df["GT"].iloc[row_idx])
                     if "GT" in df.columns and pd.notna(df["GT"].iloc[row_idx])
@@ -270,9 +260,29 @@ def convert_to_excel(
                     link_texts = [
                         f"{sid} ({os.path.join('report', rp)})" for sid, rp in igv_reports
                     ]
-                    ws.write_comment(
-                        row_idx + 1, igv_col_idx, "; ".join(link_texts), {"author": "IGV Reports"}
-                    )
+                    comment_text = "; ".join(link_texts)
+                    if len(comment_text) > 32000:
+                        suffix = "\n... (see IGV_Overflow sheet for all sample links)"
+                        truncated = comment_text[: 32000 - len(suffix)] + suffix
+                        ws.write_comment(
+                            row_idx + 1, igv_col_idx, truncated, {"author": "IGV Reports"}
+                        )
+                        for sid, rp in igv_reports:
+                            overflow_rows.append(
+                                [
+                                    row_idx + 2,
+                                    raw_chrom,
+                                    raw_pos,
+                                    raw_ref,
+                                    raw_alt,
+                                    sid,
+                                    os.path.join("report", rp),
+                                ]
+                            )
+                    else:
+                        ws.write_comment(
+                            row_idx + 1, igv_col_idx, comment_text, {"author": "IGV Reports"}
+                        )
                 else:
                     ws.write_string(row_idx + 1, igv_col_idx, "N/A")
 
@@ -281,6 +291,25 @@ def convert_to_excel(
         else:
             if num_cols > 0:
                 ws.autofilter(0, 0, len(df), num_cols - 1)
+
+        # Write IGV overflow sheet if any comments exceeded limit
+        if overflow_rows:
+            overflow_df = pd.DataFrame(
+                overflow_rows,
+                columns=[
+                    "Row",
+                    "CHROM",
+                    "POS",
+                    "REF",
+                    "ALT",
+                    "Sample_ID",
+                    "IGV_Report_Path",
+                ],
+            )
+            overflow_df.to_excel(writer, sheet_name="IGV_Overflow", index=False)
+            overflow_ws = writer.sheets["IGV_Overflow"]
+            overflow_ws.freeze_panes(1, 0)
+            overflow_ws.autofilter(0, 0, len(overflow_df), len(overflow_df.columns) - 1)
 
         # Write extra sheets
         if extra_sheets:
@@ -368,18 +397,19 @@ def finalize_excel_file(xlsx_file: str, cfg: dict[str, Any]) -> None:
                         cell.style = "Hyperlink"
 
         # IGV links
-        if igv_enabled and igv_lookup and "IGV Report Links" not in header_row:
+        has_coords = all(c in header_indices for c in ("CHROM", "POS", "REF", "ALT"))
+        if igv_enabled and igv_lookup and has_coords and "IGV Report Links" not in header_row:
             igv_col = ws.max_column + 1
             ws.cell(row=1, column=igv_col, value="IGV Report Links")
             from openpyxl.comments import Comment
 
             for row_idx in range(2, ws.max_row + 1):
-                chrom = str(ws.cell(row=row_idx, column=header_indices.get("CHROM", 0)).value or "")
-                pos = str(ws.cell(row=row_idx, column=header_indices.get("POS", 0)).value or "")
-                ref = str(ws.cell(row=row_idx, column=header_indices.get("REF", 0)).value or "")
-                alt = str(ws.cell(row=row_idx, column=header_indices.get("ALT", 0)).value or "")
+                chrom = str(ws.cell(row=row_idx, column=header_indices["CHROM"]).value or "")
+                pos = str(ws.cell(row=row_idx, column=header_indices["POS"]).value or "")
+                ref = str(ws.cell(row=row_idx, column=header_indices["REF"]).value or "")
+                alt = str(ws.cell(row=row_idx, column=header_indices["ALT"]).value or "")
                 gt_val = (
-                    str(ws.cell(row=row_idx, column=header_indices.get("GT", 0)).value or "")
+                    str(ws.cell(row=row_idx, column=header_indices["GT"]).value or "")
                     if "GT" in header_indices
                     else ""
                 )
@@ -398,7 +428,11 @@ def finalize_excel_file(xlsx_file: str, cfg: dict[str, Any]) -> None:
                     link_texts = [
                         f"{sid} ({os.path.join('report', rp)})" for sid, rp in igv_reports
                     ]
-                    igv_cell.comment = Comment("; ".join(link_texts), "IGV Reports")
+                    comment_text = "; ".join(link_texts)
+                    if len(comment_text) > 32000:
+                        suffix = "\n... (see IGV_Overflow sheet for all sample links)"
+                        comment_text = comment_text[: 32000 - len(suffix)] + suffix
+                    igv_cell.comment = Comment(comment_text, "IGV Reports")
                 else:
                     igv_cell.value = "N/A"
 

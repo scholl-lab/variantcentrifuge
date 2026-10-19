@@ -1511,37 +1511,34 @@ document.addEventListener('DOMContentLoaded', function() {
                 render: function(data, type, row) {
                     var cell = extractCellContent(data);
                     var text = cell.text || '';
+                    if (type !== 'display') {
+                        return text ? escapeHtml(String(text)) : '';
+                    }
                     if (!text || text === 'none' || text === 'reference') {
-                        if (type === 'display') {
-                            return '<span class="badge" style="background-color:#6c757d;">Unknown</span>';
-                        }
-                        return 'Unknown';
+                        return '<span class="badge" style="background-color:#6c757d;">Unknown</span>';
                     }
-                    if (type === 'display') {
-                        var str = String(text);
-                        var lower = str.toLowerCase();
-                        var color = '#6c757d';
-                        if (lower === 'de_novo' || lower === 'de_novo_candidate') {
-                            color = '#dc3545';
-                        } else if (lower.indexOf('compound_heterozygous') !== -1) {
-                            color = '#9c27b0';
-                        } else if (lower.indexOf('autosomal_dominant') !== -1) {
-                            color = '#1565c0';
-                        } else if (lower.indexOf('autosomal_recessive') !== -1) {
-                            color = '#2e7d32';
-                        } else if (lower.indexOf('x_linked') !== -1) {
-                            color = '#00838f';
-                        } else if (lower === 'mitochondrial') {
-                            color = '#bf5600';
-                        } else if (lower === 'homozygous') {
-                            color = '#546e7a';
-                        } else if (lower === 'non_mendelian') {
-                            color = '#c62828';
-                        }
-                        var displayText = str.replace(/_/g, ' ');
-                        return '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(displayText) + '</span>';
+                    var str = String(text);
+                    var lower = str.toLowerCase();
+                    var color = '#6c757d';
+                    if (lower === 'de_novo' || lower === 'de_novo_candidate') {
+                        color = '#dc3545';
+                    } else if (lower.indexOf('compound_heterozygous') !== -1) {
+                        color = '#9c27b0';
+                    } else if (lower.indexOf('autosomal_dominant') !== -1) {
+                        color = '#1565c0';
+                    } else if (lower.indexOf('autosomal_recessive') !== -1) {
+                        color = '#2e7d32';
+                    } else if (lower.indexOf('x_linked') !== -1) {
+                        color = '#00838f';
+                    } else if (lower === 'mitochondrial') {
+                        color = '#bf5600';
+                    } else if (lower === 'homozygous') {
+                        color = '#546e7a';
+                    } else if (lower === 'non_mendelian') {
+                        color = '#c62828';
                     }
-                    return text;
+                    var displayText = str.replace(/_/g, ' ');
+                    return '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(displayText) + '</span>';
                 }
             });
         }

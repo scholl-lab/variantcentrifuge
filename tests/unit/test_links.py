@@ -88,6 +88,25 @@ class TestResolveLinks:
         assert "hg38" in links["Varsome"]
         assert "dataset=gnomad_r4" in links["gnomAD_4"]
 
+    def test_grch38_per_entry_resolution_with_custom_link(self):
+        """Default links upgrade to GRCh38 while preserving custom entries (#144)."""
+        custom_url = "https://example.org/{CHROM}:{POS}"
+        config = {
+            "reference": "GRCh38.99",
+            "links": {
+                **DEFAULT_LINKS_BY_BUILD["GRCh37"],
+                "CustomPortal": custom_url,
+            },
+        }
+        links = resolve_links(config)
+        assert "hg38" in links["Varsome"]
+        assert "hg38" in links["Franklin"]
+        assert "hg=38" in links["SpliceAI"]
+        assert "dataset=gnomad_r4" in links["gnomAD_4"]
+        assert "gnomAD_2" not in links
+        assert links["CustomPortal"] == custom_url
+        assert config["links"] == links
+
 
 @pytest.mark.unit
 class TestAddLinksToTableBuildAware:

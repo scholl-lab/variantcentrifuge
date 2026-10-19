@@ -414,3 +414,42 @@ class TestColumnRenderers:
         console.log('OK');
         """
         assert _run_column_defs_script([{"original_name": "CADD_phred"}], script) == "OK"
+
+    def test_inheritance_pattern_rendering(self):
+        script = """
+        const defObj = dtColumnDefs.find(d => d.render);
+        const render = defObj.render;
+        const resNoneDisp = render('none', 'display', {});
+        const resRefDisp = render('reference', 'display', {});
+        const resDenovoDisp = render('de_novo', 'display', {});
+        const resNoneFilter = render('none', 'filter', {});
+        const resRefFilter = render('reference', 'filter', {});
+        const resDenovoFilter = render('de_novo', 'filter', {});
+
+        if (resNoneDisp.indexOf('Unknown') === -1) {
+            console.error('none display should be Unknown badge: ' + resNoneDisp);
+            process.exit(1);
+        }
+        if (resRefDisp.indexOf('Unknown') === -1) {
+            console.error('reference display should be Unknown badge: ' + resRefDisp);
+            process.exit(1);
+        }
+        if (resDenovoDisp.indexOf('de novo') === -1) {
+            console.error('de_novo display should be de novo badge: ' + resDenovoDisp);
+            process.exit(1);
+        }
+        if (resNoneFilter !== 'none') {
+            console.error('none filter should be "none": ' + resNoneFilter);
+            process.exit(1);
+        }
+        if (resRefFilter !== 'reference') {
+            console.error('reference filter should be "reference": ' + resRefFilter);
+            process.exit(1);
+        }
+        if (resDenovoFilter !== 'de_novo') {
+            console.error('de_novo filter should be "de_novo": ' + resDenovoFilter);
+            process.exit(1);
+        }
+        console.log('OK');
+        """
+        assert _run_column_defs_script([{"original_name": "Inheritance_Pattern"}], script) == "OK"

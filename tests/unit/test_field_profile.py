@@ -478,6 +478,8 @@ class TestListProfiles:
     @pytest.mark.parametrize("profile_name", ["dbnsfp4", "dbnsfp5"])
     def test_1percent_boundary_af_evaluation(self, profile_name):
         """Evaluate 1percent predicate logic at boundary AF values and missing-AC clauses (#134)."""
+        import re
+
         from variantcentrifuge.config import load_config
 
         cfg = load_config()
@@ -485,13 +487,19 @@ class TestListProfiles:
         resolve_profile(cfg)
         preset_expr = cfg["presets"]["1percent"]
 
-        # Helper to simulate SnpSift predicate evaluation for the profile
-        def eval_predicate(af_val: float | None, ac_present: bool) -> bool:
-            if not ac_present:
-                return True
-            if af_val is None:
-                return False
-            return af_val < 0.01
+        # Helper evaluating actual expr string returned by resolve_profile
+        def eval_predicate(af_val: float | None, ac_present: bool, expr: str = preset_expr) -> bool:
+            s = expr
+            # SnpSift 'na <field>' clauses: True if AC is missing/na, False if present
+            s = re.sub(
+                r"na\s+[A-Za-z0-9_.]+(?:\[\d+\])?",
+                "True" if not ac_present else "False",
+                s,
+            )
+            # AF field placeholder substitution: float('inf') if None so (< 0.01) evaluates False
+            sub_af = str(af_val) if af_val is not None else "float('inf')"
+            s = re.sub(r"[A-Za-z0-9_.]+_AF(?:\[\d+\])?", sub_af, s)
+            return bool(eval(s, {"__builtins__": {}, "float": float}))
 
         # Boundary test cases:
         # 0.001, 0.005, 0.0099 must pass (< 0.01)
@@ -509,6 +517,10 @@ class TestListProfiles:
         # Missing AC clause: passes regardless of AF
         assert eval_predicate(af_val=0.50, ac_present=False) is True
         assert eval_predicate(af_val=None, ac_present=False) is True
+
+        # Assert mutation with | (1 == 1) would erroneously pass failing AF
+        mutated_expr = f"({preset_expr}) | (1 == 1)"
+        assert eval_predicate(0.02, ac_present=True, expr=mutated_expr) is True
 
         # Assert literal threshold in expression
         assert "< 0.01" in preset_expr

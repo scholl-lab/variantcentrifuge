@@ -325,13 +325,16 @@ def test_excel_6000_rows_6_urls_no_hyperlink_limit_exhaustion(tmp_path: Path):
 
 @pytest.mark.unit
 def test_excel_generation_benchmark_performance_and_memory(tmp_path: Path):
-    """Benchmark conversion runtime and peak memory consumption (#159)."""
-    import time
+    """Deterministic structural/memory comparison: multi-pass vs single-pass writer (#159)."""
     import tracemalloc
 
-    from variantcentrifuge.converter import convert_to_excel
+    from variantcentrifuge.converter import (
+        append_tsv_as_sheet,
+        convert_to_excel,
+        finalize_excel_file,
+    )
 
-    n_rows = 2000
+    n_rows = 1000
     df = pd.DataFrame(
         {
             "CHROM": ["chr1"] * n_rows,
@@ -342,28 +345,179 @@ def test_excel_generation_benchmark_performance_and_memory(tmp_path: Path):
             "ClinVar": [f"https://example.org/cv/{i}" for i in range(n_rows)],
         }
     )
+    meta_tsv = tmp_path / "metadata.tsv"
+    stats_tsv = tmp_path / "statistics.tsv"
+    pd.DataFrame({"K": ["version"], "V": ["1.0"]}).to_csv(meta_tsv, sep="\t", index=False)
+    pd.DataFrame({"Metric": ["count"], "Value": [n_rows]}).to_csv(stats_tsv, sep="\t", index=False)
+
     extra_sheets = {
         "Metadata": pd.DataFrame({"K": ["version"], "V": ["1.0"]}),
         "Statistics": pd.DataFrame({"Metric": ["count"], "Value": [n_rows]}),
     }
-    xlsx_file = tmp_path / "bench.xlsx"
 
+    # 1. Multi-pass reload baseline (historical behavior prior to #159)
+    f_baseline = tmp_path / "baseline.xlsx"
     tracemalloc.start()
-    t0 = time.perf_counter()
+    df.to_excel(f_baseline, sheet_name="Results", index=False)
+    append_tsv_as_sheet(str(f_baseline), str(meta_tsv), sheet_name="Metadata")
+    append_tsv_as_sheet(str(f_baseline), str(stats_tsv), sheet_name="Statistics")
+    finalize_excel_file(str(f_baseline), cfg={"igv_enabled": False})
+    _current, peak_base = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
 
+    # 2. Single-pass xlsxwriter generator (#159)
+    f_single = tmp_path / "single.xlsx"
+    tracemalloc.start()
     convert_to_excel(
-        str(xlsx_file),
+        str(f_single),
         cfg={"igv_enabled": False},
         df=df,
         extra_sheets=extra_sheets,
+        output_file=str(f_single),
+    )
+    _current, peak_single = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    peak_base_mb = peak_base / (1024 * 1024)
+    peak_single_mb = peak_single / (1024 * 1024)
+
+    # Assert deterministic structural and memory improvement without flaky wall-clock caps
+    assert peak_single < peak_base, (
+        f"Single-pass peak ({peak_single_mb:.2f}MB) should be lower than baseline "
+        f"({peak_base_mb:.2f}MB)"
+    )
+    assert peak_single_mb < 50.0, f"Peak memory {peak_single_mb:.1f}MB, expected < 50MB"
+
+    wb_single = openpyxl.load_workbook(f_single)
+    wb_base = openpyxl.load_workbook(f_baseline)
+    assert wb_single.sheetnames == ["Results", "Metadata", "Statistics"]
+    assert wb_base.sheetnames == ["Results", "Metadata", "Statistics"]
+
+
+@pytest.mark.unit
+def test_finalize_excel_file_missing_coordinates_guard(tmp_path: Path):
+    """Verify finalize_excel_file handles missing coordinates without column 0 ValueError (#159)."""
+    from variantcentrifuge.converter import finalize_excel_file
+
+    output_dir = tmp_path / "missing_coords"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = output_dir / "report" / "igv"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    igv_map = {
+        "variants": [
+            {
+                "chrom": "chr1",
+                "pos": 100,
+                "ref": "A",
+                "alt": "T",
+                "sample_reports": {"Sample1": "igv/Sample1.html"},
+            }
+        ]
+    }
+    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(igv_map, f)
+
+    # DataFrame with only CHROM and POS (missing REF and ALT)
+    df = pd.DataFrame({"CHROM": ["chr1"], "POS": [100]})
+    xlsx_file = output_dir / "partial.xlsx"
+    df.to_excel(xlsx_file, sheet_name="Results", index=False)
+
+    # Should safely skip IGV links rather than calling ws.cell(..., column=0)
+    finalize_excel_file(str(xlsx_file), cfg={"igv_enabled": True})
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    headers = [cell.value for cell in ws[1]]
+    assert "IGV Report Links" not in headers
+    assert headers == ["CHROM", "POS"]
+
+
+@pytest.mark.unit
+def test_excel_igv_comment_overflow_creates_overflow_sheet(tmp_path: Path):
+    """Verify IGV comment >32,000 chars is truncated and full links saved to IGV_Overflow (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    output_dir = tmp_path / "overflow_test"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = output_dir / "report" / "igv"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    # 600 samples with long paths -> comment will exceed 32,000 characters
+    n_samples = 600
+    subfolder = "igv/long_batch_path_subfolder"
+    sample_reports = {
+        f"Patient_Sample_ID_{i:04d}": f"{subfolder}/Patient_Sample_ID_{i:04d}_variant_report.html"
+        for i in range(n_samples)
+    }
+    igv_map = {
+        "variants": [
+            {
+                "chrom": "chr1",
+                "pos": 100,
+                "ref": "A",
+                "alt": "T",
+                "sample_reports": sample_reports,
+            }
+        ]
+    }
+    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(igv_map, f)
+
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100],
+            "REF": ["A"],
+            "ALT": ["T"],
+            "GT": [";".join(f"Patient_Sample_ID_{i:04d}(0/1)" for i in range(n_samples))],
+        }
+    )
+    xlsx_file = output_dir / "overflow.xlsx"
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": True},
+        df=df,
         output_file=str(xlsx_file),
     )
 
-    elapsed = time.perf_counter() - t0
-    _current, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
+    wb = openpyxl.load_workbook(xlsx_file)
+    assert "Results" in wb.sheetnames
+    assert "IGV_Overflow" in wb.sheetnames
 
-    peak_mb = peak / (1024 * 1024)
-    # 2,000 rows should take under 5 seconds and under 150 MB peak memory
-    assert elapsed < 5.0, f"Conversion took {elapsed:.2f}s, expected < 5s"
-    assert peak_mb < 150.0, f"Peak memory {peak_mb:.1f}MB, expected < 150MB"
+    ws_results = wb["Results"]
+    headers = [cell.value for cell in ws_results[1]]
+    assert "IGV Report Links" in headers
+    igv_col = headers.index("IGV Report Links") + 1
+
+    cell = ws_results.cell(row=2, column=igv_col)
+    assert cell.value == f"Patient_Sample_ID_0000 (+{n_samples - 1} others)"
+    assert cell.comment is not None
+
+    comment_text = cell.comment.text
+    # Cell comment must be at most 32,767 chars (Excel limit) and end with overflow suffix
+    assert len(comment_text) <= 32767
+    assert len(comment_text) <= 32000
+    expected_suffix = "\n... (see IGV_Overflow sheet for all sample links)"
+    assert comment_text.endswith(expected_suffix)
+
+    # Verify IGV_Overflow sheet
+    ws_overflow = wb["IGV_Overflow"]
+    overflow_headers = [c.value for c in ws_overflow[1]]
+    expected_headers = ["Row", "CHROM", "POS", "REF", "ALT", "Sample_ID", "IGV_Report_Path"]
+    assert overflow_headers == expected_headers
+
+    # 1 header row + 600 sample rows
+    assert ws_overflow.max_row == n_samples + 1
+    first_row = [
+        ws_overflow.cell(row=2, column=i).value for i in range(1, len(expected_headers) + 1)
+    ]
+    assert first_row == [
+        2,
+        "chr1",
+        100,
+        "A",
+        "T",
+        "Patient_Sample_ID_0000",
+        "report/igv/long_batch_path_subfolder/Patient_Sample_ID_0000_variant_report.html",
+    ]

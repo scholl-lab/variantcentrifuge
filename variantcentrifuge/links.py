@@ -80,23 +80,37 @@ def resolve_links(config: dict[str, Any]) -> dict[str, str]:
         The resolved link templates mapping link names to URL templates.
     """
     links_by_build = config.get("links_by_build") or DEFAULT_LINKS_BY_BUILD
+    canonical_build = normalize_reference(config.get("reference"))
+    build_defaults = dict(links_by_build.get(canonical_build, {})) if canonical_build else {}
+
     raw_links = config.get("links")
 
-    # Check if raw_links matches bundled defaults
-    is_bundled_default = (
-        raw_links is None
-        or raw_links == links_by_build.get("GRCh37")
-        or raw_links == links_by_build.get("GRCh38")
-        or raw_links == DEFAULT_LINKS_BY_BUILD.get("GRCh37")
-        or raw_links == DEFAULT_LINKS_BY_BUILD.get("GRCh38")
-    )
+    if raw_links is None:
+        resolved = build_defaults
+    elif isinstance(raw_links, dict):
+        all_defaults: dict[str, set[str]] = {}
+        for b_links in links_by_build.values():
+            for k, v in b_links.items():
+                all_defaults.setdefault(k, set()).add(v)
+        for b_links in DEFAULT_LINKS_BY_BUILD.values():
+            for k, v in b_links.items():
+                all_defaults.setdefault(k, set()).add(v)
 
-    if not is_bundled_default and isinstance(raw_links, dict):
-        return raw_links
-
-    canonical_build = normalize_reference(config.get("reference"))
-    if canonical_build and canonical_build in links_by_build:
-        resolved = dict(links_by_build[canonical_build])
+        resolved = {}
+        for name, url_template in raw_links.items():
+            if name in ("gnomAD_2", "gnomAD_4") and url_template in (
+                all_defaults.get("gnomAD_2", set()) | all_defaults.get("gnomAD_4", set())
+            ):
+                if canonical_build:
+                    gnomad_key = next((k for k in build_defaults if k.startswith("gnomAD")), name)
+                    resolved[gnomad_key] = build_defaults.get(gnomad_key, url_template)
+            elif name in all_defaults and url_template in all_defaults[name]:
+                if canonical_build and name in build_defaults:
+                    resolved[name] = build_defaults[name]
+                elif canonical_build:
+                    resolved[name] = url_template
+            else:
+                resolved[name] = url_template
     else:
         resolved = {}
 
