@@ -304,6 +304,7 @@ def analyze_inheritance_parallel(
                                 logger.info(f"Processed {completed}/{num_genes} genes")
                         except Exception as e:
                             logger.error(f"Error processing gene {gene!r}: {e}")
+                            raise
     else:
         # Fall back to sequential processing
         logger.info("Pass 2: Analyzing compound heterozygous patterns sequentially")
@@ -332,6 +333,7 @@ def analyze_inheritance_parallel(
                         comp_het_results_by_gene[str(gene)] = comp_het_results
                 except Exception as e:
                     logger.error(f"Error processing gene {gene!r}: {e}")
+                    raise
 
     pass_times["compound_het_analysis"] = time.time() - pass2_start
 

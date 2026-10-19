@@ -181,8 +181,13 @@ class ExcelReportStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of optional stage names this stage depends on."""
-        # This ensures Excel generation waits for gene burden/association analysis if running.
-        return {"gene_burden_analysis", "association_analysis"}
+        return {
+            "gene_burden_analysis",
+            "association_analysis",
+            "custom_annotation",
+            "variant_scoring",
+            "clinvar_pm5",
+        }
 
     @property
     def parallel_safe(self) -> bool:
@@ -361,9 +366,12 @@ class HTMLReportStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
-        # HTML report should wait for IGV reports if they're being generated
-        # so that IGV links can be included in the HTML report
-        return {"igv_report"}
+        return {
+            "igv_report",
+            "custom_annotation",
+            "variant_scoring",
+            "clinvar_pm5",
+        }
 
     @property
     def parallel_safe(self) -> bool:
