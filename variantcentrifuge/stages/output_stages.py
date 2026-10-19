@@ -311,27 +311,35 @@ class ExcelReportStage(Stage):
 
         # Add Gene Burden sheet
         if context.config.get("perform_gene_burden"):
-            gb_file = context.config.get("gene_burden_output")
-            if gb_file and Path(gb_file).exists() and Path(gb_file).stat().st_size > 0:
-                try:
-                    sheets["Gene Burden"] = pd.read_csv(
-                        gb_file, sep="\t", header=0, low_memory=False
-                    )
-                    logger.info("Successfully collected Gene Burden sheet")
-                except Exception as e:
-                    logger.error(f"Failed to read Gene Burden sheet: {e}")
+            if context.gene_burden_results is not None and not context.gene_burden_results.empty:
+                sheets["Gene Burden"] = context.gene_burden_results.copy()
+                logger.info("Successfully collected Gene Burden sheet from memory")
+            else:
+                gb_file = context.config.get("gene_burden_output")
+                if gb_file and Path(gb_file).exists() and Path(gb_file).stat().st_size > 0:
+                    try:
+                        sheets["Gene Burden"] = pd.read_csv(
+                            gb_file, sep="\t", header=0, low_memory=False
+                        )
+                        logger.info("Successfully collected Gene Burden sheet")
+                    except Exception as e:
+                        logger.error(f"Failed to read Gene Burden sheet: {e}")
 
         # Add Association sheet
         if context.config.get("perform_association"):
-            assoc_file = context.config.get("association_output")
-            if assoc_file and Path(assoc_file).exists() and Path(assoc_file).stat().st_size > 0:
-                try:
-                    sheets["Association"] = pd.read_csv(
-                        assoc_file, sep="\t", header=0, low_memory=False
-                    )
-                    logger.info("Successfully collected Association sheet")
-                except Exception as e:
-                    logger.error(f"Failed to read Association sheet: {e}")
+            if context.association_results is not None and not context.association_results.empty:
+                sheets["Association"] = context.association_results.copy()
+                logger.info("Successfully collected Association sheet from memory")
+            else:
+                assoc_file = context.config.get("association_output")
+                if assoc_file and Path(assoc_file).exists() and Path(assoc_file).stat().st_size > 0:
+                    try:
+                        sheets["Association"] = pd.read_csv(
+                            assoc_file, sep="\t", header=0, low_memory=False
+                        )
+                        logger.info("Successfully collected Association sheet")
+                    except Exception as e:
+                        logger.error(f"Failed to read Association sheet: {e}")
 
         return sheets
 

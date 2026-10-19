@@ -16,6 +16,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import psutil
 
@@ -288,40 +289,92 @@ def load_optimized_dataframe(
     if optimize_dtypes:
         dtype_map = detect_categorical_columns(file_path, sep=sep)
 
-    # Step 2: Determine engine
-    # PyArrow doesn't support certain parameters
-    unsupported_params = {"on_bad_lines", "converters", "skipfooter", "chunksize"}
-    has_unsupported = any(param in extra_kwargs for param in unsupported_params)
+    # Step 2: Determine engine and load DataFrame
+    can_use_pyarrow = (
+        use_pyarrow
+        and not (set(extra_kwargs) - {"on_bad_lines"})
+        and extra_kwargs.get("on_bad_lines", "error") in ("error", "warn", "skip")
+    )
 
-    engine = None
-    if use_pyarrow and not has_unsupported:
-        engine = "pyarrow"
-        logger.debug("Using PyArrow engine for CSV loading")
-    elif use_pyarrow and has_unsupported:
-        logger.debug(
-            f"PyArrow engine incompatible with {unsupported_params & set(extra_kwargs.keys())}, "
-            "falling back to C engine"
-        )
+    df: pd.DataFrame | None = None
+    if can_use_pyarrow:
+        try:
+            import gzip
+            import warnings
 
-    # Step 3: Load DataFrame
-    # Use standard VC settings: no NA inference, empty string = NA
-    read_kwargs = {
-        "sep": sep,
-        "dtype": dtype_map if dtype_map else str,
-        "keep_default_na": False,
-        "na_values": [""],
-        "compression": compression,
-        **extra_kwargs,
-    }
+            import pyarrow as pa  # type: ignore[import-untyped]
+            import pyarrow.csv as pv  # type: ignore[import-untyped]
 
-    if engine:
-        read_kwargs["engine"] = engine
-    else:
-        # C engine supports quoting and low_memory parameters
-        read_kwargs["quoting"] = 3  # QUOTE_NONE - don't treat quotes specially
-        read_kwargs["low_memory"] = False
+            opener = (
+                gzip.open if (compression == "gzip" or str(file_path).endswith(".gz")) else open
+            )
+            with opener(file_path, "rt") as f:
+                first_line = f.readline().rstrip("\r\n")
 
-    df = pd.read_csv(file_path, **read_kwargs)
+            if first_line:
+                header_cols = first_line.split(sep)
+                on_bad_lines = extra_kwargs.get("on_bad_lines", "error")
+
+                def invalid_handler(row: Any) -> str:
+                    if row.actual_columns < row.expected_columns:
+                        return "error"
+                    if on_bad_lines == "warn":
+                        warnings.warn(
+                            f"Skipping line: expected {row.expected_columns} fields, "
+                            f"saw {row.actual_columns}",
+                            pd.errors.ParserWarning,
+                            stacklevel=2,
+                        )
+                        return "skip"
+                    elif on_bad_lines == "skip":
+                        return "skip"
+                    return "error"
+
+                if compression:
+                    source = pa.input_stream(str(file_path), compression=compression)
+                elif str(file_path).endswith(".gz"):
+                    source = pa.input_stream(str(file_path), compression="gzip")
+                else:
+                    source = pa.input_stream(str(file_path))
+
+                table = pv.read_csv(
+                    source,
+                    parse_options=pv.ParseOptions(
+                        delimiter=sep,
+                        quote_char=False,
+                        invalid_row_handler=invalid_handler
+                        if on_bad_lines in ("warn", "skip")
+                        else None,
+                    ),
+                    convert_options=pv.ConvertOptions(
+                        column_types={c: pa.string() for c in header_cols},
+                        strings_can_be_null=True,
+                        null_values=[""],
+                    ),
+                )
+                df = table.to_pandas()
+                df = df.fillna(np.nan)
+                if dtype_map:
+                    for col, dt in dtype_map.items():
+                        if col in df.columns and dt == "category":
+                            df[col] = df[col].astype("category")
+                logger.debug("Successfully loaded DataFrame using PyArrow engine")
+        except Exception as e:
+            logger.debug(f"PyArrow loading failed, falling back to C engine: {e}")
+            df = None
+
+    if df is None:
+        read_kwargs = {
+            "sep": sep,
+            "dtype": dtype_map if dtype_map else str,
+            "keep_default_na": False,
+            "na_values": [""],
+            "compression": compression,
+            "quoting": 3,
+            "low_memory": False,
+            **extra_kwargs,
+        }
+        df = pd.read_csv(file_path, **read_kwargs)
 
     # Step 4: Sanitize columns if requested
     column_rename_map: dict[str, str] = {}
