@@ -420,57 +420,62 @@ def test_excel_generation_benchmark_performance_and_memory(tmp_path: Path, recor
     }
 
     # 1. Multi-pass reload baseline (historical pre-#159 sequence: convert -> append -> finalize)
-    # Run each step sequentially with explicit workbook close and gc.collect
+    # Encapsulate each reload step in a helper so all workbook, worksheet, and cell references
+    # are completely out-of-scope and released before gc.collect().
+    def _baseline_step0_write(path: Path) -> None:
+        df.to_excel(path, sheet_name="Results", index=False)
+
+    def _baseline_step1_metadata(path: Path) -> None:
+        wb = openpyxl.load_workbook(path)
+        ws = wb.create_sheet("Metadata")
+        ws.append(["K", "V"])
+        ws.append(["version", "v1.0"])
+        wb.save(path)
+        wb.close()
+
+    def _baseline_step2_statistics(path: Path) -> None:
+        wb = openpyxl.load_workbook(path)
+        ws = wb.create_sheet("Statistics")
+        ws.append(["Metric", "Value"])
+        ws.append(["count", n_rows])
+        wb.save(path)
+        wb.close()
+
+    def _baseline_step3_formatting(path: Path) -> None:
+        wb = openpyxl.load_workbook(path)
+        for ws in wb.worksheets:
+            ws.freeze_panes = "A2"
+            max_col_letter = get_column_letter(ws.max_column)
+            ws.auto_filter.ref = f"A1:{max_col_letter}1"
+            if ws.title == "Results":
+                header_row = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+                clinvar_idx = header_row.index("ClinVar") + 1
+                for r in range(2, ws.max_row + 1):
+                    cell = ws.cell(row=r, column=clinvar_idx)
+                    val = str(cell.value or "").strip()
+                    if val.startswith(("http://", "https://")):
+                        cell.hyperlink = val
+                        cell.value = "ClinVar"
+                        cell.style = "Hyperlink"
+        wb.save(path)
+        wb.close()
+
     f_baseline = tmp_path / "baseline.xlsx"
     gc.collect()
     tracemalloc.start()
-    t0_base = time.perf_counter()
 
-    # Step 0: Initial dataframe write
-    df.to_excel(f_baseline, sheet_name="Results", index=False)
+    elapsed_base = 0.0
+    for step_fn in (
+        _baseline_step0_write,
+        _baseline_step1_metadata,
+        _baseline_step2_statistics,
+        _baseline_step3_formatting,
+    ):
+        t0 = time.perf_counter()
+        step_fn(f_baseline)
+        elapsed_base += time.perf_counter() - t0
+        gc.collect()
 
-    # Step 1: Append Metadata sheet
-    wb1 = openpyxl.load_workbook(f_baseline)
-    ws1 = wb1.create_sheet("Metadata")
-    ws1.append(["K", "V"])
-    ws1.append(["version", "v1.0"])
-    wb1.save(f_baseline)
-    wb1.close()
-    del wb1
-    gc.collect()
-
-    # Step 2: Append Statistics sheet
-    wb2 = openpyxl.load_workbook(f_baseline)
-    ws2 = wb2.create_sheet("Statistics")
-    ws2.append(["Metric", "Value"])
-    ws2.append(["count", n_rows])
-    wb2.save(f_baseline)
-    wb2.close()
-    del wb2
-    gc.collect()
-
-    # Step 3: Format links, autofilter, freeze panes
-    wb3 = openpyxl.load_workbook(f_baseline)
-    for ws in wb3.worksheets:
-        ws.freeze_panes = "A2"
-        max_col_letter = get_column_letter(ws.max_column)
-        ws.auto_filter.ref = f"A1:{max_col_letter}1"
-        if ws.title == "Results":
-            header_row = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
-            clinvar_idx = header_row.index("ClinVar") + 1
-            for r in range(2, ws.max_row + 1):
-                cell = ws.cell(row=r, column=clinvar_idx)
-                val = str(cell.value or "").strip()
-                if val.startswith(("http://", "https://")):
-                    cell.hyperlink = val
-                    cell.value = "ClinVar"
-                    cell.style = "Hyperlink"
-    wb3.save(f_baseline)
-    wb3.close()
-    del wb3
-    gc.collect()
-
-    elapsed_base = time.perf_counter() - t0_base
     _current, peak_base = tracemalloc.get_traced_memory()
     tracemalloc.stop()
     gc.collect()
@@ -527,6 +532,8 @@ def test_excel_generation_benchmark_performance_and_memory(tmp_path: Path, recor
                         f"Missing hyperlink at {sheet_name} row {r} col {c}"
                     )
                     assert cell_s.hyperlink.target == cell_b.hyperlink.target
+    wb_single.close()
+    wb_base.close()
 
 
 @pytest.mark.unit
