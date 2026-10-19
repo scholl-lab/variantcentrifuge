@@ -112,11 +112,13 @@ def test_pipeline_runner_should_skip_stage_method(tmp_path: Path):
 def test_upstream_rerun_invalidates_downstream_stages(tmp_path: Path):
     """When an upstream stage re-runs, downstream stages must be invalidated and re-executed."""
     state = PipelineState(output_dir=str(tmp_path), enable_checksum=False)
-    state.initialize({"output_dir": str(tmp_path), "resume": True}, pipeline_version="1.0")
+    state.initialize(
+        {"output_dir": str(tmp_path), "enable_checkpoint": True}, pipeline_version="1.0"
+    )
 
     context = PipelineContext(
         args=Mock(),
-        config={"output_dir": str(tmp_path), "resume": True, "pipeline_version": "1.0"},
+        config={"output_dir": str(tmp_path), "enable_checkpoint": True, "pipeline_version": "1.0"},
         workspace=Mock(),
     )
     context.checkpoint_state = state
@@ -190,3 +192,146 @@ def test_stage_enable_checkpoint_flag_disabled(tmp_path: Path):
 
     runner = PipelineRunner(enable_checkpoints=True, max_workers=1)
     assert runner._should_skip_stage(stage, context) is False
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "key,val1,val2",
+    [
+        ("filter_exception_file", "hotspots_a.tsv", "hotspots_b.tsv"),
+        ("transcript_list", ["NM_001"], ["NM_002"]),
+        ("transcript_file", "tx_a.txt", "tx_b.txt"),
+        ("regions_bed", "reg_a.bed", "reg_b.bed"),
+        ("interval_expand", 50, 100),
+        ("add_chr", True, False),
+        ("tumor_sample_index", "0", "1"),
+        ("normal_sample_index", "1", "2"),
+    ],
+)
+def test_changing_named_configuration_keys_invalidates_compatibility(
+    tmp_path: Path, key, val1, val2
+):
+    """Changing each of the 8 named configuration keys invalidates checkpoint compatibility."""
+    from variantcentrifuge.checkpoint_helpers import hash_configuration
+
+    cfg_base = {"output_dir": str(tmp_path), "vcf_file": "input.vcf.gz", "gene_name": "GENE1"}
+    cfg1 = {**cfg_base, key: val1}
+    cfg2 = {**cfg_base, key: val2}
+
+    h1 = hash_configuration(cfg1)
+    h2 = hash_configuration(cfg2)
+    assert h1 != h2, f"Hash did not change when modifying {key}"
+
+    state = PipelineState(output_dir=str(tmp_path))
+    state.initialize(cfg1, pipeline_version="1.0")
+    state._loaded_from_file = True
+
+    assert state.can_resume(cfg1, pipeline_version="1.0") is True
+    assert state.can_resume(cfg2, pipeline_version="1.0") is False
+
+
+@pytest.mark.unit
+def test_legacy_fingerprint_fallback_rejected_when_omitted_parameter_changes(tmp_path: Path):
+    """Older fingerprint cannot regain compatibility through legacy fallback
+    when omitted parameter is used.
+    """
+    from variantcentrifuge.checkpoint_helpers import hash_legacy_configuration
+
+    cfg_old = {"output_dir": str(tmp_path), "vcf_file": "input.vcf.gz"}
+    legacy_hash = hash_legacy_configuration(cfg_old)
+
+    state = PipelineState(output_dir=str(tmp_path))
+    state.initialize(cfg_old, pipeline_version="1.0")
+    state.state["configuration_hash"] = legacy_hash
+    state._loaded_from_file = True
+
+    cfg_new = {**cfg_old, "transcript_list": ["NM_NEW"]}
+    assert state.can_resume(cfg_new, pipeline_version="1.0") is False
+
+
+@pytest.mark.unit
+def test_incompatible_traditional_resume_stops_immediately(tmp_path: Path):
+    """Incompatible traditional resume must stop/abort immediately without stage skipping."""
+    state = PipelineState(output_dir=str(tmp_path))
+    state.initialize(
+        {"output_dir": str(tmp_path), "transcript_list": ["NM_OLD"]},
+        pipeline_version="1.0",
+    )
+    state.start_step("s1")
+    out_file = tmp_path / "s1.out"
+    out_file.write_text("old data")
+    state.complete_step("s1", output_files=[str(out_file)])
+    state.save()
+
+    new_cfg = {
+        "output_dir": str(tmp_path),
+        "transcript_list": ["NM_NEW"],
+        "resume": True,
+        "pipeline_version": "1.0",
+    }
+    context = PipelineContext(args=Mock(), config=new_cfg, workspace=Mock())
+    state2 = PipelineState(output_dir=str(tmp_path))
+    state2.load()
+    context.checkpoint_state = state2
+
+    s1 = DummyStage("s1")
+    runner = PipelineRunner(enable_checkpoints=True, max_workers=1)
+
+    with pytest.raises(ValueError, match="Cannot resume: configuration or version mismatch"):
+        runner.run([s1], context)
+
+    assert s1.run_count == 0
+
+
+@pytest.mark.unit
+def test_registered_stages_resolve_with_correct_categories():
+    """Verify PCAComputationStage, DataSortingStage, TranscriptFilterStage,
+    and ClinVarPM5Stage in registry.
+    """
+    from variantcentrifuge.stages.stage_registry import get_registry, initialize_registry
+
+    initialize_registry()
+    registry = get_registry()
+
+    pca_info = registry.get_stage_info("pca_computation")
+    assert pca_info is not None
+    assert pca_info.category == "processing"
+
+    sort_info = registry.get_stage_info("data_sorting")
+    assert sort_info is not None
+    assert sort_info.category == "processing"
+
+    tx_info = registry.get_stage_info("transcript_filter")
+    assert tx_info is not None
+    assert tx_info.category == "processing"
+
+    pm5_info = registry.get_stage_info("clinvar_pm5")
+    assert pm5_info is not None
+    assert pm5_info.category == "analysis"
+
+
+@pytest.mark.unit
+def test_completing_tsv_output_alone_does_not_bypass_artifact_validation(tmp_path: Path):
+    """Completing tsv_output alone does not bypass validation of required
+    artifacts or subsequent reports.
+    """
+    state = PipelineState(output_dir=str(tmp_path))
+    cfg = {"output_dir": str(tmp_path), "vcf_file": "in.vcf.gz"}
+    state.initialize(cfg, pipeline_version="1.0")
+    state._loaded_from_file = True
+
+    # Intermediate stage with recorded output file that is deleted
+    missing_intermediate = tmp_path / "intermediate.tsv"
+    missing_intermediate.write_text("intermediate data")
+    state.start_step("field_extraction")
+    state.complete_step("field_extraction", output_files=[str(missing_intermediate)])
+    missing_intermediate.unlink()
+
+    # tsv_output completed with existing file
+    tsv_out = tmp_path / "final.tsv"
+    tsv_out.write_text("complete final tsv")
+    state.start_step("tsv_output")
+    state.complete_step("tsv_output", output_files=[str(tsv_out)])
+
+    # can_resume must fail because intermediate artifact is missing, even though tsv_output exists
+    assert state.can_resume(cfg, pipeline_version="1.0") is False

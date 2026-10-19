@@ -140,10 +140,6 @@ class PipelineState:
             logger.warning("Configuration has changed, cannot resume")
             return False
 
-        if self.should_skip_step("final_output"):
-            logger.info("Pipeline was already completed, only validating final output.")
-            return True
-
         for step_name, step_info in self.state["steps"].items():
             if step_info.status == "completed":
                 for file_info in step_info.output_files:

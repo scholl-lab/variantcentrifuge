@@ -9,8 +9,19 @@ of the duplicate argument parser bug and ensure all critical parameters work.
 """
 
 import subprocess
+from pathlib import Path
 
 import pytest
+
+
+def _make_test_vcf(tmp_path: Path) -> Path:
+    fixture_vcf = Path("tests/fixtures/test_variants_scoring.GRCh37.annotated.vcf.gz")
+    fixture_tbi = Path("tests/fixtures/test_variants_scoring.GRCh37.annotated.vcf.gz.tbi")
+    dest_vcf = tmp_path / "input.vcf.gz"
+    dest_tbi = tmp_path / "input.vcf.gz.tbi"
+    dest_vcf.write_bytes(fixture_vcf.read_bytes())
+    dest_tbi.write_bytes(fixture_tbi.read_bytes())
+    return dest_vcf
 
 
 def test_cli_annotate_bed_populates_canonical_and_legacy_config_keys(monkeypatch, tmp_path):
@@ -21,8 +32,7 @@ def test_cli_annotate_bed_populates_canonical_and_legacy_config_keys(monkeypatch
     def fake_run_pipeline(args):
         captured_configs.append(args.config.copy())
 
-    vcf = tmp_path / "input.vcf"
-    vcf.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+    vcf = _make_test_vcf(tmp_path)
     bed = tmp_path / "regions.bed"
     bed.write_text("chr1\t99\t101\tregion\n")
 
@@ -74,8 +84,7 @@ def test_variant_weight_column_cli_populates_config(monkeypatch, tmp_path):
     def fake_run_pipeline(args):
         captured_configs.append(args.config.copy())
 
-    vcf = tmp_path / "input.vcf"
-    vcf.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+    vcf = _make_test_vcf(tmp_path)
 
     monkeypatch.setattr(cli_module, "run_pipeline", fake_run_pipeline)
     monkeypatch.setattr(
@@ -117,8 +126,7 @@ def test_variant_weight_column_cli_populates_config(monkeypatch, tmp_path):
 def test_variant_weight_params_cli_requires_json_object(monkeypatch, tmp_path):
     from variantcentrifuge import cli as cli_module
 
-    vcf = tmp_path / "input.vcf"
-    vcf.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+    vcf = _make_test_vcf(tmp_path)
 
     monkeypatch.setattr(
         "sys.argv",
@@ -149,8 +157,7 @@ def test_variant_weight_params_cli_requires_json_object(monkeypatch, tmp_path):
 def test_score_column_cli_requires_variant_weight_column(monkeypatch, tmp_path):
     from variantcentrifuge import cli as cli_module
 
-    vcf = tmp_path / "input.vcf"
-    vcf.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+    vcf = _make_test_vcf(tmp_path)
 
     monkeypatch.setattr(
         "sys.argv",

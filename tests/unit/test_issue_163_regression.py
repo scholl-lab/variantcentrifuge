@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -90,3 +91,70 @@ class TestRunnerPsutilGracefulGuarding:
         assert stage.name in runner._stage_metrics
         assert runner._stage_metrics[stage.name]["mem_before_mb"] == pytest.approx(100.0)
         assert runner._stage_metrics[stage.name]["mem_after_mb"] == pytest.approx(100.0)
+
+
+@pytest.mark.unit
+class TestDocCliSynchronization:
+    """Verify synchronization between CLI options and documentation."""
+
+    def test_documented_flags_exist_in_usage_md(self) -> None:
+        """usage.md must document --coast-classification, --filter-exception-file, and --pca."""
+        usage_text = Path("docs/source/usage.md").read_text(encoding="utf-8")
+        assert "--coast-classification" in usage_text
+        assert "--filter-exception-file" in usage_text
+        assert "`--pca`" in usage_text or "--pca PATH" in usage_text
+
+    def test_coast_backend_documentation_omits_r(self) -> None:
+        """COAST backend documentation must not recommend the unsupported 'r' backend."""
+        usage_text = Path("docs/source/usage.md").read_text(encoding="utf-8")
+        assoc_guide = Path("docs/source/guides/association_testing.md").read_text(encoding="utf-8")
+
+        for line in usage_text.splitlines():
+            if "--coast-backend" in line:
+                assert '"r"' not in line and "or `r`" not in line
+
+        for line in assoc_guide.splitlines():
+            if "`coast_backend`" in line or "--coast-backend" in line:
+                assert '"r"' not in line and "or `r`" not in line
+
+    def test_parse_representative_cli_argument_lists(self) -> None:
+        """Registered parser successfully parses representative documented argument lists."""
+        from variantcentrifuge.cli import create_parser
+
+        parser = create_parser()
+
+        # 1. COAST classification options
+        args1 = parser.parse_args(["-v", "test.vcf.gz", "--coast-classification", "sift_polyphen"])
+        assert args1.coast_classification == "sift_polyphen"
+
+        args2 = parser.parse_args(["-v", "test.vcf.gz", "--coast-classification", "cadd"])
+        assert args2.coast_classification == "cadd"
+
+        # 2. Filter exception file
+        args3 = parser.parse_args(["-v", "test.vcf.gz", "--filter-exception-file", "hotspots.tsv"])
+        assert args3.filter_exception_file == "hotspots.tsv"
+
+        # 3. PCA unified flag and backward compatibility aliases
+        args4 = parser.parse_args(["-v", "test.vcf.gz", "--pca", "eigenvec.tsv"])
+        assert args4.pca == "eigenvec.tsv"
+
+        args5 = parser.parse_args(["-v", "test.vcf.gz", "--pca", "akt"])
+        assert args5.pca == "akt"
+
+        args6 = parser.parse_args(["-v", "test.vcf.gz", "--pca-file", "eigenvec.tsv"])
+        assert args6.pca == "eigenvec.tsv"
+
+        args7 = parser.parse_args(["-v", "test.vcf.gz", "--pca-tool", "akt"])
+        assert args7.pca == "akt"
+
+        # 4. COAST backend valid choices
+        args_py = parser.parse_args(["-v", "test.vcf.gz", "--coast-backend", "python"])
+        assert args_py.coast_backend == "python"
+
+        args_auto = parser.parse_args(["-v", "test.vcf.gz", "--coast-backend", "auto"])
+        assert args_auto.coast_backend == "auto"
+
+        # 5. Invalid COAST backend 'r' rejected
+        with pytest.raises(SystemExit) as exc:
+            parser.parse_args(["-v", "test.vcf.gz", "--coast-backend", "r"])
+        assert exc.value.code == 2

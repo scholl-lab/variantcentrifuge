@@ -116,8 +116,8 @@ def test_igv_flanking_zero_preserved(tmp_path: Path):
 
 
 @pytest.mark.unit
-def test_phenotype_loading_stage_conditional():
-    """PhenotypeLoadingStage is added when phenotype_file is set, and omitted when not set."""
+def test_phenotype_loading_stage_unconditionally_scheduled():
+    """PhenotypeLoadingStage is unconditionally scheduled in all stage plans."""
     # When phenotype_file is set in config
     cfg_with_pheno = {
         "reference": "GRCh37.p13",
@@ -148,4 +148,165 @@ def test_phenotype_loading_stage_conditional():
     }
     stages_without = create_stages_from_config(cfg_without_pheno)
     stage_types_without = [type(s) for s in stages_without]
-    assert PhenotypeLoadingStage not in stage_types_without
+    assert PhenotypeLoadingStage in stage_types_without
+
+
+@pytest.mark.unit
+def test_configured_analysis_and_report_stages_activated():
+    """Configured analyses and reports must activate corresponding stages in
+    create_stages_from_config.
+    """
+    from variantcentrifuge.stages.analysis_stages import (
+        AssociationAnalysisStage,
+        GeneBurdenAnalysisStage,
+    )
+    from variantcentrifuge.stages.output_stages import (
+        ArchiveCreationStage,
+        ExcelReportStage,
+        HTMLReportStage,
+    )
+
+    cfg = {
+        "reference": "GRCh37.p13",
+        "filters": "PASS",
+        "fields_to_extract": "CHROM POS",
+        "gene_name": "BRCA1",
+        "xlsx": True,
+        "html_report": True,
+        "archive_results": True,
+        "perform_gene_burden": True,
+        "perform_association": True,
+        "association_tests": ["skat"],
+    }
+    stages = create_stages_from_config(cfg)
+    stage_types = [type(s) for s in stages]
+
+    assert ExcelReportStage in stage_types
+    assert HTMLReportStage in stage_types
+    assert ArchiveCreationStage in stage_types
+    assert GeneBurdenAnalysisStage in stage_types
+    assert AssociationAnalysisStage in stage_types
+
+
+@pytest.mark.unit
+def test_threads_propagation_to_stage_builders():
+    """threads=8 selects parallel_complete_processing; threads=1 or omitted
+    retains sequential stages.
+    """
+    # threads=8 in create_stages_from_config
+    cfg_parallel = {
+        "reference": "GRCh37.p13",
+        "filters": "PASS",
+        "fields_to_extract": "CHROM POS",
+        "threads": 8,
+    }
+    stages_p1 = create_stages_from_config(cfg_parallel)
+    names_p1 = [s.name for s in stages_p1]
+    assert "parallel_complete_processing" in names_p1
+    assert "variant_extraction" not in names_p1
+
+    # threads=8 in build_pipeline_stages
+    args_parallel = argparse.Namespace(
+        reference="GRCh37.p13",
+        filters="PASS",
+        fields_to_extract="CHROM POS",
+        threads=8,
+        config={"threads": 8},
+    )
+    stages_p2 = build_pipeline_stages(args_parallel)
+    names_p2 = [s.name for s in stages_p2]
+    assert "parallel_complete_processing" in names_p2
+    assert "variant_extraction" not in names_p2
+
+    # threads=1 retains sequential stages
+    cfg_seq = {
+        "reference": "GRCh37.p13",
+        "filters": "PASS",
+        "fields_to_extract": "CHROM POS",
+        "threads": 1,
+    }
+    stages_s1 = create_stages_from_config(cfg_seq)
+    names_s1 = [s.name for s in stages_s1]
+    assert "parallel_complete_processing" not in names_s1
+    assert "variant_extraction" in names_s1
+
+
+@pytest.mark.unit
+def test_cli_main_mocked_execution_preserves_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Real argument parsing with mocked execution preserves configured
+    analysis/report flags and gene selectors.
+    """
+    import json
+    from unittest.mock import MagicMock, patch
+
+    from variantcentrifuge.cli import main
+
+    cfg_data = {
+        "reference": "GRCh37.p13",
+        "filters": "PASS",
+        "fields_to_extract": "CHROM POS",
+        "gene_name": "BRCA1",
+        "xlsx": True,
+        "html_report": True,
+        "archive_results": True,
+        "perform_gene_burden": True,
+        "perform_association": True,
+        "association_tests": ["skat"],
+    }
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text(json.dumps(cfg_data))
+
+    mock_run = MagicMock()
+    monkeypatch.setattr("variantcentrifuge.cli.run_pipeline", mock_run)
+    monkeypatch.setattr("variantcentrifuge.cli.validate_vcf_file", lambda *a, **k: None)
+    monkeypatch.setattr("variantcentrifuge.cli.validate_required_tools", lambda *a, **k: None)
+
+    with patch("sys.argv", ["variantcentrifuge", "-v", "test.vcf.gz", "-c", str(cfg_file)]):
+        ret = main()
+        assert ret == 0
+
+    assert mock_run.called
+    called_args = mock_run.call_args[0][0]
+    assert called_args.gene_name == "BRCA1"
+    assert called_args.xlsx is True
+    assert called_args.html_report is True
+    assert called_args.archive_results is True
+    assert called_args.perform_gene_burden is True
+    assert called_args.perform_association is True
+    assert called_args.association_tests == ["skat"]
+
+
+@pytest.mark.unit
+def test_cli_explicit_flags_override_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Explicit CLI flags override configuration file settings."""
+    import json
+    from unittest.mock import MagicMock, patch
+
+    from variantcentrifuge.cli import main
+
+    cfg_data = {
+        "reference": "GRCh37.p13",
+        "filters": "PASS",
+        "fields_to_extract": "CHROM POS",
+        "gene_name": "BRCA1",
+    }
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text(json.dumps(cfg_data))
+
+    mock_run = MagicMock()
+    monkeypatch.setattr("variantcentrifuge.cli.run_pipeline", mock_run)
+    monkeypatch.setattr("variantcentrifuge.cli.validate_vcf_file", lambda *a, **k: None)
+    monkeypatch.setattr("variantcentrifuge.cli.validate_required_tools", lambda *a, **k: None)
+
+    with patch(
+        "sys.argv",
+        ["variantcentrifuge", "-v", "test.vcf.gz", "-c", str(cfg_file), "--gene-name", "TP53"],
+    ):
+        ret = main()
+        assert ret == 0
+
+    assert mock_run.called
+    called_args = mock_run.call_args[0][0]
+    assert called_args.gene_name == "TP53"

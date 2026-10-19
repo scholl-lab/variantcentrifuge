@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import gzip
 import hashlib
 import logging
 import os
-import shutil
+import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -19,12 +20,20 @@ class AtomicFileOperation:
     """Context manager for atomic file operations with automatic temp file cleanup.
 
     Ensures that output files are only visible in their final location after
-    being completely written.
+    being completely written, using unique sibling temporary files and atomic os.replace.
     """
 
-    def __init__(self, final_path: str, suffix: str = ".tmp"):
+    def __init__(self, final_path: str | Path, suffix: str | None = None):
         self.final_path = Path(final_path)
-        self.temp_path = Path(f"{final_path}{suffix}")
+        if suffix is not None:
+            self.temp_path = self.final_path.with_name(f"{self.final_path.name}{suffix}")
+        else:
+            full_suffix = "".join(self.final_path.suffixes)
+            stem = (
+                self.final_path.name[: -len(full_suffix)] if full_suffix else self.final_path.name
+            )
+            unique_tag = f".tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}"
+            self.temp_path = self.final_path.with_name(f"{stem}{unique_tag}{full_suffix}")
         self.success = False
 
     def __enter__(self) -> Path:
@@ -36,9 +45,16 @@ class AtomicFileOperation:
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         if exc_type is None:
             if self.temp_path.exists():
-                shutil.move(str(self.temp_path), str(self.final_path))
-                self.success = True
-                logger.debug(f"Atomically created file: {self.final_path}")
+                try:
+                    os.replace(self.temp_path, self.final_path)
+                    self.success = True
+                    logger.debug(f"Atomically published file: {self.final_path}")
+                except Exception as err:
+                    if self.temp_path.exists():
+                        with contextlib.suppress(Exception):
+                            self.temp_path.unlink()
+                    logger.error(f"Failed to publish {self.temp_path} to {self.final_path}: {err}")
+                    raise
             else:
                 logger.warning(f"Temp file not created: {self.temp_path}")
         else:

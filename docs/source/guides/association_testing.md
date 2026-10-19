@@ -916,7 +916,7 @@ Use this for reproducible analyses or when parameters are too numerous for the c
 | `gene_prior_weights` | str | `null` | Path to gene-weight TSV for weighted FDR correction |
 | `gene_prior_weight_column` | str | `"weight"` | Column name in gene-weight file containing weights |
 | `skat_backend` | str | `"python"` | `"python"`, `"auto"`, or `"r"` (deprecated) |
-| `coast_backend` | str | `"python"` | `"python"`, `"auto"`, or `"r"` (deprecated) |
+| `coast_backend` | str | `"python"` | `"python"` or `"auto"` |
 | `diagnostics_output` | str | `null` | Path to diagnostics directory |
 | `min_cases` | int | `200` | Warn if case count below this |
 | `max_case_control_ratio` | float | `20.0` | Warn if control-to-case ratio exceeds this |
@@ -1123,7 +1123,7 @@ variantcentrifuge \
   --covariate-file covariates.tsv \
   --covariates age,sex,batch \
   --categorical-covariates sex,batch \
-  --pca-file ancestry.eigenvec \
+  --pca ancestry.eigenvec \
   --pca-components 10 \
   --variant-weights beta:1,25 \
   --coast-weights 1,2,3 \

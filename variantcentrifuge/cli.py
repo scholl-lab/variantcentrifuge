@@ -22,12 +22,14 @@ from .cli_parser_groups import (
     populate_performance_group,
 )
 from .cli_subcommands import handle_listing_and_resume_options
+from .cli_sync import sync_cli_and_config
 from .config import load_config
 from .pipeline import run_pipeline
 from .validators import (
     validate_cli_args,
     validate_mandatory_parameters,
     validate_phenotype_file,
+    validate_required_tools,
     validate_vcf_file,
 )
 from .vcf_header_parser import resolve_tumor_normal_indices
@@ -45,9 +47,27 @@ __all__ = [
 logger = logging.getLogger("variantcentrifuge")
 
 
+class _VariantCentrifugeArgumentParser(argparse.ArgumentParser):
+    """Parser that enforces -v/--vcf-file for execution while permitting listing flags without it."""
+
+    def parse_args(  # type: ignore[override]
+        self,
+        args: Any = None,
+        namespace: argparse.Namespace | None = None,
+    ) -> argparse.Namespace:
+        parsed: argparse.Namespace = super().parse_args(args=args, namespace=namespace)
+        if not parsed.vcf_file and not (
+            getattr(parsed, "list_stages", False)
+            or getattr(parsed, "list_checkpoints", False)
+            or getattr(parsed, "show_checkpoint_status", False)
+        ):
+            self.error("the following arguments are required: -v/--vcf-file")
+        return parsed
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create and return the argument parser for variantcentrifuge CLI."""
-    parser = argparse.ArgumentParser(
+    parser = _VariantCentrifugeArgumentParser(
         description="variantcentrifuge: Filter and process VCF files.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=get_curated_examples_epilog(),
@@ -79,7 +99,9 @@ def create_parser() -> argparse.ArgumentParser:
 
     # Core Input/Output
     io_group = parser.add_argument_group("Core Input/Output")
-    io_group.add_argument("-v", "--vcf-file", help="Input VCF file path", required=True)
+    io_group.add_argument(
+        "-v", "--vcf-file", help="Input VCF file path", required=False, default=None
+    )
     io_group.add_argument(
         "-o",
         "--output-file",
@@ -304,6 +326,16 @@ def main() -> int:
         cfg["field_profile"] = args.field_profile
     resolve_profile(cfg)
 
+    # Synchronize configuration and CLI options so listing and validation see effective settings
+    sync_cli_and_config(args, cfg)
+
+    # Handle information and interactive options that exit early (e.g. --list-stages, --list-checkpoints)
+    handle_listing_and_resume_options(args, cfg)
+
+    # Ordinary execution requires VCF input
+    if not args.vcf_file:
+        parser.error("the following arguments are required: -v/--vcf-file")
+
     reference: str | None = args.reference or cfg.get("reference")
     filters: str | None = args.filters or cfg.get("filters")
     fields_file = getattr(args, "fields_file", None) or cfg.get("fields_file")
@@ -319,8 +351,9 @@ def main() -> int:
 
         filters, tumor_normal_vars = resolve_presets_and_tumor_normal(args, cfg, filters)
 
-        # Validate mandatory parameters
+        # Validate mandatory parameters, external tools, VCF and phenotype inputs
         validate_mandatory_parameters(reference, filters, fields)
+        validate_required_tools(args, cfg, logger)
         validate_vcf_file(args.vcf_file, logger)
         if args.phenotype_file:
             validate_phenotype_file(
@@ -331,12 +364,9 @@ def main() -> int:
             )
 
         populate_cli_config(args, cfg, parser, reference, filters, fields, tumor_normal_vars)
-    except (ValueError, FileNotFoundError) as e:
+    except (ValueError, FileNotFoundError, RuntimeError) as e:
         logger.error(str(e))
         sys.exit(1)
-
-    # Handle information and interactive options that exit early
-    handle_listing_and_resume_options(args, cfg)
 
     # Performance configuration
     cfg["max_memory_gb"] = args.max_memory_gb
@@ -347,26 +377,6 @@ def main() -> int:
     logger.debug(
         f"Performance config mapping: genotype_replacement_method={args.genotype_replacement_method}"
     )
-
-    # Core I/O configuration: preserve config values if CLI flag not passed
-    cfg["xlsx"] = bool(args.xlsx if args.xlsx else cfg.get("xlsx", False))
-    cfg["keep_intermediates"] = bool(
-        args.keep_intermediates if args.keep_intermediates else cfg.get("keep_intermediates", False)
-    )
-    cfg["archive_results"] = bool(
-        args.archive_results if args.archive_results else cfg.get("archive_results", False)
-    )
-    cfg["gzip_intermediates"] = (
-        args.gzip_intermediates
-        if getattr(args, "gzip_intermediates", None) is not None
-        else cfg.get("gzip_intermediates", True)
-    )
-    logger.debug(f"I/O config mapping: xlsx={cfg['xlsx']}")
-
-    # Gene selection configuration
-    cfg["gene_name"] = args.gene_name if args.gene_name is not None else cfg.get("gene_name")
-    cfg["gene_file"] = args.gene_file if args.gene_file is not None else cfg.get("gene_file")
-    logger.debug(f"Gene config mapping: gene_name={cfg['gene_name']}")
 
     # Field extraction configuration
     cfg["add_column"] = args.add_column if args.add_column else cfg.get("add_column")
@@ -417,11 +427,6 @@ def main() -> int:
         else cfg.get("stats_output_file")
     )
 
-    # Reporting configuration
-    cfg["html_report"] = bool(
-        args.html_report if args.html_report else cfg.get("html_report", False)
-    )
-
     # Pseudonymization configuration
     cfg["pseudonymize"] = bool(
         args.pseudonymize if args.pseudonymize else cfg.get("pseudonymize", False)
@@ -456,15 +461,15 @@ def main() -> int:
         refactored_args.ped_file = (
             cfg.get("ped_file") or getattr(args, "ped", None) or getattr(args, "ped_file", None)
         )
-        refactored_args.xlsx = cfg["xlsx"]
-        refactored_args.keep_intermediates = cfg["keep_intermediates"]
-        refactored_args.archive_results = cfg["archive_results"]
-        refactored_args.gzip_intermediates = cfg["gzip_intermediates"]
-        refactored_args.gene_name = cfg["gene_name"]
-        refactored_args.gene_file = cfg["gene_file"]
-        refactored_args.html_report = cfg["html_report"]
-        refactored_args.pseudonymize = cfg["pseudonymize"]
-        refactored_args.no_replacement = cfg["no_replacement"]
+        refactored_args.xlsx = cfg.get("xlsx", False)
+        refactored_args.keep_intermediates = cfg.get("keep_intermediates", False)
+        refactored_args.archive_results = cfg.get("archive_results", False)
+        refactored_args.gzip_intermediates = cfg.get("gzip_intermediates", True)
+        refactored_args.gene_name = cfg.get("gene_name")
+        refactored_args.gene_file = cfg.get("gene_file")
+        refactored_args.html_report = cfg.get("html_report", False)
+        refactored_args.pseudonymize = cfg.get("pseudonymize", False)
+        refactored_args.no_replacement = cfg.get("no_replacement", False)
         refactored_args.late_filtering = cfg.get("late_filtering", False)
         refactored_args.final_filter = cfg.get("final_filter")
         refactored_args.perform_gene_burden = cfg.get("perform_gene_burden", False)

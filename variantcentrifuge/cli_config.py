@@ -14,29 +14,7 @@ from .version import __version__
 logger = logging.getLogger("variantcentrifuge")
 
 
-def _calculate_sort_memory_limit(sort_limit: str, max_memory_gb: float | None = None) -> str:
-    """Calculate intelligent sort memory limit based on available memory."""
-    if sort_limit != "auto":
-        return sort_limit
-
-    try:
-        import psutil
-
-        available_gb = (
-            max_memory_gb if max_memory_gb else psutil.virtual_memory().available / (1024**3)
-        )
-
-        # Use 10% of available memory for sorting, with reasonable bounds
-        sort_memory_gb = max(1, min(available_gb * 0.10, 50))  # Between 1GB and 50GB
-
-        if sort_memory_gb >= 1:
-            return f"{int(sort_memory_gb)}G"
-        else:
-            return f"{int(sort_memory_gb * 1024)}M"
-
-    except Exception as e:
-        logger.debug(f"Could not calculate sort memory limit: {e}. Using default 4G")
-        return "4G"  # Better default than 2G for modern systems
+from .cli_memory import calculate_sort_memory_limit as _calculate_sort_memory_limit
 
 
 def _expand_tumor_normal_vars(expr: str, tn_vars: dict[str, str]) -> str:
@@ -57,9 +35,14 @@ def resolve_presets_and_tumor_normal(
 
     if not preset_dict:
         from .config import load_config as _load_default_config
+        from .field_profile import resolve_profile
 
         try:
             default_cfg = _load_default_config()
+            profile_name = getattr(args, "field_profile", None) or cfg.get("field_profile")
+            if profile_name:
+                default_cfg["field_profile"] = profile_name
+            resolve_profile(default_cfg)
             preset_dict = default_cfg.get("presets", {})
         except Exception:
             preset_dict = {}
@@ -153,18 +136,34 @@ def populate_cli_config(
         raise ValueError(msg)
 
     tumor_normal_vars = tumor_normal_vars or {}
-    cfg["perform_gene_burden"] = getattr(args, "perform_gene_burden", False)
-    cfg["no_stats"] = getattr(args, "no_stats", False)
-    cfg["gene_burden_mode"] = getattr(args, "gene_burden_mode", None)
-    cfg["correction_method"] = getattr(args, "correction_method", None)
+    cfg["perform_gene_burden"] = bool(
+        getattr(args, "perform_gene_burden", False) or cfg.get("perform_gene_burden", False)
+    )
+    args.perform_gene_burden = cfg["perform_gene_burden"]
+    cfg["no_stats"] = bool(getattr(args, "no_stats", False) or cfg.get("no_stats", False))
+    args.no_stats = cfg["no_stats"]
+    cfg["gene_burden_mode"] = getattr(args, "gene_burden_mode", None) or cfg.get("gene_burden_mode")
+    cfg["correction_method"] = getattr(args, "correction_method", None) or cfg.get(
+        "correction_method"
+    )
 
     # Association analysis configuration
-    cfg["perform_association"] = getattr(args, "perform_association", False)
+    cfg["perform_association"] = bool(
+        getattr(args, "perform_association", False) or cfg.get("perform_association", False)
+    )
+    args.perform_association = cfg["perform_association"]
     assoc_tests = getattr(args, "association_tests", None)
     if assoc_tests:
-        cfg["association_tests"] = [t.strip() for t in assoc_tests.split(",")]
+        if isinstance(assoc_tests, str):
+            cfg["association_tests"] = [t.strip() for t in assoc_tests.split(",")]
+        else:
+            cfg["association_tests"] = list(assoc_tests)
+    elif cfg.get("association_tests"):
+        if isinstance(cfg["association_tests"], str):
+            cfg["association_tests"] = [t.strip() for t in cfg["association_tests"].split(",")]
     else:
         cfg["association_tests"] = ["fisher"] if cfg["perform_association"] else []
+    args.association_tests = cfg["association_tests"]
     cfg["skat_backend"] = getattr(args, "skat_backend", "python")
     cfg["coast_backend"] = getattr(args, "coast_backend", "python")
     cfg["coast_classification"] = None
@@ -369,8 +368,10 @@ def populate_cli_config(
 
     resolve_links(cfg)
 
-    # Threads — resolve "auto" to detected CPU count
-    if str(args.threads).lower() == "auto":
+    raw_threads = getattr(args, "threads", None)
+    if raw_threads is None:
+        raw_threads = cfg.get("threads", "auto")
+    if str(raw_threads).lower() == "auto":
         from .memory.resource_manager import ResourceManager
 
         rm = ResourceManager(config=cfg)
@@ -379,8 +380,8 @@ def populate_cli_config(
         cfg["threads"] = resolved_threads
         args.threads = resolved_threads
     else:
-        cfg["threads"] = int(args.threads)
-        args.threads = int(args.threads)
+        cfg["threads"] = int(raw_threads)
+        args.threads = int(raw_threads)
 
     # Output file - important to override default config value
     if args.output_file is not None:
@@ -551,12 +552,12 @@ def populate_cli_config(
     cfg["no_chunked_processing"] = args.no_chunked_processing
     cfg["force_chunked_processing"] = args.force_chunked_processing
     sort_limit_arg = getattr(args, "sort_memory_limit", None)
-    if sort_limit_arg is not None and sort_limit_arg != "auto":
+    if sort_limit_arg is not None:
         sort_limit = sort_limit_arg
     elif "sort_memory_limit" in cfg and cfg["sort_memory_limit"] is not None:
         sort_limit = cfg["sort_memory_limit"]
     else:
-        sort_limit = sort_limit_arg or "auto"
+        sort_limit = "auto"
     cfg["sort_memory_limit"] = _calculate_sort_memory_limit(sort_limit, cfg.get("max_memory_gb"))
     cfg["sort_parallel"] = args.sort_parallel
 
@@ -580,15 +581,10 @@ def populate_cli_config(
     cfg["pipeline_version"] = __version__  # Add pipeline version for compatibility checking
 
 
-def load_fields_from_file(fields_file: str | Path) -> str:
-    """Read fields to extract from a text file, ignoring blank lines and comments."""
-    path = Path(fields_file)
-    if not path.is_file():
-        raise FileNotFoundError(f"Fields file not found: {fields_file}")
-    fields: list[str] = []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#"):
-                fields.extend(p.strip() for p in stripped.replace(",", " ").split() if p.strip())
-    return " ".join(fields)
+from .cli_fields import load_fields_from_file
+
+__all__ = [
+    "load_fields_from_file",
+    "populate_cli_config",
+    "resolve_presets_and_tumor_normal",
+]

@@ -142,3 +142,153 @@ def test_json_config_values_preserved_when_cli_flags_omitted(tmp_path: Path):
     assert cfg.get("late_filtering") is True
     assert "QUAL > 30" in str(cfg.get("final_filter"))
     assert "CHROM POS REF ALT" in str(cfg.get("fields_to_extract"))
+
+
+@pytest.mark.unit
+def test_check_scoring_requires_inheritance(tmp_path: Path):
+    """Test check_scoring_requires_inheritance with various scoring configs."""
+    from variantcentrifuge.scoring_requirements import check_scoring_requires_inheritance
+
+    # 1. No scoring config -> False
+    args = argparse.Namespace()
+    assert check_scoring_requires_inheritance(args, {}) is False
+
+    # 2. Scoring config with formula requiring Inheritance_Pattern -> True
+    score_dir = tmp_path / "model1"
+    score_dir.mkdir()
+    (score_dir / "variable_assignment_config.json").write_text("{}")
+    (score_dir / "formula_config.json").write_text(
+        '{"formulas": [{"test_score": "1.0 if Inheritance_Pattern == \'de_novo\' else 0.0"}]}'
+    )
+    assert (
+        check_scoring_requires_inheritance(
+            argparse.Namespace(), {"scoring_config_path": str(score_dir)}
+        )
+        is True
+    )
+
+    # 3. Scoring config with variables containing Inheritance_Details -> True
+    score_dir2 = tmp_path / "model2"
+    score_dir2.mkdir()
+    (score_dir2 / "variable_assignment_config.json").write_text(
+        '{"variables": ["Inheritance_Details"]}'
+    )
+    (score_dir2 / "formula_config.json").write_text('{"formulas": []}')
+    assert (
+        check_scoring_requires_inheritance(
+            argparse.Namespace(), {"scoring_config_path": str(score_dir2)}
+        )
+        is True
+    )
+
+    # 4. Invalid path -> False
+    assert (
+        check_scoring_requires_inheritance(
+            argparse.Namespace(), {"scoring_config_path": str(tmp_path / "nonexistent")}
+        )
+        is False
+    )
+
+
+@pytest.mark.unit
+def test_synthetic_trio_inheritance_classification_with_cli_ped(tmp_path: Path):
+    """Synthetic trio passed through CLI configuration and pedigree loading must
+    retain parental relationships and produce de novo and compound-heterozygous
+    classifications without unrelated-sample fallback.
+    """
+    from unittest.mock import Mock
+
+    import pandas as pd
+
+    from variantcentrifuge.inheritance.analyzer import analyze_inheritance
+    from variantcentrifuge.pipeline_core import PipelineContext
+
+    # Create synthetic trio PED
+    ped_file = tmp_path / "trio.ped"
+    ped_file.write_text(
+        "fam1\tchild\tfather\tmother\t1\t2\nfam1\tfather\t0\t0\t1\t1\nfam1\tmother\t0\t0\t2\t1\n"
+    )
+
+    # CLI parse with --ped
+    parser = create_parser()
+    args = parser.parse_args(["-v", "dummy.vcf.gz", "--ped", str(ped_file)])
+
+    cfg: dict = {}
+    filters, tn_vars = resolve_presets_and_tumor_normal(args, cfg, None)
+    populate_cli_config(args, cfg, parser, "GRCh37", filters, "CHROM POS", tn_vars)
+
+    # Execute PedigreeLoadingStage
+    context = PipelineContext(args=args, config=cfg, workspace=Mock())
+    ped_stage = PedigreeLoadingStage()
+    context = ped_stage._process(context)
+
+    assert context.pedigree_data is not None
+    assert "child" in context.pedigree_data
+    assert context.pedigree_data["child"]["father_id"] == "father"
+    assert context.pedigree_data["child"]["mother_id"] == "mother"
+
+    # Synthetic variants dataframe:
+    # Var 1: De novo (child 0/1, father 0/0, mother 0/0)
+    # Var 2: Comp het 1 in GENE2 (child 0/1, father 0/1, mother 0/0)
+    # Var 3: Comp het 2 in GENE2 (child 0/1, father 0/0, mother 0/1)
+    df = pd.DataFrame(
+        [
+            {
+                "CHROM": "1",
+                "POS": 1000,
+                "REF": "A",
+                "ALT": "G",
+                "GENE": "GENE1",
+                "father": "0/0",
+                "mother": "0/0",
+                "child": "0/1",
+                "GT_father": "0/0",
+                "GT_mother": "0/0",
+                "GT_child": "0/1",
+            },
+            {
+                "CHROM": "2",
+                "POS": 2000,
+                "REF": "C",
+                "ALT": "T",
+                "GENE": "GENE2",
+                "father": "0/1",
+                "mother": "0/0",
+                "child": "0/1",
+                "GT_father": "0/1",
+                "GT_mother": "0/0",
+                "GT_child": "0/1",
+            },
+            {
+                "CHROM": "2",
+                "POS": 3000,
+                "REF": "G",
+                "ALT": "A",
+                "GENE": "GENE2",
+                "father": "0/0",
+                "mother": "0/1",
+                "child": "0/1",
+                "GT_father": "0/0",
+                "GT_mother": "0/1",
+                "GT_child": "0/1",
+            },
+        ]
+    )
+
+    sample_list = ["father", "mother", "child"]
+
+    # 1. With pedigree data loaded via --ped:
+    result_with_ped = analyze_inheritance(df.copy(), context.pedigree_data, sample_list)
+    assert result_with_ped.iloc[0]["Inheritance_Pattern"] == "de_novo"
+    assert result_with_ped.iloc[1]["Inheritance_Pattern"] == "compound_heterozygous"
+    assert result_with_ped.iloc[2]["Inheritance_Pattern"] == "compound_heterozygous"
+
+    # 2. Without pedigree (empty pedigree): falls back to unknown / singleton
+    result_no_ped = analyze_inheritance(df.copy(), {}, sample_list)
+    assert result_no_ped.iloc[0]["Inheritance_Pattern"] == "unknown"
+    assert (
+        result_no_ped.iloc[1]["Inheritance_Pattern"] == "compound_heterozygous_possible_no_pedigree"
+    )
+    assert (
+        result_no_ped.iloc[2]["Inheritance_Pattern"] == "compound_heterozygous_possible_no_pedigree"
+    )

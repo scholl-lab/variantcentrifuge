@@ -9,6 +9,17 @@ from typing import Any
 
 from .config import normalize_annotation_config
 
+NEW_FINGERPRINT_KEYS: tuple[str, ...] = (
+    "filter_exception_file",
+    "transcript_list",
+    "transcript_file",
+    "regions_bed",
+    "interval_expand",
+    "add_chr",
+    "tumor_sample_index",
+    "normal_sample_index",
+)
+
 RELEVANT_CONFIG_KEYS: tuple[str, ...] = (
     "gene_name",
     "gene_file",
@@ -30,6 +41,14 @@ RELEVANT_CONFIG_KEYS: tuple[str, ...] = (
     "annotate_bed_files",
     "annotate_gene_lists",
     "annotate_json_genes",
+    "filter_exception_file",
+    "transcript_list",
+    "transcript_file",
+    "regions_bed",
+    "interval_expand",
+    "add_chr",
+    "tumor_sample_index",
+    "normal_sample_index",
 )
 
 CANONICAL_ANNOTATION_KEYS: frozenset[str] = frozenset(
@@ -126,10 +145,15 @@ def legacy_annotation_equivalent_configs(config: dict[str, Any]) -> list[dict[st
 def resume_configuration_hashes(config: dict[str, Any]) -> set[str]:
     """Return current and legacy-equivalent config hashes accepted for resume."""
     hashes = {hash_configuration(config)}
-    hashes.update(
-        hash_legacy_configuration(candidate)
-        for candidate in legacy_annotation_equivalent_configs(config)
+    has_new_keys = any(
+        config.get(k) is not None and config.get(k) != [] and config.get(k) != ""
+        for k in NEW_FINGERPRINT_KEYS
     )
+    if not has_new_keys:
+        hashes.update(
+            hash_legacy_configuration(candidate)
+            for candidate in legacy_annotation_equivalent_configs(config)
+        )
     return hashes
 
 

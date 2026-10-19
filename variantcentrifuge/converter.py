@@ -12,139 +12,32 @@ It also supports producing JSON files for the HTML report.
 import json
 import logging
 import os
-import re
+import shutil
 from typing import Any, cast
 
-import numpy as np
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
-logger = logging.getLogger("variantcentrifuge")
-
-# Compile GT parsing pattern once at module level for performance
-GT_PATTERN = re.compile(r"([^()]+)\(([^)]+)\)")
-URL_PREFIXES = (
-    "http://",
-    "https://",
-    "ftp://",
-    "ftps://",
-    "mailto:",
-    "internal:",
-    "external:",
-    "file://",
+from .checkpoint_models import AtomicFileOperation
+from .converter_helpers import (
+    GT_PATTERN,
+    URL_PREFIXES,
+)
+from .converter_helpers import (
+    detect_url_columns as _detect_url_columns,
+)
+from .converter_helpers import (
+    fmt_coord as _fmt_coord,
+)
+from .converter_helpers import (
+    get_igv_reports_for_variant as _get_igv_reports_for_variant,
+)
+from .converter_helpers import (
+    load_igv_lookup as _load_igv_lookup,
 )
 
-
-def _fmt_coord(val: Any) -> str:
-    """Normalize coordinates, converting float integral values (e.g. 100.0) to '100'."""
-    if val is None or pd.isna(val):
-        return ""
-    if isinstance(val, float) and val.is_integer():
-        return str(int(val))
-    s = str(val).strip()
-    return s[:-2] if s.endswith(".0") and s[:-2].isdigit() else s
-
-
-def _load_igv_lookup(
-    base_path: str, igv_enabled: bool = True, search_parents: bool = True
-) -> dict[tuple[Any, ...], str]:
-    """Find and load IGV reports map, returning lookup dictionary for variants."""
-    output_dir = os.path.dirname(base_path)
-    igv_map_path = os.path.join(output_dir, "report", "igv", "igv_reports_map.json")
-    if not os.path.exists(igv_map_path) and search_parents:
-        parent_dir = os.path.dirname(os.path.dirname(output_dir))
-        alt = os.path.join(parent_dir, "report", "igv", "igv_reports_map.json")
-        igv_map_path = alt if os.path.exists(alt) else igv_map_path
-
-    if not os.path.exists(igv_map_path):
-        if igv_enabled:
-            logger.warning(f"IGV reports map file not found at: {igv_map_path}")
-        return {}
-
-    logger.info(f"Found IGV reports mapping file: {igv_map_path}")
-    try:
-        with open(igv_map_path, encoding="utf-8") as f:
-            igv_map_data = json.load(f)
-
-        igv_map = (
-            igv_map_data.get("variants", [])
-            if isinstance(igv_map_data, dict)
-            else (igv_map_data if isinstance(igv_map_data, list) else [])
-        )
-
-        igv_lookup: dict[tuple[Any, ...], str] = {}
-        for entry in igv_map:
-            c = tuple(_fmt_coord(entry.get(k, "")) for k in ("chrom", "pos", "ref", "alt"))
-            if reports := (entry.get("sample_reports") or entry.get("sample_links")):
-                for sid, rpath in reports.items():
-                    igv_lookup[(c[0], c[1], c[2], c[3], sid)] = rpath
-            elif "sample_id" in entry and "report_path" in entry:
-                igv_lookup[(c[0], c[1], c[2], c[3], entry["sample_id"])] = entry["report_path"]
-
-        logger.info(f"Created lookup for {len(igv_lookup)} IGV report entries")
-        return igv_lookup
-    except Exception as e:
-        logger.error(f"Error loading IGV reports map: {e}")
-        return {}
-
-
-def _get_igv_reports_for_variant(
-    chrom: str,
-    pos: str,
-    ref: str,
-    alt: str,
-    gt_value: Any,
-    igv_lookup: dict[tuple[Any, ...], str],
-) -> list[tuple[str, str]]:
-    """Return list of (sample_id, report_path) for non-reference samples in gt_value."""
-    gt_str = str(gt_value).strip() if gt_value is not None and pd.notna(gt_value) else ""
-    if not gt_str:
-        return []
-    chrom, pos, ref, alt = _fmt_coord(chrom), _fmt_coord(pos), _fmt_coord(ref), _fmt_coord(alt)
-    igv_reports = []
-    for entry in gt_str.split(";"):
-        if (m := GT_PATTERN.match(entry.strip())) and m.group(2).strip() not in {
-            "0/0",
-            "./.",
-            "0",
-            ".",
-            "0|0",
-        }:
-            sid = m.group(1).strip()
-            if (key := (chrom, pos, ref, alt, sid)) in igv_lookup:
-                igv_reports.append((sid, igv_lookup[key]))
-    return igv_reports
-
-
-def _excel_cell_value(val: Any) -> Any:
-    if val is None:
-        return None
-    if isinstance(val, (list, tuple, dict, set, np.ndarray)):
-        return str(val)
-    return None if pd.isna(val) else val
-
-
-def _detect_url_columns(df: pd.DataFrame) -> set[int]:
-    """Identify column indices where >= 70% of sample non-empty values start with http:// or https://."""
-    if len(df) == 0:
-        return set()
-    url_columns: set[int] = set()
-    for col_idx, col_name in enumerate(df.columns):
-        if not col_name:
-            continue
-        sample_vals = [
-            s
-            for raw in df.iloc[:4, col_idx]
-            if (c := _excel_cell_value(raw)) and (s := str(c).strip())
-        ]
-        if (
-            sample_vals
-            and sum(v.startswith(("http://", "https://")) for v in sample_vals)
-            >= len(sample_vals) * 0.7
-        ):
-            url_columns.add(col_idx)
-    return url_columns
+logger = logging.getLogger("variantcentrifuge")
 
 
 def convert_to_excel(
@@ -186,11 +79,14 @@ def convert_to_excel(
     igv_enabled = cfg.get("igv_enabled", False)
     igv_lookup = _load_igv_lookup(xlsx_file, igv_enabled=igv_enabled) if igv_enabled else {}
 
-    with pd.ExcelWriter(
-        xlsx_file,
-        engine="xlsxwriter",
-        engine_kwargs={"options": {"strings_to_urls": False}},
-    ) as writer:
+    with (
+        AtomicFileOperation(xlsx_file) as temp_xlsx,
+        pd.ExcelWriter(
+            str(temp_xlsx),
+            engine="xlsxwriter",
+            engine_kwargs={"options": {"strings_to_urls": False}},
+        ) as writer,
+    ):
         df.to_excel(writer, sheet_name="Results", index=False)
         ws = writer.sheets["Results"]
         book = writer.book
@@ -234,7 +130,10 @@ def convert_to_excel(
             igv_col_idx = num_cols
             ws.write_string(0, igv_col_idx, "IGV Report Links")
             for row_idx in range(len(df)):
-                raw_pos, chrom = df["POS"].iloc[row_idx], _fmt_coord(df["CHROM"].iloc[row_idx])
+                raw_pos, chrom = (
+                    df["POS"].iloc[row_idx],
+                    _fmt_coord(df["CHROM"].iloc[row_idx]),
+                )
                 pos, ref, alt = (
                     _fmt_coord(raw_pos),
                     _fmt_coord(df["REF"].iloc[row_idx]),
@@ -348,8 +247,12 @@ def append_tsv_as_sheet(xlsx_file: str, tsv_file: str, sheet_name: str = "Metada
         Name of the new sheet to be appended. Defaults to "Metadata".
     """
     df = pd.read_csv(tsv_file, sep="\t", header=0, low_memory=False)
-    with pd.ExcelWriter(xlsx_file, engine="openpyxl", mode="a", if_sheet_exists="new") as writer:
-        df.to_excel(writer, index=False, sheet_name=sheet_name)
+    with AtomicFileOperation(xlsx_file) as temp_xlsx:
+        shutil.copy2(xlsx_file, temp_xlsx)
+        with pd.ExcelWriter(
+            str(temp_xlsx), engine="openpyxl", mode="a", if_sheet_exists="new"
+        ) as writer:
+            df.to_excel(writer, index=False, sheet_name=sheet_name)
 
 
 def finalize_excel_file(xlsx_file: str, cfg: dict[str, Any]) -> None:
@@ -361,140 +264,144 @@ def finalize_excel_file(xlsx_file: str, cfg: dict[str, Any]) -> None:
     - Hyperlinks on URL columns
     - Add IGV Report Links column if enabled and not already present
     """
-    wb = load_workbook(xlsx_file)
-    igv_enabled = cfg.get("igv_enabled", False)
-    igv_lookup = _load_igv_lookup(xlsx_file) if igv_enabled else {}
+    with AtomicFileOperation(xlsx_file) as temp_xlsx:
+        shutil.copy2(xlsx_file, temp_xlsx)
+        wb = load_workbook(str(temp_xlsx))
+        igv_enabled = cfg.get("igv_enabled", False)
+        igv_lookup = _load_igv_lookup(xlsx_file) if igv_enabled else {}
 
-    for ws in wb.worksheets:
-        ws.freeze_panes = "A2"
-        max_col_letter = get_column_letter(ws.max_column)
-        ws.auto_filter.ref = f"A1:{max_col_letter}1"
+        for ws in wb.worksheets:
+            ws.freeze_panes = "A2"
+            max_col_letter = get_column_letter(ws.max_column)
+            ws.auto_filter.ref = f"A1:{max_col_letter}1"
 
-        if ws.title != "Results":
-            continue
+            if ws.title != "Results":
+                continue
 
-        header_row = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
-        header_indices = {
-            col_name: idx
-            for idx, col_name in enumerate(header_row, 1)
-            if col_name in ["CHROM", "POS", "REF", "ALT", "GT"]
-        }
+            header_row = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+            header_indices = {
+                col_name: idx
+                for idx, col_name in enumerate(header_row, 1)
+                if col_name in ["CHROM", "POS", "REF", "ALT", "GT"]
+            }
 
-        # URL columns
-        url_columns = []
-        if ws.max_row > 1:
-            for idx, _col_name in enumerate(header_row, 1):
-                sample_cells = [
-                    ws.cell(row=r, column=idx) for r in range(2, min(6, ws.max_row + 1))
-                ]
-                sample_values = [
-                    (
-                        c.hyperlink.target
-                        if c.hyperlink and c.hyperlink.target
-                        else str(c.value or "")
-                    ).strip()
-                    for c in sample_cells
-                    if c.value or (c.hyperlink and c.hyperlink.target)
-                ]
-                url_count = sum(
-                    1 for val in sample_values if val.startswith(("http://", "https://"))
-                )
-                if sample_values and url_count >= len(sample_values) * 0.7:
-                    url_columns.append(idx)
-
-        if url_columns:
-            for row_idx in range(2, ws.max_row + 1):
-                for col_idx in url_columns:
-                    cell = ws.cell(row=row_idx, column=col_idx)
-                    val = str(cell.value or "").strip()
-                    if val.startswith(("http://", "https://")):
-                        col_name = str(header_row[col_idx - 1])
-                        cell.hyperlink = val
-                        cell.value = col_name
-                    if cell.hyperlink:
-                        cell.style = "Hyperlink"
-
-        # IGV links
-        has_coords = all(c in header_indices for c in ("CHROM", "POS", "REF", "ALT"))
-        overflow_rows: list[list[Any]] = []
-        if igv_enabled and igv_lookup and has_coords and "IGV Report Links" not in header_row:
-            igv_col = ws.max_column + 1
-            ws.cell(row=1, column=igv_col, value="IGV Report Links")
-            from openpyxl.comments import Comment
-
-            for row_idx in range(2, ws.max_row + 1):
-                raw_chrom = ws.cell(row=row_idx, column=header_indices["CHROM"]).value
-                raw_pos = ws.cell(row=row_idx, column=header_indices["POS"]).value
-                raw_ref = ws.cell(row=row_idx, column=header_indices["REF"]).value
-                raw_alt = ws.cell(row=row_idx, column=header_indices["ALT"]).value
-                chrom = _fmt_coord(raw_chrom)
-                pos = _fmt_coord(raw_pos)
-                ref = _fmt_coord(raw_ref)
-                alt = _fmt_coord(raw_alt)
-                gt_val = (
-                    str(ws.cell(row=row_idx, column=header_indices["GT"]).value or "")
-                    if "GT" in header_indices
-                    else ""
-                )
-
-                igv_reports = _get_igv_reports_for_variant(chrom, pos, ref, alt, gt_val, igv_lookup)
-                igv_cell = ws.cell(row=row_idx, column=igv_col)
-                if len(igv_reports) == 1:
-                    sample_id, rpath = igv_reports[0]
-                    igv_cell.value = sample_id
-                    igv_cell.hyperlink = os.path.join("report", rpath)
-                    igv_cell.style = "Hyperlink"
-                elif len(igv_reports) > 1:
-                    first_sample, _ = igv_reports[0]
-                    num_others = len(igv_reports) - 1
-                    igv_cell.value = f"{first_sample} (+{num_others} others)"
-                    link_texts = [
-                        f"{sid} ({os.path.join('report', rp)})" for sid, rp in igv_reports
+            # URL columns
+            url_columns = []
+            if ws.max_row > 1:
+                for idx, _col_name in enumerate(header_row, 1):
+                    sample_cells = [
+                        ws.cell(row=r, column=idx) for r in range(2, min(6, ws.max_row + 1))
                     ]
-                    comment_text = "; ".join(link_texts)
-                    if len(comment_text) > 32000:
-                        suffix = "\n... (see IGV_Overflow sheet for all sample links)"
-                        comment_text = comment_text[: 32000 - len(suffix)] + suffix
-                        for sid, rp in igv_reports:
-                            overflow_rows.append(
-                                [
-                                    row_idx,
-                                    raw_chrom,
-                                    raw_pos,
-                                    raw_ref,
-                                    raw_alt,
-                                    sid,
-                                    os.path.join("report", rp),
-                                ]
-                            )
-                    igv_cell.comment = Comment(comment_text, "IGV Reports")
-                else:
-                    igv_cell.value = "N/A"
+                    sample_values = [
+                        (
+                            c.hyperlink.target
+                            if c.hyperlink and c.hyperlink.target
+                            else str(c.value or "")
+                        ).strip()
+                        for c in sample_cells
+                        if c.value or (c.hyperlink and c.hyperlink.target)
+                    ]
+                    url_count = sum(
+                        1 for val in sample_values if val.startswith(("http://", "https://"))
+                    )
+                    if sample_values and url_count >= len(sample_values) * 0.7:
+                        url_columns.append(idx)
 
-            if overflow_rows:
-                overflow_headers = [
-                    "Row",
-                    "CHROM",
-                    "POS",
-                    "REF",
-                    "ALT",
-                    "Sample_ID",
-                    "IGV_Report_Path",
-                ]
-                if "IGV_Overflow" in wb.sheetnames:
-                    overflow_ws = wb["IGV_Overflow"]
-                else:
-                    overflow_ws = wb.create_sheet(title="IGV_Overflow")
-                    overflow_ws.append(overflow_headers)
-                for r in overflow_rows:
-                    overflow_ws.append(r)
-                    overflow_ws.cell(row=overflow_ws.max_row, column=2).data_type = "s"
-                    overflow_ws.cell(row=overflow_ws.max_row, column=6).data_type = "s"
-                overflow_ws.freeze_panes = "A2"
-                max_letter = get_column_letter(len(overflow_headers))
-                overflow_ws.auto_filter.ref = f"A1:{max_letter}1"
+            if url_columns:
+                for row_idx in range(2, ws.max_row + 1):
+                    for col_idx in url_columns:
+                        cell = ws.cell(row=row_idx, column=col_idx)
+                        val = str(cell.value or "").strip()
+                        if val.startswith(("http://", "https://")):
+                            col_name = str(header_row[col_idx - 1])
+                            cell.hyperlink = val
+                            cell.value = col_name
+                        if cell.hyperlink:
+                            cell.style = "Hyperlink"
 
-    wb.save(xlsx_file)
+            # IGV links
+            has_coords = all(c in header_indices for c in ("CHROM", "POS", "REF", "ALT"))
+            overflow_rows: list[list[Any]] = []
+            if igv_enabled and igv_lookup and has_coords and "IGV Report Links" not in header_row:
+                igv_col = ws.max_column + 1
+                ws.cell(row=1, column=igv_col, value="IGV Report Links")
+                from openpyxl.comments import Comment
+
+                for row_idx in range(2, ws.max_row + 1):
+                    raw_chrom = ws.cell(row=row_idx, column=header_indices["CHROM"]).value
+                    raw_pos = ws.cell(row=row_idx, column=header_indices["POS"]).value
+                    raw_ref = ws.cell(row=row_idx, column=header_indices["REF"]).value
+                    raw_alt = ws.cell(row=row_idx, column=header_indices["ALT"]).value
+                    chrom = _fmt_coord(raw_chrom)
+                    pos = _fmt_coord(raw_pos)
+                    ref = _fmt_coord(raw_ref)
+                    alt = _fmt_coord(raw_alt)
+                    gt_val = (
+                        str(ws.cell(row=row_idx, column=header_indices["GT"]).value or "")
+                        if "GT" in header_indices
+                        else ""
+                    )
+
+                    igv_reports = _get_igv_reports_for_variant(
+                        chrom, pos, ref, alt, gt_val, igv_lookup
+                    )
+                    igv_cell = ws.cell(row=row_idx, column=igv_col)
+                    if len(igv_reports) == 1:
+                        sample_id, rpath = igv_reports[0]
+                        igv_cell.value = sample_id
+                        igv_cell.hyperlink = os.path.join("report", rpath)
+                        igv_cell.style = "Hyperlink"
+                    elif len(igv_reports) > 1:
+                        first_sample, _ = igv_reports[0]
+                        num_others = len(igv_reports) - 1
+                        igv_cell.value = f"{first_sample} (+{num_others} others)"
+                        link_texts = [
+                            f"{sid} ({os.path.join('report', rp)})" for sid, rp in igv_reports
+                        ]
+                        comment_text = "; ".join(link_texts)
+                        if len(comment_text) > 32000:
+                            suffix = "\n... (see IGV_Overflow sheet for all sample links)"
+                            comment_text = comment_text[: 32000 - len(suffix)] + suffix
+                            for sid, rp in igv_reports:
+                                overflow_rows.append(
+                                    [
+                                        row_idx,
+                                        raw_chrom,
+                                        raw_pos,
+                                        raw_ref,
+                                        raw_alt,
+                                        sid,
+                                        os.path.join("report", rp),
+                                    ]
+                                )
+                        igv_cell.comment = Comment(comment_text, "IGV Reports")
+                    else:
+                        igv_cell.value = "N/A"
+
+                if overflow_rows:
+                    overflow_headers = [
+                        "Row",
+                        "CHROM",
+                        "POS",
+                        "REF",
+                        "ALT",
+                        "Sample_ID",
+                        "IGV_Report_Path",
+                    ]
+                    if "IGV_Overflow" in wb.sheetnames:
+                        overflow_ws = wb["IGV_Overflow"]
+                    else:
+                        overflow_ws = wb.create_sheet(title="IGV_Overflow")
+                        overflow_ws.append(overflow_headers)
+                    for r in overflow_rows:
+                        overflow_ws.append(r)
+                        overflow_ws.cell(row=overflow_ws.max_row, column=2).data_type = "s"
+                        overflow_ws.cell(row=overflow_ws.max_row, column=6).data_type = "s"
+                    overflow_ws.freeze_panes = "A2"
+                    max_letter = get_column_letter(len(overflow_headers))
+                    overflow_ws.auto_filter.ref = f"A1:{max_letter}1"
+
+        wb.save(str(temp_xlsx))
 
 
 def produce_report_json(variant_tsv: str, output_dir: str) -> None:
@@ -589,11 +496,17 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
     report_dir = os.path.join(output_dir, "report")
     os.makedirs(report_dir, exist_ok=True)
     variants_json_path = os.path.join(report_dir, "variants.json")
-    with open(variants_json_path, "w", encoding="utf-8") as vjf:
+    with (
+        AtomicFileOperation(variants_json_path) as temp_vjf,
+        open(temp_vjf, "w", encoding="utf-8") as vjf,
+    ):
         json.dump(variants, vjf, indent=2)
 
     summary_json_path = os.path.join(report_dir, "summary.json")
-    with open(summary_json_path, "w", encoding="utf-8") as sjf:
+    with (
+        AtomicFileOperation(summary_json_path) as temp_sjf,
+        open(temp_sjf, "w", encoding="utf-8") as sjf,
+    ):
         json.dump(summary_data, sjf, indent=2)
 
     logger.info(f"JSON files produced: {variants_json_path}, {summary_json_path}")

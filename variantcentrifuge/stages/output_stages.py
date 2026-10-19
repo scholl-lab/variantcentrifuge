@@ -20,6 +20,7 @@ from typing import Any
 
 import pandas as pd
 
+from ..checkpoint_models import AtomicFileOperation
 from ..converter import (
     convert_to_excel,
     produce_report_json,
@@ -34,13 +35,13 @@ from ..gt_reconstruction import (
 )
 from ..pipeline_core import PipelineContext, Stage
 from ..pseudonymizer import create_pseudonymizer
+from ..run_summary import _collect_metadata_rows, write_run_summary
 from ..utils import get_tool_version, sanitize_metadata_field
 from .tsv_output_stages import (
     ArchiveCreationStage,
     FinalFilteringStage,
     TSVOutputStage,
     VariantIdentifierStage,
-    _collect_metadata_rows,
 )
 
 logger = logging.getLogger(__name__)
@@ -333,11 +334,15 @@ class ExcelReportStage(Stage):
     def _add_additional_sheets(self, xlsx_file: str, context: PipelineContext) -> None:
         """Add additional sheets to existing Excel file (kept for backward compatibility)."""
         extra_sheets = self._collect_additional_sheets(context)
-        for sheet_name, sheet_df in extra_sheets.items():
+        import shutil
+
+        with AtomicFileOperation(xlsx_file) as temp_xlsx:
+            shutil.copy2(xlsx_file, temp_xlsx)
             with pd.ExcelWriter(
-                xlsx_file, engine="openpyxl", mode="a", if_sheet_exists="new"
+                str(temp_xlsx), engine="openpyxl", mode="a", if_sheet_exists="new"
             ) as writer:
-                sheet_df.to_excel(writer, index=False, sheet_name=sheet_name)
+                for sheet_name, sheet_df in extra_sheets.items():
+                    sheet_df.to_excel(writer, index=False, sheet_name=sheet_name)
 
 
 class HTMLReportStage(Stage):
@@ -553,8 +558,11 @@ class MetadataGenerationStage(Stage):
 
         logger.info(f"Generating metadata: {metadata_path}")
 
-        # Write metadata in TSV format
-        with open(metadata_path, "w", encoding="utf-8") as mf:
+        # Write metadata in TSV format atomically
+        with (
+            AtomicFileOperation(metadata_path) as temp_mf,
+            open(temp_mf, "w", encoding="utf-8") as mf,
+        ):
             mf.write("Parameter\tValue\n")
 
             def meta_write(param: Any, val: Any) -> None:
@@ -566,9 +574,18 @@ class MetadataGenerationStage(Stage):
                 meta_write(param, val)
 
         context.report_paths["metadata"] = metadata_path
+
+        # Consolidate provenance manifest in run_summary.json
+        summary_path = write_run_summary(context)
+        context.report_paths["run_summary"] = summary_path
+
         return metadata_path
 
     def get_output_files(self, context: PipelineContext) -> list[Path]:
-        """Return the metadata report for checkpoint tracking."""
-        path = context.report_paths.get("metadata")
-        return [path] if path else []
+        """Return the metadata report and run summary for checkpoint tracking."""
+        paths = []
+        if path := context.report_paths.get("metadata"):
+            paths.append(path)
+        if summary := context.report_paths.get("run_summary"):
+            paths.append(summary)
+        return paths

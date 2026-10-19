@@ -200,7 +200,7 @@ def populate_performance_group(performance_group: argparse._ArgumentGroup) -> No
     """Populate performance and resource management arguments."""
     performance_group.add_argument(
         "--threads",
-        default="auto",
+        default=None,
         help="Number of parallel worker processes to use for variant extraction and filtering. "
         "Use 'auto' to detect available CPU cores (default: auto). "
         "Set to 1 to disable parallelization.",
@@ -360,8 +360,9 @@ Examples:
   variantcentrifuge -G genes.txt -v input.vcf.gz --scoring-config-path scoring/model \\
       --final-filter 'score > 0.8 and IMPACT == "HIGH"' -o scored.tsv
 
-  # 6. Case-control gene burden and association analysis (SKAT / Burden) with covariates:
+  # 6. Case-control gene burden and association analysis (SKAT / logistic burden) with covariates:
   variantcentrifuge -G genes.txt -v cohort.vcf.gz --phenotype-file phenotypes.tsv \\
+      --phenotype-sample-column sample_id --phenotype-value-column affected \\
       --case-phenotypes affected --control-phenotypes unaffected \\
-      --perform-association --association-tests skat,burden --covariate-file covariates.tsv
+      --perform-association --association-tests skat,logistic_burden --covariate-file covariates.tsv
 """

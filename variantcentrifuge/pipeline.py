@@ -67,30 +67,13 @@ from .utils import compute_base_name
 logger = logging.getLogger(__name__)
 
 
-def _validate_requested_outputs(context: PipelineContext) -> None:
-    """Ensure requested user-facing outputs exist before reporting success."""
-    output_file = context.config.get("output_file")
-    if output_file not in (None, "stdout", "-") and (
-        not context.final_output_path or not context.final_output_path.exists()
-    ):
-        raise RuntimeError("Requested TSV output was not written")
-
-    if context.config.get("perform_association"):
-        assoc = context.config.get("association_output")
-        if not assoc or not Path(assoc).exists():
-            raise RuntimeError("Requested association output was not written")
-
-    if context.config.get("perform_gene_burden"):
-        burden = context.config.get("gene_burden_output")
-        if not burden or not Path(burden).exists():
-            raise RuntimeError("Requested gene burden output was not written")
-
-    if context.config.get("xlsx") or context.config.get("excel"):
-        excel = context.report_paths.get("excel")
-        if not excel or not Path(excel).exists():
-            raise RuntimeError("Requested Excel output was not written")
-
-
+from .pipeline_validation import (
+    resolve_threads,
+)
+from .pipeline_validation import (
+    validate_requested_outputs as _validate_requested_outputs,
+)
+from .run_summary import write_run_summary
 from .scoring_requirements import check_scoring_requires_inheritance
 
 
@@ -129,8 +112,7 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     )
 
     # Setup stages (can run in parallel)
-    if config.get("phenotype_file") or getattr(args, "phenotype_file", None):
-        stages.append(PhenotypeLoadingStage())
+    stages.append(PhenotypeLoadingStage())
 
     # Check for scoring config in merged config or args
     if config.get("scoring_config_path") or (
@@ -159,7 +141,7 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     stages.append(GeneBedCreationStage())
 
     # Choose parallel or single-threaded processing
-    threads = getattr(args, "threads", 1)
+    threads = resolve_threads(getattr(args, "threads", None) or config.get("threads", 1), config)
     if threads > 1:
         # Use the new complete parallel processing stage that runs the entire
         # pipeline (extraction -> filtering -> field extraction) for each chunk
@@ -211,7 +193,9 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
 
     # Check both args and config for inheritance settings
     # Debug logging to understand the issue
-    has_ped_file_arg = hasattr(args, "ped_file") and args.ped_file
+    has_ped_file_arg = (hasattr(args, "ped_file") and args.ped_file) or (
+        hasattr(args, "ped") and args.ped
+    )
     has_inheritance_mode_arg = hasattr(args, "inheritance_mode") and args.inheritance_mode
     has_calculate_inheritance_config = config.get("calculate_inheritance", False)
     has_ped_file_config = config.get("ped_file")
@@ -371,6 +355,11 @@ def create_stages_from_config(config: dict) -> list[Stage]:
     args.no_stats = config.get("no_stats", False)
     args.perform_gene_burden = config.get("perform_gene_burden", False)
     args.perform_association = config.get("perform_association", False)
+    args.association_tests = config.get("association_tests", [])
+    args.gene_name = config.get("gene_name")
+    args.gene_file = config.get("gene_file")
+
+    args.threads = resolve_threads(config.get("threads", 1), config)
 
     # Use the existing build_pipeline_stages function
     return build_pipeline_stages(args)
@@ -569,6 +558,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
         # Run pipeline
         context = runner.run(stages, context)
         _validate_requested_outputs(context)
+        write_run_summary(context)
 
         logger.info("Pipeline completed successfully!")
 

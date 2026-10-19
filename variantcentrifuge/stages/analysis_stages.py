@@ -25,6 +25,7 @@ from ..analyze_variants import analyze_variants
 from ..annotator import annotate_dataframe_with_features, load_custom_features
 from ..association.engine import AssociationEngine
 from ..association.weights import resolve_score_weight_column
+from ..checkpoint_models import AtomicFileOperation
 from ..dataframe_optimizer import load_optimized_dataframe, should_use_memory_passthrough
 from ..gene_burden import (
     _aggregate_gene_burden_from_columns,
@@ -1455,14 +1456,13 @@ class StatisticsGenerationStage(Stage):
                 all_data.append(other_df)
 
         # Combine all data into a single consistent DataFrame
-        if all_data:
-            combined_df = pd.concat(all_data, ignore_index=True, sort=False)
-            combined_df.to_csv(output_file, sep="\t", index=False)
-        else:
-            # Write a minimal file if no data
-            with open(output_file, "w") as f:
-                f.write("statistic\tvalue\tcategory\n")
-                f.write("total_variants\t0\tdataset\n")
+        with AtomicFileOperation(output_file) as temp_out:
+            if all_data:
+                combined_df = pd.concat(all_data, ignore_index=True, sort=False)
+                combined_df.to_csv(temp_out, sep="\t", index=False)
+            else:
+                with open(temp_out, "w") as f:
+                    f.write("statistic\tvalue\tcategory\ntotal_variants\t0\tdataset\n")
 
     def _get_default_stats_config(self) -> dict[str, Any]:
         """Get default statistics configuration using basic columns."""
@@ -2095,10 +2095,10 @@ class GeneBurdenAnalysisStage(Stage):
         if df.empty:
             burden_output, compression = self._resolve_gene_burden_output(context)
             empty = pd.DataFrame(columns=self._gene_burden_output_columns(context))
-            empty.to_csv(burden_output, sep="\t", index=False, compression=cast(Any, compression))
+            with AtomicFileOperation(burden_output) as temp_out:
+                empty.to_csv(temp_out, sep="\t", index=False, compression=cast(Any, compression))
             context.gene_burden_results = empty
             return context
-
         # Check if DataFrame has required GENE column
         if "GENE" not in df.columns:
             logger.error("DataFrame missing required 'GENE' column for gene burden analysis")
@@ -2179,12 +2179,11 @@ class GeneBurdenAnalysisStage(Stage):
 
         # Write results to output file
         burden_output, compression = self._resolve_gene_burden_output(context)
-
-        burden_results.to_csv(
-            burden_output, sep="\t", index=False, compression=cast(Any, compression)
-        )
+        with AtomicFileOperation(burden_output) as temp_out:
+            burden_results.to_csv(
+                temp_out, sep="\t", index=False, compression=cast(Any, compression)
+            )
         logger.info(f"Wrote gene burden results to {burden_output}")
-
         return context
 
     def get_input_files(self, context: PipelineContext) -> list[Path]:
@@ -2361,10 +2360,10 @@ class AssociationAnalysisStage(Stage):
         if df.empty:
             assoc_output, compression = self._resolve_association_output(context)
             empty = pd.DataFrame(columns=self._association_output_columns(test_names))
-            empty.to_csv(assoc_output, sep="\t", index=False, compression=cast(Any, compression))
+            with AtomicFileOperation(assoc_output) as temp_out:
+                empty.to_csv(temp_out, sep="\t", index=False, compression=cast(Any, compression))
             context.association_results = empty
             return context
-
         # Eager dependency check: instantiate engine (also calls check_dependencies per test)
         engine = AssociationEngine.from_names(test_names, assoc_config)
 
@@ -2683,8 +2682,8 @@ class AssociationAnalysisStage(Stage):
 
         # Write results to output file
         assoc_output, compression = self._resolve_association_output(context)
-
-        results_df.to_csv(assoc_output, sep="\t", index=False, compression=cast(Any, compression))
+        with AtomicFileOperation(assoc_output) as temp_out:
+            results_df.to_csv(temp_out, sep="\t", index=False, compression=cast(Any, compression))
         logger.info(f"Wrote association results to {assoc_output}")
 
         # ------------------------------------------------------------------

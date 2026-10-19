@@ -245,3 +245,217 @@ class TestValidateCliArgsHelper:
         cfg: dict = {}
         with pytest.raises(ValueError, match="--resume requires --enable-checkpoint"):
             validate_cli_args(args, cfg)
+
+
+@pytest.mark.unit
+class TestListingCommandsWithoutVcf:
+    """Test that listing commands work without -v/--vcf-file or pipeline inputs."""
+
+    def test_list_stages_without_vcf_succeeds(self, monkeypatch: pytest.MonkeyPatch):
+        """--list-stages succeeds without -v and never invokes pipeline execution."""
+        from unittest.mock import MagicMock, patch
+
+        from variantcentrifuge.cli import main
+
+        mock_run = MagicMock()
+        monkeypatch.setattr("variantcentrifuge.cli.run_pipeline", mock_run)
+
+        with patch("sys.argv", ["variantcentrifuge", "--list-stages"]):
+            with pytest.raises(SystemExit) as exc:
+                main()
+            assert exc.value.code == 0
+
+        assert not mock_run.called
+
+    def test_list_checkpoints_without_vcf_succeeds(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ):
+        """--list-checkpoints succeeds without -v and never invokes pipeline execution."""
+        from unittest.mock import MagicMock, patch
+
+        from variantcentrifuge.cli import main
+
+        mock_run = MagicMock()
+        monkeypatch.setattr("variantcentrifuge.cli.run_pipeline", mock_run)
+
+        with patch(
+            "sys.argv", ["variantcentrifuge", "--list-checkpoints", "--output-dir", str(tmp_path)]
+        ):
+            with pytest.raises(SystemExit) as exc:
+                main()
+            assert exc.value.code == 0
+
+        assert not mock_run.called
+
+    def test_ordinary_execution_requires_vcf(self, monkeypatch: pytest.MonkeyPatch):
+        """Ordinary execution without -v/--vcf-file fails with error."""
+        from unittest.mock import MagicMock, patch
+
+        from variantcentrifuge.cli import main
+
+        mock_run = MagicMock()
+        monkeypatch.setattr("variantcentrifuge.cli.run_pipeline", mock_run)
+
+        with patch("sys.argv", ["variantcentrifuge", "--gene-name", "BRCA1"]):
+            with pytest.raises(SystemExit) as exc:
+                main()
+            assert exc.value.code == 2
+
+        assert not mock_run.called
+
+
+@pytest.mark.unit
+class TestRequiredToolsValidation:
+    """Test that external prerequisites are validated upfront according to selected mode."""
+
+    def test_missing_bcftools_raises_runtime_error(self, monkeypatch: pytest.MonkeyPatch):
+        """Missing bcftools raises RuntimeError before pipeline execution."""
+        from variantcentrifuge.validators import validate_required_tools
+
+        args = argparse.Namespace(gene_name="BRCA1", regions_bed=None)
+        monkeypatch.setattr("shutil.which", lambda t: None if t == "bcftools" else "/usr/bin/" + t)
+
+        with pytest.raises(RuntimeError, match=r"Required external tool.*bcftools"):
+            validate_required_tools(args)
+
+    def test_missing_snpsift_raises_runtime_error(self, monkeypatch: pytest.MonkeyPatch):
+        """Missing SnpSift raises RuntimeError before pipeline execution."""
+        from variantcentrifuge.validators import validate_required_tools
+
+        args = argparse.Namespace(gene_name="BRCA1", regions_bed=None)
+        monkeypatch.setattr("shutil.which", lambda t: None if t == "SnpSift" else "/usr/bin/" + t)
+
+        with pytest.raises(RuntimeError, match=r"Required external tool.*SnpSift"):
+            validate_required_tools(args)
+
+    def test_snpeff_bypassed_with_gene_all_and_regions_bed(self, monkeypatch: pytest.MonkeyPatch):
+        """snpEff is not required when gene_name is 'all' and regions_bed is provided."""
+        from variantcentrifuge.validators import validate_required_tools
+
+        args = argparse.Namespace(gene_name="all", regions_bed="regions.bed")
+        # snpEff missing, but bcftools and SnpSift present
+        monkeypatch.setattr("shutil.which", lambda t: None if t == "snpEff" else "/usr/bin/" + t)
+
+        # Should NOT raise because snpEff is bypassed
+        validate_required_tools(args)
+
+    def test_snpeff_required_when_specific_gene_named(self, monkeypatch: pytest.MonkeyPatch):
+        """snpEff is required when a specific gene name is requested."""
+        from variantcentrifuge.validators import validate_required_tools
+
+        args = argparse.Namespace(gene_name="BRCA1", regions_bed=None)
+        monkeypatch.setattr("shutil.which", lambda t: None if t == "snpEff" else "/usr/bin/" + t)
+
+        with pytest.raises(RuntimeError, match=r"Required external tool.*snpEff"):
+            validate_required_tools(args)
+
+
+@pytest.mark.unit
+class TestBgzfAndIndexValidation:
+    """Test upfront validation for BGZF compression and tabix/csi indexes."""
+
+    def test_plain_vcf_fails_validation(self, tmp_path: Path):
+        """Plain uncompressed VCF fails with ValueError."""
+        plain_vcf = tmp_path / "plain.vcf"
+        plain_vcf.write_text(
+            "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        )
+
+        with pytest.raises(ValueError, match="uncompressed plain text"):
+            validate_vcf_file(str(plain_vcf))
+
+    def test_standard_gzip_fails_validation(self, tmp_path: Path):
+        """Standard gzip VCF without BGZF extra field fails with ValueError."""
+        import gzip
+
+        gz_vcf = tmp_path / "standard.vcf.gz"
+        with gzip.open(gz_vcf, "wt") as f:
+            f.write("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+
+        with pytest.raises(ValueError, match="standard gzip compressed, not BGZF"):
+            validate_vcf_file(str(gz_vcf))
+
+    def test_missing_index_fails_validation(self, tmp_path: Path):
+        """Valid BGZF VCF without index fails with FileNotFoundError."""
+        fixture_vcf = Path("tests/fixtures/test_variants_scoring.GRCh37.annotated.vcf.gz")
+        dest_vcf = tmp_path / "test.vcf.gz"
+        dest_vcf.write_bytes(fixture_vcf.read_bytes())
+
+        with pytest.raises(FileNotFoundError, match="VCF index file not found"):
+            validate_vcf_file(str(dest_vcf))
+
+    def test_empty_index_fails_validation(self, tmp_path: Path):
+        """Valid BGZF VCF with empty (0-byte) index fails with ValueError."""
+        fixture_vcf = Path("tests/fixtures/test_variants_scoring.GRCh37.annotated.vcf.gz")
+        dest_vcf = tmp_path / "test.vcf.gz"
+        dest_vcf.write_bytes(fixture_vcf.read_bytes())
+        dest_tbi = tmp_path / "test.vcf.gz.tbi"
+        dest_tbi.touch()
+
+        with pytest.raises(ValueError, match="is empty"):
+            validate_vcf_file(str(dest_vcf))
+
+    def test_valid_bgzf_with_tbi_passes(self, tmp_path: Path):
+        """Valid BGZF VCF with valid .tbi index passes validation."""
+        fixture_vcf = Path("tests/fixtures/test_variants_scoring.GRCh37.annotated.vcf.gz")
+        fixture_tbi = Path("tests/fixtures/test_variants_scoring.GRCh37.annotated.vcf.gz.tbi")
+        dest_vcf = tmp_path / "test.vcf.gz"
+        dest_tbi = tmp_path / "test.vcf.gz.tbi"
+        dest_vcf.write_bytes(fixture_vcf.read_bytes())
+        dest_tbi.write_bytes(fixture_tbi.read_bytes())
+
+        # Should pass without error
+        validate_vcf_file(str(dest_vcf))
+
+    def test_valid_bgzf_with_csi_passes(self, tmp_path: Path):
+        """Valid BGZF VCF with valid .csi index passes validation."""
+        fixture_vcf = Path("tests/fixtures/test_variants_scoring.GRCh37.annotated.vcf.gz")
+        fixture_tbi = Path("tests/fixtures/test_variants_scoring.GRCh37.annotated.vcf.gz.tbi")
+        dest_vcf = tmp_path / "test.vcf.gz"
+        dest_csi = tmp_path / "test.vcf.gz.csi"
+        dest_vcf.write_bytes(fixture_vcf.read_bytes())
+        dest_csi.write_bytes(fixture_tbi.read_bytes())
+
+        # Should pass without error
+        validate_vcf_file(str(dest_vcf))
+
+
+@pytest.mark.unit
+class TestFinalFilterValidation:
+    """Test final filter expression syntax and missing-column error handling."""
+
+    def test_final_filter_missing_column_fails(self):
+        """Filtering with a missing column name raises ValueError and aborts."""
+        import pandas as pd
+
+        from variantcentrifuge.filters import filter_dataframe_with_query
+
+        df = pd.DataFrame({"CHROM": ["chr1"], "POS": ["100"], "score": ["0.5"]})
+        with pytest.raises(ValueError, match="name 'NONEXISTENT_COL' is not defined"):
+            filter_dataframe_with_query(df, "NONEXISTENT_COL > 10")
+
+    def test_final_filter_invalid_syntax_fails(self):
+        """Filtering with invalid syntax raises ValueError and aborts."""
+        import pandas as pd
+
+        from variantcentrifuge.filters import filter_dataframe_with_query
+
+        df = pd.DataFrame({"CHROM": ["chr1"], "score": ["0.5"]})
+        with pytest.raises(ValueError, match="Invalid final filter expression"):
+            filter_dataframe_with_query(df, "score === 0.5")
+
+    def test_valid_final_filter_retains_expected_rows(self):
+        """Valid final filter expression retains the expected matching rows."""
+        import pandas as pd
+
+        from variantcentrifuge.filters import filter_dataframe_with_query
+
+        df = pd.DataFrame(
+            {
+                "GENE": ["BRCA1", "TP53", "EGFR"],
+                "score": [0.8, 0.4, 0.9],
+            }
+        )
+        res = filter_dataframe_with_query(df, "score > 0.5")
+        assert len(res) == 2
+        assert list(res["GENE"]) == ["BRCA1", "EGFR"]

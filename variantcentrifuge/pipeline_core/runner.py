@@ -126,20 +126,28 @@ class PipelineRunner:
                 context.checkpoint_state.cleanup_stale_stages()
 
                 pipeline_version = context.config.get("pipeline_version", "pipeline")
-                if context.checkpoint_state.can_resume(context.config, pipeline_version):
-                    logger.info("Resume mode: Checking pipeline state...")
-                    logger.info(context.checkpoint_state.get_summary())
+                current_hashes = context.checkpoint_state._resume_configuration_hashes(
+                    context.config
+                )
+                if (
+                    context.checkpoint_state.state.get("pipeline_version") != pipeline_version
+                    or context.checkpoint_state.state.get("configuration_hash")
+                    not in current_hashes
+                ):
+                    msg = "Cannot resume: configuration or version mismatch"
+                    logger.error(msg)
+                    raise ValueError(msg)
 
-                    ordered_stages = self._ordered_stages(stages)
-                    context = self._restore_or_recompute_completed_stages(ordered_stages, context)
+                logger.info("Resume mode: Checking pipeline state...")
+                logger.info(context.checkpoint_state.get_summary())
 
-                    assert context.checkpoint_state is not None
-                    resume_point = context.checkpoint_state.get_resume_point()
-                    if resume_point:
-                        logger.info(f"Resuming from step: {resume_point}")
-                else:
-                    logger.warning("Cannot resume - configuration or version mismatch")
-                    # Start fresh but don't clear existing state
+                ordered_stages = self._ordered_stages(stages)
+                context = self._restore_or_recompute_completed_stages(ordered_stages, context)
+
+                assert context.checkpoint_state is not None
+                resume_point = context.checkpoint_state.get_resume_point()
+                if resume_point:
+                    logger.info(f"Resuming from step: {resume_point}")
 
         # Analyze dependencies and get execution plan (after resume logic)
         execution_plan = self._create_execution_plan(stages)

@@ -159,7 +159,12 @@ def restore_or_recompute_completed_stages(
     assert context.checkpoint_state is not None
     for stage in ordered:
         if not context.checkpoint_state.should_skip_step(stage.name):
-            continue
+            logger.info(
+                "Recomputing checkpoint-completed stage '%s' and downstream stages",
+                stage.name,
+            )
+            clear_stage_and_downstream(stage.name, ordered, context.checkpoint_state)
+            break
 
         policy = stage.checkpoint_resume_policy
         if policy in {"restore", "skip"}:

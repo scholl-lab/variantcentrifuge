@@ -23,12 +23,36 @@ from typing import Any
 logger = logging.getLogger("variantcentrifuge")
 
 
+def _is_bgzf(header: bytes) -> bool:
+    """Check if header bytes correspond to a BGZF block."""
+    if len(header) < 18:
+        return False
+    if header[:3] != b"\x1f\x8b\x08":
+        return False
+    flg = header[3]
+    if not (flg & 0x04):  # FEXTRA flag
+        return False
+    xlen = int.from_bytes(header[10:12], byteorder="little")
+    if len(header) < 12 + xlen:
+        return False
+    pos = 12
+    end = 12 + xlen
+    while pos + 4 <= end:
+        si1 = header[pos]
+        si2 = header[pos + 1]
+        slen = int.from_bytes(header[pos + 2 : pos + 4], byteorder="little")
+        if si1 == 66 and si2 == 67 and slen == 2:  # 'B', 'C'
+            return True
+        pos += 4 + slen
+    return False
+
+
 def validate_vcf_file(
     vcf_path: str | None,
     logger: logging.Logger | None = None,
     exit_on_error: bool = False,
 ) -> None:
-    """Validate that the input VCF file exists, is non-empty, and is readable."""
+    """Validate that the input VCF file exists, is BGZF/BCF compressed, and has a valid index."""
     if not vcf_path or not os.path.exists(vcf_path):
         msg = f"VCF file not found: {vcf_path}"
         if logger:
@@ -44,6 +68,107 @@ def validate_vcf_file(
         if exit_on_error:
             sys.exit(1)
         raise ValueError(msg)
+
+    # Check compression: must be BGZF or BCF
+    with open(vcf_path, "rb") as f:
+        header = f.read(64)
+
+    is_bcf = header.startswith(b"BCF")
+    if not is_bcf and not _is_bgzf(header):
+        if header.startswith(b"\x1f\x8b"):
+            msg = (
+                f"VCF file '{vcf_path}' is standard gzip compressed, not BGZF compressed. "
+                "bcftools requires BGZF compression for random access indexing. "
+                f"Please re-compress with 'bgzip -c {vcf_path} > {vcf_path}.bgz' "
+                "and index with tabix."
+            )
+        else:
+            msg = (
+                f"VCF file '{vcf_path}' is uncompressed plain text. "
+                "bcftools requires BGZF compressed VCF (.vcf.gz) or BCF (.bcf) with an index. "
+                f"Please compress with 'bgzip {vcf_path}' "
+                f"and index with 'tabix -p vcf {vcf_path}.gz'."
+            )
+        if logger:
+            logger.error(msg)
+        if exit_on_error:
+            sys.exit(1)
+        raise ValueError(msg)
+
+    # Check index: must have non-empty, readable .tbi or .csi
+    candidates = [
+        f"{vcf_path}.tbi",
+        f"{vcf_path}.csi",
+    ]
+    if vcf_path.endswith(".gz"):
+        candidates.append(f"{vcf_path[:-3]}.tbi")
+        candidates.append(f"{vcf_path[:-3]}.csi")
+    elif vcf_path.endswith(".bcf"):
+        candidates.append(f"{vcf_path[:-4]}.csi")
+
+    found_idx = None
+    for cand in candidates:
+        if os.path.exists(cand):
+            found_idx = cand
+            break
+
+    if not found_idx:
+        msg = (
+            f"VCF index file not found for '{vcf_path}'. "
+            f"Expected {vcf_path}.tbi or {vcf_path}.csi. "
+            f"Please create an index using 'tabix -p vcf {vcf_path}' "
+            f"or 'bcftools index {vcf_path}'."
+        )
+        if logger:
+            logger.error(msg)
+        if exit_on_error:
+            sys.exit(1)
+        raise FileNotFoundError(msg)
+
+    if os.path.getsize(found_idx) == 0:
+        msg = f"VCF index file '{found_idx}' is empty (0 bytes)."
+        if logger:
+            logger.error(msg)
+        if exit_on_error:
+            sys.exit(1)
+        raise ValueError(msg)
+
+    if not os.access(found_idx, os.R_OK):
+        msg = f"VCF index file '{found_idx}' is not readable."
+        if logger:
+            logger.error(msg)
+        if exit_on_error:
+            sys.exit(1)
+        raise ValueError(msg)
+
+
+def validate_required_tools(
+    args: argparse.Namespace,
+    cfg: dict[str, Any] | None = None,
+    logger: logging.Logger | None = None,
+    exit_on_error: bool = False,
+) -> None:
+    """Validate that required external tools are available in PATH before processing."""
+    import shutil
+
+    cfg = cfg or {}
+    gene_name = getattr(args, "gene_name", None) or cfg.get("gene_name") or ""
+    regions_bed = getattr(args, "regions_bed", None) or cfg.get("regions_bed")
+    bypasses_snpeff = bool(regions_bed and str(gene_name).strip().lower() == "all")
+
+    required_tools = ["bcftools", "SnpSift"]
+    if not bypasses_snpeff:
+        required_tools.append("snpEff")
+
+    missing = [tool for tool in required_tools if not shutil.which(tool)]
+    if missing:
+        msg = f"Required external tool(s) not found in PATH: {', '.join(missing)}"
+        if logger:
+            logger.error(msg)
+        if exit_on_error:
+            sys.stderr.write(f"{msg}\n")
+            sys.exit(1)
+        raise RuntimeError(msg)
 
 
 def validate_phenotype_file(
@@ -215,7 +340,7 @@ def validate_cli_args(
 ) -> None:
     """Validate cross-argument dependencies and file existence."""
     fields_file = getattr(args, "fields_file", None) or cfg.get("fields_file")
-    if fields_file and not Path(fields_file).is_file():
+    if fields_file and not getattr(args, "fields", None) and not Path(fields_file).is_file():
         msg = f"Fields file not found: {fields_file}"
         if parser is not None:
             parser.error(msg)
@@ -229,10 +354,11 @@ def validate_cli_args(
         raise FileNotFoundError(msg)
 
     phenotype_file = getattr(args, "phenotype_file", None) or cfg.get("phenotype_file")
-    if phenotype_file and (
-        getattr(args, "phenotype_sample_column", None) is None
-        or getattr(args, "phenotype_value_column", None) is None
-    ):
+    sample_col = getattr(args, "phenotype_sample_column", None) or cfg.get(
+        "phenotype_sample_column"
+    )
+    val_col = getattr(args, "phenotype_value_column", None) or cfg.get("phenotype_value_column")
+    if phenotype_file and (sample_col is None or val_col is None):
         msg = (
             "If a phenotype file is provided, both --phenotype-sample-column "
             "and --phenotype-value-column must be specified."
