@@ -1,6 +1,7 @@
 """Unit tests for contig prefix normalization and workflow option forwarding (#151)."""
 
 import gzip
+import shlex
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -10,6 +11,7 @@ from variantcentrifuge.annotator import (
     _find_region_overlaps,
     _parse_bed_line,
 )
+from variantcentrifuge.cli import create_parser
 from variantcentrifuge.filters import validate_bed_vcf_contigs
 from workflow.rules.helpers import build_vc_flags
 
@@ -162,3 +164,58 @@ def test_workflow_reference_and_regions_bed_forwarded() -> None:
     flags = build_vc_flags(vc_config, {})
     assert "--reference GRCh38" in flags
     assert "--regions-bed '/path with spaces/my regions.bed'" in flags
+
+
+def test_partial_matching_contig_does_not_mask_autosome_mismatch(tmp_path: Path) -> None:
+    """A matching contig like MT must NOT mask chr prefix mismatches on autosomes."""
+    vcf = tmp_path / "test.vcf.gz"
+    bed = tmp_path / "test.bed"
+
+    _write_vcf(vcf, ["chr1", "chr2", "MT"])
+    _write_bed(bed, ["1\t100\t200\treg1", "2\t100\t200\treg2", "MT\t10\t50\tregMT"])
+
+    with pytest.raises(ValueError, match="Contig prefix mismatch"):
+        validate_bed_vcf_contigs(str(vcf), str(bed))
+
+
+def test_scaffold_names_distinct() -> None:
+    """Scaffold contigs like scaffold_chr1 and scaffold_1 must remain distinct."""
+    assert _parse_bed_line("scaffold_chr1\t100\t200\treg")[0] == "scaffold_chr1"
+    assert _parse_bed_line("scaffold_1\t100\t200\treg")[0] == "scaffold_1"
+
+
+def test_extract_variants_raises_on_contig_mismatch(tmp_path: Path) -> None:
+    """extract_variants must validate contigs and fail before running bcftools."""
+    vcf = tmp_path / "test.vcf.gz"
+    bed = tmp_path / "test.bed"
+    out_vcf = tmp_path / "out.vcf.gz"
+
+    _write_vcf(vcf, ["chr1", "chr2"])
+    _write_bed(bed, ["1\t100\t200\treg1"])
+
+    from variantcentrifuge.filters import extract_variants
+
+    with pytest.raises(ValueError, match="Contig prefix mismatch"):
+        extract_variants(str(vcf), str(bed), {"threads": 1}, str(out_vcf))
+
+
+def test_roundtrip_workflow_flags_through_create_parser() -> None:
+    """Flags built by build_vc_flags must round-trip cleanly through create_parser."""
+    vc_config = {
+        "tumor_sample_index": 0,
+        "normal_sample_index": 1,
+        "reference": "GRCh38",
+        "regions_bed": "/path with spaces/my regions.bed",
+    }
+    flags = build_vc_flags(vc_config, {})
+    cmd_str = " ".join(flags)
+    split_args = shlex.split(cmd_str)
+
+    parser = create_parser()
+    # Provide required arguments for CLI parsing
+    args = parser.parse_args(["--vcf-file", "in.vcf", "--gene-name", "all", *split_args])
+
+    assert args.tumor_sample_index == 0
+    assert args.normal_sample_index == 1
+    assert args.reference == "GRCh38"
+    assert args.regions_bed == "/path with spaces/my regions.bed"

@@ -33,8 +33,9 @@ def build_vc_flags(vc_config: dict[str, Any], igv_config: dict[str, Any]) -> lis
     """
     if vc_config.get("interval_expand") is not None:
         raise ValueError(
-            "Workflow-level 'interval_expand' is not supported. "
-            "Please expand regions prior to pipeline input or configure region padding upstream."
+            "Workflow-level 'interval_expand' is not supported as a command-line flag. "
+            "Please configure 'interval_expand' in your pipeline JSON configuration file "
+            "(e.g., config/config.json), or expand regions in the input BED prior to workflow execution."
         )
 
     flags: list[str] = []

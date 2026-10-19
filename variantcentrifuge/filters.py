@@ -240,6 +240,7 @@ def _get_vcf_contigs(vcf_file: str) -> set[str]:
         return _VCF_CONTIG_CACHE[vcf_file]
 
     contigs = set()
+    record_count = 0
     open_func = gzip.open if vcf_file.endswith(".gz") else open
     mode = "rt" if vcf_file.endswith(".gz") else "r"
     try:
@@ -255,10 +256,11 @@ def _get_vcf_contigs(vcf_file: str) -> set[str]:
                     if contigs:
                         break
                 elif not line.startswith("#"):
+                    record_count += 1
                     parts = line.split("\t", 2)
                     if parts:
                         contigs.add(parts[0])
-                    if len(contigs) >= 50:
+                    if len(contigs) >= 50 or record_count >= 1000:
                         break
     except Exception as e:
         logger.debug(f"Could not read VCF contigs from {vcf_file}: {e}")
@@ -271,7 +273,8 @@ def _get_vcf_contigs(vcf_file: str) -> set[str]:
 def validate_bed_vcf_contigs(vcf_file: str, bed_file: str) -> None:
     """Validate that BED and VCF contig naming conventions match.
 
-    Raises ValueError if there is a clear contig prefix mismatch (e.g. 'chr1' vs '1').
+    Raises ValueError if any contig in BED matches a VCF contig only with opposite
+    'chr' prefix conventions (e.g. 'chr1' vs '1'), even if some other contigs match.
     Logs warnings for unmatched contigs.
     """
     bed_contigs = _get_bed_contigs(bed_file)
@@ -280,21 +283,21 @@ def validate_bed_vcf_contigs(vcf_file: str, bed_file: str) -> None:
     if not bed_contigs or not vcf_contigs:
         return
 
-    common = bed_contigs & vcf_contigs
-    if not common:
-        bed_norm = {c.removeprefix("chr") for c in bed_contigs}
-        vcf_norm = {c.removeprefix("chr") for c in vcf_contigs}
-        common_norm = bed_norm & vcf_norm
-
-        if common_norm:
-            sample_bed = sorted(bed_contigs)[:3]
-            sample_vcf = sorted(vcf_contigs)[:3]
-            raise ValueError(
-                f"Contig prefix mismatch between BED ({sample_bed}) and VCF ({sample_vcf}). "
-                "Chromosomes in BED and VCF must use the same naming convention (e.g., 'chr1' vs '1')."
-            )
-
     unmatched_bed = bed_contigs - vcf_contigs
+    mismatched = []
+    for c in unmatched_bed:
+        toggled = c.removeprefix("chr") if c.startswith("chr") else f"chr{c}"
+        if toggled in vcf_contigs:
+            mismatched.append((c, toggled))
+
+    if mismatched:
+        sample_bed = sorted(bed_contigs)[:3]
+        sample_vcf = sorted(vcf_contigs)[:3]
+        raise ValueError(
+            f"Contig prefix mismatch between BED ({sample_bed}) and VCF ({sample_vcf}). "
+            "Chromosomes in BED and VCF must use the same naming convention (e.g., 'chr1' vs '1')."
+        )
+
     if unmatched_bed:
         logger.warning(f"BED contains contigs not found in VCF: {sorted(unmatched_bed)[:5]}")
 
