@@ -152,6 +152,7 @@ def compute_acat_v(
     sigma2: float,
     mu_hat: np.ndarray | None,
     weights: np.ndarray,
+    design_matrix: np.ndarray | None = None,
 ) -> float | None:
     """
     ACAT-V per-variant score test (Liu & Xie 2020, STAARpipeline).
@@ -175,6 +176,10 @@ def compute_acat_v(
         may be None for quantitative traits (sigma2 is used instead).
     weights : np.ndarray, shape (n_variants,)
         Per-variant weights (typically Beta(MAF; 1, 25)).
+    design_matrix : np.ndarray | None, shape (n_samples, k)
+        Fitted design matrix (covariates + intercept) from null model.
+        When provided, null model covariates are projected out to obtain
+        unbiased score test variances (Liu & Xie 2020).
 
     Returns
     -------
@@ -189,21 +194,39 @@ def compute_acat_v(
     score_vec = geno.T @ residuals  # shape: (n_variants,)
 
     # Per-variant variance: V_j = G_j' @ V @ G_j
-    # Binary: V = diag(mu*(1-mu)), so V_j = sum(G_j^2 * mu*(1-mu))
-    # Quantitative: V = sigma2 * I, so V_j = sigma2 * sum(G_j^2)
-    if trait_type == "binary" and mu_hat is not None:
-        var_weights = mu_hat * (1.0 - mu_hat)  # (n_samples,)
-        var_vec = np.sum(geno**2 * var_weights[:, np.newaxis], axis=0)  # (n_variants,)
+    # With null model covariates X projected out (Liu 2020, Get.marginal.pval):
+    # Binary: V = diag(G' [W - W X (X' W X)^-1 X' W] G)
+    # Quantitative: V = sigma2 * diag(G' [I - X (X' X)^-1 X'] G)
+    if design_matrix is not None:
+        if trait_type == "binary" and mu_hat is not None:
+            phi = np.sqrt(mu_hat * (1.0 - mu_hat))
+            phi_x = phi[:, np.newaxis] * design_matrix
+            z_tilde = phi[:, np.newaxis] * geno
+            coef = np.linalg.lstsq(phi_x, z_tilde, rcond=None)[0]
+            z_adj = z_tilde - phi_x @ coef
+            g_ss = np.sum(z_adj**2, axis=0)
+            var_vec = g_ss
+        else:
+            coef = np.linalg.lstsq(design_matrix, geno, rcond=None)[0]
+            g_adj = geno - design_matrix @ coef
+            g_ss = np.sum(g_adj**2, axis=0)
+            var_vec = sigma2 * g_ss
     else:
-        var_vec = sigma2 * np.sum(geno**2, axis=0)  # (n_variants,)
+        if trait_type == "binary" and mu_hat is not None:
+            var_weights = mu_hat * (1.0 - mu_hat)  # (n_samples,)
+            g_ss = np.sum(geno**2 * var_weights[:, np.newaxis], axis=0)  # (n_variants,)
+            var_vec = g_ss
+        else:
+            g_ss = np.sum(geno**2, axis=0)  # (n_variants,)
+            var_vec = sigma2 * g_ss
 
     # Single-pass: compute per-variant z-statistics, p-values, and collect
     # valid (p, weight) pairs in one loop
     valid_p: list[float] = []
     valid_w: list[float] = []
     for j in range(n_variants):
-        if var_vec[j] <= 0.0:
-            continue  # skip zero-variance variants (monomorphic)
+        if g_ss[j] <= 1e-12 or var_vec[j] <= 0.0:
+            continue  # skip zero-variance or collinear variants
         z_j = score_vec[j] / np.sqrt(var_vec[j])
         p_j = 2.0 * float(norm.sf(abs(z_j)))
         if 0.0 < p_j < 1.0:
