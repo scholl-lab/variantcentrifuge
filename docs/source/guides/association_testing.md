@@ -151,16 +151,16 @@ PLINK format uses IID (column 2) as the sample identifier — this matches VCF s
 ### CLI Flags
 
 ```bash
---pca-file ancestry.eigenvec    # Pre-computed PCA file
+--pca ancestry.eigenvec         # Pre-computed PCA file (or --pca akt for on-the-fly)
 --pca-components 10             # Number of PCs to include (default: 10, warn if >20)
---pca-tool akt                  # Invoke AKT as subprocess to compute PCA on-the-fly
+--pca-sites sites.vcf.gz        # Optional VCF/BCF file of high-quality variant sites for PCA
 ```
 
 PCA columns are automatically appended to the covariate matrix before any regression. If you
-specify both `--covariate-file` and `--pca-file`, PCs are added as additional columns.
+specify both `--covariate-file` and `--pca ancestry.eigenvec`, PCs are added as additional columns.
 
 :::{warning}
-Using `--pca-tool akt` requires AKT to be in your PATH. A missing AKT binary raises a hard error
+Using `--pca akt` requires AKT to be in your PATH. A missing AKT binary raises a hard error
 (not a silent skip) to prevent undetected misconfiguration.
 :::
 
@@ -421,8 +421,7 @@ Unclassified variants (code 0) are excluded from COAST but remain in SKAT and bu
 | Backend | CLI Flag | Notes |
 |---------|----------|-------|
 | Pure Python (default) | `--coast-backend python` | No R required; thread-safe; matches R AllelicSeries |
-| Auto | `--coast-backend auto` | Probes rpy2 AND AllelicSeries R package; falls back to Python |
-| R (deprecated) | `--coast-backend r` | Requires rpy2 + R AllelicSeries package; raises DeprecationWarning |
+| Auto | `--coast-backend auto` | Probes environment; defaults to pure Python |
 
 ### CLI Example
 
@@ -916,7 +915,7 @@ Use this for reproducible analyses or when parameters are too numerous for the c
 | `gene_prior_weights` | str | `null` | Path to gene-weight TSV for weighted FDR correction |
 | `gene_prior_weight_column` | str | `"weight"` | Column name in gene-weight file containing weights |
 | `skat_backend` | str | `"python"` | `"python"`, `"auto"`, or `"r"` (deprecated) |
-| `coast_backend` | str | `"python"` | `"python"`, `"auto"`, or `"r"` (deprecated) |
+| `coast_backend` | str | `"python"` | `"python"` or `"auto"` |
 | `diagnostics_output` | str | `null` | Path to diagnostics directory |
 | `min_cases` | int | `200` | Warn if case count below this |
 | `max_case_control_ratio` | float | `20.0` | Warn if control-to-case ratio exceeds this |
@@ -1123,7 +1122,7 @@ variantcentrifuge \
   --covariate-file covariates.tsv \
   --covariates age,sex,batch \
   --categorical-covariates sex,batch \
-  --pca-file ancestry.eigenvec \
+  --pca ancestry.eigenvec \
   --pca-components 10 \
   --variant-weights beta:1,25 \
   --coast-weights 1,2,3 \

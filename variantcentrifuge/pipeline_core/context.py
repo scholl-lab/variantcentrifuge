@@ -135,6 +135,7 @@ class PipelineContext:
     # Stage tracking
     completed_stages: set[str] = field(default_factory=set)
     stage_results: dict[str, Any] = field(default_factory=dict)
+    stage_durations: dict[str, float] = field(default_factory=dict)
 
     # Loaded configurations
     vcf_samples: list[str] = field(default_factory=list)
@@ -160,9 +161,11 @@ class PipelineContext:
     statistics: dict[str, Any] = field(default_factory=dict)
     gene_burden_results: pd.DataFrame | None = None
     association_results: pd.DataFrame | None = None
+    pre_final_filter_variants: int | None = None
 
     # Output paths
     final_output_path: Path | None = None
+    stats_output_tsv: Path | None = None
     report_paths: dict[str, Path] = field(default_factory=dict)
 
     # Checkpoint state (if enabled)
@@ -294,6 +297,12 @@ class PipelineContext:
             # Merge stage results
             self.stage_results.update(other_stage_results)
 
+            if other.stage_durations:
+                self.stage_durations.update(other.stage_durations)
+
+            if other.pre_final_filter_variants is not None:
+                self.pre_final_filter_variants = other.pre_final_filter_variants
+
             # Update file paths if they were set in the other context
             if other.gene_bed_file and not self.gene_bed_file:
                 self.gene_bed_file = other.gene_bed_file
@@ -343,6 +352,8 @@ class PipelineContext:
             # Update output paths
             if other.final_output_path and not self.final_output_path:
                 self.final_output_path = other.final_output_path
+            if other.stats_output_tsv and not self.stats_output_tsv:
+                self.stats_output_tsv = other.stats_output_tsv
             if not self.report_paths and other_reports:
                 self.report_paths = other_reports.copy()
             elif other_reports:

@@ -10,6 +10,8 @@ import pandas as pd
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
+from .checkpoint_models import AtomicFileOperation
+
 DANGEROUS_TAG_NAMES = {
     "script",
     "iframe",
@@ -336,5 +338,8 @@ def generate_html_report(
     )
 
     output_path = Path(output_dir) / "index.html"
-    with open(output_path, "w", encoding="utf-8") as out_f:
+    with (
+        AtomicFileOperation(output_path) as temp_out,
+        open(temp_out, "w", encoding="utf-8") as out_f,
+    ):
         out_f.write(html_content)

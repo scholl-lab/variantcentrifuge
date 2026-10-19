@@ -18,6 +18,7 @@ from typing import Any, cast
 
 import pandas as pd
 
+from ..checkpoint_models import AtomicFileOperation
 from ..config import normalize_annotation_config
 from ..gt_reconstruction import _collapse_per_sample_gt_columns_for_output
 from ..links import add_links_to_table, resolve_links
@@ -279,6 +280,8 @@ class FinalFilteringStage(Stage):
         if final_filter:
             logger.info(f"Applying final filter: {final_filter}")
             pre_filter_count = len(df)
+            context.pre_final_filter_variants = pre_filter_count
+            context.config["pre_final_filter_variants"] = pre_filter_count
             df = _os_mod.filter_dataframe_with_query(df, final_filter)
             post_filter_count = len(df)
             logger.info(
@@ -362,7 +365,7 @@ class TSVOutputStage(Stage):
                 logger.info(f"Using chunked analysis results from: {context.chunked_analysis_tsv}")
                 # Copy chunked results to final output location
                 output_file = context.config.get("output_file")
-                if output_file in [None, "stdout", "-"]:
+                if not output_file or output_file in ["stdout", "-"]:
                     open_fn = (
                         gzip.open if str(context.chunked_analysis_tsv).endswith(".gz") else open
                     )
@@ -375,20 +378,21 @@ class TSVOutputStage(Stage):
                     final_output_path = context.workspace.output_dir / final_output_path
                 src_gz = str(context.chunked_analysis_tsv).endswith(".gz")
                 dst_gz = str(final_output_path).endswith(".gz")
-                if src_gz == dst_gz:
-                    shutil.copy2(context.chunked_analysis_tsv, final_output_path)
-                elif src_gz:
-                    with (
-                        gzip.open(context.chunked_analysis_tsv, "rb") as fi,
-                        open(final_output_path, "wb") as fo,
-                    ):
-                        shutil.copyfileobj(fi, fo)
-                else:
-                    with (
-                        open(context.chunked_analysis_tsv, "rb") as fi,
-                        gzip.open(final_output_path, "wb") as fo,
-                    ):
-                        shutil.copyfileobj(fi, fo)
+                with AtomicFileOperation(final_output_path) as temp_out:
+                    if src_gz == dst_gz:
+                        shutil.copy2(context.chunked_analysis_tsv, temp_out)
+                    elif src_gz:
+                        with (
+                            gzip.open(context.chunked_analysis_tsv, "rb") as fi,
+                            open(temp_out, "wb") as fo,
+                        ):
+                            shutil.copyfileobj(fi, fo)
+                    else:
+                        with (
+                            open(context.chunked_analysis_tsv, "rb") as fi,
+                            gzip.open(temp_out, "wb") as fo,
+                        ):
+                            shutil.copyfileobj(fi, fo)
                 context.final_output_path = final_output_path
                 logger.info(f"Chunked analysis results copied to: {final_output_path}")
                 return context
@@ -494,7 +498,10 @@ class TSVOutputStage(Stage):
             if not str(output_path).endswith(".gz"):
                 output_path = Path(str(output_path) + ".gz")
 
-        df.to_csv(output_path, sep="\t", index=False, na_rep="", compression=cast(Any, compression))
+        with AtomicFileOperation(output_path) as temp_out:
+            df.to_csv(
+                temp_out, sep="\t", index=False, na_rep="", compression=cast(Any, compression)
+            )
 
         logger.info(f"Successfully wrote output to: {output_path}")
 

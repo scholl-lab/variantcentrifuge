@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from ..checkpoint_models import AtomicFileOperation
 from ..pipeline_core import PipelineContext, Stage
 
 logger = logging.getLogger(__name__)
@@ -90,6 +92,7 @@ class StatisticsGenerationStage(Stage):
 
         if stats_output:
             context.config["stats_output_file"] = str(stats_output)
+            context.stats_output_tsv = Path(stats_output)
             self._write_statistics(stats, stats_output)
             logger.debug(f"Statistics written to: {stats_output}")
 
@@ -115,13 +118,14 @@ class StatisticsGenerationStage(Stage):
                 other_df["category"] = key
                 all_data.append(other_df)
 
-        if all_data:
-            combined_df = pd.concat(all_data, ignore_index=True, sort=False)
-            combined_df.to_csv(output_file, sep="\t", index=False)
-        else:
-            with open(output_file, "w") as f:
-                f.write("statistic\tvalue\tcategory\n")
-                f.write("total_variants\t0\tdataset\n")
+        with AtomicFileOperation(output_file) as temp_out:
+            if all_data:
+                combined_df = pd.concat(all_data, ignore_index=True, sort=False)
+                combined_df.to_csv(temp_out, sep="\t", index=False)
+            else:
+                with open(temp_out, "w") as f:
+                    f.write("statistic\tvalue\tcategory\n")
+                    f.write("total_variants\t0\tdataset\n")
 
     def _get_default_stats_config(self) -> dict[str, Any]:
         """Get default statistics configuration using basic columns."""

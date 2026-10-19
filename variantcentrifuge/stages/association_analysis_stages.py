@@ -162,9 +162,12 @@ class AssociationAnalysisStage(Stage):
         )
 
         if df.empty:
+            from ..checkpoint_models import AtomicFileOperation
+
             assoc_output, compression = self._resolve_association_output(context)
             empty = pd.DataFrame(columns=self._association_output_columns(test_names))
-            empty.to_csv(assoc_output, sep="\t", index=False, compression=cast(Any, compression))
+            with AtomicFileOperation(assoc_output) as temp_out:
+                empty.to_csv(temp_out, sep="\t", index=False, compression=cast(Any, compression))
             context.association_results = empty
             return context
 
@@ -435,7 +438,10 @@ class AssociationAnalysisStage(Stage):
 
         assoc_output, compression = self._resolve_association_output(context)
 
-        results_df.to_csv(assoc_output, sep="\t", index=False, compression=cast(Any, compression))
+        from ..checkpoint_models import AtomicFileOperation
+
+        with AtomicFileOperation(assoc_output) as temp_out:
+            results_df.to_csv(temp_out, sep="\t", index=False, compression=cast(Any, compression))
         logger.info(f"Wrote association results to {assoc_output}")
 
         if assoc_config.diagnostics_output:

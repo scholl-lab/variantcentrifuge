@@ -442,6 +442,7 @@ def _register_setup_stages() -> None:
 
 def _register_processing_stages() -> None:
     """Register all processing stages."""
+    from .post_processing_stages import DataSortingStage, PCAComputationStage
     from .processing_stages import (
         ExtraColumnRemovalStage,
         FieldExtractionStage,
@@ -451,6 +452,7 @@ def _register_processing_stages() -> None:
         ParallelCompleteProcessingStage,
         PhenotypeIntegrationStage,
         SnpSiftFilterStage,
+        TranscriptFilterStage,
         VariantExtractionStage,
     )
 
@@ -459,8 +461,12 @@ def _register_processing_stages() -> None:
     register_stage(
         MultiAllelicSplitStage, "processing", ["split_multiallelic", "multiallelic"], 20.0
     )
+    register_stage(
+        TranscriptFilterStage, "processing", ["transcript_filter", "transcript_filtering"], 10.0
+    )
     register_stage(SnpSiftFilterStage, "processing", ["snpsift_filter", "filter"], 25.0)
     register_stage(FieldExtractionStage, "processing", ["field_extraction", "extract_fields"], 15.0)
+    register_stage(DataSortingStage, "processing", ["data_sorting", "sorting"], 15.0)
     # Deprecated (Phase 11): Stage no-ops immediately, GT reconstruction deferred to output time.
     # Kept for dependency graph compatibility (other stages reference "genotype_replacement").
     register_stage(
@@ -469,6 +475,7 @@ def _register_processing_stages() -> None:
     register_stage(PhenotypeIntegrationStage, "processing", ["phenotype_integration"], 5.0)
     register_stage(ExtraColumnRemovalStage, "processing", ["column_cleanup", "cleanup"], 2.0)
     register_stage(ParallelCompleteProcessingStage, "processing", ["parallel_processing"], 60.0)
+    register_stage(PCAComputationStage, "processing", ["pca_computation", "pca"], 20.0)
 
 
 def _register_analysis_stages() -> None:
@@ -476,6 +483,7 @@ def _register_analysis_stages() -> None:
     from .analysis_stages import (
         AssociationAnalysisStage,
         ChunkedAnalysisStage,
+        ClinVarPM5Stage,
         CustomAnnotationStage,
         DataFrameLoadingStage,
         GeneBurdenAnalysisStage,
@@ -490,6 +498,7 @@ def _register_analysis_stages() -> None:
     register_stage(
         InheritanceAnalysisStage, "analysis", ["inheritance_analysis", "inheritance"], 20.0
     )
+    register_stage(ClinVarPM5Stage, "analysis", ["clinvar_pm5", "pm5"], 15.0)
     register_stage(VariantScoringStage, "analysis", ["variant_scoring", "scoring"], 15.0)
     register_stage(StatisticsGenerationStage, "analysis", ["statistics_generation", "stats"], 10.0)
     register_stage(VariantAnalysisStage, "analysis", ["variant_analysis", "analysis"], 25.0)

@@ -67,88 +67,14 @@ from .utils import compute_base_name
 logger = logging.getLogger(__name__)
 
 
-def _validate_requested_outputs(context: PipelineContext) -> None:
-    """Ensure requested user-facing outputs exist before reporting success."""
-    output_file = context.config.get("output_file")
-    if output_file not in (None, "stdout", "-") and (
-        not context.final_output_path or not context.final_output_path.exists()
-    ):
-        raise RuntimeError("Requested TSV output was not written")
-
-    if context.config.get("perform_association"):
-        assoc = context.config.get("association_output")
-        if not assoc or not Path(assoc).exists():
-            raise RuntimeError("Requested association output was not written")
-
-    if context.config.get("perform_gene_burden"):
-        burden = context.config.get("gene_burden_output")
-        if not burden or not Path(burden).exists():
-            raise RuntimeError("Requested gene burden output was not written")
-
-    if context.config.get("xlsx") or context.config.get("excel"):
-        excel = context.report_paths.get("excel")
-        if not excel or not Path(excel).exists():
-            raise RuntimeError("Requested Excel output was not written")
-
-
-def check_scoring_requires_inheritance(args: argparse.Namespace, config: dict) -> bool:
-    """Check if scoring configuration requires inheritance analysis.
-
-    Parameters
-    ----------
-    args : argparse.Namespace
-        Command-line arguments
-    config : dict
-        Configuration dictionary
-
-    Returns
-    -------
-    bool
-        True if inheritance analysis is required for scoring
-    """
-    # Check if there's a scoring config
-    scoring_config_path = config.get("scoring_config_path") or getattr(
-        args, "scoring_config_path", None
-    )
-    if not scoring_config_path:
-        return False
-
-    try:
-        # Import here to avoid circular imports
-        from .scoring import read_scoring_config
-
-        # Load scoring config to check for inheritance dependencies
-        scoring_config = read_scoring_config(scoring_config_path)
-
-        # Check if any scoring formulas reference inheritance variables
-        if scoring_config and "formulas" in scoring_config:
-            for formula_dict in scoring_config["formulas"]:
-                for formula_name, formula_expr in formula_dict.items():
-                    if isinstance(formula_expr, str) and any(
-                        var in formula_expr
-                        for var in [
-                            "pattern",
-                            "details",
-                            "Inheritance_Pattern",
-                            "Inheritance_Details",
-                        ]
-                    ):
-                        logger.info(
-                            f"Scoring formula '{formula_name}' requires inheritance analysis"
-                        )
-                        return True
-
-        # Check variable assignments for inheritance column dependencies
-        if scoring_config and "variables" in scoring_config:
-            variables = scoring_config["variables"]
-            if any(col in variables for col in ["Inheritance_Pattern", "Inheritance_Details"]):
-                logger.info("Scoring configuration requires inheritance columns")
-                return True
-
-    except Exception as e:
-        logger.warning(f"Could not check scoring config for inheritance dependencies: {e}")
-
-    return False
+from .pipeline_validation import (
+    resolve_threads,
+)
+from .pipeline_validation import (
+    validate_requested_outputs as _validate_requested_outputs,
+)
+from .run_summary import write_run_summary
+from .scoring_requirements import check_scoring_requires_inheritance
 
 
 def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
@@ -186,7 +112,6 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     )
 
     # Setup stages (can run in parallel)
-    # Always add phenotype loading stage - it will skip if no phenotype file is provided
     stages.append(PhenotypeLoadingStage())
 
     # Check for scoring config in merged config or args
@@ -195,7 +120,11 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     ):
         stages.append(ScoringConfigLoadingStage())
 
-    if hasattr(args, "ped_file") and args.ped_file:
+    if (
+        config.get("ped_file")
+        or (hasattr(args, "ped_file") and args.ped_file)
+        or (hasattr(args, "ped") and args.ped)
+    ):
         stages.append(PedigreeLoadingStage())
 
     if annotations_requested:
@@ -212,7 +141,7 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     stages.append(GeneBedCreationStage())
 
     # Choose parallel or single-threaded processing
-    threads = getattr(args, "threads", 1)
+    threads = resolve_threads(getattr(args, "threads", None) or config.get("threads", 1), config)
     if threads > 1:
         # Use the new complete parallel processing stage that runs the entire
         # pipeline (extraction -> filtering -> field extraction) for each chunk
@@ -264,7 +193,9 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
 
     # Check both args and config for inheritance settings
     # Debug logging to understand the issue
-    has_ped_file_arg = hasattr(args, "ped_file") and args.ped_file
+    has_ped_file_arg = (hasattr(args, "ped_file") and args.ped_file) or (
+        hasattr(args, "ped") and args.ped
+    )
     has_inheritance_mode_arg = hasattr(args, "inheritance_mode") and args.inheritance_mode
     has_calculate_inheritance_config = config.get("calculate_inheritance", False)
     has_ped_file_config = config.get("ped_file")
@@ -399,30 +330,25 @@ def create_stages_from_config(config: dict) -> list[Stage]:
     config = normalize_annotation_config(config.copy())
 
     # Convert config dict to a minimal args namespace for compatibility
-    args = argparse.Namespace()
-
-    # Set essential attributes from config
+    args = argparse.Namespace(**config)
     args.config = config
-    args.scoring_config_path = config.get("scoring_config_path")
-    args.ped_file = config.get("ped_file")
-    args.annotate_bed = config.get("annotate_bed_files", [])
-    args.annotate_gene_list = config.get("annotate_gene_lists", [])
-    args.annotate_json_genes = config.get("annotate_json_genes", [])
-    args.late_filtering = config.get("late_filtering", False)
-    args.genotype_filter = config.get("genotype_filter")
-    args.final_filter = config.get("final_filter")
-    args.pseudonymize = config.get("pseudonymize", False)
-    args.xlsx = config.get("xlsx", False)
-    args.html_report = config.get("html_report", False)
-    # Note: build_pipeline_stages checks args.igv (not args.igv_report)
-    args.igv = config.get("igv", False)
-    args.archive_results = config.get("archive_results", False)
-    args.pca = config.get("pca")
 
-    # Analysis stage activation flags — previously missing, causing silent no-ops
-    args.no_stats = config.get("no_stats", False)
-    args.perform_gene_burden = config.get("perform_gene_burden", False)
-    args.perform_association = config.get("perform_association", False)
+    # Canonical aliases and options
+    args.annotate_bed = config.get("annotate_bed_files", config.get("annotate_bed", []))
+    args.annotate_gene_list = config.get(
+        "annotate_gene_lists", config.get("annotate_gene_list", [])
+    )
+    args.annotate_json_genes = config.get("annotate_json_genes", [])
+    args.pseudonymize = bool(config.get("pseudonymize") or config.get("pseudonymize_table"))
+    args.split_snpeff_lines = config.get("snpeff_splitting_mode") or config.get(
+        "split_snpeff_lines"
+    )
+    if args.split_snpeff_lines and not config.get("snpeff_splitting_mode"):
+        config["snpeff_splitting_mode"] = args.split_snpeff_lines
+    args.no_replacement = bool(config.get("no_replacement", False))
+    args.no_stats = bool(config.get("no_stats", False))
+    args.late_filtering = bool(config.get("late_filtering", False))
+    args.threads = resolve_threads(config.get("threads", 1), config)
 
     # Use the existing build_pipeline_stages function
     return build_pipeline_stages(args)
@@ -554,6 +480,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
     # Map igv argument to igv_enabled for backward compatibility
     if hasattr(args, "igv"):
         initial_config["igv_enabled"] = args.igv
+    if hasattr(args, "igv_flanking") and args.igv_flanking is not None:
+        initial_config["igv_flanking"] = args.igv_flanking
 
     # Create pipeline context
     context = PipelineContext(args=args, config=initial_config, workspace=workspace)
@@ -619,6 +547,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
         # Run pipeline
         context = runner.run(stages, context)
         _validate_requested_outputs(context)
+        write_run_summary(context)
 
         logger.info("Pipeline completed successfully!")
 

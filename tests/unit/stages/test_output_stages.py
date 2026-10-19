@@ -492,8 +492,14 @@ class TestTSVOutputStage:
 
     def test_tsv_output(self, context):
         """Test TSV file output."""
+
+        def fake_to_csv(path_or_buf, *args, **kwargs):
+            Path(path_or_buf).write_text("dummy")
+
         # Mock the DataFrame's to_csv method
-        with patch.object(context.current_dataframe, "to_csv") as mock_to_csv:
+        with patch.object(
+            context.current_dataframe, "to_csv", side_effect=fake_to_csv
+        ) as mock_to_csv:
             stage = TSVOutputStage()
             result = stage(context)
 
@@ -501,9 +507,10 @@ class TestTSVOutputStage:
             # Implementation uses additional parameters na_rep and compression
             assert mock_to_csv.call_count == 1
             call_args = mock_to_csv.call_args
-            # First argument should be a Path object in the output directory
+            # First argument should be a Path object in the output directory (atomic temp file)
             assert isinstance(call_args[0][0], Path)
-            assert str(call_args[0][0]).endswith("output.tsv")
+            assert call_args[0][0].suffix == ".tsv"
+            assert ".tmp." in call_args[0][0].name
             # Check other arguments
             assert call_args[1]["sep"] == "\t"
             assert call_args[1]["index"] is False
@@ -511,7 +518,7 @@ class TestTSVOutputStage:
             assert call_args[1]["compression"] is None
 
             # Check context updated
-            assert result.final_output_path == call_args[0][0]
+            assert str(result.final_output_path).endswith("output.tsv")
 
     def test_stdout_output(self, context):
         """Test output to stdout."""

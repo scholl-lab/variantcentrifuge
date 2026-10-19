@@ -263,6 +263,8 @@ def test_cli_returns_nonzero_on_stage_failure(tmp_path: Path):
                 "PASS",
             ],
         ),
+        patch("variantcentrifuge.cli.validate_required_tools"),
+        patch("variantcentrifuge.cli.validate_vcf_file"),
         patch(
             "variantcentrifuge.cli.run_pipeline",
             side_effect=RuntimeError("Injected pipeline crash"),

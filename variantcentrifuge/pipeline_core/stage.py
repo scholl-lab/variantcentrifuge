@@ -99,6 +99,17 @@ class Stage(ABC):
         return "recompute"
 
     @property
+    def enable_checkpoint(self) -> bool:
+        """Whether checkpoint tracking is enabled for this stage.
+
+        Returns
+        -------
+        bool
+            True if this stage participates in checkpoint/resume, False otherwise
+        """
+        return True
+
+    @property
     def estimated_runtime(self) -> float:
         """Estimated runtime in seconds for scheduling optimization.
 
@@ -154,7 +165,11 @@ class Stage(ABC):
             return context
 
         # Check if checkpoint system should skip this stage
-        if context.checkpoint_state and context.checkpoint_state.should_skip_step(self.name):
+        if (
+            self.enable_checkpoint
+            and context.checkpoint_state
+            and context.checkpoint_state.should_skip_step(self.name)
+        ):
             logger.info(f"Stage '{self.name}' skipped by checkpoint system")
             context.mark_complete(self.name)
 
@@ -169,7 +184,7 @@ class Stage(ABC):
         start_time = time.time()
 
         # Initialize checkpoint if enabled
-        if context.checkpoint_state:
+        if self.enable_checkpoint and context.checkpoint_state:
             try:
                 context.checkpoint_state.start_step(
                     self.name,
@@ -195,10 +210,14 @@ class Stage(ABC):
 
             # Mark complete and update checkpoint with file tracking
             elapsed = time.time() - start_time
+            if hasattr(updated_context, "stage_durations") and isinstance(
+                updated_context.stage_durations, dict
+            ):
+                updated_context.stage_durations[self.name] = round(elapsed, 4)
             updated_context.mark_complete(self.name)
 
             # Complete checkpoint step with output files
-            if context.checkpoint_state:
+            if self.enable_checkpoint and context.checkpoint_state:
                 try:
                     output_files = self.get_output_files(updated_context)
                     context.checkpoint_state.complete_step(
@@ -221,7 +240,7 @@ class Stage(ABC):
 
         except Exception as e:
             elapsed = time.time() - start_time
-            if context.checkpoint_state:
+            if self.enable_checkpoint and context.checkpoint_state:
                 try:
                     context.checkpoint_state.fail_step(self.name, str(e))
                 except Exception as checkpoint_error:

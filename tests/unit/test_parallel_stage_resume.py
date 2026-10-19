@@ -290,6 +290,8 @@ def test_per_stage_count_logs_and_fail_on_empty(tmp_path, caplog):
     try:
         with (
             patch.object(cli_module, "run_pipeline", side_effect=fake_pipeline_empty),
+            patch.object(cli_module, "validate_vcf_file"),
+            patch.object(cli_module, "validate_required_tools"),
             patch(
                 "sys.argv",
                 [

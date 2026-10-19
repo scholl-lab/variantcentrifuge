@@ -105,6 +105,7 @@ flowchart TD
 | `--preset NAME` | — | Apply named filter preset from config (repeatable, combined with AND). Use commas within a single `--preset` for multiple: `--preset rare,coding` |
 | `--field-profile PROFILE` | `dbnsfp4` | Field profile for annotation database compatibility (e.g., `dbnsfp4`, `dbnsfp5`). See [Field Profiles](configuration.md#field-profiles) |
 | `--list-field-profiles` | — | List available field profiles and exit |
+| `--filter-exception-file PATH` | — | 5-col TSV of somatic hotspots to rescue to FILTER=PASS during VCF filtering (does not apply to `--bcftools-prefilter` or `--late-filtering`) |
 | `--late-filtering` | `false` | Apply SnpSift filters after scoring (allows filtering on computed scores) |
 | `--final-filter EXPR` | — | Pandas `query()` expression applied after all annotations and scores |
 | `--split-snpeff-lines MODE` | — | Split multi-annotation lines: `before_filters` or `after_filters`. Use `before_filters` for row-level ANN/LOF/NMD consequence filtering with transcript-selected gene burden or association. Omit to skip |
@@ -215,14 +216,15 @@ For modular rare variant association testing beyond the basic Fisher's exact tes
 | `--perform-association` | `false` | Run the modular association testing framework |
 | `--association-tests TESTS` | `fisher` | Comma-separated tests: `fisher`, `logistic_burden`, `linear_burden`, `skat`, `coast` |
 | `--skat-backend BACKEND` | `python` | SKAT backend: `python` (default, thread-safe) or `r` (deprecated) |
-| `--coast-backend BACKEND` | `python` | COAST backend: `python` (default) or `r` (deprecated) |
+| `--coast-backend BACKEND` | `python` | COAST backend: `python` (default) or `auto` |
+| `--coast-classification MODEL` | `sift_polyphen` | COAST classification model: `sift_polyphen` (default) or `cadd` |
 | `--covariate-file PATH` | — | TSV/CSV covariate file (first column = sample ID, header required) |
 | `--covariates NAMES` | — | Comma-separated covariate column names to include (default: all columns) |
 | `--categorical-covariates NAMES` | — | Comma-separated columns to treat as categorical (auto-detected otherwise) |
 | `--trait-type TYPE` | `binary` | Trait type for burden tests: `binary` or `quantitative` |
-| `--pca-file PATH` | — | PCA file (PLINK `.eigenvec`, AKT output, or generic TSV) |
-| `--pca-tool TOOL` | — | Set to `akt` to invoke AKT subprocess for PCA computation |
+| `--pca PATH` | — | PCA coordinates file (`.eigenvec`, `.tsv`) or `akt` to compute PCA using AKT (aliases: `--pca-file`, `--pca-tool`) |
 | `--pca-components N` | `10` | Number of PCA components to include as covariates |
+| `--pca-sites PATH` | — | Optional sites file for AKT PCA computation |
 | `--variant-weights SCHEME` | `beta:1,25` | Variant weight scheme: `beta:a,b`, `uniform`, `cadd`, `revel`, `combined` |
 | `--variant-weight-params JSON` | — | JSON string of weight scheme parameters (e.g., `'{"cadd_cap": 30}'`) |
 | `--coast-weights WEIGHTS` | — | COAST category weights as comma-separated floats (BMV,DMV,PTV) |

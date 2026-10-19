@@ -1,17 +1,4 @@
-"""
-Output stages for generating final results and reports.
-
-This module contains stages that produce the final outputs:
-- Variant identifier generation
-- Final filtering
-- Pseudonymization
-- TSV output
-- Excel reports
-- HTML reports
-- IGV reports
-- Metadata generation
-- Archive creation
-"""
+"""Output stages for generating final results and reports."""
 
 import json
 import logging
@@ -20,10 +7,8 @@ from typing import Any
 
 import pandas as pd
 
-from ..converter import (
-    convert_to_excel,
-    produce_report_json,
-)
+from ..checkpoint_models import AtomicFileOperation
+from ..converter import convert_to_excel, produce_report_json
 from ..filters import filter_dataframe_with_query
 from ..generate_html_report import generate_html_report
 from ..generate_igv_report import generate_igv_report
@@ -35,12 +20,12 @@ from ..gt_reconstruction import (
 from ..pipeline_core import PipelineContext, Stage
 from ..pseudonymizer import create_pseudonymizer
 from ..utils import get_tool_version, sanitize_metadata_field
+from .metadata_helpers import collect_metadata_rows as _collect_metadata_rows
 from .tsv_output_stages import (
     ArchiveCreationStage,
     FinalFilteringStage,
     TSVOutputStage,
     VariantIdentifierStage,
-    _collect_metadata_rows,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,8 +63,6 @@ class PseudonymizationStage(Stage):
     @property
     def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
-        # Only depend on dataframe_loading as minimum requirement
-        # Other stages (filtering, variant_id) are optional
         return {"dataframe_loading"}
 
     @property
@@ -98,19 +81,15 @@ class PseudonymizationStage(Stage):
             logger.warning("No DataFrame for pseudonymization")
             return context
 
-        # Get samples
         samples = context.vcf_samples or []
         if not samples:
             logger.warning("No samples to pseudonymize")
             return context
 
-        # Create pseudonymizer
         schema = context.config.get("pseudonymize_schema", "sequential")
         metadata_file = context.config.get("pseudonymize_metadata")
-
         logger.info(f"Creating pseudonymization ({schema} schema) for {len(samples)} samples")
 
-        # Create appropriate pseudonymizer
         if schema == "sequential":
             pseudonymizer = create_pseudonymizer(
                 "sequential", prefix=context.config.get("pseudonymize_prefix", "SAMPLE")
@@ -123,25 +102,19 @@ class PseudonymizationStage(Stage):
         else:
             pseudonymizer = create_pseudonymizer(schema)
 
-        # Create mapping for samples
         metadata_dict = {}
         if metadata_file:
             with open(metadata_file) as f:
                 metadata_dict = json.load(f)
 
         mapping = pseudonymizer.create_mapping(samples, metadata_dict)
-
-        # Apply to DataFrame
         df = pseudonymizer.pseudonymize_dataframe(df)
 
-        # Save mapping to user-specified table path
         mapping_file = context.config.get("pseudonymize_table")
         if mapping_file:
-            # Use the pseudonymizer's save_mapping method for proper TSV format
             pseudonymizer.save_mapping(mapping_file, include_metadata=True)
             logger.info(f"Saved pseudonymization mapping to {mapping_file}")
         else:
-            # Fallback (shouldn't happen due to CLI validation)
             mapping_file = (
                 context.workspace.output_dir.parent
                 / f"pseudonymization_mapping_{context.workspace.timestamp}.tsv"
@@ -154,9 +127,7 @@ class PseudonymizationStage(Stage):
         context.config["pseudonymization_mapping"] = mapping
         context.config["pseudonymizer"] = pseudonymizer
 
-        # Create pseudonymized PED file if requested
         if context.config.get("pseudonymize_ped") and context.config.get("ped_file"):
-            # Create PED filename based on mapping file path
             mapping_path = Path(mapping_file)
             ped_output = mapping_path.parent / (mapping_path.stem + "_pedigree.ped")
             pseudonymizer.pseudonymize_ped_file(context.config["ped_file"], str(ped_output))
@@ -351,11 +322,15 @@ class ExcelReportStage(Stage):
     def _add_additional_sheets(self, xlsx_file: str, context: PipelineContext) -> None:
         """Add additional sheets to existing Excel file (kept for backward compatibility)."""
         extra_sheets = self._collect_additional_sheets(context)
-        for sheet_name, sheet_df in extra_sheets.items():
+        import shutil
+
+        with AtomicFileOperation(xlsx_file) as temp_xlsx:
+            shutil.copy2(xlsx_file, temp_xlsx)
             with pd.ExcelWriter(
-                xlsx_file, engine="openpyxl", mode="a", if_sheet_exists="new"
+                str(temp_xlsx), engine="openpyxl", mode="a", if_sheet_exists="new"
             ) as writer:
-                sheet_df.to_excel(writer, index=False, sheet_name=sheet_name)
+                for sheet_name, sheet_df in extra_sheets.items():
+                    sheet_df.to_excel(writer, index=False, sheet_name=sheet_name)
 
 
 class HTMLReportStage(Stage):
@@ -433,15 +408,18 @@ class HTMLReportStage(Stage):
 
             # Check if HTML was generated successfully
             html_file = report_dir / "index.html"
-            if html_file.exists():
-                context.report_paths["html"] = html_file
-                logger.info("HTML report generated successfully.")
-            else:
-                logger.error("HTML report generation failed - index.html not found")
+            if not html_file.exists():
+                raise FileNotFoundError(f"HTML report generation failed: {html_file} not found")
+            context.report_paths["html"] = html_file
+            logger.info("HTML report generated successfully.")
         except Exception as e:
             logger.error(f"HTML report generation failed: {e}")
+            raise
 
         context.report_paths["json"] = variants_json
+        summary_json = report_dir / "summary.json"
+        if summary_json.exists():
+            context.report_paths["summary_json"] = summary_json
 
         return context
 
@@ -574,8 +552,11 @@ class MetadataGenerationStage(Stage):
 
         logger.info(f"Generating metadata: {metadata_path}")
 
-        # Write metadata in TSV format
-        with open(metadata_path, "w", encoding="utf-8") as mf:
+        # Write metadata in TSV format atomically
+        with (
+            AtomicFileOperation(metadata_path) as temp_mf,
+            open(temp_mf, "w", encoding="utf-8") as mf,
+        ):
             mf.write("Parameter\tValue\n")
 
             def meta_write(param: Any, val: Any) -> None:
@@ -591,5 +572,7 @@ class MetadataGenerationStage(Stage):
 
     def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return the metadata report for checkpoint tracking."""
-        path = context.report_paths.get("metadata")
-        return [path] if path else []
+        paths = []
+        if path := context.report_paths.get("metadata"):
+            paths.append(path)
+        return paths

@@ -1,8 +1,3 @@
 # Existing production modules above the 600-line budget.
 # Each ceiling is the current physical line count: these files may shrink, not grow.
-variantcentrifuge/checkpoint.py:1107
-variantcentrifuge/cli.py:845
-variantcentrifuge/pipeline.py:634
-variantcentrifuge/pipeline_core/runner.py:840
-variantcentrifuge/stages/analysis_stages.py:3894
-variantcentrifuge/stages/setup_stages.py:1353
+

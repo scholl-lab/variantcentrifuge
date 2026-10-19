@@ -9,6 +9,7 @@ from typing import Any, cast
 
 import pandas as pd
 
+from ..checkpoint_models import AtomicFileOperation
 from ..gt_reconstruction import _find_per_sample_gt_columns, reconstruct_gt_column
 from ..pipeline_core import PipelineContext, Stage
 
@@ -160,7 +161,8 @@ class GeneBurdenAnalysisStage(Stage):
         if df.empty:
             burden_output, compression = self._resolve_gene_burden_output(context)
             empty = pd.DataFrame(columns=self._gene_burden_output_columns(context))
-            empty.to_csv(burden_output, sep="\t", index=False, compression=cast(Any, compression))
+            with AtomicFileOperation(burden_output) as temp_out:
+                empty.to_csv(temp_out, sep="\t", index=False, compression=cast(Any, compression))
             context.gene_burden_results = empty
             return context
 
@@ -233,9 +235,10 @@ class GeneBurdenAnalysisStage(Stage):
 
         burden_output, compression = self._resolve_gene_burden_output(context)
 
-        burden_results.to_csv(
-            burden_output, sep="\t", index=False, compression=cast(Any, compression)
-        )
+        with AtomicFileOperation(burden_output) as temp_out:
+            burden_results.to_csv(
+                temp_out, sep="\t", index=False, compression=cast(Any, compression)
+            )
         logger.info(f"Wrote gene burden results to {burden_output}")
 
         return context
