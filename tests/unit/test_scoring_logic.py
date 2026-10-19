@@ -164,3 +164,218 @@ def test_scoring_backward_compatibility_without_output_scores():
     pd.testing.assert_series_equal(
         scored_df["final_score"], pd.Series([14.0, 19.0, 24.0]), check_names=False
     )
+
+
+def test_scoring_numeric_string_conversion_revel_splice_qual():
+    """Test that REVEL, splice-score, and QUAL strings are converted to numeric and evaluated."""
+    for col in ["dbNSFP_REVEL_score", "splice_dbscSNV_rf_score", "QUAL"]:
+        df = pd.DataFrame({col: ["0.92", "."]})
+        config = {
+            "variables": {col: "v|default:0.0"},
+            "formulas": [{"score": "v * 2"}],
+        }
+        scored_df = apply_scoring(df, config)
+        assert "score" in scored_df.columns
+        pd.testing.assert_series_equal(
+            scored_df["score"], pd.Series([1.84, 0.0]), check_names=False
+        )
+
+
+def test_scoring_reduction_policy_max_and_min():
+    """Test that configured max/min reductions work on comma and semicolon lists."""
+    df = pd.DataFrame({"score_list": ["0.15,0.92", "25.0;30.0"]})
+
+    # Test max reduction via object config
+    config_max = {
+        "variables": {"score_list": {"target": "val", "default": 0.0, "reduce": "max"}},
+        "formulas": [{"res": "val"}],
+    }
+    scored_max = apply_scoring(df, config_max)
+    pd.testing.assert_series_equal(scored_max["res"], pd.Series([0.92, 30.0]), check_names=False)
+
+    # Test min reduction via string config
+    config_min = {
+        "variables": {"score_list": "val|default:0.0|reduce:min"},
+        "formulas": [{"res": "val"}],
+    }
+    scored_min = apply_scoring(df, config_min)
+    pd.testing.assert_series_equal(scored_min["res"], pd.Series([0.15, 25.0]), check_names=False)
+
+
+def test_scoring_mixed_tokens_and_missing_and_ambiguous():
+    """Test mixed tokens, all-missing inputs, and ambiguous lists without policy."""
+    # Mixed missing/numeric retains valid observations
+    df_mixed = pd.DataFrame({"score_val": ["0.15,.", ".,0.92", ".;30.0"]})
+    config_mixed = {
+        "variables": {"score_val": "val|default:0.0"},
+        "formulas": [{"res": "val"}],
+    }
+    scored_mixed = apply_scoring(df_mixed, config_mixed)
+    pd.testing.assert_series_equal(
+        scored_mixed["res"], pd.Series([0.15, 0.92, 30.0]), check_names=False
+    )
+
+    # All-missing numeric inputs use configured default
+    df_missing = pd.DataFrame({"score_val": [".", ".,.", ""]})
+    config_missing = {
+        "variables": {"score_val": "val|default:5.0"},
+        "formulas": [{"res": "val"}],
+    }
+    scored_missing = apply_scoring(df_missing, config_missing)
+    pd.testing.assert_series_equal(
+        scored_missing["res"], pd.Series([5.0, 5.0, 5.0]), check_names=False
+    )
+
+    # Ambiguous lists without policy produce an explicit error
+    df_ambiguous = pd.DataFrame({"score_val": ["0.15,0.92"]})
+    config_no_policy = {
+        "variables": {"score_val": "val|default:0.0"},
+        "formulas": [{"res": "val"}],
+    }
+    with pytest.raises(ValueError, match="reduction"):
+        apply_scoring(df_ambiguous, config_no_policy)
+
+
+def test_scoring_documented_af_cadd_revel_formula():
+    """Test that the documented AF/CADD/REVEL formula produces 0.7697 from string inputs."""
+    df = pd.DataFrame(
+        {
+            "dbNSFP_gnomAD_exomes_AF": ["0.001"],
+            "dbNSFP_CADD_phred": ["20"],
+            "dbNSFP_REVEL_score": ["0.9"],
+        }
+    )
+    config = {
+        "variables": {
+            "dbNSFP_gnomAD_exomes_AF": "af_exomes|default:0.0",
+            "dbNSFP_CADD_phred": "cadd_score|default:0.0",
+            "dbNSFP_REVEL_score": "revel_score|default:0.0",
+            "ANN[0].IMPACT": "impact|default:'MODIFIER'",
+        },
+        "formulas": [
+            {
+                "my_variant_score": (
+                    "(cadd_score / 40) * 0.4 + (revel_score * 0.3) + ((1 - af_exomes) * 0.3)"
+                )
+            }
+        ],
+    }
+    orig_df = df.copy()
+    scored_df = apply_scoring(df, config)
+
+    # Caller DataFrame must remain unmodified
+    pd.testing.assert_frame_equal(df, orig_df)
+
+    assert "my_variant_score" in scored_df.columns
+    assert pytest.approx(scored_df["my_variant_score"].iloc[0], rel=1e-4) == 0.7697
+
+
+def test_scoring_implicit_numeric_default_when_absent_or_missing():
+    """Verify implicit numeric default 0.0 when column is absent
+    or all-missing without |default:.
+    """
+    # Absent column
+    df_absent = pd.DataFrame({"dummy": [1, 2]})
+    config_absent = {
+        "variables": {"absent_col": "v"},
+        "formulas": [{"score": "v + 1"}],
+    }
+    scored_absent = apply_scoring(df_absent, config_absent)
+    pd.testing.assert_series_equal(scored_absent["score"], pd.Series([1.0, 1.0]), check_names=False)
+
+    # Column present with only missing/dot values
+    df_missing = pd.DataFrame({"present_col": [".", "."]})
+    config_missing = {
+        "variables": {"present_col": "v"},
+        "formulas": [{"score": "v + 1"}],
+    }
+    scored_missing = apply_scoring(df_missing, config_missing)
+    pd.testing.assert_series_equal(
+        scored_missing["score"], pd.Series([1.0, 1.0]), check_names=False
+    )
+
+
+def test_scoring_categorical_dtype_preserves_default():
+    """Verify category dtype columns fill nulls properly without 'nan' literal string."""
+    df = pd.DataFrame(
+        {
+            "ANN_IMPACT": pd.Series(["HIGH", None], dtype="category"),
+        }
+    )
+    config = {
+        "variables": {"ANN_IMPACT": "impact|default:'MODIFIER'"},
+        "formulas": [{"is_modifier": "impact == 'MODIFIER'"}],
+    }
+    scored = apply_scoring(df, config)
+    assert scored["ANN_IMPACT"].tolist() == ["HIGH", "MODIFIER"]
+    assert scored["is_modifier"].tolist() == [0.0, 1.0]
+
+
+def test_scoring_coerces_invalid_cells_with_numeric_default():
+    """Verify numeric default coerces non-numeric strings like 'N/A' to default."""
+    df = pd.DataFrame({"CADD": ["25", "N/A"]})
+    config = {
+        "variables": {"CADD": "v|default:0"},
+        "formulas": [{"score": "v * 2"}],
+    }
+    scored = apply_scoring(df, config)
+    assert scored["score"].tolist() == [50.0, 0.0]
+
+
+def test_scoring_type_inference_row_order_invariant():
+    """Verify type inference checks entire column and is invariant to row order > 20 rows."""
+    # 25 dots followed by a string
+    vals1 = ["."] * 25 + ["SOME_TEXT"]
+    df1 = pd.DataFrame({"MY_COL": vals1})
+    config1 = {"variables": {"MY_COL": "val"}, "formulas": [{"res": "val == 'SOME_TEXT'"}]}
+    scored1 = apply_scoring(df1, config1)
+    assert scored1["res"].iloc[-1] == 1.0
+
+    # Reversed order: string followed by 25 dots
+    vals2 = ["SOME_TEXT"] + ["."] * 25
+    df2 = pd.DataFrame({"MY_COL": vals2})
+    scored2 = apply_scoring(df2, config1)
+    assert scored2["res"].iloc[0] == 1.0
+
+
+def test_scoring_categorical_dtype_numeric_values_and_none():
+    """Verify categorical dtype with numeric values and None uses configured numeric default."""
+    df = pd.DataFrame({"SCORE": pd.Series(["0.92", None], dtype="category")})
+    config = {
+        "variables": {"SCORE": "v|default:7"},
+        "formulas": [{"res": "v * 2"}],
+    }
+    scored = apply_scoring(df, config)
+    assert scored["res"].tolist() == [1.84, 14.0]
+
+
+def test_scoring_target_name_with_categorical_keyword_preserves_numeric():
+    """Verify mapping numeric column to target_name containing 'impact' honors numeric default."""
+    df = pd.DataFrame({"CADD": ["25", "."]})
+    config = {
+        "variables": {"CADD": "impact_score|default:0"},
+        "formulas": [{"score": "impact_score * 2"}],
+    }
+    scored = apply_scoring(df, config)
+    assert scored["score"].tolist() == [50.0, 0.0]
+
+
+@pytest.mark.parametrize(
+    "col_name,var_mapping,formula",
+    [
+        ("IMPACT", "v|default:0", "(v == 'HIGH') * 10"),
+        ("EFFECT", "e|default:0", "(e == 'HIGH') * 10"),
+        ("Inheritance_Pattern", "ip|default:0", "(ip == 'HIGH') * 10"),
+    ],
+)
+def test_legacy_categorical_mapping_with_numeric_default(col_name, var_mapping, formula):
+    """Verify legacy string mapping with numeric default preserves categorical strings and produces
+    [10, 0].
+    """
+    df = pd.DataFrame({col_name: ["HIGH", "."]})
+    config = {
+        "variables": {col_name: var_mapping},
+        "formulas": [{"score": formula}],
+    }
+    scored = apply_scoring(df, config)
+    assert scored["score"].tolist() == [10, 0]
