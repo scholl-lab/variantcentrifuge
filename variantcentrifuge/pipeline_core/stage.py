@@ -210,6 +210,10 @@ class Stage(ABC):
 
             # Mark complete and update checkpoint with file tracking
             elapsed = time.time() - start_time
+            if hasattr(updated_context, "stage_durations") and isinstance(
+                updated_context.stage_durations, dict
+            ):
+                updated_context.stage_durations[self.name] = round(elapsed, 4)
             updated_context.mark_complete(self.name)
 
             # Complete checkpoint step with output files

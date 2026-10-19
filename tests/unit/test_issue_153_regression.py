@@ -232,11 +232,12 @@ def test_changing_named_configuration_keys_invalidates_compatibility(
 
 @pytest.mark.unit
 def test_legacy_fingerprint_fallback_rejected_when_omitted_parameter_changes(tmp_path: Path):
-    """Older fingerprint cannot regain compatibility through legacy fallback
-    when omitted parameter is used.
+    """Older unversioned fingerprint cannot regain compatibility through legacy fallback
+    when omitted parameter is used or removed, and unversioned v1 hashes are rejected.
     """
     from variantcentrifuge.checkpoint_helpers import hash_legacy_configuration
 
+    # Case 1: unversioned checkpoint without transcript_list cannot resume with new or old config
     cfg_old = {"output_dir": str(tmp_path), "vcf_file": "input.vcf.gz"}
     legacy_hash = hash_legacy_configuration(cfg_old)
 
@@ -245,8 +246,24 @@ def test_legacy_fingerprint_fallback_rejected_when_omitted_parameter_changes(tmp
     state.state["configuration_hash"] = legacy_hash
     state._loaded_from_file = True
 
+    assert state.can_resume(cfg_old, pipeline_version="1.0") is False
     cfg_new = {**cfg_old, "transcript_list": ["NM_NEW"]}
     assert state.can_resume(cfg_new, pipeline_version="1.0") is False
+
+    # Case 2: unversioned checkpoint with transcript_list cannot resume when transcript_list removed
+    cfg_old_with_tx = {
+        "output_dir": str(tmp_path),
+        "vcf_file": "input.vcf.gz",
+        "transcript_list": ["NM_OLD"],
+    }
+    legacy_hash_tx = hash_legacy_configuration(cfg_old_with_tx)
+    state2 = PipelineState(output_dir=str(tmp_path))
+    state2.initialize(cfg_old_with_tx, pipeline_version="1.0")
+    state2.state["configuration_hash"] = legacy_hash_tx
+    state2._loaded_from_file = True
+
+    cfg_new_without_tx = {"output_dir": str(tmp_path), "vcf_file": "input.vcf.gz"}
+    assert state2.can_resume(cfg_new_without_tx, pipeline_version="1.0") is False
 
 
 @pytest.mark.unit

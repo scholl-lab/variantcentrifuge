@@ -310,3 +310,53 @@ def test_cli_explicit_flags_override_config(tmp_path: Path, monkeypatch: pytest.
     assert mock_run.called
     called_args = mock_run.call_args[0][0]
     assert called_args.gene_name == "TP53"
+
+
+@pytest.mark.unit
+def test_config_only_annotate_json_and_igv_pass_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Config-only annotate_json_genes and igv pass validation cleanly without CLI flags."""
+    import json
+    from unittest.mock import MagicMock, patch
+
+    from variantcentrifuge.cli import main
+
+    json_mapping_file = tmp_path / "mapping.json"
+    json_mapping_file.write_text('{"GENE": "annotation"}')
+    bam_mapping_file = tmp_path / "bams.tsv"
+    bam_mapping_file.write_text("sample\t/path/to/sample.bam\n")
+
+    cfg_data = {
+        "reference": "GRCh37.p13",
+        "filters": "PASS",
+        "fields_to_extract": "CHROM POS",
+        "gene_name": "BRCA1",
+        "annotate_json_genes": [str(json_mapping_file)],
+        "json_gene_mapping": str(json_mapping_file),
+        "igv": True,
+        "bam_mapping_file": str(bam_mapping_file),
+        "igv_reference": "hg19",
+    }
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text(json.dumps(cfg_data))
+
+    mock_run = MagicMock()
+    monkeypatch.setattr("variantcentrifuge.cli.run_pipeline", mock_run)
+    monkeypatch.setattr("variantcentrifuge.cli.validate_vcf_file", lambda *a, **k: None)
+    monkeypatch.setattr("variantcentrifuge.cli.validate_required_tools", lambda *a, **k: None)
+
+    with patch(
+        "sys.argv",
+        ["variantcentrifuge", "-v", "test.vcf.gz", "-c", str(cfg_file)],
+    ):
+        ret = main()
+        assert ret == 0
+
+    assert mock_run.called
+    args = mock_run.call_args[0][0]
+    assert args.igv is True
+    assert args.bam_mapping_file == str(bam_mapping_file)
+    assert args.igv_reference == "hg19"
+    assert args.annotate_json_genes == [str(json_mapping_file)]
+    assert args.json_gene_mapping == str(json_mapping_file)

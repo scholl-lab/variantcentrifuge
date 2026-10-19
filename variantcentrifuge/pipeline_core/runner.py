@@ -126,13 +126,8 @@ class PipelineRunner:
                 context.checkpoint_state.cleanup_stale_stages()
 
                 pipeline_version = context.config.get("pipeline_version", "pipeline")
-                current_hashes = context.checkpoint_state._resume_configuration_hashes(
-                    context.config
-                )
-                if (
-                    context.checkpoint_state.state.get("pipeline_version") != pipeline_version
-                    or context.checkpoint_state.state.get("configuration_hash")
-                    not in current_hashes
+                if not context.checkpoint_state.can_resume(
+                    context.config, pipeline_version, validate_outputs=False
                 ):
                     msg = "Cannot resume: configuration or version mismatch"
                     logger.error(msg)

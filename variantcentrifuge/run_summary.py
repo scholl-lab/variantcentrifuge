@@ -70,25 +70,86 @@ def get_environment_versions() -> dict[str, str]:
     return versions
 
 
-def collect_tier_counts(context: PipelineContext) -> dict[str, int]:
+def _count_tsv_rows(path: Path) -> int:
+    """Count data rows in a TSV or compressed TSV file, skipping header."""
+    try:
+        if str(path).endswith(".gz"):
+            import gzip
+
+            with gzip.open(path, "rt", encoding="utf-8", errors="replace") as f:
+                lines = sum(1 for _ in f)
+        else:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                lines = sum(1 for _ in f)
+        return max(0, lines - 1)
+    except Exception:
+        return 0
+
+
+def collect_tier_counts(context: PipelineContext) -> dict[str, Any]:
     """Collect variant and entity counts across filtering tiers."""
-    counts: dict[str, int] = {}
+    counts: dict[str, Any] = {}
 
     if context.vcf_samples:
         counts["samples"] = len(context.vcf_samples)
 
-    if context.current_dataframe is not None:
-        counts["final_variants"] = len(context.current_dataframe)
-        if "GENE" in context.current_dataframe.columns:
-            genes = context.current_dataframe["GENE"].dropna().unique()
+    # Extracted variants
+    extracted_tsv = getattr(context, "extracted_tsv", None)
+    if extracted_tsv and Path(extracted_tsv).is_file():
+        counts["extracted_variants"] = _count_tsv_rows(Path(extracted_tsv))
+
+    # Final variants and gene counts
+    df = context.current_dataframe
+    if df is not None:
+        counts["final_variants"] = len(df)
+        gene_col = next(
+            (c for c in ("GENE", "ANN[*].GENE", "ANN_0__GENE") if c in df.columns),
+            None,
+        )
+        if gene_col:
+            genes = df[gene_col].dropna().unique()
+            counts["final_genes"] = len(genes)
             counts["unique_genes"] = len(genes)
+        else:
+            counts["final_genes"] = 0
+            counts["unique_genes"] = 0
     elif context.final_output_path and context.final_output_path.is_file():
-        try:
-            with open(context.final_output_path, encoding="utf-8") as f:
-                lines = sum(1 for _ in f)
-            counts["final_variants"] = max(0, lines - 1)
-        except Exception:
-            pass
+        counts["final_variants"] = _count_tsv_rows(context.final_output_path)
+        counts["final_genes"] = 0
+        counts["unique_genes"] = 0
+    else:
+        counts["final_variants"] = 0
+        counts["final_genes"] = 0
+        counts["unique_genes"] = 0
+
+    if "extracted_variants" not in counts:
+        counts["extracted_variants"] = counts["final_variants"]
+
+    # Pre-final-filter variants
+    pre_final = getattr(context, "pre_final_filter_variants", None)
+    if pre_final is None and hasattr(context, "config"):
+        pre_final = context.config.get("pre_final_filter_variants")
+    if pre_final is not None:
+        counts["pre_final_filter_variants"] = int(pre_final)
+    else:
+        counts["pre_final_filter_variants"] = counts["final_variants"]
+
+    # Impact tiers
+    impact_tiers: dict[str, int] = {}
+    if df is not None:
+        impact_col = next(
+            (
+                c
+                for c in ("IMPACT", "ANN[0].IMPACT", "ANN_0__IMPACT", "ANN[*].IMPACT")
+                if c in df.columns
+            ),
+            None,
+        )
+        if impact_col:
+            val_counts = df[impact_col].value_counts().to_dict()
+            for tier in ("HIGH", "MODERATE", "LOW", "MODIFIER"):
+                impact_tiers[tier] = int(val_counts.get(tier, 0))
+    counts["impact_tiers"] = impact_tiers
 
     return counts
 
@@ -124,11 +185,25 @@ def collect_file_manifest(context: PipelineContext) -> dict[str, list[dict[str, 
     if context.final_output_path:
         output_files.append(("final_output_tsv", context.final_output_path))
     for rtype, rpath in context.report_paths.items():
-        output_files.append((f"report_{rtype}", rpath))
+        if rtype != "run_summary" and not str(rpath).endswith("run_summary.json"):
+            output_files.append((f"report_{rtype}", rpath))
     for key in ("gene_burden_output", "association_output"):
         out = context.config.get(key)
         if out:
             output_files.append((key, out))
+
+    if context.stats_output_tsv:
+        output_files.append(("stats_output_file", context.stats_output_tsv))
+    elif context.config.get("stats_output_file"):
+        stats_out = Path(context.config["stats_output_file"])
+        if not stats_out.is_absolute() and context.workspace:
+            stats_out = context.workspace.output_dir / stats_out
+        output_files.append(("stats_output_file", stats_out))
+
+    if context.workspace and (context.workspace.output_dir / "report" / "summary.json").is_file():
+        output_files.append(
+            ("report_summary_json", context.workspace.output_dir / "report" / "summary.json")
+        )
 
     for otype, opath in output_files:
         p_str = str(opath)
@@ -157,7 +232,11 @@ def build_run_summary(
     elapsed = round(context.get_execution_time(), 2)
 
     stages_info: list[dict[str, Any]] = [
-        {"name": stage_name, "status": "completed"}
+        {
+            "name": stage_name,
+            "status": "completed",
+            "duration_seconds": context.stage_durations.get(stage_name),
+        }
         for stage_name in sorted(context.completed_stages)
     ]
 

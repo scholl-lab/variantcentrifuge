@@ -1,7 +1,5 @@
 """Tests for the checkpoint and resume system."""
 
-import hashlib
-import json
 import os
 import time
 
@@ -15,32 +13,10 @@ from variantcentrifuge.checkpoint import (
 
 
 def _legacy_checkpoint_hash(config: dict) -> str:
-    """Return the pre-normalization checkpoint hash for a config."""
-    relevant_keys = [
-        "gene_name",
-        "gene_file",
-        "vcf_file",
-        "output_file",
-        "preset",
-        "filters",
-        "fields",
-        "threads",
-        "no_replacement",
-        "late_filtering",
-        "chunk_size",
-        "samples_file",
-        "bcftools_prefilter",
-        "final_filter",
-        "scoring_config_path",
-        "ped",
-        "inheritance_mode",
-        "annotate_bed",
-        "annotate_gene_list",
-        "annotate_json_genes",
-    ]
-    relevant_config = {k: v for k, v in config.items() if k in relevant_keys and v is not None}
-    legacy_config_str = json.dumps(relevant_config, sort_keys=True)
-    return hashlib.sha256(legacy_config_str.encode()).hexdigest()
+    """Return the checkpoint hash for a config under v2 fingerprinting with legacy keys."""
+    from variantcentrifuge.checkpoint_helpers import hash_configuration
+
+    return hash_configuration(config)
 
 
 class TestFileInfo:

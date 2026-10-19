@@ -312,13 +312,13 @@ def add_analysis_argument_groups(parser: argparse.ArgumentParser) -> None:
     stats_group.add_argument(
         "--gene-burden-mode",
         choices=["samples", "alleles"],
-        default="alleles",
+        default=None,
         help="Mode for gene burden calculation: 'samples' or 'alleles'",
     )
     stats_group.add_argument(
         "--correction-method",
         choices=["fdr", "bonferroni"],
-        default="fdr",
+        default=None,
         help="Multiple testing correction method for gene burden test",
     )
     stats_group.add_argument(

@@ -289,6 +289,8 @@ class FinalFilteringStage(Stage):
         if final_filter:
             logger.info(f"Applying final filter: {final_filter}")
             pre_filter_count = len(df)
+            context.pre_final_filter_variants = pre_filter_count
+            context.config["pre_final_filter_variants"] = pre_filter_count
             df = _os_mod.filter_dataframe_with_query(df, final_filter)
             post_filter_count = len(df)
             logger.info(

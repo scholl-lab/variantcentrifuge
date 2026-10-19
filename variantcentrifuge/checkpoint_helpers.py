@@ -103,6 +103,7 @@ def hash_configuration(config: dict[str, Any]) -> str:
         and v is not None
         and not (k in CANONICAL_ANNOTATION_KEYS and not v)
     }
+    relevant_config["__fingerprint_version__"] = 2
 
     config_str = json.dumps(relevant_config, sort_keys=True)
     return hashlib.sha256(config_str.encode()).hexdigest()
@@ -143,17 +144,10 @@ def legacy_annotation_equivalent_configs(config: dict[str, Any]) -> list[dict[st
 
 
 def resume_configuration_hashes(config: dict[str, Any]) -> set[str]:
-    """Return current and legacy-equivalent config hashes accepted for resume."""
+    """Return current and legacy-annotation-key-equivalent config hashes accepted for resume."""
     hashes = {hash_configuration(config)}
-    has_new_keys = any(
-        config.get(k) is not None and config.get(k) != [] and config.get(k) != ""
-        for k in NEW_FINGERPRINT_KEYS
-    )
-    if not has_new_keys:
-        hashes.update(
-            hash_legacy_configuration(candidate)
-            for candidate in legacy_annotation_equivalent_configs(config)
-        )
+    for candidate in legacy_annotation_equivalent_configs(config):
+        hashes.add(hash_configuration(candidate))
     return hashes
 
 

@@ -492,8 +492,14 @@ class TestTSVOutputStage:
 
     def test_tsv_output(self, context):
         """Test TSV file output."""
+
+        def fake_to_csv(path_or_buf, *args, **kwargs):
+            Path(path_or_buf).write_text("dummy")
+
         # Mock the DataFrame's to_csv method
-        with patch.object(context.current_dataframe, "to_csv") as mock_to_csv:
+        with patch.object(
+            context.current_dataframe, "to_csv", side_effect=fake_to_csv
+        ) as mock_to_csv:
             stage = TSVOutputStage()
             result = stage(context)
 

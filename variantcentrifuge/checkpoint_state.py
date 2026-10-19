@@ -49,6 +49,7 @@ class PipelineState:
             "start_time": None,
             "last_update": None,
             "configuration_hash": None,
+            "configuration_fingerprint_version": 2,
             "steps": {},
             "metadata": {},
         }
@@ -62,6 +63,7 @@ class PipelineState:
         self.state["start_time"] = time.time()
         self.state["last_update"] = time.time()
         self.state["configuration_hash"] = self._hash_configuration(configuration)
+        self.state["configuration_fingerprint_version"] = 2
         self.state["metadata"]["command_line"] = configuration.get("command_line", "")
         self.save()
 
@@ -87,6 +89,9 @@ class PipelineState:
                 "start_time": loaded_state.get("start_time"),
                 "last_update": loaded_state.get("last_update"),
                 "configuration_hash": loaded_state.get("configuration_hash"),
+                "configuration_fingerprint_version": loaded_state.get(
+                    "configuration_fingerprint_version", 2
+                ),
                 "steps": {
                     name: StepInfo.from_dict(info)
                     for name, info in loaded_state.get("steps", {}).items()
@@ -126,7 +131,12 @@ class PipelineState:
                 logger.warning(f"Failed to save checkpoint state: {e}")
                 raise
 
-    def can_resume(self, configuration: dict[str, Any], pipeline_version: str) -> bool:
+    def can_resume(
+        self,
+        configuration: dict[str, Any],
+        pipeline_version: str,
+        validate_outputs: bool = True,
+    ) -> bool:
         """Check if pipeline can be resumed with given configuration."""
         if not self._loaded_from_file:
             return False
@@ -139,6 +149,9 @@ class PipelineState:
         if self.state.get("configuration_hash") not in current_hashes:
             logger.warning("Configuration has changed, cannot resume")
             return False
+
+        if not validate_outputs:
+            return True
 
         for step_name, step_info in self.state["steps"].items():
             if step_info.status == "completed":

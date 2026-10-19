@@ -444,6 +444,7 @@ class TestHeaderSampleResolution:
         captured: list[dict] = []
         monkeypatch.setattr(cli_module, "run_pipeline", lambda a: captured.append(a.config.copy()))
         monkeypatch.setattr(cli_module, "validate_vcf_file", lambda *a, **k: None)
+        monkeypatch.setattr(cli_module, "validate_required_tools", lambda *a, **k: None)
         monkeypatch.setattr(
             "sys.argv",
             [

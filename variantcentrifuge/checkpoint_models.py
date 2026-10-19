@@ -38,34 +38,29 @@ class AtomicFileOperation:
 
     def __enter__(self) -> Path:
         self.final_path.parent.mkdir(parents=True, exist_ok=True)
-        if self.temp_path.exists():
-            self.temp_path.unlink()
+        with contextlib.suppress(FileNotFoundError, OSError):
+            self.temp_path.unlink(missing_ok=True)
         return self.temp_path
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         if exc_type is None:
-            if self.temp_path.exists():
-                try:
-                    os.replace(self.temp_path, self.final_path)
-                    self.success = True
-                    logger.debug(f"Atomically published file: {self.final_path}")
-                except Exception as err:
-                    if self.temp_path.exists():
-                        with contextlib.suppress(Exception):
-                            self.temp_path.unlink()
-                    logger.error(f"Failed to publish {self.temp_path} to {self.final_path}: {err}")
-                    raise
-            else:
-                logger.warning(f"Temp file not created: {self.temp_path}")
+            try:
+                os.replace(self.temp_path, self.final_path)
+                self.success = True
+                logger.debug(f"Atomically published file: {self.final_path}")
+            except Exception as err:
+                with contextlib.suppress(FileNotFoundError, OSError):
+                    self.temp_path.unlink(missing_ok=True)
+                logger.error(f"Failed to publish {self.temp_path} to {self.final_path}: {err}")
+                raise
         else:
-            if self.temp_path.exists():
-                try:
-                    self.temp_path.unlink()
-                    logger.debug(f"Cleaned up temp file after error: {self.temp_path}")
-                except Exception as cleanup_error:
-                    logger.warning(
-                        f"Failed to clean up temp file {self.temp_path}: {cleanup_error}"
-                    )
+            try:
+                self.temp_path.unlink(missing_ok=True)
+                logger.debug(f"Cleaned up temp file after error: {self.temp_path}")
+            except (FileNotFoundError, OSError):
+                pass
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to clean up temp file {self.temp_path}: {cleanup_error}")
         return None
 
 

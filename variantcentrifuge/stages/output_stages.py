@@ -35,7 +35,7 @@ from ..gt_reconstruction import (
 )
 from ..pipeline_core import PipelineContext, Stage
 from ..pseudonymizer import create_pseudonymizer
-from ..run_summary import _collect_metadata_rows, write_run_summary
+from ..run_summary import _collect_metadata_rows
 from ..utils import get_tool_version, sanitize_metadata_field
 from .tsv_output_stages import (
     ArchiveCreationStage,
@@ -417,15 +417,18 @@ class HTMLReportStage(Stage):
 
             # Check if HTML was generated successfully
             html_file = report_dir / "index.html"
-            if html_file.exists():
-                context.report_paths["html"] = html_file
-                logger.info("HTML report generated successfully.")
-            else:
-                logger.error("HTML report generation failed - index.html not found")
+            if not html_file.exists():
+                raise FileNotFoundError(f"HTML report generation failed: {html_file} not found")
+            context.report_paths["html"] = html_file
+            logger.info("HTML report generated successfully.")
         except Exception as e:
             logger.error(f"HTML report generation failed: {e}")
+            raise
 
         context.report_paths["json"] = variants_json
+        summary_json = report_dir / "summary.json"
+        if summary_json.exists():
+            context.report_paths["summary_json"] = summary_json
 
         return context
 
@@ -574,18 +577,11 @@ class MetadataGenerationStage(Stage):
                 meta_write(param, val)
 
         context.report_paths["metadata"] = metadata_path
-
-        # Consolidate provenance manifest in run_summary.json
-        summary_path = write_run_summary(context)
-        context.report_paths["run_summary"] = summary_path
-
         return metadata_path
 
     def get_output_files(self, context: PipelineContext) -> list[Path]:
-        """Return the metadata report and run summary for checkpoint tracking."""
+        """Return the metadata report for checkpoint tracking."""
         paths = []
         if path := context.report_paths.get("metadata"):
             paths.append(path)
-        if summary := context.report_paths.get("run_summary"):
-            paths.append(summary)
         return paths

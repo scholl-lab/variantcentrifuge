@@ -32,6 +32,11 @@ def validate_requested_outputs(context: PipelineContext) -> None:
         if not excel or not Path(excel).exists():
             raise RuntimeError("Requested Excel output was not written")
 
+    if context.config.get("html_report") or context.config.get("html"):
+        html = context.report_paths.get("html")
+        if not html or not Path(html).exists():
+            raise RuntimeError("Requested HTML report output was not written")
+
 
 def resolve_threads(raw_threads: object, config: dict | None = None) -> int:
     """Resolve thread setting to an integer count."""

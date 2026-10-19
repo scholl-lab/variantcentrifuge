@@ -7,14 +7,12 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from .cli_memory import calculate_sort_memory_limit as _calculate_sort_memory_limit
 from .config import normalize_annotation_config
 from .vcf_header_parser import resolve_tumor_normal_indices
 from .version import __version__
 
 logger = logging.getLogger("variantcentrifuge")
-
-
-from .cli_memory import calculate_sort_memory_limit as _calculate_sort_memory_limit
 
 
 def _expand_tumor_normal_vars(expr: str, tn_vars: dict[str, str]) -> str:
@@ -50,10 +48,7 @@ def resolve_presets_and_tumor_normal(
     raw_presets = getattr(args, "preset", None) or cfg.get("preset")
     if not raw_presets and isinstance(preset_val, (list, str)):
         raw_presets = preset_val
-    if not raw_presets:
-        raw_presets = []
-    if isinstance(raw_presets, str):
-        raw_presets = [raw_presets]
+    raw_presets = [raw_presets] if isinstance(raw_presets, str) else (raw_presets or [])
     raw_final_filter = (
         args.final_filter if args.final_filter is not None else cfg.get("final_filter")
     )
@@ -142,9 +137,11 @@ def populate_cli_config(
     args.perform_gene_burden = cfg["perform_gene_burden"]
     cfg["no_stats"] = bool(getattr(args, "no_stats", False) or cfg.get("no_stats", False))
     args.no_stats = cfg["no_stats"]
-    cfg["gene_burden_mode"] = getattr(args, "gene_burden_mode", None) or cfg.get("gene_burden_mode")
-    cfg["correction_method"] = getattr(args, "correction_method", None) or cfg.get(
-        "correction_method"
+    cfg["gene_burden_mode"] = (
+        getattr(args, "gene_burden_mode", None) or cfg.get("gene_burden_mode") or "alleles"
+    )
+    cfg["correction_method"] = (
+        getattr(args, "correction_method", None) or cfg.get("correction_method") or "fdr"
     )
 
     # Association analysis configuration
@@ -239,20 +236,21 @@ def populate_cli_config(
     cfg["normal_sample_index"] = tumor_normal_vars["normal_idx"]
 
     # IGV parameters
-    cfg["igv_enabled"] = args.igv
-    cfg["bam_mapping_file"] = args.bam_mapping_file
+    cfg["igv_enabled"] = bool(args.igv or cfg.get("igv_enabled", False))
+    for opt in (
+        "bam_mapping_file",
+        "igv_reference",
+        "igv_fasta",
+        "igv_ideogram",
+        "igv_max_allele_len_filename",
+        "igv_hash_len_filename",
+        "igv_max_variant_part_filename",
+    ):
+        v = getattr(args, opt, None) or cfg.get(opt)
+        cfg[opt] = v
+        if v is not None:
+            setattr(args, opt, v)
 
-    # MODIFIED: Start of local IGV FASTA feature
-    # Store local FASTA-related parameters
-    cfg["igv_fasta"] = args.igv_fasta
-    cfg["igv_ideogram"] = args.igv_ideogram
-
-    # MODIFIED: IGV filename shortening parameters
-    cfg["igv_max_allele_len_filename"] = args.igv_max_allele_len_filename
-    cfg["igv_hash_len_filename"] = args.igv_hash_len_filename
-    cfg["igv_max_variant_part_filename"] = args.igv_max_variant_part_filename
-
-    # Use CLI argument if provided, otherwise use config value, with a default of 50
     cfg["igv_flanking"] = (
         args.igv_flanking
         if getattr(args, "igv_flanking", None) is not None
@@ -368,20 +366,12 @@ def populate_cli_config(
 
     resolve_links(cfg)
 
-    raw_threads = getattr(args, "threads", None)
-    if raw_threads is None:
-        raw_threads = cfg.get("threads", "auto")
-    if str(raw_threads).lower() == "auto":
-        from .memory.resource_manager import ResourceManager
+    from .pipeline_validation import resolve_threads
 
-        rm = ResourceManager(config=cfg)
-        resolved_threads = rm.cpu_cores
-        logger.info(f"Auto-detected {resolved_threads} CPU cores for --threads")
-        cfg["threads"] = resolved_threads
-        args.threads = resolved_threads
-    else:
-        cfg["threads"] = int(raw_threads)
-        args.threads = int(raw_threads)
+    raw_threads = getattr(args, "threads", None) or cfg.get("threads", "auto")
+    resolved_threads = resolve_threads(raw_threads, cfg)
+    cfg["threads"] = resolved_threads
+    args.threads = resolved_threads
 
     # Output file - important to override default config value
     if args.output_file is not None:
@@ -403,7 +393,10 @@ def populate_cli_config(
         ("phenotype_value_column", args.phenotype_value_column),
         ("json_gene_mapping", args.json_gene_mapping),
     ):
-        cfg[_cfg_k] = _arg_v if _arg_v is not None else cfg.get(_cfg_k)
+        resolved = _arg_v if _arg_v is not None else cfg.get(_cfg_k)
+        cfg[_cfg_k] = resolved
+        if resolved is not None:
+            setattr(args, _cfg_k, resolved)
 
     if cfg.get("filter_exception_file") and cfg.get("fields_to_extract"):
         raw_fields = str(cfg["fields_to_extract"])
@@ -436,18 +429,25 @@ def populate_cli_config(
         cfg.setdefault("extra_sample_field_delimiter", ":")
 
     # Unified annotation configuration
-    if args.annotate_bed:
-        cfg["annotate_bed_files"] = args.annotate_bed
-    if args.annotate_json_genes:
-        cfg["annotate_json_genes"] = args.annotate_json_genes
+    for opt, (k1, k2) in {
+        "annotate_bed": ("annotate_bed_files", "annotate_bed"),
+        "annotate_gene_list": ("annotate_gene_lists", "annotate_gene_list_files"),
+    }.items():
+        v = getattr(args, opt, None) or cfg.get(k1) or cfg.get(k2)
+        if v:
+            setattr(args, opt, v)
+            cfg[k1] = v
+            cfg[k2] = v
+
+    ann_json = getattr(args, "annotate_json_genes", None) or cfg.get("annotate_json_genes")
+    if ann_json:
+        args.annotate_json_genes = ann_json
+        cfg["annotate_json_genes"] = ann_json
     else:
         cfg.setdefault("annotate_json_genes", [])
     cfg["json_genes_as_columns"] = bool(
-        args.json_genes_as_columns or cfg.get("json_genes_as_columns", False)
+        getattr(args, "json_genes_as_columns", False) or cfg.get("json_genes_as_columns", False)
     )
-    if args.annotate_gene_list:
-        cfg["annotate_gene_list_files"] = args.annotate_gene_list
-        cfg["annotate_gene_lists"] = args.annotate_gene_list
     normalize_annotation_config(cfg)
 
     # Validate unified annotation arguments
@@ -501,8 +501,11 @@ def populate_cli_config(
 
     # Trait type / test compatibility check
     trait_type = getattr(args, "trait_type", "binary")
-    if trait_type == "quantitative" and args.association_tests:
-        test_list = [t.strip() for t in args.association_tests.split(",")]
+    raw_tests = cfg.get("association_tests") or getattr(args, "association_tests", None)
+    if trait_type == "quantitative" and raw_tests:
+        test_list = [
+            t.strip() for t in (raw_tests.split(",") if isinstance(raw_tests, str) else raw_tests)
+        ]
         if "logistic_burden" in test_list:
             _fail(
                 "--trait-type quantitative is incompatible with logistic_burden "
@@ -574,7 +577,11 @@ def populate_cli_config(
     cfg["enable_checkpoint"] = args.enable_checkpoint
     cfg["resume"] = args.resume
     cfg["checkpoint_checksum"] = args.checkpoint_checksum
-    cfg["resume_from"] = args.resume_from
+    cfg["resume_from"] = (
+        args.resume_from
+        if getattr(args, "resume_from", None) is not None
+        else cfg.get("resume_from")
+    )
     cfg["list_stages"] = args.list_stages
     cfg["list_checkpoints"] = args.list_checkpoints
     cfg["interactive_resume"] = args.interactive_resume

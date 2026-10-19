@@ -142,3 +142,17 @@ class TestPipelineContext:
         repr_str = repr(context)
         assert "stages_completed=1" in repr_str
         assert "has_data=True" in repr_str
+
+    def test_merge_from_preserves_stage_durations(self, mock_args, mock_workspace):
+        """PipelineContext.merge_from must preserve stage_durations from other context."""
+        ctx1 = PipelineContext(args=mock_args, config={}, workspace=mock_workspace)
+        ctx2 = PipelineContext(args=mock_args, config={}, workspace=mock_workspace)
+
+        ctx1.stage_durations["stage_a"] = 1.5
+        ctx2.stage_durations["stage_b"] = 2.5
+        ctx2.completed_stages.add("stage_b")
+
+        ctx1.merge_from(ctx2)
+        assert ctx1.stage_durations["stage_a"] == 1.5
+        assert ctx1.stage_durations["stage_b"] == 2.5
+        assert "stage_b" in ctx1.completed_stages

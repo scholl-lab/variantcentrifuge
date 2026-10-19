@@ -105,17 +105,22 @@ class TestDocCliSynchronization:
         assert "`--pca`" in usage_text or "--pca PATH" in usage_text
 
     def test_coast_backend_documentation_omits_r(self) -> None:
-        """COAST backend documentation must not recommend the unsupported 'r' backend."""
-        usage_text = Path("docs/source/usage.md").read_text(encoding="utf-8")
-        assoc_guide = Path("docs/source/guides/association_testing.md").read_text(encoding="utf-8")
+        """COAST backend documentation must not recommend or mention the unsupported 'r' backend."""
+        docs_dir = Path("docs/source")
+        for doc_file in docs_dir.rglob("*.md"):
+            content = doc_file.read_text(encoding="utf-8")
+            assert "--coast-backend r" not in content, (
+                f"{doc_file} contains deprecated/unsupported '--coast-backend r'"
+            )
 
-        for line in usage_text.splitlines():
-            if "--coast-backend" in line:
-                assert '"r"' not in line and "or `r`" not in line
-
-        for line in assoc_guide.splitlines():
-            if "`coast_backend`" in line or "--coast-backend" in line:
-                assert '"r"' not in line and "or `r`" not in line
+    def test_pca_sites_documentation_omits_bed(self) -> None:
+        """--pca-sites documentation must specify sites VCF/BCF, not BED."""
+        docs_dir = Path("docs/source")
+        for doc_file in docs_dir.rglob("*.md"):
+            content = doc_file.read_text(encoding="utf-8")
+            assert "--pca-sites sites.bed" not in content, (
+                f"{doc_file} contains incorrect '--pca-sites sites.bed'"
+            )
 
     def test_parse_representative_cli_argument_lists(self) -> None:
         """Registered parser successfully parses representative documented argument lists."""

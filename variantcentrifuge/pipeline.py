@@ -330,35 +330,24 @@ def create_stages_from_config(config: dict) -> list[Stage]:
     config = normalize_annotation_config(config.copy())
 
     # Convert config dict to a minimal args namespace for compatibility
-    args = argparse.Namespace()
-
-    # Set essential attributes from config
+    args = argparse.Namespace(**config)
     args.config = config
-    args.scoring_config_path = config.get("scoring_config_path")
-    args.ped_file = config.get("ped_file")
-    args.phenotype_file = config.get("phenotype_file")
-    args.annotate_bed = config.get("annotate_bed_files", [])
-    args.annotate_gene_list = config.get("annotate_gene_lists", [])
+
+    # Canonical aliases and options
+    args.annotate_bed = config.get("annotate_bed_files", config.get("annotate_bed", []))
+    args.annotate_gene_list = config.get(
+        "annotate_gene_lists", config.get("annotate_gene_list", [])
+    )
     args.annotate_json_genes = config.get("annotate_json_genes", [])
-    args.late_filtering = config.get("late_filtering", False)
-    args.genotype_filter = config.get("genotype_filter")
-    args.final_filter = config.get("final_filter")
-    args.pseudonymize = config.get("pseudonymize", False)
-    args.xlsx = config.get("xlsx", False)
-    args.html_report = config.get("html_report", False)
-    # Note: build_pipeline_stages checks args.igv (not args.igv_report)
-    args.igv = config.get("igv", False)
-    args.archive_results = config.get("archive_results", False)
-    args.pca = config.get("pca")
-
-    # Analysis stage activation flags — previously missing, causing silent no-ops
-    args.no_stats = config.get("no_stats", False)
-    args.perform_gene_burden = config.get("perform_gene_burden", False)
-    args.perform_association = config.get("perform_association", False)
-    args.association_tests = config.get("association_tests", [])
-    args.gene_name = config.get("gene_name")
-    args.gene_file = config.get("gene_file")
-
+    args.pseudonymize = bool(config.get("pseudonymize") or config.get("pseudonymize_table"))
+    args.split_snpeff_lines = config.get("snpeff_splitting_mode") or config.get(
+        "split_snpeff_lines"
+    )
+    if args.split_snpeff_lines and not config.get("snpeff_splitting_mode"):
+        config["snpeff_splitting_mode"] = args.split_snpeff_lines
+    args.no_replacement = bool(config.get("no_replacement", False))
+    args.no_stats = bool(config.get("no_stats", False))
+    args.late_filtering = bool(config.get("late_filtering", False))
     args.threads = resolve_threads(config.get("threads", 1), config)
 
     # Use the existing build_pipeline_stages function

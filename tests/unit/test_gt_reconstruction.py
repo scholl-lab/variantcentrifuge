@@ -373,6 +373,7 @@ def test_cli_preserves_config_json_options_and_final_filtering_reads_filters(tmp
     captured = {}
     monkeypatch.setattr(cli, "run_pipeline", lambda a: captured.update(a.config))
     monkeypatch.setattr(cli, "validate_vcf_file", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "validate_required_tools", lambda *a, **k: None)
     monkeypatch.setattr(
         "sys.argv",
         ["variantcentrifuge", "-v", str(vcf), "-g", "TP53", "-c", str(cfg_file)],

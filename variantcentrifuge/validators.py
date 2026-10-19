@@ -141,6 +141,35 @@ def validate_vcf_file(
             sys.exit(1)
         raise ValueError(msg)
 
+    import gzip
+
+    try:
+        with gzip.open(found_idx, "rb") as gz_in:
+            magic = gz_in.read(4)
+    except Exception as e:
+        msg = f"VCF index file '{found_idx}' is corrupted or not a valid gzip/BGZF index: {e}"
+        if logger:
+            logger.error(msg)
+        if exit_on_error:
+            sys.exit(1)
+        raise ValueError(msg) from e
+
+    valid_magic = False
+    if found_idx.endswith(".tbi"):
+        valid_magic = magic == b"TBI\x01"
+    elif found_idx.endswith(".csi"):
+        valid_magic = magic in (b"CSI\x01", b"CSI\x02")
+    else:
+        valid_magic = magic in (b"TBI\x01", b"CSI\x01", b"CSI\x02")
+
+    if not valid_magic:
+        msg = f"VCF index file '{found_idx}' has invalid format or magic header: {magic!r}"
+        if logger:
+            logger.error(msg)
+        if exit_on_error:
+            sys.exit(1)
+        raise ValueError(msg)
+
 
 def validate_required_tools(
     args: argparse.Namespace,
@@ -154,11 +183,39 @@ def validate_required_tools(
     cfg = cfg or {}
     gene_name = getattr(args, "gene_name", None) or cfg.get("gene_name") or ""
     regions_bed = getattr(args, "regions_bed", None) or cfg.get("regions_bed")
-    bypasses_snpeff = bool(regions_bed and str(gene_name).strip().lower() == "all")
+    gene_file = getattr(args, "gene_file", None) or cfg.get("gene_file")
+    annotate_bed = (
+        getattr(args, "annotate_bed", None)
+        or cfg.get("annotate_bed")
+        or cfg.get("annotate_bed_files")
+    )
+    uses_regions_bed_directly = (
+        (not gene_name or str(gene_name).strip().lower() == "all")
+        and not gene_file
+        and bool(regions_bed)
+    )
 
-    required_tools = ["bcftools", "SnpSift"]
-    if not bypasses_snpeff:
+    required_tools = ["bcftools"]
+
+    late_filtering = bool(
+        getattr(args, "late_filtering", False) or cfg.get("late_filtering", False)
+    )
+    if not late_filtering:
+        required_tools.append("SnpSift")
+
+    if not uses_regions_bed_directly:
         required_tools.append("snpEff")
+        for tool in ("bedtools", "sortBed"):
+            if tool not in required_tools:
+                required_tools.append(tool)
+    elif annotate_bed:
+        for tool in ("bedtools", "sortBed"):
+            if tool not in required_tools:
+                required_tools.append(tool)
+
+    pca = getattr(args, "pca", None) or cfg.get("pca") or cfg.get("pca_tool")
+    if pca == "akt" and "akt" not in required_tools:
+        required_tools.append("akt")
 
     missing = [tool for tool in required_tools if not shutil.which(tool)]
     if missing:
@@ -399,8 +456,8 @@ def validate_cli_args(
             parser.error(msg)
         raise ValueError(msg)
 
-    if (getattr(args, "pseudonymize", False) or cfg.get("pseudonymize")) and not getattr(
-        args, "pseudonymize_table", None
+    if (getattr(args, "pseudonymize", False) or cfg.get("pseudonymize")) and not (
+        getattr(args, "pseudonymize_table", None) or cfg.get("pseudonymize_table")
     ):
         msg = "--pseudonymize-table is required when using --pseudonymize"
         if parser is not None:

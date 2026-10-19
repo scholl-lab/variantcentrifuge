@@ -351,6 +351,8 @@ def main() -> int:
 
         filters, tumor_normal_vars = resolve_presets_and_tumor_normal(args, cfg, filters)
 
+        populate_cli_config(args, cfg, parser, reference, filters, fields, tumor_normal_vars)
+
         # Validate mandatory parameters, external tools, VCF and phenotype inputs
         validate_mandatory_parameters(reference, filters, fields)
         validate_required_tools(args, cfg, logger)
@@ -362,8 +364,6 @@ def main() -> int:
                 args.phenotype_value_column,
                 logger,
             )
-
-        populate_cli_config(args, cfg, parser, reference, filters, fields, tumor_normal_vars)
     except (ValueError, FileNotFoundError, RuntimeError) as e:
         logger.error(str(e))
         sys.exit(1)
@@ -435,11 +435,17 @@ def main() -> int:
     cfg["pseudonymize_prefix"] = args.pseudonymize_prefix
     cfg["pseudonymize_pattern"] = args.pseudonymize_pattern
     cfg["pseudonymize_category_field"] = args.pseudonymize_category_field
-    cfg["pseudonymize_table"] = args.pseudonymize_table
-    cfg["pseudonymize_ped"] = args.pseudonymize_ped
+    cfg["pseudonymize_table"] = (
+        args.pseudonymize_table
+        if args.pseudonymize_table is not None
+        else cfg.get("pseudonymize_table")
+    )
+    cfg["pseudonymize_ped"] = (
+        args.pseudonymize_ped if args.pseudonymize_ped is not None else cfg.get("pseudonymize_ped")
+    )
 
     # Validate pseudonymization arguments
-    if cfg["pseudonymize"] and not args.pseudonymize_table:
+    if cfg["pseudonymize"] and not cfg.get("pseudonymize_table"):
         logger.error("--pseudonymize-table is required when using --pseudonymize")
         sys.exit(1)
     if args.pseudonymize_table and not cfg["pseudonymize"]:

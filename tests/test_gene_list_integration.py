@@ -153,6 +153,10 @@ def test_cli_gene_list_integration(sample_vcf_file, gene_lists, test_data_dir, m
         "variantcentrifuge.cli.validate_vcf_file",
         lambda *a, **k: None,
     )
+    monkeypatch.setattr(
+        "variantcentrifuge.cli.validate_required_tools",
+        lambda *a, **k: None,
+    )
 
     # Simulate CLI arguments
     import sys
