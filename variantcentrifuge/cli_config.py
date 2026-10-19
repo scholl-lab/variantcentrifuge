@@ -264,10 +264,12 @@ def populate_cli_config(
     cfg["igv_hash_len_filename"] = args.igv_hash_len_filename
     cfg["igv_max_variant_part_filename"] = args.igv_max_variant_part_filename
 
-    # MODIFIED: Start of IGV flanking feature
     # Use CLI argument if provided, otherwise use config value, with a default of 50
-    cfg["igv_flanking"] = args.igv_flanking or cfg.get("igv_flanking", 50)
-    # MODIFIED: End of IGV flanking feature
+    cfg["igv_flanking"] = (
+        args.igv_flanking
+        if getattr(args, "igv_flanking", None) is not None
+        else cfg.get("igv_flanking", 50)
+    )
 
     # Handle precedence and validation
     if args.igv:
@@ -393,6 +395,7 @@ def populate_cli_config(
     for _cfg_k, _arg_v in (
         ("transcript_list", args.transcript_list),
         ("transcript_file", args.transcript_file),
+        ("fields_file", getattr(args, "fields_file", None)),
         ("filter_exception_file", args.filter_exception_file),
         ("genotype_filter", args.genotype_filter),
         ("gene_genotype_file", args.gene_genotype_file),
@@ -574,3 +577,17 @@ def populate_cli_config(
     cfg["list_checkpoints"] = args.list_checkpoints
     cfg["interactive_resume"] = args.interactive_resume
     cfg["pipeline_version"] = __version__  # Add pipeline version for compatibility checking
+
+
+def load_fields_from_file(fields_file: str | Path) -> str:
+    """Read fields to extract from a text file, ignoring blank lines and comments."""
+    path = Path(fields_file)
+    if not path.is_file():
+        raise FileNotFoundError(f"Fields file not found: {fields_file}")
+    fields: list[str] = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                fields.extend(p.strip() for p in stripped.replace(",", " ").split() if p.strip())
+    return " ".join(fields)

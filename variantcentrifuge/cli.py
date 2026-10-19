@@ -9,6 +9,7 @@ from typing import Any
 
 from .cli_config import (
     _calculate_sort_memory_limit,
+    load_fields_from_file,
     populate_cli_config,
     resolve_presets_and_tumor_normal,
 )
@@ -380,7 +381,15 @@ def main() -> int:
 
     reference: str | None = args.reference or cfg.get("reference")
     filters: str | None = args.filters or cfg.get("filters")
-    raw_fields = args.fields or cfg.get("fields_to_extract")
+    fields_file = getattr(args, "fields_file", None) or cfg.get("fields_file")
+    if fields_file and not Path(fields_file).is_file():
+        logger.error(f"Fields file not found: {fields_file}")
+        sys.exit(1)
+    raw_fields: Any = (
+        load_fields_from_file(fields_file)
+        if (not args.fields and fields_file)
+        else (args.fields or cfg.get("fields_to_extract"))
+    )
     fields: str | None = " ".join(raw_fields) if isinstance(raw_fields, list) else raw_fields
 
     filters, tumor_normal_vars = resolve_presets_and_tumor_normal(args, cfg, filters)
@@ -570,6 +579,9 @@ def main() -> int:
         refactored_args.perform_gene_burden = cfg.get("perform_gene_burden", False)
         refactored_args.perform_association = cfg.get("perform_association", False)
         refactored_args.no_stats = cfg.get("no_stats", False)
+        refactored_args.fields_file = cfg.get("fields_file")
+        refactored_args.igv_flanking = cfg.get("igv_flanking", 50)
+        refactored_args.phenotype_file = cfg.get("phenotype_file")
         if not hasattr(refactored_args, "start_time"):
             refactored_args.start_time = start_time
 

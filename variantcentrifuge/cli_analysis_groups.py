@@ -199,6 +199,11 @@ def add_analysis_argument_groups(parser: argparse.ArgumentParser) -> None:
     format_group = parser.add_argument_group("Field Extraction & Formatting")
     format_group.add_argument("-e", "--fields", help="Fields to extract with SnpSift extractFields")
     format_group.add_argument(
+        "--fields-file",
+        metavar="FIELDS_FILE",
+        help="Path to a file containing fields to extract with SnpSift extractFields.",
+    )
+    format_group.add_argument(
         "--no-replacement", action="store_true", help="Skip genotype replacement step"
     )
     format_group.add_argument(

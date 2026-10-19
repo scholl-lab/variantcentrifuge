@@ -129,8 +129,8 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     )
 
     # Setup stages (can run in parallel)
-    # Always add phenotype loading stage - it will skip if no phenotype file is provided
-    stages.append(PhenotypeLoadingStage())
+    if config.get("phenotype_file") or getattr(args, "phenotype_file", None):
+        stages.append(PhenotypeLoadingStage())
 
     # Check for scoring config in merged config or args
     if config.get("scoring_config_path") or (
@@ -352,6 +352,7 @@ def create_stages_from_config(config: dict) -> list[Stage]:
     args.config = config
     args.scoring_config_path = config.get("scoring_config_path")
     args.ped_file = config.get("ped_file")
+    args.phenotype_file = config.get("phenotype_file")
     args.annotate_bed = config.get("annotate_bed_files", [])
     args.annotate_gene_list = config.get("annotate_gene_lists", [])
     args.annotate_json_genes = config.get("annotate_json_genes", [])
@@ -501,6 +502,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
     # Map igv argument to igv_enabled for backward compatibility
     if hasattr(args, "igv"):
         initial_config["igv_enabled"] = args.igv
+    if hasattr(args, "igv_flanking") and args.igv_flanking is not None:
+        initial_config["igv_flanking"] = args.igv_flanking
 
     # Create pipeline context
     context = PipelineContext(args=args, config=initial_config, workspace=workspace)
