@@ -118,11 +118,10 @@ class TestGeneBurdenEdgeCases:
         assert gene1["or_ci_lower"] > 0  # Should have valid CI
         assert gene1["or_ci_upper"] > gene1["or_ci_lower"]
 
-        # Check GENE2 (zero OR case)
+        # Check GENE2 (zero OR case: Haldane-Anscombe corrected convention)
         gene2 = result[result["GENE"] == "GENE2"].iloc[0]
-        assert gene2["odds_ratio"] == 0  # Fisher exact returns 0
-        assert gene2["or_ci_lower"] >= 0
-        assert gene2["or_ci_upper"] > 0
+        assert 0 < gene2["odds_ratio"] < 1  # Corrected OR is finite and matches CI
+        assert gene2["or_ci_lower"] <= gene2["odds_ratio"] <= gene2["or_ci_upper"]
 
         # Check GENE3 (no variants)
         gene3 = result[result["GENE"] == "GENE3"].iloc[0]

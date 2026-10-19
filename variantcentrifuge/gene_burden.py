@@ -52,10 +52,7 @@ logger = logging.getLogger("variantcentrifuge")
 
 def _find_gt_columns(df: pd.DataFrame) -> list[str]:
     """Find per-sample GT columns in DataFrame, sorted by sample index."""
-    gt_cols = []
-    for col in df.columns:
-        if re.match(r"^GEN[_\[](\d+)[_\]\.]+(GT)$", col):
-            gt_cols.append(col)
+    gt_cols = [c for c in df.columns if re.match(r"^GEN[_\[](\d+)[_\]\.]+(GT)$", c)]
     gt_cols.sort(key=lambda c: int(re.search(r"(\d+)", c).group(1)))  # type: ignore[union-attr]
     return gt_cols
 
@@ -464,9 +461,24 @@ def perform_gene_burden_analysis(
             odds_ratio = float("nan")
             pval = 1.0
 
-        ci_lower, ci_upper = _compute_or_confidence_interval(
-            table, odds_ratio, ci_method, ci_alpha, continuity_correction
-        )
+        has_zero_cell = any(cell == 0 for row in table for cell in row)
+        if has_zero_cell and Table2x2 is not None:
+            a, b, c, d = table[0][0], table[0][1], table[1][0], table[1][1]
+            if (a + b == 0) or (c + d == 0) or (a + c == 0) or (b + d == 0):
+                odds_ratio, ci_lower, ci_upper = np.nan, np.nan, np.nan
+            else:
+                table_for_or_ci = np.array(table, dtype=float) + continuity_correction
+                try:
+                    cont = Table2x2(table_for_or_ci)
+                    odds_ratio = float(cont.oddsratio)
+                    ci_lower, ci_upper = cont.oddsratio_confint(alpha=ci_alpha, method="normal")
+                except Exception as exc:
+                    logger.warning("Failed to compute OR/CI: %s", exc)
+                    odds_ratio, ci_lower, ci_upper = np.nan, np.nan, np.nan
+        else:
+            ci_lower, ci_upper = _compute_or_confidence_interval(
+                table, odds_ratio, ci_method, ci_alpha, continuity_correction
+            )
 
         n_vars = int(getattr(row, "n_qualifying_variants", 0)) if uses_per_sample_collapsing else 0
 
@@ -497,10 +509,8 @@ def perform_gene_burden_analysis(
     if _apply_correction is not None:
         corrected_pvals = _apply_correction(pvals, correction_method)
     elif smm is not None:
-        if correction_method == "bonferroni":
-            corrected_pvals = smm.multipletests(pvals, method="bonferroni")[1]
-        else:
-            corrected_pvals = smm.multipletests(pvals, method="fdr_bh")[1]
+        method = "bonferroni" if correction_method == "bonferroni" else "fdr_bh"
+        corrected_pvals = smm.multipletests(pvals, method=method)[1]
     else:
         logger.warning("statsmodels not available. Skipping multiple testing correction.")
         corrected_pvals = pvals
