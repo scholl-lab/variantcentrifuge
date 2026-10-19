@@ -284,3 +284,14 @@ def test_phenotype_extraction_colliding_sample_names_and_tuple_methods():
     nt_no_count = next(df_no_count.itertuples(index=False))
     res_no_count = extract_phenotypes_from_sample_columns(nt_no_count, vcf_samples, phenotypes)
     assert res_no_count == ""
+
+
+@pytest.mark.unit
+def test_series_with_fields_column_name_not_treated_as_namedtuple():
+    """Verify pd.Series with a sample column named '_fields' is not mistaken for a namedtuple."""
+    vcf_samples = ["_fields", "S2"]
+    phenotypes = {"_fields": {"H1"}, "S2": {"H2"}}
+    row = pd.Series({"_fields": "0/1", "S2": "1/1"})
+
+    result = extract_phenotypes_from_sample_columns(row, vcf_samples, phenotypes)
+    assert result == "_fields(H1);S2(H2)"

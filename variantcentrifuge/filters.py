@@ -245,6 +245,7 @@ def _count_vcf_records(path: str, *, cached: bool = False) -> int:
 
 
 _VCF_CONTIG_CACHE: dict[str, set[str]] = {}
+_VCF_CONTIG_FULL_SCANNED: set[str] = set()
 
 
 def _get_bed_contigs(bed_file: str) -> set[str]:
@@ -268,15 +269,17 @@ def _get_bed_contigs(bed_file: str) -> set[str]:
     return contigs
 
 
-def _get_vcf_contigs(vcf_file: str) -> set[str]:
+def _get_vcf_contigs(vcf_file: str, include_records: bool = False) -> set[str]:
     """Extract contigs from a VCF header or records."""
-    if vcf_file in _VCF_CONTIG_CACHE:
+    if not include_records and vcf_file in _VCF_CONTIG_CACHE:
+        return _VCF_CONTIG_CACHE[vcf_file]
+    if include_records and vcf_file in _VCF_CONTIG_FULL_SCANNED:
         return _VCF_CONTIG_CACHE[vcf_file]
 
-    contigs = set()
-    record_count = 0
+    contigs = set(_VCF_CONTIG_CACHE.get(vcf_file, ()))
     open_func = gzip.open if vcf_file.endswith(".gz") else open
     mode = "rt" if vcf_file.endswith(".gz") else "r"
+    record_count = 0
     try:
         with open_func(vcf_file, mode) as f:
             for line in f:
@@ -286,16 +289,15 @@ def _get_vcf_contigs(vcf_file: str) -> set[str]:
                     cid = line[13:].split(",")[0].split(">")[0]
                     if cid:
                         contigs.add(cid)
-                elif line.startswith("#CHROM"):
-                    if contigs:
-                        break
                 elif not line.startswith("#"):
-                    record_count += 1
                     parts = line.split("\t", 2)
                     if parts:
                         contigs.add(parts[0])
-                    if len(contigs) >= 50 or record_count >= 1000:
+                    record_count += 1
+                    if not include_records and record_count >= 100:
                         break
+        if include_records or record_count < 100:
+            _VCF_CONTIG_FULL_SCANNED.add(vcf_file)
     except Exception as e:
         logger.debug(f"Could not read VCF contigs from {vcf_file}: {e}")
 
@@ -318,6 +320,10 @@ def validate_bed_vcf_contigs(vcf_file: str, bed_file: str) -> None:
         return
 
     unmatched_bed = bed_contigs - vcf_contigs
+    if unmatched_bed:
+        vcf_contigs = _get_vcf_contigs(vcf_file, include_records=True)
+        unmatched_bed = bed_contigs - vcf_contigs
+
     mismatched = []
     for c in unmatched_bed:
         toggled = c.removeprefix("chr") if c.startswith("chr") else f"chr{c}"

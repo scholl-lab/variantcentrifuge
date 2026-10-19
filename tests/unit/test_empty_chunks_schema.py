@@ -325,3 +325,63 @@ def test_checkpoint_skip_rejects_cached_tsv_with_incompatible_header(tmp_path: P
         RuntimeError, match="Cannot restore parallel_complete_processing from checkpoint"
     ):
         stage._handle_checkpoint_skip(ctx)
+
+
+def test_sites_only_vcf_with_empty_sample_list_omits_gen_columns(tmp_path: Path) -> None:
+    """Verify sites-only VCF (vcf_samples=[]) omits GEN[*].GT columns and merges cleanly."""
+    empty_vcf = tmp_path / "empty.vcf"
+    pop_vcf = tmp_path / "pop.vcf"
+    _write_minimal_vcf(empty_vcf, has_variants=False)
+    _write_minimal_vcf(pop_vcf, has_variants=True)
+
+    fields = "CHROM POS ANN[0].GENE GEN[*].GT"
+    empty_tsv = tmp_path / "empty.tsv"
+    pop_tsv = tmp_path / "pop.tsv"
+
+    def mock_subprocess_run(cmd, *args, **kwargs):
+        variant_file = cmd[-1]
+        stdout = kwargs.get("stdout")
+        if stdout and "pop.vcf" in variant_file:
+            ann = "T|missense_variant|MODERATE|BRCA1|ENSG1|transcript|NM_1|protein_coding||||||||"
+            stdout.write(f"chr1\t100\t{ann}\n")
+        return Mock(returncode=0)
+
+    with patch("variantcentrifuge.extractor.subprocess.run", side_effect=mock_subprocess_run):
+        extract_fields_bcftools(
+            variant_file=str(empty_vcf),
+            fields=fields,
+            cfg={},
+            output_file=str(empty_tsv),
+            vcf_samples=[],
+        )
+        extract_fields_bcftools(
+            variant_file=str(pop_vcf),
+            fields=fields,
+            cfg={},
+            output_file=str(pop_tsv),
+            vcf_samples=[],
+        )
+
+    empty_header = empty_tsv.read_text().splitlines()[0].split("\t")
+    pop_header = pop_tsv.read_text().splitlines()[0].split("\t")
+
+    assert empty_header == pop_header == ["CHROM", "POS", "ANN[0].GENE"]
+    assert "GEN[*].GT" not in empty_header
+
+    ws = Mock(spec=Workspace)
+    ws.base_name = "sample"
+    ws.intermediate_dir = tmp_path
+    ws.get_intermediate_path = lambda name: tmp_path / name
+
+    ctx = PipelineContext(
+        args=Namespace(),
+        config={"threads": 2, "gzip_intermediates": False, "fields_to_extract": fields},
+        workspace=ws,
+    )
+    ctx.vcf_samples = []
+
+    stage = ParallelCompleteProcessingStage()
+    merged = stage._merge_tsv_outputs(ctx, [empty_tsv, pop_tsv])
+    merged_lines = merged.read_text().splitlines()
+    assert merged_lines[0].split("\t") == ["CHROM", "POS", "ANN[0].GENE"]
+    assert len(merged_lines) == 2

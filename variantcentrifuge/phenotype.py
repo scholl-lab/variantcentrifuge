@@ -232,7 +232,7 @@ def extract_phenotypes_from_sample_columns(
 
     phenotypes = phenotypes or {}
     phenotype_entries = []
-    row_fields = getattr(row, "_fields", None)
+    row_fields = getattr(type(row), "_fields", None) if isinstance(row, tuple) else None
 
     for i, sample_id in enumerate(vcf_samples):
         # Get GT value for this sample - prefer indexed columns, fallback to sample name
