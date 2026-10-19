@@ -12,14 +12,22 @@ from concurrent.futures import (
 )
 from typing import Any, Literal
 
-import psutil
+try:
+    import psutil
+except ImportError:
+    psutil = None  # type: ignore[assignment]
 
 from .context import PipelineContext
 from .runner_planner import (
+    clear_stage_and_downstream,
     create_execution_plan,
     get_execution_plan,
+    get_stages_to_execute_from,
+    handle_selective_resume,
     log_runner_summary,
     ordered_stages,
+    restore_completed_stage,
+    restore_or_recompute_completed_stages,
     validate_resume_point,
 )
 from .stage import Stage
@@ -177,89 +185,22 @@ class PipelineRunner:
 
         # Log peak memory usage
         if self._stage_metrics:
-            peak_mb = max(m["mem_after_mb"] for m in self._stage_metrics.values())
-            logger.info(f"Pipeline peak memory: {peak_mb:.0f} MB")
+            mem_vals = [
+                m["mem_after_mb"]
+                for m in self._stage_metrics.values()
+                if m.get("mem_after_mb") is not None
+            ]
+            if mem_vals:
+                peak_mb = max(mem_vals)
+                logger.info(f"Pipeline peak memory: {peak_mb:.0f} MB")
 
         return context
 
     def _handle_selective_resume(
         self, stages: list[Stage], context: PipelineContext
     ) -> list[Stage]:
-        """Handle restart from a specific stage.
-
-        This method implements restart behavior: the specified stage and all
-        subsequent stages will be re-executed, ignoring their previous completion
-        status. Only stages that come before the restart point remain marked as complete.
-
-        Parameters
-        ----------
-        stages : List[Stage]
-            Original list of stages
-        context : PipelineContext
-            Pipeline context with configuration
-
-        Returns
-        -------
-        List[Stage]
-            Filtered list of stages to execute (from restart point onwards)
-        """
-        assert context.checkpoint_state is not None, (
-            "checkpoint_state required for selective resume"
-        )
-        checkpoint_state = context.checkpoint_state
-
-        resume_from = context.config.get("resume_from")
-        if not resume_from:
-            return stages
-
-        # Load checkpoint state
-        if not checkpoint_state.load():
-            raise ValueError("Cannot resume: No checkpoint file found")
-
-        # Validate resume point
-        stage_names = [stage.name for stage in stages]
-        is_valid, error_msg = checkpoint_state.validate_resume_from_stage(resume_from, stage_names)
-
-        if not is_valid:
-            raise ValueError(f"Cannot resume from '{resume_from}': {error_msg}")
-
-        all_stages_ordered = self._ordered_stages(stages)
-        stage_names_ordered = [stage.name for stage in all_stages_ordered]
-        resume_index = stage_names_ordered.index(resume_from)
-
-        # Restore only durable/restorable prerequisites. A completed volatile
-        # prerequisite cannot be safely trusted after process restart.
-        safe_restart = None
-        for prior_stage in all_stages_ordered[:resume_index]:
-            if prior_stage.checkpoint_resume_policy in {"restore", "skip"}:
-                safe_restart = prior_stage.name
-            if not checkpoint_state.should_skip_step(prior_stage.name):
-                if context.is_complete(prior_stage.name):
-                    continue
-                raise ValueError(
-                    f"Cannot resume from '{resume_from}' safely because prerequisite "
-                    f"stage '{prior_stage.name}' was not completed in the checkpoint. "
-                    f"Resume from '{prior_stage.name}' or an earlier stage."
-                )
-            if prior_stage.checkpoint_resume_policy == "recompute":
-                suggestion = safe_restart or stage_names_ordered[0]
-                raise ValueError(
-                    f"Cannot resume from '{resume_from}' safely because required "
-                    f"DataFrame state from '{prior_stage.name}' is not durable. "
-                    f"Resume from '{suggestion}' to restore durable inputs and "
-                    "re-run in-memory analysis stages."
-                )
-            context = self._restore_completed_stage(prior_stage, context)
-
-        # Clear completion status in checkpoint for restart stage and all subsequent stages
-        self._clear_stage_and_downstream(resume_from, all_stages_ordered, checkpoint_state)
-        stages_to_execute = all_stages_ordered[resume_index:]
-
-        logger.info(
-            f"Restart mode: Starting from '{resume_from}' with {len(stages_to_execute)} "
-            f"stages to execute"
-        )
-        return stages_to_execute
+        """Handle restart from a specific stage."""
+        return handle_selective_resume(stages, context)
 
     def _should_skip_stage(self, stage: Stage, context: PipelineContext) -> bool:
         """Determine if a stage should be skipped due to checkpointing or completion."""
@@ -279,66 +220,23 @@ class PipelineRunner:
         self, stage_name: str, ordered: list[Stage], checkpoint_state: Any
     ) -> None:
         """Clear persisted completion for a stage and every downstream ordered stage."""
-        names = [stage.name for stage in ordered]
-        start = names.index(stage_name)
-        for name in names[start:]:
-            checkpoint_state.clear_step_completion(name, save=False)
-        checkpoint_state.save()
+        clear_stage_and_downstream(stage_name, ordered, checkpoint_state)
 
     def _restore_completed_stage(self, stage: Stage, context: PipelineContext) -> PipelineContext:
         """Restore or skip a completed checkpoint stage according to its policy."""
-        policy = stage.checkpoint_resume_policy
-        if policy == "restore":
-            if not hasattr(stage, "_handle_checkpoint_skip"):
-                raise RuntimeError(
-                    f"Stage '{stage.name}' is restorable but has no checkpoint skip handler"
-                )
-            context = stage._handle_checkpoint_skip(context)
-            context.mark_complete(stage.name)
-        elif policy == "skip":
-            context.mark_complete(stage.name)
-        else:
-            raise RuntimeError(f"Stage '{stage.name}' must be recomputed")
-        return context
+        return restore_completed_stage(stage, context)
 
     def _restore_or_recompute_completed_stages(
         self, ordered: list[Stage], context: PipelineContext
     ) -> PipelineContext:
         """Restore safe completed stages, then clear volatile state for recomputation."""
-        assert context.checkpoint_state is not None
-        for stage in ordered:
-            if not context.checkpoint_state.should_skip_step(stage.name):
-                continue
-
-            policy = stage.checkpoint_resume_policy
-            if policy in {"restore", "skip"}:
-                logger.info(f"Restoring completed stage from checkpoint: {stage.name}")
-                context = self._restore_completed_stage(stage, context)
-                continue
-
-            logger.info(
-                "Recomputing checkpoint-completed stage '%s' and downstream stages",
-                stage.name,
-            )
-            self._clear_stage_and_downstream(stage.name, ordered, context.checkpoint_state)
-            break
-        return context
+        return restore_or_recompute_completed_stages(ordered, context)
 
     def _get_stages_to_execute_from(
         self, resume_from: str, stages: list[Stage], context: PipelineContext
     ) -> list[Stage]:
         """Get the filtered list of stages to execute when resuming from a specific stage."""
-        stage_map = {stage.name: stage for stage in stages}
-        if resume_from not in stage_map:
-            raise ValueError(f"Resume stage '{resume_from}' not found in pipeline")
-
-        all_stages_ordered = self._ordered_stages(stages)
-        names = [s.name for s in all_stages_ordered]
-        if resume_from not in names:
-            raise ValueError(f"Could not find resume stage '{resume_from}' in execution plan")
-
-        resume_index = names.index(resume_from)
-        return all_stages_ordered[resume_index:]
+        return get_stages_to_execute_from(resume_from, stages, context)
 
     def get_execution_plan(self, stages: list[Stage], resume_from: str | None = None) -> list[str]:
         """Get the planned execution order, optionally starting from a specific stage."""
@@ -400,6 +298,16 @@ class PipelineRunner:
 
         return context
 
+    def _get_process_memory_mb(self) -> float | None:
+        """Return current process RSS in MB, or None if psutil is unavailable."""
+        if psutil is None:
+            return None
+        try:
+            return float(psutil.Process().memory_info().rss / (1024 * 1024))
+        except Exception as e:
+            logger.debug(f"psutil memory tracking failed: {e}")
+            return None
+
     def _execute_stage(self, stage: Stage, context: PipelineContext) -> PipelineContext:
         """Execute a single stage and track timing.
 
@@ -417,11 +325,8 @@ class PipelineRunner:
         """
         start_time = time.time()
 
-        # Always track memory (not just at DEBUG level)
-        process = psutil.Process()
-        mem_before_mb = process.memory_info().rss / 1024 / 1024
-
-        if logger.isEnabledFor(logging.DEBUG):
+        mem_before_mb = self._get_process_memory_mb()
+        if mem_before_mb is not None and logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"[{stage.name}] Starting - Memory: {mem_before_mb:.1f} MB")
 
         result = stage(context)
@@ -434,24 +339,21 @@ class PipelineRunner:
 
         gc.collect()
 
-        # Always track memory after execution
-        mem_after_mb = process.memory_info().rss / 1024 / 1024
-        mem_delta_mb = mem_after_mb - mem_before_mb
-
-        # Store memory metrics for summary reporting
-        self._stage_metrics[stage.name] = {
-            "mem_before_mb": mem_before_mb,
-            "mem_after_mb": mem_after_mb,
-            "mem_delta_mb": mem_delta_mb,
-            "mem_peak_mb": max(mem_before_mb, mem_after_mb),
-        }
-
-        if logger.isEnabledFor(logging.DEBUG):
-            freed_mb = mem_before_mb - mem_after_mb
-            logger.debug(
-                f"[{stage.name}] Complete in {elapsed:.1f}s - "
-                f"Memory: {mem_after_mb:.1f} MB (freed {freed_mb:.1f} MB)"
-            )
+        mem_after_mb = self._get_process_memory_mb()
+        if mem_before_mb is not None and mem_after_mb is not None:
+            mem_delta_mb = mem_after_mb - mem_before_mb
+            self._stage_metrics[stage.name] = {
+                "mem_before_mb": mem_before_mb,
+                "mem_after_mb": mem_after_mb,
+                "mem_delta_mb": mem_delta_mb,
+                "mem_peak_mb": max(mem_before_mb, mem_after_mb),
+            }
+            if logger.isEnabledFor(logging.DEBUG):
+                freed_mb = mem_before_mb - mem_after_mb
+                logger.debug(
+                    f"[{stage.name}] Complete in {elapsed:.1f}s - "
+                    f"Memory: {mem_after_mb:.1f} MB (freed {freed_mb:.1f} MB)"
+                )
 
         return result
 

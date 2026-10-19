@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict, deque
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from .context import PipelineContext
     from .stage import Stage
 
 logger = logging.getLogger(__name__)
@@ -123,6 +124,129 @@ def validate_resume_point(stage_name: str, stages: list[Stage]) -> tuple[bool, s
         return False, f"Error validating resume point: {e!s}"
 
 
+def clear_stage_and_downstream(
+    stage_name: str, ordered: list[Stage], checkpoint_state: Any
+) -> None:
+    """Clear persisted completion for a stage and every downstream ordered stage."""
+    names = [stage.name for stage in ordered]
+    start = names.index(stage_name)
+    for name in names[start:]:
+        checkpoint_state.clear_step_completion(name, save=False)
+    checkpoint_state.save()
+
+
+def restore_completed_stage(stage: Stage, context: PipelineContext) -> PipelineContext:
+    """Restore or skip a completed checkpoint stage according to its policy."""
+    policy = stage.checkpoint_resume_policy
+    if policy == "restore":
+        if not hasattr(stage, "_handle_checkpoint_skip"):
+            raise RuntimeError(
+                f"Stage '{stage.name}' is restorable but has no checkpoint skip handler"
+            )
+        context = stage._handle_checkpoint_skip(context)
+        context.mark_complete(stage.name)
+    elif policy == "skip":
+        context.mark_complete(stage.name)
+    else:
+        raise RuntimeError(f"Stage '{stage.name}' must be recomputed")
+    return context
+
+
+def restore_or_recompute_completed_stages(
+    ordered: list[Stage], context: PipelineContext
+) -> PipelineContext:
+    """Restore safe completed stages, then clear volatile state for recomputation."""
+    assert context.checkpoint_state is not None
+    for stage in ordered:
+        if not context.checkpoint_state.should_skip_step(stage.name):
+            continue
+
+        policy = stage.checkpoint_resume_policy
+        if policy in {"restore", "skip"}:
+            logger.info(f"Restoring completed stage from checkpoint: {stage.name}")
+            context = restore_completed_stage(stage, context)
+            continue
+
+        logger.info(
+            "Recomputing checkpoint-completed stage '%s' and downstream stages",
+            stage.name,
+        )
+        clear_stage_and_downstream(stage.name, ordered, context.checkpoint_state)
+        break
+    return context
+
+
+def handle_selective_resume(stages: list[Stage], context: PipelineContext) -> list[Stage]:
+    """Handle restart from a specific stage."""
+    assert context.checkpoint_state is not None, "checkpoint_state required for selective resume"
+    checkpoint_state = context.checkpoint_state
+
+    resume_from = context.config.get("resume_from")
+    if not resume_from:
+        return stages
+
+    if not checkpoint_state.load():
+        raise ValueError("Cannot resume: No checkpoint file found")
+
+    stage_names = [stage.name for stage in stages]
+    is_valid, error_msg = checkpoint_state.validate_resume_from_stage(resume_from, stage_names)
+
+    if not is_valid:
+        raise ValueError(f"Cannot resume from '{resume_from}': {error_msg}")
+
+    all_stages_ordered = ordered_stages(stages)
+    stage_names_ordered = [stage.name for stage in all_stages_ordered]
+    resume_index = stage_names_ordered.index(resume_from)
+
+    safe_restart = None
+    for prior_stage in all_stages_ordered[:resume_index]:
+        if prior_stage.checkpoint_resume_policy in {"restore", "skip"}:
+            safe_restart = prior_stage.name
+        if not checkpoint_state.should_skip_step(prior_stage.name):
+            if context.is_complete(prior_stage.name):
+                continue
+            raise ValueError(
+                f"Cannot resume from '{resume_from}' safely because prerequisite "
+                f"stage '{prior_stage.name}' was not completed in the checkpoint. "
+                f"Resume from '{prior_stage.name}' or an earlier stage."
+            )
+        if prior_stage.checkpoint_resume_policy == "recompute":
+            suggestion = safe_restart or stage_names_ordered[0]
+            raise ValueError(
+                f"Cannot resume from '{resume_from}' safely because required "
+                f"DataFrame state from '{prior_stage.name}' is not durable. "
+                f"Resume from '{suggestion}' to restore durable inputs and "
+                "re-run in-memory analysis stages."
+            )
+        context = restore_completed_stage(prior_stage, context)
+
+    clear_stage_and_downstream(resume_from, all_stages_ordered, checkpoint_state)
+    stages_to_execute = all_stages_ordered[resume_index:]
+
+    logger.info(
+        f"Restart mode: Starting from '{resume_from}' with {len(stages_to_execute)} "
+        f"stages to execute"
+    )
+    return stages_to_execute
+
+
+def get_stages_to_execute_from(
+    resume_from: str, stages: list[Stage], context: PipelineContext
+) -> list[Stage]:
+    """Get the filtered list of stages to execute when resuming from a specific stage."""
+    stage_map = {stage.name for stage in stages}
+    if resume_from not in stage_map:
+        raise ValueError(f"Resume stage '{resume_from}' not found in pipeline")
+
+    all_stages_ordered = ordered_stages(stages)
+    names = [s.name for s in all_stages_ordered]
+    if resume_from not in names:
+        raise ValueError(f"Could not find resume stage '{resume_from}' in execution plan")
+
+    resume_index = names.index(resume_from)
+    return all_stages_ordered[resume_index:]
+
+
 def log_runner_summary(
     execution_times: dict[str, float],
     subtask_times: dict[str, dict[str, float]],
@@ -165,14 +289,21 @@ def log_runner_summary(
     active_logger.info(f"{'Total stage time:':30s} {total_time:6.1f}s")
     active_logger.info("=" * 60)
 
-    if stage_metrics:
+    valid_stage_metrics = {
+        name: m
+        for name, m in stage_metrics.items()
+        if m.get("mem_before_mb") is not None
+        and m.get("mem_after_mb") is not None
+        and m.get("mem_delta_mb") is not None
+    }
+    if valid_stage_metrics:
         active_logger.info("")
         active_logger.info("=" * 60)
         active_logger.info("Memory Usage Summary")
         active_logger.info("=" * 60)
 
         sorted_metrics = sorted(
-            stage_metrics.items(),
+            valid_stage_metrics.items(),
             key=lambda x: abs(x[1]["mem_delta_mb"]),
             reverse=True,
         )
@@ -189,7 +320,7 @@ def log_runner_summary(
                 f"{stage_name:<30} {before_mb:>8.1f} MB {after_mb:>8.1f} MB {delta_str:>10}"
             )
 
-        peak_mb = max(m["mem_after_mb"] for m in stage_metrics.values())
+        peak_mb = max(m["mem_after_mb"] for m in valid_stage_metrics.values())
         active_logger.info("-" * 60)
         active_logger.info(f"Peak RSS: {peak_mb:.1f} MB")
         active_logger.info("=" * 60)
