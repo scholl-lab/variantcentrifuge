@@ -107,6 +107,26 @@ class TestResolveLinks:
         assert links["CustomPortal"] == custom_url
         assert config["links"] == links
 
+    def test_grch38_omits_bundled_links_when_absent_from_build_defaults(self):
+        """When an unmodified bundled link is absent from target build defaults, omit it (#144)."""
+        grch38_without_autopvs1_or_gnomad = {
+            "ClinVar": DEFAULT_LINKS_BY_BUILD["GRCh38"]["ClinVar"],
+            "Varsome": DEFAULT_LINKS_BY_BUILD["GRCh38"]["Varsome"],
+            "Franklin": DEFAULT_LINKS_BY_BUILD["GRCh38"]["Franklin"],
+            "SpliceAI": DEFAULT_LINKS_BY_BUILD["GRCh38"]["SpliceAI"],
+        }
+        config = {
+            "reference": "GRCh38",
+            "links_by_build": {"GRCh38": grch38_without_autopvs1_or_gnomad},
+            "links": dict(DEFAULT_LINKS_BY_BUILD["GRCh37"]),
+        }
+        links = resolve_links(config)
+        assert "autopvs1" not in links
+        assert "gnomAD_2" not in links
+        assert "gnomAD_4" not in links
+        assert "Varsome" in links
+        assert "hg38" in links["Varsome"]
+
 
 @pytest.mark.unit
 class TestAddLinksToTableBuildAware:

@@ -201,20 +201,17 @@ def convert_to_excel(
 
         ws.freeze_panes(1, 0)
 
-        # Detect and format URL columns
-        url_columns = _detect_url_columns(df)
-        if url_columns:
-            logger.info(f"Converting {len(url_columns)} URL columns to clickable hyperlinks")
-            for col_name in url_columns:
-                col_idx = df.columns.get_loc(col_name)
-                for row_idx, val in enumerate(df[col_name]):
-                    s_val = str(val).strip() if pd.notna(val) else ""
-                    if s_val.startswith(("http://", "https://")):
-                        ret = ws.write_url(
-                            row_idx + 1, col_idx, s_val, hyperlink_format, string=col_name
-                        )
-                        if ret != 0:
-                            ws.write_string(row_idx + 1, col_idx, col_name, hyperlink_format)
+        # Detect and format URL columns and individual hyperlinks in mixed columns
+        url_columns = set(_detect_url_columns(df))
+        for col_idx, col_name in enumerate(df.columns):
+            is_url_col = col_name in url_columns
+            for row_idx, val in enumerate(df[col_name]):
+                s_val = str(val).strip() if pd.notna(val) else ""
+                if s_val.startswith(("http://", "https://")):
+                    disp = col_name if is_url_col else s_val
+                    ret = ws.write_url(row_idx + 1, col_idx, s_val, hyperlink_format, string=disp)
+                    if ret != 0:
+                        ws.write_string(row_idx + 1, col_idx, disp, hyperlink_format)
 
         # Handle IGV Report Links column
         num_cols = len(df.columns)
@@ -398,16 +395,21 @@ def finalize_excel_file(xlsx_file: str, cfg: dict[str, Any]) -> None:
 
         # IGV links
         has_coords = all(c in header_indices for c in ("CHROM", "POS", "REF", "ALT"))
+        overflow_rows: list[list[Any]] = []
         if igv_enabled and igv_lookup and has_coords and "IGV Report Links" not in header_row:
             igv_col = ws.max_column + 1
             ws.cell(row=1, column=igv_col, value="IGV Report Links")
             from openpyxl.comments import Comment
 
             for row_idx in range(2, ws.max_row + 1):
-                chrom = str(ws.cell(row=row_idx, column=header_indices["CHROM"]).value or "")
-                pos = str(ws.cell(row=row_idx, column=header_indices["POS"]).value or "")
-                ref = str(ws.cell(row=row_idx, column=header_indices["REF"]).value or "")
-                alt = str(ws.cell(row=row_idx, column=header_indices["ALT"]).value or "")
+                raw_chrom = ws.cell(row=row_idx, column=header_indices["CHROM"]).value
+                raw_pos = ws.cell(row=row_idx, column=header_indices["POS"]).value
+                raw_ref = ws.cell(row=row_idx, column=header_indices["REF"]).value
+                raw_alt = ws.cell(row=row_idx, column=header_indices["ALT"]).value
+                chrom = str(raw_chrom or "")
+                pos = str(raw_pos or "")
+                ref = str(raw_ref or "")
+                alt = str(raw_alt or "")
                 gt_val = (
                     str(ws.cell(row=row_idx, column=header_indices["GT"]).value or "")
                     if "GT" in header_indices
@@ -432,9 +434,42 @@ def finalize_excel_file(xlsx_file: str, cfg: dict[str, Any]) -> None:
                     if len(comment_text) > 32000:
                         suffix = "\n... (see IGV_Overflow sheet for all sample links)"
                         comment_text = comment_text[: 32000 - len(suffix)] + suffix
+                        for sid, rp in igv_reports:
+                            overflow_rows.append(
+                                [
+                                    row_idx,
+                                    raw_chrom,
+                                    raw_pos,
+                                    raw_ref,
+                                    raw_alt,
+                                    sid,
+                                    os.path.join("report", rp),
+                                ]
+                            )
                     igv_cell.comment = Comment(comment_text, "IGV Reports")
                 else:
                     igv_cell.value = "N/A"
+
+            if overflow_rows:
+                overflow_headers = [
+                    "Row",
+                    "CHROM",
+                    "POS",
+                    "REF",
+                    "ALT",
+                    "Sample_ID",
+                    "IGV_Report_Path",
+                ]
+                if "IGV_Overflow" in wb.sheetnames:
+                    overflow_ws = wb["IGV_Overflow"]
+                else:
+                    overflow_ws = wb.create_sheet(title="IGV_Overflow")
+                    overflow_ws.append(overflow_headers)
+                for r in overflow_rows:
+                    overflow_ws.append(r)
+                overflow_ws.freeze_panes = "A2"
+                max_letter = get_column_letter(len(overflow_headers))
+                overflow_ws.auto_filter.ref = f"A1:{max_letter}1"
 
     wb.save(xlsx_file)
 

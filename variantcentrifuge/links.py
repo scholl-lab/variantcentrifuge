@@ -97,18 +97,20 @@ def resolve_links(config: dict[str, Any]) -> dict[str, str]:
                 all_defaults.setdefault(k, set()).add(v)
 
         resolved = {}
+        gnomad_defaults = (
+            all_defaults.get("gnomAD", set())
+            | all_defaults.get("gnomAD_2", set())
+            | all_defaults.get("gnomAD_4", set())
+        )
         for name, url_template in raw_links.items():
-            if name in ("gnomAD_2", "gnomAD_4") and url_template in (
-                all_defaults.get("gnomAD_2", set()) | all_defaults.get("gnomAD_4", set())
-            ):
+            if name in ("gnomAD", "gnomAD_2", "gnomAD_4") and url_template in gnomad_defaults:
                 if canonical_build:
-                    gnomad_key = next((k for k in build_defaults if k.startswith("gnomAD")), name)
-                    resolved[gnomad_key] = build_defaults.get(gnomad_key, url_template)
+                    gnomad_key = next((k for k in build_defaults if k.startswith("gnomAD")), None)
+                    if gnomad_key and gnomad_key in build_defaults:
+                        resolved[gnomad_key] = build_defaults[gnomad_key]
             elif name in all_defaults and url_template in all_defaults[name]:
                 if canonical_build and name in build_defaults:
                     resolved[name] = build_defaults[name]
-                elif canonical_build:
-                    resolved[name] = url_template
             else:
                 resolved[name] = url_template
     else:

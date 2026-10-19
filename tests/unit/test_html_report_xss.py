@@ -453,3 +453,22 @@ class TestColumnRenderers:
         console.log('OK');
         """
         assert _run_column_defs_script([{"original_name": "Inheritance_Pattern"}], script) == "OK"
+
+    def test_spliceai_link_column_not_overwritten_by_score_renderer(self):
+        script = """
+        const defObj = dtColumnDefs.find(d => d.targets === 1 && d.render);
+        // For standard link column, no numeric score renderer should overwrite the link
+        if (defObj) {
+            console.error('SpliceAI link column should NOT have a numeric score renderer');
+            process.exit(1);
+        }
+        console.log('OK');
+        """
+        col_data = [
+            {
+                "original_name": "SpliceAI",
+                "is_standard_link_column": True,
+                "is_igv_link_column": False,
+            }
+        ]
+        assert _run_column_defs_script(col_data, script) == "OK"

@@ -1629,7 +1629,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // TABLE-06: Right-align numeric score columns
         // Match columns with score/phred/AF patterns (but not link columns or text columns)
-        if (col.original_name.match(/(_score|_phred|_AF|_freq|_frequency|CADD|REVEL|SpliceAI)/) &&
+        if (!col.is_standard_link_column && !col.is_igv_link_column &&
+            col.original_name.match(/(_score|_phred|_AF|_freq|_frequency|CADD|REVEL|SpliceAI)/) &&
             !col.original_name.match(/(link|url|http)/i)) {
             dtColumnDefs.push({
                 targets: index + 1,

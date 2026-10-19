@@ -113,10 +113,16 @@ def test_excel_report_stage_performs_no_openpyxl_reload(excel_context: PipelineC
     """ExcelReportStage writes Results and optional sheets without loading via openpyxl."""
     stage = ExcelReportStage()
 
-    with patch("openpyxl.load_workbook", wraps=openpyxl.load_workbook) as spy_load:
+    with (
+        patch("openpyxl.load_workbook", wraps=openpyxl.load_workbook) as spy_load,
+        patch(
+            "variantcentrifuge.converter.load_workbook", wraps=openpyxl.load_workbook
+        ) as spy_load_conv,
+    ):
         stage(excel_context)
-        assert spy_load.call_count == 0, (
-            f"Expected 0 load_workbook calls, got {spy_load.call_count}"
+        assert spy_load.call_count == 0, f"Expected 0 openpyxl calls, got {spy_load.call_count}"
+        assert spy_load_conv.call_count == 0, (
+            f"Expected 0 converter load_workbook calls, got {spy_load_conv.call_count}"
         )
 
     excel_file = excel_context.workspace.output_dir / "variants.xlsx"
@@ -213,9 +219,15 @@ def test_excel_empty_results_and_association_fidelity(tmp_path: Path):
     context.mark_complete("statistics_generation")
 
     stage = ExcelReportStage()
-    with patch("openpyxl.load_workbook", wraps=openpyxl.load_workbook) as spy_load:
+    with (
+        patch("openpyxl.load_workbook", wraps=openpyxl.load_workbook) as spy_load,
+        patch(
+            "variantcentrifuge.converter.load_workbook", wraps=openpyxl.load_workbook
+        ) as spy_load_conv,
+    ):
         stage(context)
         assert spy_load.call_count == 0
+        assert spy_load_conv.call_count == 0
 
     excel_file = context.workspace.get_output_path("", ".xlsx")
     assert excel_file.exists()
@@ -326,6 +338,7 @@ def test_excel_6000_rows_6_urls_no_hyperlink_limit_exhaustion(tmp_path: Path):
 @pytest.mark.unit
 def test_excel_generation_benchmark_performance_and_memory(tmp_path: Path):
     """Deterministic structural/memory comparison: multi-pass vs single-pass writer (#159)."""
+    import time
     import tracemalloc
 
     from variantcentrifuge.converter import (
@@ -347,27 +360,30 @@ def test_excel_generation_benchmark_performance_and_memory(tmp_path: Path):
     )
     meta_tsv = tmp_path / "metadata.tsv"
     stats_tsv = tmp_path / "statistics.tsv"
-    pd.DataFrame({"K": ["version"], "V": ["1.0"]}).to_csv(meta_tsv, sep="\t", index=False)
+    pd.DataFrame({"K": ["version"], "V": ["v1.0"]}).to_csv(meta_tsv, sep="\t", index=False)
     pd.DataFrame({"Metric": ["count"], "Value": [n_rows]}).to_csv(stats_tsv, sep="\t", index=False)
 
     extra_sheets = {
-        "Metadata": pd.DataFrame({"K": ["version"], "V": ["1.0"]}),
+        "Metadata": pd.DataFrame({"K": ["version"], "V": ["v1.0"]}),
         "Statistics": pd.DataFrame({"Metric": ["count"], "Value": [n_rows]}),
     }
 
     # 1. Multi-pass reload baseline (historical behavior prior to #159)
     f_baseline = tmp_path / "baseline.xlsx"
     tracemalloc.start()
+    t0_base = time.perf_counter()
     df.to_excel(f_baseline, sheet_name="Results", index=False)
     append_tsv_as_sheet(str(f_baseline), str(meta_tsv), sheet_name="Metadata")
     append_tsv_as_sheet(str(f_baseline), str(stats_tsv), sheet_name="Statistics")
     finalize_excel_file(str(f_baseline), cfg={"igv_enabled": False})
+    elapsed_base = time.perf_counter() - t0_base
     _current, peak_base = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
     # 2. Single-pass xlsxwriter generator (#159)
     f_single = tmp_path / "single.xlsx"
     tracemalloc.start()
+    t0_single = time.perf_counter()
     convert_to_excel(
         str(f_single),
         cfg={"igv_enabled": False},
@@ -375,6 +391,7 @@ def test_excel_generation_benchmark_performance_and_memory(tmp_path: Path):
         extra_sheets=extra_sheets,
         output_file=str(f_single),
     )
+    elapsed_single = time.perf_counter() - t0_single
     _current, peak_single = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
@@ -382,6 +399,7 @@ def test_excel_generation_benchmark_performance_and_memory(tmp_path: Path):
     peak_single_mb = peak_single / (1024 * 1024)
 
     # Assert deterministic structural and memory improvement without flaky wall-clock caps
+    assert elapsed_base > 0 and elapsed_single > 0
     assert peak_single < peak_base, (
         f"Single-pass peak ({peak_single_mb:.2f}MB) should be lower than baseline "
         f"({peak_base_mb:.2f}MB)"
@@ -390,8 +408,146 @@ def test_excel_generation_benchmark_performance_and_memory(tmp_path: Path):
 
     wb_single = openpyxl.load_workbook(f_single)
     wb_base = openpyxl.load_workbook(f_baseline)
-    assert wb_single.sheetnames == ["Results", "Metadata", "Statistics"]
-    assert wb_base.sheetnames == ["Results", "Metadata", "Statistics"]
+    assert wb_single.sheetnames == wb_base.sheetnames
+
+    # Cell-by-cell value and hyperlink fidelity comparison across all sheets
+    for sheet_name in wb_single.sheetnames:
+        ws_single = wb_single[sheet_name]
+        ws_base = wb_base[sheet_name]
+        assert ws_single.max_row == ws_base.max_row
+        assert ws_single.max_column == ws_base.max_column
+
+        for r in range(1, ws_single.max_row + 1):
+            for c in range(1, ws_single.max_column + 1):
+                cell_s = ws_single.cell(row=r, column=c)
+                cell_b = ws_base.cell(row=r, column=c)
+                assert cell_s.value == cell_b.value, (
+                    f"Mismatch at {sheet_name} row {r} col {c}: {cell_s.value} != {cell_b.value}"
+                )
+                if cell_b.hyperlink:
+                    assert cell_s.hyperlink is not None, (
+                        f"Missing hyperlink at {sheet_name} row {r} col {c}"
+                    )
+                    assert cell_s.hyperlink.target == cell_b.hyperlink.target
+
+
+@pytest.mark.unit
+def test_excel_mixed_url_column_hyperlinks_preserved(tmp_path: Path):
+    """Verify URLs in mixed columns (<70% URLs) are clickable hyperlinks (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1", "chr1", "chr1", "chr1"],
+            "POS": [100, 200, 300, 400],
+            "REF": ["A", "C", "G", "T"],
+            "ALT": ["T", "G", "A", "C"],
+            "MixedCol": [
+                "unavailable",
+                "unavailable",
+                "https://example.org/a",
+                "https://example.org/b",
+            ],
+        }
+    )
+    xlsx_file = tmp_path / "mixed.xlsx"
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    mixed_col_idx = 5
+
+    # Row 2 & 3: plain text strings, no hyperlink
+    cell_row2 = ws.cell(row=2, column=mixed_col_idx)
+    assert cell_row2.value == "unavailable"
+    assert cell_row2.hyperlink is None
+
+    cell_row3 = ws.cell(row=3, column=mixed_col_idx)
+    assert cell_row3.value == "unavailable"
+    assert cell_row3.hyperlink is None
+
+    # Row 4 & 5: clickable hyperlinks displaying the URL string
+    cell_row4 = ws.cell(row=4, column=mixed_col_idx)
+    assert cell_row4.value == "https://example.org/a"
+    assert cell_row4.hyperlink is not None
+    assert cell_row4.hyperlink.target == "https://example.org/a"
+
+    cell_row5 = ws.cell(row=5, column=mixed_col_idx)
+    assert cell_row5.value == "https://example.org/b"
+    assert cell_row5.hyperlink is not None
+    assert cell_row5.hyperlink.target == "https://example.org/b"
+
+
+@pytest.mark.unit
+def test_finalize_excel_file_overflow_sheet_created(tmp_path: Path):
+    """Verify finalize_excel_file creates IGV_Overflow sheet on >32,000 char comments (#159)."""
+    from variantcentrifuge.converter import finalize_excel_file
+
+    output_dir = tmp_path / "finalize_overflow"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = output_dir / "report" / "igv"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    n_samples = 600
+    subfolder = "igv/long_batch_path_subfolder"
+    sample_reports = {
+        f"Patient_Sample_ID_{i:04d}": f"{subfolder}/Patient_Sample_ID_{i:04d}_variant_report.html"
+        for i in range(n_samples)
+    }
+    igv_map = {
+        "variants": [
+            {
+                "chrom": "chr1",
+                "pos": 100,
+                "ref": "A",
+                "alt": "T",
+                "sample_reports": sample_reports,
+            }
+        ]
+    }
+    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(igv_map, f)
+
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100],
+            "REF": ["A"],
+            "ALT": ["T"],
+            "GT": [";".join(f"Patient_Sample_ID_{i:04d}(0/1)" for i in range(n_samples))],
+        }
+    )
+    xlsx_file = output_dir / "finalize_overflow.xlsx"
+    df.to_excel(xlsx_file, sheet_name="Results", index=False)
+
+    finalize_excel_file(str(xlsx_file), cfg={"igv_enabled": True})
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    assert "Results" in wb.sheetnames
+    assert "IGV_Overflow" in wb.sheetnames
+
+    ws_overflow = wb["IGV_Overflow"]
+    expected_headers = ["Row", "CHROM", "POS", "REF", "ALT", "Sample_ID", "IGV_Report_Path"]
+    assert [c.value for c in ws_overflow[1]] == expected_headers
+    assert ws_overflow.max_row == n_samples + 1
+
+    first_row = [
+        ws_overflow.cell(row=2, column=i).value for i in range(1, len(expected_headers) + 1)
+    ]
+    assert first_row == [
+        2,
+        "chr1",
+        100,
+        "A",
+        "T",
+        "Patient_Sample_ID_0000",
+        "report/igv/long_batch_path_subfolder/Patient_Sample_ID_0000_variant_report.html",
+    ]
 
 
 @pytest.mark.unit
