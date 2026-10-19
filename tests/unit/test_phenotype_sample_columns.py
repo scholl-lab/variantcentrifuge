@@ -260,3 +260,27 @@ def test_sanitized_indexed_columns():
 
     result = extract_phenotypes_from_sample_columns(row, vcf_samples, phenotypes)
     assert result == "SampleX(HPO:X)"
+
+
+@pytest.mark.unit
+def test_phenotype_extraction_colliding_sample_names_and_tuple_methods():
+    """Verify sample names matching columns (CHROM) or tuple methods (count) are handled safely."""
+    vcf_samples = ["CHROM", "count"]
+    phenotypes = {"CHROM": {"HPO:CHR"}, "count": {"HPO:CNT"}}
+
+    # Test 1: Series with CHROM column and indexed GEN columns
+    row_series = pd.Series({"CHROM": "chr1", "GEN[0].GT": "0/0", "GEN[1].GT": "0/1"})
+    res_series = extract_phenotypes_from_sample_columns(row_series, vcf_samples, phenotypes)
+    assert res_series == "count(HPO:CNT)"
+
+    # Test 2: namedtuple from DataFrame with CHROM and sanitized GEN columns
+    df = pd.DataFrame([{"CHROM": "chr1", "GEN_0__GT": "0/0", "GEN_1__GT": "0/1"}])
+    nt_row = next(df.itertuples(index=False))
+    res_nt = extract_phenotypes_from_sample_columns(nt_row, vcf_samples, phenotypes)
+    assert res_nt == "count(HPO:CNT)"
+
+    # Test 3: namedtuple where sample "count" is NOT in DataFrame and has no GEN column
+    df_no_count = pd.DataFrame([{"CHROM": "chr1", "GEN_0__GT": "0/0"}])
+    nt_no_count = next(df_no_count.itertuples(index=False))
+    res_no_count = extract_phenotypes_from_sample_columns(nt_no_count, vcf_samples, phenotypes)
+    assert res_no_count == ""

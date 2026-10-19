@@ -92,14 +92,24 @@ class ParallelCompleteProcessingStage(Stage):
                 raise
             return False
 
+    def _build_expected_header(self, context: PipelineContext) -> str | None:
+        """Build expected TSV header string from context config and samples."""
+        eff_fields = self._resolve_effective_extraction_fields(context.config)
+        if not eff_fields:
+            return None
+        get_cols = _ps_attr("get_expected_extraction_columns", get_expected_extraction_columns)
+        return "\t".join(get_cols(eff_fields, getattr(context, "vcf_samples", None)))
+
     def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
         """Handle the case where this stage is skipped by checkpoint system."""
         ws = context.workspace
         gz_tsv = ws.intermediate_dir / f"{ws.base_name}.extracted.tsv.gz"
-        merged_tsv = (
-            gz_tsv if gz_tsv.exists() else ws.intermediate_dir / f"{ws.base_name}.extracted.tsv"
-        )
-        if not merged_tsv.exists() or not self._validate_chunk_tsv(merged_tsv):
+        tsv = ws.intermediate_dir / f"{ws.base_name}.extracted.tsv"
+        merged_tsv = gz_tsv if gz_tsv.exists() else tsv
+        exp_header = self._build_expected_header(context)
+        if not merged_tsv.exists() or not self._validate_chunk_tsv(
+            merged_tsv, expected_header=exp_header
+        ):
             raise RuntimeError(
                 f"Cannot restore parallel_complete_processing from checkpoint: "
                 f"merged TSV missing or invalid: {merged_tsv}"
@@ -128,7 +138,6 @@ class ParallelCompleteProcessingStage(Stage):
         if context.gene_bed_file is None:
             raise ValueError("gene_bed_file is required for parallel complete processing")
         split_start = self._start_subtask("bed_splitting")
-
         bed_chunks = self._split_bed_file(context.gene_bed_file, threads)
         self._end_subtask("bed_splitting", split_start)
         logger.info(f"Split BED file into {len(bed_chunks)} chunks for parallel processing")
@@ -143,17 +152,14 @@ class ParallelCompleteProcessingStage(Stage):
 
         context.extracted_tsv = merged_tsv
         context.data = merged_tsv
-
         for stage in ("variant_extraction", "snpsift_filtering", "field_extraction"):
             context.mark_complete(stage)
-
         context.config["parallel_vcf_processing_complete"] = True
         context.config.pop("chunked_processing_complete", None)
 
         cleanup_start = self._start_subtask("cleanup")
         self._cleanup_chunks(bed_chunks, chunk_tsvs, context)
         self._end_subtask("cleanup", cleanup_start)
-
         return context
 
     def get_input_files(self, context: PipelineContext) -> list[Path]:
@@ -511,14 +517,7 @@ class ParallelCompleteProcessingStage(Stage):
         if use_compression:
             output_tsv = Path(str(output_tsv) + ".gz")
 
-        eff_fields = self._resolve_effective_extraction_fields(context.config)
-        expected_header: str | None = None
-        if eff_fields:
-            get_cols_fn = _ps_attr(
-                "get_expected_extraction_columns", get_expected_extraction_columns
-            )
-            cols = get_cols_fn(eff_fields, getattr(context, "vcf_samples", None))
-            expected_header = "\t".join(cols)
+        expected_header = self._build_expected_header(context)
 
         if not chunk_tsvs:
             hdr = (expected_header or "") + "\n"

@@ -218,3 +218,25 @@ def test_sort_tsv_by_gene_paths_with_spaces_quotes_semicolons(tmp_path: Path) ->
     assert lines[0] == "GENE\tPOS"
     assert lines[1] == "BRCA1\t200"
     assert lines[2] == "TP53\t100"
+
+
+def test_sort_tsv_by_gene_pipefail_cleans_partial_gz_and_preserves_input(tmp_path: Path) -> None:
+    """Verify sort pipe failure with gz output raises RuntimeError and cleans partial file."""
+    input_file = tmp_path / "input.tsv"
+    output_file = tmp_path / "output.tsv.gz"
+    input_file.write_text("GENE\tPOS\nTP53\t100\nBRCA1\t200\n")
+
+    stage = DataSortingStage()
+    # Invalid memory_limit causes sort command to exit non-zero
+    with pytest.raises(RuntimeError, match="Failed to sort TSV file"):
+        stage._sort_tsv_by_gene(
+            input_file=str(input_file),
+            output_file=str(output_file),
+            gene_column="GENE",
+            memory_limit="invalid_mem_size",
+            parallel=1,
+        )
+
+    assert not output_file.exists(), "Partial .gz output was not cleaned up after sort failure!"
+    assert input_file.exists(), "Input TSV was unexpectedly deleted on sort failure!"
+    assert input_file.read_text() == "GENE\tPOS\nTP53\t100\nBRCA1\t200\n"

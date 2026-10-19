@@ -301,3 +301,27 @@ def test_incompatible_chunk_header_rejected_during_merge(tmp_path: Path) -> None
     stage = ParallelCompleteProcessingStage()
     with pytest.raises(ValueError, match="Incompatible chunk header"):
         stage._merge_tsvs_traditional([chunk0, chunk1], inter_dir / "merged.tsv")
+
+
+def test_checkpoint_skip_rejects_cached_tsv_with_incompatible_header(tmp_path: Path) -> None:
+    """Verify _handle_checkpoint_skip rejects cached TSV if header schema does not match."""
+    inter_dir = tmp_path / "intermediate"
+    inter_dir.mkdir(parents=True, exist_ok=True)
+    ws = Mock(spec=Workspace)
+    ws.base_name = "sample"
+    ws.intermediate_dir = inter_dir
+
+    cached_tsv = inter_dir / "sample.extracted.tsv"
+    cached_tsv.write_text("CHROM\tPOS\tANN\nchr1\t100\traw_ann\n")
+
+    config = {
+        "fields_to_extract": "CHROM POS ANN[0].GENE GEN[*].GT",
+    }
+    ctx = PipelineContext(args=Namespace(), config=config, workspace=ws)
+    ctx.vcf_samples = ["SAMPLE1"]
+
+    stage = ParallelCompleteProcessingStage()
+    with pytest.raises(
+        RuntimeError, match="Cannot restore parallel_complete_processing from checkpoint"
+    ):
+        stage._handle_checkpoint_skip(ctx)

@@ -232,16 +232,21 @@ def extract_phenotypes_from_sample_columns(
 
     phenotypes = phenotypes or {}
     phenotype_entries = []
+    row_fields = getattr(row, "_fields", None)
 
     for i, sample_id in enumerate(vcf_samples):
-        # Get GT value for this sample - support sample name, GEN[i].GT, and GEN_i__GT
+        # Get GT value for this sample - prefer indexed columns, fallback to sample name
         gt_value = None
-        for candidate in (sample_id, f"GEN[{i}].GT", f"GEN_{i}__GT"):
-            if hasattr(row, "__getitem__"):
+        for candidate in (f"GEN[{i}].GT", f"GEN_{i}__GT", sample_id):
+            if row_fields is not None:
+                if candidate in row_fields:
+                    gt_value = getattr(row, candidate)
+                    break
+            elif hasattr(row, "__getitem__"):
                 with contextlib.suppress(KeyError, IndexError, TypeError):
                     gt_value = row[candidate]
                     break
-            if hasattr(row, candidate):
+            elif hasattr(row, candidate):
                 gt_value = getattr(row, candidate)
                 break
 

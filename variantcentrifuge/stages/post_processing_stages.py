@@ -463,23 +463,8 @@ class DataSortingStage(Stage):
             else f"{pipe_in} > {safe_output}"
         )
 
-        # Execute the command
-        logger.debug(f"Running sort command: {cmd}")
-
-        # Find bash executable
-        bash_candidate = shutil.which("bash") or "/bin/bash"
-        bash_path: str | None = bash_candidate if os.path.exists(bash_candidate) else None
-        if bash_path is None:
-            logger.warning(f"bash not found at {bash_candidate}, falling back to shell default")
-
-        # Execute command
-        result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, executable=bash_path
-        )
-
-        if result.returncode != 0:
-            logger.error(f"Sort command failed: {result.stderr}")
-            raise RuntimeError(f"Failed to sort TSV file: {result.stderr}")
+        if not self._external_sort(cmd, output_file):
+            raise RuntimeError("Failed to sort TSV file: command exited non-zero")
 
         # Verify output file was created
         if not os.path.exists(output_file):
@@ -487,12 +472,35 @@ class DataSortingStage(Stage):
 
         # Check if output file has content
         with _ps_mod.smart_open(output_file, "r") as f:
-            first_line = f.readline()
-            if not first_line:
+            if not f.readline():
                 raise RuntimeError(f"Output file '{output_file}' is empty")
 
         logger.info("Successfully sorted TSV file by gene column")
         return output_file
+
+    def _external_sort(self, cmd: str, output_file: str) -> bool:
+        """Run external sort command with pipefail and clean up on failure."""
+        bash_path: str | None = shutil.which("bash") or "/bin/bash"
+        if bash_path and not os.path.exists(bash_path):
+            bash_path = None
+        full_cmd = f"set -o pipefail; {cmd}" if not cmd.startswith("set -o pipefail;") else cmd
+        try:
+            res = subprocess.run(
+                full_cmd, shell=True, capture_output=True, text=True, executable=bash_path
+            )
+            if res.returncode != 0:
+                logger.error(f"Sort command failed: {res.stderr}")
+                if os.path.exists(output_file):
+                    with contextlib.suppress(OSError):
+                        os.remove(output_file)
+                return False
+            return True
+        except Exception as e:
+            logger.error(f"External sort error: {e}")
+            if os.path.exists(output_file):
+                with contextlib.suppress(OSError):
+                    os.remove(output_file)
+            return False
 
     def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return the sorted TSV file."""
