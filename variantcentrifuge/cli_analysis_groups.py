@@ -554,6 +554,12 @@ def add_analysis_argument_groups(parser: argparse.ArgumentParser) -> None:
         help="Path to the PED file defining family structure for inheritance analysis.",
     )
     inheritance_group.add_argument(
+        "--ped-file",
+        dest="ped",
+        help=argparse.SUPPRESS,
+        default=None,
+    )
+    inheritance_group.add_argument(
         "--inheritance-mode",
         choices=["simple", "columns", "full"],
         default=None,
@@ -562,11 +568,6 @@ def add_analysis_argument_groups(parser: argparse.ArgumentParser) -> None:
         "'columns': Unpack key details into separate columns. "
         "'full': Show the complete JSON object in a single column. "
         "Without --ped, treats all samples as affected singletons.",
-    )
-    inheritance_group.add_argument(
-        "--no-vectorized-comp-het",
-        action="store_true",
-        help="Disable vectorized compound heterozygous analysis (use original implementation).",
     )
 
     # ClinVar PM5 Annotation

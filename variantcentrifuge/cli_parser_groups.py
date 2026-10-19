@@ -9,6 +9,11 @@ from .cli_analysis_groups import add_analysis_argument_groups
 __all__ = [
     "add_analysis_argument_groups",
     "add_operational_argument_groups",
+    "add_performance_and_advanced_argument_groups",
+    "get_curated_examples_epilog",
+    "populate_advanced_group",
+    "populate_misc_group",
+    "populate_performance_group",
 ]
 
 
@@ -95,25 +100,6 @@ def add_operational_argument_groups(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=None,
         help="Flanking region size in base pairs for IGV reports (default: 50)",
-    )
-    report_group.add_argument(
-        "--igv-max-allele-len-filename",
-        type=int,
-        default=10,
-        help="Maximum length for REF/ALT alleles in IGV report filenames (default: 10). "
-        "Longer alleles will be truncated and hashed.",
-    )
-    report_group.add_argument(
-        "--igv-hash-len-filename",
-        type=int,
-        default=6,
-        help="Length of hash to append when truncating alleles in filenames (default: 6).",
-    )
-    report_group.add_argument(
-        "--igv-max-variant-part-filename",
-        type=int,
-        default=50,
-        help="Maximum length for the variant part of IGV report filenames",
     )
 
     # Checkpoint & Resume Options
@@ -208,3 +194,174 @@ def add_operational_argument_groups(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Also create pseudonymized PED file for sharing",
     )
+
+
+def populate_performance_group(performance_group: argparse._ArgumentGroup) -> None:
+    """Populate performance and resource management arguments."""
+    performance_group.add_argument(
+        "--threads",
+        default="auto",
+        help="Number of parallel worker processes to use for variant extraction and filtering. "
+        "Use 'auto' to detect available CPU cores (default: auto). "
+        "Set to 1 to disable parallelization.",
+    )
+    performance_group.add_argument(
+        "--sort-memory-limit",
+        type=str,
+        default=None,
+        help="Memory limit for external sort command (default: auto - scales with memory). "
+        "Examples: 500M, 4G, 8G, auto. When 'auto', uses ~10%% of available memory.",
+    )
+    performance_group.add_argument(
+        "--sort-parallel",
+        type=int,
+        default=4,
+        help="Number of parallel threads for sorting (default: 4)",
+    )
+    performance_group.add_argument(
+        "--max-memory-gb",
+        type=float,
+        help="Maximum memory in GB to use for genotype processing (auto-detected if omitted). "
+        "Used to intelligently select processing method and chunk sizes.",
+    )
+    performance_group.add_argument(
+        "--genotype-replacement-method",
+        choices=[
+            "auto",
+            "sequential",
+            "vectorized",
+            "chunked-vectorized",
+            "parallel",
+            "streaming-parallel",
+        ],
+        default="auto",
+        help="Method for genotype replacement processing. "
+        "auto: automatically select based on data characteristics and memory availability; "
+        "sequential: line-by-line streaming (memory efficient); "
+        "vectorized: pandas-based vectorized operations (faster for many samples); "
+        "chunked-vectorized: memory-safe vectorized processing for large files; "
+        "parallel: multi-threaded chunked processing (for very large files); "
+        "streaming-parallel: enhanced streaming pipeline with optimal thread utilization. "
+        "Default: auto",
+    )
+
+
+def populate_advanced_group(advanced_group: argparse._ArgumentGroup) -> None:
+    """Populate advanced, developer, and internal tuning arguments."""
+    advanced_group.add_argument(
+        "--no-chunked-processing",
+        action="store_true",
+        help="Disable chunked processing even for large files. "
+        "May cause memory issues with very large datasets.",
+    )
+    advanced_group.add_argument(
+        "--force-chunked-processing",
+        action="store_true",
+        help="Force chunked processing even for small files. "
+        "Useful for testing or memory-constrained environments.",
+    )
+    advanced_group.add_argument(
+        "--force-inheritance-processing",
+        action="store_true",
+        help="Force inheritance analysis even if it exceeds safe memory limits. "
+        "Use with caution on systems with limited memory.",
+    )
+    advanced_group.add_argument(
+        "--sample-column-creation-method",
+        choices=["iterative", "vectorized", "auto"],
+        default="auto",
+        help="Method for creating sample columns from GT field during inheritance analysis. "
+        "iterative: traditional row-by-row regex parsing; "
+        "vectorized: pandas vectorized string operations (5-10x faster); "
+        "auto: automatically select based on dataset size. Default: auto",
+    )
+    advanced_group.add_argument(
+        "--memory-safety-factor",
+        type=float,
+        default=0.92,
+        help="Fraction of allocated memory to use safely (default: 0.92 = 92%%). "
+        "Lower values are more conservative, higher values use more memory.",
+    )
+    advanced_group.add_argument(
+        "--inheritance-memory-fraction",
+        type=float,
+        default=0.85,
+        help="Fraction of safe memory to allocate for inheritance analysis (default: 0.85 = 85%%). "
+        "Remainder is reserved for other pipeline stages.",
+    )
+    advanced_group.add_argument(
+        "--no-vectorized-comp-het",
+        action="store_true",
+        help="Disable vectorized compound heterozygous analysis (use original implementation).",
+    )
+    advanced_group.add_argument(
+        "--igv-max-allele-len-filename",
+        type=int,
+        default=10,
+        help="Maximum length for REF/ALT alleles in IGV report filenames (default: 10). "
+        "Longer alleles will be truncated and hashed.",
+    )
+    advanced_group.add_argument(
+        "--igv-hash-len-filename",
+        type=int,
+        default=6,
+        help="Length of hash to append when truncating alleles in filenames (default: 6).",
+    )
+    advanced_group.add_argument(
+        "--igv-max-variant-part-filename",
+        type=int,
+        default=50,
+        help="Maximum length for the variant part of IGV report filenames (default: 50).",
+    )
+
+
+def populate_misc_group(misc_group: argparse._ArgumentGroup) -> None:
+    """Populate miscellaneous arguments."""
+    misc_group.add_argument(
+        "--no-gzip-intermediates",
+        dest="gzip_intermediates",
+        action="store_false",
+        default=True,
+        help="Disable compression of intermediate TSV files (compression is enabled by default).",
+    )
+
+
+def add_performance_and_advanced_argument_groups(parser: argparse.ArgumentParser) -> None:
+    """Register performance, resource management, and advanced/internal tuning argument groups."""
+    performance_group = parser.add_argument_group("Performance & Processing")
+    populate_performance_group(performance_group)
+
+    advanced_group = parser.add_argument_group("Advanced & Tuning Options")
+    populate_advanced_group(advanced_group)
+
+    misc_group = parser.add_argument_group("Miscellaneous Options")
+    populate_misc_group(misc_group)
+
+
+def get_curated_examples_epilog() -> str:
+    """Return curated CLI examples for the help epilog."""
+    return """\
+Examples:
+  # 1. Basic gene-centric variant extraction:
+  variantcentrifuge -g BICC1 -v input.vcf.gz -o bicc1_variants.tsv
+
+  # 2. Extract multiple candidate genes with preset filtering and Excel output:
+  variantcentrifuge -G candidate_genes.txt -v input.vcf.gz \\
+      --preset rare,coding --xlsx -o results.tsv
+
+  # 3. Family inheritance analysis (de novo, recessive, compound het) with PED file:
+  variantcentrifuge -G genes.txt -v family.vcf.gz --ped family.ped \\
+      --inheritance-mode simple --preset rare,coding
+
+  # 4. Interactive HTML report and summary visualization:
+  variantcentrifuge -G genes.txt -v cohort.vcf.gz --preset rare,coding --html-report --xlsx
+
+  # 5. Variant scoring and downstream expression filtering:
+  variantcentrifuge -G genes.txt -v input.vcf.gz --scoring-config-path scoring/model \\
+      --final-filter 'score > 0.8 and IMPACT == "HIGH"' -o scored.tsv
+
+  # 6. Case-control gene burden and association analysis (SKAT / Burden) with covariates:
+  variantcentrifuge -G genes.txt -v cohort.vcf.gz --phenotype-file phenotypes.tsv \\
+      --case-phenotypes affected --control-phenotypes unaffected \\
+      --perform-association --association-tests skat,burden --covariate-file covariates.tsv
+"""

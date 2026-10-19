@@ -13,7 +13,14 @@ from .cli_config import (
     populate_cli_config,
     resolve_presets_and_tumor_normal,
 )
-from .cli_parser_groups import add_analysis_argument_groups, add_operational_argument_groups
+from .cli_parser_groups import (
+    add_analysis_argument_groups,
+    add_operational_argument_groups,
+    get_curated_examples_epilog,
+    populate_advanced_group,
+    populate_misc_group,
+    populate_performance_group,
+)
 from .cli_subcommands import handle_listing_and_resume_options
 from .config import load_config
 from .pipeline import run_pipeline
@@ -40,7 +47,11 @@ logger = logging.getLogger("variantcentrifuge")
 
 def create_parser() -> argparse.ArgumentParser:
     """Create and return the argument parser for variantcentrifuge CLI."""
-    parser = argparse.ArgumentParser(description="variantcentrifuge: Filter and process VCF files.")
+    parser = argparse.ArgumentParser(
+        description="variantcentrifuge: Filter and process VCF files.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=get_curated_examples_epilog(),
+    )
 
     # General Options
     general_group = parser.add_argument_group("General Options")
@@ -104,104 +115,16 @@ def create_parser() -> argparse.ArgumentParser:
 
     # Performance & Processing
     performance_group = parser.add_argument_group("Performance & Processing")
-    performance_group.add_argument(
-        "--threads",
-        default="auto",
-        help="Number of parallel worker processes to use for variant extraction and filtering. "
-        "Use 'auto' to detect available CPU cores (default: auto). "
-        "Set to 1 to disable parallelization.",
-    )
-    performance_group.add_argument(
-        "--no-chunked-processing",
-        action="store_true",
-        help="Disable chunked processing even for large files. "
-        "May cause memory issues with very large datasets.",
-    )
-    performance_group.add_argument(
-        "--force-chunked-processing",
-        action="store_true",
-        help="Force chunked processing even for small files. "
-        "Useful for testing or memory-constrained environments.",
-    )
-    performance_group.add_argument(
-        "--sort-memory-limit",
-        type=str,
-        default=None,
-        help="Memory limit for external sort command (default: auto - scales with available memory). "
-        "Examples: 500M, 4G, 8G, auto. When 'auto', uses ~10%% of available memory.",
-    )
-    performance_group.add_argument(
-        "--sort-parallel",
-        type=int,
-        default=4,
-        help="Number of parallel threads for sorting (default: 4)",
-    )
-    performance_group.add_argument(
-        "--genotype-replacement-method",
-        choices=[
-            "auto",
-            "sequential",
-            "vectorized",
-            "chunked-vectorized",
-            "parallel",
-            "streaming-parallel",
-        ],
-        default="auto",
-        help="Method for genotype replacement processing. "
-        "auto: automatically select based on data characteristics and memory availability; "
-        "sequential: line-by-line streaming (memory efficient); "
-        "vectorized: pandas-based vectorized operations (faster for many samples); "
-        "chunked-vectorized: memory-safe vectorized processing for large files; "
-        "parallel: multi-threaded chunked processing (for very large files); "
-        "streaming-parallel: enhanced streaming pipeline with optimal thread utilization. "
-        "Default: auto",
-    )
-    performance_group.add_argument(
-        "--max-memory-gb",
-        type=float,
-        help="Maximum memory in GB to use for genotype processing (auto-detected if not specified). "
-        "Used to intelligently select processing method and chunk sizes.",
-    )
-    performance_group.add_argument(
-        "--force-inheritance-processing",
-        action="store_true",
-        help="Force inheritance analysis even if it exceeds safe memory limits. "
-        "Use with caution on systems with limited memory.",
-    )
-    performance_group.add_argument(
-        "--sample-column-creation-method",
-        choices=["iterative", "vectorized", "auto"],
-        default="auto",
-        help="Method for creating sample columns from GT field during inheritance analysis. "
-        "iterative: traditional row-by-row regex parsing (slower but more reliable); "
-        "vectorized: pandas vectorized string operations (5-10x faster for large datasets); "
-        "auto: automatically select based on dataset size and complexity. "
-        "Default: auto",
-    )
-    performance_group.add_argument(
-        "--memory-safety-factor",
-        type=float,
-        default=0.92,
-        help="Fraction of allocated memory to use safely (default: 0.92 = 92%%). "
-        "Lower values are more conservative, higher values use more memory.",
-    )
-    performance_group.add_argument(
-        "--inheritance-memory-fraction",
-        type=float,
-        default=0.85,
-        help="Fraction of safe memory to allocate for inheritance analysis (default: 0.85 = 85%%). "
-        "Remainder is reserved for other pipeline stages.",
-    )
+    populate_performance_group(performance_group)
+
+    # Advanced & Tuning Options
+    advanced_group = parser.add_argument_group("Advanced & Tuning Options")
+    populate_advanced_group(advanced_group)
 
     # Miscellaneous Options
     misc_group = parser.add_argument_group("Miscellaneous Options")
-    misc_group.add_argument(
-        "--no-gzip-intermediates",
-        dest="gzip_intermediates",
-        action="store_false",
-        default=True,
-        help="Disable compression of intermediate TSV files (compression is enabled by default).",
-    )
+    populate_misc_group(misc_group)
+
     return parser
 
 

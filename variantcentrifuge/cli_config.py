@@ -146,6 +146,7 @@ def populate_cli_config(
     tumor_normal_vars: dict[str, str] | None = None,
 ) -> None:
     """Populate and validate pipeline configuration from CLI arguments."""
+
     def _fail(msg: str) -> None:
         if parser is not None:
             parser.error(msg)
