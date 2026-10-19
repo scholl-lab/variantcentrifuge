@@ -77,3 +77,59 @@ def test_non_burden_run_passes_validation() -> None:
     }
     # Should not raise
     validate_annotation_consequence_filtering(config)
+
+
+def test_shipped_config_json_presets_dict_does_not_crash() -> None:
+    """Verify that shipped config.json containing presets dict does not cause TypeError."""
+    import json
+
+    config_path = Path("config/config.json")
+    if config_path.exists():
+        with open(config_path) as f:
+            config = json.load(f)
+    else:
+        config = {"presets": {"coding": "ANN[ANY].EFFECT has 'missense'", "rare": "AF < 0.01"}}
+
+    # Enable burden with a benign filter
+    config["perform_gene_burden"] = True
+    config["filter"] = "QUAL > 30"
+    config["snpeff_splitting_mode"] = None
+
+    # Must NOT raise TypeError: unhashable type: 'dict'
+    validate_annotation_consequence_filtering(config)
+
+
+@pytest.mark.parametrize(
+    "config_preset_field",
+    [
+        {"preset": "coding"},
+        {"presets_list": ["high"]},
+        {"preset": ["missense"]},
+        {"presets": ["damaging"]},
+    ],
+)
+def test_preset_variations_trigger_guard(config_preset_field: dict) -> None:
+    """Verify that various ways to specify consequence presets trigger the guard."""
+    config = {
+        "perform_gene_burden": True,
+        "snpeff_splitting_mode": None,
+        **config_preset_field,
+    }
+    with pytest.raises(ValueError, match="--split-snpeff-lines before_filters"):
+        validate_annotation_consequence_filtering(config)
+
+
+def test_variant_extraction_stage_runs_consequence_guard(tmp_path: Path) -> None:
+    """Verify VariantExtractionStage enforces consequence guard before extraction."""
+    from variantcentrifuge.stages.processing_stages import VariantExtractionStage
+
+    config = {
+        "perform_gene_burden": True,
+        "filter": "(ANN[ANY].IMPACT has 'HIGH')",
+        "snpeff_splitting_mode": None,
+        "vcf_file": "/tmp/dummy.vcf",
+    }
+    ctx = _make_context(config, tmp_path)
+    stage = VariantExtractionStage()
+    with pytest.raises(Exception, match="--split-snpeff-lines before_filters"):
+        stage._process(ctx)

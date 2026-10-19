@@ -87,6 +87,7 @@ class VariantExtractionStage(Stage):
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Extract variants using the BED file."""
         with graceful_error_handling(self.name):
+            validate_annotation_consequence_filtering(context.config)
             # Validate inputs
             vcf_file = context.config.get("vcf_file")
             if not vcf_file:
@@ -230,16 +231,30 @@ def validate_annotation_consequence_filtering(config: dict[str, Any]) -> None:
         token in filter_expr for token in ("ANN[ANY]", "LOF[*]", "NMD[*]")
     )
 
-    raw_presets = config.get("presets", [])
-    presets = list(raw_presets) if isinstance(raw_presets, (list, tuple)) else [raw_presets]
+    selected_presets: list[str] = []
     single_preset = config.get("preset")
     if single_preset:
-        presets.extend(
-            single_preset if isinstance(single_preset, (list, tuple)) else [single_preset]
-        )
+        if isinstance(single_preset, (list, tuple)):
+            selected_presets.extend(p for p in single_preset if isinstance(p, str))
+        elif isinstance(single_preset, str):
+            selected_presets.append(single_preset)
+
+    presets_list = config.get("presets_list")
+    if presets_list:
+        if isinstance(presets_list, (list, tuple)):
+            selected_presets.extend(p for p in presets_list if isinstance(p, str))
+        elif isinstance(presets_list, str):
+            selected_presets.append(presets_list)
+
+    raw_presets = config.get("presets")
+    if raw_presets and not isinstance(raw_presets, dict):
+        if isinstance(raw_presets, (list, tuple)):
+            selected_presets.extend(p for p in raw_presets if isinstance(p, str))
+        elif isinstance(raw_presets, str):
+            selected_presets.append(raw_presets)
 
     consequence_presets = {"coding", "high", "missense", "high_or_lof_or_nmd", "damaging"}
-    has_consequence_preset = any(p in consequence_presets for p in presets)
+    has_consequence_preset = any(p in consequence_presets for p in selected_presets)
 
     if has_consequence_filter or has_consequence_preset:
         raise ValueError(
@@ -327,6 +342,8 @@ class SnpSiftFilterStage(Stage):
         logger.info(f"Applying SnpSift filter: {filter_expr}")
         filter_config = {
             "threads": context.config.get("threads", 1),
+            "max_memory_gb": context.config.get("max_memory_gb"),
+            "snpsift_memory_gb": context.config.get("snpsift_memory_gb"),
             "filter_exception_file": context.config.get("filter_exception_file"),
         }
         apply_snpsift_filter(str(input_vcf), filter_expr, filter_config, str(output_vcf))
