@@ -58,6 +58,16 @@ jobs:
       - name: Build distributions
         run: uv build
 
+      - name: Repair Linux wheel for PyPI compatibility
+        run: |
+          shopt -s nullglob
+          linux_wheels=(dist/*-linux_*.whl)
+          if [ "${#linux_wheels[@]}" -gt 0 ]; then
+            uvx auditwheel repair "${linux_wheels[@]}" -w dist/
+            rm -f "${linux_wheels[@]}"
+          fi
+          ! compgen -G "dist/*-linux_*.whl" > /dev/null
+
       - name: Check distributions
         run: uvx twine check dist/*
 

@@ -282,10 +282,18 @@ def test_installation_docs_document_apptainer() -> None:
 
 
 def test_release_workflow_isolated_wheel_installation() -> None:
-    """Release workflow must verify wheel in isolated environment outside source checkout."""
+    """Release workflow must repair Linux wheels and verify isolated install outside checkout."""
     release_yml = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
     data = yaml.safe_load(release_yml)
     steps = data["jobs"]["build"]["steps"]
+
+    repair_step = next(
+        s for s in steps if s.get("name") == "Repair Linux wheel for PyPI compatibility"
+    )
+    repair_cmd = repair_step["run"]
+    assert "auditwheel repair" in repair_cmd
+    assert "rm -f" in repair_cmd
+
     verify_step = next(s for s in steps if s.get("name") == "Verify isolated installation of wheel")
     run_cmd = verify_step["run"]
     assert "RUNNER_TEMP" in run_cmd
