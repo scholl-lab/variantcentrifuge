@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from argparse import Namespace
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -162,34 +162,40 @@ def test_parallel_inheritance_failure_propagates_and_not_checkpointed(tmp_path: 
     workspace = Workspace(tmp_path / "work", "test")
     df = pd.DataFrame(
         {
-            "CHROM": ["chr1"],
-            "POS": [100],
-            "REF": ["A"],
-            "ALT": ["T"],
-            "GENE": ["BRCA1"],
-            "GT": ["S1(0/1);S2(0/0)"],
+            "CHROM": ["chr1", "chr1"],
+            "POS": [100, 200],
+            "REF": ["A", "G"],
+            "ALT": ["T", "C"],
+            "GENE": ["BRCA1", "BRCA1"],
+            "GT": ["S1(0/1);S2(0/0)", "S1(0/1);S2(0/0)"],
         }
     )
     config = {
         "inheritance_mode": "simple",
         "threads": 2,
+        "min_variants_for_parallel": 1,
+        "min_variants_for_parallel_inheritance": 1,
     }
     context = PipelineContext(Namespace(), config, workspace)
     context.current_dataframe = df
     context.vcf_samples = ["S1", "S2"]
     context.pedigree_data = {"S1": {"sample_id": "S1"}}
+    context.checkpoint_state = MagicMock()
+    context.checkpoint_state.should_skip_step.return_value = False
+    context.mark_complete("dataframe_loading")
 
     stage = InheritanceAnalysisStage()
     with (
         patch(
-            "variantcentrifuge.stages.analysis_stages.analyze_inheritance",
+            "variantcentrifuge.inheritance.parallel_analyzer._process_gene_group",
             side_effect=RuntimeError("Parallel inheritance worker failure"),
         ),
         pytest.raises(RuntimeError, match="Parallel inheritance worker failure"),
     ):
-        stage._process(context)
+        stage(context)
 
     assert not context.is_complete("inheritance_analysis")
+    context.checkpoint_state.complete_step.assert_not_called()
 
 
 def test_custom_annotation_failure_propagates_both_modes(tmp_path: Path):

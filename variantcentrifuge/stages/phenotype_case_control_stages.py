@@ -148,7 +148,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
 
         except Exception as e:
             logger.error(f"Failed to perform phenotype-based assignment: {e}")
-            return context
+            raise
 
         return context
 
@@ -472,7 +472,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
                 logger.info(f"Loaded {len(case_samples)} case samples from file")
             except Exception as e:
                 logger.error(f"Failed to load case samples from {case_samples_file}: {e}")
-                return context
+                raise
 
         # Load control samples from file
         if control_samples_file:
@@ -486,7 +486,7 @@ class PhenotypeCaseControlAssignmentStage(Stage):
                 logger.info(f"Loaded {len(control_samples)} control samples from file")
             except Exception as e:
                 logger.error(f"Failed to load control samples from {control_samples_file}: {e}")
-                return context
+                raise
 
         # Apply substring removal if configured (same as VCF samples)
         remove_substring = context.config.get("remove_sample_substring", "")

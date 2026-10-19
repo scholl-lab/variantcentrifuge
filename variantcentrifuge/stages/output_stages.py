@@ -82,6 +82,11 @@ class PseudonymizationStage(Stage):
         # Other stages (filtering, variant_id) are optional
         return {"dataframe_loading"}
 
+    @property
+    def soft_dependencies(self) -> set[str]:
+        """Return optional stages that should run before pseudonymization if present."""
+        return {"chunked_analysis"}
+
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply pseudonymization if requested."""
         if not context.config.get("pseudonymize"):

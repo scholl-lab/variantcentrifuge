@@ -290,6 +290,19 @@ class FinalFilteringStage(Stage):
         return context
 
 
+def _tsv_has_data_rows(tsv_path: Path | str) -> bool:
+    """Check if TSV file contains at least one data row beyond the header."""
+    open_fn = gzip.open if str(tsv_path).endswith(".gz") else open
+    try:
+        with open_fn(tsv_path, "rt", encoding="utf-8", errors="replace") as f:
+            header = f.readline()
+            if not header:
+                return False
+            return any(line.strip() for line in f)
+    except Exception:
+        return False
+
+
 class TSVOutputStage(Stage):
     """Write final TSV output file."""
 
@@ -341,6 +354,11 @@ class TSVOutputStage(Stage):
             if hasattr(context, "chunked_analysis_tsv") and context.chunked_analysis_tsv:
                 if not Path(context.chunked_analysis_tsv).exists():
                     raise RuntimeError("No data to write")
+                if context.config.get("fail_on_empty", False) and not _tsv_has_data_rows(
+                    context.chunked_analysis_tsv
+                ):
+                    logger.error("Zero variants remaining in final output (--fail-on-empty)")
+                    sys.exit(2)
                 logger.info(f"Using chunked analysis results from: {context.chunked_analysis_tsv}")
                 # Copy chunked results to final output location
                 output_file = context.config.get("output_file")
@@ -382,6 +400,11 @@ class TSVOutputStage(Stage):
                 output_filename = Path(output_file).name
                 context.final_output_path = context.workspace.output_dir / output_filename
                 logger.info(f"Chunked processing output: {context.final_output_path}")
+                if context.config.get("fail_on_empty", False) and not _tsv_has_data_rows(
+                    context.final_output_path
+                ):
+                    logger.error("Zero variants remaining in final output (--fail-on-empty)")
+                    sys.exit(2)
                 return context
             raise RuntimeError("No data to write")
 
@@ -533,67 +556,4 @@ class ArchiveCreationStage(Stage):
         return context
 
 
-def _collect_metadata_rows(context: PipelineContext, get_version_fn: Any) -> list[tuple[str, Any]]:
-    """Build (Parameter, Value) tuples for MetadataGenerationStage."""
-    import hashlib
-
-    cfg = context.config
-    raw_preset = cfg.get("preset", "")
-    preset_str = (
-        ", ".join(str(p) for p in raw_preset)
-        if isinstance(raw_preset, list | tuple | set)
-        else str(raw_preset or "")
-    )
-    samples = context.vcf_samples or []
-
-    def _sample_lbl(name_key: str, idx_key: str) -> str:
-        if cfg.get(name_key):
-            return str(cfg[name_key])
-        idx = cfg.get(idx_key)
-        return (
-            samples[int(str(idx))]
-            if idx not in (None, "") and str(idx).isdigit() and int(str(idx)) < len(samples)
-            else ""
-        )
-
-    t_lbl, n_lbl = (
-        _sample_lbl("tumor_sample", "tumor_sample_index"),
-        _sample_lbl("normal_sample", "normal_sample_index"),
-    )
-    tn_str = f"tumor={t_lbl or 'N/A'}, normal={n_lbl or 'N/A'}" if (t_lbl or n_lbl) else ""
-    tx_file = cfg.get("transcript_file", "")
-    tx_md5 = (
-        f"{tx_file} ({hashlib.md5(Path(tx_file).read_bytes()).hexdigest()})"
-        if tx_file and Path(tx_file).is_file()
-        else ""
-    )
-    rows: list[tuple[str, Any]] = [
-        ("Tool", "variantcentrifuge"),
-        ("Version", cfg.get("pipeline_version", "0.5.0")),
-        ("Git SHA", cfg.get("git_sha") or get_version_fn("git")),
-        ("Run_start_time", context.start_time.isoformat()),
-        ("Run_duration_seconds", f"{context.get_execution_time():.1f}"),
-        ("VCF_file", cfg.get("vcf_file", "")),
-        ("Gene_name", cfg.get("normalized_genes", "")),
-        ("Gene_file", cfg.get("gene_file", "")),
-        ("Phenotype_file", cfg.get("phenotype_file", "")),
-        ("Pedigree_file", cfg.get("ped_file", "")),
-        ("Transcript File (MD5)", tx_md5),
-        ("Reference", cfg.get("reference", "")),
-        ("Filter", cfg.get("filters") or cfg.get("filter", "")),
-        ("Preset", preset_str),
-        ("Final Filter", cfg.get("final_filter", "") or ""),
-        ("Tumor/Normal Samples", tn_str),
-        ("Threads", cfg.get("threads", "")),
-        ("Inheritance_mode", cfg.get("inheritance_mode", "")),
-        ("Scoring_config", cfg.get("scoring_config_path", "")),
-    ]
-    sensitive_keys = {"pseudonymization_mapping", "pseudonymizer", "sample_list", "vcf_samples"}
-    rows.extend(
-        (f"config.{k}", str(v))
-        for k, v in cfg.items()
-        if v is not None and (not cfg.get("pseudonymize") or k not in sensitive_keys)
-    )
-    for tool_name in ["bcftools", "snpEff", "SnpSift", "bedtools"]:
-        rows.append((f"tool.{tool_name.lower()}_version", get_version_fn(tool_name)))
-    return rows
+from .metadata_helpers import collect_metadata_rows as _collect_metadata_rows  # noqa: F401

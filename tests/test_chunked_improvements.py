@@ -255,7 +255,7 @@ class TestChunkedProcessingImprovements:
         assert "Sample3" not in result_custom.columns
         assert "GT" in result_custom.columns
 
-    def test_error_handling_function(self):
+    def test_error_handling_function(self, mock_args, mock_workspace):
         """Verify inheritance analysis failures propagate rather than being swallowed."""
         from variantcentrifuge.stages.chunk_helpers import apply_chunk_inheritance_analysis
 
@@ -267,8 +267,21 @@ class TestChunkedProcessingImprovements:
                 "GENE": ["G1", "G2"],
             }
         )
-        with pytest.raises(TypeError):
-            apply_chunk_inheritance_analysis(df, None, ["S1"], None, parallel=False)
+        context = PipelineContext(mock_args, {}, mock_workspace)
+        context.vcf_samples = ["S1"]
+        context.config["inheritance_analysis_config"] = {
+            "vcf_samples": ["S1"],
+            "pedigree_data": {},
+            "inheritance_mode": "simple",
+        }
+        with (
+            patch(
+                "variantcentrifuge.inheritance.analyzer.analyze_inheritance",
+                side_effect=RuntimeError("Injected error"),
+            ),
+            pytest.raises(RuntimeError, match="Injected error"),
+        ):
+            apply_chunk_inheritance_analysis(df, context)
 
     def test_sequential_fallback(
         self, sample_config, sample_dataframe, sample_pedigree, mock_args, mock_workspace

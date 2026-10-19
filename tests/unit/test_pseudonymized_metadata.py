@@ -1,0 +1,193 @@
+"""Tests for pseudonymized metadata and Excel report exports (#128)."""
+
+from __future__ import annotations
+
+from argparse import Namespace
+from pathlib import Path
+
+import pandas as pd
+
+from variantcentrifuge.pipeline_core import PipelineContext, Workspace
+from variantcentrifuge.stages.metadata_helpers import collect_metadata_rows
+from variantcentrifuge.stages.output_stages import (
+    ExcelReportStage,
+    MetadataGenerationStage,
+    PseudonymizationStage,
+)
+
+
+def dummy_version(tool: str) -> str:
+    return f"{tool}-1.0.0"
+
+
+def test_pseudonymized_metadata_tsv_and_excel_omits_reidentification(tmp_path: Path):
+    """Verify original sample IDs and mapping entries are absent from metadata."""
+    workspace = Workspace(tmp_path / "work", "test")
+    orig_samples = ["PATIENT_001", "CONTROL_999", "MOTHER_123"]
+    mapping = {
+        "PATIENT_001": "SAMPLE_A",
+        "CONTROL_999": "SAMPLE_B",
+        "MOTHER_123": "SAMPLE_C",
+    }
+
+    config = {
+        "pseudonymize": True,
+        "pseudonymize_schema": "sequential",
+        "pseudonymize_prefix": "SAMPLE",
+        "pseudonymize_table": str(tmp_path / "private_mapping.tsv"),
+        "xlsx": True,
+        "sample_list": ",".join(orig_samples),
+        "case_samples": ["PATIENT_001"],
+        "control_samples": ["CONTROL_999"],
+        "proband_samples": ["PATIENT_001"],
+        "vcf_file": "/data/cohorts/PATIENT_001_trio.vcf.gz",
+        "ped_file": "/data/pedigrees/PATIENT_001_family.ped",
+        "phenotype_file": "/data/pheno/PATIENT_001_pheno.tsv",
+        "filter": "QUAL > 30 && (GEN[PATIENT_001].GT == '0/1')",
+        "final_filter": "DP > 10 && PATIENT_001 != '0/0'",
+        "tumor_sample": "PATIENT_001",
+        "normal_sample": "CONTROL_999",
+        "nested_sample_info": {"sample": "PATIENT_001", "status": "affected"},
+        "reference": "GRCh38",
+        "threads": 4,
+    }
+
+    context = PipelineContext(Namespace(), config, workspace)
+    context.vcf_samples = list(orig_samples)
+    context.current_dataframe = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100],
+            "REF": ["A"],
+            "ALT": ["T"],
+            "GENE": ["BRCA1"],
+            "PATIENT_001": ["0/1"],
+            "CONTROL_999": ["0/0"],
+            "MOTHER_123": ["0/0"],
+        }
+    )
+
+    # Run PseudonymizationStage to verify private mapping is created and preserved
+    pseudo_stage = PseudonymizationStage()
+    pseudo_stage._process(context)
+    mapping_file = Path(context.config["pseudonymize_table"])
+    assert mapping_file.exists(), "Private mapping file must be saved"
+    mapping_content = mapping_file.read_text()
+    for orig_id in orig_samples:
+        assert orig_id in mapping_content, "Private mapping must contain original identifiers"
+
+    mapping = context.config["pseudonymization_mapping"]
+    assert mapping is not None
+
+    rows = collect_metadata_rows(context, dummy_version)
+    metadata_df = pd.DataFrame(rows, columns=["Parameter", "Value"])
+
+    # Check that NO original sample identifier appears anywhere in the metadata
+    for orig_id in orig_samples:
+        for val in metadata_df["Value"].astype(str):
+            assert orig_id not in val, f"Leaked original sample ID {orig_id} in value: {val}"
+        for param in metadata_df["Parameter"].astype(str):
+            assert orig_id not in param, f"Leaked ID {orig_id} in parameter: {param}"
+
+    # Verify that the complete lookup mapping is not stored
+    assert not any("pseudonymization_mapping" in p for p in metadata_df["Parameter"])
+    assert not any("nested_sample_info" in p for p in metadata_df["Parameter"])
+    assert not any("sample_list" in p for p in metadata_df["Parameter"])
+    assert not any("case_samples" in p for p in metadata_df["Parameter"])
+    assert not any("control_samples" in p for p in metadata_df["Parameter"])
+
+    # Verify that tumor/normal has been sanitized with pseudonymized identifiers
+    tn_row = metadata_df[metadata_df["Parameter"] == "Tumor/Normal Samples"]
+    assert not tn_row.empty
+    tn_val = tn_row.iloc[0]["Value"]
+    assert f"tumor={mapping['PATIENT_001']}" in tn_val
+    assert f"normal={mapping['CONTROL_999']}" in tn_val
+
+    # Verify that filters have been sanitized
+    filt_row = metadata_df[metadata_df["Parameter"] == "Filter"]
+    assert f"GEN[{mapping['PATIENT_001']}].GT" in filt_row.iloc[0]["Value"]
+
+    # Verify that metadata generation stage creates TSV and Excel reports without leaks
+    meta_stage = MetadataGenerationStage()
+    meta_stage._process(context)
+    meta_tsv_path = context.report_paths["metadata"]
+    assert meta_tsv_path.exists()
+    tsv_content = meta_tsv_path.read_text()
+    for orig_id in orig_samples:
+        assert orig_id not in tsv_content
+
+    # Now verify ExcelReportStage with Metadata sheet
+    out_tsv = tmp_path / "report.tsv"
+    out_tsv.write_text(
+        f"CHROM\tPOS\tREF\tALT\tGENE\t{mapping['PATIENT_001']}\t{mapping['CONTROL_999']}\t{mapping['MOTHER_123']}\n"
+        "chr1\t100\tA\tT\tBRCA1\t0/1\t0/0\t0/0\n"
+    )
+    context.final_output_path = out_tsv
+    context.config["output_file"] = str(out_tsv)
+    excel_stage = ExcelReportStage()
+    excel_stage._process(context)
+    excel_path = context.report_paths.get("excel")
+    assert excel_path is not None and excel_path.exists(), "Excel report must be generated"
+    excel_sheets = pd.read_excel(excel_path, sheet_name=None)
+    assert "Metadata" in excel_sheets, "Metadata sheet must be present in Excel report"
+    excel_meta = excel_sheets["Metadata"]
+    for orig_id in orig_samples:
+        for col in excel_meta.columns:
+            for cell in excel_meta[col].astype(str):
+                assert orig_id not in cell, f"Leaked {orig_id} in cell: {cell}"
+
+    # Verify internal config was not mutated
+    assert context.config["sample_list"] == ",".join(orig_samples)
+    assert context.config["case_samples"] == ["PATIENT_001"]
+    assert context.config["pseudonymization_mapping"] == mapping
+
+
+def test_non_pseudonymized_metadata_remains_compatible(tmp_path: Path):
+    """Verify that metadata behavior without --pseudonymize remains unchanged and compatible."""
+    workspace = Workspace(tmp_path / "work", "test")
+    config = {
+        "pseudonymize": False,
+        "vcf_file": "/data/test.vcf",
+        "sample_list": "S1,S2",
+        "vcf_samples": ["S1", "S2"],
+        "reference": "GRCh38",
+        "threads": 2,
+    }
+    context = PipelineContext(Namespace(), config, workspace)
+    context.vcf_samples = ["S1", "S2"]
+    rows = collect_metadata_rows(context, dummy_version)
+    metadata_df = pd.DataFrame(rows, columns=["Parameter", "Value"])
+
+    # In un-pseudonymized mode, config dumps are included and sample_list/vcf_samples preserved
+    params = metadata_df["Parameter"].tolist()
+    assert "config.threads" in params
+    assert "config.reference" in params
+    assert "config.sample_list" in params
+    assert "config.vcf_samples" in params
+
+
+def test_pseudonymized_metadata_with_empty_mapping(tmp_path: Path):
+    """When pseudonymize=True but mapping is empty/unavailable, identifying strings are redacted."""
+    workspace = Workspace(tmp_path / "work", "test")
+    config = {
+        "pseudonymize": True,
+        "vcf_file": "/data/PRIVATE_PATIENT_001.vcf.gz",
+        "reference": "GRCh38",
+        "filter": "SAMPLE == 'PRIVATE_001'",
+        "final_filter": "DP > 10",
+        "scoring_config_path": "/configs/scoring.json",
+        "phenotype_file": "/data/cases.tsv",
+        "stats_config": "/data/PATIENT_001/stats.json",
+    }
+    context = PipelineContext(Namespace(), config, workspace)
+    rows = collect_metadata_rows(context, dummy_version)
+    metadata_df = pd.DataFrame(rows, columns=["Parameter", "Value"]).set_index("Parameter")
+
+    assert metadata_df.loc["VCF_file", "Value"] == "<redacted>"
+    assert metadata_df.loc["Reference", "Value"] == "<redacted>"
+    assert metadata_df.loc["Filter", "Value"] == "<redacted>"
+    assert metadata_df.loc["Final Filter", "Value"] == "<redacted>"
+    assert metadata_df.loc["Scoring_config", "Value"] == "<redacted>"
+    assert metadata_df.loc["Phenotype_file", "Value"] == "<redacted>"
+    assert metadata_df.loc["config.reference", "Value"] == "<redacted>"
+    assert metadata_df.loc["config.stats_config", "Value"] == "<redacted>"

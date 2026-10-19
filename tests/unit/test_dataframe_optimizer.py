@@ -1,5 +1,6 @@
 """Unit tests for DataFrame optimizer utilities."""
 
+import csv
 import keyword
 import tempfile
 from pathlib import Path
@@ -264,6 +265,8 @@ def test_load_optimized_dataframe_basic():
 @pytest.mark.unit
 def test_load_optimized_dataframe_pyarrow_engine():
     """Test that PyArrow engine loads data correctly preserving strings and quotes."""
+    import pyarrow.csv as pv_csv
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
         f.write("CHROM\tPOS\n")
         f.write("01\t1000\n")
@@ -271,10 +274,85 @@ def test_load_optimized_dataframe_pyarrow_engine():
         temp_path = f.name
 
     try:
-        df, _rename_map = load_optimized_dataframe(temp_path, use_pyarrow=True)
+        with patch("pyarrow.csv.read_csv", wraps=pv_csv.read_csv) as spy_read_csv:
+            df, _rename_map = load_optimized_dataframe(temp_path, use_pyarrow=True)
+            spy_read_csv.assert_called()
         assert len(df) == 2
         assert df.iloc[0]["CHROM"] == "01"
         assert df.iloc[1]["CHROM"] == '"02"'
+    finally:
+        Path(temp_path).unlink()
+
+
+@pytest.mark.unit
+def test_load_optimized_dataframe_pyarrow_utf8_bom():
+    """Test that PyArrow preserves string types and leading zeros with UTF-8 BOM headers."""
+    import pyarrow.csv as pv_csv
+
+    content = "\ufeffCHROM\tPOS\n01\t000100\n"
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False, encoding="utf-8") as f:
+        f.write(content)
+        temp_path = f.name
+
+    try:
+        with patch("pyarrow.csv.read_csv", wraps=pv_csv.read_csv) as spy_read_csv:
+            df_pyarrow, _ = load_optimized_dataframe(temp_path, use_pyarrow=True)
+            spy_read_csv.assert_called()
+
+        df_c, _ = load_optimized_dataframe(temp_path, use_pyarrow=False)
+
+        assert df_pyarrow.columns.tolist() == ["CHROM", "POS"]
+        assert df_pyarrow.iloc[0]["CHROM"] == "01"
+        assert df_pyarrow.iloc[0]["POS"] == "000100"
+        assert df_pyarrow.equals(df_c)
+    finally:
+        Path(temp_path).unlink()
+
+
+@pytest.mark.unit
+def test_load_optimized_dataframe_pyarrow_quoted_headers():
+    """Test that PyArrow handles quoted headers under QUOTE_MINIMAL and preserves leading zeros."""
+    import pyarrow.csv as pv_csv
+
+    content = '"CHROM"\t"POS"\n01\t000100\n'
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False, encoding="utf-8") as f:
+        f.write(content)
+        temp_path = f.name
+
+    try:
+        with patch("pyarrow.csv.read_csv", wraps=pv_csv.read_csv) as spy_read_csv:
+            df_pyarrow, _ = load_optimized_dataframe(
+                temp_path, use_pyarrow=True, quoting=csv.QUOTE_MINIMAL
+            )
+            spy_read_csv.assert_called()
+
+        df_c, _ = load_optimized_dataframe(temp_path, use_pyarrow=False, quoting=csv.QUOTE_MINIMAL)
+
+        assert df_pyarrow.columns.tolist() == ["CHROM", "POS"]
+        assert df_pyarrow.iloc[0]["CHROM"] == "01"
+        assert df_pyarrow.iloc[0]["POS"] == "000100"
+        assert df_pyarrow.equals(df_c)
+    finally:
+        Path(temp_path).unlink()
+
+
+@pytest.mark.unit
+def test_load_optimized_dataframe_pyarrow_duplicate_headers():
+    """Test that duplicate headers fall back to C parser and deduplicate column names."""
+    content = "CHROM\tPOS\tGENE\tGENE\nchr1\t100\tBRCA1\tBRCA2\n"
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False, encoding="utf-8") as f:
+        f.write(content)
+        temp_path = f.name
+
+    try:
+        # Without sanitization: pandas C parser deduplicates to GENE, GENE.1
+        df_nosan, _ = load_optimized_dataframe(temp_path, use_pyarrow=True, sanitize_columns=False)
+        assert df_nosan.columns.tolist() == ["CHROM", "POS", "GENE", "GENE.1"]
+
+        # With sanitization: renamed to valid python identifiers GENE, GENE_1
+        df_san, _ = load_optimized_dataframe(temp_path, use_pyarrow=True, sanitize_columns=True)
+        assert df_san.columns.tolist() == ["CHROM", "POS", "GENE", "GENE_1"]
+        assert len(set(df_san.columns)) == 4
     finally:
         Path(temp_path).unlink()
 

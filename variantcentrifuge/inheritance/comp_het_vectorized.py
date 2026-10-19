@@ -124,7 +124,8 @@ def analyze_gene_for_compound_het_vectorized(
 
     # Deduplicate by genomic position to prevent false positives from
     # split-snpeff-lines creating multiple rows per variant (one per transcript)
-    gene_df_unique = gene_df.drop_duplicates(subset=["CHROM", "POS", "REF", "ALT"])
+    dedup_subset = [c for c in ["CHROM", "POS", "REF", "ALT"] if c in gene_df.columns] or None
+    gene_df_unique = gene_df.drop_duplicates(subset=dedup_subset)
     if len(gene_df_unique) < 2:
         return comp_het_results
 
@@ -138,7 +139,7 @@ def analyze_gene_for_compound_het_vectorized(
     genotype_matrix: dict[str, np.ndarray] = {}
 
     # Dedup mask (computed once, reused for gt_matrix slicing and variant_keys)
-    dedup_mask = ~gene_df.duplicated(subset=["CHROM", "POS", "REF", "ALT"])
+    dedup_mask = ~gene_df.duplicated(subset=dedup_subset)
 
     # Pre-compute or slice variant keys for deduplicated rows
     if variant_keys is not None:
@@ -426,10 +427,23 @@ def build_variant_keys_array(df: pd.DataFrame) -> np.ndarray:
     np.ndarray
         1-D object array of variant key strings.
     """
-    chrom = np.asarray(df["CHROM"].astype(str).values, dtype=object)
-    pos = np.asarray(df["POS"].astype(str).values, dtype=object)
-    ref = np.asarray(df["REF"].astype(str).values, dtype=object)
-    alt = np.asarray(df["ALT"].astype(str).values, dtype=object)
+    n = len(df)
+    chrom = np.asarray(
+        df["CHROM"].astype(str).values if "CHROM" in df.columns else ["chr?"] * n,
+        dtype=object,
+    )
+    pos = np.asarray(
+        df["POS"].astype(str).values if "POS" in df.columns else ["0"] * n,
+        dtype=object,
+    )
+    ref = np.asarray(
+        df["REF"].astype(str).values if "REF" in df.columns else ["N"] * n,
+        dtype=object,
+    )
+    alt = np.asarray(
+        df["ALT"].astype(str).values if "ALT" in df.columns else ["N"] * n,
+        dtype=object,
+    )
     return chrom + ":" + pos + ":" + ref + ">" + alt  # type: ignore[no-any-return]
 
 

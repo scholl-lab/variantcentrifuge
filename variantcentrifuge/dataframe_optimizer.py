@@ -9,12 +9,13 @@ Provides optimizations for pandas DataFrame loading and processing:
 All optimizations preserve byte-identical output.
 """
 
+import csv
 import gc
 import keyword
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -237,6 +238,7 @@ def load_optimized_dataframe(
     use_pyarrow: bool = True,
     optimize_dtypes: bool = True,
     sanitize_columns: bool = True,
+    quoting: int = csv.QUOTE_NONE,
     **extra_kwargs: Any,
 ) -> tuple[pd.DataFrame, dict[str, str]]:
     """Load CSV/TSV with all DataFrame optimizations applied.
@@ -262,6 +264,8 @@ def load_optimized_dataframe(
         Auto-detect categorical columns
     sanitize_columns : bool, default True
         Rename invalid Python identifiers
+    quoting : int, default csv.QUOTE_NONE
+        Control CSV quoting behavior (e.g. csv.QUOTE_MINIMAL for TSV artifacts with JSON)
     **extra_kwargs
         Additional arguments passed to pd.read_csv
 
@@ -292,6 +296,7 @@ def load_optimized_dataframe(
     # Step 2: Determine engine and load DataFrame
     can_use_pyarrow = (
         use_pyarrow
+        and quoting in (csv.QUOTE_NONE, csv.QUOTE_MINIMAL)
         and not (set(extra_kwargs) - {"on_bad_lines"})
         and extra_kwargs.get("on_bad_lines", "error") in ("error", "warn", "skip")
     )
@@ -308,11 +313,19 @@ def load_optimized_dataframe(
             opener = (
                 gzip.open if (compression == "gzip" or str(file_path).endswith(".gz")) else open
             )
-            with opener(file_path, "rt") as f:
-                first_line = f.readline().rstrip("\r\n")
+            with opener(file_path, "rt", encoding="utf-8", errors="replace") as f:
+                first_line = f.readline()
 
-            if first_line:
-                header_cols = first_line.split(sep)
+            header_text = first_line.lstrip("\ufeff").rstrip("\r\n")
+            if header_text:
+                if quoting != csv.QUOTE_NONE:
+                    header_cols = next(
+                        csv.reader([header_text], delimiter=sep, quoting=cast(Any, quoting))
+                    )
+                else:
+                    header_cols = header_text.split(sep)
+                if len(header_cols) != len(set(header_cols)):
+                    raise ValueError("Duplicate column headers; falling back to C parser")
                 on_bad_lines = extra_kwargs.get("on_bad_lines", "error")
 
                 def invalid_handler(row: Any) -> str:
@@ -337,11 +350,15 @@ def load_optimized_dataframe(
                 else:
                     source = pa.input_stream(str(file_path))
 
+                quote_char: str | bool = '"' if quoting == csv.QUOTE_MINIMAL else False
+                double_quote: bool = quoting == csv.QUOTE_MINIMAL
+
                 table = pv.read_csv(
                     source,
                     parse_options=pv.ParseOptions(
                         delimiter=sep,
-                        quote_char=False,
+                        quote_char=quote_char,
+                        double_quote=double_quote,
                         invalid_row_handler=invalid_handler
                         if on_bad_lines in ("warn", "skip")
                         else None,
@@ -370,7 +387,7 @@ def load_optimized_dataframe(
             "keep_default_na": False,
             "na_values": [""],
             "compression": compression,
-            "quoting": 3,
+            "quoting": quoting,
             "low_memory": False,
             **extra_kwargs,
         }

@@ -49,6 +49,8 @@ class TestDataFrameLoadingStage:
 
     def test_basic_loading(self, base_context, tmp_path):
         """Test basic DataFrame loading from TSV."""
+        import pyarrow.csv as pv_csv
+
         # Create test file
         test_file = tmp_path / "test.tsv"
         test_file.write_text("col1\tcol2\tcol3\nval1\tval2\tval3\n")
@@ -57,7 +59,9 @@ class TestDataFrameLoadingStage:
         base_context.data = test_file
 
         stage = DataFrameLoadingStage()
-        result = stage._process(base_context)
+        with patch("pyarrow.csv.read_csv", wraps=pv_csv.read_csv) as spy_read_csv:
+            result = stage._process(base_context)
+            spy_read_csv.assert_called()
 
         assert result.current_dataframe is not None
         assert isinstance(result.current_dataframe, pd.DataFrame)
@@ -111,6 +115,24 @@ class TestDataFrameLoadingStage:
         assert result.config["use_chunked_processing"] is True
         assert result.current_dataframe is None
 
+    def test_dataframe_loading_skip_restores_dataframe_pyarrow(self, base_context, tmp_path):
+        """Checkpoint skip restores DataFrame using PyArrow engine."""
+        import pyarrow.csv as pv_csv
+
+        test_file = tmp_path / "restore.tsv"
+        test_file.write_text("col1\tcol2\nval1\tval2\n")
+
+        base_context.config = {"chunk_size": None}
+        base_context.data = test_file
+
+        stage = DataFrameLoadingStage()
+        with patch("pyarrow.csv.read_csv", wraps=pv_csv.read_csv) as spy_read_csv:
+            result = stage._handle_checkpoint_skip(base_context)
+            spy_read_csv.assert_called()
+
+        assert result.current_dataframe is not None
+        assert len(result.current_dataframe) == 1
+
     def test_dataframe_loading_skip_raises_when_no_tsv_available(self, base_context):
         """Restoring dataframe_loading requires an available TSV artifact."""
         base_context.data = None
@@ -120,11 +142,15 @@ class TestDataFrameLoadingStage:
 
     def test_chunked_analysis_skip_restores_dataframe_from_artifact(self, base_context, tmp_path):
         """Chunked analysis skip restores the DataFrame from its durable artifact."""
+        import pyarrow.csv as pv_csv
+
         chunked_tsv = tmp_path / "chunked.tsv"
         chunked_tsv.write_text("GENE\tCHROM\nBRCA1\tchr1\n")
         base_context.chunked_analysis_tsv = chunked_tsv
 
-        result = ChunkedAnalysisStage()._handle_checkpoint_skip(base_context)
+        with patch("pyarrow.csv.read_csv", wraps=pv_csv.read_csv) as spy_read_csv:
+            result = ChunkedAnalysisStage()._handle_checkpoint_skip(base_context)
+            spy_read_csv.assert_called()
 
         assert result.current_dataframe is not None
         assert len(result.current_dataframe) == 1
@@ -555,6 +581,7 @@ class TestVariantAnalysisStage:
         import logging
 
         caplog.set_level(logging.DEBUG)
+        caplog.set_level(logging.DEBUG, logger="variantcentrifuge")
 
         # Setup: No inheritance requested
         base_context.config = {
