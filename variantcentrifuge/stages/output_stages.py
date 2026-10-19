@@ -82,6 +82,11 @@ class PseudonymizationStage(Stage):
         # Other stages (filtering, variant_id) are optional
         return {"dataframe_loading"}
 
+    @property
+    def soft_dependencies(self) -> set[str]:
+        """Return optional stages that should run before pseudonymization if present."""
+        return {"chunked_analysis"}
+
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply pseudonymization if requested."""
         if not context.config.get("pseudonymize"):
@@ -181,8 +186,13 @@ class ExcelReportStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of optional stage names this stage depends on."""
-        # This ensures Excel generation waits for gene burden/association analysis if running.
-        return {"gene_burden_analysis", "association_analysis"}
+        return {
+            "gene_burden_analysis",
+            "association_analysis",
+            "custom_annotation",
+            "variant_scoring",
+            "clinvar_pm5",
+        }
 
     @property
     def parallel_safe(self) -> bool:
@@ -306,27 +316,35 @@ class ExcelReportStage(Stage):
 
         # Add Gene Burden sheet
         if context.config.get("perform_gene_burden"):
-            gb_file = context.config.get("gene_burden_output")
-            if gb_file and Path(gb_file).exists() and Path(gb_file).stat().st_size > 0:
-                try:
-                    sheets["Gene Burden"] = pd.read_csv(
-                        gb_file, sep="\t", header=0, low_memory=False
-                    )
-                    logger.info("Successfully collected Gene Burden sheet")
-                except Exception as e:
-                    logger.error(f"Failed to read Gene Burden sheet: {e}")
+            if context.gene_burden_results is not None and not context.gene_burden_results.empty:
+                sheets["Gene Burden"] = context.gene_burden_results.copy()
+                logger.info("Successfully collected Gene Burden sheet from memory")
+            else:
+                gb_file = context.config.get("gene_burden_output")
+                if gb_file and Path(gb_file).exists() and Path(gb_file).stat().st_size > 0:
+                    try:
+                        sheets["Gene Burden"] = pd.read_csv(
+                            gb_file, sep="\t", header=0, low_memory=False
+                        )
+                        logger.info("Successfully collected Gene Burden sheet")
+                    except Exception as e:
+                        logger.error(f"Failed to read Gene Burden sheet: {e}")
 
         # Add Association sheet
         if context.config.get("perform_association"):
-            assoc_file = context.config.get("association_output")
-            if assoc_file and Path(assoc_file).exists() and Path(assoc_file).stat().st_size > 0:
-                try:
-                    sheets["Association"] = pd.read_csv(
-                        assoc_file, sep="\t", header=0, low_memory=False
-                    )
-                    logger.info("Successfully collected Association sheet")
-                except Exception as e:
-                    logger.error(f"Failed to read Association sheet: {e}")
+            if context.association_results is not None and not context.association_results.empty:
+                sheets["Association"] = context.association_results.copy()
+                logger.info("Successfully collected Association sheet from memory")
+            else:
+                assoc_file = context.config.get("association_output")
+                if assoc_file and Path(assoc_file).exists() and Path(assoc_file).stat().st_size > 0:
+                    try:
+                        sheets["Association"] = pd.read_csv(
+                            assoc_file, sep="\t", header=0, low_memory=False
+                        )
+                        logger.info("Successfully collected Association sheet")
+                    except Exception as e:
+                        logger.error(f"Failed to read Association sheet: {e}")
 
         return sheets
 
@@ -361,9 +379,12 @@ class HTMLReportStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
-        # HTML report should wait for IGV reports if they're being generated
-        # so that IGV links can be included in the HTML report
-        return {"igv_report"}
+        return {
+            "igv_report",
+            "custom_annotation",
+            "variant_scoring",
+            "clinvar_pm5",
+        }
 
     @property
     def parallel_safe(self) -> bool:

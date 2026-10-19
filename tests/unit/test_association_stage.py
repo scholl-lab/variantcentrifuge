@@ -121,7 +121,7 @@ class TestAssociationAnalysisStageSkipBehavior:
         assert result.association_results is None
 
     def test_skips_when_no_case_samples(self, mock_workspace, minimal_df):
-        """Stage returns context unchanged when case_samples is empty."""
+        """Stage raises ValueError when case_samples is empty and association is requested."""
         config = {
             "perform_association": True,
             "case_samples": [],
@@ -130,12 +130,11 @@ class TestAssociationAnalysisStageSkipBehavior:
         context = _make_context(config, minimal_df, mock_workspace)
 
         stage = AssociationAnalysisStage()
-        result = stage._process(context)
-
-        assert result.association_results is None
+        with pytest.raises(ValueError, match="case cohort is missing"):
+            stage._process(context)
 
     def test_skips_when_no_control_samples(self, mock_workspace, minimal_df):
-        """Stage returns context unchanged when control_samples is empty."""
+        """Stage raises ValueError when control_samples is empty and association is requested."""
         config = {
             "perform_association": True,
             "case_samples": ["CASE1"],
@@ -144,9 +143,8 @@ class TestAssociationAnalysisStageSkipBehavior:
         context = _make_context(config, minimal_df, mock_workspace)
 
         stage = AssociationAnalysisStage()
-        result = stage._process(context)
-
-        assert result.association_results is None
+        with pytest.raises(ValueError, match="control cohort is missing"):
+            stage._process(context)
 
     def test_skips_when_dataframe_is_none(self, mock_workspace):
         """Requested association fails when no DataFrame is loaded."""

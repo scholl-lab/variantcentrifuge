@@ -99,11 +99,14 @@ def normalize_annotation_config(config: dict[str, Any]) -> dict[str, Any]:
     Canonical internal keys:
     - annotate_bed_files
     - annotate_gene_lists
+    - annotate_json_genes
 
     Compatibility aliases:
     - annotate_bed
     - annotate_gene_list
     - annotate_gene_list_files
+    - annotate_json
+    - annotate_json_files
     """
     bed_files = _first_non_empty_annotation_value(
         config,
@@ -113,10 +116,16 @@ def normalize_annotation_config(config: dict[str, Any]) -> dict[str, Any]:
         config,
         ["annotate_gene_lists", "annotate_gene_list_files", "annotate_gene_list"],
     )
+    json_genes = _first_non_empty_annotation_value(
+        config,
+        ["annotate_json_genes", "annotate_json", "annotate_json_files"],
+    )
 
     config["annotate_bed_files"] = bed_files
     config["annotate_bed"] = bed_files
     config["annotate_gene_lists"] = gene_lists
     config["annotate_gene_list_files"] = gene_lists
     config["annotate_gene_list"] = gene_lists
+    config["annotate_json_genes"] = json_genes
+    config["annotate_json"] = json_genes
     return config

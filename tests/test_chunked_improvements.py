@@ -16,7 +16,6 @@ from variantcentrifuge.pipeline_core.workspace import Workspace
 from variantcentrifuge.stages.analysis_stages import (
     ChunkedAnalysisStage,
     cleanup_sample_columns,
-    handle_inheritance_analysis_error,
 )
 
 
@@ -169,20 +168,13 @@ class TestChunkedProcessingImprovements:
 
         # Mock the sample column creation to raise an exception
         with patch(
-            "variantcentrifuge.stages.analysis_stages.create_sample_columns_from_gt"
+            "variantcentrifuge.stages.chunk_helpers.create_sample_columns_from_gt_intelligent"
         ) as mock_create_columns:
-            mock_create_columns.side_effect = Exception("Test error")
+            mock_create_columns.side_effect = RuntimeError("Test error")
 
             chunked_stage = ChunkedAnalysisStage()
-            result = chunked_stage._apply_chunk_inheritance_analysis(sample_dataframe, context)
-
-            # Verify error recovery
-            assert isinstance(result, pd.DataFrame)
-            assert len(result) == len(sample_dataframe)
-            assert "Inheritance_Pattern" in result.columns
-            assert "Inheritance_Details" in result.columns
-            assert all(result["Inheritance_Pattern"] == "error")
-            assert all(result["Inheritance_Details"] == "{}")
+            with pytest.raises(RuntimeError, match="Test error"):
+                chunked_stage._apply_chunk_inheritance_analysis(sample_dataframe, context)
 
     def test_timing_tracking_functionality(
         self, sample_config, sample_dataframe, sample_pedigree, mock_args, mock_workspace
@@ -263,39 +255,33 @@ class TestChunkedProcessingImprovements:
         assert "Sample3" not in result_custom.columns
         assert "GT" in result_custom.columns
 
-    def test_error_handling_function(self):
-        """Test the unified handle_inheritance_analysis_error function."""
-        # Create test DataFrame
+    def test_error_handling_function(self, mock_args, mock_workspace):
+        """Verify inheritance analysis failures propagate rather than being swallowed."""
+        from variantcentrifuge.stages.chunk_helpers import apply_chunk_inheritance_analysis
+
         df = pd.DataFrame(
             {
                 "CHROM": ["chr1", "chr2"],
                 "POS": [100, 200],
                 "GT": ["0/1", "1/1"],
+                "GENE": ["G1", "G2"],
             }
         )
-
-        test_error = ValueError("Test error message")
-
-        # Test without details preservation
-        result = handle_inheritance_analysis_error(
-            df, test_error, preserve_details_for_scoring=False
-        )
-
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == len(df)
-        assert "Inheritance_Pattern" in result.columns
-        assert "Inheritance_Details" not in result.columns
-        assert all(result["Inheritance_Pattern"] == "error")
-
-        # Test with details preservation
-        result_with_details = handle_inheritance_analysis_error(
-            df, test_error, preserve_details_for_scoring=True
-        )
-
-        assert "Inheritance_Pattern" in result_with_details.columns
-        assert "Inheritance_Details" in result_with_details.columns
-        assert all(result_with_details["Inheritance_Pattern"] == "error")
-        assert all(result_with_details["Inheritance_Details"] == "{}")
+        context = PipelineContext(mock_args, {}, mock_workspace)
+        context.vcf_samples = ["S1"]
+        context.config["inheritance_analysis_config"] = {
+            "vcf_samples": ["S1"],
+            "pedigree_data": {},
+            "inheritance_mode": "simple",
+        }
+        with (
+            patch(
+                "variantcentrifuge.inheritance.analyzer.analyze_inheritance",
+                side_effect=RuntimeError("Injected error"),
+            ),
+            pytest.raises(RuntimeError, match="Injected error"),
+        ):
+            apply_chunk_inheritance_analysis(df, context)
 
     def test_sequential_fallback(
         self, sample_config, sample_dataframe, sample_pedigree, mock_args, mock_workspace

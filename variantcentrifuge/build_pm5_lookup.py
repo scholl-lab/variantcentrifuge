@@ -166,13 +166,13 @@ def build_pm5_lookup(
 
     # Step 3: Build lookup dict
     lookup: dict[str, list[dict[str, str]]] = defaultdict(list)
-    for _, row in result.iterrows():
-        key = f"{row['GeneSymbol']}:{row['aa_pos']}"
+    for row in result.itertuples(index=False):
+        key = f"{row.GeneSymbol}:{row.aa_pos}"
         entry = {
-            "ref_aa": row["ref_aa"],
-            "alt_aa": row["alt_aa"],
-            "clnsig": _simplify_clnsig(row["ClinicalSignificance"]),
-            "review": row["ReviewStatus"],
+            "ref_aa": row.ref_aa,
+            "alt_aa": row.alt_aa,
+            "clnsig": _simplify_clnsig(row.ClinicalSignificance),
+            "review": row.ReviewStatus,
         }
         if entry not in lookup[key]:
             lookup[key].append(entry)

@@ -8,7 +8,9 @@ Contains:
 - ArchiveCreationStage
 """
 
+import gzip
 import logging
+import shutil
 import sys
 import tarfile
 from pathlib import Path
@@ -91,18 +93,13 @@ class VariantIdentifierStage(Stage):
             import hashlib
 
             var_ids = []
-            for idx, row in enumerate(df.itertuples(index=False), 1):
-                chrom = str(getattr(row, "CHROM", ""))
-                pos = str(getattr(row, "POS", ""))
-                ref = str(getattr(row, "REF", ""))
-                alt = str(getattr(row, "ALT", ""))
-
-                combined = f"{chrom}{pos}{ref}{alt}"
-                short_hash = hashlib.md5(combined.encode("utf-8")).hexdigest()[:4]
-                var_id = f"var_{idx:04d}_{short_hash}"
-                var_ids.append(var_id)
-
-            # Insert VAR_ID as the first column
+            for idx, r in enumerate(df.itertuples(index=False), 1):
+                key = (
+                    f"{getattr(r, 'CHROM', '')}{getattr(r, 'POS', '')}"
+                    f"{getattr(r, 'REF', '')}{getattr(r, 'ALT', '')}"
+                )
+                h = hashlib.md5(key.encode("utf-8")).hexdigest()[:4]
+                var_ids.append(f"var_{idx:04d}_{h}")
             df.insert(0, id_column, var_ids)
         else:
             # Fallback to simple index
@@ -132,9 +129,6 @@ class VariantIdentifierStage(Stage):
 
     def _process_streaming(self, context: PipelineContext) -> PipelineContext:
         """Process large files in streaming mode without loading into memory."""
-        import gzip
-        from pathlib import Path
-
         input_file = Path(context.data)
         output_file = context.workspace.get_intermediate_path("with_variant_ids.tsv.gz")
         id_column = "VAR_ID"  # Default variant identifier column
@@ -184,12 +178,9 @@ class VariantIdentifierStage(Stage):
 
                 # Generate variant ID matching regular mode format
                 if use_key_fields:
-                    chrom = fields[key_indices["CHROM"]]
-                    pos = fields[key_indices["POS"]]
-                    ref = fields[key_indices["REF"]]
-                    alt = fields[key_indices["ALT"]]
-
-                    combined = f"{chrom}{pos}{ref}{alt}"
+                    combined = "".join(
+                        fields[key_indices[k]] for k in ["CHROM", "POS", "REF", "ALT"]
+                    )
                     short_hash = hashlib.md5(combined.encode("utf-8")).hexdigest()[:4]
                     var_id = f"var_{line_count:04d}_{short_hash}"
                 else:
@@ -299,6 +290,19 @@ class FinalFilteringStage(Stage):
         return context
 
 
+def _tsv_has_data_rows(tsv_path: Path | str) -> bool:
+    """Check if TSV file contains at least one data row beyond the header."""
+    open_fn = gzip.open if str(tsv_path).endswith(".gz") else open
+    try:
+        with open_fn(tsv_path, "rt", encoding="utf-8", errors="replace") as f:
+            header = f.readline()
+            if not header:
+                return False
+            return any(line.strip() for line in f)
+    except Exception:
+        return False
+
+
 class TSVOutputStage(Stage):
     """Write final TSV output file."""
 
@@ -350,19 +354,43 @@ class TSVOutputStage(Stage):
             if hasattr(context, "chunked_analysis_tsv") and context.chunked_analysis_tsv:
                 if not Path(context.chunked_analysis_tsv).exists():
                     raise RuntimeError("No data to write")
+                if context.config.get("fail_on_empty", False) and not _tsv_has_data_rows(
+                    context.chunked_analysis_tsv
+                ):
+                    logger.error("Zero variants remaining in final output (--fail-on-empty)")
+                    sys.exit(2)
                 logger.info(f"Using chunked analysis results from: {context.chunked_analysis_tsv}")
                 # Copy chunked results to final output location
                 output_file = context.config.get("output_file")
-                if output_file and output_file not in [None, "stdout", "-"]:
-                    final_output_path = Path(output_file)
-                    if not final_output_path.is_absolute():
-                        final_output_path = context.workspace.output_dir / final_output_path
-
-                    import shutil
-
+                if output_file in [None, "stdout", "-"]:
+                    open_fn = (
+                        gzip.open if str(context.chunked_analysis_tsv).endswith(".gz") else open
+                    )
+                    with open_fn(context.chunked_analysis_tsv, "rt") as f:
+                        for line in f:
+                            sys.stdout.write(line)
+                    return context
+                final_output_path = Path(output_file)
+                if not final_output_path.is_absolute():
+                    final_output_path = context.workspace.output_dir / final_output_path
+                src_gz = str(context.chunked_analysis_tsv).endswith(".gz")
+                dst_gz = str(final_output_path).endswith(".gz")
+                if src_gz == dst_gz:
                     shutil.copy2(context.chunked_analysis_tsv, final_output_path)
-                    context.final_output_path = final_output_path
-                    logger.info(f"Chunked analysis results copied to: {final_output_path}")
+                elif src_gz:
+                    with (
+                        gzip.open(context.chunked_analysis_tsv, "rb") as fi,
+                        open(final_output_path, "wb") as fo,
+                    ):
+                        shutil.copyfileobj(fi, fo)
+                else:
+                    with (
+                        open(context.chunked_analysis_tsv, "rb") as fi,
+                        gzip.open(final_output_path, "wb") as fo,
+                    ):
+                        shutil.copyfileobj(fi, fo)
+                context.final_output_path = final_output_path
+                logger.info(f"Chunked analysis results copied to: {final_output_path}")
                 return context
 
             # Fallback: Output already written during chunked processing
@@ -372,6 +400,11 @@ class TSVOutputStage(Stage):
                 output_filename = Path(output_file).name
                 context.final_output_path = context.workspace.output_dir / output_filename
                 logger.info(f"Chunked processing output: {context.final_output_path}")
+                if context.config.get("fail_on_empty", False) and not _tsv_has_data_rows(
+                    context.final_output_path
+                ):
+                    logger.error("Zero variants remaining in final output (--fail-on-empty)")
+                    sys.exit(2)
                 return context
             raise RuntimeError("No data to write")
 
@@ -430,23 +463,17 @@ class TSVOutputStage(Stage):
             # Get link configurations from config
             link_configs = resolve_links(context.config)
             if link_configs:
-                # Convert DataFrame to lines, add links, then convert back
-                # First, save to lines format
-                lines = []
-                # Header
-                lines.append("\t".join(df.columns))
-                # Data rows
-                for row in df.itertuples(index=False):
-                    # Convert namedtuple to values list (skip Index if present)
-                    lines.append("\t".join(str(val) for val in row))
-
-                # Add links
-                lines_with_links = add_links_to_table(lines, link_configs)
-
-                # Convert back to DataFrame
                 import io
 
-                df = pd.read_csv(io.StringIO("\n".join(lines_with_links)), sep="\t", dtype=str)
+                lines = ["\t".join(df.columns)]
+                lines.extend(
+                    "\t".join(str(val) for val in row) for row in df.itertuples(index=False)
+                )
+                df = pd.read_csv(
+                    io.StringIO("\n".join(add_links_to_table(lines, link_configs))),
+                    sep="\t",
+                    dtype=str,
+                )
 
         # Drop internal cache columns before output
         cache_cols = [c for c in df.columns if c.startswith("_")]
@@ -529,68 +556,4 @@ class ArchiveCreationStage(Stage):
         return context
 
 
-def _collect_metadata_rows(context: PipelineContext, get_version_fn: Any) -> list[tuple[str, Any]]:
-    """Build (Parameter, Value) tuples for MetadataGenerationStage."""
-    import hashlib
-
-    cfg = context.config
-    raw_preset = cfg.get("preset", "")
-    preset_str = (
-        ", ".join(str(p) for p in raw_preset)
-        if isinstance(raw_preset, list | tuple | set)
-        else str(raw_preset or "")
-    )
-    samples = context.vcf_samples or []
-
-    def _sample_lbl(name_key: str, idx_key: str) -> str:
-        if cfg.get(name_key):
-            return str(cfg[name_key])
-        idx = cfg.get(idx_key)
-        return (
-            samples[int(str(idx))]
-            if idx not in (None, "") and str(idx).isdigit() and int(str(idx)) < len(samples)
-            else ""
-        )
-
-    t_lbl, n_lbl = (
-        _sample_lbl("tumor_sample", "tumor_sample_index"),
-        _sample_lbl("normal_sample", "normal_sample_index"),
-    )
-    tn_str = f"tumor={t_lbl or 'N/A'}, normal={n_lbl or 'N/A'}" if (t_lbl or n_lbl) else ""
-    tx_file = cfg.get("transcript_file", "")
-    tx_md5 = (
-        f"{tx_file} ({hashlib.md5(Path(tx_file).read_bytes()).hexdigest()})"
-        if tx_file and Path(tx_file).is_file()
-        else ""
-    )
-    rows: list[tuple[str, Any]] = [
-        ("Tool", "variantcentrifuge"),
-        ("Version", cfg.get("pipeline_version", "0.5.0")),
-        ("Git SHA", cfg.get("git_sha") or get_version_fn("git")),
-        ("Run_start_time", context.start_time.isoformat()),
-        ("Run_duration_seconds", f"{context.get_execution_time():.1f}"),
-        ("VCF_file", cfg.get("vcf_file", "")),
-        ("Gene_name", cfg.get("normalized_genes", "")),
-        ("Gene_file", cfg.get("gene_file", "")),
-        ("Phenotype_file", cfg.get("phenotype_file", "")),
-        ("Pedigree_file", cfg.get("ped_file", "")),
-        ("Transcript File (MD5)", tx_md5),
-        ("Reference", cfg.get("reference", "")),
-        ("Filter", cfg.get("filters") or cfg.get("filter", "")),
-        ("Preset", preset_str),
-        ("Final Filter", cfg.get("final_filter", "") or ""),
-        ("Tumor/Normal Samples", tn_str),
-        ("Threads", cfg.get("threads", "")),
-        ("Inheritance_mode", cfg.get("inheritance_mode", "")),
-        ("Scoring_config", cfg.get("scoring_config_path", "")),
-    ]
-    rows.extend((f"config.{k}", str(v)) for k, v in cfg.items() if v is not None)
-    rows.extend(
-        [
-            ("tool.bcftools_version", get_version_fn("bcftools")),
-            ("tool.snpeff_version", get_version_fn("snpEff")),
-            ("tool.snpsift_version", get_version_fn("SnpSift")),
-            ("tool.bedtools_version", get_version_fn("bedtools")),
-        ]
-    )
-    return rows
+from .metadata_helpers import collect_metadata_rows as _collect_metadata_rows  # noqa: F401

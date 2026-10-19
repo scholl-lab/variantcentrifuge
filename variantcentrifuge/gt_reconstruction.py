@@ -8,6 +8,7 @@ per-sample GEN columns before materializing final TSV/Excel outputs.
 import contextlib
 import logging
 import re
+from typing import Any
 
 import pandas as pd
 
@@ -68,6 +69,7 @@ def reconstruct_gt_column(
     pd.DataFrame
         DataFrame with reconstructed GT column, per-sample columns dropped
     """
+    df = df.copy(deep=False)
     gt_cols = _find_per_sample_gt_columns(df)
     if not gt_cols:
         logger.warning("No per-sample GT columns found for reconstruction")
@@ -100,48 +102,74 @@ def reconstruct_gt_column(
     skip_values = set() if extra_fields else {"0/0", "0|0"}
     missing_sentinels = {"NA", "", "nan", "None"}
 
-    # Extract GT values as a 2D array for fast access
-    gt_data = df[gt_cols[:n_samples]].values  # shape: (n_rows, n_samples)
+    batch_size = 2048
+    n_rows = len(df)
+    sample_cols = gt_cols[:n_samples]
     sample_ids = [
         sample_mapping.get(s, s) if sample_mapping else s for s in vcf_samples[:n_samples]
     ]
 
-    gt_strings = []
-    for row_idx in range(len(df)):
-        entries = []
+    extra_field_cols: list[tuple[int, str, str]] = []
+    if extra_fields:
         for col_idx in range(n_samples):
-            val = gt_data[row_idx, col_idx]
-            is_na = val is None
-            if not is_na:
-                with contextlib.suppress(TypeError, ValueError):
-                    is_na = bool(pd.isna(val))
-            if is_na:
-                gt_str = "./."
-            else:
-                gt_str = str(val).strip()
-                if gt_str in missing_sentinels:
+            for ef in extra_fields:
+                ecol = s_cols.get((col_idx, ef))
+                if ecol and ecol in df.columns:
+                    extra_field_cols.append((col_idx, ef, ecol))
+
+    gt_strings: list[str] = []
+    for start in range(0, n_rows, batch_size):
+        end = min(start + batch_size, n_rows)
+        batch_slice = df.iloc[start:end]
+        batch_gt = batch_slice[sample_cols].values
+        batch_extra: dict[str, Any] = {}
+        if extra_field_cols:
+            for _, _, ecol in extra_field_cols:
+                if ecol not in batch_extra:
+                    batch_extra[ecol] = batch_slice[ecol].values
+
+        batch_len = end - start
+        for r_idx in range(batch_len):
+            entries = []
+            for col_idx in range(n_samples):
+                val = batch_gt[r_idx, col_idx]
+                is_na = val is None
+                if not is_na:
+                    with contextlib.suppress(TypeError, ValueError):
+                        is_na = bool(pd.isna(val))
+                if is_na:
                     gt_str = "./."
-            if gt_str in skip_values:
-                continue
-            if extra_fields:
-                vals = [
-                    ""
-                    if (ecol := s_cols.get((col_idx, ef))) is None
-                    or (rv := df[ecol].iat[row_idx]) is None
-                    or (not isinstance(rv, str) and pd.isna(rv))
-                    else str(rv).strip()
-                    for ef in extra_fields
-                ]
-                entries.append(f"{sample_ids[col_idx]}({delimiter.join([gt_str, *vals])})")
-            else:
-                entries.append(f"{sample_ids[col_idx]}({gt_str})")
-        gt_strings.append(";".join(entries))
+                else:
+                    gt_str = str(val).strip()
+                    if gt_str in missing_sentinels:
+                        gt_str = "./."
+                if gt_str in skip_values:
+                    continue
+                if extra_fields:
+                    vals = []
+                    for ef in extra_fields:
+                        ecol = s_cols.get((col_idx, ef))
+                        if ecol is not None and ecol in batch_extra:
+                            rv = batch_extra[ecol][r_idx]
+                            vals.append(
+                                ""
+                                if rv is None or (not isinstance(rv, str) and pd.isna(rv))
+                                else str(rv).strip()
+                            )
+                        else:
+                            vals.append("")
+                    entries.append(f"{sample_ids[col_idx]}({delimiter.join([gt_str, *vals])})")
+                else:
+                    entries.append(f"{sample_ids[col_idx]}({gt_str})")
+            gt_strings.append(";".join(entries))
 
     df["GT"] = gt_strings
 
     # Drop per-sample GT and requested extra GEN columns
     extra_cols = [col for (_, f), col in s_cols.items() if f in extra_fields]
-    df = df.drop(columns=gt_cols + extra_cols)
+    for col in gt_cols + extra_cols:
+        if col in df.columns:
+            del df[col]
     logger.info(f"Dropped {len(gt_cols)} per-sample GT columns from output")
 
     return df

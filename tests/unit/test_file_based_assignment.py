@@ -140,11 +140,8 @@ class TestFileBasedAssignment:
         context.mark_complete("sample_config_loading")
 
         stage = PhenotypeCaseControlAssignmentStage()
-        result = stage(context)
-
-        # Should return original context without modifications
-        assert "case_samples" not in result.config
-        assert "control_samples" not in result.config
+        with pytest.raises((FileNotFoundError, OSError)):
+            stage(context)
 
     def test_file_based_assignment_empty_file(self, context):
         """Test file-based assignment with empty file."""

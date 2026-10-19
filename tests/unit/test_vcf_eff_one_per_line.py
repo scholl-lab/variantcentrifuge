@@ -1,6 +1,10 @@
+import gzip
 import logging
 
-from variantcentrifuge.vcf_eff_one_per_line import split_vcf_effects
+from variantcentrifuge.vcf_eff_one_per_line import (
+    restrict_vcf_ann_to_alt,
+    split_vcf_effects,
+)
 
 
 def _info_map(vcf_line: str) -> dict[str, str | None]:
@@ -294,3 +298,179 @@ def test_bcftools_norm_decomposed_rows_prune_shared_ann_and_extract_matching_all
     assert parsed_unann.loc[0, "ANN[0].IMPACT"] == "NA"
     assert parsed_unann.loc[1, "ANN[0].GENE"] == "KCNJ5"
     assert parsed_unann.loc[1, "ANN[0].IMPACT"] == "HIGH"
+
+
+def test_restrict_vcf_ann_streams_without_readlines(tmp_path, monkeypatch):
+    """Verify that restrict_vcf_ann_to_alt works when readlines() is explicitly disabled."""
+    from variantcentrifuge.vcf_eff_one_per_line import restrict_vcf_ann_to_alt
+
+    vcf_file = tmp_path / "test.vcf"
+    raw_content = (
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"
+        "chr1\t100\t.\tC\tA\t.\tPASS\tANN=G|stop_gained|HIGH|KCNJ5|ENSG1|transcript|ENST1|protein_coding||||||||\tGT\t0/1\n"
+    )
+    vcf_file.write_text(raw_content)
+
+    import builtins
+
+    orig_open = builtins.open
+
+    class NoReadlinesFile:
+        def __init__(self, path, mode="r", **kwargs):
+            self._f = orig_open(path, mode, **kwargs)
+
+        def __iter__(self):
+            return iter(self._f)
+
+        def readlines(self):
+            raise AssertionError("readlines() must not be called when streaming records!")
+
+        def read(self, *args, **kwargs):
+            return self._f.read(*args, **kwargs)
+
+        def write(self, *args, **kwargs):
+            return self._f.write(*args, **kwargs)
+
+        def close(self):
+            self._f.close()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            self._f.close()
+
+    monkeypatch.setattr("builtins.open", NoReadlinesFile)
+
+    changed = restrict_vcf_ann_to_alt(str(vcf_file))
+    assert changed is True
+    content = vcf_file.read_text()
+    assert "ANN=" not in content
+
+
+def test_restrict_vcf_ann_preserves_unchanged_file_and_indexes(tmp_path):
+    """Verify unchanged inputs do not alter the file or its index timestamps."""
+    import time
+
+    from variantcentrifuge.vcf_eff_one_per_line import restrict_vcf_ann_to_alt
+
+    vcf_file = tmp_path / "unchanged.vcf"
+    raw_content = (
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "chr1\t100\t.\tC\tA\t.\tPASS\tAC=1\n"
+    )
+    vcf_file.write_text(raw_content)
+    idx_file = tmp_path / "unchanged.vcf.csi"
+    idx_file.write_text("dummy_index")
+
+    orig_vcf_mtime = vcf_file.stat().st_mtime
+    orig_idx_mtime = idx_file.stat().st_mtime
+
+    time.sleep(0.01)
+    changed = restrict_vcf_ann_to_alt(str(vcf_file))
+    assert changed is False
+    assert vcf_file.exists()
+    assert idx_file.exists()
+    assert vcf_file.stat().st_mtime == orig_vcf_mtime
+    assert idx_file.stat().st_mtime == orig_idx_mtime
+
+
+def test_restrict_vcf_ann_preserves_original_file_on_write_failure(tmp_path, monkeypatch):
+    """Verify failed writes leave the original file and indexes untouched."""
+    from variantcentrifuge.vcf_eff_one_per_line import restrict_vcf_ann_to_alt
+
+    vcf_file = tmp_path / "fail.vcf"
+    raw_content = (
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "chr1\t100\t.\tC\tA\t.\tPASS\tANN=G|stop_gained|HIGH|KCNJ5|ENSG1|transcript|ENST1|protein_coding||||||||\n"
+    )
+    vcf_file.write_text(raw_content)
+    idx_file = tmp_path / "fail.vcf.tbi"
+    idx_file.write_text("dummy_tbi")
+
+    def boom(*args, **kwargs):
+        raise OSError("Disk full simulation")
+
+    monkeypatch.setattr("os.replace", boom)
+
+    import pytest
+
+    with pytest.raises(OSError, match="Disk full simulation"):
+        restrict_vcf_ann_to_alt(str(vcf_file))
+
+    assert vcf_file.read_text() == raw_content
+    assert idx_file.exists()
+
+
+def test_restrict_vcf_ann_gz_streaming_without_readlines(tmp_path, monkeypatch):
+    """Verify that restrict_vcf_ann_to_alt streams .vcf.gz without calling readlines()."""
+    vcf_file = tmp_path / "test.vcf.gz"
+    raw_content = (
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"
+        "chr1\t100\t.\tC\tA\t.\tPASS\tANN=G|stop_gained|HIGH|KCNJ5|ENSG1|transcript|ENST1|protein_coding||||||||\tGT\t0/1\n"
+    )
+    with gzip.open(vcf_file, "wt") as f:
+        f.write(raw_content)
+
+    orig_gzip_open = gzip.open
+
+    class NoReadlinesGzipFile:
+        def __init__(self, *args, **kwargs):
+            self._f = orig_gzip_open(*args, **kwargs)
+
+        def __iter__(self):
+            return iter(self._f)
+
+        def readlines(self):
+            raise AssertionError("readlines() must not be called when streaming .vcf.gz records!")
+
+        def read(self, *args, **kwargs):
+            return self._f.read(*args, **kwargs)
+
+        def write(self, *args, **kwargs):
+            return self._f.write(*args, **kwargs)
+
+        def close(self):
+            self._f.close()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            self._f.close()
+
+    monkeypatch.setattr("gzip.open", NoReadlinesGzipFile)
+
+    changed = restrict_vcf_ann_to_alt(str(vcf_file))
+    assert changed is True
+    with orig_gzip_open(vcf_file, "rt") as f:
+        content = f.read()
+    assert "ANN=" not in content
+
+
+def test_restrict_vcf_ann_preserves_file_permissions(tmp_path):
+    """Verify that restrict_vcf_ann_to_alt retains strict file permissions (e.g. 0o600)."""
+    import os
+    import stat
+
+    vcf_file = tmp_path / "secure.vcf"
+    raw_content = (
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"
+        "chr1\t100\t.\tC\tA\t.\tPASS\tANN=G|stop_gained|HIGH|KCNJ5|ENSG1|transcript|ENST1|protein_coding||||||||\tGT\t0/1\n"
+    )
+    vcf_file.write_text(raw_content)
+    os.chmod(vcf_file, 0o600)
+
+    initial_mode = stat.S_IMODE(os.stat(vcf_file).st_mode)
+    assert initial_mode == 0o600
+
+    changed = restrict_vcf_ann_to_alt(str(vcf_file))
+    assert changed is True
+
+    final_mode = stat.S_IMODE(os.stat(vcf_file).st_mode)
+    assert final_mode == 0o600

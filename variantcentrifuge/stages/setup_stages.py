@@ -9,11 +9,16 @@ import logging
 import os
 
 from ..config import load_config, normalize_annotation_config
-from ..helpers import get_vcf_samples
-from ..ped_reader import read_pedigree
 from ..phenotype import load_phenotypes
 from ..pipeline_core import PipelineContext, Stage
 from ..scoring import read_scoring_config
+from .phenotype_case_control_stages import PhenotypeCaseControlAssignmentStage
+from .sample_and_pedigree_stages import (
+    PedigreeLoadingStage,
+    SampleConfigLoadingStage,
+    get_vcf_samples,
+    read_pedigree,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -394,85 +399,6 @@ class ScoringConfigLoadingStage(Stage):
         return context
 
 
-class PedigreeLoadingStage(Stage):
-    """Load pedigree data from PED file."""
-
-    @property
-    def name(self) -> str:
-        """Return the stage name."""
-        return "pedigree_loading"
-
-    @property
-    def checkpoint_resume_policy(self) -> str:
-        """Pedigree data can be restored by the checkpoint skip handler."""
-        return "restore"
-
-    @property
-    def description(self) -> str:
-        """Return a description of what this stage does."""
-        return "Load pedigree data"
-
-    @property
-    def parallel_safe(self) -> bool:
-        """Return whether this stage can run in parallel with others."""
-        return True
-
-    def _process(self, context: PipelineContext) -> PipelineContext:
-        """Load pedigree data if provided."""
-        ped_file = context.config.get("ped_file") or context.config.get("ped")
-
-        if ped_file:
-            logger.info(f"Loading pedigree from {ped_file}")
-
-            try:
-                pedigree_data = read_pedigree(ped_file)
-                context.pedigree_data = pedigree_data
-
-                # Log pedigree summary
-                n_samples = len(pedigree_data)
-                n_affected = sum(
-                    1 for s in pedigree_data.values() if s.get("affected_status") == "2"
-                )
-                logger.info(f"Loaded pedigree with {n_samples} samples ({n_affected} affected)")
-            except Exception as e:
-                raise ValueError(f"Failed to load pedigree file: {e}") from e
-        else:
-            logger.debug("No pedigree file specified")
-
-        return context
-
-    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
-        """Handle the case where this stage is skipped by checkpoint system.
-
-        Since this is the pedigree loading stage, we need to restore pedigree data
-        that would have been loaded during normal execution.
-        """
-        ped_file = context.config.get("ped_file") or context.config.get("ped")
-
-        if ped_file:
-            logger.debug(f"Restoring pedigree from {ped_file} (checkpoint skip)")
-
-            try:
-                pedigree_data = read_pedigree(ped_file)
-                context.pedigree_data = pedigree_data
-
-                # Log pedigree summary
-                n_samples = len(pedigree_data)
-                n_affected = sum(
-                    1 for s in pedigree_data.values() if s.get("affected_status") == "2"
-                )
-                logger.debug(
-                    f"Restored pedigree with {n_samples} samples ({n_affected} affected) "
-                    f"(checkpoint skip)"
-                )
-            except Exception as e:
-                raise ValueError(f"Failed to restore pedigree file: {e}") from e
-        else:
-            logger.debug("No pedigree file specified during checkpoint skip")
-
-        return context
-
-
 class AnnotationConfigLoadingStage(Stage):
     """Load custom annotation configurations (BED files, gene lists, JSON)."""
 
@@ -496,10 +422,25 @@ class AnnotationConfigLoadingStage(Stage):
         """Return whether this stage can run in parallel with others."""
         return True
 
+    def _sync_args_to_config(self, context: PipelineContext) -> None:
+        """Sync annotation CLI arguments into context.config if not already present."""
+        if hasattr(context, "args") and context.args:
+            keys = [
+                "annotate_bed",
+                "annotate_gene_list",
+                "annotate_json",
+                "annotate_json_genes",
+            ]
+            for key in keys:
+                val = getattr(context.args, key, None)
+                if val:
+                    context.config.setdefault(key, val)
+        normalize_annotation_config(context.config)
+
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Load all annotation configurations."""
         annotations = {}
-        normalize_annotation_config(context.config)
+        self._sync_args_to_config(context)
 
         # Load BED file annotations
         bed_files = context.config.get("annotate_bed_files", [])
@@ -520,9 +461,12 @@ class AnnotationConfigLoadingStage(Stage):
         # Load JSON gene annotations
         json_genes = context.config.get("annotate_json_genes")
         json_mapping = context.config.get("json_gene_mapping")
-        if json_genes and json_mapping:
+        if json_genes:
+            if isinstance(json_genes, str):
+                json_genes = [json_genes]
             annotations["json_genes"] = json_genes
-            annotations["json_mapping"] = json_mapping
+            if json_mapping:
+                annotations["json_mapping"] = json_mapping
             logger.info(f"Configured JSON gene annotations from {json_genes}")
 
         if annotations:
@@ -537,7 +481,7 @@ class AnnotationConfigLoadingStage(Stage):
         configurations that would have been loaded during normal execution.
         """
         annotations = {}
-        normalize_annotation_config(context.config)
+        self._sync_args_to_config(context)
 
         # Restore BED file annotations
         bed_files = context.config.get("annotate_bed_files", [])
@@ -558,9 +502,12 @@ class AnnotationConfigLoadingStage(Stage):
         # Restore JSON gene annotations
         json_genes = context.config.get("annotate_json_genes")
         json_mapping = context.config.get("json_gene_mapping")
-        if json_genes and json_mapping:
+        if json_genes:
+            if isinstance(json_genes, str):
+                json_genes = [json_genes]
             annotations["json_genes"] = json_genes
-            annotations["json_mapping"] = json_mapping
+            if json_mapping:
+                annotations["json_mapping"] = json_mapping
             logger.debug(f"Restored JSON gene annotations from {json_genes} (checkpoint skip)")
 
         if annotations:
@@ -573,774 +520,15 @@ class AnnotationConfigLoadingStage(Stage):
         return context
 
 
-class SampleConfigLoadingStage(Stage):
-    """Load sample configurations and VCF sample names."""
-
-    @property
-    def name(self) -> str:
-        """Return the stage name."""
-        return "sample_config_loading"
-
-    @property
-    def checkpoint_resume_policy(self) -> str:
-        """Sample configuration can be restored by the checkpoint skip handler."""
-        return "restore"
-
-    @property
-    def description(self) -> str:
-        """Return a description of what this stage does."""
-        return "Load sample configurations"
-
-    @property
-    def parallel_safe(self) -> bool:
-        """Return whether this stage can run in parallel with others."""
-        return True
-
-    @property
-    def dependencies(self) -> set:
-        """Return the set of stage names this stage depends on."""
-        # Needs config to know VCF file path
-        return {"configuration_loading"}
-
-    def _process(self, context: PipelineContext) -> PipelineContext:
-        """Load VCF samples and any sample-specific configurations."""
-        vcf_file = context.config.get("vcf_file")
-
-        if not vcf_file:
-            raise ValueError("No VCF file specified in configuration")
-
-        # Get VCF samples
-        logger.info(f"Reading sample names from {vcf_file}")
-        vcf_samples = get_vcf_samples(vcf_file)
-
-        # Apply sample substring removal if configured
-        remove_substring = context.config.get("remove_sample_substring")
-        if remove_substring and remove_substring.strip():
-            logger.info(f"Removing substring '{remove_substring}' from sample names")
-            original_samples = vcf_samples[:]  # Create a copy for logging
-            vcf_samples = [s.replace(remove_substring, "") for s in vcf_samples]
-
-            # Log changes for debugging
-            changes = []
-            for orig, new in zip(original_samples, vcf_samples, strict=False):
-                if orig != new:
-                    changes.append(f"{orig} -> {new}")
-
-            if changes:
-                logger.info(f"Applied substring removal to {len(changes)} samples")
-                logger.debug(f"Sample name changes: {changes[:5]}...")  # Log first 5 changes
-            else:
-                logger.info(f"No samples contained substring '{remove_substring}'")
-
-        context.vcf_samples = vcf_samples
-        logger.info(f"Found {len(vcf_samples)} samples in VCF")
-
-        # CRITICAL: Set sample_list in config for downstream analysis
-        # This is required by analyze_variants.py for case/control assignment
-        context.config["sample_list"] = ",".join(vcf_samples)
-        logger.debug(f"Set sample_list config with {len(vcf_samples)} processed sample names")
-
-        # Load case/control sample lists if provided via files
-        case_samples_file = context.config.get("case_samples_file")
-        control_samples_file = context.config.get("control_samples_file")
-
-        logger.debug(f"Case samples file from config: {case_samples_file}")
-        logger.debug(f"Control samples file from config: {control_samples_file}")
-
-        if case_samples_file:
-            logger.debug(f"Loading case samples from file: {case_samples_file}")
-            with open(case_samples_file) as f:
-                case_samples = [line.strip() for line in f if line.strip()]
-            context.config["case_samples"] = case_samples
-            logger.info(f"Loaded {len(case_samples)} case samples from file")
-            logger.debug(f"Case samples: {case_samples[:10]}...")  # Log first 10 for debugging
-        else:
-            logger.debug("No case samples file provided")
-
-        if control_samples_file:
-            logger.debug(f"Loading control samples from file: {control_samples_file}")
-            with open(control_samples_file) as f:
-                control_samples = [line.strip() for line in f if line.strip()]
-            context.config["control_samples"] = control_samples
-            logger.info(f"Loaded {len(control_samples)} control samples from file")
-            logger.debug(
-                f"Control samples: {control_samples[:10]}..."
-            )  # Log first 10 for debugging
-        else:
-            logger.debug("No control samples file provided")
-
-        # CRUCIAL: Handle automatic control assignment when only case samples are provided
-        case_samples = context.config.get("case_samples", [])
-        control_samples = context.config.get("control_samples", [])
-
-        if case_samples and not control_samples:
-            # Automatically assign all non-case samples as controls
-            case_samples_set = set(case_samples)
-            vcf_samples_set = set(vcf_samples)
-            auto_control_samples = list(vcf_samples_set - case_samples_set)
-            context.config["control_samples"] = auto_control_samples
-            logger.info(
-                f"Automatically assigned {len(auto_control_samples)} control samples "
-                f"(all non-case samples)"
-            )
-            logger.debug(f"Auto control samples: {auto_control_samples[:10]}...")
-        elif control_samples and not case_samples:
-            # Automatically assign all non-control samples as cases
-            control_samples_set = set(control_samples)
-            vcf_samples_set = set(vcf_samples)
-            auto_case_samples = list(vcf_samples_set - control_samples_set)
-            context.config["case_samples"] = auto_case_samples
-            logger.info(
-                f"Automatically assigned {len(auto_case_samples)} case samples "
-                f"(all non-control samples)"
-            )
-            logger.debug(f"Auto case samples: {auto_case_samples[:10]}...")
-
-        # If no explicit sample files provided but phenotype information exists,
-        # we need to derive case/control assignments from phenotypes after phenotype loading
-        # This will be handled in a separate stage after phenotype data is loaded
-        if not case_samples_file and not control_samples_file:
-            # Check if we have phenotype-based assignment criteria
-            case_phenotypes = context.config.get("case_phenotypes", [])
-            control_phenotypes = context.config.get("control_phenotypes", [])
-            phenotype_file = context.config.get("phenotype_file")
-
-            if (case_phenotypes or control_phenotypes) and phenotype_file:
-                logger.info(
-                    "Phenotype-based case/control assignment will be performed "
-                    "after phenotype loading"
-                )
-            elif not (context.config.get("case_samples") or context.config.get("control_samples")):
-                logger.debug(
-                    "No explicit case/control assignment specified - "
-                    "will use all samples as controls"
-                )
-
-        return context
-
-    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
-        """Handle the case where this stage is skipped by checkpoint system.
-
-        When this stage is skipped, we need to restore VCF samples and case/control
-        assignments that would have been loaded during normal execution.
-        """
-        vcf_file = context.config.get("vcf_file")
-
-        if not vcf_file:
-            raise ValueError("No VCF file specified in configuration during checkpoint skip")
-
-        # Restore VCF samples
-        logger.debug(f"Restoring VCF samples from {vcf_file} (checkpoint skip)")
-        vcf_samples = get_vcf_samples(vcf_file)
-
-        # Apply sample substring removal if configured
-        remove_substring = context.config.get("remove_sample_substring")
-        if remove_substring and remove_substring.strip():
-            logger.debug(f"Applying substring removal '{remove_substring}' during checkpoint skip")
-            vcf_samples = [s.replace(remove_substring, "") for s in vcf_samples]
-
-        context.vcf_samples = vcf_samples
-
-        # CRITICAL: Set sample_list in config for downstream analysis
-        context.config["sample_list"] = ",".join(vcf_samples)
-
-        # Restore case/control sample lists if provided via files
-        case_samples_file = context.config.get("case_samples_file")
-        control_samples_file = context.config.get("control_samples_file")
-
-        if case_samples_file and os.path.exists(case_samples_file):
-            with open(case_samples_file) as f:
-                case_samples = [line.strip() for line in f if line.strip()]
-            context.config["case_samples"] = case_samples
-            logger.debug(f"Restored {len(case_samples)} case samples from file (checkpoint skip)")
-
-        if control_samples_file and os.path.exists(control_samples_file):
-            with open(control_samples_file) as f:
-                control_samples = [line.strip() for line in f if line.strip()]
-            context.config["control_samples"] = control_samples
-            logger.debug(
-                f"Restored {len(control_samples)} control samples from file (checkpoint skip)"
-            )
-
-        # Handle automatic control assignment
-        case_samples = context.config.get("case_samples", [])
-        control_samples = context.config.get("control_samples", [])
-
-        if case_samples and not control_samples:
-            case_samples_set = set(case_samples)
-            vcf_samples_set = set(vcf_samples)
-            auto_control_samples = list(vcf_samples_set - case_samples_set)
-            context.config["control_samples"] = auto_control_samples
-            logger.debug(
-                f"Auto-assigned {len(auto_control_samples)} control samples (checkpoint skip)"
-            )
-        elif control_samples and not case_samples:
-            control_samples_set = set(control_samples)
-            vcf_samples_set = set(vcf_samples)
-            auto_case_samples = list(vcf_samples_set - control_samples_set)
-            context.config["case_samples"] = auto_case_samples
-            logger.debug(f"Auto-assigned {len(auto_case_samples)} case samples (checkpoint skip)")
-
-        logger.info(
-            f"Restored {len(vcf_samples)} VCF samples and case/control assignments "
-            f"(checkpoint skip)"
-        )
-        return context
-
-
-class PhenotypeCaseControlAssignmentStage(Stage):
-    """Assign case/control samples based on phenotype data when no explicit files provided."""
-
-    @property
-    def name(self) -> str:
-        """Return the stage name."""
-        return "phenotype_case_control_assignment"
-
-    @property
-    def checkpoint_resume_policy(self) -> str:
-        """Case/control assignment can be restored by the checkpoint skip handler."""
-        return "restore"
-
-    @property
-    def description(self) -> str:
-        """Return a description of what this stage does."""
-        return "Assign case/control samples based on phenotype data"
-
-    @property
-    def parallel_safe(self) -> bool:
-        """Return whether this stage can run in parallel with others."""
-        return True
-
-    @property
-    def dependencies(self) -> set:
-        """Return the set of stage names this stage depends on."""
-        return {"phenotype_loading", "sample_config_loading"}
-
-    def _process(self, context: PipelineContext) -> PipelineContext:
-        """Assign case/control samples based on phenotype data if no explicit assignments exist."""
-        # Check if case/control samples are already explicitly assigned.
-        # Use `or []` to handle None values (CLI sets case_samples=None when
-        # --case-samples is not used, but --case-samples-file may still load them
-        # via SampleConfigLoadingStage).
-        existing_case_samples = context.config.get("case_samples") or []
-        existing_control_samples = context.config.get("control_samples") or []
-        case_samples_file = context.config.get("case_samples_file")
-        control_samples_file = context.config.get("control_samples_file")
-
-        # Skip if case/control samples are already assigned (by SampleConfigLoadingStage
-        # or by explicit --case-samples CLI argument)
-        if existing_case_samples or existing_control_samples:
-            logger.info(
-                "Case/control samples already assigned (%d cases, %d controls), "
-                "skipping re-assignment",
-                len(existing_case_samples),
-                len(existing_control_samples),
-            )
-            return context
-
-        # Get phenotype criteria - these should already be parsed as lists
-        case_phenotypes = context.config.get("case_phenotypes", [])
-        control_phenotypes = context.config.get("control_phenotypes", [])
-
-        # If they're still strings, parse them here
-        if isinstance(case_phenotypes, str):
-            case_phenotypes = [t.strip() for t in case_phenotypes.split(",") if t.strip()]
-        if isinstance(control_phenotypes, str):
-            control_phenotypes = [t.strip() for t in control_phenotypes.split(",") if t.strip()]
-
-        # Check for file-based case/control assignment first
-        case_samples_file = context.config.get("case_samples_file")
-        control_samples_file = context.config.get("control_samples_file")
-
-        if case_samples_file or control_samples_file:
-            logger.info("File-based case/control assignment detected")
-            result = self._handle_file_based_assignment(
-                context, case_samples_file, control_samples_file
-            )
-            return result  # type: ignore[no-any-return]
-
-        # Skip if no phenotype criteria
-        if not case_phenotypes and not control_phenotypes:
-            logger.debug("No phenotype criteria specified, skipping case/control assignment")
-            return context
-
-        # Get VCF samples
-        vcf_samples = getattr(context, "vcf_samples", [])
-        if not vcf_samples:
-            logger.warning("No VCF samples found, cannot perform phenotype-based assignment")
-            return context
-
-        # Get phenotype file parameters
-        phenotype_file = context.config.get("phenotype_file")
-        phenotype_sample_column = context.config.get("phenotype_sample_column")
-        phenotype_value_column = context.config.get("phenotype_value_column")
-
-        logger.debug(f"All config keys: {sorted(context.config.keys())}")
-        logger.debug(f"Phenotype file: {phenotype_file}")
-        logger.debug(f"Sample column: {phenotype_sample_column}")
-        logger.debug(f"Value column: {phenotype_value_column}")
-        logger.debug(f"Case phenotypes: {case_phenotypes}")
-        logger.debug(f"Control phenotypes: {control_phenotypes}")
-
-        if not phenotype_file or not phenotype_sample_column or not phenotype_value_column:
-            logger.warning(
-                "Missing phenotype file parameters, cannot perform phenotype-based assignment"
-            )
-            logger.warning(
-                f"phenotype_file={phenotype_file}, "
-                f"sample_column={phenotype_sample_column}, "
-                f"value_column={phenotype_value_column}"
-            )
-            return context
-
-        # Simple logic: load CSV and filter by phenotype terms to get sample lists
-        try:
-            remove_substring = context.config.get("remove_sample_substring", "")
-            case_samples, control_samples = self._compute_samples_from_phenotype_file(
-                phenotype_file,
-                phenotype_sample_column,
-                phenotype_value_column,
-                case_phenotypes,
-                control_phenotypes,
-                vcf_samples,
-                remove_substring,
-                context,
-            )
-
-            # Update configuration with classified samples
-            context.config["case_samples"] = case_samples
-            context.config["control_samples"] = control_samples
-
-            logger.info(
-                f"Phenotype-based assignment complete: {len(case_samples)} cases, "
-                f"{len(control_samples)} controls"
-            )
-
-            if case_phenotypes and len(case_samples) == 0:
-                logger.warning("No samples matched the specified case phenotypes")
-            if control_phenotypes and len(control_samples) == 0:
-                logger.warning("No samples matched the specified control phenotypes")
-
-            # Log sample assignment summary
-            logger.debug(f"Case samples (first 10): {case_samples[:10]}")
-            logger.debug(f"Control samples (first 10): {control_samples[:10]}")
-
-        except Exception as e:
-            logger.error(f"Failed to perform phenotype-based assignment: {e}")
-            return context
-
-        return context
-
-    def _compute_samples_from_phenotype_file(
-        self,
-        phenotype_file: str,
-        sample_column: str,
-        value_column: str,
-        case_phenotypes: list[str],
-        control_phenotypes: list[str],
-        vcf_samples: list[str],
-        remove_substring: str = "",
-        context: PipelineContext | None = None,
-    ) -> tuple[list[str], list[str]]:
-        """
-        Load CSV, filter by phenotype terms, get sample lists.
-
-        As user requested: filter the phenotype-value-column by the phenotype list,
-        get the phenotype-sample-column by group and deduplicate -> sample list.
-        """
-        import pandas as pd
-
-        logger.info(f"Loading phenotype file: {phenotype_file}")
-
-        # Determine delimiter
-        if phenotype_file.endswith(".csv"):
-            df = pd.read_csv(phenotype_file, low_memory=False)
-        else:
-            df = pd.read_csv(phenotype_file, sep="\t", low_memory=False)
-
-        logger.info(f"Loaded {len(df)} rows from phenotype file")
-        logger.debug(f"Columns: {list(df.columns)}")
-
-        # Check required columns exist
-        if sample_column not in df.columns:
-            raise ValueError(f"Sample column '{sample_column}' not found in phenotype file")
-        if value_column not in df.columns:
-            raise ValueError(f"Value column '{value_column}' not found in phenotype file")
-
-        # Convert to sets for efficient matching
-        case_phenotype_set = set(case_phenotypes) if case_phenotypes else set()
-        control_phenotype_set = set(control_phenotypes) if control_phenotypes else set()
-        # Convert VCF samples to strings for consistent comparison
-        # vcf_samples_set = set(str(s) for s in vcf_samples)  # Currently unused
-
-        logger.info(f"Looking for case phenotypes: {case_phenotype_set}")
-        logger.info(f"Looking for control phenotypes: {control_phenotype_set}")
-
-        # Debug: show sample matching process
-        logger.debug(f"First 5 phenotype file samples: {df[sample_column].unique()[:5].tolist()}")
-        logger.debug(f"First 5 VCF samples: {vcf_samples[:5]}")
-
-        # Convert sample IDs to strings for consistent comparison
-        # VCF samples are strings, but phenotype file samples might be integers
-        vcf_samples_str = {str(s) for s in vcf_samples}
-
-        # CRITICAL FIX: Apply same substring removal to VCF samples as case/control samples
-        if remove_substring and remove_substring.strip():
-            vcf_samples_str = {s.replace(remove_substring, "") for s in vcf_samples_str}
-            logger.debug(f"Applied substring removal '{remove_substring}' to VCF samples")
-
-        pheno_samples_raw = {str(s) for s in df[sample_column].unique()}
-
-        # Apply sample substring removal to phenotype samples if configured
-        # This is necessary because VCF samples have already been processed
-        if remove_substring and remove_substring.strip():
-            logger.debug(
-                f"Applying substring removal '{remove_substring}' to phenotype samples for matching"
-            )
-            pheno_samples_str = {s.replace(remove_substring, "") for s in pheno_samples_raw}
-        else:
-            pheno_samples_str = pheno_samples_raw
-
-        # Check if there are any VCF samples in the phenotype file
-        vcf_in_pheno = vcf_samples_str & pheno_samples_str
-        logger.debug(f"{len(vcf_in_pheno)} VCF samples found in phenotype file")
-        if vcf_in_pheno:
-            logger.debug(f"Example matching samples: {list(vcf_in_pheno)[:5]}")
-
-        # Show some phenotype values being searched for
-        unique_phenotypes = set(df[value_column].unique())
-        logger.debug(f"Found {len(unique_phenotypes)} unique phenotypes in file")
-        logger.debug(f"Example phenotypes: {list(unique_phenotypes)[:10]}")
-
-        # Check for exact matches with case phenotypes
-        case_matches = case_phenotype_set & unique_phenotypes
-        logger.debug(f"{len(case_matches)} case phenotypes found in file: {case_matches}")
-
-        # Find samples that match case phenotypes
-        case_samples = set()
-        if case_phenotype_set:
-            case_mask = df[value_column].isin(case_phenotype_set)
-            case_rows = df[case_mask]
-            # Convert to strings for consistent comparison
-            case_samples_raw = {str(s) for s in case_rows[sample_column].unique()}
-            # Apply substring removal if configured
-            if remove_substring and remove_substring.strip():
-                case_samples = {s.replace(remove_substring, "") for s in case_samples_raw}
-            else:
-                case_samples = case_samples_raw
-            logger.info(f"Found {len(case_samples)} samples matching case phenotypes")
-
-        # Find samples that match control phenotypes
-        control_samples = set()
-        if control_phenotype_set:
-            control_mask = df[value_column].isin(control_phenotype_set)
-            control_rows = df[control_mask]
-            # Convert to strings for consistent comparison
-            control_samples_raw = {str(s) for s in control_rows[sample_column].unique()}
-            # Apply substring removal if configured
-            if remove_substring and remove_substring.strip():
-                control_samples = {s.replace(remove_substring, "") for s in control_samples_raw}
-            else:
-                control_samples = control_samples_raw
-            logger.info(f"Found {len(control_samples)} samples matching control phenotypes")
-
-        # DEBUG: Show the actual sample formats to diagnose mismatch
-        logger.debug("DEBUGGING SAMPLE ASSIGNMENT:")
-        logger.debug(f"Case samples format: {list(case_samples)[:3] if case_samples else 'None'}")
-        logger.debug(f"VCF samples format: {list(vcf_samples_str)[:3]}")
-        logger.debug(f"Configured remove_substring: '{remove_substring}'")
-        if context:
-            direct_config = context.config.get("remove_sample_substring")
-            logger.debug(f"Direct config remove_sample_substring: '{direct_config}'")
-        else:
-            direct_config = None
-            logger.debug("No context available to check direct config")
-
-        # Debug: show what we're intersecting
-        logger.debug(f"VCF samples (processed): {len(vcf_samples_str)} samples")
-        logger.debug(f"Case samples from phenotypes: {len(case_samples)} samples")
-        logger.debug(f"First 5 VCF samples: {list(vcf_samples_str)[:5]}")
-        logger.debug(f"First 5 case samples: {list(case_samples)[:5]}")
-
-        # Debug intersection issue
-        intersection = case_samples & vcf_samples_str
-        logger.debug(f"Intersection of case samples with VCF samples: {len(intersection)} samples")
-        if len(intersection) > 0:
-            logger.debug(f"First 5 intersecting samples: {list(intersection)[:5]}")
-        else:
-            logger.warning("NO INTERSECTION between case samples and VCF samples!")
-            # Show sample name comparison
-            case_sample_list = list(case_samples)[:10]
-            vcf_sample_list = list(vcf_samples_str)[:10]
-            logger.warning(f"Example case samples: {case_sample_list}")
-            logger.warning(f"Example VCF samples: {vcf_sample_list}")
-
-        # Apply assignment logic using the correct VCF samples set (with substring removal applied)
-        if case_phenotype_set and not control_phenotype_set:
-            # Only case phenotypes specified - all non-matching VCF samples are controls
-            final_case_samples = case_samples & vcf_samples_str
-            final_control_samples = vcf_samples_str - final_case_samples
-        elif control_phenotype_set and not case_phenotype_set:
-            # Only control phenotypes specified - all non-matching VCF samples are cases
-            final_control_samples = control_samples & vcf_samples_str
-            final_case_samples = vcf_samples_str - final_control_samples
-        else:
-            # Both specified - exact matching only
-            final_case_samples = case_samples & vcf_samples_str
-            final_control_samples = control_samples & vcf_samples_str
-        logger.info(
-            f"Final assignment: {len(final_case_samples)} cases, "
-            f"{len(final_control_samples)} controls"
-        )
-        return list(final_case_samples), list(final_control_samples)
-
-    def _classify_samples_by_phenotypes(
-        self,
-        vcf_samples: list[str],
-        phenotype_data: dict[str, set[str]],
-        case_phenotypes: list[str],
-        control_phenotypes: list[str],
-    ) -> tuple[set[str], set[str]]:
-        """Classify samples based on phenotype data."""
-        logger.info(
-            f"Performing phenotype-based case/control assignment for {len(vcf_samples)} VCF samples"
-        )
-        logger.info(
-            f"Using {len(case_phenotypes)} case phenotypes and "
-            f"{len(control_phenotypes)} control phenotypes"
-        )
-        logger.debug(f"Case phenotypes: {case_phenotypes}")
-        logger.debug(f"Control phenotypes: {control_phenotypes}")
-        classified_cases = set()
-        classified_controls = set()
-
-        for sample in vcf_samples:
-            sample_phenotypes = phenotype_data.get(sample, set())
-
-            # Check if sample matches case or control phenotypes
-            matches_case = (
-                any(pheno in sample_phenotypes for pheno in case_phenotypes)
-                if case_phenotypes
-                else False
-            )
-            matches_control = (
-                any(pheno in sample_phenotypes for pheno in control_phenotypes)
-                if control_phenotypes
-                else False
-            )
-
-            if case_phenotypes and not control_phenotypes:
-                # Only case phenotypes specified - all non-matching samples are controls
-                if matches_case:
-                    classified_cases.add(sample)
-                else:
-                    classified_controls.add(sample)
-            elif control_phenotypes and not case_phenotypes:
-                # Only control phenotypes specified - all non-matching samples are cases
-                if matches_control:
-                    classified_controls.add(sample)
-                else:
-                    classified_cases.add(sample)
-            else:
-                # Both case and control phenotypes specified
-                if matches_case and not matches_control:
-                    classified_cases.add(sample)
-                elif matches_control and not matches_case:
-                    classified_controls.add(sample)
-                # Samples matching both or neither are not classified
-
-        return classified_cases, classified_controls
-
-    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
-        """Handle the case where this stage is skipped by checkpoint system.
-
-        Since this stage performs phenotype-based case/control assignment, we need to
-        restore or re-compute the assignments that would have been made during normal execution.
-        """
-        # Check if case/control samples are already explicitly assigned in config
-        existing_case_samples = context.config.get("case_samples", [])
-        existing_control_samples = context.config.get("control_samples", [])
-        case_samples_file = context.config.get("case_samples_file")
-        control_samples_file = context.config.get("control_samples_file")
-
-        # If explicit assignments exist, we don't need to do anything
-        if (
-            existing_case_samples
-            or existing_control_samples
-            or case_samples_file
-            or control_samples_file
-        ):
-            logger.debug(
-                "Explicit case/control assignments exist, no restoration needed (checkpoint skip)"
-            )
-            return context
-
-        # Get phenotype criteria - these should already be parsed as lists
-        case_phenotypes = context.config.get("case_phenotypes", [])
-        control_phenotypes = context.config.get("control_phenotypes", [])
-
-        # If no phenotype criteria, no assignment was done
-        if not case_phenotypes and not control_phenotypes:
-            logger.debug("No phenotype criteria specified, no restoration needed (checkpoint skip)")
-            return context
-
-        # Get VCF samples
-        vcf_samples = getattr(context, "vcf_samples", [])
-        if not vcf_samples:
-            raise ValueError(
-                "No VCF samples found, cannot restore phenotype-based assignment (checkpoint skip)"
-            )
-
-        # Get phenotype file parameters
-        phenotype_file = context.config.get("phenotype_file")
-        phenotype_sample_column = context.config.get("phenotype_sample_column")
-        phenotype_value_column = context.config.get("phenotype_value_column")
-
-        if not phenotype_file or not phenotype_sample_column or not phenotype_value_column:
-            raise ValueError(
-                "Missing phenotype file parameters, cannot restore phenotype-based assignment "
-                "(checkpoint skip)"
-            )
-
-        # Re-compute phenotype-based assignments
-        try:
-            remove_substring = context.config.get("remove_sample_substring", "")
-            case_samples, control_samples = self._compute_samples_from_phenotype_file(
-                phenotype_file,
-                phenotype_sample_column,
-                phenotype_value_column,
-                case_phenotypes,
-                control_phenotypes,
-                vcf_samples,
-                remove_substring,
-                context,
-            )
-
-            # Update configuration with classified samples
-            context.config["case_samples"] = case_samples
-            context.config["control_samples"] = control_samples
-
-            logger.debug(
-                f"Restored phenotype-based assignment: {len(case_samples)} cases, "
-                f"{len(control_samples)} controls (checkpoint skip)"
-            )
-
-        except Exception as e:
-            raise ValueError(
-                f"Failed to restore phenotype-based assignment during checkpoint skip: {e}"
-            ) from e
-
-        return context
-
-    def _handle_file_based_assignment(
-        self,
-        context: PipelineContext,
-        case_samples_file: str | None,
-        control_samples_file: str | None,
-    ) -> PipelineContext:
-        """Handle file-based case/control assignment."""
-        logger.info("Processing file-based case/control assignment")
-        # Get VCF samples
-        vcf_samples = getattr(context, "vcf_samples", [])
-        if not vcf_samples:
-            logger.warning("No VCF samples found, cannot perform file-based assignment")
-            return context
-        vcf_samples_set = set(vcf_samples)
-        case_samples = set()
-        control_samples = set()
-
-        # Load case samples from file
-        if case_samples_file:
-            logger.info(f"Loading case samples from: {case_samples_file}")
-            try:
-                with open(case_samples_file) as f:
-                    for line in f:
-                        sample = line.strip()
-                        if sample:
-                            case_samples.add(sample)
-                logger.info(f"Loaded {len(case_samples)} case samples from file")
-            except Exception as e:
-                logger.error(f"Failed to load case samples from {case_samples_file}: {e}")
-                return context
-
-        # Load control samples from file
-        if control_samples_file:
-            logger.info(f"Loading control samples from: {control_samples_file}")
-            try:
-                with open(control_samples_file) as f:
-                    for line in f:
-                        sample = line.strip()
-                        if sample:
-                            control_samples.add(sample)
-                logger.info(f"Loaded {len(control_samples)} control samples from file")
-            except Exception as e:
-                logger.error(f"Failed to load control samples from {control_samples_file}: {e}")
-                return context
-
-        # Apply substring removal if configured (same as VCF samples)
-        remove_substring = context.config.get("remove_sample_substring", "")
-        if remove_substring and remove_substring.strip():
-            logger.info(f"Applying substring removal '{remove_substring}' to case/control samples")
-            case_samples = {s.replace(remove_substring, "") for s in case_samples}
-            control_samples = {s.replace(remove_substring, "") for s in control_samples}
-
-        # Find intersection with VCF samples
-        case_in_vcf = case_samples & vcf_samples_set
-        control_in_vcf = control_samples & vcf_samples_set
-
-        logger.info(f"Case samples in VCF: {len(case_in_vcf)} out of {len(case_samples)}")
-        logger.info(f"Control samples in VCF: {len(control_in_vcf)} out of {len(control_samples)}")
-
-        # Warn about samples not found in VCF
-        missing_cases = case_samples - vcf_samples_set
-        missing_controls = control_samples - vcf_samples_set
-
-        if missing_cases:
-            logger.warning(
-                f"{len(missing_cases)} case samples not found in VCF: {list(missing_cases)[:10]}"
-            )
-        if missing_controls:
-            logger.warning(
-                f"{len(missing_controls)} control samples not found in VCF: "
-                f"{list(missing_controls)[:10]}"
-            )
-
-        # Assignment logic: if only one type is specified, others become the opposite
-        if case_samples_file and not control_samples_file:
-            # Only case file provided - all non-case VCF samples become controls
-            final_case_samples = case_in_vcf
-            final_control_samples = vcf_samples_set - final_case_samples
-        elif control_samples_file and not case_samples_file:
-            # Only control file provided - all non-control VCF samples become cases
-            final_control_samples = control_in_vcf
-            final_case_samples = vcf_samples_set - final_control_samples
-        else:
-            # Both files provided - use intersection
-            final_case_samples = case_in_vcf
-            final_control_samples = control_in_vcf
-
-        # Guard: do not overwrite existing assignments with empty results.
-        # This can happen when VCF samples haven't been fully parsed yet
-        # or when sample name formats don't match between file and VCF.
-        if not final_case_samples and not final_control_samples:
-            logger.warning(
-                "File-based assignment produced 0 cases and 0 controls "
-                "(no sample names matched VCF samples). "
-                "Preserving any previously loaded case/control assignments."
-            )
-            return context
-
-        # Update configuration with classified samples
-        context.config["case_samples"] = list(final_case_samples)
-        context.config["control_samples"] = list(final_control_samples)
-
-        logger.info(
-            f"File-based assignment complete: {len(final_case_samples)} cases, "
-            f"{len(final_control_samples)} controls"
-        )
-
-        # Log sample assignment summary
-        logger.debug(f"Case samples (first 10): {list(final_case_samples)[:10]}")
-        logger.debug(f"Control samples (first 10): {list(final_control_samples)[:10]}")
-
-        return context
+__all__ = [
+    "AnnotationConfigLoadingStage",
+    "ConfigurationLoadingStage",
+    "PedigreeLoadingStage",
+    "PhenotypeCaseControlAssignmentStage",
+    "PhenotypeLoadingStage",
+    "SampleConfigLoadingStage",
+    "ScoringConfigLoadingStage",
+    "get_vcf_samples",
+    "load_terms_from_file",
+    "read_pedigree",
+]

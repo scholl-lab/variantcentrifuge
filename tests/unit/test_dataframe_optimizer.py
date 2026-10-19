@@ -1,5 +1,6 @@
 """Unit tests for DataFrame optimizer utilities."""
 
+import csv
 import keyword
 import tempfile
 from pathlib import Path
@@ -263,22 +264,95 @@ def test_load_optimized_dataframe_basic():
 
 @pytest.mark.unit
 def test_load_optimized_dataframe_pyarrow_engine():
-    """Test that PyArrow engine is used when possible."""
+    """Test that PyArrow engine loads data correctly preserving strings and quotes."""
+    import pyarrow.csv as pv_csv
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
         f.write("CHROM\tPOS\n")
-        f.write("chr1\t1000\n")
+        f.write("01\t1000\n")
+        f.write('"02"\t2000\n')
         temp_path = f.name
 
     try:
-        # Mock pd.read_csv to verify engine parameter
-        with patch("variantcentrifuge.dataframe_optimizer.pd.read_csv") as mock_read_csv:
-            mock_read_csv.return_value = pd.DataFrame({"CHROM": ["chr1"], "POS": ["1000"]})
+        with patch("pyarrow.csv.read_csv", wraps=pv_csv.read_csv) as spy_read_csv:
+            df, _rename_map = load_optimized_dataframe(temp_path, use_pyarrow=True)
+            spy_read_csv.assert_called()
+        assert len(df) == 2
+        assert df.iloc[0]["CHROM"] == "01"
+        assert df.iloc[1]["CHROM"] == '"02"'
+    finally:
+        Path(temp_path).unlink()
 
-            _df, _rename_map = load_optimized_dataframe(temp_path, use_pyarrow=True)
 
-            # Verify PyArrow engine was used
-            call_kwargs = mock_read_csv.call_args[1]
-            assert call_kwargs.get("engine") == "pyarrow"
+@pytest.mark.unit
+def test_load_optimized_dataframe_pyarrow_utf8_bom():
+    """Test that PyArrow preserves string types and leading zeros with UTF-8 BOM headers."""
+    import pyarrow.csv as pv_csv
+
+    content = "\ufeffCHROM\tPOS\n01\t000100\n"
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False, encoding="utf-8") as f:
+        f.write(content)
+        temp_path = f.name
+
+    try:
+        with patch("pyarrow.csv.read_csv", wraps=pv_csv.read_csv) as spy_read_csv:
+            df_pyarrow, _ = load_optimized_dataframe(temp_path, use_pyarrow=True)
+            spy_read_csv.assert_called()
+
+        df_c, _ = load_optimized_dataframe(temp_path, use_pyarrow=False)
+
+        assert df_pyarrow.columns.tolist() == ["CHROM", "POS"]
+        assert df_pyarrow.iloc[0]["CHROM"] == "01"
+        assert df_pyarrow.iloc[0]["POS"] == "000100"
+        assert df_pyarrow.equals(df_c)
+    finally:
+        Path(temp_path).unlink()
+
+
+@pytest.mark.unit
+def test_load_optimized_dataframe_pyarrow_quoted_headers():
+    """Test that PyArrow handles quoted headers under QUOTE_MINIMAL and preserves leading zeros."""
+    import pyarrow.csv as pv_csv
+
+    content = '"CHROM"\t"POS"\n01\t000100\n'
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False, encoding="utf-8") as f:
+        f.write(content)
+        temp_path = f.name
+
+    try:
+        with patch("pyarrow.csv.read_csv", wraps=pv_csv.read_csv) as spy_read_csv:
+            df_pyarrow, _ = load_optimized_dataframe(
+                temp_path, use_pyarrow=True, quoting=csv.QUOTE_MINIMAL
+            )
+            spy_read_csv.assert_called()
+
+        df_c, _ = load_optimized_dataframe(temp_path, use_pyarrow=False, quoting=csv.QUOTE_MINIMAL)
+
+        assert df_pyarrow.columns.tolist() == ["CHROM", "POS"]
+        assert df_pyarrow.iloc[0]["CHROM"] == "01"
+        assert df_pyarrow.iloc[0]["POS"] == "000100"
+        assert df_pyarrow.equals(df_c)
+    finally:
+        Path(temp_path).unlink()
+
+
+@pytest.mark.unit
+def test_load_optimized_dataframe_pyarrow_duplicate_headers():
+    """Test that duplicate headers fall back to C parser and deduplicate column names."""
+    content = "CHROM\tPOS\tGENE\tGENE\nchr1\t100\tBRCA1\tBRCA2\n"
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False, encoding="utf-8") as f:
+        f.write(content)
+        temp_path = f.name
+
+    try:
+        # Without sanitization: pandas C parser deduplicates to GENE, GENE.1
+        df_nosan, _ = load_optimized_dataframe(temp_path, use_pyarrow=True, sanitize_columns=False)
+        assert df_nosan.columns.tolist() == ["CHROM", "POS", "GENE", "GENE.1"]
+
+        # With sanitization: renamed to valid python identifiers GENE, GENE_1
+        df_san, _ = load_optimized_dataframe(temp_path, use_pyarrow=True, sanitize_columns=True)
+        assert df_san.columns.tolist() == ["CHROM", "POS", "GENE", "GENE_1"]
+        assert len(set(df_san.columns)) == 4
     finally:
         Path(temp_path).unlink()
 
@@ -292,19 +366,56 @@ def test_load_optimized_dataframe_pyarrow_fallback():
         temp_path = f.name
 
     try:
-        # Mock pd.read_csv to verify engine parameter
         with patch("variantcentrifuge.dataframe_optimizer.pd.read_csv") as mock_read_csv:
             mock_read_csv.return_value = pd.DataFrame({"CHROM": ["chr1"], "POS": ["1000"]})
 
-            # Pass unsupported param
+            # Pass unsupported param like converters
             _df, _rename_map = load_optimized_dataframe(
-                temp_path, use_pyarrow=True, on_bad_lines="warn"
+                temp_path, use_pyarrow=True, converters={"POS": int}
             )
 
-            # Verify PyArrow was NOT used (unsupported param)
             call_kwargs = mock_read_csv.call_args[1]
             assert call_kwargs.get("engine") != "pyarrow"
-            assert call_kwargs.get("low_memory") is False  # C engine fallback
+            assert call_kwargs.get("low_memory") is False
+    finally:
+        Path(temp_path).unlink()
+
+
+@pytest.mark.unit
+def test_load_optimized_dataframe_pyarrow_on_bad_lines_warn():
+    """Test PyArrow on_bad_lines='warn' skips extra field row with warning."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
+        f.write("CHROM\tPOS\n")
+        f.write("chr1\t1000\n")
+        f.write("chr1\t2000\textra\n")
+        f.write("chr1\t3000\n")
+        temp_path = f.name
+
+    try:
+        with pytest.warns(pd.errors.ParserWarning):
+            df, _rename_map = load_optimized_dataframe(
+                temp_path, use_pyarrow=True, on_bad_lines="warn"
+            )
+        assert len(df) == 2
+        assert list(df["POS"]) == ["1000", "3000"]
+    finally:
+        Path(temp_path).unlink()
+
+
+@pytest.mark.unit
+def test_load_optimized_dataframe_pyarrow_short_row_fallback():
+    """Test short row falls back to C engine and is handled gracefully."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
+        f.write("CHROM\tPOS\n")
+        f.write("chr1\t1000\n")
+        f.write("chr1\n")
+        temp_path = f.name
+
+    try:
+        df, _rename_map = load_optimized_dataframe(temp_path, use_pyarrow=True, on_bad_lines="warn")
+        assert len(df) == 2
+        assert df.iloc[0]["POS"] == "1000"
+        assert pd.isna(df.iloc[1]["POS"])
     finally:
         Path(temp_path).unlink()
 
@@ -421,3 +532,74 @@ def test_load_optimized_dataframe_preserves_data():
         assert df_opt["GEN_0__GT"].tolist() == df_plain["GEN[0].GT"].tolist()
     finally:
         Path(temp_path).unlink()
+
+
+@pytest.mark.unit
+def test_load_optimized_dataframe_null_preservation(tmp_path: Path):
+    """Verify PyArrow preserves missing fields as np.nan without converting them to 'None'."""
+    import numpy as np
+
+    tsv_file = tmp_path / "null_test.tsv"
+    tsv_file.write_text('CHROM\tPOS\n01\t\n"02"\t2000\n')
+
+    df, _ = load_optimized_dataframe(tsv_file, use_pyarrow=True, sanitize_columns=False)
+    assert len(df) == 2
+    assert pd.isna(df["POS"].iloc[0])
+    assert np.isnan(df["POS"].iloc[0])
+    assert df["POS"].iloc[0] is not None or np.isnan(df["POS"].iloc[0])
+    assert df["POS"].iloc[0] != "None"
+    assert df["POS"].iloc[0] != "nan"
+    assert df["POS"].iloc[1] == "2000"
+    assert df["CHROM"].iloc[1] == '"02"'
+
+
+@pytest.mark.unit
+def test_load_optimized_dataframe_header_only(tmp_path: Path):
+    """Verify PyArrow handles header-only TSV correctly."""
+    tsv_file = tmp_path / "header_only.tsv"
+    tsv_file.write_text("CHROM\tPOS\tREF\tALT\n")
+
+    df, _ = load_optimized_dataframe(tsv_file, use_pyarrow=True)
+    assert len(df) == 0
+    assert list(df.columns) == ["CHROM", "POS", "REF", "ALT"]
+
+
+@pytest.mark.unit
+def test_load_optimized_dataframe_unsupported_kwargs_fallback(tmp_path: Path):
+    """Unsupported kwargs such as skiprows must fall back to pandas C engine."""
+    tsv_file = tmp_path / "skiprows_test.tsv"
+    tsv_file.write_text("CHROM\tPOS\nchr1\t100\nchr2\t200\nchr3\t300\n")
+
+    # skiprows=[1] is not supported by PyArrow branch, must fall back to pd.read_csv
+    df, _ = load_optimized_dataframe(tsv_file, use_pyarrow=True, skiprows=[1])
+    assert len(df) == 2
+    assert df["CHROM"].tolist() == ["chr2", "chr3"]
+
+
+@pytest.mark.unit
+def test_load_optimized_dataframe_categorical_with_missing(tmp_path: Path):
+    """Categorical column optimization retains np.nan without literal 'None'."""
+    tsv_file = tmp_path / "cat_test.tsv"
+    lines = ["CHROM\tEFFECT\n"]
+    for i in range(100):
+        val = "" if i % 10 == 0 else f"missense_{i % 3}"
+        lines.append(f"chr1\t{val}\n")
+    tsv_file.write_text("".join(lines))
+
+    df, _ = load_optimized_dataframe(tsv_file, use_pyarrow=True, optimize_dtypes=True)
+    assert "EFFECT" in df.columns
+    assert str(df["EFFECT"].dtype) == "category"
+    assert pd.isna(df["EFFECT"].iloc[0])
+    assert "None" not in df["EFFECT"].cat.categories
+
+
+@pytest.mark.unit
+def test_load_optimized_dataframe_invalid_on_bad_lines_fallback(tmp_path: Path):
+    """Invalid on_bad_lines value triggers fallback to pd.read_csv."""
+    tsv_file = tmp_path / "bad_lines.tsv"
+    tsv_file.write_text("CHROM\tPOS\nchr1\t100\n")
+
+    # on_bad_lines="not_a_valid_mode" should not crash in PyArrow,
+    # falls back to pd.read_csv (which handles or raises)
+    with pytest.raises(ValueError):
+        load_optimized_dataframe(tsv_file, use_pyarrow=True, on_bad_lines="not_a_valid_mode")
