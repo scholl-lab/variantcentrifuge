@@ -133,3 +133,35 @@ def test_variant_extraction_stage_runs_consequence_guard(tmp_path: Path) -> None
     stage = VariantExtractionStage()
     with pytest.raises(Exception, match="--split-snpeff-lines before_filters"):
         stage._process(ctx)
+
+
+def test_gene_bed_creation_stage_runs_consequence_guard(tmp_path: Path) -> None:
+    """Verify GeneBedCreationStage enforces consequence guard before bed creation."""
+    from variantcentrifuge.stages.bed_stages import GeneBedCreationStage
+
+    config = {
+        "perform_gene_burden": True,
+        "filter": "(ANN[ANY].IMPACT has 'HIGH')",
+        "snpeff_splitting_mode": None,
+        "gene_name": "BRCA1",
+    }
+    ctx = _make_context(config, tmp_path)
+    stage = GeneBedCreationStage()
+    with pytest.raises(Exception, match="--split-snpeff-lines before_filters"):
+        stage._process(ctx)
+
+
+def test_configuration_loading_stage_runs_consequence_guard(tmp_path: Path) -> None:
+    """Verify ConfigurationLoadingStage enforces consequence guard during config loading."""
+    from variantcentrifuge.stages.setup_stages import ConfigurationLoadingStage
+
+    config = {
+        "perform_gene_burden": True,
+        "filter": "(ANN[ANY].IMPACT has 'HIGH')",
+        "snpeff_splitting_mode": None,
+    }
+    ctx = _make_context(config, tmp_path)
+    ctx.args = Namespace(**config)
+    stage = ConfigurationLoadingStage()
+    with pytest.raises(ValueError, match="--split-snpeff-lines before_filters"):
+        stage._process(ctx)

@@ -213,18 +213,18 @@ class ParallelCompleteProcessingStage(Stage):
                 "max_memory_gb": shared_memory_gb,
             }
 
-        if shared_memory_gb < 4:
-            total_snpsift_gb = max(1, int(shared_memory_gb))
-        else:
-            total_snpsift_gb = max(2, int(shared_memory_gb * 0.5))
+        total_snpsift_gb = int(shared_memory_gb * 0.5)
+        if total_snpsift_gb < 2:
+            raise ValueError(
+                f"Memory budget ({shared_memory_gb} GiB) is too small to accommodate the "
+                "2 GiB minimum SnpSift heap plus non-heap headroom (at least 4 GiB required)."
+            )
 
         desired_workers = min(num_chunks, max(1, total_threads))
         max_workers_by_mem = max(1, total_snpsift_gb // 2)
         active_workers = max(1, min(desired_workers, max_workers_by_mem))
 
-        snpsift_memory_gb = max(
-            1, min(16, total_snpsift_gb // active_workers, int(shared_memory_gb))
-        )
+        snpsift_memory_gb = max(2, min(16, total_snpsift_gb // active_workers))
         threads_per_worker = max(1, total_threads // active_workers)
 
         return {
@@ -426,8 +426,9 @@ class ParallelCompleteProcessingStage(Stage):
                 "filter": context.config.get("filter"),
                 "filters": context.config.get("filters"),
                 "filter_exception_file": context.config.get("filter_exception_file"),
-                "append_extra_sample_fields": context.config.get(
-                    "append_extra_sample_fields", False
+                "fields_to_extract": eff_fields,
+                "append_extra_sample_fields": bool(
+                    context.config.get("append_extra_sample_fields")
                 ),
                 "extra_sample_fields": context.config.get("extra_sample_fields", []),
                 "extract_fields_separator": context.config.get("extract_fields_separator", ","),

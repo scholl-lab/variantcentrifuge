@@ -44,7 +44,7 @@ def test_empty_and_populated_extraction_identical_headers(tmp_path: Path) -> Non
     _write_minimal_vcf(empty_vcf, has_variants=False)
     _write_minimal_vcf(pop_vcf, has_variants=True)
 
-    fields = "CHROM POS REF ALT ANN[0].GENE ANN[0].EFFECT NMD[0].PERC GEN[*].GT"
+    fields = "CHROM POS ANN[0].GENE NMD[0].GENE GEN[*].GT GEN[*].DP"
     empty_tsv = tmp_path / "empty.tsv"
     pop_tsv = tmp_path / "pop.tsv"
 
@@ -54,8 +54,8 @@ def test_empty_and_populated_extraction_identical_headers(tmp_path: Path) -> Non
         if stdout and "pop.vcf" in variant_file:
             # Output matches build_bcftools_format_string query format
             ann = "T|missense_variant|MODERATE|BRCA1|ENSG1|transcript|NM_1|protein_coding||||||||"
-            nmd = "BRCA1|ENSG1|1|0.95"
-            stdout.write(f"chr1\t100\tA\tT\t{ann}\t{nmd}\t0/1\t0/0\n")
+            nmd = "(BRCA1|ENSG1|1|0.95)"
+            stdout.write(f"chr1\t100\t{ann}\t{nmd}\t0/1\t30\t0/0\t45\n")
         return Mock(returncode=0)
 
     with patch("variantcentrifuge.extractor.subprocess.run", side_effect=mock_subprocess_run):
@@ -185,6 +185,7 @@ def test_interleaved_empty_and_populated_chunks_merge_cleanly(
     c1 = inter_dir / "chunk_1.extracted.tsv"
     c2 = inter_dir / "chunk_2.extracted.tsv"
     c3 = inter_dir / "chunk_3.extracted.tsv"
+    c4 = inter_dir / "chunk_4.extracted.tsv"
 
     # c0 is empty (first)
     c0.write_text(header)
@@ -196,9 +197,11 @@ def test_interleaved_empty_and_populated_chunks_merge_cleanly(
     # c3 has row (or empty if all_empty)
     row2 = "\t".join(["chr1", "200", "G", "C", "0/0", "0/1", "TP53"]) + "\n"
     c3.write_text(header if all_empty else header + row2)
+    # c4 is empty (last)
+    c4.write_text(header)
 
     stage = ParallelCompleteProcessingStage()
-    merged_tsv = stage._merge_tsv_outputs(ctx, [c0, c1, c2, c3])
+    merged_tsv = stage._merge_tsv_outputs(ctx, [c0, c1, c2, c3, c4])
     ctx.extracted_tsv = merged_tsv
     ctx.data = merged_tsv
 
@@ -207,10 +210,21 @@ def test_interleaved_empty_and_populated_chunks_merge_cleanly(
 
     df = loaded_ctx.current_dataframe
     assert df is not None
+    assert "CHROM" in df.columns
+    assert "POS" in df.columns
+    gt_col_0 = "GEN_0__GT" if "GEN_0__GT" in df.columns else "GEN[0].GT"
+    gt_col_1 = "GEN_1__GT" if "GEN_1__GT" in df.columns else "GEN[1].GT"
+    assert gt_col_0 in df.columns
+    assert gt_col_1 in df.columns
+
     if all_empty:
         assert len(df) == 0
     else:
         assert len(df) == 2
+        assert list(df["CHROM"]) == ["chr1", "chr1"]
+        assert list(df["POS"]) == ["100", "200"]
+        assert list(df[gt_col_0]) == ["0/1", "0/0"]
+        assert list(df[gt_col_1]) == ["0/0", "0/1"]
         gene_col = "GENE" if "GENE" in df.columns else "ANN_0__GENE"
         genes = list(df[gene_col])
         assert "BRCA1" in genes and "TP53" in genes

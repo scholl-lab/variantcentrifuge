@@ -203,43 +203,36 @@ class ConfigurationLoadingStage(Stage):
             control_hpo_terms.extend(file_terms)
             logger.debug(f"Loaded {len(file_terms)} additional control phenotype terms from file")
 
-        # Update config with parsed lists
         config["case_phenotypes"] = case_hpo_terms
         config["control_phenotypes"] = control_hpo_terms
 
-        # Also parse case/control samples in the same way
         case_samples = []
         control_samples = []
 
-        # Parse case samples
         if config.get("case_samples"):
             if isinstance(config["case_samples"], str):
-                # Parse comma-separated string
                 case_samples = [s.strip() for s in config["case_samples"].split(",") if s.strip()]
                 logger.debug(f"Parsed {len(case_samples)} case samples from CLI")
             else:
-                # Already a list
                 case_samples = config["case_samples"]
 
-        # Parse control samples
         if config.get("control_samples"):
             if isinstance(config["control_samples"], str):
-                # Parse comma-separated string
                 control_samples = [
                     s.strip() for s in config["control_samples"].split(",") if s.strip()
                 ]
                 logger.debug(f"Parsed {len(control_samples)} control samples from CLI")
             else:
-                # Already a list
                 control_samples = config["control_samples"]
 
-        # Update config with parsed lists
         config["case_samples"] = case_samples
         config["control_samples"] = control_samples
 
         _warn_if_record_level_consequence_mode(config)
+        from .processing_stages import validate_annotation_consequence_filtering
 
-        # Update context
+        validate_annotation_consequence_filtering(config)
+
         context.config = config
 
         logger.debug(f"Configuration loaded with {len(config)} settings")

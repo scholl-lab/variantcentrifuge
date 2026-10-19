@@ -65,6 +65,13 @@ class GeneBedCreationStage(Stage):
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Create BED file for specified genes."""
         with graceful_error_handling(self.name):
+            validate_fn = _ps_attr("validate_annotation_consequence_filtering", None)
+            if validate_fn is None:
+                from .processing_stages import (
+                    validate_annotation_consequence_filtering as validate_fn,
+                )
+            validate_fn(context.config)
+
             # Get normalized gene names
             gene_name = context.config.get("gene_name", "")
             gene_file = context.config.get("gene_file")
