@@ -1598,13 +1598,24 @@ class VariantAnalysisStage(Stage):
             "no_db_links": context.config.get("no_db_links", False),
             "base_name": context.workspace.base_name,
             "reference": context.config.get("reference", "GRCh37"),
-            # CRITICAL: Pass through case/control samples from phenotype assignment
             "case_samples": context.config.get("case_samples") or [],
             "control_samples": context.config.get("control_samples") or [],
-            # Pass through phenotype terms for legacy compatibility
             "case_phenotypes": context.config.get("case_phenotypes") or [],
             "control_phenotypes": context.config.get("control_phenotypes") or [],
         }
+        if context.config.get("perform_gene_burden"):
+            analysis_config["perform_gene_burden"] = True
+            for k in ("gene_burden_mode", "correction_method"):
+                if k in context.config:
+                    analysis_config[k] = context.config[k]
+            gb_out = context.config.get("gene_burden_output") or context.config.get(
+                "gene_burden_output_file"
+            )
+            if gb_out:
+                analysis_config["gene_burden_output_file"] = gb_out
+        for k in ("stats_output_file", "no_stats"):
+            if k in context.config:
+                analysis_config[k] = context.config[k]
 
         # Fix 5: Save per-sample GT columns BEFORE reconstruction so they can be
         # re-attached to context.current_dataframe after analysis. The reconstruction
@@ -1658,24 +1669,30 @@ class VariantAnalysisStage(Stage):
         df.to_csv(temp_tsv, sep="\t", index=False, compression=cast(Any, compression))
 
         logger.info("Running variant-level analysis")
+        variant_results: list[str] = []
+        gb_lines: list[str] = []
+        in_gb = False
+        import gzip
 
-        # Run analyze_variants and collect results
-        analysis_results = []
-        # Use appropriate file opener based on compression
         if use_compression:
-            import gzip
-
-            def open_func(f: Any) -> Any:
-                return gzip.open(f, "rt")
-
+            with gzip.open(temp_tsv, "rt") as inp:
+                raw_lines = list(analyze_variants(inp, analysis_config))
         else:
+            with open(temp_tsv) as inp:
+                raw_lines = list(analyze_variants(inp, analysis_config))
+        for raw_line in raw_lines:
+            line = raw_line.rstrip("\r\n")
+            if line == "===BEGIN_GENE_BURDEN===":
+                in_gb = True
+            elif line == "===END_GENE_BURDEN===":
+                in_gb = False
+            elif in_gb:
+                gb_lines.append(line)
+            else:
+                variant_results.append(line)
 
-            def open_func(f: Any) -> Any:
-                return open(f)
-
-        with open_func(temp_tsv) as inp:
-            for line in analyze_variants(inp, analysis_config):
-                analysis_results.append(line)
+        self._save_gene_burden_sidecar(context, gb_lines)
+        analysis_results = variant_results
 
         # Parse results back into DataFrame
         logger.debug(f"analyze_variants produced {len(analysis_results)} result lines")
@@ -1751,24 +1768,18 @@ class VariantAnalysisStage(Stage):
                                         f"Column '{col}' has {non_null_count} non-null values"
                                     )
                             else:
+                                msg = f"Inheritance columns: {inheritance_cols}"
                                 if should_have_inheritance:
-                                    logger.error(
-                                        f"Failed to preserve inheritance columns: "
-                                        f"{inheritance_cols}"
-                                    )
+                                    logger.error(f"Failed to preserve {msg}")
                                 else:
-                                    logger.debug(
-                                        f"No inheritance columns to preserve: {inheritance_cols}"
-                                    )
+                                    logger.debug(f"No {msg} to preserve")
                     except Exception as e:
                         logger.error(f"Error merging columns: {e}")
                         logger.warning("Inheritance columns may be lost due to merge failure")
 
                     # Reorder columns to put VAR_ID first if it exists
                     if "VAR_ID" in analysis_df.columns:
-                        cols = analysis_df.columns.tolist()
-                        cols.remove("VAR_ID")
-                        cols = ["VAR_ID", *cols]
+                        cols = ["VAR_ID", *[c for c in analysis_df.columns if c != "VAR_ID"]]
                         analysis_df = analysis_df[cols]
 
                     # Put Custom_Annotation after GT if both exist
@@ -1843,25 +1854,21 @@ class VariantAnalysisStage(Stage):
                         context.current_dataframe = context.current_dataframe.drop(
                             columns=_dup_cols
                         )
-                    logger.info(
-                        f"Re-attached {len(_original_gt_cols)} per-sample GT columns via key merge"
-                    )
+                    logger.info("Re-attached %d per-sample GT columns", len(_original_gt_cols))
                 else:
-                    logger.warning(
-                        "Cannot re-attach per-sample GT columns: no matching key columns"
-                    )
+                    logger.warning("Cannot re-attach per-sample GT columns: no keys")
 
             # Final check: Verify if inheritance columns survived
             final_inheritance_cols = [
-                col
-                for col in analysis_df.columns
-                if col in ["Inheritance_Pattern", "Inheritance_Details"]
+                c
+                for c in analysis_df.columns
+                if c in ("Inheritance_Pattern", "Inheritance_Details")
             ]
             if final_inheritance_cols:
                 logger.debug(f"Final DataFrame has inheritance columns: {final_inheritance_cols}")
                 for col in final_inheritance_cols:
-                    non_null_count = analysis_df[col].notna().sum()
-                    logger.debug(f"Final column '{col}' has {non_null_count} non-null values")
+                    n_vals = analysis_df[col].notna().sum()
+                    logger.debug("Column '%s' has %d non-null values", col, n_vals)
             else:
                 if should_have_inheritance:
                     logger.error(
@@ -1892,6 +1899,24 @@ class VariantAnalysisStage(Stage):
             temp_tsv.unlink()
 
         return context
+
+    def _save_gene_burden_sidecar(self, context: PipelineContext, lines: list[str]) -> None:
+        """Parse and persist gene burden results from analyze_variants markers."""
+        if not lines:
+            return
+        gb_df = pd.DataFrame([r.split("\t") for r in lines[1:]], columns=lines[0].split("\t"))
+        context.gene_burden_results = gb_df
+        burden_out = context.config.get("gene_burden_output")
+        if not burden_out:
+            out_dir = getattr(context.workspace, "output_dir", None) or Path(".")
+            base = context.config.get("output_file_base") or getattr(
+                context.workspace, "base_name", "gene_burden_results"
+            )
+            burden_out = str(Path(out_dir) / f"{base}.gene_burden.tsv")
+            context.config["gene_burden_output"] = burden_out
+        Path(burden_out).parent.mkdir(parents=True, exist_ok=True)
+        comp = "gzip" if str(burden_out).endswith(".gz") else None
+        gb_df.to_csv(burden_out, sep="\t", index=False, compression=cast(Any, comp))
 
     def _should_calculate_inheritance(self, context: PipelineContext) -> bool:
         """Check if inheritance analysis should be calculated."""
@@ -2239,7 +2264,12 @@ class AssociationAnalysisStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
-        return {"custom_annotation", "pca_computation", "chunked_analysis"}
+        return {
+            "custom_annotation",
+            "pca_computation",
+            "chunked_analysis",
+            "scoring_config_loading",
+        }
 
     @property
     def parallel_safe(self) -> bool:

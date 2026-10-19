@@ -26,12 +26,11 @@ from typing import Any, cast
 
 import pandas as pd
 
-from . import gene_burden, scoring, stats
+from . import gene_burden, stats
 from .helpers import (
     assign_case_control_counts,
     determine_case_control_sets,
 )
-from .inheritance.analyzer import analyze_inheritance
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -136,58 +135,6 @@ def analyze_variants(lines: Iterator[str], cfg: dict[str, Any]) -> Iterator[str]
     # Assign case/control counts per variant
     df = assign_case_control_counts(df, case_samples, control_samples, all_samples)
 
-    # Apply inheritance analysis first, as scores might depend on it
-    logger.debug(
-        f"calculate_inheritance: {cfg.get('calculate_inheritance')}, "
-        f"pedigree_data type: {type(cfg.get('pedigree_data'))}"
-    )
-    # Check if inheritance analysis has already been performed (columns exist)
-    inheritance_already_done = (
-        "Inheritance_Pattern" in df.columns and "Inheritance_Details" in df.columns
-    )
-
-    if (
-        cfg.get("calculate_inheritance")
-        and cfg.get("pedigree_data") is not None
-        and not inheritance_already_done
-        and not cfg.get("skip_inheritance", False)
-    ):
-        logger.info("Performing inheritance pattern analysis...")
-        try:
-            sample_list = cfg.get("sample_list", "").split(",") if cfg.get("sample_list") else []
-            logger.debug(f"Sample list for inheritance: {sample_list}")
-            # Use vectorized compound het implementation by default for better performance
-            use_vectorized = cfg.get("use_vectorized_comp_het", True)
-            df = analyze_inheritance(
-                df, cfg["pedigree_data"], sample_list, use_vectorized_comp_het=use_vectorized
-            )
-            logger.info("Inheritance analysis complete.")
-        except Exception as e:
-            logger.error(f"Inheritance analysis failed: {e}", exc_info=True)
-            # Add empty columns to prevent downstream errors
-            df["Inheritance_Pattern"] = "error"
-            df["Inheritance_Details"] = "{}"
-            # Clean up any temporary columns that might have been created
-            for col in ["_inheritance_patterns", "_comp_het_info"]:
-                if col in df.columns:
-                    df = df.drop(columns=[col])
-    elif inheritance_already_done:
-        logger.info("Inheritance analysis already performed, skipping re-calculation.")
-
-    # Apply scoring if configuration is provided (can now use inheritance results)
-    scoring_config = cfg.get("scoring_config")
-    if scoring_config:
-        logger.info("Applying custom scoring model to variants.")
-        try:
-            df = scoring.apply_scoring(df, scoring_config)
-            logger.debug(
-                "Scoring applied successfully. New columns: %s",
-                [col for col in df.columns if col not in required_columns],
-            )
-        except Exception as e:
-            logger.error(f"Failed to apply scoring: {e}")
-            # Decide whether to exit or continue without scores. Continuing is more robust.
-
     # Compute basic stats
     logger.debug("Computing basic statistics...")
     basic_stats_df = stats.compute_basic_stats(df, all_samples)
@@ -285,32 +232,34 @@ def analyze_variants(lines: Iterator[str], cfg: dict[str, Any]) -> Iterator[str]
     else:
         logger.debug("No comprehensive stats requested (no_stats=True).")
 
+    # Yield variant-level data first
+    out_str = df.to_csv(sep="\t", index=False)
+    for line in out_str.strip().split("\n"):
+        yield line
+
     # Perform gene burden analysis if requested
     if perform_gene_burden_flag:
         logger.debug("Performing configurable gene burden analysis...")
         gene_burden_results = gene_burden.perform_gene_burden_analysis(df, cfg)
 
         if gene_burden_results.empty:
-            logger.warning("Gene burden results are empty. Returning variant-level data.")
-            out_str = df.to_csv(sep="\t", index=False)
-            for line in out_str.strip().split("\n"):
-                yield line
+            logger.warning("Gene burden results are empty.")
             return
 
-        burden_output_file = cfg.get("gene_burden_output_file", "gene_burden_results.tsv")
-        logger.info("Writing gene burden results to %s", burden_output_file)
-        # Apply compression to gene burden output
-        use_compression = "gzip" if str(burden_output_file).endswith(".gz") else None
-        gene_burden_results.to_csv(
-            burden_output_file, sep="\t", index=False, compression=cast(Any, use_compression)
-        )
+        burden_output_file = cfg.get("gene_burden_output_file")
+        if burden_output_file:
+            logger.info("Writing gene burden results to %s", burden_output_file)
+            use_compression = "gzip" if str(burden_output_file).endswith(".gz") else None
+            gene_burden_results.to_csv(
+                burden_output_file,
+                sep="\t",
+                index=False,
+                compression=cast(Any, use_compression),
+            )
 
-        # Yield burden results as output
+        # Yield burden results as output wrapped in markers
+        yield "===BEGIN_GENE_BURDEN==="
         burden_text = gene_burden_results.to_csv(sep="\t", index=False)
         for line in burden_text.strip().split("\n"):
             yield line
-    else:
-        logger.debug("Gene burden not requested, returning processed data.")
-        out_str = df.to_csv(sep="\t", index=False)
-        for line in out_str.strip().split("\n"):
-            yield line
+        yield "===END_GENE_BURDEN==="
