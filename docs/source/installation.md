@@ -159,26 +159,32 @@ In high-performance computing (HPC) environments where root access and Docker da
 
 #### Running Directly from GitHub Container Registry
 
-Execute directly using the Docker registry URI:
+Prefer `apptainer run` over `apptainer exec`. `apptainer run` executes the container's entrypoint script (`/usr/local/bin/_entrypoint.sh`), activating the Conda/Micromamba environment containing `bcftools`, `snpEff`, `SnpSift`, and `bedtools`:
 
 ```bash
-# Verify version
-apptainer exec docker://ghcr.io/scholl-lab/variantcentrifuge:latest variantcentrifuge --version
+# Verify version using apptainer run
+apptainer run docker://ghcr.io/scholl-lab/variantcentrifuge:latest --version
 ```
 
 For production workflows and strict reproducibility, pin the image by its immutable SHA-256 digest:
 
 ```bash
 # Execute with immutable digest pinning
-apptainer exec \
+apptainer run \
   docker://ghcr.io/scholl-lab/variantcentrifuge@sha256:d8b2e53b47c6a96fbf1888a108a9adab92b774e1e8b79ce41b63309a63286f91 \
-  variantcentrifuge --version
+  --version
 ```
 
 Alternatively, build a reusable Singularity Image File (`.sif`):
 
 ```bash
 apptainer build variantcentrifuge.sif docker://ghcr.io/scholl-lab/variantcentrifuge:latest
+```
+
+If using `apptainer exec` instead of `apptainer run`, invoke the activation entrypoint explicitly so environmental bioinformatics tools are in `PATH`:
+
+```bash
+apptainer exec variantcentrifuge.sif /usr/local/bin/_entrypoint.sh variantcentrifuge --version
 ```
 
 #### Filesystem Binds and SnpEff Storage
@@ -188,11 +194,10 @@ Map local data into the container with `-B /path/to/data:/data`. Provide a persi
 ```bash
 mkdir -p /path/to/snpeff_cache
 
-apptainer exec \
+apptainer run \
   -B /path/to/data:/data \
   -B /path/to/snpeff_cache:/data/snpeff \
   docker://ghcr.io/scholl-lab/variantcentrifuge:latest \
-  variantcentrifuge \
     --gene-name BRCA1 \
     --vcf-file /data/input.vcf.gz \
     --output-file /data/output.tsv

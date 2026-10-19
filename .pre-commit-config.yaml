@@ -19,7 +19,7 @@ repos:
     hooks:
     -   id: mypy
         name: Run mypy type checker
-        entry: python -m mypy variantcentrifuge/
+        entry: bash -c 'if [ -x .venv/bin/python ]; then exec .venv/bin/python -m mypy variantcentrifuge/; else exec uv run --locked --extra dev python -m mypy variantcentrifuge/; fi'
         language: system
         pass_filenames: false
         types: [python]

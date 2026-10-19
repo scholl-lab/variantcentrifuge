@@ -7,7 +7,7 @@ YELLOW := \033[0;33m
 NC := \033[0m
 
 # Python
-PYTHON := python
+PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
 
 help: ## Show this help message
 	@echo "$(CYAN)Available targets:$(NC)"

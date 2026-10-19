@@ -44,6 +44,7 @@ dev = [
     "ruff>=0.11,<0.16",
     "tomli>=2.0; python_version < '3.11'",
     "pre-commit",
+    "types-psutil",
 ]
 
 [project.scripts]
@@ -120,6 +121,10 @@ check_untyped_defs = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
+# Third-party libraries without official PEP 561 type stubs or compiled C extensions:
+# - intervaltree, smart_open, rpy2, statsmodels, openpyxl: Third-party libs lacking PEP 561 py.typed stubs
+# - pandas, scipy, matplotlib: Partial/optional typing across diverse runtime environments
+# - cffi: Dynamically generated CFFI builder stubs
 [[tool.mypy.overrides]]
 module = [
     "intervaltree.*",
@@ -132,7 +137,6 @@ module = [
     "scipy.*",
     "matplotlib",
     "matplotlib.*",
-    "psutil",
     "cffi",
 ]
 ignore_missing_imports = true

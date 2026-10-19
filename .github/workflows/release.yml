@@ -63,10 +63,14 @@ jobs:
 
       - name: Verify isolated installation of wheel
         run: |
+          WHEEL=$(ls dist/*.whl | head -n 1)
           python -m venv /tmp/isolated_env
           /tmp/isolated_env/bin/pip install --upgrade pip
-          /tmp/isolated_env/bin/pip install dist/*.whl
-          /tmp/isolated_env/bin/python -c "import variantcentrifuge; print('Installed variantcentrifuge:', variantcentrifuge.__version__)"
+          /tmp/isolated_env/bin/pip install "$WHEEL"
+          TAG_VERSION="${{ github.ref_name }}"
+          EXPECTED_VERSION="${TAG_VERSION#v}"
+          cd "${RUNNER_TEMP:-/tmp}"
+          /tmp/isolated_env/bin/python -I -c "import importlib.metadata as m, pathlib, variantcentrifuge as vc; v = m.version('variantcentrifuge'); assert vc.__version__ == v, (vc.__version__, v); assert 'site-packages' in pathlib.Path(vc.__file__).parts, vc.__file__; exp = '${EXPECTED_VERSION}'; assert not exp or vc.__version__ == exp, f'Version mismatch: got {vc.__version__}, expected {exp}'"
 
       - name: Store built distribution artifacts
         uses: actions/upload-artifact@v4

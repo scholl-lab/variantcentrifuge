@@ -1,7 +1,11 @@
 """Static contract tests for repository-wide local quality gates."""
 
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 try:
     import tomllib
@@ -178,36 +182,91 @@ def test_coverage_report_defines_fail_under() -> None:
 def test_pre_commit_contains_mypy_hook() -> None:
     """Pre-commit configuration must include local mypy quality hook."""
     pre_commit = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-
     assert "id: mypy" in pre_commit
+
+
+def test_pre_commit_mypy_uses_locked_virtualenv() -> None:
+    """Pre-commit mypy hook must route through locked virtualenv or uv run."""
+    pre_commit = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    data = yaml.safe_load(pre_commit)
+    local_repo = next(r for r in data["repos"] if r.get("repo") == "local")
+    mypy_hook = next(h for h in local_repo["hooks"] if h.get("id") == "mypy")
+    entry = mypy_hook["entry"]
+    assert ".venv/bin/python" in entry
+    assert "uv run --locked --extra dev" in entry
+
+
+def test_makefile_defaults_to_virtualenv_python() -> None:
+    """Makefile must default PYTHON to locked .venv if present."""
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)" in makefile
 
 
 def test_ci_workflow_mypy_is_blocking() -> None:
     """GitHub Actions mypy step must be blocking without continue-on-error."""
     test_yml = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
-
-    assert "continue-on-error: true\n        run: python -m mypy" not in test_yml
+    data = yaml.safe_load(test_yml)
+    type_check_steps = data["jobs"]["type-check"]["steps"]
+    mypy_step = next(s for s in type_check_steps if "python -m mypy" in s.get("run", ""))
+    assert mypy_step.get("continue-on-error") is not True
 
 
 def test_ci_workflow_matrix_covers_python_versions() -> None:
     """GitHub Actions test matrix must cover Python 3.10, 3.11, 3.12, and 3.13."""
     test_yml = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
+    data = yaml.safe_load(test_yml)
+    matrix_versions = data["jobs"]["test"]["strategy"]["matrix"]["python-version"]
     for py_ver in ["3.10", "3.11", "3.12", "3.13"]:
-        assert f'"{py_ver}"' in test_yml, f"Missing Python {py_ver} in test matrix"
+        assert py_ver in matrix_versions, f"Missing Python {py_ver} in test matrix"
 
 
 def test_ci_workflow_runs_mocked_integration_tests() -> None:
-    """CI workflow must define and require a mocked integration test job."""
+    """CI workflow must define and strictly require a mocked integration test job."""
     test_yml = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
-    assert "integration and not slow" in test_yml
-    assert "integration-test" in test_yml
-    assert "needs: [lint, type-check, test, integration-test]" in test_yml
+    data = yaml.safe_load(test_yml)
+
+    # Verify integration-test job
+    integration_job = data["jobs"]["integration-test"]
+    assert any("integration and not slow" in s.get("run", "") for s in integration_job["steps"])
+
+    # Verify ci-success gate requirements
+    ci_success = data["jobs"]["ci-success"]
+    assert set(ci_success["needs"]) == {"lint", "type-check", "test", "integration-test"}
+
+    # Simulate ci-success condition script in bash
+    check_step = next(
+        s for s in ci_success["steps"] if "All required jobs succeeded!" in s.get("run", "")
+    )
+    raw_script = check_step["run"]
+
+    # When all jobs succeed
+    all_success_script = (
+        raw_script.replace("${{ needs.lint.result }}", "success")
+        .replace("${{ needs.type-check.result }}", "success")
+        .replace("${{ needs.test.result }}", "success")
+        .replace("${{ needs.integration-test.result }}", "success")
+    )
+    res = subprocess.run(["bash", "-c", all_success_script], capture_output=True, text=True)
+    assert res.returncode == 0, f"Expected 0 when all succeed: {res.stderr}"
+
+    # When any job fails, cancels, or is skipped, it must exit non-zero
+    for bad_job in ["lint", "type-check", "test", "integration-test"]:
+        for bad_status in ["failure", "cancelled", "skipped"]:
+            job_script = (
+                raw_script.replace(f"${{{{ needs.{bad_job}.result }}}}", bad_status)
+                .replace("${{ needs.lint.result }}", "success")
+                .replace("${{ needs.type-check.result }}", "success")
+                .replace("${{ needs.test.result }}", "success")
+                .replace("${{ needs.integration-test.result }}", "success")
+            )
+            res = subprocess.run(["bash", "-c", job_script], capture_output=True, text=True)
+            assert res.returncode != 0, f"Expected non-zero when {bad_job} is {bad_status}"
 
 
 def test_installation_docs_document_apptainer() -> None:
     """Installation docs must cover Apptainer/Singularity execution.
 
-    Must include binds and SnpEff storage.
+    Must include binds, SnpEff storage, and entrypoint activation.
     """
     install_md = (ROOT / "docs" / "source" / "installation.md").read_text(encoding="utf-8")
     assert "Apptainer" in install_md
@@ -216,3 +275,47 @@ def test_installation_docs_document_apptainer() -> None:
     assert "-B " in install_md
     assert "/data/snpeff" in install_md
     assert "sha256:" in install_md
+    assert "apptainer run" in install_md
+    assert "/usr/local/bin/_entrypoint.sh" in install_md
+    # Ensure bare apptainer exec ... variantcentrifuge without entrypoint is not instructed
+    assert "apptainer exec docker://" not in install_md
+
+
+def test_release_workflow_isolated_wheel_installation() -> None:
+    """Release workflow must verify wheel in isolated environment outside source checkout."""
+    release_yml = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    data = yaml.safe_load(release_yml)
+    steps = data["jobs"]["build"]["steps"]
+    verify_step = next(s for s in steps if s.get("name") == "Verify isolated installation of wheel")
+    run_cmd = verify_step["run"]
+    assert "RUNNER_TEMP" in run_cmd
+    assert "-I -c" in run_cmd
+    assert "site-packages" in run_cmd
+    assert "m.version('variantcentrifuge')" in run_cmd
+    assert "vc.__version__ == exp" in run_cmd
+
+
+def test_psutil_types_enforced_in_dev_and_mypy() -> None:
+    """types-psutil must be in dev dependencies, excluded from mypy overrides, and enforced."""
+    pyproject = _load_pyproject()
+    dev_deps = pyproject["project"]["optional-dependencies"]["dev"]
+    assert "types-psutil" in dev_deps
+
+    overrides = pyproject["tool"]["mypy"]["overrides"]
+    modules = [m for o in overrides for m in o.get("module", [])]
+    assert "psutil" not in modules
+    assert "psutil.*" not in modules
+
+    # Verify comments exist explaining third-party overrides in pyproject.toml
+    pyproject_text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert "Third-party libraries without official PEP 561" in pyproject_text
+
+    # Verify mypy type checks psutil attributes
+    res = subprocess.run(
+        [sys.executable, "-m", "mypy", "-c", "import psutil; psutil.nonexistent_attr"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode != 0
+    assert 'Module has no attribute "nonexistent_attr"' in res.stdout
