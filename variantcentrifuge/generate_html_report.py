@@ -14,11 +14,11 @@ def is_safe_url(url: Any) -> bool:
     if not url:
         return False
     u = str(url).strip()
-    if any(c in u for c in " \t\r\n\"'<>\\"):
+    if any(ord(c) < 32 or ord(c) == 127 or c in " \t\r\n\"'<>\\" for c in u):
+        return False
+    if u.startswith("//"):
         return False
     u_lower = u.lower()
-    if u_lower.startswith(("javascript:", "data:", "vbscript:")):
-        return False
     if u_lower.startswith(("http://", "https://")):
         return True
     colon_idx = u_lower.find(":")
@@ -70,6 +70,11 @@ def generate_html_report(
         variants_data = json.load(vf)
     with open(summary_json, encoding="utf-8") as sf:
         summary = json.load(sf)
+
+    if "reference" in cfg:
+        from .links import resolve_links
+
+        resolve_links(cfg)
 
     default_hidden_columns = cfg.get("html_report_default_hidden_columns", [])
     link_configs = cfg.get("links", {})  # For identifying link columns

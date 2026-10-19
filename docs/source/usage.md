@@ -487,7 +487,10 @@ variantcentrifuge \
 All examples above work inside the Docker container by mounting your data directory:
 
 ```bash
-docker run --rm -v ./data:/data \
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -v ./data:/data \
+  -v snpeff_data:/data/snpeff \
   ghcr.io/scholl-lab/variantcentrifuge:latest \
   --gene-name BRCA1 \
   --vcf-file /data/input.vcf.gz \

@@ -921,15 +921,54 @@ def test_container_image_contract_checks_default_snpeff_data_storage() -> None:
 def test_compose_and_installation_persist_the_default_snpeff_data_directory() -> None:
     compose = _text("docker-compose.yml")
     installation = _text("docs/source/installation.md")
+    usage = _text("docs/source/usage.md")
 
     assert "snpeff_data:/data/snpeff" in compose
     assert "snpeff_data:/data/snpeff" in installation
+    assert "snpeff_data:/data/snpeff" in usage
     assert "/snpeff_data" not in compose
     assert "/snpeff_data" not in installation
+    assert 'user: "${UID:-1000}:${GID:-1000}"' in compose
+    assert '--user "$(id -u):$(id -g)"' in installation
+    assert '--user "$(id -u):$(id -g)"' in usage
+    assert "-v ./input:/data/input:ro" in installation
+    assert "-v ./output:/data/output" in installation
     for documentation in (compose, installation):
         assert "first download" in documentation.lower()
         assert "fully populated" in documentation.lower()
         assert "snpeff_data:/data/snpeff:ro" in documentation
+
+
+def test_container_image_contract_checks_non_owner_child_mounts() -> None:
+    script = _text("scripts/test_container_image.sh")
+    assert "checking non-owner traversal of /data with child bind mounts" in script
+    assert "--user 12345:12345" in script
+    assert "dst=/data/input,readonly" in script
+    assert "dst=/data/out" in script
+
+
+def test_data_directory_traversal_permissions_behavioral(tmp_path: Path) -> None:
+    """Verify that mode 0o755 allows non-owner traversal (X_OK) while 0o750 denies it."""
+    import stat
+
+    test_dir = tmp_path / "data_perm_test"
+    sub_file = test_dir / "target.txt"
+    test_dir.mkdir()
+    sub_file.write_text("ok")
+
+    # Mode 0o750: owner has rwx, group has rx, others have NO permissions
+    test_dir.chmod(0o750)
+    mode_750 = stat.S_IMODE(test_dir.stat().st_mode)
+    assert mode_750 == 0o750
+    assert not (mode_750 & stat.S_IXOTH), "0o750 must not grant other-execute (traversal)"
+    assert not (mode_750 & stat.S_IROTH), "0o750 must not grant other-read"
+
+    # Mode 0o755: others have rx (read and traversal execute)
+    test_dir.chmod(0o755)
+    mode_755 = stat.S_IMODE(test_dir.stat().st_mode)
+    assert mode_755 == 0o755
+    assert bool(mode_755 & stat.S_IXOTH), "0o755 must grant other-execute (traversal)"
+    assert bool(mode_755 & stat.S_IROTH), "0o755 must grant other-read"
 
 
 def test_scoring_integration_requires_every_invoked_bioinformatics_tool() -> None:

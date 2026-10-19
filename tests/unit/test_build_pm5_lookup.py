@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -627,3 +628,111 @@ class TestPM5DownloadIsolation:
         )
         assert download_called == [str(explicit_file)]
         assert explicit_file.exists()
+
+    def test_preexisting_symlink_in_tempdir_untouched_during_download(self, monkeypatch, tmp_path):
+        """Verify pre-existing variant_summary.txt.gz symlink in tempdir is untouched (#131)."""
+        from variantcentrifuge import build_pm5_lookup as pm5_module
+
+        controlled_temp = tmp_path / "system_temp"
+        controlled_temp.mkdir()
+        monkeypatch.setattr(tempfile, "gettempdir", lambda: str(controlled_temp))
+
+        victim_file = tmp_path / "victim.txt"
+        victim_file.write_text("VICTIM_DATA_BEFORE")
+
+        symlink_target = controlled_temp / "variant_summary.txt.gz"
+        symlink_target.symlink_to(victim_file)
+
+        def fake_download(dest):
+            p = Path(dest)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("DOWNLOADED_DATA")
+
+        monkeypatch.setattr(pm5_module, "download_variant_summary", fake_download)
+        monkeypatch.setattr(
+            pm5_module, "build_pm5_lookup", lambda *a, **kw: {"_meta": {}, "lookup": {}}
+        )
+        monkeypatch.setattr(pm5_module, "write_lookup", lambda data, out: None)
+
+        ret = pm5_module.main(["--download", "--output", str(tmp_path / "out.json")])
+        assert ret == 0
+
+        # Victim file must be completely untouched
+        assert victim_file.read_text() == "VICTIM_DATA_BEFORE"
+        assert symlink_target.is_symlink()
+        assert symlink_target.resolve() == victim_file.resolve()
+
+    def test_private_temp_directory_mode_and_cleanup_on_download_exception(
+        self, monkeypatch, tmp_path
+    ):
+        """Verify private temp dir has 0o700 mode and is cleaned up on download failure (#131)."""
+        import stat
+
+        from variantcentrifuge import build_pm5_lookup as pm5_module
+
+        observed_mode = []
+        observed_dir = []
+
+        def failing_download(dest):
+            parent = Path(dest).parent
+            observed_dir.append(parent)
+            mode = stat.S_IMODE(parent.stat().st_mode)
+            observed_mode.append(mode)
+            raise RuntimeError("Download network failure")
+
+        monkeypatch.setattr(pm5_module, "download_variant_summary", failing_download)
+
+        with pytest.raises(RuntimeError, match="Download network failure"):
+            pm5_module.main(["--download", "--output", str(tmp_path / "out.json")])
+
+        assert len(observed_mode) == 1
+        assert observed_mode[0] == 0o700
+        assert not observed_dir[0].exists()
+
+    def test_concurrent_downloads_use_distinct_directories_and_content(self, monkeypatch, tmp_path):
+        """Verify concurrent downloads use distinct private directories and data (#131)."""
+        import threading
+
+        from variantcentrifuge import build_pm5_lookup as pm5_module
+
+        barrier = threading.Barrier(2)
+        results = {}
+
+        def thread_download(dest):
+            tid = threading.get_ident()
+            p = Path(dest)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(f"THREAD_{tid}_DATA")
+            # Wait for both threads to reach download phase simultaneously
+            barrier.wait(timeout=5)
+
+        def thread_build(path, **kwargs):
+            tid = threading.get_ident()
+            content = Path(path).read_text()
+            results[tid] = {"path": str(path), "content": content}
+            return {"_meta": {}, "lookup": {}}
+
+        monkeypatch.setattr(pm5_module, "download_variant_summary", thread_download)
+        monkeypatch.setattr(pm5_module, "build_pm5_lookup", thread_build)
+        monkeypatch.setattr(pm5_module, "write_lookup", lambda data, out: None)
+
+        def worker(out_name):
+            pm5_module.main(["--download", "--output", str(tmp_path / out_name)])
+
+        t1 = threading.Thread(target=worker, args=("out1.json",))
+        t2 = threading.Thread(target=worker, args=("out2.json",))
+        t1.start()
+        t2.start()
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+
+        assert len(results) == 2
+        tids = list(results.keys())
+        res1 = results[tids[0]]
+        res2 = results[tids[1]]
+
+        # Must have distinct paths and read their own content
+        assert res1["path"] != res2["path"]
+        assert Path(res1["path"]).parent != Path(res2["path"]).parent
+        assert res1["content"] == f"THREAD_{tids[0]}_DATA"
+        assert res2["content"] == f"THREAD_{tids[1]}_DATA"

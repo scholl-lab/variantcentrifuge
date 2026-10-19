@@ -173,6 +173,7 @@ _CALLABLE_ATTRIBUTES: frozenset[str] = frozenset(
         "len",
         "to_numeric",
         "isnan",
+        "where",
     }
 )
 
@@ -204,6 +205,11 @@ _ALLOWED_CALLABLE_NAMES: frozenset[str] = frozenset(
         "any",
         "all",
         "isinstance",
+        "range",
+        "zip",
+        "map",
+        "filter",
+        "enumerate",
     }
 )
 
@@ -219,6 +225,7 @@ class _SafeNumpy:
 
     nan = np.nan
     isnan = staticmethod(np.isnan)
+    where = staticmethod(np.where)
 
 
 def _validate_expression(expression: str) -> None:
@@ -367,6 +374,17 @@ class StatsEngine:
                 "round": round,
                 "any": any,
                 "all": all,
+                "sorted": sorted,
+                "set": set,
+                "list": list,
+                "dict": dict,
+                "tuple": tuple,
+                "isinstance": isinstance,
+                "range": range,
+                "zip": zip,
+                "map": map,
+                "filter": filter,
+                "enumerate": enumerate,
             }
 
             # eval with empty __builtins__ AND prior AST validation

@@ -5,7 +5,13 @@ from pathlib import Path
 import pytest
 from jinja2 import Environment, FileSystemLoader
 
-from variantcentrifuge.generate_html_report import _load_assets
+from variantcentrifuge.generate_html_report import _load_assets, is_safe_url
+
+
+def _create_test_env(templates_dir: Path) -> Environment:
+    env = Environment(loader=FileSystemLoader(str(templates_dir)))
+    env.filters["is_safe_url"] = is_safe_url
+    return env
 
 
 @pytest.mark.unit
@@ -88,7 +94,7 @@ class TestTemplateRendering:
         """Render template with test data (reused across tests)."""
         templates_dir = Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates"
 
-        env = Environment(loader=FileSystemLoader(str(templates_dir)))
+        env = _create_test_env(templates_dir)
         template = env.get_template("index.html")
 
         assets = _load_assets()
@@ -163,7 +169,7 @@ class TestTemplateRendering:
         """Render template with empty variants (reused across tests)."""
         templates_dir = Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates"
 
-        env = Environment(loader=FileSystemLoader(str(templates_dir)))
+        env = _create_test_env(templates_dir)
         template = env.get_template("index.html")
 
         assets = _load_assets()
@@ -301,7 +307,7 @@ class TestAssetIntegration:
         """Test that all loaded assets are actually used in the template."""
         templates_dir = Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates"
 
-        env = Environment(loader=FileSystemLoader(str(templates_dir)))
+        env = _create_test_env(templates_dir)
         template = env.get_template("index.html")
 
         assets = _load_assets()
@@ -342,7 +348,7 @@ class TestAssetIntegration:
         """Test that template has proper structure with inlined assets."""
         templates_dir = Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates"
 
-        env = Environment(loader=FileSystemLoader(str(templates_dir)))
+        env = _create_test_env(templates_dir)
         template = env.get_template("index.html")
 
         assets = _load_assets()

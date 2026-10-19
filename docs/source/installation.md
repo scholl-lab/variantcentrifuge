@@ -95,12 +95,27 @@ Place your VCF files in a local directory and mount it into the container. Use a
 ```bash
 docker volume create snpeff_data
 docker run --rm \
+  --user "$(id -u):$(id -g)" \
   -v ./data:/data \
   -v snpeff_data:/data/snpeff \
   ghcr.io/scholl-lab/variantcentrifuge:latest \
   --gene-name BRCA1 \
   --vcf-file /data/input.vcf.gz \
   --output-file /data/output.tsv
+```
+
+You can also mount dedicated input and output directories as child mounts under `/data`:
+
+```bash
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -v ./input:/data/input:ro \
+  -v ./output:/data/output \
+  -v snpeff_data:/data/snpeff \
+  ghcr.io/scholl-lab/variantcentrifuge:latest \
+  --gene-name BRCA1 \
+  --vcf-file /data/input/input.vcf.gz \
+  --output-file /data/output/output.tsv
 ```
 
 Keep the SnpEff database mount writable for the first download of each required genome. After the
@@ -113,6 +128,7 @@ A `docker-compose.yml` is included in the repository for convenience:
 services:
   variantcentrifuge:
     image: ghcr.io/scholl-lab/variantcentrifuge:latest
+    user: "${UID:-1000}:${GID:-1000}"
     volumes:
       - ./data:/data
       # Writable for the first download; persist and reuse SnpEff databases

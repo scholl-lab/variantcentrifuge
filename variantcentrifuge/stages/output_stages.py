@@ -253,6 +253,7 @@ class ExcelReportStage(Stage):
             context.config,
             df=excel_df,
             extra_sheets=extra_sheets,
+            output_file=str(output_path),
         )
 
         # Move the generated file to the desired location if needed

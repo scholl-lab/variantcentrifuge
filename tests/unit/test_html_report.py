@@ -5,7 +5,13 @@ from pathlib import Path
 import pytest
 from jinja2 import Environment, FileSystemLoader
 
-from variantcentrifuge.generate_html_report import _load_assets
+from variantcentrifuge.generate_html_report import _load_assets, is_safe_url
+
+
+def _create_test_env(templates_dir: Path) -> Environment:
+    env = Environment(loader=FileSystemLoader(str(templates_dir)))
+    env.filters["is_safe_url"] = is_safe_url
+    return env
 
 
 @pytest.mark.unit
@@ -17,7 +23,7 @@ class TestPhase14HTMLReport:
         """Render template with Phase 14 test data (reused across tests)."""
         templates_dir = Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates"
 
-        env = Environment(loader=FileSystemLoader(str(templates_dir)))
+        env = _create_test_env(templates_dir)
         template = env.get_template("index.html")
 
         assets = _load_assets()
@@ -139,7 +145,7 @@ class TestPhase14HTMLReport:
         """Render template with empty inheritance_distribution for placeholder test."""
         templates_dir = Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates"
 
-        env = Environment(loader=FileSystemLoader(str(templates_dir)))
+        env = _create_test_env(templates_dir)
         template = env.get_template("index.html")
 
         assets = _load_assets()
@@ -289,7 +295,7 @@ class TestPhase15TableRedesign:
         """Render template with Phase 15 test data (reused across tests)."""
         templates_dir = Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates"
 
-        env = Environment(loader=FileSystemLoader(str(templates_dir)))
+        env = _create_test_env(templates_dir)
         template = env.get_template("index.html")
 
         assets = _load_assets()
@@ -599,7 +605,7 @@ class TestPhase17Accessibility:
         """Render template with Phase 17 test data (reused across tests)."""
         templates_dir = Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates"
 
-        env = Environment(loader=FileSystemLoader(str(templates_dir)))
+        env = _create_test_env(templates_dir)
         template = env.get_template("index.html")
 
         assets = _load_assets()
@@ -901,7 +907,7 @@ class TestPhase17ChartAndPrint:
         """Render template with chart data for testing."""
         templates_dir = Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates"
 
-        env = Environment(loader=FileSystemLoader(str(templates_dir)))
+        env = _create_test_env(templates_dir)
         template = env.get_template("index.html")
 
         assets = _load_assets()
@@ -1179,7 +1185,7 @@ class TestPhase16FilteringAndVisualization:
         """Render template with Phase 16 test data (reused across tests)."""
         templates_dir = Path(__file__).parent.parent.parent / "variantcentrifuge" / "templates"
 
-        env = Environment(loader=FileSystemLoader(str(templates_dir)))
+        env = _create_test_env(templates_dir)
         template = env.get_template("index.html")
 
         assets = _load_assets()
@@ -1749,6 +1755,9 @@ class TestHTMLReportEscaping:
         m_url = re.search(r"(function isSafeUrl\(.*?\n    \})", content, re.DOTALL)
         if m_url:
             helpers += m_url.group(1) + "\n"
+        m_ext = re.search(r"(function extractCellContent\(.*?\n    \})", content, re.DOTALL)
+        if m_ext:
+            helpers += m_ext.group(1) + "\n"
 
         m_fn = re.search(r"(function formatChildRow\(.*?\n    \})", content, re.DOTALL)
         assert m_fn is not None, "formatChildRow function not found"

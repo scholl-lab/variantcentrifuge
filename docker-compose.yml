@@ -2,8 +2,11 @@ services:
   variantcentrifuge:
     build: .
     image: ghcr.io/scholl-lab/variantcentrifuge:latest
+    # Run as the host user so output files are owned by the host user
+    # (equivalent to docker run --user "$(id -u):$(id -g)")
+    user: "${UID:-1000}:${GID:-1000}"
     volumes:
-      # Working directory — place your VCF files here
+      # Working directory — place your VCF files and output directories here
       - ./data:/data
 
       # Keep this persistent cache writable for the first download.

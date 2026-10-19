@@ -368,3 +368,99 @@ class TestExpressionValidation:
         results = engine.compute(sample_df)
         assert results["dataset"].empty
         assert called == []
+
+    def test_np_module_traversal_blocked(self):
+        """Verify np module traversals are rejected (#127)."""
+        with pytest.raises(ValueError, match="Disallowed attribute"):
+            _validate_expression("np.core.multiarray.os.system('id')")
+        with pytest.raises(ValueError, match="Disallowed attribute"):
+            _validate_expression("np.os.system('id')")
+
+    def test_indirect_calls_blocked(self):
+        """Verify indirect call constructs like subscripted call targets are blocked (#127)."""
+        with pytest.raises(ValueError, match="Disallowed"):
+            _validate_expression("[f for f in [df.to_csv]][0]('pwn.tsv')")
+
+    def test_malicious_json_file_loading_blocked(self, tmp_path, sample_df):
+        """Verify loading malicious config from a JSON file path is blocked at evaluation (#127)."""
+        import json
+
+        malicious_config = {
+            "dataset_stats": [
+                {
+                    "name": "file_probe",
+                    "expression": "df.to_csv('pwned.csv')",
+                }
+            ]
+        }
+        config_path = tmp_path / "malicious_stats.json"
+        config_path.write_text(json.dumps(malicious_config))
+
+        engine = StatsEngine(str(config_path))
+        results = engine.compute(sample_df)
+        assert results["dataset"].empty
+        assert not (tmp_path / "pwned.csv").exists()
+
+    def test_safe_builtins_and_np_where_evaluate(self, sample_df):
+        """Verify safe builtins and np.where evaluate cleanly in _safe_eval (#127)."""
+        config = {
+            "dataset_stats": [
+                {
+                    "name": "sorted_genes",
+                    "expression": "len(sorted(list(set(df['GENE']))))",
+                },
+                {
+                    "name": "where_count",
+                    "expression": "int(np.where(df['IMPACT'] == 'HIGH', 1, 0).sum())",
+                },
+                {
+                    "name": "enumerate_sum",
+                    "expression": "sum(idx for idx, _ in enumerate(range(len(df))))",
+                },
+            ]
+        }
+        engine = StatsEngine(config)
+        results = engine.compute(sample_df)
+        assert not results["dataset"].empty
+        metrics = dict(zip(results["dataset"]["metric"], results["dataset"]["value"], strict=False))
+        assert metrics["sorted_genes"] == 3  # BRCA1, BRCA2, TP53
+        assert metrics["where_count"] == 3
+        assert metrics["enumerate_sum"] == sum(range(len(sample_df)))
+
+    def test_all_shipped_configs_evaluate_cleanly(self):
+        """Verify all 3 shipped configs evaluate without AST or execution errors (#127)."""
+        from pathlib import Path
+
+        df = pd.DataFrame(
+            {
+                "GENE": ["BRCA1", "BRCA1", "TP53"],
+                "IMPACT": ["HIGH", "MODERATE", "LOW"],
+                "ClinicalSignificance": ["Pathogenic", "Benign", "VUS"],
+                "CLNSIG": ["Pathogenic", "Benign", "Uncertain_significance"],
+                "gnomAD_AF": [0.0001, 0.01, 0.05],
+                "AF": [0.0001, 0.01, 0.05],
+                "gnomAD_exomes_AF": [0.0001, 0.01, 0.05],
+                "gnomAD_genomes_AF": [0.0001, 0.01, 0.05],
+                "dbNSFP_CADD_phred": [35.0, 15.0, 10.0],
+                "CADD_phred": [35.0, 15.0, 10.0],
+                "dbNSFP_REVEL_score": [0.85, 0.25, 0.10],
+                "REVEL_score": [0.85, 0.25, 0.10],
+                "SAMPLE_GT": ["0/1", "0/1", "1/1"],
+                "Inheritance_Pattern": ["de_novo", "autosomal_dominant", "none"],
+                "FILTER": ["PASS", "PASS", "PASS"],
+            }
+        )
+
+        configs = [
+            "variantcentrifuge/config/default_stats_config.json",
+            "stats_configs/clinical_focus_stats.json",
+            "stats_configs/example_custom_stats.json",
+        ]
+        for cfg_rel in configs:
+            cfg_path = Path(cfg_rel)
+            if cfg_path.exists():
+                engine = StatsEngine(str(cfg_path))
+                results = engine.compute(df)
+                assert isinstance(results, dict)
+                # Ensure no unhandled exception occurred and at least one table was produced
+                assert "dataset" in results

@@ -25,7 +25,7 @@ logger = logging.getLogger("variantcentrifuge")
 GT_PATTERN = re.compile(r"([^()]+)\(([^)]+)\)")
 
 
-def _load_igv_lookup(base_path: str) -> dict[tuple[Any, ...], str]:
+def _load_igv_lookup(base_path: str, igv_enabled: bool = True) -> dict[tuple[Any, ...], str]:
     """Find and load IGV reports map, returning lookup dictionary for variants."""
     output_dir = os.path.dirname(base_path)
     igv_map_path = os.path.join(output_dir, "report", "igv", "igv_reports_map.json")
@@ -36,7 +36,8 @@ def _load_igv_lookup(base_path: str) -> dict[tuple[Any, ...], str]:
             igv_map_path = alt_path
 
     if not os.path.exists(igv_map_path):
-        logger.warning(f"IGV reports map file not found at: {igv_map_path}")
+        if igv_enabled:
+            logger.warning(f"IGV reports map file not found at: {igv_map_path}")
         return {}
 
     logger.info(f"Found IGV reports mapping file: {igv_map_path}")
@@ -44,7 +45,13 @@ def _load_igv_lookup(base_path: str) -> dict[tuple[Any, ...], str]:
         with open(igv_map_path, encoding="utf-8") as f:
             igv_map_data = json.load(f)
 
-        igv_map = igv_map_data.get("variants", igv_map_data)
+        if isinstance(igv_map_data, dict):
+            igv_map = igv_map_data.get("variants", [])
+        elif isinstance(igv_map_data, list):
+            igv_map = igv_map_data
+        else:
+            igv_map = []
+
         igv_lookup: dict[tuple[Any, ...], str] = {}
         for entry in igv_map:
             chrom = str(entry.get("chrom", ""))
@@ -54,6 +61,10 @@ def _load_igv_lookup(base_path: str) -> dict[tuple[Any, ...], str]:
 
             if "sample_reports" in entry:
                 for sample_id, report_path in entry["sample_reports"].items():
+                    key = (chrom, pos, ref, alt, sample_id)
+                    igv_lookup[key] = report_path
+            elif "sample_links" in entry:
+                for sample_id, report_path in entry["sample_links"].items():
                     key = (chrom, pos, ref, alt, sample_id)
                     igv_lookup[key] = report_path
             elif "sample_id" in entry and "report_path" in entry:
@@ -114,6 +125,7 @@ def convert_to_excel(
     cfg: dict[str, Any],
     df: pd.DataFrame | None = None,
     extra_sheets: dict[str, pd.DataFrame] | None = None,
+    output_file: str | None = None,
 ) -> str:
     """
     Convert a TSV file or DataFrame to XLSX format with Results and optional extra sheets.
@@ -163,12 +175,25 @@ def convert_to_excel(
         logger.debug("Removing raw igv_links column from Excel conversion")
         df = df.drop(columns=["igv_links"])
 
-    xlsx_file = tsv_file if tsv_file.endswith(".xlsx") else os.path.splitext(tsv_file)[0] + ".xlsx"
+    if output_file is not None:
+        xlsx_file = (
+            output_file
+            if output_file.endswith(".xlsx")
+            else os.path.splitext(output_file)[0] + ".xlsx"
+        )
+    else:
+        xlsx_file = (
+            tsv_file if tsv_file.endswith(".xlsx") else os.path.splitext(tsv_file)[0] + ".xlsx"
+        )
 
     igv_enabled = cfg.get("igv_enabled", False)
-    igv_lookup = _load_igv_lookup(xlsx_file) if igv_enabled else {}
+    igv_lookup = _load_igv_lookup(xlsx_file, igv_enabled=igv_enabled) if igv_enabled else {}
 
-    with pd.ExcelWriter(xlsx_file, engine="xlsxwriter") as writer:
+    with pd.ExcelWriter(
+        xlsx_file,
+        engine="xlsxwriter",
+        engine_kwargs={"options": {"strings_to_urls": False}},
+    ) as writer:
         df.to_excel(writer, sheet_name="Results", index=False)
         ws = writer.sheets["Results"]
         book = writer.book
@@ -185,7 +210,11 @@ def convert_to_excel(
                 for row_idx, val in enumerate(df[col_name]):
                     s_val = str(val).strip() if pd.notna(val) else ""
                     if s_val.startswith(("http://", "https://")):
-                        ws.write_url(row_idx + 1, col_idx, s_val, hyperlink_format, string=col_name)
+                        ret = ws.write_url(
+                            row_idx + 1, col_idx, s_val, hyperlink_format, string=col_name
+                        )
+                        if ret != 0:
+                            ws.write_string(row_idx + 1, col_idx, col_name, hyperlink_format)
 
         # Handle IGV Report Links column
         num_cols = len(df.columns)
@@ -223,13 +252,15 @@ def convert_to_excel(
                 if len(igv_reports) == 1:
                     sample_id, rpath = igv_reports[0]
                     rel_link = os.path.join("report", rpath)
-                    ws.write_url(
+                    ret = ws.write_url(
                         row_idx + 1,
                         igv_col_idx,
                         f"external:{rel_link}",
                         hyperlink_format,
                         string=sample_id,
                     )
+                    if ret != 0:
+                        ws.write_string(row_idx + 1, igv_col_idx, sample_id, hyperlink_format)
                 elif len(igv_reports) > 1:
                     first_sample, _ = igv_reports[0]
                     num_others = len(igv_reports) - 1
@@ -400,7 +431,7 @@ def produce_report_json(variant_tsv: str, output_dir: str) -> None:
             if pd.isna(val):
                 variant_dict[key] = None
 
-    igv_lookup = _load_igv_lookup(os.path.join(output_dir, "variants.tsv"))
+    igv_lookup = _load_igv_lookup(os.path.join(output_dir, "variants.tsv"), igv_enabled=False)
     if igv_lookup:
         for variant_dict in variants:
             variant_dict["igv_links"] = []

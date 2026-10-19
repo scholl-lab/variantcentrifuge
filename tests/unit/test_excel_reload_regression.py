@@ -49,14 +49,15 @@ def excel_context(tmp_path: Path) -> PipelineContext:
     # 2. Results DataFrame
     results_df = pd.DataFrame(
         {
-            "CHROM": ["chr1", "chr2"],
-            "POS": [100, 200],
-            "REF": ["A", "C"],
-            "ALT": ["T", "G"],
-            "GT": ["Sample1(0/1)", "Sample1(0/1);Sample2(0/1)"],
+            "CHROM": ["chr1", "chr2", "chr3"],
+            "POS": [100, 200, 300],
+            "REF": ["A", "C", "G"],
+            "ALT": ["T", "G", "A"],
+            "GT": ["Sample1(0/1)", "Sample1(0/1);Sample2(0/1)", "Sample3(0/1)"],
             "ClinVar": [
                 "https://www.ncbi.nlm.nih.gov/clinvar/?term=chr1-100-A-T",
                 "https://www.ncbi.nlm.nih.gov/clinvar/?term=chr2-200-C-G",
+                "https://www.ncbi.nlm.nih.gov/clinvar/?term=chr3-300-G-A",
             ],
         }
     )
@@ -156,6 +157,29 @@ def test_excel_report_stage_performs_no_openpyxl_reload(excel_context: PipelineC
     assert "Sample1 (report/igv/Sample1_var2.html)" in cell_igv_2.comment.text
     assert "Sample2 (report/igv/Sample2_var2.html)" in cell_igv_2.comment.text
 
+    # Row 4 (third variant): no IGV report mapped -> N/A
+    cell_igv_3 = results_ws.cell(row=4, column=igv_col)
+    assert cell_igv_3.value == "N/A"
+
+    # Verify optional sheets cell values
+    meta_ws = wb["Metadata"]
+    assert [c.value for c in meta_ws[1]] == ["Param", "Value"]
+    assert [c.value for c in meta_ws[2]] == ["version", "1.0"]
+    assert [c.value for c in meta_ws[3]] == ["build", "GRCh38"]
+
+    stats_ws = wb["Statistics"]
+    assert [c.value for c in stats_ws[1]] == ["Metric", "Count"]
+    assert [c.value for c in stats_ws[2]] == ["total", 10]
+    assert [c.value for c in stats_ws[3]] == ["filtered", 2]
+
+    burden_ws = wb["Gene Burden"]
+    assert [c.value for c in burden_ws[1]] == ["Gene", "P_value"]
+    assert [c.value for c in burden_ws[2]] == ["GENE1", 0.001]
+
+    assoc_ws = wb["Association"]
+    assert [c.value for c in assoc_ws[1]] == ["Gene", "Assoc_P"]
+    assert [c.value for c in assoc_ws[2]] == ["GENE1", 0.005]
+
 
 @pytest.mark.unit
 def test_excel_empty_results_and_association_fidelity(tmp_path: Path):
@@ -200,3 +224,146 @@ def test_excel_empty_results_and_association_fidelity(tmp_path: Path):
     assert wb.sheetnames == ["Results", "Association"]
     assert wb["Results"].max_row == 1  # Header only
     assert wb["Association"].max_row == 2  # Header + 1 row
+
+
+@pytest.mark.unit
+def test_excel_legacy_list_format_igv_map(tmp_path: Path):
+    """Verify convert_to_excel supports top-level list IGV maps (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    output_dir = tmp_path / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = output_dir / "report" / "igv"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    # Legacy top-level list format with flat report_path
+    legacy_map = [
+        {
+            "chrom": "chr1",
+            "pos": 100,
+            "ref": "A",
+            "alt": "T",
+            "sample_id": "Sample1",
+            "report_path": "igv/Sample1_legacy.html",
+        }
+    ]
+    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
+        json.dump(legacy_map, f)
+
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "POS": [100],
+            "REF": ["A"],
+            "ALT": ["T"],
+            "GT": ["Sample1(0/1)"],
+        }
+    )
+    xlsx_file = output_dir / "variants.xlsx"
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": True},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    headers = [cell.value for cell in ws[1]]
+    assert "IGV Report Links" in headers
+    igv_cell = ws.cell(row=2, column=headers.index("IGV Report Links") + 1)
+    assert igv_cell.value == "Sample1"
+    assert "igv/Sample1_legacy.html" in igv_cell.hyperlink.target.replace("\\", "/")
+
+
+@pytest.mark.unit
+def test_excel_6000_rows_6_urls_no_hyperlink_limit_exhaustion(tmp_path: Path):
+    """Verify 6,000 rows x 6 URL columns (36,000 URLs) do not hit XlsxWriter 65,530 limit (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
+
+    output_dir = tmp_path / "stress_output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    n_rows = 6000
+    data = {
+        "CHROM": ["chr1"] * n_rows,
+        "POS": list(range(1, n_rows + 1)),
+        "REF": ["A"] * n_rows,
+        "ALT": ["T"] * n_rows,
+        "GT": ["Sample1(0/1)"] * n_rows,
+    }
+    for col_idx in range(1, 7):
+        data[f"URL_COL_{col_idx}"] = [
+            f"https://example.org/path/{col_idx}/{row}" for row in range(n_rows)
+        ]
+
+    df = pd.DataFrame(data)
+    xlsx_file = output_dir / "large_urls.xlsx"
+
+    # With strings_to_urls=False, exactly 36,000 hyperlinks are written (under 65,530)
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        output_file=str(xlsx_file),
+    )
+
+    assert xlsx_file.exists()
+    wb = openpyxl.load_workbook(xlsx_file)
+    ws = wb["Results"]
+    assert ws.max_row == n_rows + 1
+
+    # Verify first and last rows have proper hyperlinks
+    first_url_cell = ws.cell(row=2, column=6)
+    assert first_url_cell.value == "URL_COL_1"
+    assert first_url_cell.hyperlink.target == "https://example.org/path/1/0"
+
+    last_url_cell = ws.cell(row=n_rows + 1, column=11)
+    assert last_url_cell.value == "URL_COL_6"
+    assert last_url_cell.hyperlink.target == f"https://example.org/path/6/{n_rows - 1}"
+
+
+@pytest.mark.unit
+def test_excel_generation_benchmark_performance_and_memory(tmp_path: Path):
+    """Benchmark conversion runtime and peak memory consumption (#159)."""
+    import time
+    import tracemalloc
+
+    from variantcentrifuge.converter import convert_to_excel
+
+    n_rows = 2000
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"] * n_rows,
+            "POS": list(range(n_rows)),
+            "REF": ["A"] * n_rows,
+            "ALT": ["T"] * n_rows,
+            "GT": ["Sample1(0/1)"] * n_rows,
+            "ClinVar": [f"https://example.org/cv/{i}" for i in range(n_rows)],
+        }
+    )
+    extra_sheets = {
+        "Metadata": pd.DataFrame({"K": ["version"], "V": ["1.0"]}),
+        "Statistics": pd.DataFrame({"Metric": ["count"], "Value": [n_rows]}),
+    }
+    xlsx_file = tmp_path / "bench.xlsx"
+
+    tracemalloc.start()
+    t0 = time.perf_counter()
+
+    convert_to_excel(
+        str(xlsx_file),
+        cfg={"igv_enabled": False},
+        df=df,
+        extra_sheets=extra_sheets,
+        output_file=str(xlsx_file),
+    )
+
+    elapsed = time.perf_counter() - t0
+    _current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    peak_mb = peak / (1024 * 1024)
+    # 2,000 rows should take under 5 seconds and under 150 MB peak memory
+    assert elapsed < 5.0, f"Conversion took {elapsed:.2f}s, expected < 5s"
+    assert peak_mb < 150.0, f"Peak memory {peak_mb:.1f}MB, expected < 150MB"

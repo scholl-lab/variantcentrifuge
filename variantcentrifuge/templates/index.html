@@ -1073,9 +1073,7 @@
                                 {# Handle structured igv_links data which is a list of dicts #}
                                 {% if v_row[col_info.original_name] and v_row[col_info.original_name]|length > 0 %}
                                     {% for igv_link_detail in v_row[col_info.original_name] %}
-                                        {% set igv_url = (igv_link_detail.report_path | string | trim) %}
-                                        {% set igv_url_lower = igv_url.lower() %}
-                                        {% if igv_url and (' ' not in igv_url) and ('"' not in igv_url) and (not igv_url_lower.startswith('javascript:')) and (not igv_url_lower.startswith('data:')) and (not igv_url_lower.startswith('vbscript:')) and (igv_url_lower.startswith('http://') or igv_url_lower.startswith('https://') or (':' not in igv_url_lower)) %}
+                                        {% if igv_link_detail.report_path | is_safe_url %}
                                         <a href="{{ igv_link_detail.report_path }}" target="_blank" class="igv-individual-link" title="IGV report for {{ igv_link_detail.sample_id }}">
                                             <svg aria-hidden="true" focusable="false" class="link-icon-svg" width="14" height="14"><use href="#icon-external-link"/></svg>
                                             <span class="sr-only">IGV report for {{ igv_link_detail.sample_id }} (opens in new tab)</span>
@@ -1089,9 +1087,7 @@
                                     N/A
                                 {% endif %}
                             {% elif col_info.is_standard_link_column and v_row[col_info.original_name] and v_row[col_info.original_name] | string | trim != "" %}
-                                {% set std_url = (v_row[col_info.original_name] | string | trim) %}
-                                {% set std_url_lower = std_url.lower() %}
-                                {% if (' ' not in std_url) and ('"' not in std_url) and (not std_url_lower.startswith('javascript:')) and (not std_url_lower.startswith('data:')) and (not std_url_lower.startswith('vbscript:')) and (std_url_lower.startswith('http://') or std_url_lower.startswith('https://') or (':' not in std_url_lower)) %}
+                                {% if v_row[col_info.original_name] | is_safe_url %}
                                 <a href="{{ v_row[col_info.original_name] }}" target="_blank" title="{{ v_row[col_info.original_name] }}">
                                     <svg aria-hidden="true" focusable="false" class="link-icon-svg" width="14" height="14"><use href="#icon-external-link"/></svg>
                                     <span class="sr-only">{{ col_info.link_display_text }} (opens in new tab)</span>
@@ -1289,6 +1285,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!url) return false;
         var u = String(url).trim();
         if (/[\s"'<>\\]/.test(u)) return false;
+        if (u.indexOf('//') === 0) return false;
         var uLower = u.toLowerCase();
         if (uLower.indexOf('javascript:') === 0 || uLower.indexOf('data:') === 0 || uLower.indexOf('vbscript:') === 0) {
             return false;
@@ -1302,6 +1299,98 @@ document.addEventListener('DOMContentLoaded', function() {
             return true;
         }
         return false;
+    }
+
+    function extractCellContent(raw) {
+        if (raw === null || raw === undefined) {
+            return { text: '', href: null, links: [] };
+        }
+        var str = String(raw).trim();
+        if (str === '') {
+            return { text: '', href: null, links: [] };
+        }
+        if (str.indexOf('<') === -1 && str.indexOf('&') === -1) {
+            return { text: str, href: null, links: [] };
+        }
+
+        if (typeof document !== 'undefined' && document.createElement) {
+            var div = document.createElement('div');
+            div.innerHTML = str;
+
+            var aTags = div.querySelectorAll('a');
+            var links = [];
+            for (var i = 0; i < aTags.length; i++) {
+                var a = aTags[i];
+                var h = a.getAttribute('href');
+                var aClone = a.cloneNode(true);
+                var extras = aClone.querySelectorAll('.sr-only, svg');
+                for (var j = 0; j < extras.length; j++) {
+                    extras[j].parentNode.removeChild(extras[j]);
+                }
+                var linkText = (aClone.textContent || aClone.innerText || '').trim();
+                links.push({
+                    href: h ? h.trim() : null,
+                    text: linkText
+                });
+            }
+
+            var tippySpan = div.querySelector('[data-tippy-content]');
+            var text = '';
+            if (tippySpan && tippySpan.getAttribute('data-tippy-content')) {
+                text = tippySpan.getAttribute('data-tippy-content').trim();
+            } else {
+                var divClone = div.cloneNode(true);
+                var extras2 = divClone.querySelectorAll('.sr-only, svg');
+                for (var k = 0; k < extras2.length; k++) {
+                    extras2[k].parentNode.removeChild(extras2[k]);
+                }
+                text = (divClone.textContent || divClone.innerText || '').trim();
+            }
+
+            return {
+                text: text,
+                href: links.length > 0 ? links[0].href : null,
+                links: links
+            };
+        } else {
+            // Regex fallback for non-DOM / test environments
+            var linkRegex = /<a\b[^>]*\bhref=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+            var match;
+            var links = [];
+            while ((match = linkRegex.exec(str)) !== null) {
+                var cleanA = match[2].replace(/<span\b[^>]*class=["'][^"']*sr-only[^"']*["'][^>]*>[\s\S]*?<\/span>/gi, '')
+                                     .replace(/<svg\b[\s\S]*?<\/svg>/gi, '')
+                                     .replace(/<[^>]+>/g, '')
+                                     .trim();
+                links.push({
+                    href: match[1].trim(),
+                    text: cleanA
+                });
+            }
+
+            var tippyMatch = str.match(/<[^>]*\bdata-tippy-content=["']([^"']+)["']/i);
+            var text = '';
+            if (tippyMatch) {
+                text = tippyMatch[1];
+            } else {
+                var stripped = str.replace(/<span\b[^>]*class=["'][^"']*sr-only[^"']*["'][^>]*>[\s\S]*?<\/span>/gi, '')
+                                  .replace(/<svg\b[\s\S]*?<\/svg>/gi, '')
+                                  .replace(/<[^>]+>/g, '');
+                text = stripped;
+            }
+            text = text.replace(/&amp;/g, '&')
+                       .replace(/&lt;/g, '<')
+                       .replace(/&gt;/g, '>')
+                       .replace(/&quot;/g, '"')
+                       .replace(/&#39;/g, "'")
+                       .trim();
+
+            return {
+                text: text,
+                href: links.length > 0 ? links[0].href : null,
+                links: links
+            };
+        }
     }
 
     // PDF Export Button Handler (PRINT-02)
@@ -1361,15 +1450,19 @@ document.addEventListener('DOMContentLoaded', function() {
             dtColumnDefs.push({
                 targets: index + 1,
                 render: function(data, type, row) {
-                    if (type === 'display' && data) {
-                        var colors = {
-                            'HIGH': '#dc3545',
-                            'MODERATE': '#c05000',
-                            'LOW': '#b45309',
-                            'MODIFIER': '#6c757d'
-                        };
-                        var color = colors[data] || '#6c757d';
-                        return '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(data) + '</span>';
+                    if (data) {
+                        var cell = extractCellContent(data);
+                        if (type === 'display') {
+                            var colors = {
+                                'HIGH': '#dc3545',
+                                'MODERATE': '#c05000',
+                                'LOW': '#b45309',
+                                'MODIFIER': '#6c757d'
+                            };
+                            var color = colors[cell.text] || '#6c757d';
+                            return '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(cell.text) + '</span>';
+                        }
+                        return cell.text;
                     }
                     return data;
                 }
@@ -1381,25 +1474,30 @@ document.addEventListener('DOMContentLoaded', function() {
             dtColumnDefs.push({
                 targets: index + 1,
                 render: function(data, type, row) {
-                    if (type === 'display' && data && String(data).trim() !== '') {
-                        var str = String(data);
-                        var lower = str.toLowerCase();
-                        var color = '#6c757d';
-                        if (lower.indexOf('pathogenic') !== -1 && lower.indexOf('likely') === -1 && lower.indexOf('conflicting') === -1) {
-                            color = '#dc3545';
-                        } else if (lower.indexOf('likely_pathogenic') !== -1 || lower.indexOf('likely pathogenic') !== -1) {
-                            color = '#c0392b';
-                        } else if (lower.indexOf('uncertain') !== -1 || lower === 'vus') {
-                            color = '#b45309';
-                        } else if (lower.indexOf('likely_benign') !== -1 || lower.indexOf('likely benign') !== -1) {
-                            color = '#558b2f';
-                        } else if (lower.indexOf('benign') !== -1 && lower.indexOf('likely') === -1) {
-                            color = '#2e7d32';
-                        } else if (lower.indexOf('conflicting') !== -1) {
-                            color = '#bf5600';
+                    if (data && String(data).trim() !== '') {
+                        var cell = extractCellContent(data);
+                        var str = String(cell.text || '');
+                        if (str === '') return '';
+                        if (type === 'display') {
+                            var lower = str.toLowerCase();
+                            var color = '#6c757d';
+                            if (lower.indexOf('pathogenic') !== -1 && lower.indexOf('likely') === -1 && lower.indexOf('conflicting') === -1) {
+                                color = '#dc3545';
+                            } else if (lower.indexOf('likely_pathogenic') !== -1 || lower.indexOf('likely pathogenic') !== -1) {
+                                color = '#c0392b';
+                            } else if (lower.indexOf('uncertain') !== -1 || lower === 'vus') {
+                                color = '#b45309';
+                            } else if (lower.indexOf('likely_benign') !== -1 || lower.indexOf('likely benign') !== -1) {
+                                color = '#558b2f';
+                            } else if (lower.indexOf('benign') !== -1 && lower.indexOf('likely') === -1) {
+                                color = '#2e7d32';
+                            } else if (lower.indexOf('conflicting') !== -1) {
+                                color = '#bf5600';
+                            }
+                            var displayText = str.replace(/_/g, ' ');
+                            return '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(displayText) + '</span>';
                         }
-                        var displayText = str.replace(/_/g, ' ');
-                        return '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(displayText) + '</span>';
+                        return str;
                     }
                     return '';
                 }
@@ -1411,11 +1509,16 @@ document.addEventListener('DOMContentLoaded', function() {
             dtColumnDefs.push({
                 targets: index + 1,
                 render: function(data, type, row) {
-                    if (type === 'display') {
-                        if (!data || String(data).trim() === '' || data === 'none' || data === 'reference') {
+                    var cell = extractCellContent(data);
+                    var text = cell.text || '';
+                    if (!text || text === 'none' || text === 'reference') {
+                        if (type === 'display') {
                             return '<span class="badge" style="background-color:#6c757d;">Unknown</span>';
                         }
-                        var str = String(data);
+                        return 'Unknown';
+                    }
+                    if (type === 'display') {
+                        var str = String(text);
                         var lower = str.toLowerCase();
                         var color = '#6c757d';
                         if (lower === 'de_novo' || lower === 'de_novo_candidate') {
@@ -1438,7 +1541,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         var displayText = str.replace(/_/g, ' ');
                         return '<span class="badge" style="background-color:' + color + ';">' + escapeHtml(displayText) + '</span>';
                     }
-                    return data;
+                    return text;
                 }
             });
         }
@@ -1484,13 +1587,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 width: '180px',
                 className: 'monospace',
                 render: function(data, type, row) {
-                    if (type === 'display' && data) {
-                        var str = String(data);
-                        if (str.length > 30) {
-                            var truncated = str.substring(0, 30) + '...';
-                            return '<span class="truncated-cell" tabindex="0" data-tippy-content="' +
-                                escapeHtml(str) + '">' + escapeHtml(truncated) + '</span>';
+                    if (data) {
+                        var cell = extractCellContent(data);
+                        var str = String(cell.text || '');
+                        if (type === 'display') {
+                            if (str.length > 30) {
+                                var truncated = str.substring(0, 30) + '...';
+                                return '<span class="truncated-cell" tabindex="0" data-tippy-content="' +
+                                    escapeHtml(str) + '">' + escapeHtml(truncated) + '</span>';
+                            }
+                            return escapeHtml(str);
                         }
+                        return str;
                     }
                     return data;
                 }
@@ -1503,14 +1611,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 targets: index + 1,
                 width: '120px',
                 render: function(data, type, row) {
-                    if (type === 'display' && data) {
-                        var str = String(data);
-                        if (str.length > 18) {
-                            var start = str.substring(0, 10);
-                            var end = str.substring(str.length - 6);
-                            return '<span class="truncated-cell middle-truncate" tabindex="0" data-tippy-content="' +
-                                escapeHtml(str) + '">' + escapeHtml(start + '...' + end) + '</span>';
+                    if (data) {
+                        var cell = extractCellContent(data);
+                        var str = String(cell.text || '');
+                        if (type === 'display') {
+                            if (str.length > 18) {
+                                var start = str.substring(0, 10);
+                                var end = str.substring(str.length - 6);
+                                return '<span class="truncated-cell middle-truncate" tabindex="0" data-tippy-content="' +
+                                    escapeHtml(str) + '">' + escapeHtml(start + '...' + end) + '</span>';
+                            }
+                            return escapeHtml(str);
                         }
+                        return str;
                     }
                     return data;
                 }
@@ -1525,8 +1638,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 targets: index + 1,
                 className: 'dt-right',
                 render: function(data, type, row) {
-                    if (type === 'display' && data !== null && data !== '' && !isNaN(data)) {
-                        return parseFloat(data).toFixed(3);
+                    if (data !== null && data !== '') {
+                        var cell = extractCellContent(data);
+                        var val = cell.text;
+                        if (val !== '' && !isNaN(val)) {
+                            if (type === 'display') {
+                                return parseFloat(val).toFixed(3);
+                            }
+                            return parseFloat(val);
+                        }
+                        return escapeHtml(val);
                     }
                     return data;
                 }
@@ -1550,11 +1671,13 @@ document.addEventListener('DOMContentLoaded', function() {
     function formatChildRow(rowData, columns) {
         // Build field-to-value map using column data
         var fields = {};
+        var colMap = {};
         columns.forEach(function(col, i) {
+            colMap[col.original_name] = col;
             // rowData is an array; column 0 is control column (null), data starts at index 1
             var value = rowData[i + 1];
             if (value !== null && value !== undefined && String(value).trim() !== '') {
-                fields[col.original_name] = String(value);
+                fields[col.original_name] = value;
             }
         });
 
@@ -1577,8 +1700,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (categorized[name]) return;
             if (!fields[name]) return;
 
-            // Detect links (columns with URL values or link-related names)
-            if (fields[name] && (fields[name].indexOf('http') === 0 || name.match(/(ClinVar|gnomAD|Varsome|Franklin|SpliceAI_link|autopvs1)/i))) {
+            // Detect links (columns configured as link columns or with URL values or link-related names)
+            if (col.is_standard_link_column || col.is_igv_link_column || name.match(/(ClinVar|gnomAD|Varsome|Franklin|SpliceAI_link|autopvs1)/i)) {
                 categories['Links'].push(name);
             }
             // Detect scores
@@ -1604,17 +1727,39 @@ document.addEventListener('DOMContentLoaded', function() {
             html += '<dl>';
 
             fieldsWithValues.forEach(function(fieldName) {
-                var value = fields[fieldName];
-                var displayName = fieldName.replace(/_/g, ' ');
+                var rawValue = fields[fieldName];
+                var col = colMap[fieldName] || {};
+                var cell = extractCellContent(rawValue);
+                var displayName = (col.display_name || fieldName).replace(/_/g, ' ');
                 var safeDisplayName = escapeHtml(displayName);
                 html += '<dt>' + safeDisplayName + '</dt>';
 
                 // Render links as clickable only if safe URL
-                if (value && isSafeUrl(value)) {
-                    var safeUrl = escapeHtml(String(value).trim());
-                    html += '<dd><a href="' + safeUrl + '" target="_blank" rel="noopener">' + safeDisplayName + ' &#x2197;</a></dd>';
+                if (cell.links && cell.links.length > 0) {
+                    var safeAnchors = [];
+                    cell.links.forEach(function(lnk) {
+                        if (lnk.href && isSafeUrl(lnk.href)) {
+                            var safeHref = escapeHtml(lnk.href);
+                            var linkText = lnk.text ? escapeHtml(lnk.text) : safeDisplayName;
+                            safeAnchors.push('<a href="' + safeHref + '" target="_blank" rel="noopener">' + linkText + ' &#x2197;</a>');
+                        }
+                    });
+                    if (safeAnchors.length > 0) {
+                        html += '<dd>' + safeAnchors.join(' ') + '</dd>';
+                        return;
+                    }
+                }
+
+                var isLinkCol = col.is_standard_link_column || col.is_igv_link_column || catName === 'Links';
+                var textVal = cell.text;
+                var isExplicitUrl = (textVal.indexOf('http://') === 0 || textVal.indexOf('https://') === 0 || textVal.indexOf('igv_reports/') === 0);
+
+                if (isLinkCol && isExplicitUrl && isSafeUrl(textVal)) {
+                    var safeUrl = escapeHtml(textVal);
+                    var linkLabel = col.link_display_text ? escapeHtml(col.link_display_text) : safeDisplayName;
+                    html += '<dd><a href="' + safeUrl + '" target="_blank" rel="noopener">' + linkLabel + ' &#x2197;</a></dd>';
                 } else {
-                    html += '<dd>' + escapeHtml(value) + '</dd>';
+                    html += '<dd>' + escapeHtml(textVal) + '</dd>';
                 }
             });
 
