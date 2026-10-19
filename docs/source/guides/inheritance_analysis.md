@@ -62,6 +62,28 @@ FAM001      mother         0          0          2    1
 Sample IDs in the PED file must exactly match the sample names in the VCF file. Use `bcftools query -l your.vcf.gz` to check sample names.
 :::
 
+### Unified Sample Sheet (`--sample-sheet`)
+
+Instead of passing separate `--ped`, `--phenotype-file`, and `--bam-mapping-file` flags, you can provide a single validated TSV/CSV manifest via `--sample-sheet`:
+
+```tsv
+family_id	sample_id	paternal_id	maternal_id	sex	affected_status	hpo_terms	bam_path
+FAM001	proband	father	mother	1	2	HP:0001250;HP:0001263	/data/proband.bam
+FAM001	father	0	0	1	1		/data/father.bam
+FAM001	mother	0	0	2	1		/data/mother.bam
+```
+
+Combined with `--profile rare-disease-trio`, a complete family trio run can be launched with:
+
+```bash
+variantcentrifuge \
+  --gene-file disease_genes.txt \
+  --vcf-file trio.vcf.gz \
+  --sample-sheet samples.tsv \
+  --profile rare-disease-trio \
+  --output-file trio_results.tsv
+```
+
 ## Inheritance Patterns
 
 ### Supported Patterns

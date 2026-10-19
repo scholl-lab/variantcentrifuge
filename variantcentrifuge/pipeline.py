@@ -122,8 +122,10 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
 
     if (
         config.get("ped_file")
+        or config.get("sample_sheet")
         or (hasattr(args, "ped_file") and args.ped_file)
         or (hasattr(args, "ped") and args.ped)
+        or (hasattr(args, "sample_sheet") and args.sample_sheet)
     ):
         stages.append(PedigreeLoadingStage())
 
@@ -197,12 +199,14 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
 
     # Check both args and config for inheritance settings
     # Debug logging to understand the issue
-    has_ped_file_arg = (hasattr(args, "ped_file") and args.ped_file) or (
-        hasattr(args, "ped") and args.ped
+    has_ped_file_arg = (
+        (hasattr(args, "ped_file") and args.ped_file)
+        or (hasattr(args, "ped") and args.ped)
+        or (hasattr(args, "sample_sheet") and args.sample_sheet)
     )
     has_inheritance_mode_arg = hasattr(args, "inheritance_mode") and args.inheritance_mode
     has_calculate_inheritance_config = config.get("calculate_inheritance", False)
-    has_ped_file_config = config.get("ped_file")
+    has_ped_file_config = config.get("ped_file") or config.get("sample_sheet")
     has_inheritance_mode_config = config.get("inheritance_mode")
     requires_inheritance_for_scoring = check_scoring_requires_inheritance(args, config)
 

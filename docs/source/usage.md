@@ -74,6 +74,9 @@ flowchart TD
 | `--log-level LEVEL` | `INFO` | Logging level: `DEBUG`, `INFO`, `WARN`, `ERROR` |
 | `--log-file PATH` | — | Write logs to file in addition to stderr |
 | `-c` / `--config PATH` | — | Path to JSON configuration file |
+| `--profile NAME_OR_PATH` | — | Load a reusable analysis profile (built-in: `rare-disease-trio`, `rare-disease-singleton`, `cohort-burden`, `somatic-tumor-normal`, or a JSON file path). Precedence: explicit CLI flags > `--profile` > `-c/--config` > parser defaults |
+| `--save-profile PATH` | — | Save the effective reusable analysis configuration (excluding sample/run-specific file paths) to a JSON file |
+| `--list-profiles` | — | List available analysis profiles and exit |
 
 ### Core Input/Output
 
@@ -81,6 +84,7 @@ flowchart TD
 |------|---------|-------------|
 | `-v` / `--vcf-file PATH` | **required*** | Input VCF file (can be gzip-compressed; mutually exclusive with `--from-tsv`) |
 | `--from-tsv PATH` | — | Input `.tsv` or `.tsv.gz` from a previous VariantCentrifuge run (skips VCF extraction; mutually exclusive with `-v`) |
+| `--sample-sheet PATH` | — | Validated TSV/CSV sample manifest consolidating pedigree (`family_id`, `sample_id`, `paternal_id`, `maternal_id`, `sex`, `affected_status`), HPO terms (`hpo_terms`), and BAM paths (`bam_path`). Mutually exclusive with `--ped`, `--phenotype-file`, and `--bam-mapping-file` |
 | `-o` / `--output-file PATH` | — | Output TSV file path, or `stdout`/`-` for stdout |
 | `--output-dir DIR` | `output` | Directory for intermediate and final output |
 | `--xlsx` | `false` | Also produce Excel output |

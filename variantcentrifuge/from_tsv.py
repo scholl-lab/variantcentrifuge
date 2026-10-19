@@ -62,6 +62,14 @@ def _collect_metadata_samples(cfg: dict[str, Any]) -> list[str]:
             seen.add(s)
             ordered.append(s)
 
+    sample_sheet = cfg.get("sample_sheet")
+    if sample_sheet and os.path.isfile(str(sample_sheet)):
+        from .sample_sheet import load_sample_sheet
+
+        sheet_data = load_sample_sheet(str(sample_sheet))
+        for sid in sheet_data.sample_ids:
+            _add(str(sid))
+
     ped_file = cfg.get("ped_file") or cfg.get("ped")
     if ped_file and os.path.isfile(str(ped_file)):
         ped_data = read_pedigree(str(ped_file))

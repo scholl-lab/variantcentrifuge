@@ -47,6 +47,38 @@
     }
   },
 
+  "profiles": {
+    "rare-disease-trio": {
+      "description": "Rare-disease family/trio inheritance analysis with coding/rare variant presets and HTML/Excel reporting",
+      "preset": ["rare", "coding"],
+      "inheritance_mode": "columns",
+      "calculate_inheritance": true,
+      "html_report": true,
+      "xlsx": true
+    },
+    "rare-disease-singleton": {
+      "description": "Rare-disease singleton analysis with rare/coding presets, simple inheritance, and HTML/Excel reporting",
+      "preset": ["rare", "coding"],
+      "inheritance_mode": "simple",
+      "calculate_inheritance": true,
+      "html_report": true,
+      "xlsx": true
+    },
+    "cohort-burden": {
+      "description": "Case-control gene burden and association testing cohort workflow",
+      "preset": ["rare", "coding"],
+      "perform_gene_burden": true,
+      "perform_association": true,
+      "xlsx": true
+    },
+    "somatic-tumor-normal": {
+      "description": "Paired tumor-normal somatic variant filtering and reporting",
+      "preset": ["somatic_pass", "coding"],
+      "html_report": true,
+      "xlsx": true
+    }
+  },
+
   "presets": {
     "pass": "(FILTER = 'PASS')",
     "not_artefact": "((AC[ANY] <= 513) & (QUAL[ANY] >= 100))",

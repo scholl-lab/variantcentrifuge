@@ -70,6 +70,8 @@ class _VariantCentrifugeArgumentParser(argparse.ArgumentParser):
                 getattr(parsed, "list_stages", False)
                 or getattr(parsed, "list_checkpoints", False)
                 or getattr(parsed, "show_checkpoint_status", False)
+                or getattr(parsed, "list_profiles", False)
+                or bool(getattr(parsed, "save_profile", None))
             )
         ):
             self.error("the following arguments are required: -v/--vcf-file (or --from-tsv)")
@@ -107,6 +109,22 @@ def create_parser() -> argparse.ArgumentParser:
         help="Path to configuration file",
         default=None,
     )
+    general_group.add_argument(
+        "--profile",
+        help="Reusable analysis profile name (e.g., 'rare-disease-trio') or JSON file path",
+        default=None,
+    )
+    general_group.add_argument(
+        "--save-profile",
+        help="Save effective reusable analysis configuration to a JSON profile file",
+        default=None,
+    )
+    general_group.add_argument(
+        "--list-profiles",
+        action="store_true",
+        default=False,
+        help="List available built-in and configured analysis profiles and exit",
+    )
 
     # Core Input/Output
     io_group = parser.add_argument_group("Core Input/Output")
@@ -116,6 +134,12 @@ def create_parser() -> argparse.ArgumentParser:
     io_group.add_argument(
         "--from-tsv",
         help="Input TSV/TSV.GZ file from a previous VariantCentrifuge run (skips VCF extraction)",
+        required=False,
+        default=None,
+    )
+    io_group.add_argument(
+        "--sample-sheet",
+        help="Validated TSV/CSV sample manifest consolidating pedigree, HPO terms, and BAM paths",
         required=False,
         default=None,
     )
@@ -255,16 +279,49 @@ def main(argv: list[str] | None = None) -> int:
     cfg: dict[str, Any] = load_config(args.config)
     logger.debug(f"Configuration loaded: {cfg}")
 
+    try:
+        from .analysis_profiles import apply_analysis_profile, save_analysis_profile
+
+        apply_analysis_profile(args, cfg, parser=parser, argv=effective_argv)
+    except (ValueError, FileNotFoundError) as e:
+        logger.error(str(e))
+        return 1
+
+    base_fields_to_extract = cfg.get("fields_to_extract")
+
     # Resolve field profile (expands {{fragment:param}} templates in presets,
     # merges profile-specific fields and hidden columns into config)
     from .field_profile import resolve_profile
 
     if args.field_profile:
         cfg["field_profile"] = args.field_profile
-    resolve_profile(cfg)
+    try:
+        resolve_profile(cfg)
+    except ValueError as e:
+        logger.error(str(e))
+        return 1
 
     # Synchronize configuration and CLI options so listing and validation see effective settings
     sync_cli_and_config(args, cfg)
+
+    if getattr(args, "save_profile", None):
+        if args.case_phenotypes is not None:
+            cfg["case_phenotypes"] = args.case_phenotypes
+        if args.control_phenotypes is not None:
+            cfg["control_phenotypes"] = args.control_phenotypes
+        try:
+            save_analysis_profile(
+                cfg,
+                args.save_profile,
+                base_fields_to_extract=(
+                    str(base_fields_to_extract) if base_fields_to_extract is not None else None
+                ),
+            )
+        except Exception as e:
+            logger.error(f"Failed to save profile: {e}")
+            return 1
+        if not args.vcf_file and not getattr(args, "from_tsv", None):
+            return 0
 
     # Handle information and interactive options that exit early (e.g. --list-stages, --list-checkpoints)
     handle_listing_and_resume_options(args, cfg)
@@ -278,6 +335,25 @@ def main(argv: list[str] | None = None) -> int:
     fields_file = getattr(args, "fields_file", None) or cfg.get("fields_file")
 
     try:
+        from .sample_sheet import (
+            load_sample_sheet,
+            materialize_sample_sheet_bam_mapping,
+            validate_sample_sheet_conflicts,
+        )
+
+        validate_sample_sheet_conflicts(args, cfg, parser=parser)
+        sample_sheet_path = getattr(args, "sample_sheet", None) or cfg.get("sample_sheet")
+        if sample_sheet_path:
+            sheet_data = load_sample_sheet(str(sample_sheet_path))
+            if sheet_data.bam_mapping:
+                bam_tsv = materialize_sample_sheet_bam_mapping(
+                    sheet_data, args.output_dir or cfg.get("output_dir", "output")
+                )
+                if bam_tsv:
+                    cfg["bam_mapping_file"] = bam_tsv
+                    cfg["_bam_mapping_from_sample_sheet"] = True
+                    args.bam_mapping_file = bam_tsv
+
         validate_cli_args(args, cfg, parser=parser)
         raw_fields: Any = (
             load_fields_from_file(fields_file)
@@ -407,6 +483,9 @@ def main(argv: list[str] | None = None) -> int:
         refactored_args = SimpleNamespace(**vars(args))
         refactored_args.config = cfg
         refactored_args.from_tsv = cfg.get("from_tsv") or getattr(args, "from_tsv", None)
+        refactored_args.sample_sheet = cfg.get("sample_sheet") or getattr(
+            args, "sample_sheet", None
+        )
         refactored_args.ped_file = (
             cfg.get("ped_file") or getattr(args, "ped", None) or getattr(args, "ped_file", None)
         )

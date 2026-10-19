@@ -64,6 +64,9 @@ class PedigreeLoadingStage(Stage):
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Load pedigree data if provided."""
         ped_file = context.config.get("ped_file") or context.config.get("ped")
+        sample_sheet = context.config.get("sample_sheet") or getattr(
+            context.args, "sample_sheet", None
+        )
 
         if ped_file:
             logger.info(f"Loading pedigree from {ped_file}")
@@ -80,6 +83,12 @@ class PedigreeLoadingStage(Stage):
                 logger.info(f"Loaded pedigree with {n_samples} samples ({n_affected} affected)")
             except Exception as e:
                 raise ValueError(f"Failed to load pedigree file: {e}") from e
+        elif sample_sheet:
+            from ..sample_sheet import load_sample_sheet
+
+            logger.info(f"Loading pedigree from sample sheet {sample_sheet}")
+            sheet_data = load_sample_sheet(str(sample_sheet))
+            context.pedigree_data = sheet_data.pedigree_data
         else:
             logger.debug("No pedigree file specified")
 
@@ -92,6 +101,9 @@ class PedigreeLoadingStage(Stage):
         that would have been loaded during normal execution.
         """
         ped_file = context.config.get("ped_file") or context.config.get("ped")
+        sample_sheet = context.config.get("sample_sheet") or getattr(
+            context.args, "sample_sheet", None
+        )
 
         if ped_file:
             logger.debug(f"Restoring pedigree from {ped_file} (checkpoint skip)")
@@ -111,6 +123,11 @@ class PedigreeLoadingStage(Stage):
                 )
             except Exception as e:
                 raise ValueError(f"Failed to restore pedigree file: {e}") from e
+        elif sample_sheet:
+            from ..sample_sheet import load_sample_sheet
+
+            sheet_data = load_sample_sheet(str(sample_sheet))
+            context.pedigree_data = sheet_data.pedigree_data
         else:
             logger.debug("No pedigree file specified during checkpoint skip")
 

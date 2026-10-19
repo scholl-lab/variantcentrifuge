@@ -216,6 +216,12 @@ def run_validate_config_subcommand(argv: list[str]) -> int:
         if not isinstance(cfg.get("field_profiles", {}), dict):
             raise ValueError("Configuration 'field_profiles' must be a JSON object.")
 
+        if parsed.profile:
+            from .analysis_profiles import resolve_analysis_profile
+
+            prof_data = resolve_analysis_profile(str(parsed.profile), cfg)
+            cfg.update(prof_data)
+
         if parsed.field_profile:
             cfg["field_profile"] = parsed.field_profile
         resolve_profile(cfg)
@@ -223,6 +229,11 @@ def run_validate_config_subcommand(argv: list[str]) -> int:
         scoring_path = parsed.scoring_config_path or cfg.get("scoring_config_path")
         if scoring_path:
             read_scoring_config(str(scoring_path))
+
+        if parsed.sample_sheet:
+            from .sample_sheet import validate_sample_sheet_conflicts
+
+            validate_sample_sheet_conflicts(parsed, cfg)
 
         ped_path = parsed.ped or cfg.get("ped_file")
         if ped_path:
@@ -265,6 +276,24 @@ def handle_early_utility_options(
     """Handle early-exit utility flags for field profiles, VCF annotations, and checkpoints."""
     if load_config_fn is None:
         from .config import load_config as load_config_fn
+
+    if "--list-profiles" in effective_argv:
+        from .analysis_profiles import list_analysis_profiles
+
+        ap_parser = argparse.ArgumentParser(description="List analysis profiles")
+        ap_parser.add_argument("--list-profiles", action="store_true")
+        ap_parser.add_argument("-c", "--config", help="Path to configuration file", default=None)
+        ap_args = ap_parser.parse_args(effective_argv)
+
+        ap_cfg = load_config_fn(ap_args.config)
+        analysis_profiles = list_analysis_profiles(ap_cfg)
+        if analysis_profiles:
+            print("Available analysis profiles:")
+            for prof in analysis_profiles:
+                print(f"  {prof['name']:24s}  {prof['description']}")
+        else:
+            print("No analysis profiles defined in configuration.")
+        sys.exit(0)
 
     if "--list-field-profiles" in effective_argv:
         from .field_profile import list_profiles
