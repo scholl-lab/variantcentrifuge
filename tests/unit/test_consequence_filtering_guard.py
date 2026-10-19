@@ -189,3 +189,34 @@ def test_consequence_wildcards_and_whitespace_trigger_guard(
     }
     with pytest.raises(ValueError, match="--split-snpeff-lines before_filters"):
         validate_annotation_consequence_filtering(config)
+
+
+@pytest.mark.parametrize("analysis_key", ["perform_gene_burden", "perform_association"])
+@pytest.mark.parametrize(
+    "filter_expr",
+    [
+        "ANN[1].IMPACT = 'HIGH'",
+        "LOF[0].PERC > 0.9",
+        "NMD[0].PERC > 0.9",
+    ],
+)
+def test_indexed_consequence_filters_trigger_guard(analysis_key: str, filter_expr: str) -> None:
+    """Verify that ANN[1+], LOF[0+], and NMD[0+] trigger consequence guard."""
+    config = {
+        analysis_key: True,
+        "filter": filter_expr,
+        "snpeff_splitting_mode": None,
+    }
+    with pytest.raises(ValueError, match="--split-snpeff-lines before_filters"):
+        validate_annotation_consequence_filtering(config)
+
+
+@pytest.mark.parametrize("analysis_key", ["perform_gene_burden", "perform_association"])
+def test_ann_zero_allowed_without_splitting(analysis_key: str) -> None:
+    """Verify that ANN[0] consequence filters remain allowed without before_filters."""
+    config = {
+        analysis_key: True,
+        "filter": "ANN[0].IMPACT = 'HIGH'",
+        "snpeff_splitting_mode": None,
+    }
+    validate_annotation_consequence_filtering(config)

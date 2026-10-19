@@ -17,8 +17,21 @@ to aggregate phenotypes for a given list of samples.
 
 import logging
 import os
+import re
 
 logger = logging.getLogger("variantcentrifuge")
+
+
+def _is_called_alt_genotype(gt_str: str) -> bool:
+    """Return True if genotype string contains at least one called alternate allele."""
+    gt_core = gt_str.split(":")[0].strip()
+    alleles = re.split(r"[/|]", gt_core) if gt_core else []
+    return not (
+        not alleles
+        or gt_core.upper() == "NA"
+        or any(a in ("", ".") for a in alleles)
+        or all(a == "0" for a in alleles)
+    )
 
 
 def load_phenotypes(
@@ -187,8 +200,8 @@ def extract_phenotypes_for_gt_row(gt_value: str, phenotypes: dict[str, set[str]]
             if not sample_id or not sample_id.strip():
                 continue
 
-            # Skip samples with no variant (./. or 0/0)
-            if genotype in ["./.", "0/0", ""]:
+            # Skip samples with no called alternate variant
+            if not _is_called_alt_genotype(genotype):
                 continue
 
             # Get phenotypes for this sample
@@ -234,10 +247,52 @@ def extract_phenotypes_from_sample_columns(
     phenotype_entries = []
     row_fields = getattr(type(row), "_fields", None) if isinstance(row, tuple) else None
 
+    if row_fields is not None:
+        available = set(row_fields)
+    elif hasattr(row, "index"):
+        available = set(row.index)
+    elif isinstance(row, dict):
+        available = set(row.keys())
+    else:
+        available = set()
+
+    # Pre-resolve sample-named columns if present for all samples
+    sample_col_map: dict[str, str] = {}
+    for s in vcf_samples:
+        cand_names = (s, s.replace("-", "_").replace(".", "_"))
+        found = next((c for c in cand_names if c in available), None)
+        if found is not None:
+            sample_col_map[s] = found
+
+    all_sample_named = len(sample_col_map) == len(vcf_samples) and len(vcf_samples) > 0
+    all_gen_bracket = (
+        all(f"GEN[{i}].GT" in available for i in range(len(vcf_samples))) and len(vcf_samples) > 0
+    )
+    all_gen_underscore = (
+        all(f"GEN_{i}__GT" in available for i in range(len(vcf_samples))) and len(vcf_samples) > 0
+    )
+
+    vcf_samples_set = set(vcf_samples)
     for i, sample_id in enumerate(vcf_samples):
-        # Get GT value for this sample - prefer indexed columns, fallback to sample name
+        candidates: list[str]
+        if all_gen_bracket:
+            candidates = [f"GEN[{i}].GT"]
+        elif all_gen_underscore:
+            candidates = [f"GEN_{i}__GT"]
+        elif all_sample_named:
+            candidates = [sample_col_map[sample_id]]
+        else:
+            candidates = []
+            cand_bracket = f"GEN[{i}].GT"
+            if cand_bracket not in vcf_samples_set or cand_bracket == sample_id:
+                candidates.append(cand_bracket)
+            cand_underscore = f"GEN_{i}__GT"
+            if cand_underscore not in vcf_samples_set or cand_underscore == sample_id:
+                candidates.append(cand_underscore)
+            candidates.extend([sample_id, sample_id.replace("-", "_").replace(".", "_")])
+
         gt_value = None
-        for candidate in (f"GEN[{i}].GT", f"GEN_{i}__GT", sample_id):
+        for candidate in candidates:
             if row_fields is not None:
                 if candidate in row_fields:
                     gt_value = getattr(row, candidate)
@@ -255,7 +310,7 @@ def extract_phenotypes_from_sample_columns(
             continue
 
         gt_str = str(gt_value).strip()
-        if not gt_str or gt_str in ["0/0", "./.", ".", "NA"]:
+        if not _is_called_alt_genotype(gt_str):
             continue
 
         # Sample has variant - get phenotypes

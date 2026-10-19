@@ -5,6 +5,8 @@ These tests prove that extract_phenotypes_from_sample_columns() produces
 equivalent output to the old extract_phenotypes_for_gt_row() function.
 """
 
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -192,13 +194,7 @@ def test_phased_genotypes():
     phenotypes = {"Sample1": {"HPO:X"}, "Sample2": {"HPO:Y"}}
 
     result = extract_phenotypes_from_sample_columns(row, vcf_samples, phenotypes)
-
-    # Phased variants included, 0|0 is reference (excluded)
-    # Note: 0|0 is technically reference but code checks exact strings
-    # The code checks: gt_str in ["0/0", "./.", ".", "NA"]
-    # So "0|0" is NOT in that list and would be included
-    # Let me verify the actual behavior
-    assert result == "Sample1(HPO:X);Sample2(HPO:Y);Sample3()"
+    assert result == "Sample1(HPO:X);Sample2(HPO:Y)"
 
 
 @pytest.mark.unit
@@ -295,3 +291,129 @@ def test_series_with_fields_column_name_not_treated_as_namedtuple():
 
     result = extract_phenotypes_from_sample_columns(row, vcf_samples, phenotypes)
     assert result == "_fields(H1);S2(H2)"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "gt,is_carrier",
+    [
+        ("0|0", False),
+        ("0/0", False),
+        (".|.", False),
+        ("./.", False),
+        ("0/.", False),
+        ("./1", False),
+        ("0", False),
+        (".", False),
+        ("NA", False),
+        ("", False),
+        ("0/0:30", False),
+        ("0|1", True),
+        ("1|0", True),
+        ("1/1", True),
+        ("0/1", True),
+        ("1", True),
+        ("0/1:20", True),
+        ("1/2", True),
+    ],
+)
+def test_genotype_allele_calling_and_exclusion(gt: str, is_carrier: bool) -> None:
+    """Verify carrier detection and exclusion for phased, missing, and haploid GTs."""
+    vcf_samples = ["S1"]
+    phenotypes = {"S1": {"HPO:1"}}
+    row = pd.Series({"S1": gt})
+
+    result_cols = extract_phenotypes_from_sample_columns(row, vcf_samples, phenotypes)
+    result_old = extract_phenotypes_for_gt_row(f"S1({gt})", phenotypes)
+
+    expected = "S1(HPO:1)" if is_carrier else ""
+    assert result_cols == expected
+    assert result_old == expected
+
+
+@pytest.mark.unit
+def test_sample_named_column_colliding_with_indexed_gen_bracket(tmp_path: Path) -> None:
+    """Verify sample named GEN[1].GT does not cause collision for subsequent sample S2."""
+    from argparse import Namespace
+    from unittest.mock import Mock
+
+    from variantcentrifuge.pipeline_core.context import PipelineContext
+    from variantcentrifuge.pipeline_core.workspace import Workspace
+    from variantcentrifuge.stages.post_processing_stages import PhenotypeIntegrationStage
+
+    vcf_samples = ["GEN[1].GT", "S2"]
+    phenotypes = {"GEN[1].GT": {"H1"}, "S2": {"H2"}}
+    row = pd.Series({"GEN[1].GT": "0/1", "S2": "0/0"})
+
+    result = extract_phenotypes_from_sample_columns(row, vcf_samples, phenotypes)
+    assert result == "GEN[1].GT(H1)"
+
+    tsv_file = tmp_path / "test_bracket.tsv"
+    tsv_file.write_text("CHROM\tPOS\tGEN[1].GT\tS2\nchr1\t100\t0/1\t0/0\n")
+
+    ws = Mock(spec=Workspace)
+    ws.base_name = "sample"
+    ws.intermediate_dir = tmp_path
+    ws.get_intermediate_path = lambda name: tmp_path / name
+
+    ctx = PipelineContext(args=Namespace(no_replacement=True), config={}, workspace=ws)
+    ctx.extracted_tsv = tsv_file
+    ctx.data = tsv_file
+    ctx.vcf_samples = vcf_samples
+    ctx.phenotype_data = phenotypes
+
+    stage = PhenotypeIntegrationStage()
+    out_ctx = stage._process(ctx)
+    df_out = pd.read_csv(out_ctx.phenotypes_added_tsv, sep="\t")
+    assert df_out["Phenotypes"].iloc[0] == "GEN[1].GT(H1)"
+
+
+@pytest.mark.unit
+def test_sample_named_column_colliding_with_indexed_gen_underscore(tmp_path: Path) -> None:
+    """Verify sample named GEN_1__GT does not cause collision for subsequent sample S2."""
+    from argparse import Namespace
+    from unittest.mock import Mock
+
+    from variantcentrifuge.pipeline_core.context import PipelineContext
+    from variantcentrifuge.pipeline_core.workspace import Workspace
+    from variantcentrifuge.stages.post_processing_stages import PhenotypeIntegrationStage
+
+    vcf_samples = ["GEN_1__GT", "S2"]
+    phenotypes = {"GEN_1__GT": {"H1"}, "S2": {"H2"}}
+    row = pd.Series({"GEN_1__GT": "0/1", "S2": "0/0"})
+
+    result = extract_phenotypes_from_sample_columns(row, vcf_samples, phenotypes)
+    assert result == "GEN_1__GT(H1)"
+
+    tsv_file = tmp_path / "test_underscore.tsv"
+    tsv_file.write_text("CHROM\tPOS\tGEN_1__GT\tS2\nchr1\t100\t0/1\t0/0\n")
+
+    ws = Mock(spec=Workspace)
+    ws.base_name = "sample"
+    ws.intermediate_dir = tmp_path
+    ws.get_intermediate_path = lambda name: tmp_path / name
+
+    ctx = PipelineContext(args=Namespace(no_replacement=True), config={}, workspace=ws)
+    ctx.extracted_tsv = tsv_file
+    ctx.data = tsv_file
+    ctx.vcf_samples = vcf_samples
+    ctx.phenotype_data = phenotypes
+
+    stage = PhenotypeIntegrationStage()
+    out_ctx = stage._process(ctx)
+    df_out = pd.read_csv(out_ctx.phenotypes_added_tsv, sep="\t")
+    assert df_out["Phenotypes"].iloc[0] == "GEN_1__GT(H1)"
+
+
+@pytest.mark.unit
+def test_sample_named_columns_matching_indexed_pattern_precedence():
+    """Verify that when vcf_samples = ['GEN[1].GT', 'GEN[0].GT'] and columns are indexed
+    GEN[0].GT, GEN[1].GT, indexed matching takes precedence so sample 0 ('GEN[1].GT')
+    maps to GEN[0].GT ('0/1') and gets annotated.
+    """
+    vcf_samples = ["GEN[1].GT", "GEN[0].GT"]
+    phenotypes = {"GEN[1].GT": {"H1"}, "GEN[0].GT": {"H0"}}
+    row = pd.Series({"GEN[0].GT": "0/1", "GEN[1].GT": "0/0"})
+
+    result = extract_phenotypes_from_sample_columns(row, vcf_samples, phenotypes)
+    assert result == "GEN[1].GT(H1)"
