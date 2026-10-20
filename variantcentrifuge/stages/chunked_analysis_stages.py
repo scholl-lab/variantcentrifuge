@@ -30,7 +30,7 @@ from .genotype_matrix_builder import _STANDARD_COLUMN_ALIASES, _create_standard_
 logger = logging.getLogger(__name__)
 
 _ROW_ORDER_COL = "_vc_input_row"
-_GENE_COLUMN_PRIORITY = ("GENE", "Gene", "gene", "SYMBOL", "ANN[*].GENE", "EFF[*].GENE")
+_GENE_COLUMN_PRIORITY = ("GENE", "Gene", "gene", "SYMBOL")
 
 
 def _find_gene_column(header: list[str]) -> str | None:
@@ -41,7 +41,8 @@ def _find_gene_column(header: list[str]) -> str | None:
     # Same normalization as DataFrameLoadingStage: sanitize, then ANN_0__GENE -> GENE alias.
     canonical = {col: _STANDARD_COLUMN_ALIASES.get(sanitized.get(col, col), col) for col in header}
     for wanted in _GENE_COLUMN_PRIORITY:
-        for col in header:
+        # An explicit column wins over an alias source, as in _create_standard_column_aliases.
+        for col in sorted(header, key=lambda c: c != wanted):
             if canonical[col] == wanted:
                 return col
     return None

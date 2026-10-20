@@ -55,6 +55,8 @@ def _serial(tmp_path: Path, tsv: Path) -> PipelineContext:
     ("header", "expected"),
     [
         (["CHROM", "GENE", "ANN[0].GENE"], "GENE"),
+        (["CHROM", "ANN[0].GENE", "GENE"], "GENE"),
+        (["CHROM", "ANN[*].GENE", "GENE"], "GENE"),
         (["CHROM", "ANN[0].GENE"], "ANN[0].GENE"),
         (["CHROM", "ANN_0__GENE"], "ANN_0__GENE"),
         (["CHROM", "ANN[*].GENE"], "ANN[*].GENE"),
@@ -168,3 +170,200 @@ def test_input_file_precedence(tmp_path):
     empty.data = None
     with pytest.raises(RuntimeError, match="No TSV file available"):
         find(empty)
+
+
+_TRIO = {
+    s: {
+        "family_id": "F",
+        "sample_id": s,
+        "father_id": f,
+        "mother_id": m,
+        "sex": x,
+        "affected_status": a,
+    }
+    for s, f, m, x, a in [
+        ("Child", "Father", "Mother", "1", "2"),
+        ("Father", "0", "0", "1", "1"),
+        ("Mother", "0", "0", "2", "1"),
+    ]
+}
+
+
+@pytest.mark.parametrize("ann_first", [True, False], ids=["ANN_then_GENE", "GENE_then_ANN"])
+def test_chunks_follow_canonical_gene_and_keep_comp_het(tmp_path, monkeypatch, ann_first):
+    """Review r1 #1: annotation genes differ but canonical GENE is shared; chunking by the
+    annotation column split the pair (comp-het -> autosomal_dominant_possible)."""
+    from variantcentrifuge.memory import ResourceManager
+
+    monkeypatch.setattr(ResourceManager, "auto_chunk_size", lambda self, *a, **k: 1)
+    gene_cols = ["ANN[0].GENE", "GENE"] if ann_first else ["GENE", "ANN[0].GENE"]
+    values = {"ANN[0].GENE": ["ANNX", "ANNY"], "GENE": ["TARGET", "TARGET"]}
+    header = ["CHROM", "POS", "REF", "ALT", *gene_cols, "GEN[0].GT", "GEN[1].GT", "GEN[2].GT"]
+    gts = [("0/1", "0/1", "0/0"), ("0/1", "0/0", "0/1")]  # one allele from each parent
+    lines = ["\t".join(header)]
+    for i, pos in enumerate(("100", "200")):
+        lines.append("\t".join(["1", pos, "A", "T", *(values[c][i] for c in gene_cols), *gts[i]]))
+    tsv = tmp_path / "trio.tsv"
+    tsv.write_text("\n".join(lines) + "\n")
+
+    assert _find_gene_column(header) == "GENE"
+    context = _context(tmp_path, tsv, use_chunked_processing=True, inheritance_mode="simple")
+    context.vcf_samples = ["Child", "Father", "Mother"]
+    context.pedigree_data = _TRIO
+    df = ChunkedAnalysisStage()._process(context).current_dataframe
+    assert list(df["Inheritance_Pattern"]) == ["compound_heterozygous"] * 2
+
+
+def test_chunk_reader_keeps_na_alleles_and_literal_quotes(tmp_path):
+    """Review r1 #2: chunk parsing must use the non-chunked loader's NA/quoting rules."""
+    tsv = tmp_path / "na.tsv"
+    tsv.write_text(
+        "CHROM\tPOS\tREF\tALT\tGENE\tANN[0].EFFECT\tNOTE\tGEN[0].GT\n"
+        '1\t100\tNA\tN\tG1\tNA\t"quoted"\t0/1\n'
+        "1\t200\tA\tNA\tG2\tmissense\t\t0/1\n"
+    )
+    serial = _serial(tmp_path, tsv).current_dataframe
+    chunked = (
+        ChunkedAnalysisStage()
+        ._process(_context(tmp_path, tsv, use_chunked_processing=True))
+        .current_dataframe
+    )
+    pd.testing.assert_frame_equal(chunked.astype(str), serial.astype(str))
+    assert chunked["REF"].tolist() == ["NA", "A"]
+    assert chunked["ALT"].tolist() == ["N", "NA"]
+    assert chunked["EFFECT"].tolist() == ["NA", "missense"]
+    assert chunked["NOTE"].iloc[0] == '"quoted"'
+    assert pd.isna(chunked["NOTE"].iloc[1])
+
+
+@pytest.mark.parametrize("gene_header", ["ANN[*].GENE", "EFF[*].GENE"])
+@pytest.mark.parametrize("chunked", [False, True], ids=["serial", "chunked"])
+def test_wildcard_gene_header_produces_association_output(tmp_path, gene_header, chunked):
+    """Review r1 #3: ANN[*].GENE must expose GENE so association/burden produce results."""
+    from variantcentrifuge.stages.association_analysis_stages import AssociationAnalysisStage
+    from variantcentrifuge.stages.gene_burden_stages import GeneBurdenAnalysisStage
+
+    samples = [f"S{i}" for i in range(40)]
+    lines = [
+        f"CHROM\tPOS\tREF\tALT\t{gene_header}\t" + "\t".join(f"GEN[{i}].GT" for i in range(40))
+    ]
+    for gene, pos in [("G1", 100), ("G2", 200), ("G1", 300)]:
+        lines.append(
+            f"1\t{pos}\tA\tT\t{gene}\t"
+            + "\t".join("0/1" if (i + pos // 100) % 3 == 0 else "0/0" for i in range(40))
+        )
+    tsv = tmp_path / "wild.tsv"
+    tsv.write_text("\n".join(lines) + "\n")
+
+    if chunked:
+        context = ChunkedAnalysisStage()._process(
+            _context(tmp_path, tsv, use_chunked_processing=True)
+        )
+    else:
+        context = _serial(tmp_path, tsv)
+    context.vcf_samples = samples
+    assert context.current_dataframe["GENE"].tolist() == ["G1", "G2", "G1"]
+    context.config.update(
+        perform_association=True,
+        perform_gene_burden=True,
+        case_samples=samples[:20],
+        control_samples=samples[20:],
+        association_tests=["fisher"],
+        output_dir=str(tmp_path),
+        output_file_base="wild",
+        gzip_intermediates=False,
+    )
+    context.config["gene_burden_output"] = str(tmp_path / "wild.gene_burden.tsv")
+    context = AssociationAnalysisStage()._process(context)
+    assert sorted(context.association_results["gene"]) == ["G1", "G2"]
+    assert (tmp_path / "wild.association.tsv").exists()
+    context = GeneBurdenAnalysisStage()._process(context)
+    burden = pd.read_csv(tmp_path / "wild.gene_burden.tsv", sep="\t")
+    assert sorted(burden["GENE"]) == ["G1", "G2"]
+
+
+@pytest.mark.parametrize(
+    ("scoring", "expected"),
+    [
+        (None, False),
+        ({"formulas": [{"s": "Inheritance_Pattern == 'de_novo'"}]}, True),
+        ({"formulas": [{"s": "CADD > 20"}, {"t": 3}]}, False),
+        ({"variables": {"Inheritance_Details": "d"}}, True),
+        ({"variables": {"CADD": "c"}}, False),
+    ],
+)
+def test_scoring_inheritance_detail_detection(tmp_path, scoring, expected):
+    context = _context(tmp_path, tmp_path / "x.tsv")
+    context.scoring_config = scoring
+    stage = ChunkedAnalysisStage()
+    assert stage._check_if_scoring_needs_details(context) is expected
+    assert stage._should_calculate_inheritance(context) is expected
+    stage._setup_inheritance_config(context)
+    assert ("inheritance_analysis_config" in context.config) is expected
+    if expected:
+        assert context.config["inheritance_analysis_config"]["preserve_details_for_scoring"]
+
+
+def test_chunk_annotations_and_scoring_see_serial_column_names(tmp_path, monkeypatch):
+    """Per-chunk annotation/scoring run on the same names as the non-chunked path."""
+    import variantcentrifuge.stages.chunked_analysis_stages as mod
+
+    seen: list[list[str]] = []
+
+    def fake_scoring(df, _cfg):
+        seen.append(list(df.columns))
+        return df.assign(Score="1")
+
+    monkeypatch.setattr(mod, "apply_scoring", fake_scoring)
+    monkeypatch.setattr(
+        ChunkedAnalysisStage,
+        "_apply_chunk_annotations",
+        lambda self, df, ctx: df.assign(Custom_Annotation="x"),
+    )
+    tsv = _write_tsv(tmp_path / "input.tsv", "ANN[0].GENE")
+    context = _context(tmp_path, tsv, use_chunked_processing=True)
+    context.annotation_configs = {"gene_lists": ["dummy"]}
+    context.scoring_config = {"formulas": [{"Score": "1"}]}
+
+    df = ChunkedAnalysisStage()._process(context).current_dataframe
+
+    assert seen and all("GENE" in cols and "GEN_0__GT" in cols for cols in seen)
+    assert set(df["Score"]) == {"1"} and set(df["Custom_Annotation"]) == {"x"}
+    assert "ANN_0__GENE" in df.columns  # final reload renames like the serial loader
+
+
+def test_empty_chunk_is_returned_unprocessed(tmp_path):
+    empty = pd.DataFrame(columns=["GENE"])
+    context = _context(tmp_path, tmp_path / "x.tsv")
+    assert ChunkedAnalysisStage()._process_single_chunk(empty, context, 0) is empty
+
+
+def test_parallel_chunk_error_propagates(tmp_path, monkeypatch):
+    from variantcentrifuge.memory import ResourceManager
+
+    monkeypatch.setattr(ResourceManager, "auto_chunk_size", lambda self, *a, **k: 1)
+    monkeypatch.setattr(ResourceManager, "auto_workers", lambda self, **k: 2)
+
+    def boom(self, df, ctx, idx):
+        raise RuntimeError("chunk failed")
+
+    monkeypatch.setattr(ChunkedAnalysisStage, "_process_single_chunk", boom)
+    tsv = _write_tsv(tmp_path / "input.tsv", "GENE")
+    with pytest.raises(RuntimeError, match="chunk failed"):
+        ChunkedAnalysisStage()._process(
+            _context(tmp_path, tsv, use_chunked_processing=True, threads=2)
+        )
+
+
+def test_get_input_files(tmp_path):
+    stage = ChunkedAnalysisStage()
+    context = _context(tmp_path, tmp_path / "data.tsv")
+    assert stage.get_input_files(context) == [tmp_path / "data.tsv"]
+    extracted = tmp_path / "extracted.tsv"
+    extracted.write_text("GENE\n")
+    context.extracted_tsv = extracted
+    context.phenotypes_added_tsv = tmp_path / "missing.tsv"
+    assert stage.get_input_files(context) == [extracted]
+    context.data = None
+    context.extracted_tsv = None
+    assert stage.get_input_files(context) == []
