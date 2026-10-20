@@ -1,5 +1,5 @@
 # Documentation Tools
-sphinx>=7.0.0
+sphinx>=9.1.0
 furo
 myst-parser
 sphinx-autodoc-typehints
