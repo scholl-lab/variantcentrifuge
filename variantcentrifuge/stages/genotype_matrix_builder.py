@@ -149,8 +149,6 @@ def _find_effect_column(df: pd.DataFrame) -> str | None:
 # When ANN[0].GENE is sanitized to ANN_0__GENE, downstream stages still expect "GENE".
 _STANDARD_COLUMN_ALIASES = {
     "ANN_0__GENE": "GENE",
-    "ANN____GENE": "GENE",  # ANN[*].GENE
-    "EFF____GENE": "GENE",  # EFF[*].GENE
     "ANN_0__EFFECT": "EFFECT",
     "ANN_0__IMPACT": "IMPACT",
     "ANN_0__HGVS_C": "HGVS_C",
