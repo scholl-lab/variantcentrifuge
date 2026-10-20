@@ -79,7 +79,8 @@ With `--missing-as-ref`, the stored `AN` counts every sample.
 hash. The artifact also records annotation provenance: the snpEff version
 (`##SnpEffVersion`) and genome database (from `##SnpEffCmd`), the dbNSFP and gnomAD
 database files of the annotation commands in the header (basenames only):
-`##SnpSiftCmd` `annotate`/`dbnsfp` (the `-db` value, else the first file argument) and
+`##SnpSiftCmd` `dbnsfp` (only an explicit `-db` value; otherwise unknown) and `annotate`
+(the `-db` value, else the first argument that is not an option or option value) and
 `##bcftools_annotateCommand` (the `-a`/`--annotations` value); other commands and
 input/output file names are ignored. It also stores SHA-256 hashes of the
 `--regions-bed`, `--gene-file` and `--gene-set-file` contents (`none` when not used). A header line the input VCF does not
@@ -119,7 +120,9 @@ digits, `.`, `_`, `-`; it also names the diagnostics subdirectory), unrelated to
 artifact's internal mask id, which is a prefix of the mask hash. Two columns are added, repeated on each of a gene's
 rows: `acat_masks_p`, the Cauchy (ACAT, Liu et al. 2019) combination with equal
 weights of the gene's per-mask `primary_p` (computed exactly as the reference R `ACAT()`,
-so a mask with p = 1 pulls the combination toward 1 rather than being dropped), and `acat_masks_q`, corrected with
+so a mask with p = 1 pulls the combination toward 1 rather than being dropped; a gene
+whose masks include p-values of exactly 0 and 1, where ACAT is undefined, gets no ACAT
+value and an `acat_masks_undefined` warning), and `acat_masks_q`, corrected with
 `--correction` across genes (one ACAT test per gene). Only masks inside their own
 correction family (`primary_q` set; not `low_mac`, `not_in_all_strata` or degenerate)
 enter the combination; a gene with none has no ACAT value. Report `acat_masks_p`
@@ -189,7 +192,8 @@ With a single contributing stratum the LOO columns are empty.
 
 Gene sets from `--gene-set-file` are stored in the artifact as ordinary units under their
 set id, so `meta` combines them like genes and corrects them in the same family as the
-genes (one larger family, which is conservative for both).
+genes: the correction targets the combined gene + set family, which can raise or lower
+individual q-values compared with correcting genes alone.
 
 ### Minor-allele counts and `--min-mac`
 
