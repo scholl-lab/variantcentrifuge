@@ -189,8 +189,9 @@ All samples are kept, with one log line naming the reason, when a feature reads 
 outside the analysed set: inheritance/pedigree analysis (`--ped`, `--sample-sheet`,
 `--inheritance-mode`, or a scoring model that needs inheritance),
 `--append-extra-sample-fields`, `--no-replacement`, `--igv`, `--pseudonymize`, a tumor/normal
-sample index, statistics (use `--no-stats` to allow subsetting), `--late-filtering` or
-`--final-filter`. `--no-sample-subset` turns
+sample index, a custom `--stats-config` (its expressions may read per-sample columns),
+`--late-filtering` or `--final-filter`. The default statistics do not block subsetting: their
+`total_samples` still reports the VCF sample count. `--no-sample-subset` turns
 subsetting off.
 
 ### Multi-Allelic Sites Must Be Split

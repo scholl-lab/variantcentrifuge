@@ -84,7 +84,7 @@ def test_no_subset_without_strict_analysed_set(cfg, caplog):
         ({"append_extra_sample_fields": True}, "--append-extra-sample-fields"),
         ({"no_replacement": True}, "--no-replacement"),
         ({"igv_enabled": True}, "--igv"),
-        ({"no_stats": False}, "statistics"),
+        ({"no_stats": False, "stats_config": "custom.json"}, "--stats-config"),
         ({"late_filtering": True}, "--late-filtering"),
         ({"pseudonymize": True}, "--pseudonymize"),
         ({"tumor_sample_index": 0}, "tumor/normal sample index"),
@@ -100,6 +100,16 @@ def test_sample_consuming_feature_keeps_all_samples_and_logs_once(cfg, reason, c
     assert ctx.vcf_samples == VCF_SAMPLES
     skipped = [r for r in caplog.records if "skipped" in r.getMessage()]
     assert len(skipped) == 1 and reason in skipped[0].getMessage()
+
+
+def test_default_statistics_allow_subset_and_keep_vcf_sample_count():
+    """Maintainer decision (FX-6): default stats no longer block; they report the VCF count."""
+    from variantcentrifuge.sample_subset import vcf_sample_count
+
+    ctx = _ctx(no_stats=False)
+    assert vcf_sample_count(ctx) is None
+    assert resolve_sample_subset(ctx) == ["S1", "S2", "S4", "S5"]
+    assert vcf_sample_count(ctx) == len(VCF_SAMPLES)
 
 
 def test_scoring_that_needs_inheritance_blocks_subset():
@@ -296,7 +306,12 @@ def test_threaded_extraction_runs_after_case_control_assignment():
 @pytest.mark.parametrize("threads", [1, 8])
 @pytest.mark.parametrize(
     "toggle",
-    [{"no_stats": False}, {"pseudonymize": True}, {"igv_enabled": True}, {"ped": "f.ped"}],
+    [
+        {"no_stats": False, "stats_config": "s.json"},
+        {"pseudonymize": True},
+        {"igv_enabled": True},
+        {"ped": "f.ped"},
+    ],
 )
 def test_resume_refused_when_a_blocker_changes_the_extracted_samples(tmp_path, threads, toggle):
     """Repro shape: --threads N --enable-checkpoint --no-stats, then --resume with a blocker."""
@@ -356,3 +371,9 @@ def test_resume_refused_when_settings_select_other_samples_of_equal_size(tmp_pat
         h = hash_configuration(run2)
         terms.write_text("HP:2\n")
         assert hash_configuration(run2) != h
+
+
+def test_stats_on_without_custom_config_keeps_the_checkpoint_key(tmp_path):
+    """FX-6: default stats no longer change the extracted samples, so not the key either."""
+    run1 = {"vcf_file": "in.vcf.gz", "perform_association": True, "no_stats": True}
+    assert hash_configuration(run1) == hash_configuration({**run1, "no_stats": False})

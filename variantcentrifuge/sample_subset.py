@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Resolved once per run (context attribute, not config: the metadata TSV dumps the config).
 _SUBSET_ATTR = "_bcftools_sample_subset"
+_VCF_COUNT_ATTR = "_vcf_sample_count_before_subset"
 
 
 def sample_set_sha256(samples: list[str]) -> str:
@@ -43,7 +44,10 @@ def blocking_reason(cfg: dict[str, Any]) -> str | None:
         (cfg.get("append_extra_sample_fields"), "--append-extra-sample-fields"),
         (cfg.get("no_replacement"), "--no-replacement (raw per-sample output columns)"),
         (cfg.get("igv_enabled"), "--igv (per-sample IGV reports)"),
-        (not cfg.get("no_stats"), "statistics (sample counts; use --no-stats)"),
+        (
+            not cfg.get("no_stats") and cfg.get("stats_config"),
+            "custom --stats-config (expressions may read per-sample columns)",
+        ),
         (cfg.get("pseudonymize"), "--pseudonymize (pseudonyms numbered by sample position)"),
         (
             any(
@@ -116,6 +120,7 @@ def resolve_sample_subset(context: Any) -> list[str] | None:
 
         raw = get_vcf_samples(cfg["vcf_file"])  # bcftools needs the header names
     subset = [vcf_samples[i] for i in keep]
+    setattr(context, _VCF_COUNT_ATTR, len(vcf_samples))
     context.vcf_samples = subset
     cfg["sample_list"] = ",".join(subset)
     cfg["sample_subset_sha256"] = sample_set_sha256(subset)
@@ -129,6 +134,12 @@ def resolve_sample_subset(context: Any) -> list[str] | None:
         cfg["sample_subset_sha256"][:12],
     )
     return raw_subset
+
+
+def vcf_sample_count(context: Any) -> int | None:
+    """VCF sample count before subsetting, or None when no subset was applied."""
+    count: int | None = vars(context).get(_VCF_COUNT_ATTR)
+    return count
 
 
 def subset_summary(context: Any) -> str:
