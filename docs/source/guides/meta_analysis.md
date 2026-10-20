@@ -47,9 +47,27 @@ These are **different** operations and are kept distinct:
 - **Within-gene ACAT-O** (see the Association Testing guide) combines *tests/masks
   within one cohort* via Cauchy combination.
 - **Cross-stratum meta-analysis** (this guide) combines the *score and covariance*
-  across cohorts. Per-cohort p-value combination is **never** used as a silent
-  substitute for the score-based common-effect test; an explicit ACAT companion is
-  available as a heterogeneity-robust complement only.
+  across cohorts. Per-cohort p-value combination is **never** used as a
+  substitute for the score-based common-effect test.
+
+## Creating a cohort artifact
+
+Add `--score-artifact <path>` to a normal association run of each cohort
+(binary trait, case/control samples set):
+
+```bash
+variantcentrifuge ... --perform-association --association-tests skat \
+  --score-artifact /data/meta/adult.npz
+```
+
+This writes `adult.npz` and `adult.npz.meta.json` next to the usual results. It
+uses the same site/sample missingness QC as the association tests but keeps genes
+below the per-gene MAC filter, because a gene too rare to test in one cohort still
+adds information to the meta. The artifact records the reference (`--reference`)
+as build and annotation version, a hash of the variant selection (`--filters`,
+`--final-filter`, `--bcftools-prefilter`) as the mask, and SHA-256 hashes of the
+sample IDs for the overlap check. Run every cohort with the same reference and
+filters, or the meta step will refuse to pool them.
 
 ## Study manifest
 
@@ -60,6 +78,9 @@ stratum_id	artifact_path
 adult_cohort	/data/meta/adult.npz
 pediatric_cohort	/data/meta/pediatric.npz
 ```
+
+Relative paths are read relative to the manifest file. The `stratum_id` names the
+cohort in the output (e.g. `per_stratum_directions` = `adult_cohort:1,pediatric_cohort:-1`).
 
 The meta step **refuses** (hard error, no silent fallback) when strata disagree on
 genome build, annotation version, mask definition, or trait type, or when their

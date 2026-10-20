@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import os
 from dataclasses import dataclass
 
 from variantcentrifuge.association.meta.artifact import ScoreCovarianceArtifact, load_artifact
@@ -53,6 +54,8 @@ def read_study_manifest(path: str) -> list[StratumRef]:
                 raise MetaCompatibilityError(
                     f"Manifest '{path}' has a row with empty fields: {row}"
                 )
+            # Relative paths are relative to the manifest, not the working directory.
+            apath = os.path.join(os.path.dirname(os.path.abspath(path)), apath)
             refs.append(StratumRef(stratum_id=sid, artifact_path=apath))
     if len(refs) < 2:
         raise MetaCompatibilityError(
@@ -67,15 +70,20 @@ def read_study_manifest(path: str) -> list[StratumRef]:
 
 
 def load_manifest_artifacts(refs: list[StratumRef]) -> list[ScoreCovarianceArtifact]:
-    """Load every artifact referenced by the manifest (clear error on missing file)."""
+    """Load every artifact referenced by the manifest (clear error on missing file).
+
+    The manifest's ``stratum_id`` names the stratum in all outputs.
+    """
     artifacts: list[ScoreCovarianceArtifact] = []
     for ref in refs:
         try:
-            artifacts.append(load_artifact(ref.artifact_path))
+            art = load_artifact(ref.artifact_path)
         except FileNotFoundError as exc:
             raise MetaCompatibilityError(
                 f"Artifact for stratum '{ref.stratum_id}' not found: {ref.artifact_path}"
             ) from exc
+        art.stratum_id = ref.stratum_id
+        artifacts.append(art)
     return artifacts
 
 
@@ -102,6 +110,11 @@ def validate_comparability(artifacts: list[ScoreCovarianceArtifact]) -> None:
     # Sample-hash overlap check (independence of covariances).
     seen: dict[str, str] = {}
     for art in artifacts:
+        if not art.sample_id_hashes:
+            logger.warning(
+                "Stratum '%s' has no sample hashes; sample overlap cannot be checked.",
+                art.stratum_id,
+            )
         for h in art.sample_id_hashes:
             if h in seen and seen[h] != art.stratum_id:
                 raise MetaCompatibilityError(

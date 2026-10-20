@@ -94,7 +94,10 @@ def _gene_row(
 
     betas, ses = per_stratum_burden(u_list, v_list, weights)
     het_q, het_p, het_i2 = cochran_q(betas, ses)
-    directions = [int(np.sign(b)) if np.isfinite(b) else 0 for b in betas]
+    directions = [
+        f"{art.stratum_id}:{int(np.sign(b)) if np.isfinite(b) else 0}"
+        for (art, _gs), b in zip(kept, betas, strict=True)
+    ]
 
     loo = leave_one_out(
         u_list,
@@ -127,7 +130,7 @@ def _gene_row(
         "het_q": het_q,
         "het_p": het_p,
         "het_i2": het_i2,
-        "per_stratum_directions": ",".join(str(d) for d in directions),
+        "per_stratum_directions": ",".join(directions),
         "loo_min_p": loo_min_p,
         "primary_p": primary_p,
         "primary_q": None,

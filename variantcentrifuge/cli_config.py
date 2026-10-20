@@ -194,6 +194,7 @@ def populate_cli_config(
     else:
         cfg["variant_weight_params"] = None
     cfg["diagnostics_output"] = getattr(args, "diagnostics_output", None)
+    cfg["score_artifact"] = getattr(args, "score_artifact", None)
     # Phase 32: Region restriction
     cfg["regions_bed"] = getattr(args, "regions_bed", None)
     # Phase 32: Unified PCA configuration (--pca replaces --pca-file/--pca-tool)
@@ -488,13 +489,12 @@ def populate_cli_config(
         ):
             _fail("--variant-weights column:<name> requires a non-empty column name")
 
-    # Covariate file only makes sense with association analysis
-    if getattr(args, "covariate_file", None) and not args.perform_association:
-        _fail("--covariate-file requires --perform-association to be set")
-
-    # Diagnostics output only makes sense with association analysis
-    if getattr(args, "diagnostics_output", None) and not args.perform_association:
-        _fail("--diagnostics-output requires --perform-association to be set")
+    # These outputs only make sense with association analysis
+    for dest in ("covariate_file", "diagnostics_output", "score_artifact"):
+        if getattr(args, dest, None) and not args.perform_association:
+            _fail(f"--{dest.replace('_', '-')} requires --perform-association to be set")
+    if getattr(args, "score_artifact", None) and getattr(args, "trait_type", "binary") != "binary":
+        _fail("--score-artifact supports binary traits only")
 
     # PCA arg only makes sense with association analysis
     if getattr(args, "pca", None) and not args.perform_association:

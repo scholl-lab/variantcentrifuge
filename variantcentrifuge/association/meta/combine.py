@@ -47,7 +47,7 @@ def _weighted_moments(
     """Return the weighted meta score S and weighted meta covariance Σ."""
     w = np.asarray(weights, dtype=np.float64)
     s = np.zeros_like(w)
-    sigma = np.zeros((w.size, w.size), dtype=np.float64)
+    sigma: np.ndarray = np.zeros((w.size, w.size), dtype=np.float64)
     for u, v in zip(u_list, v_list, strict=True):
         s += w * np.asarray(u, dtype=np.float64)
         sigma += (w[:, np.newaxis] * np.asarray(v, dtype=np.float64)) * w[np.newaxis, :]

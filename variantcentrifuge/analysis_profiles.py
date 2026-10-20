@@ -39,6 +39,7 @@ EXCLUDED_PROFILE_KEYS: frozenset[str] = frozenset(
         "pseudonymize_ped",
         "stats_output_file",
         "diagnostics_output",
+        "score_artifact",
         "covariate_file",
         "pca_file",
         "resume",

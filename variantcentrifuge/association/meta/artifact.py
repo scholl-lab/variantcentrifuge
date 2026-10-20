@@ -16,11 +16,15 @@ support is deferred (spec revision 1).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
+
+from variantcentrifuge.association.backends.base import NullModelResult
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -76,7 +80,7 @@ def fit_stratum_null(
     phenotype: np.ndarray,
     covariates: np.ndarray | None,
     trait_type: str,
-):
+) -> NullModelResult:
     """Fit the stratum null model once (binary only), returning a NullModelResult.
 
     Raises
@@ -96,7 +100,7 @@ def fit_stratum_null(
     return backend.fit_null_model(phenotype=phenotype, covariates=covariates, trait_type=trait_type)
 
 
-def _null_converged(null_model) -> bool:
+def _null_converged(null_model: NullModelResult) -> bool:
     """Best-effort statsmodels convergence flag (NOT bool(extra), which is always true)."""
     model = null_model.model
     converged = getattr(model, "converged", None)
@@ -110,21 +114,25 @@ def _null_converged(null_model) -> bool:
 def compute_gene_score(
     genotype_matrix: np.ndarray,
     raw_dosage: np.ndarray,
-    null_model,
+    null_model: NullModelResult,
     variant_keys: list[str],
+    ploidy: np.ndarray | None = None,
 ) -> GeneScore:
     """Compute the unweighted score vector and projection-adjusted covariance.
 
     Parameters
     ----------
     genotype_matrix : np.ndarray, shape (n_samples, p)
-        Imputed dosage matrix (no NaN) — used for the score/covariance.
+        Imputed ALT-allele dosage matrix (no NaN, NOT minor-allele recoded) —
+        used for the score/covariance; its sign must match the ALT keys and AC.
     raw_dosage : np.ndarray, shape (n_samples, p)
         Pre-imputation dosage (NaN = missing) — used only for AC/AN.
     null_model : NullModelResult
         From :func:`fit_stratum_null` (binary).
     variant_keys : list[str]
         Canonical keys aligned to the columns of ``genotype_matrix``.
+    ploidy : np.ndarray | None, shape (n_samples, p)
+        Per-genotype ploidy for AN (haploid chrX/Y calls count 1); default diploid.
 
     Returns
     -------
@@ -160,7 +168,8 @@ def compute_gene_score(
     if raw.shape != geno.shape:
         raise ValueError("raw_dosage must have the same shape as genotype_matrix")
     observed = ~np.isnan(raw)
-    an = 2.0 * observed.sum(axis=0).astype(np.float64)
+    plo = np.full(raw.shape, 2.0) if ploidy is None else np.asarray(ploidy, dtype=np.float64)
+    an = np.where(observed, plo, 0.0).sum(axis=0)
     ac = np.where(observed, raw, 0.0).sum(axis=0)
 
     return GeneScore(
@@ -245,6 +254,11 @@ def load_artifact(path: str) -> ScoreCovarianceArtifact:
     """Load an artifact written by :func:`save_artifact`."""
     with open(f"{path}.meta.json", encoding="utf-8") as fh:
         meta = json.load(fh)
+    if meta.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError(
+            f"Artifact '{path}' has schema_version {meta.get('schema_version')!r}; "
+            f"this version reads only {SCHEMA_VERSION}."
+        )
     npz_path = path if path.endswith(".npz") else f"{path}.npz"
     with np.load(npz_path) as data:
         genes: dict[str, GeneScore] = {}
@@ -272,13 +286,113 @@ def load_artifact(path: str) -> ScoreCovarianceArtifact:
     )
 
 
+def hash_sample_id(sample_id: str) -> str:
+    """SHA-256 of a sample ID: lets strata detect shared samples without sharing IDs."""
+    return hashlib.sha256(sample_id.encode("utf-8")).hexdigest()
+
+
+def emit_stratum_artifact(
+    path: str,
+    builders: dict[str, Any],
+    *,
+    stratum_id: str,
+    genome_build: str,
+    annotation_version: str,
+    mask_id: str,
+    mask_hash: str,
+) -> ScoreCovarianceArtifact:
+    """Write a stratum artifact from the association stage's per-gene matrix builders.
+
+    Uses the same site/sample missingness QC as the single-cohort tests but skips the
+    per-gene MAC<5 filter: a gene too rare to test in one stratum still adds
+    information to the meta. Dosages are kept ALT-coded so ``U`` matches the keys.
+    """
+    from variantcentrifuge.association.genotype_matrix import (
+        _vectorized_parse_gt_columns,
+        build_genotype_matrix,
+    )
+    from variantcentrifuge.association.meta.align import canonical_key
+
+    first = next(iter(builders.values()), None)
+    if first is None or first.phenotype_vector is None:
+        raise ValueError("Score artifact needs at least one gene and a case/control phenotype")
+    pheno_all = np.asarray(first.phenotype_vector, dtype=np.float64)
+    nulls: dict[bytes, NullModelResult] = {}
+    gene_scores: dict[str, GeneScore] = {}
+    for gene, b in builders.items():
+        if b.gene_df.empty:
+            continue
+        missing_cols = {"CHROM", "POS", "REF", "ALT"} - set(b.gene_df.columns)
+        if missing_cols:
+            raise ValueError(f"Score artifact needs columns {sorted(missing_cols)}")
+        geno, _mafs, sample_mask, _warn, keep = build_genotype_matrix(  # type: ignore[misc]
+            b.gene_df,
+            b.vcf_samples,
+            b.gt_columns,
+            is_binary=True,
+            missing_site_threshold=b.missing_site_threshold,
+            missing_sample_threshold=b.missing_sample_threshold,
+            return_keep_mask=True,
+        )
+        # ponytail: parses GT twice per gene (build_genotype_matrix hides raw/ploidy);
+        # fine for an opt-in export, expose them from the builder if it shows in profiles.
+        raw, plo, _ = _vectorized_parse_gt_columns(b.gene_df, list(b.gt_columns))
+        raw, plo = raw[keep].T, plo[keep].T
+        observed = ~np.isnan(raw)
+        ac = np.where(observed, raw, 0.0).sum(axis=0)
+        an = np.where(observed, plo, 0.0).sum(axis=0)
+        flipped = (ac > an / 2.0) & (ac < an)  # build_genotype_matrix minor-allele recoding
+        geno[:, flipped] = plo[:, flipped] - geno[:, flipped]
+
+        rows = b.gene_df.loc[keep]
+        keys = [
+            canonical_key(c, p, r, a)
+            for c, p, r, a in zip(rows["CHROM"], rows["POS"], rows["REF"], rows["ALT"], strict=True)
+        ]
+        # Transcript-split rows repeat a variant; one column per key or alignment breaks.
+        _, first_idx = np.unique(keys, return_index=True)
+        cols = np.sort(first_idx)
+        if cols.size == 0:
+            continue
+        mask = np.asarray(sample_mask, dtype=bool)
+        null_key = mask.tobytes()
+        if null_key not in nulls:
+            cov = b.covariate_matrix[mask] if b.covariate_matrix is not None else None
+            nulls[null_key] = fit_stratum_null(pheno_all[mask], cov, "binary")
+        gene_scores[gene] = compute_gene_score(
+            geno[mask][:, cols],
+            raw[mask][:, cols],
+            nulls[null_key],
+            [keys[i] for i in cols],
+            ploidy=plo[mask][:, cols],
+        )
+
+    artifact = ScoreCovarianceArtifact(
+        stratum_id=stratum_id,
+        genome_build=genome_build,
+        annotation_version=annotation_version,
+        mask_id=mask_id,
+        mask_hash=mask_hash,
+        trait_type="binary",
+        n_cases=int(pheno_all.sum()),
+        n_controls=int((1.0 - pheno_all).sum()),
+        sample_id_hashes=[hash_sample_id(s) for s in first.vcf_samples],
+        genes=gene_scores,
+    )
+    save_artifact(artifact, path)
+    logger.info("Wrote meta-analysis score artifact (%d genes) to %s", len(gene_scores), path)
+    return artifact
+
+
 __all__ = [
     "SCHEMA_VERSION",
     "GeneScore",
     "ScoreCovarianceArtifact",
     "build_stratum_artifact",
     "compute_gene_score",
+    "emit_stratum_artifact",
     "fit_stratum_null",
+    "hash_sample_id",
     "load_artifact",
     "save_artifact",
 ]

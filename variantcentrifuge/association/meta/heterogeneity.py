@@ -6,9 +6,6 @@ Heterogeneity diagnostics for cohort meta-analysis.
 - Cochran's Q, its p-value, and I-squared across strata with non-zero information
   (df = usable strata - 1).
 - Leave-one-stratum-out re-combination.
-- An explicit, opt-in ACAT companion combining per-stratum p-values — offered as a
-  heterogeneity-robust complement, never a silent substitute for the common-effect
-  score test.
 """
 
 from __future__ import annotations
@@ -91,15 +88,7 @@ def leave_one_out(
     return results
 
 
-def acat_companion(p_values: list[float | None]) -> float | None:
-    """Explicit ACAT (Cauchy) combination of per-stratum p-values (companion only)."""
-    from variantcentrifuge.association.tests.acat import cauchy_combination
-
-    return cauchy_combination(p_values)
-
-
 __all__ = [
-    "acat_companion",
     "cochran_q",
     "leave_one_out",
     "per_stratum_burden",
