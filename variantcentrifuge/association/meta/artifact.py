@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -33,7 +33,9 @@ from variantcentrifuge.association.backends.null_model import (
 
 logger = logging.getLogger("variantcentrifuge")
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+# v1 artifacts predate the recorded policy: they always used bestguess imputation (#200).
+V1_MISSING_POLICY = {"imputation": "bestguess", "site_threshold": None, "sample_threshold": None}
 
 
 @dataclass
@@ -79,6 +81,8 @@ class ScoreCovarianceArtifact:
     sample_id_hashes: list[str]
     genes: dict[str, GeneScore]
     schema_version: int = SCHEMA_VERSION
+    # imputation ("bestguess" | "missing_as_ref") + site/sample missingness thresholds
+    missing_policy: dict[str, Any] = field(default_factory=lambda: dict(V1_MISSING_POLICY))
 
 
 def fit_stratum_null(
@@ -249,6 +253,7 @@ def save_artifact(artifact: ScoreCovarianceArtifact, path: str) -> None:
         "n_cases": artifact.n_cases,
         "n_controls": artifact.n_controls,
         "sample_id_hashes": artifact.sample_id_hashes,
+        "missing_policy": artifact.missing_policy,
         "genes": gene_meta,
     }
     with open(f"{path}.meta.json", "w", encoding="utf-8") as fh:
@@ -259,10 +264,10 @@ def load_artifact(path: str) -> ScoreCovarianceArtifact:
     """Load an artifact written by :func:`save_artifact`."""
     with open(f"{path}.meta.json", encoding="utf-8") as fh:
         meta = json.load(fh)
-    if meta.get("schema_version") != SCHEMA_VERSION:
+    if meta.get("schema_version") not in (1, SCHEMA_VERSION):
         raise ValueError(
             f"Artifact '{path}' has schema_version {meta.get('schema_version')!r}; "
-            f"this version reads only {SCHEMA_VERSION}."
+            f"this version reads only 1 and {SCHEMA_VERSION}."
         )
     npz_path = path if path.endswith(".npz") else f"{path}.npz"
     with np.load(npz_path) as data:
@@ -288,6 +293,7 @@ def load_artifact(path: str) -> ScoreCovarianceArtifact:
         sample_id_hashes=list(meta["sample_id_hashes"]),
         genes=genes,
         schema_version=int(meta["schema_version"]),
+        missing_policy=dict(meta.get("missing_policy") or V1_MISSING_POLICY),
     )
 
 
@@ -315,6 +321,8 @@ def emit_stratum_artifact(
     Uses the same site/sample missingness QC as the single-cohort tests but skips the
     per-gene MAC<5 filter: a gene too rare to test in one stratum still adds
     information to the meta. Dosages are kept ALT-coded so ``U`` matches the keys.
+    The builders' missing-data policy is recorded in the artifact; with
+    ``missing_as_ref`` missing calls count as REF in AC and AN (#200).
 
     A gene whose retained samples (after its missingness QC) are all cases or all
     controls has no estimable null model; it is omitted with a warning. A phenotype
@@ -354,6 +362,7 @@ def emit_stratum_artifact(
             missing_site_threshold=b.missing_site_threshold,
             missing_sample_threshold=b.missing_sample_threshold,
             return_keep_mask=True,
+            missing_as_ref=b.missing_as_ref,
         )
         # ponytail: parses GT twice per gene (build_genotype_matrix hides raw/ploidy);
         # fine for an opt-in export, expose them from the builder if it shows in profiles.
@@ -362,6 +371,8 @@ def emit_stratum_artifact(
         mask = np.asarray(sample_mask, dtype=bool)
         raw, plo = raw[keep], plo[keep]
         _infer_missing_ploidy(plo, kind[keep], mask)
+        if b.missing_as_ref:
+            raw[np.isnan(raw)] = 0.0  # same REF fill as build_genotype_matrix: full AN
         geno, raw, plo = geno[mask], raw.T[mask], plo.T[mask]
         observed = ~np.isnan(raw)
         ac = np.where(observed, raw, 0.0).sum(axis=0)
@@ -415,6 +426,11 @@ def emit_stratum_artifact(
         n_controls=int((1.0 - pheno_all).sum()),
         sample_id_hashes=[hash_sample_id(s) for s in first.vcf_samples],
         genes=gene_scores,
+        missing_policy={
+            "imputation": "missing_as_ref" if first.missing_as_ref else "bestguess",
+            "site_threshold": first.missing_site_threshold,
+            "sample_threshold": first.missing_sample_threshold,
+        },
     )
     save_artifact(artifact, path)
     logger.info("Wrote meta-analysis score artifact (%d genes) to %s", len(gene_scores), path)
@@ -423,6 +439,7 @@ def emit_stratum_artifact(
 
 __all__ = [
     "SCHEMA_VERSION",
+    "V1_MISSING_POLICY",
     "GeneScore",
     "ScoreCovarianceArtifact",
     "build_stratum_artifact",

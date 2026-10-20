@@ -33,6 +33,7 @@ class _GenotypeMatrixBuilder:
     cadd_column: str | None = None
     revel_column: str | None = None
     effect_column: str | None = None
+    missing_as_ref: bool = False
 
     def _aligned_annotation_payload(self, keep_variants_mask: np.ndarray) -> dict[str, Any]:
         payload: dict[str, Any] = {}
@@ -72,7 +73,8 @@ class _GenotypeMatrixBuilder:
         """Build genotype matrix and apply sample mask + MAC check.
 
         Returns dict with keys: genotype_matrix, variant_mafs,
-        phenotype_vector, covariate_matrix, gt_warnings, mac_filtered.
+        phenotype_vector, covariate_matrix, gt_warnings, mac_filtered and
+        n_variants_qc (variants kept by site-missingness QC, before the MAC check).
         """
         from ..association.genotype_matrix import build_genotype_matrix
 
@@ -85,6 +87,7 @@ class _GenotypeMatrixBuilder:
                 "covariate_matrix": self.covariate_matrix,
                 "gt_warnings": [],
                 "mac_filtered": False,
+                "n_variants_qc": 0,
             }
             result.update(self._empty_annotation_payload())
             return result
@@ -100,6 +103,7 @@ class _GenotypeMatrixBuilder:
                 missing_sample_threshold=self.missing_sample_threshold,
                 phenotype_vector=self.phenotype_vector,
                 return_keep_mask=True,
+                missing_as_ref=self.missing_as_ref,
             ),
         )
         annotation_payload = self._aligned_annotation_payload(keep_variants_mask)
@@ -128,6 +132,7 @@ class _GenotypeMatrixBuilder:
             "covariate_matrix": cm,
             "gt_warnings": gt_warnings,
             "mac_filtered": mac_filtered,
+            "n_variants_qc": int(keep_variants_mask.sum()),
         }
         result.update(annotation_payload)
         return result

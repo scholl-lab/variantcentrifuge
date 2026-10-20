@@ -5,6 +5,17 @@ from __future__ import annotations
 import argparse
 
 
+def _fraction(value: str) -> float:
+    """Argparse type: a float in [0, 1]."""
+    try:
+        f = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a number") from None
+    if not 0.0 <= f <= 1.0:
+        raise argparse.ArgumentTypeError(f"{value!r} is not between 0 and 1")
+    return f
+
+
 def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
     """Register the Statistical Analysis argument group on *parser*."""
     stats_group = parser.add_argument_group("Statistical Analysis")
@@ -215,6 +226,36 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
         help=(
             "Minimum case carrier count per gene for diagnostics warning. "
             "Default: 10. Flags genes where case_carriers < this value."
+        ),
+    )
+    # Genotype missing-data policy for matrix-based tests and --score-artifact (#200).
+    # None = not set on the CLI, so the JSON "association" section can still provide it.
+    stats_group.add_argument(
+        "--missing-site-threshold",
+        type=_fraction,
+        default=None,
+        help=(
+            "Drop variants with a missing-genotype fraction above this value before "
+            "imputation (matrix-based tests and --score-artifact). Default: 0.10."
+        ),
+    )
+    stats_group.add_argument(
+        "--missing-sample-threshold",
+        type=_fraction,
+        default=None,
+        help=(
+            "Exclude samples with a missing-genotype fraction above this value across the "
+            "kept variants of a gene. Default: 0.80."
+        ),
+    )
+    stats_group.add_argument(
+        "--missing-as-ref",
+        action="store_true",
+        default=None,
+        help=(
+            "Treat missing genotypes (./.) as reference (0/0) before missingness QC instead "
+            "of imputing them. Use for merged single-sample VCFs where ./. means 'no variant "
+            "called'; biases toward the null where ./. is a genuine no-call."
         ),
     )
     # Phase 32: Unified PCA argument (replaces --pca-file and --pca-tool)

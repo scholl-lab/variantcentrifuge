@@ -31,6 +31,7 @@ from .association_stage_helpers import (
     _load_covariates_and_pcs,
     _merge_carrier_warnings,
     _per_sample_gt_frame,
+    _report_missingness_qc,
 )
 from .genotype_matrix_builder import (
     _find_cadd_column,
@@ -383,6 +384,7 @@ class AssociationAnalysisStage(Stage):
                     cadd_column=cadd_column,
                     revel_column=revel_column,
                     effect_column=effect_column,
+                    missing_as_ref=assoc_config.missing_as_ref,
                 )
                 gene_data["_genotype_matrix_builder"] = builder
                 gene_data["vcf_samples"] = assigned_samples
@@ -405,6 +407,7 @@ class AssociationAnalysisStage(Stage):
             return context
 
         _merge_carrier_warnings(results_df, gene_data_by_gene, assoc_config, quantitative)
+        _report_missingness_qc(results_df, gene_data_by_gene, assoc_config)
 
         assoc_output, compression = self._resolve_association_output(context)
 

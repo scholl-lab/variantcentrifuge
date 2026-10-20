@@ -104,14 +104,15 @@ Filled `0/0` calls are not missing, so the checks below cannot detect them:
 
 - **Fisher's exact test** uses the complete-case policy described in
   [Missing Genotypes and Complete-Case Policy](#missing-genotypes-and-complete-case-policy).
-- **Matrix-based tests** (logistic/linear burden, SKAT/SKAT-O, COAST) apply two per-gene
-  thresholds. Both are set in the `"association"` section of the JSON config; there are no CLI
-  flags for them.
+- **Matrix-based tests** (logistic/linear burden, SKAT/SKAT-O, COAST) and `--score-artifact`
+  apply two per-gene thresholds. Set them with the CLI flags below or in the `"association"`
+  section of the JSON config (the CLI wins). Values must be between 0 and 1.
 
-| Key | Default | Effect |
+| CLI flag / JSON key | Default | Effect |
 |-----|---------|--------|
-| `missing_site_threshold` | `0.10` | Drops a variant when more than this fraction of all samples have a missing genotype (call rate below 90%). |
-| `missing_sample_threshold` | `0.80` | Drops a sample from that gene's test (genotypes, phenotype and covariates) when more than this fraction of its genotypes at the kept variants are missing. |
+| `--missing-site-threshold` / `missing_site_threshold` | `0.10` | Drops a variant when more than this fraction of all samples have a missing genotype (call rate below 90%). R SKAT's default `missing_cutoff` is 0.15. |
+| `--missing-sample-threshold` / `missing_sample_threshold` | `0.80` | Drops a sample from that gene's test (genotypes, phenotype and covariates) when more than this fraction of its genotypes at the kept variants are missing. |
+| `--missing-as-ref` / `missing_as_ref` | off | Sets every missing call to reference (dosage 0) *before* both thresholds, so nothing is dropped for missingness or imputed. See below. |
 
 Allele frequencies, the imputation of the remaining missing genotypes, and minor-allele recoding
 all use the retained samples only, so excluded samples cannot shift them. Missing genotypes are
@@ -119,6 +120,36 @@ imputed as `round(ploidy * alt_freq)` for binary traits and `ploidy * alt_freq` 
 traits. For binary traits, a variant whose missing rate differs between cases and controls by
 more than 0.05 is logged as a differential-missingness warning. Genes with fewer than 5 minor
 allele copies after these steps report `NA` for the matrix-based tests.
+
+The default imputation follows R SKAT: binary traits use `impute.method="bestguess"` (the
+`SKATBinary` default) and quantitative traits use `"fixed"` (the `SKAT` default). Both are
+checked against SKAT 2.2.5 on a synthetic matrix with missing calls
+(`tests/unit/test_missing_policy_parity.py`).
+
+Dropped variants are reported. When site-missingness QC removes variants, the run logs one
+WARNING with the totals, and the results gain an `n_variants_qc` column: the number of variants
+the matrix-based tests used per gene (after site QC, before the MAC check). `n_variants` stays
+the number of qualifying variants before QC, which is what Fisher uses.
+
+#### Merged VCFs and `--missing-as-ref`
+
+Best-guess imputation assumes that a missing call is missing at random. That does not hold for
+VCFs merged from single-sample VCFs (`bcftools merge` without `-0`): there, `./.` usually means
+"no variant called here", and the observed calls are mostly the carriers. A site then has a high
+missing rate and an inflated observed allele frequency. The default site threshold drops such
+sites, and raising the threshold to keep them makes things worse: at an observed AF above 0.25,
+`round(2·AF)` imputes every missing sample as a heterozygous carrier.
+
+For these inputs, use `--missing-as-ref`. It gives the same result as
+`bcftools +setGT -- -t . -n 0` before the run. Partial calls such as `./1` also become `0/0`, and
+in `--score-artifact` the allele number counts every sample. It biases results toward the
+null when `./.` is a genuine no-call (low coverage), because true carriers among the no-calls are
+counted as reference. Prefer genotypes merged with `-0` or gVCF-based joint calling when you have
+them.
+
+The packed `GT` column interacts with this as follows. When per-sample genotype columns are
+rebuilt from the packed column, a sample that is not listed for a variant is filled as `0/0`. A
+sample listed with an explicit `./.` stays missing and is subject to the policy above.
 
 ### Multi-Allelic Sites Must Be Split
 
@@ -1042,6 +1073,7 @@ Use this for reproducible analyses or when parameters are too numerous for the c
 | `continuity_correction` | float | `0.5` | Haldane-Anscombe continuity correction for zero cells in Fisher |
 | `missing_site_threshold` | float | `0.10` | Exclude variants with >10% missing genotypes site-wide |
 | `missing_sample_threshold` | float | `0.80` | Exclude samples with >80% missing genotypes |
+| `missing_as_ref` | bool | `false` | Treat missing genotypes as reference before missingness QC (`--missing-as-ref`) |
 | `skat_method` | str | `"SKAT"` | SKAT variant: `"SKAT"` (default), `"Burden"`, or `"SKATO"` (omnibus) |
 | `confidence_interval_method` | str | `"normal_approx"` | Odds ratio CI method: tries score → normal → logit in sequence |
 | `association_workers` | int | `1` | Number of parallel workers for association testing |

@@ -46,6 +46,7 @@ VALID_ASSOCIATION_KEYS: frozenset[str] = frozenset(
         "continuity_correction",
         "missing_site_threshold",
         "missing_sample_threshold",
+        "missing_as_ref",
         "firth_max_iter",
         "association_workers",
         "gene_prior_weights",
@@ -139,6 +140,10 @@ def _validate_association_config_dict(d: dict) -> None:
     for key in dict_keys & set(d):
         if d[key] is not None and not isinstance(d[key], dict):
             errors.append(f"'{key}' must be an object, got {type(d[key]).__name__}")
+
+    if "missing_as_ref" in d and not isinstance(d["missing_as_ref"], bool):
+        got = type(d["missing_as_ref"]).__name__
+        errors.append(f"'missing_as_ref' must be a boolean, got {got}")
 
     # Enum-like value validation
     if "correction_method" in d and d["correction_method"] not in ("fdr", "bonferroni"):
@@ -277,8 +282,9 @@ def _build_assoc_config_from_context(context: "PipelineContext") -> AssociationC
         variant_weights=_get("variant_weights", default="beta:1,25", nullable=False),
         variant_weight_params=_get("variant_weight_params", default=None, nullable=True),
         variant_weight_column=_get("variant_weight_column", default=None, nullable=True),
-        missing_site_threshold=_get("missing_site_threshold", default=0.10, nullable=False),
-        missing_sample_threshold=_get("missing_sample_threshold", default=0.80, nullable=False),
+        missing_site_threshold=_get("missing_site_threshold", default=0.10, nullable=True),
+        missing_sample_threshold=_get("missing_sample_threshold", default=0.80, nullable=True),
+        missing_as_ref=bool(_get("missing_as_ref", default=False, nullable=True)),
         firth_max_iter=_get("firth_max_iter", default=25, nullable=False),
         skat_backend=_get("skat_backend", default="python", nullable=False),
         skat_method=_get("skat_method", default="SKAT", nullable=False),

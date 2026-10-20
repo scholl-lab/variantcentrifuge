@@ -159,6 +159,37 @@ def _per_sample_gt_frame(df: pd.DataFrame, unpacked_samples: list[str]) -> pd.Da
     return out
 
 
+def _report_missingness_qc(
+    results_df: pd.DataFrame, gene_data_by_gene: dict[str, Any], assoc_config: Any
+) -> None:
+    """Add ``n_variants_qc`` and log one WARNING if site-missingness QC dropped variants (#200).
+
+    ``n_variants`` stays the pre-QC qualifying count (Fisher uses it); ``n_variants_qc`` is
+    the count the matrix-based tests used, before their per-gene MAC check.
+    """
+    kept = {g: d["n_variants_qc"] for g, d in gene_data_by_gene.items() if "n_variants_qc" in d}
+    if not kept:
+        return
+    results_df.insert(
+        results_df.columns.get_loc("n_variants") + 1,
+        "n_variants_qc",
+        results_df["gene"].map(kept).astype("Int64"),
+    )
+    dropped = {g: len(gene_data_by_gene[g]["gene_df"]) - n for g, n in kept.items()}
+    n_dropped = sum(dropped.values())
+    if n_dropped:
+        logger.warning(
+            "Site missingness QC removed %d of %d variants (missing fraction > %s) in %d of "
+            "%d genes before the matrix-based tests; see the n_variants_qc column. For merged "
+            "VCFs where ./. means 'no variant called', consider --missing-as-ref.",
+            n_dropped,
+            n_dropped + sum(kept.values()),
+            assoc_config.missing_site_threshold,
+            sum(1 for v in dropped.values() if v),
+            len(kept),
+        )
+
+
 def _merge_carrier_warnings(
     results_df: pd.DataFrame,
     gene_data_by_gene: dict[str, Any],
