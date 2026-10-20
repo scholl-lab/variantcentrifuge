@@ -11,7 +11,6 @@ import shutil
 import subprocess
 import tempfile
 import time
-import warnings
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -27,8 +26,7 @@ from .sample_column_helpers import (
 
 logger = logging.getLogger(__name__)
 
-# load_optimized_dataframe's pandas (C engine) settings: only "" is missing (REF=NA survives),
-# quotes are literal, over-long rows are skipped with a warning, short rows are padded.
+# Values parse as in the serial loader: only "" is missing (REF=NA survives), quotes are literal.
 TSV_READ_KWARGS: dict[str, Any] = {
     "sep": "\t",
     "dtype": str,
@@ -40,45 +38,50 @@ TSV_READ_KWARGS: dict[str, Any] = {
 }
 
 
-def serial_tsv_header(path: Path) -> list[str]:
-    """Header as load_optimized_dataframe reads it (BOM stripped, tab split)."""
-    opener: Any = gzip.open if str(path).endswith(".gz") else open
-    with opener(path, "rt", encoding="utf-8", errors="replace") as f:
-        return list(f.readline().lstrip("\ufeff").rstrip("\r\n").split("\t"))
+def _tsv_lines(path: Path) -> Iterator[tuple[int, str]]:
+    """Yield (line number, line) for non-blank lines, as the serial loader sees them.
 
-
-def arrow_tsv_batches(path: Path, header: list[str]) -> Iterator[pd.DataFrame]:
-    """Stream rows with load_optimized_dataframe's PyArrow options, one ~1 MB block at a time.
-
-    Over-long rows are skipped with a warning; a short row raises (``ValueError``), which is
-    where the serial loader falls back to the pandas C engine.
+    Newlines are universal (CRLF/CR), a UTF-8 BOM on line 1 is dropped, and empty or
+    space-only lines are skipped; a line containing a tab is a record (of empty fields).
     """
-    import pyarrow as pa  # type: ignore[import-untyped]
-    import pyarrow.csv as pv  # type: ignore[import-untyped]
+    opener: Any = gzip.open if str(path).endswith(".gz") else open
+    with opener(path, "rt", encoding="utf-8") as f:
+        for lineno, line in enumerate(f, 1):
+            line = line.rstrip("\r\n")
+            if lineno == 1:
+                line = line.removeprefix("\ufeff")
+            if "\t" in line or line.strip():
+                yield lineno, line
 
-    def handler(row: Any) -> str:
-        if row.actual_columns < row.expected_columns:
-            return "error"
-        warnings.warn(
-            f"Skipping line: expected {row.expected_columns} fields, saw {row.actual_columns}",
-            pd.errors.ParserWarning,
-            stacklevel=2,
-        )
-        return "skip"
 
-    reader = pv.open_csv(
-        pa.input_stream(str(path), compression="gzip" if str(path).endswith(".gz") else None),
-        parse_options=pv.ParseOptions(
-            delimiter="\t", quote_char=False, double_quote=False, invalid_row_handler=handler
-        ),
-        convert_options=pv.ConvertOptions(
-            column_types={c: pa.string() for c in header},
-            strings_can_be_null=True,
-            null_values=[""],
-        ),
-    )
-    for batch in reader:
-        yield batch.to_pandas()
+def read_tsv_header(path: Path) -> list[str]:
+    """Header fields of a TSV (first non-blank line), verbatim apart from BOM/newline."""
+    return next(_tsv_lines(path), (0, ""))[1].split("\t")
+
+
+def write_row_indexed_copy(input_file: Path, output_file: Path, index_col: str) -> None:
+    """Copy a TSV with each data row prefixed by its 0-based position.
+
+    Fast single text pass (plain or gzip). Chunked processing requires well-formed input:
+    every data row must have exactly the header's field count. Unlike the serial loader,
+    which skips or pads malformed rows, a malformed row or missing header fails here.
+    """
+    hint = "Fix the input file or rerun with --no-chunked-processing."
+    lines = _tsv_lines(input_file)
+    lineno, header = next(lines, (0, ""))
+    if not header:
+        raise ValueError(f"Chunked processing: {input_file} has no header line. {hint}")
+    n_tabs = header.count("\t")
+    with open(output_file, "w", encoding="utf-8") as dst:
+        dst.write(f"{index_col}\t{header}\n")
+        for row, (lineno, line) in enumerate(lines):
+            if line.count("\t") != n_tabs:
+                raise ValueError(
+                    f"Chunked processing: {input_file} line {lineno} has "
+                    f"{line.count(chr(9)) + 1} tab-separated fields, header has {n_tabs + 1}. "
+                    + hint
+                )
+            dst.write(f"{row}\t{line}\n")
 
 
 def ensure_sorted_by_gene(input_file: Path, gene_col: str, context: PipelineContext) -> Path:

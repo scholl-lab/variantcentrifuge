@@ -19,13 +19,12 @@ from ..dataframe_optimizer import (
 from ..pipeline_core import PipelineContext, Stage
 from ..scoring import apply_scoring
 from .chunk_helpers import (
-    TSV_READ_KWARGS,
     apply_chunk_annotations,
     apply_chunk_inheritance_analysis,
-    arrow_tsv_batches,
     ensure_sorted_by_gene,
+    read_tsv_header,
     read_tsv_in_gene_chunks,
-    serial_tsv_header,
+    write_row_indexed_copy,
 )
 from .genotype_matrix_builder import _STANDARD_COLUMN_ALIASES, _create_standard_column_aliases
 
@@ -48,40 +47,6 @@ def _find_gene_column(header: list[str]) -> str | None:
         if name in raw_by_name:
             return raw_by_name[name]
     return None
-
-
-def _write_row_order_copy(input_file: Path, output_file: Path, chunksize: int) -> None:
-    """Write the rows the serial loader parses, prefixed by their parsed position.
-
-    Mirrors load_optimized_dataframe's two tiers in bounded batches: PyArrow first; on a
-    short row or duplicate header, the pandas C engine with the same settings. Blank lines,
-    a BOM, gzip and malformed rows are therefore handled exactly as in the serial path.
-    """
-    header = serial_tsv_header(input_file)
-    if len(set(header)) == len(header):
-        try:
-            _write_indexed(arrow_tsv_batches(input_file, header), header, output_file)
-            return
-        except ValueError as e:  # pyarrow.ArrowInvalid, e.g. a short row
-            logger.debug(f"PyArrow parse failed ({e}); using the pandas C engine like serial")
-    # pandas mis-parses malformed rows in tiny chunks; the floor keeps it batch-invariant.
-    batches = pd.read_csv(input_file, chunksize=max(chunksize, 1000), **TSV_READ_KWARGS)
-    _write_indexed(batches, _read_header(input_file), output_file)
-
-
-def _write_indexed(batches: Iterator[pd.DataFrame], header: list[str], output_file: Path) -> None:
-    with open(output_file, "w") as dst:
-        pd.DataFrame(columns=[_ROW_ORDER_COL, *header]).to_csv(dst, sep="\t", index=False)
-        start = 0
-        for part in batches:
-            part.insert(0, _ROW_ORDER_COL, range(start, start + len(part)))
-            start += len(part)
-            part.to_csv(dst, sep="\t", index=False, header=False, quoting=csv.QUOTE_NONE)
-
-
-def _read_header(path: Path) -> list[str]:
-    """Column names as the serial reader parses them (BOM stripped, gzip handled)."""
-    return list(pd.read_csv(path, nrows=0, **TSV_READ_KWARGS).columns)
 
 
 def _load_chunk_artifact(path: Path) -> tuple[pd.DataFrame, dict[str, str]]:
@@ -123,7 +88,14 @@ def _align_chunk_columns(chunk: pd.DataFrame, expected_columns: list[str]) -> pd
 
 
 class ChunkedAnalysisStage(Stage):
-    """Process large files in chunks with all analysis steps."""
+    """Process large files in gene-aware chunks with all analysis steps.
+
+    Input contract: a well-formed TSV, i.e. every data row has exactly the header's field
+    count (UTF-8 BOM, CRLF/CR newlines, blank lines and gzip are accepted). For such input
+    the result equals non-chunked processing. A short or over-long row, or a missing
+    header, fails with the line number instead of being skipped or padded as the serial
+    loader would; fix the input or use --no-chunked-processing.
+    """
 
     def __init__(self, max_variants_per_gene: int = 10000):
         super().__init__()
@@ -175,7 +147,7 @@ class ChunkedAnalysisStage(Stage):
 
         if not chunked_tsv or not Path(chunked_tsv).exists():
             input_file = self._find_input_file(context)
-            if _find_gene_column(_read_header(input_file)) is None:
+            if _find_gene_column(read_tsv_header(input_file)) is None:
                 # The checkpointed run took the non-chunked fallback; replay it.
                 return self._load_unchunked(context, input_file)
             raise RuntimeError(
@@ -303,7 +275,7 @@ class ChunkedAnalysisStage(Stage):
             return context
 
         input_file = self._find_input_file(context)
-        gene_col_name = _find_gene_column(_read_header(input_file))
+        gene_col_name = _find_gene_column(read_tsv_header(input_file))
         if not gene_col_name:
             logger.warning("No GENE column found, falling back to non-chunked processing")
             return self._load_unchunked(context, input_file)
@@ -324,7 +296,7 @@ class ChunkedAnalysisStage(Stage):
         logger.info(f"Processing {input_file} in chunks of {chunk_size} variants")
 
         ordered_file = context.workspace.get_intermediate_path("chunked_analysis_input.tsv")
-        _write_row_order_copy(input_file, ordered_file, chunk_size)
+        write_row_indexed_copy(input_file, ordered_file, _ROW_ORDER_COL)
         # ensure_sorted_by_gene reuses an existing sorted file; never reuse a stale one.
         ordered_file.with_suffix(".sorted.tsv").unlink(missing_ok=True)
         sorted_file = self._ensure_sorted_by_gene(ordered_file, gene_col_name, context)
@@ -372,7 +344,7 @@ class ChunkedAnalysisStage(Stage):
 
         if chunks_written == 0:
             logger.warning("No chunks with variants were processed - creating empty DataFrame")
-            empty_df = pd.DataFrame(columns=_read_header(sorted_file))
+            empty_df = pd.DataFrame(columns=read_tsv_header(sorted_file))
             empty_df.to_csv(
                 chunked_output_path, sep="\t", index=False, compression=cast(Any, compression)
             )

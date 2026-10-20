@@ -276,21 +276,6 @@ def test_wildcard_gene_header_is_not_a_gene_and_falls_back(tmp_path, gene_header
     assert result.config["use_chunked_processing"] is False
 
 
-def test_chunk_reader_skips_overlong_rows_and_pads_short_rows_like_serial(tmp_path):
-    """Review r2 #3: same bad-line policy as the serial loader."""
-    tsv = tmp_path / "bad.tsv"
-    tsv.write_text("CHROM\tPOS\tGENE\tREF\n1\t1\tA\tC\n1\t2\tB\tG\textra\n1\t3\tC\n1\t4\tA\tT\n")
-    serial = _serial(tmp_path, tsv).current_dataframe
-    chunked = (
-        ChunkedAnalysisStage()
-        ._process(_context(tmp_path, tsv, use_chunked_processing=True))
-        .current_dataframe
-    )
-    pd.testing.assert_frame_equal(chunked.astype(str), serial.astype(str))
-    assert chunked["POS"].tolist() == ["1", "3", "4"]
-    assert pd.isna(chunked["REF"].iloc[1])
-
-
 @pytest.mark.parametrize(
     ("scoring", "expected"),
     [
@@ -378,43 +363,68 @@ def test_get_input_files(tmp_path):
     assert stage.get_input_files(context) == []
 
 
-_MALFORMED = {
-    "overlong_first_in_input": "CHROM\tPOS\tGENE\n1\t1\tA\tx\n1\t2\tB\n1\t3\tC\n",
-    "overlong_first_after_sort": "CHROM\tPOS\tGENE\n1\t1\tB\n1\t2\tA\textra\n1\t3\tC\n",
-    "blank_lines": "CHROM\tPOS\tGENE\n1\t1\tB\n\n1\t2\tA\n\n",
-    "short_row": "CHROM\tPOS\tGENE\tREF\n1\t1\tB\tA\n1\t2\tA\n1\t3\tB\tG\n",
-    "short_and_overlong": "CHROM\tPOS\tGENE\tREF\n1\t1\tB\tA\n1\t2\tA\tG\tx\n1\t3\tA\n1\t4\tC\tT\n",
+_WELL_FORMED = {
+    "interior_and_trailing_blank_lines": "CHROM\tPOS\tGENE\n1\t1\tB\n\n1\t2\tA\n \n",
+    "leading_blank_line": "\nCHROM\tPOS\tGENE\n01\t0001\tB\n1\t2\tA\n",
     "crlf": "CHROM\tPOS\tGENE\r\n1\t1\tB\r\n1\t2\tA\r\n",
-    "bom": "﻿CHROM\tPOS\tGENE\n1\t1\tB\n1\t2\tA\n",
+    "lone_cr": "CHROM\tPOS\tGENE\r1\t1\tB\r1\t2\tA\r",
+    "bom": "\ufeffCHROM\tPOS\tGENE\n1\t1\tB\n1\t2\tA\n",
+    "quotes_in_header_and_fields": 'CHROM\tPOS\tGENE\tNOTE"TEXT\n1\t1\tB\t"q"\n1\t2\tA\ta"b\n',
+    "na_tokens_and_empty_fields": "CHROM\tPOS\tGENE\tREF\n1\t1\tB\tNA\n1\t2\tA\t\n\t\tC\tnull\n",
+    "no_trailing_newline": "CHROM\tPOS\tGENE\n1\t1\tB\n1\t2\tA",
 }
 
 
-@pytest.mark.filterwarnings("ignore::pandas.errors.ParserWarning")
 @pytest.mark.parametrize("gz", [False, True], ids=["plain", "gzip"])
-@pytest.mark.parametrize("case", sorted(_MALFORMED))
-def test_chunked_parses_rows_exactly_like_serial(tmp_path, monkeypatch, case, gz):
-    """Review r3 #1-3: the indexed copy is built from serially parsed rows, so malformed,
-    blank, BOM and short rows give the serial table (gene sort and tiny chunks included)."""
+@pytest.mark.parametrize("case", sorted(_WELL_FORMED))
+def test_well_formed_input_chunked_equals_serial(tmp_path, monkeypatch, case, gz):
+    """Review r3/r4: for well-formed input the chunked table equals the serial one."""
     import gzip
 
     from variantcentrifuge.memory import ResourceManager
 
     monkeypatch.setattr(ResourceManager, "auto_chunk_size", lambda self, *a, **k: 1)
     tsv = tmp_path / ("in.tsv.gz" if gz else "in.tsv")
-    data = _MALFORMED[case].encode()
+    data = _WELL_FORMED[case].encode()
     tsv.write_bytes(gzip.compress(data) if gz else data)
 
-    serial = _serial(tmp_path, tsv).current_dataframe
-    chunked = (
-        ChunkedAnalysisStage()
-        ._process(_context(tmp_path, tsv, use_chunked_processing=True))
-        .current_dataframe
-    )
-    assert list(chunked.columns) == list(serial.columns)
-    assert "CHROM" in chunked.columns
+    serial = _serial(tmp_path, tsv)
+    chunked = ChunkedAnalysisStage()._process(_context(tmp_path, tsv, use_chunked_processing=True))
+    assert list(chunked.current_dataframe.columns) == list(serial.current_dataframe.columns)
+    assert chunked.column_rename_map == serial.column_rename_map
     pd.testing.assert_frame_equal(
-        chunked.reset_index(drop=True).astype(str), serial.reset_index(drop=True).astype(str)
+        chunked.current_dataframe.astype(str), serial.current_dataframe.astype(str)
     )
+
+
+def _rows_with_bad_line(n_rows: int, bad_at: int, kind: str) -> str:
+    rows = [f"1\t{i}\tG{i % 7}" for i in range(n_rows)]
+    rows[bad_at] = rows[bad_at] + "\textra" if kind == "overlong" else f"1\t{bad_at}"
+    return "CHROM\tPOS\tGENE\n" + "\n".join(rows) + "\n"
+
+
+@pytest.mark.parametrize("kind", ["short", "overlong"])
+@pytest.mark.parametrize("bad_at", [0, 750, 999, 1000, 1001, 1499])
+@pytest.mark.parametrize("gz", [False, True], ids=["plain", "gzip"])
+def test_malformed_row_fails_clearly(tmp_path, kind, bad_at, gz):
+    """Chunked mode does not skip/pad malformed rows: it names the line and the way out."""
+    import gzip
+
+    tsv = tmp_path / ("bad.tsv.gz" if gz else "bad.tsv")
+    data = _rows_with_bad_line(1500, bad_at, kind).encode()
+    tsv.write_bytes(gzip.compress(data) if gz else data)
+    with pytest.raises(ValueError, match=rf"line {bad_at + 2} has .*--no-chunked-processing"):
+        ChunkedAnalysisStage()._process(_context(tmp_path, tsv, use_chunked_processing=True))
+
+
+@pytest.mark.parametrize("text", ["", "\n\n", "\ufeff\n"])
+def test_missing_header_fails_clearly(tmp_path, text):
+    from variantcentrifuge.stages.chunk_helpers import write_row_indexed_copy
+
+    tsv = tmp_path / "empty.tsv"
+    tsv.write_text(text)
+    with pytest.raises(ValueError, match=r"no header line.*--no-chunked-processing"):
+        write_row_indexed_copy(tsv, tmp_path / "out.tsv", "_idx")
 
 
 def test_header_only_ann_input_has_serial_schema_fresh_and_restored(tmp_path):
