@@ -202,11 +202,15 @@ class TestDaviesInRangeBehaviorUnchanged:
         assert converged is False
 
     def test_davies_proactive_threshold_fallback(self):
-        """When Davies returns p <= 1e-5 (even if ifault=0), proactive fallback to saddlepoint."""
+        """Davies p below 1e-5 (its acc floor / 1e-4 budget) leaves the plain-Davies regime.
+
+        At exactly 1e-5 Davies is refined (acc = 1e-9) and kept; below it the tilted
+        evaluation is tried (it fails on this constant mock) and the saddlepoint is used.
+        """
         lambdas = np.array([2.0, 1.5, 1.0, 0.5])
         q = 20.0
 
-        # Exactly at threshold 1e-5: triggers fallback
+        # Exactly at threshold 1e-5: refined Davies
         with (
             patch(
                 "variantcentrifuge.association.backends.davies.davies_pvalue",
@@ -219,8 +223,8 @@ class TestDaviesInRangeBehaviorUnchanged:
         ):
             p, method, converged = compute_pvalue(q, lambdas)
 
-        assert method == "saddlepoint"
-        assert converged is False
+        assert method == "davies"
+        assert converged is True
 
         # Strictly below threshold (9.9999e-6): triggers fallback to saddlepoint
         with (

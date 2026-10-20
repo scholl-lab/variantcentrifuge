@@ -408,3 +408,48 @@ def test_tail_pvalue_uses_tilted_davies_not_saddlepoint() -> None:
     p, method, converged = dv.compute_pvalue(d["q"], np.array(d["lambdas"]))
     assert (method, converged) == ("davies_tilted", True)
     assert p == pytest.approx(1.7922060078e-6, rel=1e-5, abs=0.0)
+
+
+@pytest.mark.unit
+def test_relative_accuracy_across_tail_switch() -> None:
+    """Exact chi2(6) sweep across the Davies -> tilted switch (p = 1e-5).
+
+    75c2366: Q 33.023298340 -> 33.023298540 gave 1.0000000e-5 -> 1.0378148e-5 (+3.8%):
+    Davies acc=1e-6 is ~10% relative at 1e-5. Both regimes now meet a 1e-4 relative budget,
+    so the jump at the switch is bounded by it (the exact change over that step is 3e-8,
+    below any method's resolution, so strict monotonicity there is not attainable).
+    """
+    lam = np.ones(6)
+    prev = 1.0
+    for q in np.arange(20.0, 45.0, 0.05):
+        p, _method, converged = dv.compute_pvalue(float(q), lam)
+        assert converged
+        assert p == pytest.approx(scipy.stats.chi2.sf(q, 6), rel=1e-4, abs=0.0)
+        assert p < prev
+        prev = p
+    lo, hi = (dv.compute_pvalue(q, lam)[0] for q in (33.02329834039999, 33.02329854039999))
+    assert abs(hi - lo) <= 2e-4 * lo
+
+
+@pytest.mark.unit
+def test_tilted_only_in_tail_and_root_failure_falls_back() -> None:
+    """Near the mean an unreachable acc must not route to the tilted rule (exact exp(-1.03));
+    an unsolvable tilt (q = 1e12) must fall back instead of raising."""
+    p, method, converged = dv.compute_pvalue(2.06, np.ones(2), acc=1e-12)
+    assert (method, converged) == ("davies", True)
+    assert p == pytest.approx(np.exp(-1.03), rel=1e-4, abs=0.0)
+    assert dv._tilted_sf_or_none(1e12, np.array([1.0, 0.1])) is None
+    p, method, converged = dv.compute_pvalue(1e12, np.array([1.0, 0.1]))
+    assert 0.0 <= p < 1e-300 and not converged
+
+
+@pytest.mark.unit
+def test_tail_quadrature_failure_falls_back_to_liu(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The x > 40 tail integral also routes exhaustion to Liu and reports it."""
+    q_rho = 49 * (1 - np.array(sm._SKATO_RHO_GRID))
+    p_ok, _ = sm._skato_get_pvalue(q_rho, np.eye(2), sm._SKATO_RHO_GRID)
+    assert skato_integrate._skato_last_converged() is True
+    monkeypatch.setattr(skato_integrate, "_SKATO_TAIL_QUAD_LIMIT", 2)
+    p, _ = sm._skato_get_pvalue(q_rho, np.eye(2), sm._SKATO_RHO_GRID)
+    assert skato_integrate._skato_last_converged() is False
+    assert p == pytest.approx(p_ok, rel=1e-6, abs=0.0)  # rank one: Liu integrand is exact

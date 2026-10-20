@@ -37,6 +37,7 @@ _SKATO_Z_LEVELS = np.array([0.0, 1.0, 8.0, 64.0])
 _SKATO_DAVIES_REL_ACC, _SKATO_DAVIES_MIN_ACC = 1e-4, 1e-9
 _SKATO_X_MAX = 1500.0  # P[chi2_1 > 1500] underflows to 0
 _SKATO_QUAD_LIMIT = 50  # max subintervals per piece of the adaptive SKAT-O integral
+_SKATO_TAIL_QUAD_LIMIT = 200  # max subintervals of the x > 40 tail integral
 _SQRT_2_OVER_PI = float(np.sqrt(2.0 / np.pi))
 
 
@@ -322,15 +323,19 @@ def _skato_integrate_davies(
         # Mass beyond x = 40 is < 2.6e-10; integrate it only where it matters relative to p
         if tail_hi > _GL_B and scipy.stats.chi2.sf(_GL_B, 1) > _SKATO_DAVIES_REL_ACC * pvalue:
             pts = _skato_breakpoints(a, b, levels, tail_hi)
-            tail, err = scipy.integrate.quad(
+            tail, err, *info = scipy.integrate.quad(
                 lambda x: float(surv(np.array([x]))[0] * scipy.stats.chi2.pdf(x, df=1)),
                 _GL_B,
                 tail_hi,
                 points=pts[pts > _GL_B] if np.any(pts > _GL_B) else None,
                 epsabs=0.0,
                 epsrel=_SKATO_DAVIES_REL_ACC,
-                limit=200,
+                limit=_SKATO_TAIL_QUAD_LIMIT,
+                full_output=1,
             )
+            if len(info) > 1:
+                logger.warning("SKAT-O integral tail x>%g: %s", _GL_B, info[1])
+                raise _DaviesFailureError(f"tail quadrature did not converge (err {err:.2g})")
             logger.debug("SKAT-O tail x>%g: %.3g (quad err %.2g)", _GL_B, tail, err)
             pvalue += tail
     except _DaviesFailureError as exc:

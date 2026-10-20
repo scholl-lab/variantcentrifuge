@@ -54,7 +54,10 @@ _DAVIES_LOAD_ATTEMPTED = False
 _LAG_NODES, _LAG_WEIGHTS = laggauss(16)
 # qfc keeps its state in C globals and the CFFI call releases the GIL: serialize calls
 _QFC_LOCK = threading.Lock()
-_PROACTIVE_THRESHOLD = 1e-5  # GMMAT-style proactive saddlepoint trigger
+# Relative accuracy budget for compute_pvalue. Davies' error is absolute and it stops
+# converging below acc ~1e-9, so below p = 1e-9 / 1e-4 = 1e-5 the tilted evaluation is used.
+_DAVIES_REL_ACC, _DAVIES_MIN_ACC = 1e-4, 1e-9
+_TAIL_P = _DAVIES_MIN_ACC / _DAVIES_REL_ACC
 # Davies term cap for a retry after ifault=1 (term limit hit). qfc's result does not depend
 # on lim when the smaller cap converges, but lim=10_000 (R) fails for small q with few or
 # dominant eigenvalues, where saddlepoint/Liu are off by ~1%.
@@ -362,7 +365,10 @@ def _tilted_sf_or_none(z: float, lambdas: np.ndarray) -> float | None:
     # k > 3 has no exact reference here. Cost ~17 Davies calls per tail node.
     scale = float(lambdas.max())  # scale-free: brentq's xtol is absolute
     z, lambdas = z / scale, lambdas / scale
-    t = brentq(lambda u: float(np.sum(lambdas / (1 - 2 * u * lambdas))) - z, 0.0, 0.5 - 1e-12)
+    try:
+        t = brentq(lambda u: float(np.sum(lambdas / (1 - 2 * u * lambdas))) - z, 0.0, 0.5 - 1e-12)
+    except ValueError:  # no sign change: z beyond the representable tilt (or below the mean)
+        return None
     if not 0.0 < t < 0.5:
         return None
     lam_t = lambdas / (1 - 2 * t * lambdas)
@@ -394,9 +400,9 @@ def compute_pvalue(
     Matches R SKAT package ``Get_PValue.Lambda`` behavior with enhanced fallback:
     - Davies called with acc=1e-6, lim=10000 (R defaults); on ifault=1 (term limit)
       retried with lim=_DAVIES_RETRY_LIM, which is identical wherever lim=10000 converges
-    - If Davies ifault != 0, p >= 1.0, non-finite, or p <= 1e-5: for q above the mean,
-      Davies on the exponentially tilted mixture ("davies_tilted", relative accuracy);
-      otherwise/if that fails, saddlepoint, then Liu moment-matching
+    - Relative accuracy budget 1e-4: where acc is too coarse for p, Davies is refined to
+      acc = 1e-4 * p; below p = 1e-5 (acc floor 1e-9) Davies on the exponentially tilted
+      mixture is used ("davies_tilted"); if Davies fails, saddlepoint, then Liu
     - Single eigenvalue: always use Liu
     - Three-tier chain when Davies available: Davies -> saddlepoint -> Liu
 
@@ -435,46 +441,49 @@ def compute_pvalue(
 
     # --- Tier 1: Davies (requires compiled _qfc extension) ---
     if _try_load_davies():
-        p_davies, ifault = davies_pvalue(q, lambdas, acc=acc, lim=lim)
-        if ifault == 1 and lim < _DAVIES_RETRY_LIM:
-            p_davies, ifault = davies_pvalue(q, lambdas, acc=acc, lim=_DAVIES_RETRY_LIM)
 
-        if p_davies is not None:
-            p_val = float(p_davies)
-            needs_fallback = (
-                not np.isfinite(p_val)
-                or p_val <= 0.0
-                or p_val >= 1.0
-                or ifault > 0
-                or p_val <= _PROACTIVE_THRESHOLD
-            )
+        def davies(a: float) -> tuple[float | None, int]:
+            p, f = davies_pvalue(q, lambdas, acc=a, lim=lim)
+            if f == 1 and lim < _DAVIES_RETRY_LIM:
+                p, f = davies_pvalue(q, lambdas, acc=a, lim=_DAVIES_RETRY_LIM)
+            return p, f
 
-            if needs_fallback and q > float(np.sum(lambdas)):
-                # Exact identity, Davies on O(1) tilted probabilities: relative accuracy in the
-                # tail where plain Davies (absolute error) and the saddlepoint (~5%) are not
-                p_t = _tilted_sf_or_none(q, lambdas)
-                if p_t is not None and 0.0 < p_t < 1.0:
-                    return p_t, "davies_tilted", True
-
-            if needs_fallback:
-                p_sp = _kuonen_pvalue(q, lambdas)
-                if p_sp is not None and 0.0 < p_sp < 1.0:
-                    logger.info(
-                        "Davies p=%s (ifault=%d); using saddlepoint fallback (p=%s)",
-                        p_val,
-                        ifault,
-                        p_sp,
-                    )
-                    return float(p_sp), "saddlepoint", False
-                logger.info(
-                    "Davies p=%s (ifault=%d); saddlepoint also failed; using Liu fallback (p=%s)",
-                    p_val,
-                    ifault,
-                    p_liu,
-                )
-                return p_liu, "liu", False
-
+        p_davies, ifault = davies(acc)
+        if ifault != 0 and acc < 1e-6:  # requested accuracy unreachable: retry at R's
+            acc = 1e-6
+            p_davies, ifault = davies(acc)
+        p_val = float("nan") if p_davies is None else float(p_davies)
+        ok = ifault == 0 and 0.0 < p_val < 1.0
+        if ok and p_val * _DAVIES_REL_ACC < acc:
+            # absolute accuracy too coarse for p: refine where Davies can, else tail regime
+            ok = p_val * _DAVIES_REL_ACC >= _DAVIES_MIN_ACC
+            if ok:
+                p2, f2 = davies(p_val * _DAVIES_REL_ACC)
+                p_val = float(p2) if f2 == 0 and p2 is not None and 0.0 < p2 < 1.0 else p_val
+        if ok:
             return p_val, "davies", True
+
+        p_tail = p_val if ifault == 0 and np.isfinite(p_val) else p_liu
+        if p_tail < _TAIL_P and q > float(np.sum(lambdas)):
+            # Exact identity, Davies on O(1) tilted probabilities: relative accuracy in the
+            # tail where plain Davies (absolute error) and the saddlepoint (~5%) are not
+            p_t = _tilted_sf_or_none(q, lambdas)
+            if p_t is not None and 0.0 < p_t < 1.0:
+                return p_t, "davies_tilted", True
+
+        p_sp = _kuonen_pvalue(q, lambdas)
+        if p_sp is not None and 0.0 < p_sp < 1.0:
+            logger.info(
+                "Davies p=%s (ifault=%d); using saddlepoint fallback (p=%s)", p_val, ifault, p_sp
+            )
+            return float(p_sp), "saddlepoint", False
+        logger.info(
+            "Davies p=%s (ifault=%d); saddlepoint also failed; using Liu fallback (p=%s)",
+            p_val,
+            ifault,
+            p_liu,
+        )
+        return p_liu, "liu", False
 
     # --- Davies unavailable: use saddlepoint -> Liu chain ---
     p_sp = _kuonen_pvalue(q, lambdas)
