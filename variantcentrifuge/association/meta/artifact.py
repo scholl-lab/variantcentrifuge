@@ -269,6 +269,15 @@ def load_artifact(path: str) -> ScoreCovarianceArtifact:
             f"Artifact '{path}' has schema_version {meta.get('schema_version')!r}; "
             f"this version reads only 1 and {SCHEMA_VERSION}."
         )
+    policy = meta.get("missing_policy") if meta["schema_version"] > 1 else V1_MISSING_POLICY
+    if not isinstance(policy, dict) or policy.get("imputation") not in (
+        "bestguess",
+        "missing_as_ref",
+    ):
+        raise ValueError(
+            f"Artifact '{path}' (schema_version 2) has no valid missing_policy "
+            f"(got {policy!r}); refusing to guess how its missing genotypes were handled."
+        )
     npz_path = path if path.endswith(".npz") else f"{path}.npz"
     with np.load(npz_path) as data:
         genes: dict[str, GeneScore] = {}
@@ -293,7 +302,7 @@ def load_artifact(path: str) -> ScoreCovarianceArtifact:
         sample_id_hashes=list(meta["sample_id_hashes"]),
         genes=genes,
         schema_version=int(meta["schema_version"]),
-        missing_policy=dict(meta.get("missing_policy") or V1_MISSING_POLICY),
+        missing_policy=dict(policy),
     )
 
 

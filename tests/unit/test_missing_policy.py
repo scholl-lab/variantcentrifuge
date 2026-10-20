@@ -385,3 +385,18 @@ def test_artifact_only_run_warns_about_dropped_sites(monkeypatch, tmp_path, capl
     with caplog.at_level(logging.WARNING):
         AssociationAnalysisStage()._process(_stage_ctx(tmp_path, config, df, samples))
     assert "Score artifact: site missingness QC removed 1 of 2 variants" in caplog.text
+
+
+@pytest.mark.parametrize("policy", ["drop", None, {}, {"imputation": "mean"}])
+def test_v2_artifact_without_valid_policy_refused(tmp_path, policy):
+    path = str(tmp_path / "x")
+    save_artifact(make_stratum("x", seed=1, gene_keys={"G": ["1:100:A:G"]}), path)
+    meta_file = tmp_path / "x.meta.json"
+    meta = json.loads(meta_file.read_text())
+    if policy == "drop":
+        del meta["missing_policy"]
+    else:
+        meta["missing_policy"] = policy
+    meta_file.write_text(json.dumps(meta))
+    with pytest.raises(ValueError, match="missing_policy"):
+        load_artifact(path)
