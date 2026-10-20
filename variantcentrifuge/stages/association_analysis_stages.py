@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from ..association.engine import AssociationEngine
+from ..association.gene_sets import add_gene_set_units, load_gene_sets, run_gene_and_set_units
 from ..association.weights import resolve_score_weight_column
 from ..gene_burden import (
     _aggregate_gene_burden_from_columns,
@@ -207,6 +208,10 @@ class AssociationAnalysisStage(Stage):
         if "GENE" not in df.columns:
             logger.error("DataFrame missing required 'GENE' column for association analysis")
             return context
+
+        set_ids: list[str] = []
+        if context.config.get("gene_set_file"):
+            df, set_ids = add_gene_set_units(df, load_gene_sets(context.config["gene_set_file"]))
 
         score_weight_column = resolve_score_weight_column(
             assoc_config.variant_weights,
@@ -409,7 +414,11 @@ class AssociationAnalysisStage(Stage):
                 for d in gene_burden_data:
                     d.pop("_genotype_matrix_builder", None)
 
-        results_df = engine.run_all(gene_burden_data)
+        results_df = (
+            run_gene_and_set_units(engine, test_names, assoc_config, gene_burden_data, set_ids)
+            if set_ids
+            else engine.run_all(gene_burden_data)
+        )
 
         if results_df.empty:
             logger.warning("Association analysis produced no results.")
@@ -438,8 +447,8 @@ class AssociationAnalysisStage(Stage):
                 if quantitative
                 else emit_sample_size_warnings(n_cases_total, n_controls_total, assoc_config)
             )
-            write_diagnostics(
-                results_df=results_df,
+            write_diagnostics(  # QQ/lambda_GC describe the gene family only
+                results_df=results_df[results_df["unit_type"] == "gene"] if set_ids else results_df,
                 diagnostics_dir=assoc_config.diagnostics_output,
                 test_names=test_names,
                 n_cases=n_cases_total,
