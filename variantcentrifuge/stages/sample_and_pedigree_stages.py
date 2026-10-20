@@ -3,6 +3,7 @@
 import logging
 import os
 import sys
+from collections import Counter
 from typing import Any
 
 from ..pipeline_core import PipelineContext, Stage
@@ -134,6 +135,21 @@ class PedigreeLoadingStage(Stage):
         return context
 
 
+def _require_unique_samples(samples: list[str], remove_substring: str | None) -> None:
+    """Reject duplicate sample IDs (e.g. "A.bam" and "A" after removing ".bam").
+
+    Downstream genotype, phenotype and cohort lookups are keyed by sample ID; duplicates
+    would silently give one sample's genotypes to both.
+    """
+    dups = sorted(s for s, n in Counter(samples).items() if n > 1)
+    if dups:
+        how = f" after removing substring '{remove_substring}'" if remove_substring else ""
+        raise ValueError(
+            f"Sample IDs are not unique{how}: {', '.join(dups[:10])}. Choose a "
+            "--remove-sample-substring that keeps every sample ID distinct."
+        )
+
+
 class SampleConfigLoadingStage(Stage):
     """Load sample configurations and VCF sample names."""
 
@@ -213,6 +229,8 @@ class SampleConfigLoadingStage(Stage):
             # This is required by analyze_variants.py for case/control assignment
             context.config["sample_list"] = ",".join(vcf_samples)
             logger.debug(f"Set sample_list config with {len(vcf_samples)} processed sample names")
+
+        _require_unique_samples(vcf_samples, context.config.get("remove_sample_substring"))
 
         # Load case/control sample lists if provided via files
         case_samples_file = context.config.get("case_samples_file")
@@ -326,6 +344,8 @@ class SampleConfigLoadingStage(Stage):
 
             # CRITICAL: Set sample_list in config for downstream analysis
             context.config["sample_list"] = ",".join(vcf_samples)
+
+        _require_unique_samples(vcf_samples, context.config.get("remove_sample_substring"))
 
         # Restore case/control sample lists if provided via files
         case_samples_file = context.config.get("case_samples_file")

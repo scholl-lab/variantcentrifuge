@@ -457,3 +457,45 @@ def test_untestable_gene_keeps_row_and_skip_code(tmp_path, tests):
     assert "NULLGENE" in res.index
     assert "BURDEN_NOT_ESTIMABLE" in res.loc["NULLGENE", "warnings"]
     assert pd.isna(res.loc["NULLGENE", "linear_burden_pvalue"])
+
+
+# --- duplicate sample IDs after substring removal (final review item 1) -------------------
+
+
+@pytest.mark.parametrize("restore", [False, True], ids=["fresh", "restore"])
+@pytest.mark.parametrize("source", ["vcf", "from_tsv"])
+def test_colliding_normalized_sample_ids_are_rejected(monkeypatch, source, restore):
+    """'DUP.bam' and 'DUP' both become 'DUP' with --remove-sample-substring .bam; with equal
+    outcomes the stage used to analyse one sample's genotypes twice (SIGNAL p 0.779->0.911)."""
+    from variantcentrifuge import from_tsv
+    from variantcentrifuge.stages import sample_and_pedigree_stages as sps
+
+    raw = ["DUP.bam", *SAMPLES[1:80], "DUP"]
+    config = {"remove_sample_substring": ".bam"}
+    if source == "vcf":
+        config["vcf_file"] = "in.vcf.gz"
+        monkeypatch.setattr(sps, "get_vcf_samples", lambda _f: list(raw))
+    else:
+        config["from_tsv"] = "in.tsv"
+
+        def prepare(ctx):  # mirrors from_tsv's own substring removal
+            ctx.vcf_samples = [s.replace(".bam", "") for s in raw]
+
+        monkeypatch.setattr(from_tsv, "prepare_from_tsv_context", prepare)
+    context = PipelineContext(args=Namespace(), config=config, workspace=None)  # type: ignore[arg-type]
+    stage = sps.SampleConfigLoadingStage()
+    run = stage._handle_checkpoint_skip if restore else stage._process
+    with pytest.raises(ValueError, match=r"not unique after removing substring '\.bam': DUP\."):
+        run(context)
+
+
+def test_non_colliding_substring_removal_still_loads(monkeypatch):
+    from variantcentrifuge.stages import sample_and_pedigree_stages as sps
+
+    monkeypatch.setattr(sps, "get_vcf_samples", lambda _f: ["A.bam", "B.bam", "C"])
+    context = PipelineContext(
+        args=Namespace(),
+        config={"vcf_file": "in.vcf.gz", "remove_sample_substring": ".bam"},
+        workspace=None,  # type: ignore[arg-type]
+    )
+    assert sps.SampleConfigLoadingStage()._process(context).vcf_samples == ["A", "B", "C"]
