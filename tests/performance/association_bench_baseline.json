@@ -1,0 +1,29 @@
+{
+  "size": "S",
+  "layout": "packed",
+  "genes": 50,
+  "samples": 1000,
+  "variants": 1334,
+  "tests": "fisher,logistic_burden,skat",
+  "skat_method": "SKATO",
+  "workers": 1,
+  "blas_threads": 1,
+  "repeat": 3,
+  "gen_s": 0.144,
+  "stage_s": 4.015,
+  "gen_peak_rss_mb": 128,
+  "peak_rss_mb": 380,
+  "children_peak_rss_mb": 0,
+  "rows": 50,
+  "substeps": {
+    "gt_unpack": 1.416,
+    "sample_setup": 0.0,
+    "covariates_phenotype": 0.0,
+    "aggregation": 0.026,
+    "matrix_builders": 1.0,
+    "engine": 1.532,
+    "write_output": 0.001
+  },
+  "machine": "x86_64  cpus=32",
+  "python": "3.12.9"
+}

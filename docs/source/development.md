@@ -282,6 +282,38 @@ Test data is organized in subdirectories:
 
 Pytest is configured in `pyproject.toml` under `[tool.pytest.ini_options]`.
 
+### Association Benchmark Harness
+
+`scripts/bench_association.py` runs `AssociationAnalysisStage` in-process on seeded
+synthetic data (no real cohorts) and prints one machine-readable `RESULT` line plus a
+table of the stage's sub-step timings, which the stage records in
+`context.stage_results["association_analysis"]["substep_seconds"]` (`gt_unpack`,
+`gt_reconstruct`, `sample_setup`, `covariates_phenotype`, `aggregation`,
+`matrix_builders`, `score_artifact`, `engine`, `write_output`). Genotype matrices are
+built lazily, so `engine` includes matrix construction.
+
+```bash
+# Presets: S = 50 genes x 1,000 samples, M = 500 x 3,000, L = 2,000 x 6,000 (~25 variants/gene)
+python scripts/bench_association.py --size M --layout columns --tests fisher --out before.tsv
+# ... change code, rerun with --out after.tsv, then gate on identical results:
+python scripts/bench_association.py --compare before.tsv after.tsv   # exit 0 only if identical
+```
+
+`--layout packed` keeps only the packed `GT` column (as after extraction); `--layout columns`
+adds per-sample categorical `GEN_<i>__GT` columns (as after variant analysis). Other options:
+`--genes/--samples`, `--tests`, `--skat-method`, `--workers`, `--blas-threads` (default 1),
+`--case-frac`, `--unassigned`, `--artifact`, `--repeat` (see `--help`).
+
+`tests/performance/test_association_bench_regression.py` (marked `slow`, excluded from
+`make test-fast`) fails when size S is more than 1.2x slower than
+`tests/performance/association_bench_baseline.json`. Refresh the baseline on the machine that
+runs the test, after an intended speed change:
+
+```bash
+python scripts/bench_association.py --size S --repeat 3 \
+    --write-baseline tests/performance/association_bench_baseline.json
+```
+
 ### Writing Tests
 
 Follow these comprehensive guidelines when writing tests:

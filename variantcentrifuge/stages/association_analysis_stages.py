@@ -11,6 +11,7 @@ import pandas as pd
 
 from ..association.engine import AssociationEngine
 from ..association.gene_sets import add_gene_set_units, load_gene_sets, run_gene_and_set_units
+from ..association.timing import substep
 from ..association.weights import resolve_score_weight_column
 from ..gene_burden import (
     _aggregate_gene_burden_from_columns,
@@ -139,6 +140,9 @@ class AssociationAnalysisStage(Stage):
             logger.debug("Association analysis not requested")
             return context
 
+        timings: dict[str, float] = {}  # sub-step seconds, read by benchmarks and progress logs
+        context.stage_results[self.name] = {"substep_seconds": timings}
+
         pca_result = context.get_result("pca_computation")
         if pca_result and isinstance(pca_result, dict):
             pca_file_from_stage = pca_result.get("pca_file")
@@ -256,31 +260,34 @@ class AssociationAnalysisStage(Stage):
         if needs_regression and gt_cols:
             df_with_per_sample_gt = df
         elif needs_regression and "GT" in df.columns and context.vcf_samples:
-            df_with_per_sample_gt = _per_sample_gt_frame(df, list(context.vcf_samples))
+            with substep(timings, "gt_unpack"):
+                df_with_per_sample_gt = _per_sample_gt_frame(df, list(context.vcf_samples))
 
         if "GT" not in df.columns and context.vcf_samples and gt_cols:
             logger.info("Reconstructing GT column for association aggregation (local copy only)")
-            df = reconstruct_gt_column(df.copy(), context.vcf_samples)
+            with substep(timings, "gt_reconstruct"):
+                df = reconstruct_gt_column(df.copy(), context.vcf_samples)
 
-        case_set = set(case_samples)
-        control_set = set(control_samples)
-        vcf_samples_list = list(context.vcf_samples) if context.vcf_samples else None
-        quantitative_outcome = None
-        if quantitative:
-            if not vcf_samples_list:
-                raise ValueError("Quantitative association analysis requires VCF sample IDs.")
-            assigned_samples, quantitative_outcome = build_quantitative_outcome(
-                context.phenotype_data,
-                vcf_samples_list,
-                context.config.get("phenotype_value_column"),
-                context.config.get("remove_sample_substring"),
-            )
-        else:
-            assigned_samples = (
-                [s for s in vcf_samples_list if s in case_set or s in control_set]
-                if vcf_samples_list
-                else []
-            )
+        with substep(timings, "sample_setup"):
+            case_set = set(case_samples)
+            control_set = set(control_samples)
+            vcf_samples_list = list(context.vcf_samples) if context.vcf_samples else None
+            quantitative_outcome = None
+            if quantitative:
+                if not vcf_samples_list:
+                    raise ValueError("Quantitative association analysis requires VCF sample IDs.")
+                assigned_samples, quantitative_outcome = build_quantitative_outcome(
+                    context.phenotype_data,
+                    vcf_samples_list,
+                    context.config.get("phenotype_value_column"),
+                    context.config.get("remove_sample_substring"),
+                )
+            else:
+                assigned_samples = (
+                    [s for s in vcf_samples_list if s in case_set or s in control_set]
+                    if vcf_samples_list
+                    else []
+                )
 
         n_cases_total = len(case_samples)
         n_controls_total = len(control_samples)
@@ -290,33 +297,34 @@ class AssociationAnalysisStage(Stage):
         if not quantitative and not _cohort_size_ok(n_cases_total, n_controls_total, guard_ratio):
             return context
 
-        raw_categorical: dict[str, Any] = {}
-        covariate_matrix, _covariate_col_names = _load_covariates_and_pcs(
-            assoc_config,
-            assigned_samples,
-            context.config.get("remove_sample_substring"),
-            raw_categorical,
-        )
+        with substep(timings, "covariates_phenotype"):
+            raw_categorical: dict[str, Any] = {}
+            covariate_matrix, _covariate_col_names = _load_covariates_and_pcs(
+                assoc_config,
+                assigned_samples,
+                context.config.get("remove_sample_substring"),
+                raw_categorical,
+            )
 
-        phenotype_vector = None
-        if quantitative_outcome is not None:
-            phenotype_vector = quantitative_outcome
-            logger.info(
-                f"Association analysis: quantitative outcome "
-                f"'{context.config.get('phenotype_value_column')}' for "
-                f"{len(assigned_samples)} samples"
-            )
-        elif assigned_samples:
-            phenotype_vector = np.array(
-                [1.0 if s in case_set else 0.0 for s in assigned_samples],
-                dtype=float,
-            )
-            n_pv_cases = int(phenotype_vector.sum())
-            n_pv_controls = int((1.0 - phenotype_vector).sum())
-            logger.info(
-                f"Association analysis: phenotype vector built — "
-                f"{n_pv_cases} cases, {n_pv_controls} controls"
-            )
+            phenotype_vector = None
+            if quantitative_outcome is not None:
+                phenotype_vector = quantitative_outcome
+                logger.info(
+                    f"Association analysis: quantitative outcome "
+                    f"'{context.config.get('phenotype_value_column')}' for "
+                    f"{len(assigned_samples)} samples"
+                )
+            elif assigned_samples:
+                phenotype_vector = np.array(
+                    [1.0 if s in case_set else 0.0 for s in assigned_samples],
+                    dtype=float,
+                )
+                n_pv_cases = int(phenotype_vector.sum())
+                n_pv_controls = int((1.0 - phenotype_vector).sum())
+                logger.info(
+                    f"Association analysis: phenotype vector built — "
+                    f"{n_pv_cases} cases, {n_pv_controls} controls"
+                )
 
         has_case_ctrl = True
         gt_columns = _find_per_sample_gt_columns(df)
@@ -328,27 +336,35 @@ class AssociationAnalysisStage(Stage):
         )
         use_gt_aggregation = has_case_ctrl and not use_column_aggregation and "GT" in df.columns
 
-        if use_column_aggregation:
-            logger.info(
-                f"Association analysis: using column-based aggregation "
-                f"({len(gt_columns)} GT columns, "
-                f"{len(case_set)} cases, {len(control_set)} controls)"
-            )
-            assert vcf_samples_list is not None
-            gene_burden_data = _aggregate_gene_burden_from_columns(
-                df, case_set, control_set, vcf_samples_list, gt_columns, assoc_config.missing_as_ref
-            )
-        elif use_gt_aggregation:
-            logger.info(
-                "Association analysis: using packed GT string collapsing "
-                f"({len(case_set)} cases, {len(control_set)} controls)"
-            )
-            gene_burden_data = _aggregate_gene_burden_from_gt(
-                df, case_set, control_set, assoc_config.missing_as_ref
-            )
-        else:
-            logger.info("Association analysis: using pre-computed per-variant counts (legacy mode)")
-            gene_burden_data = _aggregate_gene_burden_legacy(df)
+        with substep(timings, "aggregation"):
+            if use_column_aggregation:
+                logger.info(
+                    f"Association analysis: using column-based aggregation "
+                    f"({len(gt_columns)} GT columns, "
+                    f"{len(case_set)} cases, {len(control_set)} controls)"
+                )
+                assert vcf_samples_list is not None
+                gene_burden_data = _aggregate_gene_burden_from_columns(
+                    df,
+                    case_set,
+                    control_set,
+                    vcf_samples_list,
+                    gt_columns,
+                    assoc_config.missing_as_ref,
+                )
+            elif use_gt_aggregation:
+                logger.info(
+                    "Association analysis: using packed GT string collapsing "
+                    f"({len(case_set)} cases, {len(control_set)} controls)"
+                )
+                gene_burden_data = _aggregate_gene_burden_from_gt(
+                    df, case_set, control_set, assoc_config.missing_as_ref
+                )
+            else:
+                logger.info(
+                    "Association analysis: using pre-computed per-variant counts (legacy mode)"
+                )
+                gene_burden_data = _aggregate_gene_burden_legacy(df)
 
         if not gene_burden_data:
             logger.warning("No genes found with variant data for association analysis.")
@@ -370,55 +386,62 @@ class AssociationAnalysisStage(Stage):
                 if not assigned_gt_cols:
                     assigned_gt_cols = gt_columns_for_matrix
 
-            for gene_data in gene_burden_data:
-                gene_name = gene_data.get("GENE", "")
-                try:
-                    gene_df = _gene_groups.get_group(gene_name)
-                except KeyError:
-                    gene_df = gt_source_df.iloc[0:0]
+            with substep(timings, "matrix_builders"):
+                for gene_data in gene_burden_data:
+                    gene_name = gene_data.get("GENE", "")
+                    try:
+                        gene_df = _gene_groups.get_group(gene_name)
+                    except KeyError:
+                        gene_df = gt_source_df.iloc[0:0]
 
-                cadd_column = _find_cadd_column(gene_df) if needs_functional_annotations else None
-                revel_column = _find_revel_column(gene_df) if needs_functional_annotations else None
-                effect_column = (
-                    _find_effect_column(gene_df)
-                    if needs_functional_annotations or score_weight_column is not None
-                    else None
-                )
+                    cadd_column = (
+                        _find_cadd_column(gene_df) if needs_functional_annotations else None
+                    )
+                    revel_column = (
+                        _find_revel_column(gene_df) if needs_functional_annotations else None
+                    )
+                    effect_column = (
+                        _find_effect_column(gene_df)
+                        if needs_functional_annotations or score_weight_column is not None
+                        else None
+                    )
 
-                builder = _GenotypeMatrixBuilder(
-                    gene_df=gene_df,
-                    vcf_samples=assigned_samples,
-                    gt_columns=assigned_gt_cols,
-                    is_binary=is_binary,
-                    missing_site_threshold=assoc_config.missing_site_threshold,
-                    missing_sample_threshold=assoc_config.missing_sample_threshold,
-                    phenotype_vector=phenotype_vector,
-                    covariate_matrix=covariate_matrix,
-                    score_column=score_weight_column,
-                    cadd_column=cadd_column,
-                    revel_column=revel_column,
-                    effect_column=effect_column,
-                    missing_as_ref=assoc_config.missing_as_ref,
-                )
-                gene_data["_genotype_matrix_builder"] = builder
-                gene_data["vcf_samples"] = assigned_samples
-                gene_data["gene_df"] = gene_df.reset_index(drop=True)
+                    builder = _GenotypeMatrixBuilder(
+                        gene_df=gene_df,
+                        vcf_samples=assigned_samples,
+                        gt_columns=assigned_gt_cols,
+                        is_binary=is_binary,
+                        missing_site_threshold=assoc_config.missing_site_threshold,
+                        missing_sample_threshold=assoc_config.missing_sample_threshold,
+                        phenotype_vector=phenotype_vector,
+                        covariate_matrix=covariate_matrix,
+                        score_column=score_weight_column,
+                        cadd_column=cadd_column,
+                        revel_column=revel_column,
+                        effect_column=effect_column,
+                        missing_as_ref=assoc_config.missing_as_ref,
+                    )
+                    gene_data["_genotype_matrix_builder"] = builder
+                    gene_data["vcf_samples"] = assigned_samples
+                    gene_data["gene_df"] = gene_df.reset_index(drop=True)
 
             del df_with_per_sample_gt, gt_source_df
 
         gene_data_by_gene = {d.get("GENE", d.get("gene", "")): d for d in gene_burden_data}
 
         if score_artifact:  # before run_all, which consumes the matrix builders
-            _emit_score_artifact(context.config, score_artifact, gene_burden_data)
+            with substep(timings, "score_artifact"):
+                _emit_score_artifact(context.config, score_artifact, gene_burden_data)
             if not regression_tests:  # don't make the engine build matrices nobody tests
                 for d in gene_burden_data:
                     d.pop("_genotype_matrix_builder", None)
 
-        results_df = (
-            run_gene_and_set_units(engine, test_names, assoc_config, gene_burden_data, set_ids)
-            if set_ids
-            else engine.run_all(gene_burden_data)
-        )
+        with substep(timings, "engine"):
+            results_df = (
+                run_gene_and_set_units(engine, test_names, assoc_config, gene_burden_data, set_ids)
+                if set_ids
+                else engine.run_all(gene_burden_data)
+            )
 
         if results_df.empty:
             logger.warning("Association analysis produced no results.")
@@ -431,7 +454,7 @@ class AssociationAnalysisStage(Stage):
 
         from ..checkpoint_models import AtomicFileOperation
 
-        with AtomicFileOperation(assoc_output) as temp_out:
+        with substep(timings, "write_output"), AtomicFileOperation(assoc_output) as temp_out:
             results_df.to_csv(temp_out, sep="\t", index=False, compression=cast(Any, compression))
         logger.info(f"Wrote association results to {assoc_output}")
 
