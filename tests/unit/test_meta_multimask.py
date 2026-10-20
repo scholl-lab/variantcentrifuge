@@ -178,3 +178,25 @@ def test_manifest_mask_id_must_be_a_safe_name(tmp_path, bad):
     m.write_text(f"stratum_id\tartifact_path\tmask_id\nA\ta\t{bad}\nB\tb\t{bad}\n")
     with pytest.raises(MetaCompatibilityError, match="mask_id"):
         read_study_manifest(str(m))
+
+
+# R reference ACAT (yaowuliu/ACAT R/ACAT.R @ e737d7d, copied into
+# scripts/generate_acat_parity.R; R 4.x, printed with %.17g).
+R_ACAT = [
+    ((1e-16, 1.0), 1.0),
+    ((0.01, 1.0), 1.0),
+    ((0.01, 0.2), 0.019153934556755924),
+    ((1e-20, 0.5), 1.9999999999999999e-20),
+    ((0.3, 0.5, 0.9), 0.71159046827178962),
+    ((1e-300, 1.0), 2.0000000000000004e-300),
+    ((0.999, 1.0), 1.0),
+]
+
+
+@pytest.mark.parametrize(("ps", "expected"), R_ACAT)
+def test_acat_masks_matches_r_reference(ps, expected):
+    from variantcentrifuge.association.meta.runner import add_acat_masks
+
+    df = pd.DataFrame({"gene": ["G"] * len(ps), "primary_p": ps, "primary_q": ps})
+    got = add_acat_masks(df, "fdr")["acat_masks_p"].iloc[0]
+    assert got == pytest.approx(expected, rel=1e-12, abs=1e-15)
