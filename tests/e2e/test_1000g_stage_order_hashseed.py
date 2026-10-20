@@ -67,3 +67,37 @@ def test_stage_order_and_association_independent_of_hash_seed(tmp_path: Path) ->
     assert not any("column-based" in line for line in order0)
     assert assoc0 == assoc4 and assoc0.count("\n") > 1
     assert tsv0 == tsv4
+
+
+def test_pseudonymize_keeps_proband_counts_and_association(tmp_path: Path) -> None:
+    """Codex FX-2: pseudonymizing before variant/association analysis zeroed case counts."""
+    import pandas as pd
+
+    def run(out: Path, *extra: str) -> tuple[pd.DataFrame, str]:
+        cmd = [
+            sys.executable, "-c",
+            "import sys; from variantcentrifuge.cli import main; sys.exit(main())",
+            "-v", str(FIXTURE / "1000g_nephro.GRCh38.annotated.vcf.gz"),
+            "--reference", "GRCh38.p14", "--gene-name", "all",
+            "--regions-bed", str(FIXTURE / "genes.GRCh38.bed"),
+            "--bcftools-prefilter", "INFO/AF < 0.01",
+            "--filters", "((ANN[0].IMPACT has 'HIGH') | (ANN[0].IMPACT has 'MODERATE'))",
+            "--fields", "CHROM POS REF ALT ANN[0].GENE ANN[0].IMPACT GEN[*].GT",
+            "--case-samples-file", str(FIXTURE / "EUR.cases.txt"),
+            "--control-samples-file", str(FIXTURE / "EUR.controls.txt"),
+            "--perform-association", "--association-tests", "fisher",
+            "--output-dir", str(out), "--output-file", "out.tsv", *extra,
+        ]  # fmt: skip
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        assert res.returncode == 0, res.stderr[-3000:]
+        assoc = gzip.decompress((out / "association_results.association.tsv.gz").read_bytes())
+        return pd.read_csv(out / "out.tsv", sep="\t", dtype=str), assoc.decode()
+
+    plain, assoc_plain = run(tmp_path / "plain")
+    pseudo, assoc_pseudo = run(
+        tmp_path / "pseudo", "--pseudonymize", "--pseudonymize-table", str(tmp_path / "map.tsv")
+    )
+    counts = [c for c in plain.columns if c.startswith(("proband_", "control_"))]
+    assert counts and plain[counts].astype(float).to_numpy().sum() > 0
+    pd.testing.assert_frame_equal(plain[counts], pseudo[counts])
+    assert assoc_plain == assoc_pseudo and assoc_plain.count("\n") > 1

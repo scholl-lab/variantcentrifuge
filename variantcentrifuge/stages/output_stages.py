@@ -68,7 +68,18 @@ class PseudonymizationStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return optional stages that should run before pseudonymization if present."""
-        return {"chunked_analysis"}
+        # Every stage reading original sample IDs (case/control lists, PED, PCA, filters).
+        return {
+            "chunked_analysis",
+            "inheritance_analysis",
+            "variant_analysis",
+            "variant_scoring",
+            "statistics_generation",
+            "gene_burden_analysis",
+            "pca_computation",
+            "association_analysis",
+            "final_filtering",
+        }
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply pseudonymization if requested."""
