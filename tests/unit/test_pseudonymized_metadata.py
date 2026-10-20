@@ -220,7 +220,7 @@ def test_short_numeric_sample_ids_and_directory_stripping(tmp_path: Path):
 
 
 def test_generate_html_report_sanitizes_metadata_when_pseudonymized(tmp_path: Path):
-    """generate_html_report sanitizes vcf_source, filter_expression, and summary.json metadata."""
+    """generate_html_report sanitizes vcf_source and filter_expression in the rendered HTML."""
     import json
 
     from variantcentrifuge.generate_html_report import generate_html_report
@@ -253,6 +253,7 @@ def test_generate_html_report_sanitizes_metadata_when_pseudonymized(tmp_path: Pa
         "filter": "GEN[PATIENT_001].GT != '0/0'",
         "reference": "GRCh38.p13",
     }
+    summary_before = summary_path.read_text(encoding="utf-8")
     generate_html_report(str(variants_path), str(summary_path), str(tmp_path), cfg)
 
     html = (tmp_path / "index.html").read_text(encoding="utf-8")
@@ -260,12 +261,13 @@ def test_generate_html_report_sanitizes_metadata_when_pseudonymized(tmp_path: Pa
     assert "cohort_STUDY_001.vcf.gz" in html
     assert "GEN[STUDY_001].GT" in html
 
-    updated_summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert "PATIENT_001" not in json.dumps(updated_summary)
-    assert updated_summary["metadata"]["vcf_file"] == "cohort_STUDY_001.vcf.gz"
+    # Shortlist JSON export embeds the sanitized VCF name
+    assert 'vcf_source: "cohort_STUDY_001.vcf.gz"' in html
+    # Report generation must not rewrite its input summary.json
+    assert summary_path.read_text(encoding="utf-8") == summary_before
 
 
-def test_pseudonymizer_replaces_sample_id_in_inheritance_details():
+    """pseudonymize_dataframe replaces sample_id inside Inheritance_Details JSON."""
     """SamplePseudonymizer.pseudonymize_dataframe replaces sample_id inside Inheritance_Details JSON."""
     from variantcentrifuge.pseudonymizer import SamplePseudonymizer, SequentialSchema
 

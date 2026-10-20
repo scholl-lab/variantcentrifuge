@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -12,51 +11,10 @@ from markupsafe import Markup
 
 from .checkpoint_models import AtomicFileOperation
 
-DANGEROUS_TAG_NAMES = {
-    "script",
-    "iframe",
-    "object",
-    "embed",
-    "svg",
-    "img",
-    "body",
-    "style",
-    "link",
-    "meta",
-    "base",
-    "form",
-    "input",
-    "button",
-    "video",
-    "audio",
-    "source",
-    "track",
-    "frame",
-    "frameset",
-    "applet",
-    "marquee",
-    "details",
-    "template",
-    "math",
-}
-
 
 def _encode_symbolic_allele_brackets(url: Any) -> str:
-    """Percent-encode symbolic VCF alleles like <DEL>, <DUP>, <INS:ME:ALU> in URL path."""
-    if not url:
-        return ""
-    u = str(url)
-
-    def _repl(match: re.Match[str]) -> str:
-        tag = match.group(1)
-        if tag.lower() in DANGEROUS_TAG_NAMES:
-            return match.group(0)
-        return f"%3C{tag}%3E"
-
-    u = re.sub(r"<([A-Za-z0-9_:.-]+)>", _repl, u)
-    if "<" not in u and not any(c in u for c in " \t\r\n\"'\\`"):
-        u = u.replace(">", "%3E")
-    return u
+    """Percent-encode angle brackets (symbolic VCF alleles like <DEL>) in a URL."""
+    return str(url).replace("<", "%3C").replace(">", "%3E") if url else ""
 
 
 def is_safe_url(url: Any) -> bool:
@@ -290,7 +248,6 @@ def generate_html_report(
         autoescape=select_autoescape(["html", "xml"]),
     )
     env.filters["is_safe_url"] = is_safe_url
-    env.filters["sanitize_url"] = _encode_symbolic_allele_brackets
     template = env.get_template("index.html")
 
     # Import version for template
@@ -325,18 +282,6 @@ def generate_html_report(
             filter_expression = _sanitize_text_identifiers(
                 str(filter_expression), mapping, redact_unmapped=redact
             )
-        if isinstance(summary.get("metadata"), dict):
-            summary["metadata"] = {
-                k: _sanitize_text_identifiers(str(v), mapping, redact_unmapped=redact)
-                if isinstance(v, str)
-                else v
-                for k, v in summary["metadata"].items()
-            }
-            with (
-                AtomicFileOperation(summary_json) as temp_sjf,
-                open(temp_sjf, "w", encoding="utf-8") as sjf_out,
-            ):
-                json.dump(summary, sjf_out, indent=2)
 
     # Compute deterministic report fingerprint and assign stable variant keys
     report_id = compute_report_id(

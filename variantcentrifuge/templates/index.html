@@ -1209,8 +1209,7 @@
             </thead>
             <tbody>
                 {% for v_row in variants %}
-                {% set v_key = v_row._variant_key if v_row._variant_key is defined else (v_row.CHROM ~ ':' ~ v_row.POS ~ ':' ~ v_row.REF ~ ':' ~ v_row.ALT ~ (':' ~ v_row.FEATUREID if v_row.FEATUREID else '')) %}
-                <tr data-variant-key="{{ v_key }}">
+                <tr data-variant-key="{{ v_row._variant_key }}">
                     <td></td>
                     {% for col_info in column_data %}
                         <td>
@@ -1432,31 +1431,12 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function encodeSymbolicAlleles(url) {
-        if (!url) return '';
-        var dangerousTags = {
-            'script': 1, 'iframe': 1, 'object': 1, 'embed': 1, 'svg': 1,
-            'img': 1, 'body': 1, 'style': 1, 'link': 1, 'meta': 1,
-            'base': 1, 'form': 1, 'input': 1, 'button': 1, 'video': 1,
-            'audio': 1, 'source': 1, 'track': 1, 'frame': 1, 'frameset': 1,
-            'applet': 1, 'marquee': 1, 'details': 1, 'template': 1, 'math': 1
-        };
-        var s = String(url).replace(/<([A-Za-z0-9_:.-]+)>/g, function(match, tag) {
-            if (dangerousTags[tag.toLowerCase()]) {
-                return match;
-            }
-            return '%3C' + tag + '%3E';
-        });
-        if (s.indexOf('<') === -1 && !/[\s"'\\`]/.test(s)) {
-            s = s.replace(/>/g, '%3E');
-        }
-        return s;
+        return url ? String(url).replace(/</g, '%3C').replace(/>/g, '%3E') : '';
     }
 
     function isSafeUrl(url) {
         if (!url) return false;
-        var u = (typeof encodeSymbolicAlleles === 'function')
-            ? encodeSymbolicAlleles(String(url).trim())
-            : String(url).trim();
+        var u = encodeSymbolicAlleles(String(url).trim());
         if (/[\s"'<>\\]/.test(u)) return false;
         if (u.indexOf('//') === 0) return false;
         var uLower = u.toLowerCase();
@@ -1485,96 +1465,53 @@ document.addEventListener('DOMContentLoaded', function() {
         if (str.indexOf('<') === -1 && str.indexOf('&') === -1) {
             return { text: str, href: null, links: [] };
         }
-        var cacheKey = (typeof DOMParser !== 'undefined' ? '1:' : '0:') + str;
         if (!extractCellContent._cache) {
             extractCellContent._cache = Object.create(null);
         }
-        if (extractCellContent._cache[cacheKey]) {
-            return extractCellContent._cache[cacheKey];
+        if (extractCellContent._cache[str]) {
+            return extractCellContent._cache[str];
         }
 
-        if (typeof DOMParser !== 'undefined') {
-            var doc = new DOMParser().parseFromString(str, 'text/html');
-            var div = doc.body;
+        var doc = new DOMParser().parseFromString(str, 'text/html');
+        var div = doc.body;
 
-            var aTags = div.querySelectorAll('a');
-            var links = [];
-            for (var i = 0; i < aTags.length; i++) {
-                var a = aTags[i];
-                var h = a.getAttribute('href');
-                var aClone = a.cloneNode(true);
-                var extras = aClone.querySelectorAll('.sr-only, svg');
-                for (var j = 0; j < extras.length; j++) {
-                    extras[j].parentNode.removeChild(extras[j]);
-                }
-                var linkText = (aClone.textContent || aClone.innerText || '').trim();
-                links.push({
-                    href: h ? h.trim() : null,
-                    text: linkText
-                });
+        var aTags = div.querySelectorAll('a');
+        var links = [];
+        for (var i = 0; i < aTags.length; i++) {
+            var a = aTags[i];
+            var h = a.getAttribute('href');
+            var aClone = a.cloneNode(true);
+            var extras = aClone.querySelectorAll('.sr-only, svg');
+            for (var j = 0; j < extras.length; j++) {
+                extras[j].parentNode.removeChild(extras[j]);
             }
+            var linkText = (aClone.textContent || aClone.innerText || '').trim();
+            links.push({
+                href: h ? h.trim() : null,
+                text: linkText
+            });
+        }
 
-            var tippySpan = div.querySelector('[data-tippy-content]');
-            var text = '';
-            if (tippySpan && tippySpan.getAttribute('data-tippy-content')) {
-                text = tippySpan.getAttribute('data-tippy-content').trim();
-            } else {
-                var divClone = div.cloneNode(true);
-                var extras2 = divClone.querySelectorAll('.sr-only, svg');
-                for (var k = 0; k < extras2.length; k++) {
-                    extras2[k].parentNode.removeChild(extras2[k]);
-                }
-                text = (divClone.textContent || divClone.innerText || '').trim();
-            }
-
-            var domRes = {
-                text: text,
-                href: links.length > 0 ? links[0].href : null,
-                links: links
-            };
-            extractCellContent._cache[cacheKey] = domRes;
-            return domRes;
+        var tippySpan = div.querySelector('[data-tippy-content]');
+        var text = '';
+        if (tippySpan && tippySpan.getAttribute('data-tippy-content')) {
+            text = tippySpan.getAttribute('data-tippy-content').trim();
         } else {
-            // Regex fallback for non-DOM / test environments
-            var linkRegex = /<a\b[^>]*\bhref=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-            var match;
-            var links = [];
-            while ((match = linkRegex.exec(str)) !== null) {
-                var cleanA = match[2].replace(/<span\b[^>]*class=["'][^"']*sr-only[^"']*["'][^>]*>[\s\S]*?<\/span>/gi, '')
-                                     .replace(/<svg\b[\s\S]*?<\/svg>/gi, '')
-                                     .replace(/<[^>]+>/g, '')
-                                     .trim();
-                links.push({
-                    href: match[1].trim(),
-                    text: cleanA
-                });
+            var divClone = div.cloneNode(true);
+            var extras2 = divClone.querySelectorAll('.sr-only, svg');
+            for (var k = 0; k < extras2.length; k++) {
+                extras2[k].parentNode.removeChild(extras2[k]);
             }
-
-            var tippyMatch = str.match(/<[^>]*\bdata-tippy-content=["']([^"']+)["']/i);
-            var text = '';
-            if (tippyMatch) {
-                text = tippyMatch[1];
-            } else {
-                var stripped = str.replace(/<span\b[^>]*class=["'][^"']*sr-only[^"']*["'][^>]*>[\s\S]*?<\/span>/gi, '')
-                                  .replace(/<svg\b[\s\S]*?<\/svg>/gi, '')
-                                  .replace(/<[^>]+>/g, '');
-                text = stripped;
-            }
-            text = text.replace(/&amp;/g, '&')
-                       .replace(/&lt;/g, '<')
-                       .replace(/&gt;/g, '>')
-                       .replace(/&quot;/g, '"')
-                       .replace(/&#39;/g, "'")
-                       .trim();
-
-            var reRes = {
-                text: text,
-                href: links.length > 0 ? links[0].href : null,
-                links: links
-            };
-            extractCellContent._cache[cacheKey] = reRes;
-            return reRes;
+            text = (divClone.textContent || divClone.innerText || '').trim();
         }
+
+        var domRes = {
+            text: text,
+            href: links.length > 0 ? links[0].href : null,
+            links: links
+        };
+        extractCellContent._cache[str] = domRes;
+        return domRes;
     }
 
     // PDF Export Button Handler (PRINT-02)
@@ -1631,42 +1568,6 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         } catch (e) {}
         return false;
-    }
-
-    function normalizeSentinel(val) {
-        if (val === null || val === undefined) return '';
-        var s = String(val).trim();
-        if (s === '' || s === '.' || s === 'N/A' || s === 'NA' || s === 'null' || s === 'None') {
-            return '';
-        }
-        return s;
-    }
-
-    function getVariantKey(v) {
-        if (!v) return '';
-        if (v._variant_key) return String(v._variant_key);
-        var chrom = normalizeSentinel(v.CHROM);
-        var pos = normalizeSentinel(v.POS);
-        var ref = normalizeSentinel(v.REF);
-        var alt = normalizeSentinel(v.ALT);
-        var feat = normalizeSentinel(v.FEATUREID || v.Feature_ID || v.TRANSCRIPT || v.FEATURE);
-        if (chrom && pos && ref && alt) {
-            return feat ? (chrom + ':' + pos + ':' + ref + ':' + alt + ':' + feat) : (chrom + ':' + pos + ':' + ref + ':' + alt);
-        }
-        var varId = normalizeSentinel(v.VAR_ID || v.ID);
-        var hash = '';
-        try {
-            var rawJson = JSON.stringify(v);
-            var h = 0;
-            for (var i = 0; i < rawJson.length; i++) {
-                h = ((h << 5) - h) + rawJson.charCodeAt(i);
-                h |= 0;
-            }
-            hash = (h >>> 0).toString(16);
-        } catch (e) {
-            hash = 'row';
-        }
-        return varId ? ('id:' + varId + ':' + hash) : ('row:' + hash);
     }
 
     function loadReviewState() {
@@ -2194,39 +2095,6 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
 
-        // Derive variant key if not provided
-        if (!vKey) {
-            var normSentinel = (typeof normalizeSentinel === 'function') ? normalizeSentinel : function(val) {
-                if (val === null || val === undefined) return '';
-                var s = String(val).trim();
-                if (s === '' || s === '.' || s === 'N/A' || s === 'NA' || s === 'null' || s === 'None') return '';
-                return s;
-            };
-            var chrom = normSentinel(fields['CHROM']);
-            var pos = normSentinel(fields['POS']);
-            var ref = normSentinel(fields['REF']);
-            var alt = normSentinel(fields['ALT']);
-            var feat = normSentinel(fields['FEATUREID'] || fields['Feature_ID'] || fields['TRANSCRIPT'] || fields['FEATURE']);
-            if (chrom && pos && ref && alt) {
-                vKey = feat ? (chrom + ':' + pos + ':' + ref + ':' + alt + ':' + feat) : (chrom + ':' + pos + ':' + ref + ':' + alt);
-            } else {
-                var varId = normSentinel(fields['VAR_ID'] || fields['ID']);
-                var hash = '';
-                try {
-                    var rawJson = JSON.stringify(fields);
-                    var h = 0;
-                    for (var i = 0; i < rawJson.length; i++) {
-                        h = ((h << 5) - h) + rawJson.charCodeAt(i);
-                        h |= 0;
-                    }
-                    hash = (h >>> 0).toString(16);
-                } catch (e) {
-                    hash = 'row';
-                }
-                vKey = varId ? ('id:' + varId + ':' + hash) : ('row:' + hash);
-            }
-        }
-
         // Define field categories
         var categories = {
             'Identifiers': ['CHROM', 'POS', 'REF', 'ALT', 'ID', 'VAR_ID', 'GENE', 'FEATUREID'],
@@ -2578,9 +2446,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!pinnedOnlyActive) return true;
         var rowNode = settings.aoData[dataIndex] ? settings.aoData[dataIndex].nTr : null;
         var vKey = (rowNode && typeof rowNode.getAttribute === 'function') ? rowNode.getAttribute('data-variant-key') : null;
-        if (!vKey && rawVariants && rawVariants[dataIndex]) {
-            vKey = getVariantKey(rawVariants[dataIndex]);
-        }
         return isVariantPinned(vKey);
     };
     $.fn.dataTable.ext.search.push(pinnedFilterFn);
@@ -2608,12 +2473,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 if (table && typeof table.rows === 'function') {
                     table.rows().every(function() {
-                        var rowIdx = this.index();
                         var trNode = this.node();
                         var rKey = (trNode && typeof trNode.getAttribute === 'function') ? trNode.getAttribute('data-variant-key') : '';
-                        if (!rKey && rawVariants && rawVariants[rowIdx]) {
-                            rKey = getVariantKey(rawVariants[rowIdx]);
-                        }
                         if (this.child && this.child.isShown && this.child.isShown()) {
                             this.child(formatChildRow(this.data(), columnData, rKey)).show();
                         }
@@ -2668,7 +2529,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!rawVariants || rawVariants.length === 0) return shortlisted;
         for (var i = 0; i < rawVariants.length; i++) {
             var v = rawVariants[i];
-            var key = getVariantKey(v);
+            var key = v._variant_key;
             if (isVariantPinned(key)) {
                 var st = reviewState.variants[key] || {};
                 var rec = {};
@@ -2689,16 +2550,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function generateShortlistTsv() {
         var candidates = getShortlistedCandidates();
-        var cols = [];
-        if (typeof allColumnOriginalNames !== 'undefined' && Array.isArray(allColumnOriginalNames) && allColumnOriginalNames.length > 0) {
-            cols = allColumnOriginalNames.filter(function(k) {
-                return !k.startsWith('_') && k !== 'igv_links';
-            });
-        } else if (rawVariants && rawVariants.length > 0) {
-            cols = Object.keys(rawVariants[0]).filter(function(k) {
-                return !k.startsWith('_') && k !== 'igv_links';
-            });
-        }
+        var cols = allColumnOriginalNames.filter(function(k) {
+            return k !== 'igv_links';
+        });
         var allCols = cols.concat(['review_notes', 'review_timestamp', 'report_id']);
         if (candidates.length === 0) {
             return allCols.join('\t');
@@ -2736,7 +2590,6 @@ document.addEventListener('DOMContentLoaded', function() {
     window.setVariantNotes = setVariantNotes;
     window.isVariantPinned = isVariantPinned;
     window.getVariantNotes = getVariantNotes;
-    window.getVariantKey = getVariantKey;
     window.safeStorageGet = safeStorageGet;
     window.safeStorageSet = safeStorageSet;
     window.safeStorageRemove = safeStorageRemove;

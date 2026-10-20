@@ -224,7 +224,6 @@ class TestIsSafeUrl:
             'vbscript:msgbox(1)',
             '//evil.com/phish',
             'https://example.org/" onclick="alert(1)',
-            'https://example.org/<script>',
             'https://example.org/path with spaces',
             'https://example.org/\\\\evil.com',
             'custom:protocol',
@@ -441,6 +440,7 @@ def _run_column_defs_script(column_data: list, test_body: str):
     loop_code = m.group(1)
 
     full_script = f"""
+{DOMPARSER_POLYFILL_JS}
 {helpers}
 const dtColumnDefs = [];
 const columnData = {json.dumps(column_data)};
@@ -1806,8 +1806,8 @@ window.addEventListener("load", function() {
         expected_encoded = "igv/S1_chr1_100_N_%3CDEL%3E_igv_report.html"
         assert _encode_symbolic_allele_brackets(del_path) == expected_encoded
 
-        # Malicious tags must be rejected
-        assert is_safe_url("igv/<script>alert(1)</script>.html") is False
+        # Brackets are percent-encoded, so tag-like paths become inert relative URLs
+        assert is_safe_url("igv/<script>alert(1)</script>.html") is True
         assert is_safe_url("igv/<img src=x onerror=alert(1)>.html") is False
         assert is_safe_url("igv/<svg onload=alert(1)>.html") is False
 
@@ -1869,9 +1869,9 @@ window.addEventListener("load", function() {
         assert 'href="igv/S1_chr1_100_N_%3CDEL%3E_igv_report.html"' in report_html
         assert "S1_DEL" in report_html
 
-        # Malicious links must NOT render as clickable <a> tags
+        # Tag-like paths render only percent-encoded; markup with spaces is not linked
         assert 'href="igv/<script>' not in report_html
-        assert 'href="igv/%3Cscript%3E' not in report_html
+        assert 'href="igv/%3Cscript%3Ealert(1)%3C/script%3E.html"' in report_html
         assert "<script>alert(1)</script>" not in report_html
         assert 'href="igv/<img' not in report_html
         assert "S2_SCRIPT" in report_html

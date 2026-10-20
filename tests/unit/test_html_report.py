@@ -1749,15 +1749,10 @@ class TestHTMLReportEscaping:
 
         # Extract helper functions and formatChildRow
         helpers = ""
-        m_esc = re.search(r"(function escapeHtml\(.*?\n    \})", content, re.DOTALL)
-        if m_esc:
-            helpers += m_esc.group(1) + "\n"
-        m_url = re.search(r"(function isSafeUrl\(.*?\n    \})", content, re.DOTALL)
-        if m_url:
-            helpers += m_url.group(1) + "\n"
-        m_ext = re.search(r"(function extractCellContent\(.*?\n    \})", content, re.DOTALL)
-        if m_ext:
-            helpers += m_ext.group(1) + "\n"
+        for name in ("escapeHtml", "encodeSymbolicAlleles", "isSafeUrl", "extractCellContent"):
+            m_helper = re.search(rf"(function {name}\(.*?\n    \}})", content, re.DOTALL)
+            assert m_helper is not None, f"{name} not found"
+            helpers += m_helper.group(1) + "\n"
 
         m_fn = re.search(r"(function formatChildRow\(.*?\n    \})", content, re.DOTALL)
         assert m_fn is not None, "formatChildRow function not found"

@@ -211,8 +211,6 @@ class TestPinningJSLogicInNode:
                 "safeStorageGet",
                 "safeStorageSet",
                 "safeStorageRemove",
-                "normalizeSentinel",
-                "getVariantKey",
                 "loadReviewState",
                 "saveReviewState",
                 "isVariantPinned",
@@ -300,8 +298,6 @@ class TestPinningJSLogicInNode:
                 "safeStorageGet",
                 "safeStorageSet",
                 "safeStorageRemove",
-                "normalizeSentinel",
-                "getVariantKey",
                 "loadReviewState",
                 "saveReviewState",
                 "isVariantPinned",
@@ -458,8 +454,6 @@ class TestPinningJSLogicInNode:
         funcs = "\n\n".join(
             _extract_js_function(html, f)
             for f in [
-                "normalizeSentinel",
-                "getVariantKey",
                 "isVariantPinned",
                 "escapeTsvField",
                 "getShortlistedCandidates",
@@ -470,7 +464,8 @@ class TestPinningJSLogicInNode:
 
         m_var = re.search(r"var rawVariants = (\[[\s\S]*?\]);", html)
         m_rep = re.search(r'var reportId = ("[^"]*");', html)
-        assert m_var and m_rep
+        m_cols = re.search(r"var allColumnOriginalNames = (\[[^\n]*\]);", html)
+        assert m_var and m_rep and m_cols
 
         note_text = (
             'Validated pathogenic: "c.123A>G"\t(ClinVar)\nNote: \u03b1/\u03b2 kinase '
@@ -480,6 +475,7 @@ class TestPinningJSLogicInNode:
         script = f"""
         const rawVariants = {m_var.group(1)};
         const reportId = {m_rep.group(1)};
+        const allColumnOriginalNames = {m_cols.group(1)};
         const reviewState = {{
             version: 1,
             variants: {{
