@@ -1,0 +1,284 @@
+"""Quantitative association uses the numeric phenotype column (#187); results are
+invariant to repeated identical transcript annotations (#188).
+
+Synthetic data follow the public reproduction recipe in issue #187 (240 samples, three
+genes x four variants, age covariate, outcome ``20 + (i*13) % 91 + i/100``).
+"""
+
+from __future__ import annotations
+
+from argparse import Namespace
+from pathlib import Path
+from unittest.mock import Mock
+
+import numpy as np
+import pandas as pd
+import pytest
+from scipy import stats
+
+from variantcentrifuge.pipeline_core.context import PipelineContext
+from variantcentrifuge.pipeline_core.workspace import Workspace
+from variantcentrifuge.stages.association_analysis_stages import AssociationAnalysisStage
+from variantcentrifuge.stages.association_outcome import build_quantitative_outcome
+
+N = 240
+SAMPLES = [f"S{i:03}" for i in range(N)]
+GENES = [("SIGNAL", 20, 4), ("NULLGENE", 4, 12), ("PROTECT", 4, 48)]
+
+# Reference: R 4.x `summary(lm(y ~ burden + age))`, burden = G %*% dbeta(MAF, 1, 25),
+# MAF = colSums(G) / (2 * 240), on the recipe above (script: lm187.R in the C workstream
+# scratch dir). SIGNAL also matches the issue's public LinearBurdenTest/R lm values.
+R_LM = {
+    "SIGNAL": (-0.045038660426, 0.305674712252, 0.882987512898),
+    "NULLGENE": (-0.235649065651, 0.331832631112, 0.478312789204),
+    "PROTECT": (-0.163229508309, 0.317794686975, 0.607987841519),
+}
+
+
+def _genotypes() -> dict[str, np.ndarray]:
+    out = {}
+    for gene, n_case, n_ctrl in GENES:
+        g = np.zeros((N, 4))
+        for v in range(4):
+            g[v * n_case // 4 : (v + 1) * n_case // 4, v] = 1
+            g[60 + v * n_ctrl // 4 : 60 + (v + 1) * n_ctrl // 4, v] = 1
+        out[gene] = g
+    return out
+
+
+def _outcome(i: int, scale: float = 1.0, offset: float = 0.0) -> float:
+    return scale * (20 + (i * 13) % 91 + i / 100) + offset
+
+
+def _age(i: int) -> int:
+    return 30 + (i * 17) % 51
+
+
+def _variants_df(vcf_order: list[str]) -> pd.DataFrame:
+    """Per-sample GT columns GEN_j__GT hold the genotype of ``vcf_order[j]``."""
+    index = {s: i for i, s in enumerate(SAMPLES)}
+    rows = []
+    for gi, (gene, g) in enumerate(_genotypes().items()):
+        for v in range(4):
+            row = {
+                "CHROM": "1",
+                "POS": str(1000 + gi * 1000 + v * 10),
+                "REF": "A",
+                "ALT": "C",
+                "GENE": gene,
+                "FEATUREID": f"TX_{gene}",
+                "EFFECT": "missense_variant",
+            }
+            for j, sample in enumerate(vcf_order):
+                row[f"GEN_{j}__GT"] = "0/1" if g[index[sample], v] else "0/0"
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def _context(tmp_path: Path, config: dict, vcf_order: list[str] | None = None) -> PipelineContext:
+    vcf_order = vcf_order or SAMPLES
+    workspace = Mock(spec=Workspace)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    workspace.output_dir = tmp_path
+    covariates = tmp_path / "covariates.tsv"
+    covariates.write_text(
+        "sample\tage\n"
+        + "".join(f"{s}\t{_age(i)}\n" for i, s in reversed(list(enumerate(SAMPLES))))
+    )
+    cfg = {
+        "perform_association": True,
+        "trait_type": "quantitative",
+        "association_tests": ["linear_burden"],
+        "covariate_file": str(covariates),
+        "phenotype_value_column": "gfr",
+        "output_dir": str(tmp_path),
+        "output_file_base": "t",
+        "gzip_intermediates": False,
+        **config,
+    }
+    context = PipelineContext(args=Namespace(), config=cfg, workspace=workspace)
+    context.current_dataframe = _variants_df(vcf_order)
+    context.vcf_samples = list(vcf_order)
+    context.phenotype_data = {s: {f"{_outcome(i):.10f}"} for i, s in enumerate(SAMPLES)}
+    return context
+
+
+def _run(context: PipelineContext) -> pd.DataFrame:
+    result = AssociationAnalysisStage()._process(context)
+    assert result.association_results is not None
+    return result.association_results.set_index("gene")
+
+
+def _assert_matches(results: pd.DataFrame, expected: dict, rel: float = 1e-9) -> None:
+    for gene, (beta, se, p) in expected.items():
+        row = results.loc[gene]
+        assert row["linear_burden_beta"] == pytest.approx(beta, rel=rel)
+        assert row["linear_burden_se"] == pytest.approx(se, rel=rel)
+        assert row["linear_burden_pvalue"] == pytest.approx(p, rel=rel)
+
+
+def _numpy_ols(keep: list[int]) -> dict[str, tuple[float, float, float]]:
+    """Independent OLS (normal equations) of outcome ~ burden + age on samples ``keep``."""
+    y = np.array([_outcome(i) for i in keep])
+    age = np.array([_age(i) for i in keep], dtype=float)
+    out = {}
+    for gene, g in _genotypes().items():
+        geno = g[keep]
+        weights = stats.beta.pdf(geno.sum(axis=0) / (2 * len(keep)), 1, 25)
+        x = np.column_stack([np.ones(len(keep)), geno @ weights, age])
+        xtx_inv = np.linalg.inv(x.T @ x)
+        coef = xtx_inv @ x.T @ y
+        dof = len(keep) - x.shape[1]
+        resid = y - x @ coef
+        se = np.sqrt(resid @ resid / dof * xtx_inv[1, 1])
+        out[gene] = (coef[1], se, 2 * stats.t.sf(abs(coef[1] / se), dof))
+    return out
+
+
+def test_quantitative_outcome_matches_r_lm_without_cohorts(tmp_path):
+    results = _run(_context(tmp_path, {}))
+    _assert_matches(results, R_LM)
+    assert (results["n_cases"] == 0).all() and (results["n_controls"] == 0).all()
+    assert (tmp_path / "t.association.tsv").exists()
+
+
+def test_affine_outcome_scales_beta_and_se_keeps_p(tmp_path):
+    context = _context(tmp_path, {})
+    context.phenotype_data = {s: {f"{_outcome(i, 3, 17):.10f}"} for i, s in enumerate(SAMPLES)}
+    expected = {g: (3 * b, 3 * se, p) for g, (b, se, p) in R_LM.items()}
+    _assert_matches(_run(context), expected)
+
+
+def test_shuffled_vcf_sample_order_is_aligned(tmp_path):
+    order = list(np.random.default_rng(187).permutation(SAMPLES))
+    _assert_matches(_run(_context(tmp_path, {}, vcf_order=order)), R_LM)
+
+
+def test_missing_outcomes_excluded_from_matrix_phenotype_and_covariates(tmp_path, caplog):
+    context = _context(tmp_path, {})
+    missing = {0, 3, 61, 100, 239}
+    context.phenotype_data[SAMPLES[0]] = set()  # empty cell
+    context.phenotype_data[SAMPLES[3]] = {"NA"}
+    context.phenotype_data[SAMPLES[61]] = {"."}
+    context.phenotype_data[SAMPLES[100]] = {"nan"}
+    del context.phenotype_data[SAMPLES[239]]  # not in phenotype file
+
+    with caplog.at_level("WARNING"):
+        results = _run(context)
+
+    _assert_matches(results, _numpy_ols([i for i in range(N) if i not in missing]))
+    assert "5 of 240 VCF sample(s) have no 'gfr' outcome" in caplog.text
+
+
+def test_cohort_labels_do_not_replace_quantitative_outcome(tmp_path):
+    cohorts = {"case_samples": SAMPLES[:60], "control_samples": ",".join(SAMPLES[60:])}
+    _assert_matches(_run(_context(tmp_path, cohorts)), R_LM)
+
+
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        ({"association_tests": ["fisher", "linear_burden"]}, "need a binary trait"),
+        ({"score_artifact": "x.npz"}, "binary traits only"),
+    ],
+)
+def test_quantitative_rejects_binary_only_requests(tmp_path, config, message):
+    with pytest.raises(ValueError, match=message):
+        AssociationAnalysisStage()._process(_context(tmp_path, config))
+
+
+def test_quantitative_without_phenotype_values_fails_clearly(tmp_path):
+    context = _context(tmp_path, {})
+    context.phenotype_data = None
+    with pytest.raises(ValueError, match="needs the numeric outcome"):
+        AssociationAnalysisStage()._process(context)
+
+
+def test_quantitative_requires_vcf_samples(tmp_path):
+    context = _context(tmp_path, {})
+    context.vcf_samples = []
+    with pytest.raises(ValueError, match="requires VCF sample IDs"):
+        AssociationAnalysisStage()._process(context)
+
+
+@pytest.mark.parametrize("bad", ["abc", "inf", "-Infinity", "1,5"])
+def test_build_outcome_rejects_non_numeric_or_non_finite(bad):
+    data = {"A": {"1.5"}, "B": {bad}}
+    with pytest.raises(ValueError, match="non-numeric or non-finite"):
+        build_quantitative_outcome(data, ["A", "B"], "gfr")
+
+
+def test_build_outcome_rejects_conflicting_values():
+    with pytest.raises(ValueError, match="conflicting"):
+        build_quantitative_outcome({"A": {"1", "2"}}, ["A"], "gfr")
+
+
+def test_build_outcome_requires_overlap_with_vcf():
+    with pytest.raises(ValueError, match="No VCF sample has a quantitative outcome"):
+        build_quantitative_outcome({"X": {"1"}}, ["A", "B"], "gfr")
+
+
+def test_build_outcome_aligns_to_vcf_order():
+    samples, values = build_quantitative_outcome(
+        {"C": {"3"}, "A": {"1.0"}, "B": {" NA "}, "Z": {"9"}}, ["A", "B", "C"], "gfr"
+    )
+    assert samples == ["A", "C"]
+    np.testing.assert_array_equal(values, [1.0, 3.0])
+
+
+# --- binary path unchanged ---------------------------------------------------------------
+
+_BINARY = {
+    "trait_type": "binary",
+    "association_tests": ["fisher", "logistic_burden", "skat"],
+    "skat_backend": "python",
+    "case_samples": SAMPLES[:60],
+    "control_samples": SAMPLES[60:],
+}
+
+
+def test_binary_still_requires_cohorts(tmp_path):
+    config = {**_BINARY, "case_samples": [], "control_samples": []}
+    with pytest.raises(ValueError, match="both case and control cohorts are missing"):
+        AssociationAnalysisStage()._process(_context(tmp_path, config))
+
+
+def test_binary_outcome_is_cohort_membership_not_phenotype_values(tmp_path):
+    with_values = _run(_context(tmp_path / "a", _BINARY))
+    context = _context(tmp_path / "b", _BINARY)
+    context.phenotype_data = None
+    pd.testing.assert_frame_equal(with_values, _run(context))
+    assert (with_values["n_cases"] == 60).all() and (with_values["n_controls"] == 180).all()
+
+
+@pytest.mark.parametrize("trait", ["binary", "quantitative"])
+def test_repeated_identical_transcript_annotation_is_invariant(tmp_path, trait):
+    """#188: an extra qualifying transcript row for an existing allele changes nothing."""
+    config = _BINARY if trait == "binary" else {"association_tests": ["linear_burden", "skat"]}
+    base = _run(_context(tmp_path / "a", config))
+
+    context = _context(tmp_path / "b", config)
+    df = context.current_dataframe
+    duplicate = df[df["GENE"] == "SIGNAL"].iloc[[0]].assign(FEATUREID="TX_SIGNAL_SECOND")
+    context.current_dataframe = pd.concat([df, duplicate], ignore_index=True)
+    assert len(context.current_dataframe) == 13
+
+    pd.testing.assert_frame_equal(base, _run(context))
+    assert base.loc["SIGNAL", "n_variants"] == 4
+
+
+@pytest.mark.parametrize(
+    ("n_cases", "n_controls", "ok", "message"),
+    [
+        (9, 100, False, "fewer than 10 cases"),
+        (20, 30, True, "no practical power"),
+        (60, 180, True, "underpowered for SKAT"),
+        (300, 7000, True, "exceeds 1:20"),
+    ],
+)
+def test_binary_cohort_size_guard(caplog, n_cases, n_controls, ok, message):
+    from variantcentrifuge.stages.association_analysis_stages import _cohort_size_ok
+
+    with caplog.at_level("WARNING"):
+        assert _cohort_size_ok(n_cases, n_controls) is ok
+    assert message in caplog.text
