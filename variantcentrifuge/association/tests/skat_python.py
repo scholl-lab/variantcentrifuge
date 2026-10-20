@@ -172,7 +172,7 @@ class PurePythonSKATTest(AssociationTest):
             self._backend.cleanup()
 
     def _skip(
-        self, gene: str, code: str, n_cases: int, n_controls: int, n_variants: int
+        self, gene: str, code: str, n_cases: int, n_controls: int, n_variants: int, method: str
     ) -> TestResult:
         """Return a skipped result; ``code`` goes to ``skat_warnings`` and ``skat_skip_reason``."""
         return TestResult(
@@ -187,7 +187,12 @@ class PurePythonSKATTest(AssociationTest):
             n_cases=n_cases,
             n_controls=n_controls,
             n_variants=n_variants,
-            extra={"skat_warnings": code, "skat_skip_reason": code, "acat_v_p": None},
+            extra={
+                "skat_warnings": code,
+                "skat_skip_reason": code,
+                "skat_method": method,  # keeps the SKAT vs SKAT-O output column stable
+                "acat_v_p": None,
+            },
         )
 
     def run(
@@ -237,18 +242,27 @@ class PurePythonSKATTest(AssociationTest):
 
         # Require genotype matrix — absent when only Fisher is requested
         if "genotype_matrix" not in contingency_data:
-            return self._skip(gene, "NO_GENOTYPE_MATRIX", n_cases, n_controls, n_variants)
+            return self._skip(
+                gene, "NO_GENOTYPE_MATRIX", n_cases, n_controls, n_variants, config.skat_method
+            )
 
         geno: np.ndarray = contingency_data["genotype_matrix"]
         phenotype: np.ndarray | None = contingency_data.get("phenotype_vector")
         covariate_matrix: np.ndarray | None = contingency_data.get("covariate_matrix")
 
         if phenotype is None or geno.shape[0] == 0 or geno.shape[1] == 0:
-            return self._skip(gene, "NO_PHENOTYPE_OR_EMPTY_MATRIX", n_cases, n_controls, n_variants)
+            return self._skip(
+                gene,
+                "NO_PHENOTYPE_OR_EMPTY_MATRIX",
+                n_cases,
+                n_controls,
+                n_variants,
+                config.skat_method,
+            )
         # Non-finite or constant outcomes cannot define a null model (#182)
         problem = outcome_problem(phenotype)
         if problem is not None:
-            return self._skip(gene, problem, n_cases, n_controls, n_variants)
+            return self._skip(gene, problem, n_cases, n_controls, n_variants, config.skat_method)
 
         # Backend must have been initialised by check_dependencies()
         if self._backend is None:
@@ -270,7 +284,9 @@ class PurePythonSKATTest(AssociationTest):
             # Untestable sample sets (e.g. insufficient residual df, outcome explained
             # by covariates) are skipped; the failure is cached per key.
             if key == getattr(self, "_null_failed_key", None):
-                return self._skip(gene, self._null_failure, n_cases, n_controls, n_variants)
+                return self._skip(
+                    gene, self._null_failure, n_cases, n_controls, n_variants, config.skat_method
+                )
             try:
                 self._null_model = self._backend.fit_null_model(
                     phenotype=phenotype,
@@ -280,7 +296,9 @@ class PurePythonSKATTest(AssociationTest):
             except UntestableGeneError as exc:
                 self._null_model = None
                 self._null_failed_key, self._null_failure = key, exc.reason
-                return self._skip(gene, exc.reason, n_cases, n_controls, n_variants)
+                return self._skip(
+                    gene, exc.reason, n_cases, n_controls, n_variants, config.skat_method
+                )
             self._null_key = key
 
         provided_mafs = (

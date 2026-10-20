@@ -723,3 +723,26 @@ def test_meta_burden_skips_cancelled_collapsed_variance(backend):
     assert backend.test_gene("G", geno, null, "Burden", weights=np.ones(2))["p_value"] is None
     score = compute_gene_score(geno, geno, null, ["1:1:A:G", "1:2:A:G"])
     assert meta_burden([score.u], [score.v], np.ones(2)) == (None, 0.0, 0)
+    from variantcentrifuge.association.meta.heterogeneity import per_stratum_burden
+
+    betas, ses = per_stratum_burden([score.u], [score.v], np.ones(2))
+    assert np.isnan(betas[0]) and np.isinf(ses[0])
+
+
+def test_outcome_guard_ignores_exact_translation(backend):
+    """A large exactly representable offset must not make the outcome look explained."""
+    rng = np.random.default_rng(18)
+    geno = rng.binomial(2, 0.1, (300, 4)).astype(float)
+    y = np.arange(300, dtype=float) % 5
+    p = {}
+    for offset in (0.0, 2.0**46):
+        null = backend.fit_null_model(y + offset, None, "quantitative")
+        p[offset] = backend.test_gene("G", geno, null, "SKAT", weights=np.ones(4))["p_value"]
+    assert p[0.0] is not None and p[2.0**46] == pytest.approx(p[0.0], rel=1e-9, abs=0.0)
+    lb = {}
+    for offset in (0.0, 2.0**46):
+        data = {"genotype_matrix": geno, "variant_mafs": geno.mean(axis=0) / 2.0}
+        data["phenotype_vector"] = y + offset
+        cfg = AssociationConfig(trait_type="quantitative")
+        lb[offset] = LinearBurdenTest().run("G", data, cfg).p_value
+    assert lb[0.0] is not None and lb[2.0**46] is not None

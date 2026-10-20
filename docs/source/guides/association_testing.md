@@ -1190,14 +1190,16 @@ When a gene cannot be tested reliably, the affected test reports no p-value (emp
 `{test}_pvalue`) and a code that says why, rather than a spurious p-value. The gene is left
 out of FDR correction and ACAT-O for that test. Codes appear in these columns:
 
-- `skat_skip_reason` (lower-case codes) and `skat_warnings`: SKAT / SKAT-O
+- `skat_skip_reason` and `skat_warnings`: SKAT / SKAT-O. Codes from the null-model fit (upper
+  case, e.g. `CONSTANT_PHENOTYPE`) appear in both columns; per-gene kernel codes (lower case,
+  e.g. `rank_deficient`) appear in `skat_skip_reason`.
 - `warnings`: linear and logistic burden (and the per-gene carrier warnings)
 - `coast_skip_reason`: COAST
 
 | Code | Column | Meaning | What to do |
 |------|--------|---------|------------|
-| `NONFINITE_PHENOTYPE` | `skat_warnings`, `warnings`, `coast_skip_reason` | The outcome contains NaN or infinite values. | Check the phenotype values passed to the analysis. |
-| `CONSTANT_PHENOTYPE` | `skat_warnings`, `warnings`, `coast_skip_reason` | The outcome has no variance among the analysed samples. | Check the phenotype column and how many samples have a value. |
+| `NONFINITE_PHENOTYPE` | `skat_skip_reason`, `skat_warnings`, `warnings`, `coast_skip_reason` | The outcome contains NaN or infinite values. | Check the phenotype values passed to the analysis. |
+| `CONSTANT_PHENOTYPE` | `skat_skip_reason`, `skat_warnings`, `warnings`, `coast_skip_reason` | The outcome has no variance among the analysed samples. | Check the phenotype column and how many samples have a value. |
 | `NONFINITE_COVARIATES` | `warnings` (linear burden) | The covariate matrix contains NaN or infinite values. | Fix or drop the affected covariate values. |
 | `ill_conditioned_covariates` | `skat_skip_reason` | Covariates are too ill-conditioned to decide which variants carry information beyond them. | Remove redundant or near-collinear covariates (e.g. duplicated columns, nested categories, too many PCs). |
 | `ILL_CONDITIONED_COVARIATES` | `warnings` (linear burden), `coast_skip_reason` | Same as above for the burden or the allelic SKAT-O projection. | As above. |
@@ -1206,8 +1208,8 @@ out of FDR correction and ACAT-O for that test. Codes appear in these columns:
 | `rank_deficient` | `skat_skip_reason` | The genotype matrix has rank below 2 (for example a single variant, or identical carrier patterns). | Expected for single-variant genes; use burden or Fisher. |
 | `zero_variance` | `skat_skip_reason` | Burden-method SKAT: the collapsed burden is in the covariate span. | As for `BURDEN_NOT_ESTIMABLE`. |
 | `OLS_FIT_FAILED` / `NONFINITE_STATISTICS` | `warnings` (linear burden) | The regression raised, or returned a non-finite estimate, SE, p-value or CI. | Check for extreme outcome or covariate values. |
-| `OUTCOME_EXPLAINED_BY_COVARIATES` | test warning column | The covariates explain the outcome exactly, so no residual variation is left to test. | Remove covariates derived from the outcome. |
-| `INSUFFICIENT_RESIDUAL_DF` | test warning column | Too few samples remain for the number of covariates. | Use fewer covariates or PCs, or more samples. |
+| `OUTCOME_EXPLAINED_BY_COVARIATES` | `skat_skip_reason`, `skat_warnings`, `warnings` (linear burden), `coast_skip_reason` | The covariates explain the outcome exactly, so no residual variation is left to test. | Remove covariates derived from the outcome. |
+| `INSUFFICIENT_RESIDUAL_DF` | `skat_skip_reason`, `skat_warnings`, `coast_skip_reason` (linear burden reports `NONFINITE_STATISTICS` instead) | Too few samples remain (after per-gene missingness QC) for the number of covariates. | Use fewer covariates or PCs, or more samples. |
 
 COAST also reports structural skips in `coast_skip_reason`: `NO_GENOTYPE_MATRIX`,
 `NO_PHENOTYPE_OR_EMPTY_MATRIX`, `NO_GENE_DF`, `MISSING_EFFECT_IMPACT_COLUMNS`,

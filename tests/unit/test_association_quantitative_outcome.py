@@ -510,3 +510,14 @@ def test_outcome_explained_by_covariates_reports_every_gene(tmp_path, tests):
     assert sorted(res.index) == sorted(_genotypes())
     reason = "skat_skip_reason" if tests == ["skat"] else "warnings"
     assert res[reason].astype(str).str.contains("OUTCOME_EXPLAINED_BY_COVARIATES").all()
+
+
+def test_skato_null_fit_skips_keep_skato_column(tmp_path):
+    """SKAT-O rows skipped at the null fit keep the SKAT-O output column."""
+    ctx = _context(
+        tmp_path, {"association_tests": ["skat"], "skat_backend": "python", "skat_method": "SKATO"}
+    )
+    ctx.phenotype_data = {s: {str(_age(i))} for i, s in enumerate(SAMPLES)}
+    res = _run(ctx)
+    assert "skat_o_pvalue" in res.columns and "skat_pvalue" not in res.columns
+    assert (res["skat_method"] == "SKATO").all()

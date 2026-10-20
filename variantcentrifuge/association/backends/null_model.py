@@ -96,7 +96,9 @@ def outcome_explained(y: np.ndarray, nuisance: NullModelResult, residuals: np.nd
     """
     if nuisance.trait_type == "binary":
         return bool(np.all(np.abs(residuals) < 0.5))
-    adjusted, z, bound = _project(np.asarray(y, dtype=np.float64), nuisance)
+    y = np.asarray(y, dtype=np.float64)
+    # Exact translation (the design has an intercept): keeps offsets out of ||y||.
+    adjusted, z, bound = _project(y - y[0], nuisance)
     return bool(np.linalg.norm(adjusted) <= bound * np.linalg.norm(z))
 
 
@@ -140,7 +142,10 @@ def fit_glm_null_model(
         raise UntestableGeneError("INSUFFICIENT_RESIDUAL_DF")
 
     family = sm.families.Binomial() if trait_type == "binary" else sm.families.Gaussian()
-    fit_result = sm.GLM(y, design_matrix, family=family).fit()
+    # The design has an intercept, so shifting a quantitative outcome by its first value is
+    # an exact, model-equivalent translation that keeps large offsets out of the round-off.
+    shift = y[0] if trait_type == "quantitative" else 0.0
+    fit_result = sm.GLM(y - shift, design_matrix, family=family).fit()
 
     residuals = np.asarray(fit_result.resid_response, dtype=np.float64)
     nuisance = NullModelResult(
@@ -149,10 +154,10 @@ def fit_glm_null_model(
         n_samples=n_obs,
         extra={"design_matrix": design_matrix, "covariate_r": covariate_r},
     )
-    if outcome_explained(y, nuisance, residuals):
+    if outcome_explained(y - shift, nuisance, residuals):
         raise UntestableGeneError("OUTCOME_EXPLAINED_BY_COVARIATES")
     sigma2 = float(residuals @ residuals) / df_resid if trait_type == "quantitative" else 1.0
-    mu_hat = np.asarray(fit_result.fittedvalues, dtype=np.float64)
+    mu_hat = np.asarray(fit_result.fittedvalues, dtype=np.float64) + shift
     logger.debug(f"Null model fit: trait_type={trait_type}, n_samples={n_obs}, sigma2={sigma2:.6f}")
 
     return NullModelResult(
