@@ -158,14 +158,9 @@ class TestCauchyCombinationEdgeCases:
         result = cauchy_combination([None, 0.05, None])
         assert result == pytest.approx(0.05)
 
-    def test_cauchy_all_ones_returns_none(self):
-        """cauchy_combination([1.0, 1.0]) returns None (non-informative p=1.0 filtered out).
-
-        p=1.0 contributes tan(-pi/2) = -inf, which is filtered by the informative_mask.
-        With all p-values at 1.0 (non-informative), result is None.
-        """
-        result = cauchy_combination([1.0, 1.0])
-        assert result is None
+    def test_cauchy_all_ones_returns_one(self):
+        """cauchy_combination([1.0, 1.0]) is 1.0, as R ACAT() (#216; was None)."""
+        assert cauchy_combination([1.0, 1.0]) == 1.0
 
     def test_cauchy_empty(self):
         """cauchy_combination([]) returns None (empty input)."""
@@ -226,10 +221,9 @@ class TestComputeAcatO:
         result = compute_acat_o({})
         assert result is None
 
-    def test_acat_o_all_ones_returns_none(self):
-        """compute_acat_o with all p=1.0 (non-informative) returns None."""
-        result = compute_acat_o({"burden": 1.0, "skat": 1.0})
-        assert result is None
+    def test_acat_o_all_ones_returns_one(self):
+        """compute_acat_o with all p=1.0 returns 1.0, as R ACAT() (#216)."""
+        assert compute_acat_o({"burden": 1.0, "skat": 1.0}) == 1.0
 
     def test_acat_o_matches_cauchy_combination(self):
         """compute_acat_o should produce the same result as cauchy_combination."""
@@ -297,3 +291,52 @@ class TestCauchyCombinationUnderflow:
         assert np.isfinite(result)
         assert 0.0 <= result <= 1.0
         assert result < 0.01  # SKAT at 1e-200 should dominate
+
+
+# ---------------------------------------------------------------------------
+# R ACAT() parity (#216)
+# ---------------------------------------------------------------------------
+
+# R 4.5.3, `conda run -n metaskat-check Rscript scripts/generate_acat_parity.R`, ACAT() copied
+# verbatim from yaowuliu/ACAT R/ACAT.R @ e737d7d (Liu et al. 2019); "# weighted" section.
+# Output: _ledger/evidence23/C1.md. Weights 1 x 6, 6 are the COAST omnibus weights.
+_W7 = (1, 1, 1, 1, 1, 1, 6)
+R_ACAT_WEIGHTED = [
+    ((0.01, 0.05, 0.001, 0.1, 0.005, 0.02, 1e-200), _W7, 2e-200),
+    ((0.01, 1.0, 0.3, 1.0, 0.5, 0.2, 0.04), _W7, 0.99999999999999989),
+    ((1e-6, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0), _W7, 1.0),
+    ((0.0, 0.5), (1, 1), 0.0),
+    ((1.0, 1.0), (1, 1), 1.0),
+    ((5e-16, 0.5), (1, 3), 2.0000000000000005e-15),
+]
+
+
+def _r_acat_unweighted():
+    from tests.unit.test_meta_multimask import R_ACAT  # same R script, unweighted section
+
+    return R_ACAT
+
+
+@pytest.mark.parametrize(("ps", "expected"), _r_acat_unweighted())
+def test_cauchy_matches_r_acat_unweighted(ps, expected):
+    assert cauchy_combination(list(ps)) == pytest.approx(expected, rel=1e-12, abs=1e-15)
+
+
+@pytest.mark.parametrize(("ps", "weights", "expected"), R_ACAT_WEIGHTED)
+def test_cauchy_matches_r_acat_weighted(ps, weights, expected):
+    got = cauchy_combination(list(ps), weights=list(weights))
+    assert got == pytest.approx(expected, rel=1e-12, abs=1e-15)
+
+
+@pytest.mark.parametrize("bad", [1.0000001, -1e-12, 2.0])
+def test_cauchy_rejects_p_outside_unit_interval(bad):
+    """R ACAT() stops on p outside [0, 1]; so does cauchy_combination."""
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        cauchy_combination([0.01, bad])
+
+
+def test_cauchy_exact_zero_and_one_is_undefined():
+    """R ACAT() stops on p = 0 together with p = 1: the combination is undefined (None)."""
+    assert cauchy_combination([0.0, 1.0, 0.5]) is None
+    assert cauchy_combination([None, 0.0, float("nan")]) == 0.0  # single p passes through
+    assert cauchy_combination([0.0, 0.5], weights=[0.0, 1.0]) is None  # R: 0/0 -> NaN

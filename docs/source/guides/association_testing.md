@@ -31,6 +31,10 @@ GENE2 312      488         3           0.41            1.0            1.23      
 ...
 ```
 
+`n_cases` and `n_controls` count only case/control samples that are present in the VCF
+(listed samples without genotypes are ignored); for Fisher they are the samples with a call
+for the gene.
+
 **Primary significance measure:** `primary_qvalue`. For Fisher-only runs this is the same
 value as `fisher_qvalue`; for multi-test runs it is usually the same value as
 `acat_o_qvalue`.
@@ -156,6 +160,40 @@ The packed `GT` column interacts with this as follows. When per-sample genotype 
 rebuilt from the packed column, a sample that is not listed for a variant is filled as `0/0`. A
 sample listed with an explicit `./.` stays missing and is subject to the policy above.
 
+### Sample Subsetting at Extraction
+
+Like PLINK `--keep`, REGENIE and SAIGE, an association run (`--perform-association`) whose
+analysed samples are a strict subset of the VCF samples extracts only those samples'
+genotypes (`bcftools query -S` at field extraction). The analysed set is the union of cases
+and controls (`--case-samples[-file]`, `--control-samples[-file]`, or `--phenotype-file` with
+`--case-phenotypes`/`--control-phenotypes`), or, for `--trait-type quantitative`, the samples
+with a value in `--phenotype-value-column`. Unassigned samples then never reach the
+intermediate TSV, the chunks or the genotype matrices. Association results and
+`--score-artifact` scores are unchanged:
+
+- Variant filters (`--bcftools-prefilter`, `--filters`) still run on all samples, and INFO
+  fields such as `AC`/`AN`/`AF` are read as stored, not recomputed for the subset.
+- A sample listed in a sample file but absent from the VCF is handled as before (it is never
+  passed to bcftools).
+- Per-sample columns keep the VCF sample order.
+
+What changes: the intermediate TSV has fewer per-sample columns, and the output `GT` column
+(and anything derived from it, such as the phenotypes column or HTML/Excel carrier lists)
+names carriers among the analysed samples only. The SHA-256 of the sorted subset sample IDs
+is recorded as `sample_subset_sha256` in the run metadata and in the score-artifact
+provenance (`"none"` when every sample was kept). Edited sample/phenotype files, `--no-sample-subset`
+or a change to any flag listed below make `--resume` refuse the checkpoint (configuration
+changed), since the extracted samples would differ.
+
+All samples are kept, with one log line naming the reason, when a feature reads samples
+outside the analysed set: inheritance/pedigree analysis (`--ped`, `--sample-sheet`,
+`--inheritance-mode`, or a scoring model that needs inheritance),
+`--append-extra-sample-fields`, `--no-replacement`, `--igv`, `--pseudonymize`, a tumor/normal
+sample index, a custom `--stats-config` (its expressions may read per-sample columns),
+`--late-filtering` or `--final-filter`. The default statistics do not block subsetting: their
+`total_samples` still reports the VCF sample count. `--no-sample-subset` turns
+subsetting off.
+
 ### Multi-Allelic Sites Must Be Split
 
 The genotype matrix encodes one ALT allele per variant. Any genotype that contains a non-missing
@@ -275,12 +313,28 @@ FAM1  SAMPLE_001  0.0142    -0.0231   0.0089
 FAM1  SAMPLE_002  -0.0305   0.0118    -0.0042
 ```
 
-**AKT stdout / generic TSV** (one sample ID column then numeric):
+**AKT stdout** (`akt pca ... > pca.txt`; no header, a tab after the sample ID, then
+space-padded values):
+```
+SAMPLE_001	  1.26366 -0.243411    1.4646
+SAMPLE_002	-0.512342   2.03114  -1.10982
+```
+
+**Generic TSV/CSV** (one sample ID column then numeric; header optional):
 ```
 sample_id   PC1       PC2       PC3
 SAMPLE_001  0.0142    -0.0231   0.0089
 SAMPLE_002  -0.0305   0.0118    -0.0042
 ```
+
+Files ending in `.csv` are comma-separated. Other files are split on tabs when every line
+has the same number of tabs and no value is space-padded (so IDs and header names may contain
+spaces); otherwise on any mix of tabs and spaces. Headerless files whose first two columns could
+both match some VCF samples need a header line; column 1 equal to column 2 on every row is read
+as PLINK `FID IID`. Duplicate sample rows are
+an error. A header is assumed when the first value
+after the sample ID column(s) is not a number. Any NaN or non-numeric value in a used PC column
+stops the run with an error naming the file, the columns and example samples.
 
 PLINK format uses IID (column 2) as the sample identifier — this matches VCF sample names.
 
@@ -535,6 +589,14 @@ When SKAT runs, ACAT-V (Aggregated Cauchy Association Test — Variant) is autom
 as a per-variant score combination. It is not a separate test to activate; its p-value is stored
 in `acat_v_p` and fed into the ACAT-O omnibus alongside the SKAT p-value.
 
+:::{warning}
+ACAT-V is anti-conservative for ultra-rare variants when cases and controls are imbalanced,
+unless it is saddlepoint (SPA) corrected; VariantCentrifuge has no SPA correction. A single
+ultra-rare variant can then dominate ACAT-O and `primary_qvalue`. In imbalanced cohorts use
+`--acat-o-exclude acat_v` (the case:control imbalance warning suggests it), and consider
+`--primary-test skato` or `--primary-test burden`. See [Choosing the Primary Test](#choosing-the-primary-test).
+:::
+
 ---
 
 ## Advanced Tests: COAST
@@ -594,6 +656,9 @@ variantcentrifuge \
   --output-file results.tsv
 ```
 
+COAST tests the variants kept by genotype site QC (`--missing-site-threshold`), the same
+variants burden and SKAT test.
+
 ### COAST Weights
 
 `--coast-weights BMV,DMV,PTV` sets the ordered alternative weights. Default is `1,2,3`
@@ -614,21 +679,38 @@ variantcentrifuge \
 
 ## Combining Tests: ACAT-O
 
-ACAT-O (Aggregated Cauchy Association Test — Omnibus) combines all primary test p-values for a
-gene into a single omnibus p-value using the Cauchy combination. This captures signal regardless
+ACAT-O (Aggregated Cauchy Association Test — Omnibus) combines the gene's set-test p-values
+into a single omnibus p-value using the Cauchy combination: the burden test (`logistic_burden` or
+`linear_burden`), SKAT/SKAT-O, ACAT-V, and COAST when it runs. This captures signal regardless
 of which test is most powerful for a given gene. The Cauchy combination is particularly robust to
 correlation between test statistics.
 
-**References:** Liu et al. 2019 AJHG; Liu and Xie 2020 JASA.
+**Fisher's exact test is not part of ACAT-O.** ACAT-O is defined over continuous set tests
+(burden, SKAT, ACAT-V; Liu et al. 2019 AJHG, and STAAR). Fisher is a discrete test: its p-value
+has a point mass at exactly 1 (for example a gene with equal case and control carrier rates), and
+in the Cauchy combination one p = 1 vetoes the whole omnibus. Fisher is still computed and
+reported in its own `fisher_*` columns. In a run of `fisher` plus one other test, ACAT-O is that
+test's p-value (single-input pass-through) and stays the primary result; `fisher` alone has no
+ACAT-O.
+
+The combination follows the reference R `ACAT()`: a p-value of exactly 1 is kept, and it
+dominates (tan((0.5 - 1)·π) ≈ -1.6e16), so a gene where any combined test has p = 1 gets an ACAT-O
+of about 1, even if another test is small. The same holds inside ACAT-V: every marginal variant
+p-value in [0, 1] is passed on, so a variant whose score is exactly 0 (p = 1) gives ACAT-V = 1,
+as in STAAR. Tests that did not run are left out. When one input is exactly 0 and another exactly
+1 the combination is undefined and ACAT-O is empty (R `ACAT()` stops with an error).
+
+**References:** Liu et al. 2019 AJHG; Liu and Xie 2020 JASA; Li et al. 2020 Nat Genet (STAAR).
 
 ACAT-O is **not** a test you activate separately — it is computed automatically after
 multiple selected tests have run. When SKAT is active, ACAT-V is also included in the
-combination.
+combination unless `--acat-o-exclude acat_v` is given.
 
 ### FDR Correction Strategy
 
 A **single** Benjamini-Hochberg FDR correction pass is applied to the primary p-values across
-all genes. In multi-test and SKAT runs, the primary p-value is ACAT-O. In single-test runs
+all genes. By default, in multi-test and SKAT runs the primary p-value is ACAT-O
+(`--primary-test` changes this). In single-test runs
 such as Fisher-only, the primary p-value is that test's own p-value, and the corrected value is
 also exposed under a test-specific column such as `fisher_qvalue`.
 
@@ -646,8 +728,33 @@ your primary significance measure.
 | `primary_pvalue` | Raw p-value used for the single correction pass |
 | `primary_qvalue` | Corrected primary p-value; use this for significance decisions |
 | `<test>_qvalue` | Corrected p-value for a single-test run, e.g. `fisher_qvalue` |
-| `acat_o_pvalue` | Raw ACAT-O omnibus p-value; present when ACAT-O is the primary result |
+| `acat_o_pvalue` | Raw ACAT-O omnibus p-value; present whenever ACAT-O combines tests |
 | `acat_o_qvalue` | Corrected ACAT-O p-value; present when ACAT-O is the primary result |
+
+### Choosing the Primary Test
+
+`--primary-test` sets which result drives `primary_*` and the single FDR pass:
+
+| Value | Primary result | `primary_test` |
+|-------|----------------|----------------|
+| `acat_o` (default) | ACAT-O for multi-test or SKAT runs; the test itself in single-test runs | `acat_o`, or the test name |
+| `skato` | SKAT-O; needs `skat` in `--association-tests` and `--skat-method SKATO` | `skat_o` |
+| `burden` | `logistic_burden` (binary trait) or `linear_burden` (quantitative); must be in `--association-tests` | that test name |
+
+With `skato` or `burden`, the chosen test's corrected value is also written as
+`<test>_qvalue` (`skat_o_qvalue`, `logistic_burden_qvalue`). ACAT-O is still computed and
+`acat_o_pvalue` is kept, but it is not corrected, so `acat_o_qvalue` is absent. If the chosen
+test is not run, the run stops before extraction with an error naming the missing test.
+
+`--acat-o-exclude acat_v` leaves ACAT-V out of ACAT-O (see the ACAT-V warning above). In a
+SKAT-only run ACAT-O would then be a pass-through, so SKAT itself becomes the primary result
+(`skat_qvalue` or `skat_o_qvalue`) and no `acat_o_*` columns are written.
+
+Both options also apply to gene-set units, and can be set in the config file's `association`
+section as `"primary_test"` and `"acat_o_exclude"` (the CLI wins). A config-file
+`"acat_o_exclude"` can only be removed in the config file; there is no CLI value that unsets it. They do not affect
+`--score-artifact` files or meta-analysis, which has its own primary (SKAT-O, else burden).
+Defaults reproduce earlier output exactly.
 
 ### Pass-Through Behaviour
 
@@ -1119,7 +1226,7 @@ Use this for reproducible analyses or when parameters are too numerous for the c
 | `missing_as_ref` | bool | `false` | Treat missing genotypes as reference before missingness QC (`--missing-as-ref`) |
 | `skat_method` | str | `"SKAT"` | SKAT variant: `"SKAT"` (default), `"Burden"`, or `"SKATO"` (omnibus) |
 | `confidence_interval_method` | str | `"normal_approx"` | Odds ratio CI method: tries score → normal → logit in sequence |
-| `association_workers` | int | `1` | Number of parallel workers for association testing |
+| `association_workers` | int | `0` | Worker processes for the per-gene tests (`--association-workers`). `0` = one per `--threads`, `-1` = all cores, `1` = sequential. Each worker uses one BLAS thread; panels under 50 genes and R backends run sequentially. Parallel runs need Linux (fork); elsewhere genes run sequentially. Results are identical for any worker count |
 | `firth_max_iter` | int | `25` | Newton-Raphson iterations for Firth penalised likelihood |
 
 ### Precedence
@@ -1151,7 +1258,7 @@ Use this table to choose the right test(s) for your study:
 | Linear Burden | `linear_burden` | Quantitative | ≥50 | Continuous phenotype burden | Low | Quantitative phenotype |
 | SKAT/SKAT-O | `skat` | Binary or Quantitative | ≥100 cases | Heterogeneous effects (not all variants causal or same direction) | Moderate | Large cohorts; uncertain effect direction |
 | COAST | `coast` | Binary or Quantitative | ≥100 cases | Ordered allelic series (PTV > DMV > BMV) | Moderate | Biological prior of monotone effect sizes; requires SIFT/PolyPhen |
-| ACAT-O | (automatic) | Both | Depends on active tests | Omnibus combining all active tests | Negligible | Always present; primary significance measure |
+| ACAT-O | (automatic) | Both | Depends on active tests | Omnibus of burden, SKAT/SKAT-O, ACAT-V (and COAST); not Fisher | Negligible | Always present; primary significance measure |
 
 **Recommended starting point for most studies:**
 
@@ -1160,7 +1267,8 @@ Use this table to choose the right test(s) for your study:
 ```
 
 This covers carrier enrichment (Fisher), covariate-adjusted regression (logistic burden), and
-heterogeneous effects (SKAT-O), with ACAT-O combining all three.
+heterogeneous effects (SKAT-O), with ACAT-O combining logistic burden, SKAT-O and ACAT-V
+(Fisher is reported on its own).
 
 Add `coast` when you have:
 - SIFT and PolyPhen annotations in your VCF
@@ -1280,6 +1388,7 @@ out of FDR correction and ACAT-O for that test. Codes appear in these columns:
 | `ILL_CONDITIONED_COVARIATES` | `warnings` (linear burden), `coast_skip_reason` | Same as above for the burden or the allelic SKAT-O projection. | As above. |
 | `no_informative_variants` | `skat_skip_reason` | Every qualifying variant is fully explained by the covariates. | Nothing to fix; the gene has no testable signal under this model. |
 | `BURDEN_NOT_ESTIMABLE` | `warnings` (linear burden) | The burden score is constant or lies in the span of the intercept and covariates. | Typical for genes with very few carriers; use SKAT or relax variant filters. |
+| `no_positive_eigenvalues` | `skat_skip_reason` | Binary trait: the covariate-adjusted SKAT kernel has no eigenvalue above round-off, so no p-value exists (R SKAT stops with "No Eigenvalue is bigger than 0!!"). | Nothing to fix; the variants carry no information beyond the covariates. |
 | `rank_deficient` | `skat_skip_reason` | The genotype matrix has rank below 2 (for example a single variant, or identical carrier patterns). | Expected for single-variant genes; use burden or Fisher. |
 | `zero_variance` | `skat_skip_reason` | Burden-method SKAT: the collapsed burden is in the covariate span. | As for `BURDEN_NOT_ESTIMABLE`. |
 | `OLS_FIT_FAILED` / `NONFINITE_STATISTICS` | `warnings` (linear burden) | The regression raised, or returned a non-finite estimate, SE, p-value or CI. | Check for extreme outcome or covariate values. |

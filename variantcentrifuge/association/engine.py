@@ -9,23 +9,27 @@ from __future__ import annotations
 
 import logging
 import os
+from collections import Counter
 from typing import Any
 
 import pandas as pd
 
+from variantcentrifuge.association.acat_o import compute_acat_o, resolve_primary_test
 from variantcentrifuge.association.base import AssociationConfig, AssociationTest, TestResult
 from variantcentrifuge.association.correction import apply_correction
 from variantcentrifuge.association.engine_workers import (
     _BUILDER_RESULT_KEYS,
     _PER_GENE_MATRIX_PAYLOAD_KEYS,
+    GeneHook,
     _apply_builder_result_to_gene_data,
     _discard_per_gene_matrix_payload,
-    _run_gene_worker,
     _single_test_output_id,
     _worker_initializer,
     dispatch_parallel_genes,
     run_sequential_genes,
+    single_blas_thread,
 )
+from variantcentrifuge.association.timing import Progress
 
 __all__ = [
     "_BUILDER_RESULT_KEYS",
@@ -34,7 +38,6 @@ __all__ = [
     "_apply_builder_result_to_gene_data",
     "_build_registry",
     "_discard_per_gene_matrix_payload",
-    "_run_gene_worker",
     "_single_test_output_id",
     "_worker_initializer",
     "dispatch_parallel_genes",
@@ -43,8 +46,16 @@ __all__ = [
 
 logger = logging.getLogger("variantcentrifuge")
 
-# Below this many genes, worker start-up and pickling cost more than the tests themselves.
+# Below this many genes, worker start-up costs more than the tests themselves.
 MIN_GENES_FOR_PARALLEL = 50
+
+
+def _null_model_pending(tests: dict[str, AssociationTest]) -> bool:
+    """True while a test with a lazy null model has neither fitted nor failed to fit it."""
+    return any(
+        getattr(t, "_null_model", False) is None and getattr(t, "_null_failed_key", None) is None
+        for t in tests.values()
+    )
 
 
 def _build_registry() -> dict[str, type[AssociationTest]]:
@@ -84,9 +95,12 @@ class AssociationEngine:
         Configuration shared across all tests.
     """
 
+    unit_label = "genes"  # "gene sets" on the set engine; labels progress and summary lines
+
     def __init__(self, tests: list[AssociationTest], config: AssociationConfig) -> None:
         self._tests: dict[str, AssociationTest] = {t.name: t for t in tests}
         self._config = config
+        self._primary_override = resolve_primary_test(list(self._tests), config)
 
     @classmethod
     def from_names(
@@ -174,103 +188,13 @@ class AssociationEngine:
         results_by_test: dict[str, dict[str, TestResult]],
         sorted_data: list[dict[str, Any]],
     ) -> dict[str, TestResult]:
-        """
-        Compute ACAT-O omnibus p-value per gene by combining all primary test p-values.
+        """Compute ACAT-O per gene; see ``association.acat_o.compute_acat_o``."""
+        exclude = getattr(self._config, "acat_o_exclude", None)
+        return compute_acat_o(results_by_test, sorted_data, list(self._tests), exclude)
 
-        This is a post-loop meta-test: it runs after all primary tests have completed
-        for all genes and combines their p-values via Cauchy combination. ACAT-O is
-        NOT in the test registry and does NOT run in the per-gene loop.
-
-        Parameters
-        ----------
-        results_by_test : dict
-            results_by_test[test_name][gene] = TestResult from the per-gene loop.
-        sorted_data : list of dict
-            Gene burden data in sorted (alphabetical by gene) order.
-
-        Returns
-        -------
-        dict mapping gene -> TestResult for acat_o
-            Empty dict if no primary tests produced any p-values.
-        """
-        # Lazy import to avoid circular imports at module load time
-        from variantcentrifuge.association.tests.acat import compute_acat_o
-
-        if not self._tests:
-            logger.warning("_compute_acat_o: no primary tests registered; ACAT-O skipped.")
-            return {}
-
-        acat_results: dict[str, TestResult] = {}
-        n_valid = 0
-        n_total = len(sorted_data)
-
-        for gene_data in sorted_data:
-            gene = gene_data.get("GENE", "")
-
-            # Collect p-values from all primary tests for this gene
-            test_pvals: dict[str, float | None] = {}
-            for test_name in self._tests:
-                res = results_by_test[test_name].get(gene)
-                test_pvals[test_name] = res.p_value if res is not None else None
-
-            # Include ACAT-V if available from SKAT test (Phase 25)
-            # ACAT-V is NOT a primary test — it's a per-variant score test stored
-            # in the SKAT result's extra dict. Adding it to the ACAT-O omnibus
-            # improves power for sparse signals.
-            for test_name in self._tests:
-                res = results_by_test[test_name].get(gene)
-                if res is not None and "acat_v_p" in res.extra:
-                    acat_v_p = res.extra["acat_v_p"]
-                    if acat_v_p is not None:
-                        test_pvals["acat_v"] = acat_v_p
-                    break  # only one SKAT test can produce ACAT-V
-
-            # Combine p-values via Cauchy formula
-            acat_p = compute_acat_o(test_pvals)
-
-            # Find the first primary test result with data for metadata
-            first_result = next(
-                (
-                    results_by_test[tn][gene]
-                    for tn in self._tests
-                    if results_by_test[tn].get(gene) is not None
-                ),
-                None,
-            )
-            if first_result is None:
-                continue
-
-            acat_result = TestResult(
-                gene=gene,
-                test_name="acat_o",
-                p_value=acat_p,
-                corrected_p_value=None,  # populated later by FDR pass
-                effect_size=None,
-                ci_lower=None,
-                ci_upper=None,
-                se=None,
-                n_cases=first_result.n_cases,
-                n_controls=first_result.n_controls,
-                n_variants=first_result.n_variants,
-            )
-            acat_results[gene] = acat_result
-
-            if acat_p is not None:
-                n_valid += 1
-
-        logger.info(
-            f"ACAT-O: {n_valid}/{n_total} genes with valid omnibus p-values "
-            f"({n_total - n_valid} skipped — no valid primary test p-values)"
-        )
-
-        if n_valid == 0:
-            logger.warning(
-                "ACAT-O: no genes had valid p-values. Check that primary tests produced results."
-            )
-
-        return acat_results
-
-    def run_all(self, gene_burden_data: list[dict[str, Any]]) -> pd.DataFrame:
+    def run_all(
+        self, gene_burden_data: list[dict[str, Any]], gene_hook: GeneHook | None = None
+    ) -> pd.DataFrame:
         """
         Run all registered tests across all genes and return wide-format results.
 
@@ -284,6 +208,9 @@ class AssociationEngine:
             One dict per gene with keys: GENE, proband_count, control_count,
             proband_carrier_count, control_carrier_count, proband_allele_count,
             control_allele_count, n_qualifying_variants.
+        gene_hook : callable, optional
+            ``gene_hook(gene, builder, build_result)`` runs (in the worker) right after
+            a gene's matrix is built; return values are in ``self.gene_hook_results``.
 
         Returns
         -------
@@ -295,6 +222,9 @@ class AssociationEngine:
             fisher_or or logistic_burden_beta), and primary_pvalue/primary_qvalue.
             ACAT-O columns are present only when ACAT-O is the primary result.
         """
+        self.gene_hook_results: dict[str, Any] = {}
+        self.run_info: list[str] = []
+        label = self.unit_label
         if not gene_burden_data:
             logger.warning("No gene burden data provided to AssociationEngine.")
             return pd.DataFrame()
@@ -332,37 +262,72 @@ class AssociationEngine:
             )
 
         if use_parallel:
-            # Run first gene sequentially to trigger lazy null model fitting
-            run_sequential_genes(
-                sorted_data[:1],
-                self._tests,
-                self._config,
-                results_by_test,
-            )
-
-            # Dispatch remaining genes to worker processes
-            remaining = sorted_data[1:]
-            if remaining:
-                actual_workers = (os.cpu_count() or 1) if n_workers == -1 else n_workers
-                # Don't over-provision workers for small remaining panels
-                if len(remaining) < actual_workers * 2:
-                    actual_workers = max(1, len(remaining) // 2)
-
-                dispatch_parallel_genes(
-                    remaining=remaining,
-                    tests=self._tests,
-                    config=self._config,
-                    actual_workers=actual_workers,
-                    results_by_test=results_by_test,
-                )
+            workers_note = f"association_workers={n_workers}, parallel"
+        elif n_workers == 1:
+            workers_note = "association_workers=1, sequential"
+        elif not all_parallel_safe:
+            workers_note = f"association_workers={n_workers} but tests not parallel_safe"
         else:
-            # Sequential gene loop (default path or fallback)
-            run_sequential_genes(
-                sorted_data,
-                self._tests,
-                self._config,
-                results_by_test,
+            workers_note = f"association_workers={n_workers} but < {MIN_GENES_FOR_PARALLEL} genes"
+        self.run_info = [f"gene loop: {workers_note}; BLAS pinned to 1 thread"]
+
+        with single_blas_thread():  # gene-level parallelism only, never BLAS (#212)
+            if use_parallel:
+                # Run genes in the parent until every lazy null model is fitted (or failed), so
+                # forked workers inherit it instead of each refitting it (#212).
+                done = 0
+                while done < len(sorted_data) and (
+                    done == 0
+                    or (done < MIN_GENES_FOR_PARALLEL and _null_model_pending(self._tests))
+                ):
+                    run_sequential_genes(
+                        sorted_data[done : done + 1],
+                        self._tests,
+                        self._config,
+                        results_by_test,
+                        gene_hook,
+                        self.gene_hook_results,
+                    )
+                    done += 1
+
+                # Dispatch remaining genes to worker processes
+                remaining = sorted_data[done:]
+                if remaining:
+                    actual_workers = (os.cpu_count() or 1) if n_workers == -1 else n_workers
+                    # Don't over-provision workers for small remaining panels
+                    if len(remaining) < actual_workers * 2:
+                        actual_workers = max(1, len(remaining) // 2)
+
+                    dispatch_parallel_genes(
+                        remaining=remaining,
+                        tests=self._tests,
+                        config=self._config,
+                        actual_workers=actual_workers,
+                        results_by_test=results_by_test,
+                        gene_hook=gene_hook,
+                        hook_results=self.gene_hook_results,
+                        progress=Progress(f"Association {label}", len(sorted_data), offset=done),
+                    )
+            else:
+                # Sequential gene loop (default path or fallback)
+                run_sequential_genes(
+                    sorted_data,
+                    self._tests,
+                    self._config,
+                    results_by_test,
+                    gene_hook,
+                    self.gene_hook_results,
+                    Progress(f"Association {self.unit_label}", len(sorted_data)),
+                )
+
+        for test_name, by_gene in results_by_test.items():
+            skips = Counter(
+                str(code)
+                for r in by_gene.values()
+                if (code := r.extra.get("skat_skip_reason") or r.extra.get("coast_skip_reason"))
             )
+            if skips:
+                self.run_info.append(f"{label} skipped per test - {test_name}: {dict(skips)}")
 
         # Lifecycle hook: finalize() after gene loop (allows timing summary, cleanup)
         for test in self._tests.values():
@@ -379,17 +344,19 @@ class AssociationEngine:
         # combination. For single non-SKAT tests, ACAT-O would be a pure
         # pass-through, so correction is attached to the actual test result
         # (for example fisher_qvalue) instead of misleading acat_o_* columns.
-        primary_result_id = next(iter(self._tests))
-        write_acat_o = len(self._tests) > 1 or "skat" in self._tests
+        # --primary-test skato/burden overrides the primary; ACAT-O is then still
+        # reported (acat_o_pvalue) but not corrected (#210).
+        include_acat_v = getattr(self._config, "acat_o_exclude", None) != "acat_v"
+        write_acat_o = len(self._tests) > 1 or ("skat" in self._tests and include_acat_v)
         acat_o_results: dict[str, TestResult] = {}
-        correction_results: dict[str, TestResult]
         if write_acat_o:
             acat_o_results = self._compute_acat_o(results_by_test, sorted_data)
             results_by_test["acat_o"] = acat_o_results
-            correction_results = acat_o_results
-            primary_result_id = "acat_o"
-        else:
-            correction_results = results_by_test[primary_result_id]
+        primary_result_id = self._primary_override or (
+            "acat_o" if write_acat_o else next(iter(self._tests))
+        )
+        acat_o_primary = primary_result_id == "acat_o"
+        correction_results: dict[str, TestResult] = results_by_test[primary_result_id]
 
         gene_order = [d.get("GENE", "") for d in sorted_data]
         testable_genes = [
@@ -397,6 +364,12 @@ class AssociationEngine:
             for g in gene_order
             if correction_results.get(g) is not None and correction_results[g].p_value is not None
         ]
+
+        self.run_info.insert(
+            1,
+            f"{label}: {len(sorted_data)} given, {len(testable_genes)} with a primary result, "
+            f"{len(sorted_data) - len(testable_genes)} without",
+        )
 
         # Phase 33: weighted or unweighted correction path
         fdr_weights_by_gene: dict[str, float] = {}
@@ -532,8 +505,12 @@ class AssociationEngine:
             # also expose a test-specific q-value such as fisher_qvalue.
             primary_res = correction_results.get(gene)
             primary_output_id = primary_result_id
-            if not write_acat_o:
-                primary_output_id = _single_test_output_id(primary_result_id, primary_res)
+            if not acat_o_primary:
+                primary_output_id = (
+                    "skat_o"
+                    if self._primary_override == "skat"
+                    else _single_test_output_id(primary_result_id, primary_res)
+                )
                 row[f"{primary_output_id}_qvalue"] = (
                     primary_res.corrected_p_value if primary_res is not None else None
                 )
@@ -554,15 +531,19 @@ class AssociationEngine:
                 row["primary_weighted_qvalue"] = weighted_corrected_by_gene.get(gene)
                 row["primary_unweighted_qvalue"] = unweighted_corrected_by_gene.get(gene)
 
-            # ACAT-O columns are only emitted when ACAT-O is a real primary
-            # result, not for single-test pass-throughs such as Fisher-only.
+            # ACAT-O columns are only emitted when ACAT-O is a real combination,
+            # not for single-test pass-throughs such as Fisher-only; its q-values
+            # only when it is the primary (the corrected family).
             if write_acat_o:
                 acat_res = acat_o_results.get(gene)
                 row["acat_o_pvalue"] = acat_res.p_value if acat_res is not None else None
-                row["acat_o_qvalue"] = acat_res.corrected_p_value if acat_res is not None else None
-                if weighted_corrected_by_gene:
-                    row["acat_o_weighted_qvalue"] = weighted_corrected_by_gene.get(gene)
-                    row["acat_o_unweighted_qvalue"] = unweighted_corrected_by_gene.get(gene)
+                if acat_o_primary:
+                    row["acat_o_qvalue"] = (
+                        acat_res.corrected_p_value if acat_res is not None else None
+                    )
+                    if weighted_corrected_by_gene:
+                        row["acat_o_weighted_qvalue"] = weighted_corrected_by_gene.get(gene)
+                        row["acat_o_unweighted_qvalue"] = unweighted_corrected_by_gene.get(gene)
 
             # Phase 33: fdr_weight column — only added when weighted BH is active
             if fdr_weights_by_gene:

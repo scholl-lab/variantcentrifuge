@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
-import re
 from pathlib import Path
 from typing import Any
 
@@ -12,8 +12,40 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def _emit_score_artifact(config: dict, path: str, gene_burden_data: list[dict]) -> None:
-    """Write the meta-analysis score artifact from this run's per-gene matrix builders."""
+def _score_artifact_hook(builders: dict[str, Any]) -> Any:
+    """Engine gene hook computing each gene's artifact entry from the tests' matrix (#212).
+
+    Validates the phenotype up front and fits the all-samples null model here, in the
+    parent, so forked workers inherit it.
+    """
+    import numpy as np
+
+    from ..association.backends.null_model import UntestableGeneError
+    from ..association.meta.artifact import artifact_phenotype, gene_score_record, null_for_mask
+
+    pheno_all = artifact_phenotype(builders)
+    nulls: dict = {}
+    first = next(iter(builders.values()))
+    # An untestable all-samples set is cached; its genes are omitted with a warning, as before.
+    with contextlib.suppress(UntestableGeneError):
+        null_for_mask(nulls, np.ones(pheno_all.size, dtype=bool), pheno_all, first.covariate_matrix)
+
+    def hook(gene: str, builder: Any, built: dict[str, Any]) -> Any:
+        if builder.gene_df.empty:
+            return None
+        return gene_score_record(gene, builder, built, pheno_all, nulls)
+
+    return hook
+
+
+def _emit_score_artifact(
+    config: dict, path: str, builders: dict[str, Any], records: dict[str, Any] | None = None
+) -> None:
+    """Write the meta-analysis score artifact from this run's per-gene matrix builders.
+
+    ``records`` are the engine's ``_score_artifact_hook`` results; without them each
+    gene's matrix is built here.
+    """
     import hashlib
     import json
 
@@ -27,18 +59,19 @@ def _emit_score_artifact(config: dict, path: str, gene_burden_data: list[dict]) 
     mask_hash = hashlib.sha256(json.dumps(selection, sort_keys=True).encode()).hexdigest()
     emit_stratum_artifact(
         path,
-        {
-            d["GENE"]: d["_genotype_matrix_builder"]
-            for d in gene_burden_data
-            if "_genotype_matrix_builder" in d
-        },
+        builders,
+        records=records,
         stratum_id=Path(path).name.split(".")[0],
         genome_build=normalize_reference(reference) or reference,
         annotation_version=reference,
         mask_id=mask_hash[:12],
         mask_hash=mask_hash,
         mask_label=config.get("mask_label"),
-        provenance=collect_provenance(config),
+        # Per-stratum, so not a cross-strata check field; "none" = all VCF samples kept.
+        provenance={
+            **collect_provenance(config),
+            "sample_subset_sha256": config.get("sample_subset_sha256") or "none",
+        },
     )
 
 
@@ -150,26 +183,6 @@ def _coast_missing_columns(df: pd.DataFrame, assoc_config: Any) -> list[str]:
         san for san, alt in _coast_base_required if san not in df.columns and alt not in df.columns
     ]
     return missing
-
-
-def _per_sample_gt_frame(df: pd.DataFrame, unpacked_samples: list[str]) -> pd.DataFrame:
-    """Build a per-sample GT column copy of *df* from the packed GT column."""
-    from .sample_column_helpers import create_sample_columns_from_gt_intelligent
-
-    out = create_sample_columns_from_gt_intelligent(df.copy(), vcf_samples=unpacked_samples)
-    gt_series_str = out["GT"].fillna("").astype(str)
-    # Only the named "Sample(GT);..." format omits hom-ref samples; positional "0/1,./.,..."
-    # rows list every sample, so their ./. are real missing calls (#200).
-    positional = gt_series_str.ne("") & ~gt_series_str.str.contains("(", regex=False)
-    for s_col in unpacked_samples:
-        if s_col not in out.columns:
-            out[s_col] = gt_series_str.str.extract(
-                rf"(?:^|;)\s*{re.escape(s_col)}\(([^:)]+)", expand=False
-            ).fillna("./.")
-        listed = gt_series_str.str.contains(rf"(?:^|;)\s*{re.escape(s_col)}\(", regex=True)
-        fill_ref = (out[s_col] == "./.") & ~listed & ~positional
-        out.loc[fill_ref, s_col] = "0/0"
-    return out
 
 
 def _report_missingness_qc(

@@ -28,7 +28,7 @@ Configuration options with default values:
 - **`add_chr`** (`bool`) - Add "chr" prefix to chromosome names. *Default: true*
 - **`debug_level`** (`str`) - Logging level: "DEBUG", "INFO", "WARN", "ERROR". *Default: "INFO"*
 - **`no_stats`** (`bool`) - Skip statistics computation. *Default: false*
-- **`perform_gene_burden`** (`bool`) - Perform gene burden analysis. *Default: false*
+- **`perform_gene_burden`** (`bool`) - **Deprecated** (use `perform_association`; removal in next minor release). Perform legacy gene burden analysis. *Default: false*
 - **`gene_burden_mode`** (`str`) - "samples" or "alleles". *Default: "alleles"*
 - **`correction_method`** (`str`) - "fdr" or "bonferroni" for multiple testing correction. *Default: "fdr"*
 

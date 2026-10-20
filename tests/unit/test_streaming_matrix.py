@@ -153,6 +153,7 @@ class TestGenotypeMatrixBuilder:
             "gt_warnings",
             "mac_filtered",
             "n_variants_qc",
+            "variant_keep_mask",
         }
         assert set(result.keys()) == expected_keys
 

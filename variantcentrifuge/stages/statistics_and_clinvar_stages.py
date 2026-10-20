@@ -10,6 +10,7 @@ import pandas as pd
 
 from ..checkpoint_models import AtomicFileOperation
 from ..pipeline_core import PipelineContext, Stage
+from ..sample_subset import vcf_sample_count
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ class StatisticsGenerationStage(Stage):
             raise RuntimeError("No DataFrame loaded for statistics")
 
         stats_config_path = context.config.get("stats_config")
-        config = stats_config_path if stats_config_path else self._get_default_stats_config()
+        config = stats_config_path or self._get_default_stats_config(vcf_sample_count(context))
 
         from . import analysis_stages
 
@@ -127,8 +128,13 @@ class StatisticsGenerationStage(Stage):
                     f.write("statistic\tvalue\tcategory\n")
                     f.write("total_variants\t0\tdataset\n")
 
-    def _get_default_stats_config(self) -> dict[str, Any]:
-        """Get default statistics configuration using basic columns."""
+    def _get_default_stats_config(self, n_vcf_samples: int | None = None) -> dict[str, Any]:
+        """Get default statistics configuration using basic columns.
+
+        ``n_vcf_samples``: VCF sample count when extraction kept a subset (#212), so
+        ``total_samples`` still reports the VCF, not the extracted, sample count.
+        """
+        n_gt_cols = "len([col for col in df.columns if '_GT' in col])"
         return {
             "stats_version": "1.0",
             "description": "Default statistics configuration using basic columns",
@@ -140,7 +146,7 @@ class StatisticsGenerationStage(Stage):
                 },
                 {
                     "name": "total_samples",
-                    "expression": "len([col for col in df.columns if '_GT' in col])",
+                    "expression": n_gt_cols if n_vcf_samples is None else str(n_vcf_samples),
                     "description": "Total number of samples",
                 },
                 {

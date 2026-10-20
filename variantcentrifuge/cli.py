@@ -3,6 +3,7 @@
 import argparse
 import datetime
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -153,6 +154,11 @@ def create_parser() -> argparse.ArgumentParser:
         "--output-dir",
         help="Directory to store intermediate and final output files",
         default="output",
+    )
+    io_group.add_argument(
+        "--temp-dir",
+        help="Directory for bulk temporary files (default: <output-dir>/intermediate). "
+        "Use a large scratch filesystem when /tmp or the output disk is small.",
     )
     io_group.add_argument("--xlsx", action="store_true", help="Convert final result to Excel")
     io_group.add_argument(
@@ -359,6 +365,23 @@ def main(argv: list[str] | None = None) -> int:
             validate_mandatory_parameters(reference, filters, fields)
             validate_required_tools(args, cfg, logger)
             validate_vcf_file(args.vcf_file, logger)
+            if filters and not cfg.get("late_filtering"):
+                from .filter_dry_run import validate_snpsift_filter
+                from .filters import _java_tmp_flags, _snpsift_memory_flag
+
+                # Same effective temp dir as the pipeline (CLI, else config file); the
+                # workspace that creates it is not set up yet.
+                tmp = getattr(args, "temp_dir", None) or cfg.get("temp_dir")
+                if tmp:
+                    os.makedirs(tmp, exist_ok=True)
+                validate_snpsift_filter(
+                    args.vcf_file,
+                    filters,
+                    [_snpsift_memory_flag(cfg), *_java_tmp_flags({"temp_dir": tmp})],
+                    # the exception rescue adds INFO/RAW_FILTER before filtering
+                    ["RAW_FILTER"] if cfg.get("filter_exception_file") else [],
+                    tmp,
+                )
         if args.phenotype_file:
             validate_phenotype_file(
                 args.phenotype_file,
@@ -469,6 +492,7 @@ def main(argv: list[str] | None = None) -> int:
             cfg.get("ped_file") or getattr(args, "ped", None) or getattr(args, "ped_file", None)
         )
         refactored_args.xlsx = cfg.get("xlsx", False)
+        refactored_args.temp_dir = getattr(args, "temp_dir", None) or cfg.get("temp_dir")
         refactored_args.keep_intermediates = cfg.get("keep_intermediates", False)
         refactored_args.archive_results = cfg.get("archive_results", False)
         refactored_args.gzip_intermediates = cfg.get("gzip_intermediates", True)

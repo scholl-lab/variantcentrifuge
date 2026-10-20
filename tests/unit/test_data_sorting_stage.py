@@ -105,6 +105,7 @@ def test_data_sorting_stage_process_resolves_ann_zero_gene(tmp_path: Path) -> No
     ws = Mock(spec=Workspace)
     ws.base_name = "test_sample"
     ws.intermediate_dir = inter_dir
+    ws.temp_dir = inter_dir
     ws.get_intermediate_path = lambda name: inter_dir / name
 
     input_file = inter_dir / "test_sample.extracted.tsv"
@@ -143,6 +144,7 @@ def test_data_sorting_stage_process_custom_gene_column(tmp_path: Path) -> None:
     ws = Mock(spec=Workspace)
     ws.base_name = "test_sample"
     ws.intermediate_dir = inter_dir
+    ws.temp_dir = inter_dir
     ws.get_intermediate_path = lambda name: inter_dir / name
 
     input_file = inter_dir / "test_sample.extracted.tsv"

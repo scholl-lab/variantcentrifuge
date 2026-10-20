@@ -13,7 +13,7 @@ Implements the Aggregated Cauchy Association Test (ACAT) as described in:
   https://doi.org/10.1080/01621459.2018.1554485
 
 Numerical stability note (Liu & Xie 2020, Section 2.2):
-  For p < 1e-16, the standard tan((0.5 - p) * pi) formula overflows because
+  For p < 1e-15 (the R ACAT() threshold), the standard tan((0.5 - p) * pi) formula overflows because
   tan approaches +inf. The approximation tan((0.5 - p) * pi) ≈ 1 / (p * pi)
   is used instead, which is accurate to machine precision for tiny p.
 
@@ -31,7 +31,7 @@ import logging
 from collections.abc import Sequence
 
 import numpy as np
-from scipy.stats import cauchy, norm
+from scipy.stats import norm
 
 from variantcentrifuge.association.backends.base import NullModelResult
 from variantcentrifuge.association.backends.null_model import (
@@ -44,7 +44,7 @@ logger = logging.getLogger("variantcentrifuge")
 
 # Threshold below which the approximation 1/(p*pi) is used instead of tan((0.5-p)*pi).
 # This prevents floating-point overflow for extreme p-values (Liu & Xie 2020).
-_TINY_P_THRESHOLD = 1e-16
+_TINY_P_THRESHOLD = 1e-15  # as R ACAT()
 
 
 def cauchy_combination(
@@ -57,18 +57,20 @@ def cauchy_combination(
     Parameters
     ----------
     p_values : array-like of float | None
-        Raw p-values to combine. None and NaN values are filtered out.
+        Raw p-values to combine. None and NaN values are filtered out; the rest
+        follow R ``ACAT()`` (p = 1 is kept; p outside [0, 1] raises ValueError).
     weights : array-like of float | None, optional
         Non-negative weights for each p-value. Must be the same length as
         p_values (including None entries). Default: equal weights (1.0 each).
-        Weights corresponding to filtered (None/NaN/>=1.0) p-values are
+        Weights corresponding to filtered (None/NaN) p-values are
         dropped and remaining weights are re-normalized to sum to 1.
 
     Returns
     -------
     float | None
         Combined p-value in [0, 1], or None if fewer than 1 valid p-value
-        exists after filtering. Single valid p-value is returned as-is
+        exists after filtering or the p-values contain both 0 and 1 (undefined).
+        Single valid p-value is returned as-is
         (pass-through, per CONTEXT.md decision: k=1 is informative enough
         to surface without modification).
 
@@ -98,19 +100,19 @@ def cauchy_combination(
     else:
         w_arr = np.ones(len(p_arr), dtype=float)
 
-    # Mask 1: filter None/NaN p-values
+    # None/NaN mark tests that did not run; R ACAT() itself never sees them
     valid_mask = ~np.isnan(p_arr)
-
-    # Mask 2: filter non-informative p-values (p >= 1.0)
-    # p=1.0 contributes tan((0.5 - 1.0)*pi) = tan(-pi/2) = -inf which is numerically problematic
-    informative_mask = valid_mask & (p_arr < 1.0)
-
-    p_valid = p_arr[informative_mask]
-    w_valid = w_arr[informative_mask]
-
+    p_valid = p_arr[valid_mask]
+    w_valid = w_arr[valid_mask]
     n_valid = len(p_valid)
 
     if n_valid == 0:
+        return None
+    # Validation as in R ACAT(): p outside [0, 1] is an error, p = 0 with p = 1 is undefined
+    if ((p_valid < 0.0) | (p_valid > 1.0)).any():
+        raise ValueError(f"P-values must be between 0 and 1, got {p_valid.tolist()}")
+    if (p_valid == 0.0).any() and (p_valid == 1.0).any():
+        logger.debug("cauchy_combination: p-values of exactly 0 and 1, ACAT undefined")
         return None
 
     if n_valid == 1:
@@ -123,33 +125,17 @@ def cauchy_combination(
     w_sum = w_valid.sum()
     w_valid = np.ones(n_valid, dtype=float) / n_valid if w_sum <= 0 else w_valid / w_sum
 
-    # Clamp p=0.0 to smallest representable positive float to avoid 1/0 = inf
-    p_valid = np.clip(p_valid, np.finfo(float).tiny, None)
-
-    # Compute Cauchy transforms with numerical stability guard
-    # For p < _TINY_P_THRESHOLD: use approximation 1/(p*pi) (Liu & Xie 2020)
-    # For p >= _TINY_P_THRESHOLD: use exact tan((0.5 - p) * pi)
+    # As R ACAT(): 1/(p*pi) below the threshold (p = 0 gives +inf, combined p 0) and
+    # tan((0.5 - p) * pi) otherwise (p = 1 gives about -1.6e16, kept like any other p)
     tiny_mask = p_valid < _TINY_P_THRESHOLD
-    transforms = np.empty(n_valid, dtype=float)
-    if tiny_mask.any():
-        transforms[tiny_mask] = 1.0 / (p_valid[tiny_mask] * np.pi)
-    if (~tiny_mask).any():
-        transforms[~tiny_mask] = np.tan((0.5 - p_valid[~tiny_mask]) * np.pi)
-
-    # Weighted Cauchy statistic (named t_stat; T is conventional in literature)
+    with np.errstate(divide="ignore"):
+        transforms = np.where(tiny_mask, 1.0 / p_valid / np.pi, np.tan((0.5 - p_valid) * np.pi))
     t_stat = float(np.dot(w_valid, transforms))
+    if np.isnan(t_stat):  # p = 0 with weight 0: R returns NaN
+        return None
 
-    # Guard against inf/NaN from extreme transforms — fall back to min-p Bonferroni
-    if not np.isfinite(t_stat):
-        logger.debug(
-            "cauchy_combination: t_stat is %s, falling back to min-p * n Bonferroni",
-            t_stat,
-        )
-        return float(np.clip(np.min(p_valid) * n_valid, 0.0, 1.0))
-
-    # Combined p-value: survival function of standard Cauchy distribution
-    p_combined = float(np.clip(cauchy.sf(t_stat), 0.0, 1.0))
-    return p_combined
+    # pcauchy(t, lower.tail = FALSE) without the 0.5 - atan(t)/pi cancellation at large t
+    return float(np.arctan2(1.0, t_stat) / np.pi)
 
 
 def compute_acat_v(
@@ -252,10 +238,9 @@ def compute_acat_v(
         if g_ss[j] <= 1e-12 or var_vec[j] <= 0.0:
             continue  # skip zero-variance or collinear variants
         z_j = score_vec[j] / np.sqrt(var_vec[j])
-        p_j = 2.0 * float(norm.sf(abs(z_j)))
-        if 0.0 < p_j < 1.0:
-            valid_p.append(p_j)
-            valid_w.append(float(weights[j]))
+        # Every marginal p in [0, 1] goes to ACAT, as STAAR; R ACAT() rules handle 0 and 1
+        valid_p.append(2.0 * float(norm.sf(abs(z_j))))
+        valid_w.append(float(weights[j]))
 
     if not valid_p:
         return None
@@ -267,15 +252,15 @@ def compute_acat_o(test_p_values: dict[str, float | None]) -> float | None:
     """
     Compute ACAT-O (omnibus) p-value by combining test p-values per gene.
 
-    This is the gene-level omnibus test that combines burden test p-values
-    (e.g. Fisher, logistic burden) and SKAT p-values via equal-weight Cauchy
-    combination. ACAT-O is the primary output for significance ranking.
+    This is the gene-level omnibus test that combines burden, SKAT/SKAT-O and
+    ACAT-V p-values via equal-weight Cauchy combination.
+    ACAT-O is the primary output for significance ranking.
 
     Parameters
     ----------
     test_p_values : dict mapping test_name -> p_value
         Dictionary of {test_name: p_value | None} for a single gene.
-        Example: {"burden": 0.01, "skat": 0.05, "fisher": None}
+        Example: {"burden": 0.01, "skat": 0.05, "acat_v": None}
 
     Returns
     -------

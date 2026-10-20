@@ -107,7 +107,7 @@ def test_stage_writes_score_artifact_for_fisher_only_run(monkeypatch, tmp_path):
 
     captured: list[dict] = []
 
-    def fake_run_all(self, gene_burden_data):
+    def fake_run_all(self, gene_burden_data, gene_hook=None):
         captured.extend(gene_burden_data)
         return pd.DataFrame({"gene": ["GENE1"], "fisher_pvalue": [1.0]})
 
@@ -159,7 +159,9 @@ def test_stage_writes_score_artifact_for_fisher_only_run(monkeypatch, tmp_path):
     assert art.mask_label == "HIGH"  # #197: label + provenance (no VCF here: unknown)
     assert art.provenance["snpeff_version"] is None
     assert art.provenance["regions_bed_sha256"] == "none"
-    assert all("_genotype_matrix_builder" not in d for d in captured)
+    # The engine builds each matrix once and computes the artifact entry from it (#212);
+    # with this fake engine the artifact falls back to building the matrix itself.
+    assert all("_genotype_matrix_builder" in d for d in captured)
 
 
 def test_gene_burden_counts_each_variant_once_across_transcripts():

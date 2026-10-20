@@ -48,7 +48,9 @@ def imbalance_message(n_cases: int, n_controls: int, max_ratio: float = 20.0) ->
     return (
         f"Association diagnostics: {larger} outnumber {smaller} {ratio:.1f}:1, "
         f"exceeding the {max_ratio:.0f}:1 threshold. "
-        "Type I error inflation risk without SPA/Firth correction."
+        "Type I error inflation risk without SPA/Firth correction. "
+        "With SKAT, consider --acat-o-exclude acat_v (ACAT-V is anti-conservative "
+        "for ultra-rare variants under imbalance)."
     )
 
 

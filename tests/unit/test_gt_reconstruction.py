@@ -291,8 +291,8 @@ def test_original_column_names():
 
 
 @pytest.mark.unit
-def test_sample_count_mismatch_warning(caplog):
-    """Test warning when GT column count differs from sample count."""
+def test_sample_count_mismatch_raises():
+    """A GT column count that differs from the sample count is refused (#219)."""
     df = pd.DataFrame(
         {
             "CHROM": ["chr1"],
@@ -300,14 +300,10 @@ def test_sample_count_mismatch_warning(caplog):
             "GEN_1__GT": ["1/1"],
         }
     )
-    # More samples than GT columns
+    # More samples than GT columns: Sample3 would silently read as reference.
     vcf_samples = ["Sample1", "Sample2", "Sample3"]
-
-    result = reconstruct_gt_column(df, vcf_samples)
-
-    assert "GT column count (2) != sample count (3)" in caplog.text
-    # Should still work with available columns
-    assert result["GT"].iloc[0] == "Sample1(0/1);Sample2(1/1)"
+    with pytest.raises(ValueError, match=r"2 per-sample GT columns for 3 VCF samples.*\[2\]"):
+        reconstruct_gt_column(df, vcf_samples)
 
 
 @pytest.mark.unit

@@ -282,6 +282,56 @@ Test data is organized in subdirectories:
 
 Pytest is configured in `pyproject.toml` under `[tool.pytest.ini_options]`.
 
+### Association Benchmark Harness
+
+`scripts/bench_association.py` runs `AssociationAnalysisStage` in-process on seeded
+synthetic data (no real cohorts) and prints one machine-readable `RESULT` line plus a
+table of the stage's sub-step timings, which the stage records in
+`context.stage_results["association_analysis"]["substep_seconds"]` (`sample_setup`,
+`covariates_phenotype`, `gt_parse` (the one genotype parse per run), `aggregation`,
+`matrix_builders`, `score_artifact`, `engine`, `write_output`). `matrix_builders` times only
+the creation of the per-gene builder objects; the genotype matrices are built lazily inside
+`engine` (and `score_artifact`, when enabled), so those sub-steps include matrix construction.
+
+The same timings are logged at INFO at the end of the stage, together with peak RSS, the
+aggregation path, genes tested/skipped and the worker count and its reason; the gene loop logs
+`Association genes: done/total, rate, ETA` at most every 30 s (`association/timing.py`
+`Progress`, emitted by the parent as ordered results arrive; workers never log per gene).
+
+```bash
+# Presets: S = 50 genes x 1,000 samples, M = 500 x 3,000, L = 2,000 x 6,000 (~25 variants/gene)
+python scripts/bench_association.py --size M --layout columns --tests fisher --out before.tsv
+# ... change code, rerun with --out after.tsv, then gate on identical results:
+python scripts/bench_association.py --compare before.tsv after.tsv   # exit 0 only if identical
+```
+
+`--out PATH` writes the TSV plus `PATH.pkl` (the exact DataFrame) and, with a score artifact,
+`PATH.scores.npz` and `PATH.scores.npz.meta.json`. `--compare` exits 0 only if the TSV text,
+the pickled frames (`assert_frame_equal(check_exact=True)`, dtypes included) and the score
+artifacts (same array keys, dtypes and NaN-aware values, identical metadata) all match.
+
+Target-workload presets (synthetic, 2,000 genes = 1/10 of an exome, 6,000 VCF samples,
+`logistic_burden,skat` with SKAT-O, `--missing-as-ref`, score artifact on, default Beta(1,25)
+weights): `--size A` assigns 520 cases / 4,480 controls with 13 covariates (age, sex,
+PC1-PC10, one binary); `--size B` assigns 790 cases / 100 controls and adds a binary batch
+covariate (14). Explicit flags override preset values.
+
+`--layout packed` keeps only the packed `GT` column (as after extraction); `--layout columns`
+adds per-sample categorical `GEN_<i>__GT` columns (as after variant analysis). Other options:
+`--genes/--samples`, `--tests`, `--skat-method`, `--workers`, `--blas-threads` (default 1),
+`--case-frac`/`--cases`, `--unassigned`/`--controls`, `--covariates`, `--missing-as-ref`,
+`--artifact`, `--repeat` (see `--help`).
+
+`tests/performance/test_association_bench_regression.py` (marked `slow`, excluded from
+`make test-fast`) fails when size S is more than 1.2x slower than
+`tests/performance/association_bench_baseline.json`. Refresh the baseline on the machine that
+runs the test, after an intended speed change:
+
+```bash
+python scripts/bench_association.py --size S --repeat 3 \
+    --write-baseline tests/performance/association_bench_baseline.json
+```
+
 ### Writing Tests
 
 Follow these comprehensive guidelines when writing tests:

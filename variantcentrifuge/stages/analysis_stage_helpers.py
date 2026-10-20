@@ -51,6 +51,8 @@ VALID_ASSOCIATION_KEYS: frozenset[str] = frozenset(
         "association_workers",
         "gene_prior_weights",
         "gene_prior_weight_column",
+        "primary_test",
+        "acat_o_exclude",
     }
 )
 
@@ -98,6 +100,8 @@ def _validate_association_config_dict(d: dict) -> None:
         "diagnostics_output",
         "gene_prior_weights",
         "gene_prior_weight_column",
+        "primary_test",
+        "acat_o_exclude",
     }
     int_keys = {
         "pca_components",
@@ -162,6 +166,12 @@ def _validate_association_config_dict(d: dict) -> None:
         errors.append(f"'skat_backend' must be 'auto', 'r', or 'python', got '{d['skat_backend']}'")
     if "coast_backend" in d and d["coast_backend"] not in ("auto", "python"):
         errors.append(f"'coast_backend' must be 'auto' or 'python', got '{d['coast_backend']}'")
+    if "primary_test" in d and d["primary_test"] not in ("acat_o", "skato", "burden"):
+        errors.append(
+            f"'primary_test' must be 'acat_o', 'skato', or 'burden', got '{d['primary_test']}'"
+        )
+    if "acat_o_exclude" in d and d["acat_o_exclude"] not in (None, "acat_v"):
+        errors.append(f"'acat_o_exclude' must be null or 'acat_v', got '{d['acat_o_exclude']}'")
 
     if errors:
         raise ValueError(
@@ -294,6 +304,8 @@ def _build_assoc_config_from_context(context: "PipelineContext") -> AssociationC
         firth_max_iter=_get("firth_max_iter", default=25, nullable=False),
         skat_backend=_get("skat_backend", default="python", nullable=False),
         skat_method=_get("skat_method", default="SKAT", nullable=False),
+        primary_test=_get("primary_test", default="acat_o", nullable=True),
+        acat_o_exclude=_get("acat_o_exclude", default=None, nullable=True),
         coast_backend=_get("coast_backend", default="python", nullable=False),
         min_cases=_get("association_min_cases", json_key="min_cases", default=200, nullable=False),
         max_case_control_ratio=_get(

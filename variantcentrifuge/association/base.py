@@ -150,6 +150,12 @@ class AssociationConfig:
     skat_method: str = "SKAT"
     """SKAT variant to run: "SKAT" (default), "Burden" (burden-only), or "SKATO" (omnibus)."""
 
+    primary_test: str = "acat_o"
+    """Result driving primary_* and FDR: "acat_o" (default), "skato" or "burden" (#210)."""
+
+    acat_o_exclude: str | None = None
+    """ACAT-O component to leave out: None or "acat_v" (#210)."""
+
     # Phase 22: ACAT-O + diagnostics fields
     min_cases: int = 200
     """Cohort-level warning threshold: warn if n_cases < this value."""

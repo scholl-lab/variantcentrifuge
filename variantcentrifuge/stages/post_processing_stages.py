@@ -44,6 +44,11 @@ class GenotypeReplacementStage(Stage):
         return {"field_extraction", "sample_config_loading"}
 
     @property
+    def soft_dependencies(self) -> set[str]:
+        """Run after the threaded extraction, which marks field_extraction complete."""
+        return {"parallel_complete_processing"}
+
+    @property
     def checkpoint_resume_policy(self) -> str:
         """Phase-11 no-op can be skipped without restoring a file."""
         return "skip"
@@ -348,7 +353,7 @@ class DataSortingStage(Stage):
             input_file=str(context.extracted_tsv),
             output_file=str(sorted_tsv),
             gene_column=gene_column,
-            temp_dir=str(context.workspace.intermediate_dir),
+            temp_dir=str(context.workspace.temp_dir),
             memory_limit=context.config.get("sort_memory_limit", "2G"),
             parallel=context.config.get("sort_parallel", 4),
         )

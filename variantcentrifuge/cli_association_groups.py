@@ -22,7 +22,10 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
     stats_group.add_argument(
         "--perform-gene-burden",
         action="store_true",
-        help="Perform gene burden analysis",
+        help=(
+            "DEPRECATED: use --perform-association (e.g. --association-tests fisher); "
+            "will be removed in the next minor release. Performs legacy gene burden analysis."
+        ),
     )
     stats_group.add_argument(
         "--gene-burden-mode",
@@ -139,6 +142,14 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
         ),
     )
     stats_group.add_argument(
+        "--no-sample-subset",
+        action="store_true",
+        help=(
+            "Keep every VCF sample at field extraction. By default an association run with "
+            "case/control samples or a phenotype file extracts only those samples' genotypes."
+        ),
+    )
+    stats_group.add_argument(
         "--mask-label",
         type=str,
         default=None,
@@ -208,6 +219,28 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
         help=(
             "SKAT method variant: 'SKAT' (default), 'Burden' (burden-only), "
             "or 'SKATO' (SKAT-O omnibus). Requires SKAT test in --association-tests."
+        ),
+    )
+    # #210: None = not set on the CLI, so the JSON "association" section can provide it.
+    stats_group.add_argument(
+        "--primary-test",
+        choices=["acat_o", "skato", "burden"],
+        default=None,
+        help=(
+            "Result that drives primary_pvalue/primary_qvalue and the FDR correction. "
+            "'acat_o' (default): ACAT-O for multi-test or SKAT runs, else the single test. "
+            "'skato': SKAT-O (needs skat and --skat-method SKATO). 'burden': "
+            "logistic_burden (binary) or linear_burden (quantitative)."
+        ),
+    )
+    stats_group.add_argument(
+        "--acat-o-exclude",
+        choices=["acat_v"],
+        default=None,
+        help=(
+            "Leave a component out of ACAT-O. 'acat_v': drop the per-variant ACAT-V "
+            "p-value, which is anti-conservative for ultra-rare variants under "
+            "case:control imbalance (no SPA correction)."
         ),
     )
     stats_group.add_argument(

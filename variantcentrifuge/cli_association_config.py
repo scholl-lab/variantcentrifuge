@@ -33,6 +33,9 @@ def populate_association_config(
         getattr(args, "perform_association", False) or cfg.get("perform_association", False)
     )
     args.perform_association = cfg["perform_association"]
+    cfg["no_sample_subset"] = bool(
+        getattr(args, "no_sample_subset", False) or cfg.get("no_sample_subset", False)
+    )
     assoc_tests = getattr(args, "association_tests", None)
     if assoc_tests:
         if isinstance(assoc_tests, str):
@@ -102,6 +105,8 @@ def populate_association_config(
     cfg["association_workers"] = _aw if _aw else 0
     # Phase 28: SKAT method and diagnostic thresholds
     cfg["skat_method"] = getattr(args, "skat_method", "SKAT")
+    cfg["primary_test"] = getattr(args, "primary_test", None)
+    cfg["acat_o_exclude"] = getattr(args, "acat_o_exclude", None)
     # Phase 33: Gene-level FDR weighting
     _gpw = getattr(args, "gene_prior_weights", None)
     if _gpw and not Path(_gpw).is_file():
@@ -228,6 +233,8 @@ def validate_association_args(
         "missing_site_threshold",
         "missing_sample_threshold",
         "missing_as_ref",
+        "primary_test",
+        "acat_o_exclude",
     ):
         if getattr(args, dest, None) is not None and not args.perform_association:
             _fail(f"--{dest.replace('_', '-')} requires --perform-association to be set")
@@ -252,3 +259,24 @@ def validate_association_args(
                 "(binary-trait tests; fisher is the default when --association-tests is not "
                 "given). Use linear_burden and/or skat for quantitative traits."
             )
+
+    # The primary test (CLI, else config-file "association" section) must name a test
+    # this run executes (#210); fail before extraction. The engine re-checks.
+    file_assoc = cfg.get("association") or {}
+    merged = argparse.Namespace(
+        primary_test=getattr(args, "primary_test", None) or file_assoc.get("primary_test"),
+        acat_o_exclude=getattr(args, "acat_o_exclude", None) or file_assoc.get("acat_o_exclude"),
+        skat_method=getattr(args, "skat_method", "SKAT"),
+        trait_type=trait_type,
+    )
+    if (merged.primary_test or merged.acat_o_exclude) and args.perform_association:
+        from .association.acat_o import resolve_primary_test
+
+        tests = raw_tests or file_assoc.get("association_tests") or ["fisher"]
+        if isinstance(tests, str):
+            tests = [t.strip() for t in tests.split(",")]
+        merged.primary_test = merged.primary_test or "acat_o"
+        try:
+            resolve_primary_test(list(tests), merged)
+        except ValueError as e:
+            _fail(str(e))

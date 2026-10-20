@@ -421,3 +421,26 @@ class TestAcatVCovariateProjection:
             design_matrix=design_x,
         )
         assert p_val is None
+
+
+@pytest.mark.unit
+def test_acat_v_keeps_marginal_p_of_one_like_r_acat():
+    """ACAT-V passes marginal p = 1 to the combiner, as STAAR/R ACAT() (#216).
+
+    50 cases / 50 controls, intercept-only null model: variant 1 is carried by one case and
+    one control (score 0, marginal p = 1), variant 2 by ten cases (marginal p = 0.000858...).
+    Reference (R 4.5.3): the ACAT() function of scripts/generate_acat_parity.R (verbatim from
+    yaowuliu/ACAT R/ACAT.R @ e737d7d) written to acat_v.R, followed by
+    ``cat(sprintf("%.17g\\n", suppressWarnings(ACAT(c(1, 0.0008581206663936653)))))``;
+    ``conda run -n metaskat-check Rscript acat_v.R`` -> 1
+    (tan((0.5 - 1) * pi) = -1.6e16 dominates the Cauchy statistic.)
+    """
+    y = np.r_[np.ones(50), np.zeros(50)]
+    geno = np.zeros((100, 2))
+    geno[[0, 50], 0] = 1.0
+    geno[1:11, 1] = 1.0
+    mu_hat = np.full(100, 0.5)
+    p = compute_acat_v(
+        geno, y - mu_hat, "binary", 1.0, mu_hat, np.ones(2), design_matrix=np.ones((100, 1))
+    )
+    assert p == 1.0

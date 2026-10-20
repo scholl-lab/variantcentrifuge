@@ -97,6 +97,26 @@ def test_empty_gene_reports_zero_qc_variants():
     assert _builder(df.iloc[0:0], samples)()["n_variants_qc"] == 0
 
 
+def test_variant_keep_mask_aligns_with_gene_df_rows_and_is_discarded():
+    from variantcentrifuge.association.engine_workers import (
+        _apply_builder_result_to_gene_data,
+        _discard_per_gene_matrix_payload,
+    )
+
+    df, samples = _sparse_gene()
+    df.loc[2, samples] = ["0/1" if i < 6 else "0/0" for i in range(N)]  # fully called row
+    res = _builder(df, samples)()
+    mask = res["variant_keep_mask"]
+    assert mask.dtype == bool and mask.tolist() == [False, False, True, False]
+    assert res["n_variants_qc"] == int(mask.sum())
+    assert _builder(df.iloc[0:0], samples)()["variant_keep_mask"].shape == (0,)
+    gene_data: dict = {}
+    _apply_builder_result_to_gene_data(gene_data, res, "G1")
+    assert gene_data["variant_keep_mask"] is mask
+    _discard_per_gene_matrix_payload(gene_data)
+    assert "variant_keep_mask" not in gene_data and gene_data["n_variants_qc"] == 1
+
+
 # -- stage reporting ----------------------------------------------------------------
 
 
@@ -282,13 +302,13 @@ def test_fisher_aggregators_honour_missing_as_ref():
     cols = pd.DataFrame(
         {
             "GENE": ["G", "G"],
-            "a": ["0/1", "./."],
-            "b": ["./.", "./1"],
-            "c": ["0/0", "."],
-            "d": ["0/0", "0/0"],
+            "GEN_0__GT": ["0/1", "./."],
+            "GEN_1__GT": ["./.", "./1"],
+            "GEN_2__GT": ["0/0", "."],
+            "GEN_3__GT": ["0/0", "0/0"],
         }
     )
-    order, gt_cols = ["A", "B", "C", "D"], ["a", "b", "c", "d"]
+    order, gt_cols = ["A", "B", "C", "D"], [f"GEN_{i}__GT" for i in range(4)]
     packed = pd.DataFrame({"GENE": ["G", "G"], "GT": ["A(0/1);B(./.)", "A(./.);B(./1);C(.)"]})
     for missing_as_ref, called, carriers in ((False, (0, 1), (0, 0)), (True, (2, 2), (1, 0))):
         for rec in (
@@ -344,7 +364,7 @@ def test_stage_passes_missing_as_ref_to_fisher_and_builders(monkeypatch, tmp_pat
 
     captured: list[dict] = []
 
-    def fake_run_all(self, gene_burden_data):
+    def fake_run_all(self, gene_burden_data, gene_hook=None):
         captured.extend(dict(d) for d in gene_burden_data)
         return pd.DataFrame({"gene": ["GENE1"], "n_variants": [2], "fisher_pvalue": [1.0]})
 
@@ -370,7 +390,9 @@ def test_artifact_only_run_warns_about_dropped_sites(monkeypatch, tmp_path, capl
     from variantcentrifuge.stages.analysis_stages import AssociationAnalysisStage
 
     monkeypatch.setattr(
-        AssociationEngine, "run_all", lambda self, d: pd.DataFrame({"gene": ["GENE1"]})
+        AssociationEngine,
+        "run_all",
+        lambda self, d, gene_hook=None: pd.DataFrame({"gene": ["GENE1"]}),
     )
     df, cases, ctrls, samples = _stage_df()
     config = {
@@ -409,19 +431,3 @@ def test_v2_artifact_without_valid_policy_refused(tmp_path, policy):
 def test_json_thresholds_range_checked(key, value):
     with pytest.raises(ValueError, match=f"'{key}' .*between 0 and 1"):
         _assoc_config({"association": {key: value}})
-
-
-def test_packed_gt_reconstruction_keeps_index_and_positional_missing():
-    from variantcentrifuge.stages.association_stage_helpers import _per_sample_gt_frame
-
-    # Transcript de-duplication leaves a non-contiguous index.
-    df = pd.DataFrame({"GENE": ["G", "G"], "GT": ["A(0/1);B(./.)", "A(1/1)"]}, index=[0, 2])
-    out = _per_sample_gt_frame(df, ["A", "B", "C"])
-    assert out.loc[[0, 2], ["A", "B", "C"]].values.tolist() == [
-        ["0/1", "./.", "0/0"],
-        ["1/1", "0/0", "0/0"],
-    ]
-    # Positional (comma-separated) GT lists every sample: an explicit ./. stays missing.
-    df = pd.DataFrame({"GENE": ["G"], "GT": ["0/1,./.,./1"]})
-    out = _per_sample_gt_frame(df, ["A", "B", "C"])
-    assert out[["A", "B", "C"]].values.tolist() == [["0/1", "./.", "./1"]]

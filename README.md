@@ -17,7 +17,7 @@ VariantCentrifuge combines gene-centric region extraction, multi-tier filtering 
 - Three-tier filtering: bcftools prefilter, SnpSift expressions, pandas final filter
 - Inheritance pattern analysis (de novo, AD, AR, X-linked, compound het)
 - Configurable variant scoring models
-- Gene burden analysis with Fisher's exact test
+- Association analysis with Fisher's exact test (legacy `--perform-gene-burden` is deprecated)
 - **Modular association testing**: SKAT-O, COAST allelic series, logistic/linear burden regression with covariates and PCA, ACAT-O omnibus combination — see the [Association Testing Guide](docs/source/guides/association_testing.md)
 - Interactive HTML reports with column-level filtering, semantic color badges, summary dashboard, accessible design (WCAG 2.1 AA), and PDF export
 - ClinVar, gnomAD, and SpliceAI annotation links
@@ -107,7 +107,7 @@ or commit URL. For example, for the latest published release:
 > Popp, B. (2026). VariantCentrifuge (version 0.17.12) [Computer software].
 > https://github.com/scholl-lab/variantcentrifuge/releases/tag/v0.17.12
 
-The current development version is **0.22.1**, as recorded in
+The current development version is **0.23.0**, as recorded in
 `variantcentrifuge/version.py`, `CITATION.cff`, and [.zenodo.json](.zenodo.json).
 It has no release date yet; the latest published release is **v0.17.12**
 (2026-07-19). For a development checkout, include its full commit hash and URL

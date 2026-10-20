@@ -181,19 +181,24 @@ def fit_glm_null_model(
 _DECISION_ACC = 1e-6
 
 
-def _project(
-    geno_weighted: np.ndarray, null_model: NullModelResult
-) -> tuple[np.ndarray, np.ndarray, float]:
-    """Return (projected Z, variance-weighted Z, relative round-off bound of P z_j)."""
-    z: np.ndarray = geno_weighted if geno_weighted.ndim == 2 else geno_weighted[:, np.newaxis]
+def _nuisance_basis(null_model: NullModelResult) -> tuple[np.ndarray | None, np.ndarray, float]:
+    """Return (phi or None, orthonormal basis of V^1/2 X, round-off bound) for ``_project``.
+
+    Depends only on the null model, so it is computed once and cached in ``extra``;
+    the cache is keyed on the identity of the arrays it was derived from.
+    """
+    sources = tuple(null_model.extra.get(k) for k in ("design_matrix", "mu_hat", "covariate_r"))
+    cached = null_model.extra.get("_nuisance_basis")
+    if cached is not None and all(a is b for a, b in zip(cached[0], sources, strict=True)):
+        hit: tuple[np.ndarray | None, np.ndarray, float] = cached[1]
+        return hit
     design_x = np.asarray(null_model.extra["design_matrix"], dtype=np.float64)
+    phi = None
     if null_model.trait_type == "binary":
         mu_hat = np.asarray(null_model.extra["mu_hat"], dtype=np.float64)
         phi = np.sqrt(mu_hat * (1.0 - mu_hat))[:, np.newaxis]
-        z = phi * z
         design_x = phi * design_x
     basis, r_factor = np.linalg.qr(design_x)
-    adjusted: np.ndarray = z - basis @ (basis.T @ z)
     # Conditioning of the normalized, (variance-)weighted ORIGINAL nuisance design
     # V^1/2 [1, C] = basis @ r_factor @ blockdiag(1, R_cov), from exact singular values.
     r_cov = np.asarray(null_model.extra.get("covariate_r", np.empty((0, 0))), dtype=np.float64)
@@ -218,6 +223,20 @@ def _project(
     n, k = design_x.shape
     lam = np.sqrt(2.0 * np.log(2.0 * n / _DECISION_ACC))
     bound = float(np.finfo(np.float64).eps * lam * np.sqrt(n) * (k + np.sqrt(k) * kappa))
+    result = (phi, basis, bound)
+    null_model.extra["_nuisance_basis"] = (sources, result)
+    return result
+
+
+def _project(
+    geno_weighted: np.ndarray, null_model: NullModelResult
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Return (projected Z, variance-weighted Z, relative round-off bound of P z_j)."""
+    z: np.ndarray = geno_weighted if geno_weighted.ndim == 2 else geno_weighted[:, np.newaxis]
+    phi, basis, bound = _nuisance_basis(null_model)
+    if phi is not None:
+        z = phi * z
+    adjusted: np.ndarray = z - basis @ (basis.T @ z)
     return adjusted, z, bound
 
 

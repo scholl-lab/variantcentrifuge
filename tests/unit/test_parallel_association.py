@@ -9,13 +9,14 @@ Verifies that:
   parallel_safe.
 - Non-parallel-safe tests trigger a sequential fallback with a warning.
 - Single-gene data stays sequential even if workers > 1.
-- _worker_initializer sets BLAS environment variables in worker processes.
+- _worker_initializer limits BLAS threads in worker processes.
+- Workers build the genotype matrices; the parent fits null models once (#212).
 """
 
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import patch
 
 import numpy as np
@@ -203,69 +204,6 @@ def test_worker_initializer_sets_env() -> None:
             os.environ["OMP_NUM_THREADS"] = orig_omp
 
 
-class _TrackingMatrixBuilder:
-    max_active: int = 0
-
-    def __init__(self, gene: str, all_genes: list[dict[str, Any]]) -> None:
-        self.gene = gene
-        self.all_genes = all_genes
-
-    def __call__(self) -> dict[str, Any]:
-        currently_live = sum(1 for gd in self.all_genes if "genotype_matrix" in gd)
-        _TrackingMatrixBuilder.max_active = max(
-            _TrackingMatrixBuilder.max_active, currently_live + 1
-        )
-        return {
-            "genotype_matrix": np.zeros((4, 2), dtype=float),
-            "variant_mafs": np.array([0.1, 0.2]),
-        }
-
-
-@pytest.mark.unit
-def test_parallel_association_bounded_matrix_materialization() -> None:
-    """Parallel execution bounds concurrent genotype matrices by batch size."""
-    _TrackingMatrixBuilder.max_active = 0
-    n_genes = 12
-    genes = _make_gene_data(n_genes)
-    for g in genes:
-        g["_genotype_matrix_builder"] = _TrackingMatrixBuilder(g["GENE"], genes)
-
-    workers = 2
-    batch_size = workers * 2  # 4
-    config = AssociationConfig(association_workers=workers)
-    engine = AssociationEngine.from_names(["fisher"], config)
-    df = engine.run_all(genes)
-
-    assert len(df) == n_genes
-    # Without bounded batching, all 11 remaining matrices are materialized simultaneously.
-    # With bounded batching (batch_size = 4), at most 4 matrices exist concurrently.
-    assert _TrackingMatrixBuilder.max_active <= batch_size, (
-        f"Expected max concurrent matrices <= {batch_size}, got {_TrackingMatrixBuilder.max_active}"
-    )
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("n_genes", [9, 25])
-def test_parallel_association_bounded_matrix_materialization_scaling(n_genes: int) -> None:
-    """Live matrices stay bounded across increasing gene counts (9 vs 25 genes)."""
-    _TrackingMatrixBuilder.max_active = 0
-    genes = _make_gene_data(n_genes)
-    for g in genes:
-        g["_genotype_matrix_builder"] = _TrackingMatrixBuilder(g["GENE"], genes)
-
-    workers = 2
-    batch_size = workers * 2  # 4
-    config = AssociationConfig(association_workers=workers)
-    engine = AssociationEngine.from_names(["fisher"], config)
-    df = engine.run_all(genes)
-
-    assert len(df) == n_genes
-    assert _TrackingMatrixBuilder.max_active <= batch_size, (
-        f"For {n_genes} genes, expected max live matrices <= {batch_size}, "
-        f"got {_TrackingMatrixBuilder.max_active}"
-    )
-
-
 @pytest.mark.unit
 def test_parallel_association_payload_cleanup_on_batch_error() -> None:
     """Matrix payloads in batch are discarded when a builder or worker raises an error."""
@@ -364,3 +302,276 @@ def test_parallel_vs_sequential_parity_with_real_builder() -> None:
 
     assert len(df_seq) == 6
     pd.testing.assert_frame_equal(df_seq, df_par, check_exact=False, rtol=1e-8)
+
+
+def _real_gene(name: str, seed: int, n_samples: int = 60) -> dict[str, Any]:
+    """A gene with a real lazy builder, binary phenotype and two covariates."""
+    from variantcentrifuge.stages.analysis_stages import _GenotypeMatrixBuilder
+
+    rng = np.random.default_rng(seed)
+    gt_cols = [f"GEN_{i}__GT" for i in range(n_samples)]
+    codes = rng.choice(["0/0", "0/1", "1/1"], size=(6, n_samples), p=[0.85, 0.12, 0.03])
+    gene_df = pd.DataFrame(
+        {"GENE": name, "CHROM": "1", "POS": np.arange(6) * 10 + 100, "REF": "A", "ALT": "T"}
+    )
+    gene_df = pd.concat([gene_df, pd.DataFrame(codes, columns=gt_cols)], axis=1)
+    phenotype = np.array([1.0] * 20 + [0.0] * (n_samples - 20))
+    covariates = np.random.default_rng(0).normal(size=(n_samples, 2))
+    builder = _GenotypeMatrixBuilder(
+        gene_df=gene_df,
+        vcf_samples=[f"s{i}" for i in range(n_samples)],
+        gt_columns=gt_cols,
+        is_binary=True,
+        missing_site_threshold=0.1,
+        missing_sample_threshold=0.8,
+        phenotype_vector=phenotype,
+        covariate_matrix=covariates,
+    )
+    return {
+        "GENE": name,
+        "proband_count": 20,
+        "control_count": n_samples - 20,
+        "n_qualifying_variants": 6,
+        "_genotype_matrix_builder": builder,
+    }
+
+
+@pytest.mark.unit
+def test_worker_count_invariance_exact() -> None:
+    """1 and 3 workers give bit-identical tables and the same n_variants_qc (#212)."""
+    cfg = {"skat_method": "SKATO", "trait_type": "binary"}
+    tables, qc = [], []
+    for workers in (1, 3):
+        genes = [_real_gene(f"G{i:02d}", i) for i in range(14)]
+        engine = AssociationEngine.from_names(
+            ["fisher", "logistic_burden", "skat_python"],
+            AssociationConfig(association_workers=workers, **cfg),
+        )
+        tables.append(engine.run_all(genes))
+        qc.append([g.get("n_variants_qc") for g in genes])
+        assert not any("_genotype_matrix_builder" in g or "genotype_matrix" in g for g in genes)
+    assert len(tables[0]) == 14
+    pd.testing.assert_frame_equal(tables[0], tables[1], check_exact=True)
+    assert qc[0] == qc[1] and None not in qc[0]
+
+
+@pytest.mark.unit
+def test_null_model_fitted_once_across_workers() -> None:
+    """The SKAT null model is fitted in the parent only, never again in a worker (#212)."""
+    import multiprocessing
+
+    from variantcentrifuge.association.backends.python_backend import PythonSKATBackend
+
+    calls = multiprocessing.get_context("fork").Value("i", 0)  # shared with forked workers
+    real_fit = PythonSKATBackend.fit_null_model
+
+    def counting_fit(self, *args, **kwargs):
+        with calls.get_lock():
+            calls.value += 1
+        return real_fit(self, *args, **kwargs)
+
+    genes = [_real_gene(f"G{i:02d}", i) for i in range(12)]
+    genes.insert(0, _real_gene("A_EMPTY", 0))  # first gene sorts first and fits no null model
+    genes[0]["_genotype_matrix_builder"].gene_df = genes[1][
+        "_genotype_matrix_builder"
+    ].gene_df.iloc[:0]
+    engine = AssociationEngine.from_names(
+        ["skat_python"], AssociationConfig(association_workers=3, skat_method="SKATO")
+    )
+    with patch.object(PythonSKATBackend, "fit_null_model", counting_fit):
+        df = engine.run_all(genes)
+    assert len(df) == 13
+    assert calls.value == 1
+
+
+_BLAS_GETTER: Any = None  # inherited by the forked worker below
+
+
+def _blas_threads_in_worker() -> int:
+    return int(_BLAS_GETTER())
+
+
+def _openblas_controls() -> tuple[Any, Any]:
+    """(getter, setter) of a loaded OpenBLAS, found independently of the code under test."""
+    import ctypes
+
+    with open("/proc/self/maps") as fh:
+        paths = sorted({ln.split()[-1] for ln in fh if "openblas" in ln and ".so" in ln})
+    pairs = [
+        (getattr(lib, g), getattr(lib, g.replace("get", "set")))
+        for lib in map(ctypes.CDLL, paths)
+        for g in ("openblas_get_num_threads", "scipy_openblas_get_num_threads64_")
+        if hasattr(lib, g)
+    ]
+    if not pairs:
+        pytest.skip("no OpenBLAS with a known thread getter loaded")
+    return pairs[0]
+
+
+@pytest.mark.unit
+def test_worker_initializer_limits_loaded_blas() -> None:
+    """In a forked worker the already-loaded BLAS runs one thread, whatever the parent uses."""
+    global _BLAS_GETTER
+    import concurrent.futures
+    import multiprocessing
+
+    _BLAS_GETTER, set_threads = _openblas_controls()
+    before = _BLAS_GETTER()
+    set_threads(2)
+    try:
+        with concurrent.futures.ProcessPoolExecutor(
+            1, mp_context=multiprocessing.get_context("fork"), initializer=_worker_initializer
+        ) as ex:
+            assert ex.submit(_blas_threads_in_worker).result() == 1
+        assert _BLAS_GETTER() == 2  # the parent keeps its own setting
+    finally:
+        set_threads(before)
+
+
+class _BlasProbeTest(AssociationTest):
+    """Records the BLAS thread count seen while the engine runs a gene."""
+
+    parallel_safe = True
+    seen: ClassVar[list[int]] = []
+
+    @property
+    def name(self) -> str:
+        return "probe"
+
+    def run(self, gene: str, contingency_data: dict[str, Any], config: AssociationConfig):
+        _BlasProbeTest.seen.append(int(_BLAS_GETTER()))
+        return TestResult(gene, self.name, 0.5, None, None, None, None, None, 1, 1, 1)
+
+    def effect_column_names(self) -> dict[str, str | None]:
+        return {"effect": None, "se": None, "ci_lower": None, "ci_upper": None}
+
+
+@pytest.mark.unit
+def test_sequential_engine_runs_genes_with_one_blas_thread() -> None:
+    """workers=1 also pins BLAS to one thread during the gene loop and restores it after."""
+    global _BLAS_GETTER
+    _BLAS_GETTER, set_threads = _openblas_controls()
+    before = _BLAS_GETTER()
+    set_threads(2)
+    try:
+        _BlasProbeTest.seen = []
+        AssociationEngine([_BlasProbeTest()], AssociationConfig(association_workers=1)).run_all(
+            _make_gene_data(3)
+        )
+        assert _BlasProbeTest.seen == [1, 1, 1]
+        assert _BLAS_GETTER() == 2
+    finally:
+        set_threads(before)
+
+
+class _PidRecordingBuilder:
+    """Wraps a builder and counts calls made in the parent process."""
+
+    def __init__(self, inner: Any, parent_calls: Any) -> None:
+        self.inner, self.parent_calls, self.parent = inner, parent_calls, os.getpid()
+
+    def __call__(self) -> dict[str, Any]:
+        if os.getpid() == self.parent:
+            with self.parent_calls.get_lock():
+                self.parent_calls.value += 1
+        return self.inner()
+
+
+@pytest.mark.unit
+def test_matrices_are_built_in_workers() -> None:
+    """Only the parent's null-model prefix builds a matrix there; workers build the rest."""
+    import multiprocessing
+
+    parent_calls = multiprocessing.get_context("fork").Value("i", 0)
+    genes = [_real_gene(f"G{i:02d}", i) for i in range(12)]
+    for g in genes:
+        g["_genotype_matrix_builder"] = _PidRecordingBuilder(
+            g["_genotype_matrix_builder"], parent_calls
+        )
+    engine = AssociationEngine.from_names(
+        ["logistic_burden", "skat_python"], AssociationConfig(association_workers=3)
+    )
+    assert len(engine.run_all(genes)) == 12
+    assert parent_calls.value == 1
+
+
+@pytest.mark.unit
+def test_without_fork_genes_run_sequentially(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Off Linux (no fork) the parallel request falls back to the sequential loop."""
+    monkeypatch.setattr(
+        "variantcentrifuge.association.engine_workers.fork_available", lambda: False
+    )
+    tables = []
+    for workers in (1, 3):
+        genes = [_real_gene(f"G{i:02d}", i) for i in range(8)]
+        engine = AssociationEngine.from_names(
+            ["logistic_burden"], AssociationConfig(association_workers=workers)
+        )
+        with patch("variantcentrifuge.association.engine_workers.fork_map") as fork_map:
+            tables.append(engine.run_all(genes))
+        fork_map.assert_not_called()
+    pd.testing.assert_frame_equal(tables[0], tables[1], check_exact=True)
+
+
+@pytest.mark.unit
+def test_fork_task_runs_gene_range_in_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The worker entry point (normally only run in a child) returns results and QC counts."""
+    from variantcentrifuge.association import engine_workers as ew
+
+    genes = [_real_gene(f"G{i:02d}", i) for i in range(3)]
+    tests = {
+        "logistic_burden": AssociationEngine.from_names(
+            ["logistic_burden"], AssociationConfig()
+        )._tests["logistic_burden"]
+    }
+    monkeypatch.setattr(
+        ew, "_FORK_STATE", (ew._run_gene_range, (genes, tests, AssociationConfig(), None))
+    )
+    results, qc, hooks = ew._fork_task((1, 3))
+    assert hooks == {}
+    assert list(results["logistic_burden"]) == ["G01", "G02"]
+    assert qc == {"G01": 6, "G02": 6}
+
+
+@pytest.mark.unit
+def test_gc_unfrozen_after_parallel_run_and_on_error() -> None:
+    """fork_map freezes the GC for the fork and always unfreezes it (#212)."""
+    import gc
+
+    frozen = gc.get_freeze_count()  # objects frozen elsewhere stay frozen (may die meanwhile)
+    genes = [_real_gene(f"G{i:02d}", i) for i in range(6)]
+    engine = AssociationEngine.from_names(
+        ["logistic_burden"], AssociationConfig(association_workers=2)
+    )
+    engine.run_all(genes)
+    assert gc.get_freeze_count() <= frozen
+
+    def boom() -> dict[str, Any]:
+        raise RuntimeError("worker failure")
+
+    genes = [_real_gene(f"G{i:02d}", i) for i in range(6)]
+    genes[-1]["_genotype_matrix_builder"] = boom
+    with pytest.raises(RuntimeError, match="worker failure"):
+        engine.run_all(genes)
+    assert gc.get_freeze_count() <= frozen
+
+
+def _range_len(state: Any, lo: int, hi: int) -> int:
+    return hi - lo
+
+
+@pytest.mark.unit
+def test_fork_map_keeps_a_callers_gc_freeze() -> None:
+    """Codex FX-4: fork_map must not unfreeze objects the caller froze."""
+    import gc
+
+    from variantcentrifuge.association.engine_workers import fork_map
+
+    gc.freeze()
+    try:
+        before = gc.get_freeze_count()
+        assert before > 0
+        assert sum(r for _, _, r in fork_map(_range_len, None, 10, 2)) == 10
+        assert before - 100 < gc.get_freeze_count() <= before  # frozen objects may be freed
+    finally:
+        gc.unfreeze()

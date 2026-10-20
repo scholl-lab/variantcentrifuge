@@ -307,7 +307,7 @@ class PythonCOASTBackend:
         geno_filtered: np.ndarray,
         skat_weights: np.ndarray,
         null_model: NullModelResult,
-    ) -> float:
+    ) -> float | None:
         """
         Run the allelic series SKAT-O component.
 
@@ -327,8 +327,9 @@ class PythonCOASTBackend:
 
         Returns
         -------
-        float
-            P-value for the allelic SKAT-O component (1.0 if degenerate).
+        float | None
+            P-value for the allelic SKAT-O component; None (left out of the omnibus)
+            when it cannot be computed (#216).
         """
         from variantcentrifuge.association.backends.null_model import explained_columns
         from variantcentrifuge.association.backends.python_backend import (
@@ -339,7 +340,7 @@ class PythonCOASTBackend:
 
         n_variants = geno_filtered.shape[1]
         if n_variants == 0:
-            return 1.0
+            return None
 
         # Apply per-variant allelic-series weights; variants lying in the covariate
         # space carry no information (same rule as PythonSKATBackend.test_gene)
@@ -355,8 +356,8 @@ class PythonCOASTBackend:
         # Rank check — SKAT-O needs rank >= 2
         rank = int(np.linalg.matrix_rank(geno_weighted))
         if rank < 2:
-            logger.debug("PythonCOASTBackend allelic SKAT-O: rank < 2; p=1.0")
-            return 1.0
+            logger.debug("PythonCOASTBackend allelic SKAT-O: rank < 2; undefined")
+            return None
 
         # ── Steps 1-2: Q_rho and projection-adjusted Z1/sqrt(2) (shared QR projection) ──
         q_rho, z1_half = compute_skato_q_and_z1(geno_weighted, null_model, _SKATO_RHO_GRID)
@@ -369,7 +370,7 @@ class PythonCOASTBackend:
         logger.debug(f"PythonCOASTBackend allelic SKAT-O: p={pvalue:.6e}, rho={best_rho:.3f}")
 
         if np.isnan(pvalue) or np.isinf(pvalue):
-            return 1.0
+            return None
 
         return float(np.clip(pvalue, 0.0, 1.0))
 

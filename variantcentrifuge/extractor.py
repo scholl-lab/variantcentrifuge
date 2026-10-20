@@ -20,53 +20,16 @@ from typing import Any
 
 import pandas as pd
 
+from .extractor_parsing import (  # noqa: F401 - re-exported for existing callers
+    ANN_FIELD_POSITIONS,
+    ANN_SUBFIELD_MAP,
+    NMD_SUBFIELD_MAP,
+    parse_ann_subfields,
+    parse_nmd_subfields,
+)
 from .utils import normalize_vcf_headers, run_command
 
 logger = logging.getLogger("variantcentrifuge")
-
-# SnpEff ANN field positions (pipe-delimited)
-# See: http://pcingola.github.io/SnpEff/se_inputoutput/#ann-field-vcf-output-files
-ANN_FIELD_POSITIONS = {
-    "Allele": 0,
-    "Annotation": 1,  # EFFECT
-    "Annotation_Impact": 2,  # IMPACT
-    "Gene_Name": 3,  # GENE
-    "Gene_ID": 4,
-    "Feature_Type": 5,
-    "Feature_ID": 6,  # FEATUREID
-    "Transcript_BioType": 7,
-    "Rank": 8,
-    "HGVS.c": 9,  # HGVS_C
-    "HGVS.p": 10,  # HGVS_P
-    "cDNA.pos/cDNA.length": 11,
-    "CDS.pos/CDS.length": 12,
-    "AA.pos/AA.length": 13,  # Contains both AA_POS and AA_LEN
-    "Distance": 14,
-    "ERRORS/WARNINGS/INFO": 15,
-}
-
-# Map config field names to ANN positions
-ANN_SUBFIELD_MAP = {
-    "ANN[0].ALLELE": ("Allele", 0),
-    "ANN[0].GENE": ("Gene_Name", 3),
-    "ANN[0].FEATUREID": ("Feature_ID", 6),
-    "ANN[0].EFFECT": ("Annotation", 1),
-    "ANN[0].IMPACT": ("Annotation_Impact", 2),
-    "ANN[0].HGVS_C": ("HGVS.c", 9),
-    "ANN[0].HGVS_P": ("HGVS.p", 10),
-    "ANN[0].AA_POS": ("AA.pos/AA.length", 13),  # Will need split
-    "ANN[0].AA_LEN": ("AA.pos/AA.length", 13),  # Will need split
-}
-
-# NMD field positions (pipe-delimited SnpEff LOF/NMD format:
-# Gene | ID | num_transcripts | percent_affected)
-NMD_SUBFIELD_MAP = {
-    "NMD[0].GENE": 0,
-    "NMD[0].GENEID": 1,
-    "NMD[0].NUMTR": 2,
-    "NMD[0].PERC": 3,
-}
-
 
 _WILDCARD_ANN_FIELD = re.compile(r"^(ANN|EFF)\[\*\]\.")
 
@@ -202,134 +165,6 @@ def get_expected_extraction_columns(
     return list(df.columns)
 
 
-def parse_ann_subfields(df: pd.DataFrame, fields: list[str]) -> pd.DataFrame:
-    """
-    Parse ANN subfields from raw ANN column.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        DataFrame with raw "ANN" column containing pipe-delimited annotations
-    fields : list[str]
-        Original field list to determine which ANN subfields to extract
-
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame with ANN subfields added and raw ANN column removed
-    """
-    if "ANN" not in df.columns:
-        return df
-
-    # Determine which ANN subfields are needed
-    ann_fields_needed = [f for f in fields if f.startswith("ANN[0].")]
-
-    if not ann_fields_needed:
-        # No ANN subfields requested, just drop the raw column
-        return df.drop(columns=["ANN"])
-
-    # Select first annotation matching ALT (when biallelic ALT is present)
-    if "ALT" in df.columns:
-        first_ann = pd.Series(
-            [
-                next(
-                    (e for e in str(ann).split(",") if e and e.split("|", 1)[0] == str(alt)),
-                    "" if str(alt) and "," not in str(alt) else str(ann).split(",", 1)[0],
-                )
-                for ann, alt in zip(df["ANN"].fillna(""), df["ALT"].fillna(""), strict=False)
-            ],
-            index=df.index,
-            dtype="object",
-        )
-    else:
-        first_ann = df["ANN"].fillna("").str.split(",", n=1).str[0]
-
-    first_ann = first_ann.replace({"": pd.NA, ".": pd.NA})
-
-    # Split by pipe
-    ann_split = first_ann.str.split("|", expand=True)
-
-    # Extract each requested subfield
-    for field in ann_fields_needed:
-        if field in ANN_SUBFIELD_MAP:
-            _, pos = ANN_SUBFIELD_MAP[field]
-
-            # Special handling for AA_POS and AA_LEN (combined in one field)
-            if field == "ANN[0].AA_POS":
-                # Extract position part (before "/")
-                if pos < ann_split.shape[1]:
-                    s = ann_split[pos].fillna("").str.split("/").str[0]
-                    df[field] = s.where(ann_split[pos].notna(), "NA")
-                else:
-                    df[field] = "NA"
-            elif field == "ANN[0].AA_LEN":
-                # Extract length part (after "/")
-                if pos < ann_split.shape[1]:
-                    s = ann_split[pos].fillna("").str.split("/").str[1].fillna("")
-                    df[field] = s.where(ann_split[pos].notna(), "NA")
-                else:
-                    df[field] = "NA"
-            else:
-                # Normal extraction
-                if pos < ann_split.shape[1]:
-                    df[field] = ann_split[pos].fillna("NA")
-                else:
-                    df[field] = "NA"
-
-    # Drop raw ANN column
-    df = df.drop(columns=["ANN"])
-
-    return df
-
-
-def parse_nmd_subfields(df: pd.DataFrame, fields: list[str]) -> pd.DataFrame:
-    """
-    Parse NMD subfields from raw NMD column.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        DataFrame with raw "NMD" column containing pipe-delimited data
-    fields : list[str]
-        Original field list to determine which NMD subfields to extract
-
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame with NMD subfields added and raw NMD column removed
-    """
-    if "NMD" not in df.columns:
-        return df
-
-    # Determine which NMD subfields are needed
-    nmd_fields_needed = [f for f in fields if f.startswith("NMD[0].")]
-
-    if not nmd_fields_needed:
-        return df.drop(columns=["NMD"])
-
-    # Take first NMD annotation and remove SnpEff's surrounding parentheses:
-    # NMD=(GENE|GENEID|NUMTR|PERC)
-    first_nmd = df["NMD"].fillna("").str.split(",", n=1).str[0]
-    first_nmd = first_nmd.str.strip().str.replace(r"^\((.*)\)$", r"\1", regex=True)
-
-    # Split by pipe
-    nmd_split = first_nmd.str.split("|", expand=True)
-
-    # Extract each requested subfield
-    for field in nmd_fields_needed:
-        if field in NMD_SUBFIELD_MAP:
-            pos = NMD_SUBFIELD_MAP[field]
-            if pos < nmd_split.shape[1]:
-                df[field] = nmd_split[pos].fillna("NA")
-            else:
-                df[field] = "NA"
-
-    # Drop raw NMD column
-    df = df.drop(columns=["NMD"])
-
-    return df
-
-
 def extract_fields_bcftools(
     variant_file: str,
     fields: str,
@@ -349,7 +184,9 @@ def extract_fields_bcftools(
     fields : str
         A space-separated list of fields to extract.
     cfg : dict
-        Configuration dictionary.
+        Configuration dictionary. ``bcftools_samples`` (raw VCF names, VCF order) limits
+        per-sample columns to those samples (``bcftools query -S``); ``vcf_samples`` must
+        then name the same samples.
     output_file : str
         Path to the final TSV file where extracted fields will be written.
     vcf_samples : list[str], optional
@@ -374,12 +211,21 @@ def extract_fields_bcftools(
     logger.debug(f"Column names: {column_names}")
 
     # Create temporary file for bcftools output
-    temp_fd, temp_output = tempfile.mkstemp(suffix=".tsv", prefix="bcftools_extract_")
+    temp_fd, temp_output = tempfile.mkstemp(
+        suffix=".tsv", prefix="bcftools_extract_", dir=cfg.get("temp_dir")
+    )
     os.close(temp_fd)
+    samples_file = None
 
     try:
         # Run bcftools query
-        cmd = ["bcftools", "query", "-u", "-f", format_string, variant_file]
+        cmd = ["bcftools", "query", "-u", "-f", format_string]
+        if cfg.get("bcftools_samples"):  # analysed-sample subset (#212), names in VCF order
+            samples_file = f"{temp_output}.samples"
+            with open(samples_file, "w") as fh:
+                fh.write("".join(f"{s}\n" for s in cfg["bcftools_samples"]))
+            cmd.extend(["-S", samples_file])
+        cmd.append(variant_file)
 
         logger.debug(f"Running bcftools query: {' '.join(cmd)}")
 
@@ -480,9 +326,10 @@ def extract_fields_bcftools(
         )
 
     finally:
-        # Clean up temp file
-        if os.path.exists(temp_output):
-            os.remove(temp_output)
+        # Clean up temp files
+        for p in (temp_output, samples_file):
+            if p and os.path.exists(p):
+                os.remove(p)
 
     return output_file
 
@@ -532,12 +379,13 @@ def extract_fields_snpsift(
     field_list = fields.strip().split()
     logger.debug(f"Field list to extract: {field_list}")
 
-    from .filters import _snpsift_memory_flag
+    from .filters import _java_tmp_flags, _snpsift_memory_flag
 
     xmx = _snpsift_memory_flag(cfg)
     cmd = [
         "SnpSift",
         xmx,
+        *_java_tmp_flags(cfg),
         "extractFields",
         "-s",
         snpsift_sep,  # SnpSift subfield separator

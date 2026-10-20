@@ -245,6 +245,9 @@ Yes, multiple ways:
 
 ### How do I perform gene burden analysis?
 
+> **Deprecated:** `--perform-gene-burden` is deprecated and will be removed in the next minor release.
+> Use the association engine instead: `--perform-association --association-tests fisher`.
+
 For case-control studies:
 
 ```bash
@@ -287,7 +290,7 @@ See the [Docker installation guide](installation.md#method-4-docker-recommended-
 
 ### How do I run a gene burden test with covariate adjustment?
 
-Use `--perform-association` with `--covariate-file` instead of (or in addition to) `--perform-gene-burden`:
+Use `--perform-association` with `--covariate-file` (`--perform-gene-burden` is deprecated):
 
 ```bash
 variantcentrifuge \
@@ -308,10 +311,25 @@ The covariate file should be a TSV or CSV with sample IDs in the first column an
 
 ACAT-O (Aggregated Cauchy Association Test — Omnibus) combines p-values from multiple association tests per gene into a single omnibus p-value using the Cauchy combination method (Liu and Xie, 2020). It is robust to the unknown correlation between tests and does not require simulation.
 
-When you run multiple tests (e.g., `--association-tests fisher,logistic_burden,skat`), each test may capture different genetic architectures: Fisher detects dominant carrier effects, burden tests detect directional cumulative effects, and SKAT-O detects heterogeneous effects without sign constraints. ACAT-O combines evidence from all active tests into a single per-gene p-value. A single Benjamini-Hochberg FDR correction is applied to the primary p-value across all genes. For multi-test runs, `acat_o_qvalue` is the primary corrected result; for single-test runs such as Fisher-only, use `primary_qvalue` or the test-specific column such as `fisher_qvalue`. See the [Association Testing Guide](guides/association_testing.md) for the test selection reference table.
+When you run multiple tests (e.g., `--association-tests fisher,logistic_burden,skat`), each test may capture different genetic architectures: Fisher detects dominant carrier effects, burden tests detect directional cumulative effects, and SKAT-O detects heterogeneous effects without sign constraints. ACAT-O combines the burden, SKAT-O and ACAT-V evidence into a single per-gene p-value (Fisher is reported on its own and is not part of ACAT-O). A single Benjamini-Hochberg FDR correction is applied to the primary p-value across all genes. For multi-test runs, `acat_o_qvalue` is the primary corrected result; for single-test runs such as Fisher-only, use `primary_qvalue` or the test-specific column such as `fisher_qvalue`. See the [Association Testing Guide](guides/association_testing.md) for the test selection reference table.
 
 ### Do I need R installed for SKAT or COAST?
 
 No. Since v0.15.0, the default backend for both SKAT (`--skat-backend python`) and COAST (`--coast-backend python`) is a pure Python implementation using numpy and scipy. No R or rpy2 installation is required.
 
 The legacy R SKAT backend (`--skat-backend r`) is deprecated as of v0.15.0 and scheduled for removal. COAST operates in Python (`--coast-backend python`). Migrate to the default Python backends — the p-values agree within 10% on real data. See the [Association Testing Guide](guides/association_testing.md) for backend migration details.
+
+## "No space left on device" during a run
+
+Large multi-sample VCFs expand roughly 16x (uncompressed VCF) and 10x (extracted TSV) relative to the
+`.vcf.gz` (measured on the 1000 Genomes test fixture). At start-up VariantCentrifuge checks free space
+on the temp and output filesystems and warns (never stops) below 16x the compressed input size, the
+largest single intermediate of a whole-VCF run; gene-panel runs need far less. Point `--temp-dir` at a larger filesystem (for example node-local scratch) to
+move all bulk temporary files there. Chunk BED files are always written under
+`<output-dir>/intermediate/chunks`, never next to `--regions-bed`.
+
+## "INFO field 'X' not found in VCF header" from --filters
+
+`--filters` is validated before extraction by running SnpSift on the VCF header plus one synthetic record
+(no real record is read). String literals must be quoted (`ANN[0].IMPACT = 'HIGH'`) and every field
+must be declared in the header. A field reached only behind a short-circuited `&`/`|` is not detected.

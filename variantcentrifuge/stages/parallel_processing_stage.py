@@ -6,7 +6,6 @@ import gzip
 import hashlib
 import json
 import logging
-import shutil
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -18,9 +17,11 @@ from ..extractor import extract_fields_bcftools, get_expected_extraction_columns
 from ..filters import apply_snpsift_filter, extract_variants
 from ..memory.resource_manager import ResourceManager
 from ..pipeline_core import PipelineContext, Stage
+from ..sample_subset import resolve_sample_subset
 from ..transcript_filter import filter_vcf_to_transcripts, load_transcript_ids
 from ..utils import ensure_fields_in_extract, split_bed_file
 from ..vcf_eff_one_per_line import process_vcf_file as split_snpeff_annotations
+from .chunk_tsv_merge import ChunkTsvMergeMixin
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ def _ps_attr(name: str, fallback: Any) -> Any:
     return fallback
 
 
-class ParallelCompleteProcessingStage(Stage):
+class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
     """Run complete processing pipeline in parallel for each BED chunk."""
 
     @property
@@ -56,6 +57,11 @@ class ParallelCompleteProcessingStage(Stage):
     @property
     def dependencies(self) -> set[str]:
         return {"gene_bed_creation", "configuration_loading"}
+
+    @property
+    def soft_dependencies(self) -> set[str]:
+        # Sample/phenotype stages fix the analysed sample set used by resolve_sample_subset.
+        return {"sample_config_loading", "phenotype_case_control_assignment"}
 
     @property
     def parallel_safe(self) -> bool:
@@ -87,9 +93,9 @@ class ParallelCompleteProcessingStage(Stage):
         data["bed"] = hashlib.sha256(bed_bytes).hexdigest()[:16]
         data["vcf"] = str(cfg.get("vcf_file") or context.data or "")
         data["fields"] = eff_fields
-        return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()[
-            :16
-        ]
+        data["samples"] = cfg.get("sample_subset_sha256")
+        blob = json.dumps(data, sort_keys=True, default=str).encode()
+        return hashlib.sha256(blob).hexdigest()[:16]
 
     def _validate_chunk_tsv(
         self,
@@ -135,6 +141,7 @@ class ParallelCompleteProcessingStage(Stage):
 
     def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
         """Handle the case where this stage is skipped by checkpoint system."""
+        resolve_sample_subset(context)  # the restored TSV holds only the subset's columns
         ws = context.workspace
         gz_tsv = ws.intermediate_dir / f"{ws.base_name}.extracted.tsv.gz"
         tsv = ws.intermediate_dir / f"{ws.base_name}.extracted.tsv"
@@ -170,6 +177,7 @@ class ParallelCompleteProcessingStage(Stage):
 
         if context.gene_bed_file is None:
             raise ValueError("gene_bed_file is required for parallel complete processing")
+        resolve_sample_subset(context)  # before chunk headers/fingerprints use vcf_samples
         split_start = self._start_subtask("bed_splitting")
         # Chunks live in the run's workspace: a user --regions-bed may sit in a read-only or
         # shared input directory, and concurrent runs on one BED must not collide.
@@ -286,6 +294,7 @@ class ParallelCompleteProcessingStage(Stage):
             cfg={
                 "threads": config.get("threads_per_chunk", 1),
                 "bcftools_prefilter": config.get("bcftools_prefilter"),
+                "temp_dir": config.get("temp_dir"),
             },
             output_file=str(chunk_vcf),
         )
@@ -332,6 +341,7 @@ class ParallelCompleteProcessingStage(Stage):
                         "max_memory_gb": config.get("max_memory_gb"),
                         "snpsift_memory_gb": config.get("snpsift_memory_gb"),
                         "filter_exception_file": config.get("filter_exception_file"),
+                        "temp_dir": config.get("temp_dir"),
                     },
                     str(filtered_vcf),
                 )
@@ -359,6 +369,8 @@ class ParallelCompleteProcessingStage(Stage):
             cfg={
                 "threads": config.get("threads_per_chunk", 1),
                 "extract_fields_separator": config.get("extract_fields_separator", ","),
+                "bcftools_samples": config.get("bcftools_samples"),
+                "temp_dir": config.get("temp_dir"),
             },
             output_file=str(chunk_tsv),
             vcf_samples=config.get("vcf_samples"),
@@ -448,6 +460,7 @@ class ParallelCompleteProcessingStage(Stage):
                 "extract_fields_separator": cfg.get("extract_fields_separator", ","),
                 "gzip_intermediates": use_compression,
                 "vcf_samples": getattr(context, "vcf_samples", None),
+                "bcftools_samples": resolve_sample_subset(context),
                 "transcript_ids": load_tx_fn(
                     cfg.get("transcript_list"), cfg.get("transcript_file")
                 ),
@@ -505,94 +518,3 @@ class ParallelCompleteProcessingStage(Stage):
         for stage_name, times in groups.items():
             if times:
                 self._subtask_times[stage_name] = sum(times) / len(times)
-
-    def _merge_tsv_outputs(self, context: PipelineContext, chunk_tsvs: list[Path]) -> Path:
-        """Merge TSV chunks into a single file with optimized compression handling."""
-        output_tsv = context.workspace.get_intermediate_path(
-            f"{context.workspace.base_name}.extracted.tsv"
-        )
-        use_compression = context.config.get("gzip_intermediates", True)
-        if use_compression:
-            output_tsv = Path(str(output_tsv) + ".gz")
-
-        expected_header = self._build_expected_header(context)
-
-        if not chunk_tsvs:
-            hdr = (expected_header or "") + "\n"
-            if use_compression:
-                with gzip.open(output_tsv, "wt", compresslevel=1) as f:
-                    f.write(hdr)
-            else:
-                output_tsv.write_text(hdr, encoding="utf-8")
-            logger.info(f"Created schema-valid header-only TSV for empty chunks: {output_tsv}")
-            return output_tsv
-
-        if len(chunk_tsvs) == 1:
-            if expected_header is not None:
-                open_fn = gzip.open if str(chunk_tsvs[0]).endswith(".gz") else open
-                with open_fn(str(chunk_tsvs[0]), "rt") as in_fh:
-                    hdr = in_fh.readline().strip()
-                if hdr != expected_header.strip():
-                    raise ValueError(
-                        f"Incompatible chunk header in {chunk_tsvs[0]}: "
-                        f"expected '{expected_header.strip()}', got '{hdr}'"
-                    )
-            shutil.move(str(chunk_tsvs[0]), str(output_tsv))
-            logger.info(f"Moved single TSV chunk to {output_tsv}")
-        else:
-            self._merge_tsvs_traditional(chunk_tsvs, output_tsv, expected_header=expected_header)
-            logger.info(f"Merged {len(chunk_tsvs)} TSV chunks into {output_tsv}")
-
-        return output_tsv
-
-    def _merge_tsvs_traditional(
-        self,
-        chunk_tsvs: list[Path],
-        output_tsv: Path,
-        expected_header: str | None = None,
-    ) -> None:
-        with (
-            gzip.open(output_tsv, "wt", compresslevel=1)
-            if str(output_tsv).endswith(".gz")
-            else open(output_tsv, "w")
-        ) as out_fh:
-            first_header: str | None = None
-            for chunk_tsv in sorted(chunk_tsvs):
-                with (
-                    gzip.open(chunk_tsv, "rt")
-                    if str(chunk_tsv).endswith(".gz")
-                    else open(chunk_tsv)
-                ) as in_fh:
-                    header = in_fh.readline()
-                    hdr_clean = header.strip()
-                    if expected_header is not None and hdr_clean != expected_header.strip():
-                        raise ValueError(
-                            f"Incompatible chunk header in {chunk_tsv}: "
-                            f"expected '{expected_header.strip()}', got '{hdr_clean}'"
-                        )
-                    if first_header is None:
-                        first_header = hdr_clean
-                        out_fh.write(header)
-                    elif hdr_clean != first_header:
-                        raise ValueError(
-                            f"Incompatible chunk header in {chunk_tsv}: "
-                            f"expected '{first_header}', got '{hdr_clean}'"
-                        )
-                    shutil.copyfileobj(in_fh, out_fh)
-
-    def _cleanup_chunks(
-        self, bed_chunks: list[Path], tsv_chunks: list[Path], context: PipelineContext
-    ) -> None:
-        """Clean up temporary chunk files."""
-        if not context.config.get("keep_intermediates", False):
-            for chunk in bed_chunks + tsv_chunks:
-                if chunk.exists():
-                    chunk.unlink()
-                meta = Path(f"{chunk}.meta")
-                if meta.exists():
-                    meta.unlink()
-
-            if bed_chunks and bed_chunks[0].parent.name == "chunks":
-                chunk_dir = bed_chunks[0].parent
-                if chunk_dir.exists() and not any(chunk_dir.iterdir()):
-                    chunk_dir.rmdir()
