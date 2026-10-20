@@ -42,7 +42,7 @@ dev = [
     "pytest-mock>=3.14",
     "pytest-xdist>=3.5",
     "pytest-benchmark>=5.1.0",
-    "ruff>=0.11,<0.16",
+    "ruff>=0.11,<0.18",
     "pre-commit",
     "types-psutil",
 ]
