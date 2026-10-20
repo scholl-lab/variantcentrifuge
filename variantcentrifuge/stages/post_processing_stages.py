@@ -177,7 +177,7 @@ class PhenotypeIntegrationStage(Stage):
             )
         )
 
-        if df.empty and (has_sample_columns or "GT" in df.columns):
+        if df.empty is True and (has_sample_columns or "GT" in df.columns):
             df["Phenotypes"] = pd.Series(dtype=str)
         elif has_sample_columns:
             logger.debug("Using per-sample GT columns for phenotype extraction")
