@@ -793,15 +793,13 @@ class TestCOASTRGoldenComparison:
 # ---------------------------------------------------------------------------
 #
 # These constants represent small extracts (n=200, ~9 cases) that reproduce
-# the statistical characteristics of the SYNTH cohort:
-#   - Source:     an annotated real-cohort VCF
-#   - Cohort:     ~5125 samples, 235 PKD cases, 4889 controls (~4.6% case rate)
-#   - Genes:      PKD1 (645 variants), PKD2 (87 variants), COL4A5 (66 variants)
+# the statistical characteristics of a rare-variant case/control study:
+#   - Cohort: imbalanced case/control design (~4.6% cases)
 #   - Categories: HIGH impact → PTV(3); MODERATE damaging → DMV(2);
 #                 MODERATE benign → BMV(1)
 #
-# Rare-variant characteristics modelled from SYNTH:
-#   - BMV MAF ~0.015 (benign missense, most common in SYNTH)
+# Rare-variant characteristics modelled for these scenarios:
+#   - BMV MAF ~0.015 (benign missense, most common category)
 #   - DMV MAF ~0.010 (damaging missense, intermediate frequency)
 #   - PTV MAF ~0.005 (protein truncating, rarest)
 #
@@ -901,7 +899,7 @@ _SYNTH_GOLDEN_SCENARIOS: dict[str, dict] = {
     "synth_g1_all_categories": {
         "python_omnibus_p": 9.256406843004164e-02,
         "r_omnibus_p": 1.022380203777098e-01,
-        "description": "All 3 categories (7 BMV + 2 DMV + 1 PTV), PKD1-like gene.",
+        "description": "All 3 categories (7 BMV + 2 DMV + 1 PTV), gene with many variants.",
     },
     "synth_g2_partial_bmv_ptv": {
         "python_omnibus_p": 8.332054601103089e-01,
