@@ -22,8 +22,8 @@ mvn -B -f "$project_directory/pom.xml" \
     -DappendOutput=false
 
 declare -A required_versions=(
-    [com.fasterxml.jackson.core:jackson-core]=2.22.1
-    [com.fasterxml.jackson.core:jackson-databind]=2.22.1
+    [com.fasterxml.jackson.core:jackson-core]=2.22.4
+    [com.fasterxml.jackson.core:jackson-databind]=2.22.4
     [com.fasterxml.jackson.core:jackson-annotations]=2.22
     [com.google.code.gson:gson]=2.14.0
     [commons-io:commons-io]=2.22.0

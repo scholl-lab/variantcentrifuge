@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MAVEN_NAMESPACE = {"m": "http://maven.apache.org/POM/4.0.0"}
 
 SECURED_PROPERTIES = {
-    "jackson.version": "2.22.1",
+    "jackson.version": "2.22.4",
     "jackson.annotations.version": "2.22",
     "gson.version": "2.14.0",
     "commons.io.version": "2.22.0",
@@ -46,8 +46,8 @@ JUNIT_COORDINATES = {
 }
 
 REQUIRED_RUNTIME_DEPENDENCIES = [
-    "com.fasterxml.jackson.core:jackson-core:jar:2.22.1:runtime",
-    "com.fasterxml.jackson.core:jackson-databind:jar:2.22.1:runtime",
+    "com.fasterxml.jackson.core:jackson-core:jar:2.22.4:runtime",
+    "com.fasterxml.jackson.core:jackson-databind:jar:2.22.4:runtime",
     "com.fasterxml.jackson.core:jackson-annotations:jar:2.22:runtime",
     "com.google.code.gson:gson:jar:2.14.0:runtime",
     "commons-io:commons-io:jar:2.22.0:runtime",
@@ -867,8 +867,8 @@ def test_runtime_dependency_assertion_requires_every_fixed_coordinate(tmp_path: 
 @pytest.mark.parametrize(
     "malformed_dependency_line",
     [
-        "[INFO] com.fasterxml.jackson.core:jackson-core:jar:2.22.1:runtime",
-        "com.fasterxml.jackson.core:jackson-core:jar:2.22.1:runtime unexpected-trailer",
+        "[INFO] com.fasterxml.jackson.core:jackson-core:jar:2.22.4:runtime",
+        "com.fasterxml.jackson.core:jackson-core:jar:2.22.4:runtime unexpected-trailer",
     ],
 )
 def test_runtime_dependency_assertion_rejects_malformed_coordinate_lines(
