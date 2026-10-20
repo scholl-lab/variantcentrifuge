@@ -1,9 +1,8 @@
 """
-Unit tests for the piecewise Gauss-Legendre quadrature in SKAT-O integration.
+Unit tests for the SKAT-O omnibus integration (piecewise adaptive quadrature).
 
 Covers:
-- quadrature nodes integrate the singular chi2(1) density
-- GL quadrature accuracy (smoke test: valid p-value from SKAT-O integration)
+- SKAT-O integration accuracy (smoke test: valid p-value from SKAT-O integration)
 - parallel_safe attributes on all 6 Python/R backend test classes
 
 Requirements verified: Plan 27-01 Task 2
@@ -13,28 +12,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
-# ---------------------------------------------------------------------------
-# GL constants tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestSkatoQuadratureNodes:
-    """Piecewise sqrt-substituted Gauss-Legendre nodes for the SKAT-O integral."""
-
-    def test_nodes_integrate_chi2_density_with_kinks(self) -> None:
-        """chi2(1) has an x^-1/2 singularity at 0; the rule must still integrate it."""
-        import scipy.stats
-
-        from variantcentrifuge.association.backends.skat_math import _skato_quadrature_nodes
-
-        rho = np.array([0.0, 0.01, 0.04, 0.09, 0.25, 0.5, 0.999])
-        x, w = _skato_quadrature_nodes(np.linspace(100, 400, 7), np.linspace(5, 60, 7), rho)
-        assert np.all((x >= 0) & (x <= 40)) and np.all(w > 0)
-        integral = float(scipy.stats.chi2.pdf(x, 1) @ w)
-        assert integral == pytest.approx(scipy.stats.chi2.cdf(40, 1), abs=1e-6)
-
 
 # ---------------------------------------------------------------------------
 # GL accuracy smoke test

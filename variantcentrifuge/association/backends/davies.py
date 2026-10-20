@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 
 import numpy as np
 from scipy.optimize import brentq
@@ -48,7 +49,13 @@ _qfc_ffi = None  # The CFFI FFI object
 _DAVIES_AVAILABLE = False
 _DAVIES_LOAD_ATTEMPTED = False
 
+# qfc keeps its state in C globals and the CFFI call releases the GIL: serialize calls
+_QFC_LOCK = threading.Lock()
 _PROACTIVE_THRESHOLD = 1e-5  # GMMAT-style proactive saddlepoint trigger
+# Davies term cap for a retry after ifault=1 (term limit hit). qfc's result does not depend
+# on lim when the smaller cap converges, but lim=10_000 (R) fails for small q with few or
+# dominant eigenvalues, where saddlepoint/Liu are off by ~1%.
+_DAVIES_RETRY_LIM = 1_000_000
 
 
 def _try_load_davies() -> bool:
@@ -235,6 +242,8 @@ def _kuonen_pvalue(q: float, lambdas: np.ndarray) -> float | None:
     lam_pos = lambdas[lambdas > 0]
     if len(lam_pos) == 0:
         return None
+    # Scale-free: the brentq bracket/xtol below are absolute
+    q, lambdas, lam_pos = q / lam_pos.max(), lambdas / lam_pos.max(), lam_pos / lam_pos.max()
 
     t_max = 0.4999 / lam_pos.max()  # slightly inside singularity at 1/(2*lam_max)
 
@@ -324,7 +333,8 @@ def davies_pvalue(
     ifault = ffi.new("int[1]", [0])
     res = ffi.new("double[1]", [0.0])
 
-    lib.qfc(lb1, nc1, n1, r1, sigma, c1, lim1, acc_arr, trace, ifault, res)
+    with _QFC_LOCK:
+        lib.qfc(lb1, nc1, n1, r1, sigma, c1, lim1, acc_arr, trace, ifault, res)
 
     # qfc returns the CDF P[Q <= q]; convert to survival P[Q > q] = 1 - CDF
     # (matches R CompQuadForm::davies which returns Qq = 1 - qfc_result)
@@ -348,7 +358,8 @@ def compute_pvalue(
     Compute P[Q > q] using R SKAT-compatible Davies -> Liu fallback chain.
 
     Matches R SKAT package ``Get_PValue.Lambda`` behavior with enhanced fallback:
-    - Davies called with acc=1e-6, lim=10000 (R defaults)
+    - Davies called with acc=1e-6, lim=10000 (R defaults); on ifault=1 (term limit)
+      retried with lim=_DAVIES_RETRY_LIM, which is identical wherever lim=10000 converges
     - If Davies ifault != 0, p >= 1.0, non-finite, or p <= 1e-5: try saddlepoint first,
       then Liu moment-matching
     - Single eigenvalue: always use Liu
@@ -390,6 +401,8 @@ def compute_pvalue(
     # --- Tier 1: Davies (requires compiled _qfc extension) ---
     if _try_load_davies():
         p_davies, ifault = davies_pvalue(q, lambdas, acc=acc, lim=lim)
+        if ifault == 1 and lim < _DAVIES_RETRY_LIM:
+            p_davies, ifault = davies_pvalue(q, lambdas, acc=acc, lim=_DAVIES_RETRY_LIM)
 
         if p_davies is not None:
             p_val = float(p_davies)
