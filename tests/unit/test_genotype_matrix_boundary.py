@@ -140,3 +140,17 @@ def test_multiallelic_error_surfaces_through_engine_and_artifact(tmp_path) -> No
             mask_hash="h",
         )
     assert not (tmp_path / "s.npz").exists()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("gt", "expected"),
+    [("bad", None), ("0/bad", None), ("bad/.", None), ("+2", "raise"), ("0/+2", "raise")],
+)
+def test_scalar_parser_malformed_and_signed_alleles(gt: str, expected) -> None:
+    """Non-integer alleles are missing; int()-parsable alleles >1 still raise."""
+    if expected == "raise":
+        with pytest.raises(ValueError, match="bcftools norm -m-"):
+            parse_gt_to_dosage(gt)
+    else:
+        assert parse_gt_to_dosage(gt) == (expected, False)

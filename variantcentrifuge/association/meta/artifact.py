@@ -388,9 +388,10 @@ def emit_stratum_artifact(
             nulls[null_key] = fit_stratum_null(pheno_all[mask], cov, "binary")
         gene_scores[gene] = compute_gene_score(geno, raw, nulls[null_key], keys, ploidy=plo)
 
-    if omitted and not gene_scores:
+    if not gene_scores:
         raise ValueError(
-            f"Score artifact: no gene has retained cases and controls ({len(omitted)} omitted)"
+            f"Score artifact: no genes survived QC ({len(builders)} genes: empty, removed by "
+            f"site missingness QC, or {len(omitted)} without retained cases and controls)"
         )
     artifact = ScoreCovarianceArtifact(
         stratum_id=stratum_id,

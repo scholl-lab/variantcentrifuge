@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from unittest import mock
+
 import numpy as np
 import pandas as pd
 import pytest
+
+import variantcentrifuge.association.meta.artifact as artifact_module
 
 from variantcentrifuge.association.genotype_matrix import build_genotype_matrix
 from variantcentrifuge.association.meta.artifact import emit_stratum_artifact
@@ -231,7 +235,7 @@ def test_score_artifact_omits_gene_without_retained_cases(tmp_path, caplog) -> N
 @pytest.mark.unit
 def test_score_artifact_fails_when_no_gene_is_testable(tmp_path) -> None:
     _g1, g2, samples, pheno = _one_case_cohort()
-    with pytest.raises(ValueError, match="no gene has retained cases and controls"):
+    with pytest.raises(ValueError, match="no genes survived QC"):
         emit_stratum_artifact(
             str(tmp_path / "s"), {"G2": _builder(g2, samples, pheno, 0.1)}, mask_hash="h", **_KW
         )
@@ -267,3 +271,19 @@ def test_score_artifact_input_guards_and_skipped_genes(tmp_path) -> None:
     }
     art = emit_stratum_artifact(str(tmp_path / "c"), builders, mask_hash="h", **_KW)
     assert sorted(art.genes) == ["G1"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("variant", ["all_missing", "empty"])
+def test_score_artifact_without_surviving_genes_is_never_written(tmp_path, variant) -> None:
+    """Site QC removing every variant, or empty gene frames, must not save {} genes."""
+    g1, _g2, samples, pheno = _one_case_cohort()
+    frame = g1.iloc[:0] if variant == "empty" else g1.assign(**dict.fromkeys(samples, "./."))
+    with (
+        mock.patch.object(artifact_module, "save_artifact") as save,
+        pytest.raises(ValueError, match="no genes survived QC"),
+    ):
+        emit_stratum_artifact(
+            str(tmp_path / "s"), {"G": _builder(frame, samples, pheno, 0.1)}, mask_hash="h", **_KW
+        )
+    save.assert_not_called()
