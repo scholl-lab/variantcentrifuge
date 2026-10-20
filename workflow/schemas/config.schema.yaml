@@ -110,6 +110,11 @@ properties:
         items:
           type: string
         default: []
+      annotate_bed_files:
+        type: array
+        items:
+          type: string
+        default: []
       tumor_sample_index:
         type:
           - "integer"

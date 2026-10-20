@@ -25,6 +25,7 @@ variantcentrifuge:
   presets: []                     # List of preset names, e.g. ["rare", "coding"]
   append_genotype_fields: []      # e.g. ["GEN[*].DP", "GEN[*].AD", "GEN[*].AF"]
   gene_list_files: []             # Paths to gene-list files for annotation
+  annotate_bed_files: []          # BED files; overlapping variants get Region=<name> (--annotate-bed)
   tumor_sample_index: null        # 0-based index of tumor sample in VCF (null = default)
   normal_sample_index: null       # 0-based index of normal sample in VCF (null = default)
   reference: null                 # Reference genome build (e.g. GRCh37.75, GRCh38.86)

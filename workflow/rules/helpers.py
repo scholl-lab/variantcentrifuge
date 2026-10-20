@@ -99,6 +99,9 @@ def build_vc_flags(vc_config: dict[str, Any], igv_config: dict[str, Any]) -> lis
     for gl in vc_config.get("gene_list_files", []):
         flags.append(f"--annotate-gene-list {shlex.quote(gl)}")
 
+    for bed in vc_config.get("annotate_bed_files", []):
+        flags.append(f"--annotate-bed {shlex.quote(bed)}")
+
     # IGV flags
     if igv_config.get("enabled"):
         flags.append("--igv")
