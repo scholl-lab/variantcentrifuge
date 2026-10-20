@@ -9,6 +9,7 @@ import logging
 import os
 
 from ..config import load_config, normalize_annotation_config
+from ..extractor import validate_extraction_fields
 from ..phenotype import load_phenotypes
 from ..pipeline_core import PipelineContext, Stage
 from ..scoring import read_scoring_config
@@ -102,8 +103,12 @@ class ConfigurationLoadingStage(Stage):
 
     @property
     def checkpoint_resume_policy(self) -> str:
-        """Configuration is already present in the new CLI context."""
-        return "skip"
+        """Configuration is rebuilt from the new CLI context on resume."""
+        return "restore"
+
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Re-run the pure config normalization (e.g. comma lists -> lists) on resume."""
+        return self._process(context)
 
     @property
     def description(self) -> str:
@@ -158,6 +163,10 @@ class ConfigurationLoadingStage(Stage):
 
         config["pipeline_version"] = config.get("pipeline_version", __version__)
         # Convert fields_to_extract to extract for downstream stages
+        # Fail before any processing on fields the extractor would silently mangle; --from-tsv
+        # pipelines have no extraction stage (pipeline.py), so their fields are not used.
+        if not (getattr(context.args, "from_tsv", None) or config.get("from_tsv")):
+            validate_extraction_fields(str(config.get("fields_to_extract") or "").split())
         if "extract" not in config and "fields_to_extract" in config:
             config["extract"] = config["fields_to_extract"].split()
             logger.debug(

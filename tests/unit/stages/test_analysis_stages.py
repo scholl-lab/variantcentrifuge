@@ -147,6 +147,7 @@ class TestDataFrameLoadingStage:
         chunked_tsv = tmp_path / "chunked.tsv"
         chunked_tsv.write_text("GENE\tCHROM\nBRCA1\tchr1\n")
         base_context.chunked_analysis_tsv = chunked_tsv
+        base_context.config["use_chunked_processing"] = True
 
         with patch("pyarrow.csv.read_csv", wraps=pv_csv.read_csv) as spy_read_csv:
             result = ChunkedAnalysisStage()._handle_checkpoint_skip(base_context)
@@ -164,6 +165,7 @@ class TestDataFrameLoadingStage:
         chunked_tsv = tmp_path / "chunked.tsv"
         chunked_tsv.write_text("GENE\tCHROM\n")
         base_context.chunked_analysis_tsv = chunked_tsv
+        base_context.config["use_chunked_processing"] = True
 
         result = ChunkedAnalysisStage()._handle_checkpoint_skip(base_context)
 
@@ -175,6 +177,9 @@ class TestDataFrameLoadingStage:
     def test_chunked_analysis_skip_raises_when_artifact_missing(self, base_context, tmp_path):
         """Restoring chunked analysis requires its output artifact."""
         base_context.chunked_analysis_tsv = tmp_path / "missing.tsv"
+        base_context.config["use_chunked_processing"] = True
+        base_context.data = tmp_path / "input.tsv"
+        base_context.data.write_text("GENE\tCHROM\nBRCA1\tchr1\n")
 
         with pytest.raises(RuntimeError, match="Cannot restore chunked_analysis"):
             ChunkedAnalysisStage()._handle_checkpoint_skip(base_context)
