@@ -28,7 +28,11 @@ def _synthetic_vcf(header: str, extra_info: Sequence[str] = ()) -> str:
 
 
 def validate_snpsift_filter(
-    vcf_file: str, filter_expr: str, snpsift_flags: list[str], extra_info: Sequence[str] = ()
+    vcf_file: str,
+    filter_expr: str,
+    snpsift_flags: list[str],
+    extra_info: Sequence[str] = (),
+    temp_dir: str | None = None,
 ) -> None:
     """Raise ValueError with SnpSift's own message if it cannot evaluate ``filter_expr``.
 
@@ -38,7 +42,7 @@ def validate_snpsift_filter(
     header = subprocess.run(
         ["bcftools", "view", "-h", vcf_file], capture_output=True, text=True, check=True
     ).stdout
-    fd, path = tempfile.mkstemp(suffix=".vcf", prefix="filter_dry_run_")
+    fd, path = tempfile.mkstemp(suffix=".vcf", prefix="filter_dry_run_", dir=temp_dir)
     try:
         with os.fdopen(fd, "w") as fh:
             fh.write(_synthetic_vcf(header, extra_info))

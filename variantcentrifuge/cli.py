@@ -377,6 +377,7 @@ def main(argv: list[str] | None = None) -> int:
                     ],
                     # the exception rescue adds INFO/RAW_FILTER before filtering
                     ["RAW_FILTER"] if cfg.get("filter_exception_file") else [],
+                    getattr(args, "temp_dir", None),
                 )
         if args.phenotype_file:
             validate_phenotype_file(
