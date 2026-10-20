@@ -5,9 +5,13 @@
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
+import ctypes
 import logging
+import multiprocessing
 import os
-import pickle
+import sys
+from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -20,39 +24,72 @@ if TYPE_CHECKING:
 logger = logging.getLogger("variantcentrifuge")
 
 
+# (task, read-only state) set by the parent just before forking: workers inherit the state
+# copy-on-write, so only index ranges and small results cross the process boundary (#212).
+_FORK_STATE: tuple[Callable[[Any, int, int], Any], Any] | None = None
+
+# (setter, getter) of OpenBLAS (plain, scipy-openblas32/64 wheels) and MKL.
+_BLAS_THREAD_API = (
+    ("openblas_set_num_threads", "openblas_get_num_threads"),
+    ("openblas_set_num_threads64_", "openblas_get_num_threads64_"),
+    ("scipy_openblas_set_num_threads", "scipy_openblas_get_num_threads"),
+    ("scipy_openblas_set_num_threads64_", "scipy_openblas_get_num_threads64_"),
+    ("MKL_Set_Num_Threads", "MKL_Get_Max_Threads"),
+)
+
+
+def _loaded_blas_libraries() -> list[str]:
+    """Paths of the BLAS shared libraries mapped into this process (Linux only)."""
+    try:
+        with open("/proc/self/maps") as fh:
+            paths = {line.split()[-1] for line in fh if "/" in line}
+    except OSError:
+        return []
+    return sorted(
+        p for p in paths if ".so" in p and ("openblas" in p.lower() or "mkl_rt" in p.lower())
+    )
+
+
+def _blas_thread_controls() -> list[tuple[Any, Any]]:
+    """(setter, getter) for every loaded BLAS library that exports a known pair."""
+    controls = []
+    for path in _loaded_blas_libraries():
+        lib = ctypes.CDLL(path)  # already mapped: returns the loaded library
+        for set_name, get_name in _BLAS_THREAD_API:
+            if hasattr(lib, set_name) and hasattr(lib, get_name):
+                controls.append((getattr(lib, set_name), getattr(lib, get_name)))
+    return controls
+
+
+@contextlib.contextmanager
+def single_blas_thread() -> Iterator[None]:
+    """Run per-gene tests with one BLAS thread, restoring the previous counts afterwards.
+
+    Per-gene matrices are small, so multithreaded BLAS is several times slower there;
+    parallelism comes from worker processes instead (#212).
+    """
+    controls = _blas_thread_controls()
+    before = [get() for _set, get in controls]
+    for set_threads, _get in controls:
+        set_threads(1)
+    try:
+        yield
+    finally:
+        for (set_threads, _get), n in zip(controls, before, strict=True):
+            set_threads(n)
+
+
 def _worker_initializer() -> None:
-    """Set BLAS thread counts to 1 in worker processes to prevent oversubscription."""
+    """Limit BLAS to one thread in a worker process.
+
+    A forked worker inherits BLAS libraries already initialised by the parent, so the
+    environment variables alone have no effect there; call each library's setter.
+    """
     os.environ["OPENBLAS_NUM_THREADS"] = "1"
     os.environ["MKL_NUM_THREADS"] = "1"
     os.environ["OMP_NUM_THREADS"] = "1"
-
-
-def _run_gene_worker(
-    args: tuple[str, dict[str, Any], bytes, AssociationConfig],
-) -> tuple[str, dict[str, TestResult]]:
-    """Process a single gene in a subprocess worker.
-
-    Called by ProcessPoolExecutor. Receives pre-pickled test instances
-    (with null models already fitted) to avoid redundant null model fitting
-    in each worker.
-
-    Parameters
-    ----------
-    args : tuple
-        (gene_name, gene_data_dict, pickled_tests_bytes, config)
-
-    Returns
-    -------
-    tuple
-        (gene_name, dict mapping test_name -> TestResult)
-    """
-    gene, gene_data, pickled_tests, config = args
-    tests: dict[str, AssociationTest] = pickle.loads(pickled_tests)
-    results: dict[str, TestResult] = {}
-    for test_name, test in tests.items():
-        result = test.run(gene, gene_data, config)
-        results[test_name] = result
-    return gene, results
+    for set_threads, _get in _blas_thread_controls():
+        set_threads(1)
 
 
 _BUILDER_RESULT_KEYS = (
@@ -135,6 +172,54 @@ def run_sequential_genes(
             _discard_per_gene_matrix_payload(gene_data)
 
 
+def _fork_task(bounds: tuple[int, int]) -> Any:
+    assert _FORK_STATE is not None, "worker started without inherited fork state"
+    task, state = _FORK_STATE
+    return task(state, *bounds)
+
+
+def fork_map(
+    task: Callable[[Any, int, int], Any], state: Any, n_items: int, workers: int
+) -> Iterator[tuple[int, int, Any]]:
+    """Yield ``(lo, hi, task(state, lo, hi))`` over ``range(n_items)`` in order.
+
+    Runs in forked worker processes (one BLAS thread each) that inherit ``state``; ``task``
+    must be a module-level function. Chunks are ~8 per worker to balance uneven items.
+    Linux only: callers check ``fork_available()`` first.
+    """
+    global _FORK_STATE
+    chunk = max(1, n_items // (workers * 8))
+    bounds = [(lo, min(lo + chunk, n_items)) for lo in range(0, n_items, chunk)]
+    _FORK_STATE = (task, state)
+    try:
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=workers,
+            mp_context=multiprocessing.get_context("fork"),
+            initializer=_worker_initializer,
+        ) as executor:
+            for (lo, hi), result in zip(bounds, executor.map(_fork_task, bounds), strict=True):
+                yield lo, hi, result
+    finally:
+        _FORK_STATE = None
+
+
+def fork_available() -> bool:
+    """Whether fork_map can run (fork start method with copy-on-write: Linux)."""
+    return sys.platform.startswith("linux")
+
+
+def _run_gene_range(
+    state: tuple, lo: int, hi: int
+) -> tuple[dict[str, dict[str, TestResult]], dict]:
+    """Worker task: build matrices and run all tests for genes[lo:hi]."""
+    genes, tests, config = state
+    chunk = genes[lo:hi]
+    results: dict[str, dict[str, TestResult]] = {name: {} for name in tests}
+    run_sequential_genes(chunk, tests, config, results)
+    qc = {gd.get("GENE", ""): gd["n_variants_qc"] for gd in chunk if "n_variants_qc" in gd}
+    return results, qc
+
+
 def dispatch_parallel_genes(
     remaining: list[dict[str, Any]],
     tests: dict[str, AssociationTest],
@@ -142,45 +227,25 @@ def dispatch_parallel_genes(
     actual_workers: int,
     results_by_test: dict[str, dict[str, TestResult]],
 ) -> None:
-    """Dispatch genes across worker processes in bounded batches.
+    """Run genes in forked workers (see ``fork_map``); results match the sequential loop.
 
-    To prevent memory exhaustion on large panels, matrices are built
-    in bounded batches proportional to worker count (2 * actual_workers),
-    and each batch's matrix payloads are discarded immediately after its
-    results are collected.
+    Workers inherit the genes, the tests (null models already fitted by the parent) and
+    the config, call the lazy matrix builders themselves and return only small results.
+    Without fork (non-Linux) genes run sequentially.
     """
-    logger.info(
-        f"Parallel association: {actual_workers} workers for {len(remaining)} remaining genes"
-    )
-
-    pickled_tests = pickle.dumps(tests)
-    batch_size = max(1, actual_workers * 2)
-
-    with concurrent.futures.ProcessPoolExecutor(
-        max_workers=actual_workers,
-        initializer=_worker_initializer,
-    ) as executor:
-        for batch_start in range(0, len(remaining), batch_size):
-            batch = remaining[batch_start : batch_start + batch_size]
-            try:
-                # Build matrices lazily only for this batch
-                for gd in batch:
-                    if "_genotype_matrix_builder" in gd and "genotype_matrix" not in gd:
-                        _builder = gd.pop("_genotype_matrix_builder")
-                        _result = _builder()
-                        _gene = gd.get("GENE", "")
-                        _apply_builder_result_to_gene_data(gd, _result, _gene)
-
-                args_list = [(gd.get("GENE", ""), gd, pickled_tests, config) for gd in batch]
-
-                for gene, gene_results in executor.map(_run_gene_worker, args_list):
-                    for test_name, result in gene_results.items():
-                        results_by_test[test_name][gene] = result
-                        logger.debug(
-                            f"Gene {gene} | {test_name}: "
-                            f"p={result.p_value}, OR={result.effect_size}"
-                        )
-            finally:
-                # Discard matrix payloads immediately for this batch
-                for gd in batch:
-                    _discard_per_gene_matrix_payload(gd)
+    if not fork_available():
+        logger.info("Parallel association needs fork (Linux); running genes sequentially")
+        run_sequential_genes(remaining, tests, config, results_by_test)
+        return
+    logger.info(f"Parallel association: {actual_workers} workers for {len(remaining)} genes")
+    state = (remaining, tests, config)
+    for lo, hi, (chunk_results, qc) in fork_map(
+        _run_gene_range, state, len(remaining), actual_workers
+    ):
+        for test_name, by_gene in chunk_results.items():
+            results_by_test[test_name].update(by_gene)
+        for gd in remaining[lo:hi]:
+            _discard_per_gene_matrix_payload(gd)  # built in the worker, not here
+            gene = gd.get("GENE", "")
+            if gene in qc:
+                gd["n_variants_qc"] = qc[gene]

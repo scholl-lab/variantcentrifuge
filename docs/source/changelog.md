@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--temp-dir DIR` moves the workspace temp dir, bulk Python temp files, `sort -T` and SnpSift's JVM tmp dir off `/tmp`/output (passed explicitly; process `TMPDIR` is not changed); default unchanged (#213).
 - Start-up free-space warning on the temp and output filesystems when free space is below 16x the compressed input VCF (advisory only; gene-panel runs need far less) (#213).
 
+### Changed
+
+- Parallel association tests scale with workers: forked workers inherit the genes, the tests with their null models already fitted (once, in the parent) and the config, build each gene's genotype matrix themselves and take genes in index ranges; before, the parent built every matrix and pickled each gene's data and the fitted tests per task, so 4 workers were slower than 1. Workers limit already-loaded OpenBLAS/MKL to one thread, which environment variables cannot do after fork. `--threads N` alone runs N workers; `--association-workers` still wins. Results are identical for any worker count (#212).
+
 ### Deprecated
 
 - `--perform-gene-burden` now warns and will be removed in the next minor release; use `--perform-association` (e.g. `--association-tests fisher`). The legacy path ignores `--missing-as-ref` (#217).
