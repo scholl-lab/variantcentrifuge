@@ -409,6 +409,12 @@ class PipelineRunner:
                 try:
                     # Get the updated context from the stage execution
                     updated_context = future.result()
+                    if context.checkpoint_state and updated_context.checkpoint_state:
+                        step_info = updated_context.checkpoint_state.state.get("steps", {}).get(
+                            stage.name
+                        )
+                        if step_info is not None:
+                            context.checkpoint_state.state["steps"][stage.name] = step_info
                     updated_contexts.append(updated_context)
                     logger.debug(
                         f"Parallel stage '{stage.name}' completed ({completed_count}/{len(stages)})"

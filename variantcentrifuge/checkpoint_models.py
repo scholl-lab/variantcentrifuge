@@ -33,7 +33,9 @@ class AtomicFileOperation:
                 self.final_path.name[: -len(full_suffix)] if full_suffix else self.final_path.name
             )
             unique_tag = f".tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}"
-            self.temp_path = self.final_path.with_name(f"{stem}{unique_tag}{full_suffix}")
+            self.temp_path = self.final_path.with_name(
+                f".{stem.lstrip('.')}{unique_tag}{full_suffix}"
+            )
         self.success = False
 
     def __enter__(self) -> Path:

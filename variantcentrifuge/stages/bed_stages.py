@@ -26,16 +26,12 @@ __all__ = ["GeneBedCreationStage"]
 
 def _ps_attr(name: str, fallback: Any) -> Any:
     """Get attribute from this module or processing_stages (supports test patching)."""
-    this_mod = sys.modules.get(__name__)
-    if this_mod is not None:
-        val = getattr(this_mod, name, None)
-        if val is not None and val is not fallback:
-            return val
     ps_mod = sys.modules.get("variantcentrifuge.stages.processing_stages")
-    if ps_mod is not None:
-        val = getattr(ps_mod, name, None)
-        if val is not None:
-            return val
+    if ps_mod is not None and hasattr(getattr(ps_mod, name, None), "_mock_name"):
+        return getattr(ps_mod, name)
+    this_mod = sys.modules.get(__name__)
+    if this_mod is not None and getattr(this_mod, name, None) is not None:
+        return getattr(this_mod, name)
     return fallback
 
 
@@ -46,6 +42,15 @@ class GeneBedCreationStage(Stage):
     def name(self) -> str:
         """Return the stage name."""
         return "gene_bed_creation"
+
+    @property
+    def checkpoint_resume_policy(self) -> str:
+        """Restore cached BED file on resume without invalidating downstream stages."""
+        return "restore"
+
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Restore context.gene_bed_file from cached BED file."""
+        return self._process(context)
 
     @property
     def description(self) -> str:

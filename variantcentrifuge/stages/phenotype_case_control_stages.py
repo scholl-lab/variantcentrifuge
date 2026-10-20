@@ -184,9 +184,11 @@ class PhenotypeCaseControlAssignmentStage(Stage):
 
         # Determine delimiter
         if phenotype_file.endswith(".csv"):
-            df = pd.read_csv(phenotype_file, low_memory=False)
+            df = pd.read_csv(phenotype_file, dtype=str, keep_default_na=False, low_memory=False)
         else:
-            df = pd.read_csv(phenotype_file, sep="\t", low_memory=False)
+            df = pd.read_csv(
+                phenotype_file, sep="\t", dtype=str, keep_default_na=False, low_memory=False
+            )
 
         logger.info(f"Loaded {len(df)} rows from phenotype file")
         logger.debug(f"Columns: {list(df.columns)}")
@@ -320,63 +322,6 @@ class PhenotypeCaseControlAssignmentStage(Stage):
             f"{len(final_control_samples)} controls"
         )
         return list(final_case_samples), list(final_control_samples)
-
-    def _classify_samples_by_phenotypes(
-        self,
-        vcf_samples: list[str],
-        phenotype_data: dict[str, set[str]],
-        case_phenotypes: list[str],
-        control_phenotypes: list[str],
-    ) -> tuple[set[str], set[str]]:
-        """Classify samples based on phenotype data."""
-        logger.info(
-            f"Performing phenotype-based case/control assignment for {len(vcf_samples)} VCF samples"
-        )
-        logger.info(
-            f"Using {len(case_phenotypes)} case phenotypes and "
-            f"{len(control_phenotypes)} control phenotypes"
-        )
-        logger.debug(f"Case phenotypes: {case_phenotypes}")
-        logger.debug(f"Control phenotypes: {control_phenotypes}")
-        classified_cases = set()
-        classified_controls = set()
-
-        for sample in vcf_samples:
-            sample_phenotypes = phenotype_data.get(sample, set())
-
-            # Check if sample matches case or control phenotypes
-            matches_case = (
-                any(pheno in sample_phenotypes for pheno in case_phenotypes)
-                if case_phenotypes
-                else False
-            )
-            matches_control = (
-                any(pheno in sample_phenotypes for pheno in control_phenotypes)
-                if control_phenotypes
-                else False
-            )
-
-            if case_phenotypes and not control_phenotypes:
-                # Only case phenotypes specified - all non-matching samples are controls
-                if matches_case:
-                    classified_cases.add(sample)
-                else:
-                    classified_controls.add(sample)
-            elif control_phenotypes and not case_phenotypes:
-                # Only control phenotypes specified - all non-matching samples are cases
-                if matches_control:
-                    classified_controls.add(sample)
-                else:
-                    classified_cases.add(sample)
-            else:
-                # Both case and control phenotypes specified
-                if matches_case and not matches_control:
-                    classified_cases.add(sample)
-                elif matches_control and not matches_case:
-                    classified_controls.add(sample)
-                # Samples matching both or neither are not classified
-
-        return classified_cases, classified_controls
 
     def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
         """Handle the case where this stage is skipped by checkpoint system.
