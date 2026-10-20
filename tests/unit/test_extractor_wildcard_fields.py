@@ -131,3 +131,18 @@ def test_real_bcftools_ann0_extraction_aggregates_by_gene(tmp_path):
     results = _association(tmp_path, extracted)
     assert results["gene"].tolist() == ["TARGET"]
     assert results["n_variants"].tolist() == [2]
+
+
+@pytest.mark.parametrize("where", ["args", "config"])
+def test_from_tsv_pipelines_do_not_validate_unused_extraction_fields(where):
+    """Review r3 #5: no extraction stage runs for --from-tsv, so its fields are not checked."""
+    merged = {"fields_to_extract": "CHROM POS ANN[*].GENE"}
+    args = Namespace(config=merged)
+    if where == "args":
+        args.from_tsv = "input.tsv"
+    else:
+        merged["from_tsv"] = "input.tsv"
+    context = PipelineContext(args=args, config={}, workspace=None)  # type: ignore[arg-type]
+    ConfigurationLoadingStage()._process(context)
+    with pytest.raises(ValueError, match="Unsupported extraction field"):
+        build_bcftools_format_string(merged["fields_to_extract"].split())  # defensive check

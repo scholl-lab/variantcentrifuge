@@ -163,8 +163,10 @@ class ConfigurationLoadingStage(Stage):
 
         config["pipeline_version"] = config.get("pipeline_version", __version__)
         # Convert fields_to_extract to extract for downstream stages
-        # Fail before any processing on fields the extractor would silently mangle.
-        validate_extraction_fields(str(config.get("fields_to_extract") or "").split())
+        # Fail before any processing on fields the extractor would silently mangle; --from-tsv
+        # pipelines have no extraction stage (pipeline.py), so their fields are not used.
+        if not (getattr(context.args, "from_tsv", None) or config.get("from_tsv")):
+            validate_extraction_fields(str(config.get("fields_to_extract") or "").split())
         if "extract" not in config and "fields_to_extract" in config:
             config["extract"] = config["fields_to_extract"].split()
             logger.debug(
