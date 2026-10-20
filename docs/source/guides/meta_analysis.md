@@ -129,6 +129,10 @@ is **deferred**. The artifact stores the raw `U`/`V`, so an SPA meta path can be
 added without changing the schema. Likewise, `V` is stored as a full matrix, so a
 future relatedness-aware (GLMM/GRM) null drops in without a schema change.
 
-Independent cross-validation against MetaSKAT/seqMeta on shared synthetic data is
-recommended before publishing exome-wide claims (R is not guaranteed in CI, so the
-in-repo reference values are Python-native regression anchors).
+The meta engine is cross-validated against R MetaSKAT 0.90 (`MetaSKAT_wZ`,
+`combined.weight=TRUE`, `weights.beta=c(1,25)`): burden and SKAT agree to ~1e-15 and
+SKAT-O to ~1e-4 (`tests/unit/test_r_parity_skato.py` stores the R values, so CI needs
+no R). Below p≈1e-5 the per-rho tail probabilities use a saddlepoint approximation,
+whereas R falls back to the Liu approximation there; Liu is anti-conservative in that
+range, so very small p-values can be an order of magnitude or more larger (more
+conservative) than R's.

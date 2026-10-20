@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Cohort-stratified rare-variant score-statistic meta-analysis (#112): `--score-artifact` writes a cohort's per-gene score/covariance artifact during association analysis, and the new `variantcentrifuge meta` subcommand combines two or more cohorts (burden, SKAT, SKAT-O, Cochran Q/I², leave-one-out, exome-wide FDR). Binary traits only.
 
+### Fixed
+
+- SKAT-O (and the COAST allelic SKAT-O component) p-values: the omnibus integral used one 128-node Gauss-Legendre rule over the chi-square(1) density, whose x^-1/2 singularity at 0 and rho-switching kinks made p-values 1–8% too large on typical genes and up to ~2x too large near p=0.01. The integral is now split at the kinks and taken in t=sqrt(x), matching R SKAT 2.2.5 to ~1e-4 at the same speed. Burden and SKAT p-values were not affected.
+
 ## [0.18.0] - 2026-10-20
 
 Remediates all 45 M1–M6 audit issues (#127–#171) and the follow-up six-part review (#172).
