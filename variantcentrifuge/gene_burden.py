@@ -35,10 +35,7 @@ from .association.aggregation import (  # noqa: F401 - re-exported for existing 
     _aggregate_gene_burden_from_columns,
     _aggregate_gene_burden_from_gt,
     _aggregate_gene_burden_legacy,
-    _called_and_chrom,
-    _col_total,
     _gt_to_dosage,
-    _legacy_counts,
 )
 from .gt_reconstruction import gt_columns_match_samples
 

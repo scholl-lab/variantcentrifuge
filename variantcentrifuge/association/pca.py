@@ -174,7 +174,9 @@ def load_pca_file(
     # 3. Read all cells as strings; IID (PLINK) or the single ID column becomes the index
     df = pd.read_csv(filepath, sep=sep, header=0 if has_header else None, dtype=str)
     if not has_header:
-        if n_id == 1 and df.shape[1] > 2:
+        if n_id == 1 and df.shape[1] > 2 and df.iloc[:, 0].equals(df.iloc[:, 1]):
+            n_id = 2  # FID == IID on every row: PLINK, whatever matches the VCF
+        elif n_id == 1 and df.shape[1] > 2:
             # Headerless "ID PC1 ..." vs PLINK "FID IID PC1 ..." with a numeric IID:
             # pick the layout whose ID column matches the VCF samples
             vcf_set = set(vcf_samples)

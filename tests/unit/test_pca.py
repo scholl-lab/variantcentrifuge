@@ -472,10 +472,14 @@ class TestPcaLayoutGuards:
         matrix, _ = load_pca_file(p, ["1001", "1002"], n_components=2)
         np.testing.assert_array_equal(matrix, [[0.1, 0.2], [0.3, 0.4]])
 
-    def test_headerless_fid_equals_iid_is_ambiguous(self, tmp_path):
+    def test_headerless_fid_equals_iid_on_every_row_is_plink(self, tmp_path):
+        # column 1 == column 2 on every row is unambiguous: PLINK FID IID PC1 ...
         p = _write(tmp_path, "pca.eigenvec", "1001 1001 0.1 0.2\n1002 1002 0.3 0.4\n")
-        with pytest.raises(ValueError, match="header"):
-            load_pca_file(p, ["1001", "1002"], n_components=2)
+        matrix, _ = load_pca_file(p, ["1002", "1001"], n_components=2)
+        np.testing.assert_array_equal(matrix, [[0.3, 0.4], [0.1, 0.2]])
+        p = _write(tmp_path, "pca2.eigenvec", "1001 1001 0.1 0.2\n1002 7 0.3 0.4\n")
+        with pytest.raises(ValueError, match="header"):  # equal on some rows only
+            load_pca_file(p, ["1001", "1002", "7"], n_components=2)
 
     def test_duplicate_samples_raise(self, tmp_path):
         p = _write(tmp_path, "pca.txt", "SYN_A 0.1\nSYN_B 0.2\nSYN_A 0.3\n")
