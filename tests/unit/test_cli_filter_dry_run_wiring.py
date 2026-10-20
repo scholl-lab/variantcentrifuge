@@ -1,5 +1,6 @@
 """cli.main must call the SnpSift filter dry run before the pipeline starts (#211)."""
 
+import json
 import shutil
 from pathlib import Path
 
@@ -50,3 +51,35 @@ def test_late_filtering_skips_dry_run(monkeypatch, tmp_path):
         _rec(calls),
     )
     assert not calls
+
+
+def _rec_tmp(calls):
+    def dry(vcf, expr, flags, extra, temp_dir=None):
+        calls.append((flags, temp_dir, temp_dir is not None and Path(temp_dir).is_dir()))
+
+    return dry
+
+
+def test_dry_run_uses_new_cli_temp_dir(monkeypatch, tmp_path):
+    """Codex FX-5: --temp-dir that does not exist yet is created before the dry run."""
+    calls = []
+    tmp = tmp_path / "scratch" / "new"
+    _run(
+        monkeypatch, tmp_path, ["--filters", "(AF > 0.1)", "--temp-dir", str(tmp)], _rec_tmp(calls)
+    )
+    assert calls == [(calls[0][0], str(tmp), True)]
+    assert f"-Djava.io.tmpdir={tmp}" in calls[0][0]
+
+
+def test_dry_run_honours_config_file_temp_dir(monkeypatch, tmp_path):
+    calls = []
+    tmp = tmp_path / "cfg_scratch"
+    conf = tmp_path / "conf.json"
+    conf.write_text(
+        json.dumps(
+            {"temp_dir": str(tmp), "reference": "GRCh37.75", "fields_to_extract": "CHROM POS"}
+        )
+    )
+    _run(monkeypatch, tmp_path, ["--filters", "(AF > 0.1)", "--config", str(conf)], _rec_tmp(calls))
+    assert calls == [(calls[0][0], str(tmp), True)]
+    assert f"-Djava.io.tmpdir={tmp}" in calls[0][0]
