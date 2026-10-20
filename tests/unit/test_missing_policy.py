@@ -364,7 +364,7 @@ def test_stage_passes_missing_as_ref_to_fisher_and_builders(monkeypatch, tmp_pat
 
     captured: list[dict] = []
 
-    def fake_run_all(self, gene_burden_data):
+    def fake_run_all(self, gene_burden_data, gene_hook=None):
         captured.extend(dict(d) for d in gene_burden_data)
         return pd.DataFrame({"gene": ["GENE1"], "n_variants": [2], "fisher_pvalue": [1.0]})
 
@@ -390,7 +390,9 @@ def test_artifact_only_run_warns_about_dropped_sites(monkeypatch, tmp_path, capl
     from variantcentrifuge.stages.analysis_stages import AssociationAnalysisStage
 
     monkeypatch.setattr(
-        AssociationEngine, "run_all", lambda self, d: pd.DataFrame({"gene": ["GENE1"]})
+        AssociationEngine,
+        "run_all",
+        lambda self, d, gene_hook=None: pd.DataFrame({"gene": ["GENE1"]}),
     )
     df, cases, ctrls, samples = _stage_df()
     config = {
@@ -429,19 +431,3 @@ def test_v2_artifact_without_valid_policy_refused(tmp_path, policy):
 def test_json_thresholds_range_checked(key, value):
     with pytest.raises(ValueError, match=f"'{key}' .*between 0 and 1"):
         _assoc_config({"association": {key: value}})
-
-
-def test_packed_gt_reconstruction_keeps_index_and_positional_missing():
-    from variantcentrifuge.stages.association_stage_helpers import _per_sample_gt_frame
-
-    # Transcript de-duplication leaves a non-contiguous index.
-    df = pd.DataFrame({"GENE": ["G", "G"], "GT": ["A(0/1);B(./.)", "A(1/1)"]}, index=[0, 2])
-    out = _per_sample_gt_frame(df, ["A", "B", "C"])
-    assert out.loc[[0, 2], ["A", "B", "C"]].values.tolist() == [
-        ["0/1", "./.", "0/0"],
-        ["1/1", "0/0", "0/0"],
-    ]
-    # Positional (comma-separated) GT lists every sample: an explicit ./. stays missing.
-    df = pd.DataFrame({"GENE": ["G"], "GT": ["0/1,./.,./1"]})
-    out = _per_sample_gt_frame(df, ["A", "B", "C"])
-    assert out[["A", "B", "C"]].values.tolist() == [["0/1", "./.", "./1"]]

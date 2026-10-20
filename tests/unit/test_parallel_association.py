@@ -525,8 +525,31 @@ def test_fork_task_runs_gene_range_in_process(monkeypatch: pytest.MonkeyPatch) -
         )._tests["logistic_burden"]
     }
     monkeypatch.setattr(
-        ew, "_FORK_STATE", (ew._run_gene_range, (genes, tests, AssociationConfig()))
+        ew, "_FORK_STATE", (ew._run_gene_range, (genes, tests, AssociationConfig(), None))
     )
-    results, qc = ew._fork_task((1, 3))
+    results, qc, hooks = ew._fork_task((1, 3))
+    assert hooks == {}
     assert list(results["logistic_burden"]) == ["G01", "G02"]
     assert qc == {"G01": 6, "G02": 6}
+
+
+@pytest.mark.unit
+def test_gc_unfrozen_after_parallel_run_and_on_error() -> None:
+    """fork_map freezes the GC for the fork and always unfreezes it (#212)."""
+    import gc
+
+    genes = [_real_gene(f"G{i:02d}", i) for i in range(6)]
+    engine = AssociationEngine.from_names(
+        ["logistic_burden"], AssociationConfig(association_workers=2)
+    )
+    engine.run_all(genes)
+    assert gc.get_freeze_count() == 0
+
+    def boom() -> dict[str, Any]:
+        raise RuntimeError("worker failure")
+
+    genes = [_real_gene(f"G{i:02d}", i) for i in range(6)]
+    genes[-1]["_genotype_matrix_builder"] = boom
+    with pytest.raises(RuntimeError, match="worker failure"):
+        engine.run_all(genes)
+    assert gc.get_freeze_count() == 0

@@ -74,7 +74,7 @@ def test_stage_passes_score_column_to_lazy_builder(monkeypatch, tmp_path):
 
     captured_gene_data = []
 
-    def fake_run_all(self, gene_burden_data):
+    def fake_run_all(self, gene_burden_data, gene_hook=None):
         captured_gene_data.extend(gene_burden_data)
         return pd.DataFrame(
             {
@@ -103,7 +103,7 @@ def test_stage_inline_column_spec_wins_over_variant_weight_column(monkeypatch, t
 
     captured_gene_data = []
 
-    def fake_run_all(self, gene_burden_data):
+    def fake_run_all(self, gene_burden_data, gene_hook=None):
         captured_gene_data.extend(gene_burden_data)
         return pd.DataFrame(
             {
