@@ -213,3 +213,16 @@ def test_runner_warns_once_per_stratum_for_excluded_firth_fits(caplog):
     assert len(msgs) == 2
     assert any("s2" in m and "2 of 2" in m and "uniform" in m for m in msgs)
     assert any("s3" in m and "1 of 2" in m and "no Firth fit" in m for m in msgs)
+
+
+@pytest.mark.parametrize("const", [0.0, 1.0])
+def test_stratum_firth_drops_constant_nuisance_covariate(const):
+    """A covariate constant within the stratum (sex, batch) must not discard the fit."""
+    d = pd.read_csv(FIXTURES / "s1.csv")
+    geno = d.filter(regex=r"^G1_\d+$").to_numpy(dtype=float)
+    ac, an = geno.sum(axis=0), np.full(geno.shape[1], 2.0 * len(d))
+    cov = np.column_stack([d[["c1", "c2"]].to_numpy(dtype=float), np.full(len(d), const)])
+    fit = stratum_firth_burden(geno, ac, an, d["y"].to_numpy(dtype=float), cov, "beta:1,25")
+    assert fit is not None
+    assert fit["beta"] == pytest.approx(R_REF[("G1", "s1", "beta")], rel=1e-6)
+    assert fit["se"] == pytest.approx(R_REF[("G1", "s1", "se")], rel=1e-6)

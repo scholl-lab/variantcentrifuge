@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 import scipy.stats
 
+from variantcentrifuge.association.backends.null_model import full_rank_design
 from variantcentrifuge.association.meta.align import pooled_frequency_weights
 from variantcentrifuge.association.tests.logistic_burden import _firth_logistic
 
@@ -53,9 +54,10 @@ def stratum_firth_burden(
     burden = np.asarray(geno, dtype=np.float64) @ w
     if np.ptp(burden) == 0:
         return None
-    design = np.column_stack([np.ones_like(burden), burden])
-    if covariates is not None and covariates.size:
-        design = np.column_stack([design, covariates])
+    # Full-rank nuisance basis [1, Q] (drops constant/collinear covariates, as the null
+    # model does); the burden log-OR and SE are invariant to this reparametrisation.
+    nuisance, _r = full_rank_design(covariates, len(burden))
+    design = np.column_stack([nuisance[:, :1], burden, nuisance[:, 1:]])
     # Tighter than the single-cohort 1e-4 (1e-6 misses R parity at rel 1e-6); 1e-8 can stall
     # step-halving on log-likelihood rounding noise in large strata.
     fit = _firth_logistic(np.asarray(phenotype, dtype=np.float64), design, max_iter=50, tol=1e-7)
