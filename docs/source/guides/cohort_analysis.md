@@ -117,8 +117,8 @@ variantcentrifuge \
 
 For statistical tests beyond Fisher's exact test — including SKAT-O, COAST allelic series, logistic/linear burden regression with covariate adjustment, PCA integration for population stratification, and ACAT-O omnibus combination — see the [Association Testing Guide](association_testing.md). The association framework accepts the same phenotype-derived case/control sample lists and supports all gene burden collapsing modes available in `--perform-gene-burden`.
 
-Cohort VCFs merged from variant-only per-sample VCFs (for example with `bcftools merge -0`)
-store filled `0/0` genotypes that carry no evidence that the sample was callable. Read
+Cohort VCFs merged from variant-only per-sample VCFs using missing-to-reference filling (for
+example `bcftools merge -0`) store filled `0/0` genotypes that carry no evidence that the sample was callable. Read
 [Input Prerequisites: Callability and Genotype QC](association_testing.md#input-prerequisites-callability-and-genotype-qc)
 before interpreting burden or association results.
 
