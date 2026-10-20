@@ -13,6 +13,7 @@ Verifies:
 
 from __future__ import annotations
 
+import os
 from unittest.mock import patch
 
 import numpy as np
@@ -21,8 +22,18 @@ import pytest
 from variantcentrifuge.association.backends.davies import (
     _kuonen_pvalue,
     _liu_pvalue,
+    _try_load_davies,
     compute_pvalue,
 )
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(
+    bool(os.environ.get("VARIANTCENTRIFUGE_NO_C_EXT")), reason="C extension disabled"
+)
+def test_davies_extension_is_built():
+    """Golden SKAT/COAST p-values silently drift to Liu when the untracked .so is missing."""
+    assert _try_load_davies(), "Davies _qfc extension not built: run `make build-ext`"
 
 
 @pytest.mark.unit

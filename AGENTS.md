@@ -46,7 +46,10 @@ make ci-check      # local lint, LOC, format, type, and fast-test gate
 make format        # apply Ruff formatting and safe lint fixes
 ```
 
-Use `make install-dev` for a development install. Add or change
+Use `make install-dev` for a development install. In a fresh git worktree,
+run `make build-ext` (the `make test*` targets do it for you): the Davies C
+extension is untracked, and without it SKAT/COAST p-values silently fall back
+to Liu and golden tests fail. Add or change
 dependencies in `pyproject.toml`; do not hand-edit generated environment state.
 
 ## Safety and working rules

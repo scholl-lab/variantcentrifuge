@@ -28,7 +28,7 @@ import numpy as np
 import pytest
 from scipy.stats import chi2
 
-from variantcentrifuge.association.backends.davies import _try_load_davies, compute_pvalue
+from variantcentrifuge.association.backends.davies import compute_pvalue
 from variantcentrifuge.association.backends.python_backend import PythonSKATBackend
 from variantcentrifuge.association.tests.skat_python import PurePythonSKATTest
 from variantcentrifuge.association.weights import beta_maf_weights
@@ -390,9 +390,6 @@ class TestGoldenValues:
             f"Gene A Burden p-value drifted: expected ~0.817, got {p:.8f}"
         )
 
-    @pytest.mark.skipif(
-        not _try_load_davies(), reason="golden p-values need the Davies _qfc C extension"
-    )
     def test_golden_gene_a_skat(self, backend):
         """Gene A: SKAT method. Regression guard for SKAT computation."""
         phenotype, geno = _make_gene_data(

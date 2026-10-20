@@ -1,4 +1,4 @@
-.PHONY: help install install-dev clean lint lint-loc format format-check typecheck check-version test test-unit test-integration test-fast ci-check fix
+.PHONY: help install install-dev clean lint lint-loc format format-check typecheck check-version test test-unit test-integration test-fast ci-check fix build-ext
 
 # Colors for output
 CYAN := \033[0;36m
@@ -64,7 +64,15 @@ check-version: ## Verify version synchronization across metadata files
 
 ##@ Testing
 
-test: ## Run all tests with coverage (same as CI)
+DAVIES_EXT := variantcentrifuge/_qfc.abi3.so
+
+build-ext: $(DAVIES_EXT) ## Build the Davies C extension in place (fresh worktrees lack it)
+
+# The .so is untracked, so fresh worktrees silently fall back to Liu p-values without this.
+$(DAVIES_EXT): variantcentrifuge/_davies_build.py variantcentrifuge/association/data/qfc.cpp
+	$(PYTHON) setup.py -q build_ext --inplace
+
+test: $(DAVIES_EXT) ## Run all tests with coverage (same as CI)
 	@echo "$(CYAN)Running tests with coverage...$(NC)"
 	$(PYTHON) -m pytest tests/ \
 		--verbose \
@@ -73,13 +81,13 @@ test: ## Run all tests with coverage (same as CI)
 		--cov-report=term-missing
 	@echo "$(GREEN)Tests passed$(NC)"
 
-test-unit: ## Run unit tests only
+test-unit: $(DAVIES_EXT) ## Run unit tests only
 	$(PYTHON) -m pytest -m unit tests/ -v
 
-test-integration: ## Run integration tests only
+test-integration: $(DAVIES_EXT) ## Run integration tests only
 	$(PYTHON) -m pytest -m integration tests/ -v
 
-test-fast: ## Run non-slow, non-integration tests
+test-fast: $(DAVIES_EXT) ## Run non-slow, non-integration tests
 	$(PYTHON) -m pytest -m "not slow and not integration" tests/ --tb=short -q
 
 ##@ CI Verification
