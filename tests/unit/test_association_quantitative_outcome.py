@@ -499,3 +499,14 @@ def test_non_colliding_substring_removal_still_loads(monkeypatch):
         workspace=None,  # type: ignore[arg-type]
     )
     assert sps.SampleConfigLoadingStage()._process(context).vcf_samples == ["A", "B", "C"]
+
+
+@pytest.mark.parametrize("tests", [["skat"], ["linear_burden"]])
+def test_outcome_explained_by_covariates_reports_every_gene(tmp_path, tests):
+    """An outcome equal to a covariate is untestable; genes stay listed with the reason."""
+    ctx = _context(tmp_path, {"association_tests": tests, "skat_backend": "python"})
+    ctx.phenotype_data = {s: {str(_age(i))} for i, s in enumerate(SAMPLES)}
+    res = _run(ctx)
+    assert sorted(res.index) == sorted(_genotypes())
+    reason = "skat_skip_reason" if tests == ["skat"] else "warnings"
+    assert res[reason].astype(str).str.contains("OUTCOME_EXPLAINED_BY_COVARIATES").all()

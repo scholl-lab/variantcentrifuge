@@ -174,7 +174,7 @@ class PurePythonSKATTest(AssociationTest):
     def _skip(
         self, gene: str, code: str, n_cases: int, n_controls: int, n_variants: int
     ) -> TestResult:
-        """Return a skipped result (no p-value) carrying ``code`` in ``skat_warnings``."""
+        """Return a skipped result; ``code`` goes to ``skat_warnings`` and ``skat_skip_reason``."""
         return TestResult(
             gene=gene,
             test_name=self.name,
@@ -187,7 +187,7 @@ class PurePythonSKATTest(AssociationTest):
             n_cases=n_cases,
             n_controls=n_controls,
             n_variants=n_variants,
-            extra={"skat_warnings": code, "acat_v_p": None},
+            extra={"skat_warnings": code, "skat_skip_reason": code, "acat_v_p": None},
         )
 
     def run(
