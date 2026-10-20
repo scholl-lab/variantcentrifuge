@@ -35,10 +35,12 @@ jobs:
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
-        run: uv sync --locked --extra dev
+        run: |
+          uv sync --locked --extra dev
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
 
       - name: Run tests with coverage
-        run: .venv/bin/python -m pytest -n auto -m "not slow and not integration" tests/ --cov=variantcentrifuge -q
+        run: python -m pytest -n auto -m "not slow and not integration" tests/ --cov=variantcentrifuge -q
 
       # ponytail: fork PRs get no comment (read-only token); add a workflow_run companion if needed.
       - name: Publish coverage badge and PR comment
