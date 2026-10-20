@@ -21,6 +21,7 @@ def _setup_context(
     ws = Mock(spec=Workspace)
     ws.base_name = "sample"
     ws.intermediate_dir = inter_dir
+    ws.temp_dir = inter_dir
     ws.get_intermediate_path = lambda name: inter_dir / name
 
     ext = ".tsv.gz" if gzip_intermediates else ".tsv"
@@ -95,6 +96,7 @@ def test_pipeline_chain_sorting_phenotype_dataframe_loading(
     ws = Mock(spec=Workspace)
     ws.base_name = "sample"
     ws.intermediate_dir = inter_dir
+    ws.temp_dir = inter_dir
     ws.output_dir = tmp_path
     ws.get_intermediate_path = lambda name: inter_dir / name
 

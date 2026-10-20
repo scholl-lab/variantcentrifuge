@@ -87,9 +87,8 @@ class ParallelCompleteProcessingStage(Stage):
         data["bed"] = hashlib.sha256(bed_bytes).hexdigest()[:16]
         data["vcf"] = str(cfg.get("vcf_file") or context.data or "")
         data["fields"] = eff_fields
-        return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()[
-            :16
-        ]
+        blob = json.dumps(data, sort_keys=True, default=str).encode()
+        return hashlib.sha256(blob).hexdigest()[:16]
 
     def _validate_chunk_tsv(
         self,
@@ -286,6 +285,7 @@ class ParallelCompleteProcessingStage(Stage):
             cfg={
                 "threads": config.get("threads_per_chunk", 1),
                 "bcftools_prefilter": config.get("bcftools_prefilter"),
+                "temp_dir": config.get("temp_dir"),
             },
             output_file=str(chunk_vcf),
         )
@@ -332,6 +332,7 @@ class ParallelCompleteProcessingStage(Stage):
                         "max_memory_gb": config.get("max_memory_gb"),
                         "snpsift_memory_gb": config.get("snpsift_memory_gb"),
                         "filter_exception_file": config.get("filter_exception_file"),
+                        "temp_dir": config.get("temp_dir"),
                     },
                     str(filtered_vcf),
                 )
@@ -359,6 +360,7 @@ class ParallelCompleteProcessingStage(Stage):
             cfg={
                 "threads": config.get("threads_per_chunk", 1),
                 "extract_fields_separator": config.get("extract_fields_separator", ","),
+                "temp_dir": config.get("temp_dir"),
             },
             output_file=str(chunk_tsv),
             vcf_samples=config.get("vcf_samples"),

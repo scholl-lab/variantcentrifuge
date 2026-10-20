@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Developer benchmark harness `scripts/bench_association.py` for the association stage (seeded synthetic S/M/L data, packed or per-sample GT layout, bit-exact `--compare` result gate, slow wall-clock regression test) and per-sub-step timings recorded in `context.stage_results["association_analysis"]`.
+- `--filters` is checked before extraction: SnpSift runs once on the VCF's real header plus one synthetic record; unquoted string literals, unknown INFO fields and syntax errors now fail immediately with SnpSift's message and the expression (#211). Skipped with `--late-filtering`.
+- `--temp-dir DIR` moves the workspace temp dir, bulk Python temp files, `sort -T` and SnpSift's JVM tmp dir off `/tmp`/output (passed explicitly; process `TMPDIR` is not changed); default unchanged (#213).
+- Start-up free-space warning on the temp and output filesystems when free space is below 16x the compressed input VCF (advisory only; gene-panel runs need far less) (#213).
 
 ### Deprecated
 
