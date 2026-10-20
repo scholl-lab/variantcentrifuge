@@ -13,7 +13,8 @@ import pandas as pd
 
 from ..ped_reader import is_affected
 
-# X PAR1/PAR2 per build (1-based, inclusive); PAR variants are inherited like autosomes.
+# X PAR1/PAR2 per build (GRC, 1-based, inclusive); PAR variants are inherited like autosomes.
+# Cross-checked with gnomAD gene coordinates: PAR1 end lies in XG, PLCXD1/IL9R inside PARs.
 _PAR_BY_BUILD = {
     "GRCh37": ((60_001, 2_699_520), (154_931_044, 155_260_560)),
     "GRCh38": ((10_001, 2_781_479), (155_701_383, 156_030_895)),
