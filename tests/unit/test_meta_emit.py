@@ -240,3 +240,34 @@ def test_emit_omits_gene_whose_masked_null_has_no_residual_df(tmp_path, caplog):
     )
     assert set(art.genes) == {"GOOD"}
     assert "INSUFFICIENT_RESIDUAL_DF" in caplog.text
+
+
+def test_emit_records_alt_carriers_after_qc(tmp_path):
+    """#194: carriers = retained samples with >=1 ALT allele (missing calls are not carriers)."""
+    b, alt, _pheno = _builder()
+    art = emit_stratum_artifact(
+        str(tmp_path / "s1"), {"G1": b}, stratum_id="s1", genome_build="GRCh38",
+        annotation_version="x", mask_id="m", mask_hash="h",
+    )
+    expected = int((alt > 0).any(axis=1).sum())
+    assert art.genes["G1"].n_carriers == expected
+    assert load_artifact(str(tmp_path / "s1")).genes["G1"].n_carriers == expected
+
+
+def test_carriers_respect_missing_policy(tmp_path):
+    samples = [f"S{i}" for i in range(12)]
+    gts = ["./.", "0/1"] + ["0/0"] * 10
+    df = pd.DataFrame({"CHROM": ["1"], "POS": [5], "REF": ["A"], "ALT": ["G"],
+                       **{s: [g] for s, g in zip(samples, gts, strict=True)}})
+    pheno = (np.arange(12) % 2).astype(float)
+    for as_ref in (False, True):
+        b = _GenotypeMatrixBuilder(
+            gene_df=df, vcf_samples=samples, gt_columns=samples, is_binary=True,
+            missing_site_threshold=0.5, missing_sample_threshold=1.0,
+            phenotype_vector=pheno, covariate_matrix=None, missing_as_ref=as_ref,
+        )
+        art = emit_stratum_artifact(
+            str(tmp_path / f"s{as_ref}"), {"G": b}, stratum_id="s", genome_build="b",
+            annotation_version="a", mask_id="m", mask_hash="h",
+        )
+        assert art.genes["G"].n_carriers == 1

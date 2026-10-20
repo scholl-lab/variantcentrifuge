@@ -56,6 +56,9 @@ class GeneScore:
         Observed allele numbers = 2 * non-missing samples (pre-imputation).
     null_converged : bool
         Whether the stratum null model converged.
+    n_carriers : int | None
+        Samples with >= 1 observed ALT allele over the gene's variants (#194);
+        None for artifacts written before it was recorded.
     """
 
     variant_keys: list[str]
@@ -64,6 +67,7 @@ class GeneScore:
     ac: np.ndarray
     an: np.ndarray
     null_converged: bool
+    n_carriers: int | None = None
 
 
 @dataclass
@@ -191,6 +195,7 @@ def compute_gene_score(
         ac=ac,
         an=an,
         null_converged=_null_converged(null_model),
+        n_carriers=int((raw > 0).any(axis=1).sum()),  # NaN (missing) is not a carrier
     )
 
 
@@ -243,6 +248,7 @@ def save_artifact(artifact: ScoreCovarianceArtifact, path: str) -> None:
         gene_meta[gene] = {
             "variant_keys": gs.variant_keys,
             "null_converged": gs.null_converged,
+            "n_carriers": gs.n_carriers,
         }
     np.savez_compressed(path, **arrays)  # type: ignore[arg-type]
     meta = {
@@ -294,6 +300,7 @@ def load_artifact(path: str) -> ScoreCovarianceArtifact:
                 ac=data[f"{gene}::ac"],
                 an=data[f"{gene}::an"],
                 null_converged=bool(gmeta["null_converged"]),
+                n_carriers=gmeta.get("n_carriers"),
             )
     return ScoreCovarianceArtifact(
         stratum_id=meta["stratum_id"],

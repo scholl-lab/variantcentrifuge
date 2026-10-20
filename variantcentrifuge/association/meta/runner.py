@@ -59,6 +59,8 @@ OUTPUT_COLUMNS = [
     "loo_max_skato_stratum",
     "cmac_total",
     "cmac_by_stratum",
+    "n_carriers_total",
+    "carriers_by_stratum",
     "primary_p",
     "primary_q",
     "status",
@@ -164,6 +166,7 @@ def _gene_row(
     stratum_macs = [_mac(gs.ac, gs.an, gs.v) for gs in gene_scores]
     # Sum of stratum MACs: a pooled min(AC, AN-AC) overcounts sites fixed ALT in a stratum
     cmac_total = float(sum(stratum_macs))
+    carriers = [gs.n_carriers for gs in gene_scores]
     primary_p = skato_p if skato_p is not None else burden_p
     status = "ok" if n_strata >= 2 else "single_stratum"
     if primary_p is None:
@@ -194,6 +197,11 @@ def _gene_row(
         "cmac_total": cmac_total,
         "cmac_by_stratum": ";".join(
             f"{art.stratum_id}:{m:.0f}" for (art, _gs), m in zip(kept, stratum_macs, strict=True)
+        ),
+        "n_carriers_total": None if None in carriers else sum(carriers),  # type: ignore[arg-type]
+        "carriers_by_stratum": ";".join(
+            f"{art.stratum_id}:{'NA' if c is None else c}"
+            for (art, _gs), c in zip(kept, carriers, strict=True)
         ),
         "primary_p": primary_p,
         "primary_q": None,

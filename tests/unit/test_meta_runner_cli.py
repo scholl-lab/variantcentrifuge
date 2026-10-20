@@ -310,3 +310,18 @@ def test_cmac_total_is_sum_of_stratum_macs_with_fixed_alt_site():
     row = meta_analyze_artifacts(arts).set_index("gene").loc["NULLG"]
     per = {k: float(v[0]) for k, v in _parse(row["cmac_by_stratum"]).items()}
     assert row["cmac_total"] == sum(per.values())
+
+
+def test_carriers_by_stratum_and_total():
+    """#194: per-stratum carrier counts from the artifact, plus their total."""
+    a = make_stratum("A", seed=1, gene_keys=GENE_KEYS)
+    b = make_stratum("B", seed=2, gene_keys=GENE_KEYS)
+    df = meta_analyze_artifacts([a, b]).set_index("gene")
+    na, nb = a.genes["SIG"].n_carriers, b.genes["SIG"].n_carriers
+    assert na > 0 and nb > 0
+    assert df.loc["SIG", "carriers_by_stratum"] == f"A:{na};B:{nb}"
+    assert df.loc["SIG", "n_carriers_total"] == na + nb
+    b.genes["SIG"].n_carriers = None  # older artifact: unknown -> NA, total unknown
+    df = meta_analyze_artifacts([a, b]).set_index("gene")
+    assert df.loc["SIG", "carriers_by_stratum"] == f"A:{na};B:NA"
+    assert pd.isna(df.loc["SIG", "n_carriers_total"])
