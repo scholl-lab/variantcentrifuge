@@ -102,8 +102,12 @@ class ConfigurationLoadingStage(Stage):
 
     @property
     def checkpoint_resume_policy(self) -> str:
-        """Configuration is already present in the new CLI context."""
-        return "skip"
+        """Configuration is rebuilt from the new CLI context on resume."""
+        return "restore"
+
+    def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
+        """Re-run the pure config normalization (e.g. comma lists -> lists) on resume."""
+        return self._process(context)
 
     @property
     def description(self) -> str:
