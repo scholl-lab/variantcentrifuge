@@ -66,3 +66,36 @@ def test_engine_progress_and_decisions(
     assert progress and "(100.0%)" in progress[-1].getMessage()  # completion line
     assert "BLAS pinned" in engine.run_info[0]
     assert ("parallel" in engine.run_info[0]) == (workers == 2)
+
+
+def test_rss_units_by_platform(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import resource
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        resource, "getrusage", lambda _who: SimpleNamespace(ru_maxrss=2 * 1024 * 1024)
+    )
+    for platform, mib in (("linux", 2048), ("darwin", 2)):
+        monkeypatch.setattr("sys.platform", platform)
+        caplog.clear()
+        with caplog.at_level(logging.INFO):
+            log_stage_summary({}, [])
+        assert f"peak RSS {mib} MiB" in caplog.text
+
+
+def test_subset_summary_variants() -> None:
+    from types import SimpleNamespace
+
+    from variantcentrifuge.sample_subset import subset_summary
+
+    def ctx(**cfg):
+        return SimpleNamespace(config=cfg, vcf_samples=["a", "b", "c"])
+
+    assert subset_summary(ctx(sample_subset_sha256="0123456789abcdef")) == (
+        "sample subset: 3 VCF samples extracted (sha 01234567)"
+    )
+    assert "--no-sample-subset" in subset_summary(ctx(no_sample_subset=True))
+    assert "--igv" in subset_summary(ctx(igv_enabled=True, no_stats=True))
+    assert "no sample file" in subset_summary(ctx(no_stats=True))

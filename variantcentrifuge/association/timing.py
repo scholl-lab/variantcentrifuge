@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import resource
+import sys
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -55,8 +56,9 @@ def log_stage_summary(timings: dict[str, float], facts: list[str]) -> None:
     """Log one INFO line per sub-step, the total, peak RSS (self / largest child) and ``facts``."""
     for name, seconds in timings.items():
         logger.info("Association sub-step %s: %.1f s", name, seconds)
-    own = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024  # KiB on Linux -> MiB
-    child = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1024
+    unit = 1024 * 1024 if sys.platform == "darwin" else 1024  # ru_maxrss: bytes (macOS) / KiB
+    own = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / unit
+    child = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / unit
     logger.info(
         "Association total: %.1f s, peak RSS %.0f MiB (largest worker %.0f MiB)",
         sum(timings.values()), own, child,

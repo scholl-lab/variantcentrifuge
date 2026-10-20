@@ -19,6 +19,7 @@ from ..association.weights import resolve_score_weight_column
 from ..gene_burden import drop_transcript_duplicates
 from ..gt_reconstruction import _find_per_sample_gt_columns
 from ..pipeline_core import PipelineContext, Stage
+from ..sample_subset import subset_summary
 from .analysis_stage_helpers import (
     _build_assoc_config_from_context,
     _count_significant_association_results,
@@ -467,6 +468,7 @@ class AssociationAnalysisStage(Stage):
                 f"{len(vcf_samples_list or [])} in the VCF",
                 f"genes: {len(gene_burden_data)} given, {n_genes} tested, "
                 f"{len(gene_burden_data) - n_genes} skipped/no result",
+                subset_summary(context),
                 *getattr(engine, "run_info", []),
             ],
         )
