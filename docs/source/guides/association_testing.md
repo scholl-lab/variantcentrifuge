@@ -312,12 +312,27 @@ FAM1  SAMPLE_001  0.0142    -0.0231   0.0089
 FAM1  SAMPLE_002  -0.0305   0.0118    -0.0042
 ```
 
-**AKT stdout / generic TSV** (one sample ID column then numeric):
+**AKT stdout** (`akt pca ... > pca.txt`; no header, a tab after the sample ID, then
+space-padded values):
+```
+SAMPLE_001	  1.26366 -0.243411    1.4646
+SAMPLE_002	-0.512342   2.03114  -1.10982
+```
+
+**Generic TSV/CSV** (one sample ID column then numeric; header optional):
 ```
 sample_id   PC1       PC2       PC3
 SAMPLE_001  0.0142    -0.0231   0.0089
 SAMPLE_002  -0.0305   0.0118    -0.0042
 ```
+
+Files ending in `.csv` are comma-separated. Other files are split on tabs when every line
+has the same number of tabs and no value is space-padded (so IDs and header names may contain
+spaces); otherwise on any mix of tabs and spaces. Headerless files whose first two columns could
+both be sample IDs (e.g. numeric PLINK FID = IID) need a header line. Duplicate sample rows are
+an error. A header is assumed when the first value
+after the sample ID column(s) is not a number. Any NaN or non-numeric value in a used PC column
+stops the run with an error naming the file, the columns and example samples.
 
 PLINK format uses IID (column 2) as the sample identifier — this matches VCF sample names.
 
