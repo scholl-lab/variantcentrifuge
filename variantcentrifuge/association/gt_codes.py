@@ -33,7 +33,7 @@ logger = logging.getLogger("variantcentrifuge")
 # phenotype_helpers.extract_sample_and_genotype (strip, split on [:,;\s]).
 _ENTRY = r"^\s*(?P<name>[^(]*?)\s*\(\s*(?P<gt>[^:,;\s)]*)[^)]*\)"
 _EMPTY_ROWS = {"", "NA", "nan"}
-_ROW_CHUNK = 50_000  # rows per Arrow batch: bounds the transient per-entry arrays
+_BATCH_CHARS = 64_000_000  # GT text per Arrow batch: transient arrays are ~7x the text
 
 
 class GenotypeCodes:
@@ -103,14 +103,24 @@ def parse_genotype_codes(
     vcf_samples: list[str] | None,
     gt_columns: list[str],
 ) -> GenotypeCodes:
-    """Parse packed ``GT`` (preferred) or per-sample GT columns for *samples* once.
+    """Parse per-sample GT columns (preferred) or the packed ``GT`` for *samples* once.
 
     ``gt_columns[i]`` holds ``vcf_samples[i]``; samples without a column read as empty
-    (missing) calls.
+    (missing) calls. Columns win because every sample ID survives in them, while IDs
+    containing ``(``/``;`` or edge whitespace cannot round-trip through ``Name(GT);...``.
     """
     vocab = _Vocab()
     codes = np.zeros((len(df), len(samples)), dtype=np.int8)
-    if "GT" in df.columns:
+    if not (gt_columns and vcf_samples):
+        ids = vcf_samples or samples
+        bad = sum(1 for s in ids if "(" in s or ";" in s or s != s.strip())
+        if bad:
+            logger.warning(
+                "%d of %d VCF sample IDs cannot be represented in packed GT (they contain "
+                "'(' or ';' or leading/trailing spaces); their genotypes read as reference",
+                bad,
+                len(ids),
+            )
         codes = _parse_packed(df["GT"], samples, vcf_samples, codes, vocab)
         labels = list(samples)
     else:
@@ -159,11 +169,16 @@ def _parse_packed(
     text = gt.fillna("").astype(str).to_numpy(dtype=object)
     wanted = pa.array(samples, type=pa.large_string())
     named = np.zeros(len(text), dtype=bool)
-    for lo in range(0, len(text), _ROW_CHUNK):
-        chunk = pa.array(text[lo : lo + _ROW_CHUNK], type=pa.large_string())
-        named[lo : lo + len(chunk)] = pc.match_substring(chunk, "(").to_numpy(False)
+    ends = np.cumsum(np.fromiter(map(len, text), dtype=np.int64, count=len(text)))
+    lo = 0
+    while lo < len(text):
+        start = int(ends[lo - 1]) if lo else 0
+        hi = max(lo + 1, int(np.searchsorted(ends, start + _BATCH_CHARS, side="right")))
+        chunk = pa.array(text[lo:hi], type=pa.large_string())
+        named[lo:hi] = pc.match_substring(chunk, "(").to_numpy(False)
         lists = pc.split_pattern(chunk, ";")
         rows = pc.list_parent_indices(lists).to_numpy() + lo
+        lo = hi
         entries = pc.extract_regex(pc.list_flatten(lists), _ENTRY)
         cols = pc.fill_null(pc.index_in(entries.field("name"), value_set=wanted), -1)
         cols = cols.to_numpy(zero_copy_only=False)

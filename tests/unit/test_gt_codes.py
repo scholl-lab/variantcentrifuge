@@ -278,3 +278,40 @@ def test_stage_without_genotypes_uses_legacy_counts(tmp_path, caplog):
         out = AssociationAnalysisStage()._process(ctx)
     assert "pre-computed per-variant counts (legacy mode)" in caplog.text
     assert "gt_parse" not in out.stage_results["association_analysis"]["substep_seconds"]
+
+
+_ODD_NAMES = ["Fam(3)_a", "x;y", "q(r", " lead", "plain"]
+
+
+@pytest.mark.parametrize("layout", ["both", "columns", "packed"])
+def test_sample_names_that_cannot_round_trip_through_packed_gt(layout, caplog):
+    """With per-sample columns present they are parsed; packed-only warns once (#219)."""
+    gts = ["0/1", "./.", "1/1", "0/1", "0/0"]
+    cols = {f"GEN_{j}__GT": [g] for j, g in enumerate(gts)}
+    packed = ";".join(f"{s}({g})" for s, g in zip(_ODD_NAMES, gts, strict=True) if g != "0/0")
+    df = pd.DataFrame({"GT": [packed], **cols})
+    if layout == "columns":
+        df = df.drop(columns=["GT"])
+    elif layout == "packed":
+        df = df.drop(columns=list(cols))
+    gc_cols = [] if layout == "packed" else list(cols)
+    with caplog.at_level("WARNING"):
+        gc = parse_genotype_codes(df, _ODD_NAMES, _ODD_NAMES, gc_cols)
+    if layout == "packed":
+        assert "4 of 5 VCF sample IDs cannot be represented in packed GT" in caplog.text
+        assert "Fam(3)_a" not in caplog.text  # no IDs in logs
+    else:
+        assert _cells(gc) == [gts]
+        assert "packed GT" not in caplog.text
+
+
+def test_packed_parse_batches_by_text_length(monkeypatch):
+    import variantcentrifuge.association.gt_codes as gt_codes
+
+    gt = pd.Series([f"A({i % 2}/1);B(1/1)" for i in range(50)] + ["0/1,1/1"])
+    df = pd.DataFrame({"GT": gt})
+    whole = parse_genotype_codes(df, ["A", "B"], ["A", "B"], [])
+    monkeypatch.setattr(gt_codes, "_BATCH_CHARS", 40)  # ~3 rows per batch
+    batched = parse_genotype_codes(df, ["A", "B"], ["A", "B"], [])
+    assert _cells(batched) == _cells(whole)
+    assert _cells(whole)[-1] == ["0/1", "1/1"]
