@@ -25,4 +25,4 @@ dependencies:
   - pip>=26.1.2
   - pip:
     - intervaltree
-    - smart-open==7.7.1
+    - smart-open==8.0.3

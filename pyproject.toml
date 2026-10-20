@@ -95,7 +95,9 @@ log_cli = false
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-required-version = ">=0.11,<0.16"
+required-version = ">=0.11,<0.18"
+# ruff >=0.17 also formats Markdown code blocks; keep formatting to Python sources.
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF"]

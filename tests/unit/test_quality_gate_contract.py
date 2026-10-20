@@ -86,11 +86,11 @@ def test_dev_dependencies_keep_numpy_stubs_compatible_with_python_310() -> None:
     assert "numpy<2.5" in pyproject["project"]["optional-dependencies"]["dev"]
 
 
-def test_runtime_dependencies_exclude_incompatible_smart_open_8() -> None:
-    """Fresh installs must retain the ``smart_open`` callable used by the application."""
+def test_runtime_dependencies_pin_smart_open_major() -> None:
+    """Runtime pin admits smart_open 8, whose ``open`` the stages import (the old alias is gone)."""
     pyproject = _load_pyproject()
 
-    assert "smart-open<8" in pyproject["project"]["dependencies"]
+    assert "smart-open<9" in pyproject["project"]["dependencies"]
 
 
 def test_pytest_disables_benchmark_by_default() -> None:
