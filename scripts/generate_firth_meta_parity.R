@@ -23,7 +23,7 @@
 #   here; it is written as quantity "se_logistf_var" for the record only. Neither is
 #   the profile-likelihood CI logistf reports by default.
 #   metafor::rma(yi = beta, sei = se, method = "FE") over the strata of each gene.
-# Not run in CI; used by tests/unit/test_meta_firth_parity.py.
+# Not run in CI; used by tests/unit/test_meta_firth.py.
 # =============================================================================
 
 suppressPackageStartupMessages({ library(logistf); library(metafor) })

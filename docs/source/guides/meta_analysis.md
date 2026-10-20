@@ -203,7 +203,7 @@ one, so it is a sensitivity check: it never changes `primary_p` or the
 multiple-testing correction. Validated against R `logistf` (estimates) and
 `metafor::rma(method = "FE")` on synthetic strata including that imbalance and a
 separated ultra-rare gene (`scripts/generate_firth_meta_parity.R`); note `logistf`
-1.26's `fit$var` uses the augmented-data information, about 1% smaller than the
+1.26's `fit$var` uses the augmented-data information, 1-5% smaller (more for ultra-rare burdens) than the
 classic Wald SE reported here. Likewise, `V` is stored as a full matrix, so a
 future relatedness-aware (GLMM/GRM) null drops in without a schema change.
 

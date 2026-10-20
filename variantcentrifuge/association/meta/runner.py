@@ -24,7 +24,11 @@ from variantcentrifuge.association.diagnostics import write_diagnostics
 from variantcentrifuge.association.meta.align import align_strata, pooled_frequency_weights
 from variantcentrifuge.association.meta.artifact import GeneScore, ScoreCovarianceArtifact
 from variantcentrifuge.association.meta.combine import meta_burden, meta_skat, meta_skato
-from variantcentrifuge.association.meta.firth_meta import FIRTH_COLUMNS, firth_ivw_columns
+from variantcentrifuge.association.meta.firth_meta import (
+    FIRTH_COLUMNS,
+    firth_ivw_columns,
+    warn_firth_exclusions,
+)
 from variantcentrifuge.association.meta.heterogeneity import cochran_q, per_stratum_burden
 from variantcentrifuge.association.meta.manifest import (
     load_manifest_artifacts,
@@ -227,6 +231,7 @@ def meta_analyze_artifacts(
             f"stratum_id must not contain the output separators ':', ';' or ',': {bad}"
         )
     mask_id = artifacts[0].mask_id
+    warn_firth_exclusions(artifacts, weight_scheme)
     all_genes = sorted({g for art in artifacts for g in art.genes})
 
     rows: list[dict] = []

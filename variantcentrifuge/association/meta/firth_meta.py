@@ -56,8 +56,9 @@ def stratum_firth_burden(
     design = np.column_stack([np.ones_like(burden), burden])
     if covariates is not None and covariates.size:
         design = np.column_stack([design, covariates])
-    # Tighter than the single-cohort fallback's 1e-4: the stored beta feeds a pooled estimate
-    fit = _firth_logistic(np.asarray(phenotype, dtype=np.float64), design, max_iter=50, tol=1e-8)
+    # Tighter than the single-cohort 1e-4 (1e-6 misses R parity at rel 1e-6); 1e-8 can stall
+    # step-halving on log-likelihood rounding noise in large strata.
+    fit = _firth_logistic(np.asarray(phenotype, dtype=np.float64), design, max_iter=50, tol=1e-7)
     if fit is None or not np.isfinite(fit.bse[1]):  # type: ignore[attr-defined]
         return None
     return {"beta": float(fit.params[1]), "se": float(fit.bse[1]), "weights": weights}  # type: ignore[attr-defined]
@@ -77,20 +78,51 @@ def ivw_meta(
     return beta, se, float(2.0 * scipy.stats.norm.sf(abs(beta / se)))
 
 
+def _scheme_matches(firth: dict[str, Any], scheme: str) -> bool:
+    return str(firth.get("weights", "")).strip().lower() == scheme.strip().lower()
+
+
+def warn_firth_exclusions(artifacts: list[Any], weight_scheme: str) -> None:
+    """Log one warning per stratum whose genes leave the Firth meta (no fit / other weights)."""
+    for art in artifacts:
+        fits = [gs.firth for gs in art.genes.values()]
+        missing = sum(f is None for f in fits)
+        other = sorted({f["weights"] for f in fits if f and not _scheme_matches(f, weight_scheme)})
+        n_other = sum(1 for f in fits if f and not _scheme_matches(f, weight_scheme))
+        if missing or n_other:
+            logger.warning(
+                "Firth burden meta: stratum %s contributes no fit for %d of %d genes "
+                "(%d with no Firth fit: failed or not stored; %d fitted with weights %s, "
+                "not --weights %s)",
+                art.stratum_id,
+                missing + n_other,
+                len(fits),
+                missing,
+                n_other,
+                ",".join(other) or "-",
+                weight_scheme,
+            )
+
+
 def firth_ivw_columns(gene_scores: list[Any], weight_scheme: str) -> dict[str, Any]:
     """Output columns from the strata whose Firth fit used the meta's weight scheme.
 
     Strata without a fit (v1 artifacts, failed fits) or fitted with another scheme
     are left out; ``burden_firth_ivw_n_strata`` counts the strata used.
     """
-    scheme = weight_scheme.strip().lower()
     fits = [
         gs.firth
         for gs in gene_scores
-        if gs.firth is not None and str(gs.firth.get("weights", "")).strip().lower() == scheme
+        if gs.firth is not None and _scheme_matches(gs.firth, weight_scheme)
     ]
     beta, se, p = ivw_meta([f["beta"] for f in fits], [f["se"] for f in fits])
     return dict(zip(FIRTH_COLUMNS, (beta, se, p, len(fits)), strict=True))
 
 
-__all__ = ["FIRTH_COLUMNS", "firth_ivw_columns", "ivw_meta", "stratum_firth_burden"]
+__all__ = [
+    "FIRTH_COLUMNS",
+    "firth_ivw_columns",
+    "ivw_meta",
+    "stratum_firth_burden",
+    "warn_firth_exclusions",
+]

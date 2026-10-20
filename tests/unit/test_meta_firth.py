@@ -187,3 +187,29 @@ def test_stratum_firth_none_when_fit_fails(monkeypatch):
     assert (
         fm.stratum_firth_burden(geno, np.array([3.0]), np.array([40.0]), y, None, "uniform") is None
     )
+
+
+def test_stratum_firth_uses_tol_1e7(monkeypatch):
+    """tol 1e-8 can make step-halving fail on rounding noise in large strata (review G)."""
+    import variantcentrifuge.association.meta.firth_meta as fm
+
+    seen = {}
+    monkeypatch.setattr(fm, "_firth_logistic", lambda *a, **k: seen.update(k))
+    geno = np.zeros((20, 1))
+    geno[:3, 0] = 1
+    fm.stratum_firth_burden(geno, np.array([3.0]), np.array([40.0]), np.ones(20), None, "uniform")
+    assert seen["tol"] == 1e-7  # 1e-6 misses R parity at rel 1e-6 (s3/G2)
+
+
+def test_runner_warns_once_per_stratum_for_excluded_firth_fits(caplog):
+    keys = {"GENE_A": KEYS["GENE_A"], "GENE_B": ["2:100:A:G", "2:200:C:T"]}
+    ok = _with_firth(make_stratum("s1", 1, gene_keys=keys), 0.5, 0.25)
+    other = _with_firth(make_stratum("s2", 2, gene_keys=keys), 0.2, 0.5, weights="uniform")
+    partial = _with_firth(make_stratum("s3", 3, gene_keys=keys), 0.9, 0.3)
+    partial.genes["GENE_B"].firth = None
+    with caplog.at_level("WARNING", logger="variantcentrifuge"):
+        meta_analyze_artifacts([ok, other, partial])
+    msgs = [r.getMessage() for r in caplog.records if "Firth" in r.getMessage()]
+    assert len(msgs) == 2
+    assert any("s2" in m and "2 of 2" in m and "uniform" in m for m in msgs)
+    assert any("s3" in m and "1 of 2" in m and "no Firth fit" in m for m in msgs)
