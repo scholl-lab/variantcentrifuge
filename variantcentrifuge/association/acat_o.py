@@ -10,10 +10,46 @@ from variantcentrifuge.association.base import TestResult
 logger = logging.getLogger("variantcentrifuge")
 
 
+PRIMARY_TESTS = ("acat_o", "skato", "burden")
+ACAT_O_EXCLUDABLE = ("acat_v",)
+
+
+def resolve_primary_test(test_names: list[str], config: Any) -> str | None:
+    """Return the test id that drives primary_* and FDR, or None for ACAT-O (#210).
+
+    Raises ValueError when the choice is unknown or its test is not being run, so a
+    misconfigured run fails before the gene loop.
+    """
+    primary = getattr(config, "primary_test", "acat_o")
+    exclude = getattr(config, "acat_o_exclude", None)
+    if exclude not in (None, *ACAT_O_EXCLUDABLE):
+        raise ValueError(f"acat_o_exclude must be one of {ACAT_O_EXCLUDABLE}, got {exclude!r}")
+    if primary == "acat_o":
+        return None
+    if primary == "skato":
+        if "skat" not in test_names or getattr(config, "skat_method", "SKAT") != "SKATO":
+            raise ValueError(
+                "--primary-test skato requires 'skat' in --association-tests "
+                "and --skat-method SKATO"
+            )
+        return "skat"
+    if primary == "burden":
+        trait = getattr(config, "trait_type", "binary")
+        name = "linear_burden" if trait == "quantitative" else "logistic_burden"
+        if name not in test_names:
+            raise ValueError(
+                f"--primary-test burden requires '{name}' in --association-tests "
+                f"(trait type {trait})"
+            )
+        return name
+    raise ValueError(f"primary_test must be one of {PRIMARY_TESTS}, got {primary!r}")
+
+
 def compute_acat_o(
     results_by_test: dict[str, dict[str, TestResult]],
     sorted_data: list[dict[str, Any]],
     test_names: list[str],
+    exclude: str | None = None,
 ) -> dict[str, TestResult]:
     """
     Compute ACAT-O omnibus p-value per gene by combining all primary test p-values.
@@ -30,6 +66,8 @@ def compute_acat_o(
         Gene burden data in sorted (alphabetical by gene) order.
     test_names : list of str
         Names of the registered primary tests, in engine order.
+    exclude : str or None
+        ``"acat_v"`` leaves the SKAT test's ACAT-V p-value out of the combination.
 
     Returns
     -------
@@ -60,7 +98,11 @@ def compute_acat_o(
         # ACAT-V is NOT a primary test — it's a per-variant score test stored
         # in the SKAT result's extra dict. Adding it to the ACAT-O omnibus
         # improves power for sparse signals.
+        # --acat-o-exclude acat_v: ACAT-V is anti-conservative for ultra-rare variants
+        # under case:control imbalance without SPA (#210).
         for test_name in test_names:
+            if exclude == "acat_v":
+                break
             res = results_by_test[test_name].get(gene)
             if res is not None and "acat_v_p" in res.extra:
                 acat_v_p = res.extra["acat_v_p"]

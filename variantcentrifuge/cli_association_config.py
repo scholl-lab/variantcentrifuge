@@ -105,6 +105,8 @@ def populate_association_config(
     cfg["association_workers"] = _aw if _aw else 0
     # Phase 28: SKAT method and diagnostic thresholds
     cfg["skat_method"] = getattr(args, "skat_method", "SKAT")
+    cfg["primary_test"] = getattr(args, "primary_test", None)
+    cfg["acat_o_exclude"] = getattr(args, "acat_o_exclude", None)
     # Phase 33: Gene-level FDR weighting
     _gpw = getattr(args, "gene_prior_weights", None)
     if _gpw and not Path(_gpw).is_file():
@@ -231,6 +233,8 @@ def validate_association_args(
         "missing_site_threshold",
         "missing_sample_threshold",
         "missing_as_ref",
+        "primary_test",
+        "acat_o_exclude",
     ):
         if getattr(args, dest, None) is not None and not args.perform_association:
             _fail(f"--{dest.replace('_', '-')} requires --perform-association to be set")
@@ -255,3 +259,14 @@ def validate_association_args(
                 "(binary-trait tests; fisher is the default when --association-tests is not "
                 "given). Use linear_burden and/or skat for quantitative traits."
             )
+
+    # --primary-test must name a test that this run executes (#210); fail before extraction.
+    if getattr(args, "primary_test", None) and args.perform_association:
+        from .association.acat_o import resolve_primary_test
+
+        if isinstance(raw_tests, str):
+            raw_tests = [t.strip() for t in raw_tests.split(",")]
+        try:
+            resolve_primary_test(list(raw_tests or ["fisher"]), args)
+        except ValueError as e:
+            _fail(str(e))

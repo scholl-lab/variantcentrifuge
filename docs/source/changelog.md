@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--filters` is checked before extraction: SnpSift runs once on the VCF's real header plus one synthetic record; unquoted string literals, unknown INFO fields and syntax errors now fail immediately with SnpSift's message and the expression (#211). Skipped with `--late-filtering`.
 - `--temp-dir DIR` moves the workspace temp dir, bulk Python temp files, `sort -T` and SnpSift's JVM tmp dir off `/tmp`/output (passed explicitly; process `TMPDIR` is not changed); default unchanged (#213).
 - Start-up free-space warning on the temp and output filesystems when free space is below 16x the compressed input VCF (advisory only; gene-panel runs need far less) (#213).
+- `--primary-test {acat_o,skato,burden}` chooses the result that drives `primary_*` and FDR, and `--acat-o-exclude acat_v` leaves ACAT-V out of ACAT-O (anti-conservative for ultra-rare variants under case:control imbalance without SPA); also config-file keys `primary_test`/`acat_o_exclude`. The imbalance warning now suggests `--acat-o-exclude acat_v`. Defaults leave output unchanged (#210).
 
 ### Changed
 

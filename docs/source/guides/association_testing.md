@@ -568,6 +568,14 @@ When SKAT runs, ACAT-V (Aggregated Cauchy Association Test — Variant) is autom
 as a per-variant score combination. It is not a separate test to activate; its p-value is stored
 in `acat_v_p` and fed into the ACAT-O omnibus alongside the SKAT p-value.
 
+:::{warning}
+ACAT-V is anti-conservative for ultra-rare variants when cases and controls are imbalanced,
+unless it is saddlepoint (SPA) corrected; VariantCentrifuge has no SPA correction. A single
+ultra-rare variant can then dominate ACAT-O and `primary_qvalue`. In imbalanced cohorts use
+`--acat-o-exclude acat_v` (the case:control imbalance warning suggests it), and consider
+`--primary-test skato` or `--primary-test burden`. See [Choosing the Primary Test](#choosing-the-primary-test).
+:::
+
 ---
 
 ## Advanced Tests: COAST
@@ -663,12 +671,13 @@ combination is undefined and ACAT-O is empty (R `ACAT()` stops with an error).
 
 ACAT-O is **not** a test you activate separately — it is computed automatically after
 multiple selected tests have run. When SKAT is active, ACAT-V is also included in the
-combination.
+combination unless `--acat-o-exclude acat_v` is given.
 
 ### FDR Correction Strategy
 
 A **single** Benjamini-Hochberg FDR correction pass is applied to the primary p-values across
-all genes. In multi-test and SKAT runs, the primary p-value is ACAT-O. In single-test runs
+all genes. By default, in multi-test and SKAT runs the primary p-value is ACAT-O
+(`--primary-test` changes this). In single-test runs
 such as Fisher-only, the primary p-value is that test's own p-value, and the corrected value is
 also exposed under a test-specific column such as `fisher_qvalue`.
 
@@ -686,8 +695,32 @@ your primary significance measure.
 | `primary_pvalue` | Raw p-value used for the single correction pass |
 | `primary_qvalue` | Corrected primary p-value; use this for significance decisions |
 | `<test>_qvalue` | Corrected p-value for a single-test run, e.g. `fisher_qvalue` |
-| `acat_o_pvalue` | Raw ACAT-O omnibus p-value; present when ACAT-O is the primary result |
+| `acat_o_pvalue` | Raw ACAT-O omnibus p-value; present whenever ACAT-O combines tests |
 | `acat_o_qvalue` | Corrected ACAT-O p-value; present when ACAT-O is the primary result |
+
+### Choosing the Primary Test
+
+`--primary-test` sets which result drives `primary_*` and the single FDR pass:
+
+| Value | Primary result | `primary_test` |
+|-------|----------------|----------------|
+| `acat_o` (default) | ACAT-O for multi-test or SKAT runs; the test itself in single-test runs | `acat_o`, or the test name |
+| `skato` | SKAT-O; needs `skat` in `--association-tests` and `--skat-method SKATO` | `skat_o` |
+| `burden` | `logistic_burden` (binary trait) or `linear_burden` (quantitative); must be in `--association-tests` | that test name |
+
+With `skato` or `burden`, the chosen test's corrected value is also written as
+`<test>_qvalue` (`skat_o_qvalue`, `logistic_burden_qvalue`). ACAT-O is still computed and
+`acat_o_pvalue` is kept, but it is not corrected, so `acat_o_qvalue` is absent. If the chosen
+test is not run, the run stops before extraction with an error naming the missing test.
+
+`--acat-o-exclude acat_v` leaves ACAT-V out of ACAT-O (see the ACAT-V warning above). In a
+SKAT-only run ACAT-O would then be a pass-through, so SKAT itself becomes the primary result
+(`skat_qvalue` or `skat_o_qvalue`) and no `acat_o_*` columns are written.
+
+Both options also apply to gene-set units, and can be set in the config file's `association`
+section as `"primary_test"` and `"acat_o_exclude"` (the CLI wins). They do not affect
+`--score-artifact` files or meta-analysis, which has its own primary (SKAT-O, else burden).
+Defaults reproduce earlier output exactly.
 
 ### Pass-Through Behaviour
 
