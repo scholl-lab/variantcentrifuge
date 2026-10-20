@@ -26,7 +26,7 @@ dependencies = [
     "numpy",
     "intervaltree",
     "psutil",
-    "smart-open<8",
+    "smart-open<9",
     "openpyxl",
     "xlsxwriter>=3.0",
     "cffi",
