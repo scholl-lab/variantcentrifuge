@@ -494,3 +494,16 @@ class TestPcaLayoutGuards:
         p = _write(tmp_path, "pca.eigenvec", "#IID\tPC1\tPC2\nSYN_A\t0.1\t0.2\nSYN_B\t0.3\t0.4\n")
         matrix, _ = load_pca_file(p, ["SYN_B", "SYN_A"], n_components=2)
         np.testing.assert_array_equal(matrix, [[0.3, 0.4], [0.1, 0.2]])
+
+    def test_headerless_both_id_columns_partly_match_is_ambiguous(self, tmp_path):
+        p = _write(tmp_path, "pca.eigenvec", "1 2 0.1 0.2\n2 3 0.3 0.4\n3 9 0.5 0.6\n")
+        with pytest.raises(ValueError, match="header"):
+            load_pca_file(p, ["1", "2", "3"], n_components=2)
+
+    def test_layout_match_uses_substring_removal(self, tmp_path):
+        # IDs are compared after the same substring removal the VCF names get
+        p = _write(tmp_path, "pca.eigenvec", "5 10 0.1 0.2\n6 20 0.3 0.4\n")
+        matrix, _ = load_pca_file(p, ["2", "1"], n_components=2, remove_sample_substring="0")
+        np.testing.assert_array_equal(matrix, [[0.3, 0.4], [0.1, 0.2]])
+        with pytest.raises(ValueError, match="header"):
+            load_pca_file(p, ["2", "1"], n_components=2)

@@ -182,11 +182,12 @@ def load_pca_file(
                 len(vcf_set.intersection(_clean_ids(df.iloc[:, c], remove_sample_substring)))
                 for c in (0, 1)
             )
-            if n_col0 == n_col1:
+            # exactly one layout may match; a partial match in the other is ambiguous
+            if min(n_col0, n_col1) > 0 or n_col0 == n_col1:
                 raise ValueError(
                     f"PCA file {filepath}: cannot tell whether column 1 (sample ID) or "
-                    f"column 2 (PLINK FID/IID) holds the sample IDs ({n_col0} VCF samples "
-                    "match either). Add a header line, e.g. '#FID IID PC1 PC2 ...' or "
+                    f"column 2 (PLINK FID/IID) holds the sample IDs ({n_col0} vs {n_col1} VCF "
+                    "samples match). Add a header line, e.g. '#FID IID PC1 PC2 ...' or "
                     "'sample_id PC1 PC2 ...'."
                 )
             n_id = 2 if n_col1 > n_col0 else 1
