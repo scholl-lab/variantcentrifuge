@@ -336,7 +336,7 @@ def test_ploidy_aware_chromosome_counts_in_allele_mode():
 
 
 @pytest.mark.unit
-def test_legacy_aggregation_count_only_multi_site_missing_rejected():
+def test_legacy_aggregation_count_only_multi_site_missing_rejected(caplog):
     """Verify count-only multi-site missingness without sample IDs is skipped (p_called=0)."""
     df = pd.DataFrame(
         {
@@ -352,9 +352,11 @@ def test_legacy_aggregation_count_only_multi_site_missing_rejected():
         }
     )
     cfg = {"gene_burden_mode": "samples", "correction_method": "fdr"}
-    res = perform_gene_burden_analysis(df, cfg)
-    # Untestable multi-site count-only missingness is rejected -> gene skipped
+    with caplog.at_level("WARNING", logger="variantcentrifuge"):
+        res = perform_gene_burden_analysis(df, cfg)
+    # Untestable multi-site count-only missingness is rejected -> gene skipped, loudly
     assert res.empty
+    assert "Gene GENE1 skipped: legacy counts cannot tell which samples are missing" in caplog.text
 
 
 @pytest.mark.unit
@@ -616,7 +618,6 @@ def test_legacy_aggregation_excludes_incomplete_sample_from_numerators():
     in legacy aggregation (P1=[0/1, ./.], P2=[0/0, 0/0], C1=[0/1, 0/0], C2=[0/0, 0/0]).
     """
     from variantcentrifuge.gene_burden import (
-        _aggregate_gene_burden_legacy,
         perform_gene_burden_analysis,
     )
     from variantcentrifuge.phenotype_helpers import assign_case_control_counts
@@ -645,31 +646,6 @@ def test_legacy_aggregation_excludes_incomplete_sample_from_numerators():
     ]:
         assert col not in df_counts.columns
 
-    # 1. Direct legacy aggregation with explicit tracking columns
-    df_legacy = df_counts.copy()
-    df_legacy["proband_carrier_samples"] = ["P1:1:2", ""]
-    df_legacy["control_carrier_samples"] = ["C1:1:2", ""]
-    df_legacy["proband_missing_samples"] = ["", "P1"]
-    df_legacy["control_missing_samples"] = ["", ""]
-
-    legacy_data = _aggregate_gene_burden_legacy(df_legacy)
-    assert len(legacy_data) == 1
-    row = legacy_data[0]
-    assert row["proband_called_count"] == 1  # P2 is called, P1 excluded
-    assert row["control_called_count"] == 2  # C1 and C2 both called
-    assert row["proband_variant_count"] == 0  # P1's carrier call is excluded!
-    assert row["control_variant_count"] == 1  # C1 is carrier
-    assert row["proband_allele_count"] == 0
-    assert row["control_allele_count"] == 1
-
-    # 2. perform_gene_burden_analysis on df without GT (forces legacy path)
-    df_no_gt = df_legacy.drop(columns=["GT"])
-    res_legacy = perform_gene_burden_analysis(df_no_gt, cfg)
-    assert len(res_legacy) == 1
-    assert res_legacy.iloc[0]["proband_variant_count"] == 0
-    assert res_legacy.iloc[0]["control_variant_count"] == 1
-    assert res_legacy.iloc[0]["odds_ratio"] == pytest.approx(1.0 / 3.0)
-
     # 3. perform_gene_burden_analysis with GT (sample-aware packed GT path)
     res_gt = perform_gene_burden_analysis(df_counts, cfg)
     assert len(res_gt) == 1
@@ -681,20 +657,10 @@ def test_legacy_aggregation_excludes_incomplete_sample_from_numerators():
 @pytest.mark.unit
 def test_haploid_multisite_chromosome_count_with_missingness():
     """Verify that multi-site haploid cases with incomplete samples compute
-    exact complete-case called chromosome counts (proband_called_chromosomes == 1)
-    in both raw/GT and assign_case_control_counts -> legacy paths.
+    exact complete-case called chromosome counts (proband_called_chromosomes == 1).
     """
-    from variantcentrifuge.gene_burden import (
-        _aggregate_gene_burden_from_gt,
-        _aggregate_gene_burden_legacy,
-        perform_gene_burden_analysis,
-    )
-    from variantcentrifuge.phenotype_helpers import assign_case_control_counts
-
     case_samples = {"P1", "P2", "P3"}
     control_samples = {"C1"}
-    all_samples = {"P1", "P2", "P3", "C1"}
-    cfg = {"gene_burden_mode": "alleles", "correction_method": "fdr"}
 
     # P1 is (1, 1), P2 is (0, .), P3 is (., 0), C1 is (0/1, 0/1)
     df = pd.DataFrame(
@@ -716,37 +682,6 @@ def test_haploid_multisite_chromosome_count_with_missingness():
     assert gt_data[0]["proband_called_chromosomes"] == 1  # P1 is haploid!
     assert gt_data[0]["control_called_count"] == 1
     assert gt_data[0]["control_called_chromosomes"] == 2  # C1 is diploid!
-
-    # 2. assign_case_control_counts -> legacy path with explicit tracking columns
-    df_counts = assign_case_control_counts(df, case_samples, control_samples, all_samples)
-    for col in [
-        "proband_missing_samples",
-        "control_missing_samples",
-        "proband_carrier_samples",
-        "control_carrier_samples",
-    ]:
-        assert col not in df_counts.columns
-
-    df_legacy = df_counts.copy()
-    df_legacy["proband_carrier_samples"] = ["P1:1:1;P2:0:1", "P1:1:1;P3:0:1"]
-    df_legacy["control_carrier_samples"] = ["C1:1:2", "C1:1:2"]
-    df_legacy["proband_missing_samples"] = ["P3", "P2"]
-    df_legacy["control_missing_samples"] = ["", ""]
-
-    legacy_data = _aggregate_gene_burden_legacy(df_legacy)
-    assert len(legacy_data) == 1
-    assert legacy_data[0]["proband_called_count"] == 1
-    assert legacy_data[0]["proband_called_chromosomes"] == 1  # Exact haploid complete-case total!
-    assert legacy_data[0]["control_called_count"] == 1
-    assert legacy_data[0]["control_called_chromosomes"] == 2
-
-    # 3. perform_gene_burden_analysis with df_no_gt (legacy path execution)
-    df_no_gt = df_legacy.drop(columns=["GT"])
-    res_legacy = perform_gene_burden_analysis(df_no_gt, cfg)
-    assert len(res_legacy) == 1
-    assert res_legacy.iloc[0]["proband_allele_count"] == 1
-    assert res_legacy.iloc[0]["control_allele_count"] == 1
-    assert not np.isnan(res_legacy.iloc[0]["raw_p_value"])
 
 
 @pytest.mark.unit

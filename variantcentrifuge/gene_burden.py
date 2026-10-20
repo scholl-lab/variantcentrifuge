@@ -42,14 +42,14 @@ def _find_gt_columns(df: pd.DataFrame) -> list[str]:
 
 
 def _compute_or_confidence_interval(
-    table: list, odds_ratio: float, method: str, alpha: float, continuity_correction: float = 0.5
-) -> tuple:
-    """Compute confidence intervals for the odds ratio with robust handling of zero cells."""
+    table: list, alpha: float, continuity_correction: float = 0.5
+) -> tuple[float, float, float]:
+    """Return (odds ratio, CI lower, CI upper); Haldane-corrected if any cell is zero."""
     a, b = table[0][0], table[0][1]
     c, d = table[1][0], table[1][1]
 
     if (a + b == 0) or (c + d == 0) or (a + c == 0) or (b + d == 0) or Table2x2 is None:
-        return np.nan, np.nan
+        return np.nan, np.nan, np.nan
 
     table_np = np.array(table, dtype=float)
     table_for_ci = table_np + continuity_correction if 0 in table_np.flatten() else table_np
@@ -57,10 +57,10 @@ def _compute_or_confidence_interval(
     try:
         cont_table = Table2x2(table_for_ci)
         ci_lower, ci_upper = cont_table.oddsratio_confint(alpha=alpha, method="normal")
-        return ci_lower, ci_upper
+        return float(cont_table.oddsratio), float(ci_lower), float(ci_upper)
     except Exception as e:
-        logger.warning(f"Failed to compute CI for table {table_for_ci.tolist()}: {e}")
-        return np.nan, np.nan
+        logger.warning(f"Failed to compute OR/CI for table {table_for_ci.tolist()}: {e}")
+        return np.nan, np.nan, np.nan
 
 
 def _gt_to_dosage(gt: str) -> int:
@@ -245,7 +245,6 @@ def perform_gene_burden_analysis(
 
     mode = cfg.get("gene_burden_mode", "samples")
     correction_method = cfg.get("correction_method", "fdr")
-    ci_method = cfg.get("confidence_interval_method", "normal_approx")
     ci_alpha = cfg.get("confidence_interval_alpha", 0.05)
     continuity_correction = cfg.get("continuity_correction", 0.5)
 
@@ -356,30 +355,10 @@ def perform_gene_burden_analysis(
                 )
                 continue
 
-        if fisher_exact is not None:
-            odds_ratio, pval = fisher_exact(table)
-        else:
-            odds_ratio = float("nan")
-            pval = 1.0
-
-        has_zero_cell = any(cell == 0 for row in table for cell in row)
-        if has_zero_cell and Table2x2 is not None:
-            a, b, c, d = table[0][0], table[0][1], table[1][0], table[1][1]
-            if (a + b == 0) or (c + d == 0) or (a + c == 0) or (b + d == 0):
-                odds_ratio, ci_lower, ci_upper = np.nan, np.nan, np.nan
-            else:
-                table_for_or_ci = np.array(table, dtype=float) + continuity_correction
-                try:
-                    cont = Table2x2(table_for_or_ci)
-                    odds_ratio = float(cont.oddsratio)
-                    ci_lower, ci_upper = cont.oddsratio_confint(alpha=ci_alpha, method="normal")
-                except Exception as exc:
-                    logger.warning("Failed to compute OR/CI: %s", exc)
-                    odds_ratio, ci_lower, ci_upper = np.nan, np.nan, np.nan
-        else:
-            ci_lower, ci_upper = _compute_or_confidence_interval(
-                table, odds_ratio, ci_method, ci_alpha, continuity_correction
-            )
+        pval = fisher_exact(table)[1] if fisher_exact is not None else 1.0
+        odds_ratio, ci_lower, ci_upper = _compute_or_confidence_interval(
+            table, ci_alpha, continuity_correction
+        )
 
         n_vars = int(getattr(row, "n_qualifying_variants", 0)) if uses_per_sample_collapsing else 0
 
@@ -445,88 +424,25 @@ def _col_total(gdf: pd.DataFrame, col: str, fallback_col: str) -> int:
     return int(gdf[fallback_col].max()) if fallback_col in gdf.columns else 0
 
 
-def _parse_carrier_token(token: str) -> tuple[str, int, int]:
-    parts = token.strip().rsplit(":", 2)
-    if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit():
-        return parts[0], int(parts[1]), int(parts[2])
-    if len(parts) >= 2 and parts[-1].isdigit():
-        return token.strip().rsplit(":", 1)[0], int(parts[-1]), 2
-    return token.strip(), 1, 2
-
-
-def _called_and_chrom(gdf: pd.DataFrame, tot: int, prefix: str) -> tuple[int, int]:
+def _called_and_chrom(gdf: pd.DataFrame, tot: int, prefix: str, gene: Any) -> tuple[int, int]:
     """Compute callable sample count and callable chromosomes for legacy aggregation."""
-    m_col, c_col = f"{prefix}_missing_samples", f"{prefix}_called_count"
-    chrom_col, car_col = f"{prefix}_called_chromosomes", f"{prefix}_carrier_samples"
-
-    if car_col not in gdf.columns and len(gdf) > 1:
-        has_mis = (c_col in gdf.columns and int((tot - gdf[c_col] > 0).sum()) > 0) or (
-            m_col in gdf.columns
-            and any(
-                x.strip() for s in gdf[m_col].dropna() if s for x in str(s).split(";") if x.strip()
-            )
-        )
-        if has_mis:
-            return 0, 0
-
-    if m_col in gdf.columns:
-        missing = {
-            x.strip() for s in gdf[m_col].dropna() if s for x in str(s).split(";") if x.strip()
-        }
-        called = max(0, tot - len(missing))
-    elif c_col in gdf.columns:
-        called = (
-            int(gdf[c_col].min())
-            if (len(gdf) == 1 or int((tot - gdf[c_col] > 0).sum()) == 0)
-            else 0
-        )
-    else:
+    c_col, chrom_col = f"{prefix}_called_count", f"{prefix}_called_chromosomes"
+    if c_col not in gdf.columns:
         called = tot
+    elif len(gdf) > 1 and int((tot - gdf[c_col] > 0).sum()) > 0:
+        logger.warning("Gene %s skipped: legacy counts cannot tell which samples are missing", gene)
+        return 0, 0
+    else:
+        called = int(gdf[c_col].min())
 
     if called == 0:
-        chrom = 0
-    elif car_col in gdf.columns and m_col in gdf.columns:
-        haploid_rows: dict[str, int] = {}
-        for s_str in gdf[car_col].dropna():
-            if not s_str or not str(s_str).strip():
-                continue
-            seen_in_row: set[str] = set()
-            for item in str(s_str).split(";"):
-                if not item.strip():
-                    continue
-                sname, _, pl = _parse_carrier_token(item)
-                if sname not in missing and pl == 1 and sname not in seen_in_row:
-                    seen_in_row.add(sname)
-                    haploid_rows[sname] = haploid_rows.get(sname, 0) + 1
-        n_all_haploid = sum(1 for cnt in haploid_rows.values() if cnt == len(gdf))
-        chrom = 2 * called - n_all_haploid
-    elif chrom_col in gdf.columns:
-        chrom = max(0, min(called * 2, int(gdf[chrom_col].min())))
-    else:
-        chrom = called * 2
-    return called, chrom
+        return 0, 0
+    if chrom_col in gdf.columns:
+        return called, max(0, min(called * 2, int(gdf[chrom_col].min())))
+    return called, called * 2
 
 
 def _legacy_counts(gdf: pd.DataFrame, called: int, chrom: int, prefix: str) -> tuple[int, int]:
-    if called == 0:
-        return 0, 0
-    m_col, car_col = f"{prefix}_missing_samples", f"{prefix}_carrier_samples"
-    if car_col in gdf.columns and m_col in gdf.columns:
-        missing = {
-            x.strip() for s in gdf[m_col].dropna() if s for x in str(s).split(";") if x.strip()
-        }
-        dosages: dict[str, int] = {}
-        for s_str in gdf[car_col].dropna():
-            if not s_str or not str(s_str).strip():
-                continue
-            for item in str(s_str).split(";"):
-                if not item.strip():
-                    continue
-                sname, d, _ = _parse_carrier_token(item)
-                if sname not in missing and d > 0:
-                    dosages[sname] = max(dosages.get(sname, 0), d)
-        return min(called, len(dosages)), min(chrom, sum(dosages.values()))
-
     v_col, a_col = f"{prefix}_variant_count", f"{prefix}_allele_count"
     v_cnt = min(called, int(gdf[v_col].sum())) if v_col in gdf.columns else 0
     a_cnt = min(chrom, int(gdf[a_col].sum())) if a_col in gdf.columns else 0
@@ -539,8 +455,8 @@ def _aggregate_gene_burden_legacy(df: pd.DataFrame) -> list[dict]:
     for gene, gene_df in df.groupby("GENE", observed=True):
         tot_p = _col_total(gene_df, "proband_count", "proband_called_count")
         tot_c = _col_total(gene_df, "control_count", "control_called_count")
-        p_called, p_chrom = _called_and_chrom(gene_df, tot_p, "proband")
-        c_called, c_chrom = _called_and_chrom(gene_df, tot_c, "control")
+        p_called, p_chrom = _called_and_chrom(gene_df, tot_p, "proband", gene)
+        c_called, c_chrom = _called_and_chrom(gene_df, tot_c, "control", gene)
         p_var_count, p_allele_count = _legacy_counts(gene_df, p_called, p_chrom, "proband")
         c_var_count, c_allele_count = _legacy_counts(gene_df, c_called, c_chrom, "control")
 

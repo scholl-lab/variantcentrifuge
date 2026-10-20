@@ -39,6 +39,7 @@ import numpy as np
 import pytest
 
 from variantcentrifuge.association.backends.coast_python import PythonCOASTBackend
+from variantcentrifuge.association.backends.davies import _try_load_davies
 from variantcentrifuge.association.backends.python_backend import PythonSKATBackend
 
 # ---------------------------------------------------------------------------
@@ -957,6 +958,9 @@ class TestCOASTGCKDGoldenComparison:
             assert math.isfinite(p), f"[{scenario_name}] p={p} is not finite"
             assert 0.0 < p <= 1.0, f"[{scenario_name}] p={p} out of (0, 1]"
 
+    @pytest.mark.skipif(
+        not _try_load_davies(), reason="golden p-values need the Davies _qfc C extension"
+    )
     @pytest.mark.parametrize("scenario_name", list(_GCKD_GOLDEN_SCENARIOS.keys()))
     def test_gckd_scenario_regression(self, scenario_name: str) -> None:
         """Python omnibus p matches its own golden value (regression guard)."""

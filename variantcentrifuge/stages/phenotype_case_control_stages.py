@@ -317,6 +317,11 @@ class PhenotypeCaseControlAssignmentStage(Stage):
             # Both specified - exact matching only
             final_case_samples = case_samples & vcf_samples_str
             final_control_samples = control_samples & vcf_samples_str
+            if overlap := final_case_samples & final_control_samples:
+                logger.warning(
+                    "%d samples are both case and control; keeping them as cases", len(overlap)
+                )
+                final_control_samples -= overlap
         logger.info(
             f"Final assignment: {len(final_case_samples)} cases, "
             f"{len(final_control_samples)} controls"
@@ -508,6 +513,11 @@ class PhenotypeCaseControlAssignmentStage(Stage):
             # Both files provided - use intersection
             final_case_samples = case_in_vcf
             final_control_samples = control_in_vcf
+            if overlap := final_case_samples & final_control_samples:
+                logger.warning(
+                    "%d samples are both case and control; keeping them as cases", len(overlap)
+                )
+                final_control_samples -= overlap
 
         # Guard: do not overwrite existing assignments with empty results.
         # This can happen when VCF samples haven't been fully parsed yet

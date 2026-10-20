@@ -335,7 +335,7 @@ def _skato_get_pvalue(
 
     lambda_all: list[np.ndarray] = []
     for _i, rho in enumerate(rho_capped):
-        # Analytic symmetric square root R_rho^{1/2} = s*I + delta*J avoids Cholesky failure near rho=1
+        # Analytic sqrt R_rho^{1/2} = s*I + delta*J avoids Cholesky failure near rho=1
         s = np.sqrt(1.0 - rho)
         lam_burden = 1.0 - rho + n_variants * rho
         s_burden = np.sqrt(lam_burden)

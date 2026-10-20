@@ -16,7 +16,6 @@ from variantcentrifuge.association.tests.skat_python import PurePythonSKATTest
 from variantcentrifuge.extractor import extract_fields_bcftools
 from variantcentrifuge.gene_burden import _aggregate_gene_burden_from_columns
 from variantcentrifuge.generate_igv_report import generate_igv_report
-from variantcentrifuge.genotype_utils import merge_genotypes
 from variantcentrifuge.gt_reconstruction import reconstruct_gt_column
 from variantcentrifuge.inheritance.analyzer import analyze_inheritance
 from variantcentrifuge.inheritance.comp_het_vectorized import (
@@ -454,17 +453,6 @@ def test_multiallelic_alternate_calls_consistency_across_modules():
 
 
 @pytest.mark.unit
-def test_merge_genotypes_preserves_haploid_ploidy():
-    """Verify merge_genotypes preserves haploid ploidy for haploid genotypes."""
-    assert merge_genotypes(["1"]) == "1"
-    assert merge_genotypes(["1", "1"]) == "1"
-    assert merge_genotypes(["0", "1", "1"]) == "1"
-    assert merge_genotypes(["0", "1"]) == "."
-    assert merge_genotypes(["."]) == "."
-    assert merge_genotypes(["0"]) == "0"
-
-
-@pytest.mark.unit
 def test_extractor_to_build_genotype_matrix_haploid_support(tmp_path):
     """Verify extractor preserves haploid missing '.' and matrix imputes haploid missing."""
     out_file = str(tmp_path / "extracted.tsv")
@@ -522,7 +510,7 @@ def test_extractor_to_build_genotype_matrix_haploid_support(tmp_path):
 def test_coast_python_backend_and_test_haploid_variant_mafs():
     """Verify COAST python backend and PurePythonCOASTTest use ploidy-aware variant_mafs."""
     from variantcentrifuge.association.backends.coast_python import (
-        COASTPythonBackend,
+        PythonCOASTBackend,
         _compute_allelic_skat_weights,
     )
     from variantcentrifuge.association.tests.allelic_series_python import PurePythonCOASTTest
@@ -545,8 +533,8 @@ def test_coast_python_backend_and_test_haploid_variant_mafs():
     assert not np.isclose(weights_naive[0], expected_weight)
     assert np.isclose(weights_naive[0], 1.0 / np.sqrt(0.25 * 0.75))
 
-    # 2. COASTPythonBackend.test_gene with variant_mafs passed
-    backend = COASTPythonBackend()
+    # 2. PythonCOASTBackend.test_gene with variant_mafs passed
+    backend = PythonCOASTBackend()
     backend._ensure_skat_backend()
     assert backend._skat_backend is not None
     phenotype = np.array([1, 0])

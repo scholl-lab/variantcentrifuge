@@ -98,9 +98,7 @@ class PurePythonCOASTTest(AssociationTest):
     def __init__(self) -> None:
         self._backend: PythonCOASTBackend | None = None
         self._null_model: NullModelResult | None = None
-        self._null_phenotype: np.ndarray | None = None
-        self._null_covariates: np.ndarray | None = None
-        self._null_trait_type: str | None = None
+        self._null_key: tuple | None = None
 
         # Lifecycle tracking (set by prepare())
         self._total_genes: int = 0
@@ -403,27 +401,14 @@ class PurePythonCOASTTest(AssociationTest):
             )
 
         # ── Lazy null model: fit and reuse only while cohort and covariates are unchanged
-        def _null_model_valid() -> bool:
-            null_model = getattr(self, "_null_model", None)
-            null_pheno = getattr(self, "_null_phenotype", None)
-            if null_model is None or null_pheno is None:
-                return False
-            if len(null_pheno) != len(phenotype):
-                return False
-            if not np.array_equal(null_pheno, phenotype):
-                return False
-            prev_cov = getattr(self, "_null_covariates", None)
-            if (covariate_matrix is None) != (prev_cov is None):
-                return False
-            if covariate_matrix is not None and (
-                prev_cov is None
-                or prev_cov.shape != covariate_matrix.shape
-                or not np.array_equal(prev_cov, covariate_matrix)
-            ):
-                return False
-            return getattr(self, "_null_trait_type", None) == config.trait_type
-
-        if not _null_model_valid():
+        key = (
+            config.trait_type,
+            phenotype.tobytes(),
+            None
+            if covariate_matrix is None
+            else (covariate_matrix.shape, covariate_matrix.tobytes()),
+        )
+        if self._null_model is None or key != getattr(self, "_null_key", None):
             self._backend._ensure_skat_backend()
             assert self._backend._skat_backend is not None
             self._null_model = self._backend._skat_backend.fit_null_model(
@@ -431,11 +416,7 @@ class PurePythonCOASTTest(AssociationTest):
                 covariates=covariate_matrix,
                 trait_type=config.trait_type,
             )
-            self._null_phenotype = np.copy(phenotype)
-            self._null_covariates = (
-                np.copy(covariate_matrix) if covariate_matrix is not None else None
-            )
-            self._null_trait_type = config.trait_type
+            self._null_key = key
 
         # ── COAST weights from config or default ──────────────────────────────────
         coast_weights = getattr(config, "coast_weights", None) or [1.0, 2.0, 3.0]

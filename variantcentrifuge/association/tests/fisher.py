@@ -21,8 +21,6 @@ import logging
 from math import isnan
 from typing import Any
 
-import numpy as np
-
 try:
     from scipy.stats import fisher_exact
 except ImportError:
@@ -172,7 +170,12 @@ class FisherExactTest(AssociationTest):
             pval = 1.0
 
         # Compute OR estimate and confidence intervals (Haldane-Anscombe corrected if any cell is 0)
-        odds_ratio, ci_lower, ci_upper = self._compute_or_and_ci(table, config)
+        # Local import: gene_burden imports the association package at module load.
+        from variantcentrifuge.gene_burden import _compute_or_confidence_interval
+
+        odds_ratio, ci_lower, ci_upper = _compute_or_confidence_interval(
+            table, config.confidence_interval_alpha, config.continuity_correction
+        )
 
         return TestResult(
             gene=gene,
@@ -249,62 +252,3 @@ class FisherExactTest(AssociationTest):
                 return table, True
 
         return table, False
-
-    def _compute_or_and_ci(
-        self,
-        table: list[list[int]],
-        config: AssociationConfig,
-    ) -> tuple[float, float, float]:
-        """
-        Compute odds ratio and confidence intervals using statsmodels Table2x2.
-
-        When any cell in the 2x2 contingency table is zero, Haldane-Anscombe
-        continuity correction (+continuity_correction) is applied to all cells,
-        ensuring the reported odds ratio and its log-Wald confidence interval
-        are evaluated from the same corrected table. Structural zeros return NaN.
-        """
-        a = table[0][0]
-        b = table[0][1]
-        c = table[1][0]
-        d = table[1][1]
-
-        # Structural zeros: marginal totals are zero (OR undefined)
-        if (a + b == 0) or (c + d == 0) or (a + c == 0) or (b + d == 0):
-            logger.debug(f"Structural zero in table {table}, cannot compute OR or CI.")
-            return np.nan, np.nan, np.nan
-
-        if Table2x2 is None:
-            logger.warning("statsmodels not available. Cannot compute confidence intervals.")
-            return np.nan, np.nan, np.nan
-
-        alpha = config.confidence_interval_alpha
-        continuity_correction = config.continuity_correction
-
-        # Apply continuity correction if any cell is zero
-        table_np = np.array(table, dtype=float)
-        if 0 in table_np.flatten():
-            logger.debug(
-                f"Applying continuity correction ({continuity_correction}) to table {table}"
-            )
-            table_for_or_ci = table_np + continuity_correction
-        else:
-            table_for_or_ci = table_np
-
-        try:
-            cont_table = Table2x2(table_for_or_ci)
-            or_val = float(cont_table.oddsratio)
-            # Table2x2 supports only the normal approximation on the log-odds scale.
-            ci_lower, ci_upper = cont_table.oddsratio_confint(alpha=alpha, method="normal")
-            return or_val, float(ci_lower), float(ci_upper)
-        except Exception as e:
-            logger.warning(f"Failed to compute OR/CI for table {table_for_or_ci.tolist()}: {e}")
-            return np.nan, np.nan, np.nan
-
-    def _compute_or_ci(
-        self,
-        table: list[list[int]],
-        config: AssociationConfig,
-    ) -> tuple[float, float]:
-        """Compute confidence interval using Table2x2 (backwards compatibility)."""
-        _, ci_lower, ci_upper = self._compute_or_and_ci(table, config)
-        return ci_lower, ci_upper

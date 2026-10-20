@@ -526,6 +526,3 @@ class PythonCOASTBackend:
             "skat_p_value": skat_p_value,
             "burden_labels": burden_labels,
         }
-
-
-COASTPythonBackend = PythonCOASTBackend

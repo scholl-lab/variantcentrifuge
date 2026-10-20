@@ -172,17 +172,15 @@ class TestConfidenceIntervalMethods:
 
     def test_normal_approximation_matches_log_odds_interval(self):
         """The supported statsmodels method must return finite 95% bounds."""
-        interval = _compute_or_confidence_interval([[10, 5], [20, 30]], 3.0, "normal_approx", 0.05)
+        interval = _compute_or_confidence_interval([[10, 5], [20, 30]], 0.05)
         # exp(log(3) +/- 1.959963984540054 * sqrt(1/10 + 1/5 + 1/20 + 1/30))
-        assert interval == pytest.approx((0.8914747010960976, 10.09563141717225))
+        assert interval == pytest.approx((3.0, 0.8914747010960976, 10.09563141717225))
 
     def test_compute_or_ci_fallback_behavior(self):
         """Test the fallback behavior of _compute_or_confidence_interval."""
         # Test with invalid odds ratio (NaN) - structural zero
         table = [[0, 0], [0, 0]]
-        ci_lower, ci_upper = _compute_or_confidence_interval(
-            table, float("nan"), "normal_approx", 0.05
-        )
+        _, ci_lower, ci_upper = _compute_or_confidence_interval(table, 0.05)
 
         # Should return NaN for structural zeros
         assert np.isnan(ci_lower)
@@ -191,7 +189,7 @@ class TestConfidenceIntervalMethods:
     def test_compute_or_ci_with_zero_or(self):
         """Test CI computation when OR is zero."""
         table = [[0, 10], [100, 90]]
-        ci_lower, ci_upper = _compute_or_confidence_interval(table, 0.0, "normal_approx", 0.05)
+        _, ci_lower, ci_upper = _compute_or_confidence_interval(table, 0.05)
 
         # With continuity correction, should return valid CI
         assert ci_lower >= 0
@@ -201,9 +199,7 @@ class TestConfidenceIntervalMethods:
     def test_compute_or_ci_with_infinite_or(self):
         """Test CI computation when OR is infinite."""
         table = [[10, 0], [90, 100]]
-        ci_lower, ci_upper = _compute_or_confidence_interval(
-            table, float("inf"), "normal_approx", 0.05
-        )
+        _, ci_lower, ci_upper = _compute_or_confidence_interval(table, 0.05)
 
         # With continuity correction, should return valid CI
         assert ci_lower > 0
@@ -214,7 +210,7 @@ class TestConfidenceIntervalMethods:
     def test_compute_or_ci_without_statsmodels(self):
         """Test fallback when statsmodels is not available."""
         table = [[10, 5], [20, 30]]
-        ci_lower, ci_upper = _compute_or_confidence_interval(table, 3.0, "normal_approx", 0.05)
+        _, ci_lower, ci_upper = _compute_or_confidence_interval(table, 0.05)
 
         # Should return NaN when statsmodels not available
         assert np.isnan(ci_lower)
