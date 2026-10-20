@@ -24,6 +24,7 @@ from .analysis_stage_helpers import (
     _build_assoc_config_from_context,
     _count_significant_association_results,
 )
+from .association_outcome import build_quantitative_outcome
 from .genotype_matrix_builder import (
     _find_cadd_column,
     _find_effect_column,
@@ -59,6 +60,34 @@ def _emit_score_artifact(config: dict, path: str, gene_burden_data: list[dict]) 
         mask_id=mask_hash[:12],
         mask_hash=mask_hash,
     )
+
+
+def _cohort_size_ok(n_cases_total: int, n_controls_total: int) -> bool:
+    """Log binary cohort size/balance warnings; False when too few cases to analyse."""
+    if n_cases_total < 10:
+        logger.error(
+            f"Association analysis: only {n_cases_total} case(s) found — "
+            "fewer than 10 cases produces invalid results. Aborting."
+        )
+        return False
+    if n_cases_total < 50:
+        logger.warning(
+            f"Association analysis: only {n_cases_total} case(s) — "
+            "fewer than 50 cases provides no practical power for regression tests"
+        )
+    elif n_cases_total < 200:
+        logger.warning(
+            f"Association analysis: {n_cases_total} case(s) — "
+            "fewer than 200 cases is underpowered for SKAT; interpret results with caution"
+        )
+    if n_controls_total > 0 and n_cases_total > 0:
+        ratio = n_controls_total / n_cases_total
+        if ratio > 20:
+            logger.warning(
+                f"Association analysis: case:control ratio is 1:{ratio:.0f} — "
+                "exceeds 1:20; Type I error inflation risk without SPA/Firth correction"
+            )
+    return True
 
 
 class AssociationAnalysisStage(Stage):
@@ -156,31 +185,6 @@ class AssociationAnalysisStage(Stage):
             logger.debug("Association analysis not requested")
             return context
 
-        case_samples = context.config.get("case_samples", [])
-        control_samples = context.config.get("control_samples", [])
-        if isinstance(case_samples, str):
-            case_samples = [s.strip() for s in case_samples.split(",") if s.strip()]
-            context.config["case_samples"] = case_samples
-        if isinstance(control_samples, str):
-            control_samples = [s.strip() for s in control_samples.split(",") if s.strip()]
-            context.config["control_samples"] = control_samples
-
-        if not case_samples and not control_samples:
-            raise ValueError(
-                "Association analysis requested but both case and control cohorts are missing."
-            )
-        if not case_samples:
-            raise ValueError("Association analysis requested but case cohort is missing.")
-        if not control_samples:
-            raise ValueError("Association analysis requested but control cohort is missing.")
-
-        df = context.current_dataframe
-        if df is None:
-            df = context.variants_df
-        if df is None:
-            raise RuntimeError("No DataFrame loaded for association analysis")
-        df = drop_transcript_duplicates(df)
-
         pca_result = context.get_result("pca_computation")
         if pca_result and isinstance(pca_result, dict):
             pca_file_from_stage = pca_result.get("pca_file")
@@ -190,6 +194,7 @@ class AssociationAnalysisStage(Stage):
 
         assoc_config = _build_assoc_config_from_context(context)
         logger.info(f"Association analysis: trait type = {assoc_config.trait_type}")
+        quantitative = assoc_config.trait_type == "quantitative"
 
         _json_assoc = context.config.get("association", {}) or {}
         test_names: list[str] = (
@@ -197,6 +202,42 @@ class AssociationAnalysisStage(Stage):
             or _json_assoc.get("association_tests")
             or ["fisher"]
         )
+
+        case_samples = context.config.get("case_samples", [])
+        control_samples = context.config.get("control_samples", [])
+        if isinstance(case_samples, str):
+            case_samples = [s.strip() for s in case_samples.split(",") if s.strip()]
+            context.config["case_samples"] = case_samples
+        if isinstance(control_samples, str):
+            control_samples = [s.strip() for s in control_samples.split(",") if s.strip()]
+            context.config["control_samples"] = control_samples
+
+        if quantitative:
+            # The outcome is the numeric phenotype column; case/control labels play no role.
+            case_samples, control_samples = [], []
+            binary_only = sorted({"fisher", "logistic_burden"} & set(test_names))
+            if binary_only:
+                raise ValueError(
+                    f"Association tests {binary_only} need a binary trait; "
+                    "use linear_burden/skat for --trait-type quantitative."
+                )
+            if context.config.get("score_artifact"):
+                raise ValueError("--score-artifact supports binary traits only")
+        elif not case_samples and not control_samples:
+            raise ValueError(
+                "Association analysis requested but both case and control cohorts are missing."
+            )
+        elif not case_samples:
+            raise ValueError("Association analysis requested but case cohort is missing.")
+        elif not control_samples:
+            raise ValueError("Association analysis requested but control cohort is missing.")
+
+        df = context.current_dataframe
+        if df is None:
+            df = context.variants_df
+        if df is None:
+            raise RuntimeError("No DataFrame loaded for association analysis")
+        df = drop_transcript_duplicates(df)
 
         if df.empty:
             from ..checkpoint_models import AtomicFileOperation
@@ -307,37 +348,27 @@ class AssociationAnalysisStage(Stage):
         case_set = set(case_samples)
         control_set = set(control_samples)
         vcf_samples_list = list(context.vcf_samples) if context.vcf_samples else None
-        assigned_samples = (
-            [s for s in vcf_samples_list if s in case_set or s in control_set]
-            if vcf_samples_list
-            else []
-        )
+        quantitative_outcome = None
+        if quantitative:
+            if not vcf_samples_list:
+                raise ValueError("Quantitative association analysis requires VCF sample IDs.")
+            assigned_samples, quantitative_outcome = build_quantitative_outcome(
+                context.phenotype_data,
+                vcf_samples_list,
+                context.config.get("phenotype_value_column"),
+                context.config.get("remove_sample_substring"),
+            )
+        else:
+            assigned_samples = (
+                [s for s in vcf_samples_list if s in case_set or s in control_set]
+                if vcf_samples_list
+                else []
+            )
 
         n_cases_total = len(case_samples)
         n_controls_total = len(control_samples)
-        if n_cases_total < 10:
-            logger.error(
-                f"Association analysis: only {n_cases_total} case(s) found — "
-                "fewer than 10 cases produces invalid results. Aborting."
-            )
+        if not quantitative and not _cohort_size_ok(n_cases_total, n_controls_total):
             return context
-        if n_cases_total < 50:
-            logger.warning(
-                f"Association analysis: only {n_cases_total} case(s) — "
-                "fewer than 50 cases provides no practical power for regression tests"
-            )
-        elif n_cases_total < 200:
-            logger.warning(
-                f"Association analysis: {n_cases_total} case(s) — "
-                "fewer than 200 cases is underpowered for SKAT; interpret results with caution"
-            )
-        if n_controls_total > 0 and n_cases_total > 0:
-            ratio = n_controls_total / n_cases_total
-            if ratio > 20:
-                logger.warning(
-                    f"Association analysis: case:control ratio is 1:{ratio:.0f} — "
-                    "exceeds 1:20; Type I error inflation risk without SPA/Firth correction"
-                )
 
         covariate_matrix = None
         covariate_col_names: list[str] = []
@@ -378,7 +409,14 @@ class AssociationAnalysisStage(Stage):
             )
 
         phenotype_vector = None
-        if assigned_samples:
+        if quantitative_outcome is not None:
+            phenotype_vector = quantitative_outcome
+            logger.info(
+                f"Association analysis: quantitative outcome "
+                f"'{context.config.get('phenotype_value_column')}' for "
+                f"{len(assigned_samples)} samples"
+            )
+        elif assigned_samples:
             phenotype_vector = np.array(
                 [1.0 if s in case_set else 0.0 for s in assigned_samples],
                 dtype=float,
@@ -492,13 +530,21 @@ class AssociationAnalysisStage(Stage):
         from ..association.diagnostics import compute_per_gene_warnings
 
         warnings_by_gene: dict[str, str] = {}
-        for gene in results_df["gene"].unique():
+        # Case-carrier warnings are a binary-trait concept.
+        for gene in [] if quantitative else results_df["gene"].unique():
             gdata = gene_data_by_gene.get(gene, {})
             case_carriers = gdata.get("proband_carrier_count", 0)
             gene_warnings = compute_per_gene_warnings(gene, case_carriers, assoc_config)
             if gene_warnings:
                 warnings_by_gene[gene] = ";".join(gene_warnings)
-        results_df["warnings"] = results_df["gene"].map(warnings_by_gene).fillna("")
+        # Keep test-reported codes (e.g. linear/logistic burden skips) and append carrier warnings.
+        test_codes = results_df.get("warnings", pd.Series("", index=results_df.index))
+        results_df["warnings"] = [
+            ";".join(c for c in (*(v if isinstance(v, list) else [v] if v else []), w) if c)
+            for v, w in zip(
+                test_codes, results_df["gene"].map(warnings_by_gene).fillna(""), strict=True
+            )
+        ]
 
         assoc_output, compression = self._resolve_association_output(context)
 
@@ -511,8 +557,10 @@ class AssociationAnalysisStage(Stage):
         if assoc_config.diagnostics_output:
             from ..association.diagnostics import emit_sample_size_warnings, write_diagnostics
 
-            cohort_warnings = emit_sample_size_warnings(
-                n_cases_total, n_controls_total, assoc_config
+            cohort_warnings = (
+                []
+                if quantitative
+                else emit_sample_size_warnings(n_cases_total, n_controls_total, assoc_config)
             )
             write_diagnostics(
                 results_df=results_df,

@@ -1,0 +1,527 @@
+"""Forced chunking must match the non-chunked loader (#183) and restore no-op runs (#184)."""
+
+from __future__ import annotations
+
+from argparse import Namespace
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+from variantcentrifuge.pipeline_core import PipelineContext, Workspace
+from variantcentrifuge.pipeline_core.runner_planner import restore_completed_stage
+from variantcentrifuge.stages.chunked_analysis_stages import (
+    ChunkedAnalysisStage,
+    _find_gene_column,
+)
+from variantcentrifuge.stages.data_loading_stages import DataFrameLoadingStage
+
+# Genes deliberately not in sorted order so gene-aware chunking has to sort and restore.
+_ROWS = [
+    ("1", "100", "A", "T", "SIGNAL", "missense_variant", "0/1", "0/0"),
+    ("1", "200", "C", "G", "BASELINE", "stop_gained", "0/0", "1/1"),
+    ("1", "300", "G", "A", "SIGNAL", "synonymous_variant", "0/1", "0/1"),
+    ("2", "400", "T", "C", "PROTECT", "missense_variant", "./.", "0/1"),
+    ("2", "500", "A", "G", "BASELINE", "missense_variant", "1/1", "0/0"),
+]
+
+
+def _write_tsv(path: Path, gene_header: str | None) -> Path:
+    gene = [gene_header] if gene_header else []
+    header = ["CHROM", "POS", "REF", "ALT", *gene, "ANN[0].EFFECT", "GEN[0].GT", "GEN[1].GT"]
+    lines = ["\t".join(header)]
+    for row in _ROWS:
+        values = list(row) if gene_header else [*row[:4], *row[5:]]
+        lines.append("\t".join(values))
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def _context(tmp_path: Path, tsv: Path, **config: object) -> PipelineContext:
+    workspace = Workspace(tmp_path / "work", "test")
+    cfg = {"threads": 1, "chunk_size": 2, "gzip_intermediates": False, **config}
+    context = PipelineContext(Namespace(), cfg, workspace)
+    context.data = tsv
+    context.vcf_samples = ["S1", "S2"]
+    return context
+
+
+def _serial(tmp_path: Path, tsv: Path) -> PipelineContext:
+    context = _context(tmp_path / "serial", tsv, no_chunked_processing=True)
+    return DataFrameLoadingStage()._process(context)
+
+
+@pytest.mark.parametrize(
+    ("header", "expected"),
+    [
+        (["CHROM", "GENE", "ANN[0].GENE"], "GENE"),
+        (["CHROM", "ANN[0].GENE", "GENE"], "GENE"),
+        (["CHROM", "ANN[*].GENE", "GENE"], "GENE"),
+        (["CHROM", "ANN[0].GENE"], "ANN[0].GENE"),
+        (["CHROM", "ANN_0__GENE"], "ANN_0__GENE"),
+        (["CHROM", "ANN[*].GENE"], None),  # wildcard is not a GENE source
+        (["CHROM", "EFF[*].GENE"], None),
+        (["CHROM", "ANN[*].GENE", "ANN[0].GENE"], "ANN[0].GENE"),
+        (["CHROM", "SYMBOL", "ANN[0].GENE"], "ANN[0].GENE"),
+        (["CHROM", "SYMBOL"], "SYMBOL"),
+        (["CHROM", "Gene"], "Gene"),
+        (["CHROM", "POS"], None),
+        ([], None),
+    ],
+)
+def test_find_gene_column_header_variants(header, expected):
+    assert _find_gene_column(header) == expected
+
+
+@pytest.mark.parametrize("gene_header", ["GENE", "ANN[0].GENE", "ANN_0__GENE"])
+@pytest.mark.parametrize("threads", [1, 2])
+def test_forced_chunking_matches_nonchunked_loader(tmp_path, gene_header, threads):
+    """#183: forced chunking yields the same rows, order, columns and rename map as serial."""
+    tsv = _write_tsv(tmp_path / "input.tsv", gene_header)
+    serial = _serial(tmp_path, tsv)
+
+    context = _context(tmp_path, tsv, use_chunked_processing=True, threads=threads)
+    result = ChunkedAnalysisStage()._process(context)
+
+    assert result.current_dataframe is not None
+    pd.testing.assert_frame_equal(
+        result.current_dataframe.astype(str),
+        serial.current_dataframe.astype(str),
+    )
+    assert result.column_rename_map == serial.column_rename_map
+    assert result.config["dataframe_chunked_analysis_complete"] is True
+    assert ChunkedAnalysisStage().get_output_files(result) == [result.chunked_analysis_tsv]
+
+
+def test_missing_gene_column_falls_back_to_full_load(tmp_path):
+    """#183: the fallback loads the data (as serial does) instead of leaving no DataFrame."""
+    tsv = _write_tsv(tmp_path / "input.tsv", None)
+    serial = _serial(tmp_path, tsv)
+
+    context = _context(tmp_path, tsv, use_chunked_processing=True)
+    stage = ChunkedAnalysisStage()
+    result = stage._process(context)
+
+    pd.testing.assert_frame_equal(result.current_dataframe, serial.current_dataframe)
+    assert result.config["use_chunked_processing"] is False
+    assert stage.get_output_files(result) == []
+
+    # Resume of the fallback run: dataframe_loading re-enables chunking, no artifact exists.
+    resumed = _context(tmp_path, tsv, use_chunked_processing=True)
+    resumed = restore_completed_stage(stage, resumed)
+    pd.testing.assert_frame_equal(resumed.current_dataframe, serial.current_dataframe)
+
+
+def test_noop_stage_restores_without_artifact(tmp_path):
+    """#184: a completed no-op chunk stage restores without demanding chunk output."""
+    tsv = _write_tsv(tmp_path / "input.tsv", "GENE")
+    serial = _serial(tmp_path, tsv)
+    df = serial.current_dataframe
+
+    stage = ChunkedAnalysisStage()
+    assert stage._process(serial).current_dataframe is df
+    assert stage.get_output_files(serial) == []
+
+    restored = restore_completed_stage(stage, serial)
+    assert restored.current_dataframe is df
+    assert "dataframe_chunked_analysis_complete" not in restored.config
+
+
+def test_real_chunked_stage_restores_artifact_in_input_order(tmp_path):
+    """#184: restoring a genuinely chunked run reproduces the in-memory result."""
+    tsv = _write_tsv(tmp_path / "input.tsv", "ANN[0].GENE")
+    first = ChunkedAnalysisStage()._process(_context(tmp_path, tsv, use_chunked_processing=True))
+
+    resumed = _context(tmp_path, tsv, use_chunked_processing=True)
+    resumed = restore_completed_stage(ChunkedAnalysisStage(), resumed)
+
+    pd.testing.assert_frame_equal(
+        resumed.current_dataframe.astype(str), first.current_dataframe.astype(str)
+    )
+    assert resumed.column_rename_map == first.column_rename_map
+
+
+def test_restore_still_requires_artifact_when_chunking_was_real(tmp_path):
+    tsv = _write_tsv(tmp_path / "input.tsv", "GENE")
+    context = _context(tmp_path, tsv, use_chunked_processing=True)
+    with pytest.raises(RuntimeError, match="Cannot restore chunked_analysis"):
+        ChunkedAnalysisStage()._handle_checkpoint_skip(context)
+
+
+def test_header_only_input_yields_empty_frame_without_helper_column(tmp_path):
+    tsv = tmp_path / "empty.tsv"
+    tsv.write_text("CHROM\tPOS\tGENE\n")
+    result = ChunkedAnalysisStage()._process(_context(tmp_path, tsv, use_chunked_processing=True))
+    assert result.current_dataframe.empty
+    assert list(result.current_dataframe.columns) == ["CHROM", "POS", "GENE"]
+
+
+def test_input_file_precedence(tmp_path):
+    context = _context(tmp_path, tmp_path / "data.tsv")
+    find = ChunkedAnalysisStage._find_input_file
+    assert find(context) == tmp_path / "data.tsv"
+    for attr in (
+        "extracted_tsv",
+        "genotype_replaced_tsv",
+        "phenotypes_added_tsv",
+        "extra_columns_removed_tsv",
+    ):
+        setattr(context, attr, tmp_path / f"{attr}.tsv")
+        assert find(context) == tmp_path / f"{attr}.tsv"
+    empty = _context(tmp_path, tmp_path / "x.tsv")
+    empty.data = None
+    with pytest.raises(RuntimeError, match="No TSV file available"):
+        find(empty)
+
+
+_TRIO = {
+    s: {
+        "family_id": "F",
+        "sample_id": s,
+        "father_id": f,
+        "mother_id": m,
+        "sex": x,
+        "affected_status": a,
+    }
+    for s, f, m, x, a in [
+        ("Child", "Father", "Mother", "1", "2"),
+        ("Father", "0", "0", "1", "1"),
+        ("Mother", "0", "0", "2", "1"),
+    ]
+}
+
+
+@pytest.mark.parametrize(
+    ("gene_cols", "canonical"),
+    [
+        (["ANN[0].GENE", "GENE"], "GENE"),
+        (["GENE", "ANN[0].GENE"], "GENE"),
+        (["ANN[*].GENE", "ANN[0].GENE"], "ANN[0].GENE"),
+        (["ANN[0].GENE", "ANN[*].GENE"], "ANN[0].GENE"),
+    ],
+)
+def test_chunks_follow_canonical_gene_and_keep_comp_het(
+    tmp_path, monkeypatch, gene_cols, canonical
+):
+    """Review r1 #1 / r2 #2: chunk by the column that becomes GENE; chunking by a decoy
+    annotation column split the pair (comp-het -> autosomal_dominant_possible)."""
+    from variantcentrifuge.memory import ResourceManager
+
+    monkeypatch.setattr(ResourceManager, "auto_chunk_size", lambda self, *a, **k: 1)
+    values = {c: (["TARGET", "TARGET"] if c == canonical else ["X", "Y"]) for c in gene_cols}
+    header = ["CHROM", "POS", "REF", "ALT", *gene_cols, "GEN[0].GT", "GEN[1].GT", "GEN[2].GT"]
+    gts = [("0/1", "0/1", "0/0"), ("0/1", "0/0", "0/1")]  # one allele from each parent
+    lines = ["\t".join(header)]
+    for i, pos in enumerate(("100", "200")):
+        lines.append("\t".join(["1", pos, "A", "T", *(values[c][i] for c in gene_cols), *gts[i]]))
+    tsv = tmp_path / "trio.tsv"
+    tsv.write_text("\n".join(lines) + "\n")
+
+    assert _find_gene_column(header) == canonical
+    context = _context(tmp_path, tsv, use_chunked_processing=True, inheritance_mode="simple")
+    context.vcf_samples = ["Child", "Father", "Mother"]
+    context.pedigree_data = _TRIO
+    df = ChunkedAnalysisStage()._process(context).current_dataframe
+    assert list(df["GENE"]) == ["TARGET", "TARGET"]
+    assert list(df["Inheritance_Pattern"]) == ["compound_heterozygous"] * 2
+
+
+def test_gene_column_follows_shared_alias_priority(monkeypatch):
+    """The selector reuses _STANDARD_COLUMN_ALIASES order rather than its own list."""
+    import variantcentrifuge.stages.chunked_analysis_stages as chunked_mod
+    import variantcentrifuge.stages.genotype_matrix_builder as builder_mod
+
+    aliases = {"SECOND_GENE": "GENE", "ANN_0__GENE": "GENE"}
+    monkeypatch.setattr(chunked_mod, "_STANDARD_COLUMN_ALIASES", aliases)
+    monkeypatch.setattr(builder_mod, "_STANDARD_COLUMN_ALIASES", aliases)
+    header = ["ANN[0].GENE", "SECOND_GENE"]
+    df = pd.DataFrame([["a", "b"]], columns=["ANN_0__GENE", "SECOND_GENE"])
+    builder_mod._create_standard_column_aliases(df)
+    assert df["GENE"].iloc[0] == "b"
+    assert _find_gene_column(header) == "SECOND_GENE"
+
+
+def test_chunk_reader_keeps_na_alleles_and_literal_quotes(tmp_path):
+    """Review r1 #2: chunk parsing must use the non-chunked loader's NA/quoting rules."""
+    tsv = tmp_path / "na.tsv"
+    tsv.write_text(
+        "CHROM\tPOS\tREF\tALT\tGENE\tANN[0].EFFECT\tNOTE\tGEN[0].GT\n"
+        '1\t100\tNA\tN\tG1\tNA\t"quoted"\t0/1\n'
+        "1\t200\tA\tNA\tG2\tmissense\t\t0/1\n"
+    )
+    serial = _serial(tmp_path, tsv).current_dataframe
+    chunked = (
+        ChunkedAnalysisStage()
+        ._process(_context(tmp_path, tsv, use_chunked_processing=True))
+        .current_dataframe
+    )
+    pd.testing.assert_frame_equal(chunked.astype(str), serial.astype(str))
+    assert chunked["REF"].tolist() == ["NA", "A"]
+    assert chunked["ALT"].tolist() == ["N", "NA"]
+    assert chunked["EFFECT"].tolist() == ["NA", "missense"]
+    assert chunked["NOTE"].iloc[0] == '"quoted"'
+    assert pd.isna(chunked["NOTE"].iloc[1])
+
+
+@pytest.mark.parametrize("gene_header", ["ANN[*].GENE", "EFF[*].GENE"])
+def test_wildcard_gene_header_is_not_a_gene_and_falls_back(tmp_path, gene_header):
+    """Wildcard columns hold raw annotation text from bcftools; never alias them to GENE.
+    Chunking then has no gene column and falls back to the full serial load."""
+    tsv = tmp_path / "wild.tsv"
+    tsv.write_text(f"CHROM\tPOS\t{gene_header}\n1\t100\tC|missense|X\n")
+    serial = _serial(tmp_path, tsv).current_dataframe
+    result = ChunkedAnalysisStage()._process(_context(tmp_path, tsv, use_chunked_processing=True))
+    assert "GENE" not in serial.columns
+    pd.testing.assert_frame_equal(result.current_dataframe, serial)
+    assert result.config["use_chunked_processing"] is False
+
+
+@pytest.mark.parametrize(
+    ("scoring", "expected"),
+    [
+        (None, False),
+        ({"formulas": [{"s": "Inheritance_Pattern == 'de_novo'"}]}, True),
+        ({"formulas": [{"s": "CADD > 20"}, {"t": 3}]}, False),
+        ({"variables": {"Inheritance_Details": "d"}}, True),
+        ({"variables": {"CADD": "c"}}, False),
+    ],
+)
+def test_scoring_inheritance_detail_detection(tmp_path, scoring, expected):
+    context = _context(tmp_path, tmp_path / "x.tsv")
+    context.scoring_config = scoring
+    stage = ChunkedAnalysisStage()
+    assert stage._check_if_scoring_needs_details(context) is expected
+    assert stage._should_calculate_inheritance(context) is expected
+    stage._setup_inheritance_config(context)
+    assert ("inheritance_analysis_config" in context.config) is expected
+    if expected:
+        assert context.config["inheritance_analysis_config"]["preserve_details_for_scoring"]
+
+
+def test_chunk_annotations_and_scoring_see_serial_column_names(tmp_path, monkeypatch):
+    """Per-chunk annotation/scoring run on the same names as the non-chunked path."""
+    import variantcentrifuge.stages.chunked_analysis_stages as mod
+
+    seen: list[list[str]] = []
+
+    def fake_scoring(df, _cfg):
+        seen.append(list(df.columns))
+        return df.assign(Score="1")
+
+    monkeypatch.setattr(mod, "apply_scoring", fake_scoring)
+    monkeypatch.setattr(
+        ChunkedAnalysisStage,
+        "_apply_chunk_annotations",
+        lambda self, df, ctx: df.assign(Custom_Annotation="x"),
+    )
+    tsv = _write_tsv(tmp_path / "input.tsv", "ANN[0].GENE")
+    context = _context(tmp_path, tsv, use_chunked_processing=True)
+    context.annotation_configs = {"gene_lists": ["dummy"]}
+    context.scoring_config = {"formulas": [{"Score": "1"}]}
+
+    df = ChunkedAnalysisStage()._process(context).current_dataframe
+
+    assert seen and all("GENE" in cols and "GEN_0__GT" in cols for cols in seen)
+    assert set(df["Score"]) == {"1"} and set(df["Custom_Annotation"]) == {"x"}
+    assert "ANN_0__GENE" in df.columns  # final reload renames like the serial loader
+
+
+def test_empty_chunk_is_returned_unprocessed(tmp_path):
+    empty = pd.DataFrame(columns=["GENE"])
+    context = _context(tmp_path, tmp_path / "x.tsv")
+    assert ChunkedAnalysisStage()._process_single_chunk(empty, context, 0) is empty
+
+
+def test_parallel_chunk_error_propagates(tmp_path, monkeypatch):
+    from variantcentrifuge.memory import ResourceManager
+
+    monkeypatch.setattr(ResourceManager, "auto_chunk_size", lambda self, *a, **k: 1)
+    monkeypatch.setattr(ResourceManager, "auto_workers", lambda self, **k: 2)
+
+    def boom(self, df, ctx, idx):
+        raise RuntimeError("chunk failed")
+
+    monkeypatch.setattr(ChunkedAnalysisStage, "_process_single_chunk", boom)
+    tsv = _write_tsv(tmp_path / "input.tsv", "GENE")
+    with pytest.raises(RuntimeError, match="chunk failed"):
+        ChunkedAnalysisStage()._process(
+            _context(tmp_path, tsv, use_chunked_processing=True, threads=2)
+        )
+
+
+def test_get_input_files(tmp_path):
+    stage = ChunkedAnalysisStage()
+    context = _context(tmp_path, tmp_path / "data.tsv")
+    assert stage.get_input_files(context) == [tmp_path / "data.tsv"]
+    extracted = tmp_path / "extracted.tsv"
+    extracted.write_text("GENE\n")
+    context.extracted_tsv = extracted
+    context.phenotypes_added_tsv = tmp_path / "missing.tsv"
+    assert stage.get_input_files(context) == [extracted]
+    context.data = None
+    context.extracted_tsv = None
+    assert stage.get_input_files(context) == []
+
+
+_WELL_FORMED = {
+    "interior_and_trailing_blank_lines": "CHROM\tPOS\tGENE\n1\t1\tB\n\n1\t2\tA\n \n",
+    "leading_blank_line": "\nCHROM\tPOS\tGENE\n01\t0001\tB\n1\t2\tA\n",
+    "crlf": "CHROM\tPOS\tGENE\r\n1\t1\tB\r\n1\t2\tA\r\n",
+    "lone_cr": "CHROM\tPOS\tGENE\r1\t1\tB\r1\t2\tA\r",
+    "bom": "\ufeffCHROM\tPOS\tGENE\n1\t1\tB\n1\t2\tA\n",
+    "quotes_in_header_and_fields": 'CHROM\tPOS\tGENE\tNOTE"TEXT\n1\t1\tB\t"q"\n1\t2\tA\ta"b\n',
+    "na_tokens_and_empty_fields": "CHROM\tPOS\tGENE\tREF\n1\t1\tB\tNA\n1\t2\tA\t\n\t\tC\tnull\n",
+    "no_trailing_newline": "CHROM\tPOS\tGENE\n1\t1\tB\n1\t2\tA",
+}
+
+
+@pytest.mark.parametrize("gz", [False, True], ids=["plain", "gzip"])
+@pytest.mark.parametrize("case", sorted(_WELL_FORMED))
+def test_well_formed_input_chunked_equals_serial(tmp_path, monkeypatch, case, gz):
+    """Review r3/r4: for well-formed input the chunked table equals the serial one."""
+    import gzip
+
+    from variantcentrifuge.memory import ResourceManager
+
+    monkeypatch.setattr(ResourceManager, "auto_chunk_size", lambda self, *a, **k: 1)
+    tsv = tmp_path / ("in.tsv.gz" if gz else "in.tsv")
+    data = _WELL_FORMED[case].encode()
+    tsv.write_bytes(gzip.compress(data) if gz else data)
+
+    serial = _serial(tmp_path, tsv)
+    chunked = ChunkedAnalysisStage()._process(_context(tmp_path, tsv, use_chunked_processing=True))
+    assert list(chunked.current_dataframe.columns) == list(serial.current_dataframe.columns)
+    assert chunked.column_rename_map == serial.column_rename_map
+    pd.testing.assert_frame_equal(
+        chunked.current_dataframe.astype(str), serial.current_dataframe.astype(str)
+    )
+
+
+def _rows_with_bad_line(n_rows: int, bad_at: int, kind: str) -> str:
+    rows = [f"1\t{i}\tG{i % 7}" for i in range(n_rows)]
+    rows[bad_at] = rows[bad_at] + "\textra" if kind == "overlong" else f"1\t{bad_at}"
+    return "CHROM\tPOS\tGENE\n" + "\n".join(rows) + "\n"
+
+
+@pytest.mark.parametrize("kind", ["short", "overlong"])
+@pytest.mark.parametrize("bad_at", [0, 750, 999, 1000, 1001, 1499])
+@pytest.mark.parametrize("gz", [False, True], ids=["plain", "gzip"])
+def test_malformed_row_fails_clearly(tmp_path, kind, bad_at, gz):
+    """Chunked mode does not skip/pad malformed rows: it names the line and the way out."""
+    import gzip
+
+    tsv = tmp_path / ("bad.tsv.gz" if gz else "bad.tsv")
+    data = _rows_with_bad_line(1500, bad_at, kind).encode()
+    tsv.write_bytes(gzip.compress(data) if gz else data)
+    with pytest.raises(ValueError, match=rf"line {bad_at + 2} has .*--no-chunked-processing"):
+        ChunkedAnalysisStage()._process(_context(tmp_path, tsv, use_chunked_processing=True))
+
+
+@pytest.mark.parametrize("text", ["", "\n\n", "\ufeff\n"])
+def test_missing_header_fails_clearly(tmp_path, text):
+    from variantcentrifuge.stages.chunk_helpers import write_row_indexed_copy
+
+    tsv = tmp_path / "empty.tsv"
+    tsv.write_text(text)
+    with pytest.raises(ValueError, match=r"no header line.*--no-chunked-processing"):
+        write_row_indexed_copy(tsv, tmp_path / "out.tsv", "_idx")
+
+
+def test_header_only_ann_input_has_serial_schema_fresh_and_restored(tmp_path):
+    """Review r3 #4: empty ANN[0].GENE input -> ANN_0__GENE + GENE in all three paths."""
+    tsv = tmp_path / "empty.tsv"
+    tsv.write_text("CHROM\tPOS\tANN[0].GENE\n")
+    serial = _serial(tmp_path, tsv)
+    fresh = ChunkedAnalysisStage()._process(_context(tmp_path, tsv, use_chunked_processing=True))
+    restored = restore_completed_stage(
+        ChunkedAnalysisStage(), _context(tmp_path, tsv, use_chunked_processing=True)
+    )
+    expected = ["CHROM", "POS", "ANN_0__GENE", "GENE"]
+    for ctx in (serial, fresh, restored):
+        assert list(ctx.current_dataframe.columns) == expected
+        assert ctx.current_dataframe.empty
+        assert ctx.column_rename_map == {"ANN[0].GENE": "ANN_0__GENE"}
+
+
+def _locale_available(name: str) -> bool:
+    import subprocess
+
+    out = subprocess.run(["locale", "-a"], capture_output=True, text=True).stdout.lower()
+    return name.lower().replace("-", "") in out.replace("-", "")
+
+
+@pytest.mark.parametrize("parent_locale", ["C", "en_US.utf8"])
+def test_gene_sort_is_single_key_bytewise_and_keeps_comp_het(tmp_path, monkeypatch, parent_locale):
+    """Review r5 #1: `sort -k N` (rest of line) under a collating locale interleaved
+    MYC/MYCN rows; chunking then split the MYC comp-het pair."""
+    import subprocess
+
+    import variantcentrifuge.stages.chunk_helpers as helpers
+    from variantcentrifuge.memory import ResourceManager
+
+    if not _locale_available(parent_locale) and parent_locale != "C":
+        pytest.skip(f"locale {parent_locale} not installed")
+    monkeypatch.setenv("LC_ALL", parent_locale)
+    monkeypatch.setattr(ResourceManager, "auto_chunk_size", lambda self, *a, **k: 1)
+    calls: list[tuple[list[str], dict | None]] = []
+    real_popen = subprocess.Popen
+
+    def spy(cmd, *args, **kwargs):
+        calls.append((list(cmd), kwargs.get("env")))
+        return real_popen(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(helpers.subprocess, "Popen", spy)
+    rows = [
+        ("100", "MYC", "missense_variant", ("0/1", "0/1", "0/0")),
+        ("200", "MYCN", "missense_variant", ("0/1", "0/0", "0/0")),
+        ("300", "MYC", "stop_gained", ("0/1", "0/0", "0/1")),
+    ]
+    header = "CHROM\tPOS\tREF\tALT\tGENE\tEFFECT\tGEN[0].GT\tGEN[1].GT\tGEN[2].GT"
+    tsv = tmp_path / "trio.tsv"
+    tsv.write_text(
+        header
+        + "\n"
+        + "".join(f"1\t{p}\tA\tT\t{g}\t{e}\t" + "\t".join(gt) + "\n" for p, g, e, gt in rows)
+    )
+    context = _context(tmp_path, tsv, use_chunked_processing=True, inheritance_mode="simple")
+    context.vcf_samples = ["Child", "Father", "Mother"]
+    context.pedigree_data = _TRIO
+    df = ChunkedAnalysisStage()._process(context).current_dataframe
+
+    sort_cmd, sort_env = next((c, e) for c, e in calls if c[0] == "sort")
+    key = sort_cmd[sort_cmd.index("-k") + 1]
+    assert key == "6,6"  # GENE is field 6 after the row-index prefix; single-field key
+    assert sort_env is not None and sort_env["LC_ALL"] == "C"
+    patterns = dict(zip(df["POS"], df["Inheritance_Pattern"], strict=True))
+    assert patterns["100"] == patterns["300"] == "compound_heterozygous"
+
+
+@pytest.mark.parametrize("ws", ["\f", "\v", "\u00a0", "\u2003", "\t"])
+def test_non_ascii_space_lines_are_records_and_fail_width_check(tmp_path, ws):
+    """Review r5 #2: only empty/ASCII-space lines are blank; others are width-checked."""
+    tsv = tmp_path / "ws.tsv"
+    tsv.write_text(f"CHROM\tPOS\tGENE\n1\t1\tA\n{ws}\n1\t2\tB\n")
+    with pytest.raises(ValueError, match=r"line 3 has \d tab-separated fields"):
+        ChunkedAnalysisStage()._process(_context(tmp_path, tsv, use_chunked_processing=True))
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("", "no header line"),
+        ("\n\n", "no header line"),
+        ("﻿\n", "no header line"),
+        ("  \n", "no header line"),
+        ("CHROM\tPOS\tGENE\t\n1\t1\tA\tx\n", "empty column name at position 4"),
+        ("CHROM\t\tGENE\n1\t1\tA\n", "empty column name at position 2"),
+        ("CHROM\tPOS\tGE\x00NE\n1\t1\tA\n", "line 1 contains a NUL"),
+        ("CHROM\tPOS\tGENE\n1\t1\tA\n1\t2\tA\x00B\n", "line 3 contains a NUL"),
+    ],
+)
+def test_stage_rejects_invalid_header_or_nul(tmp_path, text, message):
+    """Review r5 #3/#4: actionable errors from _process itself, before any fallback."""
+    tsv = tmp_path / "bad.tsv"
+    tsv.write_text(text)
+    with pytest.raises(ValueError, match=message) as exc:
+        ChunkedAnalysisStage()._process(_context(tmp_path, tsv, use_chunked_processing=True))
+    assert "--no-chunked-processing" in str(exc.value)

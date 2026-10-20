@@ -311,7 +311,7 @@ def test_docker_environment_has_secure_pip_floor() -> None:
 def test_docker_environment_pins_compatible_smart_open() -> None:
     environment = _text("conda/environment-docker.yml")
     assert _contains_dependency_line(environment, "    - intervaltree")
-    assert _contains_dependency_line(environment, "    - smart-open==7.7.1")
+    assert _contains_dependency_line(environment, "    - smart-open==8.0.3")
 
 
 def test_docker_environment_installs_all_declared_binary_runtime_dependencies() -> None:
@@ -1175,7 +1175,7 @@ def test_docker_workflow_uploads_actionable_all_severity_sarif() -> None:
         "Generate actionable vulnerability report",
     )
     assert "if: always()" in upload
-    assert "uses: github/codeql-action/upload-sarif@v4.37.1" in upload
+    assert "uses: github/codeql-action/upload-sarif@v4.39.0" in upload
     assert "sarif_file: trivy-actionable.sarif" in upload
 
 
@@ -1319,6 +1319,6 @@ def test_docker_workflow_grants_oidc_only_to_the_signing_job() -> None:
 
 
 def test_workflow_environment_pins_compatible_smart_open() -> None:
-    """Workflow env keeps pyproject's smart-open<8 (8.x removed smart_open.smart_open)."""
+    """Workflow env matches pyproject's smart-open<9."""
     environment = _text("workflow/envs/variantcentrifuge.yml")
-    assert "- smart-open<8" in environment
+    assert "- smart-open<9" in environment

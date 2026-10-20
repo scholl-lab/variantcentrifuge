@@ -19,6 +19,18 @@ Warning codes
     ``genotype_matrix`` key not found in ``contingency_data``.
 ``NO_PHENOTYPE_OR_EMPTY_MATRIX``
     ``phenotype_vector`` is None or genotype matrix is empty.
+``NONFINITE_PHENOTYPE`` / ``CONSTANT_PHENOTYPE``
+    Outcome contains NaN/inf or has zero variance; no regression is fitted.
+``NONFINITE_COVARIATES``
+    Covariate matrix contains NaN/inf.
+``BURDEN_NOT_ESTIMABLE``
+    Burden is constant or lies in the span of the intercept and covariates.
+``OUTCOME_EXPLAINED_BY_COVARIATES``
+    Covariates reproduce the outcome exactly (no residual variation to test).
+``ILL_CONDITIONED_COVARIATES``
+    Covariates too ill-conditioned to decide whether the burden is estimable.
+``OLS_FIT_FAILED`` / ``NONFINITE_STATISTICS``
+    OLS raised, or returned a non-finite beta, SE, p-value or CI.
 """
 
 from __future__ import annotations
@@ -28,6 +40,13 @@ from typing import Any
 
 import numpy as np
 
+from variantcentrifuge.association.backends.base import NullModelResult
+from variantcentrifuge.association.backends.null_model import (
+    explained_columns,
+    full_rank_design,
+    outcome_explained,
+    outcome_problem,
+)
 from variantcentrifuge.association.base import AssociationConfig, AssociationTest, TestResult
 
 logger = logging.getLogger("variantcentrifuge")
@@ -82,6 +101,34 @@ class LinearBurdenTest(AssociationTest):
                 "LinearBurdenTest requires statsmodels. Install with: pip install statsmodels"
             ) from e
 
+    def _skip(
+        self,
+        gene: str,
+        codes: list[str],
+        n_cases: int,
+        n_controls: int,
+        n_variants: int,
+        n_carriers: int | None = None,
+    ) -> TestResult:
+        """Return a skipped result (no p-value) with warning ``codes``."""
+        extra: dict[str, Any] = {"warnings": codes}
+        if n_carriers is not None:
+            extra["n_carriers"] = n_carriers
+        return TestResult(
+            gene=gene,
+            test_name=self.name,
+            p_value=None,
+            corrected_p_value=None,
+            effect_size=None,
+            ci_lower=None,
+            ci_upper=None,
+            se=None,
+            n_cases=n_cases,
+            n_controls=n_controls,
+            n_variants=n_variants,
+            extra=extra,
+        )
+
     def run(
         self,
         gene: str,
@@ -115,20 +162,7 @@ class LinearBurdenTest(AssociationTest):
 
         # Require genotype matrix — not present for Fisher-only pipelines
         if "genotype_matrix" not in contingency_data:
-            return TestResult(
-                gene=gene,
-                test_name=self.name,
-                p_value=None,
-                corrected_p_value=None,
-                effect_size=None,
-                ci_lower=None,
-                ci_upper=None,
-                se=None,
-                n_cases=n_cases,
-                n_controls=n_controls,
-                n_variants=n_variants,
-                extra={"warnings": ["NO_GENOTYPE_MATRIX"]},
-            )
+            return self._skip(gene, ["NO_GENOTYPE_MATRIX"], n_cases, n_controls, n_variants)
 
         geno: np.ndarray = contingency_data["genotype_matrix"]
         mafs: np.ndarray = contingency_data["variant_mafs"]
@@ -136,20 +170,13 @@ class LinearBurdenTest(AssociationTest):
         covariate_matrix: np.ndarray | None = contingency_data.get("covariate_matrix")
 
         if phenotype is None or geno.shape[0] == 0 or geno.shape[1] == 0:
-            return TestResult(
-                gene=gene,
-                test_name=self.name,
-                p_value=None,
-                corrected_p_value=None,
-                effect_size=None,
-                ci_lower=None,
-                ci_upper=None,
-                se=None,
-                n_cases=n_cases,
-                n_controls=n_controls,
-                n_variants=n_variants,
-                extra={"warnings": ["NO_PHENOTYPE_OR_EMPTY_MATRIX"]},
+            return self._skip(
+                gene, ["NO_PHENOTYPE_OR_EMPTY_MATRIX"], n_cases, n_controls, n_variants
             )
+        # Non-finite or zero-variance outcomes have no regression to test (#186)
+        problem = outcome_problem(phenotype)
+        if problem is not None:
+            return self._skip(gene, [problem], n_cases, n_controls, n_variants)
 
         # Compute weighted burden score per sample: (n_samples,)
         weights = get_weights(
@@ -163,41 +190,59 @@ class LinearBurdenTest(AssociationTest):
         )
         burden = geno @ weights
 
-        # Build design matrix: [intercept, burden, covariates...]
-        design = sm.add_constant(burden.reshape(-1, 1))
-        has_covariates = (
-            covariate_matrix is not None
-            and covariate_matrix.ndim == 2
-            and covariate_matrix.shape[1] > 0
-        )
-        if has_covariates:
-            assert covariate_matrix is not None
-            design = np.column_stack([design, covariate_matrix])
-
         # Carrier statistics (useful for downstream interpretation)
         carriers = burden > 0
         n_carriers = int(carriers.sum())
         warning_codes: list[str] = []
 
+        if covariate_matrix is not None and (
+            covariate_matrix.ndim != 2 or covariate_matrix.shape[1] == 0
+        ):
+            covariate_matrix = None
+        if covariate_matrix is not None and not np.isfinite(covariate_matrix).all():
+            return self._skip(
+                gene, ["NONFINITE_COVARIATES"], n_cases, n_controls, n_variants, n_carriers
+            )
+
+        # One nuisance basis and rank policy for estimability AND fitting: the
+        # SKAT null-model basis [1, Q] (intercept explicit, redundant covariates
+        # dropped).  Burden keeps its units, so beta/SE equal lm(y ~ b + x).
+        n_obs = len(burden)
+        nuisance, covariate_r = full_rank_design(covariate_matrix, n_obs)
+        nuisance_model = NullModelResult(
+            model=None,
+            trait_type="quantitative",
+            n_samples=n_obs,
+            extra={"design_matrix": nuisance, "covariate_r": covariate_r},
+        )
+        if outcome_explained(phenotype, nuisance_model, phenotype):
+            return self._skip(
+                gene,
+                ["OUTCOME_EXPLAINED_BY_COVARIATES"],
+                n_cases,
+                n_controls,
+                n_variants,
+                n_carriers,
+            )
+        explained = explained_columns(burden[:, np.newaxis], nuisance_model)
+        if explained is None:
+            return self._skip(
+                gene, ["ILL_CONDITIONED_COVARIATES"], n_cases, n_controls, n_variants, n_carriers
+            )
+        if explained[0]:  # constant burden or burden in span(1, covariates)
+            return self._skip(
+                gene, ["BURDEN_NOT_ESTIMABLE"], n_cases, n_controls, n_variants, n_carriers
+            )
+        design = np.column_stack([nuisance[:, :1], burden, nuisance[:, 1:]])
+
         # Fit OLS
         try:
-            fit_result = sm.OLS(phenotype, design).fit()
+            # Exact translation (intercept in the design): burden beta/SE/p are unchanged,
+            # and a large outcome offset stays out of the least-squares round-off.
+            fit_result = sm.OLS(phenotype - phenotype[0], design).fit()
         except Exception as exc:
             logger.warning(f"Gene {gene}: OLS.fit() raised {type(exc).__name__}: {exc}")
-            return TestResult(
-                gene=gene,
-                test_name=self.name,
-                p_value=None,
-                corrected_p_value=None,
-                effect_size=None,
-                ci_lower=None,
-                ci_upper=None,
-                se=None,
-                n_cases=n_cases,
-                n_controls=n_controls,
-                n_variants=n_variants,
-                extra={"warnings": ["OLS_FIT_FAILED"], "n_carriers": n_carriers},
-            )
+            return self._skip(gene, ["OLS_FIT_FAILED"], n_cases, n_controls, n_variants, n_carriers)
 
         # Extract burden coefficient (index 1: intercept at 0, burden at 1)
         beta = float(fit_result.params[1])
@@ -208,6 +253,10 @@ class LinearBurdenTest(AssociationTest):
         ci = fit_result.conf_int()
         ci_lower = float(ci[1, 0])
         ci_upper = float(ci[1, 1])
+        if not np.isfinite([beta, se, p_value, ci_lower, ci_upper]).all():
+            return self._skip(
+                gene, ["NONFINITE_STATISTICS"], n_cases, n_controls, n_variants, n_carriers
+            )
 
         return TestResult(
             gene=gene,

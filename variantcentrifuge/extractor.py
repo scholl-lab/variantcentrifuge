@@ -68,6 +68,21 @@ NMD_SUBFIELD_MAP = {
 }
 
 
+_WILDCARD_ANN_FIELD = re.compile(r"^(ANN|EFF)\[\*\]\.")
+
+
+def validate_extraction_fields(fields: list[str]) -> None:
+    """Reject ANN[*]/EFF[*] subfields: only ANN[0].<FIELD> is parsed; a wildcard would pass
+    through as raw annotation text and be grouped as a bogus gene name."""
+    unsupported = [f for f in fields if _WILDCARD_ANN_FIELD.match(f)]
+    if unsupported:
+        raise ValueError(
+            f"Unsupported extraction field(s): {', '.join(unsupported)}. Wildcard ANN[*]/EFF[*] "
+            "subfields are not parsed by the bcftools extractor; use the supported "
+            "ANN[0].<FIELD> form instead (e.g. ANN[0].GENE, ANN[0].EFFECT)."
+        )
+
+
 def build_bcftools_format_string(
     fields: list[str], vcf_samples: list[str] | None = None
 ) -> tuple[str, list[str]]:
@@ -86,6 +101,7 @@ def build_bcftools_format_string(
     tuple[str, list[str]]
         Format string for bcftools query and ordered column name list
     """
+    validate_extraction_fields(fields)
     format_parts = []
     column_names = []
     seen_ann = False

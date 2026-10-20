@@ -35,6 +35,106 @@ GENE2 312      488         3           0.41            1.0            1.23      
 value as `fisher_qvalue`; for multi-test runs it is usually the same value as
 `acat_o_qvalue`.
 
+## Input Prerequisites: Callability and Genotype QC
+
+Association tests count every `0/0` genotype as an observed reference call. They cannot tell
+whether that call was supported by sequencing data. Check the points below before you interpret
+burden or association results, especially when the input VCF was merged from variant-only
+per-sample VCFs.
+
+### Reference Callability
+
+A site-level `PASS` and a stored `0/0` genotype do not show that each sample was callable at
+that position.
+
+- **Missing-to-reference merging.** `bcftools merge -0` (`--missing-to-ref`) writes `0/0` for
+  samples whose input has no record at a site. A variant-only VCF has no record both where the
+  sample is confidently reference and where it has no coverage, so the filled `0/0` carries no
+  callability evidence. Its per-sample fields such as `FORMAT/DP` and `FORMAT/GQ` stay missing.
+- **Merged FILTER values.** With `bcftools merge -F x`, a merged record is `PASS` if any
+  contributing input passes. `PASS` therefore does not mean that every retained genotype meets
+  depth or quality criteria.
+- **Allele counts do not fix this.** Recomputing `AC`/`AN` from the stored genotypes makes them
+  consistent with those calls, but it cannot recover coverage evidence that the merge never had.
+
+Synthetic two-sample example. `S1.vcf.gz` has a PASS record `chr1:1000 A>G` with `GT=0/1` and
+`DP=35`. The two S2 rows show two different ways the cohort VCF can get a genotype for S2 at that
+position: from joint genotyping, or from merging a variant-only `S2.vcf.gz` that has no record there.
+
+| Sample | Source of the `chr1:1000` genotype | Merged `GT` | `FORMAT/DP` | Evidence |
+|--------|------------------------------------|-------------|-------------|----------|
+| S1 | Called in `S1.vcf.gz` | `0/1` | `35` | Observed ALT call |
+| S2 | Joint genotyping or a gVCF reference block | `0/0` | `28` | Observed reference call |
+| S2 | `bcftools merge -0 -F x` of variant-only VCFs | `0/0` | `.` | Filled reference; S2 may have had no coverage |
+
+The site is `PASS` either way, and both S2 rows look the same to an association test. Only the
+S2 row with observed reference evidence (`DP=28`) supports a reference call. The filled `0/0`
+does not.
+
+Before you interpret a burden result, establish reference evidence for every sample at the tested
+sites. For example:
+
+- Joint-call the cohort, or merge gVCFs, so that reference genotypes come with their own
+  `DP`/`GQ`.
+- Use per-sample callable-region or coverage files (for example from mosdepth or GATK
+  CallableLoci). Either restrict the analysis to regions callable in all samples, or set
+  genotypes outside a sample's callable regions to missing.
+- Check that callability does not differ between cases and controls, for example by sequencing
+  batch or capture kit. Differential callability can create or hide burden signals.
+
+These steps are upstream assumptions; VariantCentrifuge does not introduce the merge behavior.
+How to treat reference calls with missing `DP` depends on how the VCF was produced, so no single
+blanket conversion rule applies.
+
+### Genotype QC Applied by VariantCentrifuge
+
+VariantCentrifuge does not filter individual genotypes on `DP`, `GQ` or allele balance before
+association testing. (`--genotype-filter` selects carriers by genotype class, such as `het` or
+`comp_het`; it is not a QC filter.) Apply genotype-level QC upstream, for example with
+`bcftools filter` or `bcftools +setGT` on `FMT/DP` and `FMT/GQ`.
+
+The following genotypes are treated as missing, which makes them subject to the missingness
+thresholds and imputation below:
+
+- fully missing calls (`./.`, `.|.`, `.`, or an empty/`NA` value);
+- partial biallelic calls (`0/.`, `./1`, `1|.`);
+- unparseable strings (for example `N/A` or `malformed`).
+
+Filled `0/0` calls are not missing, so the checks below cannot detect them:
+
+- **Fisher's exact test** uses the complete-case policy described in
+  [Missing Genotypes and Complete-Case Policy](#missing-genotypes-and-complete-case-policy).
+- **Matrix-based tests** (logistic/linear burden, SKAT/SKAT-O, COAST) apply two per-gene
+  thresholds. Both are set in the `"association"` section of the JSON config; there are no CLI
+  flags for them.
+
+| Key | Default | Effect |
+|-----|---------|--------|
+| `missing_site_threshold` | `0.10` | Drops a variant when more than this fraction of all samples have a missing genotype (call rate below 90%). |
+| `missing_sample_threshold` | `0.80` | Drops a sample from that gene's test (genotypes, phenotype and covariates) when more than this fraction of its genotypes at the kept variants are missing. |
+
+Allele frequencies, the imputation of the remaining missing genotypes, and minor-allele recoding
+all use the retained samples only, so excluded samples cannot shift them. Missing genotypes are
+imputed as `round(ploidy * alt_freq)` for binary traits and `ploidy * alt_freq` for quantitative
+traits. For binary traits, a variant whose missing rate differs between cases and controls by
+more than 0.05 is logged as a differential-missingness warning. Genes with fewer than 5 minor
+allele copies after these steps report `NA` for the matrix-based tests.
+
+### Multi-Allelic Sites Must Be Split
+
+The genotype matrix encodes one ALT allele per variant. Any genotype that contains a non-missing
+allele index above 1 stops the analysis with a `ValueError` that names the gene, variant and
+sample column. It is not recoded. This includes fully called genotypes (`0/2`, `1/2`, `2/2`,
+haploid `2`, and their phased forms), partial calls (`./2`, `2/.`, `.|2`) and polyploid calls
+(`0/1/2`). Split and normalize multi-allelic records before
+running VariantCentrifuge:
+
+```bash
+bcftools norm -m- -f reference.fa input.vcf.gz -Oz -o input.split.vcf.gz
+```
+
+---
+
 ## Transcript-Selected Consequence Filtering
 
 When association or gene burden analysis uses a transcript list and consequence
@@ -227,6 +327,8 @@ When any cell in the 2×2 contingency table is zero (common for rare variants wh
 ### Missing Genotypes and Complete-Case Policy
 
 VariantCentrifuge applies principled missingness handling across association tests:
+(see [Input Prerequisites](#input-prerequisites-callability-and-genotype-qc) for what counts
+as missing and why filled reference calls are not):
 
 - **Fisher's Exact Test (Complete-Case Policy):** Samples with missing genotype calls (`./.`, `.`, `.|.`) at any qualifying variant in a gene are excluded from the test's called counts (`proband_called_count`, `control_called_count`) and reference denominator (`proband_called_chromosomes`, `control_called_chromosomes`). Samples with missing calls are never assumed to be reference (`0/0`). If all cases or all controls are uncalled for a gene, the test is safely skipped.
 - **Matrix-Based Tests (Burden Regression, SKAT, SKAT-O):** Genotype matrices use ploidy-scaled mean imputation (`ploidy * alt_allele_freq`, i.e. `2 * alt_freq` for diploid and `1 * alt_freq` for haploid; or `round(ploidy * alt_allele_freq)` bestguess for binary traits). Dosage units are `{0, 1, 2}` for diploid variants and `{0, 1}` for haploid calls.
@@ -344,9 +446,25 @@ heterogeneous.
 | Auto | `--skat-backend auto` | Selects Python (same as `python` in v0.15.0) |
 | R (deprecated) | `--skat-backend r` | rpy2 + R SKAT package; not thread-safe; raises DeprecationWarning |
 
-The Python backend uses the compiled Davies method (qfc.c via ctypes) for exact p-values with a
-saddlepoint approximation fallback for extreme values, and Liu fallback as a last resort. Results
-are validated to match the R SKAT package within 10%.
+**SKAT p-values.** The Python backend computes the mixture-of-chi-square tail with the compiled
+Davies method (`qfc`), starting at R's settings (absolute accuracy 1e-6, 10,000 terms) and
+refining the accuracy so the error stays within about 1e-4 of the p-value. Below p = 1e-5,
+where Davies' absolute error is too coarse, the tail is computed with Davies on the
+exponentially tilted mixture (`skat_p_method = davies_tilted`), which keeps relative accuracy
+in the deep tail. The Kuonen saddlepoint and the Liu moment-matching approximation are used
+only as fallbacks; they are reported with `skat_p_converged = False`.
+
+**SKAT-O p-values.** The omnibus p-value integrates over the chi-square(1) mixing variable in
+survival form (no "1 − ..." cancellation and no truncation at 40) with an adaptive outer
+integral and an error estimate. If Davies or the integral cannot meet the accuracy budget, the
+Liu approximation is used instead and the result is reported with `skat_p_converged = False`.
+
+**Agreement with R.** SKAT, SKAT-O and Burden match R SKAT 2.2.5 for moderate p-values. In
+the deep tail and in some edge cases (Davies at R's 1e-6 absolute accuracy, R's
+`integrate(0, 40)` outer integral, or R falling back to Liu after Davies' 10,000-term limit)
+R itself is less accurate, and results can differ from R by more than 10%. These discrepancies
+were checked against independent references (importance sampling, high-accuracy Davies, a fine
+grid of R's own integrand), which agree with VariantCentrifuge.
 
 ### CLI Example
 
@@ -974,9 +1092,27 @@ Add `coast` when you have:
 - A biological prior that functional severity predicts effect magnitude
 - Sufficient sample size (≥100 cases)
 
-Use `linear_burden` instead of `logistic_burden` when:
-- Your phenotype is a continuous measurement (e.g., GFR, blood pressure, biomarker level)
-- You set `--trait-type quantitative`
+**Quantitative traits** (a continuous measurement such as GFR, blood pressure or a biomarker
+level) use a different combination:
+
+```bash
+--trait-type quantitative --association-tests linear_burden,skat
+```
+
+`fisher` and `logistic_burden` are binary-trait tests and are rejected at startup with
+`--trait-type quantitative`. Because `fisher` is the default, `--association-tests` must be
+given explicitly. `coast` may be added.
+
+- **Outcome.** The outcome is the numeric value in `--phenotype-value-column` of
+  `--phenotype-file`, matched to VCF samples through `--phenotype-sample-column` (after
+  `--remove-sample-substring`, if set).
+- **Missing outcome.** Samples whose value is empty, `NA`, `NaN` or `.` are excluded from the
+  genotypes, the outcome and the covariates, and the number excluded is logged. Any other
+  non-numeric or non-finite value, or conflicting values for one sample, stops the run.
+- **No case/control labels.** Case/control definitions (`--case-phenotypes`,
+  `--case-samples` and so on) are neither required nor used, and `n_cases`/`n_controls` are
+  reported as 0.
+- **No score artifact.** `--score-artifact` (cohort meta-analysis) supports binary traits only.
 
 ---
 
@@ -1047,6 +1183,41 @@ is set to `None` and the gene is excluded from ACAT-O.
    `--categorical-covariates`
 
 If `n_tests < 100`, the lambda_GC estimate is flagged as unreliable — do not over-interpret it.
+
+### Untestable Genes: Skip and Warning Codes
+
+When a gene cannot be tested reliably, the affected test reports no p-value (empty
+`{test}_pvalue`) and a code that says why, rather than a spurious p-value. The gene is left
+out of FDR correction and ACAT-O for that test. Codes appear in these columns:
+
+- `skat_skip_reason` and `skat_warnings`: SKAT / SKAT-O. Codes from the null-model fit (upper
+  case, e.g. `CONSTANT_PHENOTYPE`) appear in both columns; per-gene kernel codes (lower case,
+  e.g. `rank_deficient`) appear in `skat_skip_reason`.
+- `warnings`: linear and logistic burden (and the per-gene carrier warnings)
+- `coast_skip_reason`: COAST
+
+| Code | Column | Meaning | What to do |
+|------|--------|---------|------------|
+| `NONFINITE_PHENOTYPE` | `skat_skip_reason`, `skat_warnings`, `warnings`, `coast_skip_reason` | The outcome contains NaN or infinite values. | Check the phenotype values passed to the analysis. |
+| `CONSTANT_PHENOTYPE` | `skat_skip_reason`, `skat_warnings`, `warnings`, `coast_skip_reason` | The outcome has no variance among the analysed samples. | Check the phenotype column and how many samples have a value. |
+| `NONFINITE_COVARIATES` | `warnings` (linear burden) | The covariate matrix contains NaN or infinite values. | Fix or drop the affected covariate values. |
+| `ill_conditioned_covariates` | `skat_skip_reason` | Covariates are too ill-conditioned to decide which variants carry information beyond them. | Remove redundant or near-collinear covariates (e.g. duplicated columns, nested categories, too many PCs). |
+| `ILL_CONDITIONED_COVARIATES` | `warnings` (linear burden), `coast_skip_reason` | Same as above for the burden or the allelic SKAT-O projection. | As above. |
+| `no_informative_variants` | `skat_skip_reason` | Every qualifying variant is fully explained by the covariates. | Nothing to fix; the gene has no testable signal under this model. |
+| `BURDEN_NOT_ESTIMABLE` | `warnings` (linear burden) | The burden score is constant or lies in the span of the intercept and covariates. | Typical for genes with very few carriers; use SKAT or relax variant filters. |
+| `rank_deficient` | `skat_skip_reason` | The genotype matrix has rank below 2 (for example a single variant, or identical carrier patterns). | Expected for single-variant genes; use burden or Fisher. |
+| `zero_variance` | `skat_skip_reason` | Burden-method SKAT: the collapsed burden is in the covariate span. | As for `BURDEN_NOT_ESTIMABLE`. |
+| `OLS_FIT_FAILED` / `NONFINITE_STATISTICS` | `warnings` (linear burden) | The regression raised, or returned a non-finite estimate, SE, p-value or CI. | Check for extreme outcome or covariate values. |
+| `OUTCOME_EXPLAINED_BY_COVARIATES` | `skat_skip_reason`, `skat_warnings`, `warnings` (linear burden), `coast_skip_reason` | The covariates explain the outcome exactly, so no residual variation is left to test. | Remove covariates derived from the outcome. |
+| `INSUFFICIENT_RESIDUAL_DF` | `skat_skip_reason`, `skat_warnings`, `coast_skip_reason` (linear burden reports `OUTCOME_EXPLAINED_BY_COVARIATES` when the covariates alone use up the samples, or `NONFINITE_STATISTICS` when adding the burden does) | Too few samples remain (after per-gene missingness QC) for the number of covariates. | Use fewer covariates or PCs, or more samples. |
+
+COAST also reports structural skips in `coast_skip_reason`: `NO_GENOTYPE_MATRIX`,
+`NO_PHENOTYPE_OR_EMPTY_MATRIX`, `NO_GENE_DF`, `MISSING_EFFECT_IMPACT_COLUMNS`,
+`ANNOTATION_GENOTYPE_MISMATCH`, `NO_CLASSIFIABLE_VARIANTS` (see below), `ALL_CATEGORIES_EMPTY`
+and `BACKEND_ERROR:<message>`.
+
+A p-value that comes from an approximation rather than converged Davies is still reported, but
+with `skat_p_converged = False` (see [SKAT p-values](#backends)).
 
 ### COAST Fails: `NO_CLASSIFIABLE_VARIANTS`
 

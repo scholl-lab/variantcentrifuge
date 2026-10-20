@@ -60,6 +60,29 @@ class TestConfigurationLoadingStage:
         stage = ConfigurationLoadingStage()
         assert stage.parallel_safe is True
 
+    def test_checkpoint_restore_renormalizes_cli_lists(self):
+        """Resume re-runs normalization; raw comma strings became sets of characters."""
+        from variantcentrifuge.pipeline_core.runner_planner import restore_completed_stage
+
+        context = create_test_context(
+            config={
+                "case_samples": "S1, S2",
+                "control_samples": "S3",
+                "case_phenotypes": "HP:1,HP:2",
+                "control_phenotypes": "HP:3",
+            }
+        )
+        stage = ConfigurationLoadingStage()
+        assert stage.checkpoint_resume_policy == "restore"
+
+        restored = restore_completed_stage(stage, context)
+
+        assert restored.config["case_samples"] == ["S1", "S2"]
+        assert restored.config["control_samples"] == ["S3"]
+        assert restored.config["case_phenotypes"] == ["HP:1", "HP:2"]
+        assert restored.config["control_phenotypes"] == ["HP:3"]
+        assert restored.is_complete(stage.name)
+
     def test_warns_for_transcript_analysis_consequence_filters_without_before_split(self, caplog):
         """Warn when transcript-selected analysis would use record-level consequence filtering."""
         context = create_test_context(

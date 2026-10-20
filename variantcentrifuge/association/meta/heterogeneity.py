@@ -16,6 +16,8 @@ from collections.abc import Callable
 import numpy as np
 import scipy.stats
 
+from variantcentrifuge.association.backends.null_model import _DECISION_ACC
+
 logger = logging.getLogger("variantcentrifuge")
 
 
@@ -26,16 +28,19 @@ def per_stratum_burden(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return per-stratum burden effect estimates and standard errors.
 
-    ``beta_c = (wᵀU_c) / (wᵀV_c w)``, ``se_c = 1/sqrt(wᵀV_c w)``. Strata with
-    non-positive information get ``beta=nan``, ``se=inf``.
+    ``beta_c = (wᵀU_c) / (wᵀV_c w)``, ``se_c = 1/sqrt(wᵀV_c w)``. Strata whose
+    information is numerically zero get ``beta=nan``, ``se=inf`` (same rule as
+    ``combine.meta_burden``: below _DECISION_ACC of its Cauchy-Schwarz scale).
     """
     w = np.asarray(weights, dtype=np.float64)
     betas: list[float] = []
     ses: list[float] = []
     for u, v in zip(u_list, v_list, strict=True):
         score = float(w @ np.asarray(u, dtype=np.float64))
-        info = float(w @ (np.asarray(v, dtype=np.float64) @ w))
-        if info <= 0.0:
+        v = np.asarray(v, dtype=np.float64)
+        info = float(w @ (v @ w))
+        scale = float((np.abs(w) * np.sqrt(np.clip(np.diag(v), 0.0, None))).sum()) ** 2
+        if info <= _DECISION_ACC * scale:
             betas.append(np.nan)
             ses.append(np.inf)
         else:

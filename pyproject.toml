@@ -26,7 +26,7 @@ dependencies = [
     "numpy",
     "intervaltree",
     "psutil",
-    "smart-open<8",
+    "smart-open<9",
     "openpyxl",
     "xlsxwriter>=3.0",
     "cffi",
@@ -42,7 +42,7 @@ dev = [
     "pytest-mock>=3.14",
     "pytest-xdist>=3.5",
     "pytest-benchmark>=5.1.0",
-    "ruff>=0.11,<0.16",
+    "ruff>=0.11,<0.18",
     "pre-commit",
     "types-psutil",
 ]
@@ -95,7 +95,9 @@ log_cli = false
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-required-version = ">=0.11,<0.16"
+required-version = ">=0.11,<0.18"
+# ruff >=0.17 also formats Markdown code blocks; keep formatting to Python sources.
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF"]

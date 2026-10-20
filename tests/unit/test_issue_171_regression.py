@@ -927,6 +927,21 @@ def test_cli_config_and_sync_coverage(
             tn_vars,
         )
 
+    # Default tests (fisher) and explicit fisher are rejected up front for quantitative traits.
+    for tests in (None, "fisher,linear_burden"):
+        with pytest.raises(ValueError, match="incompatible with fisher"):
+            populate_cli_config(
+                _make_base_ns(
+                    perform_association=True, trait_type="quantitative", association_tests=tests
+                ),
+                load_config(),
+                None,
+                "GRCh38",
+                "PASS",
+                "CHROM",
+                tn_vars,
+            )
+
     # 3. sync_cli_and_config remaining branches
     ns_sync = argparse.Namespace(
         vcf_file=None,

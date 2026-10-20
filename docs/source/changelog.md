@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-20
+
+Fixes the findings of the v0.19.0 audit revalidation (#173–#187).
+
+### Fixed
+
+- Unsplit multi-allelic genotypes (`0/2`, `2/2`, haploid `2`, `./2`, `0/1/2`) are rejected at the genotype-matrix boundary with an error naming gene, site, sample and GT, instead of being miscoded; split with `bcftools norm -m-` (#175).
+- Allele frequencies, minor-allele recoding, imputation and missing-call ploidy use only the samples retained after QC, in the matrix builder and the score-artifact export; a gene left without case/control contrast is omitted from the artifact with a warning (#174).
+- Quantitative SKAT residual variance uses RSS/(n − rank X), with Q and the kernel eigenvalues sharing one nuisance projection; results are invariant under y → a·y + b (#179).
+- SKAT-backend Burden score variance is b′Pb, with the Bernoulli-weighted projection for binary traits (#180).
+- Redundant covariates (duplicated, constant, translated) no longer crash with `Singular matrix`: a full-rank orthonormal design drives the fit, residual df and every projection; variants explained by covariates are dropped, and strongly ill-conditioned covariates give an explicit `ill_conditioned_covariates` skip (#182).
+- Non-finite or constant outcomes and constant or covariate-collinear burdens return no p-value with a warning code instead of spurious or NaN p-values; the linear-burden intercept is added explicitly (#186).
+- SKAT-O omnibus integral: survival form without "1 −" cancellation or truncation at 40, support-edge breakpoints, exact chi-square for rank one, adaptive outer integral with an error estimate; failures fall back to Liu and report `p_converged=False`. Davies calls are serialized for thread safety (#181).
+- SKAT tail p-values below 1e-5 use Davies on the exponentially tilted mixture (`p_method="davies_tilted"`) instead of the saddlepoint (#181).
+- Forced chunked processing resolves the gene column like the non-chunked loader, sorts with a locale-independent single-field key and restores input row order; results match non-chunked runs (#183).
+- Checkpoint resume re-normalizes CLI sample lists (comma strings no longer become sets of characters), and restoring a no-op chunk stage no longer requires an artifact it never wrote (#184).
+- Quantitative association fits the numeric `--phenotype-value-column` outcome aligned to VCF samples (also after `--remove-sample-substring`) instead of failing for lack of case/control cohorts (#187).
+- `python -m variantcentrifuge.cli` propagates the exit code of `main()`; CLI tests run with `sys.executable` (#177).
+- HTML report toolbar, filters, chart grid and footer filter expression fit narrow screens; the table still scrolls in its container (#185).
+- Faster GT parsing: each ~1M-cell block's distinct GT strings are factorized and classified once instead of string-processing every cell, with identical output (#176; the reconstruction speed-up for #173 shipped in 0.20.1).
+- Association guide: new section "Input Prerequisites: Callability and Genotype QC" (#178).
+
+### Changed
+
+- Unsupported `ANN[*]`/`EFF[*]` extraction fields are rejected at startup; use `ANN[0].<FIELD>` (#183).
+- Chunked processing requires a rectangular TSV and fails with the line number on a malformed row (non-chunked mode skips or pads it); use `--no-chunked-processing` for such input (#183).
+- `--trait-type quantitative` rejects `fisher`, `logistic_burden` and `--score-artifact` at startup; case/control definitions are not used, samples without an outcome are excluded, and `n_cases`/`n_controls` are reported as 0 (#187).
+- New skip and warning codes: `ill_conditioned_covariates`, `no_informative_variants`, `CONSTANT_PHENOTYPE`, `NONFINITE_PHENOTYPE`, `NONFINITE_COVARIATES`, `BURDEN_NOT_ESTIMABLE`, `ILL_CONDITIONED_COVARIATES`, `NONFINITE_STATISTICS`, `OUTCOME_EXPLAINED_BY_COVARIATES`, `INSUFFICIENT_RESIDUAL_DF` (see the association guide's troubleshooting section).
+- In the deep tail and some edge cases, SKAT/SKAT-O p-values deliberately differ from R SKAT 2.2.5 where R's Davies accuracy or `integrate()` is the less accurate side; moderate p-values are unchanged.
+- Dependencies: smart-open 8 (`smart_open.open` replaces the removed `smart_open.smart_open`), ruff 0.17, sphinx>=9.1, github/codeql-action 4.39.
+
+### Added
+
+- Permanent stage-level invariance test for repeated identical transcript annotations, for binary and quantitative traits (#188).
+
 ## [0.20.1] - 2026-10-20
 
 ### Changed

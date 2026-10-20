@@ -218,11 +218,13 @@ class TestSelfConsistency:
 
     def test_skat_skato_close_to_min(self, backend):
         """
-        SKAT-O p should be close to min(SKAT p, Burden p).
+        SKAT-O p for a binary null design matches R and its min-p construction.
 
-        The minimum-p implementation of SKAT-O includes rho=0 (pure SKAT) and
-        rho=1 (pure Burden), so SKATO p should be at most slightly above min(SKAT, Burden)
-        due to different eigenvalue kernels at each rho.
+        R SKAT 2.2.5 on identical inputs (``SKAT_Null_Model(y ~ 1, out_type="D",
+        Adjustment=FALSE)``, explicit Beta(1,25) weights): SKAT 0.389442808226962,
+        Burden (r.corr=1) 0.135986343670621, optimal.adj 0.224150454071651.
+        SKAT-O pays for its 7-point rho search, so it may exceed min(SKAT, Burden)
+        but never ``7 * min``.
         """
         rng = np.random.default_rng(999)
         n = 50
@@ -239,12 +241,9 @@ class TestSelfConsistency:
         p_skato = r_skato["p_value"]
 
         if p_skat is not None and p_burden is not None and p_skato is not None:
-            min_p = min(p_skat, p_burden)
-            # SKAT-O should be in the vicinity of the minimum
-            # Use a generous tolerance (1.5x) since kernels differ at each rho
-            assert p_skato <= min_p * 1.5 + 0.01, (
-                f"SKAT-O p={p_skato:.4f} is much larger than min(SKAT, Burden)={min_p:.4f}"
-            )
+            assert p_burden == pytest.approx(0.135986343670621, rel=1e-6)
+            assert p_skato == pytest.approx(0.224150454071651, rel=1e-3)
+            assert p_skato <= 7 * min(p_skat, p_burden)
 
     def test_deterministic_across_calls(self, backend):
         """Same inputs always produce the same p-value (determinism)."""
@@ -376,7 +375,9 @@ class TestGoldenValues:
         """
         Gene A: 50 samples, 5 variants, binary null phenotype, Burden method.
 
-        Golden value captures current implementation. Changes indicate drift.
+        Reference: R SKAT 2.2.5, ``SKAT(Z, SKAT_Null_Model(y ~ 1, out_type="D",
+        Adjustment=FALSE), weights=w, r.corr=1)`` on identical inputs and weights
+        (#180; the previous Python-captured 0.8166 omitted the null projection).
         """
         phenotype, geno = _make_gene_data(
             _GENE_A_SEED, _GENE_A_N, _GENE_A_K, _GENE_A_TRAIT, _GENE_A_EFFECT
@@ -385,9 +386,8 @@ class TestGoldenValues:
         result = backend.test_gene("GENE_A", geno, null, "Burden", weights=_beta_weights(geno))
         p = result["p_value"]
         assert p is not None, "Gene A should have a valid p-value"
-        # Golden value: 0.8166240139405816 (captured 2026-02-21)
-        assert p == pytest.approx(0.8166240139405816, rel=1e-4), (
-            f"Gene A Burden p-value drifted: expected ~0.817, got {p:.8f}"
+        assert p == pytest.approx(0.379455103709931, rel=1e-6), (
+            f"Gene A Burden p-value drifted: expected ~0.379, got {p:.8f}"
         )
 
     def test_golden_gene_a_skat(self, backend):

@@ -3,14 +3,22 @@
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 
 import pandas as pd
 import pytest
 
-# These tests execute the installed CLI and its external bioinformatics pipeline.
+# Run the CLI with pytest's interpreter, exactly like the console script (sys.exit(main())),
+# instead of whichever ``variantcentrifuge`` is first on PATH (#177).
+_CLI = [
+    sys.executable,
+    "-c",
+    "import sys; from variantcentrifuge.cli import main; sys.exit(main())",
+]
+
+# These tests execute the CLI and its external bioinformatics pipeline.
 _REQUIRED_EXECUTABLES = (
-    "variantcentrifuge",
     "bcftools",
     "snpEff",
     "SnpSift",
@@ -80,7 +88,7 @@ def test_scoring_integration_with_annotated_vcf(annotated_vcf, scoring_config_di
 
     # Build the command
     cmd = [
-        "variantcentrifuge",
+        *_CLI,
         "--vcf-file",
         annotated_vcf,
         "--gene-name",
@@ -148,7 +156,7 @@ def test_scoring_with_missing_columns(annotated_vcf, scoring_config_dir, temp_ou
 
     # Use minimal fields that don't include all scoring variables
     cmd = [
-        "variantcentrifuge",
+        *_CLI,
         "--vcf-file",
         annotated_vcf,
         "--gene-name",
@@ -188,7 +196,7 @@ def test_scoring_with_all_genes(annotated_vcf, scoring_config_dir, temp_output_d
     output_file = os.path.join(temp_output_dir, "scored_all_genes.tsv")
 
     cmd = [
-        "variantcentrifuge",
+        *_CLI,
         "--vcf-file",
         annotated_vcf,
         "--gene-name",
@@ -248,7 +256,7 @@ def test_scoring_with_different_filters(
     )
 
     cmd = [
-        "variantcentrifuge",
+        *_CLI,
         "--vcf-file",
         annotated_vcf,
         "--gene-name",

@@ -36,11 +36,14 @@ from variantcentrifuge.association.backends.davies import (
     _try_load_davies,
     compute_pvalue,
 )
+from variantcentrifuge.association.backends.null_model import (
+    explained_columns,
+    fit_glm_null_model,
+    project_out_nuisance,
+)
 from variantcentrifuge.association.backends.skat_math import (
     _GL_A,
     _GL_B,
-    _GL_NODES_RAW,
-    _GL_WEIGHTS_RAW,
     _SKATO_RHO_GRID,
     _get_lambda,
     _skato_each_q,
@@ -51,12 +54,11 @@ from variantcentrifuge.association.backends.skat_math import (
     compute_eigenvalues_filtered,
     compute_skato_q_and_z1,
 )
+from variantcentrifuge.association.backends.skato_integrate import _skato_last_converged
 
 __all__ = [
     "_GL_A",
     "_GL_B",
-    "_GL_NODES_RAW",
-    "_GL_WEIGHTS_RAW",
     "_SKATO_RHO_GRID",
     "PythonSKATBackend",
     "_get_lambda",
@@ -146,12 +148,10 @@ class PythonSKATBackend(SKATBackend):
         """
         Fit the SKAT null model using statsmodels GLM.
 
-        Uses Binomial family for binary traits, Gaussian for quantitative.
-        Extracts resid_response (y - mu_hat), matching R SKAT convention.
-
-        For binary traits, also precomputes the projection half-matrix
-        (``proj_half``) needed for the R SKAT-compatible eigenvalue
-        computation (see ``_compute_eigenvalues_filtered``).
+        Uses Binomial family for binary traits, Gaussian for quantitative, on
+        a full-rank ``[1, covariates]`` design (dependent columns dropped).
+        Extracts resid_response (y - mu_hat), matching R SKAT convention; see
+        ``null_model.fit_glm_null_model``.
 
         Parameters
         ----------
@@ -167,57 +167,18 @@ class PythonSKATBackend(SKATBackend):
         NullModelResult
             Contains fitted model with residuals, sigma2, mu_hat, and
             design_matrix in extra dict.
+
+        Raises
+        ------
+        ValueError
+            Non-finite or constant outcome, or no residual degrees of freedom.
         """
-        import statsmodels.api as sm
-
-        n_obs = len(phenotype)
-
-        # Build design matrix: covariates + intercept
-        if covariates is not None and covariates.ndim == 2 and covariates.shape[1] > 0:
-            design_matrix = sm.add_constant(covariates, prepend=True, has_constant="add")
-        else:
-            # Intercept only
-            design_matrix = np.ones((n_obs, 1), dtype=np.float64)
-
-        # Select GLM family based on trait type
-        family = sm.families.Binomial() if trait_type == "binary" else sm.families.Gaussian()
-
-        # Fit the null model
-        glm = sm.GLM(phenotype, design_matrix, family=family)
-        fit_result = glm.fit()
-
-        # Extract response residuals: y - mu_hat (NOT deviance or Pearson)
-        residuals = np.asarray(fit_result.resid_response, dtype=np.float64)
-
-        # Variance estimate
-        sigma2 = (
-            float(np.var(residuals, ddof=1))
-            if trait_type == "quantitative"
-            else 1.0  # Binary trait: sigma2 = 1.0 by SKAT convention
-        )
-
-        mu_hat = np.asarray(fit_result.fittedvalues, dtype=np.float64)
-
-        logger.debug(
-            f"Null model fit: trait_type={trait_type}, n_samples={n_obs}, sigma2={sigma2:.6f}"
-        )
+        null_model = fit_glm_null_model(phenotype, covariates, trait_type)
 
         # Reset tracking for this cohort
         self._genes_processed = 0
         self._start_time = time.time()
-
-        return NullModelResult(
-            model=fit_result,
-            trait_type=trait_type,
-            n_samples=n_obs,
-            adjustment=False,
-            extra={
-                "residuals": residuals,
-                "sigma2": sigma2,
-                "mu_hat": mu_hat,
-                "design_matrix": design_matrix,
-            },
-        )
+        return null_model
 
     def test_gene(
         self,
@@ -256,6 +217,19 @@ class PythonSKATBackend(SKATBackend):
         self._genes_processed += 1
         n_variants = genotype_matrix.shape[1]
         weights_arr = self._validate_variant_weights(genotype_matrix, weights)
+        # Variants lying in the covariate space carry no information: zero their weight
+        # before aggregation so their size cannot mask small independent variants.
+        # Only columns that are actually tested (nonzero weight) are classified.
+        tested = weights_arr != 0.0
+        explained = explained_columns(genotype_matrix[:, tested], null_model)
+        if explained is None:
+            logger.warning(f"Gene {gene}: covariates too ill-conditioned to test; skipping")
+            return self._skip_result(n_variants, 0, "ill_conditioned_covariates")
+        weights_arr = weights_arr.copy()
+        weights_arr[np.flatnonzero(tested)[explained]] = 0.0
+        n_marker_test = int(np.count_nonzero(weights_arr))
+        if n_marker_test == 0:
+            return self._skip_result(n_variants, 0, "no_informative_variants")
 
         method_upper = method.upper()
         # Map R SKAT method names to our internal names
@@ -270,11 +244,26 @@ class PythonSKATBackend(SKATBackend):
             logger.warning(f"Unknown SKAT method '{method}' for gene {gene}; using SKAT")
             result = self._test_skat(gene, genotype_matrix, null_model, weights_arr)
 
+        result["n_marker_test"] = n_marker_test
         logger.debug(
             f"Gene {gene}: method={method}, p={result.get('p_value')}, "
             f"n_variants={n_variants}, p_method={result.get('p_method')}"
         )
         return result
+
+    @staticmethod
+    def _skip_result(n_variants: int, n_marker_test: int, reason: str) -> dict[str, Any]:
+        """Untestable-gene result (``p_value=None``) carrying ``reason`` as skip_reason."""
+        return {
+            "p_value": None,
+            "rho": None,
+            "n_variants": n_variants,
+            "n_marker_test": n_marker_test,
+            "warnings": [reason],
+            "p_method": None,
+            "p_converged": False,
+            "skip_reason": reason,
+        }
 
     def _validate_variant_weights(
         self, genotype_matrix: np.ndarray, weights: np.ndarray | None
@@ -342,8 +331,9 @@ class PythonSKATBackend(SKATBackend):
                 "skip_reason": "rank_deficient",
             }
 
-        # Rank check on FULL matrix BEFORE any eigenvalue filtering
-        rank = int(np.linalg.matrix_rank(geno))
+        # Rank of the RETAINED (nonzero-weight) columns, before eigenvalue filtering;
+        # a gene left with one informative variant follows the single-variant policy
+        rank = int(np.linalg.matrix_rank(geno[:, weights != 0.0]))
         if rank < 2:
             logger.debug(f"Gene {gene}: rank={rank} < 2; skipping (rank_deficient)")
             return {
@@ -360,9 +350,9 @@ class PythonSKATBackend(SKATBackend):
         # Weighted genotype matrix via broadcasting (memory-efficient vs geno @ diag(w))
         geno_weighted = geno * weights[np.newaxis, :]
 
-        # Score statistic: Q = 0.5 * (ZW^T r)^T (ZW^T r)
+        # Score statistic: Q = (ZW^T r)^T (ZW^T r) / (2 sigma2); sigma2 = 1 for binary
         score_vec = geno_weighted.T @ residuals  # shape: (n_variants,)
-        q_stat = float(score_vec @ score_vec) / 2.0
+        q_stat = float(score_vec @ score_vec) / (2.0 * null_model.extra["sigma2"])
 
         # Filtered eigenvalues (projection-adjusted for binary traits)
         lambdas = self._compute_eigenvalues_filtered(geno_weighted, null_model)
@@ -432,11 +422,17 @@ class PythonSKATBackend(SKATBackend):
         # Collapse to burden score per sample: b = geno @ weights
         burden = geno @ weights  # shape: (n_samples,)
 
-        # Score test: score = r^T b; Var(score) = sigma2 * ||b||^2
+        # Score test: score = r^T b; Var(score) = sigma2 * b^T P b (null-model score covariance)
         score = float(residuals @ burden)
-        variance = sigma2 * float(burden @ burden)
+        burden_adj = project_out_nuisance(burden, null_model)
+        variance = sigma2 * float(burden_adj @ burden_adj)
 
-        if variance <= 0.0:
+        # Shared three-way rule on the collapsed burden (as in LinearBurdenTest):
+        # indeterminate -> skip; in the covariate span -> zero variance.
+        burden_status = explained_columns(burden[:, np.newaxis], null_model)
+        if burden_status is None:
+            return self._skip_result(n_variants, n_variants, "ill_conditioned_covariates")
+        if burden_status[0]:
             return {
                 "p_value": None,
                 "rho": None,
@@ -519,8 +515,8 @@ class PythonSKATBackend(SKATBackend):
                 "skip_reason": "rank_deficient",
             }
 
-        # Rank check on full matrix
-        rank = int(np.linalg.matrix_rank(geno))
+        # Rank of the retained (nonzero-weight) columns, as in _test_skat
+        rank = int(np.linalg.matrix_rank(geno[:, weights != 0.0]))
         if rank < 2:
             logger.debug(f"Gene {gene} (SKAT-O): rank={rank} < 2; skipping")
             return {
@@ -536,6 +532,13 @@ class PythonSKATBackend(SKATBackend):
 
         # Weighted genotype matrix: Z = geno * weights
         geno_weighted = geno * weights[np.newaxis, :]
+        if explained_columns(geno_weighted.sum(axis=1)[:, np.newaxis], null_model) is None:
+            # rho = 1 (burden) component cannot be classified reliably
+            return self._skip_result(n_variants, n_variants, "ill_conditioned_covariates")
+        # Effective rank of the nuisance-projected kernel: the SKAT-O decomposition
+        # needs >= 2 non-round-off eigenvalues (same floors as SKAT)
+        if len(self._compute_eigenvalues_filtered(geno_weighted, null_model)) < 2:
+            return self._skip_result(n_variants, n_variants, "rank_deficient")
 
         # ── Step 1-2: Compute Q_rho and projection-adjusted Z1/sqrt(2) ──
         q_rho, z1_half = compute_skato_q_and_z1(geno_weighted, null_model, _SKATO_RHO_GRID)
@@ -561,7 +564,7 @@ class PythonSKATBackend(SKATBackend):
             "n_marker_test": n_variants,
             "warnings": [],
             "p_method": "optimal.adj",
-            "p_converged": True,
+            "p_converged": _skato_last_converged(),  # False if the Liu integral was used
             "skip_reason": None,
         }
 

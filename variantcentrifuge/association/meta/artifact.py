@@ -25,6 +25,11 @@ from typing import Any
 import numpy as np
 
 from variantcentrifuge.association.backends.base import NullModelResult
+from variantcentrifuge.association.backends.null_model import (
+    UntestableGeneError,
+    explained_columns,
+    project_out_nuisance,
+)
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -148,20 +153,18 @@ def compute_gene_score(
         raise ValueError("variant_keys must be unique (one column per variant)")
 
     residuals = np.asarray(null_model.extra["residuals"], dtype=np.float64)
-    design_x = np.asarray(null_model.extra["design_matrix"], dtype=np.float64)
 
-    # Unweighted score U = Gᵀ r
-    u = geno.T @ residuals
+    # Unweighted score U = Gᵀ r; variants in the covariate space contribute exactly
+    # zero score and covariance (same rule as the single-cohort backend)
+    explained = explained_columns(geno, null_model)
+    if explained is None:
+        # Never export (or zero) scores whose nuisance projection is not trustworthy
+        raise UntestableGeneError("ILL_CONDITIONED_COVARIATES")
+    u = np.where(explained, 0.0, geno.T @ residuals)
 
-    # Projection-adjusted covariance V = Gᵀ P G (binary form, matches _test_skato)
-    mu_hat = np.asarray(null_model.extra["mu_hat"], dtype=np.float64)
-    pi_1 = mu_hat * (1.0 - mu_hat)
-    phi = np.sqrt(pi_1)
-    z_phi = phi[:, np.newaxis] * geno
-    x_phi = phi[:, np.newaxis] * design_x
-    x_pi = pi_1[:, np.newaxis] * design_x
-    # z_adj = phi*G - phi*X (X' diag(pi) X)^-1 (X' diag(pi) G)  [projection-adjusted]
-    z_adj = z_phi - x_phi @ np.linalg.solve(x_phi.T @ x_phi, x_pi.T @ geno)
+    # Projection-adjusted covariance V = Gᵀ P G, P = V - VX(X'VX)^-1 X'V (shared QR helper)
+    z_adj = project_out_nuisance(geno, null_model)
+    z_adj[:, explained] = 0.0
     v = z_adj.T @ z_adj
     v = 0.5 * (v + v.T)  # enforce exact symmetry against round-off
 
@@ -288,6 +291,10 @@ def load_artifact(path: str) -> ScoreCovarianceArtifact:
     )
 
 
+def _has_cases_and_controls(phenotype: np.ndarray) -> bool:
+    return bool((phenotype == 1).any() and (phenotype == 0).any())
+
+
 def hash_sample_id(sample_id: str) -> str:
     """SHA-256 of a sample ID: lets strata detect shared samples without sharing IDs."""
     return hashlib.sha256(sample_id.encode("utf-8")).hexdigest()
@@ -308,8 +315,13 @@ def emit_stratum_artifact(
     Uses the same site/sample missingness QC as the single-cohort tests but skips the
     per-gene MAC<5 filter: a gene too rare to test in one stratum still adds
     information to the meta. Dosages are kept ALT-coded so ``U`` matches the keys.
+
+    A gene whose retained samples (after its missingness QC) are all cases or all
+    controls has no estimable null model; it is omitted with a warning. A phenotype
+    that is not a usable 0/1 case/control vector for the whole cohort raises.
     """
     from variantcentrifuge.association.genotype_matrix import (
+        _infer_missing_ploidy,
         _vectorized_parse_gt_columns,
         build_genotype_matrix,
     )
@@ -319,7 +331,14 @@ def emit_stratum_artifact(
     if first is None or first.phenotype_vector is None:
         raise ValueError("Score artifact needs at least one gene and a case/control phenotype")
     pheno_all = np.asarray(first.phenotype_vector, dtype=np.float64)
-    nulls: dict[bytes, NullModelResult] = {}
+    if not np.isin(pheno_all, (0.0, 1.0)).all() or not _has_cases_and_controls(pheno_all):
+        raise ValueError(
+            "Score artifact needs a 0/1 case/control phenotype with at least one case and "
+            f"one control (got {int((pheno_all == 1).sum())} cases, "
+            f"{int((pheno_all == 0).sum())} controls, {pheno_all.size} samples)"
+        )
+    omitted: list[str] = []
+    nulls: dict[bytes, NullModelResult | UntestableGeneError] = {}
     gene_scores: dict[str, GeneScore] = {}
     for gene, b in builders.items():
         if b.gene_df.empty:
@@ -338,8 +357,12 @@ def emit_stratum_artifact(
         )
         # ponytail: parses GT twice per gene (build_genotype_matrix hides raw/ploidy);
         # fine for an opt-in export, expose them from the builder if it shows in profiles.
-        raw, plo, _ = _vectorized_parse_gt_columns(b.gene_df, list(b.gt_columns))
-        raw, plo = raw[keep].T, plo[keep].T
+        raw, plo, kind = _vectorized_parse_gt_columns(b.gene_df, list(b.gt_columns))
+        # Same retained population as build_genotype_matrix's frequencies/recoding/ploidy (#174).
+        mask = np.asarray(sample_mask, dtype=bool)
+        raw, plo = raw[keep], plo[keep]
+        _infer_missing_ploidy(plo, kind[keep], mask)
+        geno, raw, plo = geno[mask], raw.T[mask], plo.T[mask]
         observed = ~np.isnan(raw)
         ac = np.where(observed, raw, 0.0).sum(axis=0)
         an = np.where(observed, plo, 0.0).sum(axis=0)
@@ -353,19 +376,34 @@ def emit_stratum_artifact(
         ]
         if not keys:
             continue
-        mask = np.asarray(sample_mask, dtype=bool)
+        if not _has_cases_and_controls(pheno_all[mask]):
+            logger.warning(
+                "Score artifact: omitting gene %s: its %d retained samples (after "
+                "missingness QC) are not both cases and controls, so no null model fits",
+                gene,
+                int(mask.sum()),
+            )
+            omitted.append(gene)
+            continue
         null_key = mask.tobytes()
-        if null_key not in nulls:
-            cov = b.covariate_matrix[mask] if b.covariate_matrix is not None else None
-            nulls[null_key] = fit_stratum_null(pheno_all[mask], cov, "binary")
-        gene_scores[gene] = compute_gene_score(
-            geno[mask],
-            raw[mask],
-            nulls[null_key],
-            keys,
-            ploidy=plo[mask],
-        )
+        try:
+            if null_key not in nulls:
+                cov = b.covariate_matrix[mask] if b.covariate_matrix is not None else None
+                nulls[null_key] = fit_stratum_null(pheno_all[mask], cov, "binary")
+            null_model = nulls[null_key]
+            if isinstance(null_model, UntestableGeneError):
+                raise null_model
+            gene_scores[gene] = compute_gene_score(geno, raw, null_model, keys, ploidy=plo)
+        except UntestableGeneError as exc:
+            nulls.setdefault(null_key, exc)  # cache an untestable sample set
+            logger.warning("Score artifact: omitting gene %s: %s", gene, exc.reason)
+            omitted.append(gene)
 
+    if not gene_scores:
+        raise ValueError(
+            f"Score artifact: no genes survived QC ({len(builders)} genes: empty, removed by "
+            f"site missingness QC, or {len(omitted)} untestable)"
+        )
     artifact = ScoreCovarianceArtifact(
         stratum_id=stratum_id,
         genome_build=genome_build,

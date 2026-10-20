@@ -64,7 +64,7 @@ def test_skato_matches_r_skat(name: str) -> None:
     weights = _compute_allelic_skat_weights(geno, anno, [1.0, 2.0, 3.0])
     null = backend.fit_null_model(pheno, None, "binary")
     p = coast._run_allelic_skat(geno, weights, null)
-    assert p == pytest.approx(R_SKATO[name], rel=1e-3)
+    assert p == pytest.approx(R_SKATO[name], rel=2e-5)  # R printed to 7 significant digits
 
 
 @pytest.mark.parametrize("name", list(R_META))

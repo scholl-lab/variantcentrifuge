@@ -20,7 +20,9 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd  # noqa: F401
-from smart_open import smart_open  # noqa: F401
+
+# smart_open.open exists in 7.x and 8.x; 8.x removed the old smart_open.smart_open alias.
+from smart_open import open as smart_open  # noqa: F401
 
 from ..extractor import extract_fields_bcftools, get_expected_extraction_columns  # noqa: F401
 from ..filters import apply_snpsift_filter, extract_variants

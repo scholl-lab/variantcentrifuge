@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import contextlib
+import csv
+import gzip
 import logging
 import os
 import shutil
@@ -24,6 +26,87 @@ from .sample_column_helpers import (
 
 logger = logging.getLogger(__name__)
 
+# Values parse as in the serial loader: only "" is missing (REF=NA survives), quotes are literal.
+TSV_READ_KWARGS: dict[str, Any] = {
+    "sep": "\t",
+    "dtype": str,
+    "keep_default_na": False,
+    "na_values": [""],
+    "quoting": csv.QUOTE_NONE,
+    "on_bad_lines": "warn",
+    "low_memory": False,
+}
+
+
+_HINT = "Fix the input file or rerun with --no-chunked-processing."
+
+
+def _tsv_lines(path: Path) -> Iterator[tuple[int, str]]:
+    """Yield (line number, line) for non-blank lines, as the serial loader sees them.
+
+    Newlines are universal (CRLF/CR), a UTF-8 BOM on line 1 is dropped, and lines that are
+    empty or contain only ASCII spaces are skipped. Any other line is a record, so a line of
+    tabs, form feeds or Unicode spaces reaches width validation. Parity exception: in a
+    one-column file a spaces-only record is kept by the serial loader but skipped here.
+    """
+    opener: Any = gzip.open if str(path).endswith(".gz") else open
+    with opener(path, "rt", encoding="utf-8") as f:
+        for lineno, line in enumerate(f, 1):
+            line = line.rstrip("\r\n")
+            if lineno == 1:
+                line = line.removeprefix("\ufeff")
+            if line.strip(" "):
+                yield lineno, line
+
+
+def _check_no_nul(path: Path, lineno: int, line: str) -> None:
+    if "\x00" in line:
+        raise ValueError(
+            f"Chunked processing: {path} line {lineno} contains a NUL character. {_HINT}"
+        )
+
+
+def read_tsv_header(path: Path) -> list[str]:
+    """Header fields (first non-blank line), verbatim apart from BOM/newline.
+
+    Chunked processing requires a header with non-empty field names and no NUL characters.
+    """
+    lineno, header = next(_tsv_lines(path), (0, ""))
+    if not header:
+        raise ValueError(f"Chunked processing: {path} has no header line. {_HINT}")
+    _check_no_nul(path, lineno, header)
+    fields = header.split("\t")
+    if "" in fields:
+        raise ValueError(
+            f"Chunked processing: {path} header (line {lineno}) has an empty column name "
+            f"at position {fields.index('') + 1}. {_HINT}"
+        )
+    return fields
+
+
+def write_row_indexed_copy(input_file: Path, output_file: Path, index_col: str) -> None:
+    """Copy a TSV with each data row prefixed by its 0-based position.
+
+    Fast single text pass (plain or gzip). Chunked processing requires well-formed input:
+    a valid header (see read_tsv_header) and data rows with exactly the header's field
+    count and no NUL characters. Unlike the serial loader, which skips or pads malformed
+    rows, any violation fails here with its line number.
+    """
+    fields = read_tsv_header(input_file)
+    lines = _tsv_lines(input_file)
+    next(lines)  # header, validated above
+    with open(output_file, "w", encoding="utf-8") as dst:
+        dst.write(index_col + "\t" + "\t".join(fields) + "\n")
+        for row, (lineno, line) in enumerate(lines):
+            if line.count("\t") != len(fields) - 1:
+                raise ValueError(
+                    f"Chunked processing: {input_file} line {lineno} has "
+                    f"{line.count(chr(9)) + 1} tab-separated fields, header has {len(fields)}. "
+                    + _HINT
+                )
+            _check_no_nul(input_file, lineno, line)
+            dst.write(f"{row}\t{line}\n")
+
 
 def ensure_sorted_by_gene(input_file: Path, gene_col: str, context: PipelineContext) -> Path:
     """Ensure the TSV file is sorted by gene column for gene-aware chunking."""
@@ -39,7 +122,6 @@ def ensure_sorted_by_gene(input_file: Path, gene_col: str, context: PipelineCont
     logger.info(f"Sorting {input_file} by {gene_col} column")
 
     if str(input_file).endswith(".gz"):
-        import gzip
 
         def open_func(f: Any) -> Any:
             return gzip.open(f, "rt")
@@ -68,7 +150,7 @@ def ensure_sorted_by_gene(input_file: Path, gene_col: str, context: PipelineCont
             "-t",
             "\t",
             "-k",
-            str(col_idx),
+            f"{col_idx},{col_idx}",  # the gene field only, not the rest of the line
             "--stable",
             "-T",
             str(context.workspace.temp_dir),
@@ -101,7 +183,11 @@ def ensure_sorted_by_gene(input_file: Path, gene_col: str, context: PipelineCont
                 )
 
             assert tail_proc.stdout is not None
-            sort_proc = subprocess.Popen(sort_cmd, stdin=tail_proc.stdout, stdout=out_f)
+            # Bytewise collation: locale rules could interleave e.g. MYC and MYCN rows.
+            sort_env = {**os.environ, "LC_ALL": "C"}
+            sort_proc = subprocess.Popen(
+                sort_cmd, stdin=tail_proc.stdout, stdout=out_f, env=sort_env
+            )
             tail_proc.stdout.close()
             sort_proc.wait()
 
@@ -194,13 +280,7 @@ def read_tsv_in_gene_chunks(
         f"Reading {filepath} in gene-aware chunks (column: {gene_column}, size: {chunksize})"
     )
 
-    reader = pd.read_csv(
-        filepath,
-        sep="\t",
-        chunksize=chunksize,
-        low_memory=False,
-        dtype=str,
-    )
+    reader = pd.read_csv(filepath, chunksize=chunksize, **TSV_READ_KWARGS)
 
     gene_buffer = pd.DataFrame()
     chunks_yielded = 0

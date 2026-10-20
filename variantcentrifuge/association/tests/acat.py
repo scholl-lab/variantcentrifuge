@@ -33,6 +33,13 @@ from collections.abc import Sequence
 import numpy as np
 from scipy.stats import cauchy, norm
 
+from variantcentrifuge.association.backends.base import NullModelResult
+from variantcentrifuge.association.backends.null_model import (
+    explained_columns,
+    full_rank_design,
+    project_out_nuisance,
+)
+
 logger = logging.getLogger("variantcentrifuge")
 
 # Threshold below which the approximation 1/(p*pi) is used instead of tan((0.5-p)*pi).
@@ -153,6 +160,7 @@ def compute_acat_v(
     mu_hat: np.ndarray | None,
     weights: np.ndarray,
     design_matrix: np.ndarray | None = None,
+    null_model: NullModelResult | None = None,
 ) -> float | None:
     """
     ACAT-V per-variant score test (Liu & Xie 2020, STAARpipeline).
@@ -177,9 +185,13 @@ def compute_acat_v(
     weights : np.ndarray, shape (n_variants,)
         Per-variant weights (typically Beta(MAF; 1, 25)).
     design_matrix : np.ndarray | None, shape (n_samples, k)
-        Fitted design matrix (covariates + intercept) from null model.
+        Fitted design matrix (covariates + intercept) from null model; it is
+        reduced to a full-rank basis that always contains the intercept.
         When provided, null model covariates are projected out to obtain
         unbiased score test variances (Liu & Xie 2020).
+    null_model : NullModelResult | None
+        Fitted null model; preferred over ``design_matrix`` because it carries the
+        design conditioning used to recognise variants explained by covariates.
 
     Returns
     -------
@@ -197,20 +209,32 @@ def compute_acat_v(
     # With null model covariates X projected out (Liu 2020, Get.marginal.pval):
     # Binary: V = diag(G' [W - W X (X' W X)^-1 X' W] G)
     # Quantitative: V = sigma2 * diag(G' [I - X (X' X)^-1 X'] G)
-    if design_matrix is not None:
-        if trait_type == "binary" and mu_hat is not None:
-            phi = np.sqrt(mu_hat * (1.0 - mu_hat))
-            phi_x = phi[:, np.newaxis] * design_matrix
-            z_tilde = phi[:, np.newaxis] * geno
-            coef = np.linalg.lstsq(phi_x, z_tilde, rcond=None)[0]
-            z_adj = z_tilde - phi_x @ coef
-            g_ss = np.sum(z_adj**2, axis=0)
-            var_vec = g_ss
-        else:
-            coef = np.linalg.lstsq(design_matrix, geno, rcond=None)[0]
-            g_adj = geno - design_matrix @ coef
-            g_ss = np.sum(g_adj**2, axis=0)
-            var_vec = sigma2 * g_ss
+    if null_model is None and design_matrix is not None:
+        # Raw design (intercept + covariates): reduce to the shared full-rank basis
+        # (duplicate/zero/constant columns dropped, intercept kept) before projecting.
+        basis, covariate_r = full_rank_design(
+            np.asarray(design_matrix, dtype=np.float64), len(residuals)
+        )
+        null_model = NullModelResult(
+            model=None,
+            trait_type="binary"
+            if trait_type == "binary" and mu_hat is not None
+            else "quantitative",
+            n_samples=len(residuals),
+            extra={"design_matrix": basis, "covariate_r": covariate_r, "mu_hat": mu_hat},
+        )
+    if null_model is not None:
+        # Shared QR projection; variants in the covariate space get zero variance (skipped)
+        # Classify only the variants that are tested (nonzero weight)
+        tested = np.asarray(weights) != 0.0
+        explained_tested = explained_columns(geno[:, tested], null_model)
+        if explained_tested is None:
+            return None  # ill-conditioned covariates: projections not trustworthy
+        explained = ~tested
+        explained[np.flatnonzero(tested)[explained_tested]] = True
+        z_adj = project_out_nuisance(geno, null_model)
+        g_ss = np.where(explained, 0.0, np.sum(z_adj**2, axis=0))
+        var_vec = g_ss if null_model.trait_type == "binary" else sigma2 * g_ss
     else:
         if trait_type == "binary" and mu_hat is not None:
             var_weights = mu_hat * (1.0 - mu_hat)  # (n_samples,)
