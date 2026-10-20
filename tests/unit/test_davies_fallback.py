@@ -277,7 +277,11 @@ class TestDaviesInRangeBehaviorUnchanged:
             assert converged is False
 
     def test_davies_q57_unit_eigenvalues_analytical_accuracy(self):
-        """Q=57 with 10 unit eigenvalues triggers saddlepoint and matches exact chi2."""
+        """Q=57 with 10 unit eigenvalues: tilted Davies matches the exact chi2 tail.
+
+        Below the proactive threshold the saddlepoint was used (~0.1-6% off, #181);
+        the exponentially tilted Davies evaluation is exact up to Davies accuracy.
+        """
         from scipy.stats import chi2
 
         lambdas = np.ones(10)
@@ -286,13 +290,10 @@ class TestDaviesInRangeBehaviorUnchanged:
 
         p, method, converged = compute_pvalue(q, lambdas)
 
-        # Proactive threshold 1e-5 triggers saddlepoint because exact p is ~1.33e-8
-        assert method == "saddlepoint"
-        assert converged is False
+        assert method == "davies_tilted"
+        assert converged is True
         rel_err = abs(p - exact_p) / exact_p
-        assert rel_err < 0.01, (
-            f"Saddlepoint relative error {rel_err:.4e} >= 1%, p={p:.6e}, exact={exact_p:.6e}"
-        )
+        assert rel_err < 1e-5, f"relative error {rel_err:.4e}, p={p:.6e}, exact={exact_p:.6e}"
 
     def test_no_davies_uses_saddlepoint_then_liu(self):
         """Without Davies C extension, saddlepoint -> Liu chain unchanged."""

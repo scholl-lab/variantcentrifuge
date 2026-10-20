@@ -260,7 +260,8 @@ def test_statistic_sweep_into_extreme_tail(
     Baseline for q=49 (k=1) / q=33 (k=2): 1.682e-10 / 3.229e-8 (1 - int_0^40 truncation
     and cancellation). f03853b (Davies acc floor 1e-9) at q=45.5/46/50 (k=2):
     3.149e-11 / 7.783e-11 / 1.833e-12, non-monotone. References (no truncation, no cap,
-    exact survival): 8.844e-11, 2.2228e-8, 3.7739e-11, 2.9265e-11, 3.8338e-12. R SKAT
+    exact survival, per-rho inputs of 574d36e): 8.844e-11, 2.2228e-8, 3.7739e-11, 2.9265e-11,
+    3.8338e-12. R SKAT
     2.2.5 (SKAT_Optimal_Get_Pvalue) gives 1.603e-10 (q=49) and 2.801e-8 (q=33): its
     integrate(0, 40) truncates, so in this tail we deliberately differ from R.
     """
@@ -311,7 +312,7 @@ def test_pmin_quantile_survives_tiny_pmin() -> None:
 @pytest.mark.unit
 def test_tilted_survival_davies_failure_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """A Davies fault inside the tilted evaluation sends the integral to Liu (R policy)."""
-    monkeypatch.setattr(skato_integrate, "davies_pvalue", lambda *a, **k: (2.0, 1))
+    monkeypatch.setattr(dv, "davies_pvalue", lambda *a, **k: (2.0, 1))
     with pytest.raises(skato_integrate._DaviesFailureError):
         skato_integrate._tilted_sf(20.0, np.array([1.0, 0.3, 0.05]))
 
@@ -321,7 +322,7 @@ def test_large_gene_outer_integral_converges(monkeypatch: pytest.MonkeyPatch) ->
     """501 variants with an exactly chi2(500) conditional: fixed 16-node rule was +0.54%.
 
     Reference: exact chi2(500) survival, adaptive quad without truncation or cap
-    (5.8764202692e-8; 64-node fixed rule 5.8764202648e-8).
+    (with the per-rho p-values of 574d36e: 5.8764202692e-8; 64-node rule 5.8764202648e-8).
     """
     n = 501
     v = np.eye(1, n)[0] - np.ones(n) / np.sqrt(n)
@@ -335,9 +336,7 @@ def test_large_gene_outer_integral_converges(monkeypatch: pytest.MonkeyPatch) ->
     def chi2_500(z: float, lam: np.ndarray) -> float:
         return 1.0 if z <= 0 else float(scipy.stats.chi2.sf(z / lam.mean(), len(lam)))
 
-    ref = _reference(case, chi2_500)
-    assert ref == pytest.approx(5.8764202692e-8, rel=1e-9, abs=0.0)
-    assert p == pytest.approx(ref, rel=1e-4, abs=0.0)
+    assert p == pytest.approx(_reference(case, chi2_500), rel=1e-4, abs=0.0)
 
 
 @pytest.mark.unit
@@ -353,9 +352,10 @@ def test_scale_invariance(c: float) -> None:
         1.3419078340383e-14, rel=1e-9, abs=0.0
     )
     z1 = np.diag(np.sqrt([0.01, 0.1, 1.0])) @ _B3
-    for q, p_ref in ((5.0, 0.053395406190393), (46.0, 2.926508694375e-11)):
-        q_rho = c * q * (1 - np.array(sm._SKATO_RHO_GRID))
-        p, _each = sm._skato_get_pvalue(q_rho, np.sqrt(c) * z1, sm._SKATO_RHO_GRID)
+    grid = np.array(sm._SKATO_RHO_GRID)
+    for q in (5.0, 46.0):
+        p_ref, _ = sm._skato_get_pvalue(q * (1 - grid), z1, sm._SKATO_RHO_GRID)
+        p, _each = sm._skato_get_pvalue(c * q * (1 - grid), np.sqrt(c) * z1, sm._SKATO_RHO_GRID)
         assert p == pytest.approx(p_ref, rel=1e-9, abs=0.0)
 
 
@@ -390,3 +390,21 @@ def test_davies_threadsafe() -> None:
     with ThreadPoolExecutor(4) as pool:
         par = list(pool.map(lambda a: dv.davies_pvalue(*a), args))
     assert par == seq
+
+
+@pytest.mark.unit
+def test_tail_pvalue_uses_tilted_davies_not_saddlepoint() -> None:
+    """Real-data SKAT (public 1000G PKHD1, 35 eigenvalues): p ~ 1.8e-6 is below the proactive
+    threshold. Saddlepoint gave 1.90661e-6 (+6.4%); R SKAT 2.2.5 Davies acc=1e-6 gives
+    1.78656e-6 (absolute accuracy). References: Davies acc=1e-12, lim=1e7 1.7922060078e-6;
+    importance sampling under the tilted law 1.7900e-6 +- 0.0050e-6.
+    """
+    d = json.loads(
+        (
+            pathlib.Path(__file__).parent.parent
+            / "fixtures/skato_integration/pkhd1_skat_eigen.json"
+        ).read_text()
+    )
+    p, method, converged = dv.compute_pvalue(d["q"], np.array(d["lambdas"]))
+    assert (method, converged) == ("davies_tilted", True)
+    assert p == pytest.approx(1.7922060078e-6, rel=1e-5, abs=0.0)

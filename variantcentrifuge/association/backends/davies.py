@@ -35,6 +35,7 @@ import os
 import threading
 
 import numpy as np
+from numpy.polynomial.laguerre import laggauss
 from scipy.optimize import brentq
 from scipy.stats import ncx2, norm
 
@@ -49,6 +50,8 @@ _qfc_ffi = None  # The CFFI FFI object
 _DAVIES_AVAILABLE = False
 _DAVIES_LOAD_ATTEMPTED = False
 
+# Gauss-Laguerre rule for the exponentially tilted tail probability (_tilted_sf_or_none)
+_LAG_NODES, _LAG_WEIGHTS = laggauss(16)
 # qfc keeps its state in C globals and the CFFI call releases the GIL: serialize calls
 _QFC_LOCK = threading.Lock()
 _PROACTIVE_THRESHOLD = 1e-5  # GMMAT-style proactive saddlepoint trigger
@@ -343,6 +346,37 @@ def davies_pvalue(
     return p_value, fault
 
 
+def _tilted_sf_or_none(z: float, lambdas: np.ndarray) -> float | None:
+    """P[sum(lambdas * chi2_1) > z] with relative accuracy deep in the upper tail.
+
+    Davies' error is absolute (>= ~1e-9), useless for tail probabilities below that.
+    Tilting by exp(t*Q) at the saddlepoint K'(t) = z gives Q' = sum(lambdas' * chi2_1),
+    lambdas' = lambdas / (1 - 2 t lambdas), with mean z, and
+    P[Q > z] = M(t) e^{-tz} E'[e^{-t(Q'-z)} 1{Q' > z}]
+             = M(t) e^{-tz} int_0^inf e^{-s} P'[z < Q' <= z + s/t] ds,
+    where Davies only evaluates O(1) probabilities of Q' (Gauss-Laguerre in s).
+    Returns None if the tilt or a Davies evaluation fails.
+    """
+    # ponytail: validated to ~1e-7 relative against exact survival for k <= 3 (down to
+    # 1e-16) and to Monte Carlo standard error (<= 1%) for k = 8, 11 (down to 1e-34);
+    # k > 3 has no exact reference here. Cost ~17 Davies calls per tail node.
+    scale = float(lambdas.max())  # scale-free: brentq's xtol is absolute
+    z, lambdas = z / scale, lambdas / scale
+    t = brentq(lambda u: float(np.sum(lambdas / (1 - 2 * u * lambdas))) - z, 0.0, 0.5 - 1e-12)
+    if not 0.0 < t < 0.5:
+        return None
+    lam_t = lambdas / (1 - 2 * t * lambdas)
+    log_m = -0.5 * float(np.sum(np.log1p(-2 * t * lambdas)))
+    sf = []
+    for q in np.r_[z, z + _LAG_NODES / t]:
+        p, ifault = davies_pvalue(float(q), lam_t, acc=1e-6, lim=_DAVIES_RETRY_LIM)
+        if p is None or ifault != 0 or not np.isfinite(p):
+            return None
+        sf.append(p)
+    out = float(np.exp(log_m - t * z) * np.dot(_LAG_WEIGHTS, sf[0] - np.array(sf[1:])))
+    return out if 0.0 <= out <= 1.0 else None
+
+
 # ---------------------------------------------------------------------------
 # Public API: compute_pvalue — three-tier fallback chain
 # ---------------------------------------------------------------------------
@@ -360,8 +394,9 @@ def compute_pvalue(
     Matches R SKAT package ``Get_PValue.Lambda`` behavior with enhanced fallback:
     - Davies called with acc=1e-6, lim=10000 (R defaults); on ifault=1 (term limit)
       retried with lim=_DAVIES_RETRY_LIM, which is identical wherever lim=10000 converges
-    - If Davies ifault != 0, p >= 1.0, non-finite, or p <= 1e-5: try saddlepoint first,
-      then Liu moment-matching
+    - If Davies ifault != 0, p >= 1.0, non-finite, or p <= 1e-5: for q above the mean,
+      Davies on the exponentially tilted mixture ("davies_tilted", relative accuracy);
+      otherwise/if that fails, saddlepoint, then Liu moment-matching
     - Single eigenvalue: always use Liu
     - Three-tier chain when Davies available: Davies -> saddlepoint -> Liu
 
@@ -380,7 +415,7 @@ def compute_pvalue(
     -------
     (p_value, p_method, p_converged)
         p_value : float — estimated tail probability (NaN for empty lambdas)
-        p_method : str  — "davies", "saddlepoint", or "liu"
+        p_method : str  — "davies", "davies_tilted", "saddlepoint", or "liu"
         p_converged : bool — True only when Davies succeeded (ifault=0)
     """
     # Edge case: empty eigenvalue array
@@ -413,6 +448,13 @@ def compute_pvalue(
                 or ifault > 0
                 or p_val <= _PROACTIVE_THRESHOLD
             )
+
+            if needs_fallback and q > float(np.sum(lambdas)):
+                # Exact identity, Davies on O(1) tilted probabilities: relative accuracy in the
+                # tail where plain Davies (absolute error) and the saddlepoint (~5%) are not
+                p_t = _tilted_sf_or_none(q, lambdas)
+                if p_t is not None and 0.0 < p_t < 1.0:
+                    return p_t, "davies_tilted", True
 
             if needs_fallback:
                 p_sp = _kuonen_pvalue(q, lambdas)

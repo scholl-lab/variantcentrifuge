@@ -13,13 +13,12 @@ import numpy as np
 import scipy.integrate
 import scipy.linalg
 import scipy.stats
-from numpy.polynomial.laguerre import laggauss
 from numpy.polynomial.legendre import leggauss
-from scipy.optimize import brentq
 
 from variantcentrifuge.association.backends.davies import (
     _DAVIES_RETRY_LIM,
     _liu_params,
+    _tilted_sf_or_none,
     compute_pvalue,
     davies_pvalue,
 )
@@ -39,8 +38,6 @@ _SKATO_DAVIES_REL_ACC, _SKATO_DAVIES_MIN_ACC = 1e-4, 1e-9
 _SKATO_X_MAX = 1500.0  # P[chi2_1 > 1500] underflows to 0
 _SKATO_QUAD_LIMIT = 50  # max subintervals per piece of the adaptive SKAT-O integral
 _SQRT_2_OVER_PI = float(np.sqrt(2.0 / np.pi))
-# Gauss-Laguerre rule for the exponentially tilted tail probability (_tilted_sf)
-_LAG_NODES, _LAG_WEIGHTS = laggauss(16)
 
 
 class _DaviesFailureError(Exception):
@@ -57,35 +54,11 @@ def _skato_last_converged() -> bool:
 
 
 def _tilted_sf(z: float, lambdas: np.ndarray) -> float:
-    """P[sum(lambdas * chi2_1) > z] with relative accuracy deep in the upper tail.
-
-    Davies' error is absolute (>= ~1e-9), useless for tail probabilities below that.
-    Tilting by exp(t*Q) at the saddlepoint K'(t) = z gives Q' = sum(lambdas' * chi2_1),
-    lambdas' = lambdas / (1 - 2 t lambdas), with mean z, and
-    P[Q > z] = M(t) e^{-tz} E'[e^{-t(Q'-z)} 1{Q' > z}]
-             = M(t) e^{-tz} int_0^inf e^{-s} P'[z < Q' <= z + s/t] ds,
-    where Davies only evaluates O(1) probabilities of Q' (Gauss-Laguerre in s).
-    """
-    # ponytail: validated to ~1e-7 relative against exact survival for k <= 3 (down to
-    # 1e-16) and to Monte Carlo standard error (<= 1%) for k = 8, 11 (down to 1e-34);
-    # k > 3 has no exact reference here. Cost ~17 Davies calls per tail node.
-    scale = float(lambdas.max())  # scale-free: brentq's xtol is absolute
-    z, lambdas = z / scale, lambdas / scale
-    t = brentq(lambda u: float(np.sum(lambdas / (1 - 2 * u * lambdas))) - z, 0.0, 0.5 - 1e-12)
-    if not 0.0 < t < 0.5:
-        raise _DaviesFailureError(f"invalid tilt t={t:.3g} at z={z:.6g}")
-    lam_t = lambdas / (1 - 2 * t * lambdas)
-    log_m = -0.5 * float(np.sum(np.log1p(-2 * t * lambdas)))
-    sf = []
-    for q in np.r_[z, z + _LAG_NODES / t]:
-        p, ifault = davies_pvalue(float(q), lam_t, acc=1e-6, lim=_DAVIES_RETRY_LIM)
-        if p is None or ifault != 0:
-            raise _DaviesFailureError(f"tilted ifault={ifault} at q={q:.6g}")
-        sf.append(p)
-    out = float(np.exp(log_m - t * z) * np.dot(_LAG_WEIGHTS, sf[0] - np.array(sf[1:])))
-    if not 0.0 <= out <= 1.0:
-        raise _DaviesFailureError(f"tilted survival {out:.3g} at z={z:.6g}")
-    return out
+    """Tail survival with relative accuracy (davies._tilted_sf); failures go to Liu."""
+    p = _tilted_sf_or_none(z, lambdas)
+    if p is None:
+        raise _DaviesFailureError(f"tilted survival failed at z={z:.6g}")
+    return p
 
 
 def _skato_breakpoints(
