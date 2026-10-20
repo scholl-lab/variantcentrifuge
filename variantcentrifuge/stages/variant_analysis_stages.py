@@ -77,7 +77,8 @@ class VariantAnalysisStage(Stage):
             "no_stats": True,
         }
         _original_gt_cols = _find_per_sample_gt_columns(df)
-        if "GT" not in df.columns and context.vcf_samples and _original_gt_cols:
+        added_gt = "GT" not in df.columns and bool(context.vcf_samples) and bool(_original_gt_cols)
+        if added_gt:
             logger.info("Reconstructing GT column for variant analysis (local copy only)")
             reconstructed = reconstruct_gt_column(df.copy(deep=False), context.vcf_samples)
             df = df.copy(deep=False)
@@ -94,6 +95,9 @@ class VariantAnalysisStage(Stage):
         if analysis_df is not None:
             if context.column_rename_map:
                 analysis_df = analysis_df.rename(columns=context.column_rename_map, copy=False)
+            if added_gt:
+                # Packed GT was only analysis input; leaking it changes downstream paths (#219).
+                analysis_df = analysis_df.drop(columns="GT")
 
             context.current_dataframe = analysis_df
             logger.info(f"Variant analysis complete: {len(analysis_df)} variants analyzed")

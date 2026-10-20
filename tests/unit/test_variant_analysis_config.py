@@ -264,7 +264,8 @@ class TestVariantAnalysisConfig:
         out = stage(context)
         assert out.current_dataframe is not None
         assert "Extra_Col" in out.current_dataframe.columns
-        assert "GT" in out.current_dataframe.columns
+        assert "GT" not in out.current_dataframe.columns  # local analysis input only (#219)
+        assert "proband_count" in out.current_dataframe.columns
 
     @patch(
         "variantcentrifuge.stages.variant_analysis_stages.analyze_variants_df", return_value=None
