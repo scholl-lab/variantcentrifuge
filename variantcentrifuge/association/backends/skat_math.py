@@ -41,24 +41,24 @@ def compute_eigenvalues_filtered(
     null_model: NullModelResult,
 ) -> np.ndarray:
     """
-    Compute filtered eigenvalues of a SKAT kernel matrix.
+    Compute filtered eigenvalues of the null-projected SKAT kernel ``Z'PZ / 2``.
 
-    For binary traits, uses R SKAT's projection-adjusted approach:
-    ``phi = sqrt(mu*(1-mu))``, then projects the weighted genotype matrix
-    through the hat matrix in phi-space before computing eigenvalues. This
-    accounts for variance heterogeneity across observations.
-
-    For quantitative traits, uses the simple ``kernel / (2*sigma2)`` scaling.
+    ``P`` is the null-model score-covariance projector (see
+    ``project_out_nuisance``): Bernoulli-variance weighted for binary traits,
+    ``I - X(X'X)^-1 X'`` for quantitative traits.  For quantitative traits the
+    matching statistic is ``Q = ||Z'r||^2 / (2 sigma2)`` (R ``SKAT.linear``),
+    so the eigenvalues carry no ``sigma2`` and are invariant to outcome units.
 
     Uses scipy.linalg.eigh(driver='evr') matching R's DSYEVR Lapack routine.
-    Applies threshold = mean(positive_eigenvalues) / 100_000 (matches R SKAT).
+    Applies threshold = mean(positive_eigenvalues) / 100_000 (matches R SKAT),
+    floored at ``projection_noise_floor(...)**2 / 2`` (round-off of ``Z'PZ``).
 
     Parameters
     ----------
     geno_weighted : np.ndarray, shape (n_samples, n_variants)
         Weighted genotype matrix (G * W).
     null_model : NullModelResult
-        Fitted null model containing mu_hat, sigma2, design_matrix.
+        Fitted null model containing mu_hat (binary) and design_matrix.
 
     Returns
     -------
@@ -66,45 +66,24 @@ def compute_eigenvalues_filtered(
         Filtered eigenvalues (positive and above threshold). Empty array
         if none pass.
     """
-    sigma2: float = null_model.extra["sigma2"]
-    trait_type: str = null_model.trait_type
+    from variantcentrifuge.association.backends.null_model import (
+        project_out_nuisance,
+        projection_noise_floor,
+    )
 
-    if trait_type == "binary":
-        mu_hat: np.ndarray = null_model.extra["mu_hat"]
-        design_x: np.ndarray = null_model.extra["design_matrix"]
-
-        variance = mu_hat * (1.0 - mu_hat)
-        phi = np.sqrt(variance)
-
-        phi_x = phi[:, np.newaxis] * design_x
-        z_tilde = phi[:, np.newaxis] * geno_weighted
-
-        phi_xtx = phi_x.T @ phi_x
-        phi_xtx_inv = np.linalg.inv(phi_xtx)
-        projected = phi_x @ (phi_xtx_inv @ (phi_x.T @ z_tilde))
-
-        z_adj = z_tilde - projected
-
-        n_variants = geno_weighted.shape[1]
-        eig_mat = z_adj.T @ z_adj if n_variants <= geno_weighted.shape[0] else z_adj @ z_adj.T
-
-        lambdas_all = scipy.linalg.eigh(
-            eig_mat / 2.0,
-            eigvals_only=True,
-            driver="evr",
-        )
-    else:
-        kernel = geno_weighted @ geno_weighted.T
-        lambdas_all = scipy.linalg.eigh(
-            kernel / (2.0 * sigma2),
-            eigvals_only=True,
-            driver="evr",
-        )
+    z_adj = project_out_nuisance(geno_weighted, null_model)
+    n_variants = geno_weighted.shape[1]
+    eig_mat = z_adj.T @ z_adj if n_variants <= geno_weighted.shape[0] else z_adj @ z_adj.T
+    lambdas_all = scipy.linalg.eigh(eig_mat / 2.0, eigvals_only=True, driver="evr")
 
     pos = lambdas_all[lambdas_all >= 0]
     if len(pos) == 0:
         return np.array([], dtype=np.float64)
-    threshold = pos.mean() / 100_000.0
+    # R's relative filter, floored at the round-off level of the unprojected kernel
+    # (directions explained by covariates must not become noise eigenvalues).
+    threshold = max(
+        pos.mean() / 100_000.0, projection_noise_floor(geno_weighted, null_model) ** 2 / 2.0
+    )
     return np.asarray(lambdas_all[lambdas_all > threshold], dtype=np.float64)
 
 
@@ -114,8 +93,11 @@ def compute_skato_q_and_z1(
     rho_grid: list[float],
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute per-rho Q statistics and projection-adjusted Z1/sqrt(2) for SKAT-O."""
+    from variantcentrifuge.association.backends.null_model import project_out_nuisance
+
     residuals: np.ndarray = null_model.extra["residuals"]
-    trait_type: str = null_model.trait_type
+    # Binary sigma2 is 1; quantitative Q is scaled by the residual variance (R SKAT_Optimal_Linear)
+    sigma2: float = null_model.extra["sigma2"]
 
     # ── Step 1: Compute Q_rho for each rho ──
     score_vec = geno_weighted.T @ residuals
@@ -125,28 +107,8 @@ def compute_skato_q_and_z1(
     for i, rho in enumerate(rho_grid):
         q1 = (1.0 - rho) * float(score_vec @ score_vec)
         q2 = rho * score_sum**2
-        q_rho[i] = (q1 + q2) / 2.0
+        q_rho[i] = (q1 + q2) / (2.0 * sigma2)
 
     # ── Step 2: Build projection-adjusted Z1 ──
-    if trait_type == "binary":
-        mu_hat: np.ndarray = null_model.extra["mu_hat"]
-        design_x: np.ndarray = null_model.extra["design_matrix"]
-        pi_1 = mu_hat * (1.0 - mu_hat)
-        sqrt_pi = np.sqrt(pi_1)
-
-        z_phi = geno_weighted * sqrt_pi[:, np.newaxis]
-        x_phi = design_x * sqrt_pi[:, np.newaxis]
-        x_pi = design_x * pi_1[:, np.newaxis]
-        xtx_pi = x_phi.T @ x_phi
-        xtx_pi_inv = np.linalg.inv(xtx_pi)
-        z1_adj = z_phi - x_phi @ (xtx_pi_inv @ (x_pi.T @ geno_weighted))
-    else:
-        design_x = null_model.extra["design_matrix"]
-        sigma2: float = null_model.extra["sigma2"]
-        xtx = design_x.T @ design_x
-        xtx_inv = np.linalg.inv(xtx)
-        z1_adj = geno_weighted - design_x @ (xtx_inv @ (design_x.T @ geno_weighted))
-        q_rho /= sigma2
-
-    z1_half = z1_adj / np.sqrt(2.0)
+    z1_half = project_out_nuisance(geno_weighted, null_model) / np.sqrt(2.0)
     return q_rho, z1_half

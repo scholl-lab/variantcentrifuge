@@ -28,6 +28,9 @@ Skip conditions
 The run() method replicates ALL skip-condition guards from COASTTest.run():
   - NO_GENOTYPE_MATRIX: genotype_matrix key absent from contingency_data
   - NO_PHENOTYPE_OR_EMPTY_MATRIX: phenotype_vector is None or geno shape is 0
+  - NONFINITE_PHENOTYPE / CONSTANT_PHENOTYPE: outcome has NaN/inf or no variance
+  - ILL_CONDITIONED_COVARIATES: allelic SKAT-O projection cannot be trusted
+    (coast_status "skipped"; no partial combination is reported)
   - NO_GENE_DF: gene_df key absent from contingency_data
   - MISSING_EFFECT_IMPACT_COLUMNS: EFFECT/IMPACT columns not found in gene_df
   - ANNOTATION_GENOTYPE_MISMATCH: gene_df rows != genotype matrix columns
@@ -60,6 +63,10 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from variantcentrifuge.association.backends.null_model import (
+    UntestableGeneError,
+    outcome_problem,
+)
 from variantcentrifuge.association.base import AssociationConfig, AssociationTest, TestResult
 from variantcentrifuge.association.tests.allelic_series import (
     EFFECT_COLUMN_CANDIDATES,
@@ -262,6 +269,23 @@ class PurePythonCOASTTest(AssociationTest):
                 n_variants=n_variants,
                 extra={"coast_skip_reason": "NO_PHENOTYPE_OR_EMPTY_MATRIX"},
             )
+        # Non-finite or constant outcomes cannot define a null model
+        problem = outcome_problem(phenotype)
+        if problem is not None:
+            return TestResult(
+                gene=gene,
+                test_name=self.name,
+                p_value=None,
+                corrected_p_value=None,
+                effect_size=None,
+                ci_lower=None,
+                ci_upper=None,
+                se=None,
+                n_cases=n_cases,
+                n_controls=n_controls,
+                n_variants=n_variants,
+                extra={"coast_skip_reason": problem},
+            )
 
         # ── Guard: gene_df required for annotation ────────────────────────────────
         if gene_df is None or len(gene_df) == 0:
@@ -441,6 +465,28 @@ class PurePythonCOASTTest(AssociationTest):
                 trait_type=config.trait_type,
                 null_model=self._null_model,
                 variant_mafs=variant_mafs_filtered,
+            )
+        except UntestableGeneError as exc:
+            logger.warning(f"Python COAST [{gene}]: skipped ({exc.reason})")
+            return TestResult(
+                gene=gene,
+                test_name=self.name,
+                p_value=None,
+                corrected_p_value=None,
+                effect_size=None,
+                ci_lower=None,
+                ci_upper=None,
+                se=None,
+                n_cases=n_cases,
+                n_controls=n_controls,
+                n_variants=n_variants,
+                extra={
+                    "coast_skip_reason": exc.reason,
+                    "coast_status": "skipped",
+                    "coast_n_bmv": n_bmv,
+                    "coast_n_dmv": n_dmv,
+                    "coast_n_ptv": n_ptv,
+                },
             )
         except Exception as exc:
             logger.error(f"Python COAST [{gene}]: backend test_gene() failed: {exc}")

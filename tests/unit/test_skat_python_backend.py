@@ -520,14 +520,15 @@ class TestBurdenTestGene:
             trait_type="quantitative",
             n_samples=4,
             adjustment=False,
-            extra={"residuals": residuals, "sigma2": 1.0},
+            extra={"residuals": residuals, "sigma2": 1.0, "design_matrix": np.ones((4, 1))},
         )
 
         result = backend._test_burden("GENE1", geno, null_model, weights)
 
+        # Intercept-only projection P = I - 11'/n => b'Pb = ||b - mean(b)||^2
         burden = geno @ weights
         score = float(residuals @ burden)
-        variance = float(burden @ burden)
+        variance = float(np.sum((burden - burden.mean()) ** 2))
         expected_p = float(2.0 * scipy.stats.norm.sf(abs(score / np.sqrt(variance))))
         assert result["p_value"] == pytest.approx(expected_p)
 

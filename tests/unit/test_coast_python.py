@@ -889,3 +889,48 @@ class TestPurePythonCOASTTestLifecycle:
         assert result.p_value is None
         assert "coast_skip_reason" in result.extra
         assert "NO_GENE_DF" in result.extra["coast_skip_reason"]
+
+
+@pytest.mark.parametrize("trait_type", ["binary", "quantitative"])
+@pytest.mark.parametrize(
+    "phenotype,code",
+    [(np.zeros(100), "CONSTANT_PHENOTYPE"), (np.full(100, np.nan), "NONFINITE_PHENOTYPE")],
+)
+def test_coast_degenerate_outcome_is_skipped(trait_type, phenotype, code):
+    """Constant / non-finite outcomes return a documented skip, not a ValueError."""
+    test = PurePythonCOASTTest()
+    test.check_dependencies()
+    contingency_data, config = _make_coast_contingency_data(trait_type=trait_type)
+    contingency_data["phenotype_vector"] = phenotype
+    result = test.run("TEST_GENE", contingency_data, config)
+    assert result.p_value is None
+    assert result.extra["coast_skip_reason"] == code
+
+
+def test_coast_indeterminate_allelic_component_skips_whole_test():
+    """Review B1-r4 item 3: an uncomputable allelic SKAT-O must not yield a 'complete' COAST p."""
+    from variantcentrifuge.association.base import AssociationConfig
+
+    rng = np.random.default_rng(123)
+    geno = rng.binomial(2, 0.1, (300, 4)).astype(float)
+    e = rng.normal(size=300)
+    y = 2 * (geno[:, 1] - geno[:, 2]) + rng.normal(size=300)
+    data = {
+        "genotype_matrix": geno,
+        "phenotype_vector": y,
+        "gene_df": _make_3cat_gene_df(n_bmv=1, n_dmv=2, n_ptv=1),
+        "proband_count": 0,
+        "control_count": 300,
+        "n_qualifying_variants": 4,
+    }
+    config = AssociationConfig(trait_type="quantitative", coast_weights=[1.0, 2.0, 3.0])
+    test = PurePythonCOASTTest()
+    test.check_dependencies()
+    ok = test.run("G", {**data, "covariate_matrix": geno[:, :1]}, config)
+    assert ok.p_value is not None and ok.p_value < 1e-10
+    near = test.run("G", {**data, "covariate_matrix": (geno[:, 0] + 1e-8 * e)[:, None]}, config)
+    if near.p_value is None:
+        assert near.extra["coast_skip_reason"] == "ILL_CONDITIONED_COVARIATES"
+        assert near.extra["coast_status"] == "skipped"
+    else:  # classified: must agree with the exact design up to the 1e-8 perturbation
+        assert near.p_value < 1e-10

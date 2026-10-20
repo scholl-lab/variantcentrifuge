@@ -47,6 +47,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import scipy.stats
 
+from variantcentrifuge.association.backends.null_model import UntestableGeneError
+
 if TYPE_CHECKING:
     from variantcentrifuge.association.backends.base import NullModelResult
     from variantcentrifuge.association.backends.python_backend import PythonSKATBackend
@@ -328,19 +330,26 @@ class PythonCOASTBackend:
         float
             P-value for the allelic SKAT-O component (1.0 if degenerate).
         """
+        from variantcentrifuge.association.backends.null_model import explained_columns
         from variantcentrifuge.association.backends.python_backend import (
             _SKATO_RHO_GRID,
             _skato_get_pvalue,
+            compute_skato_q_and_z1,
         )
 
         n_variants = geno_filtered.shape[1]
         if n_variants == 0:
             return 1.0
 
-        residuals: np.ndarray = null_model.extra["residuals"]
-        trait_type: str = null_model.trait_type
-
-        # Apply per-variant allelic-series weights
+        # Apply per-variant allelic-series weights; variants lying in the covariate
+        # space carry no information (same rule as PythonSKATBackend.test_gene)
+        tested = skat_weights != 0.0
+        explained = explained_columns(geno_filtered[:, tested], null_model)
+        if explained is None:
+            # The principal component cannot be computed: fail the whole COAST test
+            raise UntestableGeneError("ILL_CONDITIONED_COVARIATES")
+        skat_weights = np.asarray(skat_weights, dtype=np.float64).copy()
+        skat_weights[np.flatnonzero(tested)[explained]] = 0.0
         geno_weighted = geno_filtered * skat_weights[np.newaxis, :]
 
         # Rank check — SKAT-O needs rank >= 2
@@ -349,38 +358,8 @@ class PythonCOASTBackend:
             logger.debug("PythonCOASTBackend allelic SKAT-O: rank < 2; p=1.0")
             return 1.0
 
-        # ── Step 1: Compute Q_rho for each rho ──
-        score_vec = geno_weighted.T @ residuals  # (n_variants,)
-        score_sum = float(np.sum(score_vec))
-
-        q_rho = np.zeros(len(_SKATO_RHO_GRID), dtype=np.float64)
-        for i, rho in enumerate(_SKATO_RHO_GRID):
-            q1 = (1.0 - rho) * float(score_vec @ score_vec)
-            q2 = rho * score_sum**2
-            q_rho[i] = (q1 + q2) / 2.0
-
-        # ── Step 2: Build projection-adjusted Z1 ──
-        if trait_type == "binary":
-            mu_hat: np.ndarray = null_model.extra["mu_hat"]
-            design_x: np.ndarray = null_model.extra["design_matrix"]
-            pi_1 = mu_hat * (1.0 - mu_hat)
-            sqrt_pi = np.sqrt(pi_1)
-
-            z_phi = geno_weighted * sqrt_pi[:, np.newaxis]
-            x_phi = design_x * sqrt_pi[:, np.newaxis]
-            x_pi = design_x * pi_1[:, np.newaxis]
-            xtx_pi = x_phi.T @ x_phi
-            xtx_pi_inv = np.linalg.inv(xtx_pi)
-            z1_adj = z_phi - x_phi @ (xtx_pi_inv @ (x_pi.T @ geno_weighted))
-        else:
-            design_x = null_model.extra["design_matrix"]
-            sigma2: float = null_model.extra["sigma2"]
-            xtx = design_x.T @ design_x
-            xtx_inv = np.linalg.inv(xtx)
-            z1_adj = geno_weighted - design_x @ (xtx_inv @ (design_x.T @ geno_weighted))
-            q_rho /= sigma2
-
-        z1_half = z1_adj / np.sqrt(2.0)
+        # ── Steps 1-2: Q_rho and projection-adjusted Z1/sqrt(2) (shared QR projection) ──
+        q_rho, z1_half = compute_skato_q_and_z1(geno_weighted, null_model, _SKATO_RHO_GRID)
 
         # ── Step 3-5: Full SKAT-O omnibus p-value ──
         pvalue, pval_each = _skato_get_pvalue(q_rho, z1_half, _SKATO_RHO_GRID)
@@ -504,6 +483,8 @@ class PythonCOASTBackend:
         skat_p_value: float | None
         try:
             skat_p_value = self._run_allelic_skat(geno_filtered, skat_weights, null_model)
+        except UntestableGeneError:
+            raise  # numerical failure of the principal component: no COAST p-value
         except Exception as exc:
             logger.debug(f"COAST [{gene}] allelic SKAT failed: {exc}")
             skat_p_value = None

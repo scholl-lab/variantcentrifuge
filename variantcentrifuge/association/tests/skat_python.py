@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from variantcentrifuge.association.backends.null_model import outcome_problem
 from variantcentrifuge.association.base import AssociationConfig, AssociationTest, TestResult
 from variantcentrifuge.association.tests.acat import compute_acat_v
 from variantcentrifuge.association.weights import get_weights
@@ -165,6 +166,25 @@ class PurePythonSKATTest(AssociationTest):
         if self._backend is not None:
             self._backend.cleanup()
 
+    def _skip(
+        self, gene: str, code: str, n_cases: int, n_controls: int, n_variants: int
+    ) -> TestResult:
+        """Return a skipped result (no p-value) carrying ``code`` in ``skat_warnings``."""
+        return TestResult(
+            gene=gene,
+            test_name=self.name,
+            p_value=None,
+            corrected_p_value=None,
+            effect_size=None,
+            ci_lower=None,
+            ci_upper=None,
+            se=None,
+            n_cases=n_cases,
+            n_controls=n_controls,
+            n_variants=n_variants,
+            extra={"skat_warnings": code, "acat_v_p": None},
+        )
+
     def run(
         self,
         gene: str,
@@ -212,40 +232,18 @@ class PurePythonSKATTest(AssociationTest):
 
         # Require genotype matrix — absent when only Fisher is requested
         if "genotype_matrix" not in contingency_data:
-            return TestResult(
-                gene=gene,
-                test_name=self.name,
-                p_value=None,
-                corrected_p_value=None,
-                effect_size=None,
-                ci_lower=None,
-                ci_upper=None,
-                se=None,
-                n_cases=n_cases,
-                n_controls=n_controls,
-                n_variants=n_variants,
-                extra={"skat_warnings": "NO_GENOTYPE_MATRIX", "acat_v_p": None},
-            )
+            return self._skip(gene, "NO_GENOTYPE_MATRIX", n_cases, n_controls, n_variants)
 
         geno: np.ndarray = contingency_data["genotype_matrix"]
         phenotype: np.ndarray | None = contingency_data.get("phenotype_vector")
         covariate_matrix: np.ndarray | None = contingency_data.get("covariate_matrix")
 
         if phenotype is None or geno.shape[0] == 0 or geno.shape[1] == 0:
-            return TestResult(
-                gene=gene,
-                test_name=self.name,
-                p_value=None,
-                corrected_p_value=None,
-                effect_size=None,
-                ci_lower=None,
-                ci_upper=None,
-                se=None,
-                n_cases=n_cases,
-                n_controls=n_controls,
-                n_variants=n_variants,
-                extra={"skat_warnings": "NO_PHENOTYPE_OR_EMPTY_MATRIX", "acat_v_p": None},
-            )
+            return self._skip(gene, "NO_PHENOTYPE_OR_EMPTY_MATRIX", n_cases, n_controls, n_variants)
+        # Non-finite or constant outcomes cannot define a null model (#182)
+        problem = outcome_problem(phenotype)
+        if problem is not None:
+            return self._skip(gene, problem, n_cases, n_controls, n_variants)
 
         # Backend must have been initialised by check_dependencies()
         if self._backend is None:
@@ -346,7 +344,7 @@ class PurePythonSKATTest(AssociationTest):
             sigma2=self._null_model.extra["sigma2"],
             mu_hat=self._null_model.extra.get("mu_hat"),  # None for quantitative
             weights=acat_v_weights,
-            design_matrix=self._null_model.extra.get("design_matrix"),
+            null_model=self._null_model,
         )
 
         # Increment local counter

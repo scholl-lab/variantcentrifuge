@@ -169,3 +169,47 @@ def test_gene_burden_counts_each_variant_once_across_transcripts():
         df, {"gene_burden_mode": "alleles"}, {"C1", "C2"}, {"K1", "K2"}, samples
     )
     assert int(res.loc[0, "n_qualifying_variants"]) == 1
+
+
+def test_emit_omits_untestable_gene_and_keeps_others(monkeypatch, tmp_path):
+    """compute_gene_score's UntestableGeneError omits that gene instead of aborting export."""
+    import variantcentrifuge.association.meta.artifact as artifact_mod
+    from variantcentrifuge.association.backends.null_model import UntestableGeneError
+
+    real = artifact_mod.compute_gene_score
+    b1, _, _ = _builder(seed=3)
+    b2, _, _ = _builder(seed=4)
+    b2.gene_df = b2.gene_df.assign(POS=[300, 400])
+
+    def fake(geno, raw, null_model, keys, **kw):
+        if keys[0].endswith(":300:A:G"):
+            raise UntestableGeneError("ILL_CONDITIONED_COVARIATES")
+        return real(geno, raw, null_model, keys, **kw)
+
+    monkeypatch.setattr(artifact_mod, "compute_gene_score", fake)
+    art = emit_stratum_artifact(
+        str(tmp_path / "s1"),
+        {"G1": b1, "G2": b2},
+        stratum_id="s1",
+        genome_build="GRCh38",
+        annotation_version="GRCh38.99",
+        mask_id="m",
+        mask_hash="h",
+    )
+    assert list(art.genes) == ["G1"]
+
+    monkeypatch.setattr(
+        artifact_mod,
+        "compute_gene_score",
+        lambda *a, **k: (_ for _ in ()).throw(UntestableGeneError("ILL_CONDITIONED_COVARIATES")),
+    )
+    with pytest.raises(ValueError, match="no genes survived QC"):
+        emit_stratum_artifact(
+            str(tmp_path / "s2"),
+            {"G1": b1},
+            stratum_id="s2",
+            genome_build="GRCh38",
+            annotation_version="GRCh38.99",
+            mask_id="m",
+            mask_hash="h",
+        )

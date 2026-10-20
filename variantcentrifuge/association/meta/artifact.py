@@ -25,6 +25,11 @@ from typing import Any
 import numpy as np
 
 from variantcentrifuge.association.backends.base import NullModelResult
+from variantcentrifuge.association.backends.null_model import (
+    UntestableGeneError,
+    explained_columns,
+    project_out_nuisance,
+)
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -148,20 +153,18 @@ def compute_gene_score(
         raise ValueError("variant_keys must be unique (one column per variant)")
 
     residuals = np.asarray(null_model.extra["residuals"], dtype=np.float64)
-    design_x = np.asarray(null_model.extra["design_matrix"], dtype=np.float64)
 
-    # Unweighted score U = Gᵀ r
-    u = geno.T @ residuals
+    # Unweighted score U = Gᵀ r; variants in the covariate space contribute exactly
+    # zero score and covariance (same rule as the single-cohort backend)
+    explained = explained_columns(geno, null_model)
+    if explained is None:
+        # Never export (or zero) scores whose nuisance projection is not trustworthy
+        raise UntestableGeneError("ILL_CONDITIONED_COVARIATES")
+    u = np.where(explained, 0.0, geno.T @ residuals)
 
-    # Projection-adjusted covariance V = Gᵀ P G (binary form, matches _test_skato)
-    mu_hat = np.asarray(null_model.extra["mu_hat"], dtype=np.float64)
-    pi_1 = mu_hat * (1.0 - mu_hat)
-    phi = np.sqrt(pi_1)
-    z_phi = phi[:, np.newaxis] * geno
-    x_phi = phi[:, np.newaxis] * design_x
-    x_pi = pi_1[:, np.newaxis] * design_x
-    # z_adj = phi*G - phi*X (X' diag(pi) X)^-1 (X' diag(pi) G)  [projection-adjusted]
-    z_adj = z_phi - x_phi @ np.linalg.solve(x_phi.T @ x_phi, x_pi.T @ geno)
+    # Projection-adjusted covariance V = Gᵀ P G, P = V - VX(X'VX)^-1 X'V (shared QR helper)
+    z_adj = project_out_nuisance(geno, null_model)
+    z_adj[:, explained] = 0.0
     v = z_adj.T @ z_adj
     v = 0.5 * (v + v.T)  # enforce exact symmetry against round-off
 
@@ -386,12 +389,16 @@ def emit_stratum_artifact(
         if null_key not in nulls:
             cov = b.covariate_matrix[mask] if b.covariate_matrix is not None else None
             nulls[null_key] = fit_stratum_null(pheno_all[mask], cov, "binary")
-        gene_scores[gene] = compute_gene_score(geno, raw, nulls[null_key], keys, ploidy=plo)
+        try:
+            gene_scores[gene] = compute_gene_score(geno, raw, nulls[null_key], keys, ploidy=plo)
+        except UntestableGeneError as exc:
+            logger.warning("Score artifact: omitting gene %s: %s", gene, exc.reason)
+            omitted.append(gene)
 
     if not gene_scores:
         raise ValueError(
             f"Score artifact: no genes survived QC ({len(builders)} genes: empty, removed by "
-            f"site missingness QC, or {len(omitted)} without retained cases and controls)"
+            f"site missingness QC, or {len(omitted)} untestable)"
         )
     artifact = ScoreCovarianceArtifact(
         stratum_id=stratum_id,
