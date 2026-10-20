@@ -93,7 +93,8 @@ class _GenotypeMatrixBuilder:
         Returns dict with keys: genotype_matrix, variant_mafs,
         phenotype_vector, covariate_matrix, gt_warnings, mac_filtered and
         n_variants_qc (variants kept by site-missingness QC, before the MAC check) and
-        variant_keep_mask (bool per gene_df row: kept by that QC, before the MAC check).
+        variant_keep_mask (bool per gene_df row: kept by that QC, before the MAC check);
+        non-empty genes add qc_genotype_matrix, sample_mask and parsed for the score artifact.
         """
         from ..association.genotype_matrix import build_genotype_matrix
 
@@ -112,6 +113,7 @@ class _GenotypeMatrixBuilder:
             result.update(self._empty_annotation_payload())
             return result
 
+        parsed = self.gene_arrays()
         geno, mafs, sample_mask, gt_warnings, keep_variants_mask = cast(
             tuple[np.ndarray, np.ndarray, list[bool], list[str], np.ndarray],
             build_genotype_matrix(
@@ -124,18 +126,20 @@ class _GenotypeMatrixBuilder:
                 phenotype_vector=self.phenotype_vector,
                 return_keep_mask=True,
                 missing_as_ref=self.missing_as_ref,
-                parsed=self.gene_arrays(),
+                parsed=parsed,
             ),
         )
         annotation_payload = self._aligned_annotation_payload(keep_variants_mask)
         # Apply sample mask to phenotype and covariates
         pv = self.phenotype_vector
         cm = self.covariate_matrix
-        if not all(sample_mask):
-            mask_arr = np.array(sample_mask, dtype=bool)
+        mask_arr = np.array(sample_mask, dtype=bool)
+        if not mask_arr.all():
             pv = pv[mask_arr] if pv is not None else None
             cm = cm[mask_arr] if cm is not None else None
             geno = geno[mask_arr]
+        # For the score artifact (#212): the matrix before the MAC check and its inputs.
+        artifact_inputs = {"qc_genotype_matrix": geno, "sample_mask": mask_arr, "parsed": parsed}
 
         # Per-gene MAC check: skip regression if < 5 minor allele copies
         mac_filtered = False
@@ -155,6 +159,7 @@ class _GenotypeMatrixBuilder:
             "mac_filtered": mac_filtered,
             "n_variants_qc": int(keep_variants_mask.sum()),
             "variant_keep_mask": keep_variants_mask,
+            **artifact_inputs,
         }
         result.update(annotation_payload)
         return result

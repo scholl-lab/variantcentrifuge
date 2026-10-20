@@ -364,7 +364,7 @@ def test_stage_passes_missing_as_ref_to_fisher_and_builders(monkeypatch, tmp_pat
 
     captured: list[dict] = []
 
-    def fake_run_all(self, gene_burden_data):
+    def fake_run_all(self, gene_burden_data, gene_hook=None):
         captured.extend(dict(d) for d in gene_burden_data)
         return pd.DataFrame({"gene": ["GENE1"], "n_variants": [2], "fisher_pvalue": [1.0]})
 
@@ -390,7 +390,9 @@ def test_artifact_only_run_warns_about_dropped_sites(monkeypatch, tmp_path, capl
     from variantcentrifuge.stages.analysis_stages import AssociationAnalysisStage
 
     monkeypatch.setattr(
-        AssociationEngine, "run_all", lambda self, d: pd.DataFrame({"gene": ["GENE1"]})
+        AssociationEngine,
+        "run_all",
+        lambda self, d, gene_hook=None: pd.DataFrame({"gene": ["GENE1"]}),
     )
     df, cases, ctrls, samples = _stage_df()
     config = {

@@ -31,6 +31,7 @@ from .association_stage_helpers import (
     _load_covariates_and_pcs,
     _merge_carrier_warnings,
     _report_missingness_qc,
+    _score_artifact_hook,
 )
 from .genotype_matrix_builder import (
     _find_cadd_column,
@@ -385,19 +386,35 @@ class AssociationAnalysisStage(Stage):
 
         gene_data_by_gene = {d.get("GENE", d.get("gene", "")): d for d in gene_burden_data}
 
-        if score_artifact:  # before run_all, which consumes the matrix builders
-            with substep(timings, "score_artifact"):
-                _emit_score_artifact(context.config, score_artifact, gene_burden_data)
-            if not regression_tests:  # don't make the engine build matrices nobody tests
-                for d in gene_burden_data:
-                    d.pop("_genotype_matrix_builder", None)
+        # The score artifact is computed per gene inside the engine's workers, from the
+        # matrix built for the tests (one build per gene, #212); builders are saved first
+        # because run_all consumes them.
+        artifact_builders = {
+            d["GENE"]: d["_genotype_matrix_builder"]
+            for d in gene_burden_data
+            if score_artifact and "_genotype_matrix_builder" in d
+        }
+        gene_hook = _score_artifact_hook(artifact_builders) if artifact_builders else None
 
         with substep(timings, "engine"):
             results_df = (
-                run_gene_and_set_units(engine, test_names, assoc_config, gene_burden_data, set_ids)
+                run_gene_and_set_units(
+                    engine, test_names, assoc_config, gene_burden_data, set_ids, gene_hook
+                )
                 if set_ids
-                else engine.run_all(gene_burden_data)
+                else engine.run_all(gene_burden_data, gene_hook=gene_hook)
             )
+        if score_artifact:
+            with substep(timings, "score_artifact"):
+                _emit_score_artifact(
+                    context.config,
+                    score_artifact,
+                    artifact_builders,
+                    getattr(engine, "gene_hook_results", None),
+                )
+            if not regression_tests:  # matrices were built only for the artifact
+                for d in gene_burden_data:
+                    d.pop("n_variants_qc", None)
 
         if results_df.empty:
             logger.warning("Association analysis produced no results.")

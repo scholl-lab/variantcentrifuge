@@ -525,9 +525,10 @@ def test_fork_task_runs_gene_range_in_process(monkeypatch: pytest.MonkeyPatch) -
         )._tests["logistic_burden"]
     }
     monkeypatch.setattr(
-        ew, "_FORK_STATE", (ew._run_gene_range, (genes, tests, AssociationConfig()))
+        ew, "_FORK_STATE", (ew._run_gene_range, (genes, tests, AssociationConfig(), None))
     )
-    results, qc = ew._fork_task((1, 3))
+    results, qc, hooks = ew._fork_task((1, 3))
+    assert hooks == {}
     assert list(results["logistic_burden"]) == ["G01", "G02"]
     assert qc == {"G01": 6, "G02": 6}
 

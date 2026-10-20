@@ -150,13 +150,23 @@ def _single_test_output_id(test_name: str, result: TestResult | None) -> str:
     return test_name
 
 
+# Called right after a gene's matrix is built, before its tests: (gene, builder, build result).
+GeneHook = Callable[[str, Any, dict[str, Any]], Any]
+
+
 def run_sequential_genes(
     gene_data_list: list[dict[str, Any]],
     tests: dict[str, AssociationTest],
     config: AssociationConfig,
     results_by_test: dict[str, dict[str, TestResult]],
+    gene_hook: GeneHook | None = None,
+    hook_results: dict[str, Any] | None = None,
 ) -> None:
-    """Run tests sequentially across a list of genes with per-gene matrix lifecycle."""
+    """Run tests sequentially across a list of genes with per-gene matrix lifecycle.
+
+    ``gene_hook``'s return value for each gene whose matrix is built here goes to
+    ``hook_results[gene]`` (the score artifact uses it to reuse the tests' matrix, #212).
+    """
     for gene_data in gene_data_list:
         gene = gene_data.get("GENE", "")
         try:
@@ -164,6 +174,8 @@ def run_sequential_genes(
             if "_genotype_matrix_builder" in gene_data and "genotype_matrix" not in gene_data:
                 builder = gene_data.pop("_genotype_matrix_builder")
                 result = builder()
+                if gene_hook is not None and hook_results is not None:
+                    hook_results[gene] = gene_hook(gene, builder, result)
                 _apply_builder_result_to_gene_data(gene_data, result, gene)
 
             for test_name, test in tests.items():
@@ -218,16 +230,15 @@ def fork_available() -> bool:
     return sys.platform.startswith("linux")
 
 
-def _run_gene_range(
-    state: tuple, lo: int, hi: int
-) -> tuple[dict[str, dict[str, TestResult]], dict]:
-    """Worker task: build matrices and run all tests for genes[lo:hi]."""
-    genes, tests, config = state
+def _run_gene_range(state: tuple, lo: int, hi: int) -> tuple[dict, dict, dict]:
+    """Worker task: build matrices and run all tests (and the gene hook) for genes[lo:hi]."""
+    genes, tests, config, gene_hook = state
     chunk = genes[lo:hi]
     results: dict[str, dict[str, TestResult]] = {name: {} for name in tests}
-    run_sequential_genes(chunk, tests, config, results)
+    hook_results: dict[str, Any] = {}
+    run_sequential_genes(chunk, tests, config, results, gene_hook, hook_results)
     qc = {gd.get("GENE", ""): gd["n_variants_qc"] for gd in chunk if "n_variants_qc" in gd}
-    return results, qc
+    return results, qc, hook_results
 
 
 def dispatch_parallel_genes(
@@ -236,24 +247,28 @@ def dispatch_parallel_genes(
     config: AssociationConfig,
     actual_workers: int,
     results_by_test: dict[str, dict[str, TestResult]],
+    gene_hook: GeneHook | None = None,
+    hook_results: dict[str, Any] | None = None,
 ) -> None:
     """Run genes in forked workers (see ``fork_map``); results match the sequential loop.
 
-    Workers inherit the genes, the tests (null models already fitted by the parent) and
-    the config, call the lazy matrix builders themselves and return only small results.
-    Without fork (non-Linux) genes run sequentially.
+    Workers inherit the genes, the tests (null models already fitted by the parent),
+    the config and ``gene_hook``, call the lazy matrix builders themselves and return
+    only small results. Without fork (non-Linux) genes run sequentially.
     """
     if not fork_available():
         logger.info("Parallel association needs fork (Linux); running genes sequentially")
-        run_sequential_genes(remaining, tests, config, results_by_test)
+        run_sequential_genes(remaining, tests, config, results_by_test, gene_hook, hook_results)
         return
     logger.info(f"Parallel association: {actual_workers} workers for {len(remaining)} genes")
-    state = (remaining, tests, config)
-    for lo, hi, (chunk_results, qc) in fork_map(
+    state = (remaining, tests, config, gene_hook)
+    for lo, hi, (chunk_results, qc, chunk_hooks) in fork_map(
         _run_gene_range, state, len(remaining), actual_workers
     ):
         for test_name, by_gene in chunk_results.items():
             results_by_test[test_name].update(by_gene)
+        if hook_results is not None:
+            hook_results.update(chunk_hooks)
         for gd in remaining[lo:hi]:
             _discard_per_gene_matrix_payload(gd)  # built in the worker, not here
             gene = gd.get("GENE", "")
