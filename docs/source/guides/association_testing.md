@@ -103,7 +103,9 @@ thresholds and imputation below:
 Filled `0/0` calls are not missing, so the checks below cannot detect them:
 
 - **Fisher's exact test** uses the complete-case policy described in
-  [Missing Genotypes and Complete-Case Policy](#missing-genotypes-and-complete-case-policy).
+  [Missing Genotypes and Complete-Case Policy](#missing-genotypes-and-complete-case-policy),
+  unless `--missing-as-ref` is set (then missing calls count as reference, as in every other
+  test of the run).
 - **Matrix-based tests** (logistic/linear burden, SKAT/SKAT-O, COAST) and `--score-artifact`
   apply two per-gene thresholds. Set them with the CLI flags below or in the `"association"`
   section of the JSON config (the CLI wins). Values must be between 0 and 1.
@@ -112,7 +114,7 @@ Filled `0/0` calls are not missing, so the checks below cannot detect them:
 |-----|---------|--------|
 | `--missing-site-threshold` / `missing_site_threshold` | `0.10` | Drops a variant when more than this fraction of all samples have a missing genotype (call rate below 90%). R SKAT's default `missing_cutoff` is 0.15. |
 | `--missing-sample-threshold` / `missing_sample_threshold` | `0.80` | Drops a sample from that gene's test (genotypes, phenotype and covariates) when more than this fraction of its genotypes at the kept variants are missing. |
-| `--missing-as-ref` / `missing_as_ref` | off | Sets every missing call to reference (dosage 0) *before* both thresholds, so nothing is dropped for missingness or imputed. See below. |
+| `--missing-as-ref` / `missing_as_ref` | off | Sets every missing call to reference (dosage 0) *before* both thresholds, so nothing is dropped for missingness or imputed. Applies to all association tests of the run, Fisher included, and to `--score-artifact`. See below. |
 
 Allele frequencies, the imputation of the remaining missing genotypes, and minor-allele recoding
 all use the retained samples only, so excluded samples cannot shift them. Missing genotypes are
@@ -361,7 +363,7 @@ VariantCentrifuge applies principled missingness handling across association tes
 (see [Input Prerequisites](#input-prerequisites-callability-and-genotype-qc) for what counts
 as missing and why filled reference calls are not):
 
-- **Fisher's Exact Test (Complete-Case Policy):** Samples with missing genotype calls (`./.`, `.`, `.|.`) at any qualifying variant in a gene are excluded from the test's called counts (`proband_called_count`, `control_called_count`) and reference denominator (`proband_called_chromosomes`, `control_called_chromosomes`). Samples with missing calls are never assumed to be reference (`0/0`). If all cases or all controls are uncalled for a gene, the test is safely skipped.
+- **Fisher's Exact Test (Complete-Case Policy):** Samples with missing genotype calls (`./.`, `.`, `.|.`) at any qualifying variant in a gene are excluded from the test's called counts (`proband_called_count`, `control_called_count`) and reference denominator (`proband_called_chromosomes`, `control_called_chromosomes`). Samples with missing calls are not assumed to be reference (`0/0`) unless `--missing-as-ref` is set. If all cases or all controls are uncalled for a gene, the test is safely skipped.
 - **Matrix-Based Tests (Burden Regression, SKAT, SKAT-O):** Genotype matrices use ploidy-scaled mean imputation (`ploidy * alt_allele_freq`, i.e. `2 * alt_freq` for diploid and `1 * alt_freq` for haploid; or `round(ploidy * alt_allele_freq)` bestguess for binary traits). Dosage units are `{0, 1, 2}` for diploid variants and `{0, 1}` for haploid calls.
 
 ---

@@ -253,8 +253,9 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         default=None,
         help=(
-            "Treat missing genotypes (./.) as reference (0/0) before missingness QC instead "
-            "of imputing them. Use for merged single-sample VCFs where ./. means 'no variant "
+            "Treat missing genotypes (./.) as reference (0/0) in every association test "
+            "(Fisher, matrix-based tests, --score-artifact) instead of excluding or imputing "
+            "them. Use for merged single-sample VCFs where ./. means 'no variant "
             "called'; biases toward the null where ./. is a genuine no-call."
         ),
     )

@@ -267,3 +267,99 @@ def test_missing_flags_require_perform_association():
 def test_json_missing_as_ref_must_be_boolean():
     with pytest.raises(ValueError, match="'missing_as_ref' must be a boolean"):
         _assoc_config({"association": {"missing_as_ref": "yes"}})
+
+
+# -- review round 1 -------------------------------------------------------------------
+
+
+def test_fisher_aggregators_honour_missing_as_ref():
+    from variantcentrifuge.gene_burden import (
+        _aggregate_gene_burden_from_columns,
+        _aggregate_gene_burden_from_gt,
+    )
+
+    cases, ctrls = {"A", "B"}, {"C", "D"}
+    cols = pd.DataFrame(
+        {
+            "GENE": ["G", "G"],
+            "a": ["0/1", "./."],
+            "b": ["./.", "./1"],
+            "c": ["0/0", "."],
+            "d": ["0/0", "0/0"],
+        }
+    )
+    order, gt_cols = ["A", "B", "C", "D"], ["a", "b", "c", "d"]
+    packed = pd.DataFrame({"GENE": ["G", "G"], "GT": ["A(0/1);B(./.)", "A(./.);B(./1);C(.)"]})
+    for missing_as_ref, called, carriers in ((False, (0, 1), (0, 0)), (True, (2, 2), (1, 0))):
+        for rec in (
+            _aggregate_gene_burden_from_columns(
+                cols, cases, ctrls, order, gt_cols, missing_as_ref=missing_as_ref
+            )[0],
+            _aggregate_gene_burden_from_gt(packed, cases, ctrls, missing_as_ref=missing_as_ref)[0],
+        ):
+            assert (rec["proband_called_count"], rec["control_called_count"]) == called
+            assert (rec["proband_carrier_count"], rec["control_carrier_count"]) == carriers
+    rec = _aggregate_gene_burden_from_columns(cols, cases, ctrls, order, gt_cols, True)[0]
+    assert rec["control_called_chromosomes"] == 4  # C: "0/0" + "." -> diploid
+
+
+def _stage_ctx(tmp_path, config: dict, df: pd.DataFrame, samples: list[str]):
+    from variantcentrifuge.stages.analysis_stages import AssociationAnalysisStage  # noqa: F401
+
+    workspace = Mock(spec=Workspace)
+    workspace.output_dir = tmp_path
+    workspace.get_output_path = lambda name, ext=".tsv": tmp_path / f"{name}{ext}"
+    workspace.base_name = "s"
+    ctx = PipelineContext(args=Namespace(), config=config, workspace=workspace)
+    ctx.current_dataframe = df
+    ctx.vcf_samples = samples
+    return ctx
+
+
+def _stage_df(n: int = 20) -> tuple[pd.DataFrame, list[str], list[str], list[str]]:
+    cases = [f"CASE{i}" for i in range(n // 2)]
+    ctrls = [f"CTRL{i}" for i in range(n // 2)]
+    # Site 1 called in every sample; site 2 only in its two carriers (merged-VCF style).
+    gts = {
+        f"GEN_{i}__GT": ["0/1" if i % 5 == 0 else "0/0", "0/1" if i in (0, 11) else "./."]
+        for i in range(n)
+    }
+    df = pd.DataFrame(
+        {
+            "CHROM": ["1", "1"],
+            "POS": [10, 20],
+            "REF": ["A", "C"],
+            "ALT": ["G", "T"],
+            "GENE": ["GENE1"] * 2,
+            **gts,
+        }
+    )
+    return df, cases, ctrls, cases + ctrls
+
+
+@pytest.mark.parametrize("missing_as_ref", [False, True])
+def test_stage_passes_missing_as_ref_to_fisher_and_builders(monkeypatch, tmp_path, missing_as_ref):
+    from variantcentrifuge.association.engine import AssociationEngine
+    from variantcentrifuge.stages.analysis_stages import AssociationAnalysisStage
+
+    captured: list[dict] = []
+
+    def fake_run_all(self, gene_burden_data):
+        captured.extend(dict(d) for d in gene_burden_data)
+        return pd.DataFrame({"gene": ["GENE1"], "n_variants": [2], "fisher_pvalue": [1.0]})
+
+    monkeypatch.setattr(AssociationEngine, "run_all", fake_run_all)
+    df, cases, ctrls, samples = _stage_df()
+    config = {
+        "perform_association": True,
+        "case_samples": cases,
+        "control_samples": ctrls,
+        "association_tests": ["fisher", "logistic_burden"],
+        "gzip_intermediates": False,
+        "missing_as_ref": missing_as_ref or None,
+    }
+    AssociationAnalysisStage()._process(_stage_ctx(tmp_path, config, df, samples))
+    (gene,) = captured
+    assert gene["_genotype_matrix_builder"].missing_as_ref is missing_as_ref
+    called = 10 if missing_as_ref else 1  # complete-case: only CASE0 is called at site 2
+    assert gene["proband_called_count"] == called

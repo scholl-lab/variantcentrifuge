@@ -324,14 +324,16 @@ class AssociationAnalysisStage(Stage):
             )
             assert vcf_samples_list is not None
             gene_burden_data = _aggregate_gene_burden_from_columns(
-                df, case_set, control_set, vcf_samples_list, gt_columns
+                df, case_set, control_set, vcf_samples_list, gt_columns, assoc_config.missing_as_ref
             )
         elif use_gt_aggregation:
             logger.info(
                 "Association analysis: using packed GT string collapsing "
                 f"({len(case_set)} cases, {len(control_set)} controls)"
             )
-            gene_burden_data = _aggregate_gene_burden_from_gt(df, case_set, control_set)
+            gene_burden_data = _aggregate_gene_burden_from_gt(
+                df, case_set, control_set, assoc_config.missing_as_ref
+            )
         else:
             logger.info("Association analysis: using pre-computed per-variant counts (legacy mode)")
             gene_burden_data = _aggregate_gene_burden_legacy(df)

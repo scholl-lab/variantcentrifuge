@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Genotype missing data (#200).** Added `--missing-as-ref`, which sets missing genotypes to
-  reference before missingness QC. Use it for VCFs merged from single-sample VCFs, where `./.`
+  reference in every association test (Fisher, the matrix-based tests and `--score-artifact`)
+  before missingness QC. Use it for VCFs merged from single-sample VCFs, where `./.`
   means "not called as variant". Before, raising the site threshold to keep such sites imputed
   every missing sample as a carrier. `--missing-site-threshold` and
   `--missing-sample-threshold` expose the existing thresholds (defaults unchanged, range 0–1).
