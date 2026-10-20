@@ -10,8 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `--filters` is checked before extraction: SnpSift runs once on the VCF's real header plus one synthetic record; unquoted string literals, unknown INFO fields and syntax errors now fail immediately with SnpSift's message and the expression (#211). Skipped with `--late-filtering`.
-- `--temp-dir DIR` moves the workspace temp dir, Python temp files, `sort -T` and SnpSift's JVM tmp dir off `/tmp`/output; default unchanged (#213).
-- Start-up free-space preflight on temp and output filesystems: fails below the compressed input VCF size, warns below 30x (#213).
+- `--temp-dir DIR` moves the workspace temp dir, bulk Python temp files, `sort -T` and SnpSift's JVM tmp dir off `/tmp`/output (passed explicitly; process `TMPDIR` is not changed); default unchanged (#213).
+- Start-up free-space warning on the temp and output filesystems when free space is below 16x the compressed input VCF (advisory only; gene-panel runs need far less) (#213).
 
 ## [0.22.1] - 2026-10-20
 

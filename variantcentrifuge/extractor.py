@@ -209,7 +209,9 @@ def extract_fields_bcftools(
     logger.debug(f"Column names: {column_names}")
 
     # Create temporary file for bcftools output
-    temp_fd, temp_output = tempfile.mkstemp(suffix=".tsv", prefix="bcftools_extract_")
+    temp_fd, temp_output = tempfile.mkstemp(
+        suffix=".tsv", prefix="bcftools_extract_", dir=cfg.get("temp_dir")
+    )
     os.close(temp_fd)
 
     try:
@@ -373,7 +375,7 @@ def extract_fields_snpsift(
     cmd = [
         "SnpSift",
         xmx,
-        *_java_tmp_flags(),
+        *_java_tmp_flags(cfg),
         "extractFields",
         "-s",
         snpsift_sep,  # SnpSift subfield separator

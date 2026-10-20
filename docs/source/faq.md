@@ -320,8 +320,8 @@ The legacy R SKAT backend (`--skat-backend r`) is deprecated as of v0.15.0 and s
 
 Large multi-sample VCFs expand roughly 16x (uncompressed VCF) and 10x (extracted TSV) relative to the
 `.vcf.gz` (measured on the 1000 Genomes test fixture). At start-up VariantCentrifuge checks free space
-on the temp and output filesystems: it stops if free space is below the compressed input size and
-warns below 30x. Point `--temp-dir` at a larger filesystem (for example node-local scratch) to
+on the temp and output filesystems and warns (never stops) below 16x the compressed input size, the
+largest single intermediate of a whole-VCF run; gene-panel runs need far less. Point `--temp-dir` at a larger filesystem (for example node-local scratch) to
 move all bulk temporary files there. Chunk BED files are always written under
 `<output-dir>/intermediate/chunks`, never next to `--regions-bed`.
 

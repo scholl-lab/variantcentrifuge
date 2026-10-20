@@ -7,16 +7,19 @@ import os
 import re
 import subprocess
 import tempfile
+from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
 
 
-def _synthetic_vcf(header: str) -> str:
+def _synthetic_vcf(header: str, extra_info: Sequence[str] = ()) -> str:
     """Header plus one record built only from the header (no real record is read)."""
     lines = header.rstrip("\n").split("\n")
     contig = next(
         (m.group(1) for ln in lines if (m := re.match(r"##contig=<ID=([^,>]+)", ln))), "1"
     )
+    for name in extra_info:
+        lines.insert(-1, f'##INFO=<ID={name},Number=.,Type=String,Description="added by pipeline">')
     samples = lines[-1].split("\t")[9:]
     rec = [contig, "1", ".", "A", "C", ".", ".", "."]
     if samples:
@@ -24,7 +27,9 @@ def _synthetic_vcf(header: str) -> str:
     return "\n".join([*lines, "\t".join(rec)]) + "\n"
 
 
-def validate_snpsift_filter(vcf_file: str, filter_expr: str, snpsift_flags: list[str]) -> None:
+def validate_snpsift_filter(
+    vcf_file: str, filter_expr: str, snpsift_flags: list[str], extra_info: Sequence[str] = ()
+) -> None:
     """Raise ValueError with SnpSift's own message if it cannot evaluate ``filter_expr``.
 
     ponytail: SnpSift resolves fields lazily on the first record, hence the synthetic record;
@@ -36,7 +41,7 @@ def validate_snpsift_filter(vcf_file: str, filter_expr: str, snpsift_flags: list
     fd, path = tempfile.mkstemp(suffix=".vcf", prefix="filter_dry_run_")
     try:
         with os.fdopen(fd, "w") as fh:
-            fh.write(_synthetic_vcf(header))
+            fh.write(_synthetic_vcf(header, extra_info))
         res = subprocess.run(
             ["SnpSift", *snpsift_flags, "filter", filter_expr, path],
             capture_output=True,

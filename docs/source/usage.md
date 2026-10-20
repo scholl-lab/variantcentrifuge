@@ -89,7 +89,7 @@ flowchart TD
 | `--output-dir DIR` | `output` | Directory for intermediate and final output |
 | `--xlsx` | `false` | Also produce Excel output |
 | `--keep-intermediates` | `false` | Keep all intermediate files after run |
-| `--temp-dir DIR` | `<output-dir>/intermediate` | Create the temporary directory under `DIR` (also used for SnpSift's JVM tmp dir and `sort -T`). Use a large scratch filesystem when `/tmp` or the output disk is small |
+| `--temp-dir DIR` | `<output-dir>/intermediate` | Create the temporary directory under `DIR` (also used for bulk temp files, SnpSift's JVM tmp dir and `sort -T`). Use a large scratch filesystem when `/tmp` or the output disk is small |
 | `--archive-results` | `false` | Create timestamped `.tar.gz` archive of results |
 
 #### Re-running Analysis and Reporting from an Existing TSV (`--from-tsv`)

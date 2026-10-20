@@ -230,4 +230,6 @@ def case_control_sample_sets():
 @pytest.fixture(autouse=True)
 def _no_filter_dry_run(monkeypatch):
     """CLI tests use fake VCF paths; the SnpSift dry run is covered in test_filter_dry_run.py."""
-    monkeypatch.setattr("variantcentrifuge.filter_dry_run.validate_snpsift_filter", lambda *a: None)
+    monkeypatch.setattr(
+        "variantcentrifuge.filter_dry_run.validate_snpsift_filter", lambda *a: None
+    )  # tests may re-patch it

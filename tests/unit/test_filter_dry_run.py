@@ -26,6 +26,11 @@ def test_synthetic_record_no_contig_no_samples():
     assert _synthetic_vcf(h).splitlines()[-1] == "1\t1\t.\tA\tC\t.\t.\t."
 
 
+def test_extra_info_declared_in_header():
+    assert "##INFO=<ID=RAW_FILTER," in _synthetic_vcf(HDR, ["RAW_FILTER"])
+    assert "RAW_FILTER" not in _synthetic_vcf(HDR)
+
+
 def _mock(monkeypatch, rc, stderr=""):
     calls = []
 
@@ -78,3 +83,8 @@ class TestRealSnpSift:
     )
     def test_good(self, expr):
         validate_snpsift_filter(str(FIXTURE), expr, ["-Xmx1g"])
+
+    def test_raw_filter_declared_when_requested(self):
+        validate_snpsift_filter(str(FIXTURE), "(exists RAW_FILTER)", ["-Xmx1g"], ["RAW_FILTER"])
+        with pytest.raises(ValueError):
+            validate_snpsift_filter(str(FIXTURE), "(exists RAW_FILTER)", ["-Xmx1g"])

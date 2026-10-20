@@ -369,7 +369,14 @@ def main(argv: list[str] | None = None) -> int:
                 from .filters import _java_tmp_flags, _snpsift_memory_flag
 
                 validate_snpsift_filter(
-                    args.vcf_file, filters, [_snpsift_memory_flag(cfg), *_java_tmp_flags()]
+                    args.vcf_file,
+                    filters,
+                    [
+                        _snpsift_memory_flag(cfg),
+                        *_java_tmp_flags({"temp_dir": getattr(args, "temp_dir", None)}),
+                    ],
+                    # the exception rescue adds INFO/RAW_FILTER before filtering
+                    ["RAW_FILTER"] if cfg.get("filter_exception_file") else [],
                 )
         if args.phenotype_file:
             validate_phenotype_file(
