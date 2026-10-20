@@ -74,7 +74,8 @@ class _GenotypeMatrixBuilder:
 
         Returns dict with keys: genotype_matrix, variant_mafs,
         phenotype_vector, covariate_matrix, gt_warnings, mac_filtered and
-        n_variants_qc (variants kept by site-missingness QC, before the MAC check).
+        n_variants_qc (variants kept by site-missingness QC, before the MAC check) and
+        variant_keep_mask (bool per gene_df row: kept by that QC, before the MAC check).
         """
         from ..association.genotype_matrix import build_genotype_matrix
 
@@ -88,6 +89,7 @@ class _GenotypeMatrixBuilder:
                 "gt_warnings": [],
                 "mac_filtered": False,
                 "n_variants_qc": 0,
+                "variant_keep_mask": np.zeros(0, dtype=bool),
             }
             result.update(self._empty_annotation_payload())
             return result
@@ -133,6 +135,7 @@ class _GenotypeMatrixBuilder:
             "gt_warnings": gt_warnings,
             "mac_filtered": mac_filtered,
             "n_variants_qc": int(keep_variants_mask.sum()),
+            "variant_keep_mask": keep_variants_mask,
         }
         result.update(annotation_payload)
         return result

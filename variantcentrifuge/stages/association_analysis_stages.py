@@ -9,15 +9,15 @@ from typing import Any, cast
 import numpy as np
 import pandas as pd
 
-from ..association.engine import AssociationEngine
-from ..association.gene_sets import add_gene_set_units, load_gene_sets, run_gene_and_set_units
-from ..association.weights import resolve_score_weight_column
-from ..gene_burden import (
+from ..association.aggregation import (
     _aggregate_gene_burden_from_columns,
     _aggregate_gene_burden_from_gt,
     _aggregate_gene_burden_legacy,
-    drop_transcript_duplicates,
 )
+from ..association.engine import AssociationEngine
+from ..association.gene_sets import add_gene_set_units, load_gene_sets, run_gene_and_set_units
+from ..association.weights import resolve_score_weight_column
+from ..gene_burden import drop_transcript_duplicates
 from ..gt_reconstruction import _find_per_sample_gt_columns, reconstruct_gt_column
 from ..pipeline_core import PipelineContext, Stage
 from .analysis_stage_helpers import (
