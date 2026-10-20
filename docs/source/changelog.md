@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `meta` reports leave-one-stratum-out p-values named by stratum for burden (with direction) and SKAT-O, plus the largest LOO p-value and the stratum whose removal gives it (`loo_burden_by_stratum`, `loo_skato_by_stratum`, `loo_max_{burden,skato}_{p,stratum}`) (#193).
 - `meta` reports cumulative minor-allele counts (`cmac_total`, `cmac_by_stratum`); `--min-mac N` marks genes below N as `status=low_mac`, and `--require-variants-in-all-strata` marks genes without an informative minor allele in every stratum as `status=not_in_all_strata`; both are left out of the multiple-testing correction and the diagnostics (#194).
 - `--gene-set-file` (TSV `set_id`, `gene`) tests each gene set as an extra unit (union of its genes' qualifying variants, shared variants once) with the same tests; set rows get `unit_type=set`, are corrected separately from genes, and appear in `--score-artifact` as ordinary units (#201).
+- `--score-artifact` stores a per-gene Firth burden fit (log-OR and SE, with the run's `beta:a,b`/`uniform` weights); `meta` pools them by fixed-effect inverse variance into the alternative columns `burden_firth_ivw_beta`, `_se`, `_p` and `_n_strata`. `primary_p` and the correction are unchanged; older artifacts leave the columns empty (#198).
 
 ### Changed
 
@@ -43,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--annotate-bed` treated 1-based VCF POS as 0-based, so hits at BED interval edges were wrong (first base missed ... last base excluded); overlap now uses the REF span [POS-1, POS-1+len(REF)), so deletions reaching into a region are hit. Legacy `Region=` output changes at interval edges (#94).
 - An unreadable or missing `--annotate-bed` file now raises instead of silently annotating nothing (#94).
 - Association diagnostics: `IMBALANCED_COHORT` is now two-sided (max/min of cases and controls) and the warning names the direction, e.g. "cases outnumber controls 100.0:1" (#199).
+- Firth logistic regression (the `logistic_burden` separation fallback and the new Firth meta fit) no longer fails with `FIRTH_CONVERGE_FAIL` when it is already at the optimum but no step can change the penalised log-likelihood beyond rounding noise (common with uncentred covariates such as birth year); such fits are now accepted when the Newton decrement is below 1e-8 (#198).
 
 ## [0.21.0] - 2026-10-20
 

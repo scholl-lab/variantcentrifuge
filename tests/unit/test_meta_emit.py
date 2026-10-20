@@ -155,6 +155,7 @@ def test_stage_writes_score_artifact_for_fisher_only_run(monkeypatch, tmp_path):
     assert art.stratum_id == "cohortA" and art.genome_build == "GRCh38"
     assert art.genes["GENE1"].variant_keys == ["1:10:A:G", "1:20:C:T"]
     assert (art.n_cases, art.n_controls) == (10, 10)
+    assert art.genes["GENE1"].firth["weights"] == "beta:1,25"  # run's weights (#198)
     assert all("_genotype_matrix_builder" not in d for d in captured)
 
 
