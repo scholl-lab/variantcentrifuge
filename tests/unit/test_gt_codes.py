@@ -68,17 +68,41 @@ def test_positional_rows_shorter_than_samples_are_missing():
     assert _cells(gc) == [["0/1", "./.", "./."], ["1/1", "0/0", "0/0"], ["0/1", "./.", "./1"]]
 
 
-def test_column_parse_categorical_object_and_absent_columns(caplog):
+def test_column_parse_categorical_and_object_columns():
     df = pd.DataFrame(
         {
             "GEN_0__GT": pd.Categorical(["0/1", None, "1/1"]),
             "GEN_1__GT": ["0|1", np.nan, 1],
         }
     )
-    gc = parse_genotype_codes(df, ["s0", "s1", "s2"], ["s0", "s1", "s2"], list(df))
-    assert _cells(gc) == [["0/1", "0|1", ""], ["", "", ""], ["1/1", "1", ""]]
-    assert gc.labels == ["GEN_0__GT", "GEN_1__GT", "s2"]
-    assert "GT column count (2) != VCF sample count (3)" in caplog.text
+    gc = parse_genotype_codes(df, ["s1", "s0"], ["s0", "s1"], list(df))
+    assert _cells(gc) == [["0|1", "0/1"], ["", ""], ["1", "1/1"]]
+    assert gc.labels == ["GEN_1__GT", "GEN_0__GT"]
+
+
+_PACKED = ["s0(0/1);s1(1/1);s2(0/1)"]
+
+
+@pytest.mark.parametrize(
+    "columns",
+    [
+        ["GEN_0__GT", "GEN_2__GT"],
+        ["GEN_0__GT", "GEN_1__GT"],
+        ["GEN_1__GT", "GEN_0__GT", "GEN_2__GT"],
+    ],
+    ids=["subset", "partial", "reordered"],
+)
+def test_columns_not_matching_vcf_samples_fall_back_to_packed(columns):
+    """Columns are used only when they are GEN_0..GEN_{n-1} in order (#219)."""
+    df = pd.DataFrame({"GT": _PACKED, **{c: ["0/0"] for c in columns}})
+    gc = parse_genotype_codes(df, ["s0", "s1", "s2"], ["s0", "s1", "s2"], columns)
+    assert _cells(gc) == [["0/1", "1/1", "0/1"]]
+
+
+def test_columns_not_matching_vcf_samples_without_packed_raise():
+    df = pd.DataFrame({"GEN_0__GT": ["0/1"], "GEN_2__GT": ["1/1"]})
+    with pytest.raises(ValueError, match=r"2 per-sample GT columns .* 3 VCF samples"):
+        parse_genotype_codes(df, ["s0", "s1", "s2"], ["s0", "s1", "s2"], list(df))
 
 
 def test_codes_widen_to_int16_for_large_vocabularies():
