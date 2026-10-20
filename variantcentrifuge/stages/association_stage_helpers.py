@@ -12,7 +12,9 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def _emit_score_artifact(config: dict, path: str, gene_burden_data: list[dict]) -> None:
+def _emit_score_artifact(
+    config: dict, path: str, gene_burden_data: list[dict], firth_weights: str | None = None
+) -> None:
     """Write the meta-analysis score artifact from this run's per-gene matrix builders."""
     import hashlib
     import json
@@ -39,6 +41,7 @@ def _emit_score_artifact(config: dict, path: str, gene_burden_data: list[dict]) 
         mask_hash=mask_hash,
         mask_label=config.get("mask_label"),
         provenance=collect_provenance(config),
+        firth_weights=firth_weights,
     )
 
 

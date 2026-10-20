@@ -159,6 +159,7 @@ def test_stage_writes_score_artifact_for_fisher_only_run(monkeypatch, tmp_path):
     assert art.mask_label == "HIGH"  # #197: label + provenance (no VCF here: unknown)
     assert art.provenance["snpeff_version"] is None
     assert art.provenance["regions_bed_sha256"] == "none"
+    assert art.genes["GENE1"].firth["weights"] == "beta:1,25"  # run's weights (#198)
     assert all("_genotype_matrix_builder" not in d for d in captured)
 
 
