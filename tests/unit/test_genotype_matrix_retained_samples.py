@@ -9,7 +9,6 @@ import pandas as pd
 import pytest
 
 import variantcentrifuge.association.meta.artifact as artifact_module
-
 from variantcentrifuge.association.genotype_matrix import build_genotype_matrix
 from variantcentrifuge.association.meta.artifact import emit_stratum_artifact
 from variantcentrifuge.stages.genotype_matrix_builder import _GenotypeMatrixBuilder
