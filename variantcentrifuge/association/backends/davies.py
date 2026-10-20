@@ -12,10 +12,10 @@ The Davies tier is only available when the _qfc C extension has been compiled
 (via ``pip install`` with a C++ compiler present). When unavailable, the chain
 starts at Tier 2.
 
-Fallback triggering (GENESIS+GMMAT hybrid):
-    - Davies ifault > 0
-    - Davies p >= 1.0 or non-finite (NaN, Inf)
-    - Davies p <= 1e-5 (proactive saddlepoint to avoid false convergence / small-tail instability)
+Davies runs to a ~1e-4 relative accuracy budget. Below p = 1e-5 (where Davies'
+absolute accuracy floor cannot meet that budget) it is evaluated on the exponentially
+tilted mixture ("davies_tilted"). Saddlepoint, then Liu, are fallbacks only, used when
+Davies faults (ifault > 0) or returns p >= 1 / non-finite; they report p_converged=False.
 
 References
 ----------
