@@ -7,10 +7,12 @@ PipelineContext, and registered Stage subclasses from pipeline_core/.
 
 import argparse
 import logging
+import tempfile
 from pathlib import Path
 from typing import Literal
 
 from .config import load_config, normalize_annotation_config
+from .disk_preflight import check_free_space
 from .gene_bed import normalize_genes
 from .pipeline_core.context import PipelineContext
 from .pipeline_core.runner import PipelineRunner
@@ -407,7 +409,13 @@ def run_pipeline(args: argparse.Namespace) -> None:
 
     # Create workspace
     output_dir = getattr(args, "output_dir", "output")
-    workspace = Workspace(Path(output_dir), base_name)
+    temp_dir = getattr(args, "temp_dir", None)
+    workspace = Workspace(Path(output_dir), base_name, Path(temp_dir) if temp_dir else None)
+    check_free_space(
+        vcf_file,
+        [workspace.output_dir, workspace.temp_dir]
+        + ([] if temp_dir else [Path(tempfile.gettempdir())]),
+    )
 
     # Load initial config - it might be passed as args.config or already merged
     logger.debug(
@@ -439,6 +447,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
 
     # Merge VCF or TSV file path into config
     initial_config["vcf_file"] = vcf_file
+    if temp_dir:
+        initial_config["temp_dir"] = str(workspace.temp_dir)
     if from_tsv:
         initial_config["from_tsv"] = str(from_tsv)
 

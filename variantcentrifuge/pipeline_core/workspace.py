@@ -41,7 +41,7 @@ class Workspace:
         Directory for temporary files (auto-cleaned)
     """
 
-    def __init__(self, output_dir: Path, base_name: str):
+    def __init__(self, output_dir: Path, base_name: str, temp_base: Path | None = None):
         """Initialize workspace with output directory and base name.
 
         Parameters
@@ -50,6 +50,10 @@ class Workspace:
             Main output directory path
         base_name : str
             Base name for generated files
+        temp_base : Path, optional
+            Create the temp directory here instead of under ``intermediate/``
+            (``--temp-dir``). Bulk writers receive it explicitly via ``cfg["temp_dir"]``
+            (process-global TMPDIR would break multiprocessing's AF_UNIX socket paths).
         """
         self.output_dir = Path(output_dir)
         self.base_name = base_name
@@ -61,8 +65,11 @@ class Workspace:
         self.intermediate_dir.mkdir(exist_ok=True)
 
         # Create temp directory
-        self.temp_dir = Path(tempfile.mkdtemp(prefix="vc_temp_", dir=self.intermediate_dir))
-
+        if temp_base:
+            Path(temp_base).mkdir(parents=True, exist_ok=True)
+        self.temp_dir = Path(
+            tempfile.mkdtemp(prefix="vc_temp_", dir=temp_base or self.intermediate_dir)
+        )
         logger.debug(f"Workspace initialized: output_dir={self.output_dir}")
         logger.debug(f"Temporary directory: {self.temp_dir}")
 

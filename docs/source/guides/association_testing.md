@@ -594,6 +594,9 @@ variantcentrifuge \
   --output-file results.tsv
 ```
 
+COAST tests the variants kept by genotype site QC (`--missing-site-threshold`), the same
+variants burden and SKAT test.
+
 ### COAST Weights
 
 `--coast-weights BMV,DMV,PTV` sets the ordered alternative weights. Default is `1,2,3`
@@ -617,7 +620,11 @@ variantcentrifuge \
 ACAT-O (Aggregated Cauchy Association Test — Omnibus) combines all primary test p-values for a
 gene into a single omnibus p-value using the Cauchy combination. This captures signal regardless
 of which test is most powerful for a given gene. The Cauchy combination is particularly robust to
-correlation between test statistics.
+correlation between test statistics. It follows the reference R `ACAT()`: a p-value of
+exactly 1 is kept, and it dominates. A gene where any test has p = 1 (for example Fisher p = 1.0
+when cases and controls carry at equal rates) gets an ACAT-O of about 1, even if another test is
+small. Tests that did not run are left out. When one input is exactly 0 and another exactly 1 the
+combination is undefined and ACAT-O is empty (R `ACAT()` stops with an error).
 
 **References:** Liu et al. 2019 AJHG; Liu and Xie 2020 JASA.
 
