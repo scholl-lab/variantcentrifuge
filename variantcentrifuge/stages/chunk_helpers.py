@@ -195,8 +195,8 @@ def read_tsv_in_gene_chunks(
         f"Reading {filepath} in gene-aware chunks (column: {gene_column}, size: {chunksize})"
     )
 
-    # Same parse rules as load_optimized_dataframe (non-chunked path): only "" is missing,
-    # so values like REF=NA survive, and quotes are literal (QUOTE_NONE).
+    # Same parse rules as the non-chunked load_optimized_dataframe call: only "" is missing
+    # (REF=NA survives), quotes are literal, and over-long rows are skipped with a warning.
     reader = pd.read_csv(
         filepath,
         sep="\t",
@@ -206,6 +206,7 @@ def read_tsv_in_gene_chunks(
         keep_default_na=False,
         na_values=[""],
         quoting=csv.QUOTE_NONE,
+        on_bad_lines="warn",
     )
 
     gene_buffer = pd.DataFrame()

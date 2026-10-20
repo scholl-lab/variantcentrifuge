@@ -30,32 +30,34 @@ from .genotype_matrix_builder import _STANDARD_COLUMN_ALIASES, _create_standard_
 logger = logging.getLogger(__name__)
 
 _ROW_ORDER_COL = "_vc_input_row"
-_GENE_COLUMN_PRIORITY = ("GENE", "Gene", "gene", "SYMBOL")
+_OTHER_GENE_COLUMNS = ("Gene", "gene", "SYMBOL")
 
 
 def _find_gene_column(header: list[str]) -> str | None:
-    """Return the raw header column that the non-chunked loader would expose as the gene."""
-    if not header:
-        return None
+    """Return the raw header column that the non-chunked loader would expose as ``GENE``.
+
+    Same resolution as DataFrameLoadingStage: an explicit GENE column, else the first alias
+    source in ``_create_standard_column_aliases`` order; other gene-like names last.
+    """
     _, sanitized = rename_invalid_identifiers(pd.DataFrame(columns=header))
-    # Same normalization as DataFrameLoadingStage: sanitize, then ANN_0__GENE -> GENE alias.
-    canonical = {col: _STANDARD_COLUMN_ALIASES.get(sanitized.get(col, col), col) for col in header}
-    for wanted in _GENE_COLUMN_PRIORITY:
-        # An explicit column wins over an alias source, as in _create_standard_column_aliases.
-        for col in sorted(header, key=lambda c: c != wanted):
-            if canonical[col] == wanted:
-                return col
+    raw_by_name = {sanitized.get(col, col): col for col in header}
+    aliases = [src for src, short in _STANDARD_COLUMN_ALIASES.items() if short == "GENE"]
+    for name in ("GENE", *aliases, *_OTHER_GENE_COLUMNS):
+        if name in raw_by_name:
+            return raw_by_name[name]
     return None
 
 
 def _write_row_order_copy(input_file: Path, output_file: Path) -> None:
-    """Copy the TSV adding the original row position, so gene sorting can be undone."""
+    """Copy the TSV prefixing each row's original position, so gene sorting can be undone.
+
+    Prefixing (not appending) keeps short/long rows aligned exactly as the serial reader sees them.
+    """
     open_fn: Any = gzip.open if str(input_file).endswith(".gz") else open
     with open_fn(input_file, "rt") as src, open(output_file, "w") as dst:
-        header = src.readline().rstrip("\r\n")
-        dst.write(f"{header}\t{_ROW_ORDER_COL}\n")
+        dst.write(f"{_ROW_ORDER_COL}\t{src.readline()}")
         for i, line in enumerate(src):
-            dst.write(f"{line.rstrip(chr(13) + chr(10))}\t{i}\n")
+            dst.write(f"{i}\t{line}")
 
 
 def _restore_input_order(df: pd.DataFrame) -> pd.DataFrame:

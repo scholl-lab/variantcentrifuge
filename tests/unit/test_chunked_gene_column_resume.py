@@ -59,8 +59,10 @@ def _serial(tmp_path: Path, tsv: Path) -> PipelineContext:
         (["CHROM", "ANN[*].GENE", "GENE"], "GENE"),
         (["CHROM", "ANN[0].GENE"], "ANN[0].GENE"),
         (["CHROM", "ANN_0__GENE"], "ANN_0__GENE"),
-        (["CHROM", "ANN[*].GENE"], "ANN[*].GENE"),
-        (["CHROM", "EFF[*].GENE"], "EFF[*].GENE"),
+        (["CHROM", "ANN[*].GENE"], None),  # wildcard is not a GENE source
+        (["CHROM", "EFF[*].GENE"], None),
+        (["CHROM", "ANN[*].GENE", "ANN[0].GENE"], "ANN[0].GENE"),
+        (["CHROM", "SYMBOL", "ANN[0].GENE"], "ANN[0].GENE"),
         (["CHROM", "SYMBOL"], "SYMBOL"),
         (["CHROM", "Gene"], "Gene"),
         (["CHROM", "POS"], None),
@@ -71,7 +73,7 @@ def test_find_gene_column_header_variants(header, expected):
     assert _find_gene_column(header) == expected
 
 
-@pytest.mark.parametrize("gene_header", ["GENE", "ANN[0].GENE", "ANN_0__GENE", "ANN[*].GENE"])
+@pytest.mark.parametrize("gene_header", ["GENE", "ANN[0].GENE", "ANN_0__GENE"])
 @pytest.mark.parametrize("threads", [1, 2])
 def test_forced_chunking_matches_nonchunked_loader(tmp_path, gene_header, threads):
     """#183: forced chunking yields the same rows, order, columns and rename map as serial."""
@@ -189,15 +191,24 @@ _TRIO = {
 }
 
 
-@pytest.mark.parametrize("ann_first", [True, False], ids=["ANN_then_GENE", "GENE_then_ANN"])
-def test_chunks_follow_canonical_gene_and_keep_comp_het(tmp_path, monkeypatch, ann_first):
-    """Review r1 #1: annotation genes differ but canonical GENE is shared; chunking by the
+@pytest.mark.parametrize(
+    ("gene_cols", "canonical"),
+    [
+        (["ANN[0].GENE", "GENE"], "GENE"),
+        (["GENE", "ANN[0].GENE"], "GENE"),
+        (["ANN[*].GENE", "ANN[0].GENE"], "ANN[0].GENE"),
+        (["ANN[0].GENE", "ANN[*].GENE"], "ANN[0].GENE"),
+    ],
+)
+def test_chunks_follow_canonical_gene_and_keep_comp_het(
+    tmp_path, monkeypatch, gene_cols, canonical
+):
+    """Review r1 #1 / r2 #2: chunk by the column that becomes GENE; chunking by a decoy
     annotation column split the pair (comp-het -> autosomal_dominant_possible)."""
     from variantcentrifuge.memory import ResourceManager
 
     monkeypatch.setattr(ResourceManager, "auto_chunk_size", lambda self, *a, **k: 1)
-    gene_cols = ["ANN[0].GENE", "GENE"] if ann_first else ["GENE", "ANN[0].GENE"]
-    values = {"ANN[0].GENE": ["ANNX", "ANNY"], "GENE": ["TARGET", "TARGET"]}
+    values = {c: (["TARGET", "TARGET"] if c == canonical else ["X", "Y"]) for c in gene_cols}
     header = ["CHROM", "POS", "REF", "ALT", *gene_cols, "GEN[0].GT", "GEN[1].GT", "GEN[2].GT"]
     gts = [("0/1", "0/1", "0/0"), ("0/1", "0/0", "0/1")]  # one allele from each parent
     lines = ["\t".join(header)]
@@ -206,12 +217,28 @@ def test_chunks_follow_canonical_gene_and_keep_comp_het(tmp_path, monkeypatch, a
     tsv = tmp_path / "trio.tsv"
     tsv.write_text("\n".join(lines) + "\n")
 
-    assert _find_gene_column(header) == "GENE"
+    assert _find_gene_column(header) == canonical
     context = _context(tmp_path, tsv, use_chunked_processing=True, inheritance_mode="simple")
     context.vcf_samples = ["Child", "Father", "Mother"]
     context.pedigree_data = _TRIO
     df = ChunkedAnalysisStage()._process(context).current_dataframe
+    assert list(df["GENE"]) == ["TARGET", "TARGET"]
     assert list(df["Inheritance_Pattern"]) == ["compound_heterozygous"] * 2
+
+
+def test_gene_column_follows_shared_alias_priority(monkeypatch):
+    """The selector reuses _STANDARD_COLUMN_ALIASES order rather than its own list."""
+    import variantcentrifuge.stages.chunked_analysis_stages as chunked_mod
+    import variantcentrifuge.stages.genotype_matrix_builder as builder_mod
+
+    aliases = {"SECOND_GENE": "GENE", "ANN_0__GENE": "GENE"}
+    monkeypatch.setattr(chunked_mod, "_STANDARD_COLUMN_ALIASES", aliases)
+    monkeypatch.setattr(builder_mod, "_STANDARD_COLUMN_ALIASES", aliases)
+    header = ["ANN[0].GENE", "SECOND_GENE"]
+    df = pd.DataFrame([["a", "b"]], columns=["ANN_0__GENE", "SECOND_GENE"])
+    builder_mod._create_standard_column_aliases(df)
+    assert df["GENE"].iloc[0] == "b"
+    assert _find_gene_column(header) == "SECOND_GENE"
 
 
 def test_chunk_reader_keeps_na_alleles_and_literal_quotes(tmp_path):
@@ -237,49 +264,31 @@ def test_chunk_reader_keeps_na_alleles_and_literal_quotes(tmp_path):
 
 
 @pytest.mark.parametrize("gene_header", ["ANN[*].GENE", "EFF[*].GENE"])
-@pytest.mark.parametrize("chunked", [False, True], ids=["serial", "chunked"])
-def test_wildcard_gene_header_produces_association_output(tmp_path, gene_header, chunked):
-    """Review r1 #3: ANN[*].GENE must expose GENE so association/burden produce results."""
-    from variantcentrifuge.stages.association_analysis_stages import AssociationAnalysisStage
-    from variantcentrifuge.stages.gene_burden_stages import GeneBurdenAnalysisStage
-
-    samples = [f"S{i}" for i in range(40)]
-    lines = [
-        f"CHROM\tPOS\tREF\tALT\t{gene_header}\t" + "\t".join(f"GEN[{i}].GT" for i in range(40))
-    ]
-    for gene, pos in [("G1", 100), ("G2", 200), ("G1", 300)]:
-        lines.append(
-            f"1\t{pos}\tA\tT\t{gene}\t"
-            + "\t".join("0/1" if (i + pos // 100) % 3 == 0 else "0/0" for i in range(40))
-        )
+def test_wildcard_gene_header_is_not_a_gene_and_falls_back(tmp_path, gene_header):
+    """Wildcard columns hold raw annotation text from bcftools; never alias them to GENE.
+    Chunking then has no gene column and falls back to the full serial load."""
     tsv = tmp_path / "wild.tsv"
-    tsv.write_text("\n".join(lines) + "\n")
+    tsv.write_text(f"CHROM\tPOS\t{gene_header}\n1\t100\tC|missense|X\n")
+    serial = _serial(tmp_path, tsv).current_dataframe
+    result = ChunkedAnalysisStage()._process(_context(tmp_path, tsv, use_chunked_processing=True))
+    assert "GENE" not in serial.columns
+    pd.testing.assert_frame_equal(result.current_dataframe, serial)
+    assert result.config["use_chunked_processing"] is False
 
-    if chunked:
-        context = ChunkedAnalysisStage()._process(
-            _context(tmp_path, tsv, use_chunked_processing=True)
-        )
-    else:
-        context = _serial(tmp_path, tsv)
-    context.vcf_samples = samples
-    assert context.current_dataframe["GENE"].tolist() == ["G1", "G2", "G1"]
-    context.config.update(
-        perform_association=True,
-        perform_gene_burden=True,
-        case_samples=samples[:20],
-        control_samples=samples[20:],
-        association_tests=["fisher"],
-        output_dir=str(tmp_path),
-        output_file_base="wild",
-        gzip_intermediates=False,
+
+def test_chunk_reader_skips_overlong_rows_and_pads_short_rows_like_serial(tmp_path):
+    """Review r2 #3: same bad-line policy as the serial loader."""
+    tsv = tmp_path / "bad.tsv"
+    tsv.write_text("CHROM\tPOS\tGENE\tREF\n1\t1\tA\tC\n1\t2\tB\tG\textra\n1\t3\tC\n1\t4\tA\tT\n")
+    serial = _serial(tmp_path, tsv).current_dataframe
+    chunked = (
+        ChunkedAnalysisStage()
+        ._process(_context(tmp_path, tsv, use_chunked_processing=True))
+        .current_dataframe
     )
-    context.config["gene_burden_output"] = str(tmp_path / "wild.gene_burden.tsv")
-    context = AssociationAnalysisStage()._process(context)
-    assert sorted(context.association_results["gene"]) == ["G1", "G2"]
-    assert (tmp_path / "wild.association.tsv").exists()
-    context = GeneBurdenAnalysisStage()._process(context)
-    burden = pd.read_csv(tmp_path / "wild.gene_burden.tsv", sep="\t")
-    assert sorted(burden["GENE"]) == ["G1", "G2"]
+    pd.testing.assert_frame_equal(chunked.astype(str), serial.astype(str))
+    assert chunked["POS"].tolist() == ["1", "3", "4"]
+    assert pd.isna(chunked["REF"].iloc[1])
 
 
 @pytest.mark.parametrize(
