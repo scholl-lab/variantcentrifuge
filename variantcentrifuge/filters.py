@@ -320,9 +320,12 @@ def validate_bed_vcf_contigs(vcf_file: str, bed_file: str) -> None:
         return
 
     unmatched_bed = bed_contigs - vcf_contigs
-    if unmatched_bed:
-        vcf_contigs = _get_vcf_contigs(vcf_file, include_records=True)
-        unmatched_bed = bed_contigs - vcf_contigs
+    if unmatched_bed and not (bed_contigs & vcf_contigs):
+        vcf_has_chr = {c.startswith("chr") for c in vcf_contigs}
+        bed_has_chr = {c.startswith("chr") for c in unmatched_bed}
+        if vcf_has_chr != bed_has_chr:
+            vcf_contigs = _get_vcf_contigs(vcf_file, include_records=True)
+            unmatched_bed = bed_contigs - vcf_contigs
 
     mismatched = []
     for c in unmatched_bed:

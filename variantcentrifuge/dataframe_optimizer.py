@@ -369,7 +369,8 @@ def load_optimized_dataframe(
                         null_values=[""],
                     ),
                 )
-                df = table.to_pandas()
+                df = table.to_pandas(self_destruct=True)
+                del table
                 df = df.fillna(np.nan)
                 if dtype_map:
                     for col, dt in dtype_map.items():

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
+import json
 import logging
 import shutil
 import sys
@@ -28,7 +30,7 @@ __all__ = ["ParallelCompleteProcessingStage"]
 def _ps_attr(name: str, fallback: Any) -> Any:
     """Get attribute from this module or processing_stages (supports test patching)."""
     ps_mod = sys.modules.get("variantcentrifuge.stages.processing_stages")
-    if ps_mod is not None and getattr(getattr(ps_mod, name, None), "_mock_return_value", None):
+    if ps_mod is not None and hasattr(getattr(ps_mod, name, None), "_mock_name"):
         return getattr(ps_mod, name)
     this_mod = sys.modules.get(__name__)
     if this_mod is not None and getattr(this_mod, name, None) is not None:
@@ -63,25 +65,56 @@ class ParallelCompleteProcessingStage(Stage):
     def estimated_runtime(self) -> float:
         return 60.0
 
+    def _chunk_fingerprint(self, context: PipelineContext, chunk_bed: Path, eff_fields: str) -> str:
+        """Compute a short fingerprint of chunk BED content and extraction/filtering config."""
+        cfg = context.config
+        bed_bytes = chunk_bed.read_bytes() if chunk_bed.is_file() else str(chunk_bed).encode()
+        keys = (
+            "bcftools_prefilter",
+            "late_filtering",
+            "snpeff_splitting_mode",
+            "split_snpeff_lines",
+            "filter",
+            "filters",
+            "filter_exception_file",
+            "gene_name",
+            "gene_file",
+            "regions_bed",
+            "transcript_list",
+            "transcript_file",
+        )
+        data = {k: cfg.get(k) for k in keys}
+        data["bed"] = hashlib.sha256(bed_bytes).hexdigest()[:16]
+        data["vcf"] = str(cfg.get("vcf_file") or context.data or "")
+        data["fields"] = eff_fields
+        return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()[
+            :16
+        ]
+
     def _validate_chunk_tsv(
         self,
         chunk_tsv: Path,
         fallback_on_error: bool = True,
         expected_header: str | None = None,
+        expected_fingerprint: str | None = None,
     ) -> bool:
         """Validate that a chunk TSV file is complete and valid."""
         if not chunk_tsv.exists():
             return False
+        if expected_fingerprint is not None:
+            meta = Path(f"{chunk_tsv}.meta")
+            if (
+                not meta.is_file()
+                or meta.read_text(encoding="utf-8").strip() != expected_fingerprint
+            ):
+                return False
         try:
             if chunk_tsv.stat().st_size == 0:
                 return False
             open_func = gzip.open if chunk_tsv.name.endswith(".gz") else open
             mode = "rt" if chunk_tsv.name.endswith(".gz") else "r"
             with open_func(chunk_tsv, mode) as f:
-                raw_line = f.readline()
-                first_line = (
-                    raw_line.decode() if isinstance(raw_line, bytes) else str(raw_line)
-                ).strip()
+                first_line = str(f.readline()).strip()
                 if not first_line or "\t" not in first_line:
                     return False
                 if expected_header is not None and first_line != expected_header.strip():
@@ -207,7 +240,6 @@ class ParallelCompleteProcessingStage(Stage):
                 "snpsift_memory_gb": 2,
                 "max_memory_gb": shared_memory_gb,
             }
-
         if not requires_snpsift:
             active_workers = max(1, min(num_chunks, max(1, total_threads)))
             return {
@@ -216,25 +248,18 @@ class ParallelCompleteProcessingStage(Stage):
                 "snpsift_memory_gb": 2,
                 "max_memory_gb": max(0.5, shared_memory_gb / active_workers),
             }
-
         total_snpsift_gb = int(shared_memory_gb * 0.5)
         if total_snpsift_gb < 2:
             raise ValueError(
                 f"Memory budget ({shared_memory_gb} GiB) is too small to accommodate the "
                 "2 GiB minimum SnpSift heap plus non-heap headroom (at least 4 GiB required)."
             )
-
         desired_workers = min(num_chunks, max(1, total_threads))
-        max_workers_by_mem = max(1, total_snpsift_gb // 2)
-        active_workers = max(1, min(desired_workers, max_workers_by_mem))
-
-        snpsift_memory_gb = max(2, min(16, total_snpsift_gb // active_workers))
-        threads_per_worker = max(1, total_threads // active_workers)
-
+        active_workers = max(1, min(desired_workers, max(1, total_snpsift_gb // 2)))
         return {
             "active_workers": active_workers,
-            "threads_per_worker": threads_per_worker,
-            "snpsift_memory_gb": snpsift_memory_gb,
+            "threads_per_worker": max(1, total_threads // active_workers),
+            "snpsift_memory_gb": max(2, min(16, total_snpsift_gb // active_workers)),
             "max_memory_gb": max(1.0, shared_memory_gb / active_workers),
         }
 
@@ -250,12 +275,9 @@ class ParallelCompleteProcessingStage(Stage):
     ) -> Path:
         """Process a single BED chunk through complete pipeline."""
         chunk_base = f"{base_name}.chunk_{chunk_index}"
-
-        # Step 1: Extract variants
         extract_start = time.time()
         chunk_vcf = intermediate_dir / f"{chunk_base}.variants.vcf.gz"
-        extract_fn = _ps_attr("extract_variants", extract_variants)
-        extract_fn(
+        _ps_attr("extract_variants", extract_variants)(
             vcf_file=vcf_file,
             bed_file=str(chunk_bed),
             cfg={
@@ -278,13 +300,11 @@ class ParallelCompleteProcessingStage(Stage):
         if transcript_ids is None:
             load_tx_fn = _ps_attr("load_transcript_ids", load_transcript_ids)
             transcript_ids = load_tx_fn(
-                config.get("transcript_list"),
-                config.get("transcript_file"),
+                config.get("transcript_list"), config.get("transcript_file")
             )
         if transcript_ids:
             transcript_filtered_vcf = intermediate_dir / f"{chunk_base}.transcript_filtered.vcf.gz"
-            filter_tx_fn = _ps_attr("filter_vcf_to_transcripts", filter_vcf_to_transcripts)
-            filter_tx_fn(
+            _ps_attr("filter_vcf_to_transcripts", filter_vcf_to_transcripts)(
                 str(working_vcf),
                 str(transcript_filtered_vcf),
                 transcript_ids,
@@ -293,7 +313,6 @@ class ParallelCompleteProcessingStage(Stage):
             )
             working_vcf = transcript_filtered_vcf
 
-        # Step 2: Apply SnpSift filter (if not late filtering)
         filter_start = time.time()
         if config.get("late_filtering", False):
             filtered_vcf = working_vcf
@@ -302,8 +321,7 @@ class ParallelCompleteProcessingStage(Stage):
             filtered_vcf = intermediate_dir / f"{chunk_base}.filtered.vcf.gz"
             filter_expr = config.get("filter") or config.get("filters")
             if filter_expr:
-                filter_fn = _ps_attr("apply_snpsift_filter", apply_snpsift_filter)
-                filter_fn(
+                _ps_attr("apply_snpsift_filter", apply_snpsift_filter)(
                     str(working_vcf),
                     filter_expr,
                     {
@@ -322,7 +340,6 @@ class ParallelCompleteProcessingStage(Stage):
             filtered_vcf = split_vcf
         filter_time = time.time() - filter_start
 
-        # Step 3: Extract fields to TSV
         field_extract_start = time.time()
         use_compression = config.get("gzip_intermediates", True)
         tsv_suffix = ".extracted.tsv.gz" if use_compression else ".extracted.tsv"
@@ -333,8 +350,7 @@ class ParallelCompleteProcessingStage(Stage):
         if not fields:
             raise ValueError("No fields specified for extraction")
 
-        extract_fields_fn = _ps_attr("extract_fields_bcftools", extract_fields_bcftools)
-        extract_fields_fn(
+        _ps_attr("extract_fields_bcftools", extract_fields_bcftools)(
             variant_file=str(filtered_vcf),
             fields=" ".join(fields),
             cfg={
@@ -350,7 +366,6 @@ class ParallelCompleteProcessingStage(Stage):
             subtask_times[f"chunk_{chunk_index}_extraction"] = extract_time
             subtask_times[f"chunk_{chunk_index}_filtering"] = filter_time
             subtask_times[f"chunk_{chunk_index}_field_extraction"] = field_extract_time
-
         logger.debug(f"Completed processing chunk {chunk_index}")
         return chunk_tsv
 
@@ -361,18 +376,13 @@ class ParallelCompleteProcessingStage(Stage):
         if not bed_chunks:
             logger.warning("No BED chunks to process - skipping parallel processing")
             return []
-
         vcf_file = context.config.get("vcf_file") or (str(context.data) if context.data else None)
         if not vcf_file:
             raise KeyError("vcf_file")
         threads = context.config.get("threads", 1)
         base_name = context.workspace.base_name
         intermediate_dir = context.workspace.intermediate_dir
-
-        # Phase 1: Check for existing valid chunk TSVs
         chunks_to_process = []
-        existing_chunk_tsvs = []
-
         use_compression = context.config.get("gzip_intermediates", True)
         tsv_suffix = ".extracted.tsv.gz" if use_compression else ".extracted.tsv"
 
@@ -386,18 +396,16 @@ class ParallelCompleteProcessingStage(Stage):
             expected_header = "\t".join(cols)
 
         for i, chunk_bed in enumerate(bed_chunks):
-            chunk_base = f"{base_name}.chunk_{i}"
-            expected_tsv = intermediate_dir / f"{chunk_base}{tsv_suffix}"
-
-            if self._validate_chunk_tsv(expected_tsv, expected_header=expected_header):
+            expected_tsv = intermediate_dir / f"{base_name}.chunk_{i}{tsv_suffix}"
+            chunk_fp = self._chunk_fingerprint(context, chunk_bed, eff_fields)
+            if self._validate_chunk_tsv(
+                expected_tsv, expected_header=expected_header, expected_fingerprint=chunk_fp
+            ):
                 logger.info(f"Reusing existing chunk TSV {i}: {expected_tsv.name}")
-                existing_chunk_tsvs.append(expected_tsv)
             else:
                 logger.info(f"Processing missing/invalid chunk TSV {i}")
-                chunks_to_process.append((i, chunk_bed, expected_tsv))
+                chunks_to_process.append((i, chunk_bed, expected_tsv, chunk_fp))
 
-        # Phase 2: Process only missing chunks
-        new_chunk_tsvs = []
         if chunks_to_process:
             cfg = context.config
             rm = ResourceManager(config=cfg)
@@ -405,25 +413,21 @@ class ParallelCompleteProcessingStage(Stage):
             req_snpsift = bool(cfg.get("filter") or cfg.get("filters")) and not bool(
                 cfg.get("late_filtering")
             )
-
             resource_alloc = self._calculate_chunk_worker_resources(
                 total_threads=threads,
                 num_chunks=len(chunks_to_process),
                 shared_memory_gb=shared_memory_gb,
                 requires_snpsift=req_snpsift,
             )
-
             active_workers = resource_alloc["active_workers"]
             threads_per_worker = resource_alloc["threads_per_worker"]
             worker_snpsift_gb = resource_alloc["snpsift_memory_gb"]
             worker_max_memory_gb = resource_alloc["max_memory_gb"]
-
             logger.info(
                 f"Processing {len(chunks_to_process)} missing chunks with "
                 f"{active_workers} parallel workers "
                 f"({threads_per_worker} threads/worker, -Xmx{worker_snpsift_gb}g heap/worker)"
             )
-
             load_tx_fn = _ps_attr("load_transcript_ids", load_transcript_ids)
             worker_config = {
                 "threads_per_chunk": threads_per_worker,
@@ -445,17 +449,12 @@ class ParallelCompleteProcessingStage(Stage):
                     cfg.get("transcript_list"), cfg.get("transcript_file")
                 ),
             }
-
-            manager = Manager()
-            shared_subtask_times = manager.dict()
-
+            shared_subtask_times = Manager().dict()
             executor_cls = _ps_attr("ProcessPoolExecutor", ProcessPoolExecutor)
             as_completed_fn = _ps_attr("as_completed", as_completed)
-
             with executor_cls(max_workers=active_workers) as executor:
-                future_to_chunk = {}
-                for i, chunk_bed, expected_tsv in chunks_to_process:
-                    future = executor.submit(
+                future_to_chunk = {
+                    executor.submit(
                         self._process_single_chunk,
                         i,
                         chunk_bed,
@@ -464,31 +463,27 @@ class ParallelCompleteProcessingStage(Stage):
                         intermediate_dir,
                         worker_config,
                         shared_subtask_times,
-                    )
-                    future_to_chunk[future] = (i, chunk_bed, expected_tsv)
-
+                    ): (i, chunk_bed, expected_tsv, chunk_fp)
+                    for i, chunk_bed, expected_tsv, chunk_fp in chunks_to_process
+                }
                 for future in as_completed_fn(future_to_chunk):
-                    chunk_index, chunk_bed, expected_tsv = future_to_chunk[future]
+                    chunk_index, chunk_bed, _expected_tsv, chunk_fp = future_to_chunk[future]
                     try:
                         chunk_tsv = future.result()
-                        new_chunk_tsvs.append(chunk_tsv)
+                        if chunk_tsv.parent.exists():
+                            Path(f"{chunk_tsv}.meta").write_text(chunk_fp, encoding="utf-8")
                         logger.debug(f"Completed chunk {chunk_index}: {chunk_bed.name}")
                     except Exception as e:
                         logger.error(f"Failed to process chunk {chunk_bed}: {e}")
                         raise
-
             if shared_subtask_times:
                 self._aggregate_subtask_times(shared_subtask_times)
         else:
             logger.info("All chunk TSVs already exist and are valid - no processing needed")
 
-        all_chunk_tsvs = []
-        for i in range(len(bed_chunks)):
-            chunk_base = f"{base_name}.chunk_{i}"
-            expected_tsv = intermediate_dir / f"{chunk_base}{tsv_suffix}"
-            all_chunk_tsvs.append(expected_tsv)
-
-        return all_chunk_tsvs
+        return [
+            intermediate_dir / f"{base_name}.chunk_{i}{tsv_suffix}" for i in range(len(bed_chunks))
+        ]
 
     def _aggregate_subtask_times(self, shared_subtask_times: Any) -> None:
         """Aggregate subtask times from parallel processing."""
@@ -590,6 +585,9 @@ class ParallelCompleteProcessingStage(Stage):
             for chunk in bed_chunks + tsv_chunks:
                 if chunk.exists():
                     chunk.unlink()
+                meta = Path(f"{chunk}.meta")
+                if meta.exists():
+                    meta.unlink()
 
             if bed_chunks and bed_chunks[0].parent.name == "chunks":
                 chunk_dir = bed_chunks[0].parent

@@ -157,6 +157,19 @@ def collect_tier_counts(context: PipelineContext) -> dict[str, Any]:
 def collect_file_manifest(context: PipelineContext) -> dict[str, list[dict[str, Any]]]:
     """Collect input and output file paths, byte sizes, and stored SHA-256 checksums."""
     manifest: dict[str, list[dict[str, Any]]] = {"inputs": [], "outputs": []}
+    is_pseudonymized = bool(context.config.get("pseudonymize"))
+    mapping: dict[str, str] = {}
+    if is_pseudonymized:
+        raw_map = context.config.get("pseudonymization_mapping")
+        if isinstance(raw_map, dict):
+            mapping = {str(k): str(v) for k, v in raw_map.items()}
+
+    def _manifest_path(p_str: str) -> str:
+        if not is_pseudonymized:
+            return os.path.abspath(p_str)
+        from .stages.metadata_helpers import _sanitize_text_identifiers
+
+        return _sanitize_text_identifiers(Path(p_str).name, mapping, redact_unmapped=not mapping)
 
     input_keys = [
         "vcf_file",
@@ -174,7 +187,7 @@ def collect_file_manifest(context: PipelineContext) -> dict[str, list[dict[str, 
             manifest["inputs"].append(
                 {
                     "type": key,
-                    "path": os.path.abspath(p_str),
+                    "path": _manifest_path(p_str),
                     "size_bytes": os.path.getsize(p_str),
                     "sha256": compute_stored_sha256(p_str),
                 }
@@ -212,13 +225,25 @@ def collect_file_manifest(context: PipelineContext) -> dict[str, list[dict[str, 
             manifest["outputs"].append(
                 {
                     "type": otype,
-                    "path": os.path.abspath(p_str),
+                    "path": _manifest_path(p_str),
                     "size_bytes": os.path.getsize(p_str),
                     "sha256": compute_stored_sha256(p_str),
                 }
             )
 
     return manifest
+
+
+def _build_safe_configuration(context: PipelineContext) -> dict[str, Any]:
+    """Build sanitized configuration dictionary for run_summary.json."""
+    if context.config.get("pseudonymize"):
+        rows = _collect_metadata_rows(context, lambda _tool: "")
+        return {k[7:]: v for k, v in rows if k.startswith("config.")}
+    return {
+        str(k): _sanitize_for_json(v)
+        for k, v in context.config.items()
+        if k not in ("pseudonymization_mapping", "pseudonymizer")
+    }
 
 
 def build_run_summary(
@@ -248,7 +273,7 @@ def build_run_summary(
         "elapsed_seconds": elapsed,
         "execution_status": status,
         "error_message": error_message,
-        "configuration": _sanitize_for_json(context.config),
+        "configuration": _build_safe_configuration(context),
         "versions": get_environment_versions(),
         "stages": stages_info,
         "tier_counts": collect_tier_counts(context),
@@ -280,4 +305,4 @@ def write_run_summary(
     return target_path
 
 
-from .stages.metadata_helpers import collect_metadata_rows as _collect_metadata_rows  # noqa: F401
+from .stages.metadata_helpers import collect_metadata_rows as _collect_metadata_rows

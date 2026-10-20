@@ -858,3 +858,71 @@ class TestIssue167AtomicOutputsAndRunSummary:
         summary_resolved = str(summary_json.resolve())
         assert summary_resolved in output_paths
         assert output_paths[summary_resolved]["sha256"] == compute_stored_sha256(str(summary_json))
+
+    def test_atomic_file_operation_uses_hidden_dot_temp_filename(self, tmp_path: Path) -> None:
+        """AtomicFileOperation temp file must start with a leading dot so leftover files
+        after SIGKILL/OOM are hidden and cannot be mistaken for final reports.
+        """
+        target = tmp_path / "report.xlsx"
+        op = AtomicFileOperation(target)
+        assert op.temp_path.name.startswith(".report.tmp.")
+        assert op.temp_path.name.endswith(".xlsx")
+
+    def test_write_run_summary_pseudonymize_leaks_no_identifiers_or_paths(
+        self, tmp_path: Path
+    ) -> None:
+        """write_run_summary under pseudonymize=True must not leak original sample IDs,
+        original input directory paths, or pseudonymization_mapping.
+        """
+        secret_dir = tmp_path / "secret_cohort_PATIENT_001"
+        secret_dir.mkdir(parents=True, exist_ok=True)
+        vcf_path = secret_dir / "PATIENT_001_trio.vcf.gz"
+        vcf_path.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\n")
+        ped_path = secret_dir / "PATIENT_001_family.ped"
+        ped_path.write_text("FAM1\tPATIENT_001\t0\t0\t1\t2\n")
+
+        ws = Workspace(tmp_path / "out_ws", "test")
+        out_tsv = ws.output_dir / "PATIENT_001_results.tsv"
+        out_tsv.write_text("CHROM\tPOS\nchr1\t100\n")
+
+        ctx = PipelineContext(
+            args=argparse.Namespace(),
+            config={
+                "pseudonymize": True,
+                "pseudonymization_mapping": {
+                    "PATIENT_001": "SAMPLE_001",
+                    "CONTROL_999": "SAMPLE_002",
+                },
+                "pseudonymizer": object(),
+                "vcf_file": str(vcf_path),
+                "ped_file": str(ped_path),
+                "proband_samples": ["PATIENT_001"],
+                "case_samples": ["PATIENT_001"],
+                "control_samples": ["CONTROL_999"],
+                "vcf_samples": ["PATIENT_001", "CONTROL_999"],
+                "sample_list": "PATIENT_001,CONTROL_999",
+                "filters": "GEN[PATIENT_001].GT == '0/1'",
+                "reference": "GRCh38",
+                "threads": 4,
+            },
+            workspace=ws,
+        )
+        ctx.vcf_samples = ["PATIENT_001", "CONTROL_999"]
+        ctx.final_output_path = out_tsv
+
+        summary_path = write_run_summary(ctx)
+        raw_text = summary_path.read_text(encoding="utf-8")
+        summary_data = json.loads(raw_text)
+
+        assert "PATIENT_001" not in raw_text
+        assert "CONTROL_999" not in raw_text
+        assert "secret_cohort" not in raw_text
+        assert str(secret_dir) not in raw_text
+        assert "pseudonymization_mapping" not in raw_text
+        assert "pseudonymizer" not in summary_data["configuration"]
+        assert "proband_samples" not in summary_data["configuration"]
+        assert "case_samples" not in summary_data["configuration"]
+        assert "control_samples" not in summary_data["configuration"]
+        assert summary_data["configuration"]["filters"] == "GEN[SAMPLE_001].GT == '0/1'"
+        assert summary_data["files"]["inputs"][0]["path"] == "SAMPLE_001_trio.vcf.gz"
+        assert summary_data["files"]["outputs"][0]["path"] == "SAMPLE_001_results.tsv"

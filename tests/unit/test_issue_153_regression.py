@@ -19,11 +19,18 @@ from variantcentrifuge.pipeline_core import PipelineContext, PipelineRunner, Sta
 class DummyStage(Stage):
     """Simple stage for testing checkpoint behavior."""
 
-    def __init__(self, name: str, dependencies: list[str] | None = None, enable_chk: bool = True):
+    def __init__(
+        self,
+        name: str,
+        dependencies: list[str] | None = None,
+        enable_chk: bool = True,
+        is_parallel_safe: bool = False,
+    ):
         super().__init__()
         self._name = name
         self._deps = set(dependencies or [])
         self._enable_chk = enable_chk
+        self._parallel_safe = is_parallel_safe
         self.run_count = 0
 
     @property
@@ -37,6 +44,10 @@ class DummyStage(Stage):
     @property
     def enable_checkpoint(self) -> bool:
         return self._enable_chk
+
+    @property
+    def parallel_safe(self) -> bool:
+        return self._parallel_safe
 
     @property
     def checkpoint_resume_policy(self) -> str:
@@ -206,6 +217,18 @@ def test_stage_enable_checkpoint_flag_disabled(tmp_path: Path):
         ("add_chr", True, False),
         ("tumor_sample_index", "0", "1"),
         ("normal_sample_index", "1", "2"),
+        ("fields_to_extract", "CHROM POS REF ALT", "CHROM POS REF ALT QUAL"),
+        ("field_profile", "basic", "extended"),
+        ("phenotype_file", "pheno_a.tsv", "pheno_b.tsv"),
+        ("phenotype_sample_column", "sample_id", "patient_id"),
+        ("phenotype_value_column", "hpo_terms", "status"),
+        ("case_phenotypes", ["HP:0001"], ["HP:0002"]),
+        ("control_phenotypes", ["HP:0003"], ["HP:0004"]),
+        ("case_samples_file", "cases_a.txt", "cases_b.txt"),
+        ("control_samples_file", "ctrls_a.txt", "ctrls_b.txt"),
+        ("reference", "GRCh37.75", "GRCh38.86"),
+        ("sample_sheet", "sheet_a.csv", "sheet_b.csv"),
+        ("from_tsv", "in_a.tsv", "in_b.tsv"),
     ],
 )
 def test_changing_named_configuration_keys_invalidates_compatibility(
@@ -352,3 +375,114 @@ def test_completing_tsv_output_alone_does_not_bypass_artifact_validation(tmp_pat
 
     # can_resume must fail because intermediate artifact is missing, even though tsv_output exists
     assert state.can_resume(cfg, pipeline_version="1.0") is False
+
+
+@pytest.mark.unit
+def test_process_executor_persists_parallel_stage_checkpoints(tmp_path: Path):
+    """PipelineRunner(enable_checkpoints=True, executor_type='process') must persist
+    parallel stage step entries into .variantcentrifuge_state.json so --resume skips them.
+    """
+    from argparse import Namespace
+
+    from variantcentrifuge.pipeline_core.workspace import Workspace
+
+    cfg = {"output_dir": str(tmp_path), "enable_checkpoint": True, "pipeline_version": "1.0"}
+    state = PipelineState(output_dir=str(tmp_path), enable_checksum=False)
+    state.initialize(cfg, pipeline_version="1.0")
+
+    ws = Workspace(tmp_path, "test")
+    ctx = PipelineContext(args=Namespace(), config=cfg, workspace=ws)
+    ctx.checkpoint_state = state
+
+    p1 = DummyStage("p1", is_parallel_safe=True)
+    p2 = DummyStage("p2", is_parallel_safe=True)
+    s3 = DummyStage("s3", dependencies=["p1", "p2"], is_parallel_safe=False)
+
+    runner = PipelineRunner(enable_checkpoints=True, max_workers=2, executor_type="process")
+    runner.run([p1, p2, s3], ctx)
+
+    reloaded = PipelineState(output_dir=str(tmp_path), enable_checksum=False)
+    assert reloaded.load() is True
+    assert "p1" in reloaded.state["steps"]
+    assert "p2" in reloaded.state["steps"]
+    assert "s3" in reloaded.state["steps"]
+    assert reloaded.state["steps"]["p1"].status == "completed"
+    assert reloaded.state["steps"]["p2"].status == "completed"
+    assert reloaded.state["steps"]["s3"].status == "completed"
+
+    # Subsequent resume run skips all stages without re-running
+    resume_cfg = {**cfg, "resume": True}
+    ctx_resume = PipelineContext(args=Namespace(), config=resume_cfg, workspace=ws)
+    ctx_resume.checkpoint_state = reloaded
+
+    p1_r = DummyStage("p1", is_parallel_safe=True)
+    p2_r = DummyStage("p2", is_parallel_safe=True)
+    s3_r = DummyStage("s3", dependencies=["p1", "p2"], is_parallel_safe=False)
+    runner.run([p1_r, p2_r, s3_r], ctx_resume)
+    assert p1_r.run_count == 0
+    assert p2_r.run_count == 0
+    assert s3_r.run_count == 0
+
+
+@pytest.mark.unit
+def test_gene_bed_creation_stage_restore_policy_preserves_parallel_stage(tmp_path: Path):
+    """GeneBedCreationStage must use checkpoint_resume_policy == 'restore' so --resume
+    restores context.gene_bed_file without clearing ParallelCompleteProcessingStage.
+    """
+    from argparse import Namespace
+    from unittest.mock import patch
+
+    from variantcentrifuge.pipeline_core.workspace import Workspace
+    from variantcentrifuge.stages.bed_stages import GeneBedCreationStage
+    from variantcentrifuge.stages.parallel_processing_stage import ParallelCompleteProcessingStage
+
+    bed_stage = GeneBedCreationStage()
+    assert bed_stage.checkpoint_resume_policy == "restore"
+
+    ws = Workspace(tmp_path, "test")
+    cached_bed = tmp_path / "cached.bed"
+    cached_bed.write_text("chr1\t100\t200\tBRCA1\n")
+
+    merged_tsv = ws.intermediate_dir / "test.extracted.tsv"
+    merged_tsv.write_text("CHROM\tPOS\tREF\tALT\nchr1\t150\tA\tG\n")
+
+    cfg = {
+        "output_dir": str(tmp_path),
+        "gene_name": "BRCA1",
+        "vcf_file": str(tmp_path / "in.vcf.gz"),
+        "fields_to_extract": "CHROM POS REF ALT",
+        "gzip_intermediates": False,
+        "threads": 2,
+        "resume": True,
+        "pipeline_version": "1.0",
+    }
+    state = PipelineState(output_dir=str(tmp_path), enable_checksum=False)
+    state.initialize(cfg, pipeline_version="1.0")
+    state.start_step("configuration_loading")
+    state.complete_step("configuration_loading")
+    state.start_step("gene_bed_creation")
+    state.complete_step("gene_bed_creation", output_files=[str(cached_bed)])
+    state.start_step("parallel_complete_processing")
+    state.complete_step("parallel_complete_processing", output_files=[str(merged_tsv)])
+    state.save()
+
+    reloaded = PipelineState(output_dir=str(tmp_path), enable_checksum=False)
+    reloaded.load()
+
+    ctx = PipelineContext(args=Namespace(), config=cfg, workspace=ws)
+    ctx.checkpoint_state = reloaded
+
+    cfg_stage = DummyStage("configuration_loading")
+    par_stage = ParallelCompleteProcessingStage()
+
+    with (
+        patch("variantcentrifuge.stages.bed_stages.normalize_genes", return_value="BRCA1"),
+        patch("variantcentrifuge.stages.bed_stages.get_gene_bed", return_value=str(cached_bed)),
+        patch.object(par_stage, "_process") as mock_par_process,
+    ):
+        runner = PipelineRunner(enable_checkpoints=True, max_workers=1)
+        out_ctx = runner.run([cfg_stage, bed_stage, par_stage], ctx)
+
+    assert out_ctx.gene_bed_file == cached_bed
+    assert out_ctx.extracted_tsv == merged_tsv
+    mock_par_process.assert_not_called()

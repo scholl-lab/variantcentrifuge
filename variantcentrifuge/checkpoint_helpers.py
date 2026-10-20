@@ -27,12 +27,21 @@ RELEVANT_CONFIG_KEYS: tuple[str, ...] = (
     "output_file",
     "preset",
     "filters",
-    "fields",
+    "fields_to_extract",
+    "field_profile",
     "threads",
     "no_replacement",
     "late_filtering",
-    "chunk_size",
-    "samples_file",
+    "phenotype_file",
+    "phenotype_sample_column",
+    "phenotype_value_column",
+    "case_phenotypes",
+    "control_phenotypes",
+    "case_samples_file",
+    "control_samples_file",
+    "reference",
+    "sample_sheet",
+    "from_tsv",
     "bcftools_prefilter",
     "final_filter",
     "scoring_config_path",
@@ -103,7 +112,7 @@ def hash_configuration(config: dict[str, Any]) -> str:
         and v is not None
         and not (k in CANONICAL_ANNOTATION_KEYS and not v)
     }
-    relevant_config["__fingerprint_version__"] = 2
+    relevant_config["__fingerprint_version__"] = 3
 
     config_str = json.dumps(relevant_config, sort_keys=True)
     return hashlib.sha256(config_str.encode()).hexdigest()
