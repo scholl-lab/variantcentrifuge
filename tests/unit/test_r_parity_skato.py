@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.unit.meta_helpers import NO_MISSING_POLICY
 from variantcentrifuge.association.backends.coast_python import (
     PythonCOASTBackend,
     _compute_allelic_skat_weights,
@@ -87,6 +88,7 @@ def test_meta_matches_metaskat(name: str) -> None:
             mask_hash="m",
             n_cases=int(pheno[h].sum()),
             n_controls=int((1 - pheno[h]).sum()),
+            missing_policy=NO_MISSING_POLICY,
         ).genes["G"]
         for i, h in enumerate(halves)
     ]
@@ -147,6 +149,7 @@ def test_named_loo_matches_metaskat(name: str) -> None:
             mask_hash="m",
             n_cases=int(pheno[h].sum()),
             n_controls=int((1 - pheno[h]).sum()),
+            missing_policy=NO_MISSING_POLICY,
         )
         for i, h in enumerate(thirds)
     ]

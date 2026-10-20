@@ -9,6 +9,9 @@ from variantcentrifuge.association.meta.artifact import (
     build_stratum_artifact,
 )
 
+# Synthetic matrices have no missing calls; the policy must still be stated (#200).
+NO_MISSING_POLICY = {"imputation": "bestguess", "site_threshold": None, "sample_threshold": None}
+
 
 def make_stratum(
     stratum_id: str,
@@ -69,4 +72,5 @@ def make_stratum(
         n_cases=int(y.sum()),
         n_controls=int((1 - y).sum()),
         sample_id_hashes=sample_hashes,
+        missing_policy=NO_MISSING_POLICY,
     )

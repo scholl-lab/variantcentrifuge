@@ -295,3 +295,42 @@ def test_carriers_respect_missing_policy(tmp_path):
             mask_hash="h",
         )
         assert art.genes["G"].n_carriers == 1
+
+
+def test_new_artifacts_require_an_explicit_missing_policy():
+    """W1 review: a pre-imputed matrix must not be silently labelled bestguess (v2)."""
+    from variantcentrifuge.association.meta.artifact import (
+        ScoreCovarianceArtifact,
+        build_stratum_artifact,
+    )
+
+    g = np.array([[1.0], [1.0], [0.0], [1.0]] * 5)
+    y = np.array([1.0, 0.0] * 10)
+    kw = {
+        "genome_build": "b",
+        "annotation_version": "a",
+        "mask_id": "m",
+        "mask_hash": "h",
+        "n_cases": 10,
+        "n_controls": 10,
+    }
+    with pytest.raises(TypeError, match="missing_policy"):
+        build_stratum_artifact("s", {"G": (g, g, ["1:1:A:G"])}, y, None, "binary", **kw)
+    with pytest.raises(TypeError, match="missing_policy"):
+        ScoreCovarianceArtifact(
+            stratum_id="s",
+            genome_build="b",
+            annotation_version="a",
+            mask_id="m",
+            mask_hash="h",
+            trait_type="binary",
+            n_cases=1,
+            n_controls=1,
+            sample_id_hashes=[],
+            genes={},
+        )
+    policy = {"imputation": "missing_as_ref", "site_threshold": 0.1, "sample_threshold": 0.8}
+    art = build_stratum_artifact(
+        "s", {"G": (g, g, ["1:1:A:G"])}, y, None, "binary", missing_policy=policy, **kw
+    )
+    assert art.missing_policy == policy

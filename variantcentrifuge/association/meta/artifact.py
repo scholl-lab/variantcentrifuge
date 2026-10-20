@@ -89,7 +89,9 @@ class ScoreCovarianceArtifact:
     genes: dict[str, GeneScore]
     schema_version: int = SCHEMA_VERSION
     # imputation ("bestguess" | "missing_as_ref") + site/sample missingness thresholds
-    missing_policy: dict[str, Any] = field(default_factory=lambda: dict(V1_MISSING_POLICY))
+    # Required, keyword-only: how missing genotypes were handled must be stated, never
+    # defaulted (V1_MISSING_POLICY applies only when loading a v1 artifact).
+    missing_policy: dict[str, Any] = field(kw_only=True)
     # Optional v2 fields (#197): readable mask name; annotation provenance (meta/provenance.py)
     mask_label: str | None = None
     provenance: dict[str, Any] = field(default_factory=dict)
@@ -216,10 +218,13 @@ def build_stratum_artifact(
     n_cases: int,
     n_controls: int,
     sample_id_hashes: list[str] | None = None,
+    missing_policy: dict[str, Any],
 ) -> ScoreCovarianceArtifact:
     """Fit the null once and compute a GeneScore for every gene.
 
     ``genes`` maps gene -> (imputed_matrix, raw_dosage, variant_keys).
+    ``missing_policy`` states how the imputed matrices were filled (see
+    :class:`ScoreCovarianceArtifact`); it is recorded, not inferred.
     """
     null_model = fit_stratum_null(phenotype, covariates, trait_type)
     gene_scores: dict[str, GeneScore] = {}
@@ -236,6 +241,7 @@ def build_stratum_artifact(
         n_controls=int(n_controls),
         sample_id_hashes=list(sample_id_hashes or []),
         genes=gene_scores,
+        missing_policy=dict(missing_policy),
     )
 
 
