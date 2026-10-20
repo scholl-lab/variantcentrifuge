@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-20
+
+Remediates all 45 M1–M6 audit issues (#127–#171) and the follow-up six-part review (#172).
+
+### Added
+
+- Optional subcommands (`run`, `report`, `validate-config`, `build-pm5`, `download-references`) alongside the legacy CLI (#168).
+- `--from-tsv` mode to rescore, recompute inheritance and regenerate reports without VCF extraction (#169).
+- HTML report variant pinning, reviewer notes, "Pinned Only" filter and TSV/JSON shortlist export (#170).
+- Analysis profiles (`--profile`, `--save-profile`, `--list-profiles`) and a validated `--sample-sheet` adapter (#171).
+- Explicit `|type:numeric` / `|type:categorical` scoring variable types with a fixed type order; ambiguous untyped variables now fail with a clear error instead of being guessed.
+- Coverage workflow and README badge; `make build-ext` builds the Davies C extension, and `make test*` run in parallel.
+
+### Fixed
+
+- Security: sandboxed stats expressions, HTML autoescaping and URL checks, Excel formula-injection off, private PM5 downloads with SHA-256 checks and timeouts, pseudonym map and sample IDs kept out of `run_summary.json`, HTML, metadata and `Inheritance_Details` under `--pseudonymize` (#127–#131).
+- Docker: Jackson 2.22.4 in the rebuilt snpEff/SnpSift jars (CVE-2026-89407, -89425, -68497, -91776, -91777, -19032, -83557).
+- Statistics: missing genotypes excluded from burden/Fisher denominators, haploid dosages, ALT-major dosage flip, covariate-adjusted ACAT-V, Haldane-corrected Fisher OR/CI, Firth step-halving, Davies fallbacks, cases removed from controls when both definitions match (#137–#145).
+- Inheritance: X PAR1/PAR2 treated as autosomal using the configured GRCh37/GRCh38 build, PLINK chr26 as MT, stricter de novo calls, symmetric compound-het pairing, scalar/vectorized X-linked parity (#139).
+- Pipeline: final filtering kept in the main process, inheritance computed for large in-memory data, chunked output fails on schema mismatch instead of misaligning columns, stage soft dependencies ordered, checkpoint hardening, stage failures propagated (#147–#153, #157).
+- Wheels ship the HTML report templates and assets; shipped scoring configs reduce multi-value cells (`reduce:max`); the COAST custom scoring template loads.
+
+### Changed
+
+- Production modules split to ≤ 600 lines each with an empty `.loc-allowlist` (#154, #157); strict mypy, Python 3.10–3.13 CI matrix, `uv.lock` and PyPI Trusted Publishing (#164–#166).
+
 ## [0.17.16] - 2026-10-16
 
 ### Fixed
