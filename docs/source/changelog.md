@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `--filters` is checked before extraction: SnpSift runs once on the VCF's real header plus one synthetic record; unquoted string literals, unknown INFO fields and syntax errors now fail immediately with SnpSift's message and the expression (#211). Skipped with `--late-filtering`.
 - `--temp-dir DIR` moves the workspace temp dir, Python temp files, `sort -T` and SnpSift's JVM tmp dir off `/tmp`/output; default unchanged (#213).
 - Start-up free-space preflight on temp and output filesystems: fails below the compressed input VCF size, warns below 30x (#213).
 

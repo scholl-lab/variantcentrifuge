@@ -61,3 +61,12 @@ def test_preflight_warns_then_passes(tmp_path, monkeypatch, caplog):
 
 def test_preflight_skips_missing_input(tmp_path):
     check_free_space(tmp_path / "nope.vcf.gz", [tmp_path])
+
+
+def test_cleanup_restores_process_tempdir(tmp_path):
+    before = (tempfile.tempdir, os.environ.get("TMPDIR"), os.environ.get("VC_TEMP_DIR"))
+    ws = Workspace(tmp_path / "out", "b", tmp_path / "scratch")
+    assert os.environ["VC_TEMP_DIR"] == str(ws.temp_dir)
+    ws.cleanup()
+    assert (tempfile.tempdir, os.environ.get("TMPDIR"), os.environ.get("VC_TEMP_DIR")) == before
+    os.close(tempfile.mkstemp()[0])  # would raise if tempdir pointed at the deleted dir

@@ -364,6 +364,13 @@ def main(argv: list[str] | None = None) -> int:
             validate_mandatory_parameters(reference, filters, fields)
             validate_required_tools(args, cfg, logger)
             validate_vcf_file(args.vcf_file, logger)
+            if filters and not cfg.get("late_filtering"):
+                from .filter_dry_run import validate_snpsift_filter
+                from .filters import _java_tmp_flags, _snpsift_memory_flag
+
+                validate_snpsift_filter(
+                    args.vcf_file, filters, [_snpsift_memory_flag(cfg), *_java_tmp_flags()]
+                )
         if args.phenotype_file:
             validate_phenotype_file(
                 args.phenotype_file,

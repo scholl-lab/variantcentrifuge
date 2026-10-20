@@ -324,3 +324,9 @@ on the temp and output filesystems: it stops if free space is below the compress
 warns below 30x. Point `--temp-dir` at a larger filesystem (for example node-local scratch) to
 move all bulk temporary files there. Chunk BED files are always written under
 `<output-dir>/intermediate/chunks`, never next to `--regions-bed`.
+
+## "INFO field 'X' not found in VCF header" from --filters
+
+`--filters` is validated before extraction by running SnpSift on the VCF header plus one synthetic record
+(no real record is read). String literals must be quoted (`ANN[0].IMPACT = 'HIGH'`) and every field
+must be declared in the header. A field reached only behind a short-circuited `&`/`|` is not detected.

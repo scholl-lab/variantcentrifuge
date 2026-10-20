@@ -71,8 +71,15 @@ class Workspace:
         self.temp_dir = Path(
             tempfile.mkdtemp(prefix="vc_temp_", dir=temp_base or self.intermediate_dir)
         )
+        self._prev_tmp: tuple | None = None
         if temp_base:
-            # bulk mkstemp callers, child processes (TMPDIR) and SnpSift's JVM follow --temp-dir
+            # bulk mkstemp callers, child processes (TMPDIR) and SnpSift's JVM follow --temp-dir;
+            # cleanup() restores the previous values so later mkstemp calls do not hit a deleted dir
+            self._prev_tmp = (
+                tempfile.tempdir,
+                os.environ.get("TMPDIR"),
+                os.environ.get("VC_TEMP_DIR"),
+            )
             tempfile.tempdir = os.environ["TMPDIR"] = os.environ["VC_TEMP_DIR"] = str(self.temp_dir)
 
         logger.debug(f"Workspace initialized: output_dir={self.output_dir}")
@@ -181,6 +188,14 @@ class Workspace:
         keep_intermediates : bool
             If False, also remove intermediate directory
         """
+        if self._prev_tmp:
+            tempfile.tempdir = self._prev_tmp[0]
+            for key, val in zip(("TMPDIR", "VC_TEMP_DIR"), self._prev_tmp[1:], strict=True):
+                if val is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = val
+            self._prev_tmp = None
         try:
             # Always clean temp directory
             if self.temp_dir.exists():
