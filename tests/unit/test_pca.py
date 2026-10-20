@@ -18,6 +18,7 @@ Covers:
 from __future__ import annotations
 
 import textwrap
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -346,3 +347,96 @@ class TestMergePcaCovariates:
         pca = np.zeros((2, 3))
         _, names = merge_pca_covariates(pca, ["PC1", "PC2", "PC3"], cov, ["COVAR1"])
         assert names == ["COVAR1", "PC1", "PC2", "PC3"]
+
+
+# ---------------------------------------------------------------------------
+# Delimiter/header detection without csv.Sniffer and NaN validation (#221)
+# ---------------------------------------------------------------------------
+
+# Built like akt 0.3.3 stdout (vcfpca.cpp: ``cout << name << "\t" << P.row(j) << endl``):
+# no header, one tab after the ID, then Eigen's "%g" values right-aligned to the
+# row's widest value and joined by single spaces. Synthetic sample IDs.
+AKT_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "pca" / "akt_pca_stdout.txt"
+AKT_FIXTURE_SAMPLES = ["SYN_S001", "SYN_S002", "SYN_S003", "SYN_S004"]
+AKT_FIXTURE_VALUES = np.array(
+    [
+        [1.26366, -0.243411, 1.4646, 0.0123457, -3.5e-05],
+        [-0.512, 2.03114, -1.10982, 0.4, 0.987654],
+        [0.0889, -0.00731, 0.25, -2.71828, 1.0],
+        [-1.5, 0.333333, -0.666667, 0.125, -0.0625],
+    ]
+)
+
+
+@pytest.mark.unit
+class TestPcaDelimiterAndValidation:
+    def test_fixture_is_raw_akt_layout(self):
+        first = AKT_FIXTURE.read_text().splitlines()[0]
+        assert first.startswith("SYN_S001\t  ")  # tab after ID, then space padding
+        assert "\t" not in first.split("\t", 1)[1]
+
+    def test_raw_akt_stdout_loads_correct_values(self):
+        matrix, names = load_pca_file(str(AKT_FIXTURE), AKT_FIXTURE_SAMPLES, n_components=5)
+        assert names == ["PC1", "PC2", "PC3", "PC4", "PC5"]
+        np.testing.assert_array_equal(matrix, AKT_FIXTURE_VALUES)
+
+    def test_raw_akt_stdout_as_eigenvec_and_tsv(self, tmp_path):
+        for name in ("pca.eigenvec", "pca.tsv", "pca"):
+            p = tmp_path / name
+            p.write_bytes(AKT_FIXTURE.read_bytes())
+            matrix, _ = load_pca_file(str(p), AKT_FIXTURE_SAMPLES[::-1], n_components=5)
+            np.testing.assert_array_equal(matrix, AKT_FIXTURE_VALUES[::-1])
+
+    def test_akt_with_header_mixed_whitespace(self, tmp_path):
+        content = "sample_id\t PC1   PC2\nSYN_A\t  0.5 -1.25\nSYN_B\t -0.75     2\n"
+        p = _write(tmp_path, "pca.txt", content)
+        matrix, _ = load_pca_file(p, ["SYN_B", "SYN_A"], n_components=2)
+        np.testing.assert_array_equal(matrix, [[-0.75, 2.0], [0.5, -1.25]])
+
+    def test_plink_header_space_separated_txt(self, tmp_path):
+        content = "#FID IID PC1 PC2\nF1 SYN_A 0.1 0.2\nF2 SYN_B 0.3 0.4\n"
+        p = _write(tmp_path, "plink.txt", content)
+        matrix, _ = load_pca_file(p, ["SYN_A", "SYN_B"], n_components=2)
+        np.testing.assert_array_equal(matrix, [[0.1, 0.2], [0.3, 0.4]])
+
+    def test_csv_with_header(self, tmp_path):
+        p = _write(tmp_path, "pca.csv", "sample_id,PC1,PC2\nSYN_A,0.1,0.2\nSYN_B,0.3,0.4\n")
+        matrix, _ = load_pca_file(p, ["SYN_A", "SYN_B"], n_components=2)
+        np.testing.assert_array_equal(matrix, [[0.1, 0.2], [0.3, 0.4]])
+
+    def test_csv_without_header(self, tmp_path):
+        p = _write(tmp_path, "pca.csv", "SYN_A,0.1,0.2\nSYN_B,0.3,0.4\n")
+        matrix, _ = load_pca_file(p, ["SYN_A", "SYN_B"], n_components=2)
+        np.testing.assert_array_equal(matrix, [[0.1, 0.2], [0.3, 0.4]])
+
+    def test_non_numeric_cell_raises_value_error(self, tmp_path):
+        content = "SYN_A 0.1 0.2\nSYN_B 0.3 oops\nSYN_C NA 0.6\n"
+        p = _write(tmp_path, "pca.txt", content)
+        with pytest.raises(ValueError) as exc:
+            load_pca_file(p, ["SYN_A", "SYN_B", "SYN_C"], n_components=2)
+        msg = str(exc.value)
+        assert p in msg
+        assert "2 NaN/non-numeric" in msg
+        assert "PC1" in msg and "PC2" in msg
+        assert "SYN_B" in msg and "SYN_C" in msg and "SYN_A" not in msg
+        assert "delimiter" in msg
+
+    def test_ragged_row_raises_value_error(self, tmp_path):
+        p = _write(tmp_path, "pca.txt", "SYN_A 0.1 0.2\nSYN_B 0.3\n")
+        with pytest.raises(ValueError, match="SYN_B"):
+            load_pca_file(p, ["SYN_A", "SYN_B"], n_components=2)
+
+    def test_nan_only_in_unused_component_is_ignored(self, tmp_path):
+        p = _write(tmp_path, "pca.txt", "SYN_A 0.1 0.2\nSYN_B 0.3 NA\n")
+        matrix, _ = load_pca_file(p, ["SYN_A", "SYN_B"], n_components=1)
+        np.testing.assert_array_equal(matrix, [[0.1], [0.3]])
+
+    def test_no_pc_columns_raises_value_error(self, tmp_path):
+        p = _write(tmp_path, "pca.txt", "SYN_A\nSYN_B\n")
+        with pytest.raises(ValueError, match="no principal component columns"):
+            load_pca_file(p, ["SYN_A", "SYN_B"], n_components=2)
+
+    def test_non_positive_n_components_raises(self, tmp_path):
+        p = _write(tmp_path, "akt_out.txt", AKT_CONTENT)
+        with pytest.raises(ValueError, match="n_components"):
+            load_pca_file(p, VCF_SAMPLES, n_components=0)
