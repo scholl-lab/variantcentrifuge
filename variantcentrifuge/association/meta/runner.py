@@ -293,9 +293,13 @@ def add_acat_masks(df: pd.DataFrame, correction: str, suffix: str = "") -> pd.Da
     in_family = df[df[q_col].notna()]
     acat: dict[str, float] = {}
     for gene, rows in in_family.groupby("gene", sort=False):
-        ps = rows[p_col].astype(float).tolist()
+        # cauchy_combination drops p == 1 (COAST relies on that); R ACAT (yaowuliu/ACAT
+        # e737d7d, R/ACAT.R) keeps it, where float tan(-pi/2) ~ -1.6e16 pulls the result
+        # toward 1. Cap below 1 to match R: a null mask must not vanish from the ACAT.
+        ps = np.minimum(rows[p_col].to_numpy(dtype=float), 1.0 - 1e-15)
         combined = cauchy_combination(ps)
-        acat[gene] = 1.0 if combined is None else combined  # None: every p was 1
+        if combined is not None:
+            acat[gene] = combined
     q = apply_correction(np.array(list(acat.values()), dtype=float), correction) if acat else ()
     df[f"acat_masks_p{suffix}"] = df["gene"].map(acat)
     df[f"acat_masks_q{suffix}"] = df["gene"].map(dict(zip(acat, q, strict=True)))
