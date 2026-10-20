@@ -52,14 +52,42 @@ def _multiallelic_error(gene_df: pd.DataFrame, row: int, column: str) -> ValueEr
     )
 
 
+_MISSING_TOKENS = {"", "na", "nan", "none", "null"}
+_GT_DOSAGE = {"0/0": 0.0, "0/1": 1.0, "1/0": 1.0, "1/1": 2.0, "0": 0.0, "1": 1.0}
+
+
+def _classify_gt_vocabulary(vocab: pd.Series) -> tuple[np.ndarray, ...]:
+    """Classify each distinct GT string once (dosage, ploidy, flags; see caller)."""
+    s_str = vocab.str.strip()
+    gen_miss = s_str.str.lower().isin(_MISSING_TOKENS).to_numpy()
+    gt = s_str.str.replace("|", "/", regex=False)
+    diploid = ~gen_miss & gt.str.contains("/", regex=False).to_numpy()
+    dosage = gt.map(_GT_DOSAGE).to_numpy(dtype=np.float64)
+    haploid = gt.isin({"0", "1", "."}).to_numpy()
+    # #175: allele indices >1 (0/2, 1/2, 2/2, 2, ...) cannot be encoded as additive
+    # ALT dosage; flag them so the caller rejects instead of silently recoding.
+    alleles = gt.str.extract(r"^([0-9]+)(?:/([0-9]+))?$").astype(float)
+    multi = (alleles > 1).any(axis=1).to_numpy()
+    return dosage, np.where(haploid, 1.0, 2.0), gen_miss, diploid, haploid, multi
+
+
+def _column_strings(column: pd.Series) -> np.ndarray:
+    """Normalise one GT column to strings exactly as the per-column parser did."""
+    if isinstance(column.dtype, pd.CategoricalDtype):
+        column = column.astype(object)
+    return np.asarray(column.fillna("").astype(str), dtype=object)
+
+
 def _vectorized_parse_gt_columns(
     gene_df: pd.DataFrame,
     gt_columns_list: list[str],
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Parse all GT columns to a dosage matrix and ploidy matrix using vectorized pandas operations.
+    """Parse all GT columns to a dosage matrix and ploidy matrix.
 
-    Replaces the nested iterrows() loop with column-wise vectorized string matching.
-    Produces identical results to per-cell parse_gt_to_dosage() calls.
+    Every cell is normalised like ``Series.fillna("").astype(str)`` per column
+    (categoricals via their object values); the distinct strings are factorised
+    and classified once, and the per-string results are mapped back by code
+    instead of running ~15 pandas string operations per sample column (#176).
 
     Parameters
     ----------
@@ -82,61 +110,31 @@ def _vectorized_parse_gt_columns(
     """
     n_variants = len(gene_df)
     n_samples = len(gt_columns_list)
-    raw = np.full((n_variants, n_samples), np.nan, dtype=np.float64)
-    ploidy = np.full((n_variants, n_samples), 2.0, dtype=np.float64)
-    row_has_haploid = np.zeros(n_variants, dtype=bool)
-    row_has_diploid = np.zeros(n_variants, dtype=bool)
-    generic_missing = np.zeros((n_variants, n_samples), dtype=bool)
-
-    for s_idx, col in enumerate(gt_columns_list):
-        s_obj = (
-            gene_df[col].astype(object)
-            if isinstance(gene_df[col].dtype, pd.CategoricalDtype)
-            else gene_df[col]
+    block = gene_df[gt_columns_list]
+    codes, vocab = pd.factorize(block.to_numpy(dtype=object).ravel(order="F"))
+    if all(isinstance(v, str) for v in vocab):
+        codes[codes < 0] = len(vocab)  # NA cells normalise to ""
+        vocab = [*vocab, ""]
+    else:
+        # Non-string values (numbers, bytes): factorize equates 1, 1.0 and True, and the
+        # column-wise fillna may downcast numeric objects, so normalise per column.
+        codes, vocab = pd.factorize(
+            np.concatenate([_column_strings(block.iloc[:, j]) for j in range(n_samples)])
         )
-        s_str = s_obj.fillna("").astype(str).str.strip()
-        is_gen_miss = s_obj.isna() | s_str.str.lower().isin({"", "na", "nan", "none", "null"})
-        generic_missing[:, s_idx] = is_gen_miss.to_numpy()
+    dosage, plo, gen_miss, diploid, haploid, multi = _classify_gt_vocabulary(
+        pd.Series(vocab, dtype=object)
+    )
 
-        gt_series = s_str.str.replace("|", "/", regex=False)
-        m_diploid = ~is_gen_miss & gt_series.str.contains("/", regex=False)
-        row_has_diploid |= m_diploid.to_numpy()
+    if multi.any():
+        first = int(np.flatnonzero(multi[codes])[0])  # column-major: first sample, then row
+        raise _multiallelic_error(gene_df, first % n_variants, gt_columns_list[first // n_variants])
 
-        # Standard diploid genotypes — exact match for speed
-        m_00 = gt_series == "0/0"
-        m_01 = (gt_series == "0/1") | (gt_series == "1/0")
-        m_11 = gt_series == "1/1"
-
-        # Haploid genotypes
-        m_hap_0 = gt_series == "0"
-        m_hap_1 = gt_series == "1"
-        m_hap_miss = gt_series == "."
-        row_has_haploid |= (m_hap_0 | m_hap_1 | m_hap_miss).to_numpy()
-
-        # #175: allele indices >1 (0/2, 1/2, 2/2, 2, ...) cannot be encoded as additive
-        # ALT dosage; reject them instead of silently recoding.
-        alleles = gt_series.str.extract(r"^([0-9]+)(?:/([0-9]+))?$").astype(float)
-        multi = (alleles > 1).any(axis=1).to_numpy()
-        if multi.any():
-            raise _multiallelic_error(gene_df, int(np.flatnonzero(multi)[0]), col)
-
-        # Assign dosages and ploidy
-        col_dosage = np.full(n_variants, np.nan, dtype=np.float64)
-        col_ploidy = np.full(n_variants, 2.0, dtype=np.float64)
-
-        col_dosage[m_00.values] = 0.0
-        col_dosage[m_01.values] = 1.0
-        col_dosage[m_11.values] = 2.0
-
-        col_dosage[m_hap_0.values] = 0.0
-        col_dosage[m_hap_1.values] = 1.0
-
-        col_ploidy[m_hap_0.values] = 1.0
-        col_ploidy[m_hap_1.values] = 1.0
-        col_ploidy[m_hap_miss.values] = 1.0
-
-        raw[:, s_idx] = col_dosage
-        ploidy[:, s_idx] = col_ploidy
+    shape = (n_variants, n_samples)
+    raw = dosage[codes].reshape(shape, order="F")
+    ploidy = plo[codes].reshape(shape, order="F")
+    generic_missing = gen_miss[codes].reshape(shape, order="F")
+    row_has_haploid = haploid[codes].reshape(shape, order="F").any(axis=1)
+    row_has_diploid = diploid[codes].reshape(shape, order="F").any(axis=1)
 
     haploid_rows = row_has_haploid & ~row_has_diploid
     if haploid_rows.any():
