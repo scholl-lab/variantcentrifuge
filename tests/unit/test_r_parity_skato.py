@@ -1,6 +1,6 @@
 """SKAT-O and cohort meta-analysis parity with R SKAT 2.2.5 / MetaSKAT 0.90.
 
-Reference values were computed once in R on the GCKD-like COAST fixtures
+Reference values were computed once in R on the SYNTH-like COAST fixtures
 (tests/fixtures/coast_golden), so CI needs no R:
 
 - SKAT-O: ``SKAT(Z * w, SKAT_Null_Model(y ~ 1, out_type="D", Adjustment=FALSE),
@@ -33,18 +33,18 @@ from variantcentrifuge.association.meta.combine import meta_burden, meta_skat, m
 FIXTURES = pathlib.Path(__file__).parent.parent / "fixtures" / "coast_golden"
 
 R_SKATO = {
-    "gckd_g1_all_categories": 0.09329995,
-    "gckd_g2_partial_bmv_ptv": 0.8489676,
-    "gckd_g4_all_bmv": 0.6787618,
-    "gckd_g5_tied_scores": 0.6141558,
+    "synth_g1_all_categories": 0.09329995,
+    "synth_g2_partial_bmv_ptv": 0.8489676,
+    "synth_g4_all_bmv": 0.6787618,
+    "synth_g5_tied_scores": 0.6141558,
 }
 
 # (burden, SKAT, SKAT-O) from MetaSKAT_wZ
 R_META = {
-    "gckd_g1_all_categories": (1.3761737103e-01, 3.1161925411e-01, 2.3617350562e-01),
-    "gckd_g2_partial_bmv_ptv": (7.6297853584e-01, 5.4366614891e-01, 7.3596155732e-01),
-    "gckd_g4_all_bmv": (4.8314675831e-01, 6.9478618897e-01, 6.9090889947e-01),
-    "gckd_g5_tied_scores": (5.6578349890e-01, 9.0507617940e-01, 7.7532596445e-01),
+    "synth_g1_all_categories": (1.3761737103e-01, 3.1161925411e-01, 2.3617350562e-01),
+    "synth_g2_partial_bmv_ptv": (7.6297853584e-01, 5.4366614891e-01, 7.3596155732e-01),
+    "synth_g4_all_bmv": (4.8314675831e-01, 6.9478618897e-01, 6.9090889947e-01),
+    "synth_g5_tied_scores": (5.6578349890e-01, 9.0507617940e-01, 7.7532596445e-01),
 }
 
 
@@ -109,17 +109,17 @@ def test_meta_matches_metaskat(name: str) -> None:
 # R SKAT 2.2.5 / MetaSKAT 0.90, values printed with %.10e. Full meta of all three
 # strata in R: burden 1.4694995906e-01, SKAT-O 2.5123531457e-01 (g1).
 R_META_LOO = {  # drop -> (burden, SKAT-O)
-    "gckd_g1_all_categories": {
+    "synth_g1_all_categories": {
         "s0": (2.3895780219e-01, 3.6888167586e-01),
         "s1": (5.5628031673e-01, 5.9624053551e-01),
         "s2": (1.9540758946e-02, 2.1222307002e-02),
     },
-    "gckd_g2_partial_bmv_ptv": {
+    "synth_g2_partial_bmv_ptv": {
         "s0": (5.8783323555e-01, 2.0415400546e-01),
         "s1": (8.1646649749e-01, 8.5148618302e-01),
         "s2": (3.4676349023e-01, 5.1331509752e-01),
     },
-    "gckd_g4_all_bmv": {
+    "synth_g4_all_bmv": {
         "s0": (9.3927842992e-01, 6.3667919535e-01),
         "s1": (2.4664680070e-01, 3.9314885468e-01),
         "s2": (4.7527030293e-01, 6.8166110432e-01),
