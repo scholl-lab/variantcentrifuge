@@ -367,12 +367,13 @@ def extract_fields_snpsift(
     field_list = fields.strip().split()
     logger.debug(f"Field list to extract: {field_list}")
 
-    from .filters import _snpsift_memory_flag
+    from .filters import _java_tmp_flags, _snpsift_memory_flag
 
     xmx = _snpsift_memory_flag(cfg)
     cmd = [
         "SnpSift",
         xmx,
+        *_java_tmp_flags(),
         "extractFields",
         "-s",
         snpsift_sep,  # SnpSift subfield separator

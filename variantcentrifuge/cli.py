@@ -154,6 +154,11 @@ def create_parser() -> argparse.ArgumentParser:
         help="Directory to store intermediate and final output files",
         default="output",
     )
+    io_group.add_argument(
+        "--temp-dir",
+        help="Directory for bulk temporary files (default: <output-dir>/intermediate). "
+        "Use a large scratch filesystem when /tmp or the output disk is small.",
+    )
     io_group.add_argument("--xlsx", action="store_true", help="Convert final result to Excel")
     io_group.add_argument(
         "--keep-intermediates",
@@ -469,6 +474,7 @@ def main(argv: list[str] | None = None) -> int:
             cfg.get("ped_file") or getattr(args, "ped", None) or getattr(args, "ped_file", None)
         )
         refactored_args.xlsx = cfg.get("xlsx", False)
+        refactored_args.temp_dir = getattr(args, "temp_dir", None) or cfg.get("temp_dir")
         refactored_args.keep_intermediates = cfg.get("keep_intermediates", False)
         refactored_args.archive_results = cfg.get("archive_results", False)
         refactored_args.gzip_intermediates = cfg.get("gzip_intermediates", True)

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--temp-dir DIR` moves the workspace temp dir, Python temp files, `sort -T` and SnpSift's JVM tmp dir off `/tmp`/output; default unchanged (#213).
+- Start-up free-space preflight on temp and output filesystems: fails below the compressed input VCF size, warns below 30x (#213).
+
 ## [0.22.1] - 2026-10-20
 
 ### Changed

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Literal
 
 from .config import load_config, normalize_annotation_config
+from .disk_preflight import check_free_space
 from .gene_bed import normalize_genes
 from .pipeline_core.context import PipelineContext
 from .pipeline_core.runner import PipelineRunner
@@ -407,7 +408,9 @@ def run_pipeline(args: argparse.Namespace) -> None:
 
     # Create workspace
     output_dir = getattr(args, "output_dir", "output")
-    workspace = Workspace(Path(output_dir), base_name)
+    temp_dir = getattr(args, "temp_dir", None)
+    workspace = Workspace(Path(output_dir), base_name, Path(temp_dir) if temp_dir else None)
+    check_free_space(vcf_file, [workspace.temp_dir, workspace.output_dir])
 
     # Load initial config - it might be passed as args.config or already merged
     logger.debug(

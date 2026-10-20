@@ -315,3 +315,12 @@ When you run multiple tests (e.g., `--association-tests fisher,logistic_burden,s
 No. Since v0.15.0, the default backend for both SKAT (`--skat-backend python`) and COAST (`--coast-backend python`) is a pure Python implementation using numpy and scipy. No R or rpy2 installation is required.
 
 The legacy R SKAT backend (`--skat-backend r`) is deprecated as of v0.15.0 and scheduled for removal. COAST operates in Python (`--coast-backend python`). Migrate to the default Python backends — the p-values agree within 10% on real data. See the [Association Testing Guide](guides/association_testing.md) for backend migration details.
+
+## "No space left on device" during a run
+
+Large multi-sample VCFs expand roughly 16x (uncompressed VCF) and 10x (extracted TSV) relative to the
+`.vcf.gz` (measured on the 1000 Genomes test fixture). At start-up VariantCentrifuge checks free space
+on the temp and output filesystems: it stops if free space is below the compressed input size and
+warns below 30x. Point `--temp-dir` at a larger filesystem (for example node-local scratch) to
+move all bulk temporary files there. Chunk BED files are always written under
+`<output-dir>/intermediate/chunks`, never next to `--regions-bed`.

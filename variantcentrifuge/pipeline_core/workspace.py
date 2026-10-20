@@ -8,6 +8,7 @@ during a pipeline run, including output, intermediate, and temporary files.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import tempfile
 from datetime import datetime
@@ -41,7 +42,7 @@ class Workspace:
         Directory for temporary files (auto-cleaned)
     """
 
-    def __init__(self, output_dir: Path, base_name: str):
+    def __init__(self, output_dir: Path, base_name: str, temp_base: Path | None = None):
         """Initialize workspace with output directory and base name.
 
         Parameters
@@ -50,6 +51,10 @@ class Workspace:
             Main output directory path
         base_name : str
             Base name for generated files
+        temp_base : Path, optional
+            Create the temp directory here instead of under ``intermediate/``
+            (``--temp-dir``). Also becomes the default for Python ``tempfile``
+            and the SnpSift JVM tmp dir.
         """
         self.output_dir = Path(output_dir)
         self.base_name = base_name
@@ -61,7 +66,14 @@ class Workspace:
         self.intermediate_dir.mkdir(exist_ok=True)
 
         # Create temp directory
-        self.temp_dir = Path(tempfile.mkdtemp(prefix="vc_temp_", dir=self.intermediate_dir))
+        if temp_base:
+            Path(temp_base).mkdir(parents=True, exist_ok=True)
+        self.temp_dir = Path(
+            tempfile.mkdtemp(prefix="vc_temp_", dir=temp_base or self.intermediate_dir)
+        )
+        if temp_base:
+            # bulk mkstemp callers, child processes (TMPDIR) and SnpSift's JVM follow --temp-dir
+            tempfile.tempdir = os.environ["TMPDIR"] = os.environ["VC_TEMP_DIR"] = str(self.temp_dir)
 
         logger.debug(f"Workspace initialized: output_dir={self.output_dir}")
         logger.debug(f"Temporary directory: {self.temp_dir}")
