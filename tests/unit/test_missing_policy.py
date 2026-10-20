@@ -400,3 +400,12 @@ def test_v2_artifact_without_valid_policy_refused(tmp_path, policy):
     meta_file.write_text(json.dumps(meta))
     with pytest.raises(ValueError, match="missing_policy"):
         load_artifact(path)
+
+
+@pytest.mark.parametrize(
+    "value", [-0.1, 1.5, True, float("nan")], ids=["neg", "gt1", "bool", "nan"]
+)
+@pytest.mark.parametrize("key", ["missing_site_threshold", "missing_sample_threshold"])
+def test_json_thresholds_range_checked(key, value):
+    with pytest.raises(ValueError, match=f"'{key}' .*between 0 and 1"):
+        _assoc_config({"association": {key: value}})

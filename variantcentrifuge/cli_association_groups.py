@@ -6,13 +6,13 @@ import argparse
 
 
 def _fraction(value: str) -> float:
-    """Argparse type: a float in [0, 1]."""
+    """Argparse type: a float in [0, 1] (same rule as the JSON config check)."""
     try:
         f = float(value)
     except ValueError:
-        raise argparse.ArgumentTypeError(f"{value!r} is not a number") from None
-    if not 0.0 <= f <= 1.0:
-        raise argparse.ArgumentTypeError(f"{value!r} is not between 0 and 1")
+        f = float("nan")
+    if not 0.0 <= f <= 1.0:  # NaN fails too
+        raise argparse.ArgumentTypeError(f"must be a number between 0 and 1, got {value!r}")
     return f
 
 

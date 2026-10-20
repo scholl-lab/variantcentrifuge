@@ -141,6 +141,12 @@ def _validate_association_config_dict(d: dict) -> None:
         if d[key] is not None and not isinstance(d[key], dict):
             errors.append(f"'{key}' must be an object, got {type(d[key]).__name__}")
 
+    for key in ("missing_site_threshold", "missing_sample_threshold"):
+        v = d.get(key, 0.0)
+        # bool is an int; NaN fails both comparisons
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0.0 <= v <= 1.0:
+            errors.append(f"'{key}' must be a number between 0 and 1, got {v!r}")
+
     if "missing_as_ref" in d and not isinstance(d["missing_as_ref"], bool):
         got = type(d["missing_as_ref"]).__name__
         errors.append(f"'missing_as_ref' must be a boolean, got {got}")
