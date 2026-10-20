@@ -65,6 +65,7 @@ _BUILDER_RESULT_KEYS = (
     "cadd_scores",
     "revel_scores",
     "variant_effects",
+    "variant_keep_mask",
     "n_variants_qc",  # kept after the matrix is discarded: the stage reports it (#200)
 )
 
@@ -77,6 +78,7 @@ _PER_GENE_MATRIX_PAYLOAD_KEYS = (
     "cadd_scores",
     "revel_scores",
     "variant_effects",
+    "variant_keep_mask",
 )
 
 

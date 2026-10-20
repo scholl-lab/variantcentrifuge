@@ -97,6 +97,26 @@ def test_empty_gene_reports_zero_qc_variants():
     assert _builder(df.iloc[0:0], samples)()["n_variants_qc"] == 0
 
 
+def test_variant_keep_mask_aligns_with_gene_df_rows_and_is_discarded():
+    from variantcentrifuge.association.engine_workers import (
+        _apply_builder_result_to_gene_data,
+        _discard_per_gene_matrix_payload,
+    )
+
+    df, samples = _sparse_gene()
+    df.loc[2, samples] = ["0/1" if i < 6 else "0/0" for i in range(N)]  # fully called row
+    res = _builder(df, samples)()
+    mask = res["variant_keep_mask"]
+    assert mask.dtype == bool and mask.tolist() == [False, False, True, False]
+    assert res["n_variants_qc"] == int(mask.sum())
+    assert _builder(df.iloc[0:0], samples)()["variant_keep_mask"].shape == (0,)
+    gene_data: dict = {}
+    _apply_builder_result_to_gene_data(gene_data, res, "G1")
+    assert gene_data["variant_keep_mask"] is mask
+    _discard_per_gene_matrix_payload(gene_data)
+    assert "variant_keep_mask" not in gene_data and gene_data["n_variants_qc"] == 1
+
+
 # -- stage reporting ----------------------------------------------------------------
 
 

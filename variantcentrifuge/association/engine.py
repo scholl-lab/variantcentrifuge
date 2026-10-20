@@ -13,6 +13,7 @@ from typing import Any
 
 import pandas as pd
 
+from variantcentrifuge.association.acat_o import compute_acat_o
 from variantcentrifuge.association.base import AssociationConfig, AssociationTest, TestResult
 from variantcentrifuge.association.correction import apply_correction
 from variantcentrifuge.association.engine_workers import (
@@ -174,101 +175,8 @@ class AssociationEngine:
         results_by_test: dict[str, dict[str, TestResult]],
         sorted_data: list[dict[str, Any]],
     ) -> dict[str, TestResult]:
-        """
-        Compute ACAT-O omnibus p-value per gene by combining all primary test p-values.
-
-        This is a post-loop meta-test: it runs after all primary tests have completed
-        for all genes and combines their p-values via Cauchy combination. ACAT-O is
-        NOT in the test registry and does NOT run in the per-gene loop.
-
-        Parameters
-        ----------
-        results_by_test : dict
-            results_by_test[test_name][gene] = TestResult from the per-gene loop.
-        sorted_data : list of dict
-            Gene burden data in sorted (alphabetical by gene) order.
-
-        Returns
-        -------
-        dict mapping gene -> TestResult for acat_o
-            Empty dict if no primary tests produced any p-values.
-        """
-        # Lazy import to avoid circular imports at module load time
-        from variantcentrifuge.association.tests.acat import compute_acat_o
-
-        if not self._tests:
-            logger.warning("_compute_acat_o: no primary tests registered; ACAT-O skipped.")
-            return {}
-
-        acat_results: dict[str, TestResult] = {}
-        n_valid = 0
-        n_total = len(sorted_data)
-
-        for gene_data in sorted_data:
-            gene = gene_data.get("GENE", "")
-
-            # Collect p-values from all primary tests for this gene
-            test_pvals: dict[str, float | None] = {}
-            for test_name in self._tests:
-                res = results_by_test[test_name].get(gene)
-                test_pvals[test_name] = res.p_value if res is not None else None
-
-            # Include ACAT-V if available from SKAT test (Phase 25)
-            # ACAT-V is NOT a primary test — it's a per-variant score test stored
-            # in the SKAT result's extra dict. Adding it to the ACAT-O omnibus
-            # improves power for sparse signals.
-            for test_name in self._tests:
-                res = results_by_test[test_name].get(gene)
-                if res is not None and "acat_v_p" in res.extra:
-                    acat_v_p = res.extra["acat_v_p"]
-                    if acat_v_p is not None:
-                        test_pvals["acat_v"] = acat_v_p
-                    break  # only one SKAT test can produce ACAT-V
-
-            # Combine p-values via Cauchy formula
-            acat_p = compute_acat_o(test_pvals)
-
-            # Find the first primary test result with data for metadata
-            first_result = next(
-                (
-                    results_by_test[tn][gene]
-                    for tn in self._tests
-                    if results_by_test[tn].get(gene) is not None
-                ),
-                None,
-            )
-            if first_result is None:
-                continue
-
-            acat_result = TestResult(
-                gene=gene,
-                test_name="acat_o",
-                p_value=acat_p,
-                corrected_p_value=None,  # populated later by FDR pass
-                effect_size=None,
-                ci_lower=None,
-                ci_upper=None,
-                se=None,
-                n_cases=first_result.n_cases,
-                n_controls=first_result.n_controls,
-                n_variants=first_result.n_variants,
-            )
-            acat_results[gene] = acat_result
-
-            if acat_p is not None:
-                n_valid += 1
-
-        logger.info(
-            f"ACAT-O: {n_valid}/{n_total} genes with valid omnibus p-values "
-            f"({n_total - n_valid} skipped — no valid primary test p-values)"
-        )
-
-        if n_valid == 0:
-            logger.warning(
-                "ACAT-O: no genes had valid p-values. Check that primary tests produced results."
-            )
-
-        return acat_results
+        """Compute ACAT-O per gene; see ``association.acat_o.compute_acat_o``."""
+        return compute_acat_o(results_by_test, sorted_data, list(self._tests))
 
     def run_all(self, gene_burden_data: list[dict[str, Any]]) -> pd.DataFrame:
         """
