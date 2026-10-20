@@ -365,17 +365,14 @@ class TestArgumentParserArchitecture:
 
         import variantcentrifuge.cli as cli_module
 
-        # Get both function sources
-        create_parser_source = inspect.getsource(cli_module.create_parser)
+        # Groups may be built by helpers create_parser() calls, so inspect the parser it returns.
+        group_titles = {g.title for g in cli_module.create_parser()._action_groups}
         main_source = inspect.getsource(cli_module.main)
 
-        # Argument groups should exist in create_parser
         expected_groups = ["General Options", "Performance & Processing", "Miscellaneous Options"]
 
         for group in expected_groups:
-            assert f'"{group}"' in create_parser_source, (
-                f"Argument group '{group}' should be in create_parser()"
-            )
+            assert group in group_titles, f"Argument group '{group}' should be in create_parser()"
 
             # But NOT in main() (except for status_parser which is different)
             if group != "General Options":  # status_parser might have general options

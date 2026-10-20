@@ -9,6 +9,11 @@ from types import SimpleNamespace
 import pytest
 from packaging import requirements
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
+
 ROOT = Path(__file__).resolve().parents[2]
 MAVEN_NAMESPACE = {"m": "http://maven.apache.org/POM/4.0.0"}
 
@@ -509,8 +514,14 @@ def test_production_package_and_image_gate_both_default_json_configs() -> None:
     pyproject = _text("pyproject.toml")
     conda_build = _docker_stage(_text("Dockerfile"), "conda-build")
 
-    assert "[tool.setuptools.package-data]" in pyproject
-    assert 'variantcentrifuge = ["config.json", "default_stats_config.json"]' in pyproject
+    package_data = tomllib.loads(pyproject)["tool"]["setuptools"]["package-data"]
+    patterns = package_data["variantcentrifuge"]
+    # Both default JSON configs plus the HTML report template/assets must ship in wheels.
+    for required in ("config.json", "default_stats_config.json", "templates/*.html", "assets/*/*"):
+        assert required in patterns
+    package_root = ROOT / "variantcentrifuge"
+    for pattern in patterns:
+        assert any(package_root.glob(pattern)), f"package-data pattern matches nothing: {pattern}"
     assert "from variantcentrifuge.config import load_config" in conda_build
     assert 'package_dir.is_relative_to(Path("/opt/conda"))' in conda_build
     assert 'not package_dir.is_relative_to(Path("/tmp/src"))' in conda_build
