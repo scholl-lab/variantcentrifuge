@@ -189,8 +189,9 @@ All samples are kept, with one log line naming the reason, when a feature reads 
 outside the analysed set: inheritance/pedigree analysis (`--ped`, `--sample-sheet`,
 `--inheritance-mode`, or a scoring model that needs inheritance),
 `--append-extra-sample-fields`, `--no-replacement`, `--igv`, `--pseudonymize`, a tumor/normal
-sample index, statistics (use `--no-stats` to allow subsetting), `--late-filtering` or
-`--final-filter`. `--no-sample-subset` turns
+sample index, a custom `--stats-config` (its expressions may read per-sample columns),
+`--late-filtering` or `--final-filter`. The default statistics do not block subsetting: their
+`total_samples` still reports the VCF sample count. `--no-sample-subset` turns
 subsetting off.
 
 ### Multi-Allelic Sites Must Be Split
@@ -329,7 +330,8 @@ SAMPLE_002  -0.0305   0.0118    -0.0042
 Files ending in `.csv` are comma-separated. Other files are split on tabs when every line
 has the same number of tabs and no value is space-padded (so IDs and header names may contain
 spaces); otherwise on any mix of tabs and spaces. Headerless files whose first two columns could
-both be sample IDs (e.g. numeric PLINK FID = IID) need a header line. Duplicate sample rows are
+both match some VCF samples need a header line; column 1 equal to column 2 on every row is read
+as PLINK `FID IID`. Duplicate sample rows are
 an error. A header is assumed when the first value
 after the sample ID column(s) is not a number. Any NaN or non-numeric value in a used PC column
 stops the run with an error naming the file, the columns and example samples.

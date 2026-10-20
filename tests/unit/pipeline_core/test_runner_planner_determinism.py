@@ -82,3 +82,27 @@ def test_level_ties_sorted_by_name_after_runtime():
 def test_circular_dependency_still_raises():
     with pytest.raises(ValueError, match="Circular"):
         create_execution_plan([_S("a", {"b"}), _S("b", {"a"})])
+
+
+@pytest.mark.unit
+def test_pseudonymization_runs_after_every_stage_reading_original_sample_ids():
+    """Codex FX-2: pseudonymizing early gave a case carrier proband_variant_count 0."""
+    import argparse
+
+    from variantcentrifuge.pipeline import build_pipeline_stages
+    from variantcentrifuge.pipeline_core.runner_planner import ordered_stages
+
+    args = argparse.Namespace(
+        config={"ped_file": "x.ped", "inheritance_mode": "simple", "pca": "p.eigenvec"},
+        perform_association=True, perform_gene_burden=True, ped_file="x.ped",
+        inheritance_mode="simple", threads=1, pseudonymize=True,
+        scoring_config_path="s", late_filtering=True,
+    )  # fmt: skip
+    names = [s.name for s in ordered_stages(build_pipeline_stages(args))]
+    readers = {
+        "variant_analysis", "association_analysis", "gene_burden_analysis",
+        "statistics_generation", "inheritance_analysis", "variant_scoring",
+        "pca_computation", "final_filtering",
+    }  # fmt: skip
+    assert readers <= set(names)
+    assert all(names.index(r) < names.index("pseudonymization") for r in readers), names

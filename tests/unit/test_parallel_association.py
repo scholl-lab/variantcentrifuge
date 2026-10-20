@@ -538,12 +538,13 @@ def test_gc_unfrozen_after_parallel_run_and_on_error() -> None:
     """fork_map freezes the GC for the fork and always unfreezes it (#212)."""
     import gc
 
+    frozen = gc.get_freeze_count()  # objects frozen elsewhere stay frozen (may die meanwhile)
     genes = [_real_gene(f"G{i:02d}", i) for i in range(6)]
     engine = AssociationEngine.from_names(
         ["logistic_burden"], AssociationConfig(association_workers=2)
     )
     engine.run_all(genes)
-    assert gc.get_freeze_count() == 0
+    assert gc.get_freeze_count() <= frozen
 
     def boom() -> dict[str, Any]:
         raise RuntimeError("worker failure")
@@ -552,4 +553,25 @@ def test_gc_unfrozen_after_parallel_run_and_on_error() -> None:
     genes[-1]["_genotype_matrix_builder"] = boom
     with pytest.raises(RuntimeError, match="worker failure"):
         engine.run_all(genes)
-    assert gc.get_freeze_count() == 0
+    assert gc.get_freeze_count() <= frozen
+
+
+def _range_len(state: Any, lo: int, hi: int) -> int:
+    return hi - lo
+
+
+@pytest.mark.unit
+def test_fork_map_keeps_a_callers_gc_freeze() -> None:
+    """Codex FX-4: fork_map must not unfreeze objects the caller froze."""
+    import gc
+
+    from variantcentrifuge.association.engine_workers import fork_map
+
+    gc.freeze()
+    try:
+        before = gc.get_freeze_count()
+        assert before > 0
+        assert sum(r for _, _, r in fork_map(_range_len, None, 10, 2)) == 10
+        assert before - 100 < gc.get_freeze_count() <= before  # frozen objects may be freed
+    finally:
+        gc.unfreeze()

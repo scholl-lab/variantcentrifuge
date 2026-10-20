@@ -214,9 +214,12 @@ def fork_map(
     bounds = [(lo, min(lo + chunk, n_items)) for lo in range(0, n_items, chunk)]
     _FORK_STATE = (task, state)
     # Frozen objects are skipped by the children's GC, so its passes don't dirty (copy) the
-    # parent's heap pages that the workers share copy-on-write.
-    gc.collect()
-    gc.freeze()
+    # parent's heap pages that the workers share copy-on-write. Skipped when the caller
+    # already froze objects: unfreeze() would undo the caller's freeze too.
+    freeze = gc.get_freeze_count() == 0
+    if freeze:
+        gc.collect()
+        gc.freeze()
     try:
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=workers,
@@ -227,7 +230,8 @@ def fork_map(
                 yield lo, hi, result
     finally:
         _FORK_STATE = None
-        gc.unfreeze()
+        if freeze:
+            gc.unfreeze()
 
 
 def fork_available() -> bool:

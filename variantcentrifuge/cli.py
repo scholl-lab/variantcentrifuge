@@ -3,6 +3,7 @@
 import argparse
 import datetime
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -368,16 +369,18 @@ def main(argv: list[str] | None = None) -> int:
                 from .filter_dry_run import validate_snpsift_filter
                 from .filters import _java_tmp_flags, _snpsift_memory_flag
 
+                # Same effective temp dir as the pipeline (CLI, else config file); the
+                # workspace that creates it is not set up yet.
+                tmp = getattr(args, "temp_dir", None) or cfg.get("temp_dir")
+                if tmp:
+                    os.makedirs(tmp, exist_ok=True)
                 validate_snpsift_filter(
                     args.vcf_file,
                     filters,
-                    [
-                        _snpsift_memory_flag(cfg),
-                        *_java_tmp_flags({"temp_dir": getattr(args, "temp_dir", None)}),
-                    ],
+                    [_snpsift_memory_flag(cfg), *_java_tmp_flags({"temp_dir": tmp})],
                     # the exception rescue adds INFO/RAW_FILTER before filtering
                     ["RAW_FILTER"] if cfg.get("filter_exception_file") else [],
-                    getattr(args, "temp_dir", None),
+                    tmp,
                 )
         if args.phenotype_file:
             validate_phenotype_file(
