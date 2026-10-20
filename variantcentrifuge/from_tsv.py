@@ -96,12 +96,15 @@ def _collect_metadata_samples(cfg: dict[str, Any]) -> list[str]:
     for list_key, file_key in (
         ("case_samples", "case_samples_file"),
         ("control_samples", "control_samples_file"),
+        ("vcf_samples", None),
     ):
         samples_val = cfg.get(list_key)
+        if isinstance(samples_val, str):
+            samples_val = [s.strip() for s in samples_val.split(",") if s.strip()]
         if isinstance(samples_val, list):
             for sid in samples_val:
                 _add(str(sid))
-        file_val = cfg.get(file_key)
+        file_val = cfg.get(file_key) if file_key else None
         if file_val and os.path.isfile(str(file_val)):
             with open(str(file_val), encoding="utf-8") as fh:
                 for line in fh:
@@ -201,12 +204,18 @@ def validate_from_tsv_args_and_file(
         raise ValueError(msg)
 
     # Reject VCF-only flags
+    gene_name = getattr(args, "gene_name", None)
     vcf_only_checks = [
         ("--bcftools-prefilter", getattr(args, "bcftools_prefilter", None)),
         ("--split-snpeff-lines", getattr(args, "split_snpeff_lines", None)),
         ("--transcript-list", getattr(args, "transcript_list", None)),
         ("--transcript-file", getattr(args, "transcript_file", None)),
-        ("--intervals", getattr(args, "intervals", None)),
+        (
+            "-g/--gene-name",
+            None if not gene_name or str(gene_name).strip().lower() == "all" else gene_name,
+        ),
+        ("-G/--gene-file", getattr(args, "gene_file", None)),
+        ("--regions-bed", getattr(args, "regions_bed", None)),
     ]
     for flag_name, val in vcf_only_checks:
         if val:
@@ -227,7 +236,7 @@ def validate_from_tsv_args_and_file(
 
     open_fn = gzip.open if str(tsv_path).endswith(".gz") else open
     try:
-        with open_fn(tsv_path, "rt", encoding="utf-8") as fh:
+        with open_fn(tsv_path, "rt", encoding="utf-8-sig") as fh:
             header_line = fh.readline().rstrip("\r\n")
     except Exception as e:
         raise ValueError(f"Failed to read --from-tsv file '{tsv_path}': {e}") from e
@@ -256,6 +265,7 @@ def validate_from_tsv_args_and_file(
         sep="\t",
         dtype=str,
         keep_default_na=False,
+        encoding="utf-8-sig",
         compression=cast(Any, compression),
     )
 
@@ -277,6 +287,7 @@ def prepare_from_tsv_context(context: PipelineContext) -> PipelineContext:
         sep="\t",
         dtype=str,
         keep_default_na=False,
+        encoding="utf-8-sig",
         compression=cast(Any, compression),
     )
 

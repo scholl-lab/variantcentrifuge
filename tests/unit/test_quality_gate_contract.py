@@ -172,11 +172,20 @@ def test_mypy_configuration_disallows_untyped_defs() -> None:
 
 
 def test_coverage_report_defines_fail_under() -> None:
-    """Coverage configuration must enforce a positive coverage floor of 75%."""
+    """Coverage configuration must enforce a positive coverage floor of at least 75%."""
     pyproject = _load_pyproject()
     fail_under = pyproject["tool"]["coverage"]["report"]["fail_under"]
 
-    assert fail_under == 75
+    assert fail_under >= 75
+
+
+def test_package_data_includes_html_report_templates_and_assets() -> None:
+    """Setuptools package-data must bundle HTML templates and JS/CSS report assets."""
+    pyproject = _load_pyproject()
+    package_data = pyproject["tool"]["setuptools"]["package-data"]["variantcentrifuge"]
+
+    assert "templates/*.html" in package_data
+    assert "assets/*/*" in package_data
 
 
 def test_pre_commit_contains_mypy_hook() -> None:

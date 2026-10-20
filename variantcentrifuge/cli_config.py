@@ -49,6 +49,7 @@ def resolve_presets_and_tumor_normal(
     if not raw_presets and isinstance(preset_val, (list, str)):
         raw_presets = preset_val
     raw_presets = [raw_presets] if isinstance(raw_presets, str) else (raw_presets or [])
+    raw_presets = [p.strip() for item in raw_presets for p in str(item).split(",") if p.strip()]
     raw_final_filter = (
         args.final_filter if args.final_filter is not None else cfg.get("final_filter")
     )

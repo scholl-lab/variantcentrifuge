@@ -1,3 +1,2 @@
 # Existing production modules above the 600-line budget.
 # Each ceiling is the current physical line count: these files may shrink, not grow.
-

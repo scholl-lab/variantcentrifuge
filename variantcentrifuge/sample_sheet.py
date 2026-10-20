@@ -129,6 +129,11 @@ def load_sample_sheet(file_path: str | Path) -> SampleSheetData:
     any_hpo_present = False
 
     for row_idx, raw_row in enumerate(reader, start=2):
+        if None in raw_row:
+            raise ValueError(
+                f"Line {row_idx} of {path} has more columns than the header; "
+                "quote fields containing commas or separate HPO terms with ';'"
+            )
         row = {(k.strip() if k else ""): (v.strip() if v else "") for k, v in raw_row.items()}
         sample_id = row.get("sample_id", "").strip()
         if not sample_id:
@@ -192,10 +197,8 @@ def load_sample_sheet(file_path: str | Path) -> SampleSheetData:
 def validate_sample_sheet_conflicts(
     args: argparse.Namespace,
     cfg: dict[str, Any],
-    parser: argparse.ArgumentParser | None = None,
 ) -> None:
     """Validate --sample-sheet and ensure it does not conflict with legacy metadata flags."""
-    del parser
     sample_sheet = getattr(args, "sample_sheet", None) or cfg.get("sample_sheet")
     if not sample_sheet:
         return

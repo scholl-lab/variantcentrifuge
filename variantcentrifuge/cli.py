@@ -16,10 +16,8 @@ from .cli_config import (
 from .cli_parser_groups import (
     add_analysis_argument_groups,
     add_operational_argument_groups,
+    add_performance_and_advanced_argument_groups,
     get_curated_examples_epilog,
-    populate_advanced_group,
-    populate_misc_group,
-    populate_performance_group,
 )
 from .cli_subcommands import (
     dispatch_subcommand,
@@ -71,6 +69,7 @@ class _VariantCentrifugeArgumentParser(argparse.ArgumentParser):
                 or getattr(parsed, "list_checkpoints", False)
                 or getattr(parsed, "show_checkpoint_status", False)
                 or getattr(parsed, "list_profiles", False)
+                or getattr(parsed, "list_field_profiles", False)
                 or bool(getattr(parsed, "save_profile", None))
             )
         ):
@@ -175,18 +174,7 @@ def create_parser() -> argparse.ArgumentParser:
 
     add_analysis_argument_groups(parser)
     add_operational_argument_groups(parser)
-
-    # Performance & Processing
-    performance_group = parser.add_argument_group("Performance & Processing")
-    populate_performance_group(performance_group)
-
-    # Advanced & Tuning Options
-    advanced_group = parser.add_argument_group("Advanced & Tuning Options")
-    populate_advanced_group(advanced_group)
-
-    # Miscellaneous Options
-    misc_group = parser.add_argument_group("Miscellaneous Options")
-    populate_misc_group(misc_group)
+    add_performance_and_advanced_argument_groups(parser)
 
     return parser
 
@@ -224,9 +212,7 @@ def main(argv: list[str] | None = None) -> int:
     if subcmd is not None and subcmd != "run":
         return dispatch_subcommand(subcmd, remaining)
 
-    effective_argv = (
-        remaining if subcmd == "run" else (list(sys.argv[1:]) if argv is None else list(argv))
-    )
+    effective_argv = remaining
 
     start_time: datetime.datetime = datetime.datetime.now()
     logger.info(f"Run started at {start_time.isoformat()}")
@@ -236,6 +222,13 @@ def main(argv: list[str] | None = None) -> int:
     handle_early_utility_options(effective_argv, load_config_fn=load_config)
 
     args: argparse.Namespace = parser.parse_args(effective_argv)
+    if (
+        args.show_vcf_annotations
+        or args.list_field_profiles
+        or args.list_profiles
+        or args.show_checkpoint_status
+    ):
+        parser.error("write utility flags in full, e.g. --show-vcf-annotations")
 
     # Configure logging level
     log_level_map = {
@@ -287,7 +280,14 @@ def main(argv: list[str] | None = None) -> int:
         logger.error(str(e))
         return 1
 
-    base_fields_to_extract = cfg.get("fields_to_extract")
+    if getattr(args, "save_profile", None):
+        try:
+            save_analysis_profile(cfg, args.save_profile)
+        except Exception as e:
+            logger.error(f"Failed to save profile: {e}")
+            return 1
+        if not args.vcf_file and not getattr(args, "from_tsv", None):
+            return 0
 
     # Resolve field profile (expands {{fragment:param}} templates in presets,
     # merges profile-specific fields and hidden columns into config)
@@ -304,24 +304,8 @@ def main(argv: list[str] | None = None) -> int:
     # Synchronize configuration and CLI options so listing and validation see effective settings
     sync_cli_and_config(args, cfg)
 
-    if getattr(args, "save_profile", None):
-        if args.case_phenotypes is not None:
-            cfg["case_phenotypes"] = args.case_phenotypes
-        if args.control_phenotypes is not None:
-            cfg["control_phenotypes"] = args.control_phenotypes
-        try:
-            save_analysis_profile(
-                cfg,
-                args.save_profile,
-                base_fields_to_extract=(
-                    str(base_fields_to_extract) if base_fields_to_extract is not None else None
-                ),
-            )
-        except Exception as e:
-            logger.error(f"Failed to save profile: {e}")
-            return 1
-        if not args.vcf_file and not getattr(args, "from_tsv", None):
-            return 0
+    if getattr(args, "interactive_resume", False):
+        validate_cli_args(args, cfg, parser=parser)
 
     # Handle information and interactive options that exit early (e.g. --list-stages, --list-checkpoints)
     handle_listing_and_resume_options(args, cfg)
@@ -341,7 +325,7 @@ def main(argv: list[str] | None = None) -> int:
             validate_sample_sheet_conflicts,
         )
 
-        validate_sample_sheet_conflicts(args, cfg, parser=parser)
+        validate_sample_sheet_conflicts(args, cfg)
         sample_sheet_path = getattr(args, "sample_sheet", None) or cfg.get("sample_sheet")
         if sample_sheet_path:
             sheet_data = load_sample_sheet(str(sample_sheet_path))
@@ -463,11 +447,6 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     # Validate pseudonymization arguments
-    if cfg["pseudonymize"] and not cfg.get("pseudonymize_table"):
-        logger.error("--pseudonymize-table is required when using --pseudonymize")
-        sys.exit(1)
-    if args.pseudonymize_table and not cfg["pseudonymize"]:
-        logger.warning("--pseudonymize-table provided without --pseudonymize. It will be ignored.")
     if args.pseudonymize_ped and not cfg["pseudonymize"]:
         logger.warning("--pseudonymize-ped provided without --pseudonymize. It will be ignored.")
     if args.pseudonymize_pattern and args.pseudonymize_schema != "custom":

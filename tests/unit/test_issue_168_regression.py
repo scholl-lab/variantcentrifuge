@@ -261,6 +261,60 @@ class TestReportAndValidateConfigSubcommands:
         assert rc == 0
         assert forwarded == [["--download", "--output", out_json]]
 
+        # download-references automatically prepends --download when not already present
+        forwarded.clear()
+        rc_dl = main(["download-references", "--output", out_json])
+        assert rc_dl == 0
+        assert forwarded == [["--download", "--output", out_json]]
+
+    def test_validate_config_respects_configured_phenotype_columns(self, tmp_path: Path) -> None:
+        """validate-config uses phenotype_sample_column and phenotype_value_column from config."""
+        pheno_file = tmp_path / "custom_pheno.tsv"
+        pheno_file.write_text("SampleID\tHPO_Terms\nS1\tHP:0001250\n", encoding="utf-8")
+        cfg_file = tmp_path / "custom_pheno_cfg.json"
+        cfg_file.write_text(
+            json.dumps(
+                {
+                    "phenotype_file": str(pheno_file),
+                    "phenotype_sample_column": "SampleID",
+                    "phenotype_value_column": "HPO_Terms",
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert main(["validate-config", "-c", str(cfg_file)]) == 0
+
+    def test_comma_separated_preset_in_run_and_resolve(self) -> None:
+        """--preset rare,coding splits on commas in resolve_presets_and_tumor_normal."""
+        from variantcentrifuge.cli_config import resolve_presets_and_tumor_normal
+        from variantcentrifuge.config import load_config
+        from variantcentrifuge.field_profile import resolve_profile
+
+        parser = cli_module.create_parser()
+        args = parser.parse_args(["-v", "in.vcf.gz", "--preset", "rare,coding"])
+        cfg = load_config()
+        resolve_profile(cfg)
+        filt, _ = resolve_presets_and_tumor_normal(args, cfg, None)
+        assert filt is not None
+        assert cfg["preset"] == ["rare", "coding"]
+
+    def test_shortened_utility_flags_and_interactive_resume_validation(
+        self, tmp_path: Path
+    ) -> None:
+        """Shortened utility flags and unvalidated interactive-resume abort via parser.error."""
+        with pytest.raises(SystemExit) as exc_short_vcf:
+            main(["-v", "x.vcf.gz", "--preset", "rare", "--show-vcf"])
+        assert exc_short_vcf.value.code == 2
+
+        with pytest.raises(SystemExit) as exc_short_prof:
+            main(["--list-prof"])
+        assert exc_short_prof.value.code == 2
+
+        # --interactive-resume without --enable-checkpoint fails validation with code 2
+        with pytest.raises(SystemExit) as exc_ir_no_ckpt:
+            main(["-v", "x.vcf.gz", "--interactive-resume", "--output-dir", str(tmp_path)])
+        assert exc_ir_no_ckpt.value.code == 2
+
 
 class TestVerifiedReferenceDownloads:
     """Verify reference download integrity, atomic publication, and provenance."""

@@ -59,7 +59,7 @@ where = ["."]
 include = ["variantcentrifuge*"]
 
 [tool.setuptools.package-data]
-variantcentrifuge = ["config.json", "default_stats_config.json"]
+variantcentrifuge = ["config.json", "default_stats_config.json", "templates/*.html", "assets/*/*"]
 
 [tool.pytest.ini_options]
 # Test file patterns

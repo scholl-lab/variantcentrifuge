@@ -105,7 +105,7 @@ def run_report_subcommand(argv: list[str]) -> int:
         out_dir = Path(parsed.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        do_html = parsed.html_report or (not parsed.html_report and not parsed.xlsx)
+        do_html = parsed.html_report or not parsed.xlsx
         do_xlsx = parsed.xlsx
 
         if do_html:
@@ -182,12 +182,12 @@ def create_validate_config_subcommand_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--phenotype-sample-column",
-        default="sample_id",
+        default=None,
         help="Sample column name in phenotype file (default: sample_id).",
     )
     parser.add_argument(
         "--phenotype-value-column",
-        default="phenotype",
+        default=None,
         help="Phenotype value column name in phenotype file (default: phenotype).",
     )
     parser.add_argument(
@@ -285,10 +285,15 @@ def dispatch_subcommand(subcommand: str, sub_argv: list[str]) -> int:
         return run_report_subcommand(sub_argv)
     if subcommand == "validate-config":
         return run_validate_config_subcommand(sub_argv)
-    if subcommand in ("build-pm5", "download-references"):
+    if subcommand == "build-pm5":
         from . import build_pm5_lookup
 
         return build_pm5_lookup.main(sub_argv)
+    if subcommand == "download-references":
+        from . import build_pm5_lookup
+
+        dl_argv = list(sub_argv) if "--download" in sub_argv else ["--download", *sub_argv]
+        return build_pm5_lookup.main(dl_argv)
     raise ValueError(f"Unsupported subcommand: {subcommand}")
 
 
@@ -306,7 +311,7 @@ def handle_early_utility_options(
         ap_parser = argparse.ArgumentParser(description="List analysis profiles")
         ap_parser.add_argument("--list-profiles", action="store_true")
         ap_parser.add_argument("-c", "--config", help="Path to configuration file", default=None)
-        ap_args = ap_parser.parse_args(effective_argv)
+        ap_args, _ = ap_parser.parse_known_args(effective_argv)
 
         ap_cfg = load_config_fn(ap_args.config)
         analysis_profiles = list_analysis_profiles(ap_cfg)
@@ -326,7 +331,7 @@ def handle_early_utility_options(
         profile_parser.add_argument(
             "-c", "--config", help="Path to configuration file", default=None
         )
-        profile_args = profile_parser.parse_args(effective_argv)
+        profile_args, _ = profile_parser.parse_known_args(effective_argv)
 
         profile_cfg = load_config_fn(profile_args.config)
         profiles = list_profiles(profile_cfg)
@@ -382,7 +387,7 @@ def handle_early_utility_options(
         status_parser.add_argument(
             "-c", "--config", help="Path to configuration file", default=None
         )
-        status_args = status_parser.parse_args(effective_argv)
+        status_args, _ = status_parser.parse_known_args(effective_argv)
 
         log_level_map = {
             "DEBUG": logging.DEBUG,

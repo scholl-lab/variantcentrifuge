@@ -209,6 +209,7 @@ def test_save_profile_roundtrip_excludes_sample_specific_paths(tmp_path: Path) -
         assert forbidden_key not in saved_data
 
     # Reusable settings are preserved
+    assert "threads" not in saved_data
     assert saved_data["inheritance_mode"] == "full"
     assert saved_data["final_filter"] == "pathogenicity_score >= 20"
     assert saved_data["scoring_config_path"] == str(scoring_dir)
@@ -216,6 +217,25 @@ def test_save_profile_roundtrip_excludes_sample_specific_paths(tmp_path: Path) -
     assert saved_data["html_report"] is True
     assert saved_data["xlsx"] is True
     assert saved_data["case_phenotypes"] == "HP:0001250"
+
+    # Saving profile with --ped alone (no --inheritance-mode or --threads) must not bake
+    # machine-derived threads or family-derived calculate_inheritance into the profile
+    minimal_profile = tmp_path / "minimal_profile.json"
+    rc_min = cli.main(
+        [
+            "--ped",
+            str(tmp_path / "family.ped"),
+            "--preset",
+            "rare",
+            "--save-profile",
+            str(minimal_profile),
+        ]
+    )
+    assert rc_min == 0
+    min_data = json.loads(minimal_profile.read_text(encoding="utf-8"))
+    assert "threads" not in min_data
+    assert "calculate_inheritance" not in min_data
+    assert min_data["preset"] == ["rare"]
 
     # Validate the saved profile via validate-config subcommand
     rc_val = cli.main(["validate-config", "--profile", str(saved_profile)])
@@ -264,6 +284,15 @@ def test_sample_sheet_validation_errors(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="Malformed HPO term 'HP:abc'"):
         load_sample_sheet(str(bad_hpo))
+
+    # 4b. Extra unquoted comma in CSV sample sheet raises ValueError instead of AttributeError
+    extra_cols_csv = tmp_path / "extra_cols.csv"
+    extra_cols_csv.write_text(
+        "sample_id,family_id,sex,affected_status,hpo_terms\nS1,FAM1,1,2,HP:0001250,HP:0000252\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="more columns than the header"):
+        load_sample_sheet(str(extra_cols_csv))
 
     # 5. Conflict with --ped, --phenotype-file, or --bam-mapping-file
     valid_sheet = tmp_path / "valid.tsv"

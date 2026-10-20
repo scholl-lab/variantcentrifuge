@@ -238,7 +238,6 @@ def apply_analysis_profile(
 def save_analysis_profile(
     cfg: dict[str, Any],
     save_path: str | Path,
-    base_fields_to_extract: str | None = None,
 ) -> Path:
     """Save reusable analysis configuration to a JSON profile file atomically."""
     target = Path(save_path)
@@ -249,9 +248,6 @@ def save_analysis_profile(
         if key.startswith("_") or key in EXCLUDED_PROFILE_KEYS or val is None:
             continue
         export_data[key] = copy.deepcopy(val)
-
-    if base_fields_to_extract is not None:
-        export_data["fields_to_extract"] = base_fields_to_extract
 
     fd, tmp_name = tempfile.mkstemp(
         prefix=f".{target.name}.",

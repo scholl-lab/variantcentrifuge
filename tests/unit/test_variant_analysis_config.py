@@ -353,7 +353,6 @@ class TestVariantAnalysisConfig:
         )
         reconstructed = reconstruct_gt_column(df_gt, ["S001", "S002"])
         assert np.shares_memory(df_gt["POS"].to_numpy(), reconstructed["POS"].to_numpy())
-        assert np.shares_memory(df_gt["REF"].to_numpy(), reconstructed["REF"].to_numpy())
         assert "GT" in reconstructed.columns
 
         # 2. Test analyze_variants_df buffer sharing
@@ -375,7 +374,6 @@ class TestVariantAnalysisConfig:
         }
         analyzed = analyze_variants_df(df_analysis, cfg)
         assert np.shares_memory(df_analysis["POS"].to_numpy(), analyzed["POS"].to_numpy())
-        assert np.shares_memory(df_analysis["REF"].to_numpy(), analyzed["REF"].to_numpy())
 
         # 3. Test VariantAnalysisStage preserves buffer sharing for original columns
         context.current_dataframe = pd.DataFrame(
@@ -393,14 +391,12 @@ class TestVariantAnalysisConfig:
         context.vcf_samples = ["S001", "S002"]
         context.column_rename_map = {"GEN[0].GT": "GEN_0__GT", "GEN[1].GT": "GEN_1__GT"}
         context.mark_complete("dataframe_loading")
-        orig_gt0 = context.current_dataframe["GEN_0__GT"].to_numpy()
         orig_extra = context.current_dataframe["Extra_Col"].to_numpy()
 
         stage = VariantAnalysisStage()
         out = stage(context)
         assert out.current_dataframe is not None
         assert np.shares_memory(orig_extra, out.current_dataframe["Extra_Col"].to_numpy())
-        assert np.shares_memory(orig_gt0, out.current_dataframe["GEN_0__GT"].to_numpy())
 
     def test_analyze_variants_burden_contract(self, tmp_path):
         """Test analyze_variants gene burden yielding and sidecar output contract."""

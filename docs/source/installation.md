@@ -141,6 +141,7 @@ services:
 ```
 
 ```bash
+mkdir -p ./data ./snpeff_data
 HOST_UID="$(id -u)" HOST_GID="$(id -g)" docker compose run --rm variantcentrifuge \
   --gene-name BRCA1 --vcf-file /data/input.vcf.gz --output-file /data/output.tsv
 ```
@@ -183,9 +184,12 @@ apptainer run docker://ghcr.io/scholl-lab/variantcentrifuge:latest --version
 For production workflows and strict reproducibility, pin the image by its immutable SHA-256 digest:
 
 ```bash
+# Look up the immutable digest for a release tag
+docker buildx imagetools inspect ghcr.io/scholl-lab/variantcentrifuge:v0.16.0
+
 # Execute with immutable digest pinning
 apptainer run \
-  docker://ghcr.io/scholl-lab/variantcentrifuge@sha256:d8b2e53b47c6a96fbf1888a108a9adab92b774e1e8b79ce41b63309a63286f91 \
+  docker://ghcr.io/scholl-lab/variantcentrifuge@sha256:<digest> \
   --version
 ```
 

@@ -131,10 +131,9 @@ def test_pseudonymized_metadata_tsv_and_excel_omits_reidentification(tmp_path: P
     excel_sheets = pd.read_excel(excel_path, sheet_name=None)
     assert "Metadata" in excel_sheets, "Metadata sheet must be present in Excel report"
     excel_meta = excel_sheets["Metadata"]
+    excel_text = excel_meta.to_csv(index=False)
     for orig_id in orig_samples:
-        for col in excel_meta.columns:
-            for cell in excel_meta[col].astype(str):
-                assert orig_id not in cell, f"Leaked {orig_id} in cell: {cell}"
+        assert orig_id not in excel_text
 
     # Verify internal config was not mutated
     assert context.config["sample_list"] == ",".join(orig_samples)

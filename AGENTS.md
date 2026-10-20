@@ -46,7 +46,7 @@ make ci-check      # local lint, LOC, format, type, and fast-test gate
 make format        # apply Ruff formatting and safe lint fixes
 ```
 
-Use `uv pip install -e ".[dev]"` for a development install. Add or change
+Use `make install-dev` for a development install. Add or change
 dependencies in `pyproject.toml`; do not hand-edit generated environment state.
 
 ## Safety and working rules
@@ -95,7 +95,7 @@ it touches:
   swallowing, or untested error/edge paths within the touched responsibility.
 - **Test real behavior, not mocks:** Write deterministic unit tests covering
   normal execution, boundary inputs, and failure modes. Inspect uncovered lines
-  with `pytest --cov=variantcentrifuge --cov-report=term-missing`.
+  with `pytest --cov=variantcentrifuge --cov-report=term-missing --cov-fail-under=0`.
 - **Never lower the coverage floor:** `[tool.coverage.report] fail_under` in
   `pyproject.toml` is a minimum ratchet that may only move upward toward `90%+`.
 
@@ -117,7 +117,7 @@ line budget. Tests are exempt.
 ## Definition of done
 
 Before claiming a code change is ready, run the narrowest relevant test with
-coverage (`--cov=variantcentrifuge --cov-report=term-missing`) to verify the
+coverage (`--cov=variantcentrifuge --cov-report=term-missing --cov-fail-under=0`) to verify the
 touched module is thoroughly covered (striving for `>90%`), and then run
 `make ci-check` when feasible. Inspect `git diff --check` and `git status
 --short`. Report any checks you could not run and why.

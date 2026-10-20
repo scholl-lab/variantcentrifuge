@@ -491,3 +491,43 @@ class TestFromTsvSchemasCompressionAndEdgeCases:
         prepare_from_tsv_context(ctx)
         assert ctx.vcf_samples == ["S1"]
         assert ctx.extracted_tsv is not None and ctx.extracted_tsv.is_file()
+
+        # Comma-separated string in case_samples / control_samples / vcf_samples
+        df_anon2 = pd.DataFrame(
+            {
+                "CHROM": ["1"],
+                "POS": ["10"],
+                "REF": ["A"],
+                "ALT": ["T"],
+                "GENE": ["G1"],
+                "GEN[0].GT": ["0/1"],
+                "GEN[1].GT": ["0/0"],
+            }
+        )
+        assert infer_and_validate_from_tsv_samples(
+            df_anon2, {"case_samples": "S1", "control_samples": "S2"}
+        ) == ["S1", "S2"]
+        assert infer_and_validate_from_tsv_samples(df_anon2, {"vcf_samples": "S1,S2"}) == [
+            "S1",
+            "S2",
+        ]
+
+        # Reject -g/--gene-name (when not 'all'), -G/--gene-file, and --regions-bed in --from-tsv
+        for bad_kwargs, match_flag in (
+            ({"gene_name": "BRCA1"}, "-g/--gene-name"),
+            ({"gene_file": "genes.txt"}, "-G/--gene-file"),
+            ({"regions_bed": "regions.bed"}, "--regions-bed"),
+        ):
+            with pytest.raises(ValueError, match=match_flag):
+                validate_from_tsv_args_and_file(
+                    argparse.Namespace(from_tsv=str(tsv_sub), **bad_kwargs), {}
+                )
+
+        # UTF-8 BOM TSV header is accepted
+        bom_tsv = tmp_path / "bom.tsv"
+        bom_tsv.write_bytes(
+            b"\xef\xbb\xbfCHROM\tPOS\tREF\tALT\tGENE\tGT\nchr1\t10\tA\tG\tBRCA1\tS1(0/1)\n"
+        )
+        assert validate_from_tsv_args_and_file(argparse.Namespace(from_tsv=str(bom_tsv)), {}) == [
+            "S1"
+        ]
