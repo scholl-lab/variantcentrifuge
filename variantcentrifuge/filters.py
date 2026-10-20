@@ -79,6 +79,12 @@ def _snpsift_memory_flag(cfg: dict[str, Any]) -> str:
     return f"-Xmx{memory_gb}g"
 
 
+def _java_tmp_flags(cfg: dict[str, Any]) -> list[str]:
+    """JVM flag sending SnpSift temp files to ``--temp-dir`` (empty when unset)."""
+    tmp = cfg.get("temp_dir")
+    return [f"-Djava.io.tmpdir={tmp}"] if tmp else []
+
+
 SNPSIFT_FATAL_STDERR_PATTERNS = (
     "mismatched input",
     "missing ')'",
@@ -384,7 +390,7 @@ def extract_variants(vcf_file: str, bed_file: str, cfg: dict[str, Any], output_f
 
     _, bcftools_threads = _resolve_filter_threads(cfg)
 
-    tmp_fd, tmp_vcf = tempfile.mkstemp(suffix=".vcf.gz")
+    tmp_fd, tmp_vcf = tempfile.mkstemp(suffix=".vcf.gz", dir=cfg.get("temp_dir"))
     os.close(tmp_fd)
     try:
         cmd = ["bcftools", "view"]
@@ -492,7 +498,7 @@ def apply_snpsift_filter(
     )
 
     # 1) Run SnpSift filter -> write uncompressed .vcf to a temporary file
-    tmp_fd, tmp_vcf = tempfile.mkstemp(suffix=".vcf")
+    tmp_fd, tmp_vcf = tempfile.mkstemp(suffix=".vcf", dir=cfg.get("temp_dir"))
     os.close(tmp_fd)
     rescued_vcf: str | None = None
     ann_vcf: str | None = None
@@ -511,7 +517,14 @@ def apply_snpsift_filter(
                 os.remove(candidate_ann_vcf)
 
         xmx = _snpsift_memory_flag(cfg)
-        snpsift_cmd = ["SnpSift", xmx, "filter", filter_string, snpsift_input]
+        snpsift_cmd = [
+            "SnpSift",
+            xmx,
+            *_java_tmp_flags(cfg),
+            "filter",
+            filter_string,
+            snpsift_input,
+        ]
         logger.debug("Applying SnpSift filter (%s) to produce uncompressed VCF: %s", xmx, tmp_vcf)
         result = run_command(snpsift_cmd, output_file=tmp_vcf, return_result=True)
         _raise_for_snpsift_filter_stderr(result.stderr, filter_string)

@@ -337,6 +337,9 @@ class PurePythonCOASTTest(AssociationTest):
             gene_df, effect_col, impact_col, model_dir=coast_model_dir
         )
 
+        keep = contingency_data.get("variant_keep_mask")  # matrix builder site QC (#215)
+        if keep is not None and len(keep) == len(anno_codes):
+            anno_codes, include_mask = anno_codes[keep], include_mask[keep]
         # ── Guard: annotation/genotype dimension alignment ────────────────────────
         if len(anno_codes) != geno.shape[1]:
             logger.warning(
