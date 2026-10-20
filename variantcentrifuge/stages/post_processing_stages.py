@@ -44,6 +44,11 @@ class GenotypeReplacementStage(Stage):
         return {"field_extraction", "sample_config_loading"}
 
     @property
+    def soft_dependencies(self) -> set[str]:
+        """Run after the threaded extraction, which marks field_extraction complete."""
+        return {"parallel_complete_processing"}
+
+    @property
     def checkpoint_resume_policy(self) -> str:
         """Phase-11 no-op can be skipped without restoring a file."""
         return "skip"

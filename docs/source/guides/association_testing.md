@@ -156,6 +156,37 @@ The packed `GT` column interacts with this as follows. When per-sample genotype 
 rebuilt from the packed column, a sample that is not listed for a variant is filled as `0/0`. A
 sample listed with an explicit `./.` stays missing and is subject to the policy above.
 
+### Sample Subsetting at Extraction
+
+Like PLINK `--keep`, REGENIE and SAIGE, an association run (`--perform-association`) whose
+analysed samples are a strict subset of the VCF samples extracts only those samples'
+genotypes (`bcftools query -S` at field extraction). The analysed set is the union of cases
+and controls (`--case-samples[-file]`, `--control-samples[-file]`, or `--phenotype-file` with
+`--case-phenotypes`/`--control-phenotypes`), or, for `--trait-type quantitative`, the samples
+with a value in `--phenotype-value-column`. Unassigned samples then never reach the
+intermediate TSV, the chunks or the genotype matrices. Association results and
+`--score-artifact` scores are unchanged:
+
+- Variant filters (`--bcftools-prefilter`, `--filters`) still run on all samples, and INFO
+  fields such as `AC`/`AN`/`AF` are read as stored, not recomputed for the subset.
+- A sample listed in a sample file but absent from the VCF is handled as before (it is never
+  passed to bcftools).
+- Per-sample columns keep the VCF sample order.
+
+What changes: the intermediate TSV has fewer per-sample columns, and the output `GT` column
+(and anything derived from it, such as the phenotypes column or HTML/Excel carrier lists)
+names carriers among the analysed samples only. The SHA-256 of the sorted subset sample IDs
+is recorded as `sample_subset_sha256` in the run metadata and in the score-artifact
+provenance (`"none"` when every sample was kept), and edited sample/phenotype files
+invalidate `--resume` checkpoints.
+
+All samples are kept, with one log line naming the reason, when a feature reads samples
+outside the analysed set: inheritance/pedigree analysis (`--ped`, `--sample-sheet`,
+`--inheritance-mode`, or a scoring model that needs inheritance),
+`--append-extra-sample-fields`, `--no-replacement`, `--igv`, statistics (use `--no-stats` to
+allow subsetting), `--late-filtering` or `--final-filter`. `--no-sample-subset` turns
+subsetting off.
+
 ### Multi-Allelic Sites Must Be Split
 
 The genotype matrix encodes one ALT allele per variant. Any genotype that contains a non-missing

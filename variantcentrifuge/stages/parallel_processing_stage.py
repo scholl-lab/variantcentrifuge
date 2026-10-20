@@ -18,6 +18,7 @@ from ..extractor import extract_fields_bcftools, get_expected_extraction_columns
 from ..filters import apply_snpsift_filter, extract_variants
 from ..memory.resource_manager import ResourceManager
 from ..pipeline_core import PipelineContext, Stage
+from ..sample_subset import resolve_sample_subset
 from ..transcript_filter import filter_vcf_to_transcripts, load_transcript_ids
 from ..utils import ensure_fields_in_extract, split_bed_file
 from ..vcf_eff_one_per_line import process_vcf_file as split_snpeff_annotations
@@ -58,6 +59,11 @@ class ParallelCompleteProcessingStage(Stage):
         return {"gene_bed_creation", "configuration_loading"}
 
     @property
+    def soft_dependencies(self) -> set[str]:
+        # Sample/phenotype stages fix the analysed sample set used by resolve_sample_subset.
+        return {"sample_config_loading", "phenotype_case_control_assignment"}
+
+    @property
     def parallel_safe(self) -> bool:
         return False
 
@@ -87,6 +93,7 @@ class ParallelCompleteProcessingStage(Stage):
         data["bed"] = hashlib.sha256(bed_bytes).hexdigest()[:16]
         data["vcf"] = str(cfg.get("vcf_file") or context.data or "")
         data["fields"] = eff_fields
+        data["samples"] = cfg.get("sample_subset_sha256")
         return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()[
             :16
         ]
@@ -135,6 +142,7 @@ class ParallelCompleteProcessingStage(Stage):
 
     def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
         """Handle the case where this stage is skipped by checkpoint system."""
+        resolve_sample_subset(context)  # the restored TSV holds only the subset's columns
         ws = context.workspace
         gz_tsv = ws.intermediate_dir / f"{ws.base_name}.extracted.tsv.gz"
         tsv = ws.intermediate_dir / f"{ws.base_name}.extracted.tsv"
@@ -170,6 +178,7 @@ class ParallelCompleteProcessingStage(Stage):
 
         if context.gene_bed_file is None:
             raise ValueError("gene_bed_file is required for parallel complete processing")
+        resolve_sample_subset(context)  # before chunk headers/fingerprints use vcf_samples
         split_start = self._start_subtask("bed_splitting")
         # Chunks live in the run's workspace: a user --regions-bed may sit in a read-only or
         # shared input directory, and concurrent runs on one BED must not collide.
@@ -359,6 +368,7 @@ class ParallelCompleteProcessingStage(Stage):
             cfg={
                 "threads": config.get("threads_per_chunk", 1),
                 "extract_fields_separator": config.get("extract_fields_separator", ","),
+                "bcftools_samples": config.get("bcftools_samples"),
             },
             output_file=str(chunk_tsv),
             vcf_samples=config.get("vcf_samples"),
@@ -448,6 +458,7 @@ class ParallelCompleteProcessingStage(Stage):
                 "extract_fields_separator": cfg.get("extract_fields_separator", ","),
                 "gzip_intermediates": use_compression,
                 "vcf_samples": getattr(context, "vcf_samples", None),
+                "bcftools_samples": cfg.get("_bcftools_sample_subset"),
                 "transcript_ids": load_tx_fn(
                     cfg.get("transcript_list"), cfg.get("transcript_file")
                 ),

@@ -255,6 +255,7 @@ For modular rare variant association testing beyond the basic Fisher's exact tes
 | `--covariates NAMES` | — | Comma-separated covariate column names to include (default: all columns) |
 | `--categorical-covariates NAMES` | — | Comma-separated columns to treat as categorical (auto-detected otherwise) |
 | `--trait-type TYPE` | `binary` | Trait type for burden tests: `binary` or `quantitative` |
+| `--no-sample-subset` | off | Keep every VCF sample at field extraction. By default an association run extracts only the analysed samples' genotypes (see [Association Testing Guide](guides/association_testing.md#sample-subsetting-at-extraction)) |
 | `--pca PATH` | — | PCA coordinates file (`.eigenvec`, `.tsv`) or `akt` to compute PCA using AKT (aliases: `--pca-file`, `--pca-tool`) |
 | `--pca-components N` | `10` | Number of PCA components to include as covariates |
 | `--pca-sites PATH` | — | Optional sites file for AKT PCA computation |

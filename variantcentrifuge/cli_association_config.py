@@ -33,6 +33,9 @@ def populate_association_config(
         getattr(args, "perform_association", False) or cfg.get("perform_association", False)
     )
     args.perform_association = cfg["perform_association"]
+    cfg["no_sample_subset"] = bool(
+        getattr(args, "no_sample_subset", False) or cfg.get("no_sample_subset", False)
+    )
     assoc_tests = getattr(args, "association_tests", None)
     if assoc_tests:
         if isinstance(assoc_tests, str):

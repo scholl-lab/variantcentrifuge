@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Association runs whose case/control or phenotyped samples are a strict subset of the VCF now extract only those samples' genotypes (`bcftools query -S`), as PLINK `--keep`, REGENIE and SAIGE do. Results and score artifacts are unchanged; the intermediate TSV and the output `GT` carrier list cover the analysed samples only. Samples are kept when inheritance, `--append-extra-sample-fields`, `--no-replacement`, `--igv`, statistics, `--late-filtering` or `--final-filter` need them; `--no-sample-subset` opts out. The subset hash is recorded as `sample_subset_sha256` in the metadata and score-artifact provenance, and edited sample/phenotype files invalidate resume checkpoints (#212).
+
 ### Deprecated
 
 - `--perform-gene-burden` now warns and will be removed in the next minor release; use `--perform-association` (e.g. `--association-tests fisher`). The legacy path ignores `--missing-as-ref` (#217).

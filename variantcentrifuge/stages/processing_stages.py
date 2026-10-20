@@ -35,6 +35,7 @@ from ..pipeline_core.error_handling import (
     retry_on_failure,
     validate_file_exists,
 )
+from ..sample_subset import resolve_sample_subset
 from ..transcript_filter import filter_vcf_to_transcripts, load_transcript_ids
 from ..utils import ensure_fields_in_extract, split_bed_file  # noqa: F401
 from ..vcf_eff_one_per_line import process_vcf_file as split_snpeff_annotations
@@ -453,7 +454,14 @@ class FieldExtractionStage(Stage):
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Prefer to run after filtering if it exists
-        return {"snpsift_filtering", "transcript_filtering", "multiallelic_split"}
+        # Sample/phenotype stages fix the analysed sample set used by resolve_sample_subset.
+        return {
+            "snpsift_filtering",
+            "transcript_filtering",
+            "multiallelic_split",
+            "sample_config_loading",
+            "phenotype_case_control_assignment",
+        }
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Extract fields to TSV format."""
@@ -519,6 +527,7 @@ class FieldExtractionStage(Stage):
         # Prepare config for extract_fields_bcftools
         extract_config = {
             "debug_level": context.config.get("log_level", "INFO"),
+            "bcftools_samples": resolve_sample_subset(context),
         }
 
         # Convert fields list to space-separated string
