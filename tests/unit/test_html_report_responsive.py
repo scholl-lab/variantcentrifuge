@@ -105,7 +105,13 @@ def _render_report(tmp_path: Path) -> str:
     s_file = tmp_path / "summary.json"
     v_file.write_text(json.dumps(variants), encoding="utf-8")
     s_file.write_text(json.dumps(summary), encoding="utf-8")
-    generate_html_report(str(v_file), str(s_file), str(tmp_path), {})
+    # Realistic footer metadata: a long filter expression and VCF name must not widen the page.
+    cfg = {
+        "filters": "((ANN[0].IMPACT has 'HIGH') | (ANN[0].IMPACT has 'MODERATE'))",
+        "vcf_file": "/data/synthetic_cohort_panel.GRCh38.annotated.normalized.vcf.gz",
+        "reference": "GRCh38.p14",
+    }
+    generate_html_report(str(v_file), str(s_file), str(tmp_path), cfg)
     return (tmp_path / "index.html").read_text(encoding="utf-8")
 
 
