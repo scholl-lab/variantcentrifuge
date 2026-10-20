@@ -66,6 +66,7 @@ def full_vc_config() -> dict:
         "presets": ["rare", "coding"],
         "append_genotype_fields": ["GEN[*].DP", "GEN[*].AD"],
         "gene_list_files": ["/lists/cardiac.txt", "/lists/cancer.txt"],
+        "annotate_bed_files": ["/beds/flags.bed"],
     }
 
 
@@ -126,6 +127,7 @@ class TestBuildVcFlags:
         assert "--preset coding" in flags
         assert "--append-extra-sample-fields 'GEN[*].DP' 'GEN[*].AD'" in flags
         assert "--annotate-gene-list /lists/cardiac.txt" in flags
+        assert "--annotate-bed /beds/flags.bed" in flags
         assert "--annotate-gene-list /lists/cancer.txt" in flags
 
     def test_igv_flags(self, minimal_vc_config: dict, igv_config: dict) -> None:
