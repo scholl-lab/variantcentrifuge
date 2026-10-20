@@ -319,3 +319,40 @@ def test_resume_refused_when_a_blocker_changes_the_extracted_samples(tmp_path, t
     assert resumed.load()
     assert resumed.can_resume(dict(run1), "0.23", validate_outputs=False)
     assert not resumed.can_resume({**run1, **toggle}, "0.23", validate_outputs=False)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"trait_type": "quantitative"},
+        {"remove_sample_substring": "_X"},
+        {"case_phenotypes_file": "terms"},
+    ],
+)
+def test_resume_refused_when_settings_select_other_samples_of_equal_size(tmp_path, change):
+    """Codex FX-1: same phenotype file, other subset of the same size must not reuse the TSV."""
+    from variantcentrifuge.checkpoint_state import PipelineState
+
+    pheno = tmp_path / "pheno.tsv"
+    pheno.write_text("sample\tstatus\tbmi\nS1\tHP:1\t\nS2\tHP:2\t21\n")
+    terms = tmp_path / "terms.txt"
+    terms.write_text("HP:1\n")
+    run1 = {
+        "vcf_file": "in.vcf.gz",
+        "perform_association": True,
+        "no_stats": True,
+        "phenotype_file": str(pheno),
+        "phenotype_value_column": "bmi",
+        "case_phenotypes": ["HP:2"],
+    }
+    run2 = {**run1, **{k: str(terms) if v == "terms" else v for k, v in change.items()}}
+    assert hash_configuration(run1) != hash_configuration(run2)
+    state = PipelineState(str(tmp_path))
+    state.initialize(run1, "0.23")
+    resumed = PipelineState(str(tmp_path))
+    assert resumed.load()
+    assert not resumed.can_resume(run2, "0.23", validate_outputs=False)
+    if "case_phenotypes_file" in change:  # edited term file also changes the subset
+        h = hash_configuration(run2)
+        terms.write_text("HP:2\n")
+        assert hash_configuration(run2) != h
