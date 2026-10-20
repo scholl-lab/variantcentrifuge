@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_288f008cadee769e_setup_stages_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.16.2">coverage.py v7.16.2</a>,
-            created at 2026-10-20 16:56 +0000
+            created at 2026-10-20 19:11 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -401,7 +401,7 @@
     <p class="run"><span class="n"><a id="t319" href="#t319">319</a></span><span class="t">                <span class="nam">sample_data</span><span class="op">[</span><span class="nam">sample_id</span><span class="op">]</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span><span class="nam">row_genotypes</span><span class="op">[</span><span class="nam">sample_id</span><span class="op">]</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t320" href="#t320">320</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t321" href="#t321">321</a></span><span class="t">        <span class="com"># Create DataFrame from sample data and concatenate</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t322" href="#t322">322</a></span><span class="t">        <span class="nam">sample_df</span> <span class="op">=</span> <span class="nam">pd</span><span class="op">.</span><span class="nam">DataFrame</span><span class="op">(</span><span class="nam">sample_data</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t322" href="#t322">322</a></span><span class="t">        <span class="nam">sample_df</span> <span class="op">=</span> <span class="nam">pd</span><span class="op">.</span><span class="nam">DataFrame</span><span class="op">(</span><span class="nam">sample_data</span><span class="op">,</span> <span class="nam">index</span><span class="op">=</span><span class="nam">df</span><span class="op">.</span><span class="nam">index</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t323" href="#t323">323</a></span><span class="t">        <span class="nam">df</span> <span class="op">=</span> <span class="nam">pd</span><span class="op">.</span><span class="nam">concat</span><span class="op">(</span><span class="op">[</span><span class="nam">df</span><span class="op">,</span> <span class="nam">sample_df</span><span class="op">]</span><span class="op">,</span> <span class="nam">axis</span><span class="op">=</span><span class="num">1</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t324" href="#t324">324</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t325" href="#t325">325</a></span><span class="t">        <span class="nam">logger</span><span class="op">.</span><span class="nam">debug</span><span class="op">(</span><span class="fst">f&quot;</span><span class="fst">Created </span><span class="op">{</span><span class="nam">len</span><span class="op">(</span><span class="nam">sample_data</span><span class="op">)</span><span class="op">}</span><span class="fst"> sample columns from replaced genotypes</span><span class="fst">&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -433,7 +433,7 @@
     <p class="mis show_mis"><span class="n"><a id="t351" href="#t351">351</a></span><span class="t">                    <span class="nam">sample_data</span><span class="op">[</span><span class="nam">sample_id</span><span class="op">]</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span><span class="str">&quot;./.&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t352" href="#t352">352</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t353" href="#t353">353</a></span><span class="t">        <span class="com"># Create DataFrame from sample data and concatenate</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t354" href="#t354">354</a></span><span class="t">        <span class="nam">sample_df</span> <span class="op">=</span> <span class="nam">pd</span><span class="op">.</span><span class="nam">DataFrame</span><span class="op">(</span><span class="nam">sample_data</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t354" href="#t354">354</a></span><span class="t">        <span class="nam">sample_df</span> <span class="op">=</span> <span class="nam">pd</span><span class="op">.</span><span class="nam">DataFrame</span><span class="op">(</span><span class="nam">sample_data</span><span class="op">,</span> <span class="nam">index</span><span class="op">=</span><span class="nam">df</span><span class="op">.</span><span class="nam">index</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t355" href="#t355">355</a></span><span class="t">        <span class="nam">df</span> <span class="op">=</span> <span class="nam">pd</span><span class="op">.</span><span class="nam">concat</span><span class="op">(</span><span class="op">[</span><span class="nam">df</span><span class="op">,</span> <span class="nam">sample_df</span><span class="op">]</span><span class="op">,</span> <span class="nam">axis</span><span class="op">=</span><span class="num">1</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t356" href="#t356">356</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t357" href="#t357">357</a></span><span class="t">        <span class="nam">logger</span><span class="op">.</span><span class="nam">debug</span><span class="op">(</span><span class="fst">f&quot;</span><span class="fst">Created </span><span class="op">{</span><span class="nam">len</span><span class="op">(</span><span class="nam">sample_data</span><span class="op">)</span><span class="op">}</span><span class="fst"> sample columns for inheritance analysis</span><span class="fst">&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -497,7 +497,7 @@
             <a class="nav" href="z_288f008cadee769e_setup_stages_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.16.2">coverage.py v7.16.2</a>,
-            created at 2026-10-20 16:56 +0000
+            created at 2026-10-20 19:11 +0000
         </p>
     </div>
 </footer>

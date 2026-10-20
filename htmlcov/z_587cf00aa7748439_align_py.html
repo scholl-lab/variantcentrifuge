@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for variantcentrifuge/association/meta/align.py: 94.00%</title>
+    <title>Coverage for variantcentrifuge/association/meta/align.py: 94.12%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_15cffcd0.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>variantcentrifuge<span class="sep">/</span>association<span class="sep">/</span>meta<span class="sep">/</span>align.py</b>:
-            <span class="pc_cov">94.00%</span>
+            <span class="pc_cov">94.12%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -54,8 +54,8 @@
             </div>
         </aside>
         <h2>
-            <span class="text">50 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">47<span class="text"> run</span></button>
+            <span class="text">51 statements &nbsp;</span>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">48<span class="text"> run</span></button>
             <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">3<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_587cf00aa7748439_artifact_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.16.2">coverage.py v7.16.2</a>,
-            created at 2026-10-20 16:56 +0000
+            created at 2026-10-20 19:11 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -184,15 +184,18 @@
     <p class="mis show_mis"><span class="n"><a id="t102" href="#t102">102</a></span><span class="t">            <span class="key">raise</span> <span class="nam">ValueError</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t103" href="#t103">103</a></span><span class="t">                <span class="fst">f&quot;</span><span class="fst">Malformed beta weight scheme &#x27;</span><span class="op">{</span><span class="nam">scheme</span><span class="op">}</span><span class="fst">&#x27; (expected beta:a,b)</span><span class="fst">&quot;</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t104" href="#t104">104</a></span><span class="t">            <span class="op">)</span> <span class="key">from</span> <span class="nam">exc</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t105" href="#t105">105</a></span><span class="t">        <span class="key">return</span> <span class="nam">np</span><span class="op">.</span><span class="nam">asarray</span><span class="op">(</span><span class="nam">scipy</span><span class="op">.</span><span class="nam">stats</span><span class="op">.</span><span class="nam">beta</span><span class="op">.</span><span class="nam">pdf</span><span class="op">(</span><span class="nam">maf</span><span class="op">,</span> <span class="nam">a</span><span class="op">,</span> <span class="nam">b</span><span class="op">)</span><span class="op">,</span> <span class="nam">dtype</span><span class="op">=</span><span class="nam">np</span><span class="op">.</span><span class="nam">float64</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t106" href="#t106">106</a></span><span class="t">    <span class="key">raise</span> <span class="nam">ValueError</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t107" href="#t107">107</a></span><span class="t">        <span class="fst">f&quot;</span><span class="fst">Unsupported meta weight scheme &#x27;</span><span class="op">{</span><span class="nam">scheme</span><span class="op">}</span><span class="fst">&#x27;. Meta-analysis supports only </span><span class="fst">&quot;</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t108" href="#t108">108</a></span><span class="t">        <span class="str">&quot;&#x27;beta:a,b&#x27; and &#x27;uniform&#x27; (functional-score weights are not reproducible &quot;</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t109" href="#t109">109</a></span><span class="t">        <span class="str">&quot;from score artifacts).&quot;</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t110" href="#t110">110</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t111" href="#t111">111</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t112" href="#t112">112</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t113" href="#t113">113</a></span><span class="t"><span class="nam">__all__</span> <span class="op">=</span> <span class="op">[</span><span class="str">&quot;align_strata&quot;</span><span class="op">,</span> <span class="str">&quot;canonical_key&quot;</span><span class="op">,</span> <span class="str">&quot;pooled_frequency_weights&quot;</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t105" href="#t105">105</a></span><span class="t">        <span class="nam">w</span> <span class="op">=</span> <span class="nam">np</span><span class="op">.</span><span class="nam">asarray</span><span class="op">(</span><span class="nam">scipy</span><span class="op">.</span><span class="nam">stats</span><span class="op">.</span><span class="nam">beta</span><span class="op">.</span><span class="nam">pdf</span><span class="op">(</span><span class="nam">maf</span><span class="op">,</span> <span class="nam">a</span><span class="op">,</span> <span class="nam">b</span><span class="op">)</span><span class="op">,</span> <span class="nam">dtype</span><span class="op">=</span><span class="nam">np</span><span class="op">.</span><span class="nam">float64</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t106" href="#t106">106</a></span><span class="t">        <span class="com"># A locus monomorphic in the pooled strata has U = V = 0, so it adds nothing;</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t107" href="#t107">107</a></span><span class="t">        <span class="com"># zero its weight so Beta(a&lt;1) = inf at MAF 0 cannot turn 0 * inf into NaN.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t108" href="#t108">108</a></span><span class="t">        <span class="key">return</span> <span class="nam">np</span><span class="op">.</span><span class="nam">where</span><span class="op">(</span><span class="nam">maf</span> <span class="op">&gt;</span> <span class="num">0</span><span class="op">,</span> <span class="nam">w</span><span class="op">,</span> <span class="num">0.0</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t109" href="#t109">109</a></span><span class="t">    <span class="key">raise</span> <span class="nam">ValueError</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t110" href="#t110">110</a></span><span class="t">        <span class="fst">f&quot;</span><span class="fst">Unsupported meta weight scheme &#x27;</span><span class="op">{</span><span class="nam">scheme</span><span class="op">}</span><span class="fst">&#x27;. Meta-analysis supports only </span><span class="fst">&quot;</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t111" href="#t111">111</a></span><span class="t">        <span class="str">&quot;&#x27;beta:a,b&#x27; and &#x27;uniform&#x27; (functional-score weights are not reproducible &quot;</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t112" href="#t112">112</a></span><span class="t">        <span class="str">&quot;from score artifacts).&quot;</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t113" href="#t113">113</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t114" href="#t114">114</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t115" href="#t115">115</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t116" href="#t116">116</a></span><span class="t"><span class="nam">__all__</span> <span class="op">=</span> <span class="op">[</span><span class="str">&quot;align_strata&quot;</span><span class="op">,</span> <span class="str">&quot;canonical_key&quot;</span><span class="op">,</span> <span class="str">&quot;pooled_frequency_weights&quot;</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
 </main>
 <footer>
     <div class="content">
@@ -202,7 +205,7 @@
             <a class="nav" href="z_587cf00aa7748439_artifact_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.16.2">coverage.py v7.16.2</a>,
-            created at 2026-10-20 16:56 +0000
+            created at 2026-10-20 19:11 +0000
         </p>
     </div>
 </footer>
