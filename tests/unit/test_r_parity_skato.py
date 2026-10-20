@@ -96,3 +96,70 @@ def test_meta_matches_metaskat(name: str) -> None:
     assert meta_burden(u, v, w)[0] == pytest.approx(burden, rel=1e-6)
     assert meta_skat(u, v, w)[0] == pytest.approx(skat, rel=1e-4)
     assert meta_skato(u, v, w)[0] == pytest.approx(skato, rel=1e-3)
+
+
+# Leave-one-stratum-out vs MetaSKAT 0.90 (#193). Samples split into three contiguous
+# thirds [0, n//3), [n//3, 2n//3), [2n//3, n); covariate (i mod 5) - 2; dropping
+# stratum d = MetaSKAT_wZ on the other two cohorts (Meta_Null_Model(split(y, coh),
+# split(x, coh), out_type="D"), combined.weight=TRUE, weights.beta=c(1, 25)) with
+# r.corr=1 (burden) and method="optimal" (SKAT-O). R script and output:
+# vc-wt/_ledger/evidence/B.md (outside the repo; not needed by CI).
+# R SKAT 2.2.5 / MetaSKAT 0.90, values printed with %.10e. Full meta of all three
+# strata in R: burden 1.4694995906e-01, SKAT-O 2.5123531457e-01 (g1).
+R_META_LOO = {  # drop -> (burden, SKAT-O)
+    "gckd_g1_all_categories": {
+        "s0": (2.3895780219e-01, 3.6888167586e-01),
+        "s1": (5.5628031673e-01, 5.9624053551e-01),
+        "s2": (1.9540758946e-02, 2.1222307002e-02),
+    },
+    "gckd_g2_partial_bmv_ptv": {
+        "s0": (5.8783323555e-01, 2.0415400546e-01),
+        "s1": (8.1646649749e-01, 8.5148618302e-01),
+        "s2": (3.4676349023e-01, 5.1331509752e-01),
+    },
+    "gckd_g4_all_bmv": {
+        "s0": (9.3927842992e-01, 6.3667919535e-01),
+        "s1": (2.4664680070e-01, 3.9314885468e-01),
+        "s2": (4.7527030293e-01, 6.8166110432e-01),
+    },
+}
+
+
+@pytest.mark.parametrize("name", list(R_META_LOO))
+def test_named_loo_matches_metaskat(name: str) -> None:
+    from variantcentrifuge.association.meta.runner import meta_analyze_artifacts
+
+    geno, pheno, _anno = _load(name)
+    n = len(pheno)
+    thirds = (slice(0, n // 3), slice(n // 3, 2 * n // 3), slice(2 * n // 3, n))
+    cov = ((np.arange(n) % 5) - 2.0)[:, None]
+    keys = [f"1:{100 + j}:A:G" for j in range(geno.shape[1])]
+    arts = [
+        build_stratum_artifact(
+            f"s{i}",
+            {"G": (geno[h], geno[h].copy(), keys)},
+            pheno[h],
+            cov[h],
+            "binary",
+            genome_build="GRCh37",
+            annotation_version="x",
+            mask_id="m",
+            mask_hash="m",
+            n_cases=int(pheno[h].sum()),
+            n_controls=int((1 - pheno[h]).sum()),
+        )
+        for i, h in enumerate(thirds)
+    ]
+    row = meta_analyze_artifacts(arts).iloc[0]
+    burden = {
+        s.split(":")[0]: float(s.split(":")[1]) for s in row["loo_burden_by_stratum"].split(";")
+    }
+    skato = {
+        s.split(":")[0]: float(s.split(":")[1]) for s in row["loo_skato_by_stratum"].split(";")
+    }
+    for drop, (r_burden, r_skato) in R_META_LOO[name].items():
+        assert burden[drop] == pytest.approx(r_burden, rel=1e-6)
+        assert skato[drop] == pytest.approx(r_skato, rel=1e-3)
+    worst = max(R_META_LOO[name], key=lambda d: R_META_LOO[name][d][0])
+    assert row["loo_max_burden_stratum"] == worst
+    assert row["loo_max_burden_p"] == pytest.approx(R_META_LOO[name][worst][0], rel=1e-6)

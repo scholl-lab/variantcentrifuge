@@ -96,7 +96,9 @@ variantcentrifuge meta \
   --manifest study.tsv \
   --output meta_results.tsv \
   --weights beta:1,25 \
-  --correction fdr
+  --correction fdr \
+  --min-mac 5 \
+  --diagnostics-output meta_diagnostics/
 ```
 
 Only `beta:a,b` and `uniform` weights are supported (the only schemes reproducible
@@ -105,6 +107,45 @@ from the artifact). Output columns include `meta_burden_p`,
 `het_p`, `het_i2`, `per_stratum_directions`, `loo_min_p`, `primary_p`,
 `primary_q`, and a `status`/`warnings` pair (e.g. a non-converged stratum is
 excluded with an explicit warning).
+
+### Leave-one-stratum-out
+
+Each leave-one-out result is a full meta-analysis of the remaining strata (variants
+re-aligned, weights re-derived from their pooled frequency), so it equals running
+`meta` on the manifest without that stratum (checked against R MetaSKAT). Fixed
+columns, independent of the number of strata:
+
+- `loo_burden_by_stratum` — `stratum:p:direction;...`, the burden p-value and
+  direction (`+1`/`-1`/`+0`) without each stratum, e.g. `adult_cohort:0.0123:+1`;
+- `loo_skato_by_stratum` — `stratum:p;...` for SKAT-O (`NA` when not computable);
+- `loo_max_burden_p` / `loo_max_burden_stratum` and `loo_max_skato_p` /
+  `loo_max_skato_stratum` — the largest LOO p-value and the stratum whose removal
+  gives it. A gene that is significant only while one stratum is included has a
+  large `loo_max_*_p` naming that stratum (a "needs replication" flag);
+- `loo_min_p` — the smallest burden LOO p-value (kept for compatibility).
+
+With a single contributing stratum the LOO columns are empty.
+
+### Minor-allele counts and `--min-mac`
+
+`cmac_total` is the cumulative minor-allele count over the gene's union of variants,
+`Σ min(AC, AN − AC)` with `AC`/`AN` pooled over the contributing strata;
+`cmac_by_stratum` gives the same sum per stratum (`stratum:mac;...`), from the
+artifact's per-variant `AC`/`AN`.
+
+`--min-mac N` labels genes with `cmac_total < N` as `status=low_mac`. Their p-values
+are still reported, but `primary_q` is empty: like untestable genes in the main
+engine, they are left out of the multiple-testing family (and of the diagnostics).
+Per-stratum carrier counts are not available yet; they need a new artifact field.
+
+### Diagnostics (λ_GC and QQ)
+
+`--diagnostics-output DIR` writes the same files as a single-cohort run
+(`lambda_gc.tsv`, `qq_data.tsv`, `summary.txt`, and `qq_plot.png` when matplotlib is
+installed) for `meta_burden`, `meta_skat`, `meta_skato` and `primary`. A `meta` run
+covers one mask, so each run's directory holds that mask's diagnostics; run once per
+mask for multi-mask designs. `low_mac` genes are excluded, and λ from fewer than 100
+genes is flagged as unreliable.
 
 ## API
 

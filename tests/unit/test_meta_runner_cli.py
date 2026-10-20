@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
+import pytest
 
 from tests.unit.meta_helpers import make_stratum
 from variantcentrifuge.association.meta.artifact import save_artifact
 from variantcentrifuge.association.meta.cli import main
-from variantcentrifuge.association.meta.runner import OUTPUT_COLUMNS, run_meta
+from variantcentrifuge.association.meta.runner import (
+    OUTPUT_COLUMNS,
+    meta_analyze_artifacts,
+    run_meta,
+)
 
 GENE_KEYS = {
     "SIG": [f"1:{100 + j}:A:G" for j in range(14)],
@@ -90,3 +96,114 @@ def test_single_variant_gene_falls_back_to_burden(tmp_path):
     assert pd.isna(row["meta_skato_p"])
     assert row["primary_p"] == row["meta_burden_p"]
     assert row["status"] == "ok"
+
+
+# --- #192 / #193 / #194: diagnostics, named LOO, cumulative MAC -------------------
+
+
+def _three_strata():
+    return [
+        make_stratum(s, seed=i + 1, gene_keys=GENE_KEYS, effect_gene="SIG", effect_sign=1.0)
+        for i, s in enumerate(("A", "B", "C"))
+    ]
+
+
+def _parse(field):
+    """'A:0.1:+1;B:NA' -> {'A': ['0.1', '+1'], 'B': ['NA']}"""
+    return {p.split(":")[0]: p.split(":")[1:] for p in field.split(";")}
+
+
+def test_loo_equals_direct_meta_on_remaining_strata():
+    arts = _three_strata()
+    full = meta_analyze_artifacts(arts).set_index("gene")
+    for gene in ("SIG", "NULLG"):
+        row = full.loc[gene]
+        burden = _parse(row["loo_burden_by_stratum"])
+        skato = _parse(row["loo_skato_by_stratum"])
+        assert set(burden) == set(skato) == {"A", "B", "C"}
+        for drop in ("A", "B", "C"):
+            sub = meta_analyze_artifacts([a for a in arts if a.stratum_id != drop])
+            ref = sub.set_index("gene").loc[gene]
+            assert float(burden[drop][0]) == pytest.approx(ref["meta_burden_p"], rel=1e-9)
+            assert int(burden[drop][1]) == ref["meta_burden_direction"]
+            assert float(skato[drop][0]) == pytest.approx(ref["meta_skato_p"], rel=1e-9)
+        bmax = max(burden, key=lambda s: float(burden[s][0]))
+        smax = max(skato, key=lambda s: float(skato[s][0]))
+        assert row["loo_max_burden_stratum"] == bmax
+        assert row["loo_max_burden_p"] == pytest.approx(float(burden[bmax][0]), rel=1e-9)
+        assert row["loo_max_skato_stratum"] == smax
+        assert row["loo_max_skato_p"] == pytest.approx(float(skato[smax][0]), rel=1e-9)
+        assert row["loo_min_p"] == pytest.approx(min(float(b[0]) for b in burden.values()))
+
+
+def test_single_stratum_has_no_loo():
+    row = meta_analyze_artifacts(_three_strata()[:1]).iloc[0]
+    assert pd.isna(row["loo_burden_by_stratum"]) and pd.isna(row["loo_max_skato_p"])
+
+
+def test_cumulative_mac_from_artifact_ac_an():
+    arts = _three_strata()
+    df = meta_analyze_artifacts(arts).set_index("gene")
+    for gene in ("SIG", "NULLG"):
+        per = {
+            a.stratum_id: np.minimum(a.genes[gene].ac, a.genes[gene].an - a.genes[gene].ac).sum()
+            for a in arts
+        }
+        ac = sum(a.genes[gene].ac for a in arts)
+        an = sum(a.genes[gene].an for a in arts)
+        assert df.loc[gene, "cmac_total"] == pytest.approx(np.minimum(ac, an - ac).sum())
+        assert {k: float(v[0]) for k, v in _parse(df.loc[gene, "cmac_by_stratum"]).items()} == (
+            pytest.approx(per)
+        )
+
+
+def test_min_mac_flags_low_mac_and_excludes_from_correction():
+    arts = _three_strata()
+    base = meta_analyze_artifacts(arts, correction="bonferroni").set_index("gene")
+    cut = (base["cmac_total"].min() + base["cmac_total"].max()) / 2
+    low = base["cmac_total"].idxmin()
+    high = base["cmac_total"].idxmax()
+    df = meta_analyze_artifacts(arts, correction="bonferroni", min_mac=cut).set_index("gene")
+    assert df.loc[low, "status"] == "low_mac"
+    assert pd.notna(df.loc[low, "primary_p"])  # still reported, not dropped
+    assert pd.isna(df.loc[low, "primary_q"])  # but outside the correction family
+    assert df.loc[high, "status"] == "ok"
+    assert df.loc[high, "primary_q"] == pytest.approx(min(1.0, df.loc[high, "primary_p"]))
+    # Without the filter both genes share the Bonferroni family of two.
+    assert base.loc[high, "primary_q"] == pytest.approx(min(1.0, 2 * base.loc[high, "primary_p"]))
+
+
+def test_cli_min_mac_and_diagnostics_output(tmp_path):
+    manifest = _write_study(tmp_path)
+    out, diag = tmp_path / "meta.tsv", tmp_path / "diag"
+    rc = main(
+        [
+            "--manifest",
+            manifest,
+            "--output",
+            str(out),
+            "--diagnostics-output",
+            str(diag),
+            "--min-mac",
+            "1e9",
+        ]
+    )
+    assert rc == 0
+    df = pd.read_csv(out, sep="\t")
+    assert set(df["status"]) == {"low_mac"}
+    # Every gene is low-MAC, so no p-value enters lambda/QQ.
+    assert pd.read_csv(diag / "lambda_gc.tsv", sep="\t").empty
+
+
+def test_diagnostics_output_lambda_per_meta_test(tmp_path):
+    manifest = _write_study(tmp_path)
+    diag = tmp_path / "diag"
+    df = run_meta(manifest, str(tmp_path / "meta.tsv"), diagnostics_dir=str(diag))
+    lam = pd.read_csv(diag / "lambda_gc.tsv", sep="\t").set_index("test_name")
+    assert set(lam.index) == {"meta_burden", "meta_skat", "meta_skato", "primary"}
+    assert (lam["n_tests"] == 2).all()
+    qq = pd.read_csv(diag / "qq_data.tsv", sep="\t")
+    assert set(qq["test"]) == set(lam.index)
+    summary = (diag / "summary.txt").read_text()
+    assert f"n_cases    = {int(df['n_cases_total'].max())}" in summary
+    assert "Genes with per-gene warnings: 0" in summary

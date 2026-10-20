@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `meta --diagnostics-output DIR` writes λ_GC, QQ data and a summary for the meta burden, SKAT, SKAT-O and primary p-values, one set per run (= per mask) (#192).
+- `meta` reports leave-one-stratum-out p-values named by stratum for burden (with direction) and SKAT-O, plus the largest LOO p-value and the stratum whose removal gives it (`loo_burden_by_stratum`, `loo_skato_by_stratum`, `loo_max_{burden,skato}_{p,stratum}`) (#193).
+- `meta` reports cumulative minor-allele counts (`cmac_total`, `cmac_by_stratum`); `--min-mac N` marks genes below N as `status=low_mac` and leaves them out of the multiple-testing correction (#194).
+
+### Changed
+
+- `meta` leave-one-out (including `loo_min_p`) re-derives the variant weights from the remaining strata, so each LOO result equals a meta-analysis without that stratum (#193).
+
 ## [0.21.0] - 2026-10-20
 
 Fixes the findings of the v0.19.0 audit revalidation (#173–#187).
