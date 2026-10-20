@@ -14,11 +14,12 @@ from ..association.aggregation import _aggregate_gene_burden_legacy
 from ..association.engine import AssociationEngine
 from ..association.gene_sets import add_gene_set_units, load_gene_sets, run_gene_and_set_units
 from ..association.gt_codes import aggregate_gene_counts, parse_genotype_codes
-from ..association.timing import substep
+from ..association.timing import log_stage_summary, substep
 from ..association.weights import resolve_score_weight_column
 from ..gene_burden import drop_transcript_duplicates
 from ..gt_reconstruction import _find_per_sample_gt_columns
 from ..pipeline_core import PipelineContext, Stage
+from ..sample_subset import subset_summary
 from .analysis_stage_helpers import (
     _build_assoc_config_from_context,
     _count_significant_association_results,
@@ -459,6 +460,16 @@ class AssociationAnalysisStage(Stage):
         context.association_results = results_df
 
         n_genes = len(results_df)
+        log_stage_summary(
+            timings,
+            [
+                f"aggregation path: {'genotype-code' if genotypes is not None else 'legacy counts'}"
+                f"; genotypes parsed for {len(samples)} assigned samples of "
+                f"{len(vcf_samples_list or [])} in the VCF",
+                subset_summary(context),
+                *getattr(engine, "run_info", []),
+            ],
+        )
         n_sig = _count_significant_association_results(results_df)
         logger.info(
             f"Association analysis: {n_genes} genes tested, {n_sig} significant (FDR < 0.05)"

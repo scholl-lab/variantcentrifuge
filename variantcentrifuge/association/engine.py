@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections import Counter
 from typing import Any
 
 import pandas as pd
@@ -28,6 +29,7 @@ from variantcentrifuge.association.engine_workers import (
     run_sequential_genes,
     single_blas_thread,
 )
+from variantcentrifuge.association.timing import Progress
 
 __all__ = [
     "_BUILDER_RESULT_KEYS",
@@ -92,6 +94,8 @@ class AssociationEngine:
     config : AssociationConfig
         Configuration shared across all tests.
     """
+
+    unit_label = "genes"  # "gene sets" on the set engine; labels progress and summary lines
 
     def __init__(self, tests: list[AssociationTest], config: AssociationConfig) -> None:
         self._tests: dict[str, AssociationTest] = {t.name: t for t in tests}
@@ -219,6 +223,8 @@ class AssociationEngine:
             ACAT-O columns are present only when ACAT-O is the primary result.
         """
         self.gene_hook_results: dict[str, Any] = {}
+        self.run_info: list[str] = []
+        label = self.unit_label
         if not gene_burden_data:
             logger.warning("No gene burden data provided to AssociationEngine.")
             return pd.DataFrame()
@@ -255,6 +261,16 @@ class AssociationEngine:
                 [n for n, t in self._tests.items() if not getattr(t, "parallel_safe", False)],
             )
 
+        if use_parallel:
+            workers_note = f"association_workers={n_workers}, parallel"
+        elif n_workers == 1:
+            workers_note = "association_workers=1, sequential"
+        elif not all_parallel_safe:
+            workers_note = f"association_workers={n_workers} but tests not parallel_safe"
+        else:
+            workers_note = f"association_workers={n_workers} but < {MIN_GENES_FOR_PARALLEL} genes"
+        self.run_info = [f"gene loop: {workers_note}; BLAS pinned to 1 thread"]
+
         with single_blas_thread():  # gene-level parallelism only, never BLAS (#212)
             if use_parallel:
                 # Run genes in the parent until every lazy null model is fitted (or failed), so
@@ -290,6 +306,7 @@ class AssociationEngine:
                         results_by_test=results_by_test,
                         gene_hook=gene_hook,
                         hook_results=self.gene_hook_results,
+                        progress=Progress(f"Association {label}", len(sorted_data), offset=done),
                     )
             else:
                 # Sequential gene loop (default path or fallback)
@@ -300,7 +317,17 @@ class AssociationEngine:
                     results_by_test,
                     gene_hook,
                     self.gene_hook_results,
+                    Progress(f"Association {self.unit_label}", len(sorted_data)),
                 )
+
+        for test_name, by_gene in results_by_test.items():
+            skips = Counter(
+                str(code)
+                for r in by_gene.values()
+                if (code := r.extra.get("skat_skip_reason") or r.extra.get("coast_skip_reason"))
+            )
+            if skips:
+                self.run_info.append(f"{label} skipped per test - {test_name}: {dict(skips)}")
 
         # Lifecycle hook: finalize() after gene loop (allows timing summary, cleanup)
         for test in self._tests.values():
@@ -337,6 +364,12 @@ class AssociationEngine:
             for g in gene_order
             if correction_results.get(g) is not None and correction_results[g].p_value is not None
         ]
+
+        self.run_info.insert(
+            1,
+            f"{label}: {len(sorted_data)} given, {len(testable_genes)} with a primary result, "
+            f"{len(sorted_data) - len(testable_genes)} without",
+        )
 
         # Phase 33: weighted or unweighted correction path
         fdr_weights_by_gene: dict[str, float] = {}
