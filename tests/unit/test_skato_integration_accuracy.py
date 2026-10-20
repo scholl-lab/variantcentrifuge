@@ -2,10 +2,11 @@
 
 ``tests/fixtures/skato_integration/params.json`` holds SKAT-O integration inputs
 (pmin_q, tau, mixture moments, lambdas, pmin) captured from seeded synthetic
-binary data sets. Each case is checked against an independent adaptive integral
-(scipy.integrate.quad in t = sqrt(x) with explicit kink/support breakpoints and
-tight tolerances; exact chi2(1) CDF for rank one, Davies at acc=1e-9 otherwise),
-never against values produced by the implementation under test.
+binary data sets. Each case is checked against an independent integral
+p = int_0^edge f_chi2_1(x) P[Q > g(x)] dx + P[chi2_1 > edge] (adaptive quad split
+at the rho kinks, no x <= 40 truncation, no pmin cap; exact survival for one or
+two eigenvalues, Davies at acc=1e-9 otherwise), never against values produced by
+the implementation under test.
 
 End-to-end references come from R SKAT 2.2.5 (``SKAT_Null_Model(y ~ x,
 out_type="D", Adjustment=FALSE)``, ``SKAT(g, obj, weights=w,
@@ -17,6 +18,7 @@ integrated with ``integrate`` piecewise at the same breakpoints.
 
 from __future__ import annotations
 
+import itertools
 import json
 import pathlib
 
@@ -45,33 +47,49 @@ def _integrate(case: dict, fn=sm._skato_integrate_davies) -> float:
     return fn(np.array(case["pmin_q"]), _param(case), case["rho"], case["pmin"])
 
 
+def _surv(z: float, lam: np.ndarray) -> float:
+    """P[sum(lam * chi2_1) > z]: exact for 1-2 eigenvalues, Davies acc=1e-9 otherwise."""
+    if z <= 0:
+        return 1.0
+    if len(lam) == 1:
+        return float(scipy.stats.chi2.sf(z / lam[0], 1))
+    if len(lam) == 2:
+        # Polar coordinates: r^2 ~ chi2_2 (P[r^2 > s] = exp(-s/2)) independent of theta
+        def ang(t: float) -> float:
+            return float(np.exp(-z / (2 * (lam[0] * np.cos(t) ** 2 + lam[1] * np.sin(t) ** 2))))
+
+        return scipy.integrate.quad(ang, 0, np.pi, epsabs=0, epsrel=1e-13)[0] / np.pi
+    sf, fault = dv.davies_pvalue(float(z), lam, acc=1e-9, lim=10_000_000)
+    assert fault == 0
+    return min(max(sf, 0.0), 1.0)
+
+
 def _reference(case: dict) -> float:
-    """Independent adaptive SKAT-O integral (R: SKAT_Optimal_PValue_Davies)."""
+    """Independent SKAT-O integral p = int_0^edge f1(x) S(g(x)) dx + P[chi2_1 > edge].
+
+    Adaptive quad split at all rho kinks; no x <= 40 truncation and no pmin cap, so it
+    shares neither with production (R: 1 - int_0^40 f1 (1 - S), capped at n_rho * pmin).
+    """
     rho = np.array(case["rho"])
     a, b = np.array(case["pmin_q"]) / (1 - rho), np.array(case["tau"]) / (1 - rho)
     lam, mu = np.array(case["lambdas"]), case["mu_q"]
     sd = np.sqrt((case["var_q"] - case["var_remain"]) / case["var_q"])
-    cand = [(a[i] - (mu - mu / sd)) / b[i] for i in range(len(a))]
-    cand += [(a[i] - a[j]) / (b[i] - b[j]) for i in range(len(a)) for j in range(i)]
-    pts = np.sqrt(np.unique([z for z in cand if np.isfinite(z) and 0 < z < 40]))
-
-    def f(t: float) -> float:
-        z = (np.min(a - b * t * t) - mu) * sd + mu
-        if z <= 0:
-            return 0.0
-        if len(lam) == 1:
-            cdf = scipy.stats.chi2.cdf(z / lam[0], 1)
-        else:
-            sf, fault = dv.davies_pvalue(float(z), lam, acc=1e-9, lim=10_000_000)
-            assert fault == 0
-            cdf = 1 - sf
-        return cdf * np.sqrt(2 / np.pi) * np.exp(-t * t / 2)
-
-    v, err = scipy.integrate.quad(
-        f, 0, np.sqrt(40), points=pts, epsabs=1e-13, epsrel=1e-12, limit=4000
-    )
-    assert err < 1e-10
-    return min(1 - v, case["pmin"] * len(rho))
+    edge = min(float(np.min((a - (mu - mu / sd)) / b)), 1500.0)
+    cand = [(a[i] - a[j]) / (b[i] - b[j]) for i in range(len(a)) for j in range(i)]
+    cuts = [0.0, *sorted(c for c in cand if np.isfinite(c) and 0 < c < edge), edge]
+    total, eps = 0.0, 1e-10
+    for lo, hi in itertools.pairwise(cuts):
+        v, err = scipy.integrate.quad(
+            lambda x: scipy.stats.chi2.pdf(x, 1) * _surv((np.min(a - b * x) - mu) * sd + mu, lam),
+            lo,
+            hi,
+            epsabs=0,
+            epsrel=eps,
+            limit=1000,
+        )
+        assert err <= 10 * eps * max(v, 1e-300)
+        total += v
+    return total + float(scipy.stats.chi2.sf(edge, 1))
 
 
 @pytest.mark.unit
@@ -89,7 +107,9 @@ def _reference(case: dict) -> float:
 def test_integral_matches_independent_adaptive(name: str, tol: float) -> None:
     """Support-edge splits: baseline split only at rho kinks (off by 8e-5 .. 1.5e-2)."""
     case = PARAMS[name]
-    assert _integrate(case) == pytest.approx(_reference(case), abs=tol)
+    ref = _reference(case)
+    assert ref < case["pmin"] * len(case["rho"])  # the shared cap cannot mask an error
+    assert _integrate(case) == pytest.approx(ref, abs=tol)
 
 
 @pytest.mark.unit
@@ -202,3 +222,60 @@ def test_davies_failure_in_integrand_uses_liu_like_r(monkeypatch: pytest.MonkeyP
 def test_no_rho_below_one_returns_bonferroni_bound() -> None:
     case = dict(PARAMS["multi_k8"], rho=[1.0] * 7, pmin=0.01)
     assert _integrate(case) == pytest.approx(0.07)
+
+
+def _tail_case(q_rho: np.ndarray, z1: np.ndarray, monkeypatch: pytest.MonkeyPatch):
+    """Run _skato_get_pvalue and capture the integration inputs it builds."""
+    seen: dict = {}
+    real = sm._skato_integrate_davies
+
+    def spy(pq, param, rho, pmin):
+        seen.update(pmin_q=list(pq), rho=list(rho), pmin=pmin, **param)
+        seen.update(tau=list(param["tau"]), lambdas=list(param["lambdas"]))
+        return real(pq, param, rho, pmin)
+
+    monkeypatch.setattr(sm, "_skato_integrate_davies", spy)
+    p, _each = sm._skato_get_pvalue(q_rho, z1, sm._SKATO_RHO_GRID)
+    return p, seen
+
+
+_RHO_CAPPED = np.array([min(r, 0.999) for r in sm._SKATO_RHO_GRID])
+_B3 = np.array([[1, 1, 1], [1, -1, 0], [1, 1, -2]], dtype=np.float64)
+_B3 /= np.linalg.norm(_B3, axis=1)[:, None]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("q_rho", "z1", "k", "rel"),
+    [
+        # rank-one conditional: exact chi2(1) survival, tail x > 40 integrated
+        (np.full(7, 49.0), np.eye(2), 1, 1e-6),
+        # two eigenvalues: Davies cannot go below acc=1e-9 (bound 1e-9/p = 5%)
+        (33 * (1 - _RHO_CAPPED), np.diag(np.sqrt([0.01, 0.1, 1.0])) @ _B3, 2, 2e-3),
+    ],
+)
+def test_extreme_tail_matches_untruncated_reference(
+    q_rho: np.ndarray, z1: np.ndarray, k: int, rel: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review #181: 1 - int_0^40 lost the chi2_1 mass beyond 40 and cancelled.
+
+    Before: 1.682e-10 (rank one, = 7 * pmin cap) and 3.229e-8 (two eigenvalues, raw
+    integral negative -> 3 * min p rescue). R SKAT 2.2.5 SKAT_Optimal_Get_Pvalue on the
+    same inputs gives 1.603e-10 and 2.801e-8: its integrate(0, 40) has the same
+    truncation, so in this tail we deliberately differ from R (references 8.844e-11 and
+    2.220e-8, computed without truncation or cap; R's per-rho p differ slightly as well).
+    """
+    p, case = _tail_case(q_rho, z1, monkeypatch)
+    assert len(case["lambdas"]) == k
+    ref = _reference(case)
+    assert ref < case["pmin"] * len(case["rho"])
+    assert p == pytest.approx(ref, rel=rel)
+
+
+@pytest.mark.unit
+def test_pmin_quantile_survives_tiny_pmin() -> None:
+    """chi2.ppf(1 - p) is inf for p < 1e-16 (R: qchisq(1 - pmin)); use isf."""
+    lam = [np.array([1.0])] * 7
+    pmin, _pval, pmin_q = sm._skato_each_q({}, np.full((1, 7), 90.0), list(_RHO_CAPPED), lam)
+    assert pmin[0] < 1e-16 and np.all(np.isfinite(pmin_q))
+    assert pmin_q[0, 0] == pytest.approx(90.0, rel=1e-6)

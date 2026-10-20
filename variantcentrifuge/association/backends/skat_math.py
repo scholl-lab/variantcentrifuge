@@ -35,10 +35,20 @@ _GL_NODES_RAW, _GL_WEIGHTS_RAW = leggauss(16)
 _GL_A, _GL_B = 0.0, 40.0  # integration bounds (matches R: upper=40)
 # Conditional-statistic levels (in units of E[Q]) at which the SKAT-O integral is split
 _SKATO_Z_LEVELS = np.array([0.0, 1.0, 8.0, 64.0])
+# Relative accuracy target of the SKAT-O integral; Davies' absolute acc is set to
+# this times pmin, but Davies stops converging below ~1e-9 (two eigenvalues).
+_SKATO_DAVIES_REL_ACC, _SKATO_DAVIES_MIN_ACC = 1e-4, 1e-9
+_SKATO_X_MAX = 1500.0  # P[chi2_1 > 1500] underflows to 0
 
 
-def _skato_breakpoints(a: np.ndarray, b: np.ndarray, levels: np.ndarray) -> np.ndarray:
-    """Points in (0, 40) where the SKAT-O integrand needs a quadrature split.
+class _DaviesFailureError(Exception):
+    """Davies failed inside the SKAT-O integrand (R then uses the Liu integral)."""
+
+
+def _skato_breakpoints(
+    a: np.ndarray, b: np.ndarray, levels: np.ndarray, upper: float = _GL_B
+) -> np.ndarray:
+    """Points in (0, upper) where the SKAT-O integrand needs a quadrature split.
 
     m(x) = min_i(a_i - b_i*x) has kinks where the minimising line changes. b >= 0, so m is
     non-increasing and crosses each of ``levels`` at most once, at min_i((a_i - level)/b_i);
@@ -48,15 +58,19 @@ def _skato_breakpoints(a: np.ndarray, b: np.ndarray, levels: np.ndarray) -> np.n
     with np.errstate(divide="ignore", invalid="ignore"):
         cross = (a[:, None] - a[None, :]) / (b[:, None] - b[None, :])
         roots = np.min((a[:, None] - np.asarray(levels)[None, :]) / b[:, None], axis=0)
-    cand = np.unique(cross[np.isfinite(cross) & (cross > _GL_A) & (cross < _GL_B)])
+    cand = np.unique(cross[np.isfinite(cross) & (cross > _GL_A) & (cross < upper)])
     kinks = [
         x for x in cand if np.argmin(a - b * x * (1 - 1e-9)) != np.argmin(a - b * x * (1 + 1e-9))
     ]
-    return np.unique(np.r_[kinks, roots[(roots > _GL_A) & (roots < _GL_B)]])
+    return np.unique(np.r_[kinks, roots[(roots > _GL_A) & (roots < upper)]])
 
 
 def _skato_quadrature_nodes(
-    pmin_q: np.ndarray, tau: np.ndarray, rho: np.ndarray, levels: np.ndarray | None = None
+    pmin_q: np.ndarray,
+    tau: np.ndarray,
+    rho: np.ndarray,
+    levels: np.ndarray | None = None,
+    upper: float = _GL_B,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Nodes/weights for the SKAT-O integral, exact up to Davies accuracy.
 
@@ -67,7 +81,7 @@ def _skato_quadrature_nodes(
     """
     a, b = pmin_q / (1.0 - rho), tau / (1.0 - rho)
     lv = np.empty(0) if levels is None else levels
-    cuts = np.sqrt(np.r_[_GL_A, _skato_breakpoints(a, b, lv), _GL_B])
+    cuts = np.sqrt(np.r_[_GL_A, _skato_breakpoints(a, b, lv, upper), upper])
     lo, hi = cuts[:-1, None], cuts[1:, None]
     u, du = (_GL_NODES_RAW + 1.0) / 2.0, _GL_WEIGHTS_RAW / 2.0
     # The CDF of k chi2 terms grows like z^(k/2) from the support edge; grade the piece
@@ -230,7 +244,8 @@ def _skato_each_q(
         df_i = param_mat[i, 2]
 
         pmin_clamped = np.clip(pmin, 1e-300, 1.0 - 1e-15)
-        q_org = scipy.stats.chi2.ppf(1.0 - pmin_clamped, df=df_i)
+        # isf, not ppf(1 - p): 1 - p rounds to 1 (q = inf) for p < 1e-16 (R: qchisq(1-pmin))
+        q_org = scipy.stats.chi2.isf(pmin_clamped, df=df_i)
         pmin_q[:, i] = (q_org - df_i) / np.sqrt(2.0 * df_i) * np.sqrt(var_q_i) + mu_q_i
 
     return pmin, pval, pmin_q
@@ -262,47 +277,65 @@ def _skato_integrate_davies(
     if not np.any(valid):
         return _skato_integrate_liu(pmin_q, param, rho_grid, pmin)
 
-    pmin_q_valid = pmin_q[valid]
-    tau_valid = tau[valid]
+    # The conditional statistic is compared with Q = sum(lambdas * chi2_1): split where it
+    # hits 0 (support edge, levels[0]) and multiples of E[Q] (where its CDF rises)
+    levels = mu_q + mu_q * (_SKATO_Z_LEVELS - 1.0) / sd1 if sd1 > 0 else np.empty(0)
+    a, b = pmin_q[valid] / (1.0 - rho_arr[valid]), tau[valid] / (1.0 - rho_arr[valid])
     lambda_sum = float(np.sum(lambdas))
+    # Davies is absolute-accurate; tie its accuracy to the p-value scale (p >= ~pmin)
+    acc = float(np.clip(_SKATO_DAVIES_REL_ACC * pmin, _SKATO_DAVIES_MIN_ACC, 1e-6))
 
-    # min_q_std = (min_q - mu_q)*sd1 + mu_q is compared with Q = sum(lambdas * chi2_1):
-    # split where it hits 0 (support edge) and multiples of E[Q] (where the CDF rises)
-    levels = mu_q + mu_q * (_SKATO_Z_LEVELS - 1.0) / sd1 if sd1 > 0 else None
-    gl_x, gl_w = _skato_quadrature_nodes(pmin_q_valid, tau_valid, rho_arr[valid], levels)
-    integrand_vals = np.zeros(gl_x.size, dtype=np.float64)
-    for k, x in enumerate(gl_x):
-        cond_q = (pmin_q_valid - tau_valid * x) / (1.0 - rho_arr[valid])
-        min_q = float(np.min(cond_q))
+    def surv(x: np.ndarray) -> np.ndarray:
+        """P[Q > g(x)] for the conditional statistic g(x) = (m(x) - mu_q)*sd1 + mu_q."""
+        min_q = np.min(a[None, :] - b[None, :] * x[:, None], axis=1)
+        z = (min_q - mu_q) * sd1 + mu_q
+        if len(lambdas) == 1:
+            # Rank one: exact scaled chi2(1); Davies' series fails near the support edge
+            return np.asarray(scipy.stats.chi2.sf(z / lambdas[0], df=1))
+        out = np.zeros(x.size)
+        for k in np.flatnonzero(min_q <= lambda_sum * 1e4):
+            # R's lim=10_000 hits ifault=1 near the support edge and R then discards the
+            # whole integral for Liu; the larger cap is identical where R converges.
+            p_dav, ifault = davies_pvalue(float(z[k]), lambdas, acc=acc, lim=_DAVIES_RETRY_LIM)
+            if ifault != 0 and acc < 1e-6:  # tighter accuracy not reachable here: R's acc
+                p_dav, ifault = davies_pvalue(float(z[k]), lambdas, acc=1e-6, lim=_DAVIES_RETRY_LIM)
+            if p_dav is None or ifault != 0:
+                raise _DaviesFailureError(f"ifault={ifault} at q={z[k]:.6g}")
+            out[k] = min(max(float(p_dav), 0.0), 1.0)  # Davies error is absolute
+        return out
 
-        if min_q > lambda_sum * 1e4:
-            cdf_val = 0.0
-        else:
-            min_q_std = (min_q - mu_q) * sd1 + mu_q
-
-            if len(lambdas) == 1:
-                # Rank one: exact scaled chi2(1); Davies' series fails near the support edge
-                cdf_val = float(scipy.stats.chi2.sf(min_q_std / lambdas[0], df=1))
-            else:
-                # R's lim=10_000 hits ifault=1 near the support edge and R then discards
-                # the whole integral for Liu; the larger cap is identical where R converges.
-                p_dav, ifault = davies_pvalue(min_q_std, lambdas, acc=1e-6, lim=_DAVIES_RETRY_LIM)
-                if p_dav is None or ifault != 0:
-                    logger.debug("SKAT-O Davies ifault=%s at q=%.6g; using Liu", ifault, min_q_std)
-                    return _skato_integrate_liu(pmin_q, param, rho_grid, pmin)
-                cdf_val = float(p_dav)
-
-            if cdf_val > 1.0:
-                cdf_val = 1.0
-
-        integrand_vals[k] = (1.0 - cdf_val) * float(scipy.stats.chi2.pdf(x, df=1))
-
-    integral = float(np.dot(integrand_vals, gl_w))
-
-    if np.isnan(integral):
+    # Survival form: p = int_0^edge f1(x) S(g(x)) dx + P[chi2_1 > edge], with g(x) <= 0
+    # (S = 1) beyond the support edge. R computes 1 - int_0^40 f1 (1 - S), which equals
+    # this when edge <= 40 but cancels for small p and drops the mass of x > 40.
+    edge = float(np.min((a - levels[0]) / b)) if levels.size else np.inf
+    upper = min(edge, _GL_B)
+    try:
+        gl_x, gl_w = _skato_quadrature_nodes(
+            pmin_q[valid], tau[valid], rho_arr[valid], levels, upper
+        )
+        pvalue = float(np.dot(surv(gl_x) * scipy.stats.chi2.pdf(gl_x, df=1), gl_w))
+        tail_hi = min(edge, _SKATO_X_MAX)
+        # Mass beyond x = 40 is < 2.6e-10; integrate it only where it matters relative to p
+        if tail_hi > _GL_B and scipy.stats.chi2.sf(_GL_B, 1) > _SKATO_DAVIES_REL_ACC * pvalue:
+            pts = _skato_breakpoints(a, b, levels, tail_hi)
+            tail, err = scipy.integrate.quad(
+                lambda x: float(surv(np.array([x]))[0] * scipy.stats.chi2.pdf(x, df=1)),
+                _GL_B,
+                tail_hi,
+                points=pts[pts > _GL_B] if np.any(pts > _GL_B) else None,
+                epsabs=0.0,
+                epsrel=_SKATO_DAVIES_REL_ACC,
+                limit=200,
+            )
+            logger.debug("SKAT-O tail x>%g: %.3g (quad err %.2g)", _GL_B, tail, err)
+            pvalue += tail
+    except _DaviesFailureError as exc:
+        logger.debug("SKAT-O Davies %s; using Liu", exc)
         return _skato_integrate_liu(pmin_q, param, rho_grid, pmin)
+    pvalue += float(scipy.stats.chi2.sf(edge, df=1))
 
-    pvalue: float = 1.0 - integral
+    if np.isnan(pvalue):
+        return _skato_integrate_liu(pmin_q, param, rho_grid, pmin)
 
     if pmin * len(rho_grid) < pvalue:
         pvalue = pmin * len(rho_grid)
@@ -334,17 +367,26 @@ def _skato_integrate_liu(
     scale = np.sqrt(var_q) / np.sqrt(2.0 * df)
 
     def integrand(x: float) -> float:
-        min_q = float(np.min(a - b * x))
-        q_std = (min_q - mu_q) / scale + df
-        return float(scipy.stats.chi2.cdf(q_std, df=df)) * float(scipy.stats.chi2.pdf(x, df=1))
+        q_std = (float(np.min(a - b * x)) - mu_q) / scale + df
+        return float(scipy.stats.chi2.sf(q_std, df=df) * scipy.stats.chi2.pdf(x, df=1))
 
-    # Split where q_std hits 0 (support edge) and multiples of its mean df
-    points = _skato_breakpoints(a, b, mu_q + (df * _SKATO_Z_LEVELS - df) * scale)
+    # Survival form as in _skato_integrate_davies: q_std <= 0 (survival 1) beyond the edge.
+    # Split where q_std hits 0 and multiples of its mean df.
+    levels = mu_q + (df * _SKATO_Z_LEVELS - df) * scale
+    edge = float(np.min((a - levels[0]) / b))
+    upper = min(edge, _SKATO_X_MAX)
+    points = _skato_breakpoints(a, b, levels, upper)
     integral, _err = scipy.integrate.quad(
-        integrand, 0, 40, points=points if points.size else None, limit=2000, epsabs=1e-25
+        integrand,
+        0,
+        upper,
+        points=points if points.size else None,
+        limit=2000,
+        epsabs=0.0,
+        epsrel=1e-10,  # cheap integrand
     )
 
-    pvalue: float = 1.0 - float(integral)
+    pvalue: float = float(integral) + float(scipy.stats.chi2.sf(edge, df=1))
 
     if pmin * len(rho_grid) < pvalue:
         pvalue = pmin * len(rho_grid)

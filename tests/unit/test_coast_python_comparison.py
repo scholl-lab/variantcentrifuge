@@ -978,6 +978,33 @@ class TestCOASTGCKDGoldenComparison:
             f"got={python_p:.6e}, expected={expected_p:.6e}, rel_err={rel_err:.2e}"
         )
 
+    @pytest.mark.parametrize(
+        ("scenario_name", "r_skato_p"),
+        [
+            # R SKAT 2.2.5 allelic SKAT-O p-values (provenance: tests/unit/test_r_parity_skato.py)
+            ("gckd_g1_all_categories", 0.09329995),
+            ("gckd_g2_partial_bmv_ptv", 0.8489676),
+            ("gckd_g4_all_bmv", 0.6787618),
+            ("gckd_g5_tied_scores", 0.6141558),
+        ],
+    )
+    def test_gckd_golden_independent_of_python_skato(
+        self, scenario_name: str, r_skato_p: float
+    ) -> None:
+        """python_omnibus_p = Cauchy(6 burden p-values, R SKAT-O p) with weights 1x6, 6.
+
+        The goldens were updated with the #181 SKAT-O fix; this rebuilds them from the
+        R SKAT-O component and the (unchanged) burden components, combined explicitly.
+        """
+        geno, anno, pheno = _load_gckd_fixture(scenario_name)
+        burden = _run_gckd_coast(geno, anno, pheno)["burden_p_values"]
+        p = np.array([*burden, r_skato_p], dtype=np.float64)
+        w = np.array([1, 1, 1, 1, 1, 1, 6], dtype=np.float64)
+        t = float(np.sum(w * np.tan((0.5 - p) * np.pi)) / w.sum())
+        omnibus = 0.5 - math.atan(t) / math.pi
+        expected = _GCKD_GOLDEN_SCENARIOS[scenario_name]["python_omnibus_p"]
+        assert omnibus == pytest.approx(expected, rel=2e-5)  # R SKAT-O has 7 digits
+
     @pytest.mark.parametrize("scenario_name", list(_GCKD_GOLDEN_SCENARIOS.keys()))
     def test_gckd_scenario_deterministic(self, scenario_name: str) -> None:
         """Two calls with same input yield same p-value."""
