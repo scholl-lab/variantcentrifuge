@@ -28,6 +28,7 @@ from .non_autosomal_deducer import (
     _check_xld_vectorized,
     _check_xlr_female_vectorized,
     _check_xlr_male_vectorized,
+    autosomal_mask,
 )
 
 __all__ = [
@@ -103,8 +104,10 @@ def vectorized_deduce_patterns(
     # Compute autosome mask
     chrom_clean_series = df["CHROM"].astype(str).str.strip().str.upper()
     chrom_array = chrom_clean_series.to_numpy()
-    chrom_norm = chrom_clean_series.str.replace("^CHR", "", regex=True)
-    autosome_mask = ~chrom_norm.isin({"X", "Y", "M", "MT", "23", "24", "25"}).to_numpy()
+    pos = df["POS"] if "POS" in df else [np.nan] * n_variants
+    autosome_mask = autosomal_mask(df["CHROM"], pos)
+    # PAR rows are autosomal: hide them from the X-linked checks
+    x_chrom_array = np.where(autosome_mask, "", chrom_array)
 
     # Step 2: Per-sample vectorized pattern deduction
     for sample_id in sample_list:
@@ -186,7 +189,7 @@ def vectorized_deduce_patterns(
             mother_id,
             pedigree_data,
             sample_list,
-            chrom_array,
+            x_chrom_array,
             has_variant_mask,
             affected,
         )

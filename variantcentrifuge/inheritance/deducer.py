@@ -17,6 +17,7 @@ from ..genotype_utils import (
     is_variant,
 )
 from ..ped_reader import get_parents, is_affected
+from .non_autosomal_deducer import autosomal_mask
 
 logger = logging.getLogger(__name__)
 
@@ -167,12 +168,12 @@ def deduce_patterns_for_sample(
 
     # Check for X-linked patterns if on X chromosome
     chrom = str(variant_row.get("CHROM", "")).strip().upper()
-    if chrom in ["X", "CHRX", "23", "CHR23"]:
+    if chrom in ["X", "CHRX", "23", "CHR23"] and not _is_autosomal(variant_row):
         x_patterns = check_x_linked_patterns(sample_id, variant_row, pedigree_data, sample_list)
         patterns.extend(x_patterns)
 
     # Check for mitochondrial if on MT chromosome
-    if chrom in ["MT", "M", "CHRM", "CHRMT", "25", "CHR25"] and check_mitochondrial_pattern(
+    if chrom in ["MT", "M", "CHRM", "CHRMT", "26", "CHR26"] and check_mitochondrial_pattern(
         sample_id, variant_row, pedigree_data, sample_list
     ):
         patterns.append("mitochondrial")
@@ -187,6 +188,11 @@ def deduce_patterns_for_sample(
     return patterns
 
 
+def _is_autosomal(variant_row: dict[str, Any]) -> bool:
+    """Autosomes and X PAR regions follow autosomal inheritance."""
+    return bool(autosomal_mask([variant_row.get("CHROM", "")], [variant_row.get("POS")])[0])
+
+
 def check_dominant_pattern(
     sample_id: str,
     variant_row: dict[str, Any],
@@ -198,9 +204,7 @@ def check_dominant_pattern(
 
     Returns specific pattern type or None.
     """
-    chrom = str(variant_row.get("CHROM", "")).strip().upper()
-    chrom_norm = chrom[3:] if chrom.startswith("CHR") else chrom
-    if chrom_norm in {"X", "Y", "M", "MT", "23", "24", "25"}:
+    if not _is_autosomal(variant_row):
         return None
 
     sample_gt = variant_row.get(sample_id, "./.")
@@ -262,9 +266,7 @@ def check_recessive_pattern(
 
     Returns specific pattern type or None.
     """
-    chrom = str(variant_row.get("CHROM", "")).strip().upper()
-    chrom_norm = chrom[3:] if chrom.startswith("CHR") else chrom
-    if chrom_norm in {"X", "Y", "M", "MT", "23", "24", "25"}:
+    if not _is_autosomal(variant_row):
         return None
 
     sample_gt = variant_row.get(sample_id, "./.")

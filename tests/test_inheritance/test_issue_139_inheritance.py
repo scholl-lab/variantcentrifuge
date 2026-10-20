@@ -396,7 +396,7 @@ def test_de_novo_comprehensive_parental_combinations(trio_pedigree):
 
 @pytest.mark.unit
 def test_autosomal_patterns_chrom_aliases_and_controls(trio_pedigree):
-    """Verify aliases (M, CHRMT, 24, 25) are excluded and autosomes (1, 22) are included."""
+    """Verify aliases (M, CHRMT, 24, 26) are excluded and autosomes (1, 22, XY-PAR 25) included."""
     sample_list = ["proband", "father", "mother"]
 
     # Aliases for sex / mitochondrial chromosomes
@@ -408,8 +408,8 @@ def test_autosomal_patterns_chrom_aliases_and_controls(trio_pedigree):
         "CHRMT",
         "24",
         "chr24",
-        "25",
-        "chr25",
+        "26",
+        "chr26",
         "X",
         "Y",
         " chrX ",
@@ -421,7 +421,7 @@ def test_autosomal_patterns_chrom_aliases_and_controls(trio_pedigree):
             assert not p.startswith("autosomal_"), f"Unexpected {p} on {chrom}"
 
     # Autosomal controls must receive autosomal_dominant
-    autosomal_controls = ["chr1", "1", "chr2", "2", "chr22", "22"]
+    autosomal_controls = ["chr1", "1", "chr2", "2", "chr22", "22", "25", "chr25"]
     for chrom in autosomal_controls:
         row = {"CHROM": chrom, "POS": 100, "proband": "0/1", "father": "0/1", "mother": "0/0"}
         df = pd.DataFrame([row])
@@ -551,3 +551,70 @@ def test_x_and_mitochondrial_case_insensitive_chrom_normalization(trio_pedigree)
     details_mt = json.loads(res_df.iloc[1]["Inheritance_Details"])
     assert details_mt["primary_pattern"] == "mitochondrial"
     assert "mitochondrial" in details_mt["all_patterns"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "chrom,pos,expect_ad",
+    [
+        ("chr7", 600_000, True),
+        ("chrX", 600_000, True),  # PAR1
+        ("X", 155_800_000, True),  # PAR2
+        ("chrX", 2_781_480, False),  # first base after PAR1
+    ],
+)
+def test_par_variants_get_autosomal_labels(chrom, pos, expect_ad):
+    """X PAR1/PAR2 are inherited like autosomes in scalar and vectorized deduction."""
+    ped = {
+        "son": {"sample_id": "son", "father_id": "dad", "mother_id": "mom", "sex": "1",
+                "affected_status": "2"},
+        "dad": {"sample_id": "dad", "father_id": "0", "mother_id": "0", "sex": "1",
+                "affected_status": "2"},
+        "mom": {"sample_id": "mom", "father_id": "0", "mother_id": "0", "sex": "2",
+                "affected_status": "1"},
+    }  # fmt: skip
+    samples = ["son", "dad", "mom"]
+    row = {"CHROM": chrom, "POS": pos, "son": "0/1", "dad": "0/1", "mom": "0/0"}
+
+    scalar = deduce_patterns_for_sample("son", row, ped, samples)
+    vec = vectorized_deduce_patterns(pd.DataFrame([row]), ped, samples)[0]
+    assert ("autosomal_dominant" in scalar) is expect_ad
+    assert ("autosomal_dominant" in vec) is expect_ad
+    if expect_ad:
+        assert not any(p.startswith("x_linked") for p in scalar + vec)
+
+
+@pytest.mark.unit
+def test_chrom_25_is_not_mitochondrial(trio_pedigree):
+    """PLINK 25 is the XY PAR, 26 is MT."""
+    samples = ["proband", "father", "mother"]
+    for chrom, expect_mt in [("25", False), ("chr25", False), ("26", True), ("chrM", True)]:
+        row = {"CHROM": chrom, "POS": 100, "proband": "0/1", "father": "0/0", "mother": "0/1"}
+        scalar = deduce_patterns_for_sample("proband", row, trio_pedigree, samples)
+        vec = vectorized_deduce_patterns(pd.DataFrame([row]), trio_pedigree, samples)[0]
+        assert ("mitochondrial" in scalar) is expect_mt, chrom
+        assert ("mitochondrial" in vec) is expect_mt, chrom
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mother_gt", ["0/0", "0/1", "1/1"])
+@pytest.mark.parametrize("child_sex", ["1", "2"])
+def test_x_linked_scalar_vectorized_parity_single_known_mother(mother_gt, child_sex):
+    """Non-PAR X, father unknown ("0"): scalar and vectorized agree.
+
+    Regression: vectorized XLD skipped its own "x_linked_dominant_possible" because another
+    sample had already put "x_linked_dominant" in the shared per-variant list.
+    """
+    from variantcentrifuge.inheritance.deducer import deduce_patterns_for_variant
+
+    ped = {
+        "kid": {"sample_id": "kid", "father_id": "0", "mother_id": "mom", "sex": child_sex,
+                "affected_status": "2"},
+        "mom": {"sample_id": "mom", "father_id": "0", "mother_id": "0", "sex": "2",
+                "affected_status": "2"},
+    }  # fmt: skip
+    samples = ["kid", "mom"]
+    row = {"CHROM": "chrX", "POS": 50_000_000, "kid": "0/1", "mom": mother_gt}
+    scalar = deduce_patterns_for_variant(row, ped, samples)
+    vec = vectorized_deduce_patterns(pd.DataFrame([row]), ped, samples)[0]
+    assert sorted(scalar) == sorted(vec)

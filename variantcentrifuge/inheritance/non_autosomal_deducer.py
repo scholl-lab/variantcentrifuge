@@ -9,8 +9,17 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from ..ped_reader import is_affected
+
+# GRCh38 PAR1/PAR2 (1-based, inclusive); PAR variants are inherited like autosomes.
+# ponytail: the genome build is not passed into inheritance analysis, so GRCh38 PARs are used
+# for every build. On GRCh37, PAR2 stays X-linked (old behaviour) and chrX:2,699,521-2,781,479
+# counts as PAR; thread links.normalize_reference(config["reference"]) here to make it exact.
+_PAR_GRCH38 = ((10_001, 2_781_479), (155_701_383, 156_030_895))
+# PLINK numbering: 23=X, 24=Y, 25=XY (PAR, autosome-like), 26=MT
+_NON_AUTOSOMAL = ["X", "Y", "M", "MT", "23", "24", "26"]
 
 __all__ = [
     "_check_mitochondrial_vectorized",
@@ -19,7 +28,21 @@ __all__ = [
     "_check_xld_vectorized",
     "_check_xlr_female_vectorized",
     "_check_xlr_male_vectorized",
+    "autosomal_mask",
 ]
+
+
+def autosomal_mask(chrom: Any, pos: Any) -> np.ndarray:
+    """Return True for autosomal and X pseudoautosomal (PAR) variants."""
+    chrom_norm = (
+        pd.Series(chrom, dtype=str).str.strip().str.upper().str.replace("^CHR", "", regex=True)
+    )
+    pos_num = pd.to_numeric(pd.Series(pos), errors="coerce").to_numpy(dtype=float)
+    in_par = np.zeros(len(pos_num), dtype=bool)
+    for start, end in _PAR_GRCH38:
+        in_par |= (pos_num >= start) & (pos_num <= end)
+    is_x = chrom_norm.isin(["X", "23"]).to_numpy()
+    return np.asarray(~chrom_norm.isin(_NON_AUTOSOMAL).to_numpy() | (is_x & in_par), dtype=bool)
 
 
 def _check_x_linked_vectorized(
@@ -233,6 +256,8 @@ def _check_xld_vectorized(
     if not xld_base_mask.any():
         return
 
+    xld_found = np.zeros(len(sample_gts), dtype=bool)
+
     # Check father (XLD: affected father with variant can pass to daughters)
     if father_id and father_gts is not None:
         father_affected = np.bool_(is_affected(father_id, pedigree_data))
@@ -241,6 +266,7 @@ def _check_xld_vectorized(
         # If affected father has variant and child is female, XLD
         if father_affected and sex == "2":
             xld_father_mask = xld_base_mask & father_has_variant_mask
+            xld_found |= xld_father_mask
             xld_father_indices = np.where(xld_father_mask)[0]
             for idx in xld_father_indices:
                 patterns_per_variant[idx].append("x_linked_dominant")
@@ -252,17 +278,13 @@ def _check_xld_vectorized(
 
         if mother_affected:
             xld_mother_mask = xld_base_mask & mother_has_variant_mask
+            xld_found |= xld_mother_mask
             xld_mother_indices = np.where(xld_mother_mask)[0]
             for idx in xld_mother_indices:
                 patterns_per_variant[idx].append("x_linked_dominant")
 
-    # XLD possible: affected with variant but can't determine parent status
-    # Check if we already added XLD
-    xld_possible_mask = xld_base_mask.copy()
-    for idx in np.where(xld_base_mask)[0]:
-        if "x_linked_dominant" in patterns_per_variant[idx]:
-            xld_possible_mask[idx] = False
-
+    # XLD possible: no definite XLD for THIS sample (other samples' labels must not count)
+    xld_possible_mask = xld_base_mask & ~xld_found
     xld_possible_indices = np.where(xld_possible_mask)[0]
     for idx in xld_possible_indices:
         patterns_per_variant[idx].append("x_linked_dominant_possible")
@@ -319,7 +341,7 @@ def _check_mitochondrial_vectorized(
     """
     # Create mitochondrial chromosome mask
     chrom_clean = np.char.upper(np.char.strip(np.asarray(chrom_array, dtype=str)))
-    mt_mask = np.isin(chrom_clean, ["MT", "M", "CHRM", "CHRMT", "25", "CHR25"])
+    mt_mask = np.isin(chrom_clean, ["MT", "M", "CHRM", "CHRMT", "26", "CHR26"])
 
     # Must be on MT chromosome and have variant
     mt_variant_mask = mt_mask & has_variant_mask
