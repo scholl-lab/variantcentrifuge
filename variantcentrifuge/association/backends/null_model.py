@@ -190,7 +190,8 @@ def _nuisance_basis(null_model: NullModelResult) -> tuple[np.ndarray | None, np.
     sources = tuple(null_model.extra.get(k) for k in ("design_matrix", "mu_hat", "covariate_r"))
     cached = null_model.extra.get("_nuisance_basis")
     if cached is not None and all(a is b for a, b in zip(cached[0], sources, strict=True)):
-        return cached[1]
+        hit: tuple[np.ndarray | None, np.ndarray, float] = cached[1]
+        return hit
     design_x = np.asarray(null_model.extra["design_matrix"], dtype=np.float64)
     phi = None
     if null_model.trait_type == "binary":

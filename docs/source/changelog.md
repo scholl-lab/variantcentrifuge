@@ -14,9 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--temp-dir DIR` moves the workspace temp dir, bulk Python temp files, `sort -T` and SnpSift's JVM tmp dir off `/tmp`/output (passed explicitly; process `TMPDIR` is not changed); default unchanged (#213).
 - Start-up free-space warning on the temp and output filesystems when free space is below 16x the compressed input VCF (advisory only; gene-panel runs need far less) (#213).
 
-### Fixed
+### Changed
 
-- Python SKAT (binary trait): a gene whose covariate-adjusted kernel has no eigenvalue above round-off is now skipped with `skat_skip_reason=no_positive_eigenvalues` (R SKAT stops there) instead of reporting a placeholder p = 1 that forced ACAT-O towards 1. Quantitative traits keep p = 1, as R computes.
+- Faster per-gene association kernels with bit-identical results: the covariate (nuisance) QR basis and its conditioning are computed once per null model instead of on every projection, and the Liu fallback p-value is computed only when Davies fails (Python SKAT/SKAT-O, ACAT-V and score-artifact U/V; ~20% less kernel time per gene for SKAT-O + ACAT-V on 5,000 samples with 13 covariates).
 
 ### Deprecated
 
@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - COAST no longer skips a gene (`ANNOTATION_GENOTYPE_MISMATCH`) when genotype site QC drops a variant; it tests the kept variants, like burden and SKAT (#215).
 - Single-cohort ACAT (ACAT-O, ACAT-V, COAST omnibus) follows R `ACAT()`, which changes results: a gene where any combined test has p exactly 1 (common, e.g. Fisher p = 1.0 for a gene with equal case and control carrier rates) now gets ACAT-O ≈ 1, as in R; before, that p = 1 was silently dropped and ACAT-O was driven by the other tests. A gene with one test at p exactly 0 and another at exactly 1 gets an empty ACAT-O (R stops with an error there). p outside [0, 1] is an error. An allelic SKAT-O that COAST cannot compute (rank < 2) is now reported as undefined (`coast_skat_pvalue` empty) and left out of the COAST omnibus instead of entering as p = 1 (#216).
+- Python SKAT (binary trait): a gene whose covariate-adjusted kernel has no eigenvalue above round-off is now skipped with `skat_skip_reason=no_positive_eigenvalues` (R SKAT stops there) instead of reporting a placeholder p = 1 that forced ACAT-O towards 1. Quantitative traits keep p = 1, as R computes.
 
 ## [0.22.1] - 2026-10-20
 
