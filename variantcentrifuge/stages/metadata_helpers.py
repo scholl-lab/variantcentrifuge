@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -36,12 +37,13 @@ def _sanitize_text_identifiers(
         return text
     if not mapping:
         return "<redacted>" if redact_unmapped else text
-    result = text
-    # Replace longer identifiers first to avoid partial matching
-    for orig_id in sorted(mapping.keys(), key=len, reverse=True):
-        if orig_id and orig_id in result:
-            result = result.replace(orig_id, mapping[orig_id])
-    return result
+    ids = [k for k in sorted(mapping.keys(), key=len, reverse=True) if k]
+    if not ids:
+        return text
+    pattern = re.compile(
+        r"(?<![A-Za-z0-9])(" + "|".join(re.escape(i) for i in ids) + r")(?![A-Za-z0-9])"
+    )
+    return pattern.sub(lambda m: mapping[m.group(1)], text)
 
 
 def collect_metadata_rows(
@@ -103,10 +105,18 @@ def collect_metadata_rows(
 
     if is_pseudonymized:
         redact = not mapping
-        vcf_val = _sanitize_text_identifiers(vcf_val, mapping, redact_unmapped=redact)
-        pheno_val = _sanitize_text_identifiers(pheno_val, mapping, redact_unmapped=redact)
-        ped_val = _sanitize_text_identifiers(ped_val, mapping, redact_unmapped=redact)
-        gene_file_val = _sanitize_text_identifiers(gene_file_val, mapping, redact_unmapped=redact)
+        vcf_val = _sanitize_text_identifiers(
+            Path(vcf_val).name if vcf_val else "", mapping, redact_unmapped=redact
+        )
+        pheno_val = _sanitize_text_identifiers(
+            Path(pheno_val).name if pheno_val else "", mapping, redact_unmapped=redact
+        )
+        ped_val = _sanitize_text_identifiers(
+            Path(ped_val).name if ped_val else "", mapping, redact_unmapped=redact
+        )
+        gene_file_val = _sanitize_text_identifiers(
+            Path(gene_file_val).name if gene_file_val else "", mapping, redact_unmapped=redact
+        )
         filter_val = _sanitize_text_identifiers(filter_val, mapping, redact_unmapped=redact)
         final_filter_val = _sanitize_text_identifiers(
             final_filter_val, mapping, redact_unmapped=redact
@@ -114,12 +124,16 @@ def collect_metadata_rows(
         tn_str = _sanitize_text_identifiers(tn_str, mapping, redact_unmapped=redact)
         if redact and tx_md5:
             tx_md5 = "<redacted>"
+        elif tx_md5:
+            tx_md5 = _sanitize_text_identifiers(tx_md5, mapping, redact_unmapped=redact)
 
     ref_val = str(cfg.get("reference", ""))
     scoring_val = str(cfg.get("scoring_config_path", ""))
     if is_pseudonymized:
         ref_val = _sanitize_text_identifiers(ref_val, mapping, redact_unmapped=not mapping)
-        scoring_val = _sanitize_text_identifiers(scoring_val, mapping, redact_unmapped=not mapping)
+        scoring_val = _sanitize_text_identifiers(
+            Path(scoring_val).name if scoring_val else "", mapping, redact_unmapped=not mapping
+        )
 
     rows: list[tuple[str, Any]] = [
         ("Tool", "variantcentrifuge"),
@@ -151,22 +165,14 @@ def collect_metadata_rows(
             "filters",
             "final_filter",
             "stats_config",
+            "preset",
         }
-        # Sanitize all string values in fixed metadata rows
-        rows = [
-            (
-                k,
-                _sanitize_text_identifiers(str(v), mapping) if isinstance(v, str) else v,
-            )
-            for k, v in rows
-        ]
         # Include only safe allowlisted config entries, sanitized
         for k in sorted(SAFE_CONFIG_KEYS):
             if k in cfg and cfg[k] is not None:
                 val = str(cfg[k])
-                val = _sanitize_text_identifiers(
-                    val, mapping, redact_unmapped=(not mapping and k in identifying_config)
-                )
+                if k in identifying_config:
+                    val = _sanitize_text_identifiers(val, mapping, redact_unmapped=not mapping)
                 rows.append((f"config.{k}", val))
     else:
         sensitive_keys = {"pseudonymization_mapping", "pseudonymizer"}

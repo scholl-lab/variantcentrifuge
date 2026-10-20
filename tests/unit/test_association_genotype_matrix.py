@@ -559,3 +559,13 @@ class TestBuildGenotypeMatrixWarnings:
         assert any("differential" in w.lower() for w in warnings_list), (
             f"Expected differential missingness warning, got: {warnings_list}"
         )
+
+    def test_build_genotype_matrix_alt_major_flips_dosage(self) -> None:
+        """ALT-major sites (alt_freq > 0.5) flip dosage to minor allele count (ploidy - geno)."""
+        gt_values = [["1/1", "1/1", "1/1", "0/1", "0/0"]]
+        gene_df, vcf_samples, gt_cols = _make_gene_df(5, 1, gt_values)
+
+        geno, mafs, _, _ = build_genotype_matrix(gene_df, vcf_samples, gt_cols)
+        # alt_freq = 7/10 = 0.7 -> maf = 0.3, dosages flipped from [2,2,2,1,0] to [0,0,0,1,2]
+        assert mafs[0] == pytest.approx(0.3)
+        np.testing.assert_allclose(geno[:, 0], [0.0, 0.0, 0.0, 1.0, 2.0])

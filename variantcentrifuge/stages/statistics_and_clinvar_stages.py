@@ -35,7 +35,7 @@ class StatisticsGenerationStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
-        return {"chunked_analysis"}
+        return {"chunked_analysis", "inheritance_analysis", "variant_scoring"}
 
     @property
     def parallel_safe(self) -> bool:

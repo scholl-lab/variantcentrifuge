@@ -273,6 +273,15 @@ class SamplePseudonymizer:
                 res_tokens.append(sname)
         return ";".join(res_tokens)
 
+    def _pseudonymize_inheritance_details(self, val: Any) -> Any:
+        if val is None or pd.isna(val) or not str(val).strip():
+            return val
+        return re.sub(
+            r'("sample_id"\s*:\s*")([^"]*)(")',
+            lambda m: f"{m.group(1)}{self._mapping.get(m.group(2), m.group(2))}{m.group(3)}",
+            str(val),
+        )
+
     def pseudonymize_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """Apply pseudonymization to all relevant columns in a DataFrame."""
         df_copy = df.copy()
@@ -288,6 +297,12 @@ class SamplePseudonymizer:
             if col in df_copy.columns:
                 df_copy[col] = df_copy[col].apply(self.pseudonymize_inheritance_column)
                 logger.debug(f"Pseudonymized {col} column")
+
+        if "Inheritance_Details" in df_copy.columns:
+            df_copy["Inheritance_Details"] = df_copy["Inheritance_Details"].apply(
+                self._pseudonymize_inheritance_details
+            )
+            logger.debug("Pseudonymized Inheritance_Details column")
 
         # Handle internal sample tracking columns
         for col in ["proband_missing_samples", "control_missing_samples"]:

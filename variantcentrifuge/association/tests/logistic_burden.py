@@ -192,7 +192,7 @@ def _firth_logistic(
 
     bse = np.sqrt(np.diag(var_cov))
     z = beta / bse
-    pvals = 2.0 * (1.0 - sp_norm.cdf(np.abs(z)))
+    pvals = 2.0 * sp_norm.sf(np.abs(z))
 
     # Capture in closure for the result object
     _beta = beta.copy()

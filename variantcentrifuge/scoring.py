@@ -540,9 +540,9 @@ def apply_scoring(
                 fill_str = val_to_use if has_default else ""
                 s_orig = scored_df[original_col]
                 s_cat = (
-                    s_orig.astype(object).map(lambda x, _f=fill_str: _f if pd.isna(x) else str(x))
-                    if pd.api.types.is_bool_dtype(s_orig)
-                    else s_orig.astype(object).fillna(fill_str).astype(str)
+                    s_orig.astype(object)
+                    .map(lambda x, _f=fill_str: _f if pd.isna(x) else str(x))
+                    .astype(str)
                 )
                 scored_df[original_col] = s_cat.replace([".", "NA", ""], fill_str)
             rename_map[original_col] = target_name

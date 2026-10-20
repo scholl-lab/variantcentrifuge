@@ -76,10 +76,8 @@ class VariantAnalysisStage(Stage):
             "control_samples": context.config.get("control_samples") or [],
             "case_phenotypes": context.config.get("case_phenotypes") or [],
             "control_phenotypes": context.config.get("control_phenotypes") or [],
+            "no_stats": True,
         }
-        for k in ("stats_output_file", "no_stats", "stats_config"):
-            if k in context.config:
-                analysis_config[k] = context.config[k]
         _original_gt_cols = _find_per_sample_gt_columns(df)
         if "GT" not in df.columns and context.vcf_samples and _original_gt_cols:
             logger.info("Reconstructing GT column for variant analysis (local copy only)")

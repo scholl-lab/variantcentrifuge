@@ -75,11 +75,6 @@ def is_variant(gt: str) -> bool:
         return False
     alleles = parse_genotype(gt)
     if not alleles or any(a is None for a in alleles):
-        if "/" in gt or "|" in gt:
-            sep = "|" if "|" in gt else "/"
-            parts = [p.strip() for p in gt.split(sep)]
-            if len(parts) == 2 and all(p.isalpha() for p in parts if p):
-                return True
         return False
     return all(a in (0, 1) for a in alleles) and any(a == 1 for a in alleles)
 
@@ -89,19 +84,14 @@ def is_missing(gt: str) -> bool:
     if not gt:
         return True
     s = gt.strip()
-    if s in (".", "./.", ".|.", "NA", "nan", "NaN", "None", "null", "NULL", ""):
+    if s in (".", "./.", ".|.", "NA", "N/A", "nan", "NaN", "None", "null", "NULL", ""):
         return True
     if "." in s:
         return True
     alleles = parse_genotype(s)
     if not alleles:
         return True
-    if any(a is None for a in alleles):
-        is_alpha_call = ("/" in s or "|" in s) and all(
-            p.strip().isalpha() for p in s.replace("|", "/").split("/")
-        )
-        return not is_alpha_call
-    return False
+    return any(a is None for a in alleles)
 
 
 def get_allele_count(gt: str) -> int:

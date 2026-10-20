@@ -300,7 +300,7 @@ def generate_html_report(
     assets = _load_assets()
 
     # Extract pipeline metadata from config
-    filter_expression = cfg.get("filters", "None")
+    filter_expression = cfg.get("filters") or cfg.get("filter") or "None"
     # Try to get VCF file path from various possible keys
     vcf_path = cfg.get("vcf_file") or cfg.get("input_vcf")
     if vcf_path:
@@ -310,6 +310,33 @@ def generate_html_report(
     else:
         vcf_source = "Unknown"
     reference_genome = cfg.get("reference", "Unknown")
+
+    if cfg.get("pseudonymize"):
+        from .stages.metadata_helpers import _sanitize_text_identifiers
+
+        raw_map = cfg.get("pseudonymization_mapping")
+        mapping = {str(k): str(v) for k, v in raw_map.items()} if isinstance(raw_map, dict) else {}
+        redact = not mapping
+        if vcf_source != "Unknown":
+            vcf_source = _sanitize_text_identifiers(
+                str(vcf_source), mapping, redact_unmapped=redact
+            )
+        if filter_expression != "None":
+            filter_expression = _sanitize_text_identifiers(
+                str(filter_expression), mapping, redact_unmapped=redact
+            )
+        if isinstance(summary.get("metadata"), dict):
+            summary["metadata"] = {
+                k: _sanitize_text_identifiers(str(v), mapping, redact_unmapped=redact)
+                if isinstance(v, str)
+                else v
+                for k, v in summary["metadata"].items()
+            }
+            with (
+                AtomicFileOperation(summary_json) as temp_sjf,
+                open(temp_sjf, "w", encoding="utf-8") as sjf_out,
+            ):
+                json.dump(summary, sjf_out, indent=2)
 
     # Compute deterministic report fingerprint and assign stable variant keys
     report_id = compute_report_id(

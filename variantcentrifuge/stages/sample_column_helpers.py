@@ -307,7 +307,7 @@ def create_sample_columns_from_gt(
                     # Parse "SampleName(genotype:extra:fields)"
                     match = re.match(r"^([^(]+)\(([^)]+)\)", entry)
                     if match:
-                        sample_name = match.group(1)
+                        sample_name = match.group(1).strip()
                         genotype_info = match.group(2)
                         # Extract just the genotype part (before the first colon)
                         genotype = genotype_info.split(":")[0]

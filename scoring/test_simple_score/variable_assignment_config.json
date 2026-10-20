@@ -1,8 +1,8 @@
 {
   "variables": {
-    "dbNSFP_gnomAD_exomes_AF": "gnomade_variant|default:0.0",
-    "dbNSFP_gnomAD_genomes_AF": "gnomadg_variant|default:0.0",
-    "dbNSFP_CADD_phred": "cadd_phred_variant|default:0.0",
+    "dbNSFP_gnomAD_exomes_AF": "gnomade_variant|default:0.0|reduce:max",
+    "dbNSFP_gnomAD_genomes_AF": "gnomadg_variant|default:0.0|reduce:max",
+    "dbNSFP_CADD_phred": "cadd_phred_variant|default:0.0|reduce:max",
     "EFFECT": "consequence_terms_variant|default:''",
     "IMPACT": "impact_variant|default:''"
   }

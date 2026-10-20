@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any, cast
 
@@ -58,6 +59,7 @@ class AssociationAnalysisStage(Stage):
             "pca_computation",
             "chunked_analysis",
             "scoring_config_loading",
+            "variant_scoring",
         }
 
     @property
@@ -258,12 +260,15 @@ class AssociationAnalysisStage(Stage):
             )
             gt_series_str = df_with_per_sample_gt["GT"].fillna("").astype(str)
             for s_col in unpacked_samples:
-                if s_col in df_with_per_sample_gt.columns:
-                    explicit_missing = gt_series_str.str.contains(
-                        f"{s_col}(./.)", regex=False
-                    ) | gt_series_str.str.contains(f"{s_col}(.|.)", regex=False)
-                    fill_ref = (df_with_per_sample_gt[s_col] == "./.") & ~explicit_missing
-                    df_with_per_sample_gt.loc[fill_ref, s_col] = "0/0"
+                if s_col not in df_with_per_sample_gt.columns:
+                    df_with_per_sample_gt[s_col] = gt_series_str.str.extract(
+                        rf"(?:^|;)\s*{re.escape(s_col)}\(([^:)]+)", expand=False
+                    ).fillna("./.")
+                listed = gt_series_str.str.contains(
+                    rf"(?:^|;)\s*{re.escape(s_col)}\(", regex=True
+                )
+                fill_ref = (df_with_per_sample_gt[s_col] == "./.") & ~listed
+                df_with_per_sample_gt.loc[fill_ref, s_col] = "0/0"
 
         if "GT" not in df.columns and context.vcf_samples and gt_cols:
             logger.info("Reconstructing GT column for association aggregation (local copy only)")

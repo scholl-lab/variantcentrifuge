@@ -305,6 +305,7 @@ class ChunkedAnalysisStage(Stage):
         """Process chunks sequentially and stream directly to disk."""
         chunks_written = 0
         total_variants = 0
+        expected_columns: list[str] | None = None
         for chunk_num, chunk_df in enumerate(
             self._read_tsv_in_gene_chunks(sorted_file, gene_col_name, chunk_size, context)
         ):
@@ -312,6 +313,7 @@ class ChunkedAnalysisStage(Stage):
             processed_chunk = self._process_single_chunk(chunk_df, context, chunk_num)
             if processed_chunk is not None and not processed_chunk.empty:
                 if chunks_written == 0:
+                    expected_columns = list(processed_chunk.columns)
                     processed_chunk.to_csv(
                         output_path,
                         sep="\t",
@@ -320,6 +322,8 @@ class ChunkedAnalysisStage(Stage):
                         compression=cast(Any, compression),
                     )
                 else:
+                    if expected_columns is not None:
+                        processed_chunk = processed_chunk.reindex(columns=expected_columns)
                     processed_chunk.to_csv(
                         output_path,
                         sep="\t",
@@ -350,6 +354,7 @@ class ChunkedAnalysisStage(Stage):
         chunks_written = 0
         total_variants = 0
         next_write_idx = 0
+        expected_columns: list[str] | None = None
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_index: dict[Any, int] = {}
@@ -391,6 +396,7 @@ class ChunkedAnalysisStage(Stage):
                     next_write_idx += 1
                     if chunk is not None and not chunk.empty:
                         if chunks_written == 0:
+                            expected_columns = list(chunk.columns)
                             chunk.to_csv(
                                 output_path,
                                 sep="\t",
@@ -399,6 +405,8 @@ class ChunkedAnalysisStage(Stage):
                                 compression=cast(Any, compression),
                             )
                         else:
+                            if expected_columns is not None:
+                                chunk = chunk.reindex(columns=expected_columns)
                             chunk.to_csv(
                                 output_path,
                                 sep="\t",

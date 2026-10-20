@@ -190,3 +190,101 @@ def test_pseudonymized_metadata_with_empty_mapping(tmp_path: Path):
     assert metadata_df.loc["Phenotype_file", "Value"] == "<redacted>"
     assert metadata_df.loc["config.reference", "Value"] == "<redacted>"
     assert metadata_df.loc["config.stats_config", "Value"] == "<redacted>"
+
+
+def test_short_numeric_sample_ids_and_directory_stripping(tmp_path: Path):
+    """Short numeric sample IDs ('1', '2') do not corrupt GRCh38.p13 or numeric fields."""
+    from variantcentrifuge.stages.metadata_helpers import collect_metadata_rows
+
+    workspace = Workspace(output_dir=tmp_path, base_name="test")
+    config = {
+        "pseudonymize": True,
+        "pseudonymization_mapping": {"1": "STUDY_001", "2": "STUDY_002"},
+        "vcf_file": "/secret/patient_dir/cohort_1.vcf.gz",
+        "ped_file": "/secret/patient_dir/family_2.ped",
+        "reference": "GRCh38.p13",
+        "filter": "GEN[1].GT != '0/0'",
+        "threads": 1,
+        "pipeline_version": "0.15.0",
+    }
+    context = PipelineContext(Namespace(), config, workspace)
+    rows = dict(collect_metadata_rows(context, lambda t: "1.2.3"))
+
+    assert rows["Reference"] == "GRCh38.p13"
+    assert rows["Version"] == "0.15.0"
+    assert rows["Threads"] == 1
+    assert rows["VCF_file"] == "cohort_STUDY_001.vcf.gz"
+    assert "/secret/patient_dir" not in rows["VCF_file"]
+    assert rows["Pedigree_file"] == "family_STUDY_002.ped"
+    assert rows["Filter"] == "GEN[STUDY_001].GT != '0/0'"
+
+
+def test_generate_html_report_sanitizes_metadata_when_pseudonymized(tmp_path: Path):
+    """generate_html_report sanitizes vcf_source, filter_expression, and summary.json metadata."""
+    import json
+
+    from variantcentrifuge.generate_html_report import generate_html_report
+
+    variants_path = tmp_path / "variants.json"
+    summary_path = tmp_path / "summary.json"
+    variants_path.write_text(
+        json.dumps([{"CHROM": "chr1", "POS": 100, "REF": "A", "ALT": "T", "GENE": "BRCA1"}]),
+        encoding="utf-8",
+    )
+    summary_path.write_text(
+        json.dumps(
+            {
+                "num_variants": 1,
+                "num_genes": 1,
+                "impact_distribution": {},
+                "metadata": {
+                    "vcf_file": "cohort_PATIENT_001.vcf.gz",
+                    "filter": "GEN[PATIENT_001].GT != '0/0'",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    cfg = {
+        "pseudonymize": True,
+        "pseudonymization_mapping": {"PATIENT_001": "STUDY_001"},
+        "vcf_file": "/secret/PATIENT_001/cohort_PATIENT_001.vcf.gz",
+        "filter": "GEN[PATIENT_001].GT != '0/0'",
+        "reference": "GRCh38.p13",
+    }
+    generate_html_report(str(variants_path), str(summary_path), str(tmp_path), cfg)
+
+    html = (tmp_path / "index.html").read_text(encoding="utf-8")
+    assert "PATIENT_001" not in html
+    assert "cohort_STUDY_001.vcf.gz" in html
+    assert "GEN[STUDY_001].GT" in html
+
+    updated_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert "PATIENT_001" not in json.dumps(updated_summary)
+    assert updated_summary["metadata"]["vcf_file"] == "cohort_STUDY_001.vcf.gz"
+
+
+def test_pseudonymizer_replaces_sample_id_in_inheritance_details():
+    """SamplePseudonymizer.pseudonymize_dataframe replaces sample_id inside Inheritance_Details JSON."""
+    from variantcentrifuge.pseudonymizer import SamplePseudonymizer, SequentialSchema
+
+    pseudonymizer = SamplePseudonymizer(SequentialSchema(prefix="STUDY"))
+    pseudonymizer.create_mapping(["PATIENT_001", "PATIENT_002"])
+
+    df = pd.DataFrame(
+        {
+            "CHROM": ["chr1"],
+            "Inheritance_Details": [
+                '{"primary_pattern": "de_novo", "samples_with_pattern": '
+                '[{"sample_id": "PATIENT_001", "genotype": "0/1"}, '
+                '{"sample_id": "PATIENT_002", "genotype": "0/0"}]}'
+            ],
+        }
+    )
+    out = pseudonymizer.pseudonymize_dataframe(df)
+    details_str = out.loc[0, "Inheritance_Details"]
+    assert "PATIENT_001" not in details_str
+    assert "PATIENT_002" not in details_str
+    assert "STUDY_001" in details_str
+    assert "STUDY_002" in details_str
