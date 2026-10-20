@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import Any
 
@@ -150,26 +149,6 @@ def _coast_missing_columns(df: pd.DataFrame, assoc_config: Any) -> list[str]:
         san for san, alt in _coast_base_required if san not in df.columns and alt not in df.columns
     ]
     return missing
-
-
-def _per_sample_gt_frame(df: pd.DataFrame, unpacked_samples: list[str]) -> pd.DataFrame:
-    """Build a per-sample GT column copy of *df* from the packed GT column."""
-    from .sample_column_helpers import create_sample_columns_from_gt_intelligent
-
-    out = create_sample_columns_from_gt_intelligent(df.copy(), vcf_samples=unpacked_samples)
-    gt_series_str = out["GT"].fillna("").astype(str)
-    # Only the named "Sample(GT);..." format omits hom-ref samples; positional "0/1,./.,..."
-    # rows list every sample, so their ./. are real missing calls (#200).
-    positional = gt_series_str.ne("") & ~gt_series_str.str.contains("(", regex=False)
-    for s_col in unpacked_samples:
-        if s_col not in out.columns:
-            out[s_col] = gt_series_str.str.extract(
-                rf"(?:^|;)\s*{re.escape(s_col)}\(([^:)]+)", expand=False
-            ).fillna("./.")
-        listed = gt_series_str.str.contains(rf"(?:^|;)\s*{re.escape(s_col)}\(", regex=True)
-        fill_ref = (out[s_col] == "./.") & ~listed & ~positional
-        out.loc[fill_ref, s_col] = "0/0"
-    return out
 
 
 def _report_missingness_qc(

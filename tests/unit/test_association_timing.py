@@ -40,7 +40,7 @@ def test_stage_exposes_substep_seconds(tmp_path, layout):
     assert len(res) == 3
     expected = {"aggregation", "matrix_builders", "engine", "write_output"}
     assert expected <= set(timings)
-    assert ("gt_unpack" in timings) == (layout == "packed")
+    assert "gt_parse" in timings  # one parse for both layouts (#219)
     assert sum(timings.values()) <= wall
 
 

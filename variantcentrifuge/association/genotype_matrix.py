@@ -42,13 +42,16 @@ _SPLIT_HINT = (
 )
 
 
-def _multiallelic_error(gene_df: pd.DataFrame, row: int, column: str) -> ValueError:
+def _multiallelic_error(
+    gene_df: pd.DataFrame, row: int, column: str, value: object = None
+) -> ValueError:
     """Build the actionable #175 error naming the gene, variant and sample column."""
     record = gene_df.iloc[row]
+    value = record[column] if value is None else value
     site = ":".join(str(record[c]) for c in ("CHROM", "POS", "REF", "ALT") if c in gene_df)
     gene = f"gene {record['GENE']}, " if "GENE" in gene_df else ""
     return ValueError(
-        f"Unsplit multi-allelic genotype {record[column]!r} ({gene}variant "
+        f"Unsplit multi-allelic genotype {value!r} ({gene}variant "
         f"{site or f'row {gene_df.index[row]!r}'}, column {column!r}): {_SPLIT_HINT}"
     )
 
@@ -265,6 +268,7 @@ def build_genotype_matrix(
     phenotype_vector: np.ndarray | None = None,
     return_keep_mask: bool = False,
     missing_as_ref: bool = False,
+    parsed: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
 ) -> (
     tuple[np.ndarray, np.ndarray, list[bool], list[str]]
     | tuple[np.ndarray, np.ndarray, list[bool], list[str], np.ndarray]
@@ -307,6 +311,9 @@ def build_genotype_matrix(
         imputed or dropped for missingness (``bcftools +setGT -t . -n 0``). Meant for
         merged single-sample VCFs where ``./.`` means "not called as variant".
         Default False keeps the SKAT conventions (bestguess / mean imputation).
+    parsed : tuple of np.ndarray, optional
+        Pre-parsed ``(dosage, ploidy, kind)`` arrays (``GenotypeCodes.gene_arrays``); when
+        given, ``gt_columns`` is not read (#219).
 
     Returns
     -------
@@ -345,7 +352,9 @@ def build_genotype_matrix(
     # Vectorized: processes one GT column at a time using pandas string    #
     # ops instead of per-cell Python function calls.                       #
     # ------------------------------------------------------------------ #
-    raw, ploidy, kind = _vectorized_parse_gt_columns(gene_df, gt_columns_list)
+    if parsed is None:
+        parsed = _vectorized_parse_gt_columns(gene_df, gt_columns_list)
+    raw, ploidy, kind = parsed
     if missing_as_ref:
         # Missing ploidy is still inferred below (generic missing calls on haploid rows -> 1).
         raw[np.isnan(raw)] = 0.0

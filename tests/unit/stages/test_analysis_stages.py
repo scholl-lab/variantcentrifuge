@@ -779,7 +779,12 @@ class TestVariantAnalysisStage:
 
         class _FakeBuilder:
             def __init__(self, **kwargs):
-                captured["df"] = kwargs["gene_df"].copy()
+                gc, rows = kwargs["genotypes"], kwargs["rows"]
+                cells = gc.codes[rows]
+                captured["gt"] = {
+                    s: [gc.vocab[c] for c in cells[:, j]]
+                    for j, s in enumerate(kwargs["vcf_samples"])
+                }
 
             def __call__(self):
                 return {}
@@ -797,11 +802,9 @@ class TestVariantAnalysisStage:
             stage = AssociationAnalysisStage()
             stage(base_context)
 
-        unpacked = captured["df"]
+        gt = captured["gt"]
         # Row 0: "11" is explicitly missing with depth fields; "1" is not listed -> reference "0/0"
-        assert unpacked.loc[0, "11"] == "./."
-        assert unpacked.loc[0, "1"] == "0/0"
-        assert unpacked.loc[0, "C0"] == "0/1"
         # Row 1: "11" is 0/1; "1" is explicitly missing with depth fields -> "./."
-        assert unpacked.loc[1, "11"] == "0/1"
-        assert unpacked.loc[1, "1"] == "./."
+        assert gt["11"] == ["./.", "0/1"]
+        assert gt["1"] == ["0/0", "./."]
+        assert gt["C0"] == ["0/1", "0/0"]

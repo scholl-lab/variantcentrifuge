@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from ..association.gt_codes import GenotypeCodes
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +22,11 @@ class _GenotypeMatrixBuilder:
     Instead of pre-building all matrices, this callable is stored in gene_data
     and invoked by the engine just before running tests. The matrix is discarded
     after test execution, keeping peak memory at O(1 gene).
+
+    With ``genotypes`` (the run-level code matrix shared by all builders) and ``rows``
+    (this gene's row indices in it), genotypes come from those codes and ``gene_df``
+    only needs the annotation columns; otherwise they are parsed from
+    ``gene_df[gt_columns]`` (#219).
     """
 
     gene_df: pd.DataFrame
@@ -34,6 +42,16 @@ class _GenotypeMatrixBuilder:
     revel_column: str | None = None
     effect_column: str | None = None
     missing_as_ref: bool = False
+    genotypes: GenotypeCodes | None = None
+    rows: np.ndarray | None = None
+
+    def gene_arrays(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return this gene's parsed (dosage, ploidy, kind) arrays, variants x samples."""
+        if self.genotypes is not None and self.rows is not None:
+            return self.genotypes.gene_arrays(self.rows, self.gene_df)
+        from ..association.genotype_matrix import _vectorized_parse_gt_columns
+
+        return _vectorized_parse_gt_columns(self.gene_df, list(self.gt_columns))
 
     def _aligned_annotation_payload(self, keep_variants_mask: np.ndarray) -> dict[str, Any]:
         payload: dict[str, Any] = {}
@@ -106,6 +124,7 @@ class _GenotypeMatrixBuilder:
                 phenotype_vector=self.phenotype_vector,
                 return_keep_mask=True,
                 missing_as_ref=self.missing_as_ref,
+                parsed=self.gene_arrays(),
             ),
         )
         annotation_payload = self._aligned_annotation_payload(keep_variants_mask)
