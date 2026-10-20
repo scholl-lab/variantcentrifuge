@@ -81,6 +81,7 @@ pediatric_cohort	/data/meta/pediatric.npz
 
 Relative paths are read relative to the manifest file. The `stratum_id` names the
 cohort in the output (e.g. `per_stratum_directions` = `adult_cohort:1,pediatric_cohort:-1`).
+It must not contain `:`, `;` or `,`, which separate the per-stratum output fields.
 
 The meta step **refuses** (hard error, no silent fallback) when strata disagree on
 genome build, annotation version, mask definition, or trait type, or when their
@@ -136,7 +137,7 @@ information (non-zero variance after the covariate projection): a site that is
 monomorphic within a stratum, or explained by its covariates, adds nothing to the
 test and so nothing to the MAC used by `--min-mac`.
 
-`--min-mac N` labels genes with `cmac_total < N` as `status=low_mac`. Their p-values
+`--min-mac N` (a finite number ≥ 0) labels genes with `cmac_total < N` as `status=low_mac`. Their p-values
 are still reported, but `primary_q` is empty: like untestable genes in the main
 engine, they are left out of the multiple-testing family (and of the diagnostics).
 Per-stratum carrier counts are not available yet; they need a new artifact field.

@@ -257,3 +257,22 @@ def test_mac_ignores_zero_information_variants():
     assert row["cmac_total"] == pytest.approx(expected)
     assert row["cmac_total"] < before["cmac_total"]
     assert row["cmac_by_stratum"] == ";".join(f"{s}:{m}" for s, m in per.items())
+
+
+@pytest.mark.parametrize("bad", [-1.0, float("nan"), float("inf")])
+def test_min_mac_must_be_finite_and_nonnegative(tmp_path, bad):
+    with pytest.raises(ValueError, match="min_mac"):
+        meta_analyze_artifacts(_three_strata()[:2], min_mac=bad)
+    manifest = _write_study(tmp_path)
+    assert (
+        main(["--manifest", manifest, "--output", str(tmp_path / "o.tsv"), "--min-mac", str(bad)])
+        == 1
+    )
+
+
+@pytest.mark.parametrize("name", ["A;B", "A:B", "A,B"])
+def test_stratum_ids_with_output_separators_are_rejected(name):
+    arts = _three_strata()[:2]
+    arts[0].stratum_id = name
+    with pytest.raises(ValueError, match="separator"):
+        meta_analyze_artifacts(arts)

@@ -209,6 +209,13 @@ def meta_analyze_artifacts(
     ``status=low_mac`` and stay outside the multiple-testing family, like the main
     engine's untestable genes.
     """
+    if not (np.isfinite(min_mac) and min_mac >= 0):
+        raise ValueError(f"min_mac must be a finite number >= 0, got {min_mac}")
+    bad = [a.stratum_id for a in artifacts if set(a.stratum_id) & set(":;,")]
+    if bad:
+        raise ValueError(
+            f"stratum_id must not contain the output separators ':', ';' or ',': {bad}"
+        )
     mask_id = artifacts[0].mask_id
     all_genes = sorted({g for art in artifacts for g in art.genes})
 
