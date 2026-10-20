@@ -1003,7 +1003,7 @@ class TestCOASTGCKDGoldenComparison:
         t = float(np.sum(w * np.tan((0.5 - p) * np.pi)) / w.sum())
         omnibus = 0.5 - math.atan(t) / math.pi
         expected = _GCKD_GOLDEN_SCENARIOS[scenario_name]["python_omnibus_p"]
-        assert omnibus == pytest.approx(expected, rel=2e-5)  # R SKAT-O has 7 digits
+        assert omnibus == pytest.approx(expected, rel=2e-5, abs=0.0)  # R SKAT-O: 7 digits
 
     @pytest.mark.parametrize("scenario_name", list(_GCKD_GOLDEN_SCENARIOS.keys()))
     def test_gckd_scenario_deterministic(self, scenario_name: str) -> None:

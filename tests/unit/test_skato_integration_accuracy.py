@@ -208,7 +208,7 @@ def test_skato_low_rank_matches_r(spec: tuple[int, int, int, int], r_ref: float)
     backend = PythonSKATBackend()
     null = backend.fit_null_model(y, x, "binary")
     p = backend.test_gene("G", g, null, "SKATO", weights=w)["p_value"]
-    assert p == pytest.approx(r_ref, rel=1e-6)
+    assert p == pytest.approx(r_ref, rel=1e-6, abs=0.0)
 
 
 @pytest.mark.unit
@@ -222,7 +222,7 @@ def test_davies_failure_in_integrand_uses_liu_like_r(monkeypatch: pytest.MonkeyP
 @pytest.mark.unit
 def test_no_rho_below_one_returns_bonferroni_bound() -> None:
     case = dict(PARAMS["multi_k8"], rho=[1.0] * 7, pmin=0.01)
-    assert _integrate(case) == pytest.approx(0.07)
+    assert _integrate(case) == pytest.approx(0.07, abs=0.0)
 
 
 def _tail_case(q_rho: np.ndarray, z1: np.ndarray, monkeypatch: pytest.MonkeyPatch):
@@ -247,30 +247,59 @@ _B3 /= np.linalg.norm(_B3, axis=1)[:, None]
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    ("q_rho", "z1", "k", "rel"),
+    ("z1", "k", "qs"),
     [
-        # rank-one conditional: exact chi2(1) survival, tail x > 40 integrated
-        (np.full(7, 49.0), np.eye(2), 1, 1e-6),
-        # two eigenvalues: Davies cannot go below acc=1e-9 (bound 1e-9/p = 5%)
-        (33 * (1 - _RHO_CAPPED), np.diag(np.sqrt([0.01, 0.1, 1.0])) @ _B3, 2, 2e-3),
+        # rank-one conditional: exact chi2(1) survival
+        (np.eye(2), 1, [8.0, 20.0, 35.0, 49.0, 60.0]),
+        # two eigenvalues: Davies' absolute floor (1e-9) -> tilted tail survival
+        (np.diag(np.sqrt([0.01, 0.1, 1.0])) @ _B3, 2, [15.0, 33.0, 42.0, 45.5, 46.0, 50.0]),
     ],
 )
-def test_extreme_tail_matches_untruncated_reference(
-    q_rho: np.ndarray, z1: np.ndarray, k: int, rel: float, monkeypatch: pytest.MonkeyPatch
+def test_statistic_sweep_into_extreme_tail(
+    z1: np.ndarray, k: int, qs: list[float], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Review #181: 1 - int_0^40 lost the chi2_1 mass beyond 40 and cancelled.
+    """Review #181: relative accuracy, monotonicity and bounds from moderate p to 1e-12.
 
-    Before: 1.682e-10 (rank one, = 7 * pmin cap) and 3.229e-8 (two eigenvalues, raw
-    integral negative -> 3 * min p rescue). R SKAT 2.2.5 SKAT_Optimal_Get_Pvalue on the
-    same inputs gives 1.603e-10 and 2.801e-8: its integrate(0, 40) has the same
-    truncation, so in this tail we deliberately differ from R (references 8.844e-11 and
-    2.220e-8, computed without truncation or cap; R's per-rho p differ slightly as well).
+    Baseline for q=49 (k=1) / q=33 (k=2): 1.682e-10 / 3.229e-8 (1 - int_0^40 truncation
+    and cancellation). f03853b (Davies acc floor 1e-9) at q=45.5/46/50 (k=2):
+    3.149e-11 / 7.783e-11 / 1.833e-12, non-monotone. References (no truncation, no cap,
+    exact survival): 8.844e-11, 2.2228e-8, 3.7739e-11, 2.9265e-11, 3.8338e-12. R SKAT
+    2.2.5 (SKAT_Optimal_Get_Pvalue) gives 1.603e-10 (q=49) and 2.801e-8 (q=33): its
+    integrate(0, 40) truncates, so in this tail we deliberately differ from R.
     """
-    p, case = _tail_case(q_rho, z1, monkeypatch)
-    assert len(case["lambdas"]) == k
-    ref = _reference(case)
-    assert ref < case["pmin"] * len(case["rho"])
-    assert p == pytest.approx(ref, rel=rel)
+    prev = 1.0
+    for q in qs:
+        p, case = _tail_case(q * (1 - np.array(sm._SKATO_RHO_GRID)), z1, monkeypatch)
+        assert len(case["lambdas"]) == k
+        n_rho_pmin = case["pmin"] * len(case["rho"])
+        assert case["pmin"] <= p <= min(1.0, n_rho_pmin)
+        assert p <= prev
+        prev = p
+        assert p == pytest.approx(_reference(case), rel=1e-6, abs=0.0)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("lam", [[1.0, 0.1], [1.0, 0.3, 0.05]])
+def test_tilted_survival_matches_exact(lam: list[float]) -> None:
+    """Exponentially tilted Davies keeps relative accuracy where plain Davies is 0."""
+    lam_arr = np.array(lam)
+
+    def exact(z: float) -> float:  # k = 3: integrate the exact k = 2 survival
+        if len(lam) == 2:
+            return _surv(z, lam_arr)
+        a = scipy.integrate.quad(
+            lambda u: scipy.stats.chi2.pdf(u, 1) * _surv(z - lam[2] * u, lam_arr[:2]),
+            0,
+            z / lam[2],
+            epsabs=0,
+            epsrel=1e-11,
+        )[0]
+        return float(scipy.stats.chi2.sf(z / lam[2], 1) + a)
+
+    for z in (5.0, 20.0, 40.0, 60.0):
+        ref = exact(z)
+        assert skato_integrate._tilted_sf(z, lam_arr) == pytest.approx(ref, rel=1e-6, abs=0.0)
+    assert dv.davies_pvalue(60.0, lam_arr, acc=1e-9, lim=1_000_000)[0] < 1e-9
 
 
 @pytest.mark.unit
@@ -279,4 +308,12 @@ def test_pmin_quantile_survives_tiny_pmin() -> None:
     lam = [np.array([1.0])] * 7
     pmin, _pval, pmin_q = sm._skato_each_q({}, np.full((1, 7), 90.0), list(_RHO_CAPPED), lam)
     assert pmin[0] < 1e-16 and np.all(np.isfinite(pmin_q))
-    assert pmin_q[0, 0] == pytest.approx(90.0, rel=1e-6)
+    assert pmin_q[0, 0] == pytest.approx(90.0, rel=1e-6, abs=0.0)
+
+
+@pytest.mark.unit
+def test_tilted_survival_davies_failure_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A Davies fault inside the tilted evaluation sends the integral to Liu (R policy)."""
+    monkeypatch.setattr(skato_integrate, "davies_pvalue", lambda *a, **k: (2.0, 1))
+    with pytest.raises(skato_integrate._DaviesFailureError):
+        skato_integrate._tilted_sf(20.0, np.array([1.0, 0.3, 0.05]))

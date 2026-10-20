@@ -11,7 +11,9 @@ import numpy as np
 import scipy.integrate
 import scipy.linalg
 import scipy.stats
+from numpy.polynomial.laguerre import laggauss
 from numpy.polynomial.legendre import leggauss
+from scipy.optimize import brentq
 
 from variantcentrifuge.association.backends.davies import (
     _DAVIES_RETRY_LIM,
@@ -30,13 +32,45 @@ _GL_A, _GL_B = 0.0, 40.0  # integration bounds (matches R: upper=40)
 # Conditional-statistic levels (in units of E[Q]) at which the SKAT-O integral is split
 _SKATO_Z_LEVELS = np.array([0.0, 1.0, 8.0, 64.0])
 # Relative accuracy target of the SKAT-O integral; Davies' absolute acc is set to
-# this times pmin, but Davies stops converging below ~1e-9 (two eigenvalues).
+# this times pmin, but Davies stops converging below ~1e-9 (two eigenvalues), so
+# nodes beyond that resolution use the tilted tail probability (_tilted_sf).
 _SKATO_DAVIES_REL_ACC, _SKATO_DAVIES_MIN_ACC = 1e-4, 1e-9
 _SKATO_X_MAX = 1500.0  # P[chi2_1 > 1500] underflows to 0
+# Gauss-Laguerre rule for the exponentially tilted tail probability (_tilted_sf)
+_LAG_NODES, _LAG_WEIGHTS = laggauss(16)
 
 
 class _DaviesFailureError(Exception):
     """Davies failed inside the SKAT-O integrand (R then uses the Liu integral)."""
+
+
+def _tilted_sf(z: float, lambdas: np.ndarray) -> float:
+    """P[sum(lambdas * chi2_1) > z] with relative accuracy deep in the upper tail.
+
+    Davies' error is absolute (>= ~1e-9), useless for tail probabilities below that.
+    Tilting by exp(t*Q) at the saddlepoint K'(t) = z gives Q' = sum(lambdas' * chi2_1),
+    lambdas' = lambdas / (1 - 2 t lambdas), with mean z, and
+    P[Q > z] = M(t) e^{-tz} E'[e^{-t(Q'-z)} 1{Q' > z}]
+             = M(t) e^{-tz} int_0^inf e^{-s} P'[z < Q' <= z + s/t] ds,
+    where Davies only evaluates O(1) probabilities of Q' (Gauss-Laguerre in s).
+    """
+    # ponytail: validated to ~1e-7 relative against exact survival for k <= 3 (down to
+    # 1e-16) and to Monte Carlo standard error (<= 1%) for k = 8, 11 (down to 1e-34);
+    # k > 3 has no exact reference here. Cost ~17 Davies calls per tail node.
+    t = brentq(
+        lambda u: float(np.sum(lambdas / (1 - 2 * u * lambdas))) - z,
+        0.0,
+        0.5 / lambdas.max() * (1 - 1e-12),
+    )
+    lam_t = lambdas / (1 - 2 * t * lambdas)
+    log_m = -0.5 * float(np.sum(np.log1p(-2 * t * lambdas)))
+    sf = []
+    for q in np.r_[z, z + _LAG_NODES / t]:
+        p, ifault = davies_pvalue(float(q), lam_t, acc=1e-6, lim=_DAVIES_RETRY_LIM)
+        if p is None or ifault != 0:
+            raise _DaviesFailureError(f"tilted ifault={ifault} at q={q:.6g}")
+        sf.append(p)
+    return float(np.exp(log_m - t * z) * np.dot(_LAG_WEIGHTS, sf[0] - np.array(sf[1:])))
 
 
 def _skato_breakpoints(
@@ -277,7 +311,8 @@ def _skato_integrate_davies(
     a, b = pmin_q[valid] / (1.0 - rho_arr[valid]), tau[valid] / (1.0 - rho_arr[valid])
     lambda_sum = float(np.sum(lambdas))
     # Davies is absolute-accurate; tie its accuracy to the p-value scale (p >= ~pmin)
-    acc = float(np.clip(_SKATO_DAVIES_REL_ACC * pmin, _SKATO_DAVIES_MIN_ACC, 1e-6))
+    acc_target = _SKATO_DAVIES_REL_ACC * pmin
+    acc = float(np.clip(acc_target, _SKATO_DAVIES_MIN_ACC, 1e-6))
 
     def surv(x: np.ndarray) -> np.ndarray:
         """P[Q > g(x)] for the conditional statistic g(x) = (m(x) - mu_q)*sd1 + mu_q."""
@@ -296,6 +331,9 @@ def _skato_integrate_davies(
             if p_dav is None or ifault != 0:
                 raise _DaviesFailureError(f"ifault={ifault} at q={z[k]:.6g}")
             out[k] = min(max(float(p_dav), 0.0), 1.0)  # Davies error is absolute
+            if acc > acc_target and out[k] * _SKATO_DAVIES_REL_ACC < acc and z[k] > lambda_sum:
+                # Davies' absolute error cannot meet the relative budget at this node
+                out[k] = _tilted_sf(float(z[k]), lambdas)
         return out
 
     # Survival form: p = int_0^edge f1(x) S(g(x)) dx + P[chi2_1 > edge], with g(x) <= 0
