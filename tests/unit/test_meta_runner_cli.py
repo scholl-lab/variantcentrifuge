@@ -76,3 +76,17 @@ def test_cli_refuses_incomparable_strata(tmp_path):
     manifest.write_text(f"stratum_id\tartifact_path\nA\t{pa}\nB\t{pb}\n")
     rc = main(["--manifest", str(manifest), "--output", str(tmp_path / "out.tsv")])
     assert rc == 2
+
+
+def test_single_variant_gene_falls_back_to_burden(tmp_path):
+    """Rank-1 genes crashed SKAT-O (ZeroDivisionError) on real 1000 Genomes data."""
+    keys = {"ONE": ["3:500:C:T"], "SIG": GENE_KEYS["SIG"]}
+    strata = [make_stratum(s, seed=i, gene_keys=keys) for i, s in enumerate(("A", "B"))]
+    for art in strata:
+        save_artifact(art, str(tmp_path / art.stratum_id))
+    manifest = tmp_path / "study.tsv"
+    manifest.write_text("stratum_id\tartifact_path\nA\tA\nB\tB\n")
+    row = run_meta(str(manifest), str(tmp_path / "out.tsv")).set_index("gene").loc["ONE"]
+    assert pd.isna(row["meta_skato_p"])
+    assert row["primary_p"] == row["meta_burden_p"]
+    assert row["status"] == "ok"

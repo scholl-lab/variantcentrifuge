@@ -10,11 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Cohort-stratified rare-variant score-statistic meta-analysis (#112): `--score-artifact` writes a cohort's per-gene score/covariance artifact during association analysis, and the new `variantcentrifuge meta` subcommand combines two or more cohorts (burden, SKAT, SKAT-O, Cochran Q/I², leave-one-out, exome-wide FDR). Binary traits only.
+- Real-data end-to-end test: two 1000 Genomes cohorts (EUR, SAS) for 10 nephrology genes, annotated like the AGDE cohort (snpEff 5.2 GRCh38.p14, ClinVar), run through association, `--score-artifact` and `variantcentrifuge meta` inside the Docker image (`make test-e2e`, also in the Docker CI workflow). `make fixture-1000g` rebuilds the fixture byte-identically from public sources (#60).
 
 ### Fixed
 
 - SKAT-O (and the COAST allelic SKAT-O component) p-values: the omnibus integral used one 128-node Gauss-Legendre rule over the chi-square(1) density, whose x^-1/2 singularity at 0 and rho-switching kinks made p-values 1–8% too large on typical genes and up to ~2x too large near p=0.01. The integral is now split at the kinks and taken in t=sqrt(x), matching R SKAT 2.2.5 to ~1e-4 at the same speed. Burden and SKAT p-values were not affected.
 - Burden/association with `--split-snpeff-lines`: a variant annotated on several transcripts of the same gene entered the regression genotype matrix (logistic/linear burden, SKAT, SKAT-O, COAST) once per transcript and inflated `n_qualifying_variants`. Rows are now collapsed to one per variant per gene, keeping snpEff's most severe annotation. Fisher carrier/allele counts were already per-sample and unaffected.
+- `variantcentrifuge meta` crashed (ZeroDivisionError) on genes with a single qualifying variant; SKAT-O now returns no value there, as in single-cohort analysis, and the primary p-value falls back to burden.
+- Provenance recorded SnpSift 5.2 as `N/A`: `SnpSift annotate -version` prints only the number.
 
 ## [0.18.0] - 2026-10-20
 

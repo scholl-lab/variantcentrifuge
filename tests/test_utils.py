@@ -111,6 +111,19 @@ def test_get_tool_version_stderr_parsing(monkeypatch):
     assert ["SnpSift", "annotate", "-version"] in calls
 
 
+def test_get_tool_version_parses_bare_snpsift_version(monkeypatch):
+    """SnpSift 5.2 `annotate -version` prints only the number (seen on 1000G e2e)."""
+    import subprocess
+
+    from variantcentrifuge.utils import get_tool_version
+
+    monkeypatch.setattr(
+        "variantcentrifuge.utils.subprocess.run",
+        lambda cmd, **_kw: subprocess.CompletedProcess(cmd, 0, stdout="5.2\n", stderr=""),
+    )
+    assert get_tool_version("SnpSift") == "SnpSift 5.2"
+
+
 def test_get_tool_version_errors_and_git_checkout(monkeypatch, tmp_path):
     """Test that invalid tool/git outputs return N/A and git queries VariantCentrifuge's repo."""
     import subprocess

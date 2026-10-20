@@ -87,6 +87,7 @@ markers = [
     "gene_burden: Tests for gene burden analysis",
     "performance: Performance benchmark tests",
     "coast: COAST allelic series tests",
+    "e2e: Real-data end-to-end tests (need bcftools/SnpSift; run with make test-e2e)",
 ]
 # Live console logging disabled by default for performance.
 # Enable when needed: pytest --log-cli-level=INFO

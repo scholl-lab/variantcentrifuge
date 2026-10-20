@@ -114,7 +114,9 @@ def meta_skato(
     # Exact factor B with BᵀB = A: keep ALL non-negative eigenmodes (clip round-off).
     eigvals, eigvecs = scipy.linalg.eigh(a_mat)
     keep = eigvals > 0.0
-    if not np.any(keep):
+    # Like the single-cohort backend (rank_deficient), SKAT-O needs >= 2 directions;
+    # with one, burden/SKAT/SKAT-O coincide and the runner falls back to burden.
+    if np.sum(eigvals > eigvals.max(initial=0.0) * 1e-10) < 2:
         return None, None
     b = (eigvecs[:, keep] * np.sqrt(eigvals[keep])).T  # (k, p): b.T @ b == a_mat
 

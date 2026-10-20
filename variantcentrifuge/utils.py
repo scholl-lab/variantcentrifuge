@@ -230,6 +230,9 @@ def get_tool_version(tool_name: str) -> str:
             stripped = line.strip()
             if re.search(r"(?i)^snpsift(?:\s+version\b|\t).*\d", stripped):
                 return stripped
+            # SnpSift 5.2 `annotate -version` prints only the number, e.g. "5.2"
+            if re.fullmatch(r"\d+(?:\.\d+)+\S*", stripped):
+                return f"SnpSift {stripped}"
         return "N/A"
 
     def parse_bedtools(stdout: str, stderr: str) -> str:
