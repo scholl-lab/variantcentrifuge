@@ -102,7 +102,10 @@ def pooled_frequency_weights(
             raise ValueError(
                 f"Malformed beta weight scheme '{scheme}' (expected beta:a,b)"
             ) from exc
-        return np.asarray(scipy.stats.beta.pdf(maf, a, b), dtype=np.float64)
+        w = np.asarray(scipy.stats.beta.pdf(maf, a, b), dtype=np.float64)
+        # A locus monomorphic in the pooled strata has U = V = 0, so it adds nothing;
+        # zero its weight so Beta(a<1) = inf at MAF 0 cannot turn 0 * inf into NaN.
+        return np.where(maf > 0, w, 0.0)
     raise ValueError(
         f"Unsupported meta weight scheme '{scheme}'. Meta-analysis supports only "
         "'beta:a,b' and 'uniform' (functional-score weights are not reproducible "

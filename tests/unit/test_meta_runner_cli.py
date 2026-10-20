@@ -325,3 +325,21 @@ def test_carriers_by_stratum_and_total():
     df = meta_analyze_artifacts([a, b]).set_index("gene")
     assert df.loc["SIG", "carriers_by_stratum"] == f"A:{na};B:NA"
     assert pd.isna(df.loc["SIG", "n_carriers_total"])
+
+
+def test_loo_with_u_shaped_beta_weights_and_stratum_private_loci():
+    """beta:0.5,0.5 has infinite weight at MAF 0: a locus seen only in the dropped
+    stratum must not turn the LOO into NaN / a crash (W1 review). Each LOO still
+    equals a direct meta on the remaining strata."""
+    keys = {"G": [f"1:{100 + j}:A:G" for j in range(6)]}
+    a, b = make_stratum("A", seed=1, gene_keys=keys), make_stratum("B", seed=2, gene_keys=keys)
+    for art, col in ((a, 0), (b, 1)):  # site 0 varies only in B, site 1 only in A
+        gs = art.genes["G"]
+        gs.ac[col], gs.u[col] = 0.0, 0.0
+        gs.v[col, :], gs.v[:, col] = 0.0, 0.0
+    row = meta_analyze_artifacts([a, b], weight_scheme="beta:0.5,0.5").iloc[0]
+    assert np.isfinite(row["meta_burden_p"])
+    for drop, keep in (("A", b), ("B", a)):
+        direct = meta_analyze_artifacts([keep], weight_scheme="beta:0.5,0.5").iloc[0]
+        loo = _parse(row["loo_burden_by_stratum"])[drop]
+        assert float(loo[0]) == pytest.approx(direct["meta_burden_p"], rel=1e-9)  # %.10g
