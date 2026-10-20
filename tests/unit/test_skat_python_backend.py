@@ -602,3 +602,26 @@ class TestCleanup:
         assert any("cleanup" in m.lower() or "genes" in m.lower() for m in info_msgs), (
             f"Expected cleanup log, got: {info_msgs}"
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("trait", ["binary", "quantitative"])
+def test_no_positive_eigenvalue_follows_r(backend, trait):
+    """Tested markers whose projected kernel has no eigenvalue above round-off.
+
+    R reference (SKAT 2.2.5, R 4.5.3, ``conda run -n metaskat-check``;
+    ``SKAT(cbind(x, x), SKAT_Null_Model(y ~ x, Adjustment = FALSE), method = "davies")``,
+    n = 300, x ~ Binomial(2, 0.2)):
+    - out_type "D": ``stop("No Eigenvalue is bigger than 0!!")`` -> undefined, so skip (None);
+    - out_type "C": p = 1, n.marker.test = 2 (a computed p-value) -> keep p = 1.
+    """
+    rng = np.random.default_rng(1)
+    n = 300
+    x = rng.binomial(2, 0.2, (n, 2)).astype(float)
+    y = rng.binomial(1, 0.4, n).astype(float) if trait == "binary" else rng.normal(size=n)
+    null = backend.fit_null_model(y, x, trait)
+    res = backend._test_skat("G", x.copy(), null, np.ones(2))  # genotypes span the covariates
+    if trait == "binary":
+        assert res["p_value"] is None and res["skip_reason"] == "no_positive_eigenvalues"
+    else:
+        assert res["p_value"] == 1.0 and res["skip_reason"] is None

@@ -142,6 +142,14 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
         ),
     )
     stats_group.add_argument(
+        "--no-sample-subset",
+        action="store_true",
+        help=(
+            "Keep every VCF sample at field extraction. By default an association run with "
+            "case/control samples or a phenotype file extracts only those samples' genotypes."
+        ),
+    )
+    stats_group.add_argument(
         "--mask-label",
         type=str,
         default=None,
