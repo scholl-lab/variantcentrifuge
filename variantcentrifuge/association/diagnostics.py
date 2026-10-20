@@ -30,12 +30,26 @@ if TYPE_CHECKING:
     from variantcentrifuge.association.base import AssociationConfig
 
 logger = logging.getLogger("variantcentrifuge")
-from variantcentrifuge.association.diagnostics_qq import (  # noqa: F401
-    _EXPECTED_CHI2_MEDIAN,
+from variantcentrifuge.association.diagnostics_qq import (
     compute_lambda_gc,
     compute_qq_data,
     write_qq_plot,
 )
+
+
+def imbalance_message(n_cases: int, n_controls: int, max_ratio: float = 20.0) -> str | None:
+    """Two-sided case/control imbalance message (names the larger group), or None."""
+    if n_cases <= 0 or n_controls <= 0:
+        return None
+    ratio = max(n_cases, n_controls) / min(n_cases, n_controls)
+    if ratio <= max_ratio:
+        return None
+    larger, smaller = ("cases", "controls") if n_cases > n_controls else ("controls", "cases")
+    return (
+        f"Association diagnostics: {larger} outnumber {smaller} {ratio:.1f}:1, "
+        f"exceeding the {max_ratio:.0f}:1 threshold. "
+        "Type I error inflation risk without SPA/Firth correction."
+    )
 
 
 def emit_sample_size_warnings(
@@ -72,18 +86,10 @@ def emit_sample_size_warnings(
         logger.warning(msg)
         warnings.append("LOW_CASE_COUNT")
 
-    if n_cases > 0 and n_controls > 0:
-        ratio = max(n_cases, n_controls) / min(n_cases, n_controls)
-        if ratio > config.max_case_control_ratio:
-            larger = "cases" if n_cases > n_controls else "controls"
-            smaller = "controls" if larger == "cases" else "cases"
-            msg = (
-                f"Association diagnostics: {larger} outnumber {smaller} {ratio:.1f}:1, "
-                f"exceeding the {config.max_case_control_ratio:.0f}:1 threshold. "
-                "Type I error inflation risk without SPA/Firth correction."
-            )
-            logger.warning(msg)
-            warnings.append("IMBALANCED_COHORT")
+    msg = imbalance_message(n_cases, n_controls, config.max_case_control_ratio)
+    if msg:
+        logger.warning(msg)
+        warnings.append("IMBALANCED_COHORT")
 
     return warnings
 

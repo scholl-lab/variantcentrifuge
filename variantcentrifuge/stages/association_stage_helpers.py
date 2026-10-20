@@ -57,13 +57,11 @@ def _cohort_size_ok(n_cases_total: int, n_controls_total: int) -> bool:
             f"Association analysis: {n_cases_total} case(s) — "
             "fewer than 200 cases is underpowered for SKAT; interpret results with caution"
         )
-    if n_controls_total > 0 and n_cases_total > 0:
-        ratio = n_controls_total / n_cases_total
-        if ratio > 20:
-            logger.warning(
-                f"Association analysis: case:control ratio is 1:{ratio:.0f} — "
-                "exceeds 1:20; Type I error inflation risk without SPA/Firth correction"
-            )
+    from ..association.diagnostics import imbalance_message
+
+    msg = imbalance_message(n_cases_total, n_controls_total)
+    if msg:
+        logger.warning(msg)
     return True
 
 

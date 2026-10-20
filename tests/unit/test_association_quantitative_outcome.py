@@ -273,7 +273,7 @@ def test_repeated_identical_transcript_annotation_is_invariant(tmp_path, trait):
         (9, 100, False, "fewer than 10 cases"),
         (20, 30, True, "no practical power"),
         (60, 180, True, "underpowered for SKAT"),
-        (300, 7000, True, "exceeds 1:20"),
+        (300, 7000, True, "exceeding the 20:1"),
     ],
 )
 def test_binary_cohort_size_guard(caplog, n_cases, n_controls, ok, message):
@@ -521,3 +521,12 @@ def test_skato_null_fit_skips_keep_skato_column(tmp_path):
     res = _run(ctx)
     assert "skat_o_pvalue" in res.columns and "skat_pvalue" not in res.columns
     assert (res["skat_method"] == "SKATO").all()
+
+
+def test_cohort_size_ok_imbalance_warning_is_two_sided(caplog):
+    """Review C-r1 #1: stage warning also fires when cases outnumber controls."""
+    from variantcentrifuge.stages.association_analysis_stages import _cohort_size_ok
+
+    with caplog.at_level("WARNING", logger="variantcentrifuge"):
+        assert _cohort_size_ok(1000, 10) is True
+    assert "cases outnumber controls 100.0:1" in caplog.text
