@@ -992,6 +992,37 @@ power on fewer genes. This metric helps assess how much the weights deviate from
 
 ---
 
+## Gene Sets as Testing Units
+
+`--gene-set-file sets.tsv` tests predefined gene sets (for example a positive-control set of
+known disease genes) in addition to the single genes. The file is a TSV with the columns
+`set_id` and `gene`, one row per member gene:
+
+```text
+set_id	gene
+known_disease	PKD1
+known_disease	PKD2
+```
+
+Each set is one extra testing unit: the union of its member genes' qualifying variants, with a
+variant annotated to several member genes counted once. It runs through the same tests,
+weights and covariates as the genes, so a one-gene set gives exactly that gene's result and a
+two-gene set gives the result of one gene holding both genes' variants.
+
+- **Output.** Set rows carry the set id in the `gene` column. A `unit_type` column (`gene` or
+  `set`) is added after `gene` only when `--gene-set-file` is given.
+- **Multiple testing.** Genes and sets are separate correction families: the gene rows and
+  their q-values are identical to a run without sets, and sets are corrected among themselves.
+  `--gene-prior-weights` applies to genes only; sets are corrected unweighted. The
+  `--diagnostics-output` QQ/λ_GC files describe genes only.
+- **Score artifact.** With `--score-artifact`, each set is stored as an ordinary unit under its
+  set id, so `variantcentrifuge meta` combines it like a gene. `meta` has no unit type, so it
+  corrects sets and genes together.
+- **Validation.** Missing `set_id`/`gene` columns, an empty or `::`-containing `set_id`,
+  duplicate `set_id`/`gene` rows and a `set_id` equal to a gene symbol in the data are errors.
+  Member genes without qualifying variants (or unknown) are warned with their count; a set with
+  no such gene is skipped with a warning.
+
 ## Tuning: JSON Config
 
 All association parameters can be set via the main JSON config file (passed with `-c`/`--config`).

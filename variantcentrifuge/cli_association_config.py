@@ -106,6 +106,10 @@ def populate_association_config(
     if _gpw and not Path(_gpw).is_file():
         _fail(f"--gene-prior-weights file not found: {_gpw}")
     cfg["gene_prior_weights"] = _gpw
+    _gsf = getattr(args, "gene_set_file", None)
+    if _gsf and not Path(_gsf).is_file():
+        _fail(f"--gene-set-file file not found: {_gsf}")
+    cfg["gene_set_file"] = _gsf
     cfg["gene_prior_weight_column"] = getattr(args, "gene_prior_weight_column", "weight")
     cfg["association_min_cases"] = getattr(args, "min_cases", 200)
     cfg["association_max_case_control_ratio"] = getattr(args, "max_case_control_ratio", 20.0)
@@ -218,6 +222,7 @@ def validate_association_args(
         "covariate_file",
         "diagnostics_output",
         "score_artifact",
+        "gene_set_file",
         "missing_site_threshold",
         "missing_sample_threshold",
         "missing_as_ref",
