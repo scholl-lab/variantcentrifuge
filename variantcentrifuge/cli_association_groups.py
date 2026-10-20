@@ -205,7 +205,7 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
         default=20.0,
         help=(
             "Maximum case:control ratio for diagnostics warning. "
-            "Default: 20.0. Warns when n_controls/n_cases > this value."
+            "Default: 20.0. Warns when max(cases, controls)/min(cases, controls) > this value (either direction)."
         ),
     )
     stats_group.add_argument(

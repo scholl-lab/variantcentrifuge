@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Association diagnostics: `IMBALANCED_COHORT` is now two-sided (max/min of cases and controls) and the warning names the direction, e.g. "cases outnumber controls 100.0:1" (#199).
+
 ## [0.21.0] - 2026-10-20
 
 Fixes the findings of the v0.19.0 audit revalidation (#173–#187).

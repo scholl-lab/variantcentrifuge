@@ -233,6 +233,24 @@ class TestEmitSampleSizeWarnings:
         warnings = emit_sample_size_warnings(200, 5000, default_config)
         assert "IMBALANCED_COHORT" in warnings
 
+    def test_warnings_imbalanced_cases_outnumber_controls(self, default_config, caplog):
+        """#199: ratio is two-sided; cases >> controls fires with direction in the message."""
+        with caplog.at_level("WARNING", logger="variantcentrifuge"):
+            warnings = emit_sample_size_warnings(1000, 10, default_config)
+        assert "IMBALANCED_COHORT" in warnings
+        assert "cases outnumber controls 100.0:1" in caplog.text
+
+    def test_warnings_controls_outnumber_message(self, default_config, caplog):
+        with caplog.at_level("WARNING", logger="variantcentrifuge"):
+            emit_sample_size_warnings(200, 5000, default_config)
+        assert "controls outnumber cases 25.0:1" in caplog.text
+
+    def test_warnings_ratio_at_threshold_not_flagged(self, default_config):
+        """Boundary: ratio exactly 20 (either direction) and 7.8 do not fire."""
+        assert "IMBALANCED_COHORT" not in emit_sample_size_warnings(1000, 50, default_config)
+        assert "IMBALANCED_COHORT" not in emit_sample_size_warnings(200, 4000, default_config)
+        assert "IMBALANCED_COHORT" not in emit_sample_size_warnings(788, 101, default_config)
+
     def test_warnings_none_when_adequate(self, default_config):
         """Adequate sample sizes with balanced ratio produce no warnings."""
         # n_cases=300 >= 200, ratio = 600/300 = 2.0 < 20.0

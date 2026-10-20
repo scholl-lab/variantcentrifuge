@@ -60,7 +60,7 @@ def emit_sample_size_warnings(
     list[str]
         Warning flag strings for any triggered conditions:
         - "LOW_CASE_COUNT" if n_cases < config.min_cases
-        - "IMBALANCED_COHORT" if n_controls/n_cases > config.max_case_control_ratio
+        - "IMBALANCED_COHORT" if max(n_cases, n_controls)/min(n_cases, n_controls) > config.max_case_control_ratio
     """
     warnings: list[str] = []
 
@@ -73,11 +73,13 @@ def emit_sample_size_warnings(
         warnings.append("LOW_CASE_COUNT")
 
     if n_cases > 0 and n_controls > 0:
-        ratio = n_controls / n_cases
+        ratio = max(n_cases, n_controls) / min(n_cases, n_controls)
         if ratio > config.max_case_control_ratio:
+            larger = "cases" if n_cases > n_controls else "controls"
+            smaller = "controls" if larger == "cases" else "cases"
             msg = (
-                f"Association diagnostics: case:control ratio is 1:{ratio:.1f}, "
-                f"exceeding the 1:{config.max_case_control_ratio:.0f} threshold. "
+                f"Association diagnostics: {larger} outnumber {smaller} {ratio:.1f}:1, "
+                f"exceeding the {config.max_case_control_ratio:.0f}:1 threshold. "
                 "Type I error inflation risk without SPA/Firth correction."
             )
             logger.warning(msg)
