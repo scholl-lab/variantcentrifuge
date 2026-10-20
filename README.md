@@ -12,25 +12,27 @@
 | variantcentrifuge/association/\_\_init\_\_.py                 |        4 |        0 |    100.00% |           |
 | variantcentrifuge/association/backends/\_\_init\_\_.py        |       14 |        0 |    100.00% |           |
 | variantcentrifuge/association/backends/base.py                |       15 |        0 |    100.00% |           |
-| variantcentrifuge/association/backends/coast\_python.py       |      162 |       16 |     90.12% |173, 177, 184-186, 201-203, 211-213, 338, 393, 507-509 |
-| variantcentrifuge/association/backends/davies.py              |      142 |       13 |     90.85% |86-91, 129-131, 262-263, 307, 429-443 |
-| variantcentrifuge/association/backends/python\_backend.py     |      142 |       17 |     88.03% |97-98, 105-106, 113-119, 124, 283, 292, 371-372, 510-511 |
+| variantcentrifuge/association/backends/coast\_python.py       |      146 |       14 |     90.41% |186-188, 203-205, 213-215, 342, 372, 488-490 |
+| variantcentrifuge/association/backends/davies.py              |      186 |       12 |     93.55% |99-104, 142-144, 322, 373, 493-507 |
+| variantcentrifuge/association/backends/null\_model.py         |      106 |        0 |    100.00% |           |
+| variantcentrifuge/association/backends/python\_backend.py     |      155 |       20 |     87.10% |99-100, 107-108, 115-121, 126, 322-323, 361-362, 434, 506-507, 537, 541 |
 | variantcentrifuge/association/backends/r\_backend.py          |      183 |       35 |     80.87% |53-72, 226-232, 238-239, 267, 273, 437-438, 441, 482-483, 490-491, 532-533, 564 |
-| variantcentrifuge/association/backends/skat\_math.py          |      228 |       20 |     91.23% |70, 101, 176, 184-186, 238, 263, 270, 300, 312, 383, 386, 458, 496-501 |
+| variantcentrifuge/association/backends/skat\_math.py          |       30 |        1 |     96.67% |        79 |
+| variantcentrifuge/association/backends/skato\_integrate.py    |      218 |       10 |     95.41% |93, 124, 199, 207-209, 348, 403, 475, 478 |
 | variantcentrifuge/association/base.py                         |       84 |        0 |    100.00% |           |
 | variantcentrifuge/association/correction.py                   |       83 |        9 |     89.16% |26-27, 62-63, 224-225, 238, 252-253 |
 | variantcentrifuge/association/covariates.py                   |       48 |        6 |     87.50% |     81-86 |
 | variantcentrifuge/association/data/\_\_init\_\_.py            |        0 |        0 |    100.00% |           |
 | variantcentrifuge/association/diagnostics.py                  |      173 |       21 |     87.86% |275-276, 281-317, 406, 437 |
-| variantcentrifuge/association/engine.py                       |      206 |        6 |     97.09% |200-201, 241, 267, 561-562 |
+| variantcentrifuge/association/engine.py                       |      206 |        5 |     97.57% |200-201, 241, 564-565 |
 | variantcentrifuge/association/engine\_workers.py              |       70 |        9 |     87.14% |49-55, 91, 104 |
-| variantcentrifuge/association/genotype\_matrix.py             |      162 |       14 |     91.36% |126-133, 211-213, 216, 222-223 |
+| variantcentrifuge/association/genotype\_matrix.py             |      155 |        0 |    100.00% |           |
 | variantcentrifuge/association/meta/\_\_init\_\_.py            |        4 |        0 |    100.00% |           |
 | variantcentrifuge/association/meta/align.py                   |       50 |        3 |     94.00% |52, 101-102 |
-| variantcentrifuge/association/meta/artifact.py                |      144 |       11 |     92.36% |108-110, 143, 146, 148, 171, 320, 326, 329, 355 |
+| variantcentrifuge/association/meta/artifact.py                |      163 |        8 |     95.09% |113-115, 148, 151, 153, 174, 395 |
 | variantcentrifuge/association/meta/cli.py                     |       28 |        3 |     89.29% |     77-79 |
-| variantcentrifuge/association/meta/combine.py                 |       64 |        3 |     95.31% |63, 80, 136 |
-| variantcentrifuge/association/meta/heterogeneity.py           |       45 |        3 |     93.33% | 39-40, 82 |
+| variantcentrifuge/association/meta/combine.py                 |       68 |        3 |     95.59% |64, 81, 144 |
+| variantcentrifuge/association/meta/heterogeneity.py           |       48 |        1 |     97.92% |        87 |
 | variantcentrifuge/association/meta/manifest.py                |       62 |        6 |     90.32% |54, 67, 81-82, 97, 114 |
 | variantcentrifuge/association/meta/runner.py                  |       63 |        3 |     95.24% |75, 79, 115 |
 | variantcentrifuge/association/pca.py                          |      116 |        7 |     93.97% |71, 143, 151-152, 217, 223-224 |
@@ -42,7 +44,7 @@
 | variantcentrifuge/checkpoint\_state.py                        |      241 |       70 |     70.95% |80-84, 105-107, 127-132, 142, 205-223, 255-261, 288-291, 297-302, 326, 334-338, 342, 346-350, 354-360, 364-383, 409-410, 419, 422, 427, 431-436 |
 | variantcentrifuge/cli.py                                      |      205 |       10 |     95.12% |286-288, 297, 300-302, 315, 451, 453 |
 | variantcentrifuge/cli\_analysis\_groups.py                    |       98 |        0 |    100.00% |           |
-| variantcentrifuge/cli\_config.py                              |      329 |       19 |     94.22% |42, 45-46, 160-161, 268, 275, 295, 304, 313-318, 332, 460, 466, 497 |
+| variantcentrifuge/cli\_config.py                              |      330 |       19 |     94.24% |42, 45-46, 160-161, 268, 275, 295, 304, 313-318, 332, 460, 466, 497 |
 | variantcentrifuge/cli\_fields.py                              |       13 |        0 |    100.00% |           |
 | variantcentrifuge/cli\_memory.py                              |       14 |        3 |     78.57% |     25-27 |
 | variantcentrifuge/cli\_parser\_groups.py                      |       65 |        0 |    100.00% |           |
@@ -54,7 +56,7 @@
 | variantcentrifuge/converter\_helpers.py                       |       76 |        9 |     88.16% |32, 46-48, 52, 77-79, 126 |
 | variantcentrifuge/dataframe\_optimizer.py                     |      141 |        5 |     96.45% |151, 342-344, 349 |
 | variantcentrifuge/display\_utils.py                           |      125 |       81 |     35.20% |29-90, 164-197, 209-239 |
-| variantcentrifuge/extractor.py                                |      202 |       22 |     89.11% |149-151, 248, 255, 292, 376-377, 394-395, 410-420, 428, 454-455, 561-564 |
+| variantcentrifuge/extractor.py                                |      208 |       22 |     89.42% |165-167, 264, 271, 308, 392-393, 410-411, 426-436, 444, 470-471, 577-580 |
 | variantcentrifuge/feature\_loaders.py                         |      133 |       16 |     87.97% |93-94, 116-117, 128-129, 173-174, 204-205, 215-216, 230, 234, 253-254 |
 | variantcentrifuge/field\_profile.py                           |       48 |        0 |    100.00% |           |
 | variantcentrifuge/filters.py                                  |      246 |       24 |     90.24% |69-70, 77-78, 126-127, 133-134, 227-229, 240-241, 260, 263, 275, 287, 397-398, 502-504, 508-509 |
@@ -64,7 +66,7 @@
 | variantcentrifuge/generate\_html\_report.py                   |      145 |        4 |     97.24% |23, 28, 40, 244 |
 | variantcentrifuge/generate\_igv\_report.py                    |      155 |       13 |     91.61% |106-108, 130, 133, 242-243, 258, 266, 289, 302, 310-311 |
 | variantcentrifuge/genotype\_utils.py                          |       63 |        6 |     90.48% |38, 44-45, 78, 93, 115 |
-| variantcentrifuge/gt\_reconstruction.py                       |       99 |        5 |     94.95% |74-75, 192, 211-215 |
+| variantcentrifuge/gt\_reconstruction.py                       |      101 |        5 |     95.05% |74-75, 197, 216-220 |
 | variantcentrifuge/helpers.py                                  |      216 |      102 |     52.78% |77-89, 119, 123-124, 167, 235-236, 258-259, 265-272, 324-330, 347-348, 376, 379-381, 398-425, 459-495, 513-520, 539-564 |
 | variantcentrifuge/inheritance/\_\_init\_\_.py                 |        2 |        0 |    100.00% |           |
 | variantcentrifuge/inheritance/analyzer.py                     |      209 |       12 |     94.26% |106-107, 132, 175, 186, 369, 392-394, 489-490, 513-514 |
@@ -99,23 +101,24 @@
 | variantcentrifuge/stages/\_\_init\_\_.py                      |        5 |        0 |    100.00% |           |
 | variantcentrifuge/stages/analysis\_stage\_helpers.py          |       84 |        4 |     95.24% |153, 175-177 |
 | variantcentrifuge/stages/analysis\_stages.py                  |       22 |        0 |    100.00% |           |
-| variantcentrifuge/stages/association\_analysis\_stages.py     |      284 |       77 |     72.89% |100-122, 162-163, 165-166, 186-189, 214-215, 234-272, 296, 319-323, 329-330, 337, 345-353, 360-375, 404-410, 420-421, 424-425, 439-441, 447-448, 512-517, 538, 542-546 |
+| variantcentrifuge/stages/association\_analysis\_stages.py     |      306 |       14 |     95.42% |337, 442-448, 458-459, 462-463, 477-479, 485-486, 594 |
+| variantcentrifuge/stages/association\_outcome.py              |       42 |        0 |    100.00% |           |
 | variantcentrifuge/stages/bed\_stages.py                       |      133 |       21 |     84.21% |86, 93-109, 144-159, 166-169, 254-256 |
-| variantcentrifuge/stages/chunk\_helpers.py                    |      257 |       65 |     74.71% |31, 36-37, 42-45, 56-58, 79, 81, 92-97, 109, 141-164, 180-184, 221-242, 304-306, 383-392, 414, 431, 441, 452 |
-| variantcentrifuge/stages/chunked\_analysis\_stages.py         |      261 |       54 |     79.31% |50, 79-81, 114-128, 156-175, 198, 200, 202, 204, 208, 222-223, 274-279, 385, 395-397, 435-436, 439, 443-445, 454-455, 479, 487-499, 502 |
-| variantcentrifuge/stages/data\_loading\_stages.py             |      174 |       53 |     69.54% |26, 56, 90, 94, 106-121, 162, 176-177, 179-180, 186-190, 193-200, 205-207, 213-225, 229, 253, 257, 266-267, 271-272, 293-304, 308 |
+| variantcentrifuge/stages/chunk\_helpers.py                    |      293 |       14 |     95.22% |161, 163, 195, 313-317, 463, 472, 494, 511, 521, 532 |
+| variantcentrifuge/stages/chunked\_analysis\_stages.py         |      296 |        2 |     99.32% |  450, 547 |
+| variantcentrifuge/stages/data\_loading\_stages.py             |      174 |       52 |     70.11% |26, 56, 90, 94, 106-121, 176-177, 179-180, 186-190, 193-200, 205-207, 213-225, 229, 253, 257, 266-267, 271-272, 293-304, 308 |
 | variantcentrifuge/stages/gene\_burden\_stages.py              |      139 |       47 |     66.19% |44-66, 75-85, 98, 133-134, 160, 170-172, 176-179, 182-183, 248, 252-256 |
-| variantcentrifuge/stages/genotype\_matrix\_builder.py         |       83 |       11 |     86.75% |61-62, 64, 66, 68, 110-113, 137, 141 |
+| variantcentrifuge/stages/genotype\_matrix\_builder.py         |       83 |        7 |     91.57% |61-62, 64, 66, 68, 137, 141 |
 | variantcentrifuge/stages/inheritance\_and\_scoring\_stages.py |      146 |       19 |     86.99% |49-50, 55-70, 206-207, 213-216, 220, 261-262, 266-267 |
 | variantcentrifuge/stages/metadata\_helpers.py                 |       84 |        4 |     95.24% |42, 72, 126, 128 |
 | variantcentrifuge/stages/output\_stages.py                    |      292 |       45 |     84.59% |71, 81-82, 86-87, 103, 107-108, 182, 217-218, 221-223, 255-256, 274-275, 286-287, 292-293, 302-303, 308-309, 318-319, 365-366, 383-384, 400, 447-448, 452-453, 495-496, 528-529, 563-566 |
 | variantcentrifuge/stages/parallel\_processing\_stage.py       |      340 |       26 |     92.35% |113, 123-126, 172, 204-208, 212, 228, 240, 354, 384, 479-481, 532-536, 569, 593 |
 | variantcentrifuge/stages/phenotype\_case\_control\_stages.py  |      285 |       42 |     85.26% |23, 49-52, 54-57, 101-102, 115-117, 128-131, 157, 159, 198, 200, 272, 300-305, 314-315, 350-353, 361-362, 382-384, 395-428, 471-473 |
 | variantcentrifuge/stages/post\_processing\_stages.py          |      307 |       64 |     79.15% |49, 53-54, 69-71, 75, 89, 118-120, 126, 130-147, 156, 181, 197-198, 210-214, 218-220, 239, 302-303, 319-320, 324-329, 332-333, 390, 395-396, 450, 455, 464, 477-482, 486-488, 573 |
-| variantcentrifuge/stages/processing\_stages.py                |      257 |       29 |     88.72% |95, 100, 130-136, 140, 149-151, 252-253, 259-260, 310-311, 336-337, 341-342, 411, 486-487, 490, 541-543 |
-| variantcentrifuge/stages/sample\_and\_pedigree\_stages.py     |      209 |       59 |     71.77% |52, 84-85, 87-91, 113-120, 132, 148, 184, 263-271, 305-308, 314-371 |
+| variantcentrifuge/stages/processing\_stages.py                |      257 |       29 |     88.72% |97, 102, 132-138, 142, 151-153, 254-255, 261-262, 312-313, 338-339, 343-344, 413, 488-489, 492, 543-545 |
+| variantcentrifuge/stages/sample\_and\_pedigree\_stages.py     |      217 |       48 |     77.88% |53, 85-86, 88-92, 114-121, 133, 164, 200, 281-289, 351-391 |
 | variantcentrifuge/stages/sample\_column\_helpers.py           |      151 |       18 |     88.08% |43-44, 48, 51-52, 161-165, 201-202, 231-236, 339, 347-351, 389 |
-| variantcentrifuge/stages/setup\_stages.py                     |      294 |       74 |     74.83% |49-64, 106, 130-131, 142, 174-182, 185-187, 191-199, 203-205, 214-218, 221-227, 254, 288, 297-303, 333-335, 349, 365, 391-392, 413-414, 421-423, 437, 461, 473, 481, 490, 514, 522, 530-535 |
+| variantcentrifuge/stages/setup\_stages.py                     |      299 |        7 |     97.66% |470, 482, 490, 499, 523, 531, 540 |
 | variantcentrifuge/stages/stage\_registry.py                   |      183 |       70 |     61.75% |32, 34, 36, 70, 77-80, 84, 92-93, 95, 141, 156-157, 172-176, 186, 201-202, 212, 227, 242-256, 275-310, 329-341, 351-365 |
 | variantcentrifuge/stages/stage\_utils.py                      |       20 |       20 |      0.00% |     9-101 |
 | variantcentrifuge/stages/statistics\_and\_clinvar\_stages.py  |      122 |       47 |     61.48% |47-60, 71-72, 76, 106-108, 111-113, 117-119, 123-124, 213-241 |
@@ -130,7 +133,7 @@
 | variantcentrifuge/vcf\_eff\_one\_per\_line.py                 |      283 |       71 |     74.91% |104, 148, 173, 178-179, 196-210, 228-234, 251, 255, 259, 266-272, 293, 302, 345, 393-447, 452-472 |
 | variantcentrifuge/vcf\_header\_parser.py                      |      171 |       18 |     89.47% |153, 164, 199, 204, 231-245, 380, 392-393, 410 |
 | variantcentrifuge/version.py                                  |        1 |        0 |    100.00% |           |
-| **TOTAL**                                                     | **17556** | **2703** | **84.60%** |           |
+| **TOTAL**                                                     | **17899** | **2425** | **86.45%** |           |
 
 
 ## Setup coverage badge
