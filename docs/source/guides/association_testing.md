@@ -177,9 +177,9 @@ What changes: the intermediate TSV has fewer per-sample columns, and the output 
 (and anything derived from it, such as the phenotypes column or HTML/Excel carrier lists)
 names carriers among the analysed samples only. The SHA-256 of the sorted subset sample IDs
 is recorded as `sample_subset_sha256` in the run metadata and in the score-artifact
-provenance (`"none"` when every sample was kept). Edited sample/phenotype files invalidate
-`--resume` checkpoints, and a resume whose flags change the extracted sample set re-runs
-extraction.
+provenance (`"none"` when every sample was kept). Edited sample/phenotype files, `--no-sample-subset`
+or a change to any flag listed below make `--resume` refuse the checkpoint (configuration
+changed), since the extracted samples would differ.
 
 All samples are kept, with one log line naming the reason, when a feature reads samples
 outside the analysed set: inheritance/pedigree analysis (`--ped`, `--sample-sheet`,

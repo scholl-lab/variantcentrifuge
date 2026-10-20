@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any
 
 from .config import normalize_annotation_config
-from .sample_subset import sample_set_sha256
+from .sample_subset import blocking_reason, sample_set_sha256
 
 NEW_FINGERPRINT_KEYS: tuple[str, ...] = (
     "filter_exception_file",
@@ -129,6 +129,9 @@ def hash_configuration(config: dict[str, Any]) -> str:
     if relevant_config.get("gene_set_file"):  # edited in place must also invalidate resume
         with open(relevant_config["gene_set_file"], "rb") as fh:
             relevant_config["__gene_set_sha256__"] = hashlib.sha256(fh.read()).hexdigest()
+    # A blocker flag (--no-stats, --pseudonymize, ...) decides whether samples are subset (#212).
+    if config.get("perform_association"):
+        relevant_config["__sample_subset_blocked__"] = blocking_reason(config) is not None
     # Edited sample/phenotype files change the extracted sample subset (#212).
     for key in ("case_samples_file", "control_samples_file", "phenotype_file"):
         path = relevant_config.get(key)

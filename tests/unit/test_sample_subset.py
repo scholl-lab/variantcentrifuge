@@ -19,7 +19,6 @@ from variantcentrifuge.association.genotype_matrix import build_genotype_matrix
 from variantcentrifuge.checkpoint_helpers import hash_configuration
 from variantcentrifuge.extractor import extract_fields_bcftools
 from variantcentrifuge.sample_subset import (
-    effective_subset_id,
     resolve_sample_subset,
     sample_set_sha256,
 )
@@ -54,8 +53,6 @@ def test_subset_applied_in_vcf_order_and_recorded():
     assert not [
         k for k, v in ctx.config.items() if k.startswith("_") or v == ["S1", "S2", "S4", "S5"]
     ]
-    assert effective_subset_id(ctx) == ctx.config["sample_subset_sha256"]
-    assert effective_subset_id(_ctx(no_sample_subset=True)) == "all"
 
 
 @pytest.mark.parametrize(
@@ -296,70 +293,29 @@ def test_threaded_extraction_runs_after_case_control_assignment():
     )
 
 
-class _State:
-    """Checkpoint state stub: every step completed."""
-
-    def __init__(self):
-        self.cleared: list[str] = []
-
-    def should_skip_step(self, name):
-        return name not in self.cleared
-
-    def clear_step_completion(self, name, save=True):
-        self.cleared.append(name)
-
-    def save(self):
-        pass
-
-
-def _resume_ctx(tmp_path, **cfg):
-    ctx = _ctx(**cfg)
-    ws = SimpleNamespace(intermediate_dir=tmp_path, base_name="run")
-    ctx.workspace = ws
-    ctx.checkpoint_state = _State()
-    ctx.completed = set()
-    ctx.mark_complete = ctx.completed.add
-    ctx.is_complete = lambda n: n in ctx.completed
-    return ctx
-
-
+@pytest.mark.parametrize("threads", [1, 8])
 @pytest.mark.parametrize(
-    ("first", "second", "restored"),
-    [
-        ({}, {}, True),  # same effective subset
-        ({}, {"no_stats": False}, False),  # blocker now active: subset -> all
-        ({"no_stats": False}, {}, False),  # all -> subset
-        ({}, {"control_samples": ["S1"]}, False),  # other subset
-        ({"no_stats": False}, {"no_stats": False}, True),
-    ],
+    "toggle",
+    [{"no_stats": False}, {"pseudonymize": True}, {"igv_enabled": True}, {"ped": "f.ped"}],
 )
-def test_resume_recomputes_extraction_when_effective_subset_changes(
-    tmp_path, first, second, restored
-):
-    from variantcentrifuge.pipeline_core.runner_planner import (
-        restore_or_recompute_completed_stages,
-    )
-    from variantcentrifuge.stages.parallel_processing_stage import (
-        ParallelCompleteProcessingStage,
-    )
+def test_resume_refused_when_a_blocker_changes_the_extracted_samples(tmp_path, threads, toggle):
+    """Repro shape: --threads N --enable-checkpoint --no-stats, then --resume with a blocker."""
+    from variantcentrifuge.checkpoint_state import PipelineState
 
-    stage = ParallelCompleteProcessingStage()
-    run1 = _resume_ctx(tmp_path, **first)
-    resolve_sample_subset(run1)
-    stage._record_effective_subset(run1, tmp_path / "run.extracted.tsv.gz")
-
-    run2 = _resume_ctx(tmp_path, **second)
-    with patch.object(stage, "_handle_checkpoint_skip", side_effect=lambda c: c) as skip:
-        restore_or_recompute_completed_stages([stage], run2)
-    assert skip.called is restored
-    assert (run2.checkpoint_state.cleared == []) is restored
-
-
-def test_resume_without_subset_record_restores_only_all_samples(tmp_path):
-    from variantcentrifuge.stages.parallel_processing_stage import (
-        ParallelCompleteProcessingStage,
-    )
-
-    stage = ParallelCompleteProcessingStage()
-    assert stage.checkpoint_restorable(_resume_ctx(tmp_path, no_stats=False))
-    assert not stage.checkpoint_restorable(_resume_ctx(tmp_path))
+    cases, controls = tmp_path / "cases.txt", tmp_path / "controls.txt"
+    cases.write_text("S2\nS5\n")
+    controls.write_text("S1\nS4\n")
+    run1 = {
+        "vcf_file": "in.vcf.gz",
+        "threads": threads,
+        "perform_association": True,
+        "no_stats": True,
+        "case_samples_file": str(cases),
+        "control_samples_file": str(controls),
+    }
+    state = PipelineState(str(tmp_path))
+    state.initialize(run1, "0.23")
+    resumed = PipelineState(str(tmp_path))
+    assert resumed.load()
+    assert resumed.can_resume(dict(run1), "0.23", validate_outputs=False)
+    assert not resumed.can_resume({**run1, **toggle}, "0.23", validate_outputs=False)

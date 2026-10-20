@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from argparse import Namespace
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -26,17 +27,19 @@ def sample_set_sha256(samples: list[str]) -> str:
     return hashlib.sha256("\n".join(sorted(samples)).encode("utf-8")).hexdigest()
 
 
-def _blocking_reason(context: Any) -> str | None:
-    """Why all samples must be kept (a feature reads samples outside the analysed set)."""
+def blocking_reason(cfg: dict[str, Any]) -> str | None:
+    """Why all samples must be kept (a feature reads samples outside the analysed set).
+
+    Config only, so the checkpoint key (``hash_configuration``) can include the decision.
+    """
     from .scoring_requirements import check_scoring_requires_inheritance
 
-    cfg = context.config
     checks = (
         (
             cfg.get("calculate_inheritance") or cfg.get("ped") or cfg.get("sample_sheet"),
             "inheritance/pedigree analysis",
         ),
-        (check_scoring_requires_inheritance(context.args, cfg), "scoring needs inheritance"),
+        (check_scoring_requires_inheritance(Namespace(), cfg), "scoring needs inheritance"),
         (cfg.get("append_extra_sample_fields"), "--append-extra-sample-fields"),
         (cfg.get("no_replacement"), "--no-replacement (raw per-sample output columns)"),
         (cfg.get("igv_enabled"), "--igv (per-sample IGV reports)"),
@@ -98,7 +101,7 @@ def resolve_sample_subset(context: Any) -> list[str] | None:
     keep = [i for i, s in enumerate(vcf_samples) if s in analysed]
     if len(keep) == len(vcf_samples):
         return None
-    reason = _blocking_reason(context)
+    reason = blocking_reason(cfg)
     if reason:
         logger.info(
             "Sample subsetting at extraction skipped (%s): keeping all %d VCF samples, %d analysed",
@@ -126,9 +129,3 @@ def resolve_sample_subset(context: Any) -> list[str] | None:
         cfg["sample_subset_sha256"][:12],
     )
     return raw_subset
-
-
-def effective_subset_id(context: Any) -> str:
-    """The extracted sample set for checkpoint keys: subset SHA-256, or "all"."""
-    resolve_sample_subset(context)
-    return str(context.config.get("sample_subset_sha256") or "all")
