@@ -575,7 +575,8 @@
         margin: 0 auto;
         align-items: baseline;
     }
-    .metadata-item { display: inline-block; }
+    /* Bounded to the footer so long filters/VCF names cannot widen narrow pages (#185) */
+    .metadata-item { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
     .metadata-item strong { color: #495057; }
     .filter-expr {
         background-color: #e9ecef;
@@ -583,7 +584,8 @@
         border-radius: 3px;
         font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
         font-size: 10px;
-        max-width: 500px;
+        max-width: min(500px, 100%);
+        box-sizing: border-box;
         display: inline-block;
         overflow: hidden;
         text-overflow: ellipsis;
