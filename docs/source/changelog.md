@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--temp-dir DIR` moves the workspace temp dir, bulk Python temp files, `sort -T` and SnpSift's JVM tmp dir off `/tmp`/output (passed explicitly; process `TMPDIR` is not changed); default unchanged (#213).
 - Start-up free-space warning on the temp and output filesystems when free space is below 16x the compressed input VCF (advisory only; gene-panel runs need far less) (#213).
 
+### Changed
+
+- Association runs whose case/control or phenotyped samples are a strict subset of the VCF now extract only those samples' genotypes (`bcftools query -S`), as PLINK `--keep`, REGENIE and SAIGE do. Results and score artifacts are unchanged; the intermediate TSV and the output `GT` carrier list cover the analysed samples only. Samples are kept when inheritance, `--append-extra-sample-fields`, `--no-replacement`, `--igv`, `--pseudonymize`, a tumor/normal sample index, statistics, `--late-filtering` or `--final-filter` need them; `--no-sample-subset` opts out. The subset hash is recorded as `sample_subset_sha256` in the metadata and score-artifact provenance, edited sample/phenotype files invalidate resume checkpoints, and so does a change to `--no-sample-subset` or any of these flags (#212).
+
 ### Deprecated
 
 - `--perform-gene-burden` now warns and will be removed in the next minor release; use `--perform-association` (e.g. `--association-tests fisher`). The legacy path ignores `--missing-as-ref` (#217).

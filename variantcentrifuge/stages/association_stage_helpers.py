@@ -38,7 +38,11 @@ def _emit_score_artifact(config: dict, path: str, gene_burden_data: list[dict]) 
         mask_id=mask_hash[:12],
         mask_hash=mask_hash,
         mask_label=config.get("mask_label"),
-        provenance=collect_provenance(config),
+        # Per-stratum, so not a cross-strata check field; "none" = all VCF samples kept.
+        provenance={
+            **collect_provenance(config),
+            "sample_subset_sha256": config.get("sample_subset_sha256") or "none",
+        },
     )
 
 

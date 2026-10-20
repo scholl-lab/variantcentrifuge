@@ -184,7 +184,9 @@ def extract_fields_bcftools(
     fields : str
         A space-separated list of fields to extract.
     cfg : dict
-        Configuration dictionary.
+        Configuration dictionary. ``bcftools_samples`` (raw VCF names, VCF order) limits
+        per-sample columns to those samples (``bcftools query -S``); ``vcf_samples`` must
+        then name the same samples.
     output_file : str
         Path to the final TSV file where extracted fields will be written.
     vcf_samples : list[str], optional
@@ -213,10 +215,17 @@ def extract_fields_bcftools(
         suffix=".tsv", prefix="bcftools_extract_", dir=cfg.get("temp_dir")
     )
     os.close(temp_fd)
+    samples_file = None
 
     try:
         # Run bcftools query
-        cmd = ["bcftools", "query", "-u", "-f", format_string, variant_file]
+        cmd = ["bcftools", "query", "-u", "-f", format_string]
+        if cfg.get("bcftools_samples"):  # analysed-sample subset (#212), names in VCF order
+            samples_file = f"{temp_output}.samples"
+            with open(samples_file, "w") as fh:
+                fh.write("".join(f"{s}\n" for s in cfg["bcftools_samples"]))
+            cmd.extend(["-S", samples_file])
+        cmd.append(variant_file)
 
         logger.debug(f"Running bcftools query: {' '.join(cmd)}")
 
@@ -317,9 +326,10 @@ def extract_fields_bcftools(
         )
 
     finally:
-        # Clean up temp file
-        if os.path.exists(temp_output):
-            os.remove(temp_output)
+        # Clean up temp files
+        for p in (temp_output, samples_file):
+            if p and os.path.exists(p):
+                os.remove(p)
 
     return output_file
 
