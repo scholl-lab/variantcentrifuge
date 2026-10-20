@@ -214,8 +214,11 @@ def _skato_each_q(
 
         # For optimal.adj: use Davies -> Liu chain (Get_PValue.Lambda)
         for j in range(n_q):
-            p_val, _method, _conv = compute_pvalue(q_all[j, i], lam)
+            p_val, _method, conv = compute_pvalue(q_all[j, i], lam)
             pval[j, i] = p_val
+            # Liu is exact for one eigenvalue or q <= 0 (R also counts these as converged)
+            if not conv and len(lam) > 1 and q_all[j, i] > 0:
+                _STATUS.converged = False  # per-rho p from saddlepoint/Liu approximation
 
     # Minimum p-value across rho for each query
     pmin = np.min(pval, axis=1)

@@ -453,3 +453,37 @@ def test_tail_quadrature_failure_falls_back_to_liu(monkeypatch: pytest.MonkeyPat
     p, _ = sm._skato_get_pvalue(q_rho, np.eye(2), sm._SKATO_RHO_GRID)
     assert skato_integrate._skato_last_converged() is False
     assert p == pytest.approx(p_ok, rel=1e-6, abs=0.0)  # rank one: Liu integrand is exact
+
+
+@pytest.mark.unit
+def test_per_rho_accuracy_reaches_the_omnibus() -> None:
+    """Synthetic spec binary_n300_cov3_sig1 (SKAT-O inputs q_rho, Z1/sqrt(2) in the fixture).
+
+    R SKAT 2.2.5's own integrand, integrated piecewise at Davies acc=1e-11
+    (scratch r_hp_perrho.R), gives 3.3057904e-5 with R's per-rho p-values (Davies acc=1e-6;
+    pmin 2.1266437e-5, +0.16%) but 3.30031443e-5 with per-rho p-values at acc=1e-11
+    (pmin 2.1231631e-5). The relative per-rho budget must reach the omnibus.
+    """
+    d = np.load(
+        pathlib.Path(__file__).parent.parent
+        / "fixtures/skato_integration/binary_n300_cov3_sig1_skato_inputs.npz"
+    )
+    p, each = sm._skato_get_pvalue(d["q_rho"], d["z1_half"], sm._SKATO_RHO_GRID)
+    assert each.min() == pytest.approx(2.123163088e-5, rel=1e-6, abs=0.0)
+    assert p == pytest.approx(3.30031443e-5, rel=1e-5, abs=0.0)
+
+
+@pytest.mark.unit
+def test_per_rho_approximation_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A per-rho p from the saddlepoint/Liu chain marks the SKAT-O result unconverged."""
+    g, x, y, w = _lowrank(300, 150, 0, 51)
+    backend = PythonSKATBackend()
+    null = backend.fit_null_model(y, x, "binary")
+    real = skato_integrate.compute_pvalue
+
+    def approx_only(q, lam, *a, **k):
+        p, _m, _c = real(q, lam, *a, **k)
+        return p, "saddlepoint", False
+
+    monkeypatch.setattr(skato_integrate, "compute_pvalue", approx_only)
+    assert backend.test_gene("G", g, null, "SKATO", weights=w)["p_converged"] is False
