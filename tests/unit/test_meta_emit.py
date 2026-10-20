@@ -25,18 +25,17 @@ GT = {0: "0/0", 1: "0/1", 2: "1/1"}
 def _builder(n=200, seed=3):
     rng = np.random.default_rng(seed)
     pheno = (np.arange(n) % 3 == 0).astype(float)
-    # v1 rare, v2 common ALT (AF>0.5 -> minor-allele recoded by build_genotype_matrix),
-    # v3 is v1 repeated (transcript-split row).
+    # v1 rare, v2 common ALT (AF>0.5 -> minor-allele recoded by build_genotype_matrix).
     d1 = rng.binomial(2, 0.03, n)
     d2 = rng.binomial(2, 0.8, n)
-    dosages = [d1, d2, d1]
+    dosages = [d1, d2]
     samples = [f"S{i}" for i in range(n)]
     df = pd.DataFrame(
         {
-            "CHROM": ["chr1", "chr1", "chr1"],
-            "POS": [100, 200, 100],
-            "REF": ["A", "C", "A"],
-            "ALT": ["G", "T", "G"],
+            "CHROM": ["chr1", "chr1"],
+            "POS": [100, 200],
+            "REF": ["A", "C"],
+            "ALT": ["G", "T"],
             **{s: [GT[int(d[i])] for d in dosages] for i, s in enumerate(samples)},
         }
     )
@@ -53,7 +52,7 @@ def _builder(n=200, seed=3):
     return b, np.column_stack([d1, d2]).astype(float), pheno
 
 
-def test_emit_keeps_alt_coding_dedupes_and_hashes(tmp_path):
+def test_emit_keeps_alt_coding_and_hashes(tmp_path):
     b, alt, pheno = _builder()
     art = emit_stratum_artifact(
         str(tmp_path / "s1"),
@@ -116,16 +115,18 @@ def test_stage_writes_score_artifact_for_fisher_only_run(monkeypatch, tmp_path):
     cases = [f"CASE{i}" for i in range(10)]
     controls = [f"CTRL{i}" for i in range(10)]
     gts = {
-        f"GEN_{i}__GT": ["0/1" if i % 4 == 0 else "0/0", "0/0" if i % 3 else "1/1"]
+        f"GEN_{i}__GT": ["0/1" if i % 4 == 0 else "0/0", "0/0" if i % 3 else "1/1"] * 2
         for i in range(20)
     }
+    # Rows 3-4 repeat both variants on a second transcript (--split-snpeff-lines).
     df = pd.DataFrame(
         {
-            "CHROM": ["1", "1"],
-            "POS": [10, 20],
-            "REF": ["A", "C"],
-            "ALT": ["G", "T"],
-            "GENE": ["GENE1", "GENE1"],
+            "CHROM": ["1", "1"] * 2,
+            "POS": [10, 20] * 2,
+            "REF": ["A", "C"] * 2,
+            "ALT": ["G", "T"] * 2,
+            "GENE": ["GENE1"] * 4,
+            "FEATUREID": ["T1", "T1", "T2", "T2"],
             **gts,
         }
     )
@@ -155,3 +156,16 @@ def test_stage_writes_score_artifact_for_fisher_only_run(monkeypatch, tmp_path):
     assert art.genes["GENE1"].variant_keys == ["1:10:A:G", "1:20:C:T"]
     assert (art.n_cases, art.n_controls) == (10, 10)
     assert all("_genotype_matrix_builder" not in d for d in captured)
+
+
+def test_gene_burden_counts_each_variant_once_across_transcripts():
+    from variantcentrifuge.gene_burden import perform_gene_burden_analysis
+
+    samples = ["C1", "C2", "K1", "K2"]
+    row = {"CHROM": "1", "POS": 10, "REF": "A", "ALT": "G", "GENE": "G1"}
+    gts = {f"GEN_{i}__GT": g for i, g in enumerate(["0/1", "0/0", "0/0", "0/0"])}
+    df = pd.DataFrame([{**row, **gts, "FEATUREID": t} for t in ("T1", "T2")])
+    res = perform_gene_burden_analysis(
+        df, {"gene_burden_mode": "alleles"}, {"C1", "C2"}, {"K1", "K2"}, samples
+    )
+    assert int(res.loc[0, "n_qualifying_variants"]) == 1

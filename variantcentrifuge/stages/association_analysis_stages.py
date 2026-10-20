@@ -16,6 +16,7 @@ from ..gene_burden import (
     _aggregate_gene_burden_from_columns,
     _aggregate_gene_burden_from_gt,
     _aggregate_gene_burden_legacy,
+    drop_transcript_duplicates,
 )
 from ..gt_reconstruction import _find_per_sample_gt_columns, reconstruct_gt_column
 from ..pipeline_core import PipelineContext, Stage
@@ -178,6 +179,7 @@ class AssociationAnalysisStage(Stage):
             df = context.variants_df
         if df is None:
             raise RuntimeError("No DataFrame loaded for association analysis")
+        df = drop_transcript_duplicates(df)
 
         pca_result = context.get_result("pca_computation")
         if pca_result and isinstance(pca_result, dict):

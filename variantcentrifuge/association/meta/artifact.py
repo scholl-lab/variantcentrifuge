@@ -144,6 +144,8 @@ def compute_gene_score(
     _n_samples, p = geno.shape
     if len(variant_keys) != p:
         raise ValueError(f"variant_keys length {len(variant_keys)} != n_variants {p}")
+    if len(set(variant_keys)) != p:
+        raise ValueError("variant_keys must be unique (one column per variant)")
 
     residuals = np.asarray(null_model.extra["residuals"], dtype=np.float64)
     design_x = np.asarray(null_model.extra["design_matrix"], dtype=np.float64)
@@ -349,10 +351,7 @@ def emit_stratum_artifact(
             canonical_key(c, p, r, a)
             for c, p, r, a in zip(rows["CHROM"], rows["POS"], rows["REF"], rows["ALT"], strict=True)
         ]
-        # Transcript-split rows repeat a variant; one column per key or alignment breaks.
-        _, first_idx = np.unique(keys, return_index=True)
-        cols = np.sort(first_idx)
-        if cols.size == 0:
+        if not keys:
             continue
         mask = np.asarray(sample_mask, dtype=bool)
         null_key = mask.tobytes()
@@ -360,11 +359,11 @@ def emit_stratum_artifact(
             cov = b.covariate_matrix[mask] if b.covariate_matrix is not None else None
             nulls[null_key] = fit_stratum_null(pheno_all[mask], cov, "binary")
         gene_scores[gene] = compute_gene_score(
-            geno[mask][:, cols],
-            raw[mask][:, cols],
+            geno[mask],
+            raw[mask],
             nulls[null_key],
-            [keys[i] for i in cols],
-            ploidy=plo[mask][:, cols],
+            keys,
+            ploidy=plo[mask],
         )
 
     artifact = ScoreCovarianceArtifact(

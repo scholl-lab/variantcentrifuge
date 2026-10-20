@@ -43,6 +43,28 @@ def _run_node_script(js_code: str) -> str:
     return res.stdout.strip()
 
 
+def _dump_dom(chrome_bin: str, url: str) -> subprocess.CompletedProcess:
+    """Render ``url`` in headless Chrome and return the final DOM.
+
+    Headless Chrome occasionally hangs in --dump-dom on loaded CI runners; a timeout
+    is retried once, while any other failure or assertion still fails immediately.
+    """
+    cmd = [
+        chrome_bin,
+        "--headless",
+        "--disable-gpu",
+        "--no-sandbox",
+        "--no-first-run",
+        "--virtual-time-budget=6000",
+        "--dump-dom",
+        url,
+    ]
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+    except subprocess.TimeoutExpired:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+
+
 def _extract_js_function(html_content: str, fn_name: str) -> str:
     """Extract a JavaScript function by name from rendered HTML report."""
     m = re.search(
@@ -1063,23 +1085,14 @@ window.addEventListener("load", function() {
             def log_message(self, *args):
                 pass
 
-        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         port = server.server_port
         t = threading.Thread(target=server.serve_forever)
         t.daemon = True
         t.start()
 
         try:
-            cmd = [
-                chrome_bin,
-                "--headless",
-                "--disable-gpu",
-                "--no-sandbox",
-                "--virtual-time-budget=6000",
-                "--dump-dom",
-                f"http://127.0.0.1:{port}/",
-            ]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+            res = _dump_dom(chrome_bin, f"http://127.0.0.1:{port}/")
             assert res.returncode == 0, f"Chrome failed: {res.stderr}"
             m = re.search(r'<div id="browser-probe-result">([\s\S]*?)</div>', res.stdout)
             assert m is not None, f"Marker not found: {res.stdout[:500]}"
@@ -1338,23 +1351,14 @@ window.addEventListener("load", function() {
             def log_message(self, *args):
                 pass
 
-        server = http.server.HTTPServer(("127.0.0.1", 0), MultiReportHandler)
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), MultiReportHandler)
         port = server.server_port
         t = threading.Thread(target=server.serve_forever)
         t.daemon = True
         t.start()
 
         try:
-            cmd = [
-                chrome_bin,
-                "--headless",
-                "--disable-gpu",
-                "--no-sandbox",
-                "--virtual-time-budget=6000",
-                "--dump-dom",
-                f"http://127.0.0.1:{port}/",
-            ]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+            res = _dump_dom(chrome_bin, f"http://127.0.0.1:{port}/")
             assert res.returncode == 0, f"Chrome failed: {res.stderr}"
             m = re.search(r'<div id="browser-probe-result">([\s\S]*?)</div>', res.stdout)
             assert m is not None, f"Marker not found: {res.stdout[:500]}"
