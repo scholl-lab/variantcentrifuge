@@ -25,15 +25,15 @@ rule run_variantcentrifuge:
         runtime=lambda wc, attempt: 1440 * attempt,
     shell:
         """
-        mkdir -p {params.output_dir}
+        mkdir -p -- {params.output_dir:q}
         variantcentrifuge \
-            -c {params.config_file} \
-            -g {params.genes} \
-            -v {input.vcf} \
-            --output-file {output.tsv} \
-            --output-dir {params.output_dir} \
-            --log-level {params.log_level} \
+            -c {params.config_file:q} \
+            -g {params.genes:q} \
+            -v {input.vcf:q} \
+            --output-file {output.tsv:q} \
+            --output-dir {params.output_dir:q} \
+            --log-level {params.log_level:q} \
             --threads {threads} \
             {params.extra_flags} \
-            > {log} 2>&1
+            > {log:q} 2>&1
         """

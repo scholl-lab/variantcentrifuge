@@ -256,20 +256,17 @@ class TestParallelInheritanceAnalyzer:
             "variantcentrifuge.inheritance.parallel_analyzer.analyze_gene_for_compound_het_vectorized"
         ) as mock_analyze:
             # Make the function raise an error
-            mock_analyze.side_effect = Exception("Test error")
+            mock_analyze.side_effect = RuntimeError("Test error")
 
-            # Should still complete but log error
-            result = analyze_inheritance_parallel(
-                sample_df,
-                pedigree_data,
-                sample_list,
-                n_workers=2,
-                min_variants_for_parallel=1,
-            )
-
-            # Should still return valid DataFrame
-            assert isinstance(result, pd.DataFrame)
-            assert "Inheritance_Pattern" in result.columns
+            # Worker error must propagate instead of being swallowed
+            with pytest.raises(RuntimeError, match="Test error"):
+                analyze_inheritance_parallel(
+                    sample_df,
+                    pedigree_data,
+                    sample_list,
+                    n_workers=2,
+                    min_variants_for_parallel=1,
+                )
 
     def test_vectorized_vs_original_consistency(self, sample_df, pedigree_data):
         """Test that vectorized and original implementations produce consistent results."""

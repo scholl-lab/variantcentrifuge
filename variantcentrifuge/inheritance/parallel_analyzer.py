@@ -124,6 +124,7 @@ def analyze_inheritance_parallel(
     use_vectorized_comp_het: bool = True,
     n_workers: int | None = None,
     min_variants_for_parallel: int = 100,
+    reference: str | None = None,
 ) -> pd.DataFrame:
     """
     Parallel version of inheritance analysis with concurrent gene processing.
@@ -146,6 +147,8 @@ def analyze_inheritance_parallel(
         Number of parallel workers. If None, uses CPU count
     min_variants_for_parallel : int, optional
         Minimum number of variants to use parallel processing
+    reference : str, optional
+        Genome build (e.g. "GRCh37", "hg38") used to place the X PAR regions.
 
     Returns
     -------
@@ -198,7 +201,7 @@ def analyze_inheritance_parallel(
     pass1_start = time.time()
     logger.info("Pass 1: Deducing inheritance patterns per variant (vectorized)")
     pass1_result = vectorized_deduce_patterns(
-        df, pedigree_data, sample_list, return_genotype_matrix=True
+        df, pedigree_data, sample_list, return_genotype_matrix=True, reference=reference
     )
     if isinstance(pass1_result, tuple):
         patterns_list_all, gt_matrix, sample_to_idx = pass1_result
@@ -304,6 +307,7 @@ def analyze_inheritance_parallel(
                                 logger.info(f"Processed {completed}/{num_genes} genes")
                         except Exception as e:
                             logger.error(f"Error processing gene {gene!r}: {e}")
+                            raise
     else:
         # Fall back to sequential processing
         logger.info("Pass 2: Analyzing compound heterozygous patterns sequentially")
@@ -332,6 +336,7 @@ def analyze_inheritance_parallel(
                         comp_het_results_by_gene[str(gene)] = comp_het_results
                 except Exception as e:
                     logger.error(f"Error processing gene {gene!r}: {e}")
+                    raise
 
     pass_times["compound_het_analysis"] = time.time() - pass2_start
 

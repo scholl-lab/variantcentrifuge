@@ -151,16 +151,16 @@ PLINK format uses IID (column 2) as the sample identifier — this matches VCF s
 ### CLI Flags
 
 ```bash
---pca-file ancestry.eigenvec    # Pre-computed PCA file
+--pca ancestry.eigenvec         # Pre-computed PCA file (or --pca akt for on-the-fly)
 --pca-components 10             # Number of PCs to include (default: 10, warn if >20)
---pca-tool akt                  # Invoke AKT as subprocess to compute PCA on-the-fly
+--pca-sites sites.vcf.gz        # Optional VCF/BCF file of high-quality variant sites for PCA
 ```
 
 PCA columns are automatically appended to the covariate matrix before any regression. If you
-specify both `--covariate-file` and `--pca-file`, PCs are added as additional columns.
+specify both `--covariate-file` and `--pca ancestry.eigenvec`, PCs are added as additional columns.
 
 :::{warning}
-Using `--pca-tool akt` requires AKT to be in your PATH. A missing AKT binary raises a hard error
+Using `--pca akt` requires AKT to be in your PATH. A missing AKT binary raises a hard error
 (not a silent skip) to prevent undetected misconfiguration.
 :::
 
@@ -219,6 +219,17 @@ Set via JSON config (see [JSON Config](#tuning-json-config)):
 ```json
 { "association": { "gene_burden_mode": "alleles" } }
 ```
+
+### Zero-Cell Handling and Continuity Correction
+
+When any cell in the 2×2 contingency table is zero (common for rare variants where no controls or no cases carry a variant), the sample odds ratio would be zero or undefined (infinite). VariantCentrifuge applies the Haldane-Anscombe continuity correction (adding `continuity_correction`, default `0.5`, to all four cells) to evaluate both the reported odds ratio (`fisher_or`) and its normal-approximation confidence interval (`fisher_or_ci_lower`, `fisher_or_ci_upper`) from the same corrected table via `statsmodels.stats.contingency_tables.Table2x2`. If marginal totals are zero (structural zero), the odds ratio and confidence intervals return `NaN`.
+
+### Missing Genotypes and Complete-Case Policy
+
+VariantCentrifuge applies principled missingness handling across association tests:
+
+- **Fisher's Exact Test (Complete-Case Policy):** Samples with missing genotype calls (`./.`, `.`, `.|.`) at any qualifying variant in a gene are excluded from the test's called counts (`proband_called_count`, `control_called_count`) and reference denominator (`proband_called_chromosomes`, `control_called_chromosomes`). Samples with missing calls are never assumed to be reference (`0/0`). If all cases or all controls are uncalled for a gene, the test is safely skipped.
+- **Matrix-Based Tests (Burden Regression, SKAT, SKAT-O):** Genotype matrices use ploidy-scaled mean imputation (`ploidy * alt_allele_freq`, i.e. `2 * alt_freq` for diploid and `1 * alt_freq` for haploid; or `round(ploidy * alt_allele_freq)` bestguess for binary traits). Dosage units are `{0, 1, 2}` for diploid variants and `{0, 1}` for haploid calls.
 
 ---
 
@@ -410,8 +421,7 @@ Unclassified variants (code 0) are excluded from COAST but remain in SKAT and bu
 | Backend | CLI Flag | Notes |
 |---------|----------|-------|
 | Pure Python (default) | `--coast-backend python` | No R required; thread-safe; matches R AllelicSeries |
-| Auto | `--coast-backend auto` | Probes rpy2 AND AllelicSeries R package; falls back to Python |
-| R (deprecated) | `--coast-backend r` | Requires rpy2 + R AllelicSeries package; raises DeprecationWarning |
+| Auto | `--coast-backend auto` | Probes environment; defaults to pure Python |
 
 ### CLI Example
 
@@ -905,7 +915,7 @@ Use this for reproducible analyses or when parameters are too numerous for the c
 | `gene_prior_weights` | str | `null` | Path to gene-weight TSV for weighted FDR correction |
 | `gene_prior_weight_column` | str | `"weight"` | Column name in gene-weight file containing weights |
 | `skat_backend` | str | `"python"` | `"python"`, `"auto"`, or `"r"` (deprecated) |
-| `coast_backend` | str | `"python"` | `"python"`, `"auto"`, or `"r"` (deprecated) |
+| `coast_backend` | str | `"python"` | `"python"` or `"auto"` |
 | `diagnostics_output` | str | `null` | Path to diagnostics directory |
 | `min_cases` | int | `200` | Warn if case count below this |
 | `max_case_control_ratio` | float | `20.0` | Warn if control-to-case ratio exceeds this |
@@ -1112,7 +1122,7 @@ variantcentrifuge \
   --covariate-file covariates.tsv \
   --covariates age,sex,batch \
   --categorical-covariates sex,batch \
-  --pca-file ancestry.eigenvec \
+  --pca ancestry.eigenvec \
   --pca-components 10 \
   --variant-weights beta:1,25 \
   --coast-weights 1,2,3 \

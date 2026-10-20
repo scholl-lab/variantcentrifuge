@@ -8,6 +8,7 @@ Contains:
 - ArchiveCreationStage
 """
 
+import gzip
 import logging
 import sys
 import tarfile
@@ -16,9 +17,10 @@ from typing import Any, cast
 
 import pandas as pd
 
+from ..checkpoint_models import AtomicFileOperation
 from ..config import normalize_annotation_config
 from ..gt_reconstruction import _collapse_per_sample_gt_columns_for_output
-from ..links import add_links_to_table
+from ..links import add_links_to_table, resolve_links
 from ..pipeline_core import PipelineContext, Stage
 
 logger = logging.getLogger(__name__)
@@ -91,18 +93,13 @@ class VariantIdentifierStage(Stage):
             import hashlib
 
             var_ids = []
-            for idx, row in enumerate(df.itertuples(index=False), 1):
-                chrom = str(getattr(row, "CHROM", ""))
-                pos = str(getattr(row, "POS", ""))
-                ref = str(getattr(row, "REF", ""))
-                alt = str(getattr(row, "ALT", ""))
-
-                combined = f"{chrom}{pos}{ref}{alt}"
-                short_hash = hashlib.md5(combined.encode("utf-8")).hexdigest()[:4]
-                var_id = f"var_{idx:04d}_{short_hash}"
-                var_ids.append(var_id)
-
-            # Insert VAR_ID as the first column
+            for idx, r in enumerate(df.itertuples(index=False), 1):
+                key = (
+                    f"{getattr(r, 'CHROM', '')}{getattr(r, 'POS', '')}"
+                    f"{getattr(r, 'REF', '')}{getattr(r, 'ALT', '')}"
+                )
+                h = hashlib.md5(key.encode("utf-8")).hexdigest()[:4]
+                var_ids.append(f"var_{idx:04d}_{h}")
             df.insert(0, id_column, var_ids)
         else:
             # Fallback to simple index
@@ -132,9 +129,6 @@ class VariantIdentifierStage(Stage):
 
     def _process_streaming(self, context: PipelineContext) -> PipelineContext:
         """Process large files in streaming mode without loading into memory."""
-        import gzip
-        from pathlib import Path
-
         input_file = Path(context.data)
         output_file = context.workspace.get_intermediate_path("with_variant_ids.tsv.gz")
         id_column = "VAR_ID"  # Default variant identifier column
@@ -184,12 +178,9 @@ class VariantIdentifierStage(Stage):
 
                 # Generate variant ID matching regular mode format
                 if use_key_fields:
-                    chrom = fields[key_indices["CHROM"]]
-                    pos = fields[key_indices["POS"]]
-                    ref = fields[key_indices["REF"]]
-                    alt = fields[key_indices["ALT"]]
-
-                    combined = f"{chrom}{pos}{ref}{alt}"
+                    combined = "".join(
+                        fields[key_indices[k]] for k in ["CHROM", "POS", "REF", "ALT"]
+                    )
                     short_hash = hashlib.md5(combined.encode("utf-8")).hexdigest()[:4]
                     var_id = f"var_{line_count:04d}_{short_hash}"
                 else:
@@ -228,13 +219,20 @@ class FinalFilteringStage(Stage):
     @property
     def parallel_safe(self) -> bool:
         """Return whether this stage can run in parallel with others."""
-        return True  # Safe - only filters DataFrame, no external I/O
+        return False  # Must run in main process - replaces current_dataframe
 
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         # Final filtering often filters on computed columns from these stages
-        return {"variant_scoring", "inheritance_analysis", "custom_annotation"}
+        return {
+            "variant_analysis",
+            "variant_identifier",
+            "variant_scoring",
+            "inheritance_analysis",
+            "custom_annotation",
+            "clinvar_pm5",
+        }
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply final filtering."""
@@ -288,6 +286,8 @@ class FinalFilteringStage(Stage):
         if final_filter:
             logger.info(f"Applying final filter: {final_filter}")
             pre_filter_count = len(df)
+            context.pre_final_filter_variants = pre_filter_count
+            context.config["pre_final_filter_variants"] = pre_filter_count
             df = _os_mod.filter_dataframe_with_query(df, final_filter)
             post_filter_count = len(df)
             logger.info(
@@ -344,37 +344,6 @@ class TSVOutputStage(Stage):
         """Write final TSV output."""
         df = context.current_dataframe
 
-        # Handle chunked processing
-        if context.config.get("use_chunked_processing") and df is None:
-            # Check if chunked analysis results are available
-            if hasattr(context, "chunked_analysis_tsv") and context.chunked_analysis_tsv:
-                if not Path(context.chunked_analysis_tsv).exists():
-                    raise RuntimeError("No data to write")
-                logger.info(f"Using chunked analysis results from: {context.chunked_analysis_tsv}")
-                # Copy chunked results to final output location
-                output_file = context.config.get("output_file")
-                if output_file and output_file not in [None, "stdout", "-"]:
-                    final_output_path = Path(output_file)
-                    if not final_output_path.is_absolute():
-                        final_output_path = context.workspace.output_dir / final_output_path
-
-                    import shutil
-
-                    shutil.copy2(context.chunked_analysis_tsv, final_output_path)
-                    context.final_output_path = final_output_path
-                    logger.info(f"Chunked analysis results copied to: {final_output_path}")
-                return context
-
-            # Fallback: Output already written during chunked processing
-            output_file = context.config.get("chunked_output_file")
-            if output_file:
-                # Ensure the path is within the output directory
-                output_filename = Path(output_file).name
-                context.final_output_path = context.workspace.output_dir / output_filename
-                logger.info(f"Chunked processing output: {context.final_output_path}")
-                return context
-            raise RuntimeError("No data to write")
-
         if df is None:
             raise RuntimeError("No data to write")
 
@@ -428,25 +397,19 @@ class TSVOutputStage(Stage):
         # Add external links if configured (default is to add links unless no_links is True)
         if not context.config.get("no_links", False):
             # Get link configurations from config
-            link_configs = context.config.get("links", {})
+            link_configs = resolve_links(context.config)
             if link_configs:
-                # Convert DataFrame to lines, add links, then convert back
-                # First, save to lines format
-                lines = []
-                # Header
-                lines.append("\t".join(df.columns))
-                # Data rows
-                for row in df.itertuples(index=False):
-                    # Convert namedtuple to values list (skip Index if present)
-                    lines.append("\t".join(str(val) for val in row))
-
-                # Add links
-                lines_with_links = add_links_to_table(lines, link_configs)
-
-                # Convert back to DataFrame
                 import io
 
-                df = pd.read_csv(io.StringIO("\n".join(lines_with_links)), sep="\t", dtype=str)
+                lines = ["\t".join(df.columns)]
+                lines.extend(
+                    "\t".join(str(val) for val in row) for row in df.itertuples(index=False)
+                )
+                df = pd.read_csv(
+                    io.StringIO("\n".join(add_links_to_table(lines, link_configs))),
+                    sep="\t",
+                    dtype=str,
+                )
 
         # Drop internal cache columns before output
         cache_cols = [c for c in df.columns if c.startswith("_")]
@@ -467,7 +430,10 @@ class TSVOutputStage(Stage):
             if not str(output_path).endswith(".gz"):
                 output_path = Path(str(output_path) + ".gz")
 
-        df.to_csv(output_path, sep="\t", index=False, na_rep="", compression=cast(Any, compression))
+        with AtomicFileOperation(output_path) as temp_out:
+            df.to_csv(
+                temp_out, sep="\t", index=False, na_rep="", compression=cast(Any, compression)
+            )
 
         logger.info(f"Successfully wrote output to: {output_path}")
 
@@ -529,68 +495,4 @@ class ArchiveCreationStage(Stage):
         return context
 
 
-def _collect_metadata_rows(context: PipelineContext, get_version_fn: Any) -> list[tuple[str, Any]]:
-    """Build (Parameter, Value) tuples for MetadataGenerationStage."""
-    import hashlib
-
-    cfg = context.config
-    raw_preset = cfg.get("preset", "")
-    preset_str = (
-        ", ".join(str(p) for p in raw_preset)
-        if isinstance(raw_preset, list | tuple | set)
-        else str(raw_preset or "")
-    )
-    samples = context.vcf_samples or []
-
-    def _sample_lbl(name_key: str, idx_key: str) -> str:
-        if cfg.get(name_key):
-            return str(cfg[name_key])
-        idx = cfg.get(idx_key)
-        return (
-            samples[int(str(idx))]
-            if idx not in (None, "") and str(idx).isdigit() and int(str(idx)) < len(samples)
-            else ""
-        )
-
-    t_lbl, n_lbl = (
-        _sample_lbl("tumor_sample", "tumor_sample_index"),
-        _sample_lbl("normal_sample", "normal_sample_index"),
-    )
-    tn_str = f"tumor={t_lbl or 'N/A'}, normal={n_lbl or 'N/A'}" if (t_lbl or n_lbl) else ""
-    tx_file = cfg.get("transcript_file", "")
-    tx_md5 = (
-        f"{tx_file} ({hashlib.md5(Path(tx_file).read_bytes()).hexdigest()})"
-        if tx_file and Path(tx_file).is_file()
-        else ""
-    )
-    rows: list[tuple[str, Any]] = [
-        ("Tool", "variantcentrifuge"),
-        ("Version", cfg.get("pipeline_version", "0.5.0")),
-        ("Git SHA", cfg.get("git_sha") or get_version_fn("git")),
-        ("Run_start_time", context.start_time.isoformat()),
-        ("Run_duration_seconds", f"{context.get_execution_time():.1f}"),
-        ("VCF_file", cfg.get("vcf_file", "")),
-        ("Gene_name", cfg.get("normalized_genes", "")),
-        ("Gene_file", cfg.get("gene_file", "")),
-        ("Phenotype_file", cfg.get("phenotype_file", "")),
-        ("Pedigree_file", cfg.get("ped_file", "")),
-        ("Transcript File (MD5)", tx_md5),
-        ("Reference", cfg.get("reference", "")),
-        ("Filter", cfg.get("filters") or cfg.get("filter", "")),
-        ("Preset", preset_str),
-        ("Final Filter", cfg.get("final_filter", "") or ""),
-        ("Tumor/Normal Samples", tn_str),
-        ("Threads", cfg.get("threads", "")),
-        ("Inheritance_mode", cfg.get("inheritance_mode", "")),
-        ("Scoring_config", cfg.get("scoring_config_path", "")),
-    ]
-    rows.extend((f"config.{k}", str(v)) for k, v in cfg.items() if v is not None)
-    rows.extend(
-        [
-            ("tool.bcftools_version", get_version_fn("bcftools")),
-            ("tool.snpeff_version", get_version_fn("snpEff")),
-            ("tool.snpsift_version", get_version_fn("SnpSift")),
-            ("tool.bedtools_version", get_version_fn("bedtools")),
-        ]
-    )
-    return rows
+from .metadata_helpers import collect_metadata_rows as _collect_metadata_rows  # noqa: F401

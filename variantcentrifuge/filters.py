@@ -26,6 +26,7 @@ TSV-based filtering:
   and annotation steps are complete, allowing filtering on computed columns.
 """
 
+import gzip
 import logging
 import os
 import tempfile
@@ -48,18 +49,25 @@ __all__ = [
     "filter_dataframe_with_query",
     "filter_final_tsv_by_genotype",
     "filter_tsv_with_expression",
+    "validate_bed_vcf_contigs",
 ]
 
 
 def _snpsift_memory_flag(cfg: dict[str, Any]) -> str:
     """Calculate JVM -Xmx flag for SnpSift based on available resources.
 
-    Uses ResourceManager to detect system memory and allocates up to 25%
+    Uses explicit snpsift_memory_gb if provided in config, otherwise uses
+    ResourceManager to detect system memory and allocates up to 25%
     for SnpSift, bounded between 2GB and 16GB. Falls back to 4GB on error.
 
     The conda SnpSift wrapper defaults to only -Xmx1g which is insufficient
     for large multi-sample VCFs (e.g., 5000+ samples).
     """
+    if cfg and cfg.get("snpsift_memory_gb") is not None:
+        try:
+            return f"-Xmx{max(1, min(16, int(cfg['snpsift_memory_gb'])))}g"
+        except (ValueError, TypeError):
+            pass
     try:
         from .memory.resource_manager import ResourceManager
 
@@ -105,6 +113,30 @@ def _raise_for_snpsift_filter_stderr(stderr: str | None, filter_string: str) -> 
     )
 
 
+def _resolve_filter_threads(cfg: dict[str, Any]) -> tuple[int, int]:
+    """Return (bgzip_threads, bcftools_threads).
+
+    Both bcftools (--threads) and bgzip (-@) create thread pools of additional
+    worker threads beyond the main foreground/I/O thread, so for T total threads,
+    both receive max(0, T - 1) additional pool threads.
+    When threads <= 0, arguments are omitted.
+    """
+    try:
+        raw_threads = int(cfg.get("threads", 1))
+    except (ValueError, TypeError):
+        raw_threads = 1
+    total_threads = max(1, raw_threads)
+    extra_threads = max(0, total_threads - 1)
+    if "bcftools_threads" in cfg:
+        try:
+            bcftools_threads = max(0, int(cfg["bcftools_threads"]))
+        except (ValueError, TypeError):
+            bcftools_threads = extra_threads
+    else:
+        bcftools_threads = extra_threads
+    return extra_threads, bcftools_threads
+
+
 def apply_bcftools_prefilter(
     input_vcf: str, output_vcf: str, filter_expression: str, cfg: dict[str, Any]
 ) -> str:
@@ -140,20 +172,21 @@ def apply_bcftools_prefilter(
     RuntimeError
         If the bcftools command fails.
     """
-    threads = str(cfg.get("threads", 1))
+    _, bcftools_threads = _resolve_filter_threads(cfg)
 
-    cmd = [
-        "bcftools",
-        "view",
-        "--threads",
-        threads,
-        "-i",
-        filter_expression,
-        "-Oz",  # Output compressed VCF
-        "-o",
-        output_vcf,
-        input_vcf,
-    ]
+    cmd = ["bcftools", "view"]
+    if bcftools_threads > 0:
+        cmd.extend(["--threads", str(bcftools_threads)])
+    cmd.extend(
+        [
+            "-i",
+            filter_expression,
+            "-Oz",  # Output compressed VCF
+            "-o",
+            output_vcf,
+            input_vcf,
+        ]
+    )
 
     in_count = _count_vcf_records(input_vcf, cached=True)
     logger.info(f"Applying bcftools pre-filter: {filter_expression}")
@@ -161,7 +194,10 @@ def apply_bcftools_prefilter(
     run_command(cmd)
 
     # bcftools view does not automatically index, so we must do it
-    index_cmd = ["bcftools", "index", "--threads", threads, output_vcf]
+    index_cmd = ["bcftools", "index"]
+    if bcftools_threads > 0:
+        index_cmd.extend(["--threads", str(bcftools_threads)])
+    index_cmd.append(output_vcf)
     logger.debug(f"Indexing pre-filtered VCF: {' '.join(index_cmd)}")
     run_command(index_cmd)
 
@@ -208,6 +244,107 @@ def _count_vcf_records(path: str, *, cached: bool = False) -> int:
     return count
 
 
+_VCF_CONTIG_CACHE: dict[str, set[str]] = {}
+_VCF_CONTIG_FULL_SCANNED: set[str] = set()
+
+
+def _get_bed_contigs(bed_file: str) -> set[str]:
+    """Extract contigs from a BED file."""
+    contigs = set()
+    open_func = gzip.open if bed_file.endswith(".gz") else open
+    mode = "rt" if bed_file.endswith(".gz") else "r"
+    try:
+        with open_func(bed_file, mode) as f:
+            for line in f:
+                if isinstance(line, bytes):
+                    line = line.decode(errors="replace")
+                line = line.strip()
+                if not line or line.startswith(("#", "track", "browser")):
+                    continue
+                parts = line.split("\t")
+                if parts:
+                    contigs.add(parts[0])
+    except Exception as e:
+        logger.debug(f"Could not read BED contigs from {bed_file}: {e}")
+    return contigs
+
+
+def _get_vcf_contigs(vcf_file: str, include_records: bool = False) -> set[str]:
+    """Extract contigs from a VCF header or records."""
+    if not include_records and vcf_file in _VCF_CONTIG_CACHE:
+        return _VCF_CONTIG_CACHE[vcf_file]
+    if include_records and vcf_file in _VCF_CONTIG_FULL_SCANNED:
+        return _VCF_CONTIG_CACHE[vcf_file]
+
+    contigs = set(_VCF_CONTIG_CACHE.get(vcf_file, ()))
+    open_func = gzip.open if vcf_file.endswith(".gz") else open
+    mode = "rt" if vcf_file.endswith(".gz") else "r"
+    record_count = 0
+    try:
+        with open_func(vcf_file, mode) as f:
+            for line in f:
+                if isinstance(line, bytes):
+                    line = line.decode(errors="replace")
+                if line.startswith("##contig=<ID="):
+                    cid = line[13:].split(",")[0].split(">")[0]
+                    if cid:
+                        contigs.add(cid)
+                elif not line.startswith("#"):
+                    parts = line.split("\t", 2)
+                    if parts:
+                        contigs.add(parts[0])
+                    record_count += 1
+                    if not include_records and record_count >= 100:
+                        break
+        if include_records or record_count < 100:
+            _VCF_CONTIG_FULL_SCANNED.add(vcf_file)
+    except Exception as e:
+        logger.debug(f"Could not read VCF contigs from {vcf_file}: {e}")
+
+    if contigs:
+        _VCF_CONTIG_CACHE[vcf_file] = contigs
+    return contigs
+
+
+def validate_bed_vcf_contigs(vcf_file: str, bed_file: str) -> None:
+    """Validate that BED and VCF contig naming conventions match.
+
+    Raises ValueError if any contig in BED matches a VCF contig only with opposite
+    'chr' prefix conventions (e.g. 'chr1' vs '1'), even if some other contigs match.
+    Logs warnings for unmatched contigs.
+    """
+    bed_contigs = _get_bed_contigs(bed_file)
+    vcf_contigs = _get_vcf_contigs(vcf_file)
+
+    if not bed_contigs or not vcf_contigs:
+        return
+
+    unmatched_bed = bed_contigs - vcf_contigs
+    if unmatched_bed and not (bed_contigs & vcf_contigs):
+        vcf_has_chr = {c.startswith("chr") for c in vcf_contigs}
+        bed_has_chr = {c.startswith("chr") for c in unmatched_bed}
+        if vcf_has_chr != bed_has_chr:
+            vcf_contigs = _get_vcf_contigs(vcf_file, include_records=True)
+            unmatched_bed = bed_contigs - vcf_contigs
+
+    mismatched = []
+    for c in unmatched_bed:
+        toggled = c.removeprefix("chr") if c.startswith("chr") else f"chr{c}"
+        if toggled in vcf_contigs:
+            mismatched.append((c, toggled))
+
+    if mismatched:
+        sample_bed = sorted(bed_contigs)[:3]
+        sample_vcf = sorted(vcf_contigs)[:3]
+        raise ValueError(
+            f"Contig prefix mismatch between BED ({sample_bed}) and VCF ({sample_vcf}). "
+            "Chromosomes in BED and VCF must use the same naming convention (e.g., 'chr1' vs '1')."
+        )
+
+    if unmatched_bed:
+        logger.warning(f"BED contains contigs not found in VCF: {sorted(unmatched_bed)[:5]}")
+
+
 def extract_variants(vcf_file: str, bed_file: str, cfg: dict[str, Any], output_file: str) -> str:
     """
     Extract variants from a VCF using bcftools and a BED file.
@@ -243,19 +380,17 @@ def extract_variants(vcf_file: str, bed_file: str, cfg: dict[str, Any], output_f
     """
     from .vcf_eff_one_per_line import restrict_vcf_ann_to_alt
 
-    threads = str(cfg.get("threads", 1))
+    validate_bed_vcf_contigs(vcf_file, bed_file)
+
+    _, bcftools_threads = _resolve_filter_threads(cfg)
 
     tmp_fd, tmp_vcf = tempfile.mkstemp(suffix=".vcf.gz")
     os.close(tmp_fd)
     try:
-        cmd = [
-            "bcftools",
-            "view",
-            "--threads",
-            threads,
-            "-R",
-            bed_file,
-        ]
+        cmd = ["bcftools", "view"]
+        if bcftools_threads > 0:
+            cmd.extend(["--threads", str(bcftools_threads)])
+        cmd.extend(["-R", bed_file])
 
         # Add optional pre-filter expression if provided
         if cfg.get("bcftools_prefilter"):
@@ -276,19 +411,20 @@ def extract_variants(vcf_file: str, bed_file: str, cfg: dict[str, Any], output_f
         logger.debug("Extracting variants with command: %s", " ".join(cmd))
         run_command(cmd)
 
-        norm_cmd = [
-            "bcftools",
-            "norm",
-            "--threads",
-            threads,
-            "-W",  # writes the index file automatically
-            "-m",
-            "-any",
-            "-Oz",
-            "-o",
-            output_file,
-            tmp_vcf,
-        ]
+        norm_cmd = ["bcftools", "norm"]
+        if bcftools_threads > 0:
+            norm_cmd.extend(["--threads", str(bcftools_threads)])
+        norm_cmd.extend(
+            [
+                "-W",  # writes the index file automatically
+                "-m",
+                "-any",
+                "-Oz",
+                "-o",
+                output_file,
+                tmp_vcf,
+            ]
+        )
         logger.debug("Decomposing multiallelic variants with command: %s", " ".join(norm_cmd))
         logger.debug("Output will be written to: %s", output_file)
         run_command(norm_cmd)
@@ -349,7 +485,7 @@ def apply_snpsift_filter(
     """
     from .vcf_eff_one_per_line import restrict_vcf_ann_to_alt
 
-    threads = str(cfg.get("threads", 1))
+    bgzip_threads, bcftools_threads = _resolve_filter_threads(cfg)
     in_count = _count_vcf_records(variant_file)
     exceptions = cfg.get("filter_exceptions") or load_filter_exceptions(
         cfg.get("filter_exception_file")
@@ -381,12 +517,18 @@ def apply_snpsift_filter(
         _raise_for_snpsift_filter_stderr(result.stderr, filter_string)
 
         # 2) bgzip compress the temporary VCF
-        bgzip_cmd = ["bgzip", "-@", threads, "-c", tmp_vcf]
+        bgzip_cmd = ["bgzip"]
+        if bgzip_threads > 0:
+            bgzip_cmd.extend(["-@", str(bgzip_threads)])
+        bgzip_cmd.extend(["-c", tmp_vcf])
         logger.debug("bgzip compressing to: %s", output_file)
         run_command(bgzip_cmd, output_file=output_file)
 
         # 3) bcftools index the resulting .vcf.gz
-        index_cmd = ["bcftools", "index", "--threads", threads, output_file]
+        index_cmd = ["bcftools", "index"]
+        if bcftools_threads > 0:
+            index_cmd.extend(["--threads", str(bcftools_threads)])
+        index_cmd.append(output_file)
         logger.debug("Indexing filtered output with command: %s", " ".join(index_cmd))
         run_command(index_cmd)
 

@@ -20,14 +20,19 @@ import datetime
 import gzip
 import json
 import logging
+import os
 import re
+import shutil
 import sys
+import tempfile
 import urllib.request
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
+from .run_summary import compute_stored_sha256
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -69,13 +74,75 @@ def _simplify_clnsig(clnsig: str) -> str:
     return s
 
 
-def download_variant_summary(output_path: str) -> str:
-    """Download variant_summary.txt.gz from ClinVar FTP.
+def verify_gzip_integrity(file_path: str | Path) -> None:
+    """Verify that a gzipped file has valid headers and a complete stream."""
+    path = Path(file_path)
+    if not path.is_file() or path.stat().st_size == 0:
+        raise ValueError(f"Downloaded file is empty or missing: {file_path}")
+    with open(path, "rb") as raw_f:
+        magic = raw_f.read(2)
+    if magic != b"\x1f\x8b":
+        raise ValueError(f"Downloaded file is not a valid gzip archive: {file_path}")
+    try:
+        with gzip.open(path, "rb") as gz_f:
+            while gz_f.read(65536):
+                pass
+    except (OSError, EOFError, gzip.BadGzipFile) as exc:
+        raise ValueError(f"Downloaded gzip archive is corrupted or truncated: {exc}") from exc
+
+
+def download_with_verification(
+    url: str,
+    output_path: str | Path,
+    expected_sha256: str | None = None,
+    verify_gzip: bool = True,
+) -> str:
+    """Download a reference file to a temporary path, verify integrity, and atomically publish."""
+    target = Path(output_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(target.parent),
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+    )
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        with urllib.request.urlopen(url, timeout=60) as resp, open(tmp_path, "wb") as out:
+            shutil.copyfileobj(resp, out)
+        if not tmp_path.is_file() or tmp_path.stat().st_size == 0:
+            raise ValueError(f"Downloaded file from {url} is empty")
+        if expected_sha256 is not None:
+            actual_sha256 = compute_stored_sha256(tmp_path)
+            if actual_sha256.lower() != expected_sha256.strip().lower():
+                raise ValueError(
+                    f"SHA-256 digest mismatch for {target}: "
+                    f"expected {expected_sha256.strip().lower()}, got {actual_sha256.lower()}"
+                )
+        if verify_gzip and str(target).endswith(".gz"):
+            verify_gzip_integrity(tmp_path)
+        os.replace(str(tmp_path), str(target))
+        return str(target)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def download_variant_summary(
+    output_path: str,
+    expected_sha256: str | None = None,
+    url: str = CLINVAR_FTP_URL,
+) -> str:
+    """Download variant_summary.txt.gz from ClinVar FTP with integrity verification.
 
     Parameters
     ----------
     output_path : str
         Local path to save the downloaded file.
+    expected_sha256 : str, optional
+        Expected SHA-256 hex digest for integrity verification.
+    url : str
+        Source URL for ClinVar variant_summary.txt.gz.
 
     Returns
     -------
@@ -83,9 +150,14 @@ def download_variant_summary(output_path: str) -> str:
         Path to the downloaded file.
     """
     logger.info("Downloading ClinVar variant_summary.txt.gz ...")
-    urllib.request.urlretrieve(CLINVAR_FTP_URL, output_path)
+    res = download_with_verification(
+        url=url,
+        output_path=output_path,
+        expected_sha256=expected_sha256,
+        verify_gzip=str(output_path).endswith(".gz"),
+    )
     logger.info("Downloaded to %s", output_path)
-    return output_path
+    return res
 
 
 def build_pm5_lookup(
@@ -93,6 +165,8 @@ def build_pm5_lookup(
     assembly: str = "GRCh38",
     min_stars: int = 1,
     include_lp: bool = True,
+    source_url: str | None = None,
+    sha256: str | None = None,
 ) -> dict[str, Any]:
     """Build PM5 lookup table from variant_summary.txt.gz.
 
@@ -166,21 +240,27 @@ def build_pm5_lookup(
 
     # Step 3: Build lookup dict
     lookup: dict[str, list[dict[str, str]]] = defaultdict(list)
-    for _, row in result.iterrows():
-        key = f"{row['GeneSymbol']}:{row['aa_pos']}"
+    for row in result.itertuples(index=False):
+        key = f"{row.GeneSymbol}:{row.aa_pos}"
         entry = {
-            "ref_aa": row["ref_aa"],
-            "alt_aa": row["alt_aa"],
-            "clnsig": _simplify_clnsig(row["ClinicalSignificance"]),
-            "review": row["ReviewStatus"],
+            "ref_aa": row.ref_aa,
+            "alt_aa": row.alt_aa,
+            "clnsig": _simplify_clnsig(row.ClinicalSignificance),
+            "review": row.ReviewStatus,
         }
         if entry not in lookup[key]:
             lookup[key].append(entry)
 
     # Step 4: Build output
+    file_sha256 = sha256 or (
+        compute_stored_sha256(input_path) if Path(input_path).is_file() else None
+    )
     output: dict[str, Any] = {
         "_meta": {
             "source": "ClinVar variant_summary.txt.gz",
+            "source_url": source_url,
+            "sha256": file_sha256,
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "assembly": assembly,
             "min_review_stars": min_stars,
             "include_lp": include_lp,
@@ -272,6 +352,12 @@ def create_parser() -> argparse.ArgumentParser:
         help="Download latest variant_summary.txt.gz from ClinVar FTP",
     )
     parser.add_argument(
+        "--expected-sha256",
+        type=str,
+        default=None,
+        help="Expected SHA-256 hex digest for verifying the input or downloaded file",
+    )
+    parser.add_argument(
         "--assembly",
         type=str,
         default="GRCh38",
@@ -320,27 +406,43 @@ def main(args: list[str] | None = None) -> int:
     if not parsed.input and not parsed.download:
         parser.error("One of --input or --download is required.")
 
-    input_path = parsed.input
-    if parsed.download:
-        import tempfile
+    temp_dir_ctx = None
+    try:
+        input_path = parsed.input
+        if parsed.download:
+            if not input_path:
+                temp_dir_ctx = tempfile.TemporaryDirectory(prefix="pm5_download_")
+                input_path = str(Path(temp_dir_ctx.name) / "variant_summary.txt.gz")
+            if parsed.expected_sha256:
+                download_variant_summary(input_path, expected_sha256=parsed.expected_sha256)
+            else:
+                download_variant_summary(input_path)
+        elif parsed.expected_sha256:
+            actual_sha256 = compute_stored_sha256(input_path)
+            expected_clean = parsed.expected_sha256.strip().lower()
+            if actual_sha256.lower() != expected_clean:
+                raise ValueError(
+                    f"SHA-256 digest mismatch for {input_path}: "
+                    f"expected {expected_clean}, got {actual_sha256.lower()}"
+                )
 
-        if not input_path:
-            input_path = str(Path(tempfile.gettempdir()) / "variant_summary.txt.gz")
-        download_variant_summary(input_path)
+        data = build_pm5_lookup(
+            input_path,
+            assembly=parsed.assembly,
+            min_stars=parsed.min_review_stars,
+            include_lp=parsed.include_lp,
+            source_url=CLINVAR_FTP_URL if parsed.download else None,
+        )
 
-    data = build_pm5_lookup(
-        input_path,
-        assembly=parsed.assembly,
-        min_stars=parsed.min_review_stars,
-        include_lp=parsed.include_lp,
-    )
+        write_lookup(data, parsed.output)
 
-    write_lookup(data, parsed.output)
+        if parsed.stats:
+            print_stats(data)
 
-    if parsed.stats:
-        print_stats(data)
-
-    return 0
+        return 0
+    finally:
+        if temp_dir_ctx is not None:
+            temp_dir_ctx.cleanup()
 
 
 if __name__ == "__main__":

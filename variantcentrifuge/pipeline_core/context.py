@@ -25,38 +25,38 @@ logger = logging.getLogger(__name__)
 class PicklableLock:
     """A lock that can be pickled by creating a new lock on unpickling."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize a new picklable lock."""
         self._lock = threading.RLock()
 
-    def __getstate__(self):
+    def __getstate__(self) -> dict[str, Any]:
         """Return state for pickling, excluding the unpicklable RLock."""
         # Return empty state - we don't need to save the lock state
         return {}
 
-    def __setstate__(self, state):
+    def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore state after unpickling by creating a fresh lock."""
         # Create a fresh lock on unpickling
         self._lock = threading.RLock()
 
-    def __enter__(self):
+    def __enter__(self) -> bool:
         """Enter the context manager by acquiring the lock."""
         # Ensure lock exists (in case of edge cases)
         if not hasattr(self, "_lock"):
             self._lock = threading.RLock()
         return self._lock.__enter__()
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Exit the context manager by releasing the lock."""
-        return self._lock.__exit__(exc_type, exc_val, exc_tb)
+        self._lock.__exit__(exc_type, exc_val, exc_tb)
 
-    def acquire(self, blocking=True, timeout=-1):
+    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
         """Acquire the lock with optional blocking and timeout."""
         if not hasattr(self, "_lock"):
             self._lock = threading.RLock()
         return self._lock.acquire(blocking, timeout)
 
-    def release(self):
+    def release(self) -> None:
         """Release the lock."""
         return self._lock.release()
 
@@ -135,6 +135,7 @@ class PipelineContext:
     # Stage tracking
     completed_stages: set[str] = field(default_factory=set)
     stage_results: dict[str, Any] = field(default_factory=dict)
+    stage_durations: dict[str, float] = field(default_factory=dict)
 
     # Loaded configurations
     vcf_samples: list[str] = field(default_factory=list)
@@ -160,9 +161,11 @@ class PipelineContext:
     statistics: dict[str, Any] = field(default_factory=dict)
     gene_burden_results: pd.DataFrame | None = None
     association_results: pd.DataFrame | None = None
+    pre_final_filter_variants: int | None = None
 
     # Output paths
     final_output_path: Path | None = None
+    stats_output_tsv: Path | None = None
     report_paths: dict[str, Path] = field(default_factory=dict)
 
     # Checkpoint state (if enabled)
@@ -173,6 +176,11 @@ class PipelineContext:
 
     # Thread safety lock for parallel stages
     _lock: PicklableLock = field(default_factory=PicklableLock, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        """Initialize thread lock for parallel execution safety."""
+        if not hasattr(self, "_lock") or self._lock is None:
+            self._lock = PicklableLock()
 
     def mark_complete(self, stage_name: str, result: Any = None) -> None:
         """Mark a stage as complete with optional result storage.
@@ -271,11 +279,29 @@ class PipelineContext:
             Context with updates to merge
         """
         with self._lock:
+            # Safely snapshot other's tracking under its lock if present
+            other_lock = getattr(other, "_lock", None)
+            if other_lock is not None:
+                with other_lock:
+                    other_completed = set(other.completed_stages)
+                    other_stage_results = dict(other.stage_results)
+                    other_reports = dict(other.report_paths) if other.report_paths else {}
+            else:
+                other_completed = set(other.completed_stages)
+                other_stage_results = dict(other.stage_results)
+                other_reports = dict(other.report_paths) if other.report_paths else {}
+
             # Merge completed stages
-            self.completed_stages.update(other.completed_stages)
+            self.completed_stages.update(other_completed)
 
             # Merge stage results
-            self.stage_results.update(other.stage_results)
+            self.stage_results.update(other_stage_results)
+
+            if other.stage_durations:
+                self.stage_durations.update(other.stage_durations)
+
+            if other.pre_final_filter_variants is not None:
+                self.pre_final_filter_variants = other.pre_final_filter_variants
 
             # Update file paths if they were set in the other context
             if other.gene_bed_file and not self.gene_bed_file:
@@ -326,8 +352,12 @@ class PipelineContext:
             # Update output paths
             if other.final_output_path and not self.final_output_path:
                 self.final_output_path = other.final_output_path
-            if other.report_paths:
-                self.report_paths.update(other.report_paths)
+            if other.stats_output_tsv and not self.stats_output_tsv:
+                self.stats_output_tsv = other.stats_output_tsv
+            if not self.report_paths and other_reports:
+                self.report_paths = other_reports.copy()
+            elif other_reports:
+                self.report_paths.update(other_reports)
 
             # Update vcf_samples if populated
             if other.vcf_samples and not self.vcf_samples:

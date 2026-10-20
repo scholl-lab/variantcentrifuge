@@ -84,41 +84,50 @@ _ALLOWED_AST_NODES: frozenset[type] = frozenset(
     }
 )
 
-# Names the restricted eval namespace exposes — only these may appear
-# as bare ``ast.Name`` references.
-_ALLOWED_NAMES: frozenset[str] = frozenset(
+# Builtins exposed to stats expressions; the eval namespace and both name
+# allowlists below are derived from this single dict.
+_SAFE_BUILTINS: dict[str, Any] = {
+    f.__name__: f
+    for f in (
+        len,
+        float,
+        str,
+        int,
+        bool,
+        sum,
+        min,
+        max,
+        abs,
+        round,
+        sorted,
+        set,
+        list,
+        dict,
+        tuple,
+        any,
+        all,
+        isinstance,
+        range,
+        zip,
+        map,
+        filter,
+        enumerate,
+    )
+}
+
+# ``size`` is bound per-DataFrame in ``_safe_eval``.
+_ALLOWED_CALLABLE_NAMES: frozenset[str] = frozenset(_SAFE_BUILTINS) | {"size"}
+
+# Only these may appear as bare ``ast.Name`` references.
+_ALLOWED_NAMES: frozenset[str] = _ALLOWED_CALLABLE_NAMES | frozenset(
     {
         "df",
         "group_df",
         "pd",
         "np",
-        "len",
-        "float",
-        "str",
-        "int",
-        "bool",
-        "size",
         "True",
         "False",
         "None",
-        "sum",
-        "min",
-        "max",
-        "abs",
-        "round",
-        "sorted",
-        "set",
-        "list",
-        "dict",
-        "tuple",
-        "range",
-        "zip",
-        "map",
-        "filter",
-        "any",
-        "all",
-        "enumerate",
-        "isinstance",
         # Comprehension iteration variables (single-letter by convention)
         *list("abcdefghijklmnopqrstuvwxyz"),
         # Common iteration variable names
@@ -133,28 +142,97 @@ _ALLOWED_NAMES: frozenset[str] = frozenset(
     }
 )
 
+_CALLABLE_ATTRIBUTES: frozenset[str] = frozenset(
+    {
+        "mean",
+        "sum",
+        "std",
+        "var",
+        "median",
+        "min",
+        "max",
+        "count",
+        "nunique",
+        "unique",
+        "value_counts",
+        "quantile",
+        "describe",
+        "isna",
+        "notna",
+        "isnull",
+        "notnull",
+        "isin",
+        "fillna",
+        "dropna",
+        "round",
+        "astype",
+        "any",
+        "all",
+        "contains",
+        "startswith",
+        "endswith",
+        "lower",
+        "upper",
+        "strip",
+        "lstrip",
+        "rstrip",
+        "replace",
+        "match",
+        "split",
+        "len",
+        "to_numeric",
+        "isnan",
+        "where",
+    }
+)
+
+_PROPERTY_ATTRIBUTES: frozenset[str] = frozenset(
+    {"columns", "shape", "empty", "values", "index", "dtypes", "size", "str", "nan"}
+)
+
+_ALLOWED_ATTRIBUTES: frozenset[str] = _CALLABLE_ATTRIBUTES | _PROPERTY_ATTRIBUTES
+_ALLOWED_CALLABLE_ATTRIBUTES: frozenset[str] = _CALLABLE_ATTRIBUTES
+
+
+class _SafePandas:
+    """Safe subset of pandas namespace for stats expressions."""
+
+    to_numeric = staticmethod(pd.to_numeric)
+
+
+class _SafeNumpy:
+    """Safe subset of numpy namespace for stats expressions."""
+
+    nan = np.nan
+    isnan = staticmethod(np.isnan)
+    where = staticmethod(np.where)
+
 
 def _validate_expression(expression: str) -> None:
     """Validate a stats expression against the AST allowlist.
 
     Raises ``ValueError`` if the expression contains disallowed constructs
-    such as imports, dunder attribute access, or unsupported AST node types.
+    such as imports, dunder attribute access, unapproved attributes, or
+    unapproved call targets.
     """
     try:
         tree = ast.parse(expression, mode="eval")
     except SyntaxError as exc:
         raise ValueError(f"Syntax error in expression: {exc}") from exc
 
-    for node in ast.walk(tree):
+    for node in reversed(list(ast.walk(tree))):
         node_type = type(node)
 
         # 1. Reject disallowed AST node types
         if node_type not in _ALLOWED_AST_NODES:
             raise ValueError(f"Disallowed construct {node_type.__name__} in expression")
 
-        # 2. Block dunder attribute access (e.g. __class__, __subclasses__)
-        if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
-            raise ValueError(f"Access to private/dunder attribute '{node.attr}' is not allowed")
+        # 2. Block dunder attribute access and unapproved attributes
+        if isinstance(node, ast.Attribute):
+            if node.attr.startswith("_"):
+                raise ValueError(f"Access to private/dunder attribute '{node.attr}' is not allowed")
+            if node.attr not in _ALLOWED_ATTRIBUTES:
+                raise ValueError(f"Disallowed attribute '{node.attr}' in expression")
 
         # 3. Restrict bare names to the known namespace
         if isinstance(node, ast.Name) and node.id not in _ALLOWED_NAMES:
@@ -162,6 +240,17 @@ def _validate_expression(expression: str) -> None:
                 f"Unknown name '{node.id}' in expression; "
                 f"allowed names: df, group_df, pd, np, len, float, str, int, bool, size, …"
             )
+
+        # 4. Restrict call targets to approved functions and methods
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                if node.func.id not in _ALLOWED_CALLABLE_NAMES:
+                    raise ValueError(f"Disallowed function call '{node.func.id}' in expression")
+            elif isinstance(node.func, ast.Attribute):
+                if node.func.attr not in _ALLOWED_CALLABLE_ATTRIBUTES:
+                    raise ValueError(f"Disallowed method call '{node.func.attr}' in expression")
+            else:
+                raise ValueError(f"Disallowed call target in expression: {ast.dump(node.func)}")
 
 
 class StatsEngine:
@@ -183,6 +272,7 @@ class StatsEngine:
             self.config = config
 
         self.results: dict[str, Any] = {}
+        self.errors: list[str] = []
 
     def compute(self, df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         """
@@ -198,6 +288,7 @@ class StatsEngine:
         Dict[str, pd.DataFrame]
             Dictionary with keys 'dataset', 'genes', 'groups' containing results
         """
+        self.errors = []
         # Dataset-level stats
         if "dataset_stats" in self.config:
             self.results["dataset"] = self._compute_dataset_stats(df)
@@ -248,15 +339,11 @@ class StatsEngine:
 
             # Create a restricted namespace with only safe objects
             namespace = {
+                **_SAFE_BUILTINS,
                 "df": df,
                 "group_df": df,  # Support both df and group_df names
-                "pd": pd,
-                "np": np,
-                "len": len,
-                "float": float,
-                "str": str,
-                "int": int,
-                "bool": bool,
+                "pd": _SafePandas,
+                "np": _SafeNumpy,
                 "size": lambda: len(df),  # For grouped operations
             }
 
@@ -266,9 +353,11 @@ class StatsEngine:
 
         except ValueError as e:
             logger.error(f"Blocked unsafe {context} expression '{expression}': {e}")
+            self.errors.append(f"{context}: {e}")
             return None
         except Exception as e:
             logger.error(f"Failed to evaluate {context} expression '{expression}': {e}")
+            self.errors.append(f"{context}: {e}")
             return None
 
     def _compute_dataset_stats(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -342,6 +431,7 @@ class StatsEngine:
 
             except Exception as e:
                 logger.error(f"Failed to compute gene stat '{name}': {e}")
+                self.errors.append(f"gene stat '{name}': {e}")
                 continue
 
         # Combine all stats into a single DataFrame
@@ -428,6 +518,7 @@ class StatsEngine:
 
             except Exception as e:
                 logger.error(f"Failed to compute grouped stat '{name}': {e}")
+                self.errors.append(f"grouped stat '{name}': {e}")
                 continue
 
         return grouped_results

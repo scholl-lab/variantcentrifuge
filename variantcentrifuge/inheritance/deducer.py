@@ -17,6 +17,7 @@ from ..genotype_utils import (
     is_variant,
 )
 from ..ped_reader import get_parents, is_affected
+from .non_autosomal_deducer import autosomal_mask
 
 logger = logging.getLogger(__name__)
 
@@ -149,30 +150,30 @@ def deduce_patterns_for_sample(
             patterns.append("de_novo")
         elif (
             (is_missing(father_gt) or is_missing(mother_gt))
+            and not is_variant(father_gt)
+            and not is_variant(mother_gt)
             and is_variant(sample_gt)
             and is_affected(sample_id, pedigree_data)
         ):
-            # If parent genotypes are missing, it could be de novo
+            # If parent genotypes are missing and no called parent carries ALT
             patterns.append("de_novo_candidate")
 
     # Check for dominant patterns
-    dom_result = check_dominant_pattern(sample_id, variant_row, pedigree_data, sample_list)
-    if dom_result:
+    if dom_result := check_dominant_pattern(sample_id, variant_row, pedigree_data, sample_list):
         patterns.append(dom_result)
 
     # Check for recessive patterns
-    rec_result = check_recessive_pattern(sample_id, variant_row, pedigree_data, sample_list)
-    if rec_result:
+    if rec_result := check_recessive_pattern(sample_id, variant_row, pedigree_data, sample_list):
         patterns.append(rec_result)
 
     # Check for X-linked patterns if on X chromosome
-    chrom = str(variant_row.get("CHROM", "")).upper()
-    if chrom in ["X", "CHRX", "23"]:
+    chrom = str(variant_row.get("CHROM", "")).strip().upper()
+    if chrom in ["X", "CHRX", "23", "CHR23"] and not _is_autosomal(variant_row):
         x_patterns = check_x_linked_patterns(sample_id, variant_row, pedigree_data, sample_list)
         patterns.extend(x_patterns)
 
     # Check for mitochondrial if on MT chromosome
-    if chrom in ["MT", "M", "CHRM", "CHRMT"] and check_mitochondrial_pattern(
+    if chrom in ["MT", "M", "CHRM", "CHRMT", "26", "CHR26"] and check_mitochondrial_pattern(
         sample_id, variant_row, pedigree_data, sample_list
     ):
         patterns.append("mitochondrial")
@@ -187,6 +188,11 @@ def deduce_patterns_for_sample(
     return patterns
 
 
+def _is_autosomal(variant_row: dict[str, Any]) -> bool:
+    """Autosomes and X PAR regions follow autosomal inheritance."""
+    return bool(autosomal_mask([variant_row.get("CHROM", "")], [variant_row.get("POS")])[0])
+
+
 def check_dominant_pattern(
     sample_id: str,
     variant_row: dict[str, Any],
@@ -198,6 +204,9 @@ def check_dominant_pattern(
 
     Returns specific pattern type or None.
     """
+    if not _is_autosomal(variant_row):
+        return None
+
     sample_gt = variant_row.get(sample_id, "./.")
 
     # Must have variant
@@ -257,6 +266,9 @@ def check_recessive_pattern(
 
     Returns specific pattern type or None.
     """
+    if not _is_autosomal(variant_row):
+        return None
+
     sample_gt = variant_row.get(sample_id, "./.")
 
     # Must be homozygous alt for classic recessive

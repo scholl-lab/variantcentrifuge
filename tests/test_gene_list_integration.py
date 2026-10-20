@@ -145,10 +145,17 @@ def test_cli_gene_list_integration(sample_vcf_file, gene_lists, test_data_dir, m
         run_pipeline_calls.append(args.config.copy())
         return 0
 
-    # Apply the mock - cli.py imports run_pipeline from .pipeline
     monkeypatch.setattr(
         "variantcentrifuge.cli.run_pipeline",
         mock_run_pipeline,
+    )
+    monkeypatch.setattr(
+        "variantcentrifuge.cli.validate_vcf_file",
+        lambda *a, **k: None,
+    )
+    monkeypatch.setattr(
+        "variantcentrifuge.cli.validate_required_tools",
+        lambda *a, **k: None,
     )
 
     # Simulate CLI arguments

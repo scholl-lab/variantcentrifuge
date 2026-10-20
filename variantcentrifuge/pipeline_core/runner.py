@@ -1,26 +1,35 @@
-"""
-PipelineRunner - Executes stages in dependency order with parallel support.
-
-This module provides the PipelineRunner class that orchestrates stage execution,
-handling dependencies, parallel execution, and error recovery.
-"""
+"""PipelineRunner - Executes stages in dependency order with parallel support."""
 
 import gc
 import logging
 import multiprocessing
 import time
-from collections import defaultdict, deque
 from concurrent.futures import (
     Future,
     ProcessPoolExecutor,
     ThreadPoolExecutor,
     as_completed,
 )
-from typing import Literal
+from typing import Any, Literal
 
-import psutil
+try:
+    import psutil
+except ImportError:
+    psutil = None  # type: ignore[assignment]
 
 from .context import PipelineContext
+from .runner_planner import (
+    clear_stage_and_downstream,
+    create_execution_plan,
+    get_execution_plan,
+    get_stages_to_execute_from,
+    handle_selective_resume,
+    log_runner_summary,
+    ordered_stages,
+    restore_completed_stage,
+    restore_or_recompute_completed_stages,
+    validate_resume_point,
+)
 from .stage import Stage
 
 logger = logging.getLogger(__name__)
@@ -117,20 +126,23 @@ class PipelineRunner:
                 context.checkpoint_state.cleanup_stale_stages()
 
                 pipeline_version = context.config.get("pipeline_version", "pipeline")
-                if context.checkpoint_state.can_resume(context.config, pipeline_version):
-                    logger.info("Resume mode: Checking pipeline state...")
-                    logger.info(context.checkpoint_state.get_summary())
+                if not context.checkpoint_state.can_resume(
+                    context.config, pipeline_version, validate_outputs=False
+                ):
+                    msg = "Cannot resume: configuration or version mismatch"
+                    logger.error(msg)
+                    raise ValueError(msg)
 
-                    ordered_stages = self._ordered_stages(stages)
-                    context = self._restore_or_recompute_completed_stages(ordered_stages, context)
+                logger.info("Resume mode: Checking pipeline state...")
+                logger.info(context.checkpoint_state.get_summary())
 
-                    assert context.checkpoint_state is not None
-                    resume_point = context.checkpoint_state.get_resume_point()
-                    if resume_point:
-                        logger.info(f"Resuming from step: {resume_point}")
-                else:
-                    logger.warning("Cannot resume - configuration or version mismatch")
-                    # Start fresh but don't clear existing state
+                ordered_stages = self._ordered_stages(stages)
+                context = self._restore_or_recompute_completed_stages(ordered_stages, context)
+
+                assert context.checkpoint_state is not None
+                resume_point = context.checkpoint_state.get_resume_point()
+                if resume_point:
+                    logger.info(f"Resuming from step: {resume_point}")
 
         # Analyze dependencies and get execution plan (after resume logic)
         execution_plan = self._create_execution_plan(stages)
@@ -141,11 +153,23 @@ class PipelineRunner:
             logger.debug(f"Level {level}: {stage_names}")
 
         # Execute stages level by level
+        all_ordered = self._ordered_stages(stages)
+
+        # Execute stages level by level
         for level, level_stages in enumerate(execution_plan):
-            # Filter out already completed stages
-            remaining_stages = [
-                stage for stage in level_stages if not context.is_complete(stage.name)
-            ]
+            remaining_stages: list[Stage] = []
+            for stage in level_stages:
+                if self._should_skip_stage(stage, context):
+                    if not context.is_complete(stage.name):
+                        context.mark_complete(stage.name)
+                        if hasattr(stage, "_handle_checkpoint_skip"):
+                            context = stage._handle_checkpoint_skip(context)
+                else:
+                    remaining_stages.append(stage)
+                    if self.enable_checkpoints and context.checkpoint_state:
+                        self._clear_stage_and_downstream(
+                            stage.name, all_ordered, context.checkpoint_state
+                        )
 
             if remaining_stages:
                 context = self._execute_level(remaining_stages, context, level)
@@ -164,365 +188,70 @@ class PipelineRunner:
 
         # Log peak memory usage
         if self._stage_metrics:
-            peak_mb = max(m["mem_after_mb"] for m in self._stage_metrics.values())
-            logger.info(f"Pipeline peak memory: {peak_mb:.0f} MB")
+            mem_vals = [
+                m["mem_after_mb"]
+                for m in self._stage_metrics.values()
+                if m.get("mem_after_mb") is not None
+            ]
+            if mem_vals:
+                peak_mb = max(mem_vals)
+                logger.info(f"Pipeline peak memory: {peak_mb:.0f} MB")
 
         return context
 
     def _handle_selective_resume(
         self, stages: list[Stage], context: PipelineContext
     ) -> list[Stage]:
-        """Handle restart from a specific stage.
+        """Handle restart from a specific stage."""
+        return handle_selective_resume(stages, context)
 
-        This method implements restart behavior: the specified stage and all
-        subsequent stages will be re-executed, ignoring their previous completion
-        status. Only stages that come before the restart point remain marked as complete.
-
-        Parameters
-        ----------
-        stages : List[Stage]
-            Original list of stages
-        context : PipelineContext
-            Pipeline context with configuration
-
-        Returns
-        -------
-        List[Stage]
-            Filtered list of stages to execute (from restart point onwards)
-        """
-        assert context.checkpoint_state is not None, (
-            "checkpoint_state required for selective resume"
-        )
-        checkpoint_state = context.checkpoint_state
-
-        resume_from = context.config.get("resume_from")
-        if not resume_from:
-            return stages
-
-        # Load checkpoint state
-        if not checkpoint_state.load():
-            raise ValueError("Cannot resume: No checkpoint file found")
-
-        # Validate resume point
-        stage_names = [stage.name for stage in stages]
-        is_valid, error_msg = checkpoint_state.validate_resume_from_stage(resume_from, stage_names)
-
-        if not is_valid:
-            raise ValueError(f"Cannot resume from '{resume_from}': {error_msg}")
-
-        all_stages_ordered = self._ordered_stages(stages)
-        stage_names_ordered = [stage.name for stage in all_stages_ordered]
-        resume_index = stage_names_ordered.index(resume_from)
-
-        # Restore only durable/restorable prerequisites. A completed volatile
-        # prerequisite cannot be safely trusted after process restart.
-        safe_restart = None
-        for prior_stage in all_stages_ordered[:resume_index]:
-            if prior_stage.checkpoint_resume_policy in {"restore", "skip"}:
-                safe_restart = prior_stage.name
-            if not checkpoint_state.should_skip_step(prior_stage.name):
-                if context.is_complete(prior_stage.name):
-                    continue
-                raise ValueError(
-                    f"Cannot resume from '{resume_from}' safely because prerequisite "
-                    f"stage '{prior_stage.name}' was not completed in the checkpoint. "
-                    f"Resume from '{prior_stage.name}' or an earlier stage."
-                )
-            if prior_stage.checkpoint_resume_policy == "recompute":
-                suggestion = safe_restart or stage_names_ordered[0]
-                raise ValueError(
-                    f"Cannot resume from '{resume_from}' safely because required "
-                    f"DataFrame state from '{prior_stage.name}' is not durable. "
-                    f"Resume from '{suggestion}' to restore durable inputs and "
-                    "re-run in-memory analysis stages."
-                )
-            context = self._restore_completed_stage(prior_stage, context)
-
-        # Clear completion status in checkpoint for restart stage and all subsequent stages
-        self._clear_stage_and_downstream(resume_from, all_stages_ordered, checkpoint_state)
-        stages_to_execute = all_stages_ordered[resume_index:]
-
-        logger.info(
-            f"Restart mode: Starting from '{resume_from}' with {len(stages_to_execute)} "
-            f"stages to execute"
-        )
-        return stages_to_execute
+    def _should_skip_stage(self, stage: Stage, context: PipelineContext) -> bool:
+        """Determine if a stage should be skipped due to checkpointing or completion."""
+        if context.is_complete(stage.name):
+            return True
+        if not (self.enable_checkpoints and context.checkpoint_state):
+            return False
+        if not getattr(stage, "enable_checkpoint", True):
+            return False
+        return bool(context.checkpoint_state.should_skip_step(stage.name))
 
     def _ordered_stages(self, stages: list[Stage]) -> list[Stage]:
         """Return stages flattened in dependency execution order."""
-        ordered: list[Stage] = []
-        for level in self._create_execution_plan(stages):
-            ordered.extend(level)
-        return ordered
+        return ordered_stages(stages)
 
     def _clear_stage_and_downstream(
-        self, stage_name: str, ordered: list[Stage], checkpoint_state
+        self, stage_name: str, ordered: list[Stage], checkpoint_state: Any
     ) -> None:
         """Clear persisted completion for a stage and every downstream ordered stage."""
-        names = [stage.name for stage in ordered]
-        start = names.index(stage_name)
-        for name in names[start:]:
-            checkpoint_state.clear_step_completion(name, save=False)
-        checkpoint_state.save()
+        clear_stage_and_downstream(stage_name, ordered, checkpoint_state)
 
     def _restore_completed_stage(self, stage: Stage, context: PipelineContext) -> PipelineContext:
         """Restore or skip a completed checkpoint stage according to its policy."""
-        policy = stage.checkpoint_resume_policy
-        if policy == "restore":
-            if not hasattr(stage, "_handle_checkpoint_skip"):
-                raise RuntimeError(
-                    f"Stage '{stage.name}' is restorable but has no checkpoint skip handler"
-                )
-            context = stage._handle_checkpoint_skip(context)
-            context.mark_complete(stage.name)
-        elif policy == "skip":
-            context.mark_complete(stage.name)
-        else:
-            raise RuntimeError(f"Stage '{stage.name}' must be recomputed")
-        return context
+        return restore_completed_stage(stage, context)
 
     def _restore_or_recompute_completed_stages(
         self, ordered: list[Stage], context: PipelineContext
     ) -> PipelineContext:
         """Restore safe completed stages, then clear volatile state for recomputation."""
-        assert context.checkpoint_state is not None
-        for stage in ordered:
-            if not context.checkpoint_state.should_skip_step(stage.name):
-                continue
-
-            policy = stage.checkpoint_resume_policy
-            if policy in {"restore", "skip"}:
-                logger.info(f"Restoring completed stage from checkpoint: {stage.name}")
-                context = self._restore_completed_stage(stage, context)
-                continue
-
-            logger.info(
-                "Recomputing checkpoint-completed stage '%s' and downstream stages",
-                stage.name,
-            )
-            self._clear_stage_and_downstream(stage.name, ordered, context.checkpoint_state)
-            break
-        return context
+        return restore_or_recompute_completed_stages(ordered, context)
 
     def _get_stages_to_execute_from(
         self, resume_from: str, stages: list[Stage], context: PipelineContext
     ) -> list[Stage]:
-        """Get the filtered list of stages to execute when resuming from a specific stage.
-
-        Parameters
-        ----------
-        resume_from : str
-            Name of the stage to resume from
-        stages : List[Stage]
-            Original list of stages
-        context : PipelineContext
-            Pipeline context
-
-        Returns
-        -------
-        List[Stage]
-            Filtered stages to execute
-        """
-        # Build stage map
-        stage_map = {stage.name: stage for stage in stages}
-
-        # Find the resume stage
-        if resume_from not in stage_map:
-            raise ValueError(f"Resume stage '{resume_from}' not found in pipeline")
-
-        # Get all stages in execution order
-        execution_plan = self._create_execution_plan(stages)
-        all_stages_ordered = []
-        for level in execution_plan:
-            all_stages_ordered.extend(level)
-
-        # Find the index of the resume stage
-        resume_index = None
-        for i, stage in enumerate(all_stages_ordered):
-            if stage.name == resume_from:
-                resume_index = i
-                break
-
-        if resume_index is None:
-            raise ValueError(f"Could not find resume stage '{resume_from}' in execution plan")
-
-        # Return stages from resume point onwards
-        return all_stages_ordered[resume_index:]
+        """Get the filtered list of stages to execute when resuming from a specific stage."""
+        return get_stages_to_execute_from(resume_from, stages, context)
 
     def get_execution_plan(self, stages: list[Stage], resume_from: str | None = None) -> list[str]:
-        """Get the planned execution order, optionally starting from a specific stage.
-
-        Parameters
-        ----------
-        stages : List[Stage]
-            List of stages
-        resume_from : Optional[str]
-            Stage name to resume from
-
-        Returns
-        -------
-        List[str]
-            Ordered list of stage names that will execute
-        """
-        execution_plan = self._create_execution_plan(stages)
-        all_stages = []
-        for level in execution_plan:
-            all_stages.extend([stage.name for stage in level])
-
-        if resume_from:
-            if resume_from in all_stages:
-                resume_index = all_stages.index(resume_from)
-                return all_stages[resume_index:]
-            else:
-                return []
-
-        return all_stages
+        """Get the planned execution order, optionally starting from a specific stage."""
+        return get_execution_plan(stages, resume_from=resume_from)
 
     def validate_resume_point(self, stage_name: str, stages: list[Stage]) -> tuple:
-        """Validate that a resume point is valid and return any issues.
-
-        Parameters
-        ----------
-        stage_name : str
-            Name of the stage to resume from
-        stages : List[Stage]
-            List of available stages
-
-        Returns
-        -------
-        tuple
-            (is_valid: bool, error_message: str)
-        """
-        stage_names = [stage.name for stage in stages]
-
-        # Check if stage exists
-        if stage_name not in stage_names:
-            return False, f"Stage '{stage_name}' does not exist in current configuration"
-
-        # Build dependency graph to check for issues
-        try:
-            _ = self._create_execution_plan(stages)
-
-            # Check if stage has dependencies that might be skipped
-            stage_map = {stage.name: stage for stage in stages}
-            target_stage = stage_map[stage_name]
-
-            # Get all stages that will execute from this point
-            planned_stages = self.get_execution_plan(stages, stage_name)
-            planned_set = set(planned_stages)
-
-            # Check dependencies
-            missing_deps = target_stage.dependencies - planned_set
-            if missing_deps:
-                return (
-                    False,
-                    f"Stage '{stage_name}' depends on {missing_deps} which won't be executed",
-                )
-
-            return True, ""
-
-        except Exception as e:
-            return False, f"Error validating resume point: {e!s}"
+        """Validate that a resume point is valid and return any issues."""
+        return validate_resume_point(stage_name, stages)
 
     def _create_execution_plan(self, stages: list[Stage]) -> list[list[Stage]]:
-        """Create execution plan with stages grouped by dependency levels.
-
-        Stages at the same level can run in parallel.
-
-        Parameters
-        ----------
-        stages : List[Stage]
-            All stages to execute
-
-        Returns
-        -------
-        List[List[Stage]]
-            Stages grouped by execution level
-
-        Raises
-        ------
-        ValueError
-            If circular dependencies are detected
-        """
-        # Build dependency graph
-        graph = {stage.name: stage for stage in stages}
-        stage_names = set(graph.keys())
-
-        # Build effective dependencies including soft dependencies that exist
-        dependencies = {}
-        for stage in stages:
-            # Start with hard dependencies
-            deps = set(stage.dependencies)
-
-            # Add soft dependencies if they exist in the pipeline
-            if hasattr(stage, "soft_dependencies"):
-                for soft_dep in stage.soft_dependencies:
-                    if soft_dep in stage_names:
-                        deps.add(soft_dep)
-
-            dependencies[stage.name] = deps
-
-        # Build reverse dependency graph (who depends on each stage)
-        dependents = defaultdict(set)
-        for stage_name, deps in dependencies.items():
-            for dep in deps:
-                if dep in graph:  # Only track dependencies that exist
-                    dependents[dep].add(stage_name)
-
-        # Calculate in-degree (number of dependencies each stage has)
-        in_degree = {}
-        for stage_name in graph:
-            # Only count dependencies that exist in the graph
-            valid_deps = [dep for dep in dependencies[stage_name] if dep in graph]
-            in_degree[stage_name] = len(valid_deps)
-
-        # Find stages with no dependencies (in-degree 0)
-        queue = deque([name for name, degree in in_degree.items() if degree == 0])
-
-        # Group stages by level for parallel execution
-        execution_plan: list[list[Stage]] = []
-        processed = set()
-
-        while queue:
-            # Get all stages that can run at this level
-            current_level = []
-            level_size = len(queue)
-
-            for _ in range(level_size):
-                stage_name = queue.popleft()
-                current_level.append(graph[stage_name])
-                processed.add(stage_name)
-
-                # Reduce in-degree for stages that depend on this one
-                for dependent in dependents[stage_name]:
-                    in_degree[dependent] -= 1
-                    if in_degree[dependent] == 0:
-                        queue.append(dependent)
-
-            # Sort stages in level by estimated runtime (longest first)
-            # This helps with better work distribution
-            current_level.sort(key=lambda s: s.estimated_runtime, reverse=True)
-
-            # Log level composition for debugging
-            parallel_count = sum(1 for s in current_level if s.parallel_safe)
-            logger.debug(
-                f"Level {len(execution_plan)}: {len(current_level)} stages "
-                f"({parallel_count} parallel-safe)"
-            )
-
-            execution_plan.append(current_level)
-
-        # Check for circular dependencies
-        if len(processed) != len(stages):
-            unprocessed = set(graph.keys()) - processed
-            logger.debug(f"Processed stages: {processed}")
-            logger.debug(f"Unprocessed stages: {unprocessed}")
-            logger.debug("Dependencies for unprocessed stages:")
-            for stage_name in unprocessed:
-                logger.debug(f"  {stage_name}: {dependencies[stage_name]}")
-            raise ValueError(f"Circular dependency detected involving stages: {unprocessed}")
-
-        return execution_plan
+        """Create execution plan with stages grouped by dependency levels."""
+        return create_execution_plan(stages)
 
     def _execute_level(
         self, stages: list[Stage], context: PipelineContext, level: int
@@ -572,6 +301,16 @@ class PipelineRunner:
 
         return context
 
+    def _get_process_memory_mb(self) -> float | None:
+        """Return current process RSS in MB, or None if psutil is unavailable."""
+        if psutil is None:
+            return None
+        try:
+            return float(psutil.Process().memory_info().rss / (1024 * 1024))
+        except Exception as e:
+            logger.debug(f"psutil memory tracking failed: {e}")
+            return None
+
     def _execute_stage(self, stage: Stage, context: PipelineContext) -> PipelineContext:
         """Execute a single stage and track timing.
 
@@ -589,11 +328,8 @@ class PipelineRunner:
         """
         start_time = time.time()
 
-        # Always track memory (not just at DEBUG level)
-        process = psutil.Process()
-        mem_before_mb = process.memory_info().rss / 1024 / 1024
-
-        if logger.isEnabledFor(logging.DEBUG):
+        mem_before_mb = self._get_process_memory_mb()
+        if mem_before_mb is not None and logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"[{stage.name}] Starting - Memory: {mem_before_mb:.1f} MB")
 
         result = stage(context)
@@ -606,24 +342,21 @@ class PipelineRunner:
 
         gc.collect()
 
-        # Always track memory after execution
-        mem_after_mb = process.memory_info().rss / 1024 / 1024
-        mem_delta_mb = mem_after_mb - mem_before_mb
-
-        # Store memory metrics for summary reporting
-        self._stage_metrics[stage.name] = {
-            "mem_before_mb": mem_before_mb,
-            "mem_after_mb": mem_after_mb,
-            "mem_delta_mb": mem_delta_mb,
-            "mem_peak_mb": max(mem_before_mb, mem_after_mb),
-        }
-
-        if logger.isEnabledFor(logging.DEBUG):
-            freed_mb = mem_before_mb - mem_after_mb
-            logger.debug(
-                f"[{stage.name}] Complete in {elapsed:.1f}s - "
-                f"Memory: {mem_after_mb:.1f} MB (freed {freed_mb:.1f} MB)"
-            )
+        mem_after_mb = self._get_process_memory_mb()
+        if mem_before_mb is not None and mem_after_mb is not None:
+            mem_delta_mb = mem_after_mb - mem_before_mb
+            self._stage_metrics[stage.name] = {
+                "mem_before_mb": mem_before_mb,
+                "mem_after_mb": mem_after_mb,
+                "mem_delta_mb": mem_delta_mb,
+                "mem_peak_mb": max(mem_before_mb, mem_after_mb),
+            }
+            if logger.isEnabledFor(logging.DEBUG):
+                freed_mb = mem_before_mb - mem_after_mb
+                logger.debug(
+                    f"[{stage.name}] Complete in {elapsed:.1f}s - "
+                    f"Memory: {mem_after_mb:.1f} MB (freed {freed_mb:.1f} MB)"
+                )
 
         return result
 
@@ -676,6 +409,12 @@ class PipelineRunner:
                 try:
                     # Get the updated context from the stage execution
                     updated_context = future.result()
+                    if context.checkpoint_state and updated_context.checkpoint_state:
+                        step_info = updated_context.checkpoint_state.state.get("steps", {}).get(
+                            stage.name
+                        )
+                        if step_info is not None:
+                            context.checkpoint_state.state["steps"][stage.name] = step_info
                     updated_contexts.append(updated_context)
                     logger.debug(
                         f"Parallel stage '{stage.name}' completed ({completed_count}/{len(stages)})"
@@ -718,7 +457,7 @@ class PipelineRunner:
         # for observed workloads. Revisit if stage count exceeds ~100.
         return stages
 
-    def _get_executor_for_stage(self, stage: Stage):
+    def _get_executor_for_stage(self, stage: Stage) -> type:
         """Get the appropriate executor type for a stage.
 
         Parameters
@@ -745,83 +484,12 @@ class PipelineRunner:
 
     def _log_execution_summary(self) -> None:
         """Log summary of stage execution times."""
-        if not self._execution_times:
-            return
-
-        logger.info("=" * 60)
-        logger.info("Stage Execution Summary")
-        logger.info("=" * 60)
-
-        # Sort by execution time
-        sorted_times = sorted(self._execution_times.items(), key=lambda x: x[1], reverse=True)
-
-        total_time = sum(self._execution_times.values())
-
-        for stage_name, elapsed in sorted_times:
-            percentage = (elapsed / total_time) * 100 if total_time > 0 else 0
-            logger.info(f"{stage_name:30s} {elapsed:6.1f}s ({percentage:4.1f}%)")
-
-            # Log subtask times if available
-            if stage_name in self._subtask_times:
-                subtasks = self._subtask_times[stage_name]
-                if subtasks:
-                    # Sort subtasks by time
-                    sorted_subtasks = sorted(subtasks.items(), key=lambda x: x[1], reverse=True)
-                    for subtask_name, subtask_elapsed in sorted_subtasks:
-                        subtask_percentage = (subtask_elapsed / elapsed) * 100 if elapsed > 0 else 0
-                        # Add "(avg)" suffix for averaged chunk processing times
-                        display_name = subtask_name
-                        if stage_name == "parallel_complete_processing" and subtask_name in [
-                            "variant_extraction",
-                            "snpsift_filtering",
-                            "field_extraction",
-                        ]:
-                            display_name += " (avg)"
-                        logger.info(
-                            f"  └─ {display_name:32s} {subtask_elapsed:6.1f}s "
-                            f"({subtask_percentage:4.1f}%)"
-                        )
-
-        logger.info("-" * 60)
-        logger.info(f"{'Total stage time:':30s} {total_time:6.1f}s")
-        logger.info("=" * 60)
-
-        # Add memory usage summary if metrics were collected
-        if self._stage_metrics:
-            logger.info("")
-            logger.info("=" * 60)
-            logger.info("Memory Usage Summary")
-            logger.info("=" * 60)
-
-            # Sort stages by absolute memory delta (biggest consumers first)
-            sorted_metrics = sorted(
-                self._stage_metrics.items(),
-                key=lambda x: abs(x[1]["mem_delta_mb"]),
-                reverse=True,
-            )
-
-            # Header
-            logger.info(f"{'Stage':<30} {'Before':>10} {'After':>10} {'Delta':>10}")
-            logger.info("-" * 60)
-
-            # Stage rows
-            for stage_name, metrics in sorted_metrics:
-                before_mb = metrics["mem_before_mb"]
-                after_mb = metrics["mem_after_mb"]
-                delta_mb = metrics["mem_delta_mb"]
-
-                # Format delta with + or - sign
-                delta_str = f"{delta_mb:+.1f} MB"
-
-                logger.info(
-                    f"{stage_name:<30} {before_mb:>8.1f} MB {after_mb:>8.1f} MB {delta_str:>10}"
-                )
-
-            # Footer with peak RSS
-            peak_mb = max(m["mem_after_mb"] for m in self._stage_metrics.values())
-            logger.info("-" * 60)
-            logger.info(f"Peak RSS: {peak_mb:.1f} MB")
-            logger.info("=" * 60)
+        log_runner_summary(
+            self._execution_times,
+            self._subtask_times,
+            self._stage_metrics,
+            log=logger,
+        )
 
     def dry_run(self, stages: list[Stage]) -> list[list[str]]:
         """Perform a dry run to show execution plan without running stages.

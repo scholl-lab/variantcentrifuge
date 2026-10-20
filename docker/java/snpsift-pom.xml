@@ -28,7 +28,7 @@
     <project.build.outputTimestamp>2023-09-29T06:17:00Z</project.build.outputTimestamp>
     <project.build.sourceEncoding>ISO-8859-1</project.build.sourceEncoding>
     <project.reporting.outputEncoding>ISO-8859-1</project.reporting.outputEncoding>
-    <jackson.version>2.22.1</jackson.version>
+    <jackson.version>2.22.4</jackson.version>
     <jackson.annotations.version>2.22</jackson.annotations.version>
     <gson.version>2.14.0</gson.version>
     <commons.io.version>2.22.0</commons.io.version>

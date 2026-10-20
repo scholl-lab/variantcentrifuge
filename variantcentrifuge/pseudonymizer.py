@@ -216,7 +216,7 @@ class SamplePseudonymizer:
         # Pattern to match SAMPLE_ID(genotype_info)
         pattern = re.compile(r"([^;()\s]+)\(([^)]+)\)")
 
-        def replace_func(match):
+        def replace_func(match: re.Match[str]) -> str:
             original_id = match.group(1)
             genotype_info = match.group(2)
             pseudonym = self._mapping.get(original_id, original_id)
@@ -246,6 +246,42 @@ class SamplePseudonymizer:
 
         return " ".join(parts)
 
+    def _pseudonymize_missing_samples(self, val: Any) -> Any:
+        if val is None or pd.isna(val) or not str(val).strip():
+            return val
+        tokens = [s.strip() for s in str(val).split(";") if s.strip()]
+        return ";".join(self._mapping.get(s, s) for s in tokens)
+
+    def _pseudonymize_carrier_samples(self, val: Any) -> Any:
+        if val is None or pd.isna(val) or not str(val).strip():
+            return val
+        res_tokens = []
+        for item in str(val).split(";"):
+            item_str = item.strip()
+            if not item_str:
+                continue
+            parts = item_str.rsplit(":", 2)
+            if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit():
+                sname = self._mapping.get(parts[0], parts[0])
+                res_tokens.append(f"{sname}:{parts[1]}:{parts[2]}")
+            elif len(parts) >= 2 and parts[-1].isdigit():
+                prefix, d = item_str.rsplit(":", 1)
+                sname = self._mapping.get(prefix, prefix)
+                res_tokens.append(f"{sname}:{d}")
+            else:
+                sname = self._mapping.get(item_str, item_str)
+                res_tokens.append(sname)
+        return ";".join(res_tokens)
+
+    def _pseudonymize_inheritance_details(self, val: Any) -> Any:
+        if val is None or pd.isna(val) or not str(val).strip():
+            return val
+        return re.sub(
+            r'("sample_id"\s*:\s*")([^"]*)(")',
+            lambda m: f"{m.group(1)}{self._mapping.get(m.group(2), m.group(2))}{m.group(3)}",
+            str(val),
+        )
+
     def pseudonymize_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """Apply pseudonymization to all relevant columns in a DataFrame."""
         df_copy = df.copy()
@@ -262,12 +298,26 @@ class SamplePseudonymizer:
                 df_copy[col] = df_copy[col].apply(self.pseudonymize_inheritance_column)
                 logger.debug(f"Pseudonymized {col} column")
 
-        # Handle any column that might contain sample IDs (configurable)
-        # This could be extended based on specific needs
+        if "Inheritance_Details" in df_copy.columns:
+            df_copy["Inheritance_Details"] = df_copy["Inheritance_Details"].apply(
+                self._pseudonymize_inheritance_details
+            )
+            logger.debug("Pseudonymized Inheritance_Details column")
+
+        # Handle internal sample tracking columns
+        for col in ["proband_missing_samples", "control_missing_samples"]:
+            if col in df_copy.columns:
+                df_copy[col] = df_copy[col].apply(self._pseudonymize_missing_samples)
+                logger.debug(f"Pseudonymized {col} column")
+
+        for col in ["proband_carrier_samples", "control_carrier_samples"]:
+            if col in df_copy.columns:
+                df_copy[col] = df_copy[col].apply(self._pseudonymize_carrier_samples)
+                logger.debug(f"Pseudonymized {col} column")
 
         return df_copy
 
-    def pseudonymize_ped_file(self, ped_path: str, output_path: str):
+    def pseudonymize_ped_file(self, ped_path: str, output_path: str) -> None:
         """Create a pseudonymized version of a PED file."""
         ped_df = pd.read_csv(
             ped_path,
@@ -297,7 +347,7 @@ class SamplePseudonymizer:
         )
         logger.info(f"Pseudonymized PED file saved to {output_path}")
 
-    def save_mapping(self, filepath: str, include_metadata: bool = True):
+    def save_mapping(self, filepath: str, include_metadata: bool = True) -> None:
         """Save the pseudonymization mapping to a TSV file.
 
         Parameters
@@ -338,7 +388,7 @@ class SamplePseudonymizer:
         return self._mapping
 
 
-def create_pseudonymizer(schema_type: str, **kwargs) -> SamplePseudonymizer:
+def create_pseudonymizer(schema_type: str, **kwargs: Any) -> SamplePseudonymizer:
     """Create a pseudonymizer with the specified schema.
 
     Parameters

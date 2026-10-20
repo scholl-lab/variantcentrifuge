@@ -79,7 +79,7 @@ class TestSampleDeterminism:
 
         stage = InheritanceAnalysisStage()
 
-        with patch("variantcentrifuge.stages.analysis_stages.logger") as mock_logger:
+        with patch("variantcentrifuge.stages.inheritance_and_scoring_stages.logger") as mock_logger:
             # Should not raise an exception and should log warning
             stage._process(context)
 

@@ -1,10 +1,10 @@
 {
   "variables": {
-    "dbNSFP_gnomAD4.1_joint_AF": "gnomad_joint_variant|default:0.0",
-    "dbNSFP_CADD_phred": "cadd_phred_variant|default:0.0",
+    "dbNSFP_gnomAD4.1_joint_AF": "gnomad_joint_variant|default:0.0|reduce:max",
+    "dbNSFP_CADD_phred": "cadd_phred_variant|default:0.0|reduce:max",
     "EFFECT": "consequence_terms_variant|default:''",
     "IMPACT": "impact_variant|default:''",
-    "ngs": "nephro_gene_score|default:0.0",
+    "ngs": "nephro_gene_score|default:0.0|reduce:max",
     "Inheritance_Pattern": "pattern",
     "Inheritance_Details": "details"
   }

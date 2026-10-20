@@ -22,7 +22,10 @@ logger = logging.getLogger(__name__)
 # Genotype encoding for vectorized operations
 GENOTYPE_ENCODING = {
     "./.": -1,
+    ".": -1,
+    ".|.": -1,
     "0/0": 0,
+    "0": 0,
     "0/1": 1,
     "1/0": 1,  # Treat as heterozygous
     "1/1": 2,
@@ -30,6 +33,7 @@ GENOTYPE_ENCODING = {
     "0|1": 1,
     "1|0": 1,
     "1|1": 2,
+    "1": 3,  # Distinct haploid alternate encoding
 }
 
 
@@ -120,7 +124,8 @@ def analyze_gene_for_compound_het_vectorized(
 
     # Deduplicate by genomic position to prevent false positives from
     # split-snpeff-lines creating multiple rows per variant (one per transcript)
-    gene_df_unique = gene_df.drop_duplicates(subset=["CHROM", "POS", "REF", "ALT"])
+    dedup_subset = [c for c in ["CHROM", "POS", "REF", "ALT"] if c in gene_df.columns] or None
+    gene_df_unique = gene_df.drop_duplicates(subset=dedup_subset)
     if len(gene_df_unique) < 2:
         return comp_het_results
 
@@ -134,7 +139,7 @@ def analyze_gene_for_compound_het_vectorized(
     genotype_matrix: dict[str, np.ndarray] = {}
 
     # Dedup mask (computed once, reused for gt_matrix slicing and variant_keys)
-    dedup_mask = ~gene_df.duplicated(subset=["CHROM", "POS", "REF", "ALT"])
+    dedup_mask = ~gene_df.duplicated(subset=dedup_subset)
 
     # Pre-compute or slice variant keys for deduplicated rows
     if variant_keys is not None:
@@ -244,21 +249,77 @@ def analyze_gene_for_compound_het_vectorized(
 
         # Store results based on the new partner structure
         for result_var_idx, partner_indices in partners_by_variant_idx.items():
+            if has_father and has_mother:
+                father_genotypes = genotype_matrix.get(father_id, np.array([]))
+                mother_genotypes = genotype_matrix.get(mother_id, np.array([]))
+
+                valid_partner_indices = []
+                partner_evaluations = []
+                for pidx in partner_indices:
+                    inh_type, ch_type = determine_compound_het_type_vectorized(
+                        result_var_idx,
+                        pidx,
+                        father_genotypes,
+                        mother_genotypes,
+                        gene_df,
+                        sample_id,
+                        pedigree_data,
+                    )
+                    if ch_type != "not_compound_heterozygous":
+                        valid_partner_indices.append(pidx)
+                        partner_evaluations.append((inh_type, ch_type))
+
+                if not valid_partner_indices:
+                    continue
+
+                partner_types = {
+                    unique_keys[pidx]: inh_type
+                    for pidx, (inh_type, _) in zip(
+                        valid_partner_indices, partner_evaluations, strict=False
+                    )
+                }
+                partner_comp_het_types = {
+                    unique_keys[pidx]: ch_type
+                    for pidx, (_, ch_type) in zip(
+                        valid_partner_indices, partner_evaluations, strict=False
+                    )
+                }
+                all_comp_het_types = list(dict.fromkeys(ct for _, ct in partner_evaluations))
+
+                if any(inh == "trans" for inh, _ in partner_evaluations):
+                    comp_het_type = "compound_heterozygous"
+                    inheritance_type = "trans"
+                elif any(
+                    ct == "compound_heterozygous_possible_missing_parent_genotypes"
+                    for _, ct in partner_evaluations
+                ):
+                    comp_het_type = "compound_heterozygous_possible_missing_parent_genotypes"
+                    inheritance_type = "unknown"
+                else:
+                    has_ambiguous = any(inh == "ambiguous" for inh, _ in partner_evaluations)
+                    comp_het_type = "compound_heterozygous_possible"
+                    inheritance_type = "ambiguous" if has_ambiguous else "unknown"
+
+                partner_indices = valid_partner_indices
+            elif has_father or has_mother:
+                comp_het_type = "compound_heterozygous_possible_missing_parents"
+                inheritance_type = "unknown"
+                partner_keys = [unique_keys[pidx] for pidx in partner_indices]
+                partner_types = dict.fromkeys(partner_keys, inheritance_type)
+                partner_comp_het_types = dict.fromkeys(partner_keys, comp_het_type)
+                all_comp_het_types = [comp_het_type]
+            else:
+                comp_het_type = "compound_heterozygous_possible_no_pedigree"
+                inheritance_type = "unknown"
+                partner_keys = [unique_keys[pidx] for pidx in partner_indices]
+                partner_types = dict.fromkeys(partner_keys, inheritance_type)
+                partner_comp_het_types = dict.fromkeys(partner_keys, comp_het_type)
+                all_comp_het_types = [comp_het_type]
+
             var_key = unique_keys[result_var_idx]
 
             # Create list of partner variant keys
             partner_keys = [unique_keys[pidx] for pidx in partner_indices]
-
-            # Determine compound het type based on data availability
-            if has_father and has_mother:
-                comp_het_type = "compound_heterozygous"
-                inheritance_type = "trans"
-            elif has_father or has_mother:
-                comp_het_type = "compound_heterozygous_possible_missing_parents"
-                inheritance_type = "unknown"
-            else:
-                comp_het_type = "compound_heterozygous_possible_no_pedigree"
-                inheritance_type = "unknown"
 
             # Store compound het info with list of partners
             comp_het_info = {
@@ -268,6 +329,9 @@ def analyze_gene_for_compound_het_vectorized(
                 "is_compound_het": True,
                 "comp_het_type": comp_het_type,
                 "inheritance_type": inheritance_type,
+                "partner_types": partner_types,
+                "partner_comp_het_types": partner_comp_het_types,
+                "all_comp_het_types": all_comp_het_types,
             }
 
             if var_key not in comp_het_results:
@@ -322,19 +386,14 @@ def find_potential_partners_vectorized(
     for i, var_idx in enumerate(het_indices):
         potential_partners: list[int] = []
 
-        # Determine this variant's origin
+        # Determine this variant's origin (reciprocal partner matching)
         if from_father_only[i]:
-            # This variant is from father, partners must be from mother only
-            partner_mask = from_mother_only
+            partner_mask = from_mother_only | from_both | from_neither
         elif from_mother_only[i]:
-            # This variant is from mother, partners must be from father only
-            partner_mask = from_father_only
+            partner_mask = from_father_only | from_both | from_neither
         elif from_both[i] or from_neither[i]:
-            # Ambiguous origin - could pair with variants from either parent
-            # that have clear origin
             partner_mask = from_father_only | from_mother_only
         else:
-            # Should not happen, but be safe
             partner_mask = np.zeros(len(het_indices), dtype=bool)
 
         # A variant cannot be its own partner
@@ -368,10 +427,23 @@ def build_variant_keys_array(df: pd.DataFrame) -> np.ndarray:
     np.ndarray
         1-D object array of variant key strings.
     """
-    chrom = np.asarray(df["CHROM"].astype(str).values, dtype=object)
-    pos = np.asarray(df["POS"].astype(str).values, dtype=object)
-    ref = np.asarray(df["REF"].astype(str).values, dtype=object)
-    alt = np.asarray(df["ALT"].astype(str).values, dtype=object)
+    n = len(df)
+    chrom = np.asarray(
+        df["CHROM"].astype(str).values if "CHROM" in df.columns else ["chr?"] * n,
+        dtype=object,
+    )
+    pos = np.asarray(
+        df["POS"].astype(str).values if "POS" in df.columns else ["0"] * n,
+        dtype=object,
+    )
+    ref = np.asarray(
+        df["REF"].astype(str).values if "REF" in df.columns else ["N"] * n,
+        dtype=object,
+    )
+    alt = np.asarray(
+        df["ALT"].astype(str).values if "ALT" in df.columns else ["N"] * n,
+        dtype=object,
+    )
     return chrom + ":" + pos + ":" + ref + ">" + alt  # type: ignore[no-any-return]
 
 
@@ -399,7 +471,7 @@ def create_variant_key_fast(df: pd.DataFrame, idx: int) -> str:
     return f"{chrom}:{pos}:{ref}>{alt}"
 
 
-def create_variant_key(variant_row) -> str:
+def create_variant_key(variant_row: Any) -> str:
     """
     Create a unique key for a variant.
 

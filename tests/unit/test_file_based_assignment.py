@@ -140,11 +140,8 @@ class TestFileBasedAssignment:
         context.mark_complete("sample_config_loading")
 
         stage = PhenotypeCaseControlAssignmentStage()
-        result = stage(context)
-
-        # Should return original context without modifications
-        assert "case_samples" not in result.config
-        assert "control_samples" not in result.config
+        with pytest.raises((FileNotFoundError, OSError)):
+            stage(context)
 
     def test_file_based_assignment_empty_file(self, context):
         """Test file-based assignment with empty file."""
@@ -220,3 +217,34 @@ class TestFileBasedAssignment:
 
         finally:
             case_file.unlink(missing_ok=True)
+
+    def test_sample_in_both_files_stays_case(self, context, tmp_path, caplog):
+        """A sample listed in both files must not be counted twice; it stays a case."""
+        (tmp_path / "case.txt").write_text("S001\nS002\n")
+        (tmp_path / "ctrl.txt").write_text("S002\nS003\n")
+        context.config["case_samples_file"] = str(tmp_path / "case.txt")
+        context.config["control_samples_file"] = str(tmp_path / "ctrl.txt")
+        context.mark_complete("phenotype_loading")
+        context.mark_complete("sample_config_loading")
+
+        with caplog.at_level("WARNING", logger="variantcentrifuge"):
+            result = PhenotypeCaseControlAssignmentStage()(context)
+
+        assert set(result.config["case_samples"]) == {"S001", "S002"}
+        assert set(result.config["control_samples"]) == {"S003"}
+        assert "1 samples are both case and control" in caplog.text
+
+    def test_sample_matching_both_phenotypes_stays_case(self, tmp_path, caplog):
+        """Phenotype-file path: a sample with both case and control terms stays a case."""
+        pheno = tmp_path / "pheno.csv"
+        pheno.write_text("sample,hpo\nS001,HP:1\nS002,HP:1\nS002,HP:2\nS003,HP:2\n")
+        stage = PhenotypeCaseControlAssignmentStage()
+
+        with caplog.at_level("WARNING", logger="variantcentrifuge"):
+            cases, controls = stage._compute_samples_from_phenotype_file(
+                str(pheno), "sample", "hpo", ["HP:1"], ["HP:2"], ["S001", "S002", "S003"]
+            )
+
+        assert set(cases) == {"S001", "S002"}
+        assert set(controls) == {"S003"}
+        assert "1 samples are both case and control" in caplog.text

@@ -13,11 +13,7 @@ import pandas as pd
 import pytest
 from openpyxl import load_workbook
 
-from variantcentrifuge.converter import (
-    append_tsv_as_sheet,
-    convert_to_excel,
-    finalize_excel_file,
-)
+from variantcentrifuge.converter import convert_to_excel
 
 
 @pytest.mark.unit
@@ -96,162 +92,6 @@ def test_convert_to_excel_with_dataframe(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_finalize_adds_freeze_panes(tmp_path: Path) -> None:
-    """Test that finalize_excel_file adds freeze panes to all sheets."""
-    df = pd.DataFrame(
-        {
-            "CHROM": ["chr1", "chr2"],
-            "POS": [100, 200],
-        }
-    )
-
-    tsv_file = tmp_path / "test.tsv"
-    df.to_csv(tsv_file, sep="\t", index=False)
-
-    cfg = {"links": {}}
-    xlsx_file = convert_to_excel(str(tsv_file), cfg)
-    finalize_excel_file(xlsx_file, cfg)
-
-    wb = load_workbook(xlsx_file)
-    for ws in wb.worksheets:
-        assert ws.freeze_panes == "A2", f"Sheet {ws.title} should have freeze panes at A2"
-    wb.close()
-
-
-@pytest.mark.unit
-def test_finalize_adds_auto_filter(tmp_path: Path) -> None:
-    """Test that finalize_excel_file adds auto-filters to all sheets."""
-    df = pd.DataFrame(
-        {
-            "CHROM": ["chr1"],
-            "POS": [100],
-            "REF": ["A"],
-            "ALT": ["T"],
-        }
-    )
-
-    tsv_file = tmp_path / "test.tsv"
-    df.to_csv(tsv_file, sep="\t", index=False)
-
-    cfg = {"links": {}}
-    xlsx_file = convert_to_excel(str(tsv_file), cfg)
-    finalize_excel_file(xlsx_file, cfg)
-
-    wb = load_workbook(xlsx_file)
-    ws = wb["Results"]
-
-    # Verify auto-filter is set
-    assert ws.auto_filter.ref is not None
-    assert ws.auto_filter.ref.startswith("A1:")
-    assert "D1" in ws.auto_filter.ref  # Should span all 4 columns
-    wb.close()
-
-
-@pytest.mark.unit
-def test_finalize_adds_hyperlinks(tmp_path: Path) -> None:
-    """Test that finalize_excel_file adds hyperlinks to URL columns."""
-    df = pd.DataFrame(
-        {
-            "CHROM": ["chr1", "chr2"],
-            "POS": [100, 200],
-            "SpliceAI": [
-                "https://spliceailookup.broadinstitute.org/variant1",
-                "https://spliceailookup.broadinstitute.org/variant2",
-            ],
-            "Franklin": [
-                "https://franklin.genoox.com/variant1",
-                "https://franklin.genoox.com/variant2",
-            ],
-        }
-    )
-
-    tsv_file = tmp_path / "test.tsv"
-    df.to_csv(tsv_file, sep="\t", index=False)
-
-    # Create config with link templates (not strictly needed for this test
-    # since we're directly checking URL columns, but matches real usage)
-    cfg = {
-        "links": {
-            "SpliceAI": "https://spliceailookup.broadinstitute.org/{CHROM}_{POS}",
-            "Franklin": "https://franklin.genoox.com/{CHROM}_{POS}",
-        }
-    }
-
-    xlsx_file = convert_to_excel(str(tsv_file), cfg)
-    finalize_excel_file(xlsx_file, cfg)
-
-    wb = load_workbook(xlsx_file)
-    ws = wb["Results"]
-
-    # Find SpliceAI and Franklin columns (should be columns 3 and 4)
-    header_row = [cell.value for cell in ws[1]]
-    spliceai_col = header_row.index("SpliceAI") + 1
-    franklin_col = header_row.index("Franklin") + 1
-
-    # Check that hyperlinks were added and styled correctly
-    for row_idx in range(2, ws.max_row + 1):
-        # SpliceAI column
-        cell = ws.cell(row=row_idx, column=spliceai_col)
-        assert cell.hyperlink is not None, f"Row {row_idx} SpliceAI should have hyperlink"
-        assert cell.style == "Hyperlink", f"Row {row_idx} SpliceAI should use Hyperlink style"
-        assert cell.value == "SpliceAI", f"Row {row_idx} SpliceAI should display column name"
-
-        # Franklin column
-        cell = ws.cell(row=row_idx, column=franklin_col)
-        assert cell.hyperlink is not None, f"Row {row_idx} Franklin should have hyperlink"
-        assert cell.style == "Hyperlink", f"Row {row_idx} Franklin should use Hyperlink style"
-        assert cell.value == "Franklin", f"Row {row_idx} Franklin should display column name"
-
-    wb.close()
-
-
-@pytest.mark.unit
-def test_append_tsv_as_sheet(tmp_path: Path) -> None:
-    """Test that append_tsv_as_sheet correctly adds metadata sheet."""
-    # Create initial Results sheet
-    df_results = pd.DataFrame(
-        {
-            "CHROM": ["chr1"],
-            "POS": [100],
-        }
-    )
-
-    tsv_file = tmp_path / "test.tsv"
-    df_results.to_csv(tsv_file, sep="\t", index=False)
-
-    cfg = {"links": {}}
-    xlsx_file = convert_to_excel(str(tsv_file), cfg)
-
-    # Create metadata TSV
-    df_metadata = pd.DataFrame(
-        {
-            "Key": ["Version", "Date", "Samples"],
-            "Value": ["0.13.0", "2026-02-15", "100"],
-        }
-    )
-
-    metadata_tsv = tmp_path / "metadata.tsv"
-    df_metadata.to_csv(metadata_tsv, sep="\t", index=False)
-
-    # Append metadata sheet
-    append_tsv_as_sheet(xlsx_file, str(metadata_tsv), sheet_name="Metadata")
-
-    # Verify both sheets exist
-    wb = load_workbook(xlsx_file)
-    assert "Results" in wb.sheetnames
-    assert "Metadata" in wb.sheetnames
-
-    # Verify metadata content
-    ws_metadata = wb["Metadata"]
-    assert ws_metadata.cell(row=1, column=1).value == "Key"
-    assert ws_metadata.cell(row=1, column=2).value == "Value"
-    assert ws_metadata.cell(row=2, column=1).value == "Version"
-    assert ws_metadata.cell(row=2, column=2).value == "0.13.0"
-
-    wb.close()
-
-
-@pytest.mark.unit
 def test_empty_dataframe_handling(tmp_path: Path) -> None:
     """Test that empty DataFrame produces valid Excel with headers only."""
     # Create empty DataFrame with columns only
@@ -272,26 +112,6 @@ def test_empty_dataframe_handling(tmp_path: Path) -> None:
     header_row = [cell.value for cell in ws[1]]
     assert header_row == ["CHROM", "POS", "REF", "ALT", "GENE"]
 
-    wb.close()
-
-
-@pytest.mark.unit
-def test_finalize_with_empty_dataframe(tmp_path: Path) -> None:
-    """Test that finalize_excel_file works correctly on empty Excel files."""
-    df = pd.DataFrame(columns=["CHROM", "POS"])
-
-    tsv_file = tmp_path / "empty.tsv"
-    df.to_csv(tsv_file, sep="\t", index=False)
-
-    cfg = {"links": {}}
-    xlsx_file = convert_to_excel(str(tsv_file), cfg)
-    finalize_excel_file(xlsx_file, cfg)
-
-    # Verify freeze panes and auto-filter are still added
-    wb = load_workbook(xlsx_file)
-    ws = wb["Results"]
-    assert ws.freeze_panes == "A2"
-    assert ws.auto_filter.ref is not None
     wb.close()
 
 

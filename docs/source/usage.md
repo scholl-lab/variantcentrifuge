@@ -74,17 +74,45 @@ flowchart TD
 | `--log-level LEVEL` | `INFO` | Logging level: `DEBUG`, `INFO`, `WARN`, `ERROR` |
 | `--log-file PATH` | — | Write logs to file in addition to stderr |
 | `-c` / `--config PATH` | — | Path to JSON configuration file |
+| `--profile NAME_OR_PATH` | — | Load a reusable analysis profile (built-in: `rare-disease-trio`, `rare-disease-singleton`, `cohort-burden`, `somatic-tumor-normal`, or a JSON file path). Precedence: explicit CLI flags > `--profile` > `-c/--config` > parser defaults |
+| `--save-profile PATH` | — | Save the effective reusable analysis configuration (excluding sample/run-specific file paths) to a JSON file |
+| `--list-profiles` | — | List available analysis profiles and exit |
 
 ### Core Input/Output
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-v` / `--vcf-file PATH` | **required** | Input VCF file (can be gzip-compressed) |
+| `-v` / `--vcf-file PATH` | **required*** | Input VCF file (can be gzip-compressed; mutually exclusive with `--from-tsv`) |
+| `--from-tsv PATH` | — | Input `.tsv` or `.tsv.gz` from a previous VariantCentrifuge run (skips VCF extraction; mutually exclusive with `-v`) |
+| `--sample-sheet PATH` | — | Validated TSV/CSV sample manifest consolidating pedigree (`family_id`, `sample_id`, `paternal_id`, `maternal_id`, `sex`, `affected_status`), HPO terms (`hpo_terms`), and BAM paths (`bam_path`). Mutually exclusive with `--ped`, `--phenotype-file`, and `--bam-mapping-file` |
 | `-o` / `--output-file PATH` | — | Output TSV file path, or `stdout`/`-` for stdout |
 | `--output-dir DIR` | `output` | Directory for intermediate and final output |
 | `--xlsx` | `false` | Also produce Excel output |
 | `--keep-intermediates` | `false` | Keep all intermediate files after run |
 | `--archive-results` | `false` | Create timestamped `.tar.gz` archive of results |
+
+#### Re-running Analysis and Reporting from an Existing TSV (`--from-tsv`)
+
+Use `--from-tsv` to iterate on scoring models (`--scoring-config-path`), post-extraction filters (`--final-filter`), pedigree/inheritance analysis (`--ped`, `--inheritance-mode`), phenotype case/control definitions (`--phenotype-file`, `--case-phenotypes`, `--control-phenotypes`), and HTML/Excel reports (`--html-report`, `--xlsx`) without repeating `bcftools` / `SnpSift` VCF extraction:
+
+```bash
+variantcentrifuge \
+  --from-tsv output/previous_run.tsv \
+  --scoring-config-path scoring/nephro_candidate_score \
+  --final-filter "nephro_candidate_score >= 2.0" \
+  --html-report \
+  --xlsx \
+  --output-dir output_rescored \
+  -o rescored.tsv
+```
+
+:::{note}
+`--from-tsv` operates strictly on the rows and columns already present in the supplied TSV (creating a normalized copy in the workspace intermediate directory so the source TSV is never modified):
+- Variants discarded by earlier VCF extraction or SnpSift filters cannot be recovered without re-running from the source VCF (`-v`).
+- Annotations or INFO/FORMAT fields that were not extracted into the TSV cannot be added in `--from-tsv` mode.
+- If the input TSV uses anonymous per-sample genotype columns (`GEN[0].GT`, `GEN[1].GT`, ...), supply matching sample metadata (`--ped`, `--phenotype-file`, `--sample-sheet`, or `--case-samples`/`--control-samples`) with the exact same sample count and order.
+- Runtime scales with input TSV size and requested outputs (e.g., ~0.4 s on the 2-variant rescoring + HTML/Excel fixture in `tests/unit/test_issue_169_regression.py`).
+:::
 
 ### Gene Selection
 
@@ -105,19 +133,18 @@ flowchart TD
 | `--preset NAME` | — | Apply named filter preset from config (repeatable, combined with AND). Use commas within a single `--preset` for multiple: `--preset rare,coding` |
 | `--field-profile PROFILE` | `dbnsfp4` | Field profile for annotation database compatibility (e.g., `dbnsfp4`, `dbnsfp5`). See [Field Profiles](configuration.md#field-profiles) |
 | `--list-field-profiles` | — | List available field profiles and exit |
+| `--filter-exception-file PATH` | — | 5-col TSV of somatic hotspots to rescue to FILTER=PASS during VCF filtering (does not apply to `--bcftools-prefilter` or `--late-filtering`) |
 | `--late-filtering` | `false` | Apply SnpSift filters after scoring (allows filtering on computed scores) |
 | `--final-filter EXPR` | — | Pandas `query()` expression applied after all annotations and scores |
 | `--split-snpeff-lines MODE` | — | Split multi-annotation lines: `before_filters` or `after_filters`. Use `before_filters` for row-level ANN/LOF/NMD consequence filtering with transcript-selected gene burden or association. Omit to skip |
 
 :::{warning}
-When transcript filtering is combined with `--perform-gene-burden` or
-`--perform-association`, consequence filters such as `ANN[ANY]`, `LOF[*]`, and
-`NMD[*]` are row-level only when SnpEff annotations are split before SnpSift:
-`--split-snpeff-lines before_filters`. Without splitting, or with
-`after_filters`, SnpSift evaluates those predicates on the original VCF record
-before transcript selection. That can be useful for record-level filtering, but
-it is not the same as requiring the retained transcript row itself to satisfy
-the consequence predicate.
+When performing gene burden (`--perform-gene-burden`) or association (`--perform-association`)
+with consequence filters (`ANN[ANY]`, `LOF[*]`, `NMD[*]`) or consequence presets (`coding`, `high`, `missense`, etc.),
+`--split-snpeff-lines before_filters` is required. This enforces row-level qualification and prevents
+cross-gene misattribution. Without splitting, or with `after_filters`, tables represent
+record-selected, first-annotation summaries where SnpSift evaluates predicates on the original multi-annotation
+record rather than qualifying the individual transcript row.
 :::
 
 ### Tumor-Normal Filtering
@@ -217,14 +244,15 @@ For modular rare variant association testing beyond the basic Fisher's exact tes
 | `--perform-association` | `false` | Run the modular association testing framework |
 | `--association-tests TESTS` | `fisher` | Comma-separated tests: `fisher`, `logistic_burden`, `linear_burden`, `skat`, `coast` |
 | `--skat-backend BACKEND` | `python` | SKAT backend: `python` (default, thread-safe) or `r` (deprecated) |
-| `--coast-backend BACKEND` | `python` | COAST backend: `python` (default) or `r` (deprecated) |
+| `--coast-backend BACKEND` | `python` | COAST backend: `python` (default) or `auto` |
+| `--coast-classification MODEL` | `sift_polyphen` | COAST classification model: `sift_polyphen` (default) or `cadd` |
 | `--covariate-file PATH` | — | TSV/CSV covariate file (first column = sample ID, header required) |
 | `--covariates NAMES` | — | Comma-separated covariate column names to include (default: all columns) |
 | `--categorical-covariates NAMES` | — | Comma-separated columns to treat as categorical (auto-detected otherwise) |
 | `--trait-type TYPE` | `binary` | Trait type for burden tests: `binary` or `quantitative` |
-| `--pca-file PATH` | — | PCA file (PLINK `.eigenvec`, AKT output, or generic TSV) |
-| `--pca-tool TOOL` | — | Set to `akt` to invoke AKT subprocess for PCA computation |
+| `--pca PATH` | — | PCA coordinates file (`.eigenvec`, `.tsv`) or `akt` to compute PCA using AKT (aliases: `--pca-file`, `--pca-tool`) |
 | `--pca-components N` | `10` | Number of PCA components to include as covariates |
+| `--pca-sites PATH` | — | Optional sites file for AKT PCA computation |
 | `--variant-weights SCHEME` | `beta:1,25` | Variant weight scheme: `beta:a,b`, `uniform`, `cadd`, `revel`, `combined` |
 | `--variant-weight-params JSON` | — | JSON string of weight scheme parameters (e.g., `'{"cadd_cap": 30}'`) |
 | `--coast-weights WEIGHTS` | — | COAST category weights as comma-separated floats (BMV,DMV,PTV) |
@@ -487,7 +515,11 @@ variantcentrifuge \
 All examples above work inside the Docker container by mounting your data directory:
 
 ```bash
-docker run --rm -v ./data:/data \
+mkdir -p ./data ./snpeff_data
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -v ./data:/data \
+  -v ./snpeff_data:/data/snpeff \
   ghcr.io/scholl-lab/variantcentrifuge:latest \
   --gene-name BRCA1 \
   --vcf-file /data/input.vcf.gz \

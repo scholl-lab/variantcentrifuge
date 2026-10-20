@@ -67,88 +67,14 @@ from .utils import compute_base_name
 logger = logging.getLogger(__name__)
 
 
-def _validate_requested_outputs(context: PipelineContext) -> None:
-    """Ensure requested user-facing outputs exist before reporting success."""
-    output_file = context.config.get("output_file")
-    if output_file not in (None, "stdout", "-") and (
-        not context.final_output_path or not context.final_output_path.exists()
-    ):
-        raise RuntimeError("Requested TSV output was not written")
-
-    if context.config.get("perform_association"):
-        assoc = context.config.get("association_output")
-        if not assoc or not Path(assoc).exists():
-            raise RuntimeError("Requested association output was not written")
-
-    if context.config.get("perform_gene_burden"):
-        burden = context.config.get("gene_burden_output")
-        if not burden or not Path(burden).exists():
-            raise RuntimeError("Requested gene burden output was not written")
-
-    if context.config.get("xlsx") or context.config.get("excel"):
-        excel = context.report_paths.get("excel")
-        if not excel or not Path(excel).exists():
-            raise RuntimeError("Requested Excel output was not written")
-
-
-def check_scoring_requires_inheritance(args: argparse.Namespace, config: dict) -> bool:
-    """Check if scoring configuration requires inheritance analysis.
-
-    Parameters
-    ----------
-    args : argparse.Namespace
-        Command-line arguments
-    config : dict
-        Configuration dictionary
-
-    Returns
-    -------
-    bool
-        True if inheritance analysis is required for scoring
-    """
-    # Check if there's a scoring config
-    scoring_config_path = config.get("scoring_config_path") or getattr(
-        args, "scoring_config_path", None
-    )
-    if not scoring_config_path:
-        return False
-
-    try:
-        # Import here to avoid circular imports
-        from .scoring import read_scoring_config
-
-        # Load scoring config to check for inheritance dependencies
-        scoring_config = read_scoring_config(scoring_config_path)
-
-        # Check if any scoring formulas reference inheritance variables
-        if scoring_config and "formulas" in scoring_config:
-            for formula_dict in scoring_config["formulas"]:
-                for formula_name, formula_expr in formula_dict.items():
-                    if isinstance(formula_expr, str) and any(
-                        var in formula_expr
-                        for var in [
-                            "pattern",
-                            "details",
-                            "Inheritance_Pattern",
-                            "Inheritance_Details",
-                        ]
-                    ):
-                        logger.info(
-                            f"Scoring formula '{formula_name}' requires inheritance analysis"
-                        )
-                        return True
-
-        # Check variable assignments for inheritance column dependencies
-        if scoring_config and "variables" in scoring_config:
-            variables = scoring_config["variables"]
-            if any(col in variables for col in ["Inheritance_Pattern", "Inheritance_Details"]):
-                logger.info("Scoring configuration requires inheritance columns")
-                return True
-
-    except Exception as e:
-        logger.warning(f"Could not check scoring config for inheritance dependencies: {e}")
-
-    return False
+from .pipeline_validation import (
+    resolve_threads,
+)
+from .pipeline_validation import (
+    validate_requested_outputs as _validate_requested_outputs,
+)
+from .run_summary import write_run_summary
+from .scoring_requirements import check_scoring_requires_inheritance
 
 
 def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
@@ -186,7 +112,6 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     )
 
     # Setup stages (can run in parallel)
-    # Always add phenotype loading stage - it will skip if no phenotype file is provided
     stages.append(PhenotypeLoadingStage())
 
     # Check for scoring config in merged config or args
@@ -195,7 +120,13 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     ):
         stages.append(ScoringConfigLoadingStage())
 
-    if hasattr(args, "ped_file") and args.ped_file:
+    if (
+        config.get("ped_file")
+        or config.get("sample_sheet")
+        or (hasattr(args, "ped_file") and args.ped_file)
+        or (hasattr(args, "ped") and args.ped)
+        or (hasattr(args, "sample_sheet") and args.sample_sheet)
+    ):
         stages.append(PedigreeLoadingStage())
 
     if annotations_requested:
@@ -208,42 +139,46 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     # This must run after both phenotype loading and sample config loading
     stages.append(PhenotypeCaseControlAssignmentStage())
 
-    # Processing stages
-    stages.append(GeneBedCreationStage())
+    from_tsv = getattr(args, "from_tsv", None) or config.get("from_tsv")
+    if not from_tsv:
+        # Processing stages
+        stages.append(GeneBedCreationStage())
 
-    # Choose parallel or single-threaded processing
-    threads = getattr(args, "threads", 1)
-    if threads > 1:
-        # Use the new complete parallel processing stage that runs the entire
-        # pipeline (extraction -> filtering -> field extraction) for each chunk
-        stages.append(ParallelCompleteProcessingStage())
-    else:
-        # Single-threaded processing uses individual stages
-        stages.append(VariantExtractionStage())
+        # Choose parallel or single-threaded processing
+        threads = resolve_threads(
+            getattr(args, "threads", None) or config.get("threads", 1), config
+        )
+        if threads > 1:
+            # Use the new complete parallel processing stage that runs the entire
+            # pipeline (extraction -> filtering -> field extraction) for each chunk
+            stages.append(ParallelCompleteProcessingStage())
+        else:
+            # Single-threaded processing uses individual stages
+            stages.append(VariantExtractionStage())
 
-        # Optional processing stages
-        snpeff_splitting_mode = config.get("snpeff_splitting_mode")
-        split_before_filtering = snpeff_splitting_mode == "before_filters"
-        if snpeff_splitting_mode:
-            stages.append(MultiAllelicSplitStage(snpeff_splitting_mode))
+            # Optional processing stages
+            snpeff_splitting_mode = config.get("snpeff_splitting_mode")
+            split_before_filtering = snpeff_splitting_mode == "before_filters"
+            if snpeff_splitting_mode:
+                stages.append(MultiAllelicSplitStage(snpeff_splitting_mode))
 
-        if config.get("transcript_list") or config.get("transcript_file"):
-            stages.append(TranscriptFilterStage(split_before_filtering=split_before_filtering))
+            if config.get("transcript_list") or config.get("transcript_file"):
+                stages.append(TranscriptFilterStage(split_before_filtering=split_before_filtering))
 
-        # Add SnpSift filtering stage (it will check config for filters at runtime)
-        if not (getattr(args, "late_filtering", False) or config.get("late_filtering", False)):
-            stages.append(SnpSiftFilterStage(split_before_filtering=split_before_filtering))
+            # Add SnpSift filtering stage (it will check config for filters at runtime)
+            if not (getattr(args, "late_filtering", False) or config.get("late_filtering", False)):
+                stages.append(SnpSiftFilterStage(split_before_filtering=split_before_filtering))
 
-        # Field extraction
-        stages.append(FieldExtractionStage())
+            # Field extraction
+            stages.append(FieldExtractionStage())
 
-        # Data sorting (for efficient chunked processing)
-        stages.append(DataSortingStage())
+            # Data sorting (for efficient chunked processing)
+            stages.append(DataSortingStage())
 
-    # Optional transformations
-    # Default behavior: do genotype replacement unless --no-replacement is specified
-    if not getattr(args, "no_replacement", False):
-        stages.append(GenotypeReplacementStage())
+        # Optional transformations
+        # Default behavior: do genotype replacement unless --no-replacement is specified
+        if not getattr(args, "no_replacement", False):
+            stages.append(GenotypeReplacementStage())
 
     # Always add phenotype integration stage - it will skip if no phenotype data is loaded
     stages.append(PhenotypeIntegrationStage())
@@ -264,10 +199,14 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
 
     # Check both args and config for inheritance settings
     # Debug logging to understand the issue
-    has_ped_file_arg = hasattr(args, "ped_file") and args.ped_file
+    has_ped_file_arg = (
+        (hasattr(args, "ped_file") and args.ped_file)
+        or (hasattr(args, "ped") and args.ped)
+        or (hasattr(args, "sample_sheet") and args.sample_sheet)
+    )
     has_inheritance_mode_arg = hasattr(args, "inheritance_mode") and args.inheritance_mode
     has_calculate_inheritance_config = config.get("calculate_inheritance", False)
-    has_ped_file_config = config.get("ped_file")
+    has_ped_file_config = config.get("ped_file") or config.get("sample_sheet")
     has_inheritance_mode_config = config.get("inheritance_mode")
     requires_inheritance_for_scoring = check_scoring_requires_inheritance(args, config)
 
@@ -399,30 +338,25 @@ def create_stages_from_config(config: dict) -> list[Stage]:
     config = normalize_annotation_config(config.copy())
 
     # Convert config dict to a minimal args namespace for compatibility
-    args = argparse.Namespace()
-
-    # Set essential attributes from config
+    args = argparse.Namespace(**config)
     args.config = config
-    args.scoring_config_path = config.get("scoring_config_path")
-    args.ped_file = config.get("ped_file")
-    args.annotate_bed = config.get("annotate_bed_files", [])
-    args.annotate_gene_list = config.get("annotate_gene_lists", [])
-    args.annotate_json_genes = config.get("annotate_json_genes", [])
-    args.late_filtering = config.get("late_filtering", False)
-    args.genotype_filter = config.get("genotype_filter")
-    args.final_filter = config.get("final_filter")
-    args.pseudonymize = config.get("pseudonymize", False)
-    args.xlsx = config.get("xlsx", False)
-    args.html_report = config.get("html_report", False)
-    # Note: build_pipeline_stages checks args.igv (not args.igv_report)
-    args.igv = config.get("igv", False)
-    args.archive_results = config.get("archive_results", False)
-    args.pca = config.get("pca")
 
-    # Analysis stage activation flags — previously missing, causing silent no-ops
-    args.no_stats = config.get("no_stats", False)
-    args.perform_gene_burden = config.get("perform_gene_burden", False)
-    args.perform_association = config.get("perform_association", False)
+    # Canonical aliases and options
+    args.annotate_bed = config.get("annotate_bed_files", config.get("annotate_bed", []))
+    args.annotate_gene_list = config.get(
+        "annotate_gene_lists", config.get("annotate_gene_list", [])
+    )
+    args.annotate_json_genes = config.get("annotate_json_genes", [])
+    args.pseudonymize = bool(config.get("pseudonymize") or config.get("pseudonymize_table"))
+    args.split_snpeff_lines = config.get("snpeff_splitting_mode") or config.get(
+        "split_snpeff_lines"
+    )
+    if args.split_snpeff_lines and not config.get("snpeff_splitting_mode"):
+        config["snpeff_splitting_mode"] = args.split_snpeff_lines
+    args.no_replacement = bool(config.get("no_replacement", False))
+    args.no_stats = bool(config.get("no_stats", False))
+    args.late_filtering = bool(config.get("late_filtering", False))
+    args.threads = resolve_threads(config.get("threads", 1), config)
 
     # Use the existing build_pipeline_stages function
     return build_pipeline_stages(args)
@@ -447,14 +381,29 @@ def run_pipeline(args: argparse.Namespace) -> None:
         level=log_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
-    # Normalize genes first to compute base name
-    gene_name = normalize_genes(
-        getattr(args, "gene_name", "") or "", getattr(args, "gene_file", None), logger
+    from_tsv = getattr(args, "from_tsv", None) or (
+        args.config.get("from_tsv") if isinstance(getattr(args, "config", None), dict) else None
     )
-
-    # Compute base name from VCF file and gene name
     vcf_file = getattr(args, "vcf_file", "")
-    base_name = compute_base_name(vcf_file, gene_name)
+
+    if from_tsv:
+        from .from_tsv import compute_tsv_base_name
+
+        raw_gene_name = getattr(args, "gene_name", None)
+        raw_gene_file = getattr(args, "gene_file", None)
+        gene_name = (
+            normalize_genes(raw_gene_name or "", raw_gene_file, logger)
+            if (raw_gene_name or raw_gene_file)
+            else "all"
+        )
+        base_name = compute_tsv_base_name(str(from_tsv))
+    else:
+        # Normalize genes first to compute base name
+        gene_name = normalize_genes(
+            getattr(args, "gene_name", "") or "", getattr(args, "gene_file", None), logger
+        )
+        # Compute base name from VCF file and gene name
+        base_name = compute_base_name(vcf_file, gene_name)
 
     # Create workspace
     output_dir = getattr(args, "output_dir", "output")
@@ -481,18 +430,6 @@ def run_pipeline(args: argparse.Namespace) -> None:
     if "extract" not in initial_config and "fields_to_extract" in initial_config:
         initial_config["extract"] = initial_config["fields_to_extract"].split()
 
-    # Debug log to understand config state
-    logger.debug(f"Initial config keys: {list(initial_config.keys())}")
-    logger.debug(f"fields_to_extract in config: {'fields_to_extract' in initial_config}")
-    logger.debug(f"extract in config: {'extract' in initial_config}")
-    logger.debug(f"final_filter in config: {'final_filter' in initial_config}")
-    if "fields_to_extract" in initial_config:
-        logger.debug(f"fields_to_extract value: {initial_config['fields_to_extract'][:100]}...")
-    if "extract" in initial_config:
-        logger.debug(f"extract fields count: {len(initial_config['extract'])}")
-    if "final_filter" in initial_config:
-        logger.debug(f"final_filter value: {initial_config['final_filter']}")
-
     # Add normalized genes to config
     initial_config["normalized_genes"] = gene_name
 
@@ -500,8 +437,10 @@ def run_pipeline(args: argparse.Namespace) -> None:
     initial_config["gene_name"] = getattr(args, "gene_name", "") or ""
     initial_config["gene_file"] = getattr(args, "gene_file", None)
 
-    # Merge VCF file path into config
+    # Merge VCF or TSV file path into config
     initial_config["vcf_file"] = vcf_file
+    if from_tsv:
+        initial_config["from_tsv"] = str(from_tsv)
 
     # Ensure all important config values are present
     # The config from cli.py has all merged values we need
@@ -554,6 +493,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
     # Map igv argument to igv_enabled for backward compatibility
     if hasattr(args, "igv"):
         initial_config["igv_enabled"] = args.igv
+    if hasattr(args, "igv_flanking") and args.igv_flanking is not None:
+        initial_config["igv_flanking"] = args.igv_flanking
 
     # Create pipeline context
     context = PipelineContext(args=args, config=initial_config, workspace=workspace)
@@ -619,6 +560,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
         # Run pipeline
         context = runner.run(stages, context)
         _validate_requested_outputs(context)
+        write_run_summary(context)
 
         logger.info("Pipeline completed successfully!")
 

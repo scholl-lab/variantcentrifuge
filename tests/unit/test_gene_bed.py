@@ -3,6 +3,7 @@
 import os
 import subprocess
 import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -297,3 +298,57 @@ chr20	12345000	12347000
         # Verify same result and no subprocess calls for cached version
         assert result1 == result2, "Cached result should be identical"
         assert not mock_subprocess.called, "No subprocess calls should be made for cached file"
+
+
+class TestGeneBedValidation:
+    """Test validation of gene and reference arguments in get_gene_bed."""
+
+    @pytest.mark.parametrize(
+        "invalid_gene",
+        ["-e", "-e PKD1", "--option", "-tr", "PKD1 -e", "BRCA1 -x BRCA2"],
+    )
+    def test_rejects_leading_dash_genes(self, invalid_gene: str, tmp_path: Path) -> None:
+        """Verify leading-dash gene tokens raise ValueError before subprocess execution."""
+        with patch("subprocess.run") as mock_sub:
+            with pytest.raises(ValueError, match="cannot start with '-'"):
+                get_gene_bed(
+                    reference="GRCh38.p14",
+                    gene_name=invalid_gene,
+                    interval_expand=0,
+                    add_chr=False,
+                    output_dir=str(tmp_path),
+                )
+            mock_sub.assert_not_called()
+
+    @pytest.mark.parametrize("invalid_ref", ["-r", "--reference", "-GRCh38"])
+    def test_rejects_leading_dash_reference(self, invalid_ref: str, tmp_path: Path) -> None:
+        """Verify leading-dash reference identifiers raise ValueError."""
+        with patch("subprocess.run") as mock_sub:
+            with pytest.raises(ValueError, match="cannot start with '-'"):
+                get_gene_bed(
+                    reference=invalid_ref,
+                    gene_name="PKD1",
+                    interval_expand=0,
+                    add_chr=False,
+                    output_dir=str(tmp_path),
+                )
+            mock_sub.assert_not_called()
+
+    def test_allows_internal_hyphens_and_all(self, tmp_path: Path) -> None:
+        """Verify genes with internal hyphens and 'all' are allowed."""
+
+        def mock_run(cmd, stdout=None, **kwargs):
+            if hasattr(stdout, "name"):
+                with open(stdout.name, "w") as f:
+                    f.write("chr6\t29941260\t29945884\tHLA-A\n")
+
+        with patch("subprocess.run", side_effect=mock_run) as mock_sub:
+            bed = get_gene_bed(
+                reference="GRCh38.p14",
+                gene_name="HLA-A",
+                interval_expand=100,
+                add_chr=False,
+                output_dir=str(tmp_path),
+            )
+            assert mock_sub.called
+            assert os.path.exists(bed)

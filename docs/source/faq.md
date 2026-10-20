@@ -314,4 +314,4 @@ When you run multiple tests (e.g., `--association-tests fisher,logistic_burden,s
 
 No. Since v0.15.0, the default backend for both SKAT (`--skat-backend python`) and COAST (`--coast-backend python`) is a pure Python implementation using numpy and scipy. No R or rpy2 installation is required.
 
-The R backends (`--skat-backend r`, `--coast-backend r`) are deprecated as of v0.15.0 and may be removed in a future release. They require rpy2, the SKAT R package, and (for COAST) the AllelicSeries R package. If you have existing workflows relying on the R backends, migrate to the Python backends — the p-values agree within 10% on real data. See the [Association Testing Guide](guides/association_testing.md) for backend migration details.
+The legacy R SKAT backend (`--skat-backend r`) is deprecated as of v0.15.0 and scheduled for removal. COAST operates in Python (`--coast-backend python`). Migrate to the default Python backends — the p-values agree within 10% on real data. See the [Association Testing Guide](guides/association_testing.md) for backend migration details.

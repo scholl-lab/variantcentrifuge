@@ -220,7 +220,7 @@ class TestFinalFilteringStage:
     def test_parallel_safe(self):
         """Test parallel safety."""
         stage = FinalFilteringStage()
-        assert stage.parallel_safe is True
+        assert stage.parallel_safe is False  # replaces current_dataframe
 
     def test_soft_dependencies(self):
         """Test soft dependencies are correctly defined."""
@@ -492,8 +492,14 @@ class TestTSVOutputStage:
 
     def test_tsv_output(self, context):
         """Test TSV file output."""
+
+        def fake_to_csv(path_or_buf, *args, **kwargs):
+            Path(path_or_buf).write_text("dummy")
+
         # Mock the DataFrame's to_csv method
-        with patch.object(context.current_dataframe, "to_csv") as mock_to_csv:
+        with patch.object(
+            context.current_dataframe, "to_csv", side_effect=fake_to_csv
+        ) as mock_to_csv:
             stage = TSVOutputStage()
             result = stage(context)
 
@@ -501,9 +507,10 @@ class TestTSVOutputStage:
             # Implementation uses additional parameters na_rep and compression
             assert mock_to_csv.call_count == 1
             call_args = mock_to_csv.call_args
-            # First argument should be a Path object in the output directory
+            # First argument should be a Path object in the output directory (atomic temp file)
             assert isinstance(call_args[0][0], Path)
-            assert str(call_args[0][0]).endswith("output.tsv")
+            assert call_args[0][0].suffix == ".tsv"
+            assert ".tmp." in call_args[0][0].name
             # Check other arguments
             assert call_args[1]["sep"] == "\t"
             assert call_args[1]["index"] is False
@@ -511,7 +518,7 @@ class TestTSVOutputStage:
             assert call_args[1]["compression"] is None
 
             # Check context updated
-            assert result.final_output_path == call_args[0][0]
+            assert str(result.final_output_path).endswith("output.tsv")
 
     def test_stdout_output(self, context):
         """Test output to stdout."""
@@ -611,9 +618,8 @@ class TestExcelReportStage:
         ctx.mark_complete("dataframe_loading")
         return ctx
 
-    @patch("variantcentrifuge.stages.output_stages.finalize_excel_file")
     @patch("variantcentrifuge.stages.output_stages.convert_to_excel")
-    def test_excel_generation(self, mock_convert, mock_finalize, context):
+    def test_excel_generation(self, mock_convert, context):
         """Test Excel report generation."""
         # Mark dependencies as complete since Excel depends on them
         context.mark_complete("tsv_output")
@@ -642,9 +648,6 @@ class TestExcelReportStage:
         assert str(context.final_output_path) == call_args[0]
         assert isinstance(call_args[1], dict)  # Second argument is config
 
-        # Check finalize_excel_file was called
-        mock_finalize.assert_called_once()
-
     def test_skip_if_disabled(self, context):
         """Test skipping when Excel disabled."""
         context.config["xlsx"] = False
@@ -666,11 +669,8 @@ class TestExcelReportStage:
         stage = ExcelReportStage()
         assert stage.parallel_safe is True
 
-    @patch("variantcentrifuge.stages.output_stages.finalize_excel_file")
     @patch("variantcentrifuge.stages.output_stages.convert_to_excel")
-    def test_excel_uses_current_dataframe_over_variants_df(
-        self, mock_convert, mock_finalize, context
-    ):
+    def test_excel_uses_current_dataframe_over_variants_df(self, mock_convert, context):
         """Regression test for #80: Excel must use current_dataframe, not stale variants_df.
 
         variants_df is set once during dataframe_loading and misses columns
@@ -720,11 +720,8 @@ class TestExcelReportStage:
         assert "nephro_candidate_score" in passed_df.columns
         assert "ngs" in passed_df.columns
 
-    @patch("variantcentrifuge.stages.output_stages.finalize_excel_file")
     @patch("variantcentrifuge.stages.output_stages.convert_to_excel")
-    def test_excel_output_drops_raw_gt_columns_when_packed_gt_exists(
-        self, mock_convert, mock_finalize, context
-    ):
+    def test_excel_output_drops_raw_gt_columns_when_packed_gt_exists(self, mock_convert, context):
         """Final Excel DataFrame should not include raw GEN[N].GT columns by default."""
         context.vcf_samples = ["Sample1", "Sample2"]
         context.current_dataframe = pd.DataFrame(
@@ -752,7 +749,6 @@ class TestExcelReportStage:
         passed_df = mock_convert.call_args.kwargs.get("df")
         assert passed_df is not None
         assert list(passed_df.columns) == ["CHROM", "POS", "GT"]
-        mock_finalize.assert_called_once()
 
 
 class TestHTMLReportStage:

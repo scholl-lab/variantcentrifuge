@@ -89,23 +89,39 @@ docker pull ghcr.io/scholl-lab/variantcentrifuge:latest
 docker run --rm ghcr.io/scholl-lab/variantcentrifuge:latest --version
 ```
 
-Place your VCF files in a local directory and mount it into the container. Use a named volume at
-`/data/snpeff` so downloaded SnpEff genome databases persist between runs:
+Place your VCF files in a local directory and mount it into the container. Mount a local directory
+at `/data/snpeff` so downloaded SnpEff genome databases persist between runs:
 
 ```bash
-docker volume create snpeff_data
+mkdir -p ./data ./snpeff_data
 docker run --rm \
+  --user "$(id -u):$(id -g)" \
   -v ./data:/data \
-  -v snpeff_data:/data/snpeff \
+  -v ./snpeff_data:/data/snpeff \
   ghcr.io/scholl-lab/variantcentrifuge:latest \
   --gene-name BRCA1 \
   --vcf-file /data/input.vcf.gz \
   --output-file /data/output.tsv
 ```
 
+You can also mount dedicated input and output directories as child mounts under `/data`:
+
+```bash
+mkdir -p ./input ./output ./snpeff_data
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -v ./input:/data/input:ro \
+  -v ./output:/data/output \
+  -v ./snpeff_data:/data/snpeff \
+  ghcr.io/scholl-lab/variantcentrifuge:latest \
+  --gene-name BRCA1 \
+  --vcf-file /data/input/input.vcf.gz \
+  --output-file /data/output/output.tsv
+```
+
 Keep the SnpEff database mount writable for the first download of each required genome. After the
-volume is fully populated with every genome the workflow will use, it may optionally be mounted
-read-only as `snpeff_data:/data/snpeff:ro`. A read-only cache cannot download a missing genome.
+directory is fully populated with every genome the workflow will use, it may optionally be mounted
+read-only as `./snpeff_data:/data/snpeff:ro`. A read-only cache cannot download a missing genome.
 
 A `docker-compose.yml` is included in the repository for convenience:
 
@@ -113,21 +129,20 @@ A `docker-compose.yml` is included in the repository for convenience:
 services:
   variantcentrifuge:
     image: ghcr.io/scholl-lab/variantcentrifuge:latest
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     volumes:
       - ./data:/data
       # Writable for the first download; persist and reuse SnpEff databases
-      - snpeff_data:/data/snpeff
+      - ./snpeff_data:/data/snpeff
       # Optional only after every required genome is fully populated:
-      # - snpeff_data:/data/snpeff:ro
+      # - ./snpeff_data:/data/snpeff:ro
       # Override built-in scoring configs
       # - ./my_scoring:/app/scoring:ro
-
-volumes:
-  snpeff_data:
 ```
 
 ```bash
-docker compose run --rm variantcentrifuge \
+mkdir -p ./data ./snpeff_data
+HOST_UID="$(id -u)" HOST_GID="$(id -g)" docker compose run --rm variantcentrifuge \
   --gene-name BRCA1 --vcf-file /data/input.vcf.gz --output-file /data/output.tsv
 ```
 
@@ -152,6 +167,62 @@ Each container workflow run produces two complementary vulnerability reports:
 This remediation does not use a `.trivyignore` file or dismiss code-scanning alerts. Vendor-unfixed
 findings remain visible in the complete JSON audit and become actionable automatically when vendor
 data identifies a fixed version.
+
+### Method 5: Apptainer / Singularity (HPC Execution)
+
+In high-performance computing (HPC) environments where root access and Docker daemons are unavailable, Apptainer (formerly Singularity) executes the container image directly without elevated privileges.
+
+#### Running Directly from GitHub Container Registry
+
+Prefer `apptainer run` over `apptainer exec`. `apptainer run` executes the container's entrypoint script (`/usr/local/bin/_entrypoint.sh`), activating the Conda/Micromamba environment containing `bcftools`, `snpEff`, `SnpSift`, and `bedtools`:
+
+```bash
+# Verify version using apptainer run
+apptainer run docker://ghcr.io/scholl-lab/variantcentrifuge:latest --version
+```
+
+For production workflows and strict reproducibility, pin the image by its immutable SHA-256 digest:
+
+```bash
+# Look up the immutable digest for a release tag
+docker buildx imagetools inspect ghcr.io/scholl-lab/variantcentrifuge:v0.16.0
+
+# Execute with immutable digest pinning
+apptainer run \
+  docker://ghcr.io/scholl-lab/variantcentrifuge@sha256:<digest> \
+  --version
+```
+
+Alternatively, build a reusable Singularity Image File (`.sif`):
+
+```bash
+apptainer build variantcentrifuge.sif docker://ghcr.io/scholl-lab/variantcentrifuge:latest
+```
+
+If using `apptainer exec` instead of `apptainer run`, invoke the activation entrypoint explicitly so environmental bioinformatics tools are in `PATH`:
+
+```bash
+apptainer exec variantcentrifuge.sif /usr/local/bin/_entrypoint.sh variantcentrifuge --version
+```
+
+#### Filesystem Binds and SnpEff Storage
+
+Map local data into the container with `-B /path/to/data:/data`. Provide a persistent, writable host directory mounted to `/data/snpeff` so downloaded SnpEff genome databases persist between job runs:
+
+```bash
+mkdir -p /path/to/snpeff_cache
+
+apptainer run \
+  -B /path/to/data:/data \
+  -B /path/to/snpeff_cache:/data/snpeff \
+  docker://ghcr.io/scholl-lab/variantcentrifuge:latest \
+    --gene-name BRCA1 \
+    --vcf-file /data/input.vcf.gz \
+    --output-file /data/output.tsv
+```
+
+> [!NOTE]
+> The host directory bound to `/data/snpeff` must be writable during the first run for each required genome database so SnpEff can download and unpack reference annotations. Once populated, it may optionally be mounted read-only as `-B /path/to/snpeff_cache:/data/snpeff:ro`.
 
 ## Verification
 

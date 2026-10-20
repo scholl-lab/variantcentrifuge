@@ -46,7 +46,10 @@ make ci-check      # local lint, LOC, format, type, and fast-test gate
 make format        # apply Ruff formatting and safe lint fixes
 ```
 
-Use `uv pip install -e ".[dev]"` for a development install. Add or change
+Use `make install-dev` for a development install. In a fresh git worktree,
+run `make build-ext` (the `make test*` targets do it for you): the Davies C
+extension is untracked, and without it SKAT/COAST p-values silently fall back
+to Liu and golden tests fail. Add or change
 dependencies in `pyproject.toml`; do not hand-edit generated environment state.
 
 ## Safety and working rules
@@ -60,8 +63,10 @@ dependencies in `pyproject.toml`; do not hand-edit generated environment state.
   approval.
 - Inspect `git status` and the relevant tests before editing. Use an isolated
   worktree for multi-file feature work when practical.
-- Add regression coverage for changed behavior. Keep unit tests deterministic;
-  integration tests must isolate or mock external bioinformatics tools.
+- Add regression and edge-case coverage for changed behavior, and improve test
+  coverage on every touched module toward the **>90% coverage target**. Keep
+  unit tests deterministic; integration tests must isolate or mock external
+  bioinformatics tools.
 - Keep new tests under the existing `tests/` structure; do not create a second
   test root.
 
@@ -80,6 +85,23 @@ dependencies in `pyproject.toml`; do not hand-edit generated environment state.
 - Keep documentation source in `docs/source/`; do not edit generated
   `docs/build/` output.
 
+## Code quality and coverage policy (>90% target)
+
+Every change must improve both the code quality and test coverage of the modules
+it touches:
+
+- **Strive for >90% code coverage:** Aim for `>90%` coverage across the
+  repository and enforce `>90%` coverage on all new modules, refactored splits,
+  and modified functions/branches.
+- **Ratchet quality on touched code:** When modifying a module, resolve nearby
+  type gaps (`mypy --disallow-untyped-defs`), dead code, silent exception
+  swallowing, or untested error/edge paths within the touched responsibility.
+- **Test real behavior, not mocks:** Write deterministic unit tests covering
+  normal execution, boundary inputs, and failure modes. Inspect uncovered lines
+  with `pytest --cov=variantcentrifuge --cov-report=term-missing --cov-fail-under=0`.
+- **Never lower the coverage floor:** `[tool.coverage.report] fail_under` in
+  `pyproject.toml` is a minimum ratchet that may only move upward toward `90%+`.
+
 ## 600-line production-module policy
 
 Production Python modules under `variantcentrifuge/` have a hard 600 physical
@@ -97,6 +119,8 @@ line budget. Tests are exempt.
 
 ## Definition of done
 
-Before claiming a code change is ready, run the narrowest relevant test and
-then `make ci-check` when feasible. Inspect `git diff --check` and `git status
+Before claiming a code change is ready, run the narrowest relevant test with
+coverage (`--cov=variantcentrifuge --cov-report=term-missing --cov-fail-under=0`) to verify the
+touched module is thoroughly covered (striving for `>90%`), and then run
+`make ci-check` when feasible. Inspect `git diff --check` and `git status
 --short`. Report any checks you could not run and why.

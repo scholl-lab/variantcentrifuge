@@ -82,8 +82,8 @@ def test_full_data_flow_simulation():
     assert "GT" in output_df.columns
     # Row 0: Sample1=0/1, Sample2=1/1 (skip Sample3=0/0)
     assert output_df["GT"].iloc[0] == "Sample1(0/1);Sample2(1/1)"
-    # Row 1: Sample1=1/1, Sample2=0/1 (skip Sample3=./.)
-    assert output_df["GT"].iloc[1] == "Sample1(1/1);Sample2(0/1)"
+    # Row 1: Sample1=1/1, Sample2=0/1, Sample3=./. (preserve missing GT)
+    assert output_df["GT"].iloc[1] == "Sample1(1/1);Sample2(0/1);Sample3(./.)"
     # Row 2: Sample1=0/0 (skip), Sample2=0/1, Sample3=1/1
     assert output_df["GT"].iloc[2] == "Sample2(0/1);Sample3(1/1)"
 

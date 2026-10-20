@@ -130,6 +130,62 @@ class TestPipelineContext:
             assert context.is_complete(f"stage_{i}")
             assert context.get_result(f"stage_{i}") == i
 
+    def test_post_init_lock_initialization(self, mock_args, mock_workspace):
+        """Test that __post_init__ ensures _lock is initialized."""
+        ctx = PipelineContext(args=mock_args, config={}, workspace=mock_workspace)
+        assert hasattr(ctx, "_lock")
+        assert ctx._lock is not None
+
+        # Re-trigger __post_init__
+        ctx._lock = None  # type: ignore[assignment]
+        ctx.__post_init__()
+        assert ctx._lock is not None
+
+    def test_merge_from_report_paths_condition(self, context, mock_args, mock_workspace):
+        """Test merging report paths when self is empty vs when self already has paths."""
+        other = PipelineContext(args=mock_args, config={}, workspace=mock_workspace)
+        other.add_report_path("html", Path("/tmp/report.html"))
+        other.add_report_path("excel", Path("/tmp/report.xlsx"))
+
+        # Case 1: self.report_paths is empty -> should receive all from other
+        assert len(context.report_paths) == 0
+        context.merge_from(other)
+        assert context.report_paths == {
+            "html": Path("/tmp/report.html"),
+            "excel": Path("/tmp/report.xlsx"),
+        }
+
+        # Case 2: self.report_paths already has entries -> should update without losing existing
+        third = PipelineContext(args=mock_args, config={}, workspace=mock_workspace)
+        third.add_report_path("igv", Path("/tmp/igv.html"))
+        context.merge_from(third)
+        assert context.report_paths == {
+            "html": Path("/tmp/report.html"),
+            "excel": Path("/tmp/report.xlsx"),
+            "igv": Path("/tmp/igv.html"),
+        }
+
+    def test_merge_from_thread_safety(self, context, mock_args, mock_workspace):
+        """Test thread-safe merge_from execution."""
+        import threading
+
+        others = []
+        for i in range(5):
+            o = PipelineContext(args=mock_args, config={}, workspace=mock_workspace)
+            for j in range(20):
+                o.mark_complete(f"worker_{i}_stage_{j}", result=j)
+            o.add_report_path(f"report_{i}", Path(f"/tmp/report_{i}.tsv"))
+            others.append(o)
+
+        threads = [threading.Thread(target=context.merge_from, args=(o,)) for o in others]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(context.completed_stages) == 100
+        assert len(context.report_paths) == 5
+
     def test_repr(self, context):
         """Test string representation."""
         repr_str = repr(context)
@@ -142,3 +198,17 @@ class TestPipelineContext:
         repr_str = repr(context)
         assert "stages_completed=1" in repr_str
         assert "has_data=True" in repr_str
+
+    def test_merge_from_preserves_stage_durations(self, mock_args, mock_workspace):
+        """PipelineContext.merge_from must preserve stage_durations from other context."""
+        ctx1 = PipelineContext(args=mock_args, config={}, workspace=mock_workspace)
+        ctx2 = PipelineContext(args=mock_args, config={}, workspace=mock_workspace)
+
+        ctx1.stage_durations["stage_a"] = 1.5
+        ctx2.stage_durations["stage_b"] = 2.5
+        ctx2.completed_stages.add("stage_b")
+
+        ctx1.merge_from(ctx2)
+        assert ctx1.stage_durations["stage_a"] == 1.5
+        assert ctx1.stage_durations["stage_b"] == 2.5
+        assert "stage_b" in ctx1.completed_stages

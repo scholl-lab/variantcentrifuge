@@ -549,3 +549,237 @@ class TestFisherEdgeCases:
         assert result.n_cases == 75
         assert result.n_controls == 150
         assert result.n_variants == 4
+
+
+# ---------------------------------------------------------------------------
+# Issue #142 Regression Tests: Align zero-cell Fisher OR with corrected CIs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestZeroCellFisherOddsRatioAlignment:
+    """Regression tests for Haldane-Anscombe corrected zero-cell OR (issue #142)."""
+
+    def test_zero_cell_produces_corrected_or_and_ci(self):
+        """Table [[12, 0], [12, 24]] produces OR=49 and CI ~ [2.6756, 897.3590] in both modes."""
+        import pandas as pd
+
+        from variantcentrifuge.gene_burden import perform_gene_burden_analysis
+
+        # 1. FisherExactTest
+        config = AssociationConfig(gene_burden_mode="samples", continuity_correction=0.5)
+        gene_data = {
+            "GENE": "TEST_GENE",
+            "proband_count": 24,
+            "control_count": 24,
+            "proband_carrier_count": 12,
+            "control_carrier_count": 0,
+            "n_qualifying_variants": 1,
+        }
+        fisher = FisherExactTest()
+        result = fisher.run("TEST_GENE", gene_data, config)
+
+        assert result.effect_size is not None
+        np.testing.assert_allclose(result.effect_size, 49.0, rtol=1e-5)
+        assert result.ci_lower is not None and result.ci_upper is not None
+        np.testing.assert_allclose(result.ci_lower, 2.6756293154, rtol=1e-5)
+        np.testing.assert_allclose(result.ci_upper, 897.3589824941, rtol=1e-5)
+
+        # Fisher p-value must be exact scipy p-value on original table
+        _, p_scipy = fisher_exact([[12, 0], [12, 24]])
+        assert result.p_value is not None
+        np.testing.assert_allclose(result.p_value, p_scipy, rtol=1e-6)
+
+        # 2. perform_gene_burden_analysis
+        data = [
+            {
+                "GENE": "TEST_GENE",
+                "proband_count": 24,
+                "control_count": 24,
+                "proband_variant_count": 12,
+                "control_variant_count": 0,
+                "proband_allele_count": 12,
+                "control_allele_count": 0,
+                "n_qualifying_variants": 1,
+            }
+        ]
+        res_df = perform_gene_burden_analysis(
+            pd.DataFrame(data), cfg={"gene_burden_mode": "samples", "continuity_correction": 0.5}
+        )
+        legacy_row = res_df.iloc[0]
+        np.testing.assert_allclose(legacy_row["odds_ratio"], 49.0, rtol=1e-5)
+        np.testing.assert_allclose(legacy_row["or_ci_lower"], 2.6756293154, rtol=1e-5)
+        np.testing.assert_allclose(legacy_row["or_ci_upper"], 897.3589824941, rtol=1e-5)
+        np.testing.assert_allclose(legacy_row["raw_p_value"], p_scipy, rtol=1e-6)
+
+    def test_swapped_case_control_reciprocal_bounds(self):
+        """Swapping case/control columns produces OR=1/49 and reciprocal CI bounds."""
+        import pandas as pd
+
+        from variantcentrifuge.gene_burden import perform_gene_burden_analysis
+
+        config = AssociationConfig(gene_burden_mode="samples", continuity_correction=0.5)
+        gene_data = {
+            "GENE": "TEST_SWAP",
+            "proband_count": 24,
+            "control_count": 24,
+            "proband_carrier_count": 0,
+            "control_carrier_count": 12,
+            "n_qualifying_variants": 1,
+        }
+        fisher = FisherExactTest()
+        result = fisher.run("TEST_SWAP", gene_data, config)
+
+        assert result.effect_size is not None
+        np.testing.assert_allclose(result.effect_size, 1.0 / 49.0, rtol=1e-5)
+        assert result.ci_lower is not None and result.ci_upper is not None
+        np.testing.assert_allclose(result.ci_lower, 1.0 / 897.3589824941, rtol=1e-5)
+        np.testing.assert_allclose(result.ci_upper, 1.0 / 2.6756293154, rtol=1e-5)
+
+        # Legacy perform_gene_burden_analysis
+        data = [
+            {
+                "GENE": "TEST_SWAP",
+                "proband_count": 24,
+                "control_count": 24,
+                "proband_variant_count": 0,
+                "control_variant_count": 12,
+                "proband_allele_count": 0,
+                "control_allele_count": 12,
+                "n_qualifying_variants": 1,
+            }
+        ]
+        res_df = perform_gene_burden_analysis(
+            pd.DataFrame(data), cfg={"gene_burden_mode": "samples", "continuity_correction": 0.5}
+        )
+        legacy_row = res_df.iloc[0]
+        np.testing.assert_allclose(legacy_row["odds_ratio"], 1.0 / 49.0, rtol=1e-5)
+        np.testing.assert_allclose(legacy_row["or_ci_lower"], 1.0 / 897.3589824941, rtol=1e-5)
+        np.testing.assert_allclose(legacy_row["or_ci_upper"], 1.0 / 2.6756293154, rtol=1e-5)
+
+    def test_nonzero_cell_estimates_and_structural_zeros_preserved(self):
+        """Nonzero-cell estimates match scipy and structural-zero behavior remains NaN/None."""
+        config = AssociationConfig(gene_burden_mode="samples", continuity_correction=0.5)
+        # Nonzero table [[10, 5], [20, 30]]
+        gene_data = {
+            "GENE": "TEST_NONZERO",
+            "proband_count": 30,
+            "control_count": 35,
+            "proband_carrier_count": 10,
+            "control_carrier_count": 5,
+            "n_qualifying_variants": 1,
+        }
+        fisher = FisherExactTest()
+        res = fisher.run("TEST_NONZERO", gene_data, config)
+        or_scipy, p_scipy = fisher_exact([[10, 5], [20, 30]])
+        assert res.effect_size is not None
+        np.testing.assert_allclose(res.effect_size, or_scipy, rtol=1e-5)
+        assert res.p_value is not None
+        np.testing.assert_allclose(res.p_value, p_scipy, rtol=1e-5)
+
+        # Structural zero table [[0, 0], [10, 10]]
+        gene_data_sz = {
+            "GENE": "TEST_SZ",
+            "proband_count": 10,
+            "control_count": 10,
+            "proband_carrier_count": 0,
+            "control_carrier_count": 0,
+            "n_qualifying_variants": 1,
+        }
+        res_sz = fisher.run("TEST_SZ", gene_data_sz, config)
+        assert res_sz.effect_size is None or np.isnan(res_sz.effect_size)
+        assert res_sz.ci_lower is None or np.isnan(res_sz.ci_lower)
+
+    def test_alleles_mode_applies_correction_consistently(self):
+        """Alleles mode applies continuity correction consistently to estimate and CI."""
+        import pandas as pd
+
+        from variantcentrifuge.gene_burden import perform_gene_burden_analysis
+
+        config = AssociationConfig(gene_burden_mode="alleles", continuity_correction=0.5)
+        gene_data = {
+            "GENE": "TEST_ALLELES",
+            "proband_count": 12,
+            "control_count": 12,
+            "proband_carrier_count": 12,
+            "control_carrier_count": 0,
+            "proband_allele_count": 12,
+            "control_allele_count": 0,
+            "n_qualifying_variants": 1,
+        }
+        fisher = FisherExactTest()
+        res = fisher.run("TEST_ALLELES", gene_data, config)
+        # table: [[12, 0], [24 - 12, 24 - 0]] = [[12, 0], [12, 24]]
+        assert res.effect_size is not None
+        np.testing.assert_allclose(res.effect_size, 49.0, rtol=1e-5)
+        assert res.ci_lower is not None
+        np.testing.assert_allclose(res.ci_lower, 2.6756293154, rtol=1e-5)
+
+        # Legacy perform_gene_burden_analysis in alleles mode
+        legacy_data = {
+            "GENE": "TEST_ALLELES",
+            "proband_count": 12,
+            "control_count": 12,
+            "proband_variant_count": 12,
+            "control_variant_count": 0,
+            "proband_allele_count": 12,
+            "control_allele_count": 0,
+        }
+        res_df = perform_gene_burden_analysis(
+            pd.DataFrame([legacy_data]),
+            cfg={"gene_burden_mode": "alleles", "continuity_correction": 0.5},
+        )
+        row = res_df.iloc[0]
+        np.testing.assert_allclose(row["odds_ratio"], 49.0, rtol=1e-5)
+        np.testing.assert_allclose(row["or_ci_lower"], 2.6756293154, rtol=1e-5)
+
+    def test_non_default_continuity_correction_alignment(self):
+        """Non-default continuity correction (0.25) aligns OR and CI in Fisher and gene_burden."""
+        import pandas as pd
+        from statsmodels.stats.contingency_tables import Table2x2
+
+        from variantcentrifuge.gene_burden import perform_gene_burden_analysis
+
+        # table: [[12, 0], [12, 24]] + 0.25 -> [[12.25, 0.25], [12.25, 24.25]]
+        expected_table = np.array([[12.25, 0.25], [12.25, 24.25]], dtype=float)
+        cont = Table2x2(expected_table)
+        expected_or = float(cont.oddsratio)
+        expected_ci_lower, expected_ci_upper = cont.oddsratio_confint(alpha=0.05, method="normal")
+
+        config = AssociationConfig(gene_burden_mode="alleles", continuity_correction=0.25)
+        gene_data = {
+            "GENE": "TEST_025",
+            "proband_count": 12,
+            "control_count": 12,
+            "proband_carrier_count": 12,
+            "control_carrier_count": 0,
+            "proband_allele_count": 12,
+            "control_allele_count": 0,
+            "n_qualifying_variants": 1,
+        }
+        fisher = FisherExactTest()
+        res = fisher.run("TEST_025", gene_data, config)
+        assert res.effect_size is not None
+        np.testing.assert_allclose(res.effect_size, expected_or, rtol=1e-5)
+        assert res.ci_lower is not None
+        np.testing.assert_allclose(res.ci_lower, expected_ci_lower, rtol=1e-5)
+        assert res.ci_upper is not None
+        np.testing.assert_allclose(res.ci_upper, expected_ci_upper, rtol=1e-5)
+
+        legacy_data = {
+            "GENE": "TEST_025",
+            "proband_count": 12,
+            "control_count": 12,
+            "proband_variant_count": 12,
+            "control_variant_count": 0,
+            "proband_allele_count": 12,
+            "control_allele_count": 0,
+        }
+        res_df = perform_gene_burden_analysis(
+            pd.DataFrame([legacy_data]),
+            cfg={"gene_burden_mode": "alleles", "continuity_correction": 0.25},
+        )
+        row = res_df.iloc[0]
+        np.testing.assert_allclose(row["odds_ratio"], expected_or, rtol=1e-5)
+        np.testing.assert_allclose(row["or_ci_lower"], expected_ci_lower, rtol=1e-5)
+        np.testing.assert_allclose(row["or_ci_upper"], expected_ci_upper, rtol=1e-5)

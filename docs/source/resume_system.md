@@ -68,6 +68,24 @@ with AtomicFileOperation('/path/to/final/output.tsv') as temp_path:
     # File is atomically moved to final location on success
 ```
 
+### Provenance and Run Summary (`run_summary.json`)
+
+Upon pipeline completion, VariantCentrifuge atomically emits a run provenance manifest at `<output-dir>/run_summary.json`. This machine-readable JSON document records complete execution metadata for reproducibility and auditing:
+
+- **Schema Version**: Conforms to schema version `1.0.0`.
+- **Execution Metadata**: Pipeline version, start and end timestamps, total duration in seconds, and final status.
+- **Environment & Tool Versions**: Versions of `variantcentrifuge`, Python runtime, and external tools (`bcftools`, `snpEff`, `SnpSift`, `bedtools`).
+- **Configuration**: Resolved run configuration parameters.
+- **Stage Performance & Status**: Execution status, elapsed time, and start/finish timestamps for each pipeline stage.
+- **Filtering Tier Counts (`tier_counts`)**: Records variant and entity metrics across filtering steps:
+  - `samples`: count of samples analyzed
+  - `extracted_variants`: row count from initial variant extraction
+  - `pre_final_filter_variants`: variant count before final filtering
+  - `final_variants`: final variant count in output
+  - `final_genes` (and `unique_genes`): count of unique genes
+  - `impact_tiers`: variant counts by SnpEff impact (`HIGH`, `MODERATE`, `LOW`, `MODIFIER`)
+- **Input & Output File Manifest**: Detailed manifest of input and output files including file size in bytes and stored-byte SHA-256 checksums (computed directly on raw bytes on disk without decompression).
+
 ## Configuration
 
 ### Enabling Checkpoints

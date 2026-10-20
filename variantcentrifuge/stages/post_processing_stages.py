@@ -103,50 +103,36 @@ class PhenotypeIntegrationStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
-        # These stages should run before if they exist in the pipeline
         return {
+            "sample_config_loading",
+            "phenotype_case_control_assignment",
             "field_extraction",
             "parallel_complete_processing",
+            "data_sorting",
             "genotype_replacement",
             "phenotype_loading",
         }
 
     def _has_genotype_replacement(self, context: PipelineContext) -> bool:
         """Check if genotype replacement is enabled."""
-        # Check if genotype replacement is not disabled and GT field is present
         if context.config.get("no_replacement", False):
             return False
-
-        # Check if genotype_replaced_tsv exists in context
         return (
             hasattr(context, "genotype_replaced_tsv") and context.genotype_replaced_tsv is not None
         )
 
     def _has_phenotype_data(self, context: PipelineContext) -> bool:
         """Check if phenotype data is available."""
-        # Check if phenotypes were loaded
-        if not hasattr(context, "phenotype_data") or context.phenotype_data is None:
-            return False
-
-        # Check if phenotypes dict is populated
-        return bool(context.phenotype_data)
+        return bool(getattr(context, "phenotype_data", None))
 
     def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
-        """Handle the case where this stage is skipped by checkpoint system.
-
-        When this stage is skipped, we need to restore the context paths
-        so that subsequent stages can find the phenotypes_added_tsv file.
-        """
-        # Reconstruct the expected output path
+        """Restore phenotypes_added_tsv path when stage is skipped by checkpoint."""
         output_tsv = context.workspace.get_intermediate_path(
             f"{context.workspace.base_name}.phenotypes_added.tsv"
         )
-
-        # Handle gzip compression
         if context.config.get("gzip_intermediates"):
             output_tsv = Path(str(output_tsv) + ".gz")
 
-        # Check if the file exists and restore context
         if output_tsv.exists():
             context.phenotypes_added_tsv = output_tsv
             context.data = output_tsv
@@ -158,7 +144,6 @@ class PhenotypeIntegrationStage(Stage):
                 "Cannot restore phenotype_integration from checkpoint: "
                 f"expected TSV missing: {output_tsv}"
             )
-
         return context
 
     def _process(self, context: PipelineContext) -> PipelineContext:
@@ -167,7 +152,6 @@ class PhenotypeIntegrationStage(Stage):
             logger.debug("No phenotype data to integrate")
             return context
 
-        # Determine input file - use genotype_replaced if available, otherwise extracted
         if hasattr(context, "genotype_replaced_tsv") and context.genotype_replaced_tsv:
             input_tsv = context.genotype_replaced_tsv
         elif hasattr(context, "extracted_tsv") and context.extracted_tsv:
@@ -177,25 +161,25 @@ class PhenotypeIntegrationStage(Stage):
         output_tsv = context.workspace.get_intermediate_path(
             f"{context.workspace.base_name}.phenotypes_added.tsv"
         )
-
-        # Handle gzip compression
         if context.config.get("gzip_intermediates"):
             output_tsv = Path(str(output_tsv) + ".gz")
 
         logger.info(f"Adding phenotype data for {len(context.vcf_samples)} samples")
 
-        # Read input TSV
         compression = "gzip" if str(input_tsv).endswith(".gz") else None
         df = pd.read_csv(input_tsv, sep="\t", dtype=str, compression=cast(Any, compression))
 
-        # Phase 11: Check for per-sample columns (bcftools output) vs packed GT column
-        # Per-sample columns are sample IDs directly (from context.vcf_samples)
-        has_sample_columns = context.vcf_samples and all(
-            sample in df.columns for sample in context.vcf_samples
+        has_sample_columns = bool(context.vcf_samples) and (
+            all(sample in df.columns for sample in context.vcf_samples)
+            or any(
+                f"GEN[{i}].GT" in df.columns or f"GEN_{i}__GT" in df.columns
+                for i in range(len(context.vcf_samples))
+            )
         )
 
-        if has_sample_columns:
-            # Phase 11: Use per-sample columns directly
+        if df.empty is True and (has_sample_columns or "GT" in df.columns):
+            df["Phenotypes"] = pd.Series(dtype=str)
+        elif has_sample_columns:
             logger.debug("Using per-sample GT columns for phenotype extraction")
             df["Phenotypes"] = df.apply(  # type: ignore[call-overload]
                 lambda row: extract_phenotypes_from_sample_columns(
@@ -204,7 +188,6 @@ class PhenotypeIntegrationStage(Stage):
                 axis=1,
             )
         elif "GT" in df.columns:
-            # Backwards compatibility: Use packed GT column (from genotype replacement)
             logger.debug("Using packed GT column for phenotype extraction (legacy mode)")
             phenotype_data: dict[str, set[str]] = context.phenotype_data or {}
             df["Phenotypes"] = df["GT"].apply(
@@ -319,17 +302,28 @@ class DataSortingStage(Stage):
             logger.warning("No extracted TSV found for sorting")
             return context
 
-        # Check if sorting is needed and if gene column exists
-        gene_column = context.config.get("gene_column_name", "GENE")
-
-        # First check if gene column exists in the TSV
+        # Check if sorting is needed and resolve gene column
+        gene_col_cfg = context.config.get("gene_column_name")
         has_gene_column = False
+        gene_column = "GENE"
+
         try:
             with _ps_mod.smart_open(str(context.extracted_tsv), "r") as f:
                 header = f.readline().strip()
                 if header:
                     columns = header.split("\t")
-                    has_gene_column = gene_column in columns
+                    if gene_col_cfg and gene_col_cfg != "GENE":
+                        gene_column = gene_col_cfg
+                        has_gene_column = gene_column in columns
+                    elif "GENE" in columns:
+                        gene_column = "GENE"
+                        has_gene_column = True
+                    elif "ANN[0].GENE" in columns:
+                        gene_column = "ANN[0].GENE"
+                        has_gene_column = True
+                    elif "ANN_0__GENE" in columns:
+                        gene_column = "ANN_0__GENE"
+                        has_gene_column = True
         except Exception as e:
             logger.warning(f"Could not read header from {context.extracted_tsv}: {e}")
             return context
@@ -413,71 +407,43 @@ class DataSortingStage(Stage):
 
         # Build sort arguments with memory efficiency options
         sort_args = [
-            f"-k{gene_col_idx},{gene_col_idx}",  # Sort by gene column
-            f"--buffer-size={memory_limit}",  # Memory limit
-            f"--parallel={parallel}",  # Parallel threads
-            "--stable",  # Stable sort for consistent results
-            f"--compress-program={shlex.quote(gzip_bin)}",  # Use gzip for temp files
+            f"-k{gene_col_idx},{gene_col_idx}",
+            f"--buffer-size={memory_limit}",
+            f"--parallel={parallel}",
+            "--stable",
+            f"--compress-program={gzip_bin}",
         ]
-
         if temp_dir:
             sort_args.extend(["-T", temp_dir])
 
-        sort_cmd = " ".join(sort_args)
-
-        safe_input = shlex.quote(input_file)
-        safe_output = shlex.quote(output_file)
+        sort_cmd = shlex.join(sort_args)
+        safe_input, safe_output = shlex.quote(input_file), shlex.quote(output_file)
+        safe_gzip, safe_sort, safe_tail = (
+            shlex.quote(gzip_bin),
+            shlex.quote(sort_bin),
+            shlex.quote(tail_bin),
+        )
 
         # Build the complete command based on compression
         if input_file.endswith(".gz"):
-            if output_file.endswith(".gz"):
-                # Both gzipped
-                cmd = (
-                    f"{gzip_bin} -cd {safe_input} | "
-                    f'{{ IFS= read -r header; echo "$header"; '
-                    f"{sort_bin} {sort_cmd} -t$'\\t'; }} | "
-                    f"{gzip_bin} -c > {safe_output}"
-                )
-            else:
-                # Input gzipped, output not
-                cmd = (
-                    f"{gzip_bin} -cd {safe_input} | "
-                    f"{{ IFS= read -r header; echo \"$header\"; {sort_bin} {sort_cmd} -t$'\\t'; }} "
-                    f"> {safe_output}"
-                )
+            pipe_in = (
+                f"{safe_gzip} -cd {safe_input} | "
+                f"{{ IFS= read -r header; echo \"$header\"; {safe_sort} {sort_cmd} -t$'\\t'; }}"
+            )
         else:
-            if output_file.endswith(".gz"):
-                # Input not gzipped, output gzipped
-                cmd = (
-                    f'{{ IFS= read -r header < {safe_input}; echo "$header"; '
-                    f"{tail_bin} -n +2 {safe_input} | {sort_bin} {sort_cmd} -t$'\\t'; }} | "
-                    f"{gzip_bin} -c > {safe_output}"
-                )
-            else:
-                # Neither gzipped
-                cmd = (
-                    f'{{ IFS= read -r header < {safe_input}; echo "$header"; '
-                    f"{tail_bin} -n +2 {safe_input} | {sort_bin} {sort_cmd} -t$'\\t'; }} "
-                    f"> {safe_output}"
-                )
+            pipe_in = (
+                f'{{ IFS= read -r header < {safe_input}; echo "$header"; '
+                f"{safe_tail} -n +2 {safe_input} | {safe_sort} {sort_cmd} -t$'\\t'; }}"
+            )
 
-        # Execute the command
-        logger.debug(f"Running sort command: {cmd}")
-
-        # Find bash executable
-        bash_candidate = shutil.which("bash") or "/bin/bash"
-        bash_path: str | None = bash_candidate if os.path.exists(bash_candidate) else None
-        if bash_path is None:
-            logger.warning(f"bash not found at {bash_candidate}, falling back to shell default")
-
-        # Execute command
-        result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, executable=bash_path
+        cmd = (
+            f"{pipe_in} | {safe_gzip} -c > {safe_output}"
+            if output_file.endswith(".gz")
+            else f"{pipe_in} > {safe_output}"
         )
 
-        if result.returncode != 0:
-            logger.error(f"Sort command failed: {result.stderr}")
-            raise RuntimeError(f"Failed to sort TSV file: {result.stderr}")
+        if not self._external_sort(cmd, output_file):
+            raise RuntimeError("Failed to sort TSV file: command exited non-zero")
 
         # Verify output file was created
         if not os.path.exists(output_file):
@@ -485,12 +451,35 @@ class DataSortingStage(Stage):
 
         # Check if output file has content
         with _ps_mod.smart_open(output_file, "r") as f:
-            first_line = f.readline()
-            if not first_line:
+            if not f.readline():
                 raise RuntimeError(f"Output file '{output_file}' is empty")
 
         logger.info("Successfully sorted TSV file by gene column")
         return output_file
+
+    def _external_sort(self, cmd: str, output_file: str) -> bool:
+        """Run external sort command with pipefail and clean up on failure."""
+        bash_path: str | None = shutil.which("bash") or "/bin/bash"
+        if bash_path and not os.path.exists(bash_path):
+            bash_path = None
+        full_cmd = f"set -o pipefail; {cmd}" if not cmd.startswith("set -o pipefail;") else cmd
+        try:
+            res = subprocess.run(
+                full_cmd, shell=True, capture_output=True, text=True, executable=bash_path
+            )
+            if res.returncode != 0:
+                logger.error(f"Sort command failed: {res.stderr}")
+                if os.path.exists(output_file):
+                    with contextlib.suppress(OSError):
+                        os.remove(output_file)
+                return False
+            return True
+        except Exception as e:
+            logger.error(f"External sort error: {e}")
+            if os.path.exists(output_file):
+                with contextlib.suppress(OSError):
+                    os.remove(output_file)
+            return False
 
     def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return the sorted TSV file."""

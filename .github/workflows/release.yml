@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  ci:
+    name: Full CI Gate
+    uses: ./.github/workflows/test.yml
+    permissions:
+      contents: read
+
+  validate:
+    name: Validate Release Metadata
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Verify dependency lockfile
+        run: uv lock --check
+
+      - name: Install dependencies
+        run: |
+          uv sync --locked --extra dev
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+
+      - name: Validate release tag and metadata sync
+        env:
+          TAG: ${{ github.ref_name }}
+        run: python scripts/check_version_sync.py --tag "$TAG"
+
+  build:
+    name: Build and Check Distribution Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Repair Linux wheel for PyPI compatibility
+        run: |
+          shopt -s nullglob
+          linux_wheels=(dist/*-linux_*.whl)
+          if [ "${#linux_wheels[@]}" -gt 0 ]; then
+            uvx auditwheel repair "${linux_wheels[@]}" -w dist/
+            rm -f "${linux_wheels[@]}"
+          fi
+          ! compgen -G "dist/*-linux_*.whl" > /dev/null
+
+      - name: Check distributions
+        run: uvx twine check dist/*
+
+      - name: Verify isolated installation of wheel
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          WHEEL=$(ls dist/*.whl | head -n 1)
+          python -m venv /tmp/isolated_env
+          /tmp/isolated_env/bin/pip install --upgrade pip
+          /tmp/isolated_env/bin/pip install "$WHEEL"
+          cd "${RUNNER_TEMP:-/tmp}"
+          /tmp/isolated_env/bin/python -I -c "import importlib.metadata as m, os, pathlib, variantcentrifuge as vc; v = m.version('variantcentrifuge'); assert vc.__version__ == v, (vc.__version__, v); p = pathlib.Path(vc.__file__).parent; assert 'site-packages' in p.parts, vc.__file__; assert (p / 'templates' / 'index.html').is_file() and list((p / 'assets' / 'js').glob('*.js')); exp = os.environ['TAG'].removeprefix('v'); assert not exp or vc.__version__ == exp, f'Version mismatch: got {vc.__version__}, expected {exp}'"
+
+      - name: Store built distribution artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist/
+          retention-days: 7
+
+  publish:
+    name: Publish Distribution to PyPI
+    needs: [ci, validate, build]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/variantcentrifuge
+    permissions:
+      id-token: write
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist/
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/

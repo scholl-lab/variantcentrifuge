@@ -2,6 +2,7 @@
 
 [![CI](https://img.shields.io/github/actions/workflow/status/scholl-lab/variantcentrifuge/test.yml?branch=main&label=CI)](https://github.com/scholl-lab/variantcentrifuge/actions/workflows/test.yml)
 [![Docker](https://img.shields.io/github/actions/workflow/status/scholl-lab/variantcentrifuge/docker.yml?branch=main&label=Docker)](https://github.com/scholl-lab/variantcentrifuge/actions/workflows/docker.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/scholl-lab/variantcentrifuge/python-coverage-comment-action-data/endpoint.json)](https://htmlpreview.github.io/?https://github.com/scholl-lab/variantcentrifuge/blob/python-coverage-comment-action-data/htmlcov/index.html)
 [![Docs](https://img.shields.io/github/actions/workflow/status/scholl-lab/variantcentrifuge/docs.yml?branch=main&label=Docs)](https://github.com/scholl-lab/variantcentrifuge/actions/workflows/docs.yml)
 [![Release](https://img.shields.io/github/v/release/scholl-lab/variantcentrifuge)](https://github.com/scholl-lab/variantcentrifuge/releases)
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.10-blue)](https://python.org)
@@ -106,7 +107,7 @@ or commit URL. For example, for the latest published release:
 > Popp, B. (2026). VariantCentrifuge (version 0.17.12) [Computer software].
 > https://github.com/scholl-lab/variantcentrifuge/releases/tag/v0.17.12
 
-The current development version is **0.17.16**, as recorded in
+The current development version is **0.18.0**, as recorded in
 `variantcentrifuge/version.py`, `CITATION.cff`, and [.zenodo.json](.zenodo.json).
 It has no release date yet; the latest published release is **v0.17.12**
 (2026-07-19). For a development checkout, include its full commit hash and URL

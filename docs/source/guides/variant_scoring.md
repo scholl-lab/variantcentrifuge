@@ -30,10 +30,23 @@ A scoring configuration consists of two JSON files in a directory:
 ```json
 {
   "variables": {
-    "VCF_COLUMN_NAME": "formula_variable|default:value"
+    "VCF_COLUMN_NAME": "formula_variable|default:value",
+    "REVEL_COLUMN": "revel|default:0.0|reduce:max",
+    "CUSTOM_FIELD": {
+      "target": "custom_var",
+      "default": 0.0,
+      "type": "numeric",
+      "reduce": "max"
+    }
   }
 }
 ```
+
+Variable mappings support both string and object syntax:
+- **Default value**: `default:value` (or `"default": value`) used when a column is missing or uncalled (`.` / empty).
+- **Type**: `type:numeric` or `type:categorical` (or `"type": "numeric"`). Categorical annotations such as `IMPACT` and `EFFECT` remain strings; numeric variables are parsed into floating-point numbers. Without `type:`, the type is decided in this order: boolean column dtype, known text column (`IMPACT`, `EFFECT`, `*_PRED`, ...), the default's type (`default:0.0` numeric, `default:''` categorical), otherwise numeric. If formulas use an untyped variable differently (e.g. `default:''` but `revel * 2`), scoring stops with an "ambiguous" error asking for an explicit `type:`.
+- **Reduction policy for multi-value lists**: Annotations with comma- or semicolon-delimited values (e.g. multi-transcript dbNSFP `REVEL_score`) can specify a reduction policy: `reduce:max` (or `min`, `mean`, `sum`, `first`, `last`). Missing tokens (`.`) are skipped; if all tokens are missing, the configured default is applied. Multi-value numeric strings without an explicit reduction policy raise an error to prevent silent data corruption.
+
 
 ### 2. Formula Configuration
 

@@ -49,6 +49,8 @@ class TestDataFrameLoadingStage:
 
     def test_basic_loading(self, base_context, tmp_path):
         """Test basic DataFrame loading from TSV."""
+        import pyarrow.csv as pv_csv
+
         # Create test file
         test_file = tmp_path / "test.tsv"
         test_file.write_text("col1\tcol2\tcol3\nval1\tval2\tval3\n")
@@ -57,7 +59,9 @@ class TestDataFrameLoadingStage:
         base_context.data = test_file
 
         stage = DataFrameLoadingStage()
-        result = stage._process(base_context)
+        with patch("pyarrow.csv.read_csv", wraps=pv_csv.read_csv) as spy_read_csv:
+            result = stage._process(base_context)
+            spy_read_csv.assert_called()
 
         assert result.current_dataframe is not None
         assert isinstance(result.current_dataframe, pd.DataFrame)
@@ -111,6 +115,24 @@ class TestDataFrameLoadingStage:
         assert result.config["use_chunked_processing"] is True
         assert result.current_dataframe is None
 
+    def test_dataframe_loading_skip_restores_dataframe_pyarrow(self, base_context, tmp_path):
+        """Checkpoint skip restores DataFrame using PyArrow engine."""
+        import pyarrow.csv as pv_csv
+
+        test_file = tmp_path / "restore.tsv"
+        test_file.write_text("col1\tcol2\nval1\tval2\n")
+
+        base_context.config = {"chunk_size": None}
+        base_context.data = test_file
+
+        stage = DataFrameLoadingStage()
+        with patch("pyarrow.csv.read_csv", wraps=pv_csv.read_csv) as spy_read_csv:
+            result = stage._handle_checkpoint_skip(base_context)
+            spy_read_csv.assert_called()
+
+        assert result.current_dataframe is not None
+        assert len(result.current_dataframe) == 1
+
     def test_dataframe_loading_skip_raises_when_no_tsv_available(self, base_context):
         """Restoring dataframe_loading requires an available TSV artifact."""
         base_context.data = None
@@ -120,11 +142,15 @@ class TestDataFrameLoadingStage:
 
     def test_chunked_analysis_skip_restores_dataframe_from_artifact(self, base_context, tmp_path):
         """Chunked analysis skip restores the DataFrame from its durable artifact."""
+        import pyarrow.csv as pv_csv
+
         chunked_tsv = tmp_path / "chunked.tsv"
         chunked_tsv.write_text("GENE\tCHROM\nBRCA1\tchr1\n")
         base_context.chunked_analysis_tsv = chunked_tsv
 
-        result = ChunkedAnalysisStage()._handle_checkpoint_skip(base_context)
+        with patch("pyarrow.csv.read_csv", wraps=pv_csv.read_csv) as spy_read_csv:
+            result = ChunkedAnalysisStage()._handle_checkpoint_skip(base_context)
+            spy_read_csv.assert_called()
 
         assert result.current_dataframe is not None
         assert len(result.current_dataframe) == 1
@@ -555,6 +581,7 @@ class TestVariantAnalysisStage:
         import logging
 
         caplog.set_level(logging.DEBUG)
+        caplog.set_level(logging.DEBUG, logger="variantcentrifuge")
 
         # Setup: No inheritance requested
         base_context.config = {
@@ -660,3 +687,116 @@ class TestVariantAnalysisStage:
             "variables": {"AF": "allele_frequency"},
         }
         assert stage._check_if_scoring_needs_details(base_context) is False
+
+    def test_variant_analysis_stage_does_not_overwrite_stats_output_file(
+        self, base_context, tmp_path
+    ):
+        """VariantAnalysisStage must force no_stats=True and preserve stats_output_file."""
+        stats_file = tmp_path / "stats.tsv"
+        stats_file.write_text("metric\tvalue\ncustom_stat\t42\n", encoding="utf-8")
+
+        base_context.config.update(
+            {
+                "no_stats": False,
+                "stats_output_file": str(stats_file),
+                "stats_config": "custom_stats.json",
+            }
+        )
+        base_context.stats_output_file = stats_file
+        base_context.vcf_samples = ["S1", "S2"]
+        base_context.current_dataframe = pd.DataFrame(
+            {
+                "CHROM": ["chr1"],
+                "POS": [100],
+                "REF": ["A"],
+                "ALT": ["T"],
+                "GENE": ["BRCA1"],
+                "GT": ["S1(0/1);S2(0/0)"],
+            }
+        )
+        base_context.mark_complete("dataframe_loading")
+
+        stage = VariantAnalysisStage()
+        stage(base_context)
+
+        assert stats_file.read_text(encoding="utf-8") == "metric\tvalue\ncustom_stat\t42\n"
+
+    def test_soft_dependencies_for_statistics_and_association_stages(self):
+        """Statistics and association stages declare scoring/inheritance soft deps."""
+        from variantcentrifuge.stages.analysis_stages import (
+            AssociationAnalysisStage,
+            StatisticsGenerationStage,
+        )
+
+        stats_deps = StatisticsGenerationStage().soft_dependencies
+        assert "inheritance_analysis" in stats_deps
+        assert "variant_scoring" in stats_deps
+
+        assoc_deps = AssociationAnalysisStage().soft_dependencies
+        assert "variant_scoring" in assoc_deps
+
+    def test_association_packed_gt_unpacking_preserves_missing_with_extra_fields_and_boundaries(
+        self, base_context
+    ):
+        """Packed GT unpacking keeps listed ./. with depth fields; no substring matches."""
+        from variantcentrifuge.stages.analysis_stages import AssociationAnalysisStage
+
+        cases = ["1", "11"] + [f"C{i}" for i in range(8)]
+        controls = [f"N{i}" for i in range(10)]
+        all_samples = cases + controls
+
+        base_context.vcf_samples = all_samples
+        base_context.config.update(
+            {
+                "perform_association": True,
+                "association_tests": ["logistic_burden"],
+                "case_samples": cases,
+                "control_samples": controls,
+            }
+        )
+        base_context.current_dataframe = pd.DataFrame(
+            {
+                "CHROM": ["chr1", "chr1"],
+                "POS": [100, 200],
+                "REF": ["A", "C"],
+                "ALT": ["T", "G"],
+                "GENE": ["GENE1", "GENE1"],
+                "GT": [
+                    "11(./.:0:0,0);C0(0/1:30:15,15)",
+                    "11(0/1:30:15,15);1(./.:0:0,0)",
+                ],
+            }
+        )
+        base_context.mark_complete("dataframe_loading")
+        base_context.mark_complete("sample_config_loading")
+
+        captured = {}
+
+        class _FakeBuilder:
+            def __init__(self, **kwargs):
+                captured["df"] = kwargs["gene_df"].copy()
+
+            def __call__(self):
+                return {}
+
+        with (
+            patch(
+                "variantcentrifuge.stages.association_analysis_stages._GenotypeMatrixBuilder",
+                side_effect=_FakeBuilder,
+            ),
+            patch(
+                "variantcentrifuge.stages.association_analysis_stages.AssociationEngine"
+            ) as mock_engine,
+        ):
+            mock_engine.from_names.return_value.run_all.return_value = pd.DataFrame()
+            stage = AssociationAnalysisStage()
+            stage(base_context)
+
+        unpacked = captured["df"]
+        # Row 0: "11" is explicitly missing with depth fields; "1" is not listed -> reference "0/0"
+        assert unpacked.loc[0, "11"] == "./."
+        assert unpacked.loc[0, "1"] == "0/0"
+        assert unpacked.loc[0, "C0"] == "0/1"
+        # Row 1: "11" is 0/1; "1" is explicitly missing with depth fields -> "./."
+        assert unpacked.loc[1, "11"] == "0/1"
+        assert unpacked.loc[1, "1"] == "./."

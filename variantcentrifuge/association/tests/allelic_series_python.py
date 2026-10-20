@@ -98,6 +98,7 @@ class PurePythonCOASTTest(AssociationTest):
     def __init__(self) -> None:
         self._backend: PythonCOASTBackend | None = None
         self._null_model: NullModelResult | None = None
+        self._null_key: tuple | None = None
 
         # Lifecycle tracking (set by prepare())
         self._total_genes: int = 0
@@ -399,8 +400,15 @@ class PurePythonCOASTTest(AssociationTest):
                 "at construction time."
             )
 
-        # ── Lazy null model: fit once, reuse for all genes ────────────────────────
-        if self._null_model is None:
+        # ── Lazy null model: fit and reuse only while cohort and covariates are unchanged
+        key = (
+            config.trait_type,
+            phenotype.tobytes(),
+            None
+            if covariate_matrix is None
+            else (covariate_matrix.shape, covariate_matrix.tobytes()),
+        )
+        if self._null_model is None or key != getattr(self, "_null_key", None):
             self._backend._ensure_skat_backend()
             assert self._backend._skat_backend is not None
             self._null_model = self._backend._skat_backend.fit_null_model(
@@ -408,11 +416,20 @@ class PurePythonCOASTTest(AssociationTest):
                 covariates=covariate_matrix,
                 trait_type=config.trait_type,
             )
+            self._null_key = key
 
         # ── COAST weights from config or default ──────────────────────────────────
         coast_weights = getattr(config, "coast_weights", None) or [1.0, 2.0, 3.0]
 
+        # ── Filter variant_mafs by the same mask as geno ──────────────────────────
+        variant_mafs = contingency_data.get("variant_mafs")
+        if variant_mafs is not None and len(variant_mafs) == geno.shape[1]:
+            variant_mafs_filtered = np.asarray(variant_mafs, dtype=np.float64)[include_mask]
+        else:
+            variant_mafs_filtered = None
+
         # ── Run full COAST via backend ─────────────────────────────────────────────
+        assert self._null_model is not None
         try:
             result = self._backend.test_gene(
                 gene=gene,
@@ -423,6 +440,7 @@ class PurePythonCOASTTest(AssociationTest):
                 coast_weights=coast_weights,
                 trait_type=config.trait_type,
                 null_model=self._null_model,
+                variant_mafs=variant_mafs_filtered,
             )
         except Exception as exc:
             logger.error(f"Python COAST [{gene}]: backend test_gene() failed: {exc}")

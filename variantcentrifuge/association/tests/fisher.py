@@ -21,8 +21,6 @@ import logging
 from math import isnan
 from typing import Any
 
-import numpy as np
-
 try:
     from scipy.stats import fisher_exact
 except ImportError:
@@ -109,8 +107,12 @@ class FisherExactTest(AssociationTest):
             and CIs computed via scipy/statsmodels matching gene_burden.py.
         """
         n_variants = int(contingency_data.get("n_qualifying_variants", 0))
-        p_count = int(contingency_data.get("proband_count", 0))
-        c_count = int(contingency_data.get("control_count", 0))
+        p_count = int(
+            contingency_data.get("proband_called_count", contingency_data.get("proband_count", 0))
+        )
+        c_count = int(
+            contingency_data.get("control_called_count", contingency_data.get("control_count", 0))
+        )
 
         # Skip genes with zero qualifying variants (silent, per spec)
         if n_variants == 0:
@@ -128,8 +130,8 @@ class FisherExactTest(AssociationTest):
                 n_variants=n_variants,
             )
 
-        # Skip when both groups are empty (matches gene_burden.py line 425-426)
-        if p_count == 0 and c_count == 0:
+        # Skip when either group is empty (matches gene_burden.py line 425-426)
+        if p_count == 0 or c_count == 0:
             return TestResult(
                 gene=gene,
                 test_name=self.name,
@@ -161,22 +163,26 @@ class FisherExactTest(AssociationTest):
                 n_variants=n_variants,
             )
 
-        # Run Fisher's exact test — same call as gene_burden.py line 468
+        # Run Fisher's exact test on original integer counts for p-value
         if fisher_exact is not None:
-            odds_ratio, pval = fisher_exact(table)
+            _, pval = fisher_exact(table)
         else:
-            odds_ratio = float("nan")
             pval = 1.0
 
-        # Compute confidence intervals — same logic as gene_burden.py lines 97-114
-        ci_lower, ci_upper = self._compute_or_ci(table, config)
+        # Compute OR estimate and confidence intervals (Haldane-Anscombe corrected if any cell is 0)
+        # Local import: gene_burden imports the association package at module load.
+        from variantcentrifuge.gene_burden import _compute_or_confidence_interval
+
+        odds_ratio, ci_lower, ci_upper = _compute_or_confidence_interval(
+            table, config.confidence_interval_alpha, config.continuity_correction
+        )
 
         return TestResult(
             gene=gene,
             test_name=self.name,
             p_value=float(pval),
             corrected_p_value=None,  # filled in by engine after correction
-            effect_size=float(odds_ratio),
+            effect_size=float(odds_ratio) if not isnan(float(odds_ratio)) else None,
             ci_lower=float(ci_lower) if not isnan(float(ci_lower)) else None,
             ci_upper=float(ci_upper) if not isnan(float(ci_upper)) else None,
             se=None,
@@ -198,8 +204,12 @@ class FisherExactTest(AssociationTest):
         Mirrors gene_burden.py lines 428-465. Returns (table, skip) where
         skip=True means the gene should be excluded from results.
         """
-        p_count = int(contingency_data.get("proband_count", 0))
-        c_count = int(contingency_data.get("control_count", 0))
+        p_count = int(
+            contingency_data.get("proband_called_count", contingency_data.get("proband_count", 0))
+        )
+        c_count = int(
+            contingency_data.get("control_called_count", contingency_data.get("control_count", 0))
+        )
 
         if config.gene_burden_mode == "samples":
             # Collapsing test (CMC/CAST): carrier vs non-carrier
@@ -227,8 +237,10 @@ class FisherExactTest(AssociationTest):
             # Allele-based test: alt alleles vs ref alleles
             p_all = int(contingency_data.get("proband_allele_count", 0))
             c_all = int(contingency_data.get("control_allele_count", 0))
-            p_ref = p_count * 2 - p_all
-            c_ref = c_count * 2 - c_all
+            p_tot_chrom = int(contingency_data.get("proband_called_chromosomes", p_count * 2))
+            c_tot_chrom = int(contingency_data.get("control_called_chromosomes", c_count * 2))
+            p_ref = p_tot_chrom - p_all
+            c_ref = c_tot_chrom - c_all
             table = [[p_all, c_all], [p_ref, c_ref]]
 
             if p_ref < 0 or c_ref < 0:
@@ -240,51 +252,3 @@ class FisherExactTest(AssociationTest):
                 return table, True
 
         return table, False
-
-    def _compute_or_ci(
-        self,
-        table: list[list[int]],
-        config: AssociationConfig,
-    ) -> tuple[float, float]:
-        """
-        Compute confidence intervals for the odds ratio.
-
-        Ports _compute_or_confidence_interval() from gene_burden.py
-        with identical logic: normal approximation,
-        continuity correction for zero cells, structural-zero detection.
-        """
-        a = table[0][0]
-        b = table[0][1]
-        c = table[1][0]
-        d = table[1][1]
-
-        # Structural zeros: marginal totals are zero (OR undefined)
-        if (a + b == 0) or (c + d == 0) or (a + c == 0) or (b + d == 0):
-            logger.debug(f"Structural zero in table {table}, cannot compute OR or CI.")
-            return np.nan, np.nan
-
-        if Table2x2 is None:
-            logger.warning("statsmodels not available. Cannot compute confidence intervals.")
-            return np.nan, np.nan
-
-        alpha = config.confidence_interval_alpha
-        continuity_correction = config.continuity_correction
-
-        # Apply continuity correction if any cell is zero
-        table_np = np.array(table, dtype=float)
-        if 0 in table_np.flatten():
-            logger.debug(
-                f"Applying continuity correction ({continuity_correction}) to table {table}"
-            )
-            table_for_ci = table_np + continuity_correction
-        else:
-            table_for_ci = table_np
-
-        try:
-            cont_table = Table2x2(table_for_ci)
-            # Table2x2 supports only the normal approximation on the log-odds scale.
-            ci_lower, ci_upper = cont_table.oddsratio_confint(alpha=alpha, method="normal")
-            return float(ci_lower), float(ci_upper)
-        except Exception as e:
-            logger.warning(f"Failed to compute CI for table {table_for_ci.tolist()}: {e}")
-            return np.nan, np.nan

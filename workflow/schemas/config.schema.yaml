@@ -110,6 +110,30 @@ properties:
         items:
           type: string
         default: []
+      tumor_sample_index:
+        type:
+          - "integer"
+          - "null"
+        default: null
+        description: 0-based index of tumor sample in VCF.
+      normal_sample_index:
+        type:
+          - "integer"
+          - "null"
+        default: null
+        description: 0-based index of normal sample in VCF.
+      reference:
+        type:
+          - "string"
+          - "null"
+        default: null
+        description: Reference genome build (e.g. GRCh37.75, GRCh38.86).
+      regions_bed:
+        type:
+          - "string"
+          - "null"
+        default: null
+        description: Path to restriction BED file.
     required:
       - config_file
 

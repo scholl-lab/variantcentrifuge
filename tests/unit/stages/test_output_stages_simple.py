@@ -105,7 +105,7 @@ class TestFinalFilteringStage:
     def test_parallel_safe(self):
         """Test parallel safety."""
         stage = FinalFilteringStage()
-        assert stage.parallel_safe is True
+        assert stage.parallel_safe is False  # replaces current_dataframe
 
 
 class TestTSVOutputStage:
@@ -125,6 +125,11 @@ class TestTSVOutputStage:
     @patch("pandas.DataFrame.to_csv")
     def test_tsv_output(self, mock_to_csv, context):
         """Test TSV file output."""
+
+        def fake_to_csv(path_or_buf, *args, **kwargs):
+            Path(path_or_buf).write_text("dummy")
+
+        mock_to_csv.side_effect = fake_to_csv
         # TSVOutputStage depends on variant_identifier, so mark it complete
         context.mark_complete("variant_identifier")
 

@@ -92,6 +92,7 @@ class RSKATTest(AssociationTest):
         )
         self._backend: RSKATBackend | None = None
         self._null_model: NullModelResult | None = None
+        self._null_key: tuple | None = None
 
         # Lifecycle tracking (set by prepare())
         self._total_genes: int = 0
@@ -280,23 +281,47 @@ class RSKATTest(AssociationTest):
                 "at construction time."
             )
 
-        # Lazy null model: fit once, reuse for all genes
-        if self._null_model is None:
+        # Lazy null model: fit and reuse only while cohort and covariates are unchanged
+        key = (
+            config.trait_type,
+            phenotype.tobytes(),
+            None
+            if covariate_matrix is None
+            else (covariate_matrix.shape, covariate_matrix.tobytes()),
+        )
+        if self._null_model is None or key != getattr(self, "_null_key", None):
             self._null_model = self._backend.fit_null_model(
                 phenotype=phenotype,
                 covariates=covariate_matrix,
                 trait_type=config.trait_type,
             )
+            self._null_key = key
 
         # Parse weight parameters from config (e.g. "beta:1,25" -> (1.0, 25.0))
         weights_beta = _parse_weights_beta(config.variant_weights)
 
+        provided_mafs = (
+            contingency_data.get("variant_mafs")
+            if contingency_data.get("variant_mafs") is not None
+            else contingency_data.get("mafs")
+        )
+        explicit_weights: np.ndarray | None = None
+        if provided_mafs is not None and len(provided_mafs) == geno.shape[1]:
+            skat_mafs = np.asarray(provided_mafs, dtype=np.float64)
+            diploid_mafs = geno.mean(axis=0) / 2.0
+            if not np.allclose(skat_mafs, diploid_mafs):
+                from variantcentrifuge.association.weights import get_weights
+
+                explicit_weights = get_weights(skat_mafs, config.variant_weights)
+
+        assert self._null_model is not None
         result = self._backend.test_gene(
             gene=gene,
             genotype_matrix=geno,
             null_model=self._null_model,
             method=config.skat_method,
-            weights_beta=weights_beta,
+            weights=explicit_weights,
+            weights_beta=weights_beta if explicit_weights is None else None,
         )
 
         # Increment local counter (backend also tracks, but we need per-test tracking)

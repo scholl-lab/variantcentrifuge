@@ -88,7 +88,7 @@ The default configuration includes many useful presets:
 #### Rarity Filters
 - **`super_rare`** - AC ≤ 2 in gnomAD exomes and genomes
 - **`rare`** - AF < 0.0001 in gnomAD exomes and genomes
-- **`1percent`** - AF < 0.001 in gnomAD exomes and genomes
+- **`1percent`** - AF < 0.01 in gnomAD exomes and genomes (1%)
 - **`5percent`** - AF < 0.05 in gnomAD exomes and genomes
 
 #### Impact Filters

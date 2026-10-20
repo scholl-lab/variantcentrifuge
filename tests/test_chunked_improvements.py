@@ -16,7 +16,6 @@ from variantcentrifuge.pipeline_core.workspace import Workspace
 from variantcentrifuge.stages.analysis_stages import (
     ChunkedAnalysisStage,
     cleanup_sample_columns,
-    handle_inheritance_analysis_error,
 )
 
 
@@ -169,20 +168,13 @@ class TestChunkedProcessingImprovements:
 
         # Mock the sample column creation to raise an exception
         with patch(
-            "variantcentrifuge.stages.analysis_stages.create_sample_columns_from_gt"
+            "variantcentrifuge.stages.chunk_helpers.create_sample_columns_from_gt_intelligent"
         ) as mock_create_columns:
-            mock_create_columns.side_effect = Exception("Test error")
+            mock_create_columns.side_effect = RuntimeError("Test error")
 
             chunked_stage = ChunkedAnalysisStage()
-            result = chunked_stage._apply_chunk_inheritance_analysis(sample_dataframe, context)
-
-            # Verify error recovery
-            assert isinstance(result, pd.DataFrame)
-            assert len(result) == len(sample_dataframe)
-            assert "Inheritance_Pattern" in result.columns
-            assert "Inheritance_Details" in result.columns
-            assert all(result["Inheritance_Pattern"] == "error")
-            assert all(result["Inheritance_Details"] == "{}")
+            with pytest.raises(RuntimeError, match="Test error"):
+                chunked_stage._apply_chunk_inheritance_analysis(sample_dataframe, context)
 
     def test_timing_tracking_functionality(
         self, sample_config, sample_dataframe, sample_pedigree, mock_args, mock_workspace
@@ -263,39 +255,33 @@ class TestChunkedProcessingImprovements:
         assert "Sample3" not in result_custom.columns
         assert "GT" in result_custom.columns
 
-    def test_error_handling_function(self):
-        """Test the unified handle_inheritance_analysis_error function."""
-        # Create test DataFrame
+    def test_error_handling_function(self, mock_args, mock_workspace):
+        """Verify inheritance analysis failures propagate rather than being swallowed."""
+        from variantcentrifuge.stages.chunk_helpers import apply_chunk_inheritance_analysis
+
         df = pd.DataFrame(
             {
                 "CHROM": ["chr1", "chr2"],
                 "POS": [100, 200],
                 "GT": ["0/1", "1/1"],
+                "GENE": ["G1", "G2"],
             }
         )
-
-        test_error = ValueError("Test error message")
-
-        # Test without details preservation
-        result = handle_inheritance_analysis_error(
-            df, test_error, preserve_details_for_scoring=False
-        )
-
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == len(df)
-        assert "Inheritance_Pattern" in result.columns
-        assert "Inheritance_Details" not in result.columns
-        assert all(result["Inheritance_Pattern"] == "error")
-
-        # Test with details preservation
-        result_with_details = handle_inheritance_analysis_error(
-            df, test_error, preserve_details_for_scoring=True
-        )
-
-        assert "Inheritance_Pattern" in result_with_details.columns
-        assert "Inheritance_Details" in result_with_details.columns
-        assert all(result_with_details["Inheritance_Pattern"] == "error")
-        assert all(result_with_details["Inheritance_Details"] == "{}")
+        context = PipelineContext(mock_args, {}, mock_workspace)
+        context.vcf_samples = ["S1"]
+        context.config["inheritance_analysis_config"] = {
+            "vcf_samples": ["S1"],
+            "pedigree_data": {},
+            "inheritance_mode": "simple",
+        }
+        with (
+            patch(
+                "variantcentrifuge.inheritance.analyzer.analyze_inheritance",
+                side_effect=RuntimeError("Injected error"),
+            ),
+            pytest.raises(RuntimeError, match="Injected error"),
+        ):
+            apply_chunk_inheritance_analysis(df, context)
 
     def test_sequential_fallback(
         self, sample_config, sample_dataframe, sample_pedigree, mock_args, mock_workspace
@@ -340,6 +326,81 @@ class TestChunkedProcessingImprovements:
             assert call_args[1]["sample_list"] == sample_config["vcf_samples"]
             assert call_args[1]["pedigree_data"] == sample_pedigree
             assert call_args[1]["use_vectorized_comp_het"] is True
+
+    @pytest.mark.parametrize("mode", ["columns", "simple", "full"])
+    def test_memory_limit_fallback_matches_normal_chunk_schema_across_modes(
+        self, mode, sample_config, sample_dataframe, sample_pedigree, mock_args, mock_workspace
+    ):
+        """Fallback chunk must produce identical columns to normal chunk across all modes."""
+        from variantcentrifuge.stages.chunk_helpers import apply_chunk_inheritance_analysis
+
+        normal_cfg = dict(sample_config, max_memory_gb=16.0)
+        normal_ctx = PipelineContext(mock_args, normal_cfg, mock_workspace)
+        normal_ctx.vcf_samples = sample_config["vcf_samples"]
+        normal_ctx.pedigree_data = sample_pedigree
+        normal_ctx.config["inheritance_analysis_config"] = {
+            "inheritance_mode": mode,
+            "vcf_samples": sample_config["vcf_samples"],
+            "pedigree_data": sample_pedigree,
+            "use_vectorized_comp_het": True,
+            "preserve_details_for_scoring": False,
+        }
+
+        fallback_cfg = dict(sample_config)
+        fallback_ctx = PipelineContext(mock_args, fallback_cfg, mock_workspace)
+        fallback_ctx.vcf_samples = sample_config["vcf_samples"]
+        fallback_ctx.pedigree_data = sample_pedigree
+        fallback_ctx.resource_manager = Mock(
+            memory_gb=0.1,
+            memory_safety_factor=0.8,
+            estimate_memory=Mock(return_value=1.0),
+        )
+        fallback_ctx.config["inheritance_analysis_config"] = dict(
+            normal_ctx.config["inheritance_analysis_config"]
+        )
+
+        normal_df = apply_chunk_inheritance_analysis(sample_dataframe.copy(), normal_ctx)
+        fallback_df = apply_chunk_inheritance_analysis(sample_dataframe.copy(), fallback_ctx)
+
+        assert list(fallback_df.columns) == list(normal_df.columns)
+        assert (fallback_df["Inheritance_Pattern"] == "memory_limit_exceeded").all()
+
+
+@pytest.mark.parametrize("parallel", [False, True])
+def test_chunk_writer_rejects_column_mismatch(parallel, tmp_path):
+    """A later chunk with an extra column must fail loudly, not be silently dropped."""
+    stage = ChunkedAnalysisStage()
+    chunks = [
+        pd.DataFrame({"GENE": ["A"], "x": [1]}),
+        pd.DataFrame({"GENE": ["B"], "x": [2], "extra_col": [3]}),
+    ]
+    context = Mock()
+    with (
+        patch.object(stage, "_read_tsv_in_gene_chunks", return_value=iter(chunks)),
+        patch.object(stage, "_process_single_chunk", side_effect=lambda df, *_: df),
+        pytest.raises(ValueError, match="extra_col"),
+    ):
+        out = tmp_path / "out.tsv"
+        if parallel:
+            stage._process_chunks_parallel(tmp_path / "in.tsv", "GENE", 1, context, 2, out, None)
+        else:
+            stage._process_chunks_sequential(tmp_path / "in.tsv", "GENE", 1, context, out, None)
+
+
+def test_chunk_writer_reorders_same_columns(tmp_path):
+    """Chunks with the same columns in a different order are aligned to the first chunk."""
+    stage = ChunkedAnalysisStage()
+    chunks = [
+        pd.DataFrame({"GENE": ["A"], "x": [1]}),
+        pd.DataFrame({"x": [2], "GENE": ["B"]}),
+    ]
+    out = tmp_path / "out.tsv"
+    with (
+        patch.object(stage, "_read_tsv_in_gene_chunks", return_value=iter(chunks)),
+        patch.object(stage, "_process_single_chunk", side_effect=lambda df, *_: df),
+    ):
+        stage._process_chunks_sequential(tmp_path / "in.tsv", "GENE", 1, Mock(), out, None)
+    assert pd.read_csv(out, sep="\t").to_dict("list") == {"GENE": ["A", "B"], "x": [1, 2]}
 
 
 if __name__ == "__main__":

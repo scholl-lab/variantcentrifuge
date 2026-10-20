@@ -124,7 +124,7 @@ class TestParallelCompleteProcessingStage:
         bed_chunks = [Path("/tmp/chunk_0.bed"), Path("/tmp/chunk_1.bed")]
 
         # Mock that first chunk exists, second doesn't
-        def mock_validate_side_effect(path):
+        def mock_validate_side_effect(path, *args, **kwargs):
             return "chunk_0" in str(path)
 
         mock_validate.side_effect = mock_validate_side_effect
@@ -213,6 +213,79 @@ class TestParallelCompleteProcessingStage:
         with gzip.open(str(merged), "rt") as f:
             assert f.read().splitlines() == ["CHROM\tPOS\tREF\tALT"]
 
+    def test_stale_chunk_not_reused_when_filter_changes(self, tmp_path):
+        """Leftover chunk TSV from an earlier run with a different filter must not be reused."""
+        from concurrent.futures import Future
+
+        stage = ParallelCompleteProcessingStage()
+        inter_dir = tmp_path / "inter"
+        inter_dir.mkdir()
+        bed_chunk = tmp_path / "chunk_0.bed"
+        bed_chunk.write_text("chr1\t1\t1000\n")
+        vcf_file = tmp_path / "in.vcf.gz"
+        vcf_file.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\n")
+
+        context = Mock(spec=PipelineContext)
+        context.workspace = Mock()
+        context.workspace.base_name = "test"
+        context.workspace.intermediate_dir = inter_dir
+        context.vcf_samples = ["S1"]
+        context.data = None
+        context.config = {
+            "vcf_file": str(vcf_file),
+            "threads": 2,
+            "gzip_intermediates": False,
+            "fields_to_extract": "CHROM POS REF ALT",
+            "filters": "QUAL > 30",
+        }
+
+        chunk_tsv = inter_dir / "test.chunk_0.extracted.tsv"
+
+        class FakeExecutor:
+            def __init__(self, *args, **kwargs):
+                self.submissions = 0
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+            def submit(self, fn, *args, **kwargs):
+                self.submissions += 1
+                chunk_tsv.write_text("CHROM\tPOS\tREF\tALT\nchr1\t100\tA\tG\n")
+                fut = Future()
+                fut.set_result(chunk_tsv)
+                return fut
+
+        exec1 = FakeExecutor()
+        with patch(
+            "variantcentrifuge.stages.parallel_processing_stage.ProcessPoolExecutor",
+            return_value=exec1,
+        ):
+            stage._process_chunks_parallel(context, [bed_chunk])
+        assert exec1.submissions == 1
+        assert Path(f"{chunk_tsv}.meta").is_file()
+
+        # Same config -> chunk is reused (0 submissions)
+        exec2 = FakeExecutor()
+        with patch(
+            "variantcentrifuge.stages.parallel_processing_stage.ProcessPoolExecutor",
+            return_value=exec2,
+        ):
+            stage._process_chunks_parallel(context, [bed_chunk])
+        assert exec2.submissions == 0
+
+        # Changed filter -> stale chunk is invalidated and rebuilt (1 submission)
+        context.config["filters"] = "QUAL > 99"
+        exec3 = FakeExecutor()
+        with patch(
+            "variantcentrifuge.stages.parallel_processing_stage.ProcessPoolExecutor",
+            return_value=exec3,
+        ):
+            stage._process_chunks_parallel(context, [bed_chunk])
+        assert exec3.submissions == 1
+
 
 def test_per_stage_count_logs_and_fail_on_empty(tmp_path, caplog):
     """Per-stage filtering logs counts and --fail-on-empty exits with code 2 on empty DataFrame."""
@@ -290,6 +363,8 @@ def test_per_stage_count_logs_and_fail_on_empty(tmp_path, caplog):
     try:
         with (
             patch.object(cli_module, "run_pipeline", side_effect=fake_pipeline_empty),
+            patch.object(cli_module, "validate_vcf_file"),
+            patch.object(cli_module, "validate_required_tools"),
             patch(
                 "sys.argv",
                 [

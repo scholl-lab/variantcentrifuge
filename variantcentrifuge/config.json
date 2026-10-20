@@ -47,13 +47,45 @@
     }
   },
 
+  "profiles": {
+    "rare-disease-trio": {
+      "description": "Rare-disease family/trio inheritance analysis with coding/rare variant presets and HTML/Excel reporting",
+      "preset": ["rare", "coding"],
+      "inheritance_mode": "columns",
+      "calculate_inheritance": true,
+      "html_report": true,
+      "xlsx": true
+    },
+    "rare-disease-singleton": {
+      "description": "Rare-disease singleton analysis with rare/coding presets, simple inheritance, and HTML/Excel reporting",
+      "preset": ["rare", "coding"],
+      "inheritance_mode": "simple",
+      "calculate_inheritance": true,
+      "html_report": true,
+      "xlsx": true
+    },
+    "cohort-burden": {
+      "description": "Case-control gene burden and association testing cohort workflow",
+      "preset": ["rare", "coding"],
+      "perform_gene_burden": true,
+      "perform_association": true,
+      "xlsx": true
+    },
+    "somatic-tumor-normal": {
+      "description": "Paired tumor-normal somatic variant filtering and reporting",
+      "preset": ["somatic_pass", "coding"],
+      "html_report": true,
+      "xlsx": true
+    }
+  },
+
   "presets": {
     "pass": "(FILTER = 'PASS')",
     "not_artefact": "((AC[ANY] <= 513) & (QUAL[ANY] >= 100))",
     "not_benign": "(!(dbNSFP_clinvar_clnsig =~ '[Bb]enign') & !(ClinVar_CLNSIG =~ '[Bb]enign'))",
     "5percent_or_pathogenic": "(({{gnomad_af_below_or:0.05}}) | (((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & !(dbNSFP_clinvar_clnsig =~ '[Cc]onflicting')) | ((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting'))))",
     "5percent": "({{gnomad_af_below:0.05}})",
-    "1percent": "({{gnomad_af_below:0.001}})",
+    "1percent": "({{gnomad_af_below:0.01}})",
     "rare": "({{gnomad_af_below:0.0001}})",
     "super_rare": "({{gnomad_ac_atmost:2}})",
     "pathogenic": "(((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & !(dbNSFP_clinvar_clnsig =~ '[Cc]onflicting')) | ((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting')))",
@@ -81,6 +113,24 @@
     "loh": "(GEN[{normal_idx}].GT = '0/1') & ((GEN[{tumor_idx}].GT = '1/1') | (GEN[{tumor_idx}].AF >= 0.85)) & (GEN[{tumor_idx}].DP >= {tumor_dp_min}) & (GEN[{normal_idx}].DP >= {normal_dp_min})",
     "germline_shared": "((GEN[{normal_idx}].AF >= 0.20) & (GEN[{tumor_idx}].AF >= 0.20)) & (GEN[{normal_idx}].DP >= {normal_dp_min}) & (GEN[{tumor_idx}].DP >= {tumor_dp_min})",
     "tumor_only": "({{gnomad_ac_atmost:2}}) & ((na FILTER) | (FILTER = 'PASS')) & (GEN[{tumor_idx}].DP >= {tumor_dp_min}) & (GEN[{tumor_idx}].AF >= {tumor_af_min})"
+  },
+  "links_by_build": {
+    "GRCh37": {
+      "ClinVar": "https://www.ncbi.nlm.nih.gov/clinvar/?term={CHROM}-{POS}-{REF}-{ALT}",
+      "gnomAD_2": "https://gnomad.broadinstitute.org/variant/{CHROM}-{POS}-{REF}-{ALT}?dataset=gnomad_r2_1",
+      "Varsome": "https://varsome.com/variant/hg19/{CHROM}-{POS}-{REF}-{ALT}",
+      "Franklin": "https://franklin.genoox.com/clinical-db/variant/snp/{CHROM}-{POS}-{REF}-{ALT}-hg19",
+      "SpliceAI": "https://spliceailookup.broadinstitute.org/#variant={CHROM}-{POS}-{REF}-{ALT}&hg=19&bc=basic&distance=500&mask=0&ra=0",
+      "autopvs1": "https://autopvs1.bgi.com/variant/hg19/{CHROM}-{POS}-{REF}-{ALT}"
+    },
+    "GRCh38": {
+      "ClinVar": "https://www.ncbi.nlm.nih.gov/clinvar/?term={CHROM}-{POS}-{REF}-{ALT}",
+      "gnomAD_4": "https://gnomad.broadinstitute.org/variant/{CHROM}-{POS}-{REF}-{ALT}?dataset=gnomad_r4",
+      "Varsome": "https://varsome.com/variant/hg38/{CHROM}-{POS}-{REF}-{ALT}",
+      "Franklin": "https://franklin.genoox.com/clinical-db/variant/snp/{CHROM}-{POS}-{REF}-{ALT}-hg38",
+      "SpliceAI": "https://spliceailookup.broadinstitute.org/#variant={CHROM}-{POS}-{REF}-{ALT}&hg=38&bc=basic&distance=500&mask=0&ra=0",
+      "autopvs1": "https://autopvs1.bgi.com/variant/hg38/{CHROM}-{POS}-{REF}-{ALT}"
+    }
   },
   "links": {
     "ClinVar": "https://www.ncbi.nlm.nih.gov/clinvar/?term={CHROM}-{POS}-{REF}-{ALT}",

@@ -72,7 +72,10 @@ class TestConfigurationLoadingStage:
         )
 
         stage = ConfigurationLoadingStage()
-        with caplog.at_level("WARNING", logger="variantcentrifuge.stages.setup_stages"):
+        with (
+            caplog.at_level("WARNING", logger="variantcentrifuge.stages.setup_stages"),
+            pytest.raises(ValueError, match="row-level qualification"),
+        ):
             stage(context)
 
         assert "--split-snpeff-lines before_filters" in caplog.text
@@ -819,3 +822,28 @@ class TestPhenotypeCaseControlAssignmentStage:
             assert len(case_result) > 0
         if control_result is not None:
             assert len(control_result) > 0
+
+    def test_zero_padded_sample_ids_preserved_in_phenotype_assignment(self, context, tmp_path):
+        """Zero-padded numeric sample IDs like '001' and '002' must match vcf_samples."""
+        pheno_tsv = tmp_path / "pheno.tsv"
+        pheno_tsv.write_text("sample_id\tphenotype\n001\tHP:0001\n002\tHP:0002\n")
+
+        context.vcf_samples = ["001", "002"]
+        context.config.update(
+            {
+                "case_samples": None,
+                "control_samples": None,
+                "phenotype_file": str(pheno_tsv),
+                "phenotype_sample_column": "sample_id",
+                "phenotype_value_column": "phenotype",
+                "case_phenotypes": ["HP:0001"],
+                "control_phenotypes": [],
+            }
+        )
+        context.mark_complete("phenotype_loading")
+        context.mark_complete("sample_config_loading")
+
+        stage = PhenotypeCaseControlAssignmentStage()
+        result = stage(context)
+        assert result.config["case_samples"] == ["001"]
+        assert result.config["control_samples"] == ["002"]

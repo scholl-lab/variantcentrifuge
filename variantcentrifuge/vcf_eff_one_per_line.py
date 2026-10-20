@@ -42,12 +42,16 @@ Command-line arguments:
 """
 
 import argparse
+import contextlib
 import gzip
 import io
 import logging
+import os
 import re
+import shutil
 import subprocess
 import sys
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -165,9 +169,6 @@ def restrict_line_ann_to_alt(line: str) -> str:
 
 def restrict_vcf_ann_to_alt(vcf_path: str, output_path: str | None = None) -> bool:
     """Restrict biallelic records' ANN/LOF/NMD to ALT in a VCF file when foreign alleles exist."""
-    import os
-    import shutil
-
     if not vcf_path or not os.path.exists(vcf_path):
         return False
     is_gz = False
@@ -176,37 +177,106 @@ def restrict_vcf_ann_to_alt(vcf_path: str, output_path: str | None = None) -> bo
             is_gz = raw.read(2) == b"\x1f\x8b"
     except OSError:
         return False
-    try:
-        opener = gzip.open if is_gz else open
-        with opener(vcf_path, "rt", encoding="utf-8", errors="replace") as fh:  # type: ignore[call-overload]
-            lines = fh.readlines()
-    except Exception:
-        return False
-    new_lines = [restrict_line_ann_to_alt(line) for line in lines]
-    if new_lines == lines and (output_path is None or output_path == vcf_path):
-        return False
+
     target = output_path or vcf_path
     write_gz = is_gz if output_path is None else target.endswith(".gz")
-    for idx_ext in (".csi", ".tbi"):
-        if os.path.exists(f"{target}{idx_ext}"):
-            os.remove(f"{target}{idx_ext}")
-    if write_gz and shutil.which("bgzip"):
-        with open(target, "wb") as out_fh:
-            subprocess.run(
+    temp_target = f"{target}.tmp_{os.getpid()}_{id(target)}"
+    orig_mode = None
+    with contextlib.suppress(OSError):
+        orig_mode = os.stat(vcf_path).st_mode
+
+    any_changed = False
+    opener = gzip.open if is_gz else open
+    bgzip_proc = None
+    bgzip_raw = None
+    out_fh = None
+    try:
+        out_write: Any
+        if write_gz and shutil.which("bgzip"):
+            bgzip_raw = open(temp_target, "wb")  # noqa: SIM115
+            if orig_mode is not None:
+                with contextlib.suppress(OSError):
+                    os.chmod(temp_target, orig_mode)
+            bgzip_proc = subprocess.Popen(
                 ["bgzip", "-c"],
-                input="".join(new_lines).encode("utf-8"),
-                stdout=out_fh,
-                check=True,
+                stdin=subprocess.PIPE,
+                stdout=bgzip_raw,
             )
-        if shutil.which("bcftools"):
-            subprocess.run(["bcftools", "index", "-f", target], capture_output=True, check=False)
-        if shutil.which("tabix"):
-            subprocess.run(["tabix", "-f", "-p", "vcf", target], capture_output=True, check=False)
-    else:
-        out_opener = gzip.open if write_gz else open
-        with out_opener(target, "wt", encoding="utf-8") as fh:  # type: ignore[call-overload]
-            fh.writelines(new_lines)
-    return new_lines != lines
+
+            def _bgzip_write(text: str) -> int | None:
+                assert bgzip_proc is not None and bgzip_proc.stdin is not None
+                return bgzip_proc.stdin.write(text.encode("utf-8"))
+
+            out_write = _bgzip_write
+
+        else:
+            out_opener = gzip.open if write_gz else open
+            out_fh = out_opener(temp_target, "wt", encoding="utf-8")
+            if orig_mode is not None:
+                with contextlib.suppress(OSError):
+                    os.chmod(temp_target, orig_mode)
+            out_write = out_fh.write
+
+        with opener(vcf_path, "rt", encoding="utf-8", errors="replace") as in_fh:
+            for line in in_fh:
+                new_line = restrict_line_ann_to_alt(line)
+                if new_line != line:
+                    any_changed = True
+                out_write(new_line)
+
+        if bgzip_proc is not None:
+            if bgzip_proc.stdin:
+                bgzip_proc.stdin.close()
+            bgzip_proc.wait()
+            if bgzip_raw is not None:
+                bgzip_raw.close()
+            if bgzip_proc.returncode != 0:
+                raise RuntimeError("bgzip failed")
+        elif out_fh is not None:
+            out_fh.close()
+
+        if not any_changed and (output_path is None or output_path == vcf_path):
+            if os.path.exists(temp_target):
+                os.remove(temp_target)
+            return False
+
+        if orig_mode is not None:
+            with contextlib.suppress(OSError):
+                os.chmod(temp_target, orig_mode)
+
+        os.replace(temp_target, target)
+
+        for idx_ext in (".csi", ".tbi"):
+            if os.path.exists(f"{target}{idx_ext}"):
+                os.remove(f"{target}{idx_ext}")
+
+        if write_gz:
+            if shutil.which("bcftools"):
+                subprocess.run(
+                    ["bcftools", "index", "-f", target], capture_output=True, check=False
+                )
+            if shutil.which("tabix"):
+                subprocess.run(
+                    ["tabix", "-f", "-p", "vcf", target], capture_output=True, check=False
+                )
+
+        return any_changed
+    except Exception:
+        if bgzip_proc is not None:
+            with contextlib.suppress(Exception):
+                if bgzip_proc.stdin:
+                    bgzip_proc.stdin.close()
+                bgzip_proc.kill()
+            if bgzip_raw is not None:
+                with contextlib.suppress(Exception):
+                    bgzip_raw.close()
+        if out_fh is not None:
+            with contextlib.suppress(Exception):
+                out_fh.close()
+        if os.path.exists(temp_target):
+            with contextlib.suppress(Exception):
+                os.remove(temp_target)
+        raise
 
 
 def split_vcf_effects(line: str) -> list[str]:
@@ -377,7 +447,7 @@ def process_vcf_file(input_file: str, output_file: str | None = None) -> None:
                 subprocess.run(["tabix", "-p", "vcf", output_file], check=True)
 
 
-def main():
+def main() -> None:
     """Serve as CLI entry point for splitting multiple EFF/ANN annotations in a VCF file."""
     parser = argparse.ArgumentParser(
         description=(

@@ -1,28 +1,14 @@
-"""
-Output stages for generating final results and reports.
-
-This module contains stages that produce the final outputs:
-- Variant identifier generation
-- Final filtering
-- Pseudonymization
-- TSV output
-- Excel reports
-- HTML reports
-- IGV reports
-- Metadata generation
-- Archive creation
-"""
+"""Output stages for generating final results and reports."""
 
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
-from ..converter import (
-    append_tsv_as_sheet,
-    convert_to_excel,
-    finalize_excel_file,
-    produce_report_json,
-)
+import pandas as pd
+
+from ..checkpoint_models import AtomicFileOperation
+from ..converter import convert_to_excel, produce_report_json
 from ..filters import filter_dataframe_with_query
 from ..generate_html_report import generate_html_report
 from ..generate_igv_report import generate_igv_report
@@ -34,12 +20,12 @@ from ..gt_reconstruction import (
 from ..pipeline_core import PipelineContext, Stage
 from ..pseudonymizer import create_pseudonymizer
 from ..utils import get_tool_version, sanitize_metadata_field
+from .metadata_helpers import collect_metadata_rows as _collect_metadata_rows
 from .tsv_output_stages import (
     ArchiveCreationStage,
     FinalFilteringStage,
     TSVOutputStage,
     VariantIdentifierStage,
-    _collect_metadata_rows,
 )
 
 logger = logging.getLogger(__name__)
@@ -77,9 +63,12 @@ class PseudonymizationStage(Stage):
     @property
     def dependencies(self) -> set[str]:
         """Return the set of stage names this stage depends on."""
-        # Only depend on dataframe_loading as minimum requirement
-        # Other stages (filtering, variant_id) are optional
         return {"dataframe_loading"}
+
+    @property
+    def soft_dependencies(self) -> set[str]:
+        """Return optional stages that should run before pseudonymization if present."""
+        return {"chunked_analysis"}
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply pseudonymization if requested."""
@@ -92,19 +81,15 @@ class PseudonymizationStage(Stage):
             logger.warning("No DataFrame for pseudonymization")
             return context
 
-        # Get samples
         samples = context.vcf_samples or []
         if not samples:
             logger.warning("No samples to pseudonymize")
             return context
 
-        # Create pseudonymizer
         schema = context.config.get("pseudonymize_schema", "sequential")
         metadata_file = context.config.get("pseudonymize_metadata")
-
         logger.info(f"Creating pseudonymization ({schema} schema) for {len(samples)} samples")
 
-        # Create appropriate pseudonymizer
         if schema == "sequential":
             pseudonymizer = create_pseudonymizer(
                 "sequential", prefix=context.config.get("pseudonymize_prefix", "SAMPLE")
@@ -117,25 +102,19 @@ class PseudonymizationStage(Stage):
         else:
             pseudonymizer = create_pseudonymizer(schema)
 
-        # Create mapping for samples
         metadata_dict = {}
         if metadata_file:
             with open(metadata_file) as f:
                 metadata_dict = json.load(f)
 
         mapping = pseudonymizer.create_mapping(samples, metadata_dict)
-
-        # Apply to DataFrame
         df = pseudonymizer.pseudonymize_dataframe(df)
 
-        # Save mapping to user-specified table path
         mapping_file = context.config.get("pseudonymize_table")
         if mapping_file:
-            # Use the pseudonymizer's save_mapping method for proper TSV format
             pseudonymizer.save_mapping(mapping_file, include_metadata=True)
             logger.info(f"Saved pseudonymization mapping to {mapping_file}")
         else:
-            # Fallback (shouldn't happen due to CLI validation)
             mapping_file = (
                 context.workspace.output_dir.parent
                 / f"pseudonymization_mapping_{context.workspace.timestamp}.tsv"
@@ -148,9 +127,7 @@ class PseudonymizationStage(Stage):
         context.config["pseudonymization_mapping"] = mapping
         context.config["pseudonymizer"] = pseudonymizer
 
-        # Create pseudonymized PED file if requested
         if context.config.get("pseudonymize_ped") and context.config.get("ped_file"):
-            # Create PED filename based on mapping file path
             mapping_path = Path(mapping_file)
             ped_output = mapping_path.parent / (mapping_path.stem + "_pedigree.ped")
             pseudonymizer.pseudonymize_ped_file(context.config["ped_file"], str(ped_output))
@@ -180,8 +157,14 @@ class ExcelReportStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of optional stage names this stage depends on."""
-        # This ensures Excel generation waits for gene burden/association analysis if running.
-        return {"gene_burden_analysis", "association_analysis"}
+        return {
+            "gene_burden_analysis",
+            "association_analysis",
+            "custom_annotation",
+            "variant_scoring",
+            "clinvar_pm5",
+            "igv_report",
+        }
 
     @property
     def parallel_safe(self) -> bool:
@@ -243,7 +226,17 @@ class ExcelReportStage(Stage):
         # Convert TSV to Excel using the correct API
         # The convert_to_excel function automatically creates the output path
         # by changing the .tsv extension to .xlsx
-        xlsx_file = convert_to_excel(str(input_file), context.config, df=excel_df)
+        # Collect additional sheets (Metadata, Statistics, Gene Burden, Association)
+        extra_sheets = self._collect_additional_sheets(context)
+
+        # Convert to Excel in a single XlsxWriter session (all sheets + formatting)
+        xlsx_file = convert_to_excel(
+            str(input_file),
+            context.config,
+            df=excel_df,
+            extra_sheets=extra_sheets,
+            output_file=str(output_path),
+        )
 
         # Move the generated file to the desired location if needed
         if xlsx_file != str(output_path):
@@ -251,12 +244,6 @@ class ExcelReportStage(Stage):
 
             shutil.move(xlsx_file, str(output_path))
             xlsx_file = str(output_path)
-
-        # Add additional sheets (summary, statistics, metadata)
-        self._add_additional_sheets(xlsx_file, context)
-
-        # Finalize Excel file with formatting and IGV links
-        finalize_excel_file(xlsx_file, context.config)
 
         logger.info(f"Excel report generated with all sheets: {xlsx_file}")
 
@@ -268,79 +255,70 @@ class ExcelReportStage(Stage):
         path = context.report_paths.get("excel")
         return [path] if path else []
 
-    def _add_additional_sheets(self, xlsx_file: str, context: PipelineContext) -> None:
-        """Add additional sheets to the Excel file."""
-        logger.info("Adding additional sheets to Excel file")
-
-        # Debug: Print all report paths and config settings
-        logger.info(f"Available report paths: {context.report_paths}")
-        logger.info(f"Stats config - no_stats: {context.config.get('no_stats')}")
-        logger.info(f"Stats config - stats_output_file: {context.config.get('stats_output_file')}")
+    def _collect_additional_sheets(self, context: PipelineContext) -> dict[str, pd.DataFrame]:
+        """Collect available optional sheets as DataFrames for single-session Excel write."""
+        sheets: dict[str, pd.DataFrame] = {}
 
         # Add Metadata sheet
         metadata_file = context.report_paths.get("metadata")
-        logger.info(f"Metadata file path: {metadata_file}")
-        if metadata_file and Path(metadata_file).exists():
-            logger.info(f"Metadata file exists, size: {Path(metadata_file).stat().st_size} bytes")
-            if Path(metadata_file).stat().st_size > 0:
-                try:
-                    append_tsv_as_sheet(xlsx_file, str(metadata_file), sheet_name="Metadata")
-                    logger.info("Successfully added Metadata sheet to Excel file")
-                except Exception as e:
-                    logger.error(f"Failed to add Metadata sheet: {e}")
-            else:
-                logger.warning("Metadata file is empty")
-        else:
-            logger.warning(f"Metadata file not found: {metadata_file}")
+        if (
+            metadata_file
+            and Path(metadata_file).exists()
+            and Path(metadata_file).stat().st_size > 0
+        ):
+            try:
+                sheets["Metadata"] = pd.read_csv(
+                    metadata_file, sep="\t", header=0, low_memory=False
+                )
+                logger.info("Successfully collected Metadata sheet")
+            except Exception as e:
+                logger.error(f"Failed to read Metadata sheet: {e}")
 
-        # Add Statistics sheet (if stats are enabled and file exists)
+        # Add Statistics sheet
         if not context.config.get("no_stats"):
             stats_file = context.config.get("stats_output_file")
-            logger.info(f"Statistics file path: {stats_file}")
-            if stats_file and Path(stats_file).exists():
-                logger.info(
-                    f"Statistics file exists, size: {Path(stats_file).stat().st_size} bytes"
-                )
-                if Path(stats_file).stat().st_size > 0:
-                    try:
-                        append_tsv_as_sheet(xlsx_file, stats_file, sheet_name="Statistics")
-                        logger.info("Successfully added Statistics sheet to Excel file")
-                    except Exception as e:
-                        logger.error(f"Failed to add Statistics sheet: {e}")
-                else:
-                    logger.warning("Statistics file is empty")
-            else:
-                logger.warning(f"Statistics file not found: {stats_file}")
-        else:
-            logger.info("Statistics disabled (no_stats=True)")
+            if stats_file and Path(stats_file).exists() and Path(stats_file).stat().st_size > 0:
+                try:
+                    sheets["Statistics"] = pd.read_csv(
+                        stats_file, sep="\t", header=0, low_memory=False
+                    )
+                    logger.info("Successfully collected Statistics sheet")
+                except Exception as e:
+                    logger.error(f"Failed to read Statistics sheet: {e}")
 
-        # Add Gene Burden sheet (if gene burden analysis was performed and file exists)
+        # Add Gene Burden sheet
         if context.config.get("perform_gene_burden"):
-            gene_burden_file = context.config.get("gene_burden_output")
-            if (
-                gene_burden_file
-                and Path(gene_burden_file).exists()
-                and Path(gene_burden_file).stat().st_size > 0
-            ):
-                try:
-                    append_tsv_as_sheet(xlsx_file, gene_burden_file, sheet_name="Gene Burden")
-                    logger.info("Successfully added Gene Burden sheet to Excel file")
-                except Exception as e:
-                    logger.error(f"Failed to add Gene Burden sheet: {e}")
+            if context.gene_burden_results is not None and not context.gene_burden_results.empty:
+                sheets["Gene Burden"] = context.gene_burden_results.copy()
+                logger.info("Successfully collected Gene Burden sheet from memory")
             else:
-                logger.debug("Gene burden file not found or empty, skipping Gene Burden sheet")
+                gb_file = context.config.get("gene_burden_output")
+                if gb_file and Path(gb_file).exists() and Path(gb_file).stat().st_size > 0:
+                    try:
+                        sheets["Gene Burden"] = pd.read_csv(
+                            gb_file, sep="\t", header=0, low_memory=False
+                        )
+                        logger.info("Successfully collected Gene Burden sheet")
+                    except Exception as e:
+                        logger.error(f"Failed to read Gene Burden sheet: {e}")
 
-        # Add Association sheet (if association analysis was performed and file exists)
+        # Add Association sheet
         if context.config.get("perform_association"):
-            assoc_file = context.config.get("association_output")
-            if assoc_file and Path(assoc_file).exists() and Path(assoc_file).stat().st_size > 0:
-                try:
-                    append_tsv_as_sheet(xlsx_file, assoc_file, sheet_name="Association")
-                    logger.info("Successfully added Association sheet to Excel file")
-                except Exception as e:
-                    logger.error(f"Failed to add Association sheet: {e}")
+            if context.association_results is not None and not context.association_results.empty:
+                sheets["Association"] = context.association_results.copy()
+                logger.info("Successfully collected Association sheet from memory")
             else:
-                logger.debug("Association file not found or empty, skipping Association sheet")
+                assoc_file = context.config.get("association_output")
+                if assoc_file and Path(assoc_file).exists() and Path(assoc_file).stat().st_size > 0:
+                    try:
+                        sheets["Association"] = pd.read_csv(
+                            assoc_file, sep="\t", header=0, low_memory=False
+                        )
+                        logger.info("Successfully collected Association sheet")
+                    except Exception as e:
+                        logger.error(f"Failed to read Association sheet: {e}")
+
+        return sheets
 
 
 class HTMLReportStage(Stage):
@@ -364,9 +342,12 @@ class HTMLReportStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
-        # HTML report should wait for IGV reports if they're being generated
-        # so that IGV links can be included in the HTML report
-        return {"igv_report"}
+        return {
+            "igv_report",
+            "custom_annotation",
+            "variant_scoring",
+            "clinvar_pm5",
+        }
 
     @property
     def parallel_safe(self) -> bool:
@@ -415,15 +396,18 @@ class HTMLReportStage(Stage):
 
             # Check if HTML was generated successfully
             html_file = report_dir / "index.html"
-            if html_file.exists():
-                context.report_paths["html"] = html_file
-                logger.info("HTML report generated successfully.")
-            else:
-                logger.error("HTML report generation failed - index.html not found")
+            if not html_file.exists():
+                raise FileNotFoundError(f"HTML report generation failed: {html_file} not found")
+            context.report_paths["html"] = html_file
+            logger.info("HTML report generated successfully.")
         except Exception as e:
             logger.error(f"HTML report generation failed: {e}")
+            raise
 
         context.report_paths["json"] = variants_json
+        summary_json = report_dir / "summary.json"
+        if summary_json.exists():
+            context.report_paths["summary_json"] = summary_json
 
         return context
 
@@ -556,11 +540,14 @@ class MetadataGenerationStage(Stage):
 
         logger.info(f"Generating metadata: {metadata_path}")
 
-        # Write metadata in TSV format
-        with open(metadata_path, "w", encoding="utf-8") as mf:
+        # Write metadata in TSV format atomically
+        with (
+            AtomicFileOperation(metadata_path) as temp_mf,
+            open(temp_mf, "w", encoding="utf-8") as mf,
+        ):
             mf.write("Parameter\tValue\n")
 
-            def meta_write(param, val):
+            def meta_write(param: Any, val: Any) -> None:
                 p = sanitize_metadata_field(param)
                 v = sanitize_metadata_field(val)
                 mf.write(f"{p}\t{v}\n")
@@ -573,5 +560,7 @@ class MetadataGenerationStage(Stage):
 
     def get_output_files(self, context: PipelineContext) -> list[Path]:
         """Return the metadata report for checkpoint tracking."""
-        path = context.report_paths.get("metadata")
-        return [path] if path else []
+        paths = []
+        if path := context.report_paths.get("metadata"):
+            paths.append(path)
+        return paths

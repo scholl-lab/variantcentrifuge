@@ -85,6 +85,7 @@ class PurePythonSKATTest(AssociationTest):
     def __init__(self) -> None:
         self._backend: PythonSKATBackend | None = None
         self._null_model: NullModelResult | None = None
+        self._null_key: tuple | None = None
 
         # Lifecycle tracking (set by prepare())
         self._total_genes: int = 0
@@ -254,25 +255,79 @@ class PurePythonSKATTest(AssociationTest):
                 "at construction time."
             )
 
-        # Lazy null model: fit once, reuse for all genes
-        if self._null_model is None:
+        # Lazy null model: fit and reuse only while cohort and covariates are unchanged
+        key = (
+            config.trait_type,
+            phenotype.tobytes(),
+            None
+            if covariate_matrix is None
+            else (covariate_matrix.shape, covariate_matrix.tobytes()),
+        )
+        if self._null_model is None or key != getattr(self, "_null_key", None):
             self._null_model = self._backend.fit_null_model(
                 phenotype=phenotype,
                 covariates=covariate_matrix,
                 trait_type=config.trait_type,
             )
+            self._null_key = key
 
-        skat_mafs = geno.mean(axis=0) / 2.0
+        provided_mafs = (
+            contingency_data.get("variant_mafs")
+            if contingency_data.get("variant_mafs") is not None
+            else contingency_data.get("mafs")
+        )
+        if provided_mafs is not None and len(provided_mafs) == geno.shape[1]:
+            skat_mafs = np.asarray(provided_mafs, dtype=np.float64)
+        else:
+            skat_mafs = geno.mean(axis=0) / 2.0
+
+        # Check for polymorphic columns (ptp > 0 and MAF > 0)
+        poly_mask = (np.ptp(geno, axis=0) > 0) & (skat_mafs > 0)
+        cadd_scores = contingency_data.get("cadd_scores")
+        revel_scores = contingency_data.get("revel_scores")
+        score_values = contingency_data.get("score_values")
+        variant_effects = contingency_data.get("variant_effects")
+
+        if not poly_mask.all() and poly_mask.any():
+            orig_n_variants = geno.shape[1]
+            geno = geno[:, poly_mask]
+            skat_mafs = skat_mafs[poly_mask]
+            if cadd_scores is not None and len(cadd_scores) == orig_n_variants:
+                cadd_scores = (
+                    cadd_scores[poly_mask]
+                    if isinstance(cadd_scores, np.ndarray)
+                    else [s for s, keep in zip(cadd_scores, poly_mask, strict=True) if keep]
+                )
+            if revel_scores is not None and len(revel_scores) == orig_n_variants:
+                revel_scores = (
+                    revel_scores[poly_mask]
+                    if isinstance(revel_scores, np.ndarray)
+                    else [s for s, keep in zip(revel_scores, poly_mask, strict=True) if keep]
+                )
+            if score_values is not None and len(score_values) == orig_n_variants:
+                score_values = (
+                    score_values[poly_mask]
+                    if isinstance(score_values, np.ndarray)
+                    else [s for s, keep in zip(score_values, poly_mask, strict=True) if keep]
+                )
+            if variant_effects is not None and len(variant_effects) == orig_n_variants:
+                variant_effects = (
+                    variant_effects[poly_mask]
+                    if isinstance(variant_effects, np.ndarray)
+                    else [e for e, keep in zip(variant_effects, poly_mask, strict=True) if keep]
+                )
+
         weights = get_weights(
             skat_mafs,
             config.variant_weights,
-            cadd_scores=contingency_data.get("cadd_scores"),
-            revel_scores=contingency_data.get("revel_scores"),
-            score_values=contingency_data.get("score_values"),
-            variant_effects=contingency_data.get("variant_effects"),
+            cadd_scores=cadd_scores,
+            revel_scores=revel_scores,
+            score_values=score_values,
+            variant_effects=variant_effects,
             weight_params=config.variant_weight_params,
         )
 
+        assert self._null_model is not None
         result = self._backend.test_gene(
             gene=gene,
             genotype_matrix=geno,
@@ -291,6 +346,7 @@ class PurePythonSKATTest(AssociationTest):
             sigma2=self._null_model.extra["sigma2"],
             mu_hat=self._null_model.extra.get("mu_hat"),  # None for quantitative
             weights=acat_v_weights,
+            design_matrix=self._null_model.extra.get("design_matrix"),
         )
 
         # Increment local counter

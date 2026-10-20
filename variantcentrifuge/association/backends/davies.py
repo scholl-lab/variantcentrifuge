@@ -14,9 +14,8 @@ starts at Tier 2.
 
 Fallback triggering (GENESIS+GMMAT hybrid):
     - Davies ifault > 0
-    - Davies p >= 1.0
-    - Davies p < 1000 * machine_epsilon (~2.22e-13)
-    - Davies p <= 1e-5  (proactive saddlepoint to avoid false convergence)
+    - Davies p >= 1.0 or non-finite (NaN, Inf)
+    - Davies p <= 1e-5 (proactive saddlepoint to avoid false convergence / small-tail instability)
 
 References
 ----------
@@ -49,7 +48,6 @@ _qfc_ffi = None  # The CFFI FFI object
 _DAVIES_AVAILABLE = False
 _DAVIES_LOAD_ATTEMPTED = False
 
-_EPS1000 = 1000.0 * np.finfo(float).eps  # ~2.22e-13
 _PROACTIVE_THRESHOLD = 1e-5  # GMMAT-style proactive saddlepoint trigger
 
 
@@ -351,8 +349,8 @@ def compute_pvalue(
 
     Matches R SKAT package ``Get_PValue.Lambda`` behavior with enhanced fallback:
     - Davies called with acc=1e-6, lim=10000 (R defaults)
-    - If Davies ifault != 0 but 0 < p <= 1: keep Davies result (non-converged)
-    - If p > 1 or p <= 0: try saddlepoint first, then Liu moment-matching
+    - If Davies ifault != 0, p >= 1.0, non-finite, or p <= 1e-5: try saddlepoint first,
+      then Liu moment-matching
     - Single eigenvalue: always use Liu
     - Three-tier chain when Davies available: Davies -> saddlepoint -> Liu
 
@@ -394,39 +392,34 @@ def compute_pvalue(
         p_davies, ifault = davies_pvalue(q, lambdas, acc=acc, lim=lim)
 
         if p_davies is not None:
-            # R SKAT logic: keep Davies result if in valid range,
-            # even if ifault != 0 (mark as non-converged)
-            is_converged = ifault == 0
             p_val = float(p_davies)
+            needs_fallback = (
+                not np.isfinite(p_val)
+                or p_val <= 0.0
+                or p_val >= 1.0
+                or ifault > 0
+                or p_val <= _PROACTIVE_THRESHOLD
+            )
 
-            # Davies out of range: try saddlepoint first, then Liu
-            if p_val > 1.0 or p_val <= 0.0:
+            if needs_fallback:
                 p_sp = _kuonen_pvalue(q, lambdas)
                 if p_sp is not None and 0.0 < p_sp < 1.0:
                     logger.info(
-                        "Davies p=%s out of range (ifault=%d); using saddlepoint fallback (p=%s)",
+                        "Davies p=%s (ifault=%d); using saddlepoint fallback (p=%s)",
                         p_val,
                         ifault,
                         p_sp,
                     )
                     return float(p_sp), "saddlepoint", False
                 logger.info(
-                    "Davies p=%s out of range (ifault=%d); "
-                    "saddlepoint also failed; using Liu fallback (p=%s)",
+                    "Davies p=%s (ifault=%d); saddlepoint also failed; using Liu fallback (p=%s)",
                     p_val,
                     ifault,
                     p_liu,
                 )
                 return p_liu, "liu", False
 
-            if not is_converged:
-                logger.debug(
-                    "Davies ifault=%d but p=%s in range; keeping (non-converged)",
-                    ifault,
-                    p_val,
-                )
-
-            return p_val, "davies", is_converged
+            return p_val, "davies", True
 
     # --- Davies unavailable: use saddlepoint -> Liu chain ---
     p_sp = _kuonen_pvalue(q, lambdas)

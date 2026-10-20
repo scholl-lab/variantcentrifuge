@@ -1,6 +1,6 @@
 """Unit tests for InheritanceAnalysisStage."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -245,3 +245,24 @@ class TestInheritanceAnalysisStage:
 
         # Should still work without GENE column
         mock_analyze.assert_called_once()
+
+    def test_large_in_memory_data_still_analyzed(self, context):
+        """Data larger than the chunk size must not silently skip inheritance."""
+        context.resource_manager = MagicMock()
+        context.resource_manager.auto_chunk_size.return_value = 1
+        with patch("variantcentrifuge.stages.analysis_stages.analyze_inheritance") as mock_analyze:
+            mock_df = context.current_dataframe.copy()
+            mock_df["Inheritance_Pattern"] = "unknown"
+            mock_analyze.return_value = mock_df
+            result = InheritanceAnalysisStage()(context)
+
+        mock_analyze.assert_called_once()
+        assert "Inheritance_Pattern" in result.current_dataframe.columns
+        assert not result.config.get("use_chunked_processing")
+
+    def test_skips_when_chunked_analysis_complete(self, context):
+        """Chunked analysis already computed inheritance per chunk."""
+        context.config["dataframe_chunked_analysis_complete"] = True
+        with patch("variantcentrifuge.stages.analysis_stages.analyze_inheritance") as mock_analyze:
+            InheritanceAnalysisStage()(context)
+        mock_analyze.assert_not_called()

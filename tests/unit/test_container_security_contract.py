@@ -9,11 +9,16 @@ from types import SimpleNamespace
 import pytest
 from packaging import requirements
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
+
 ROOT = Path(__file__).resolve().parents[2]
 MAVEN_NAMESPACE = {"m": "http://maven.apache.org/POM/4.0.0"}
 
 SECURED_PROPERTIES = {
-    "jackson.version": "2.22.1",
+    "jackson.version": "2.22.4",
     "jackson.annotations.version": "2.22",
     "gson.version": "2.14.0",
     "commons.io.version": "2.22.0",
@@ -41,8 +46,8 @@ JUNIT_COORDINATES = {
 }
 
 REQUIRED_RUNTIME_DEPENDENCIES = [
-    "com.fasterxml.jackson.core:jackson-core:jar:2.22.1:runtime",
-    "com.fasterxml.jackson.core:jackson-databind:jar:2.22.1:runtime",
+    "com.fasterxml.jackson.core:jackson-core:jar:2.22.4:runtime",
+    "com.fasterxml.jackson.core:jackson-databind:jar:2.22.4:runtime",
     "com.fasterxml.jackson.core:jackson-annotations:jar:2.22:runtime",
     "com.google.code.gson:gson:jar:2.14.0:runtime",
     "commons-io:commons-io:jar:2.22.0:runtime",
@@ -398,7 +403,7 @@ def test_dockerfile_routes_default_snpeff_databases_to_writable_data_storage() -
     assert "grep -Fx 'data.dir = /data/snpeff/' \"$snpeff_config\"" in conda_build
     assert "mkdir -p /data/snpeff" in runtime
     assert "chown $MAMBA_USER:$MAMBA_USER /data /data/snpeff" in runtime
-    assert "chmod 0750 /data /data/snpeff" in runtime
+    assert "chmod 0755 /data /data/snpeff" in runtime
 
 
 @pytest.mark.parametrize(
@@ -509,8 +514,14 @@ def test_production_package_and_image_gate_both_default_json_configs() -> None:
     pyproject = _text("pyproject.toml")
     conda_build = _docker_stage(_text("Dockerfile"), "conda-build")
 
-    assert "[tool.setuptools.package-data]" in pyproject
-    assert 'variantcentrifuge = ["config.json", "default_stats_config.json"]' in pyproject
+    package_data = tomllib.loads(pyproject)["tool"]["setuptools"]["package-data"]
+    patterns = package_data["variantcentrifuge"]
+    # Both default JSON configs plus the HTML report template/assets must ship in wheels.
+    for required in ("config.json", "default_stats_config.json", "templates/*.html", "assets/*/*"):
+        assert required in patterns
+    package_root = ROOT / "variantcentrifuge"
+    for pattern in patterns:
+        assert any(package_root.glob(pattern)), f"package-data pattern matches nothing: {pattern}"
     assert "from variantcentrifuge.config import load_config" in conda_build
     assert 'package_dir.is_relative_to(Path("/opt/conda"))' in conda_build
     assert 'not package_dir.is_relative_to(Path("/tmp/src"))' in conda_build
@@ -546,7 +557,7 @@ def test_dockerfile_makes_runtime_payloads_immutable_to_the_service_user() -> No
     assert "chmod -R go-w /app" in runtime
     assert "! -type l -a -perm /022" in runtime
     assert "chown $MAMBA_USER:$MAMBA_USER /data" in runtime
-    assert "chmod 0750 /data" in runtime
+    assert "chmod 0755 /data" in runtime
     assert "USER $MAMBA_USER" in runtime
 
 
@@ -856,8 +867,8 @@ def test_runtime_dependency_assertion_requires_every_fixed_coordinate(tmp_path: 
 @pytest.mark.parametrize(
     "malformed_dependency_line",
     [
-        "[INFO] com.fasterxml.jackson.core:jackson-core:jar:2.22.1:runtime",
-        "com.fasterxml.jackson.core:jackson-core:jar:2.22.1:runtime unexpected-trailer",
+        "[INFO] com.fasterxml.jackson.core:jackson-core:jar:2.22.4:runtime",
+        "com.fasterxml.jackson.core:jackson-core:jar:2.22.4:runtime unexpected-trailer",
     ],
 )
 def test_runtime_dependency_assertion_rejects_malformed_coordinate_lines(
@@ -921,15 +932,87 @@ def test_container_image_contract_checks_default_snpeff_data_storage() -> None:
 def test_compose_and_installation_persist_the_default_snpeff_data_directory() -> None:
     compose = _text("docker-compose.yml")
     installation = _text("docs/source/installation.md")
+    usage = _text("docs/source/usage.md")
 
-    assert "snpeff_data:/data/snpeff" in compose
-    assert "snpeff_data:/data/snpeff" in installation
-    assert "/snpeff_data" not in compose
-    assert "/snpeff_data" not in installation
+    assert "./snpeff_data:/data/snpeff" in compose
+    assert "./snpeff_data:/data/snpeff" in installation
+    assert "./snpeff_data:/data/snpeff" in usage
+    assert ":/snpeff_data" not in compose
+    assert ":/snpeff_data" not in installation
+    assert 'user: "${HOST_UID:-1000}:${HOST_GID:-1000}"' in compose
+    assert '--user "$(id -u):$(id -g)"' in installation
+    assert '--user "$(id -u):$(id -g)"' in usage
+    assert "HOST_UID=" in installation
+    assert "-v ./input:/data/input:ro" in installation
+    assert "-v ./output:/data/output" in installation
     for documentation in (compose, installation):
         assert "first download" in documentation.lower()
         assert "fully populated" in documentation.lower()
-        assert "snpeff_data:/data/snpeff:ro" in documentation
+        assert "./snpeff_data:/data/snpeff:ro" in documentation
+
+
+def test_container_image_contract_checks_non_owner_child_mounts() -> None:
+    script = _text("scripts/test_container_image.sh")
+    assert "checking unrelated non-owner traversal of /data and /data/snpeff" in script
+    assert "--user 65534:65534" in script
+    assert "test -r /data\ntest -x /data\ntest -r /data/snpeff\ntest -x /data/snpeff" in script
+    assert "checking host-user traversal of /data with child bind mounts" in script
+    assert '--user "$test_uid:$test_gid"' in script
+    assert 'chmod 0755 "$host_input" "$host_out" "$host_snpeff"' in script
+    assert '-v "$host_input:/data/input:ro"' in script
+    assert '-v "$host_out:/data/output"' in script
+    assert '-v "$host_snpeff:/data/snpeff"' in script
+    assert "0777" not in script
+
+
+def test_data_directory_traversal_permissions_behavioral() -> None:
+    """Verify parsed Dockerfile mode on /data allows non-owner traversal and child write."""
+    import stat
+
+    dockerfile_text = _text("Dockerfile")
+    m = re.search(r"chmod\s+([0-7]+)\s+/data\s+/data/snpeff", dockerfile_text)
+    assert m is not None, "Could not find chmod mode for /data /data/snpeff in Dockerfile"
+    parsed_mode = int(m.group(1), 8)
+    assert parsed_mode == 0o755
+
+    def simulate_posix_traversal_and_write(
+        parent_mode: int,
+        parent_uid: int = 10001,
+        parent_gid: int = 10001,
+        caller_uid: int = 65534,
+        caller_gid: int = 65534,
+    ) -> bool:
+        """Simulate POSIX path lookup (/data/output) and write check for caller."""
+        if caller_uid == parent_uid:
+            can_traverse = bool(parent_mode & stat.S_IXUSR)
+        elif caller_gid == parent_gid:
+            can_traverse = bool(parent_mode & stat.S_IXGRP)
+        else:
+            can_traverse = bool(parent_mode & stat.S_IXOTH)
+
+        if not can_traverse:
+            raise PermissionError(f"Permission denied traversing directory mode {oct(parent_mode)}")
+
+        child_mount_mode = 0o755
+        child_mount_uid = caller_uid
+        child_mount_gid = caller_gid
+
+        if caller_uid == child_mount_uid:
+            can_write = bool(child_mount_mode & stat.S_IWUSR)
+        elif caller_gid == child_mount_gid:
+            can_write = bool(child_mount_mode & stat.S_IWGRP)
+        else:
+            can_write = bool(child_mount_mode & stat.S_IWOTH)
+
+        if not can_write:
+            raise PermissionError("Permission denied writing to child mount")
+
+        return True
+
+    assert simulate_posix_traversal_and_write(parsed_mode) is True
+
+    with pytest.raises(PermissionError, match="Permission denied traversing directory"):
+        simulate_posix_traversal_and_write(0o750)
 
 
 def test_scoring_integration_requires_every_invoked_bioinformatics_tool() -> None:
