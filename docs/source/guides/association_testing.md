@@ -1280,6 +1280,7 @@ out of FDR correction and ACAT-O for that test. Codes appear in these columns:
 | `ILL_CONDITIONED_COVARIATES` | `warnings` (linear burden), `coast_skip_reason` | Same as above for the burden or the allelic SKAT-O projection. | As above. |
 | `no_informative_variants` | `skat_skip_reason` | Every qualifying variant is fully explained by the covariates. | Nothing to fix; the gene has no testable signal under this model. |
 | `BURDEN_NOT_ESTIMABLE` | `warnings` (linear burden) | The burden score is constant or lies in the span of the intercept and covariates. | Typical for genes with very few carriers; use SKAT or relax variant filters. |
+| `no_positive_eigenvalues` | `skat_skip_reason` | Binary trait: the covariate-adjusted SKAT kernel has no eigenvalue above round-off, so no p-value exists (R SKAT stops with "No Eigenvalue is bigger than 0!!"). | Nothing to fix; the variants carry no information beyond the covariates. |
 | `rank_deficient` | `skat_skip_reason` | The genotype matrix has rank below 2 (for example a single variant, or identical carrier patterns). | Expected for single-variant genes; use burden or Fisher. |
 | `zero_variance` | `skat_skip_reason` | Burden-method SKAT: the collapsed burden is in the covariate span. | As for `BURDEN_NOT_ESTIMABLE`. |
 | `OLS_FIT_FAILED` / `NONFINITE_STATISTICS` | `warnings` (linear burden) | The regression raised, or returned a non-finite estimate, SE, p-value or CI. | Check for extreme outcome or covariate values. |

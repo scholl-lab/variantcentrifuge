@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Developer benchmark harness `scripts/bench_association.py` for the association stage (seeded synthetic S/M/L data, packed or per-sample GT layout, bit-exact `--compare` result gate, slow wall-clock regression test) and per-sub-step timings recorded in `context.stage_results["association_analysis"]`.
 
+### Fixed
+
+- Python SKAT (binary trait): a gene whose covariate-adjusted kernel has no eigenvalue above round-off is now skipped with `skat_skip_reason=no_positive_eigenvalues` (R SKAT stops there) instead of reporting a placeholder p = 1 that forced ACAT-O towards 1. Quantitative traits keep p = 1, as R computes.
+
 ### Deprecated
 
 - `--perform-gene-burden` now warns and will be removed in the next minor release; use `--perform-association` (e.g. `--association-tests fisher`). The legacy path ignores `--missing-as-ref` (#217).
