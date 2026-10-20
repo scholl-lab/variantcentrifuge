@@ -76,6 +76,6 @@ def test_reconstruction_deletes_sample_columns_in_one_operation(monkeypatch) -> 
     df = _frame(categorical=True)
     out = reconstruct_gt_column(df, ["A", "B", "C"])
     assert out["GT"].tolist() == EXPECTED_GT
-    assert len(calls) <= 1  # one bulk drop/delete, never one per sample column
+    assert len(calls) == 1  # one bulk delete, never one per sample column
     # Kept columns stay shared with the input (shallow-copy memory contract).
     assert np.shares_memory(df["QUAL"].to_numpy(), out["QUAL"].to_numpy())

@@ -152,9 +152,14 @@ def reconstruct_gt_column(
     df["GT"] = gt_strings
 
     # Drop per-sample GT and requested extra GEN columns
-    extra_cols = [col for (_, f), col in s_cols.items() if f in extra_fields]
-    # One drop: per-column `del` re-slices every block each time (quadratic in columns).
-    df = df.drop(columns=[c for c in gt_cols + extra_cols if c in df.columns])
+    # Remove per-sample GT and requested extra GEN columns with ONE delete: deleting them
+    # one by one re-splits the remaining blocks each time (quadratic, #173). Relabel them
+    # to a shared sentinel so a single ``del`` keeps the other blocks shared with the input;
+    # DataFrame.drop would copy every kept column without Copy-on-Write (pandas < 3).
+    drop = set(gt_cols) | {col for (_, f), col in s_cols.items() if f in extra_fields}
+    sentinel = object()
+    df.columns = pd.Index([sentinel if c in drop else c for c in df.columns], name=df.columns.name)
+    del df[sentinel]
     logger.info(f"Dropped {len(gt_cols)} per-sample GT columns from output")
 
     return df
