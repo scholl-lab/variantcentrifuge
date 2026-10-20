@@ -31,8 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", required=True, help="Output meta results TSV path.")
     parser.add_argument(
         "--weights",
-        default="beta:1,25",
-        help="Weight scheme: 'beta:a,b' (default beta:1,25) or 'uniform'.",
+        nargs="+",
+        default=["beta:1,25"],
+        help="Weight scheme(s): 'beta:a,b' (default beta:1,25) or 'uniform'. Several "
+        "schemes (e.g. --weights beta:1,25 uniform) give one column set per scheme, "
+        "suffixed by the scheme name (beta_1_25, uniform).",
     )
     parser.add_argument(
         "--correction",

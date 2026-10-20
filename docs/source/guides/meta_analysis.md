@@ -147,7 +147,15 @@ variantcentrifuge meta \
 ```
 
 Only `beta:a,b` and `uniform` weights are supported (the only schemes reproducible
-from the artifact). Output columns include `meta_burden_p`,
+from the artifact). `--weights` takes several schemes, e.g.
+`--weights beta:1,25 uniform`: every column that depends on the weights (p-values,
+`meta_burden_beta`/`_direction`, `meta_skato_rho`, heterogeneity, leave-one-out,
+`primary_p`/`primary_q`, `status`, and with several masks `acat_masks_p`/`_q`) then
+appears once per scheme, suffixed by the scheme name with non-alphanumerics replaced
+by `_` (`primary_p_beta_1_25`, `primary_p_uniform`). Each scheme is corrected on its
+own, and its diagnostics go to `DIR/[<mask_id>/]<scheme>/`. Gene, mask, sample
+counts, MAC, carrier and `warnings` columns are shared. With one scheme the column
+names are unchanged. Output columns include `meta_burden_p`,
 `meta_burden_direction`, `meta_skat_p`, `meta_skato_p`, `meta_skato_rho`, `het_q`,
 `het_p`, `het_i2`, `per_stratum_directions`, `loo_min_p`, `primary_p`,
 `primary_q`, and a `status`/`warnings` pair (e.g. a non-converged stratum is

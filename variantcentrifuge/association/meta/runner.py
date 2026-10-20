@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 
 import numpy as np
 import pandas as pd
@@ -67,6 +68,22 @@ OUTPUT_COLUMNS = [
     "primary_p",
     "primary_q",
     "status",
+    "warnings",
+]
+
+
+# Columns that do not depend on the weight scheme; the rest get a per-scheme suffix (#202).
+_SCHEME_FREE_COLUMNS = [
+    "gene",
+    "mask",
+    "n_strata",
+    "n_cases_total",
+    "n_controls_total",
+    "n_variants_union",
+    "cmac_total",
+    "cmac_by_stratum",
+    "n_carriers_total",
+    "carriers_by_stratum",
     "warnings",
 ]
 
@@ -302,10 +319,20 @@ def _write_meta_diagnostics(
     )
 
 
+def _scheme_suffixes(schemes: list[str]) -> list[str]:
+    """Column suffix per scheme: none for a single scheme, else e.g. ``_beta_1_25``."""
+    if len(schemes) == 1:
+        return [""]
+    tags = [re.sub(r"[^0-9A-Za-z]+", "_", s).strip("_") for s in schemes]
+    if len(set(tags)) != len(tags):
+        raise ValueError(f"Weight schemes must be distinct, got {schemes}")
+    return [f"_{t}" for t in tags]
+
+
 def run_meta(
     manifest_path: str,
     output_path: str,
-    weight_scheme: str = "beta:1,25",
+    weight_scheme: str | list[str] = "beta:1,25",
     correction: str = "fdr",
     min_mac: float = 0.0,
     diagnostics_dir: str | None = None,
@@ -316,10 +343,14 @@ def run_meta(
 
     Each mask in the manifest is validated and combined separately; with several
     masks the rows are stacked and ``acat_masks_p``/``acat_masks_q`` added. With
-    ``diagnostics_dir``, also writes λ_GC/QQ diagnostics over the genes inside the
-    correction family (``primary_q`` set), in one subdirectory per mask when the
-    manifest has several.
+    several weight schemes, every scheme-dependent column (and the ACAT pair) appears
+    once per scheme, suffixed by the scheme name; each scheme is corrected on its own.
+    With ``diagnostics_dir``, also writes λ_GC/QQ diagnostics over the genes inside the
+    correction family (``primary_q`` set), in a subdirectory per mask and per scheme
+    when there are several.
     """
+    schemes = [weight_scheme] if isinstance(weight_scheme, str) else list(weight_scheme)
+    suffixes = _scheme_suffixes(schemes)
     groups = group_by_mask(read_study_manifest(manifest_path))
     frames: list[pd.DataFrame] = []
     for mask, refs in groups.items():
@@ -328,21 +359,37 @@ def run_meta(
         logger.info(
             "Meta-analysis: %d strata, mask '%s'", len(artifacts), mask or artifacts[0].mask_id
         )
-        df = meta_analyze_artifacts(
-            artifacts,
-            weight_scheme=weight_scheme,
-            correction=correction,
-            min_mac=min_mac,
-            require_variants_in_all_strata=require_variants_in_all_strata,
-            mask_name=mask,
-        )
+        per_scheme = [
+            meta_analyze_artifacts(
+                artifacts,
+                weight_scheme=scheme,
+                correction=correction,
+                min_mac=min_mac,
+                require_variants_in_all_strata=require_variants_in_all_strata,
+                mask_name=mask,
+            )
+            for scheme in schemes
+        ]
         if diagnostics_dir is not None:
-            sub = diagnostics_dir if len(groups) == 1 else os.path.join(diagnostics_dir, str(mask))
-            _write_meta_diagnostics(df, sub, artifacts)
+            for sfx, scheme_df in zip(suffixes, per_scheme, strict=True):
+                parts = [str(mask)] if len(groups) > 1 else []
+                sub = os.path.join(diagnostics_dir, *parts, sfx[1:])
+                _write_meta_diagnostics(scheme_df, sub, artifacts)
+        df = per_scheme[0]
+        if len(schemes) > 1:
+            df = pd.concat(
+                [df[_SCHEME_FREE_COLUMNS]]
+                + [
+                    f.drop(columns=_SCHEME_FREE_COLUMNS).add_suffix(sfx)
+                    for f, sfx in zip(per_scheme, suffixes, strict=True)
+                ],
+                axis=1,
+            )
         frames.append(df)
     df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
     if len(groups) > 1:
-        df = add_acat_masks(df, correction)
+        for sfx in suffixes:
+            df = add_acat_masks(df, correction, sfx)
     df.to_csv(output_path, sep="\t", index=False)
     logger.info("Wrote meta results to %s", output_path)
     return df
