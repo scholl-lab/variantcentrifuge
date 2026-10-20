@@ -76,3 +76,20 @@ def test_cache_follows_reassigned_null_quantities():
     null.extra["covariate_r"] = near
     after = nm._project(z, null)
     assert after[2] == _project_reference(z, null)[2] != before
+
+
+def test_liu_fallback_only_computed_when_davies_fails(monkeypatch):
+    from variantcentrifuge.association.backends import davies
+
+    if not davies._try_load_davies():
+        pytest.skip("Davies C extension not built")
+    lam = np.array([3.0, 1.5, 0.7, 0.2])
+    expected = davies.compute_pvalue(4.0, lam)
+    calls = []
+    real = davies._liu_pvalue
+    monkeypatch.setattr(davies, "_liu_pvalue", lambda *a: calls.append(1) or real(*a))
+    assert davies.compute_pvalue(4.0, lam) == expected and expected[1] == "davies"
+    assert calls == []
+    monkeypatch.setattr(davies, "_try_load_davies", lambda: False)  # fallback path unchanged
+    p, method, _ = davies.compute_pvalue(4.0, lam)
+    assert method in ("saddlepoint", "liu") and 0.0 < p < 1.0
