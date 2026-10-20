@@ -161,7 +161,7 @@ def _gene_row(
         for (art, _gs), b in zip(kept, betas, strict=True)
     ]
 
-    cmac_total = _mac(ac_pooled, an_pooled, sum(v_list))
+    cmac_total = _mac(ac_pooled, an_pooled, np.sum(v_list, axis=0))
     stratum_macs = [_mac(gs.ac, gs.an, gs.v) for gs in gene_scores]
     primary_p = skato_p if skato_p is not None else burden_p
     status = "ok" if n_strata >= 2 else "single_stratum"
