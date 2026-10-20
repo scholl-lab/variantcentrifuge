@@ -110,6 +110,15 @@ def _is_known_categorical_column(col_name: str) -> bool:
     )
 
 
+def _numeric_col_name(col: str) -> bool:
+    """Old name heuristic, used only by the transition guard (see _formula_usage)."""
+    u = col.upper().strip()
+    return not _is_known_categorical_column(col) and (
+        u.endswith(("_AC", "_AN", "_COUNT", "_P", "_PROB", "_PVAL", "_RANKSCORE"))
+        or any(s in u for s in ("AF", "CADD", "NGS", "SCORE", "PHRED"))
+    )
+
+
 def _formula_usage(name: str, formulas: list[dict[str, Any]], typed: dict[str, str]) -> set[str]:
     """Return how formulas use variable *name* ("numeric", "categorical", ...).
 
@@ -336,7 +345,8 @@ def apply_scoring(
     for original_col, (target_name, _d, red, var_type, _h) in parsed_vars.items():
         res, col = resolved[target_name], scored_df.get(original_col)
         used = _formula_usage(target_name, formulas, typed)
-        if red is not None or (col is not None and col.dtype.kind in "iuf"):
+        numeric_dtype = col is not None and col.dtype.kind in "iuf"
+        if red is not None or numeric_dtype or _numeric_col_name(original_col):
             used.add("numeric")
         old = next((u for u in ("categorical", "numeric") if u in used), min(used, default=res))
         if var_type or _is_known_categorical_column(original_col) or old == res:

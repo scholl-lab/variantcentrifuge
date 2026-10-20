@@ -536,3 +536,17 @@ def test_shipped_custom_template_loads_with_comment_keys():
     cfg = read_scoring_config(str(root))
     assert all(not k.startswith("_") for item in cfg["formulas"] for k in item)
     assert "coast_category" in cfg["formulas"][-1]
+
+
+def test_numeric_named_column_with_text_default_is_ambiguous():
+    """Old code typed *_SCORE columns numeric by name; a '' default must not flip them silently."""
+    import pandas as pd
+
+    from variantcentrifuge.scoring import apply_scoring
+
+    df = pd.DataFrame({"REVEL_SCORE": ["0.7", "0.2"]})
+    cfg = {"variables": {"REVEL_SCORE": "revel|default:''"}, "formulas": [{"out": "revel"}]}
+    with pytest.raises(ValueError, match="'revel' is ambiguous"):
+        apply_scoring(df, cfg)
+    cfg["variables"]["REVEL_SCORE"] = "revel|default:''|type:numeric"
+    assert apply_scoring(df, cfg)["out"].tolist() == [0.7, 0.2]
