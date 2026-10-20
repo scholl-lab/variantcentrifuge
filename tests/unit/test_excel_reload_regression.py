@@ -12,6 +12,21 @@ from variantcentrifuge.pipeline_core.context import PipelineContext
 from variantcentrifuge.pipeline_core.workspace import Workspace
 from variantcentrifuge.stages.output_stages import ExcelReportStage
 
+XLSX_HYPERLINK_LIMIT = 65530  # hard-coded per-worksheet cap in xlsxwriter.Worksheet._write_url
+
+
+def _start_hyperlink_count_at(monkeypatch: pytest.MonkeyPatch, start: int) -> None:
+    """Pre-fill xlsxwriter's per-sheet link counter so small frames reach the cap quickly."""
+    from xlsxwriter.worksheet import Worksheet
+
+    orig_init = Worksheet.__init__
+
+    def _init(self: Worksheet, *args: object, **kwargs: object) -> None:
+        orig_init(self, *args, **kwargs)
+        self.hlink_count = start
+
+    monkeypatch.setattr(Worksheet, "__init__", _init)
+
 
 @pytest.fixture
 def excel_context(tmp_path: Path) -> PipelineContext:
@@ -279,8 +294,15 @@ def test_excel_legacy_list_format_igv_map(tmp_path: Path):
 
 
 @pytest.mark.unit
-def test_excel_6000_rows_6_urls_no_hyperlink_limit_exhaustion(tmp_path: Path):
-    """Verify 6,000 rows x 6 URL cols + IGV col (42,000 URLs) don't hit 65,530 limit (#159)."""
+def test_excel_6000_rows_6_urls_no_hyperlink_limit_exhaustion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Verify rows x (6 URL cols + IGV col) register exactly one link per cell (#159).
+
+    The link counter starts so the expected links land exactly on the 65,530 cap: one
+    duplicate registration anywhere trips the limit warning. Equivalent to 42,000 links
+    from 6,000 rows, at a fraction of the runtime.
+    """
     import warnings
 
     from variantcentrifuge.converter import convert_to_excel
@@ -290,7 +312,8 @@ def test_excel_6000_rows_6_urls_no_hyperlink_limit_exhaustion(tmp_path: Path):
     report_dir = output_dir / "report" / "igv"
     report_dir.mkdir(parents=True, exist_ok=True)
 
-    n_rows = 6000
+    n_rows = 300
+    _start_hyperlink_count_at(monkeypatch, XLSX_HYPERLINK_LIMIT - 7 * n_rows)
     legacy_map = [
         {
             "chrom": "chr1",
@@ -320,7 +343,7 @@ def test_excel_6000_rows_6_urls_no_hyperlink_limit_exhaustion(tmp_path: Path):
     df = pd.DataFrame(data)
     xlsx_file = output_dir / "large_urls.xlsx"
 
-    # With strings_to_urls=False and single registration, exactly 42,000 hyperlinks are written
+    # With strings_to_urls=False and single registration, exactly 7 hyperlinks per row are written
     with warnings.catch_warnings(record=True) as recorded:
         warnings.simplefilter("always")
         convert_to_excel(
@@ -361,14 +384,14 @@ def test_excel_6000_rows_6_urls_no_hyperlink_limit_exhaustion(tmp_path: Path):
     assert last_igv_cell.value == "Sample1"
     assert f"igv/Sample1_{n_rows}.html" in last_igv_cell.hyperlink.target.replace("\\", "/")
 
-    # Assert that all 36,000 URL cells and 6,000 IGV link cells have active hyperlinks
+    # Assert that every URL cell and IGV link cell has an active hyperlink
     url_hlinks = sum(
         1
         for row in ws.iter_rows(min_row=2, max_row=n_rows + 1, min_col=6, max_col=11)
         for cell in row
         if cell.hyperlink is not None
     )
-    assert url_hlinks == 36000
+    assert url_hlinks == 6 * n_rows
 
     igv_hlinks = sum(
         1
@@ -378,7 +401,7 @@ def test_excel_6000_rows_6_urls_no_hyperlink_limit_exhaustion(tmp_path: Path):
         for cell in row
         if cell.hyperlink is not None
     )
-    assert igv_hlinks == 6000
+    assert igv_hlinks == n_rows
 
 
 @pytest.mark.unit
@@ -1327,14 +1350,18 @@ def test_convert_to_excel_rejects_duplicate_extra_sheet_names(tmp_path: Path):
 
 @pytest.mark.unit
 @pytest.mark.filterwarnings("ignore:Ignoring URL .* since it exceeds Excel's limit:UserWarning")
-def test_convert_to_excel_large_report_preserves_all_igv_targets(tmp_path: Path):
+def test_convert_to_excel_large_report_preserves_all_igv_targets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Verify that exceeding Excel's 65,530 hyperlink limit never drops IGV paths (#159)."""
     from variantcentrifuge.converter import convert_to_excel
 
     igv_dir = tmp_path / "report" / "igv"
     igv_dir.mkdir(parents=True, exist_ok=True)
 
-    n = 10000
+    n = 400
+    # 7 links per row; the cap is crossed partway through, like a 10,000-row report.
+    _start_hyperlink_count_at(monkeypatch, XLSX_HYPERLINK_LIMIT - 3 * n)
     df = pd.DataFrame(
         {
             "CHROM": ["chr1"] * n,
