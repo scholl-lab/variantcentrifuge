@@ -74,7 +74,7 @@ $(DAVIES_EXT): variantcentrifuge/_davies_build.py variantcentrifuge/association/
 
 test: $(DAVIES_EXT) ## Run all tests with coverage (same as CI)
 	@echo "$(CYAN)Running tests with coverage...$(NC)"
-	$(PYTHON) -m pytest tests/ \
+	$(PYTHON) -m pytest -n auto tests/ \
 		--verbose \
 		--cov=variantcentrifuge \
 		--cov-report=xml \
@@ -82,13 +82,13 @@ test: $(DAVIES_EXT) ## Run all tests with coverage (same as CI)
 	@echo "$(GREEN)Tests passed$(NC)"
 
 test-unit: $(DAVIES_EXT) ## Run unit tests only
-	$(PYTHON) -m pytest -m unit tests/ -v
+	$(PYTHON) -m pytest -n auto -m unit tests/ -v
 
 test-integration: $(DAVIES_EXT) ## Run integration tests only
 	$(PYTHON) -m pytest -m integration tests/ -v
 
 test-fast: $(DAVIES_EXT) ## Run non-slow, non-integration tests
-	$(PYTHON) -m pytest -m "not slow and not integration" tests/ --tb=short -q
+	$(PYTHON) -m pytest -n auto -m "not slow and not integration" tests/ --tb=short -q
 
 ##@ CI Verification
 
