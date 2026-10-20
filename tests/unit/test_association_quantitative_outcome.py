@@ -273,7 +273,7 @@ def test_repeated_identical_transcript_annotation_is_invariant(tmp_path, trait):
         (9, 100, False, "fewer than 10 cases"),
         (20, 30, True, "no practical power"),
         (60, 180, True, "underpowered for SKAT"),
-        (300, 7000, True, "exceeds 1:20"),
+        (300, 7000, True, "exceeding the 20:1"),
     ],
 )
 def test_binary_cohort_size_guard(caplog, n_cases, n_controls, ok, message):
@@ -521,3 +521,46 @@ def test_skato_null_fit_skips_keep_skato_column(tmp_path):
     res = _run(ctx)
     assert "skat_o_pvalue" in res.columns and "skat_pvalue" not in res.columns
     assert (res["skat_method"] == "SKATO").all()
+
+
+def test_cohort_size_ok_imbalance_warning_is_two_sided(caplog):
+    """Review C-r1 #1: stage warning also fires when cases outnumber controls."""
+    from variantcentrifuge.stages.association_analysis_stages import _cohort_size_ok
+
+    with caplog.at_level("WARNING", logger="variantcentrifuge"):
+        assert _cohort_size_ok(1000, 10) is True
+    assert "cases outnumber controls 100.0:1" in caplog.text
+
+
+def test_covariate_case_control_table_written_by_stage(tmp_path):
+    """Review C-r1 #2: stage writes covariate_case_control.tsv with raw batch labels."""
+    config = {
+        **_BINARY,
+        "diagnostics_output": str(tmp_path / "d"),
+        "categorical_covariates": ["batch"],
+    }
+    context = _context(tmp_path, config)
+    cases = set(context.config["case_samples"])
+    Path(context.config["covariate_file"]).write_text(
+        "sample\tbatch\n" + "".join(f"{s}\t{'X' if s in cases else 'Y'}\n" for s in SAMPLES)
+    )
+    _run(context)
+    table = pd.read_csv(tmp_path / "d" / "covariate_case_control.tsv", sep="\t")
+    n_cases = len(cases)
+    assert table.to_dict("records") == [
+        {"covariate": "batch", "level": "X", "n_cases": n_cases, "n_controls": 0},
+        {"covariate": "batch", "level": "Y", "n_cases": 0, "n_controls": len(SAMPLES) - n_cases},
+    ]
+
+
+def test_cohort_size_ok_uses_configured_ratio(caplog):
+    """Ratio 7.8 warns when max_case_control_ratio=5, and stays silent when imbalance is None."""
+    from variantcentrifuge.stages.association_analysis_stages import _cohort_size_ok
+
+    with caplog.at_level("WARNING", logger="variantcentrifuge"):
+        assert _cohort_size_ok(788, 101, 5.0) is True
+    assert "cases outnumber controls 7.8:1" in caplog.text
+    caplog.clear()
+    with caplog.at_level("WARNING", logger="variantcentrifuge"):
+        _cohort_size_ok(788, 101, None)  # diagnostics emit it instead (no duplicate)
+    assert "outnumber" not in caplog.text

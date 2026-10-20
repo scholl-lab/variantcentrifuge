@@ -11,11 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `--annotate-bed NAME=path.bed[.gz]` adds a yes/no column `NAME` (variant REF span overlaps a region); plain `--annotate-bed path.bed` is unchanged (#94).
 - `.bed.gz` input for `--annotate-bed`.
+- Association diagnostics: with `--diagnostics-output` and categorical covariates, `covariate_case_control.tsv` lists cases/controls per level of each categorical covariate (raw labels); levels with no cases or no controls are warned (#202).
+- New AF presets `popmax_1percent` and `popmax_rare` filter on the dbNSFP gnomAD popmax allele frequency (`gnomAD_exomes/genomes_POPMAX_AF` for dbnsfp4, `gnomAD4.1_joint_POPMAX_AF` for dbnsfp5) (#202).
 
 ### Fixed
 
 - `--annotate-bed` treated 1-based VCF POS as 0-based, so hits at BED interval edges were wrong (first base missed ... last base excluded); overlap now uses the REF span [POS-1, POS-1+len(REF)), so deletions reaching into a region are hit. Legacy `Region=` output changes at interval edges (#94).
 - An unreadable or missing `--annotate-bed` file now raises instead of silently annotating nothing (#94).
+- Association diagnostics: `IMBALANCED_COHORT` is now two-sided (max/min of cases and controls) and the warning names the direction, e.g. "cases outnumber controls 100.0:1" (#199).
 
 ## [0.21.0] - 2026-10-20
 

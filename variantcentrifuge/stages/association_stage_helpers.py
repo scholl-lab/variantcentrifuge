@@ -39,8 +39,13 @@ def _emit_score_artifact(config: dict, path: str, gene_burden_data: list[dict]) 
     )
 
 
-def _cohort_size_ok(n_cases_total: int, n_controls_total: int) -> bool:
-    """Log binary cohort size/balance warnings; False when too few cases to analyse."""
+def _cohort_size_ok(
+    n_cases_total: int, n_controls_total: int, max_ratio: float | None = 20.0
+) -> bool:
+    """Log binary cohort size/balance warnings; False when too few cases to analyse.
+
+    ``max_ratio=None`` skips the imbalance warning (diagnostics emit it instead).
+    """
     if n_cases_total < 10:
         logger.error(
             f"Association analysis: only {n_cases_total} case(s) found — "
@@ -57,18 +62,19 @@ def _cohort_size_ok(n_cases_total: int, n_controls_total: int) -> bool:
             f"Association analysis: {n_cases_total} case(s) — "
             "fewer than 200 cases is underpowered for SKAT; interpret results with caution"
         )
-    if n_controls_total > 0 and n_cases_total > 0:
-        ratio = n_controls_total / n_cases_total
-        if ratio > 20:
-            logger.warning(
-                f"Association analysis: case:control ratio is 1:{ratio:.0f} — "
-                "exceeds 1:20; Type I error inflation risk without SPA/Firth correction"
-            )
+    from ..association.diagnostics import imbalance_message
+
+    msg = imbalance_message(n_cases_total, n_controls_total, max_ratio) if max_ratio else None
+    if msg:
+        logger.warning(msg)
     return True
 
 
 def _load_covariates_and_pcs(
-    assoc_config: Any, assigned_samples: list[str], remove_sample_substring: str | None
+    assoc_config: Any,
+    assigned_samples: list[str],
+    remove_sample_substring: str | None,
+    raw_categorical_out: dict[str, Any] | None = None,
 ) -> tuple[Any, list[str]]:
     """Load covariates and merge PCA components; (None, []) when nothing is configured."""
     covariate_matrix = None
@@ -81,6 +87,7 @@ def _load_covariates_and_pcs(
             assigned_samples,
             assoc_config.covariate_columns,
             assoc_config.categorical_covariates,
+            raw_categorical_out,
         )
         logger.info(
             f"Association analysis: loaded {covariate_matrix.shape[1]} "

@@ -278,11 +278,18 @@ class AssociationAnalysisStage(Stage):
 
         n_cases_total = len(case_samples)
         n_controls_total = len(control_samples)
-        if not quantitative and not _cohort_size_ok(n_cases_total, n_controls_total):
+        guard_ratio = (
+            None if assoc_config.diagnostics_output else assoc_config.max_case_control_ratio
+        )
+        if not quantitative and not _cohort_size_ok(n_cases_total, n_controls_total, guard_ratio):
             return context
 
+        raw_categorical: dict[str, Any] = {}
         covariate_matrix, _covariate_col_names = _load_covariates_and_pcs(
-            assoc_config, assigned_samples, context.config.get("remove_sample_substring")
+            assoc_config,
+            assigned_samples,
+            context.config.get("remove_sample_substring"),
+            raw_categorical,
         )
 
         phenotype_vector = None
@@ -415,7 +422,11 @@ class AssociationAnalysisStage(Stage):
         logger.info(f"Wrote association results to {assoc_output}")
 
         if assoc_config.diagnostics_output:
-            from ..association.diagnostics import emit_sample_size_warnings, write_diagnostics
+            from ..association.diagnostics import (
+                emit_sample_size_warnings,
+                write_covariate_balance,
+                write_diagnostics,
+            )
 
             cohort_warnings = (
                 []
@@ -430,6 +441,10 @@ class AssociationAnalysisStage(Stage):
                 n_controls=n_controls_total,
                 cohort_warnings=cohort_warnings,
             )
+            if raw_categorical and not quantitative:
+                write_covariate_balance(
+                    raw_categorical, case_set, control_set, assoc_config.diagnostics_output
+                )
 
         context.association_results = results_df
 

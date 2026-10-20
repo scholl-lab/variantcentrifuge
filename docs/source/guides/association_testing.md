@@ -744,6 +744,7 @@ variantcentrifuge \
 |------|--------|-------------|
 | `lambda_gc.tsv` | TSV: `test_name`, `lambda_gc`, `n_tests` | Genomic inflation factor per test |
 | `qq_data.tsv` | TSV: `test`, `expected_neg_log10_p`, `observed_neg_log10_p` | QQ plot data (sorted ascending by expected) |
+| `covariate_case_control.tsv` | TSV: `covariate`, `level`, `n_cases`, `n_controls` | Cases/controls per level of each categorical covariate (raw labels, pre-encoding); written when `--categorical-covariates` is used, to expose batch confounding |
 | `summary.txt` | Plain text | Human-readable summary: sample sizes, per-gene warnings, lambda_GC values |
 | `qq_plot.png` | PNG (optional) | QQ plot — written only if `matplotlib` is installed |
 
@@ -1036,7 +1037,7 @@ Use this for reproducible analyses or when parameters are too numerous for the c
 | `coast_backend` | str | `"python"` | `"python"` or `"auto"` |
 | `diagnostics_output` | str | `null` | Path to diagnostics directory |
 | `min_cases` | int | `200` | Warn if case count below this |
-| `max_case_control_ratio` | float | `20.0` | Warn if control-to-case ratio exceeds this |
+| `max_case_control_ratio` | float | `20.0` | Warn if the larger/smaller of cases and controls exceeds this (either direction; the message names which group is larger) |
 | `min_case_carriers` | int | `10` | Per-gene warn if case carriers below this |
 | `confidence_interval_alpha` | float | `0.05` | CI significance level (0.05 = 95% CI) |
 | `continuity_correction` | float | `0.5` | Haldane-Anscombe continuity correction for zero cells in Fisher |
@@ -1144,7 +1145,7 @@ These are triggered by thresholds in `AssociationConfig`:
 |---------|------------------|------------|
 | Total cases below threshold | 200 | `min_cases` |
 | Per-gene case carriers below threshold | 10 | `min_case_carriers` |
-| Control-to-case ratio exceeds threshold | 20.0 | `max_case_control_ratio` |
+| Case/control imbalance (larger:smaller, either direction) exceeds threshold | 20.0 | `max_case_control_ratio` |
 
 Adjust thresholds in JSON config if your study design intentionally has fewer cases. The analysis
 still runs — these are warnings, not failures.
