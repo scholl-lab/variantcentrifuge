@@ -907,7 +907,11 @@ _SYNTH_GOLDEN_SCENARIOS: dict[str, dict] = {
         "description": "Partial categories (5 BMV + 0 DMV + 2 PTV), missing DMV.",
     },
     "synth_g3_single_variant": {
-        "python_omnibus_p": 7.957670583340543e-02,
+        # #216: the allelic SKAT-O component is p = 1 (rank < 2), which R ACAT() keeps.
+        # R 4.5.3, ACAT() of scripts/generate_acat_parity.R on the 6 burden p-values
+        # (0.30524 x2, 0.057009 x4) + 1.0, weights 1 x 6, 6 -> 1; without it -> 0.0795767
+        # (the old value). Command and output: _ledger/evidence23/C1.md.
+        "python_omnibus_p": 1.0,
         "r_omnibus_p": 3.672717286639919e-02,
         "description": "Single variant (PTV only), rank-1 genotype matrix edge case.",
     },

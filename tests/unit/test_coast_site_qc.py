@@ -29,7 +29,8 @@ def _gene_df(sparse_row: int | None) -> pd.DataFrame:
     df.insert(0, "EFFECT", ["missense_variant"] * 4 + ["frameshift_variant"] * 2)
     df.insert(1, "IMPACT", ["MODERATE"] * 4 + ["HIGH"] * 2)
     df.insert(2, "dbNSFP_SIFT_pred", ["tolerated"] * 2 + ["deleterious"] * 2 + ["."] * 2)
-    df.insert(3, "dbNSFP_Polyphen2_HDIV_pred", ["benign"] * 2 + ["probably_damaging"] * 2 + ["."] * 2)
+    polyphen = ["benign"] * 2 + ["probably_damaging"] * 2 + ["."] * 2
+    df.insert(3, "dbNSFP_Polyphen2_HDIV_pred", polyphen)
     return df
 
 
