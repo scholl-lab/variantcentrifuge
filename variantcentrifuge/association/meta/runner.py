@@ -242,7 +242,7 @@ def run_meta(
     """Full pipeline: manifest → validated artifacts → meta results → TSV.
 
     With ``diagnostics_dir``, also writes λ_GC/QQ diagnostics for the run's single
-    mask over the genes inside the correction family.
+    mask over the genes inside the correction family (``primary_q`` set).
     """
     refs = read_study_manifest(manifest_path)
     artifacts = load_manifest_artifacts(refs)
@@ -255,9 +255,9 @@ def run_meta(
     df.to_csv(output_path, sep="\t", index=False)
     logger.info("Wrote meta results to %s", output_path)
     if diagnostics_dir is not None:
-        diag = df[df["status"] != "low_mac"].rename(
-            columns={c: f"{t}_pvalue" for c, t in _DIAG_TESTS.items()}
-        )
+        # lambda/QQ over exactly the correction family; all rows kept for warning counts
+        diag = df.rename(columns={c: f"{t}_pvalue" for c, t in _DIAG_TESTS.items()})
+        diag.loc[df["primary_q"].isna(), [f"{t}_pvalue" for t in _DIAG_TESTS.values()]] = np.nan
         diag["warnings"] = diag["warnings"].fillna("")
         write_diagnostics(
             diag,

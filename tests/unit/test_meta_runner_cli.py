@@ -207,3 +207,31 @@ def test_diagnostics_output_lambda_per_meta_test(tmp_path):
     summary = (diag / "summary.txt").read_text()
     assert f"n_cases    = {int(df['n_cases_total'].max())}" in summary
     assert "Genes with per-gene warnings: 0" in summary
+
+
+def _save_study(tmp_path, arts):
+    lines = ["stratum_id\tartifact_path"]
+    for art in arts:
+        save_artifact(art, str(tmp_path / art.stratum_id))
+        lines.append(f"{art.stratum_id}\t{art.stratum_id}")
+    manifest = tmp_path / "study.tsv"
+    manifest.write_text("\n".join(lines) + "\n")
+    return str(manifest)
+
+
+def test_diagnostics_family_equals_correction_family(tmp_path):
+    arts = _three_strata()[:2]
+    for art in arts:  # NULLG carries no information -> degenerate, but meta_skat_p == 1
+        gs = art.genes["NULLG"]
+        gs.u, gs.v = np.zeros_like(gs.u), np.zeros_like(gs.v)
+    arts[0].genes["SIG"].null_converged = False  # SIG keeps a per-gene warning
+    manifest = _save_study(tmp_path, arts)
+    diag = tmp_path / "diag"
+    df = run_meta(manifest, str(tmp_path / "m.tsv"), diagnostics_dir=str(diag)).set_index("gene")
+    assert df.loc["NULLG", "status"] == "degenerate" and df.loc["NULLG", "meta_skat_p"] == 1.0
+    lam = pd.read_csv(diag / "lambda_gc.tsv", sep="\t").set_index("test_name")
+    assert (lam["n_tests"] == 1).all()  # only SIG is in the correction family
+    # Low-MAC genes leave lambda/QQ but their warnings are still counted.
+    run_meta(manifest, str(tmp_path / "m2.tsv"), min_mac=1e9, diagnostics_dir=str(diag))
+    assert pd.read_csv(diag / "lambda_gc.tsv", sep="\t").empty
+    assert "Genes with per-gene warnings: 1" in (diag / "summary.txt").read_text()

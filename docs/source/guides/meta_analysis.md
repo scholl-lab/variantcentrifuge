@@ -144,8 +144,10 @@ Per-stratum carrier counts are not available yet; they need a new artifact field
 (`lambda_gc.tsv`, `qq_data.tsv`, `summary.txt`, and `qq_plot.png` when matplotlib is
 installed) for `meta_burden`, `meta_skat`, `meta_skato` and `primary`. A `meta` run
 covers one mask, so each run's directory holds that mask's diagnostics; run once per
-mask for multi-mask designs. `low_mac` genes are excluded, and λ from fewer than 100
-genes is flagged as unreliable.
+mask for multi-mask designs. λ and QQ use exactly the genes in the correction family
+(those with a `primary_q`; `low_mac` and `degenerate` genes are left out), while the
+warning count in `summary.txt` covers every gene. λ from fewer than 100 genes is
+flagged as unreliable.
 
 ## API
 
