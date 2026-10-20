@@ -238,10 +238,9 @@ def compute_acat_v(
         if g_ss[j] <= 1e-12 or var_vec[j] <= 0.0:
             continue  # skip zero-variance or collinear variants
         z_j = score_vec[j] / np.sqrt(var_vec[j])
-        p_j = 2.0 * float(norm.sf(abs(z_j)))
-        if 0.0 < p_j < 1.0:
-            valid_p.append(p_j)
-            valid_w.append(float(weights[j]))
+        # Every marginal p in [0, 1] goes to ACAT, as STAAR; R ACAT() rules handle 0 and 1
+        valid_p.append(2.0 * float(norm.sf(abs(z_j))))
+        valid_w.append(float(weights[j]))
 
     if not valid_p:
         return None
@@ -253,15 +252,15 @@ def compute_acat_o(test_p_values: dict[str, float | None]) -> float | None:
     """
     Compute ACAT-O (omnibus) p-value by combining test p-values per gene.
 
-    This is the gene-level omnibus test that combines burden test p-values
-    (e.g. Fisher, logistic burden) and SKAT p-values via equal-weight Cauchy
-    combination. ACAT-O is the primary output for significance ranking.
+    This is the gene-level omnibus test that combines burden, SKAT/SKAT-O and
+    ACAT-V p-values via equal-weight Cauchy combination.
+    ACAT-O is the primary output for significance ranking.
 
     Parameters
     ----------
     test_p_values : dict mapping test_name -> p_value
         Dictionary of {test_name: p_value | None} for a single gene.
-        Example: {"burden": 0.01, "skat": 0.05, "fisher": None}
+        Example: {"burden": 0.01, "skat": 0.05, "acat_v": None}
 
     Returns
     -------

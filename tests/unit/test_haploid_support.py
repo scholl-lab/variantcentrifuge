@@ -320,11 +320,13 @@ def test_fixed_alt_site_across_mixed_ploidy_skat():
 
     assert res_3.p_value == 1.0
     assert res_3.extra["skat_n_marker_test"] == 2
-    assert res_3.extra.get("acat_v_p") is None
+    # Both balanced sites have marginal p = 1; R ACAT(c(1, 1)) = 1 (test_association_acat.py
+    # R_ACAT_WEIGHTED); was None while ACAT-V dropped p = 1 (#216)
+    assert res_3.extra.get("acat_v_p") == 1.0
 
     assert res_2.p_value == 1.0
     assert res_2.extra["skat_n_marker_test"] == 2
-    assert res_2.extra.get("acat_v_p") is None
+    assert res_2.extra.get("acat_v_p") == 1.0
 
 
 @pytest.mark.unit

@@ -677,16 +677,28 @@ variants burden and SKAT test.
 
 ## Combining Tests: ACAT-O
 
-ACAT-O (Aggregated Cauchy Association Test — Omnibus) combines all primary test p-values for a
-gene into a single omnibus p-value using the Cauchy combination. This captures signal regardless
+ACAT-O (Aggregated Cauchy Association Test — Omnibus) combines the gene's set-test p-values
+into a single omnibus p-value using the Cauchy combination: the burden test (`logistic_burden` or
+`linear_burden`), SKAT/SKAT-O, ACAT-V, and COAST when it runs. This captures signal regardless
 of which test is most powerful for a given gene. The Cauchy combination is particularly robust to
-correlation between test statistics. It follows the reference R `ACAT()`: a p-value of
-exactly 1 is kept, and it dominates. A gene where any test has p = 1 (for example Fisher p = 1.0
-when cases and controls carry at equal rates) gets an ACAT-O of about 1, even if another test is
-small. Tests that did not run are left out. When one input is exactly 0 and another exactly 1 the
-combination is undefined and ACAT-O is empty (R `ACAT()` stops with an error).
+correlation between test statistics.
 
-**References:** Liu et al. 2019 AJHG; Liu and Xie 2020 JASA.
+**Fisher's exact test is not part of ACAT-O.** ACAT-O is defined over continuous set tests
+(burden, SKAT, ACAT-V; Liu et al. 2019 AJHG, and STAAR). Fisher is a discrete test: its p-value
+has a point mass at exactly 1 (for example a gene with equal case and control carrier rates), and
+in the Cauchy combination one p = 1 vetoes the whole omnibus. Fisher is still computed and
+reported in its own `fisher_*` columns. In a run of `fisher` plus one other test, ACAT-O is that
+test's p-value (single-input pass-through) and stays the primary result; `fisher` alone has no
+ACAT-O.
+
+The combination follows the reference R `ACAT()`: a p-value of exactly 1 is kept, and it
+dominates (tan((0.5 - 1)·π) ≈ -1.6e16), so a gene where any combined test has p = 1 gets an ACAT-O
+of about 1, even if another test is small. The same holds inside ACAT-V: every marginal variant
+p-value in [0, 1] is passed on, so a variant whose score is exactly 0 (p = 1) gives ACAT-V = 1,
+as in STAAR. Tests that did not run are left out. When one input is exactly 0 and another exactly
+1 the combination is undefined and ACAT-O is empty (R `ACAT()` stops with an error).
+
+**References:** Liu et al. 2019 AJHG; Liu and Xie 2020 JASA; Li et al. 2020 Nat Genet (STAAR).
 
 ACAT-O is **not** a test you activate separately — it is computed automatically after
 multiple selected tests have run. When SKAT is active, ACAT-V is also included in the
@@ -1244,7 +1256,7 @@ Use this table to choose the right test(s) for your study:
 | Linear Burden | `linear_burden` | Quantitative | ≥50 | Continuous phenotype burden | Low | Quantitative phenotype |
 | SKAT/SKAT-O | `skat` | Binary or Quantitative | ≥100 cases | Heterogeneous effects (not all variants causal or same direction) | Moderate | Large cohorts; uncertain effect direction |
 | COAST | `coast` | Binary or Quantitative | ≥100 cases | Ordered allelic series (PTV > DMV > BMV) | Moderate | Biological prior of monotone effect sizes; requires SIFT/PolyPhen |
-| ACAT-O | (automatic) | Both | Depends on active tests | Omnibus combining all active tests | Negligible | Always present; primary significance measure |
+| ACAT-O | (automatic) | Both | Depends on active tests | Omnibus of burden, SKAT/SKAT-O, ACAT-V (and COAST); not Fisher | Negligible | Always present; primary significance measure |
 
 **Recommended starting point for most studies:**
 
@@ -1253,7 +1265,8 @@ Use this table to choose the right test(s) for your study:
 ```
 
 This covers carrier enrichment (Fisher), covariate-adjusted regression (logistic burden), and
-heterogeneous effects (SKAT-O), with ACAT-O combining all three.
+heterogeneous effects (SKAT-O), with ACAT-O combining logistic burden, SKAT-O and ACAT-V
+(Fisher is reported on its own).
 
 Add `coast` when you have:
 - SIFT and PolyPhen annotations in your VCF
