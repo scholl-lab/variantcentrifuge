@@ -107,7 +107,7 @@ or commit URL. For example, for the latest published release:
 > Popp, B. (2026). VariantCentrifuge (version 0.17.12) [Computer software].
 > https://github.com/scholl-lab/variantcentrifuge/releases/tag/v0.17.12
 
-The current development version is **0.20.1**, as recorded in
+The current development version is **0.21.0**, as recorded in
 `variantcentrifuge/version.py`, `CITATION.cff`, and [.zenodo.json](.zenodo.json).
 It has no release date yet; the latest published release is **v0.17.12**
 (2026-07-19). For a development checkout, include its full commit hash and URL
