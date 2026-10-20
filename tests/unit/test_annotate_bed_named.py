@@ -69,3 +69,45 @@ def test_validate_specs(bed):
         validate_annotate_bed_specs([f"GT={bed}"])
     with pytest.raises(FileNotFoundError):
         validate_annotate_bed_specs(["A=/no/such.bed"])
+
+
+def test_checkpoint_inputs_track_named_bed(bed):
+    from types import SimpleNamespace
+
+    from variantcentrifuge.stages.data_loading_stages import CustomAnnotationStage
+
+    ctx = SimpleNamespace(annotation_configs={"bed_files": [f"Rep={bed}"]})
+    assert [str(p) for p in CustomAnnotationStage().get_input_files(ctx)] == [bed]
+
+
+def test_fields_clash_rejected(bed):
+    from types import SimpleNamespace
+
+    from variantcentrifuge.validators import validate_cli_args
+
+    args = SimpleNamespace(annotate_bed=[f"IMPACT={bed}"], fields="CHROM POS ANN[0].IMPACT")
+    with pytest.raises(ValueError, match="IMPACT"):
+        validate_cli_args(args, {})
+
+
+def test_nan_pos_and_ref_and_special_alleles(bed):
+    rows = [
+        ("1", float("nan"), "A", "T"),  # NaN POS -> no
+        ("1", 105, float("nan"), "T"),  # NaN REF -> length 1
+        ("1", 105, "A", "<DEL>"),  # symbolic ALT: REF span only
+        ("1", 105, "*", "A"),
+        ("1", 111, ".", "A"),
+        ("1", 110, "A", "AT"),  # insertion anchored on last base
+        ("1", 100, "A", "AT"),  # insertion anchored before start
+        ("MT", 105, "A", "T"),  # contig absent from BED
+    ]
+    out = _run([f"Rep={bed}"], rows)
+    assert list(out["Rep"]) == ["no", "yes", "yes", "yes", "no", "yes", "no", "no"]
+
+
+def test_chr_mismatch_matches_legacy(tmp_path):
+    p = tmp_path / "m.bed"
+    p.write_text("chrM\t100\t110\tA\n")
+    out = _run([str(p), f"N={p}"], [("MT", 105, "A", "T"), ("chrM", 105, "A", "T")])
+    assert list(out["N"]) == ["no", "yes"]
+    assert list(out["Custom_Annotation"]) == ["", "Region=A_m"]

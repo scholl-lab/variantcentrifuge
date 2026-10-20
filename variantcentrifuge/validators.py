@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -393,16 +394,20 @@ def validate_igv_files(
 _RESERVED_COLUMNS = {"CHROM", "POS", "ID", "REF", "ALT", "GT", "GENE", "Custom_Annotation"}
 
 
-def validate_annotate_bed_specs(specs: list[str]) -> None:
+def validate_annotate_bed_specs(specs: list[str], fields: str | None = None) -> None:
     """Validate ``--annotate-bed`` entries: NAME unique, not reserved, BED readable."""
     from .feature_loaders import split_bed_spec
 
+    # extracted columns keep the last dotted segment, e.g. ANN[0].IMPACT -> IMPACT
+    extracted = {f.split(".")[-1] for f in re.split(r"[\s,]+", fields or "") if f}
     seen: set[str] = set()
     for spec in specs or []:
         name, path = split_bed_spec(spec)
         if name is not None:
-            if name in seen or name in _RESERVED_COLUMNS:
-                raise ValueError(f"--annotate-bed name '{name}' is duplicated or reserved")
+            if name in seen or name in _RESERVED_COLUMNS or name in extracted:
+                raise ValueError(
+                    f"--annotate-bed name '{name}' is duplicated, reserved or an extracted field"
+                )
             seen.add(name)
         if not Path(path).is_file():
             raise FileNotFoundError(f"BED file not found: {path}")
@@ -430,7 +435,7 @@ def validate_cli_args(
 
     bed_specs = getattr(args, "annotate_bed", None) or cfg.get("annotate_bed_files") or []
     try:
-        validate_annotate_bed_specs(bed_specs)
+        validate_annotate_bed_specs(bed_specs, getattr(args, "fields", None) or cfg.get("fields"))
     except (ValueError, FileNotFoundError) as exc:
         if parser is not None:
             parser.error(str(exc))

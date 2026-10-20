@@ -156,7 +156,7 @@ def _extract_genes_from_row(row: pd.Series) -> set[str]:
 
 def _overlapping(tree: Any, pos: int, ref: Any) -> Any:
     """Intervals hit by the REF span; BED is 0-based half-open, VCF POS is 1-based."""
-    return tree.overlap(pos - 1, pos - 1 + max(len(str(ref)) if ref is not None else 1, 1))
+    return tree.overlap(pos - 1, pos - 1 + (len(ref) if isinstance(ref, str) and ref else 1))
 
 
 def _find_region_overlaps(row: pd.Series, regions_by_chrom: dict[str, Any]) -> list[str]:
@@ -329,7 +329,7 @@ def annotate_dataframe_with_features(df: pd.DataFrame, features: dict[str, Any])
         refs = df["REF"] if "REF" in df.columns else ["N"] * len(df)
         chroms = df["CHROM"].astype(str).str.removeprefix("chr")
         df[name] = [
-            "yes" if c in trees and _overlapping(trees[c], int(p), r) else "no"
+            "yes" if c in trees and pd.notna(p) and _overlapping(trees[c], int(p), r) else "no"
             for c, p, r in zip(chroms, df["POS"], refs, strict=True)
         ]
 
