@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-20
+
+### Added
+
+- `--annotate-bed NAME=path.bed[.gz]` adds a yes/no column `NAME` (variant REF span overlaps a region); plain `--annotate-bed path.bed` is unchanged (#94).
+- `.bed.gz` input for `--annotate-bed`.
+- Association diagnostics: with `--diagnostics-output` and categorical covariates, `covariate_case_control.tsv` lists cases/controls per level of each categorical covariate (raw labels); levels with no cases or no controls are warned (#202).
+- New AF presets `popmax_1percent` and `popmax_rare` filter on the dbNSFP gnomAD popmax allele frequency (`gnomAD_exomes/genomes_POPMAX_AF` for dbnsfp4, `gnomAD4.1_joint_POPMAX_AF` for dbnsfp5) (#202).
+- `meta --diagnostics-output DIR` writes λ_GC, QQ data and a summary for the meta burden, SKAT, SKAT-O and primary p-values, one set per run (= per mask) (#192).
+- `meta` reports leave-one-stratum-out p-values named by stratum for burden (with direction) and SKAT-O, plus the largest LOO p-value and the stratum whose removal gives it (`loo_burden_by_stratum`, `loo_skato_by_stratum`, `loo_max_{burden,skato}_{p,stratum}`) (#193).
+- `meta` reports cumulative minor-allele counts (`cmac_total`, `cmac_by_stratum`); `--min-mac N` marks genes below N as `status=low_mac`, and `--require-variants-in-all-strata` marks genes without an informative minor allele in every stratum as `status=not_in_all_strata`; both are left out of the multiple-testing correction and the diagnostics (#194).
+- `--mask-label NAME` stores a readable mask name in the `--score-artifact`, which now also records annotation provenance (snpEff version and genome, dbNSFP and gnomAD files from the VCF header, SHA-256 of `--regions-bed`/`--gene-file`) as optional schema-v2 fields. `meta` refuses strata whose provenance differs (naming field and strata) unless `--allow-annotation-mismatch` is given; unknown provenance only warns (#197).
+- Score-artifact provenance also hashes `--gene-set-file`, so `meta` refuses strata whose gene sets share ids but differ in members (unless `--allow-annotation-mismatch`), and takes dbNSFP/gnomAD sources only from the database operands of `SnpSift annotate/dbnsfp` and `bcftools annotate -a` header lines (#197, #201).
+- `--score-artifact` records per-gene carrier counts (samples with ≥1 ALT allele after QC; optional schema-v2 field) and `meta` reports them as `carriers_by_stratum` and `n_carriers_total`, completing #194.
+- `meta` runs several masks at once from an optional manifest `mask_id` column: each mask is combined exactly as in a single-mask run, and `acat_masks_p` (Cauchy combination of the masks' `primary_p`) plus `acat_masks_q` (corrected across genes) are added; diagnostics go to one subdirectory per mask. Without the column the output is unchanged, except that `mask` shows the `--mask-label` when the artifacts have one (#196).
+- `meta --weights` accepts several schemes (e.g. `--weights beta:1,25 uniform`), giving one column set per scheme suffixed by the scheme name (`primary_p_beta_1_25`, `primary_p_uniform`), each corrected separately; diagnostics go to one subdirectory per scheme (`DIR/[<mask_id>/]<scheme>/`); a single scheme keeps today's column names (#202).
+- `--gene-set-file` (TSV `set_id`, `gene`) tests each gene set as an extra unit (union of its genes' qualifying variants, shared variants once) with the same tests; set rows get `unit_type=set`, are corrected separately from genes, and appear in `--score-artifact` as ordinary units; `--resume` reruns the analysis when the set file (path or content) or `--mask-label` changes (#201).
+- `--gene-set-file` (TSV `set_id`, `gene`) tests each gene set as an extra unit (union of its genes' qualifying variants, shared variants once) with the same tests; set rows get `unit_type=set`, are corrected separately from genes, and appear in `--score-artifact` as ordinary units (#201).
+
+### Changed
+
+- Python API: `build_stratum_artifact()` and `ScoreCovarianceArtifact` require an explicit keyword `missing_policy`; the `bestguess` default now applies only to version 1 artifacts on load, so pre-imputed matrices cannot be mislabelled (#200).
+- `meta` gives zero weight to loci monomorphic in the pooled strata, so `--weights beta:a,b` with `a < 1` no longer crashes leave-one-out when a locus varies only in the dropped stratum (#193).
+- `meta` leave-one-out (including `loo_min_p`) re-derives the variant weights from the remaining strata, so each LOO result equals a meta-analysis without that stratum (#193).
+- **Genotype missing data (#200).** Added `--missing-as-ref`, which sets missing genotypes to
+  reference in every association test (Fisher, the matrix-based tests and `--score-artifact`)
+  before missingness QC. Use it for VCFs merged from single-sample VCFs, where `./.`
+  means "not called as variant". Before, raising the site threshold to keep such sites imputed
+  every missing sample as a carrier. `--missing-site-threshold` and
+  `--missing-sample-threshold` expose the existing thresholds (defaults unchanged, range 0–1).
+  Variants dropped by site-missingness QC are now logged as one WARNING with totals, and the
+  results gain an `n_variants_qc` column when matrix-based tests run. The default imputation is
+  unchanged, and it is now checked against R SKAT (bestguess for binary traits, fixed for
+  quantitative traits).
+- **Score artifact schema version 2 (#200).** `--score-artifact` records `missing_policy`
+  (imputation mode and both thresholds). Version 1 artifacts still load as `bestguess` with
+  unknown thresholds. `variantcentrifuge meta` refuses to pool strata with different
+  imputation modes and warns when their thresholds differ. Artifacts written by this version
+  cannot be read by older versions.
+
+### Fixed
+
+- Per-sample genotype columns built by the iterative path were misaligned after transcript de-duplication, so real carriers became missing; and positional comma-separated GT turned explicit no-calls (`./.`) into reference without any flag. Both affected association input (#200).
+- `--annotate-bed` treated 1-based VCF POS as 0-based, so hits at BED interval edges were wrong (first base missed ... last base excluded); overlap now uses the REF span [POS-1, POS-1+len(REF)), so deletions reaching into a region are hit. Legacy `Region=` output changes at interval edges (#94).
+- An unreadable or missing `--annotate-bed` file now raises instead of silently annotating nothing (#94).
+- Association diagnostics: `IMBALANCED_COHORT` is now two-sided (max/min of cases and controls) and the warning names the direction, e.g. "cases outnumber controls 100.0:1" (#199).
+- Firth logistic regression (the `logistic_burden` separation fallback) no longer fails with `FIRTH_CONVERGE_FAIL` when it is already at the optimum but no step can change the penalised log-likelihood beyond rounding noise (common with uncentred covariates such as birth year); such fits are now accepted when the Newton decrement is below 1e-8 (#198).
+
 ## [0.21.0] - 2026-10-20
 
 Fixes the findings of the v0.19.0 audit revalidation (#173–#187).

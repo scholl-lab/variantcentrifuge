@@ -91,7 +91,7 @@ def test_unknown_schema_version_refused(tmp_path):
     path = str(tmp_path / "a")
     save_artifact(make_stratum("a", seed=1, gene_keys=keys), path)
     meta = tmp_path / "a.meta.json"
-    meta.write_text(meta.read_text().replace('"schema_version": 1', '"schema_version": 2'))
+    meta.write_text(meta.read_text().replace('"schema_version": 2', '"schema_version": 3'))
     with pytest.raises(ValueError, match="schema_version"):
         load_artifact(path)
 
@@ -144,6 +144,7 @@ def test_stage_writes_score_artifact_for_fisher_only_run(monkeypatch, tmp_path):
         "filters": "(ANN[0].IMPACT has 'HIGH')",
         "score_artifact": artifact,
         "gzip_intermediates": False,
+        "mask_label": "HIGH",
     }
     ctx = PipelineContext(args=Namespace(), config=config, workspace=workspace)
     ctx.current_dataframe = df
@@ -155,6 +156,9 @@ def test_stage_writes_score_artifact_for_fisher_only_run(monkeypatch, tmp_path):
     assert art.stratum_id == "cohortA" and art.genome_build == "GRCh38"
     assert art.genes["GENE1"].variant_keys == ["1:10:A:G", "1:20:C:T"]
     assert (art.n_cases, art.n_controls) == (10, 10)
+    assert art.mask_label == "HIGH"  # #197: label + provenance (no VCF here: unknown)
+    assert art.provenance["snpeff_version"] is None
+    assert art.provenance["regions_bed_sha256"] == "none"
     assert all("_genotype_matrix_builder" not in d for d in captured)
 
 
@@ -236,3 +240,96 @@ def test_emit_omits_gene_whose_masked_null_has_no_residual_df(tmp_path, caplog):
     )
     assert set(art.genes) == {"GOOD"}
     assert "INSUFFICIENT_RESIDUAL_DF" in caplog.text
+
+
+def test_emit_records_alt_carriers_after_qc(tmp_path):
+    """#194: carriers = retained samples with >=1 ALT allele (missing calls are not carriers)."""
+    b, alt, _pheno = _builder()
+    art = emit_stratum_artifact(
+        str(tmp_path / "s1"),
+        {"G1": b},
+        stratum_id="s1",
+        genome_build="GRCh38",
+        annotation_version="x",
+        mask_id="m",
+        mask_hash="h",
+    )
+    expected = int((alt > 0).any(axis=1).sum())
+    assert art.genes["G1"].n_carriers == expected
+    assert load_artifact(str(tmp_path / "s1")).genes["G1"].n_carriers == expected
+
+
+def test_carriers_respect_missing_policy(tmp_path):
+    samples = [f"S{i}" for i in range(12)]
+    gts = ["./.", "0/1"] + ["0/0"] * 10
+    df = pd.DataFrame(
+        {
+            "CHROM": ["1"],
+            "POS": [5],
+            "REF": ["A"],
+            "ALT": ["G"],
+            **{s: [g] for s, g in zip(samples, gts, strict=True)},
+        }
+    )
+    pheno = (np.arange(12) % 2).astype(float)
+    for as_ref in (False, True):
+        b = _GenotypeMatrixBuilder(
+            gene_df=df,
+            vcf_samples=samples,
+            gt_columns=samples,
+            is_binary=True,
+            missing_site_threshold=0.5,
+            missing_sample_threshold=1.0,
+            phenotype_vector=pheno,
+            covariate_matrix=None,
+            missing_as_ref=as_ref,
+        )
+        art = emit_stratum_artifact(
+            str(tmp_path / f"s{as_ref}"),
+            {"G": b},
+            stratum_id="s",
+            genome_build="b",
+            annotation_version="a",
+            mask_id="m",
+            mask_hash="h",
+        )
+        assert art.genes["G"].n_carriers == 1
+
+
+def test_new_artifacts_require_an_explicit_missing_policy():
+    """W1 review: a pre-imputed matrix must not be silently labelled bestguess (v2)."""
+    from variantcentrifuge.association.meta.artifact import (
+        ScoreCovarianceArtifact,
+        build_stratum_artifact,
+    )
+
+    g = np.array([[1.0], [1.0], [0.0], [1.0]] * 5)
+    y = np.array([1.0, 0.0] * 10)
+    kw = {
+        "genome_build": "b",
+        "annotation_version": "a",
+        "mask_id": "m",
+        "mask_hash": "h",
+        "n_cases": 10,
+        "n_controls": 10,
+    }
+    with pytest.raises(TypeError, match="missing_policy"):
+        build_stratum_artifact("s", {"G": (g, g, ["1:1:A:G"])}, y, None, "binary", **kw)
+    with pytest.raises(TypeError, match="missing_policy"):
+        ScoreCovarianceArtifact(
+            stratum_id="s",
+            genome_build="b",
+            annotation_version="a",
+            mask_id="m",
+            mask_hash="h",
+            trait_type="binary",
+            n_cases=1,
+            n_controls=1,
+            sample_id_hashes=[],
+            genes={},
+        )
+    policy = {"imputation": "missing_as_ref", "site_threshold": 0.1, "sample_threshold": 0.8}
+    art = build_stratum_artifact(
+        "s", {"G": (g, g, ["1:1:A:G"])}, y, None, "binary", missing_policy=policy, **kw
+    )
+    assert art.missing_policy == policy

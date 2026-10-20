@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import Any, cast
 
@@ -11,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from ..association.engine import AssociationEngine
+from ..association.gene_sets import add_gene_set_units, load_gene_sets, run_gene_and_set_units
 from ..association.weights import resolve_score_weight_column
 from ..gene_burden import (
     _aggregate_gene_burden_from_columns,
@@ -25,6 +25,15 @@ from .analysis_stage_helpers import (
     _count_significant_association_results,
 )
 from .association_outcome import build_quantitative_outcome
+from .association_stage_helpers import (
+    _coast_missing_columns,
+    _cohort_size_ok,
+    _emit_score_artifact,
+    _load_covariates_and_pcs,
+    _merge_carrier_warnings,
+    _per_sample_gt_frame,
+    _report_missingness_qc,
+)
 from .genotype_matrix_builder import (
     _find_cadd_column,
     _find_effect_column,
@@ -33,61 +42,6 @@ from .genotype_matrix_builder import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _emit_score_artifact(config: dict, path: str, gene_burden_data: list[dict]) -> None:
-    """Write the meta-analysis score artifact from this run's per-gene matrix builders."""
-    import hashlib
-    import json
-
-    from ..association.meta.artifact import emit_stratum_artifact
-    from ..links import normalize_reference
-
-    reference = str(config.get("reference") or "")
-    # Strata are pooled only when they selected variants the same way.
-    selection = {k: config.get(k) for k in ("filters", "final_filter", "bcftools_prefilter")}
-    mask_hash = hashlib.sha256(json.dumps(selection, sort_keys=True).encode()).hexdigest()
-    emit_stratum_artifact(
-        path,
-        {
-            d["GENE"]: d["_genotype_matrix_builder"]
-            for d in gene_burden_data
-            if "_genotype_matrix_builder" in d
-        },
-        stratum_id=Path(path).name.split(".")[0],
-        genome_build=normalize_reference(reference) or reference,
-        annotation_version=reference,
-        mask_id=mask_hash[:12],
-        mask_hash=mask_hash,
-    )
-
-
-def _cohort_size_ok(n_cases_total: int, n_controls_total: int) -> bool:
-    """Log binary cohort size/balance warnings; False when too few cases to analyse."""
-    if n_cases_total < 10:
-        logger.error(
-            f"Association analysis: only {n_cases_total} case(s) found — "
-            "fewer than 10 cases produces invalid results. Aborting."
-        )
-        return False
-    if n_cases_total < 50:
-        logger.warning(
-            f"Association analysis: only {n_cases_total} case(s) — "
-            "fewer than 50 cases provides no practical power for regression tests"
-        )
-    elif n_cases_total < 200:
-        logger.warning(
-            f"Association analysis: {n_cases_total} case(s) — "
-            "fewer than 200 cases is underpowered for SKAT; interpret results with caution"
-        )
-    if n_controls_total > 0 and n_cases_total > 0:
-        ratio = n_controls_total / n_cases_total
-        if ratio > 20:
-            logger.warning(
-                f"Association analysis: case:control ratio is 1:{ratio:.0f} — "
-                "exceeds 1:20; Type I error inflation risk without SPA/Firth correction"
-            )
-    return True
 
 
 class AssociationAnalysisStage(Stage):
@@ -255,6 +209,10 @@ class AssociationAnalysisStage(Stage):
             logger.error("DataFrame missing required 'GENE' column for association analysis")
             return context
 
+        set_ids: list[str] = []
+        if context.config.get("gene_set_file"):
+            df, set_ids = add_gene_set_units(df, load_gene_sets(context.config["gene_set_file"]))
+
         score_weight_column = resolve_score_weight_column(
             assoc_config.variant_weights,
             assoc_config.variant_weight_column,
@@ -272,34 +230,7 @@ class AssociationAnalysisStage(Stage):
         }
 
         if "coast" in test_names:
-            _coast_base_required = [
-                ("ANN_0__EFFECT", "ANN[0].EFFECT"),
-                ("ANN_0__IMPACT", "ANN[0].IMPACT"),
-            ]
-            _coast_model = getattr(assoc_config, "coast_classification", None) or ""
-            _is_sift_model = (
-                not _coast_model
-                or _coast_model.endswith("sift_polyphen")
-                or _coast_model == "sift_polyphen"
-            )
-            if _is_sift_model:
-                _coast_base_required.extend(
-                    [
-                        ("dbNSFP_SIFT_pred", "dbNSFP_SIFT_pred"),
-                        ("dbNSFP_Polyphen2_HDIV_pred", "dbNSFP_Polyphen2_HDIV_pred"),
-                    ]
-                )
-            elif _coast_model.endswith("cadd") or _coast_model == "cadd":
-                _coast_base_required.extend(
-                    [
-                        ("dbNSFP_CADD_phred", "dbNSFP_CADD_phred"),
-                    ]
-                )
-            missing = [
-                san
-                for san, alt in _coast_base_required
-                if san not in df.columns and alt not in df.columns
-            ]
+            missing = _coast_missing_columns(df, assoc_config)
             if missing:
                 logger.error(
                     "COAST allelic series test requires columns %s but they are "
@@ -325,21 +256,7 @@ class AssociationAnalysisStage(Stage):
         if needs_regression and gt_cols:
             df_with_per_sample_gt = df
         elif needs_regression and "GT" in df.columns and context.vcf_samples:
-            from .sample_column_helpers import create_sample_columns_from_gt_intelligent
-
-            unpacked_samples = list(context.vcf_samples)
-            df_with_per_sample_gt = create_sample_columns_from_gt_intelligent(
-                df.copy(), vcf_samples=unpacked_samples
-            )
-            gt_series_str = df_with_per_sample_gt["GT"].fillna("").astype(str)
-            for s_col in unpacked_samples:
-                if s_col not in df_with_per_sample_gt.columns:
-                    df_with_per_sample_gt[s_col] = gt_series_str.str.extract(
-                        rf"(?:^|;)\s*{re.escape(s_col)}\(([^:)]+)", expand=False
-                    ).fillna("./.")
-                listed = gt_series_str.str.contains(rf"(?:^|;)\s*{re.escape(s_col)}\(", regex=True)
-                fill_ref = (df_with_per_sample_gt[s_col] == "./.") & ~listed
-                df_with_per_sample_gt.loc[fill_ref, s_col] = "0/0"
+            df_with_per_sample_gt = _per_sample_gt_frame(df, list(context.vcf_samples))
 
         if "GT" not in df.columns and context.vcf_samples and gt_cols:
             logger.info("Reconstructing GT column for association aggregation (local copy only)")
@@ -367,46 +284,19 @@ class AssociationAnalysisStage(Stage):
 
         n_cases_total = len(case_samples)
         n_controls_total = len(control_samples)
-        if not quantitative and not _cohort_size_ok(n_cases_total, n_controls_total):
+        guard_ratio = (
+            None if assoc_config.diagnostics_output else assoc_config.max_case_control_ratio
+        )
+        if not quantitative and not _cohort_size_ok(n_cases_total, n_controls_total, guard_ratio):
             return context
 
-        covariate_matrix = None
-        covariate_col_names: list[str] = []
-        if assoc_config.covariate_file and assigned_samples:
-            from ..association.covariates import load_covariates
-
-            covariate_matrix, covariate_col_names = load_covariates(
-                assoc_config.covariate_file,
-                assigned_samples,
-                assoc_config.covariate_columns,
-                assoc_config.categorical_covariates,
-            )
-            logger.info(
-                f"Association analysis: loaded {covariate_matrix.shape[1]} "
-                f"covariate(s): {covariate_col_names}"
-            )
-
-        pca_file = assoc_config.pca_file
-        if pca_file and assigned_samples:
-            from ..association.pca import load_pca_file, merge_pca_covariates
-
-            n_pcs = assoc_config.pca_components
-            pca_matrix, pca_col_names = load_pca_file(
-                pca_file,
-                assigned_samples,
-                n_components=n_pcs,
-                remove_sample_substring=context.config.get("remove_sample_substring"),
-            )
-            covariate_matrix, covariate_col_names = merge_pca_covariates(
-                pca_matrix,
-                pca_col_names,
-                covariate_matrix,
-                covariate_col_names,
-            )
-            logger.info(
-                f"PCA: merged {len(pca_col_names)} PCs with existing covariates "
-                f"-> {len(covariate_col_names)} total columns"
-            )
+        raw_categorical: dict[str, Any] = {}
+        covariate_matrix, _covariate_col_names = _load_covariates_and_pcs(
+            assoc_config,
+            assigned_samples,
+            context.config.get("remove_sample_substring"),
+            raw_categorical,
+        )
 
         phenotype_vector = None
         if quantitative_outcome is not None:
@@ -446,14 +336,16 @@ class AssociationAnalysisStage(Stage):
             )
             assert vcf_samples_list is not None
             gene_burden_data = _aggregate_gene_burden_from_columns(
-                df, case_set, control_set, vcf_samples_list, gt_columns
+                df, case_set, control_set, vcf_samples_list, gt_columns, assoc_config.missing_as_ref
             )
         elif use_gt_aggregation:
             logger.info(
                 "Association analysis: using packed GT string collapsing "
                 f"({len(case_set)} cases, {len(control_set)} controls)"
             )
-            gene_burden_data = _aggregate_gene_burden_from_gt(df, case_set, control_set)
+            gene_burden_data = _aggregate_gene_burden_from_gt(
+                df, case_set, control_set, assoc_config.missing_as_ref
+            )
         else:
             logger.info("Association analysis: using pre-computed per-variant counts (legacy mode)")
             gene_burden_data = _aggregate_gene_burden_legacy(df)
@@ -506,6 +398,7 @@ class AssociationAnalysisStage(Stage):
                     cadd_column=cadd_column,
                     revel_column=revel_column,
                     effect_column=effect_column,
+                    missing_as_ref=assoc_config.missing_as_ref,
                 )
                 gene_data["_genotype_matrix_builder"] = builder
                 gene_data["vcf_samples"] = assigned_samples
@@ -521,30 +414,18 @@ class AssociationAnalysisStage(Stage):
                 for d in gene_burden_data:
                     d.pop("_genotype_matrix_builder", None)
 
-        results_df = engine.run_all(gene_burden_data)
+        results_df = (
+            run_gene_and_set_units(engine, test_names, assoc_config, gene_burden_data, set_ids)
+            if set_ids
+            else engine.run_all(gene_burden_data)
+        )
 
         if results_df.empty:
             logger.warning("Association analysis produced no results.")
             return context
 
-        from ..association.diagnostics import compute_per_gene_warnings
-
-        warnings_by_gene: dict[str, str] = {}
-        # Case-carrier warnings are a binary-trait concept.
-        for gene in [] if quantitative else results_df["gene"].unique():
-            gdata = gene_data_by_gene.get(gene, {})
-            case_carriers = gdata.get("proband_carrier_count", 0)
-            gene_warnings = compute_per_gene_warnings(gene, case_carriers, assoc_config)
-            if gene_warnings:
-                warnings_by_gene[gene] = ";".join(gene_warnings)
-        # Keep test-reported codes (e.g. linear/logistic burden skips) and append carrier warnings.
-        test_codes = results_df.get("warnings", pd.Series("", index=results_df.index))
-        results_df["warnings"] = [
-            ";".join(c for c in (*(v if isinstance(v, list) else [v] if v else []), w) if c)
-            for v, w in zip(
-                test_codes, results_df["gene"].map(warnings_by_gene).fillna(""), strict=True
-            )
-        ]
+        _merge_carrier_warnings(results_df, gene_data_by_gene, assoc_config, quantitative)
+        _report_missingness_qc(results_df, gene_data_by_gene, assoc_config)
 
         assoc_output, compression = self._resolve_association_output(context)
 
@@ -555,21 +436,29 @@ class AssociationAnalysisStage(Stage):
         logger.info(f"Wrote association results to {assoc_output}")
 
         if assoc_config.diagnostics_output:
-            from ..association.diagnostics import emit_sample_size_warnings, write_diagnostics
+            from ..association.diagnostics import (
+                emit_sample_size_warnings,
+                write_covariate_balance,
+                write_diagnostics,
+            )
 
             cohort_warnings = (
                 []
                 if quantitative
                 else emit_sample_size_warnings(n_cases_total, n_controls_total, assoc_config)
             )
-            write_diagnostics(
-                results_df=results_df,
+            write_diagnostics(  # QQ/lambda_GC describe the gene family only
+                results_df=results_df[results_df["unit_type"] == "gene"] if set_ids else results_df,
                 diagnostics_dir=assoc_config.diagnostics_output,
                 test_names=test_names,
                 n_cases=n_cases_total,
                 n_controls=n_controls_total,
                 cohort_warnings=cohort_warnings,
             )
+            if raw_categorical and not quantitative:
+                write_covariate_balance(
+                    raw_categorical, case_set, control_set, assoc_config.diagnostics_output
+                )
 
         context.association_results = results_df
 

@@ -103,15 +103,18 @@ thresholds and imputation below:
 Filled `0/0` calls are not missing, so the checks below cannot detect them:
 
 - **Fisher's exact test** uses the complete-case policy described in
-  [Missing Genotypes and Complete-Case Policy](#missing-genotypes-and-complete-case-policy).
-- **Matrix-based tests** (logistic/linear burden, SKAT/SKAT-O, COAST) apply two per-gene
-  thresholds. Both are set in the `"association"` section of the JSON config; there are no CLI
-  flags for them.
+  [Missing Genotypes and Complete-Case Policy](#missing-genotypes-and-complete-case-policy),
+  unless `--missing-as-ref` is set (then missing calls count as reference, as in every other
+  test of the run).
+- **Matrix-based tests** (logistic/linear burden, SKAT/SKAT-O, COAST) and `--score-artifact`
+  apply two per-gene thresholds. Set them with the CLI flags below or in the `"association"`
+  section of the JSON config (the CLI wins). Values must be between 0 and 1.
 
-| Key | Default | Effect |
+| CLI flag / JSON key | Default | Effect |
 |-----|---------|--------|
-| `missing_site_threshold` | `0.10` | Drops a variant when more than this fraction of all samples have a missing genotype (call rate below 90%). |
-| `missing_sample_threshold` | `0.80` | Drops a sample from that gene's test (genotypes, phenotype and covariates) when more than this fraction of its genotypes at the kept variants are missing. |
+| `--missing-site-threshold` / `missing_site_threshold` | `0.10` | Drops a variant when more than this fraction of all samples have a missing genotype (call rate below 90%). R SKAT's default `missing_cutoff` is 0.15. |
+| `--missing-sample-threshold` / `missing_sample_threshold` | `0.80` | Drops a sample from that gene's test (genotypes, phenotype and covariates) when more than this fraction of its genotypes at the kept variants are missing. |
+| `--missing-as-ref` / `missing_as_ref` | off | Sets every missing call to reference (dosage 0) *before* both thresholds, so nothing is dropped for missingness or imputed. Applies to all association tests of the run, Fisher included, and to `--score-artifact`. See below. |
 
 Allele frequencies, the imputation of the remaining missing genotypes, and minor-allele recoding
 all use the retained samples only, so excluded samples cannot shift them. Missing genotypes are
@@ -119,6 +122,39 @@ imputed as `round(ploidy * alt_freq)` for binary traits and `ploidy * alt_freq` 
 traits. For binary traits, a variant whose missing rate differs between cases and controls by
 more than 0.05 is logged as a differential-missingness warning. Genes with fewer than 5 minor
 allele copies after these steps report `NA` for the matrix-based tests.
+
+The default imputation follows R SKAT: binary traits use `impute.method="bestguess"` (the
+`SKATBinary` default) and quantitative traits use `"fixed"` (the `SKAT` default). Both are
+checked against SKAT 2.2.5 on a synthetic matrix with missing calls
+(`tests/unit/test_missing_policy_parity.py`).
+
+Dropped variants are reported. When site-missingness QC removes variants, the run logs one
+WARNING with the totals (`--score-artifact` logs its own). When matrix-based tests run, the
+results also gain an `n_variants_qc` column. It counts the variants that passed site-missingness
+QC, before the per-gene MAC check and any per-test exclusions. Per-test columns such as
+`skat_n_marker_test` give the number each test actually used. `n_variants` is the count that the
+first test of the run reports.
+
+#### Merged VCFs and `--missing-as-ref`
+
+Best-guess imputation assumes that a missing call is missing at random. That does not hold for
+VCFs merged from single-sample VCFs (`bcftools merge` without `-0`): there, `./.` usually means
+"no variant called here", and the observed calls are mostly the carriers. A site then has a high
+missing rate and an inflated observed allele frequency. The default site threshold drops such
+sites, and raising the threshold to keep them makes things worse: at an observed AF above 0.25,
+`round(2·AF)` imputes every missing sample as a heterozygous carrier.
+
+For these inputs, use `--missing-as-ref`. It gives the same result as
+`bcftools +setGT -- -t . -n 0` before the run. Partial calls such as `./1` also become `0/0`, and
+in `--score-artifact` the allele number counts every sample. Where `./.` is a genuine no-call
+(low coverage), carriers among the no-calls are counted as reference. That biases carrier
+counts toward reference. If missingness differs between cases and controls, it can also make
+p-values too small, not only too large. Prefer genotypes merged with `-0` or gVCF-based joint
+calling when you have them.
+
+The packed `GT` column interacts with this as follows. When per-sample genotype columns are
+rebuilt from the packed column, a sample that is not listed for a variant is filled as `0/0`. A
+sample listed with an explicit `./.` stays missing and is subject to the policy above.
 
 ### Multi-Allelic Sites Must Be Split
 
@@ -330,7 +366,7 @@ VariantCentrifuge applies principled missingness handling across association tes
 (see [Input Prerequisites](#input-prerequisites-callability-and-genotype-qc) for what counts
 as missing and why filled reference calls are not):
 
-- **Fisher's Exact Test (Complete-Case Policy):** Samples with missing genotype calls (`./.`, `.`, `.|.`) at any qualifying variant in a gene are excluded from the test's called counts (`proband_called_count`, `control_called_count`) and reference denominator (`proband_called_chromosomes`, `control_called_chromosomes`). Samples with missing calls are never assumed to be reference (`0/0`). If all cases or all controls are uncalled for a gene, the test is safely skipped.
+- **Fisher's Exact Test (Complete-Case Policy):** Samples with missing genotype calls (`./.`, `.`, `.|.`) at any qualifying variant in a gene are excluded from the test's called counts (`proband_called_count`, `control_called_count`) and reference denominator (`proband_called_chromosomes`, `control_called_chromosomes`). Samples with missing calls are not assumed to be reference (`0/0`) unless `--missing-as-ref` is set. If all cases or all controls are uncalled for a gene, the test is safely skipped.
 - **Matrix-Based Tests (Burden Regression, SKAT, SKAT-O):** Genotype matrices use ploidy-scaled mean imputation (`ploidy * alt_allele_freq`, i.e. `2 * alt_freq` for diploid and `1 * alt_freq` for haploid; or `round(ploidy * alt_allele_freq)` bestguess for binary traits). Dosage units are `{0, 1, 2}` for diploid variants and `{0, 1}` for haploid calls.
 
 ---
@@ -744,6 +780,7 @@ variantcentrifuge \
 |------|--------|-------------|
 | `lambda_gc.tsv` | TSV: `test_name`, `lambda_gc`, `n_tests` | Genomic inflation factor per test |
 | `qq_data.tsv` | TSV: `test`, `expected_neg_log10_p`, `observed_neg_log10_p` | QQ plot data (sorted ascending by expected) |
+| `covariate_case_control.tsv` | TSV: `covariate`, `level`, `n_cases`, `n_controls` | Cases/controls per level of each categorical covariate (raw labels, pre-encoding); written when `--categorical-covariates` is used, to expose batch confounding |
 | `summary.txt` | Plain text | Human-readable summary: sample sizes, per-gene warnings, lambda_GC values |
 | `qq_plot.png` | PNG (optional) | QQ plot — written only if `matplotlib` is installed |
 
@@ -955,6 +992,43 @@ power on fewer genes. This metric helps assess how much the weights deviate from
 
 ---
 
+## Gene Sets as Testing Units
+
+`--gene-set-file sets.tsv` tests predefined gene sets (for example a positive-control set of
+known disease genes) in addition to the single genes. The file is a TSV with the columns
+`set_id` and `gene`, one row per member gene:
+
+```text
+set_id	gene
+known_disease	PKD1
+known_disease	PKD2
+```
+
+Each set is one extra testing unit: the union of its member genes' qualifying variants, with a
+variant annotated to several member genes counted once. It runs through the same tests,
+weights and covariates as the genes, so a one-gene set gives exactly that gene's result and a
+two-gene set gives the result of one gene holding both genes' variants.
+
+- **Shared variants.** A variant annotated to several member genes enters the set once and
+  keeps the annotation of its first row in input order, which can change its COAST class or
+  functional weight within the set compared with the other gene.
+- **Run time.** Cost grows with sets × variants: each set rebuilds its genotype matrix and
+  reruns every test (for example about 20 s extra for 200 sets on 20,000 variants × 2,000
+  samples).
+- **Output.** Set rows carry the set id in the `gene` column. A `unit_type` column (`gene` or
+  `set`) is added after `gene` only when `--gene-set-file` is given.
+- **Multiple testing.** Genes and sets are separate correction families: the gene rows and
+  their q-values are identical to a run without sets, and sets are corrected among themselves.
+  `--gene-prior-weights` applies to genes only; sets are corrected unweighted. The
+  `--diagnostics-output` QQ/λ_GC files describe genes only.
+- **Score artifact.** With `--score-artifact`, each set is stored as an ordinary unit under its
+  set id, so `variantcentrifuge meta` combines it like a gene. `meta` has no unit type, so it
+  corrects sets and genes together.
+- **Validation.** Missing `set_id`/`gene` columns, an empty or `::`-containing `set_id`,
+  duplicate `set_id`/`gene` rows and a `set_id` equal to a gene symbol in the data are errors.
+  Member genes without qualifying variants (or unknown) are warned with their count; a set with
+  no such gene is skipped with a warning.
+
 ## Tuning: JSON Config
 
 All association parameters can be set via the main JSON config file (passed with `-c`/`--config`).
@@ -1036,12 +1110,13 @@ Use this for reproducible analyses or when parameters are too numerous for the c
 | `coast_backend` | str | `"python"` | `"python"` or `"auto"` |
 | `diagnostics_output` | str | `null` | Path to diagnostics directory |
 | `min_cases` | int | `200` | Warn if case count below this |
-| `max_case_control_ratio` | float | `20.0` | Warn if control-to-case ratio exceeds this |
+| `max_case_control_ratio` | float | `20.0` | Warn if the larger/smaller of cases and controls exceeds this (either direction; the message names which group is larger) |
 | `min_case_carriers` | int | `10` | Per-gene warn if case carriers below this |
 | `confidence_interval_alpha` | float | `0.05` | CI significance level (0.05 = 95% CI) |
 | `continuity_correction` | float | `0.5` | Haldane-Anscombe continuity correction for zero cells in Fisher |
 | `missing_site_threshold` | float | `0.10` | Exclude variants with >10% missing genotypes site-wide |
 | `missing_sample_threshold` | float | `0.80` | Exclude samples with >80% missing genotypes |
+| `missing_as_ref` | bool | `false` | Treat missing genotypes as reference before missingness QC (`--missing-as-ref`) |
 | `skat_method` | str | `"SKAT"` | SKAT variant: `"SKAT"` (default), `"Burden"`, or `"SKATO"` (omnibus) |
 | `confidence_interval_method` | str | `"normal_approx"` | Odds ratio CI method: tries score → normal → logit in sequence |
 | `association_workers` | int | `1` | Number of parallel workers for association testing |
@@ -1144,7 +1219,7 @@ These are triggered by thresholds in `AssociationConfig`:
 |---------|------------------|------------|
 | Total cases below threshold | 200 | `min_cases` |
 | Per-gene case carriers below threshold | 10 | `min_case_carriers` |
-| Control-to-case ratio exceeds threshold | 20.0 | `max_case_control_ratio` |
+| Case/control imbalance (larger:smaller, either direction) exceeds threshold | 20.0 | `max_case_control_ratio` |
 
 Adjust thresholds in JSON config if your study design intentionally has fewer cases. The analysis
 still runs — these are warnings, not failures.

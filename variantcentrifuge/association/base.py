@@ -136,6 +136,9 @@ class AssociationConfig:
     missing_sample_threshold: float = 0.80
     """Samples with >threshold fraction missing across kept variants are excluded."""
 
+    missing_as_ref: bool = False
+    """Set missing calls to REF (dosage 0) before missingness QC instead of imputing (#200)."""
+
     firth_max_iter: int = 25
     """Maximum Newton-Raphson iterations for Firth penalized logistic regression fallback."""
 

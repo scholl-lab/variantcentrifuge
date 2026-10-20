@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from ..dataframe_optimizer import load_optimized_dataframe, should_use_memory_passthrough
+from ..feature_loaders import split_bed_spec
 from ..pipeline_core import PipelineContext, Stage
 from .genotype_matrix_builder import _create_standard_column_aliases
 
@@ -277,6 +278,7 @@ class CustomAnnotationStage(Stage):
             "annotate_json_genes": context.annotation_configs.get("json_genes", []),
             "json_gene_mapping": context.annotation_configs.get("json_mapping", ""),
             "json_genes_as_columns": context.config.get("json_genes_as_columns", False),
+            "vcf_samples": context.vcf_samples,
         }
         from . import analysis_stages
 
@@ -293,8 +295,9 @@ class CustomAnnotationStage(Stage):
         input_files = []
         if hasattr(context, "annotation_configs") and context.annotation_configs:
             for bed_file in context.annotation_configs.get("bed_files", []):
-                if Path(bed_file).exists():
-                    input_files.append(Path(bed_file))
+                bed_path = Path(split_bed_spec(bed_file)[1])
+                if bed_path.exists():
+                    input_files.append(bed_path)
             for gene_list in context.annotation_configs.get("gene_lists", []):
                 if Path(gene_list).exists():
                     input_files.append(Path(gene_list))

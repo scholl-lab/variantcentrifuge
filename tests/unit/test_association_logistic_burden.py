@@ -598,3 +598,25 @@ class TestFirthConvergenceSafeguards:
         res = _firth_logistic(y, x, max_iter=50, tol=0.1)
         assert res is not None
         np.testing.assert_allclose(res.params[1], analytic_beta, rtol=1e-4)
+
+
+def test_firth_converges_when_step_halving_hits_loglik_rounding_noise():
+    """An uncentred covariate (birth-year-like) leaves a flat ridge where the Newton step
+    exceeds tol but no step changes the penalised log-likelihood beyond rounding noise.
+    That is the optimum (Newton decrement ~0), not a failure (#198 review)."""
+    from variantcentrifuge.association.tests.logistic_burden import _firth_logistic
+
+    rng = np.random.default_rng(1)
+    n = 2000
+    for _rep in range(25):  # replicate 24 of this stream stalled step-halving at tol 1e-7
+        y = (rng.uniform(size=n) < 0.3).astype(float)
+        year = rng.normal(1970, 10, n)
+        burden = rng.binomial(2, 0.002, (n, 6)).sum(1) * 23.0
+    x = np.column_stack([np.ones(n), burden, year])
+    fit = _firth_logistic(y, x, max_iter=50, tol=1e-7)
+    assert fit is not None
+    # same optimum as the centred (well-conditioned) parametrisation
+    xc = np.column_stack([np.ones(n), burden, year - 1970])
+    ref = _firth_logistic(y, xc, max_iter=50, tol=1e-10)
+    assert fit.params[1] == pytest.approx(ref.params[1], rel=1e-6)
+    assert fit.bse[1] == pytest.approx(ref.bse[1], rel=1e-6)

@@ -97,8 +97,13 @@ def _aggregate_gene_burden_from_columns(
     control_samples: set[str],
     vcf_samples: list[str],
     gt_columns: list[str],
+    missing_as_ref: bool = False,
 ) -> list[dict]:
-    """Aggregate gene burden using per-sample GT columns (GEN_0__GT, GEN_1__GT, ...)."""
+    """Aggregate gene burden using per-sample GT columns (GEN_0__GT, GEN_1__GT, ...).
+
+    Complete-case by default: a sample with any missing call in the gene is not counted.
+    ``missing_as_ref`` counts missing calls as reference instead (#200).
+    """
     n_cols = min(len(gt_columns), len(vcf_samples))
     case_col_names = [gt_columns[i] for i in range(n_cols) if vcf_samples[i] in case_samples]
     ctrl_col_names = [gt_columns[i] for i in range(n_cols) if vcf_samples[i] in control_samples]
@@ -108,13 +113,16 @@ def _aggregate_gene_burden_from_columns(
         carrier, allele, called, called_chrom = 0, 0, 0, 0
         for col in col_names:
             vals = gdf[col]
-            if any(
+            miss = [
                 v is None or (not isinstance(v, str) and pd.isna(v)) or is_missing(str(v).strip())
                 for v in vals
-            ):
+            ]
+            if any(miss) and not missing_as_ref:
                 continue
             called += 1
-            s_ploidy = 1 if all("/" not in str(v) and "|" not in str(v) for v in vals) else 2
+            # Ploidy from the explicit calls; "." (haploid missing) counts as haploid too.
+            shown = [str(v) for v, m in zip(vals, miss, strict=True) if not m or str(v) == "."]
+            s_ploidy = 1 if shown and all("/" not in v and "|" not in v for v in shown) else 2
             called_chrom += s_ploidy
             max_d = int(vals.astype(str).map(_gt_to_dosage).max())
             if max_d > 0:
@@ -150,8 +158,12 @@ def _aggregate_gene_burden_from_gt(
     df: pd.DataFrame,
     case_samples: set[str],
     control_samples: set[str],
+    missing_as_ref: bool = False,
 ) -> list[dict]:
-    """Aggregate gene burden counts from packed GT column using per-sample collapsing."""
+    """Aggregate gene burden counts from packed GT column using per-sample collapsing.
+
+    Complete-case by default; ``missing_as_ref`` counts missing calls as reference (#200).
+    """
     from .helpers import extract_sample_and_genotype, genotype_to_allele_count
 
     gene_burden_data = []
@@ -177,7 +189,9 @@ def _aggregate_gene_burden_from_gt(
                     if not sample_name:
                         continue
                     seen_in_row.add(sample_name)
-                    if is_missing(genotype):
+                    if is_missing(genotype) and missing_as_ref:
+                        genotype = "0" if genotype.strip() == "." else "0/0"
+                    elif is_missing(genotype):
                         if sample_name in case_samples:
                             missing_cases.add(sample_name)
                         elif sample_name in control_samples:

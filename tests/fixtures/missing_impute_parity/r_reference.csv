@@ -1,0 +1,10 @@
+# R version 4.5.3 (2026-03-11); SKAT 2.2.5; scripts/generate_missing_impute_parity.R
+name,method,p_value
+binary,SKAT_default,0.541871848623516
+binary,Burden_default,0.115031466360188
+binary,SKAT_missing_as_ref,0.512710703713628
+binary,Burden_missing_as_ref,0.057997613893315
+quantitative,SKAT_default,0.0489953792242848
+quantitative,Burden_default,0.00952779218872927
+quantitative,SKAT_missing_as_ref,0.0615232122167788
+quantitative,Burden_missing_as_ref,0.00810596803825737

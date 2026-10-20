@@ -319,7 +319,7 @@ def create_sample_columns_from_gt(
                 sample_data[sample_id].append(row_genotypes[sample_id])
 
         # Create DataFrame from sample data and concatenate
-        sample_df = pd.DataFrame(sample_data)
+        sample_df = pd.DataFrame(sample_data, index=df.index)
         df = pd.concat([df, sample_df], axis=1)
 
         logger.debug(f"Created {len(sample_data)} sample columns from replaced genotypes")
@@ -351,7 +351,7 @@ def create_sample_columns_from_gt(
                     sample_data[sample_id].append("./.")
 
         # Create DataFrame from sample data and concatenate
-        sample_df = pd.DataFrame(sample_data)
+        sample_df = pd.DataFrame(sample_data, index=df.index)
         df = pd.concat([df, sample_df], axis=1)
 
         logger.debug(f"Created {len(sample_data)} sample columns for inheritance analysis")

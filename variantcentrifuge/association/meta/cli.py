@@ -31,14 +31,43 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", required=True, help="Output meta results TSV path.")
     parser.add_argument(
         "--weights",
-        default="beta:1,25",
-        help="Weight scheme: 'beta:a,b' (default beta:1,25) or 'uniform'.",
+        nargs="+",
+        default=["beta:1,25"],
+        help="Weight scheme(s): 'beta:a,b' (default beta:1,25) or 'uniform'. Several "
+        "schemes (e.g. --weights beta:1,25 uniform) give one column set per scheme, "
+        "suffixed by the scheme name (beta_1_25, uniform).",
     )
     parser.add_argument(
         "--correction",
         default="fdr",
         choices=["fdr", "bonferroni"],
         help="Multiple-testing correction across genes (default: fdr).",
+    )
+    parser.add_argument(
+        "--min-mac",
+        type=float,
+        default=0.0,
+        help="Genes with cumulative minor-allele count below N get status=low_mac and "
+        "are excluded from the multiple-testing correction (default: 0, no filter).",
+    )
+    parser.add_argument(
+        "--require-variants-in-all-strata",
+        action="store_true",
+        help="Genes without an informative minor allele in every stratum get "
+        "status=not_in_all_strata and are excluded from the correction.",
+    )
+    parser.add_argument(
+        "--allow-annotation-mismatch",
+        action="store_true",
+        help="Pool strata whose annotation provenance (snpEff version/genome, dbNSFP, "
+        "gnomAD source, regions-bed/gene-file hashes) differs, with a warning instead of "
+        "refusing.",
+    )
+    parser.add_argument(
+        "--diagnostics-output",
+        default=None,
+        metavar="DIR",
+        help="Write lambda_GC and QQ diagnostics for the meta p-values to DIR.",
     )
     parser.add_argument(
         "--log-level",
@@ -70,6 +99,10 @@ def main(argv: list[str] | None = None) -> int:
             output_path=args.output,
             weight_scheme=args.weights,
             correction=args.correction,
+            min_mac=args.min_mac,
+            diagnostics_dir=args.diagnostics_output,
+            require_variants_in_all_strata=args.require_variants_in_all_strata,
+            allow_annotation_mismatch=args.allow_annotation_mismatch,
         )
     except MetaCompatibilityError as exc:
         logger.error("Meta-analysis refused (strata not comparable): %s", exc)

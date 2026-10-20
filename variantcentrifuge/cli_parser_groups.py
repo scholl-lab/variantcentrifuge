@@ -30,9 +30,10 @@ def add_operational_argument_groups(parser: argparse.ArgumentParser) -> None:
         "--annotate-bed",
         action="append",
         default=[],
-        metavar="BED_FILE",
-        help="Path to a BED file for annotation. Adds 'Region=<name>' to the Custom_Annotation "
-        "column for overlapping variants. Can be used multiple times.",
+        metavar="[NAME=]BED_FILE",
+        help="BED file (plain or .gz) for annotation. 'NAME=path.bed' adds a yes/no column NAME "
+        "(variant REF span overlaps a region); a plain path adds 'Region=<name>' to the "
+        "Custom_Annotation column. Can be used multiple times.",
     )
     scoring_group.add_argument(
         "--annotate-gene-list",

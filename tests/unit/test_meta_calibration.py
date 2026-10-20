@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from tests.unit.meta_helpers import NO_MISSING_POLICY
 from variantcentrifuge.association.meta.align import align_strata, pooled_frequency_weights
 from variantcentrifuge.association.meta.artifact import build_stratum_artifact
 from variantcentrifuge.association.meta.combine import meta_burden, meta_skat, meta_skato
@@ -39,6 +40,7 @@ def _null_stratum(stratum_id, seed, n, prevalence, n_genes, p):
         n_cases=int(y.sum()),
         n_controls=int((1 - y).sum()),
         sample_id_hashes=[f"{stratum_id}_{i}" for i in range(n)],
+        missing_policy=NO_MISSING_POLICY,
     )
 
 
@@ -88,6 +90,7 @@ def test_monomorphic_gene_is_stable():
         n_cases=int(y.sum()),
         n_controls=int((1 - y).sum()),
         sample_id_hashes=[f"A_{i}" for i in range(n)],
+        missing_policy=NO_MISSING_POLICY,
     )
     u_list, v_list, ac, an, _keys = align_strata([art.genes["MONO"], art.genes["MONO"]])
     w = pooled_frequency_weights(ac, an, "beta:1,25")

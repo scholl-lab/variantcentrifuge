@@ -261,7 +261,7 @@ For modular rare variant association testing beyond the basic Fisher's exact tes
 | `--variant-weights SCHEME` | `beta:1,25` | Variant weight scheme: `beta:a,b`, `uniform`, `cadd`, `revel`, `combined` |
 | `--variant-weight-params JSON` | — | JSON string of weight scheme parameters (e.g., `'{"cadd_cap": 30}'`) |
 | `--coast-weights WEIGHTS` | — | COAST category weights as comma-separated floats (BMV,DMV,PTV) |
-| `--diagnostics-output DIR` | — | Directory for diagnostics output: `lambda_gc.tsv`, `qq_data.tsv`, `summary.txt` |
+| `--diagnostics-output DIR` | — | Directory for diagnostics output: `lambda_gc.tsv`, `qq_data.tsv`, `summary.txt`, `covariate_case_control.tsv` (with categorical covariates) |
 
 For detailed usage, test selection guidance, and examples, see the [Association Testing Guide](guides/association_testing.md).
 
@@ -270,7 +270,7 @@ For detailed usage, test selection guidance, and examples, see the [Association 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--scoring-config-path DIR` | — | Directory containing scoring model (`variable_assignment_config.json` + `formula_config.json`) |
-| `--annotate-bed PATH` | — | BED file for region annotation (repeatable) |
+| `--annotate-bed [NAME=]PATH` | — | BED file (plain or `.gz`), repeatable. `NAME=path.bed` adds a yes/no column `NAME`; a plain path adds `Region=<name>_<file>` to `Custom_Annotation` |
 | `--annotate-gene-list PATH` | — | Gene list file — adds yes/no column per file (repeatable) |
 | `--annotate-json-genes PATH` | — | JSON gene data file (repeatable, requires `--json-gene-mapping`) |
 | `--json-gene-mapping JSON` | — | JSON string mapping fields: `'{"identifier":"gene_symbol","dataFields":["panel","inheritance"]}'` |
