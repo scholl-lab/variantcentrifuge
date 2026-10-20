@@ -130,8 +130,11 @@ With a single contributing stratum the LOO columns are empty.
 
 `cmac_total` is the cumulative minor-allele count over the gene's union of variants,
 `Σ min(AC, AN − AC)` with `AC`/`AN` pooled over the contributing strata;
-`cmac_by_stratum` gives the same sum per stratum (`stratum:mac;...`), from the
-artifact's per-variant `AC`/`AN`.
+`cmac_by_stratum` gives the same sum per stratum (`stratum:mac;...`, integers), from
+the artifact's per-variant `AC`/`AN`. Both count only variants that carry score
+information (non-zero variance after the covariate projection): a site that is
+monomorphic within a stratum, or explained by its covariates, adds nothing to the
+test and so nothing to the MAC used by `--min-mac`.
 
 `--min-mac N` labels genes with `cmac_total < N` as `status=low_mac`. Their p-values
 are still reported, but `primary_q` is empty: like untestable genes in the main

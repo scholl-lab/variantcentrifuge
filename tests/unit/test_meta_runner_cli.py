@@ -145,6 +145,7 @@ def test_cumulative_mac_from_artifact_ac_an():
     arts = _three_strata()
     df = meta_analyze_artifacts(arts).set_index("gene")
     for gene in ("SIG", "NULLG"):
+        assert all((np.diag(a.genes[gene].v) > 0).all() for a in arts)  # all informative
         per = {
             a.stratum_id: np.minimum(a.genes[gene].ac, a.genes[gene].an - a.genes[gene].ac).sum()
             for a in arts
@@ -235,3 +236,24 @@ def test_diagnostics_family_equals_correction_family(tmp_path):
     run_meta(manifest, str(tmp_path / "m2.tsv"), min_mac=1e9, diagnostics_dir=str(diag))
     assert pd.read_csv(diag / "lambda_gc.tsv", sep="\t").empty
     assert "Genes with per-gene warnings: 1" in (diag / "summary.txt").read_text()
+
+
+def test_mac_ignores_zero_information_variants():
+    """A locus fixed REF in one stratum and fixed ALT in the other adds no score
+    information, so it must not count toward cumulative MAC / --min-mac."""
+    arts = _three_strata()[:2]
+    before = meta_analyze_artifacts(arts).set_index("gene").loc["NULLG"]
+    for art, fixed_alt in zip(arts, (False, True), strict=True):
+        gs = art.genes["NULLG"]
+        gs.u[0], gs.v[0, :], gs.v[:, 0] = 0.0, 0.0, 0.0
+        gs.ac[0] = gs.an[0] if fixed_alt else 0.0
+    row = meta_analyze_artifacts(arts, min_mac=1.0).set_index("gene").loc["NULLG"]
+    per = {
+        a.stratum_id: int(np.minimum(g.ac, g.an - g.ac)[1:].sum())
+        for a in arts
+        for g in [a.genes["NULLG"]]
+    }
+    expected = sum(per.values())
+    assert row["cmac_total"] == pytest.approx(expected)
+    assert row["cmac_total"] < before["cmac_total"]
+    assert row["cmac_by_stratum"] == ";".join(f"{s}:{m}" for s, m in per.items())

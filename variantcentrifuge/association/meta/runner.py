@@ -79,9 +79,12 @@ def _fmt(x: float | None) -> str:
     return "NA" if x is None else f"{x:.10g}"
 
 
-def _mac(ac: np.ndarray, an: np.ndarray) -> float:
-    """Cumulative minor-allele count: per-variant min(AC, AN - AC), summed."""
-    return float(np.minimum(ac, an - ac).sum())
+def _mac(ac: np.ndarray, an: np.ndarray, v: np.ndarray) -> float:
+    """Cumulative minor-allele count: per-variant min(AC, AN - AC), summed over the
+    variants that carry score information (diag(V) > 0); others add nothing to the test.
+    """
+    info = np.diag(v) > 0
+    return float(np.minimum(ac[info], an[info] - ac[info]).sum())
 
 
 def _leave_one_out(
@@ -157,7 +160,7 @@ def _gene_row(
         for (art, _gs), b in zip(kept, betas, strict=True)
     ]
 
-    cmac_total = _mac(ac_pooled, an_pooled)
+    cmac_total = _mac(ac_pooled, an_pooled, sum(v_list))
     primary_p = skato_p if skato_p is not None else burden_p
     status = "ok" if n_strata >= 2 else "single_stratum"
     if primary_p is None:
@@ -184,7 +187,9 @@ def _gene_row(
         "per_stratum_directions": ",".join(directions),
         **_leave_one_out(gene_scores, [art.stratum_id for art, _gs in kept], weight_scheme),
         "cmac_total": cmac_total,
-        "cmac_by_stratum": ";".join(f"{art.stratum_id}:{_mac(gs.ac, gs.an):g}" for art, gs in kept),
+        "cmac_by_stratum": ";".join(
+            f"{art.stratum_id}:{_mac(gs.ac, gs.an, gs.v):.0f}" for art, gs in kept
+        ),
         "primary_p": primary_p,
         "primary_q": None,
         "status": status,
