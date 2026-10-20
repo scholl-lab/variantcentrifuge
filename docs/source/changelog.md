@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-20
+
 ### Added
 
 - `--annotate-bed NAME=path.bed[.gz]` adds a yes/no column `NAME` (variant REF span overlaps a region); plain `--annotate-bed path.bed` is unchanged (#94).
