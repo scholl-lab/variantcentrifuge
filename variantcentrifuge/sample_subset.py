@@ -78,7 +78,8 @@ def resolve_sample_subset(context: Any) -> list[str] | None:
     """
     cfg = context.config
     if _SUBSET_KEY in cfg:
-        return cfg[_SUBSET_KEY]
+        cached: list[str] | None = cfg[_SUBSET_KEY]
+        return cached
     cfg[_SUBSET_KEY] = None
     vcf_samples = list(getattr(context, "vcf_samples", None) or [])
     if cfg.get("no_sample_subset") or not (cfg.get("perform_association") and vcf_samples):
@@ -107,7 +108,8 @@ def resolve_sample_subset(context: Any) -> list[str] | None:
     context.vcf_samples = subset
     cfg["sample_list"] = ",".join(subset)
     cfg["sample_subset_sha256"] = sample_set_sha256(subset)
-    cfg[_SUBSET_KEY] = [raw[i] for i in keep]
+    raw_subset = [raw[i] for i in keep]
+    cfg[_SUBSET_KEY] = raw_subset
     logger.info(
         "Sample subsetting at extraction: %d of %d VCF samples (cases/controls or phenotyped; "
         "sha256 %s)",
@@ -115,4 +117,4 @@ def resolve_sample_subset(context: Any) -> list[str] | None:
         len(vcf_samples),
         cfg["sample_subset_sha256"][:12],
     )
-    return cfg[_SUBSET_KEY]
+    return raw_subset

@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 class ChunkTsvMergeMixin:
     """Merge per-chunk extracted TSVs into one file and remove chunk files."""
 
+    def _build_expected_header(self, context: PipelineContext) -> str | None:
+        raise NotImplementedError  # provided by ParallelCompleteProcessingStage
+
     def _merge_tsv_outputs(self, context: PipelineContext, chunk_tsvs: list[Path]) -> Path:
         """Merge TSV chunks into a single file with optimized compression handling."""
         output_tsv = context.workspace.get_intermediate_path(
