@@ -113,7 +113,9 @@ pediatric_cohort	pediatric.missense.npz	missense
 
 Each mask needs at least two strata and is validated and combined on its own, exactly
 as a single-mask run (identical results); the output stacks one row per gene and mask,
-with `mask` set to the `mask_id`. Two columns are added, repeated on each of a gene's
+with `mask` set to the `mask_id`. The manifest `mask_id` is your own label (letters,
+digits, `.`, `_`, `-`; it also names the diagnostics subdirectory), unrelated to the
+artifact's internal mask id, which is a prefix of the mask hash. Two columns are added, repeated on each of a gene's
 rows: `acat_masks_p`, the Cauchy (ACAT, Liu et al. 2019) combination with equal
 weights of the gene's per-mask `primary_p`, and `acat_masks_q`, corrected with
 `--correction` across genes (one ACAT test per gene). Only masks inside their own
@@ -180,6 +182,12 @@ columns, independent of the number of strata:
 - `loo_min_p` — the smallest burden LOO p-value (kept for compatibility).
 
 With a single contributing stratum the LOO columns are empty.
+
+### Gene sets
+
+Gene sets from `--gene-set-file` are stored in the artifact as ordinary units under their
+set id, so `meta` combines them like genes and corrects them in the same family as the
+genes (one larger family, which is conservative for both).
 
 ### Minor-allele counts and `--min-mac`
 

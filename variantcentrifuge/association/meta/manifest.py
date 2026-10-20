@@ -20,6 +20,7 @@ from __future__ import annotations
 import csv
 import logging
 import os
+import re
 from dataclasses import dataclass
 
 from variantcentrifuge.association.meta.artifact import ScoreCovarianceArtifact, load_artifact
@@ -59,6 +60,12 @@ def read_study_manifest(path: str) -> list[StratumRef]:
             if not sid or not apath or mask == "":
                 raise MetaCompatibilityError(
                     f"Manifest '{path}' has a row with empty fields: {row}"
+                )
+            # mask_id names a diagnostics subdirectory: keep it a plain file name
+            if mask and (not re.fullmatch(r"[A-Za-z0-9._-]+", mask) or mask in (".", "..")):
+                raise MetaCompatibilityError(
+                    f"Manifest '{path}': mask_id '{mask}' may only use letters, digits, "
+                    "'.', '_' and '-' (and must not be '.' or '..')."
                 )
             # Relative paths are relative to the manifest, not the working directory.
             apath = os.path.join(os.path.dirname(os.path.abspath(path)), apath)

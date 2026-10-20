@@ -169,3 +169,12 @@ def test_acat_masks_keeps_null_mask(tmp_path):
     df = pd.DataFrame({"gene": ["G", "G"], "primary_p": [0.01, 1.0], "primary_q": [0.02, 1.0]})
     out = add_acat_masks(df, "fdr")
     assert out["acat_masks_p"].iloc[0] == pytest.approx(1.0, abs=1e-12)
+
+
+@pytest.mark.parametrize("bad", ["../x", "a/b", ".", "..", "p LoF"])
+def test_manifest_mask_id_must_be_a_safe_name(tmp_path, bad):
+    """mask_id names a diagnostics subdirectory, so it must not escape DIR."""
+    m = tmp_path / "m.tsv"
+    m.write_text(f"stratum_id\tartifact_path\tmask_id\nA\ta\t{bad}\nB\tb\t{bad}\n")
+    with pytest.raises(MetaCompatibilityError, match="mask_id"):
+        read_study_manifest(str(m))
