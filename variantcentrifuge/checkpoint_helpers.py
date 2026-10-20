@@ -58,6 +58,8 @@ RELEVANT_CONFIG_KEYS: tuple[str, ...] = (
     "add_chr",
     "tumor_sample_index",
     "normal_sample_index",
+    "gene_set_file",
+    "mask_label",
 )
 
 CANONICAL_ANNOTATION_KEYS: frozenset[str] = frozenset(
@@ -119,6 +121,9 @@ def hash_configuration(config: dict[str, Any]) -> str:
     relevant_config["__fingerprint_version__"] = 3
     if relevant_config.get("annotate_bed_files"):
         relevant_config["__bed_overlap__"] = BED_OVERLAP_VERSION
+    if relevant_config.get("gene_set_file"):  # edited in place must also invalidate resume
+        with open(relevant_config["gene_set_file"], "rb") as fh:
+            relevant_config["__gene_set_sha256__"] = hashlib.sha256(fh.read()).hexdigest()
 
     config_str = json.dumps(relevant_config, sort_keys=True)
     return hashlib.sha256(config_str.encode()).hexdigest()
