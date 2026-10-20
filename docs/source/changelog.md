@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `--perform-gene-burden` now warns and will be removed in the next minor release; use `--perform-association` (e.g. `--association-tests fisher`). The legacy path ignores `--missing-as-ref` (#217).
 
+### Fixed
+
+- COAST no longer skips a gene (`ANNOTATION_GENOTYPE_MISMATCH`) when genotype site QC drops a variant; it tests the kept variants, like burden and SKAT (#215).
+- Single-cohort ACAT (ACAT-O, ACAT-V, COAST omnibus) follows R `ACAT()`, which changes results: a gene where any combined test has p exactly 1 (common, e.g. Fisher p = 1.0 for a gene with equal case and control carrier rates) now gets ACAT-O ≈ 1, as in R; before, that p = 1 was silently dropped and ACAT-O was driven by the other tests. A gene with one test at p exactly 0 and another at exactly 1 gets an empty ACAT-O (R stops with an error there). p outside [0, 1] is an error. An allelic SKAT-O that COAST cannot compute (rank < 2) is now reported as undefined (`coast_skat_pvalue` empty) and left out of the COAST omnibus instead of entering as p = 1 (#216).
+
 ## [0.22.1] - 2026-10-20
 
 ### Changed

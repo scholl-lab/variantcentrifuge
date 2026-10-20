@@ -285,7 +285,7 @@ def meta_analyze_artifacts(
 def _acat_r(p: np.ndarray) -> float:
     """Equal-weight ACAT exactly as the reference R/ACAT.R (yaowuliu/ACAT @ e737d7d).
 
-    Unlike ``cauchy_combination`` (which drops p == 1 for COAST), p == 1 is kept and
+    Like ``cauchy_combination`` (single-cohort, weighted; #216), p == 1 is kept and
     evaluated as float tan(-pi/2) ~ -1.6e16, and p < 1e-15 uses 1/(p*pi), as in R.
     """
     small = p < 1e-15

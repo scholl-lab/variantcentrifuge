@@ -3,7 +3,9 @@
 # generate_acat_parity.R
 # =============================================================================
 # Reference values for the meta ACAT over masks (acat_masks_p, issue #196),
-# stored in tests/unit/test_meta_multimask.py::R_ACAT. The ACAT() function below
+# stored in tests/unit/test_meta_multimask.py::R_ACAT, and for the weighted
+# single-cohort cauchy_combination (issue #216), stored in
+# tests/unit/test_association_acat.py::R_ACAT_WEIGHTED. The ACAT() function below
 # is copied verbatim from the reference implementation
 # https://github.com/yaowuliu/ACAT, R/ACAT.R at commit e737d7d (Liu et al. 2019),
 # so no R package is needed.
@@ -89,4 +91,20 @@ cases <- list(
 for (p in cases) {
   cat(sprintf("%s -> %.17g\n", paste(format(p, digits = 17), collapse = ","),
               suppressWarnings(ACAT(p))))
+}
+
+# Weighted cases (COAST omnibus weights 1 x 6, 6) for cauchy_combination (#216)
+w7 <- c(1, 1, 1, 1, 1, 1, 6)
+weighted <- list(
+  list(c(0.01, 0.05, 0.001, 0.1, 0.005, 0.02, 1e-200), w7),
+  list(c(0.01, 1.0, 0.3, 1.0, 0.5, 0.2, 0.04), w7),
+  list(c(1e-6, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0), w7),
+  list(c(0.0, 0.5), c(1, 1)),
+  list(c(1.0, 1.0), c(1, 1)),
+  list(c(5e-16, 0.5), c(1, 3))
+)
+cat("# weighted\n")
+for (pw in weighted) {
+  cat(sprintf("%s | %s -> %.17g\n", paste(format(pw[[1]], digits = 17), collapse = ","),
+              paste(pw[[2]], collapse = ","), suppressWarnings(ACAT(pw[[1]], pw[[2]]))))
 }
