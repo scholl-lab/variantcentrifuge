@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-10-20
+
 ### Changed
 
 - Faster association and variant analysis on wide cohorts (identical results): genotype-matrix parsing runs once per gene block instead of once per sample column, GT-column reconstruction normalises all cells at once and drops per-sample columns in one step (deleting them one by one was quadratic), and case/control counting no longer parses an implicit `0/0` for every absent sample. Panels under 50 genes run association in-process instead of starting a worker pool. One 1000 Genomes cohort (3,391 variants x 1,039 samples): 21.5 s -> 6.2 s. Peak memory stays bounded: work runs in blocks of about 1M cells.
