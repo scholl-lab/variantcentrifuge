@@ -446,9 +446,25 @@ heterogeneous.
 | Auto | `--skat-backend auto` | Selects Python (same as `python` in v0.15.0) |
 | R (deprecated) | `--skat-backend r` | rpy2 + R SKAT package; not thread-safe; raises DeprecationWarning |
 
-The Python backend uses the compiled Davies method (qfc.c via ctypes) for exact p-values with a
-saddlepoint approximation fallback for extreme values, and Liu fallback as a last resort. Results
-are validated to match the R SKAT package within 10%.
+**SKAT p-values.** The Python backend computes the mixture-of-chi-square tail with the compiled
+Davies method (`qfc`), starting at R's settings (absolute accuracy 1e-6, 10,000 terms) and
+refining the accuracy so the error stays within about 1e-4 of the p-value. Below p = 1e-5,
+where Davies' absolute error is too coarse, the tail is computed with Davies on the
+exponentially tilted mixture (`skat_p_method = davies_tilted`), which keeps relative accuracy
+in the deep tail. The Kuonen saddlepoint and the Liu moment-matching approximation are used
+only as fallbacks; they are reported with `skat_p_converged = False`.
+
+**SKAT-O p-values.** The omnibus p-value integrates over the chi-square(1) mixing variable in
+survival form (no "1 − ..." cancellation and no truncation at 40) with an adaptive outer
+integral and an error estimate. If Davies or the integral cannot meet the accuracy budget, the
+Liu approximation is used instead and the result is reported with `skat_p_converged = False`.
+
+**Agreement with R.** SKAT, SKAT-O and Burden match R SKAT 2.2.5 for moderate p-values. In
+the deep tail and in some edge cases (Davies at R's 1e-6 absolute accuracy, R's
+`integrate(0, 40)` outer integral, or R falling back to Liu after Davies' 10,000-term limit)
+R itself is less accurate, and results can differ from R by more than 10%. These discrepancies
+were checked against independent references (importance sampling, high-accuracy Davies, a fine
+grid of R's own integrand), which agree with VariantCentrifuge.
 
 ### CLI Example
 
@@ -1076,9 +1092,27 @@ Add `coast` when you have:
 - A biological prior that functional severity predicts effect magnitude
 - Sufficient sample size (≥100 cases)
 
-Use `linear_burden` instead of `logistic_burden` when:
-- Your phenotype is a continuous measurement (e.g., GFR, blood pressure, biomarker level)
-- You set `--trait-type quantitative`
+**Quantitative traits** (a continuous measurement such as GFR, blood pressure or a biomarker
+level) use a different combination:
+
+```bash
+--trait-type quantitative --association-tests linear_burden,skat
+```
+
+`fisher` and `logistic_burden` are binary-trait tests and are rejected at startup with
+`--trait-type quantitative`. Because `fisher` is the default, `--association-tests` must be
+given explicitly. `coast` may be added.
+
+- **Outcome.** The outcome is the numeric value in `--phenotype-value-column` of
+  `--phenotype-file`, matched to VCF samples through `--phenotype-sample-column` (after
+  `--remove-sample-substring`, if set).
+- **Missing outcome.** Samples whose value is empty, `NA`, `NaN` or `.` are excluded from the
+  genotypes, the outcome and the covariates, and the number excluded is logged. Any other
+  non-numeric or non-finite value, or conflicting values for one sample, stops the run.
+- **No case/control labels.** Case/control definitions (`--case-phenotypes`,
+  `--case-samples` and so on) are neither required nor used, and `n_cases`/`n_controls` are
+  reported as 0.
+- **No score artifact.** `--score-artifact` (cohort meta-analysis) supports binary traits only.
 
 ---
 
@@ -1149,6 +1183,39 @@ is set to `None` and the gene is excluded from ACAT-O.
    `--categorical-covariates`
 
 If `n_tests < 100`, the lambda_GC estimate is flagged as unreliable — do not over-interpret it.
+
+### Untestable Genes: Skip and Warning Codes
+
+When a gene cannot be tested reliably, the affected test reports no p-value (empty
+`{test}_pvalue`) and a code that says why, rather than a spurious p-value. The gene is left
+out of FDR correction and ACAT-O for that test. Codes appear in these columns:
+
+- `skat_skip_reason` (lower-case codes) and `skat_warnings`: SKAT / SKAT-O
+- `warnings`: linear and logistic burden (and the per-gene carrier warnings)
+- `coast_skip_reason`: COAST
+
+| Code | Column | Meaning | What to do |
+|------|--------|---------|------------|
+| `NONFINITE_PHENOTYPE` | `skat_warnings`, `warnings`, `coast_skip_reason` | The outcome contains NaN or infinite values. | Check the phenotype values passed to the analysis. |
+| `CONSTANT_PHENOTYPE` | `skat_warnings`, `warnings`, `coast_skip_reason` | The outcome has no variance among the analysed samples. | Check the phenotype column and how many samples have a value. |
+| `NONFINITE_COVARIATES` | `warnings` (linear burden) | The covariate matrix contains NaN or infinite values. | Fix or drop the affected covariate values. |
+| `ill_conditioned_covariates` | `skat_skip_reason` | Covariates are too ill-conditioned to decide which variants carry information beyond them. | Remove redundant or near-collinear covariates (e.g. duplicated columns, nested categories, too many PCs). |
+| `ILL_CONDITIONED_COVARIATES` | `warnings` (linear burden), `coast_skip_reason` | Same as above for the burden or the allelic SKAT-O projection. | As above. |
+| `no_informative_variants` | `skat_skip_reason` | Every qualifying variant is fully explained by the covariates. | Nothing to fix; the gene has no testable signal under this model. |
+| `BURDEN_NOT_ESTIMABLE` | `warnings` (linear burden) | The burden score is constant or lies in the span of the intercept and covariates. | Typical for genes with very few carriers; use SKAT or relax variant filters. |
+| `rank_deficient` | `skat_skip_reason` | The genotype matrix has rank below 2 (for example a single variant, or identical carrier patterns). | Expected for single-variant genes; use burden or Fisher. |
+| `zero_variance` | `skat_skip_reason` | Burden-method SKAT: the collapsed burden is in the covariate span. | As for `BURDEN_NOT_ESTIMABLE`. |
+| `OLS_FIT_FAILED` / `NONFINITE_STATISTICS` | `warnings` (linear burden) | The regression raised, or returned a non-finite estimate, SE, p-value or CI. | Check for extreme outcome or covariate values. |
+| `OUTCOME_EXPLAINED_BY_COVARIATES` | test warning column | The covariates explain the outcome exactly, so no residual variation is left to test. | Remove covariates derived from the outcome. |
+| `INSUFFICIENT_RESIDUAL_DF` | test warning column | Too few samples remain for the number of covariates. | Use fewer covariates or PCs, or more samples. |
+
+COAST also reports structural skips in `coast_skip_reason`: `NO_GENOTYPE_MATRIX`,
+`NO_PHENOTYPE_OR_EMPTY_MATRIX`, `NO_GENE_DF`, `MISSING_EFFECT_IMPACT_COLUMNS`,
+`ANNOTATION_GENOTYPE_MISMATCH`, `NO_CLASSIFIABLE_VARIANTS` (see below), `ALL_CATEGORIES_EMPTY`
+and `BACKEND_ERROR:<message>`.
+
+A p-value that comes from an approximation rather than converged Davies is still reported, but
+with `skat_p_converged = False` (see [SKAT p-values](#backends)).
 
 ### COAST Fails: `NO_CLASSIFIABLE_VARIANTS`
 

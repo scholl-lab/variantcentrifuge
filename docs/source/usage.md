@@ -181,6 +181,11 @@ These flags configure somatic variant presets (`somatic`, `loh`, `tumor_only`) b
 | `--add-chr` | `false` | Add `chr` prefix to chromosome names in BED |
 | `--remove-sample-substring TEXT` | — | Strip this substring from all sample names |
 
+Annotation subfields must name one annotation: use `ANN[0].<FIELD>` (e.g. `ANN[0].GENE`,
+`ANN[0].EFFECT`). Wildcard `ANN[*].<FIELD>` and `EFF[*].<FIELD>` fields are not parsed by the
+extractor and are rejected at startup with `Unsupported extraction field(s)`. Use
+`--transcript-list` to choose which annotation becomes `ANN[0]`.
+
 ### Genotype Analysis
 
 | Flag | Default | Description |
@@ -298,6 +303,16 @@ For detailed usage, test selection guidance, and examples, see the [Association 
 | `--sample-column-creation-method METHOD` | `auto` | Column creation: `iterative`, `vectorized`, or `auto` |
 | `--memory-safety-factor F` | `0.92` | Fraction of allocated memory to use (0–1) |
 | `--inheritance-memory-fraction F` | `0.85` | Fraction of safe memory for inheritance analysis |
+
+Chunked processing requires a rectangular TSV: a header with non-empty column names and every
+data row with exactly the header's number of tab-separated fields (gzip, a UTF-8 BOM, CRLF line
+endings and blank lines are accepted). A short or over-long row stops the run with an error
+that names the file and line number, where non-chunked loading would skip an over-long row
+with a warning and pad a short one. Fix the input, or rerun with `--no-chunked-processing`.
+
+Association analysis also requires biallelic records; genotypes with allele indices above 1
+are rejected (see
+[Multi-Allelic Sites Must Be Split](guides/association_testing.md#multi-allelic-sites-must-be-split)).
 
 ### Checkpoint & Resume
 
