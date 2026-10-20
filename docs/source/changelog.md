@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--annotate-bed NAME=path.bed[.gz]` adds a yes/no column `NAME` (variant REF span overlaps a region); plain `--annotate-bed path.bed` is unchanged (#94).
+- `.bed.gz` input for `--annotate-bed`.
+
+### Fixed
+
+- `--annotate-bed` treated 1-based VCF POS as 0-based, so hits at BED interval edges were wrong (first base missed ... last base excluded); overlap now uses the REF span [POS-1, POS-1+len(REF)), so deletions reaching into a region are hit. Legacy `Region=` output changes at interval edges (#94).
+- An unreadable or missing `--annotate-bed` file now raises instead of silently annotating nothing (#94).
+
 ## [0.21.0] - 2026-10-20
 
 Fixes the findings of the v0.19.0 audit revalidation (#173–#187).

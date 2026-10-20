@@ -36,7 +36,7 @@ def test_find_region_overlaps_removeprefix() -> None:
     tree_mock = Mock()
     overlap_mock = Mock()
     overlap_mock.data = "custom_reg"
-    tree_mock.__getitem__ = Mock(return_value=[overlap_mock])
+    tree_mock.overlap = Mock(return_value=[overlap_mock])
     regions_by_chrom = {"1": tree_mock}
 
     import pandas as pd

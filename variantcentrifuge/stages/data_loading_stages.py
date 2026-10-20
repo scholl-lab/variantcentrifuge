@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from ..dataframe_optimizer import load_optimized_dataframe, should_use_memory_passthrough
+from ..feature_loaders import split_bed_spec
 from ..pipeline_core import PipelineContext, Stage
 from .genotype_matrix_builder import _create_standard_column_aliases
 
@@ -293,8 +294,9 @@ class CustomAnnotationStage(Stage):
         input_files = []
         if hasattr(context, "annotation_configs") and context.annotation_configs:
             for bed_file in context.annotation_configs.get("bed_files", []):
-                if Path(bed_file).exists():
-                    input_files.append(Path(bed_file))
+                bed_path = Path(split_bed_spec(bed_file)[1])
+                if bed_path.exists():
+                    input_files.append(bed_path)
             for gene_list in context.annotation_configs.get("gene_lists", []):
                 if Path(gene_list).exists():
                     input_files.append(Path(gene_list))
