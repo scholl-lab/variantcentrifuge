@@ -172,6 +172,9 @@ def load_sample_sheet(file_path: str | Path) -> SampleSheetData:
 
         bam_val = (row.get("bam_path") or row.get("bam") or "").strip()
         if bam_val and bam_val != ".":
+            bam_p = Path(bam_val)
+            if not bam_p.is_absolute() and ((path.parent / bam_p).exists() or not bam_p.exists()):
+                bam_val = str((path.parent / bam_p).resolve())
             bam_mapping[sample_id] = bam_val
 
     if not sample_ids:
@@ -192,6 +195,7 @@ def validate_sample_sheet_conflicts(
     parser: argparse.ArgumentParser | None = None,
 ) -> None:
     """Validate --sample-sheet and ensure it does not conflict with legacy metadata flags."""
+    del parser
     sample_sheet = getattr(args, "sample_sheet", None) or cfg.get("sample_sheet")
     if not sample_sheet:
         return
@@ -209,12 +213,9 @@ def validate_sample_sheet_conflicts(
     )
 
     if has_ped or has_pheno or has_bam:
-        msg = (
+        raise ValueError(
             "--sample-sheet cannot be combined with --ped, --phenotype-file, or --bam-mapping-file"
         )
-        if parser is not None:
-            raise ValueError(msg)
-        raise ValueError(msg)
 
     load_sample_sheet(str(sample_sheet))
 

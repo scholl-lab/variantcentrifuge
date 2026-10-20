@@ -111,6 +111,7 @@ variantcentrifuge \
 - Variants discarded by earlier VCF extraction or SnpSift filters cannot be recovered without re-running from the source VCF (`-v`).
 - Annotations or INFO/FORMAT fields that were not extracted into the TSV cannot be added in `--from-tsv` mode.
 - If the input TSV uses anonymous per-sample genotype columns (`GEN[0].GT`, `GEN[1].GT`, ...), supply matching sample metadata (`--ped`, `--phenotype-file`, `--sample-sheet`, or `--case-samples`/`--control-samples`) with the exact same sample count and order.
+- Runtime scales with input TSV size and requested outputs (e.g., ~0.4 s on the 2-variant rescoring + HTML/Excel fixture in `tests/unit/test_issue_169_regression.py`).
 :::
 
 ### Gene Selection

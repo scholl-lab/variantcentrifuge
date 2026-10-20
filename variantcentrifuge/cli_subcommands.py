@@ -195,6 +195,12 @@ def create_validate_config_subcommand_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to sample sheet manifest to validate.",
     )
+    parser.add_argument(
+        "--preset",
+        action="append",
+        default=None,
+        help="Optional preset name(s) to validate against configuration.",
+    )
     return parser
 
 
@@ -226,11 +232,28 @@ def run_validate_config_subcommand(argv: list[str]) -> int:
             cfg["field_profile"] = parsed.field_profile
         resolve_profile(cfg)
 
+        presets_dict = cfg.get("presets", {})
+        raw_presets = parsed.preset or cfg.get("preset") or cfg.get("presets_to_apply")
+        if raw_presets:
+            preset_items = [raw_presets] if isinstance(raw_presets, str) else list(raw_presets)
+            for item in preset_items:
+                for p_name in str(item).split(","):
+                    p_clean = p_name.strip()
+                    if p_clean and p_clean not in presets_dict:
+                        raise ValueError(f"Preset '{p_clean}' not found in configuration.")
+
         scoring_path = parsed.scoring_config_path or cfg.get("scoring_config_path")
         if scoring_path:
-            read_scoring_config(str(scoring_path))
+            scoring_cfg = read_scoring_config(str(scoring_path))
+            if not isinstance(scoring_cfg.get("variables"), dict) or not scoring_cfg["variables"]:
+                raise ValueError(
+                    "Scoring configuration 'variables' must be a non-empty JSON object."
+                )
+            if not isinstance(scoring_cfg.get("formulas"), list) or not scoring_cfg["formulas"]:
+                raise ValueError("Scoring configuration 'formulas' must be a non-empty JSON array.")
 
-        if parsed.sample_sheet:
+        sample_sheet_path = parsed.sample_sheet or cfg.get("sample_sheet")
+        if sample_sheet_path:
             from .sample_sheet import validate_sample_sheet_conflicts
 
             validate_sample_sheet_conflicts(parsed, cfg)

@@ -121,6 +121,15 @@ class TestFromTsvExecutionAndIsolation:
         assert int(df1.iloc[0]["control_variant_count"]) == 0
         assert "HP:0000107" in str(df1.iloc[0]["Phenotypes"])
 
+        # Inject stale inheritance columns into r1.tsv before Run 2
+        df1_stale = pd.read_csv(out1 / "r1.tsv", sep="\t")
+        df1_stale["Inheritance_Pattern"] = "stale_pattern"
+        df1_stale["Inheritance_Details"] = "stale_details"
+        df1_stale["Inheritance_Confidence"] = "stale_confidence"
+        df1_stale["Inheritance_Description"] = "stale_description"
+        df1_stale["Inheritance_Samples"] = "stale_samples"
+        df1_stale.to_csv(out1 / "r1.tsv", sep="\t", index=False)
+
         # Run 2 on r1.tsv: swap case/control phenotype definitions and add trio PED + scoring
         pheno2 = tmp_path / "pheno2.tsv"
         pheno2.write_text(
@@ -168,9 +177,69 @@ class TestFromTsvExecutionAndIsolation:
         assert int(df2.iloc[0]["control_variant_count"]) == 1
         assert "HP:0009999" in str(df2.iloc[0]["Phenotypes"])
         assert df2.iloc[0]["Inheritance_Pattern"] == "de_novo"
+        for stale_col in (
+            "Inheritance_Details",
+            "Inheritance_Confidence",
+            "Inheritance_Description",
+            "Inheritance_Samples",
+        ):
+            expected_stale = f"stale_{stale_col.split('_')[1].lower()}"
+            assert stale_col not in df2.columns or df2.iloc[0][stale_col] != expected_stale
         assert "nephro_candidate_score" in df2.columns
         # No duplicated link columns like ClinVar.1
         assert not any(c.endswith(".1") for c in df2.columns)
+
+    def test_from_tsv_packed_gt_regression_association_tests(self, tmp_path: Path) -> None:
+        """--from-tsv with packed GT supports regression association tests (logistic_burden)."""
+        cases = [f"C{i}" for i in range(1, 11)]
+        controls = [f"N{i}" for i in range(1, 11)]
+        # Variant 1: 8 cases (0/1), 1 control (0/1), rest 0/0 (omitted or explicit)
+        gt_v1_parts = (
+            [f"{s}(0/1)" for s in cases[:8]]
+            + [f"{controls[0]}(0/1)"]
+            + [f"{s}(0/0)" for s in cases[8:] + controls[1:]]
+        )
+        # Variant 2: 6 cases (0/1), 1 control (0/1), non-carriers omitted from packed GT
+        gt_v2_parts = [f"{s}(0/1)" for s in cases[2:8]] + [f"{controls[1]}(0/1)"]
+
+        packed_tsv = tmp_path / "packed_assoc.tsv"
+        packed_tsv.write_text(
+            "CHROM\tPOS\tREF\tALT\tGENE\tEFFECT\tIMPACT\tGT\n"
+            f"chr1\t100\tA\tG\tBRCA1\tmissense_variant\tMODERATE\t{';'.join(gt_v1_parts)}\n"
+            f"chr1\t200\tC\tT\tBRCA1\tstop_gained\tHIGH\t{';'.join(gt_v2_parts)}\n",
+            encoding="utf-8",
+        )
+
+        out_dir = tmp_path / "assoc_out"
+        rc = main(
+            [
+                "--from-tsv",
+                str(packed_tsv),
+                "--perform-association",
+                "--association-tests",
+                "fisher,logistic_burden",
+                "--case-samples",
+                ",".join(cases),
+                "--control-samples",
+                ",".join(controls),
+                "--output-dir",
+                str(out_dir),
+                "-o",
+                "assoc_variants.tsv",
+                "--no-stats",
+            ]
+        )
+        assert rc == 0
+        assoc_files = list(out_dir.glob("*association*"))
+        assert len(assoc_files) == 1
+        assoc_df = pd.read_csv(assoc_files[0], sep="\t")
+        assert len(assoc_df) == 1
+        assert assoc_df.iloc[0]["gene"] == "BRCA1"
+        assert int(assoc_df.iloc[0]["n_cases"]) == 10
+        assert int(assoc_df.iloc[0]["n_controls"]) == 10
+        assert "logistic_burden_pvalue" in assoc_df.columns
+        assert pd.notna(assoc_df.iloc[0]["logistic_burden_pvalue"])
+        assert 0.0 <= float(assoc_df.iloc[0]["logistic_burden_pvalue"]) <= 1.0
 
 
 class TestFromTsvSchemasCompressionAndEdgeCases:

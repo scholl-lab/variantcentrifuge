@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import pytest
@@ -529,3 +530,420 @@ def test_profile_and_sample_sheet_edge_cases(tmp_path: Path) -> None:
     )
     assert cases_both == ["S1"]
     assert ctrls_both == ["S2"]
+
+    # Attached short options (-oattached.tsv, -rGRCh38) and abbreviated long options
+    parser = cli.create_parser()
+    abbr_argv = [
+        "-v",
+        "in.vcf.gz",
+        "--profile",
+        "rare-disease-trio",
+        "-oattached.tsv",
+        "-rGRCh38",
+        "--inheritance-mo",
+        "full",
+    ]
+    abbr_args = parser.parse_args(abbr_argv)
+    abbr_cfg: dict[str, object] = {}
+    apply_analysis_profile(abbr_args, abbr_cfg, parser=parser, argv=abbr_argv)
+    assert abbr_cfg["output_file"] == "attached.tsv"
+    assert abbr_cfg["reference"] == "GRCh38"
+    assert abbr_cfg["inheritance_mode"] == "full"
+
+    # Chained boolean short flags in get_explicit_cli_dests
+    short_parser = argparse.ArgumentParser()
+    short_parser.add_argument("-a", action="store_true", dest="flag_a")
+    short_parser.add_argument("-b", action="store_true", dest="flag_b")
+    assert get_explicit_cli_dests(short_parser, ["-", "-ab"]) == {"flag_a", "flag_b"}
+
+    # Non-dict profile entry in config raises ValueError
+    with pytest.raises(ValueError, match="must be a JSON object"):
+        resolve_analysis_profile("bad_entry", {"profiles": {"bad_entry": "not_a_dict"}})
+
+    # Relative bam_path resolved against sample_sheet directory
+    rel_dir = tmp_path / "subdir"
+    rel_dir.mkdir(parents=True, exist_ok=True)
+    rel_sheet = rel_dir / "samples.tsv"
+    rel_sheet.write_text(
+        "sample_id\tbam_path\nS1\tbams/s1.bam\nS2\t/abs/path/s2.bam\n",
+        encoding="utf-8",
+    )
+    rel_loaded = load_sample_sheet(rel_sheet)
+    assert rel_loaded.bam_mapping["S1"] == str((rel_dir / "bams/s1.bam").resolve())
+    assert rel_loaded.bam_mapping["S2"] == "/abs/path/s2.bam"
+
+
+@pytest.mark.unit
+def test_cli_config_and_sync_coverage(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Cover remaining branches in cli.py, cli_config.py, cli_sync.py, and cli_subcommands.py."""
+    from variantcentrifuge import cli_config
+    from variantcentrifuge.cli_config import (
+        populate_cli_config,
+        resolve_presets_and_tumor_normal,
+    )
+    from variantcentrifuge.cli_sync import sync_cli_and_config
+    from variantcentrifuge.config import load_config
+
+    parser = cli.create_parser()
+    monkeypatch.setattr(
+        cli_config,
+        "resolve_tumor_normal_indices",
+        lambda *a, **kw: (
+            str(kw.get("cli_tumor_idx") or "1"),
+            str(kw.get("cli_normal_idx") or "0"),
+        ),
+    )
+
+    # 1. resolve_presets_and_tumor_normal with empty presets dict and tumor/normal vars
+    args = parser.parse_args(
+        [
+            "-v",
+            "in.vcf.gz",
+            "--preset",
+            "rare",
+            "--filters",
+            "GEN[{tumor_idx}].DP >= {tumor_dp_min} & GEN[{normal_idx}].DP >= {normal_dp_min}",
+            "--final-filter",
+            "INFO_AF < {tumor_af_min}",
+            "--tumor-sample-index",
+            "1",
+            "--normal-sample-index",
+            "0",
+        ]
+    )
+    cfg_empty_presets: dict[str, Any] = {"presets": {}}
+    filt, tn_vars = resolve_presets_and_tumor_normal(args, cfg_empty_presets, args.filters)
+    assert filt is not None and "GEN[1].DP >= 20" in filt
+    assert tn_vars["tumor_idx"] == "1"
+    assert tn_vars["normal_idx"] == "0"
+
+    # Unknown preset raises ValueError
+    args_bad_preset = parser.parse_args(["-v", "in.vcf.gz", "--preset", "no_such_preset"])
+    with pytest.raises(ValueError, match="not found in config"):
+        resolve_presets_and_tumor_normal(args_bad_preset, load_config(), None)
+
+    # 2. populate_cli_config branches: association_tests, coast, igv, exceptions, annotations
+    exc_file = tmp_path / "exceptions.tsv"
+    exc_file.write_text("chr1\t100\tA\tG\n", encoding="utf-8")
+    weights_file = tmp_path / "weights.tsv"
+    weights_file.write_text("gene\tweight\nBRCA1\t1.0\n", encoding="utf-8")
+    regions_file = tmp_path / "regions.bed"
+    regions_file.write_text("chr1\t0\t1000\n", encoding="utf-8")
+
+    args_pop = parser.parse_args(
+        [
+            "-v",
+            "in.vcf.gz",
+            "--perform-association",
+            "--association-tests",
+            "fisher,coast",
+            "--coast-weights",
+            "1.0,2.0,3.0",
+            "--variant-weight-params",
+            '{"a": 1}',
+            "--gene-prior-weights",
+            str(weights_file),
+            "--regions-bed",
+            str(regions_file),
+            "--add-chr",
+            "--igv",
+            "--bam-mapping-file",
+            "bams.tsv",
+            "--igv-fasta",
+            "ref.fa",
+            "--igv-reference",
+            "hg38",
+            "--filter-exception-file",
+            str(exc_file),
+            "--append-extra-sample-fields",
+            "DP",
+            "AD",
+            "--extra-sample-field-delimiter",
+            "|",
+            "--annotate-bed",
+            "b.bed",
+            "--annotate-gene-list",
+            "g.txt",
+            "--annotate-json-genes",
+            "j.json",
+            "--json-gene-mapping",
+            "identifier=symbol",
+            "--sort-memory-limit",
+            "2G",
+        ]
+    )
+    cfg_pop = load_config()
+    populate_cli_config(
+        args_pop,
+        cfg_pop,
+        None,
+        "GRCh38",
+        "PASS",
+        "CHROM,POS,REF,ALT",
+        tn_vars,
+    )
+    assert cfg_pop["coast_weights"] == [1.0, 2.0, 3.0]
+    assert cfg_pop["variant_weight_params"] == {"a": 1}
+    assert cfg_pop["add_chr"] is True
+    assert "RAW_FILTER" in str(cfg_pop["fields_to_extract"])
+    assert cfg_pop["append_extra_sample_fields"] is True
+    assert cfg_pop["extra_sample_field_delimiter"] == "|"
+    assert cfg_pop["coast_classification"] is not None
+
+    # COAST with empty fields string
+    cfg_coast_empty = load_config()
+    populate_cli_config(args_pop, cfg_coast_empty, None, "GRCh38", "PASS", "", tn_vars)
+    assert cfg_coast_empty["fields_to_extract"]
+
+    # populate_cli_config validation error branches (with parser=None -> ValueError)
+    def _make_base_ns(**overrides: Any) -> argparse.Namespace:
+        ns = parser.parse_args(["-v", "in.vcf.gz"])
+        for k, v in overrides.items():
+            setattr(ns, k, v)
+        return ns
+
+    with pytest.raises(ValueError, match="--variant-weight-params"):
+        populate_cli_config(
+            _make_base_ns(variant_weight_params="[1,2]"),
+            load_config(),
+            None,
+            "GRCh38",
+            "PASS",
+            "CHROM",
+            tn_vars,
+        )
+
+    with pytest.raises(ValueError, match="--coast-weights must have exactly 3"):
+        populate_cli_config(
+            _make_base_ns(coast_weights="1.0,2.0"),
+            load_config(),
+            None,
+            "GRCh38",
+            "PASS",
+            "CHROM",
+            tn_vars,
+        )
+
+    with pytest.raises(ValueError, match="--coast-weights values must be numeric"):
+        populate_cli_config(
+            _make_base_ns(coast_weights="a,b,c"),
+            load_config(),
+            None,
+            "GRCh38",
+            "PASS",
+            "CHROM",
+            tn_vars,
+        )
+
+    with pytest.raises(ValueError, match="--gene-prior-weights file not found"):
+        populate_cli_config(
+            _make_base_ns(gene_prior_weights=str(tmp_path / "missing_w.tsv")),
+            load_config(),
+            None,
+            "GRCh38",
+            "PASS",
+            "CHROM",
+            tn_vars,
+        )
+
+    with pytest.raises(ValueError, match="--bam-mapping-file must be provided"):
+        populate_cli_config(
+            _make_base_ns(igv=True, bam_mapping_file=None),
+            load_config(),
+            None,
+            "GRCh38",
+            "PASS",
+            "CHROM",
+            tn_vars,
+        )
+
+    with pytest.raises(ValueError, match="either --igv-reference or --igv-fasta"):
+        populate_cli_config(
+            _make_base_ns(igv=True, bam_mapping_file="b.tsv", igv_fasta=None, igv_reference=None),
+            load_config(),
+            None,
+            "GRCh38",
+            "PASS",
+            "CHROM",
+            tn_vars,
+        )
+
+    with pytest.raises(FileNotFoundError, match="COAST classification model not found"):
+        populate_cli_config(
+            _make_base_ns(
+                perform_association=True,
+                association_tests=["coast"],
+                coast_classification="nonexistent_model",
+            ),
+            load_config(),
+            None,
+            "GRCh38",
+            "PASS",
+            "CHROM",
+            tn_vars,
+        )
+
+    with pytest.raises(ValueError, match="--annotate-json-genes requires --json-gene-mapping"):
+        populate_cli_config(
+            _make_base_ns(annotate_json_genes=["a.json"], json_gene_mapping=None),
+            load_config(),
+            None,
+            "GRCh38",
+            "PASS",
+            "CHROM",
+            tn_vars,
+        )
+
+    with pytest.raises(ValueError, match="--json-gene-mapping requires --annotate-json-genes"):
+        populate_cli_config(
+            _make_base_ns(annotate_json_genes=None, json_gene_mapping="id=sym"),
+            load_config(),
+            None,
+            "GRCh38",
+            "PASS",
+            "CHROM",
+            tn_vars,
+        )
+
+    with pytest.raises(ValueError, match="--regions-bed file not found"):
+        populate_cli_config(
+            _make_base_ns(regions_bed=str(tmp_path / "no.bed")),
+            load_config(),
+            None,
+            "GRCh38",
+            "PASS",
+            "CHROM",
+            tn_vars,
+        )
+
+    with pytest.raises(ValueError, match="--association-tests requires --perform-association"):
+        populate_cli_config(
+            _make_base_ns(perform_association=False, association_tests="fisher"),
+            load_config(),
+            None,
+            "GRCh38",
+            "PASS",
+            "CHROM",
+            tn_vars,
+        )
+
+    with pytest.raises(ValueError, match="--variant-weight-column requires --perform-association"):
+        populate_cli_config(
+            _make_base_ns(perform_association=False, variant_weight_column="W"),
+            load_config(),
+            None,
+            "GRCh38",
+            "PASS",
+            "CHROM",
+            tn_vars,
+        )
+
+    with pytest.raises(ValueError, match="when --variant-weights score_column"):
+        populate_cli_config(
+            _make_base_ns(
+                perform_association=True,
+                variant_weights="score_column",
+                variant_weight_column=None,
+            ),
+            load_config(),
+            None,
+            "GRCh38",
+            "PASS",
+            "CHROM",
+            tn_vars,
+        )
+
+    with pytest.raises(ValueError, match="requires a non-empty column name"):
+        populate_cli_config(
+            _make_base_ns(perform_association=True, variant_weights="column:   "),
+            load_config(),
+            None,
+            "GRCh38",
+            "PASS",
+            "CHROM",
+            tn_vars,
+        )
+
+    for flag_name, flag_val in (
+        ("covariate_file", "cov.tsv"),
+        ("diagnostics_output", "diag_dir"),
+        ("pca", "pca.tsv"),
+    ):
+        with pytest.raises(ValueError, match="requires --perform-association"):
+            populate_cli_config(
+                _make_base_ns(perform_association=False, **{flag_name: flag_val}),
+                load_config(),
+                None,
+                "GRCh38",
+                "PASS",
+                "CHROM",
+                tn_vars,
+            )
+
+    with pytest.raises(ValueError, match="incompatible with logistic_burden"):
+        populate_cli_config(
+            _make_base_ns(
+                perform_association=True,
+                trait_type="quantitative",
+                association_tests="logistic_burden",
+            ),
+            load_config(),
+            None,
+            "GRCh38",
+            "PASS",
+            "CHROM",
+            tn_vars,
+        )
+
+    # 3. sync_cli_and_config remaining branches
+    ns_sync = argparse.Namespace(
+        vcf_file=None,
+        from_tsv=None,
+        gene_name=None,
+        gene_file=None,
+        pseudonymize_table="pseudo.tsv",
+        gzip_intermediates=None,
+        max_read_depth=None,
+        transcript_file="tx.txt",
+        annotate_gene_list="genes.txt",
+        annotate_json_genes="genes.json",
+        json_gene_mapping="id=sym",
+        remove_snpeff_sep=True,
+        do_not_remove_additional_columns=None,
+        extra_columns_to_remove=None,
+    )
+    cfg_sync: dict[str, Any] = {
+        "from_tsv": "input.tsv",
+        "max_Read_depth": 50,
+        "do_not_remove_additional_columns": True,
+    }
+    sync_cli_and_config(ns_sync, cfg_sync)
+    assert ns_sync.from_tsv == "input.tsv"
+    assert ns_sync.pseudonymize is True
+    assert ns_sync.max_read_depth == 50
+    assert cfg_sync["transcript_file"] == "tx.txt"
+    assert cfg_sync["annotate_gene_lists"] == "genes.txt"
+    assert cfg_sync["annotate_json_genes"] == "genes.json"
+    assert cfg_sync["json_gene_mapping"] == "id=sym"
+    assert cfg_sync["remove_snpeff_sep"] is True
+    assert ns_sync.do_not_remove_additional_columns is True
+
+    # 4. cli.main debug logging, log_file, and invalid profile return code
+    log_file = tmp_path / "logs" / "run.log"
+    rc_bad_prof = cli.main(
+        [
+            "-v",
+            "in.vcf.gz",
+            "--log-level",
+            "DEBUG",
+            "--log-file",
+            str(log_file),
+            "--profile",
+            "nonexistent_profile_xyz",
+        ]
+    )
+    assert rc_bad_prof == 1
+    assert log_file.is_file()

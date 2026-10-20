@@ -45,6 +45,16 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         # via SampleConfigLoadingStage).
         existing_case_samples = context.config.get("case_samples") or []
         existing_control_samples = context.config.get("control_samples") or []
+        if isinstance(existing_case_samples, str):
+            existing_case_samples = [
+                s.strip() for s in existing_case_samples.split(",") if s.strip()
+            ]
+            context.config["case_samples"] = existing_case_samples
+        if isinstance(existing_control_samples, str):
+            existing_control_samples = [
+                s.strip() for s in existing_control_samples.split(",") if s.strip()
+            ]
+            context.config["control_samples"] = existing_control_samples
         case_samples_file = context.config.get("case_samples_file")
         control_samples_file = context.config.get("control_samples_file")
 

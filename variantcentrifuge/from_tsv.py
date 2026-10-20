@@ -311,9 +311,20 @@ def prepare_from_tsv_context(context: PipelineContext) -> PipelineContext:
     if (
         context.config.get("calculate_inheritance")
         or context.config.get("ped_file")
+        or context.config.get("sample_sheet")
         or context.config.get("inheritance_mode")
     ):
-        inh_cols = [c for c in ("Inheritance_Pattern", "Inheritance_Details") if c in df.columns]
+        inh_cols = [
+            c
+            for c in (
+                "Inheritance_Pattern",
+                "Inheritance_Details",
+                "Inheritance_Confidence",
+                "Inheritance_Description",
+                "Inheritance_Samples",
+            )
+            if c in df.columns
+        ]
         if inh_cols:
             df = df.drop(columns=inh_cols)
 

@@ -194,6 +194,57 @@ class TestReportAndValidateConfigSubcommands:
         )
         assert rc_bad_score != 0
 
+        # 5. Unknown preset via CLI and via config file fails cleanly
+        assert main(["validate-config", "--preset", "unknown_preset_xyz"]) == 1
+        bad_preset_ref_cfg = tmp_path / "bad_preset_ref.json"
+        bad_preset_ref_cfg.write_text(
+            json.dumps({"preset": ["unknown_preset_in_cfg"]}), encoding="utf-8"
+        )
+        assert main(["validate-config", "-c", str(bad_preset_ref_cfg)]) == 1
+
+        # 6. Config-defined sample_sheet missing or conflicting with ped_file fails cleanly
+        missing_ss_cfg = tmp_path / "missing_ss.json"
+        missing_ss_cfg.write_text(
+            json.dumps({"sample_sheet": str(tmp_path / "no_such_sheet.tsv")}),
+            encoding="utf-8",
+        )
+        assert main(["validate-config", "-c", str(missing_ss_cfg)]) == 1
+
+        valid_ss = tmp_path / "valid_ss.tsv"
+        valid_ss.write_text("sample_id\tsex\nS1\t1\n", encoding="utf-8")
+        conflict_ss_cfg = tmp_path / "conflict_ss.json"
+        conflict_ss_cfg.write_text(
+            json.dumps(
+                {
+                    "sample_sheet": str(valid_ss),
+                    "ped_file": str(tmp_path / "some.ped"),
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert main(["validate-config", "-c", str(conflict_ss_cfg)]) == 1
+
+        # 7. Invalid scoring schema (non-dict variables) and invalid formula AST syntax fail cleanly
+        bad_var_dir = tmp_path / "bad_scoring_vars"
+        bad_var_dir.mkdir(parents=True, exist_ok=True)
+        (bad_var_dir / "variable_assignment_config.json").write_text(
+            json.dumps({"variables": "not_a_dict"}), encoding="utf-8"
+        )
+        (bad_var_dir / "formula_config.json").write_text(
+            json.dumps({"formulas": [{"score": "a + 1"}]}), encoding="utf-8"
+        )
+        assert main(["validate-config", "--scoring-config-path", str(bad_var_dir)]) == 1
+
+        bad_ast_dir = tmp_path / "bad_scoring_ast"
+        bad_ast_dir.mkdir(parents=True, exist_ok=True)
+        (bad_ast_dir / "variable_assignment_config.json").write_text(
+            json.dumps({"variables": {"IMPACT": "a|default:0"}}), encoding="utf-8"
+        )
+        (bad_ast_dir / "formula_config.json").write_text(
+            json.dumps({"formulas": [{"score": "a + * b"}]}), encoding="utf-8"
+        )
+        assert main(["validate-config", "--scoring-config-path", str(bad_ast_dir)]) == 1
+
     def test_build_pm5_subcommand_delegates_to_build_pm5_main(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
@@ -395,6 +446,7 @@ class TestVerifiedReferenceDownloads:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Cover validate-config ped/phenotype/presets and utility options."""
+        from variantcentrifuge import vcf_header_parser
         from variantcentrifuge.cli_subcommands import (
             dispatch_subcommand,
             handle_early_utility_options,
@@ -458,14 +510,16 @@ class TestVerifiedReferenceDownloads:
         )
         assert explicit_xlsx.is_file()
 
-        # --show-vcf-annotations (table and json)
+        # --show-vcf-annotations (table and json) with mocked _read_header (no external bcftools)
         vcf_txt = tmp_path / "header.vcf"
-        vcf_txt.write_text(
+        vcf_header_text = (
             "##fileformat=VCFv4.2\n"
             '##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">\n'
-            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n",
-            encoding="utf-8",
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
         )
+        vcf_txt.write_text(vcf_header_text, encoding="utf-8")
+        monkeypatch.setattr(vcf_header_parser, "_read_header", lambda _p: vcf_header_text)
+
         with pytest.raises(SystemExit) as exc_ann1:
             handle_early_utility_options(["--show-vcf-annotations", "-v", str(vcf_txt)])
         assert exc_ann1.value.code == 0

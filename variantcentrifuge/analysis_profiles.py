@@ -77,12 +77,25 @@ def get_explicit_cli_dests(
             opt_to_dest[opt] = action.dest
 
     explicit: set[str] = set()
+    allow_abbrev = getattr(parser, "allow_abbrev", True)
     for token in argv:
-        if not token.startswith("-"):
+        if not token.startswith("-") or token == "-":
             continue
         opt_name = token.split("=", 1)[0]
         if opt_name in opt_to_dest:
             explicit.add(opt_to_dest[opt_name])
+        elif not opt_name.startswith("--") and len(opt_name) > 2:
+            if opt_name[:2] in opt_to_dest:
+                explicit.add(opt_to_dest[opt_name[:2]])
+            if all(f"-{ch}" in opt_to_dest for ch in opt_name[1:]):
+                for ch in opt_name[1:]:
+                    explicit.add(opt_to_dest[f"-{ch}"])
+        elif opt_name.startswith("--") and allow_abbrev:
+            matches = {
+                opt_to_dest[k] for k in opt_to_dest if k.startswith("--") and k.startswith(opt_name)
+            }
+            if len(matches) == 1:
+                explicit.update(matches)
     return explicit
 
 
