@@ -15,6 +15,8 @@ import sys
 from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Any
 
+from variantcentrifuge.association.timing import Progress
+
 if TYPE_CHECKING:
     from variantcentrifuge.association.base import (
         AssociationConfig,
@@ -161,13 +163,14 @@ def run_sequential_genes(
     results_by_test: dict[str, dict[str, TestResult]],
     gene_hook: GeneHook | None = None,
     hook_results: dict[str, Any] | None = None,
+    progress: Progress | None = None,
 ) -> None:
     """Run tests sequentially across a list of genes with per-gene matrix lifecycle.
 
     ``gene_hook``'s return value for each gene whose matrix is built here goes to
     ``hook_results[gene]`` (the score artifact uses it to reuse the tests' matrix, #212).
     """
-    for gene_data in gene_data_list:
+    for i, gene_data in enumerate(gene_data_list, 1):
         gene = gene_data.get("GENE", "")
         try:
             # PERF-06: Invoke lazy builder if present (per-gene, O(1) peak memory)
@@ -187,6 +190,8 @@ def run_sequential_genes(
         finally:
             # PERF-06: Discard matrix after all tests for this gene complete
             _discard_per_gene_matrix_payload(gene_data)
+            if progress is not None:
+                progress.update(i)
 
 
 def _fork_task(bounds: tuple[int, int]) -> Any:
@@ -258,10 +263,14 @@ def dispatch_parallel_genes(
     """
     if not fork_available():
         logger.info("Parallel association needs fork (Linux); running genes sequentially")
-        run_sequential_genes(remaining, tests, config, results_by_test, gene_hook, hook_results)
+        run_sequential_genes(
+            remaining, tests, config, results_by_test, gene_hook, hook_results,
+            Progress("Association genes", len(remaining)),
+        )  # fmt: skip
         return
     logger.info(f"Parallel association: {actual_workers} workers for {len(remaining)} genes")
     state = (remaining, tests, config, gene_hook)
+    progress = Progress("Association genes", len(remaining))
     for lo, hi, (chunk_results, qc, chunk_hooks) in fork_map(
         _run_gene_range, state, len(remaining), actual_workers
     ):
@@ -274,3 +283,4 @@ def dispatch_parallel_genes(
             gene = gd.get("GENE", "")
             if gene in qc:
                 gd["n_variants_qc"] = qc[gene]
+        progress.update(hi)

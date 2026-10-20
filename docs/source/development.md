@@ -293,6 +293,11 @@ table of the stage's sub-step timings, which the stage records in
 the creation of the per-gene builder objects; the genotype matrices are built lazily inside
 `engine` (and `score_artifact`, when enabled), so those sub-steps include matrix construction.
 
+The same timings are logged at INFO at the end of the stage, together with peak RSS, the
+aggregation path, genes tested/skipped and the worker count and its reason; the gene loop logs
+`Association genes: done/total, rate, ETA` at most every 30 s (`association/timing.py`
+`Progress`, emitted by the parent as ordered results arrive; workers never log per gene).
+
 ```bash
 # Presets: S = 50 genes x 1,000 samples, M = 500 x 3,000, L = 2,000 x 6,000 (~25 variants/gene)
 python scripts/bench_association.py --size M --layout columns --tests fisher --out before.tsv
