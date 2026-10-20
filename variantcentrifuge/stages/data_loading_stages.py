@@ -278,6 +278,7 @@ class CustomAnnotationStage(Stage):
             "annotate_json_genes": context.annotation_configs.get("json_genes", []),
             "json_gene_mapping": context.annotation_configs.get("json_mapping", ""),
             "json_genes_as_columns": context.config.get("json_genes_as_columns", False),
+            "vcf_samples": context.vcf_samples,
         }
         from . import analysis_stages
 

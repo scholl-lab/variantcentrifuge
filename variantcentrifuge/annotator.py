@@ -90,6 +90,9 @@ def load_custom_features(cfg: dict[str, Any]) -> dict[str, Any]:
         logger.info(f"Loading {len(bed_files)} BED file(s) for region annotation...")
         features["regions_by_chrom"] = _load_bed_files(bed_files)
         features["named_regions"] = _load_named_bed_files(bed_files)
+        # a NAME equal to a sample ID would be read as that sample's genotype column
+        for name in features["named_regions"].keys() & set(cfg.get("vcf_samples") or []):
+            raise ValueError(f"--annotate-bed name '{name}' equals a VCF sample ID")
 
     # Load gene lists
     gene_list_files = cfg.get("annotate_gene_lists", [])
