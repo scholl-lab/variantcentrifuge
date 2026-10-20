@@ -1,16 +1,14 @@
 """Static contract tests for repository-wide local quality gates."""
 
+import json
+import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
 import yaml
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - exercised on Python 3.10
-    import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -221,12 +219,15 @@ def test_ci_workflow_mypy_is_blocking() -> None:
 
 
 def test_ci_workflow_matrix_covers_python_versions() -> None:
-    """GitHub Actions test matrix must cover Python 3.10, 3.11, 3.12, and 3.13."""
+    """CI must test the shipped runtime (3.12 floor) on PRs and also the newest Python on main."""
     test_yml = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
     data = yaml.safe_load(test_yml)
-    matrix_versions = data["jobs"]["test"]["strategy"]["matrix"]["python-version"]
-    for py_ver in ["3.10", "3.11", "3.12", "3.13"]:
-        assert py_ver in matrix_versions, f"Missing Python {py_ver} in test matrix"
+    matrix_expr = data["jobs"]["test"]["strategy"]["matrix"]["python-version"]
+    pr_versions, full_versions = re.findall(r"'(\[[^']*\])'", matrix_expr)
+    assert json.loads(pr_versions) == ["3.12"]
+    assert json.loads(full_versions) == ["3.12", "3.14"]
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert pyproject["project"]["requires-python"] == ">=3.12"
 
 
 def test_ci_workflow_runs_mocked_integration_tests() -> None:

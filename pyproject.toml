@@ -7,7 +7,7 @@ name = "variantcentrifuge"
 dynamic = ["version"]
 description = "A tool to filter, extract, and analyze variants from VCF files."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [
     { name = "Bernt Popp", email = "bernt.popp.md@gmail.com" }
@@ -43,7 +43,6 @@ dev = [
     "pytest-xdist>=3.5",
     "pytest-benchmark>=5.1.0",
     "ruff>=0.11,<0.16",
-    "tomli>=2.0; python_version < '3.11'",
     "pre-commit",
     "types-psutil",
 ]
@@ -95,7 +94,7 @@ log_cli = false
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 required-version = ">=0.11,<0.16"
 
 [tool.ruff.lint]
@@ -116,7 +115,7 @@ convention = "numpy"
 known-first-party = ["variantcentrifuge"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 warn_unused_configs = true
 warn_return_any = true
 check_untyped_defs = true
