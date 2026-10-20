@@ -77,12 +77,18 @@ def add_gene_set_units(
 
 
 def run_gene_and_set_units(
-    engine: Any, test_names: list[str], config: Any, units: list[dict], set_ids: list[str]
+    engine: Any,
+    test_names: list[str],
+    config: Any,
+    units: list[dict],
+    set_ids: list[str],
+    gene_hook: Any = None,
 ) -> pd.DataFrame:
     """Run genes and sets as separate multiple-testing families; tag rows with ``unit_type``.
 
     Genes keep exactly the correction they get without sets. Sets are corrected among
     themselves, unweighted (``--gene-prior-weights`` holds per-gene weights).
+    ``gene_hook`` runs for both; all its results end up in ``engine.gene_hook_results``.
     """
     from .engine import AssociationEngine
 
@@ -91,9 +97,14 @@ def run_gene_and_set_units(
         test_names, dataclasses.replace(config, gene_prior_weights=None)
     )
     frames = [
-        engine.run_all([d for d in units if d.get("GENE") not in is_set]).assign(unit_type="gene"),
-        set_engine.run_all([d for d in units if d.get("GENE") in is_set]).assign(unit_type="set"),
+        engine.run_all([d for d in units if d.get("GENE") not in is_set], gene_hook).assign(
+            unit_type="gene"
+        ),
+        set_engine.run_all([d for d in units if d.get("GENE") in is_set], gene_hook).assign(
+            unit_type="set"
+        ),
     ]
+    engine.gene_hook_results.update(set_engine.gene_hook_results)
     frames = [f for f in frames if "gene" in f.columns]
     if not frames:
         return pd.DataFrame()

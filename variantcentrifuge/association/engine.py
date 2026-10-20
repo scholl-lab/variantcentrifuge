@@ -19,13 +19,14 @@ from variantcentrifuge.association.correction import apply_correction
 from variantcentrifuge.association.engine_workers import (
     _BUILDER_RESULT_KEYS,
     _PER_GENE_MATRIX_PAYLOAD_KEYS,
+    GeneHook,
     _apply_builder_result_to_gene_data,
     _discard_per_gene_matrix_payload,
-    _run_gene_worker,
     _single_test_output_id,
     _worker_initializer,
     dispatch_parallel_genes,
     run_sequential_genes,
+    single_blas_thread,
 )
 
 __all__ = [
@@ -35,7 +36,6 @@ __all__ = [
     "_apply_builder_result_to_gene_data",
     "_build_registry",
     "_discard_per_gene_matrix_payload",
-    "_run_gene_worker",
     "_single_test_output_id",
     "_worker_initializer",
     "dispatch_parallel_genes",
@@ -44,8 +44,16 @@ __all__ = [
 
 logger = logging.getLogger("variantcentrifuge")
 
-# Below this many genes, worker start-up and pickling cost more than the tests themselves.
+# Below this many genes, worker start-up costs more than the tests themselves.
 MIN_GENES_FOR_PARALLEL = 50
+
+
+def _null_model_pending(tests: dict[str, AssociationTest]) -> bool:
+    """True while a test with a lazy null model has neither fitted nor failed to fit it."""
+    return any(
+        getattr(t, "_null_model", False) is None and getattr(t, "_null_failed_key", None) is None
+        for t in tests.values()
+    )
 
 
 def _build_registry() -> dict[str, type[AssociationTest]]:
@@ -178,7 +186,9 @@ class AssociationEngine:
         """Compute ACAT-O per gene; see ``association.acat_o.compute_acat_o``."""
         return compute_acat_o(results_by_test, sorted_data, list(self._tests))
 
-    def run_all(self, gene_burden_data: list[dict[str, Any]]) -> pd.DataFrame:
+    def run_all(
+        self, gene_burden_data: list[dict[str, Any]], gene_hook: GeneHook | None = None
+    ) -> pd.DataFrame:
         """
         Run all registered tests across all genes and return wide-format results.
 
@@ -192,6 +202,9 @@ class AssociationEngine:
             One dict per gene with keys: GENE, proband_count, control_count,
             proband_carrier_count, control_carrier_count, proband_allele_count,
             control_allele_count, n_qualifying_variants.
+        gene_hook : callable, optional
+            ``gene_hook(gene, builder, build_result)`` runs (in the worker) right after
+            a gene's matrix is built; return values are in ``self.gene_hook_results``.
 
         Returns
         -------
@@ -203,6 +216,7 @@ class AssociationEngine:
             fisher_or or logistic_burden_beta), and primary_pvalue/primary_qvalue.
             ACAT-O columns are present only when ACAT-O is the primary result.
         """
+        self.gene_hook_results: dict[str, Any] = {}
         if not gene_burden_data:
             logger.warning("No gene burden data provided to AssociationEngine.")
             return pd.DataFrame()
@@ -239,38 +253,52 @@ class AssociationEngine:
                 [n for n, t in self._tests.items() if not getattr(t, "parallel_safe", False)],
             )
 
-        if use_parallel:
-            # Run first gene sequentially to trigger lazy null model fitting
-            run_sequential_genes(
-                sorted_data[:1],
-                self._tests,
-                self._config,
-                results_by_test,
-            )
+        with single_blas_thread():  # gene-level parallelism only, never BLAS (#212)
+            if use_parallel:
+                # Run genes in the parent until every lazy null model is fitted (or failed), so
+                # forked workers inherit it instead of each refitting it (#212).
+                done = 0
+                while done < len(sorted_data) and (
+                    done == 0
+                    or (done < MIN_GENES_FOR_PARALLEL and _null_model_pending(self._tests))
+                ):
+                    run_sequential_genes(
+                        sorted_data[done : done + 1],
+                        self._tests,
+                        self._config,
+                        results_by_test,
+                        gene_hook,
+                        self.gene_hook_results,
+                    )
+                    done += 1
 
-            # Dispatch remaining genes to worker processes
-            remaining = sorted_data[1:]
-            if remaining:
-                actual_workers = (os.cpu_count() or 1) if n_workers == -1 else n_workers
-                # Don't over-provision workers for small remaining panels
-                if len(remaining) < actual_workers * 2:
-                    actual_workers = max(1, len(remaining) // 2)
+                # Dispatch remaining genes to worker processes
+                remaining = sorted_data[done:]
+                if remaining:
+                    actual_workers = (os.cpu_count() or 1) if n_workers == -1 else n_workers
+                    # Don't over-provision workers for small remaining panels
+                    if len(remaining) < actual_workers * 2:
+                        actual_workers = max(1, len(remaining) // 2)
 
-                dispatch_parallel_genes(
-                    remaining=remaining,
-                    tests=self._tests,
-                    config=self._config,
-                    actual_workers=actual_workers,
-                    results_by_test=results_by_test,
+                    dispatch_parallel_genes(
+                        remaining=remaining,
+                        tests=self._tests,
+                        config=self._config,
+                        actual_workers=actual_workers,
+                        results_by_test=results_by_test,
+                        gene_hook=gene_hook,
+                        hook_results=self.gene_hook_results,
+                    )
+            else:
+                # Sequential gene loop (default path or fallback)
+                run_sequential_genes(
+                    sorted_data,
+                    self._tests,
+                    self._config,
+                    results_by_test,
+                    gene_hook,
+                    self.gene_hook_results,
                 )
-        else:
-            # Sequential gene loop (default path or fallback)
-            run_sequential_genes(
-                sorted_data,
-                self._tests,
-                self._config,
-                results_by_test,
-            )
 
         # Lifecycle hook: finalize() after gene loop (allows timing summary, cleanup)
         for test in self._tests.values():

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from pathlib import Path
 from typing import Any
@@ -11,8 +12,40 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def _emit_score_artifact(config: dict, path: str, gene_burden_data: list[dict]) -> None:
-    """Write the meta-analysis score artifact from this run's per-gene matrix builders."""
+def _score_artifact_hook(builders: dict[str, Any]) -> Any:
+    """Engine gene hook computing each gene's artifact entry from the tests' matrix (#212).
+
+    Validates the phenotype up front and fits the all-samples null model here, in the
+    parent, so forked workers inherit it.
+    """
+    import numpy as np
+
+    from ..association.backends.null_model import UntestableGeneError
+    from ..association.meta.artifact import artifact_phenotype, gene_score_record, null_for_mask
+
+    pheno_all = artifact_phenotype(builders)
+    nulls: dict = {}
+    first = next(iter(builders.values()))
+    # An untestable all-samples set is cached; its genes are omitted with a warning, as before.
+    with contextlib.suppress(UntestableGeneError):
+        null_for_mask(nulls, np.ones(pheno_all.size, dtype=bool), pheno_all, first.covariate_matrix)
+
+    def hook(gene: str, builder: Any, built: dict[str, Any]) -> Any:
+        if builder.gene_df.empty:
+            return None
+        return gene_score_record(gene, builder, built, pheno_all, nulls)
+
+    return hook
+
+
+def _emit_score_artifact(
+    config: dict, path: str, builders: dict[str, Any], records: dict[str, Any] | None = None
+) -> None:
+    """Write the meta-analysis score artifact from this run's per-gene matrix builders.
+
+    ``records`` are the engine's ``_score_artifact_hook`` results; without them each
+    gene's matrix is built here.
+    """
     import hashlib
     import json
 
@@ -26,11 +59,8 @@ def _emit_score_artifact(config: dict, path: str, gene_burden_data: list[dict]) 
     mask_hash = hashlib.sha256(json.dumps(selection, sort_keys=True).encode()).hexdigest()
     emit_stratum_artifact(
         path,
-        {
-            d["GENE"]: d["_genotype_matrix_builder"]
-            for d in gene_burden_data
-            if "_genotype_matrix_builder" in d
-        },
+        builders,
+        records=records,
         stratum_id=Path(path).name.split(".")[0],
         genome_build=normalize_reference(reference) or reference,
         annotation_version=reference,

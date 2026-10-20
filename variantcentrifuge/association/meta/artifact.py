@@ -335,10 +335,138 @@ def hash_sample_id(sample_id: str) -> str:
     return hashlib.sha256(sample_id.encode("utf-8")).hexdigest()
 
 
+# Distinct per-gene sample masks whose null model is kept; a refit is deterministic,
+# so evicting only costs time and memory no longer grows with the number of masks.
+_MAX_CACHED_NULLS = 8
+
+
+def artifact_phenotype(builders: dict[str, Any]) -> np.ndarray:
+    """The cohort's 0/1 phenotype from the first builder; raises if unusable."""
+    first = next(iter(builders.values()), None)
+    if first is None or first.phenotype_vector is None:
+        raise ValueError("Score artifact needs at least one gene and a case/control phenotype")
+    pheno_all = np.asarray(first.phenotype_vector, dtype=np.float64)
+    if not np.isin(pheno_all, (0.0, 1.0)).all() or not _has_cases_and_controls(pheno_all):
+        raise ValueError(
+            "Score artifact needs a 0/1 case/control phenotype with at least one case and "
+            f"one control (got {int((pheno_all == 1).sum())} cases, "
+            f"{int((pheno_all == 0).sum())} controls, {pheno_all.size} samples)"
+        )
+    return pheno_all
+
+
+def null_for_mask(
+    nulls: dict[bytes, NullModelResult | UntestableGeneError],
+    mask: np.ndarray,
+    pheno_all: np.ndarray,
+    covariates: np.ndarray | None,
+) -> NullModelResult:
+    """Fitted null model for this sample mask (bounded cache; untestable sets cached too)."""
+    key = mask.tobytes()
+    if key not in nulls:
+        if len(nulls) >= _MAX_CACHED_NULLS:
+            del nulls[next(iter(nulls))]
+        cov = covariates[mask] if covariates is not None else None
+        try:
+            nulls[key] = fit_stratum_null(pheno_all[mask], cov, "binary")
+        except UntestableGeneError as exc:
+            nulls[key] = exc
+    null_model = nulls[key]
+    if isinstance(null_model, UntestableGeneError):
+        raise null_model
+    return null_model
+
+
+def gene_score_record(
+    gene: str,
+    b: Any,
+    built: dict[str, Any],
+    pheno_all: np.ndarray,
+    nulls: dict[bytes, NullModelResult | UntestableGeneError],
+) -> tuple[int, int, GeneScore | str | None]:
+    """One gene's artifact entry from its builder and that builder's result.
+
+    ``built`` holds ``qc_genotype_matrix`` (retained samples, before the MAC check),
+    ``sample_mask``, ``variant_keep_mask`` and ``parsed`` (the dosage/ploidy/kind arrays
+    the matrix was built from). Returns (sites, kept sites, entry): a GeneScore, the
+    omission reason, or None for a gene with no kept variant.
+    """
+    from variantcentrifuge.association.genotype_matrix import _infer_missing_ploidy
+    from variantcentrifuge.association.meta.align import canonical_key
+
+    missing_cols = {"CHROM", "POS", "REF", "ALT"} - set(b.gene_df.columns)
+    if missing_cols:
+        raise ValueError(f"Score artifact needs columns {sorted(missing_cols)}")
+    keep, mask = built["variant_keep_mask"], built["sample_mask"]
+    raw, plo, kind = built["parsed"]
+    # Same retained population as build_genotype_matrix's frequencies/recoding/ploidy (#174).
+    raw, plo = raw[keep], plo[keep]
+    _infer_missing_ploidy(plo, kind[keep], mask)
+    if b.missing_as_ref:
+        raw[np.isnan(raw)] = 0.0  # same REF fill as build_genotype_matrix: full AN
+    # C-order copy, as geno[mask] gave: the tests keep their matrix, and BLAS sums alike
+    geno = np.array(built["qc_genotype_matrix"], dtype=np.float64, order="C")
+    raw, plo = raw.T[mask], plo.T[mask]
+    observed = ~np.isnan(raw)
+    ac = np.where(observed, raw, 0.0).sum(axis=0)
+    an = np.where(observed, plo, 0.0).sum(axis=0)
+    flipped = (ac > an / 2.0) & (ac < an)  # build_genotype_matrix minor-allele recoding
+    geno[:, flipped] = plo[:, flipped] - geno[:, flipped]
+
+    rows = b.gene_df.loc[keep]
+    keys = [
+        canonical_key(c, p, r, a)
+        for c, p, r, a in zip(rows["CHROM"], rows["POS"], rows["REF"], rows["ALT"], strict=True)
+    ]
+    n_sites, n_kept = len(keep), int(keep.sum())
+    if not keys:
+        return n_sites, n_kept, None
+    if not _has_cases_and_controls(pheno_all[mask]):
+        logger.warning(
+            "Score artifact: omitting gene %s: its %d retained samples (after "
+            "missingness QC) are not both cases and controls, so no null model fits",
+            gene,
+            int(mask.sum()),
+        )
+        return n_sites, n_kept, "ONE_CLASS"
+    try:
+        null_model = null_for_mask(nulls, mask, pheno_all, b.covariate_matrix)
+        return n_sites, n_kept, compute_gene_score(geno, raw, null_model, keys, ploidy=plo)
+    except UntestableGeneError as exc:
+        logger.warning("Score artifact: omitting gene %s: %s", gene, exc.reason)
+        return n_sites, n_kept, exc.reason
+
+
+def _build_for_artifact(b: Any) -> dict[str, Any]:
+    """Build one gene's QC'd matrix the way the artifact needs it (no MAC check)."""
+    from variantcentrifuge.association.genotype_matrix import build_genotype_matrix
+
+    parsed = b.gene_arrays()
+    geno, _mafs, sample_mask, _warn, keep = build_genotype_matrix(  # type: ignore[misc]
+        b.gene_df,
+        b.vcf_samples,
+        b.gt_columns,
+        is_binary=True,
+        missing_site_threshold=b.missing_site_threshold,
+        missing_sample_threshold=b.missing_sample_threshold,
+        return_keep_mask=True,
+        missing_as_ref=b.missing_as_ref,
+        parsed=parsed,
+    )
+    mask = np.asarray(sample_mask, dtype=bool)
+    return {
+        "qc_genotype_matrix": geno[mask],
+        "sample_mask": mask,
+        "variant_keep_mask": keep,
+        "parsed": parsed,
+    }
+
+
 def emit_stratum_artifact(
     path: str,
     builders: dict[str, Any],
     *,
+    records: dict[str, tuple[int, int, GeneScore | str | None]] | None = None,
     stratum_id: str,
     genome_build: str,
     annotation_version: str,
@@ -355,90 +483,31 @@ def emit_stratum_artifact(
     The builders' missing-data policy is recorded in the artifact; with
     ``missing_as_ref`` missing calls count as REF in AC and AN (#200).
 
+    ``records`` (gene -> ``gene_score_record`` result, computed by the engine's workers
+    from the matrices they built for the tests, #212) skips building here for those
+    genes; genes are written in ``builders`` order either way.
+
     A gene whose retained samples (after its missingness QC) are all cases or all
     controls has no estimable null model; it is omitted with a warning. A phenotype
     that is not a usable 0/1 case/control vector for the whole cohort raises.
     """
-    from variantcentrifuge.association.genotype_matrix import (
-        _infer_missing_ploidy,
-        build_genotype_matrix,
-    )
-    from variantcentrifuge.association.meta.align import canonical_key
-
-    first = next(iter(builders.values()), None)
-    if first is None or first.phenotype_vector is None:
-        raise ValueError("Score artifact needs at least one gene and a case/control phenotype")
-    pheno_all = np.asarray(first.phenotype_vector, dtype=np.float64)
-    if not np.isin(pheno_all, (0.0, 1.0)).all() or not _has_cases_and_controls(pheno_all):
-        raise ValueError(
-            "Score artifact needs a 0/1 case/control phenotype with at least one case and "
-            f"one control (got {int((pheno_all == 1).sum())} cases, "
-            f"{int((pheno_all == 0).sum())} controls, {pheno_all.size} samples)"
-        )
-    omitted: list[str] = []
+    pheno_all = artifact_phenotype(builders)
+    first = next(iter(builders.values()))
     nulls: dict[bytes, NullModelResult | UntestableGeneError] = {}
+    omitted: list[str] = []
     gene_scores: dict[str, GeneScore] = {}
     n_sites = n_kept = 0
     for gene, b in builders.items():
         if b.gene_df.empty:
             continue
-        missing_cols = {"CHROM", "POS", "REF", "ALT"} - set(b.gene_df.columns)
-        if missing_cols:
-            raise ValueError(f"Score artifact needs columns {sorted(missing_cols)}")
-        geno, _mafs, sample_mask, _warn, keep = build_genotype_matrix(  # type: ignore[misc]
-            b.gene_df,
-            b.vcf_samples,
-            b.gt_columns,
-            is_binary=True,
-            missing_site_threshold=b.missing_site_threshold,
-            missing_sample_threshold=b.missing_sample_threshold,
-            return_keep_mask=True,
-            missing_as_ref=b.missing_as_ref,
-            parsed=b.gene_arrays(),
-        )
-        n_sites, n_kept = n_sites + len(keep), n_kept + int(keep.sum())
-        raw, plo, kind = b.gene_arrays()  # code-table lookups, no re-parse (#219)
-        # Same retained population as build_genotype_matrix's frequencies/recoding/ploidy (#174).
-        mask = np.asarray(sample_mask, dtype=bool)
-        raw, plo = raw[keep], plo[keep]
-        _infer_missing_ploidy(plo, kind[keep], mask)
-        if b.missing_as_ref:
-            raw[np.isnan(raw)] = 0.0  # same REF fill as build_genotype_matrix: full AN
-        geno, raw, plo = geno[mask], raw.T[mask], plo.T[mask]
-        observed = ~np.isnan(raw)
-        ac = np.where(observed, raw, 0.0).sum(axis=0)
-        an = np.where(observed, plo, 0.0).sum(axis=0)
-        flipped = (ac > an / 2.0) & (ac < an)  # build_genotype_matrix minor-allele recoding
-        geno[:, flipped] = plo[:, flipped] - geno[:, flipped]
-
-        rows = b.gene_df.loc[keep]
-        keys = [
-            canonical_key(c, p, r, a)
-            for c, p, r, a in zip(rows["CHROM"], rows["POS"], rows["REF"], rows["ALT"], strict=True)
-        ]
-        if not keys:
-            continue
-        if not _has_cases_and_controls(pheno_all[mask]):
-            logger.warning(
-                "Score artifact: omitting gene %s: its %d retained samples (after "
-                "missingness QC) are not both cases and controls, so no null model fits",
-                gene,
-                int(mask.sum()),
-            )
-            omitted.append(gene)
-            continue
-        null_key = mask.tobytes()
-        try:
-            if null_key not in nulls:
-                cov = b.covariate_matrix[mask] if b.covariate_matrix is not None else None
-                nulls[null_key] = fit_stratum_null(pheno_all[mask], cov, "binary")
-            null_model = nulls[null_key]
-            if isinstance(null_model, UntestableGeneError):
-                raise null_model
-            gene_scores[gene] = compute_gene_score(geno, raw, null_model, keys, ploidy=plo)
-        except UntestableGeneError as exc:
-            nulls.setdefault(null_key, exc)  # cache an untestable sample set
-            logger.warning("Score artifact: omitting gene %s: %s", gene, exc.reason)
+        record = None if records is None else records.get(gene)
+        if record is None:  # no engine result for this gene: build its matrix here
+            record = gene_score_record(gene, b, _build_for_artifact(b), pheno_all, nulls)
+        sites, kept, entry = record
+        n_sites, n_kept = n_sites + sites, n_kept + kept
+        if isinstance(entry, GeneScore):
+            gene_scores[gene] = entry
+        elif entry is not None:
             omitted.append(gene)
 
     if n_kept < n_sites:
@@ -484,11 +553,14 @@ __all__ = [
     "V1_MISSING_POLICY",
     "GeneScore",
     "ScoreCovarianceArtifact",
+    "artifact_phenotype",
     "build_stratum_artifact",
     "compute_gene_score",
     "emit_stratum_artifact",
     "fit_stratum_null",
+    "gene_score_record",
     "hash_sample_id",
     "load_artifact",
+    "null_for_mask",
     "save_artifact",
 ]
