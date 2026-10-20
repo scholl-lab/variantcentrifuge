@@ -140,6 +140,12 @@ test and so nothing to the MAC used by `--min-mac`.
 `--min-mac N` (a finite number ≥ 0) labels genes with `cmac_total < N` as `status=low_mac`. Their p-values
 are still reported, but `primary_q` is empty: like untestable genes in the main
 engine, they are left out of the multiple-testing family (and of the diagnostics).
+`--require-variants-in-all-strata` labels genes as `status=not_in_all_strata` unless
+every stratum in the manifest contributes at least one informative minor allele
+(per-stratum MAC > 0; a gene absent from a stratum, or whose null model did not
+converge there, fails). Such genes are reported but handled like `low_mac` genes:
+no `primary_q`, no diagnostics.
+
 Per-stratum carrier counts are not available yet; they need a new artifact field.
 
 ### Diagnostics (λ_GC and QQ)

@@ -276,3 +276,30 @@ def test_stratum_ids_with_output_separators_are_rejected(name):
     arts[0].stratum_id = name
     with pytest.raises(ValueError, match="separator"):
         meta_analyze_artifacts(arts)
+
+
+def test_require_variants_in_all_strata(tmp_path):
+    keys = {**GENE_KEYS, "ONLYA": [f"4:{100 + j}:A:G" for j in range(5)]}
+    a = make_stratum("A", seed=1, gene_keys=keys, effect_gene="SIG", effect_sign=1.0)
+    b = make_stratum("B", seed=2, gene_keys=GENE_KEYS, effect_gene="SIG", effect_sign=1.0)
+    gs = b.genes["NULLG"]  # present in B but without any informative variant there
+    gs.u, gs.v = np.zeros_like(gs.u), np.zeros_like(gs.v)
+    loose = meta_analyze_artifacts([a, b], correction="bonferroni").set_index("gene")
+    assert loose.loc["ONLYA", "status"] == "single_stratum"
+    assert loose["primary_q"].notna().all()
+
+    df = meta_analyze_artifacts(
+        [a, b], correction="bonferroni", require_variants_in_all_strata=True
+    ).set_index("gene")
+    assert list(df["status"]) == ["not_in_all_strata", "not_in_all_strata", "ok"]
+    assert df.loc[["NULLG", "ONLYA"], "primary_p"].notna().all()  # reported, not dropped
+    assert df.loc[["NULLG", "ONLYA"], "primary_q"].isna().all()  # outside the family
+    assert df.loc["SIG", "primary_q"] == pytest.approx(min(1.0, df.loc["SIG", "primary_p"]))
+
+    manifest = _save_study(tmp_path, [a, b])
+    out = tmp_path / "o.tsv"
+    assert (
+        main(["--manifest", manifest, "--output", str(out), "--require-variants-in-all-strata"])
+        == 0
+    )
+    assert (pd.read_csv(out, sep="\t")["status"] == "not_in_all_strata").sum() == 2

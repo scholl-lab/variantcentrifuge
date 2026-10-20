@@ -127,6 +127,7 @@ def _gene_row(
     contributors: list[tuple[ScoreCovarianceArtifact, GeneScore]],
     weight_scheme: str,
     min_mac: float = 0.0,
+    n_strata_required: int = 0,
 ) -> dict:
     """Combine one gene's contributing strata into a single result row."""
     warnings: list[str] = []
@@ -161,10 +162,13 @@ def _gene_row(
     ]
 
     cmac_total = _mac(ac_pooled, an_pooled, sum(v_list))
+    stratum_macs = [_mac(gs.ac, gs.an, gs.v) for gs in gene_scores]
     primary_p = skato_p if skato_p is not None else burden_p
     status = "ok" if n_strata >= 2 else "single_stratum"
     if primary_p is None:
         status = "degenerate"
+    elif sum(m > 0 for m in stratum_macs) < n_strata_required:
+        status = "not_in_all_strata"
     elif cmac_total < min_mac:
         status = "low_mac"
 
@@ -188,7 +192,7 @@ def _gene_row(
         **_leave_one_out(gene_scores, [art.stratum_id for art, _gs in kept], weight_scheme),
         "cmac_total": cmac_total,
         "cmac_by_stratum": ";".join(
-            f"{art.stratum_id}:{_mac(gs.ac, gs.an, gs.v):.0f}" for art, gs in kept
+            f"{art.stratum_id}:{m:.0f}" for (art, _gs), m in zip(kept, stratum_macs, strict=True)
         ),
         "primary_p": primary_p,
         "primary_q": None,
@@ -202,12 +206,14 @@ def meta_analyze_artifacts(
     weight_scheme: str = "beta:1,25",
     correction: str = "fdr",
     min_mac: float = 0.0,
+    require_variants_in_all_strata: bool = False,
 ) -> pd.DataFrame:
     """Combine already-loaded, already-validated artifacts into a results frame.
 
-    Genes with cumulative MAC below ``min_mac`` keep their p-values but get
-    ``status=low_mac`` and stay outside the multiple-testing family, like the main
-    engine's untestable genes.
+    Genes with cumulative MAC below ``min_mac`` (``status=low_mac``) or, with
+    ``require_variants_in_all_strata``, without an informative minor allele in every
+    stratum (``status=not_in_all_strata``) keep their p-values but stay outside the
+    multiple-testing family, like the main engine's untestable genes.
     """
     if not (np.isfinite(min_mac) and min_mac >= 0):
         raise ValueError(f"min_mac must be a finite number >= 0, got {min_mac}")
@@ -222,11 +228,12 @@ def meta_analyze_artifacts(
     rows: list[dict] = []
     for gene in all_genes:
         contributors = [(art, art.genes[gene]) for art in artifacts if gene in art.genes]
-        rows.append(_gene_row(gene, mask_id, contributors, weight_scheme, min_mac))
+        n_required = len(artifacts) if require_variants_in_all_strata else 0
+        rows.append(_gene_row(gene, mask_id, contributors, weight_scheme, min_mac, n_required))
 
     df = pd.DataFrame(rows).reindex(columns=OUTPUT_COLUMNS)
 
-    testable = df["primary_p"].notna() & (df["status"] != "low_mac")
+    testable = df["primary_p"].notna() & ~df["status"].isin(["low_mac", "not_in_all_strata"])
     if testable.any():
         corrected = apply_correction(
             df.loc[testable, "primary_p"].to_numpy(dtype=float), correction
@@ -250,6 +257,7 @@ def run_meta(
     correction: str = "fdr",
     min_mac: float = 0.0,
     diagnostics_dir: str | None = None,
+    require_variants_in_all_strata: bool = False,
 ) -> pd.DataFrame:
     """Full pipeline: manifest → validated artifacts → meta results → TSV.
 
@@ -262,7 +270,11 @@ def run_meta(
     logger.info("Meta-analysis: %d strata, mask '%s'", len(artifacts), artifacts[0].mask_id)
 
     df = meta_analyze_artifacts(
-        artifacts, weight_scheme=weight_scheme, correction=correction, min_mac=min_mac
+        artifacts,
+        weight_scheme=weight_scheme,
+        correction=correction,
+        min_mac=min_mac,
+        require_variants_in_all_strata=require_variants_in_all_strata,
     )
     df.to_csv(output_path, sep="\t", index=False)
     logger.info("Wrote meta results to %s", output_path)
