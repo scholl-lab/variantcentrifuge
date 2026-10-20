@@ -53,6 +53,7 @@ def test_collect_provenance_from_vcf_header_and_files(tmp_path):
         "gnomad_source": "gnomad.exomes.v4.1.sites.vcf.gz",
         "regions_bed_sha256": hashlib.sha256(b"1\t1\t100\n").hexdigest(),
         "gene_file_sha256": "none",
+        "gene_set_file_sha256": "none",
     }
     assert set(prov) == set(PROVENANCE_FIELDS)
 
@@ -155,3 +156,30 @@ def test_input_file_names_are_not_annotation_sources(tmp_path):
     prov = collect_provenance({"vcf_file": vcf})
     assert prov["dbnsfp_version"] is None
     assert prov["gnomad_source"] == "gnomad.g.vcf.gz,gnomad.v4.vcf.gz"
+
+
+def test_only_annotation_database_operands_count(tmp_path):
+    """bcftools annotate: only -a/--annotations; other commands (view, -o output) ignored."""
+    vcf = _vcf(
+        tmp_path,
+        "##bcftools_annotateCommand=annotate -o cohort.gnomad.vcf.gz -a /db/gnomad.v4.vcf.gz "
+        "in.vcf; Date=Mon\n"
+        "##bcftools_annotateCommand=annotate --annotations=/db/dbNSFP4.4a.vcf.gz x.vcf\n"
+        "##bcftools_viewCommand=view -o cohortB.gnomad.dbnsfp.vcf.gz in.vcf\n"
+        "#CHROM\n",
+        gz=False,
+    )
+    prov = collect_provenance({"vcf_file": vcf})
+    assert prov["gnomad_source"] == "gnomad.v4.vcf.gz"
+    assert prov["dbnsfp_version"] == "dbNSFP4.4a.vcf.gz"
+
+
+def test_gene_set_file_hash_recorded_and_compared(tmp_path):
+    sets = tmp_path / "sets.tsv"
+    sets.write_text("set_id\tgene\nS\tA\n")
+    prov = collect_provenance({"gene_set_file": str(sets)})
+    assert prov["gene_set_file_sha256"] == hashlib.sha256(b"set_id\tgene\nS\tA\n").hexdigest()
+    assert collect_provenance({})["gene_set_file_sha256"] == "none"
+    arts = _pair({"gene_set_file_sha256": "aa"}, {"gene_set_file_sha256": "bb"})
+    with pytest.raises(MetaCompatibilityError, match="gene_set_file_sha256"):
+        validate_comparability(arts)

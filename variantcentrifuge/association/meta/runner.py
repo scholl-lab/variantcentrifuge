@@ -38,7 +38,6 @@ from variantcentrifuge.association.meta.manifest import (
     read_study_manifest,
     validate_comparability,
 )
-from variantcentrifuge.association.tests.acat import cauchy_combination
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -291,6 +290,19 @@ def meta_analyze_artifacts(
     return df
 
 
+def _acat_r(p: np.ndarray) -> float:
+    """Equal-weight ACAT exactly as the reference R/ACAT.R (yaowuliu/ACAT @ e737d7d).
+
+    Unlike ``cauchy_combination`` (which drops p == 1 for COAST), p == 1 is kept and
+    evaluated as float tan(-pi/2) ~ -1.6e16, and p < 1e-15 uses 1/(p*pi), as in R.
+    """
+    small = p < 1e-15
+    with np.errstate(divide="ignore"):
+        terms = np.where(small, 1.0 / (p * np.pi), np.tan((0.5 - p) * np.pi))
+    # pcauchy(t, lower.tail=FALSE) without the 0.5 - atan(t)/pi cancellation at large t
+    return float(np.arctan2(1.0, terms.mean()) / np.pi)
+
+
 def add_acat_masks(df: pd.DataFrame, correction: str, suffix: str = "") -> pd.DataFrame:
     """Per-gene ACAT (Cauchy) combination of the masks' ``primary_p`` (#196).
 
@@ -301,13 +313,7 @@ def add_acat_masks(df: pd.DataFrame, correction: str, suffix: str = "") -> pd.Da
     in_family = df[df[q_col].notna()]
     acat: dict[str, float] = {}
     for gene, rows in in_family.groupby("gene", sort=False):
-        # cauchy_combination drops p == 1 (COAST relies on that); R ACAT (yaowuliu/ACAT
-        # e737d7d, R/ACAT.R) keeps it, where float tan(-pi/2) ~ -1.6e16 pulls the result
-        # toward 1. Cap below 1 to match R: a null mask must not vanish from the ACAT.
-        ps = np.minimum(rows[p_col].to_numpy(dtype=float), 1.0 - 1e-15)
-        combined = cauchy_combination(ps)
-        if combined is not None:
-            acat[gene] = combined
+        acat[gene] = _acat_r(rows[p_col].to_numpy(dtype=float))
     q = apply_correction(np.array(list(acat.values()), dtype=float), correction) if acat else ()
     df[f"acat_masks_p{suffix}"] = df["gene"].map(acat)
     df[f"acat_masks_q{suffix}"] = df["gene"].map(dict(zip(acat, q, strict=True)))

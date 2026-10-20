@@ -78,10 +78,11 @@ With `--missing-as-ref`, the stored `AN` counts every sample.
 `--mask-label NAME` stores a readable name for the mask (e.g. `pLoF`) next to its
 hash. The artifact also records annotation provenance: the snpEff version
 (`##SnpEffVersion`) and genome database (from `##SnpEffCmd`), the dbNSFP and gnomAD
-database files used by annotation command lines (`##SnpSiftCmd` and other `##...Cmd`/
-`##...Command` lines: the basename of the `-db` value, else of the first file argument,
-never the input VCF), and SHA-256 hashes of the `--regions-bed` and
-`--gene-file` contents (`none` when not used). A header line the input VCF does not
+database files of the annotation commands in the header (basenames only):
+`##SnpSiftCmd` `annotate`/`dbnsfp` (the `-db` value, else the first file argument) and
+`##bcftools_annotateCommand` (the `-a`/`--annotations` value); other commands and
+input/output file names are ignored. It also stores SHA-256 hashes of the
+`--regions-bed`, `--gene-file` and `--gene-set-file` contents (`none` when not used). A header line the input VCF does not
 carry is recorded as unknown.
 
 ## Study manifest
@@ -117,7 +118,8 @@ with `mask` set to the `mask_id`. The manifest `mask_id` is your own label (lett
 digits, `.`, `_`, `-`; it also names the diagnostics subdirectory), unrelated to the
 artifact's internal mask id, which is a prefix of the mask hash. Two columns are added, repeated on each of a gene's
 rows: `acat_masks_p`, the Cauchy (ACAT, Liu et al. 2019) combination with equal
-weights of the gene's per-mask `primary_p`, and `acat_masks_q`, corrected with
+weights of the gene's per-mask `primary_p` (computed exactly as the reference R `ACAT()`,
+so a mask with p = 1 pulls the combination toward 1 rather than being dropped), and `acat_masks_q`, corrected with
 `--correction` across genes (one ACAT test per gene). Only masks inside their own
 correction family (`primary_q` set; not `low_mac`, `not_in_all_strata` or degenerate)
 enter the combination; a gene with none has no ACAT value. Report `acat_masks_p`

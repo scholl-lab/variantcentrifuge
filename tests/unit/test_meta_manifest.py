@@ -67,3 +67,10 @@ def test_manifest_missing_columns(tmp_path):
     m.write_text("id\tpath\nA\tx\nB\ty\n")
     with pytest.raises(MetaCompatibilityError, match="must have columns"):
         read_study_manifest(str(m))
+
+
+def test_header_only_manifest_refused(tmp_path):
+    m = tmp_path / "empty.tsv"
+    m.write_text("stratum_id\tartifact_path\n")
+    with pytest.raises(MetaCompatibilityError, match="no strata"):
+        read_study_manifest(str(m))
